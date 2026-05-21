@@ -225,6 +225,110 @@ pub enum AnalyzeError {
         "INLINE-VALIDATOR-UNKNOWN-SANITIZE-HTML: field `{field}` uses unknown sanitize_html profile `{profile}` (allowed: strict, basic, markdown_safe)"
     )]
     UnknownSanitizeHtmlProfile { field: String, profile: String },
+
+    /// `conventions_unknown` — a `conventions [<ident>]` entry on a
+    /// resource named an identifier outside the closed in-core catalog.
+    /// The parser (Cell C2) is responsible for actually emitting this
+    /// when it sees the bad identifier; Cell C1 wires the variant and
+    /// the suggestion helper so the parser has somewhere to land. The
+    /// `suggestion` field carries the nearest catalog entry (within
+    /// Levenshtein distance ≤ 2) or `None` when no close match exists.
+    /// Format via the dedicated `Display` impl below — `thiserror`'s
+    /// inline format-string syntax does not support the conditional
+    /// "did you mean" suffix we want. See
+    /// `docs/proposals/ir-resource-conventions-crud.md` §4.3.
+    #[error("{}", format_conventions_unknown(.resource, .identifier, .suggestion.as_deref()))]
+    ConventionsUnknown {
+        resource: String,
+        identifier: String,
+        suggestion: Option<String>,
+    },
+}
+
+/// Format helper for `AnalyzeError::ConventionsUnknown`. Kept out of
+/// the `thiserror` attribute so the conditional "did you mean" suffix
+/// stays readable and testable. When `suggestion` is `Some` the
+/// message ends with ` — did you mean \`<sug>\`?`; otherwise the
+/// suggestion clause is omitted entirely.
+fn format_conventions_unknown(
+    resource: &str,
+    identifier: &str,
+    suggestion: Option<&str>,
+) -> String {
+    let base = format!(
+        "CONVENTIONS-UNKNOWN: resource `{resource}` declared `conventions [{identifier}]` — `{identifier}` is not in the convention catalog (allowed today: `crud`)"
+    );
+    match suggestion {
+        Some(sug) => format!("{base} — did you mean `{sug}`?"),
+        None => base,
+    }
+}
+
+/// ir-resource-conventions-crud Cell C1 — closed catalog of resource
+/// convention identifiers accepted by the parser. Grows additively per
+/// future proposals (`timestamped`, `pii_aware`, `soft_delete`,
+/// `slugged`, `paginated`). Today only `crud` is defined; Cell C3
+/// implements the synthesis pass that consumes it. See §4.2 of the
+/// proposal.
+///
+/// Sorted alphabetically for diff hygiene; keep new entries in order.
+pub const CONVENTION_CATALOG: &[&str] = &["crud"];
+
+/// Resolve the closest catalog entry to a misspelled `conventions`
+/// identifier using plain Levenshtein distance. Returns the catalog
+/// entry when its distance is ≤ 1 (the §4.3 spec — "single-character
+/// Levenshtein"). Distance-1 covers the documented case `crd` → `crud`
+/// (one insertion) and the obvious neighbours (`crue`, `cru d` etc.);
+/// anything further falls through to `None` so the diagnostic doesn't
+/// suggest gibberish.
+///
+/// Reused by the parser (Cell C2) when it sees `conventions [<ident>]`
+/// outside the catalog: the parser constructs
+/// `AnalyzeError::ConventionsUnknown { suggestion: conventions_unknown_suggestion(ident).map(str::to_owned), ... }`.
+pub fn conventions_unknown_suggestion(identifier: &str) -> Option<&'static str> {
+    let mut best: Option<(&'static str, usize)> = None;
+    for &candidate in CONVENTION_CATALOG {
+        let d = conventions_levenshtein(identifier, candidate);
+        if d > 1 {
+            continue;
+        }
+        match best {
+            None => best = Some((candidate, d)),
+            Some((_, prev_d)) if d < prev_d => best = Some((candidate, d)),
+            _ => {}
+        }
+    }
+    best.map(|(name, _)| name)
+}
+
+/// Plain Levenshtein edit distance (O(n*m) DP). Used only for short
+/// catalog identifiers so the cost is negligible. Kept local to the
+/// analyzer crate because the LSP's identical helper is `pub(crate)`
+/// there; promoting either to a shared util would couple the two
+/// crates needlessly. The duplication is intentional and stable —
+/// neither identifier is hot-path code.
+fn conventions_levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let n = a.len();
+    let m = b.len();
+    if n == 0 {
+        return m;
+    }
+    if m == 0 {
+        return n;
+    }
+    let mut prev: Vec<usize> = (0..=m).collect();
+    let mut curr: Vec<usize> = vec![0; m + 1];
+    for i in 1..=n {
+        curr[0] = i;
+        for j in 1..=m {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            curr[j] = (curr[j - 1] + 1).min(prev[j] + 1).min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[m]
 }
 
 pub fn lower_lzx_document(document: &syntax::LzxDocument) -> ir::ExperienceModule {
@@ -2940,6 +3044,11 @@ fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resource, Analyze
         invariants,
         lock,
         composite_key,
+        // ir-resource-conventions-crud Cell C1 — slot is wired here but
+        // populated by Cell C2 (parser) once `conventions [crud]` lexes
+        // into `syntax::ResourceDecl`. Until then the field is empty
+        // and lowering ignores it; Cell C3 implements synthesis.
+        conventions: Vec::new(),
     })
 }
 
@@ -9139,5 +9248,98 @@ feature photoshare
             .find(|c| c.name == "request_avatar_upload")
             .unwrap();
         assert!(req.synthesized_from_cap_file.is_some());
+    }
+}
+
+#[cfg(test)]
+mod conventions_unknown_diagnostic_tests {
+    //! ir-resource-conventions-crud Cell C1 — tests for the
+    //! `conventions_unknown` diagnostic plumbing. Cell C2 (parser)
+    //! will be the actual emit site; here we lock the suggestion
+    //! helper + the error formatting so the parser's emission shape
+    //! is stable before it lands.
+
+    use super::{AnalyzeError, CONVENTION_CATALOG, conventions_unknown_suggestion};
+
+    #[test]
+    fn catalog_contains_crud_today() {
+        // §4.2: today the closed catalog is `{ crud }`. Any addition
+        // is an IR change requiring a proposal — this test fails on
+        // accidental growth.
+        assert_eq!(CONVENTION_CATALOG, &["crud"]);
+    }
+
+    #[test]
+    fn suggestion_for_single_char_typo_returns_crud() {
+        // §4.3 names this exact case verbatim: `conventions [crd]`
+        // suggests `crud` (single-character Levenshtein).
+        assert_eq!(conventions_unknown_suggestion("crd"), Some("crud"));
+    }
+
+    #[test]
+    fn suggestion_for_extra_char_typo_returns_crud() {
+        // `crude` and `cruds` are also distance-1 from `crud`.
+        assert_eq!(conventions_unknown_suggestion("crude"), Some("crud"));
+        assert_eq!(conventions_unknown_suggestion("cruds"), Some("crud"));
+    }
+
+    #[test]
+    fn suggestion_for_far_typo_returns_none() {
+        // Distance 2+ from every catalog entry — no suggestion is
+        // better than a misleading one.
+        assert_eq!(conventions_unknown_suggestion("workflow"), None);
+        assert_eq!(conventions_unknown_suggestion("xyz"), None);
+        assert_eq!(conventions_unknown_suggestion(""), None);
+    }
+
+    #[test]
+    fn suggestion_for_exact_match_returns_self() {
+        // Defensive: if the parser somehow calls this with a known
+        // identifier, the helper still resolves rather than failing.
+        // (The parser shouldn't reach this path — exact matches don't
+        // hit the unknown diagnostic — but the helper is total.)
+        assert_eq!(conventions_unknown_suggestion("crud"), Some("crud"));
+    }
+
+    #[test]
+    fn error_message_includes_suggestion_when_present() {
+        let err = AnalyzeError::ConventionsUnknown {
+            resource: "Customer".to_owned(),
+            identifier: "crd".to_owned(),
+            suggestion: Some("crud".to_owned()),
+        };
+        let msg = err.to_string();
+        assert!(
+            msg.contains("CONVENTIONS-UNKNOWN"),
+            "missing diagnostic code: {msg}"
+        );
+        assert!(
+            msg.contains("`Customer`"),
+            "missing resource name: {msg}"
+        );
+        assert!(msg.contains("`crd`"), "missing offending identifier: {msg}");
+        assert!(
+            msg.contains("did you mean `crud`?"),
+            "missing suggestion clause: {msg}"
+        );
+    }
+
+    #[test]
+    fn error_message_omits_suggestion_clause_when_none() {
+        let err = AnalyzeError::ConventionsUnknown {
+            resource: "Customer".to_owned(),
+            identifier: "workflow".to_owned(),
+            suggestion: None,
+        };
+        let msg = err.to_string();
+        assert!(
+            msg.contains("CONVENTIONS-UNKNOWN"),
+            "missing diagnostic code: {msg}"
+        );
+        assert!(msg.contains("`workflow`"));
+        assert!(
+            !msg.contains("did you mean"),
+            "should not invent a suggestion when none was found: {msg}"
+        );
     }
 }

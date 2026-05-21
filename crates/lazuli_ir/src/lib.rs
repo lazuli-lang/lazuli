@@ -634,6 +634,27 @@ pub struct Resource {
     /// listed name against `Resource.fields`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub composite_key: Option<CompositeKey>,
+    /// Resource-level conventions opt-in: `conventions [crud, ...]`.
+    /// Each entry references a closed-catalog convention bundle that
+    /// auto-synthesizes commands/queries during lowering. Empty when
+    /// the resource opts into no conventions (the default). See
+    /// `docs/proposals/ir-resource-conventions-crud.md` §4.2.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conventions: Vec<ConventionRef>,
+}
+
+/// Closed catalog of resource-level convention bundles. Adding a
+/// variant is an IR change requiring a proposal; the parser MUST
+/// reject any identifier not in this enum.
+///
+/// See `docs/proposals/ir-resource-conventions-crud.md` §4.2.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConventionRef {
+    /// `crud` — auto-synthesizes 5 commands + 2 queries per §5.
+    Crud,
+    // Future variants (NOT in this proposal):
+    //   Timestamped, PiiAware, SoftDelete, Slugged, Paginated.
 }
 
 /// Roadmap §1.5 (CL.C.2) — `lock` resource-level decorator. Closed
@@ -6402,11 +6423,77 @@ mod lifecycle_tests {
             lock: None,
 
             composite_key: None,
+            conventions: vec![],
         };
         let json = serde_json::to_string(&r).unwrap();
         assert!(
             !json.contains("\"lifecycle\""),
             "skip_serializing_if = Option::is_none should drop the field"
+        );
+    }
+
+    #[test]
+    fn convention_ref_crud_serializes_snake_case() {
+        // §4.2 requires `#[serde(rename_all = "snake_case")]` so the
+        // variant name on the wire matches the .lzi keyword (`crud`).
+        let json = serde_json::to_string(&ConventionRef::Crud).unwrap();
+        assert_eq!(json, "\"crud\"");
+
+        let back: ConventionRef = serde_json::from_str("\"crud\"").unwrap();
+        assert_eq!(back, ConventionRef::Crud);
+    }
+
+    #[test]
+    fn resource_conventions_round_trip_with_crud() {
+        // Resource.conventions is the slot Cell C1 adds. Round-trip
+        // through serde to lock the JSON shape before Cell C2 (parser)
+        // starts producing it.
+        let r = Resource {
+            name: "Customer".to_owned(),
+            public_contract: None,
+            tenancy: None,
+            soft_delete: false,
+            timestamps: None,
+            fields: vec![],
+            constraints: vec![],
+            validate: None,
+            validates: vec![],
+            retention: None,
+            previous_names: vec![],
+            span_ref: None,
+            lifecycle: None,
+            invariants: vec![],
+            lock: None,
+            composite_key: None,
+            conventions: vec![ConventionRef::Crud],
+        };
+        let json = serde_json::to_string(&r).unwrap();
+        assert!(
+            json.contains("\"conventions\":[\"crud\"]"),
+            "expected the populated conventions list to serialize as snake_case identifiers, got: {json}"
+        );
+        let back: Resource = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.conventions, vec![ConventionRef::Crud]);
+    }
+
+    #[test]
+    fn resource_conventions_absent_field_deserializes_empty() {
+        // `#[serde(default, skip_serializing_if = "Vec::is_empty")]`
+        // means existing fixtures (pre-Cell-C1) that lack the field
+        // continue to deserialize cleanly into an empty Vec.
+        let legacy_json = r#"{
+            "name": "Legacy",
+            "soft_delete": false,
+            "fields": []
+        }"#;
+        let r: Resource = serde_json::from_str(legacy_json).unwrap();
+        assert!(r.conventions.is_empty());
+
+        // Round-trip the empty Vec drops the key entirely.
+        let json = serde_json::to_string(&r).unwrap();
+        assert!(
+            !json.contains("\"conventions\""),
+            "skip_serializing_if = Vec::is_empty should drop the field; got: {json}"
         );
     }
 }
