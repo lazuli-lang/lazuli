@@ -258,6 +258,7 @@ mod tests {
             invariants: vec![],
             lock: None,
             composite_key: None,
+            conventions: Vec::new(),
         }
     }
 
@@ -359,6 +360,7 @@ mod tests {
             aggregates: vec![],
             mcp_servers: vec![],
             previous_names: vec![],
+            synth_origins: std::collections::BTreeMap::new(),
             span_ref: None,
         }
     }

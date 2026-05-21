@@ -257,6 +257,7 @@ mod tests {
                     lock: None,
 
                     composite_key: None,
+                    conventions: Vec::new(),
                 }],
                 events: Vec::new(),
                 rules: Vec::new(),
@@ -333,6 +334,7 @@ mod tests {
                 aggregates: vec![],
                 mcp_servers: vec![],
                 previous_names: Vec::new(),
+                synth_origins: std::collections::BTreeMap::new(),
                 span_ref: None,
             }],
         }

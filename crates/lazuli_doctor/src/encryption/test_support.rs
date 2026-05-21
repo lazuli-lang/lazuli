@@ -104,6 +104,7 @@ pub fn empty_feature(name: &str) -> Feature {
         aggregates: vec![],
             mcp_servers: vec![],
         previous_names: vec![],
+        synth_origins: std::collections::BTreeMap::new(),
         span_ref: None,
     }
 }
@@ -166,6 +167,7 @@ pub fn resource_with_fields(name: &str, fields: Vec<Field>) -> Resource {
         lock: None,
 
         composite_key: None,
+        conventions: Vec::new(),
     }
 }
 

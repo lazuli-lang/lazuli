@@ -167,6 +167,7 @@ mod tests {
             aggregates: Vec::new(),
             mcp_servers: Vec::new(),
             previous_names: Vec::new(),
+            synth_origins: std::collections::BTreeMap::new(),
             span_ref: None,
         }
     }

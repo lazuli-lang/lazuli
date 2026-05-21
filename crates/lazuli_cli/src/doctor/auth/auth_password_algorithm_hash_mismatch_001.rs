@@ -181,6 +181,7 @@ mod tests {
             lock: None,
 
             composite_key: None,
+            conventions: Vec::new(),
         }
     }
 
@@ -250,7 +251,7 @@ mod tests {
             agents: vec![],
             reports: vec![],
             previous_names: vec![],
-            span_ref: None,
+            synth_origins: std::collections::BTreeMap::new(),            span_ref: None,
         }
     }
 
@@ -304,6 +305,7 @@ mod tests {
             lock: None,
 
             composite_key: None,
+            conventions: Vec::new(),
         };
         let feature = mk_feature("bcrypt", resource);
         let findings = check(&feature, Path::new("x.lzi"));

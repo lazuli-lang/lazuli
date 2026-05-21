@@ -173,6 +173,7 @@ mod tests {
             lock: None,
 
             composite_key: None,
+            conventions: Vec::new(),
         }
     }
 
@@ -234,6 +235,7 @@ mod tests {
             agents: vec![],
             reports: vec![],
             previous_names: vec![],
+            synth_origins: std::collections::BTreeMap::new(),
             span_ref: None,
         }
     }

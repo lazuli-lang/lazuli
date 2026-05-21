@@ -2390,11 +2390,27 @@ pub fn lower_feature_skeleton(
         aggregates,
         mcp_servers,
         previous_names: Vec::new(),
+        // Cell C4 (inlined): empty until C3's synthesis pass populates the
+        // map per `docs/proposals/ir-resource-conventions-crud.md` §11.
+        synth_origins: std::collections::BTreeMap::new(),
         span_ref: Some(span_of(skeleton.span)),
     };
     lifecycle::lower_lifecycles(&mut feature, &skeleton.resources);
     synthesize_auto_photo(&mut feature);
+    // Cell C4 — mock stub for C3's synthesis pass. C3 owns the real
+    // synthesizer; today the call is a no-op pass-through so the inline IR
+    // additions compile without C3's surface. Replace at merge.
+    mock_synthesize_conventions(&mut feature);
     Ok(feature)
+}
+
+/// Cell C4 inline-mock — empty pass-through stub for the conventions
+/// synthesis pass owned by Cell C3. Lives here only so the IR field
+/// `Feature.synth_origins` compiles on the C4 worktree; C3 replaces it
+/// with the real synthesizer per
+/// `docs/proposals/ir-resource-conventions-crud.md` §5/§11.
+fn mock_synthesize_conventions(_feature: &mut ir::Feature) {
+    // intentional no-op
 }
 
 /// CL.C.4 — lower an `AggregateDecl` from the surface AST into
@@ -2940,6 +2956,9 @@ fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resource, Analyze
         invariants,
         lock,
         composite_key,
+        // Cell C4 (inlined): C2 parser will populate this once `conventions [..]`
+        // is lexed. Until then, defaults to empty.
+        conventions: Vec::new(),
     })
 }
 
