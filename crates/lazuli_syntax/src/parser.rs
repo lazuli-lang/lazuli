@@ -20606,6 +20606,88 @@ mod deprecated_parser_tests {
 }
 
 // =============================================================================
+// codegen-correctness-cycle-2 cell IA1 — `invalidates` block parser tests.
+//
+// Authoring syntax (cross-resource cache invalidation under `command`):
+//
+//   command save_X
+//     ...
+//     effect updates X
+//     invalidates
+//       query.lookup_my_X
+//       feature_y.query.list_by_x
+//
+// The block form is the canonical authoring shape — each entry is a
+// qualified query reference (bare `<query_name>` segments today; the
+// optional leading feature segment routes to a sibling feature).
+// Same-feature single-line form (`invalidates query.<name>`) is kept
+// for backward compatibility but not exercised here.
+// =============================================================================
+#[cfg(test)]
+mod invalidates_parser_tests {
+    use super::parse_feature_skeletons;
+
+    #[test]
+    fn invalidates_block_parses_same_and_cross_feature() {
+        let source = "feature customer\n  command save_X\n    input\n      id: ID required\n    policy @policy.update\n    updates Customer\n      tier = input.tier\n    invalidates\n      query.lookup_my_X\n      feature_y.query.list_by_x\n";
+        let features = parse_feature_skeletons(source).expect("parses");
+        let command = &features[0].commands[0];
+
+        assert_eq!(command.name, "save_X");
+        assert_eq!(command.invalidates.len(), 2);
+        // Same-feature entry — bare `query.<name>` form.
+        assert_eq!(command.invalidates[0].query, "query.lookup_my_X");
+        assert!(command.invalidates[0].args.is_empty());
+        // Cross-feature entry — `<feature>.query.<name>` form.
+        assert_eq!(command.invalidates[1].query, "feature_y.query.list_by_x");
+        assert!(command.invalidates[1].args.is_empty());
+    }
+
+    #[test]
+    fn invalidates_block_parses_with_named_args() {
+        let source = "feature customer\n  command reassign\n    route id: ID\n    input\n      owner_id: ID required\n    policy @policy.update\n    updates Customer\n      owner_id = input.owner_id\n    invalidates\n      query.list\n      query.by_id(id: route.id)\n";
+        let features = parse_feature_skeletons(source).expect("parses");
+        let invalidates = &features[0].commands[0].invalidates;
+
+        assert_eq!(invalidates.len(), 2);
+        assert_eq!(invalidates[0].query, "query.list");
+        assert_eq!(invalidates[1].query, "query.by_id");
+        assert_eq!(invalidates[1].args.len(), 1);
+        assert_eq!(invalidates[1].args[0].name, "id");
+        assert_eq!(invalidates[1].args[0].value, "route.id");
+    }
+
+    #[test]
+    fn invalidates_block_requires_grandchild_indent() {
+        // Entries at indent 4 (sibling indent) fall back to the
+        // command-child dispatcher and surface its "children are …"
+        // diagnostic. The grammar gate is: only indent-6 (grandchild)
+        // lines after `invalidates` are entries.
+        let source = "feature customer\n  command save_X\n    policy @policy.update\n    updates Customer\n    invalidates\n    query.list\n";
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let msg = format!("{:?}", err);
+        assert!(
+            msg.contains("invalidates") || msg.contains("`command` children"),
+            "expected grammar diagnostic, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn invalidates_block_rejects_unclosed_call() {
+        // A call expression that opens `(` but never closes is rejected
+        // up-front — covers the per-entry parse without depending on the
+        // analyzer's downstream resolution pass.
+        let source = "feature customer\n  command save_X\n    policy @policy.update\n    updates Customer\n    invalidates\n      query.by_id(id: route.id\n";
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let msg = format!("{:?}", err);
+        assert!(
+            msg.contains(")") || msg.contains("call expression"),
+            "expected unclosed-call diagnostic, got: {msg}"
+        );
+    }
+}
+
+// =============================================================================
 // L0 #8 — `poller` block parser tests (docs/proposals/poller-vocab.md §3)
 // =============================================================================
 #[cfg(test)]

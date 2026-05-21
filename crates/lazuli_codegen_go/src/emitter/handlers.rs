@@ -1477,25 +1477,24 @@ fn path_exists(existing_files: &BTreeSet<PathBuf>, relative_path: &str) -> bool 
     // Translate the canonical `app/features/<f>/handlers/<name>.go`
     // path back to those two shapes so the regen doesn't double-stub
     // handlers that already exist at the older locations.
-    let legacy_alternatives: Vec<String> = if let Some(tail) =
-        rel.strip_prefix(&format!("{APP_FEATURES_PREFIX}/"))
-    {
-        // `tail` is `<feature>/handlers/<name>.go`. Strip the
-        // `handlers/` segment to derive `<feature>/<name>.go` —
-        // matches the flat-pivot layout.
-        let mut alts = Vec::with_capacity(2);
-        if let Some((feature, after)) = tail.split_once('/') {
-            if let Some(name) = after.strip_prefix("handlers/") {
-                let flat_app = format!("{APP_FEATURES_PREFIX}/{feature}/{name}");
-                let flat_dist = format!("{DIST_GO_PREFIX}/{feature}/{name}");
-                alts.push(flat_app);
-                alts.push(flat_dist);
+    let legacy_alternatives: Vec<String> =
+        if let Some(tail) = rel.strip_prefix(&format!("{APP_FEATURES_PREFIX}/")) {
+            // `tail` is `<feature>/handlers/<name>.go`. Strip the
+            // `handlers/` segment to derive `<feature>/<name>.go` —
+            // matches the flat-pivot layout.
+            let mut alts = Vec::with_capacity(2);
+            if let Some((feature, after)) = tail.split_once('/') {
+                if let Some(name) = after.strip_prefix("handlers/") {
+                    let flat_app = format!("{APP_FEATURES_PREFIX}/{feature}/{name}");
+                    let flat_dist = format!("{DIST_GO_PREFIX}/{feature}/{name}");
+                    alts.push(flat_app);
+                    alts.push(flat_dist);
+                }
             }
-        }
-        alts
-    } else {
-        Vec::new()
-    };
+            alts
+        } else {
+            Vec::new()
+        };
 
     existing_files.iter().any(|path| {
         let existing = normalize_path(path);
@@ -1715,9 +1714,10 @@ mod tests {
                 .contains("//   Site: customer_auth.auth.password.hash")
         );
         assert!(hash.contents.contains("var zero lazuli.HashedRef"));
-        assert!(hash.contents.contains(
-            "return zero, errors.New(\"hash_password not yet implemented\")"
-        ));
+        assert!(
+            hash.contents
+                .contains("return zero, errors.New(\"hash_password not yet implemented\")")
+        );
         assert!(hash.contents.contains("//lazuli:pattern extension_stub v1"));
         // Source-tag duplication cleanup (review bug #8, 2026-05-15):
         // the previous stub re-stamped `lazuli.WithSource(...)` inside
@@ -1744,7 +1744,10 @@ mod tests {
         // the same `<feature>handlers` package no longer collide on a
         // shared generic helper.
         assert_eq!(hash.contents.matches("func zero[T any]() T").count(), 0);
-        assert_eq!(hash.contents.matches("var zero lazuli.HashedRef").count(), 1);
+        assert_eq!(
+            hash.contents.matches("var zero lazuli.HashedRef").count(),
+            1
+        );
     }
 
     #[test]
@@ -1764,7 +1767,9 @@ mod tests {
             span_ref: None,
         });
         let module = module_with_features(vec![feature]);
-        let existing = BTreeSet::from([PathBuf::from("app/features/customer_auth/handlers/hash_password.go")]);
+        let existing = BTreeSet::from([PathBuf::from(
+            "app/features/customer_auth/handlers/hash_password.go",
+        )]);
 
         let files = emit_handler_stubs(&module, "lazuli/test", &existing);
 
@@ -1797,9 +1802,7 @@ mod tests {
             span_ref: None,
         });
         let module = module_with_features(vec![feature]);
-        let existing = BTreeSet::from([PathBuf::from(
-            "dist/go/customer_auth/hash_password.go",
-        )]);
+        let existing = BTreeSet::from([PathBuf::from("dist/go/customer_auth/hash_password.go")]);
 
         let files = emit_handler_stubs(&module, "lazuli/test", &existing);
 

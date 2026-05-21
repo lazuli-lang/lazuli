@@ -102,9 +102,7 @@ pub fn go_return_type_for(ty: &TypeRef, ctx: &TypeCtx) -> (String, Option<String
             let (go, import) = go_type_for_builtin(builtin);
             (go, import.map(str::to_owned))
         }
-        TypeRef::UserDefined(qname) | TypeRef::EnumRef(qname) => {
-            resolve_named_full(qname, ctx)
-        }
+        TypeRef::UserDefined(qname) | TypeRef::EnumRef(qname) => resolve_named_full(qname, ctx),
         TypeRef::Many(inner) => {
             let (inner_go, import) = go_return_type_for(inner, ctx);
             (format!("[]{}", inner_go), import)
@@ -121,10 +119,7 @@ pub fn go_return_type_for(ty: &TypeRef, ctx: &TypeCtx) -> (String, Option<String
 /// to their full struct name (same-feature) or `<owner>gen.<Name>`
 /// (cross-feature) so the consumer (command return type) gets the typed
 /// row instead of the BIGINT id alias.
-fn resolve_named_full(
-    qname: &lazuli_ir::QualifiedName,
-    ctx: &TypeCtx,
-) -> (String, Option<String>) {
+fn resolve_named_full(qname: &lazuli_ir::QualifiedName, ctx: &TypeCtx) -> (String, Option<String>) {
     if qname.name.starts_with('@') {
         return (sanitise_go_ident(&qname.name), None);
     }
@@ -157,10 +152,7 @@ fn resolve_named_full(
 /// Cross-feature resolver for `UserDefined` and `EnumRef` qnames.
 /// Returns the rendered Go type plus the import path to register on
 /// the file's `ImportSet`. See module-level doc for the three cases.
-fn resolve_named(
-    qname: &lazuli_ir::QualifiedName,
-    ctx: &TypeCtx,
-) -> (String, Option<String>) {
+fn resolve_named(qname: &lazuli_ir::QualifiedName, ctx: &TypeCtx) -> (String, Option<String>) {
     // Decorator-prefixed names (e.g. `@semantic.<unknown>` that
     // fell through the builtin match) are not real type refs —
     // sanitise and bail. The analyzer should catch these as
@@ -187,10 +179,7 @@ fn resolve_named(
     // scan from a BIGINT column. `kind()` returns `None` for
     // unknown/ambiguous names; those fall through the existing
     // resolver and emit a sanitised bare ref.
-    if matches!(
-        ctx.cross_index.kind(&qname.name),
-        Some(DeclKind::Resource)
-    ) {
+    if matches!(ctx.cross_index.kind(&qname.name), Some(DeclKind::Resource)) {
         return ("lazuli.ID".to_owned(), None);
     }
 
@@ -248,10 +237,9 @@ fn go_type_for_builtin(builtin: &BuiltinType) -> (String, Option<&'static str>) 
         BuiltinType::Date => ("lazuli.Date".to_owned(), Some("lazuli.dev/runtime/lazuli")),
         BuiltinType::DateTime => ("lazuli.Time".to_owned(), Some("lazuli.dev/runtime/lazuli")),
         BuiltinType::Json => ("lazuli.JSON".to_owned(), Some("lazuli.dev/runtime/lazuli")),
-        BuiltinType::SemanticEmail => (
-            "lazuli.Email".to_owned(),
-            Some("lazuli.dev/runtime/lazuli"),
-        ),
+        BuiltinType::SemanticEmail => {
+            ("lazuli.Email".to_owned(), Some("lazuli.dev/runtime/lazuli"))
+        }
         // Per proposal `semantic-types-money-brazilian.md` v0.3:
         // `Money` is the currency-aware semantic type. The Go field
         // type is the rich struct `lazuli.MoneyValue` (decimal +
@@ -261,15 +249,11 @@ fn go_type_for_builtin(builtin: &BuiltinType) -> (String, Option<&'static str>) 
             "lazuli.MoneyValue".to_owned(),
             Some("lazuli.dev/runtime/lazuli"),
         ),
-        BuiltinType::SemanticPhone => (
-            "lazuli.Phone".to_owned(),
-            Some("lazuli.dev/runtime/lazuli"),
-        ),
+        BuiltinType::SemanticPhone => {
+            ("lazuli.Phone".to_owned(), Some("lazuli.dev/runtime/lazuli"))
+        }
         BuiltinType::SemanticUrl => ("lazuli.URL".to_owned(), Some("lazuli.dev/runtime/lazuli")),
-        BuiltinType::SemanticUuid => (
-            "lazuli.UUID".to_owned(),
-            Some("lazuli.dev/runtime/lazuli"),
-        ),
+        BuiltinType::SemanticUuid => ("lazuli.UUID".to_owned(), Some("lazuli.dev/runtime/lazuli")),
         BuiltinType::SemanticCurrency => (
             "lazuli.Currency".to_owned(),
             Some("lazuli.dev/runtime/lazuli"),
@@ -354,7 +338,12 @@ fn sanitise_go_ident(raw: &str) -> String {
     if out.is_empty() {
         return "lazuliUnresolved".to_owned();
     }
-    if out.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+    if out
+        .chars()
+        .next()
+        .map(|c| c.is_ascii_digit())
+        .unwrap_or(false)
+    {
         out.insert(0, '_');
     }
     out
@@ -429,7 +418,7 @@ mod tests {
                 name: "test".to_owned(),
                 title: None,
                 version: None,
-        lazuli_version: None,
+                lazuli_version: None,
                 targets: Vec::new(),
                 default_locale: None,
                 default_timezone: None,

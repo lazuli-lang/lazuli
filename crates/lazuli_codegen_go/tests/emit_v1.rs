@@ -16,9 +16,9 @@ use std::collections::BTreeMap;
 
 use lazuli_analyzer::source_map::SourceMapResolver;
 use lazuli_codegen_go::{
-    generate_v1, generate_v1_with_manifest, generate_v1_with_manifest_and_source, GoEmitOptions,
-    GoSourceContext, LazuriteDev, LazuriteGenerateGo, LazuriteManifest, LazuritePlugin,
-    LAZULI_GO_VERSION,
+    GoEmitOptions, GoSourceContext, LAZULI_GO_VERSION, LazuriteDev, LazuriteGenerateGo,
+    LazuriteManifest, LazuritePlugin, generate_v1, generate_v1_with_manifest,
+    generate_v1_with_manifest_and_source,
 };
 use lazuli_ir::{
     AppLocale, AppLogging, AppManifest, AppTracing, Assignment, BuiltinType, Command,
@@ -56,7 +56,7 @@ fn empty_feature(name: &str) -> Feature {
         apis: Vec::new(),
         records: Vec::new(),
         queries: Vec::new(),
-            resume_routers: Vec::new(),
+        resume_routers: Vec::new(),
         workflows: Vec::new(),
         jobs: Vec::new(),
         webhooks: Vec::new(),
@@ -72,9 +72,9 @@ fn empty_feature(name: &str) -> Feature {
         agents: Vec::new(),
         reports: Vec::new(),
         channels: Vec::new(),
-            caches: Vec::new(),
+        caches: Vec::new(),
         aggregates: vec![],
-            mcp_servers: vec![],
+        mcp_servers: vec![],
         previous_names: Vec::new(),
         span_ref: None,
         synth_origins: std::collections::BTreeMap::new(),
@@ -423,9 +423,11 @@ fn module_name_override_wins_over_app_name() {
         .iter()
         .find(|f| f.path == "go.mod")
         .expect("go.mod missing");
-    assert!(go_mod
-        .contents
-        .contains("module github.com/acme/custom-name"));
+    assert!(
+        go_mod
+            .contents
+            .contains("module github.com/acme/custom-name")
+    );
 }
 
 #[test]
@@ -1035,12 +1037,11 @@ fn emit_v1_with_manifest_plugins_emits_anonymous_imports() {
         .find("_ \"github.com/lazuli-lang/lazuli-plugin-mercadopago\"")
         .expect("mercadopago plugin import");
     assert!(expo < mercado, "expected plugin imports sorted by ref");
-    assert!(main
-        .contents
-        .contains("// Plugin imports — side-effect aliases so each plugin's package"));
-    assert!(main
-        .contents
-        .contains("init order across plugins"));
+    assert!(
+        main.contents
+            .contains("// Plugin imports — side-effect aliases so each plugin's package")
+    );
+    assert!(main.contents.contains("init order across plugins"));
 }
 
 #[test]
@@ -1116,9 +1117,11 @@ fn emit_v1_with_local_plugin_paths_emits_replace_directives() {
         .find(|f| f.path == "go.work")
         .expect("expected top-level go.work companion");
 
-    assert!(go_mod
-        .contents
-        .contains("module github.com/acme/test-app/generated"));
+    assert!(
+        go_mod
+            .contents
+            .contains("module github.com/acme/test-app/generated")
+    );
     assert!(go_mod.contents.contains(
         "replace github.com/lazuli-lang/lazuli-plugin-mercadopago => ../lazuli-plugin-mercadopago"
     ));
@@ -1144,9 +1147,11 @@ fn emit_go_mod_with_plugins_emits_require_lines() {
         .find(|f| f.path == "go.mod")
         .expect("expected generated go.mod");
 
-    assert!(go_mod
-        .contents
-        .contains("github.com/lazuli-lang/lazuli-plugin-foo v0.1.0"));
+    assert!(
+        go_mod
+            .contents
+            .contains("github.com/lazuli-lang/lazuli-plugin-foo v0.1.0")
+    );
 }
 
 #[test]
@@ -1192,9 +1197,11 @@ fn emit_go_mod_with_geopoint_resource_adds_postgis_require() {
         .find(|f| f.path == "go.mod")
         .expect("expected generated go.mod");
 
-    assert!(go_mod
-        .contents
-        .contains("github.com/cridenour/go-postgis v1.0.2"));
+    assert!(
+        go_mod
+            .contents
+            .contains("github.com/cridenour/go-postgis v1.0.2")
+    );
 }
 
 #[test]
@@ -1228,7 +1235,6 @@ fn emit_go_mod_with_dev_replace_skips_replace_in_workspace_mode() {
         "workspace mode must not name `lazuli.dev/runtime` in dist/go/go.mod:\n{}",
         go_mod.contents
     );
-
 }
 
 #[test]
@@ -1264,9 +1270,11 @@ fn emit_go_mod_without_manifest_falls_back_to_legacy_behavior() {
 
     assert!(go_mod.contents.contains("lazuli.dev/runtime"));
     assert!(!go_mod.contents.contains("replace lazuli.dev/runtime"));
-    assert!(!go_mod
-        .contents
-        .contains("github.com/lazuli-lang/lazuli-plugin"));
+    assert!(
+        !go_mod
+            .contents
+            .contains("github.com/lazuli-lang/lazuli-plugin")
+    );
     assert!(!go_mod.contents.contains("github.com/cridenour/go-postgis"));
 }
 

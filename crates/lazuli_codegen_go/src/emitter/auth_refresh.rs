@@ -7,7 +7,7 @@
 use lazuli_ir::Feature;
 
 use super::imports::ImportSet;
-use super::patterns::{emit_pattern_header, PATTERN_AUTH_REFRESH};
+use super::patterns::{PATTERN_AUTH_REFRESH, emit_pattern_header};
 use super::printer::GoPrinter;
 
 /// Emit `<feature>/auth.refresh.gen.go`, or `None` when:

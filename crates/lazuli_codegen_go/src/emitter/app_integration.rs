@@ -118,9 +118,7 @@ pub fn emit_app_integrations(source_label: &str, module: &Module) -> Option<Stri
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lazuli_ir::{
-        AppIntegration, AppManifest, AppRegistry, Module,
-    };
+    use lazuli_ir::{AppIntegration, AppManifest, AppRegistry, Module};
 
     fn minimal_app(integrations: Vec<AppIntegration>) -> AppManifest {
         AppManifest {
@@ -244,9 +242,11 @@ mod tests {
         let out = emit_app_integrations("test.lzi", &module).expect("emits file");
         assert!(out.contains("package app"));
         assert!(out.contains("\"lazuli.dev/runtime/lazuli\""));
-        assert!(out.contains(
-            "lazuli.RegisterAppIntegration(\"object_store\", \"@plugin/object-store\")"
-        ));
+        assert!(
+            out.contains(
+                "lazuli.RegisterAppIntegration(\"object_store\", \"@plugin/object-store\")"
+            )
+        );
         // Deferred resolution invariant: emitter must NOT call
         // `MustResolveAdapter` at codegen-emit time. The init-order
         // panic class is closed precisely by avoiding eager resolution.
@@ -269,9 +269,11 @@ mod tests {
             Some("@plugin/object-store"),
         )]);
         let out = emit_app_integrations("test.lzi", &module).expect("emits file");
-        assert!(out.contains(
-            "lazuli.RegisterAppIntegration(\"object_store\", \"@plugin/object-store\")"
-        ));
+        assert!(
+            out.contains(
+                "lazuli.RegisterAppIntegration(\"object_store\", \"@plugin/object-store\")"
+            )
+        );
         assert!(
             !out.contains("MustResolveAdapter"),
             "emitter regression: registry path must also pass ref string:\n{out}"

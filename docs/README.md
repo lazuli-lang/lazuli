@@ -36,6 +36,7 @@ Operational artifacts (proposals, audits, roadmaps, per-pilot state, swarm tooli
 | [`ir-abi.md`](ir-abi.md) | Stable IR shape (JSON-serializable) consumed by codegen + MCP + audit-skill |
 | [`mcp-abi.md`](mcp-abi.md) | MCP server tools — what LLM agents can read/write |
 | [`error-contract.md`](error-contract.md) | Doctor diagnostic codes + severities + how they surface in CLI / LSP |
+| [`diagnostics/README.md`](diagnostics/README.md) | Full diagnostics catalog — every `lazuli_doctor` rule (103 across 9 categories) indexed with severity + source anchor |
 | [`generation-contract.md`](generation-contract.md) | What code generators promise (idempotent, regen-only, no manual edits) |
 | [`extension-points.md`](extension-points.md) | The 5 escape hatches: `@fn` handlers, `handler "./path.go"`, `query.sql`, `extends @anchor / slot`, user `main.go` |
 | [`capability-layering.md`](capability-layering.md) | When something belongs in language / compiler / runtime / plugin / adapter |
@@ -75,6 +76,7 @@ Operational artifacts (proposals, audits, roadmaps, per-pilot state, swarm tooli
 2. `ir-abi.md`
 3. `error-contract.md`
 4. `generation-contract.md`
+5. `diagnostics/README.md` (per-rule catalog — what each doctor check fires on)
 
 **Plugin author**
 1. `plugin-authoring.md`

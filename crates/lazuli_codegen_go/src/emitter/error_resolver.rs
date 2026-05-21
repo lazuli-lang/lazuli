@@ -41,8 +41,8 @@
 use std::collections::BTreeMap;
 
 use lazuli_ir::{
-    Command, ErrorExposureDefault, Feature, FeatureErrorMessage, FeatureErrors, Module,
-    Policies, PolicyRef, TranslationKeyRef,
+    Command, ErrorExposureDefault, Feature, FeatureErrorMessage, FeatureErrors, Module, Policies,
+    PolicyRef, TranslationKeyRef,
 };
 
 use super::casing::gen_package_name;
@@ -79,7 +79,11 @@ pub fn command_policy_denied_key<'a>(
     command: &'a Command,
     policies: Option<&'a Policies>,
 ) -> Option<&'a TranslationKeyRef> {
-    policy_denied_key_for_policy(command.policy_when_denied.as_ref(), &command.policy, policies)
+    policy_denied_key_for_policy(
+        command.policy_when_denied.as_ref(),
+        &command.policy,
+        policies,
+    )
 }
 
 pub fn policy_denied_key_for_policy<'a>(
@@ -634,10 +638,7 @@ mod tests {
         let tenant = out
             .find("\"tenant_mismatch\":")
             .expect("tenant_mismatch present");
-        assert!(
-            policy < tenant,
-            "messages must be sorted by code:\n{out}"
-        );
+        assert!(policy < tenant, "messages must be sorted by code:\n{out}");
         assert!(out.contains(
             "\"policy_denied\": i18n.MessageRef{Feature: \"account\", Key: \"account_signin_required\"},"
         ));
@@ -649,9 +650,7 @@ mod tests {
     #[test]
     fn app_resolver_skipped_when_no_feature_has_errors() {
         let module = module_with(vec![empty_feature("account")]);
-        assert!(
-            emit_app_error_resolution("lazuli/test-app", &module, "lazuli/test-app").is_none()
-        );
+        assert!(emit_app_error_resolution("lazuli/test-app", &module, "lazuli/test-app").is_none());
     }
 
     #[test]
@@ -704,8 +703,7 @@ mod tests {
         let mut account = empty_feature("account");
         account.errors = Some(FeatureErrors::default());
         let module = module_with(vec![account]);
-        let files =
-            emit_error_vocab_files("lazuli/test-app", &module, "lazuli/test-app");
+        let files = emit_error_vocab_files("lazuli/test-app", &module, "lazuli/test-app");
         assert_eq!(files.len(), 2);
         assert_eq!(files[0].path, "account/errors.gen.go");
         assert_eq!(files[1].path, "app/error_resolution.gen.go");

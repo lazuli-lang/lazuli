@@ -1,0 +1,9 @@
+{
+  "archive_archived_blocked": "Cannot reassign an archived customer",
+  "archive_deleted_blocked": "Cannot archive a deleted customer",
+  "capture_lead_signin_required": "Please sign in to capture a lead.",
+  "customer_invalid_input": "The customer information is missing or incorrect.",
+  "customer_signin_required": "Please sign in to manage customers.",
+  "customer_update_admin_only": "Only admins or sales reps can update this customer.",
+  "enterprise_owner_required": "Enterprise customers require an owner before activation"
+}

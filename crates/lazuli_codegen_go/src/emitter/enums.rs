@@ -61,7 +61,10 @@ pub fn emit_enum_file(source_label: &str, feature: &Feature) -> Option<String> {
     let mut enums: Vec<&EnumDecl> = feature.enums.iter().collect();
     enums.sort_by(|a, b| a.name.cmp(&b.name));
 
-    p.banner(source_label, &super::casing::gen_package_name(&feature.name));
+    p.banner(
+        source_label,
+        &super::casing::gen_package_name(&feature.name),
+    );
     // Even though today no enum requires an import, we route through
     // `ImportSet::emit` so the file shape stays consistent with the
     // resource emitter and a future `String()` helper can register its
@@ -88,13 +91,7 @@ fn emit_enum(p: &mut GoPrinter, decl: &EnumDecl) {
     let pascal = pascal_case(&decl.name);
     let storage = classify_storage(decl);
 
-    write_section_banner(
-        p,
-        &[
-            format!("Enum: {pascal}"),
-            format!("  enum {pascal}"),
-        ],
-    );
+    write_section_banner(p, &[format!("Enum: {pascal}"), format!("  enum {pascal}")]);
 
     // Typed alias. `int64` chosen for the integer form because the IR
     // carries `StorageValue::Integer(i64)`; downcasting to a narrower
@@ -114,10 +111,7 @@ fn emit_enum(p: &mut GoPrinter, decl: &EnumDecl) {
     // sits flush against `<EnumName>` — the type column is fixed width
     // (the enum name) so we only need to pad the variant name.
     enum Row {
-        Variant {
-            name: String,
-            literal: String,
-        },
+        Variant { name: String, literal: String },
         Comment(String),
     }
 

@@ -52,7 +52,10 @@ pub fn emit_migration_file(
         }
     }
 
-    p.banner(source_label, &super::casing::gen_package_name(&feature.name));
+    p.banner(
+        source_label,
+        &super::casing::gen_package_name(&feature.name),
+    );
     imports.emit(&mut p);
     p.blank();
 
@@ -354,7 +357,7 @@ mod feature_emit_tests {
             name: "test".to_owned(),
             title: None,
             version: None,
-        lazuli_version: None,
+            lazuli_version: None,
             targets: Vec::new(),
             default_locale: None,
             default_timezone: None,

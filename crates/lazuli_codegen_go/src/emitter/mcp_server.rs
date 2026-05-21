@@ -10,7 +10,9 @@
 //!
 //! Per docs/proposals/bucket-mcp-cycle.md §L2 + §M8.
 
-use lazuli_ir::{Feature, MCPAuth, MCPParam, MCPPrompt, MCPResource, MCPServerSpec, MCPTool, MCPTransport};
+use lazuli_ir::{
+    Feature, MCPAuth, MCPParam, MCPPrompt, MCPResource, MCPServerSpec, MCPTool, MCPTransport,
+};
 
 use super::casing::lower_camel;
 use super::imports::ImportSet;
@@ -31,7 +33,10 @@ pub fn emit_mcp_server_file(source_label: &str, feature: &Feature) -> Option<Str
         imports.add("os");
     }
 
-    p.banner(source_label, &super::casing::gen_package_name(&feature.name));
+    p.banner(
+        source_label,
+        &super::casing::gen_package_name(&feature.name),
+    );
     imports.emit(&mut p);
     p.blank();
 
@@ -62,10 +67,16 @@ fn emit_server_var(p: &mut GoPrinter, feature: &Feature, server: &MCPServerSpec)
         "// MCP server `{}`. Declared in feature `{}`.",
         server.name, feature.name
     ));
-    p.line(&format!("var {} = mcp.ServerRegistration{{", server_var_name(server)));
+    p.line(&format!(
+        "var {} = mcp.ServerRegistration{{",
+        server_var_name(server)
+    ));
     p.indent();
     p.line(&format!("Name:      \"{}\",", escape_string(&server.name)));
-    p.line(&format!("Transport: {},", transport_const(server.transport)));
+    p.line(&format!(
+        "Transport: {},",
+        transport_const(server.transport)
+    ));
     if let Some(auth) = &server.auth {
         emit_auth(p, auth);
     }

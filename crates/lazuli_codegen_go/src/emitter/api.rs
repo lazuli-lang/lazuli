@@ -59,7 +59,10 @@ pub fn emit_api_file(
         imports.add(&format!("{module_name}/plan"));
     }
 
-    p.banner(source_label, &super::casing::gen_package_name(&feature.name));
+    p.banner(
+        source_label,
+        &super::casing::gen_package_name(&feature.name),
+    );
     imports.emit(&mut p);
     p.blank();
 
@@ -186,7 +189,9 @@ fn emit_api(
     // registration; the endpoint vanished into the void unless the
     // user happened to call `RegisterApi` themselves.
     p.line("//lazuli:pattern api_register v1");
-    p.line(&format!("func init() {{ lazuli.RegisterApi(&{var_name}) }}"));
+    p.line(&format!(
+        "func init() {{ lazuli.RegisterApi(&{var_name}) }}"
+    ));
     p.line(&format!(
         "// Wire {var_name}.Handler in your application code, then call"
     ));
@@ -212,10 +217,7 @@ fn emit_gate_annotations(p: &mut GoPrinter, gates: &[Gate]) {
                 ));
             }
             Gate::Quota { limit } => {
-                p.line(&format!(
-                    "{{Kind: billing.GateQuota, Name: {:?}}},",
-                    limit
-                ));
+                p.line(&format!("{{Kind: billing.GateQuota, Name: {:?}}},", limit));
             }
         }
     }
@@ -615,7 +617,9 @@ mod tests {
             TypeRef::Builtin(BuiltinType::CapFile),
         );
         api.policy = PolicyRef::Local("global_read".to_owned());
-        api.rate_limit = Some(RateLimitSpec::from_default("10 per hour per user".to_owned()));
+        api.rate_limit = Some(RateLimitSpec::from_default(
+            "10 per hour per user".to_owned(),
+        ));
         api.handler = PathRef::authored("./api/export_customers.go");
         feature.apis.push(api);
 
@@ -626,9 +630,9 @@ mod tests {
         assert!(out.contains("\"lazuli.dev/runtime/lazuli/storage\""));
         assert!(!out.contains("\"lazuli/test/customer/api\""));
         assert!(out.contains("type CustomerExportApiArgs struct{}"));
-        assert!(
-            out.contains("var customerExportApi = lazuli.Api[CustomerExportApiArgs, storage.FileRef]{")
-        );
+        assert!(out.contains(
+            "var customerExportApi = lazuli.Api[CustomerExportApiArgs, storage.FileRef]{"
+        ));
         assert!(!out.contains("var customerExportApi = struct {"));
         assert!(!out.contains("TODO(runtime):"));
         // Codegen now emits a `func init()` that registers the typed
@@ -668,9 +672,9 @@ mod tests {
 
         let out = emit(&feature).expect("must emit");
         assert!(out.contains("\"lazuli.dev/runtime/lazuli/storage\""));
-        assert!(
-            out.contains("var customerExportApi = lazuli.Api[CustomerExportApiArgs, storage.FileRef]{")
-        );
+        assert!(out.contains(
+            "var customerExportApi = lazuli.Api[CustomerExportApiArgs, storage.FileRef]{"
+        ));
         assert!(!out.contains("_cap_File"));
     }
 
@@ -690,9 +694,9 @@ mod tests {
 
         let out = emit(&feature).expect("must emit");
         assert!(out.contains("\"lazuli.dev/runtime/lazuli/storage\""));
-        assert!(
-            out.contains("var customerExportApi = lazuli.Api[CustomerExportApiArgs, storage.FileRef]{")
-        );
+        assert!(out.contains(
+            "var customerExportApi = lazuli.Api[CustomerExportApiArgs, storage.FileRef]{"
+        ));
         assert!(!out.contains("_cap_File"));
     }
 
@@ -709,7 +713,9 @@ mod tests {
                 name: "CustomerSummary".to_owned(),
             }),
         );
-        api.rate_limit = Some(RateLimitSpec::from_default("60 per minute per user".to_owned()));
+        api.rate_limit = Some(RateLimitSpec::from_default(
+            "60 per minute per user".to_owned(),
+        ));
         feature.apis.push(api);
 
         let out = emit(&feature).expect("must emit");
@@ -766,7 +772,9 @@ func init() { lazuli.RegisterApi(&customerSummaryApi) }
         let module = module_with_features(vec![customer, org]);
         let out = emit_from_module(&module, 0).expect("must emit");
         assert!(out.contains("\"lazuli/test/org\""));
-        assert!(out.contains("var ownerProfileApi = lazuli.Api[OwnerProfileApiArgs, orggen.UserProfile]{"));
+        assert!(out.contains(
+            "var ownerProfileApi = lazuli.Api[OwnerProfileApiArgs, orggen.UserProfile]{"
+        ));
         assert!(out.contains("Method:  lazuli.MethodPost,"));
         assert!(out.contains("OwnerID lazuli.ID `json:\"owner_id\"`"));
     }
@@ -820,7 +828,10 @@ func init() { lazuli.RegisterApi(&customerSummaryApi) }
             out.contains("\"lazuli.dev/runtime/lazuli/billing\""),
             "billing import missing:\n{out}"
         );
-        assert!(out.contains("\"billing-app/plan\""), "plan import missing:\n{out}");
+        assert!(
+            out.contains("\"billing-app/plan\""),
+            "plan import missing:\n{out}"
+        );
         assert!(
             out.contains("Prelude: []billing.GateRef{"),
             "Prelude field missing:\n{out}"
@@ -963,7 +974,9 @@ mod feature_emit_tests {
                 policy: PolicyRef::Local("read".to_owned()),
                 policy_expr: None,
                 policy_when_denied: None,
-                rate_limit: Some(RateLimitSpec::from_default("30 per minute per user".to_owned())),
+                rate_limit: Some(RateLimitSpec::from_default(
+                    "30 per minute per user".to_owned(),
+                )),
                 output: TypeRef::Many(Box::new(TypeRef::Builtin(BuiltinType::Text))),
                 handler: PathRef::authored("./api/list_products.go"),
                 locale_negotiate: None,

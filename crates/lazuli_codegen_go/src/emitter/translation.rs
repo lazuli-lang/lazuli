@@ -112,7 +112,10 @@ pub fn emit_translation_file(
     imports.add("embed");
     imports.add("lazuli.dev/runtime/lazuli");
 
-    p.banner(source_label, &super::casing::gen_package_name(&feature.name));
+    p.banner(
+        source_label,
+        &super::casing::gen_package_name(&feature.name),
+    );
     imports.emit(&mut p);
     p.blank();
 
@@ -501,7 +504,11 @@ mod tests {
         // BTreeMap walk: "policy_denied" < "welcome_title".
         let p_idx = pt_br.contents.find("\"policy_denied\"").unwrap();
         let w_idx = pt_br.contents.find("\"welcome_title\"").unwrap();
-        assert!(p_idx < w_idx, "JSON keys must be sorted:\n{}", pt_br.contents);
+        assert!(
+            p_idx < w_idx,
+            "JSON keys must be sorted:\n{}",
+            pt_br.contents
+        );
     }
 
     #[test]

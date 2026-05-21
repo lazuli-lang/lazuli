@@ -5,7 +5,7 @@
 //! Go references runtime symbols introduced by RUNTIME-1; this test compares
 //! strings only.
 
-use lazuli_codegen_go::{generate_v1, GeneratedFile, GoEmitOptions};
+use lazuli_codegen_go::{GeneratedFile, GoEmitOptions, generate_v1};
 use lazuli_ir::{
     Auth, AuthIdentity, AuthSessions, Defaults, Feature, FieldRef, Module, Policies, QualifiedName,
     RotationConfig,
@@ -131,7 +131,7 @@ fn empty_feature(name: &str) -> Feature {
         apis: Vec::new(),
         records: Vec::new(),
         queries: Vec::new(),
-            resume_routers: Vec::new(),
+        resume_routers: Vec::new(),
         workflows: Vec::new(),
         jobs: Vec::new(),
         webhooks: Vec::new(),

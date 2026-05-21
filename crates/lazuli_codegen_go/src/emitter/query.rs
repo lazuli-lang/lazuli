@@ -66,18 +66,26 @@ pub fn emit_query_file(
     // GateQuota) and `<module>/plan` (the package-wide Catalog;
     // unused here but kept in scope for handler-authored
     // `billing.CheckFeature(ctx, plan.Catalog, ...)` calls).
-    let any_gated = queries
-        .iter()
-        .any(|q| !emit_ctx.gates_for(query_callable_kind(q), q.name()).is_empty());
+    let any_gated = queries.iter().any(|q| {
+        !emit_ctx
+            .gates_for(query_callable_kind(q), q.name())
+            .is_empty()
+    });
     if any_gated {
         imports.add("lazuli.dev/runtime/lazuli/billing");
         imports.add(&format!("{module_name}/plan"));
     }
-    if queries.iter().any(|q| query_policy_denied_key(feature, q).is_some()) {
+    if queries
+        .iter()
+        .any(|q| query_policy_denied_key(feature, q).is_some())
+    {
         imports.add("lazuli.dev/runtime/lazuli/i18n");
     }
 
-    p.banner(source_label, &super::casing::gen_package_name(&feature.name));
+    p.banner(
+        source_label,
+        &super::casing::gen_package_name(&feature.name),
+    );
     imports.emit(&mut p);
     p.blank();
 
@@ -175,7 +183,13 @@ fn emit_list_query(
     if query.modifier.is_some() {
         p.line("// TODO(runtime): ListQuery.modifier is not yet in Lazuli Go lib.");
     }
-    emit_filters(p, feature, resource, &query.filters, query.owner_scope_sql.as_ref());
+    emit_filters(
+        p,
+        feature,
+        resource,
+        &query.filters,
+        query.owner_scope_sql.as_ref(),
+    );
     emit_order(p, feature, resource, &query.order);
     if let Some(page_size) = query.paginate {
         p.line(&format!("Paginate: {page_size},"));
@@ -757,11 +771,8 @@ fn emit_lookup_by_with_filters(
     let mut entries: Vec<(String, String)> =
         Vec::with_capacity(keys.len() + filters.len() + usize::from(owner_scope.is_some()));
     for key in keys {
-        let column = normalize_resource_column(
-            feature,
-            resource,
-            &column_from_segments(&key.path.segments),
-        );
+        let column =
+            normalize_resource_column(feature, resource, &column_from_segments(&key.path.segments));
         entries.push((column, format_source_expr(&key.equals)));
     }
     for filter in filters {
@@ -990,11 +1001,7 @@ fn format_path_source(segments: &[String]) -> String {
     }
 }
 
-fn column_from_expr(
-    expr: &Expr,
-    feature: &Feature,
-    resource: Option<&Resource>,
-) -> Option<String> {
+fn column_from_expr(expr: &Expr, feature: &Feature, resource: Option<&Resource>) -> Option<String> {
     match expr {
         Expr::Path(path) if !is_source_path(&path.segments) => Some(normalize_resource_column(
             feature,
@@ -1235,7 +1242,10 @@ fn format_cache_ttl(ttl: CacheTtlLiteral) -> String {
     }
 }
 
-pub(super) fn resource_for_query<'a>(feature: &'a Feature, query_name: &str) -> Option<&'a Resource> {
+pub(super) fn resource_for_query<'a>(
+    feature: &'a Feature,
+    query_name: &str,
+) -> Option<&'a Resource> {
     let mut resources: Vec<&Resource> = feature.resources.iter().collect();
     resources.sort_by(|a, b| a.name.cmp(&b.name));
     if resources.len() <= 1 {
@@ -1431,10 +1441,7 @@ fn emit_gate_annotations(p: &mut GoPrinter, gates: &[Gate]) {
                 ));
             }
             Gate::Quota { limit } => {
-                p.line(&format!(
-                    "{{Kind: billing.GateQuota, Name: {:?}}},",
-                    limit
-                ));
+                p.line(&format!("{{Kind: billing.GateQuota, Name: {:?}}},", limit));
             }
         }
     }
@@ -1916,9 +1923,7 @@ mod tests {
             params: Vec::new(),
             keys: vec![KeyClause {
                 path: lazuli_ir::Path::from_segments(["user_id"]),
-                equals: Expr::Path(lazuli_ir::Path::from_segments([
-                    "ctx", "actor", "user_id",
-                ])),
+                equals: Expr::Path(lazuli_ir::Path::from_segments(["ctx", "actor", "user_id"])),
             }],
             scope: Vec::new(),
             scope_override: false,
@@ -2014,15 +2019,11 @@ mod tests {
             keys: vec![
                 KeyClause {
                     path: lazuli_ir::Path::from_segments(["org"]),
-                    equals: Expr::Path(lazuli_ir::Path::from_segments([
-                        "ctx", "actor", "org_id",
-                    ])),
+                    equals: Expr::Path(lazuli_ir::Path::from_segments(["ctx", "actor", "org_id"])),
                 },
                 KeyClause {
                     path: lazuli_ir::Path::from_segments(["user"]),
-                    equals: Expr::Path(lazuli_ir::Path::from_segments([
-                        "ctx", "actor", "user_id",
-                    ])),
+                    equals: Expr::Path(lazuli_ir::Path::from_segments(["ctx", "actor", "user_id"])),
                 },
             ],
             scope: Vec::new(),
@@ -2111,15 +2112,11 @@ mod tests {
             keys: vec![
                 KeyClause {
                     path: lazuli_ir::Path::from_segments(["org"]),
-                    equals: Expr::Path(lazuli_ir::Path::from_segments([
-                        "ctx", "actor", "org_id",
-                    ])),
+                    equals: Expr::Path(lazuli_ir::Path::from_segments(["ctx", "actor", "org_id"])),
                 },
                 KeyClause {
                     path: lazuli_ir::Path::from_segments(["user"]),
-                    equals: Expr::Path(lazuli_ir::Path::from_segments([
-                        "ctx", "actor", "user_id",
-                    ])),
+                    equals: Expr::Path(lazuli_ir::Path::from_segments(["ctx", "actor", "user_id"])),
                 },
             ],
             scope: Vec::new(),
@@ -2172,15 +2169,11 @@ mod tests {
             keys: vec![
                 KeyClause {
                     path: lazuli_ir::Path::from_segments(["org"]),
-                    equals: Expr::Path(lazuli_ir::Path::from_segments([
-                        "ctx", "actor", "org_id",
-                    ])),
+                    equals: Expr::Path(lazuli_ir::Path::from_segments(["ctx", "actor", "org_id"])),
                 },
                 KeyClause {
                     path: lazuli_ir::Path::from_segments(["user"]),
-                    equals: Expr::Path(lazuli_ir::Path::from_segments([
-                        "ctx", "actor", "user_id",
-                    ])),
+                    equals: Expr::Path(lazuli_ir::Path::from_segments(["ctx", "actor", "user_id"])),
                 },
             ],
             scope: Vec::new(),
@@ -2242,7 +2235,9 @@ mod tests {
         let out = emit(&feature).expect("must emit");
         assert!(out.contains("type LifetimeValueArgs struct {"));
         assert!(out.contains("MinScore *int64 `json:\"min_score,omitempty\"`"));
-        assert!(out.contains("var lifetimeValue = lazuli.Query[LifetimeValueArgs, []CustomerLtv]{"));
+        assert!(
+            out.contains("var lifetimeValue = lazuli.Query[LifetimeValueArgs, []CustomerLtv]{")
+        );
         assert!(out.contains("Kind:     lazuli.QuerySQL,"));
         assert!(out.contains("SQL:     \"./queries/lifetime_value.sql\","));
         assert!(out.contains("Returns: \"CustomerLtv[]\","));
@@ -2398,7 +2393,10 @@ mod tests {
             owner_scope_sql: None,
         }));
         let out = emit(&feature).expect("must emit");
-        assert!(!out.contains("Prelude:"), "no Prelude when no gates:\n{out}");
+        assert!(
+            !out.contains("Prelude:"),
+            "no Prelude when no gates:\n{out}"
+        );
         assert!(
             !out.contains("\"lazuli.dev/runtime/lazuli/billing\""),
             "no billing import when no gates:\n{out}"
@@ -2668,7 +2666,13 @@ mod feature_emit {
         };
         let index = CrossFeatureIndex::build(&module);
         let emit_ctx = EmitContext::no_source("customer/query.gen.go");
-        emit_query_file("features/customer/customer.lzi", feature, "lazuli/test", &index, &emit_ctx)
+        emit_query_file(
+            "features/customer/customer.lzi",
+            feature,
+            "lazuli/test",
+            &index,
+            &emit_ctx,
+        )
     }
 
     fn base_feature(name: &str) -> Feature {
@@ -3005,7 +3009,9 @@ mod feature_emit {
                 field_name: "proposal".to_owned(),
                 fk_target: "BookingProposal".to_owned(),
                 through_column: "user".to_owned(),
-                where_predicate: "proposal IN (SELECT id FROM \"booking_proposal\" WHERE \"user\" = ctx.User.ID)".to_owned(),
+                where_predicate:
+                    "proposal IN (SELECT id FROM \"booking_proposal\" WHERE \"user\" = ctx.User.ID)"
+                        .to_owned(),
                 cte_owner_check: None,
             }),
         }));

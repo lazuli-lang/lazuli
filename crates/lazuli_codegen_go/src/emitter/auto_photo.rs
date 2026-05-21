@@ -1,13 +1,13 @@
-use std::collections::BTreeMap;
-use lazuli_ir::{
-    AutoPhotoCommandRole, Command, CommandEffect, CommandInput, Feature, Policies, PolicyRef,
-    TypeRef,
-};
 use super::casing::{gen_package_name, lower_camel, pascal_case};
 use super::command::effect_resource_pascal;
 use super::cross_feature::CrossFeatureIndex;
 use super::imports::ImportSet;
 use super::printer::GoPrinter;
+use lazuli_ir::{
+    AutoPhotoCommandRole, Command, CommandEffect, CommandInput, Feature, Policies, PolicyRef,
+    TypeRef,
+};
+use std::collections::BTreeMap;
 pub fn emit_auto_photo_file(
     source_label: &str,
     feature: &Feature,
@@ -151,27 +151,35 @@ fn emit_register_fn(
             let output = command_output_type(command);
             emit_go(
                 p,
-                &format!("lazuli.RegisterFn({qualified:?},\n\tfunc(ctx *lazuli.Ctx, input {input}) ({output}, error) {{\n\t\tres, err := lazuli.AutoPhotoRequest(ctx, {spec}, lazuli.AutoPhotoRequestArgs{{\n\t\t\tContentType: input.ContentType,\n\t\t\tSizeBytes:   input.SizeBytes,\n\t\t}})\n\t\tif err != nil {{\n\t\t\treturn {output}{{}}, err\n\t\t}}\n\t\treturn {output}{{\n\t\t\tURL:                res.URL,\n\t\t\tMethod:             res.Method,\n\t\t\tHeadersContentType: res.HeadersContentType,\n\t\t\tKey:                res.Key,\n\t\t\tExpiresAt:          lazuli.Time(res.ExpiresAt),\n\t\t}}, nil\n\t}})"),
+                &format!(
+                    "lazuli.RegisterFn({qualified:?},\n\tfunc(ctx *lazuli.Ctx, input {input}) ({output}, error) {{\n\t\tres, err := lazuli.AutoPhotoRequest(ctx, {spec}, lazuli.AutoPhotoRequestArgs{{\n\t\t\tContentType: input.ContentType,\n\t\t\tSizeBytes:   input.SizeBytes,\n\t\t}})\n\t\tif err != nil {{\n\t\t\treturn {output}{{}}, err\n\t\t}}\n\t\treturn {output}{{\n\t\t\tURL:                res.URL,\n\t\t\tMethod:             res.Method,\n\t\t\tHeadersContentType: res.HeadersContentType,\n\t\t\tKey:                res.Key,\n\t\t\tExpiresAt:          lazuli.Time(res.ExpiresAt),\n\t\t}}, nil\n\t}})"
+                ),
             );
         }
         AutoPhotoCommandRole::Confirm => {
             let input = command_input_type(command);
             emit_go(
                 p,
-                &format!("lazuli.RegisterFn({qualified:?},\n\tfunc(ctx *lazuli.Ctx, input {input}) (struct{{}}, error) {{\n\t\treturn struct{{}}{{}}, lazuli.AutoPhotoConfirm(ctx, {spec}, lazuli.AutoPhotoConfirmArgs{{\n\t\t\tKey: input.Key,\n\t\t}})\n\t}})"),
+                &format!(
+                    "lazuli.RegisterFn({qualified:?},\n\tfunc(ctx *lazuli.Ctx, input {input}) (struct{{}}, error) {{\n\t\treturn struct{{}}{{}}, lazuli.AutoPhotoConfirm(ctx, {spec}, lazuli.AutoPhotoConfirmArgs{{\n\t\t\tKey: input.Key,\n\t\t}})\n\t}})"
+                ),
             );
         }
         AutoPhotoCommandRole::Clear => {
             emit_go(
                 p,
-                &format!("lazuli.RegisterFn({qualified:?},\n\tfunc(ctx *lazuli.Ctx, _ struct{{}}) (struct{{}}, error) {{\n\t\treturn struct{{}}{{}}, lazuli.AutoPhotoClear(ctx, {spec})\n\t}})"),
+                &format!(
+                    "lazuli.RegisterFn({qualified:?},\n\tfunc(ctx *lazuli.Ctx, _ struct{{}}) (struct{{}}, error) {{\n\t\treturn struct{{}}{{}}, lazuli.AutoPhotoClear(ctx, {spec})\n\t}})"
+                ),
             );
         }
         AutoPhotoCommandRole::GetUrl => {
             let output = command_output_type(command);
             emit_go(
                 p,
-                &format!("lazuli.RegisterFn({qualified:?},\n\tfunc(ctx *lazuli.Ctx, _ struct{{}}) ({output}, error) {{\n\t\tres, err := lazuli.AutoPhotoGetURL(ctx, {spec})\n\t\tif err != nil {{\n\t\t\treturn {output}{{}}, err\n\t\t}}\n\t\tif res.URL == \"\" {{\n\t\t\treturn {output}{{}}, nil\n\t\t}}\n\t\turl := res.URL\n\t\texpires := lazuli.Time(res.ExpiresAt)\n\t\treturn {output}{{\n\t\t\tURL:       &url,\n\t\t\tExpiresAt: &expires,\n\t\t}}, nil\n\t}})"),
+                &format!(
+                    "lazuli.RegisterFn({qualified:?},\n\tfunc(ctx *lazuli.Ctx, _ struct{{}}) ({output}, error) {{\n\t\tres, err := lazuli.AutoPhotoGetURL(ctx, {spec})\n\t\tif err != nil {{\n\t\t\treturn {output}{{}}, err\n\t\t}}\n\t\tif res.URL == \"\" {{\n\t\t\treturn {output}{{}}, nil\n\t\t}}\n\t\turl := res.URL\n\t\texpires := lazuli.Time(res.ExpiresAt)\n\t\treturn {output}{{\n\t\t\tURL:       &url,\n\t\t\tExpiresAt: &expires,\n\t\t}}, nil\n\t}})"
+                ),
             );
         }
     }
@@ -286,7 +294,9 @@ mod tests {
     }
     #[test]
     fn emit_auto_photo_file_emits_one_init_block_per_site() {
-        let feature = lower_feature("feature photoshare\n  defaults\n    tenancy org\n\n  uses org\n  uses account\n\n  policies\n    photoshare_only: @scope.authenticated, @role.host\n\n  domain\n    resource PhotoShare\n      org: Org required\n      user: User required unique\n      avatar: @cap.File(max_size:5mb,accept:image/jpeg,visibility:signed,signed_ttl:1h) optional\n");
+        let feature = lower_feature(
+            "feature photoshare\n  defaults\n    tenancy org\n\n  uses org\n  uses account\n\n  policies\n    photoshare_only: @scope.authenticated, @role.host\n\n  domain\n    resource PhotoShare\n      org: Org required\n      user: User required unique\n      avatar: @cap.File(max_size:5mb,accept:image/jpeg,visibility:signed,signed_ttl:1h) optional\n",
+        );
         let module = module_with(feature.clone());
         let index = CrossFeatureIndex::build(&module);
         let out = emit_auto_photo_file("test", &feature, "test-module", &index)

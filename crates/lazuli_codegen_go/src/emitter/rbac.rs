@@ -14,7 +14,7 @@ use lazuli_ir::{Module, PermissionEntry, RoleEntry};
 
 use super::casing::pascal_case;
 use super::imports::ImportSet;
-use super::patterns::{emit_pattern_header, PATTERN_RBAC_REGISTER};
+use super::patterns::{PATTERN_RBAC_REGISTER, emit_pattern_header};
 use super::printer::GoPrinter;
 
 /// Emit `dist/go/rbac/rbac.gen.go` for the package, or `None` when

@@ -34,7 +34,10 @@ pub fn emit_poller_file(source_label: &str, feature: &Feature) -> Option<String>
     imports.add("time");
     imports.add("lazuli.dev/runtime/lazuli/poller");
 
-    p.banner(source_label, &super::casing::gen_package_name(&feature.name));
+    p.banner(
+        source_label,
+        &super::casing::gen_package_name(&feature.name),
+    );
     imports.emit(&mut p);
     p.blank();
 
@@ -75,7 +78,10 @@ pub fn emit_poller_file(source_label: &str, feature: &Feature) -> Option<String>
 
 fn emit_register_call(p: &mut GoPrinter, feature: &Feature, poll: &Poller) {
     p.blank();
-    p.line(&format!("// poller `{}` over `{}`.", poll.name, poll.source));
+    p.line(&format!(
+        "// poller `{}` over `{}`.",
+        poll.name, poll.source
+    ));
     p.line(&format!(
         "poller.Register(r, poller.Spec[{row_type}, {state_type}, {term_type}, {result_type}]{{",
         row_type = pascal_case(&poll.source),
@@ -121,7 +127,10 @@ fn emit_register_call(p: &mut GoPrinter, feature: &Feature, poll: &Poller) {
     p.line("Retry: poller.Retry{");
     p.indent();
     p.line(&format!("MaxAttempts: {},", poll.retry.max_attempts));
-    p.line(&format!("Backoff:     {},", backoff_literal(&poll.retry.backoff)));
+    p.line(&format!(
+        "Backoff:     {},",
+        backoff_literal(&poll.retry.backoff)
+    ));
     p.dedent();
     p.line("},");
 
@@ -150,16 +159,10 @@ fn emit_register_call(p: &mut GoPrinter, feature: &Feature, poll: &Poller) {
 
     // Optional fields
     if let Some(f) = &poll.terminal_status_field {
-        p.line(&format!(
-            "TerminalStatusField: \"{}\",",
-            escape_string(f)
-        ));
+        p.line(&format!("TerminalStatusField: \"{}\",", escape_string(f)));
     }
     if let Some(f) = &poll.terminal_result_field {
-        p.line(&format!(
-            "TerminalResultField: \"{}\",",
-            escape_string(f)
-        ));
+        p.line(&format!("TerminalResultField: \"{}\",", escape_string(f)));
     }
     if let Some(t) = &poll.tenant_from {
         p.line(&format!(
@@ -245,10 +248,7 @@ fn backoff_literal(b: &PollerBackoff) -> String {
                 .as_deref()
                 .map(|c| format!(", Cap: {}", duration_literal(c)))
                 .unwrap_or_default();
-            format!(
-                "poller.Linear{{Base: {}{cap_lit}}}",
-                duration_literal(base)
-            )
+            format!("poller.Linear{{Base: {}{cap_lit}}}", duration_literal(base))
         }
         PollerBackoff::Exponential { base, cap } => {
             let cap_lit = cap
@@ -314,8 +314,8 @@ fn escape_string(raw: &str) -> String {
 mod tests {
     use super::*;
     use lazuli_ir::{
-        Defaults, Feature, HandlerRef, IdempotencyKey, Path as IrPath, Poller, PollerBackoff,
-        PollerCursor, PollerRetry, PollerState, PollerStateKind, PollerTick, Policies,
+        Defaults, Feature, HandlerRef, IdempotencyKey, Path as IrPath, Policies, Poller,
+        PollerBackoff, PollerCursor, PollerRetry, PollerState, PollerStateKind, PollerTick,
         TenantFromSpec,
     };
 
@@ -445,4 +445,3 @@ mod tests {
         assert!(emit_poller_file("x.lzi", &feat).is_none());
     }
 }
-

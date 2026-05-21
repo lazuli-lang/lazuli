@@ -23,7 +23,7 @@ use lazuli_ir::{Feature, Query};
 
 use super::casing::{lower_camel, pascal_case};
 use super::command::{command_var_name, effect_resource_pascal};
-use super::patterns::{emit_pattern_header, PATTERN_FEATURE_REGISTER};
+use super::patterns::{PATTERN_FEATURE_REGISTER, emit_pattern_header};
 use super::printer::GoPrinter;
 use super::query::{list_var_name, lookup_var_name, resource_for_query};
 
@@ -67,7 +67,10 @@ pub fn emit_register_file(source_label: &str, feature: &Feature) -> Option<Strin
     }
 
     let mut p = GoPrinter::new();
-    p.banner(source_label, &super::casing::gen_package_name(&feature.name));
+    p.banner(
+        source_label,
+        &super::casing::gen_package_name(&feature.name),
+    );
     p.line("import \"lazuli.dev/runtime/lazuli\"");
     p.blank();
     p.line("// Registers every Resource, Command, and Query in this feature with");

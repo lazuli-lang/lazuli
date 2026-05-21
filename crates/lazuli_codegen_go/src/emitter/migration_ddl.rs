@@ -306,9 +306,7 @@ fn resource_columns<'a>(
                 f.type_ref,
                 lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticCurrency)
             ) {
-                f.name
-                    .strip_suffix("_currency")
-                    .map(|stem| stem.to_owned())
+                f.name.strip_suffix("_currency").map(|stem| stem.to_owned())
             } else {
                 None
             }
@@ -328,9 +326,8 @@ fn resource_columns<'a>(
             None => column,
         };
         columns.push(column);
-        if let lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticMoney {
-            currency,
-        }) = field.type_ref
+        if let lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticMoney { currency }) =
+            field.type_ref
         {
             if explicit_currency_overrides.contains(&field.name) {
                 // Paired column was authored explicitly — defer to the
@@ -738,9 +735,10 @@ fn pg_type_for_capability(capability: &CapabilityRef) -> PgType {
 /// each encrypted column resolves through.
 fn encryption_marker_for(field: &Field) -> Option<String> {
     match &field.type_ref {
-        TypeRef::Capability(CapabilityRef::Encrypted(cap)) => {
-            Some(format!("lazuli:encrypted {} algorithm=aes_256_gcm", cap.key))
-        }
+        TypeRef::Capability(CapabilityRef::Encrypted(cap)) => Some(format!(
+            "lazuli:encrypted {} algorithm=aes_256_gcm",
+            cap.key
+        )),
         TypeRef::Capability(CapabilityRef::E2ee(cap)) => {
             Some(format!("lazuli:e2ee {} algorithm=aes_256_gcm", cap.key))
         }
@@ -893,10 +891,7 @@ fn topo_sort_resources<'a>(
             resources.len() - ordered.len(),
             resources.len()
         );
-        let mut remainder: Vec<&Key> = in_degree
-            .keys()
-            .filter(|k| !emitted.contains(*k))
-            .collect();
+        let mut remainder: Vec<&Key> = in_degree.keys().filter(|k| !emitted.contains(*k)).collect();
         remainder.sort();
         for k in remainder {
             if let Some(&idx) = by_key.get(k) {
@@ -1036,23 +1031,107 @@ fn is_plain_sql_ident(raw: &str) -> bool {
 fn is_sql_reserved_word(raw: &str) -> bool {
     matches!(
         raw,
-        "all" | "analyse" | "analyze" | "and" | "any" | "array" | "as" | "asc"
-        | "asymmetric" | "authorization" | "binary" | "both" | "case" | "cast"
-        | "check" | "collate" | "collation" | "column" | "concurrently"
-        | "constraint" | "create" | "cross" | "current_catalog" | "current_date"
-        | "current_role" | "current_schema" | "current_time" | "current_timestamp"
-        | "current_user" | "default" | "deferrable" | "desc" | "distinct" | "do"
-        | "else" | "end" | "except" | "false" | "fetch" | "for" | "foreign"
-        | "freeze" | "from" | "full" | "grant" | "group" | "having" | "ilike"
-        | "in" | "initially" | "inner" | "intersect" | "into" | "is" | "isnull"
-        | "join" | "lateral" | "leading" | "left" | "like" | "limit" | "localtime"
-        | "localtimestamp" | "natural" | "not" | "notnull" | "null" | "offset"
-        | "on" | "only" | "or" | "order" | "outer" | "overlaps" | "placing"
-        | "primary" | "references" | "returning" | "right" | "select"
-        | "session_user" | "similar" | "some" | "symmetric" | "system_user"
-        | "table" | "tablesample" | "then" | "to" | "trailing" | "true" | "union"
-        | "unique" | "user" | "using" | "variadic" | "verbose" | "when" | "where"
-        | "window" | "with"
+        "all"
+            | "analyse"
+            | "analyze"
+            | "and"
+            | "any"
+            | "array"
+            | "as"
+            | "asc"
+            | "asymmetric"
+            | "authorization"
+            | "binary"
+            | "both"
+            | "case"
+            | "cast"
+            | "check"
+            | "collate"
+            | "collation"
+            | "column"
+            | "concurrently"
+            | "constraint"
+            | "create"
+            | "cross"
+            | "current_catalog"
+            | "current_date"
+            | "current_role"
+            | "current_schema"
+            | "current_time"
+            | "current_timestamp"
+            | "current_user"
+            | "default"
+            | "deferrable"
+            | "desc"
+            | "distinct"
+            | "do"
+            | "else"
+            | "end"
+            | "except"
+            | "false"
+            | "fetch"
+            | "for"
+            | "foreign"
+            | "freeze"
+            | "from"
+            | "full"
+            | "grant"
+            | "group"
+            | "having"
+            | "ilike"
+            | "in"
+            | "initially"
+            | "inner"
+            | "intersect"
+            | "into"
+            | "is"
+            | "isnull"
+            | "join"
+            | "lateral"
+            | "leading"
+            | "left"
+            | "like"
+            | "limit"
+            | "localtime"
+            | "localtimestamp"
+            | "natural"
+            | "not"
+            | "notnull"
+            | "null"
+            | "offset"
+            | "on"
+            | "only"
+            | "or"
+            | "order"
+            | "outer"
+            | "overlaps"
+            | "placing"
+            | "primary"
+            | "references"
+            | "returning"
+            | "right"
+            | "select"
+            | "session_user"
+            | "similar"
+            | "some"
+            | "symmetric"
+            | "system_user"
+            | "table"
+            | "tablesample"
+            | "then"
+            | "to"
+            | "trailing"
+            | "true"
+            | "union"
+            | "unique"
+            | "user"
+            | "using"
+            | "variadic"
+            | "verbose"
+            | "when"
+            | "where"
+            | "window"
+            | "with"
     )
 }
 
@@ -1950,9 +2029,11 @@ DROP TABLE IF EXISTS \"customer\";
         // a CHECK constraint pinned to the declared ISO and a DEFAULT
         // so ALTER-time inserts cannot drift.
         assert!(sql.contains("cents NUMERIC(20,4) NOT NULL"));
-        assert!(sql.contains(
-            "cents_currency TEXT NOT NULL CHECK (cents_currency = 'BRL') DEFAULT 'BRL'"
-        ));
+        assert!(
+            sql.contains(
+                "cents_currency TEXT NOT NULL CHECK (cents_currency = 'BRL') DEFAULT 'BRL'"
+            )
+        );
     }
 
     #[test]
@@ -2297,7 +2378,10 @@ DROP TABLE IF EXISTS \"customer\";
         let mut referenced: HashSet<String> = HashSet::new();
         for file in &files {
             for line in file.contents.lines() {
-                if let Some(rest) = line.trim_start().strip_prefix("CREATE TABLE IF NOT EXISTS ") {
+                if let Some(rest) = line
+                    .trim_start()
+                    .strip_prefix("CREATE TABLE IF NOT EXISTS ")
+                {
                     if let Some(name) = rest
                         .split_whitespace()
                         .next()
@@ -2380,8 +2464,12 @@ DROP TABLE IF EXISTS \"customer\";
             files
                 .iter()
                 .position(|file| file.path.ends_with(suffix))
-                .unwrap_or_else(|| panic!("expected file ending with {suffix}; got {:#?}",
-                    files.iter().map(|f| &f.path).collect::<Vec<_>>()))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "expected file ending with {suffix}; got {:#?}",
+                        files.iter().map(|f| &f.path).collect::<Vec<_>>()
+                    )
+                })
         };
 
         let profile = pos("_zeta_profile.sql");

@@ -68,7 +68,10 @@ pub fn emit_webhook_file(
         imports.add(&format!("{module_name}/plan"));
     }
 
-    p.banner(source_label, &super::casing::gen_package_name(&feature.name));
+    p.banner(
+        source_label,
+        &super::casing::gen_package_name(&feature.name),
+    );
     imports.emit(&mut p);
     p.blank();
 
@@ -169,11 +172,7 @@ fn emit_webhook(
     // DSL authored at least one `when <predicate>` clause; the flat
     // shape (all predicates absent) leaves `EmitBindings` empty so
     // legacy runtime behaviour is unchanged.
-    if webhook
-        .emit_predicates
-        .iter()
-        .any(|p| p.as_ref().is_some())
-    {
+    if webhook.emit_predicates.iter().any(|p| p.as_ref().is_some()) {
         kv_rows.push((
             "EmitBindings:".to_owned(),
             format_emit_bindings(&webhook.emits, &webhook.emit_predicates),
@@ -429,10 +428,7 @@ fn emit_gate_annotations(p: &mut GoPrinter, gates: &[Gate]) {
                 ));
             }
             Gate::Quota { limit } => {
-                p.line(&format!(
-                    "{{Kind: billing.GateQuota, Name: {:?}}},",
-                    limit
-                ));
+                p.line(&format!("{{Kind: billing.GateQuota, Name: {:?}}},", limit));
             }
         }
     }
@@ -796,7 +792,9 @@ mod feature_emit_tests {
         assert!(out.contains("var MercadopagoCallbackWebhook = webhooks.WebhookContract{"));
         assert!(out.contains("Route:       \"/webhooks/mercadopago\","));
         assert!(out.contains("HandlerPath: \"./webhooks/mercadopago_callback.go\","));
-        assert!(out.contains("Retry:       &jobs.RetryPolicy{Count: 3, Backoff: jobs.BackoffFixed},"));
+        assert!(
+            out.contains("Retry:       &jobs.RetryPolicy{Count: 3, Backoff: jobs.BackoffFixed},")
+        );
     }
 
     #[test]
@@ -882,10 +880,7 @@ mod feature_emit_tests {
         let mut feature = base_feature("payments");
         let mut webhook = base_webhook("mp_payment");
         webhook.structured_verify = Some(hmac_verify());
-        webhook.emits = vec![
-            "charge_confirmed".to_owned(),
-            "charge_failed".to_owned(),
-        ];
+        webhook.emits = vec!["charge_confirmed".to_owned(), "charge_failed".to_owned()];
         // emit_predicates intentionally empty — flat shape.
         feature.webhooks.push(webhook);
         let out = emit(&feature).expect("must emit");

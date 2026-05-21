@@ -1,0 +1,9 @@
+{
+  "archive_archived_blocked": "Não é possível reatribuir um cliente arquivado",
+  "archive_deleted_blocked": "Não é possível arquivar um cliente excluído",
+  "capture_lead_signin_required": "Para capturar um lead, entre na sua conta primeiro.",
+  "customer_invalid_input": "Os dados do cliente estão incompletos ou incorretos.",
+  "customer_signin_required": "Para gerenciar clientes, entre na sua conta primeiro.",
+  "customer_update_admin_only": "Apenas administradores ou vendedores podem atualizar este cliente.",
+  "enterprise_owner_required": "Clientes enterprise exigem um proprietário antes da ativação"
+}

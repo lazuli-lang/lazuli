@@ -30,7 +30,7 @@
 //! Smoke tests that drive `go build` will fail until RUNTIME-1 lands;
 //! that is expected and out of scope for this cell.
 
-use lazuli_codegen_go::{generate_v1, GoEmitOptions};
+use lazuli_codegen_go::{GoEmitOptions, generate_v1};
 use lazuli_ir::{
     Command, CommandEffect, CommandInput, CommandKind, Defaults, ErrorExposureDefault, Feature,
     FeatureErrorMessage, FeatureErrors, Module, Policies, PolicyRef, TranslationKeyRef,
@@ -65,7 +65,7 @@ fn empty_feature(name: &str) -> Feature {
         apis: Vec::new(),
         records: Vec::new(),
         queries: Vec::new(),
-            resume_routers: Vec::new(),
+        resume_routers: Vec::new(),
         workflows: Vec::new(),
         jobs: Vec::new(),
         webhooks: Vec::new(),
@@ -137,10 +137,7 @@ fn module_with(features: Vec<Feature>) -> Module {
     }
 }
 
-fn file_contents<'a>(
-    files: &'a [lazuli_codegen_go::GeneratedFile],
-    path: &str,
-) -> Option<&'a str> {
+fn file_contents<'a>(files: &'a [lazuli_codegen_go::GeneratedFile], path: &str) -> Option<&'a str> {
     files
         .iter()
         .find(|file| file.path == path)
@@ -261,9 +258,8 @@ fn feature_errors_block_lowers_to_errors_gen_go_and_app_registry() {
     );
 
     // App-level registry — exists and registers the feature.
-    let app_resolution = file_contents(&files, "app/error_resolution.gen.go").expect(
-        "expected app/error_resolution.gen.go when at least one feature declares errors",
-    );
+    let app_resolution = file_contents(&files, "app/error_resolution.gen.go")
+        .expect("expected app/error_resolution.gen.go when at least one feature declares errors");
     assert!(
         app_resolution.contains("\npackage app\n"),
         "error_resolution.gen.go must declare `package app`:\n{app_resolution}"

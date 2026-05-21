@@ -119,8 +119,8 @@ fn split_words(s: &str) -> Vec<String> {
             continue;
         }
         if ch.is_ascii_uppercase() {
-            let prev_lower = i > 0
-                && (chars[i - 1].is_ascii_lowercase() || chars[i - 1].is_ascii_digit());
+            let prev_lower =
+                i > 0 && (chars[i - 1].is_ascii_lowercase() || chars[i - 1].is_ascii_digit());
             let next_lower = i + 1 < chars.len() && chars[i + 1].is_ascii_lowercase();
             if !current.is_empty() && (prev_lower || next_lower) {
                 // A new word starts here either because we just left a
@@ -162,18 +162,12 @@ mod tests {
 
     #[test]
     fn lower_camel_pascal_input() {
-        assert_eq!(
-            lower_camel("CustomerImportBatch"),
-            "customerImportBatch"
-        );
+        assert_eq!(lower_camel("CustomerImportBatch"), "customerImportBatch");
     }
 
     #[test]
     fn lower_camel_snake_input() {
-        assert_eq!(
-            lower_camel("customer_import_batch"),
-            "customerImportBatch"
-        );
+        assert_eq!(lower_camel("customer_import_batch"), "customerImportBatch");
     }
 
     #[test]

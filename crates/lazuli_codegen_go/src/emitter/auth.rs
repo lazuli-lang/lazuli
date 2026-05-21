@@ -51,7 +51,10 @@ pub fn emit_auth_file(
         imports.add("time");
     }
 
-    p.banner(source_label, &super::casing::gen_package_name(&feature.name));
+    p.banner(
+        source_label,
+        &super::casing::gen_package_name(&feature.name),
+    );
     imports.emit(&mut p);
     p.blank();
 
@@ -751,7 +754,9 @@ mod tests {
             algorithm: "argon2id".to_owned(),
             hash: "@fn.hash_customer_password".to_owned(),
             verify: "@fn.verify_customer_password".to_owned(),
-            rate_limit: Some(lazuli_ir::RateLimitSpec::from_default("5 per 10 minutes".to_owned())),
+            rate_limit: Some(lazuli_ir::RateLimitSpec::from_default(
+                "5 per 10 minutes".to_owned(),
+            )),
         });
         auth.sessions = Some(AuthSessions {
             resource: qname("CustomerSession"),

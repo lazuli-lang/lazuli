@@ -29,7 +29,9 @@ mod smoke_e2e {
 
         let db_url = smoke_db_url();
         if let Err(err) = apply_generated_migrations(tempdir.path(), &db_url) {
-            eprintln!("smoke_e2e: skipping auth wrong-password HTTP assertions; DB unavailable or migrations failed: {err}");
+            eprintln!(
+                "smoke_e2e: skipping auth wrong-password HTTP assertions; DB unavailable or migrations failed: {err}"
+            );
             return;
         }
 

@@ -13,7 +13,7 @@
 
 use std::collections::BTreeMap;
 
-use lazuli_codegen_go::{generate_v1, GoEmitOptions};
+use lazuli_codegen_go::{GoEmitOptions, generate_v1};
 use lazuli_ir::{
     AppManifest, Assignment, BuiltinType, Command, CommandEffect, CommandInput, CommandKind,
     CreateEffect, Defaults, DeleteEffect, Expr, Feature, Field, FieldConstraints, Module, Path,

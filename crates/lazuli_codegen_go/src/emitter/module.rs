@@ -20,13 +20,15 @@ use super::command::emit_command_file;
 use super::cross_feature::CrossFeatureIndex;
 use super::deps::{GO_POSTGIS_DEP, TransitiveDep};
 use super::enums::emit_enum_file;
-use super::error_resolver::{APP_ERROR_RESOLUTION_PATH, emit_app_error_resolution, emit_feature_errors_file};
+use super::error_resolver::{
+    APP_ERROR_RESOLUTION_PATH, emit_app_error_resolution, emit_feature_errors_file,
+};
 use super::events::emit_events_file;
 use super::handlers::emit_handler_stubs;
 use super::imports::ImportSet;
 use super::job::emit_job_file;
-use super::mcp_server::emit_mcp_server_file;
 use super::lint::check_generated_file;
+use super::mcp_server::emit_mcp_server_file;
 use super::migration::emit_migration_file;
 use super::migration_ddl::emit_migrations;
 use super::notification::emit_notification_file;
@@ -112,7 +114,10 @@ impl<'a> EmitContext<'a> {
         let Some(map) = self.gates else {
             return &[];
         };
-        let key = format!("{}/{}:{}", self.current_feature, callable_kind, callable_name);
+        let key = format!(
+            "{}/{}:{}",
+            self.current_feature, callable_kind, callable_name
+        );
         map.get(&key).map(|v| v.as_slice()).unwrap_or(&[])
     }
 
@@ -477,8 +482,7 @@ pub fn emit_module(
         // for every Resource/Command/Query in this feature. Required
         // before `lazuli.Mux()` can route HTTP. Skipped when the feature
         // declares none of those (output stays signal-rich).
-        if let Some(contents) =
-            crate::emitter::register::emit_register_file(&source_label, feature)
+        if let Some(contents) = crate::emitter::register::emit_register_file(&source_label, feature)
         {
             let register_path = format!("{name}/register.gen.go", name = feature.name);
             files.push(GeneratedFile {
@@ -672,9 +676,13 @@ pub fn emit_module(
             let emit_ctx =
                 EmitContext::for_feature(source_context, &source_label, &feature.name, &api_path)
                     .with_gates(gate_map);
-            if let Some(contents) =
-                emit_api_file(&source_label, feature, &module_name, &cross_index, &emit_ctx)
-            {
+            if let Some(contents) = emit_api_file(
+                &source_label,
+                feature,
+                &module_name,
+                &cross_index,
+                &emit_ctx,
+            ) {
                 files.push(GeneratedFile {
                     path: api_path,
                     contents,
@@ -841,8 +849,7 @@ fn emit_go_mod(
     sorted_deps.sort_by_key(|dep| dep.module);
     sorted_deps.dedup_by_key(|dep| dep.module);
 
-    let any_require =
-        !workspace_mode || !plugin_requires.is_empty() || !sorted_deps.is_empty();
+    let any_require = !workspace_mode || !plugin_requires.is_empty() || !sorted_deps.is_empty();
 
     if any_require {
         p.blank();

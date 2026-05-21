@@ -131,7 +131,10 @@ pub fn emit_events_file(
         }
     }
 
-    p.banner(source_label, &super::casing::gen_package_name(&feature.name));
+    p.banner(
+        source_label,
+        &super::casing::gen_package_name(&feature.name),
+    );
     if !imports.is_empty() {
         imports.emit(&mut p);
         p.blank();
@@ -691,7 +694,7 @@ mod tests {
             name: "test".to_owned(),
             title: None,
             version: None,
-        lazuli_version: None,
+            lazuli_version: None,
             targets: Vec::new(),
             default_locale: None,
             default_timezone: None,
