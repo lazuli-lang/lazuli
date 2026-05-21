@@ -2923,51 +2923,56 @@ fn classify_me_mode(resource: &ir::Resource) -> Option<MeMode> {
 /// `KeyClause.equals` carries an `Expr::Path` per `Path::from_segments`).
 fn build_lookup_my_query(name: &str, resource: &str, mode: MeMode) -> ir::Query {
     let _ = resource; // reserved for future signature-mismatch detail
+    // Runtime `readCtx` (runtime/go/lazuli/handle.go:893) accepts only
+    // canonical snake-case ctx paths: `actor.user_id` / `actor.org_id`.
+    // PascalCase variants (`ctx.User.OrgID`) fall through to default
+    // and return 500 "unknown ctx path". Emit the canonical segments
+    // matching the existing commands' FromCtx convention.
     let keys: Vec<ir::KeyClause> = match mode {
-        // §5.3 user_keyed: WHERE org_id = ctx.User.OrgID AND "user" = ctx.User.ID
+        // §5.3 user_keyed: WHERE org_id = ctx.actor.org_id AND "user" = ctx.actor.user_id
         MeMode::UserKeyed => vec![
             ir::KeyClause {
                 path: ir::Path::from_segments(["org".to_owned()]),
                 equals: ir::Expr::Path(ir::Path::from_segments([
                     "ctx".to_owned(),
-                    "User".to_owned(),
-                    "OrgID".to_owned(),
+                    "actor".to_owned(),
+                    "org_id".to_owned(),
                 ])),
             },
             ir::KeyClause {
                 path: ir::Path::from_segments(["user".to_owned()]),
                 equals: ir::Expr::Path(ir::Path::from_segments([
                     "ctx".to_owned(),
-                    "User".to_owned(),
-                    "ID".to_owned(),
+                    "actor".to_owned(),
+                    "user_id".to_owned(),
                 ])),
             },
         ],
-        // §5.3 user_keyed_no_org: WHERE "user" = ctx.User.ID
+        // §5.3 user_keyed_no_org: WHERE "user" = ctx.actor.user_id
         MeMode::UserKeyedNoOrg => vec![ir::KeyClause {
             path: ir::Path::from_segments(["user".to_owned()]),
             equals: ir::Expr::Path(ir::Path::from_segments([
                 "ctx".to_owned(),
-                "User".to_owned(),
-                "ID".to_owned(),
+                "actor".to_owned(),
+                "user_id".to_owned(),
             ])),
         }],
-        // §5.3 org_keyed: WHERE org_id = ctx.User.OrgID
+        // §5.3 org_keyed: WHERE org_id = ctx.actor.org_id
         MeMode::OrgKeyed => vec![ir::KeyClause {
             path: ir::Path::from_segments(["org".to_owned()]),
             equals: ir::Expr::Path(ir::Path::from_segments([
                 "ctx".to_owned(),
-                "User".to_owned(),
-                "OrgID".to_owned(),
+                "actor".to_owned(),
+                "org_id".to_owned(),
             ])),
         }],
-        // §5.3 self_keyed: WHERE id = ctx.User.ID
+        // §5.3 self_keyed: WHERE id = ctx.actor.user_id
         MeMode::SelfKeyed => vec![ir::KeyClause {
             path: ir::Path::from_segments(["id".to_owned()]),
             equals: ir::Expr::Path(ir::Path::from_segments([
                 "ctx".to_owned(),
-                "User".to_owned(),
-                "ID".to_owned(),
+                "actor".to_owned(),
+                "user_id".to_owned(),
             ])),
         }],
     };
@@ -11634,7 +11639,7 @@ mod conventions_me_synth_tests {
                 match &lq.keys[0].equals {
                     ir::Expr::Path(p) => assert_eq!(
                         p.segments,
-                        vec!["ctx".to_owned(), "User".to_owned(), "OrgID".to_owned()]
+                        vec!["ctx".to_owned(), "actor".to_owned(), "org_id".to_owned()]
                     ),
                     other => panic!("expected Expr::Path for org, got {:?}", other),
                 }
@@ -11642,7 +11647,7 @@ mod conventions_me_synth_tests {
                 match &lq.keys[1].equals {
                     ir::Expr::Path(p) => assert_eq!(
                         p.segments,
-                        vec!["ctx".to_owned(), "User".to_owned(), "ID".to_owned()]
+                        vec!["ctx".to_owned(), "actor".to_owned(), "user_id".to_owned()]
                     ),
                     other => panic!("expected Expr::Path for user, got {:?}", other),
                 }
@@ -11688,7 +11693,7 @@ mod conventions_me_synth_tests {
                 match &lq.keys[0].equals {
                     ir::Expr::Path(p) => assert_eq!(
                         p.segments,
-                        vec!["ctx".to_owned(), "User".to_owned(), "ID".to_owned()]
+                        vec!["ctx".to_owned(), "actor".to_owned(), "user_id".to_owned()]
                     ),
                     other => panic!("expected Expr::Path, got {:?}", other),
                 }
@@ -11730,7 +11735,7 @@ mod conventions_me_synth_tests {
                 match &lq.keys[0].equals {
                     ir::Expr::Path(p) => assert_eq!(
                         p.segments,
-                        vec!["ctx".to_owned(), "User".to_owned(), "OrgID".to_owned()]
+                        vec!["ctx".to_owned(), "actor".to_owned(), "org_id".to_owned()]
                     ),
                     other => panic!("expected Expr::Path, got {:?}", other),
                 }
@@ -11772,7 +11777,7 @@ mod conventions_me_synth_tests {
                 match &lq.keys[0].equals {
                     ir::Expr::Path(p) => assert_eq!(
                         p.segments,
-                        vec!["ctx".to_owned(), "User".to_owned(), "ID".to_owned()]
+                        vec!["ctx".to_owned(), "actor".to_owned(), "user_id".to_owned()]
                     ),
                     other => panic!("expected Expr::Path, got {:?}", other),
                 }
