@@ -54,7 +54,7 @@ var createCustomer = lazuli.Command[CreateCustomerInput, Customer]{
 	Name:      "customer.create",
 	Resource:  &customerResource,
 	Policy:    lazuli.Policy{Name: "@policy.create", Atoms: []lazuli.PolicyAtom{{Namespace: "role", Name: "admin"}}},
-	RateLimit:  "30 per hour per ip",
+	RateLimit:  lazuli.RateLimit{Default: "30 per hour per ip"},
 	Audit:      lazuli.AuditDefault,
 	Validators: []lazuli.ValidatorRef{lazuli.V("email_check")},
 	Effect: lazuli.Creates(&customerResource, lazuli.Bindings{
@@ -81,7 +81,7 @@ var updateCustomerEmail = lazuli.Command[UpdateCustomerEmailInput, Customer]{
 	Name:      "customer.update_email",
 	Resource:  &customerResource,
 	Policy:    lazuli.Policy{Name: "@policy.update", Atoms: []lazuli.PolicyAtom{{Namespace: "role", Name: "admin"}}},
-	RateLimit:  "10 per hour per user",
+	RateLimit:  lazuli.RateLimit{Default: "10 per hour per user"},
 	Audit:      lazuli.AuditDefault,
 	Validators: []lazuli.ValidatorRef{lazuli.V("email_check")},
 	Effect: lazuli.Updates(&customerResource,
@@ -104,7 +104,7 @@ var archiveCustomer = lazuli.Command[ArchiveCustomerInput, Customer]{
 	Name:      "customer.archive",
 	Resource:  &customerResource,
 	Policy:    lazuli.Policy{Name: "@policy.delete", Atoms: []lazuli.PolicyAtom{{Namespace: "role", Name: "admin"}}},
-	RateLimit:  "10 per hour per user",
+	RateLimit:  lazuli.RateLimit{Default: "10 per hour per user"},
 	Audit:      lazuli.AuditDefault,
 	Effect: lazuli.Deletes(&customerResource, lazuli.Bindings{
 		"id": lazuli.FromInput("ID"),

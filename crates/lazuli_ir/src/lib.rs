@@ -81,6 +81,11 @@ pub struct RateLimitSpec {
     /// Source-order is preserved; the first matching entry wins.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub by_env: Vec<RateLimitByEnv>,
+    /// Span of the FIRST `rate_limit` line for this spec — points at the
+    /// default-declaring line. Per-`by_env` entries carry their own span.
+    /// Optional so synth-emitted specs without a source location work.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
 }
 
 impl RateLimitSpec {
@@ -93,6 +98,7 @@ impl RateLimitSpec {
         Self {
             default: s,
             by_env: Vec::new(),
+            span_ref: None,
         }
     }
 }
@@ -113,6 +119,9 @@ pub struct RateLimitByEnv {
     /// Limit string (e.g. `"100 per 10 minutes per ip"`) or the empty
     /// string when the source authored `"unlimited"` (proposal §4.4).
     pub limit: String,
+    /// Span of this `rate_limit ... in <envs>` line in the source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
 }
 
 /// ir-rate-limit-env-aware §4.3 — closed catalog of recognized

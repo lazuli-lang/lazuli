@@ -236,7 +236,20 @@ fn write_command(s: &mut String, feature: &RuntimeFeature, command: &RuntimeComm
     writeln!(s, "\tName:      \"{qualified_name}\",").ok();
     writeln!(s, "\tResource:  &{resource_var},").ok();
     write_policy(s, "\t", &command.policy_name, &command.policy_atoms);
-    writeln!(s, "\tRateLimit:  \"{}\",", command.rate_limit).ok();
+    // `ir-rate-limit-env-aware` Cell 2 — `RuntimeCommand.rate_limit`
+    // remains a plain `String` (separate spec model). Emit the
+    // env-qualified struct shape with no `by_env` entries; the runtime
+    // helper `Resolve()` returns the default for every env.
+    if command.rate_limit.is_empty() {
+        writeln!(s, "\tRateLimit:  lazuli.RateLimit{{}},").ok();
+    } else {
+        writeln!(
+            s,
+            "\tRateLimit:  lazuli.RateLimit{{Default: \"{}\"}},",
+            command.rate_limit
+        )
+        .ok();
+    }
     writeln!(s, "\tAudit:      lazuli.AuditDefault,").ok();
     if !command.validators.is_empty() {
         write!(s, "\tValidators: []lazuli.ValidatorRef{{").ok();

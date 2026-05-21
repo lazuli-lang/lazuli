@@ -5185,10 +5185,15 @@ fn lower_rate_limit_spec(spec: &syntax::RateLimitSpecAst) -> ir::RateLimitSpec {
                 envs: known,
                 unknown_envs: unknown,
                 limit: lower_rate_limit_literal(&entry.limit),
+                span_ref: None,
             }
         })
         .collect();
-    ir::RateLimitSpec { default, by_env }
+    ir::RateLimitSpec {
+        default,
+        by_env,
+        span_ref: None,
+    }
 }
 
 /// `ir-rate-limit-env-aware` cell 1 — lower a single literal into the

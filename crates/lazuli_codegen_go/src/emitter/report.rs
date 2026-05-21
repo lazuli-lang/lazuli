@@ -163,8 +163,11 @@ fn emit_report(p: &mut GoPrinter, feature: &Feature, report: &Report) {
     }
 
     if let Some(rate_limit) = &report.rate_limit {
-        // `ir-rate-limit-env-aware` cell 1 — codegen shim: read only the
-        // default literal; Cell 2 owns the env-qualified emission.
+        // `ir-rate-limit-env-aware` Cell 2 — `report.Contract.RateLimit`
+        // is a plain string in the report subpackage (its own contract,
+        // not the env-aware `lazuli.RateLimit` struct). Emit the
+        // unqualified default verbatim; env-aware reports would need a
+        // follow-up to extend `report.Contract`.
         p.line(&format!("RateLimit: {:?},", rate_limit.default));
     }
 

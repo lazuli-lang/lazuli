@@ -139,11 +139,14 @@ fn emit_api(
         ),
     ];
     if let Some(rate_limit) = &api.rate_limit {
-        // `ir-rate-limit-env-aware` cell 1 — codegen shim: read only the
-        // default literal; Cell 2 owns the env-qualified emission.
+        // `ir-rate-limit-env-aware` Cell 2 — emit env-qualified struct.
+        // Printer is at indent_level=1 inside the Api literal.
         kv_rows.push((
             "RateLimit:".to_owned(),
-            format!("\"{}\",", escape_string(&rate_limit.default)),
+            format!(
+                "{},",
+                super::command::format_rate_limit_struct(rate_limit, "\t")
+            ),
         ));
     }
     if let Some(deprecation) = &api.deprecated {
@@ -641,7 +644,7 @@ mod tests {
         );
         assert!(out.contains("Method:    lazuli.MethodGet,"));
         assert!(out.contains("Policy:    lazuli.Policy{Name: \"@policy.global_read\"},"));
-        assert!(out.contains("RateLimit: \"10 per hour per user\","));
+        assert!(out.contains("RateLimit: lazuli.RateLimit{Default: \"10 per hour per user\"},"));
         // Generated Api value still leaves Handler unset — the user
         // wires it post-codegen. Validation happens at boot via
         // `ValidateApiHandlers()`.
@@ -720,7 +723,7 @@ mod tests {
 	Method:    lazuli.MethodGet,
 	Path:      "/api/customer/{id}/summary",
 	Policy:    lazuli.Policy{Name: "@policy.read"},
-	RateLimit: "60 per minute per user",
+	RateLimit: lazuli.RateLimit{Default: "60 per minute per user"},
 }
 
 //lazuli:pattern api_register v1
@@ -960,9 +963,7 @@ mod feature_emit_tests {
                 policy: PolicyRef::Local("read".to_owned()),
                 policy_expr: None,
                 policy_when_denied: None,
-                rate_limit: Some(RateLimitSpec::from_default(
-                    "30 per minute per user".to_owned(),
-                )),
+                rate_limit: Some(RateLimitSpec::from_default("30 per minute per user".to_owned())),
                 output: TypeRef::Many(Box::new(TypeRef::Builtin(BuiltinType::Text))),
                 handler: PathRef::authored("./api/list_products.go"),
                 locale_negotiate: None,
@@ -1028,6 +1029,6 @@ mod feature_emit_tests {
         assert!(out.contains("CategoryID lazuli.ID `json:\"category_id\"`"));
         assert!(out.contains("var listProductsApi = lazuli.Api[ListProductsApiArgs, []string]{"));
         assert!(out.contains("Method:    lazuli.MethodGet,"));
-        assert!(out.contains("RateLimit: \"30 per minute per user\","));
+        assert!(out.contains("RateLimit: lazuli.RateLimit{Default: \"30 per minute per user\"},"));
     }
 }

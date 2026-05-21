@@ -17,8 +17,11 @@ import (
 
 const (
 	defaultMaxBodyBytes = 1 << 20 // 1 MiB
-	defaultMuxRateLimit = RateLimit("600 per minute per ip")
 )
+
+// `ir-rate-limit-env-aware` Cell 2 — `RateLimit` is now a struct, so
+// the package-default sits in a `var` rather than a `const` slot.
+var defaultMuxRateLimit = RateLimit{Default: "600 per minute per ip"}
 
 // init wires the eventbus publisher into the webhooks package so the
 // receiver can fire `Emits` on successful dispatch without taking a
