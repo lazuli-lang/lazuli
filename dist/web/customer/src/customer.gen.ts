@@ -37,12 +37,12 @@ export interface CreateCustomerInput {
   email: string;
 }
 
-export const createCustomer = defineCommand<
-  CreateCustomerInput,
-  Customer
->("customer.create", {
-  invalidates: ["customer.query.list", "customer.query.global_search"],
-});
+export const createCustomer = defineCommand<CreateCustomerInput, Customer>(
+  "customer.create",
+  {
+    invalidates: ["customer.list", "customer.global_search"],
+  },
+);
 
 // ----------------------------------------------------------------------------
 // Command: customer.update_email
@@ -53,12 +53,12 @@ export interface UpdateCustomerEmailInput {
   email: string;
 }
 
-export const updateCustomerEmail = defineCommand<
-  UpdateCustomerEmailInput,
-  Customer
->("customer.update_email", {
-  invalidates: ["customer.query.list", "customer.query.by_id"],
-});
+export const updateCustomerEmail = defineCommand<UpdateCustomerEmailInput, Customer>(
+  "customer.update_email",
+  {
+    invalidates: ["customer.list", "customer.by_id"],
+  },
+);
 
 // ----------------------------------------------------------------------------
 // Command: customer.archive
@@ -68,15 +68,15 @@ export interface ArchiveCustomerInput {
   id: ID;
 }
 
-export const archiveCustomer = defineCommand<
-  ArchiveCustomerInput,
-  Customer
->("customer.archive", {
-  invalidates: ["customer.query.list", "customer.query.by_id"],
-});
+export const archiveCustomer = defineCommand<ArchiveCustomerInput, Customer>(
+  "customer.archive",
+  {
+    invalidates: ["customer.list", "customer.by_id"],
+  },
+);
 
 // ----------------------------------------------------------------------------
-// Query: customer.query.list
+// Query: customer.list
 // ----------------------------------------------------------------------------
 
 export interface ListCustomersArgs {
@@ -85,11 +85,11 @@ export interface ListCustomersArgs {
 }
 
 export const listCustomers = defineQuery<ListCustomersArgs, Customer[]>(
-  "customer.query.list",
+  "customer.list",
 );
 
 // ----------------------------------------------------------------------------
-// Query: customer.query.by_id
+// Query: customer.by_id
 // ----------------------------------------------------------------------------
 
 export interface CustomerByIDArgs {
@@ -97,6 +97,6 @@ export interface CustomerByIDArgs {
 }
 
 export const customerByID = defineQuery<CustomerByIDArgs, Customer>(
-  "customer.query.by_id",
+  "customer.by_id",
 );
 

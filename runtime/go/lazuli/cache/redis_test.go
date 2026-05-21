@@ -12,7 +12,7 @@ import (
 func TestRedisBackendPutGetAndTTL(t *testing.T) {
 	backend, server := newTestRedisBackend(t)
 	ctx := context.Background()
-	key := "customer.query.list|1|abc"
+	key := "customer.list|1|abc"
 
 	if err := backend.Put(ctx, key, []byte("payload"), time.Second, []string{"customer-list"}); err != nil {
 		t.Fatalf("Put() error = %v", err)
@@ -43,9 +43,9 @@ func TestRedisBackendInvalidateTags(t *testing.T) {
 	backend, _ := newTestRedisBackend(t)
 	ctx := context.Background()
 
-	mustPut(t, backend, "customer.query.list|1|a", "one", []string{"shared", "list"})
-	mustPut(t, backend, "customer.query.by_id|1|b", "two", []string{"shared"})
-	mustPut(t, backend, "invoice.query.list|1|c", "three", []string{"invoice"})
+	mustPut(t, backend, "customer.list|1|a", "one", []string{"shared", "list"})
+	mustPut(t, backend, "customer.by_id|1|b", "two", []string{"shared"})
+	mustPut(t, backend, "invoice.list|1|c", "three", []string{"invoice"})
 
 	deleted, err := backend.InvalidateTags(ctx, []string{"shared"})
 	if err != nil {
@@ -54,9 +54,9 @@ func TestRedisBackendInvalidateTags(t *testing.T) {
 	if deleted != 2 {
 		t.Fatalf("InvalidateTags() deleted = %d, want 2", deleted)
 	}
-	assertMiss(t, backend, "customer.query.list|1|a")
-	assertMiss(t, backend, "customer.query.by_id|1|b")
-	assertHit(t, backend, "invoice.query.list|1|c", "three")
+	assertMiss(t, backend, "customer.list|1|a")
+	assertMiss(t, backend, "customer.by_id|1|b")
+	assertHit(t, backend, "invoice.list|1|c", "three")
 
 	exists, err := backend.Client.Exists(ctx, redisTagKey("shared")).Result()
 	if err != nil {
@@ -71,28 +71,28 @@ func TestRedisBackendInvalidateQueries(t *testing.T) {
 	backend, _ := newTestRedisBackend(t)
 	ctx := context.Background()
 
-	mustPut(t, backend, "customer.query.list|1|a", "one", nil)
-	mustPut(t, backend, "customer.query.list|2|b", "two", nil)
-	mustPut(t, backend, "customer.query.by_id|1|c", "three", nil)
+	mustPut(t, backend, "customer.list|1|a", "one", nil)
+	mustPut(t, backend, "customer.list|2|b", "two", nil)
+	mustPut(t, backend, "customer.by_id|1|c", "three", nil)
 
-	deleted, err := backend.InvalidateQueries(ctx, []string{"customer.query.list"})
+	deleted, err := backend.InvalidateQueries(ctx, []string{"customer.list"})
 	if err != nil {
 		t.Fatalf("InvalidateQueries() error = %v", err)
 	}
 	if deleted != 2 {
 		t.Fatalf("InvalidateQueries() deleted = %d, want 2", deleted)
 	}
-	assertMiss(t, backend, "customer.query.list|1|a")
-	assertMiss(t, backend, "customer.query.list|2|b")
-	assertHit(t, backend, "customer.query.by_id|1|c", "three")
+	assertMiss(t, backend, "customer.list|1|a")
+	assertMiss(t, backend, "customer.list|2|b")
+	assertHit(t, backend, "customer.by_id|1|c", "three")
 }
 
 func TestRedisBackendStatsCountsCacheEntries(t *testing.T) {
 	backend, _ := newTestRedisBackend(t)
 	ctx := context.Background()
 
-	mustPut(t, backend, "customer.query.list|1|a", "one", []string{"shared"})
-	mustPut(t, backend, "customer.query.by_id|1|b", "two", []string{"shared"})
+	mustPut(t, backend, "customer.list|1|a", "one", []string{"shared"})
+	mustPut(t, backend, "customer.by_id|1|b", "two", []string{"shared"})
 
 	stats, err := backend.Stats(ctx)
 	if err != nil {

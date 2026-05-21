@@ -27,9 +27,9 @@ type Contract struct {
 	// Name is the report identifier from the `report <name>` header.
 	Name string
 
-	// Source is the qualified query reference (e.g.
-	// "customer.query.list"). Adapters use this to resolve the
-	// underlying SourceFn at boot.
+	// Source is the qualified query reference (e.g. "customer.list").
+	// Adapters use this to resolve the underlying SourceFn at boot.
+	// (Lazuli cell B1 dropped the historical `.query.` infix.)
 	Source string
 
 	// Columns is the declared column list, in author order. Each

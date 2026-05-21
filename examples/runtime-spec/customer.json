@@ -54,8 +54,8 @@
         }
       ],
       "invalidates": [
-        "customer.query.list",
-        "customer.query.global_search"
+        "customer.list",
+        "customer.global_search"
       ]
     },
     {
@@ -84,8 +84,8 @@
       ],
       "emits": [],
       "invalidates": [
-        "customer.query.list",
-        "customer.query.by_id"
+        "customer.list",
+        "customer.by_id"
       ]
     },
     {
@@ -128,8 +128,8 @@
         }
       ],
       "invalidates": [
-        "customer.query.list",
-        "customer.query.by_id"
+        "customer.list",
+        "customer.by_id"
       ]
     }
   ],

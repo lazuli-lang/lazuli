@@ -50,7 +50,7 @@ func TestRunCSVRoundTrip(t *testing.T) {
 	contract := Contract{
 		Feature: "customer",
 		Name:    "monthly_audit",
-		Source:  "customer.query.list",
+		Source:  "customer.list",
 		Columns: []Column{
 			{Name: "id", From: RowField("id")},
 			{Name: "name", From: RowField("name"), Label: "Cliente"},

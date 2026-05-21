@@ -57,7 +57,7 @@ var createCustomer = lazuli.Command[CreateCustomerInput, Customer]{
     Emits: []lazuli.EventEmit{
         {Name: "customer_created", From: lazuli.FromCreates},
     },
-    Invalidates: []string{"customer.query.list", "customer.query.global_search"},
+    Invalidates: []string{"customer.list", "customer.global_search"},
 }
 
 func init() { lazuli.Register(&customerResource, &createCustomer) }
@@ -91,17 +91,17 @@ curl -X POST http://localhost:8088/api/v1/c/customer.create \
 # expected: {"id":1,"org_id":0,"name":"","email":""}
 
 # 5. list customers (query)
-curl -X POST http://localhost:8088/api/v1/q/customer.query.list \
+curl -X POST http://localhost:8088/api/v1/q/customer.list \
   -H 'Content-Type: application/json' -d '{}'
 # expected: [{"id":1,"org_id":0,"name":"Acme Co",...}, ...]
 
 # 6. lookup by id (query)
-curl -X POST http://localhost:8088/api/v1/q/customer.query.by_id \
+curl -X POST http://localhost:8088/api/v1/q/customer.by_id \
   -H 'Content-Type: application/json' -d '{"id":1}'
 # expected: {"id":1,"org_id":0,"name":"Acme Co",...}
 
 # 7. lookup not found
-curl -X POST http://localhost:8088/api/v1/q/customer.query.by_id \
+curl -X POST http://localhost:8088/api/v1/q/customer.by_id \
   -H 'Content-Type: application/json' -d '{"id":999}'
 # expected: {"code":"not_found","message":"no row matches lookup keys"}
 
@@ -136,7 +136,7 @@ becomes:
 
 ```go
 var listCustomers = lazuli.Query[ListCustomersArgs, Customer]{
-    Name:     "customer.query.list",
+    Name:     "customer.list",
     Resource: &customerResource,
     Kind:     lazuli.QueryList,
     Policy:   lazuli.Policy{Name: "@policy.read", Atoms: []lazuli.PolicyAtom{...}},
@@ -144,7 +144,7 @@ var listCustomers = lazuli.Query[ListCustomersArgs, Customer]{
 }
 
 var customerByID = lazuli.Query[CustomerByIDArgs, Customer]{
-    Name:     "customer.query.by_id",
+    Name:     "customer.by_id",
     Resource: &customerResource,
     Kind:     lazuli.QueryLookup,
     Policy:   lazuli.Policy{...},

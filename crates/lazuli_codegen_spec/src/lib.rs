@@ -155,7 +155,8 @@ pub enum EmitSource {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeQuery {
     /// Short name inside the feature (e.g. `list`, `by_id`). Fully qualified
-    /// is `<feature>.query.<name>`.
+    /// wire-registry key is `<feature>.<name>` (cell B1 dropped the historical
+    /// `.query.` infix; the `/q/` HTTP prefix already disambiguates kind).
     pub short_name: String,
     pub kind: QueryKind,
     pub policy_name: String,
@@ -261,8 +262,8 @@ pub fn customer_spike() -> RuntimeFeature {
                     kind: RuntimeEmitKind::FromCreates,
                 }],
                 invalidates: vec![
-                    "customer.query.list".to_owned(),
-                    "customer.query.global_search".to_owned(),
+                    "customer.list".to_owned(),
+                    "customer.global_search".to_owned(),
                 ],
                 deprecated: None,
             },
@@ -284,10 +285,7 @@ pub fn customer_spike() -> RuntimeFeature {
                     },
                 ],
                 emits: vec![],
-                invalidates: vec![
-                    "customer.query.list".to_owned(),
-                    "customer.query.by_id".to_owned(),
-                ],
+                invalidates: vec!["customer.list".to_owned(), "customer.by_id".to_owned()],
                 deprecated: None,
             },
             RuntimeCommand {
@@ -308,10 +306,7 @@ pub fn customer_spike() -> RuntimeFeature {
                         ("actor_id".to_owned(), EmitSource::Ctx("user.id".to_owned())),
                     ]),
                 }],
-                invalidates: vec![
-                    "customer.query.list".to_owned(),
-                    "customer.query.by_id".to_owned(),
-                ],
+                invalidates: vec!["customer.list".to_owned(), "customer.by_id".to_owned()],
                 deprecated: None,
             },
         ],

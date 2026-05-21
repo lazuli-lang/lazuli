@@ -109,9 +109,12 @@ type Command[I, O any] struct {
 	// the reaction graph.
 	EmitsTrace []EventTraceEmit
 
-	// Invalidates lists the queries whose cached results become stale after
-	// this command succeeds. Entries follow the DSL form: same-feature
-	// `query.<name>` short form or fully qualified `<feature>.query.<name>`.
+	// Invalidates lists the queries whose cached results become stale
+	// after this command succeeds. Entries are the wire registry key
+	// `<feature>.<name>` (matches Query.Name exactly). Lazuli cell B1
+	// dropped the historical `.query.` infix; same-feature shorthand
+	// (`query.<name>` in source) is expanded by codegen to the full
+	// `<feature>.<name>` form before reaching this list.
 	Invalidates []string
 
 	// ExternalCalls lists integration calls declared by the command body.

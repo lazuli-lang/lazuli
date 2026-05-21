@@ -231,7 +231,7 @@ func TestQueryPolicyDeniedSurfacesPolicyWhenDeniedOverride(t *testing.T) {
 		PolicyDenied: i18n.MessageRef{Feature: "account", Key: "account_signin"},
 	}
 	query := &Query[struct{}, struct{}]{
-		Name: "account.query.me",
+		Name: "account.me",
 		Kind: QueryList,
 		Policy: Policy{
 			Name: "@policy.authenticated",
@@ -252,7 +252,7 @@ func TestQueryPolicyDeniedSurfacesPolicyWhenDeniedOverride(t *testing.T) {
 	Register(query)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/q/account.query.me", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/q/account.me", nil)
 	req.Header.Set("Accept-Language", "en-US")
 
 	Mux().ServeHTTP(rec, req)
