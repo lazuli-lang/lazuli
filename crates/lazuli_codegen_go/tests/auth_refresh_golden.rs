@@ -152,6 +152,7 @@ fn empty_feature(name: &str) -> Feature {
         mcp_servers: Vec::new(),
         previous_names: Vec::new(),
         span_ref: None,
+        synth_origins: std::collections::BTreeMap::new(),
     }
 }
 

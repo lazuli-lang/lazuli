@@ -417,6 +417,7 @@ mod tests {
             mcp_servers: vec![],
             previous_names: Vec::new(),
             span_ref: None,
+            synth_origins: std::collections::BTreeMap::new(),
         }
     }
 
@@ -728,6 +729,7 @@ mod feature_emit_tests {
             mcp_servers: vec![],
             previous_names: Vec::new(),
             span_ref: None,
+            synth_origins: std::collections::BTreeMap::new(),
         }
     }
 

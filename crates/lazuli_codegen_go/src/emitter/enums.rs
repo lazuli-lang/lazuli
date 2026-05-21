@@ -316,6 +316,7 @@ mod tests {
             mcp_servers: vec![],
             previous_names: Vec::new(),
             span_ref: None,
+            synth_origins: std::collections::BTreeMap::new(),
         }
     }
 

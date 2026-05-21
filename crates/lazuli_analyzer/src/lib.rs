@@ -2345,6 +2345,12 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
     let mut diagnostics: Vec<CrudSynthDiagnostic> = Vec::new();
     let mut to_add_commands: Vec<ir::Command> = Vec::new();
     let mut to_add_queries: Vec<ir::Query> = Vec::new();
+    // §11 inspect surface (Cell C4) — Feature.synth_origins records
+    // every name in a convention's set: `Synthesized(Crud)` for names
+    // the pass appended; `AuthorOverride(Crud)` for names the author
+    // wrote (synth skipped per §6). Inspect uses these markers to
+    // render `[conv:crud]` / `[author override; convention skipped]`.
+    let mut synth_origins_inserts: Vec<(String, ir::ConventionOrigin)> = Vec::new();
 
     let existing_command_names: std::collections::HashSet<String> =
         feature.commands.iter().map(|c| c.name.clone()).collect();
@@ -2424,11 +2430,19 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
                     reason,
                 });
             }
+            synth_origins_inserts.push((
+                create_name.clone(),
+                ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
+            ));
         } else {
             to_add_commands.push(build_create_command(
                 &create_name,
                 &resource.name,
                 &create_input_fields,
+            ));
+            synth_origins_inserts.push((
+                create_name.clone(),
+                ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
             ));
         }
 
@@ -2447,11 +2461,19 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
                     reason,
                 });
             }
+            synth_origins_inserts.push((
+                update_name.clone(),
+                ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
+            ));
         } else {
             to_add_commands.push(build_update_command(
                 &update_name,
                 &resource.name,
                 &categorised.update_input_fields(),
+            ));
+            synth_origins_inserts.push((
+                update_name.clone(),
+                ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
             ));
         }
 
@@ -2469,8 +2491,16 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
                     reason,
                 });
             }
+            synth_origins_inserts.push((
+                delete_name.clone(),
+                ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
+            ));
         } else {
             to_add_commands.push(build_delete_command(&delete_name, &resource.name));
+            synth_origins_inserts.push((
+                delete_name.clone(),
+                ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
+            ));
         }
 
         // 4) lookup_<resource>
@@ -2486,8 +2516,16 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
                     reason,
                 });
             }
+            synth_origins_inserts.push((
+                lookup_name.clone(),
+                ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
+            ));
         } else {
             to_add_queries.push(build_lookup_query(&lookup_name, &resource.name));
+            synth_origins_inserts.push((
+                lookup_name.clone(),
+                ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
+            ));
         }
 
         // 5) list_<resource>s
@@ -2503,13 +2541,22 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
                     reason,
                 });
             }
+            synth_origins_inserts.push((
+                list_name.clone(),
+                ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
+            ));
         } else {
             to_add_queries.push(build_list_query(&list_name, &resource.name));
+            synth_origins_inserts.push((
+                list_name.clone(),
+                ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
+            ));
         }
     }
 
     feature.commands.extend(to_add_commands);
     feature.queries.extend(to_add_queries);
+    feature.synth_origins.extend(synth_origins_inserts);
     diagnostics
 }
 
@@ -10027,6 +10074,7 @@ mod conventions_crud_synth_tests {
             mcp_servers: Vec::new(),
             previous_names: Vec::new(),
             span_ref: None,
+            synth_origins: std::collections::BTreeMap::new(),
         }
     }
 
