@@ -35,56 +35,10 @@ func (q *Query[A, R]) RunList(ctx *Ctx, args A) ([]R, error) {
 		}
 	}
 
-	res, err := q.resourceErased()
+	sql, values, res, err := q.buildListSQL(ctx, args)
 	if err != nil {
 		return nil, err
 	}
-
-	conds, values, err := baseScopeConditions(ctx, res, 1)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, f := range q.Filters {
-		val, err := resolveSource(ctx, f.When, args)
-		if err != nil {
-			return nil, err
-		}
-		if isNilOrZero(val) {
-			continue // optional filter; skip when args don't carry it
-		}
-		values = append(values, val)
-		conds = append(conds, whereConditionFragment(f.Column, f.When, len(values)))
-	}
-
-	if q.Search != nil && len(q.Search.Over) > 0 {
-		val, err := resolveSource(ctx, q.Search.Source, args)
-		if err != nil {
-			return nil, err
-		}
-		if !isNilOrZero(val) {
-			pattern := buildSearchPattern(fmt.Sprint(val), q.Search.Mode)
-			values = append(values, pattern)
-			placeholder := fmt.Sprintf("$%d", len(values))
-			ors := make([]string, 0, len(q.Search.Over))
-			for _, col := range q.Search.Over {
-				ors = append(ors, fmt.Sprintf("%s ILIKE %s", quoteIdent(col), placeholder))
-			}
-			conds = append(conds, "("+strings.Join(ors, " OR ")+")")
-		}
-	}
-
-	// Resource.Name is the authored PascalCase (`User`, `UserSession`);
-	// the migration emit snake_lowercases it (`user`, `user_session`).
-	// `quoteResourceTable` applies the same transform so SELECT round-
-	// trips with the migrated schema. The legacy `quoteIdent(res.Name)`
-	// produced `"UserSession"` (case-sensitive, no table) → 42P01.
-	sql := "SELECT * FROM " + quoteResourceTable(res.Name)
-	if len(conds) > 0 {
-		sql += " WHERE " + strings.Join(conds, " AND ")
-	}
-	sql += " " + buildOrder(q.Order)
-	sql += fmt.Sprintf(" LIMIT %d", paginateOrDefault(q.Paginate))
 
 	rows, err := DB().Query(ctx, sql, values...)
 	if err != nil {
@@ -132,49 +86,10 @@ func (q *Query[A, R]) RunLookup(ctx *Ctx, args A) (R, error) {
 		}
 	}
 
-	res, err := q.resourceErased()
+	sql, values, res, err := q.buildLookupSQL(ctx, args)
 	if err != nil {
 		return zero, err
 	}
-	if len(q.LookupBy) == 0 {
-		return zero, &Error{Status: 500, Code: CodeInternal,
-			Message: "lookup query has no LookupBy keys: " + q.Name}
-	}
-
-	conds, values, err := baseScopeConditions(ctx, res, 1)
-	if err != nil {
-		return zero, err
-	}
-
-	for _, k := range q.LookupBy {
-		val, err := resolveSource(ctx, k.Source, args)
-		if err != nil {
-			return zero, err
-		}
-		if isNilOrZero(val) {
-			return zero, &Error{Status: 400, Code: CodeBadRequest,
-				Message: "lookup key " + k.Column + " is required"}
-		}
-		values = append(values, val)
-		// `ir-resource-conventions-owner-scope.md` §8.3 — owner-scope
-		// lookup keys carry `FromCtxOwnedVia` sources that must lower to
-		// `<col> IN (SELECT id FROM <related> WHERE <through> = $N)`.
-		// Route the cond construction through `whereConditionFragment`
-		// so this shape expands consistently with `applyUpdates` /
-		// `applyDeletes`. Direct scalar sources still collapse to the
-		// `<col> = $N` shape (the fragment helper is a no-op for them).
-		conds = append(conds, whereConditionFragment(k.Column, k.Source, len(values)))
-	}
-
-	// Same snake_case lowering as `RunList` — `Resource.Name` is the
-	// authored PascalCase while the migrated table is snake_lower.
-	// `quoteResourceTable` is the canonical transform; see comment
-	// above on the list path.
-	sql := "SELECT * FROM " + quoteResourceTable(res.Name)
-	if len(conds) > 0 {
-		sql += " WHERE " + strings.Join(conds, " AND ")
-	}
-	sql += " LIMIT 1"
 
 	rows, err := DB().Query(ctx, sql, values...)
 	if err != nil {
@@ -198,6 +113,109 @@ func (q *Query[A, R]) RunLookup(ctx *Ctx, args A) (R, error) {
 	}
 	_ = RunIncrement(ctx, q.Prelude)
 	return out, nil
+}
+
+func (q *Query[A, R]) buildListSQL(ctx *Ctx, args A) (string, []any, *resourceErased, error) {
+	res, err := q.resourceErased()
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	conds, values, err := baseScopeConditions(ctx, res, 1)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	for _, f := range q.Filters {
+		val, err := resolveSource(ctx, f.When, args)
+		if err != nil {
+			return "", nil, nil, err
+		}
+		if isNilOrZero(val) {
+			continue // optional filter; skip when args don't carry it
+		}
+		values = append(values, val)
+		conds = append(conds, whereConditionFragment(f.Column, f.When, len(values)))
+	}
+
+	if q.Search != nil && len(q.Search.Over) > 0 {
+		val, err := resolveSource(ctx, q.Search.Source, args)
+		if err != nil {
+			return "", nil, nil, err
+		}
+		if !isNilOrZero(val) {
+			pattern := buildSearchPattern(fmt.Sprint(val), q.Search.Mode)
+			values = append(values, pattern)
+			placeholder := fmt.Sprintf("$%d", len(values))
+			ors := make([]string, 0, len(q.Search.Over))
+			for _, col := range q.Search.Over {
+				ors = append(ors, fmt.Sprintf("%s ILIKE %s", quoteIdent(col), placeholder))
+			}
+			conds = append(conds, "("+strings.Join(ors, " OR ")+")")
+		}
+	}
+
+	// Resource.Name is the authored PascalCase (`User`, `UserSession`);
+	// the migration emit snake_lowercases it (`user`, `user_session`).
+	// `quoteResourceTable` applies the same transform so SELECT round-
+	// trips with the migrated schema. The legacy `quoteIdent(res.Name)`
+	// produced `"UserSession"` (case-sensitive, no table) → 42P01.
+	sql := "SELECT * FROM " + quoteResourceTable(res.Name)
+	if len(conds) > 0 {
+		sql += " WHERE " + strings.Join(conds, " AND ")
+	}
+	sql += " " + buildOrder(q.Order)
+	sql += fmt.Sprintf(" LIMIT %d", paginateOrDefault(q.Paginate))
+
+	return sql, values, res, nil
+}
+
+func (q *Query[A, R]) buildLookupSQL(ctx *Ctx, args A) (string, []any, *resourceErased, error) {
+	res, err := q.resourceErased()
+	if err != nil {
+		return "", nil, nil, err
+	}
+	if len(q.LookupBy) == 0 {
+		return "", nil, nil, &Error{Status: 500, Code: CodeInternal,
+			Message: "lookup query has no LookupBy keys: " + q.Name}
+	}
+
+	conds, values, err := baseScopeConditions(ctx, res, 1)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	for _, k := range q.LookupBy {
+		val, err := resolveSource(ctx, k.Source, args)
+		if err != nil {
+			return "", nil, nil, err
+		}
+		if isNilOrZero(val) {
+			return "", nil, nil, &Error{Status: 400, Code: CodeBadRequest,
+				Message: "lookup key " + k.Column + " is required"}
+		}
+		values = append(values, val)
+		// `ir-resource-conventions-owner-scope.md` §8.3 — owner-scope
+		// lookup keys carry `FromCtxOwnedVia` sources that must lower to
+		// `<col> IN (SELECT id FROM <related> WHERE <through> = $N)`.
+		// Route the cond construction through `whereConditionFragment`
+		// so this shape expands consistently with `applyUpdates` /
+		// `applyDeletes`. Direct scalar sources still collapse to the
+		// `<col> = $N` shape (the fragment helper is a no-op for them).
+		conds = append(conds, whereConditionFragment(k.Column, k.Source, len(values)))
+	}
+
+	// Same snake_case lowering as `RunList` — `Resource.Name` is the
+	// authored PascalCase while the migrated table is snake_lower.
+	// `quoteResourceTable` is the canonical transform; see comment
+	// above on the list path.
+	sql := "SELECT * FROM " + quoteResourceTable(res.Name)
+	if len(conds) > 0 {
+		sql += " WHERE " + strings.Join(conds, " AND ")
+	}
+	sql += " LIMIT 1"
+
+	return sql, values, res, nil
 }
 
 // lookupQueryCache reads a cached value for the given query+args under the
