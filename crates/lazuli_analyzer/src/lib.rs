@@ -3238,51 +3238,62 @@ fn resolve_owner_scope(
         // §11.1 `owner_axis_unknown_through` — the `through:` column
         // doesn't exist on the FK target resource. Resolve the FK
         // target in the feature's resource list.
+        //
+        // Cross-feature note: the FK target may live in another
+        // feature (Hostpoint's catalog.Property → host.Host is the
+        // motivating case). Synth runs per-feature without a Module
+        // handle, so we can only validate the through-column when the
+        // target is in the SAME feature. For cross-feature targets we
+        // skip the diagnostic checks and trust the @owner_axis
+        // annotation — the doctor pass (which has Module context)
+        // surfaces missing-FK-target / wrong-through-type errors at a
+        // higher layer. The SQL composition below only needs
+        // `fk_target` (name) and `axis.through_column` (column name)
+        // verbatim from the annotation; it does NOT need fk_resource
+        // to exist locally.
         let fk_resource = feature
             .resources
             .iter()
             .find(|r| r.name == fk_target);
-        let Some(fk_resource) = fk_resource else {
-            // Cross-feature FK or unresolved target — same surface as
-            // any unresolved type ref. O1 / earlier passes catch this
-            // shape (`type_ref_unresolved`); we don't double-emit.
-            continue;
-        };
 
-        let through_field = fk_resource
-            .fields
-            .iter()
-            .find(|f| f.name == axis.through_column);
-        let Some(through_field) = through_field else {
-            let suggestion = nearest_field_name(&axis.through_column, &fk_resource.fields);
-            diagnostics_out.push(ConventionSynthDiagnostic::OwnerAxisUnknownThrough {
-                resource: resource.name.clone(),
-                field: field.name.clone(),
-                through: axis.through_column.clone(),
-                fk_target: fk_target.clone(),
-                suggestion,
-            });
-            continue;
-        };
+        if let Some(fk_resource) = fk_resource {
+            let through_field = fk_resource
+                .fields
+                .iter()
+                .find(|f| f.name == axis.through_column);
+            let Some(through_field) = through_field else {
+                let suggestion = nearest_field_name(&axis.through_column, &fk_resource.fields);
+                diagnostics_out.push(ConventionSynthDiagnostic::OwnerAxisUnknownThrough {
+                    resource: resource.name.clone(),
+                    field: field.name.clone(),
+                    through: axis.through_column.clone(),
+                    fk_target: fk_target.clone(),
+                    suggestion,
+                });
+                continue;
+            };
 
-        // §11.1 `owner_axis_through_not_user_keyed` — the resolved
-        // `through:` column must be typed as `User` (a UserDefined
-        // ref to the User resource). Other actor types
-        // (`@semantic.UserID` etc.) are deferred per §13.
-        let is_user_keyed = matches!(
-            &through_field.type_ref,
-            ir::TypeRef::UserDefined(q) if q.name == "User"
-        );
-        if !is_user_keyed {
-            diagnostics_out.push(ConventionSynthDiagnostic::OwnerAxisThroughNotUserKeyed {
-                resource: resource.name.clone(),
-                field: field.name.clone(),
-                through: axis.through_column.clone(),
-                fk_target: fk_target.clone(),
-            });
-            // Warning, not error per §11.1 — still emit the chain so
-            // codegen can produce SQL the author can hand-correct.
+            // §11.1 `owner_axis_through_not_user_keyed` — the resolved
+            // `through:` column must be typed as `User` (a UserDefined
+            // ref to the User resource). Other actor types
+            // (`@semantic.UserID` etc.) are deferred per §13.
+            let is_user_keyed = matches!(
+                &through_field.type_ref,
+                ir::TypeRef::UserDefined(q) if q.name == "User"
+            );
+            if !is_user_keyed {
+                diagnostics_out.push(ConventionSynthDiagnostic::OwnerAxisThroughNotUserKeyed {
+                    resource: resource.name.clone(),
+                    field: field.name.clone(),
+                    through: axis.through_column.clone(),
+                    fk_target: fk_target.clone(),
+                });
+                // Warning, not error per §11.1 — still emit the chain so
+                // codegen can produce SQL the author can hand-correct.
+            }
         }
+        // else: cross-feature FK target — skip per-field validation,
+        // trust annotation, compose SQL below.
 
         // §7.3 / §8.1-8.4 — compose the WHERE predicate fragment.
         // Shape per §1.1 trigger evidence: literal Postgres
