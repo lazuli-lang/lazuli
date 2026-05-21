@@ -1283,6 +1283,15 @@ fn parse_to_view(raw: &str) -> Option<(String, String)> {
 }
 
 fn query_ident(feature: &str, query_name: &str) -> String {
+    // Verb-prefix dedup: query names produced by `conventions [me]` /
+    // `[crud]` already begin with `lookup_` (e.g. `lookup_my_host`).
+    // The legacy `lookup<Feature>By<PascalShort>` shape would emit
+    // `lookupHostByLookupMyHost` — drop the `<Feature>By` infix in
+    // that case and emit just `lookup<RestPascal>`. Defensive fallback
+    // to the legacy shape when the remainder is empty.
+    if let Some(rest) = crate::lzx::strip_verb_prefix(query_name, "lookup_") {
+        return format!("lookup{}", pascal_case(rest));
+    }
     let stripped = query_name.strip_prefix("by_").unwrap_or(query_name);
     format!("lookup{}By{}", pascal_case(feature), pascal_case(stripped))
 }
@@ -1362,4 +1371,34 @@ fn is_acronym(word: &str) -> bool {
         word.to_ascii_lowercase().as_str(),
         "id" | "url" | "uri" | "api" | "html" | "json" | "sql" | "ttl"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Verb-prefix dedup — confirms the lifecycle-gate's query_ident
+    // produces `lookupMyHost` (not `lookupHostByLookupMyHost`) when the
+    // `[me]` synth feeds the gate a `lookup_my_<r>` query name. The
+    // golden fixture in `tests/lifecycle_gate_golden.rs` still uses the
+    // hand-crafted `my_host` shape, which is exercised by
+    // `query_ident_preserves_legacy_shape_without_verb_prefix` below.
+
+    #[test]
+    fn query_ident_dedups_lookup_prefix() {
+        assert_eq!(query_ident("host", "lookup_my_host"), "lookupMyHost");
+        assert_eq!(query_ident("traveler", "lookup_traveler"), "lookupTraveler");
+        assert_eq!(query_ident("user", "lookup_active_users"), "lookupActiveUsers");
+    }
+
+    #[test]
+    fn query_ident_preserves_legacy_shape_without_verb_prefix() {
+        // Hand-crafted `my_host` (no `lookup_` prefix) — used by the
+        // lifecycle-gate golden test.
+        assert_eq!(query_ident("host", "my_host"), "lookupHostByMyHost");
+        // `by_<key>` keeps its established strip.
+        assert_eq!(query_ident("slug", "by_key"), "lookupSlugByKey");
+        // Bare `lookup` falls back to legacy shape (no underscore tail).
+        assert_eq!(query_ident("user", "lookup"), "lookupUserByLookup");
+    }
 }

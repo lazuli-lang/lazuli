@@ -2702,15 +2702,45 @@ fn query_ident(feature: &str, kind: lazuli_ir::QueryKind, query_name: &str) -> S
                 format!("list{}s", resource_pascal)
             } else if query_name.eq_ignore_ascii_case("fulltext") {
                 format!("search{}sFulltext", resource_pascal)
+            } else if let Some(rest) = strip_query_verb_prefix(query_name, "list_") {
+                // `conventions [crud]` synth produces `list_<resource>s`;
+                // without the dedup the legacy shape would emit
+                // `listListTravelersTravelers` from `list_travelers`.
+                format!("list{}", pascal_case(rest))
             } else {
                 format!("list{}{}s", pascal_case(query_name), resource_pascal)
             }
         }
         lazuli_ir::QueryKind::Lookup => {
-            let stripped = query_name.strip_prefix("by_").unwrap_or(query_name);
-            format!("lookup{}By{}", resource_pascal, pascal_case(stripped))
+            if let Some(rest) = strip_query_verb_prefix(query_name, "lookup_") {
+                // `conventions [crud, me]` synth produces `lookup_<r>` and
+                // `lookup_my_<r>`; without the dedup the legacy
+                // `lookup<R>By<X>` shape would emit
+                // `lookupHostByLookupMyHost` from `lookup_my_host`.
+                format!("lookup{}", pascal_case(rest))
+            } else {
+                let stripped = query_name.strip_prefix("by_").unwrap_or(query_name);
+                format!("lookup{}By{}", resource_pascal, pascal_case(stripped))
+            }
         }
     }
+}
+
+/// Strip a verb prefix (`lookup_` / `list_`) from a query name, returning
+/// `Some(rest)` only when the remainder pascal-cases to a non-empty
+/// segment. Returns `None` for bare prefix (`lookup_`), missing prefix,
+/// or empty/whitespace remainder — callers fall back to the legacy hook
+/// shape. Mirrors `lazuli_codegen_ts::lzx::strip_verb_prefix`; duplicated
+/// here to keep the CLI's identifier-casing rules self-contained.
+fn strip_query_verb_prefix<'a>(name: &'a str, prefix: &str) -> Option<&'a str> {
+    let rest = name.strip_prefix(prefix)?;
+    if rest.is_empty() {
+        return None;
+    }
+    if pascal_case(rest).is_empty() {
+        return None;
+    }
+    Some(rest)
 }
 
 fn command_input_iface(command_name: &str, feature_pascal: &str) -> String {
@@ -11043,6 +11073,15 @@ mod tests {
         pascal_case_project_name, render_inspect_symbol_lazuli, scaffold_bare,
         scaffold_from_template, templates, write_go_work_preserving_entries,
     };
+
+    // NOTE: tests for `query_ident` / `strip_query_verb_prefix` (the
+    // verb-prefix dedup added alongside the Hostpoint bug fix) cannot
+    // live here because the `lazuli_cli` test binary currently fails to
+    // compile on this branch's base (pre-existing `doctor::lzx::ir_stub`
+    // field mismatches, unrelated to this change — see `cargo test -p
+    // lazuli_cli` baseline). The behaviour is covered by the matching
+    // tests in `lazuli_codegen_ts::lzx::tests` (the helper logic is
+    // identical and was factored to mirror the CLI's local copy).
 
     #[test]
     fn go_work_preserve_adds_dist_go_without_dropping_runtime() {
