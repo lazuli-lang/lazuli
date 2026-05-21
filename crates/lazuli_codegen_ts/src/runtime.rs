@@ -220,21 +220,41 @@ fn write_query(s: &mut String, feature: &RuntimeFeature, query: &RuntimeQuery) {
     let resource_pascal = pascal_case(&resource.name);
     let qualified_name = format!("{}.query.{}", feature.name, query.short_name);
 
+    // Verb-prefix dedup: when the query short_name already starts with
+    // `lookup_` / `list_` (e.g. `lookup_my_host`, `list_travelers` from
+    // `conventions [crud, me]`), the legacy `<resource_lc><PascalShort>`
+    // / `list<Resource>s` shape would either duplicate the verb or lose
+    // the distinguishing tail. Emit `lookup<RestPascal>` / `list<RestPascal>`
+    // instead; fall back to legacy shape when rest is empty.
     let (args_iface, var_name, return_type) = match query.kind {
-        QueryKind::List => (
-            format!("List{}sArgs", resource_pascal),
-            format!("list{}s", resource_pascal),
-            format!("{}[]", resource_pascal),
-        ),
-        QueryKind::Lookup => (
-            format!("{}{}Args", resource_pascal, pascal_case(&query.short_name)),
-            format!(
-                "{}{}",
-                lower_camel(&resource.name),
-                pascal_case(&query.short_name)
-            ),
-            resource_pascal.clone(),
-        ),
+        QueryKind::List => {
+            let var_name = if let Some(rest) = crate::lzx::strip_verb_prefix(&query.short_name, "list_") {
+                format!("list{}", pascal_case(rest))
+            } else {
+                format!("list{}s", resource_pascal)
+            };
+            (
+                format!("List{}sArgs", resource_pascal),
+                var_name,
+                format!("{}[]", resource_pascal),
+            )
+        }
+        QueryKind::Lookup => {
+            let var_name = if let Some(rest) = crate::lzx::strip_verb_prefix(&query.short_name, "lookup_") {
+                format!("lookup{}", pascal_case(rest))
+            } else {
+                format!(
+                    "{}{}",
+                    lower_camel(&resource.name),
+                    pascal_case(&query.short_name)
+                )
+            };
+            (
+                format!("{}{}Args", resource_pascal, pascal_case(&query.short_name)),
+                var_name,
+                resource_pascal.clone(),
+            )
+        }
     };
 
     write_section_banner(s, &[format!("Query: {qualified_name}")]);
@@ -764,5 +784,113 @@ mod tests {
         let out = emit_lifecycle_action_maps_ts(&base_feature(vec![publication_resource(None)]));
 
         assert!(!out.contains("export const publication ="));
+    }
+
+    // -----------------------------------------------------------------------
+    // Verb-prefix dedup — see `lzx::query_ident` tests for the canonical
+    // case matrix. These runtime-side tests confirm `write_query` honours
+    // the same rule when the synth-emitted query short_name already
+    // begins with `lookup_` / `list_`.
+    // -----------------------------------------------------------------------
+
+    fn feature_with_query(resource_name: &str, query: RuntimeQuery) -> RuntimeFeature {
+        RuntimeFeature {
+            name: resource_name.to_owned(),
+            source_path: format!("features/{}/{}.lzi", resource_name, resource_name),
+            resources: vec![RuntimeResource {
+                name: resource_name.to_owned(),
+                tenancy: Tenancy::Org,
+                soft_delete: false,
+                retention: None,
+                fields: Vec::new(),
+            }],
+            commands: Vec::new(),
+            queries: vec![query],
+        }
+    }
+
+    fn lookup_query(short_name: &str) -> RuntimeQuery {
+        RuntimeQuery {
+            short_name: short_name.to_owned(),
+            kind: QueryKind::Lookup,
+            policy_name: String::new(),
+            policy_atoms: Vec::new(),
+            args: Vec::new(),
+            cache: None,
+            paginate: 0,
+            filters: Vec::new(),
+            search: None,
+            lookup_by: Vec::new(),
+        }
+    }
+
+    fn list_query(short_name: &str) -> RuntimeQuery {
+        RuntimeQuery {
+            short_name: short_name.to_owned(),
+            kind: QueryKind::List,
+            policy_name: String::new(),
+            policy_atoms: Vec::new(),
+            args: Vec::new(),
+            cache: None,
+            paginate: 0,
+            filters: Vec::new(),
+            search: None,
+            lookup_by: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn write_query_dedups_lookup_prefix_in_var_name() {
+        // me-synth: `host.query.lookup_my_host` → `lookupMyHost` (not
+        // `hostLookupMyHost` or `lookupHostByLookupMyHost`).
+        let out = emit_feature_ts(&feature_with_query(
+            "host",
+            lookup_query("lookup_my_host"),
+        ));
+        assert!(
+            out.contains("export const lookupMyHost = defineQuery"),
+            "expected `lookupMyHost`, got:\n{out}"
+        );
+        assert!(
+            !out.contains("hostLookupMyHost"),
+            "legacy doubled-prefix shape leaked:\n{out}"
+        );
+
+        // crud-synth: `traveler.query.lookup_traveler` → `lookupTraveler`.
+        let out = emit_feature_ts(&feature_with_query(
+            "traveler",
+            lookup_query("lookup_traveler"),
+        ));
+        assert!(
+            out.contains("export const lookupTraveler = defineQuery"),
+            "expected `lookupTraveler`, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn write_query_dedups_list_prefix_in_var_name() {
+        // crud-synth: `traveler.query.list_travelers` → `listTravelers`
+        // (not `listTravelers` from `list<R>s` collision with `list_<r>s`).
+        let out = emit_feature_ts(&feature_with_query(
+            "traveler",
+            list_query("list_travelers"),
+        ));
+        assert!(
+            out.contains("export const listTravelers = defineQuery"),
+            "expected `listTravelers`, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn write_query_preserves_legacy_shape_when_no_verb_prefix() {
+        // Lookup without `lookup_` prefix keeps the legacy
+        // `<resource_lc><PascalShort>` shape: `host.query.my_host` →
+        // `hostMyHost`. This is the hand-crafted query name the
+        // lifecycle-gate golden fixture relies on (it has no synth).
+        let out = emit_feature_ts(&feature_with_query("host", lookup_query("my_host")));
+        assert!(
+            out.contains("export const hostMyHost = defineQuery"),
+            "expected legacy `hostMyHost`, got:\n{out}"
+        );
     }
 }

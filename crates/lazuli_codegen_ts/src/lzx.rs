@@ -166,6 +166,16 @@ pub(crate) fn command_action_key(cmd: &CommandRef) -> String {
 ///   has no `by_` prefix, the entire short pascal-cases.
 /// - Sql: same convention as List for now (raw-SQL queries are rare
 ///   inside `.lzx` and surface a similar shape).
+///
+/// Verb-prefix dedup: when the author-side or synth-side query name
+/// itself already starts with `lookup_` / `list_` (e.g. `lookup_my_host`,
+/// `list_travelers` from `conventions [crud, me]`), the legacy
+/// `<verb><Resource>By<PascalShort>` / `list<PascalShort><Resource>s`
+/// shape would double-prefix the verb. In that case we drop the
+/// `<Resource>By` / `<Resource>s` infix entirely and emit just
+/// `<verb><RestPascal>`: `lookup_my_host` → `lookupMyHost`,
+/// `list_travelers` → `listTravelers`. Empty/trivial rest falls back
+/// to the legacy shape (defensive).
 pub(crate) fn query_ident(q: &QueryRef) -> String {
     let resource_pascal = pascal_case(&q.feature);
     match q.kind {
@@ -173,15 +183,37 @@ pub(crate) fn query_ident(q: &QueryRef) -> String {
             let short = q.name.as_str();
             if short.eq_ignore_ascii_case("list") {
                 format!("list{}s", resource_pascal)
+            } else if let Some(rest) = strip_verb_prefix(short, "list_") {
+                format!("list{}", pascal_case(rest))
             } else {
                 format!("list{}{}s", pascal_case(short), resource_pascal)
             }
         }
         QueryKind::Lookup => {
-            let stripped = q.name.strip_prefix("by_").unwrap_or(&q.name);
-            format!("lookup{}By{}", resource_pascal, pascal_case(stripped))
+            if let Some(rest) = strip_verb_prefix(&q.name, "lookup_") {
+                format!("lookup{}", pascal_case(rest))
+            } else {
+                let stripped = q.name.strip_prefix("by_").unwrap_or(&q.name);
+                format!("lookup{}By{}", resource_pascal, pascal_case(stripped))
+            }
         }
     }
+}
+
+/// Strip `prefix` from `name` and return `Some(rest)` iff the remainder
+/// would produce a non-empty PascalCase segment. Returns `None` when
+/// the name has no such prefix, when stripping leaves an empty string,
+/// or when the remainder pascalizes to empty (e.g. `lookup_` alone).
+/// Callers fall back to the legacy hook shape on `None`.
+pub(crate) fn strip_verb_prefix<'a>(name: &'a str, prefix: &str) -> Option<&'a str> {
+    let rest = name.strip_prefix(prefix)?;
+    if rest.is_empty() {
+        return None;
+    }
+    if pascal_case(rest).is_empty() {
+        return None;
+    }
+    Some(rest)
 }
 
 /// File path for the emitted view hook per L0 #1 §4:
@@ -556,6 +588,124 @@ mod tests {
             name: "by_key".to_owned(),
         };
         assert_eq!(query_ident(&by_key), "lookupSlugByKey");
+    }
+
+    // -----------------------------------------------------------------------
+    // Verb-prefix dedup — covers Hostpoint bug where `conventions [crud, me]`
+    // synth produced `lookupHostByLookupMyHost` / `listListTravelersTravelers`
+    // because the synth's `lookup_my_<r>` / `list_<r>s` query names already
+    // carry the verb and got double-prefixed by the legacy hook-name shape.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn query_ident_lookup_drops_resource_by_when_lookup_prefix_present() {
+        // me-synth case: `lookup_my_host` (resource = Host) → `lookupMyHost`.
+        let lookup_my_host = QueryRef {
+            feature: "host".to_owned(),
+            kind: QueryKind::Lookup,
+            name: "lookup_my_host".to_owned(),
+        };
+        assert_eq!(query_ident(&lookup_my_host), "lookupMyHost");
+
+        // crud-synth case: `lookup_traveler` (singular resource) → `lookupTraveler`.
+        let lookup_traveler = QueryRef {
+            feature: "traveler".to_owned(),
+            kind: QueryKind::Lookup,
+            name: "lookup_traveler".to_owned(),
+        };
+        assert_eq!(query_ident(&lookup_traveler), "lookupTraveler");
+
+        // Authored convention: `lookup_active_users` (resource = User)
+        // → `lookupActiveUsers`. Verifies the dedup also covers
+        // hand-rolled queries that follow the synth naming convention.
+        let lookup_active_users = QueryRef {
+            feature: "user".to_owned(),
+            kind: QueryKind::Lookup,
+            name: "lookup_active_users".to_owned(),
+        };
+        assert_eq!(query_ident(&lookup_active_users), "lookupActiveUsers");
+    }
+
+    #[test]
+    fn query_ident_list_drops_resource_s_when_list_prefix_present() {
+        // crud-synth case: `list_travelers` (plural) → `listTravelers`.
+        let list_travelers = QueryRef {
+            feature: "traveler".to_owned(),
+            kind: QueryKind::List,
+            name: "list_travelers".to_owned(),
+        };
+        assert_eq!(query_ident(&list_travelers), "listTravelers");
+
+        // crud-synth case: `list_customers` → `listCustomers`.
+        let list_customers = QueryRef {
+            feature: "customer".to_owned(),
+            kind: QueryKind::List,
+            name: "list_customers".to_owned(),
+        };
+        assert_eq!(query_ident(&list_customers), "listCustomers");
+    }
+
+    #[test]
+    fn query_ident_preserves_legacy_shape_when_no_verb_prefix() {
+        // Author-written non-prefix query: `by_email` keeps the legacy
+        // `lookup<R>By<X>` shape (with `by_` stripped per existing rule).
+        let by_email = QueryRef {
+            feature: "user".to_owned(),
+            kind: QueryKind::Lookup,
+            name: "by_email".to_owned(),
+        };
+        assert_eq!(query_ident(&by_email), "lookupUserByEmail");
+
+        // Author-written list query: `mine` keeps the legacy
+        // `list<PascalShort><R>s` shape.
+        let mine = QueryRef {
+            feature: "slug".to_owned(),
+            kind: QueryKind::List,
+            name: "mine".to_owned(),
+        };
+        assert_eq!(query_ident(&mine), "listMineSlugs");
+    }
+
+    #[test]
+    fn query_ident_falls_back_when_verb_prefix_strip_leaves_empty() {
+        // Edge: `lookup` alone (no underscore) — no `lookup_` prefix to
+        // strip, so legacy `lookup<R>By<Pascal>` shape applies. Verifies
+        // the dedup doesn't accidentally trigger on the bare verb.
+        let bare_lookup = QueryRef {
+            feature: "user".to_owned(),
+            kind: QueryKind::Lookup,
+            name: "lookup".to_owned(),
+        };
+        assert_eq!(query_ident(&bare_lookup), "lookupUserByLookup");
+
+        // Edge: `lookup_` (trailing underscore, empty rest) — defensive
+        // fallback. `pascal_case("")` is empty so we keep legacy shape.
+        let trailing_underscore = QueryRef {
+            feature: "user".to_owned(),
+            kind: QueryKind::Lookup,
+            name: "lookup_".to_owned(),
+        };
+        // `pascal_case("lookup_")` is `"Lookup"`, so legacy shape is
+        // `lookupUserByLookup`.
+        assert_eq!(query_ident(&trailing_underscore), "lookupUserByLookup");
+    }
+
+    #[test]
+    fn strip_verb_prefix_helper_handles_edge_cases() {
+        assert_eq!(
+            strip_verb_prefix("lookup_my_host", "lookup_"),
+            Some("my_host")
+        );
+        assert_eq!(strip_verb_prefix("list_travelers", "list_"), Some("travelers"));
+        // No prefix match.
+        assert_eq!(strip_verb_prefix("by_email", "lookup_"), None);
+        assert_eq!(strip_verb_prefix("mine", "list_"), None);
+        // Empty rest after strip — defensive fallback.
+        assert_eq!(strip_verb_prefix("lookup_", "lookup_"), None);
+        assert_eq!(strip_verb_prefix("list_", "list_"), None);
+        // Bare verb without underscore — no prefix match.
+        assert_eq!(strip_verb_prefix("lookup", "lookup_"), None);
+        assert_eq!(strip_verb_prefix("list", "list_"), None);
     }
 
     #[test]
