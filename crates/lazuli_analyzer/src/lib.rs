@@ -3023,6 +3023,13 @@ fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resource, Analyze
         fields: ck.fields.clone(),
         primary: ck.primary,
     });
+    let conventions = r
+        .conventions
+        .iter()
+        .map(|c| match c {
+            syntax::ResourceConventionAst::Crud => ir::ConventionRef::Crud,
+        })
+        .collect();
     Ok(ir::Resource {
         name: r.name.clone(),
         public_contract: lower_public_contract(&r.public_contract),
@@ -3044,11 +3051,7 @@ fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resource, Analyze
         invariants,
         lock,
         composite_key,
-        // ir-resource-conventions-crud Cell C1 — slot is wired here but
-        // populated by Cell C2 (parser) once `conventions [crud]` lexes
-        // into `syntax::ResourceDecl`. Until then the field is empty
-        // and lowering ignores it; Cell C3 implements synthesis.
-        conventions: Vec::new(),
+        conventions,
     })
 }
 
@@ -3079,9 +3082,7 @@ fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> Result<ir::Field, Anal
         None => (None, None),
     };
     let pii = type_pii.or(default_pii);
-    let default = default_text
-        .as_deref()
-        .map(|raw| parse_default(raw.trim()));
+    let default = default_text.as_deref().map(|raw| parse_default(raw.trim()));
     let constraints = lift_field_constraints(&f.name, &f.constraints)?;
     // L0 #3 §10.2 + §10.3 — combination rules + default compatibility.
     validate_constraint_combinations(&f.name, &f.constraints)?;

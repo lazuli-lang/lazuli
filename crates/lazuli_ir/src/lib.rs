@@ -651,7 +651,8 @@ pub struct Resource {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConventionRef {
-    /// `crud` — auto-synthesizes 5 commands + 2 queries per §5.
+    /// `crud` — auto-synthesizes 3 commands + 2 queries (5 entries
+    /// total) per `ir-resource-conventions-crud.md` §5.1.
     Crud,
     // Future variants (NOT in this proposal):
     //   Timestamped, PiiAware, SoftDelete, Slugged, Paginated.
