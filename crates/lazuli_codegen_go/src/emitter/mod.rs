@@ -47,6 +47,7 @@ pub mod register;
 pub mod report;
 pub mod resource;
 pub mod root;
+pub mod schema_diff;
 pub mod storage;
 pub mod translation;
 pub mod types;
