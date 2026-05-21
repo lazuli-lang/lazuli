@@ -209,6 +209,10 @@ struct Tier3FeatureFacts {
     /// with no per-query policy inherit this; absent defaults imply the
     /// runtime's public fallback.
     defaults_policy: Option<lazuli_ir::PolicyRef>,
+    /// Feature-level `defaults.timestamps`. Most correctness dispatchers
+    /// only need commands/resources, but audit timestamp checks must know
+    /// whether `updated_at` is framework-managed.
+    defaults_timestamps: bool,
     jobs: Vec<lazuli_ir::Job>,
     webhooks: Vec<lazuli_ir::Webhook>,
     notifications: Vec<lazuli_ir::Notification>,
@@ -740,6 +744,7 @@ impl DoctorPackage {
                                             feature_line: header_line,
                                             tenancy_axis: tenancy_axis_for(&feature),
                                             defaults_policy: feature.defaults.policy.clone(),
+                                            defaults_timestamps: feature.defaults.timestamps,
                                             jobs: feature.jobs.clone(),
                                             webhooks: feature.webhooks.clone(),
                                             notifications: feature.notifications.clone(),
@@ -1054,6 +1059,7 @@ impl DoctorPackage {
         ));
         diagnostics.extend(missing_policy_on_query_diagnostics(&self.tier3_facts));
         diagnostics.extend(mutation_without_readback_diagnostics(&self.tier3_facts));
+        diagnostics.extend(updates_missing_updated_at_diagnostics(&self.tier3_facts));
         diagnostics.extend(route_id_effect_consistency_diagnostics(&self.tier3_facts));
         // Cycle-2 cell DC1 — sweep the rest of `lazuli_doctor::correctness`
         // into the doctor dispatch so `lazuli doctor` reaches every
@@ -3833,6 +3839,41 @@ fn mutation_without_readback_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<Doc
                 column: 1,
                 severity: DoctorSeverity::Warning,
                 code: correctness::mutation_without_readback::Finding::CODE.to_owned(),
+            });
+        }
+    }
+
+    diagnostics
+}
+
+/// UPDATES-MISSING-UPDATED-AT-001 dispatch — any local resource touched by
+/// an `updates` effect must either declare `updated_at: DateTime` or have
+/// effective timestamps enabled. Anchored at the feature header because the
+/// finding is resource-scoped and the current fact row does not carry
+/// resource-header line anchors.
+fn updates_missing_updated_at_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut seen = BTreeSet::new();
+
+    for fact in facts {
+        let mut feature = make_synthetic_feature_for_correctness(fact);
+        feature.defaults.timestamps = fact.defaults_timestamps;
+
+        for finding in correctness::updates_missing_updated_at::check(&feature, &fact.path) {
+            if !seen.insert((
+                finding.path.clone(),
+                finding.feature.clone(),
+                finding.resource.clone(),
+            )) {
+                continue;
+            }
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line: fact.feature_line,
+                column: 1,
+                severity: DoctorSeverity::Warning,
+                code: correctness::updates_missing_updated_at::Finding::CODE.to_owned(),
             });
         }
     }
@@ -14688,6 +14729,7 @@ mod tests {
                                     feature_line: header_line,
                                     tenancy_axis: tenancy_axis_for(&feature),
                                     defaults_policy: feature.defaults.policy.clone(),
+                                    defaults_timestamps: feature.defaults.timestamps,
                                     jobs: feature.jobs.clone(),
                                     webhooks: feature.webhooks.clone(),
                                     notifications: feature.notifications.clone(),
@@ -14848,6 +14890,7 @@ mod tests {
                                     feature_line: header_line,
                                     tenancy_axis: tenancy_axis_for(&feature),
                                     defaults_policy: feature.defaults.policy.clone(),
+                                    defaults_timestamps: feature.defaults.timestamps,
                                     jobs: feature.jobs.clone(),
                                     webhooks: feature.webhooks.clone(),
                                     notifications: feature.notifications.clone(),
@@ -19745,6 +19788,7 @@ feature customer
             feature_line: 1,
             tenancy_axis: None,
             defaults_policy: None,
+            defaults_timestamps: false,
             jobs: Vec::new(),
             webhooks: Vec::new(),
             notifications: Vec::new(),
@@ -19850,6 +19894,7 @@ feature customer
             feature_line: 1,
             tenancy_axis: None,
             defaults_policy: None,
+            defaults_timestamps: false,
             jobs: Vec::new(),
             webhooks: Vec::new(),
             notifications: Vec::new(),
