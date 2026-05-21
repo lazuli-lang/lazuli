@@ -7,7 +7,7 @@
 //! Driven by `lazuli_codegen_spec::RuntimeFeature` so both this crate and
 //! `lazuli_codegen_go` consume the same canonical spec.
 
-use std::fmt::Write;
+use std::{collections::BTreeSet, fmt::Write};
 
 use lazuli_codegen_spec::{
     FieldKind, QueryKind, RuntimeArg, RuntimeCommand, RuntimeEffect, RuntimeFeature, RuntimeQuery,
@@ -157,22 +157,14 @@ fn write_command(s: &mut String, feature: &RuntimeFeature, command: &RuntimeComm
     writeln!(s, "}}").ok();
     writeln!(s).ok();
 
-    // defineCommand call. Cache-correctness contract: if the runtime
-    // spec authored an explicit `invalidates` list, honour it verbatim
-    // (the JSON manifest path supplies cross-feature targets that the
-    // emitter can't recompute on its own). Otherwise derive the list
-    // from the feature's queries — every mutating effect at runtime
-    // spec scope targets the single resource the feature owns, so the
-    // companion query set is the natural invalidation target. Keeps
-    // TanStack Query honest after every mutation; pilots no longer
-    // need `staleTime: 0` workarounds. See cell A5 brief.
-    let derived_invalidates = derive_invalidates(feature, command);
-    let invalidates_source: &[String] = if command.invalidates.is_empty() {
-        &derived_invalidates
-    } else {
-        &command.invalidates
-    };
-    let invalidates_lit = format_string_array(invalidates_source);
+    // defineCommand call. Cache-correctness contract: author-declared
+    // invalidation targets come first, then the auto-derived same-feature
+    // query set. Both sources normalize to the post-B1 wire key
+    // `<feature>.<query_name>`, and duplicates are dropped after
+    // normalization so an explicit entry keeps priority without losing
+    // derived coverage.
+    let invalidates = merged_invalidates(feature, command);
+    let invalidates_lit = format_string_array(&invalidates);
     if invalidates_lit.len() + qualified_name.len() < 60 {
         writeln!(
             s,
@@ -445,6 +437,53 @@ fn format_string_array(items: &[String]) -> String {
     }
     let parts: Vec<String> = items.iter().map(|s| format!("\"{s}\"")).collect();
     format!("[{}]", parts.join(", "))
+}
+
+fn merged_invalidates(feature: &RuntimeFeature, command: &RuntimeCommand) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    let mut merged = Vec::new();
+
+    for target in &command.invalidates {
+        if let Some(normalized) = normalize_invalidates_target(&feature.name, target) {
+            push_unique_invalidates(&mut merged, &mut seen, normalized);
+        }
+    }
+    for target in derive_invalidates(feature, command) {
+        push_unique_invalidates(&mut merged, &mut seen, target);
+    }
+
+    merged
+}
+
+fn push_unique_invalidates(out: &mut Vec<String>, seen: &mut BTreeSet<String>, target: String) {
+    if seen.insert(target.clone()) {
+        out.push(target);
+    }
+}
+
+// TEMP-stub for IA2 coordination: RuntimeCommand.invalidates can arrive
+// already normalized (`feature.query`) or with the pre-normalization
+// `query.<name>` / `<feature>.query.<name>` markers. Collapse every form
+// to the post-B1 `<feature>.<query_name>` SDK wire key at emission time.
+fn normalize_invalidates_target(host_feature: &str, target: &str) -> Option<String> {
+    let trimmed = target.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Some(query) = trimmed.strip_prefix("query.") {
+        return Some(format!("{}.{}", host_feature, query));
+    }
+
+    if let Some((feature, query)) = trimmed.split_once(".query.") {
+        return Some(format!("{}.{}", feature, query));
+    }
+
+    if trimmed.contains('.') {
+        Some(trimmed.to_owned())
+    } else {
+        Some(format!("{}.{}", host_feature, trimmed))
+    }
 }
 
 /// Derive the cache-invalidation target list for a command from the
