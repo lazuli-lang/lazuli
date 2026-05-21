@@ -761,8 +761,14 @@ func applyUpdates[I, O any](ctx *Ctx, tx pgx.Tx, eff UpdatesEffect, input I) (O,
 	if err := encryptColumnValues(ctx, eff.Resource, bindCols, values[:len(bindCols)]); err != nil {
 		return zero, internalServerError(err, "update encrypt failed")
 	}
-	// Always bump updated_at if the table has it.
-	sets = append(sets, `"updated_at" = now()`)
+	// Bump `updated_at = now()` only when the resource declares the
+	// column. Resources without `timestamps` (DSL `defaults.timestamps
+	// = false` or per-resource `timestamps off`) have no `updated_at`
+	// column; appending the SET clause unconditionally would raise
+	// PG 42703 (undefined_column) at execute time.
+	if eff.Resource.HasColumn("updated_at") {
+		sets = append(sets, `"updated_at" = now()`)
+	}
 
 	conds, condValues, err := baseScopeConditions(ctx, eff.Resource)
 	if err != nil {
@@ -830,9 +836,18 @@ func applyDeletes[I, O any](ctx *Ctx, tx pgx.Tx, eff DeletesEffect, input I) (O,
 
 	var sql string
 	if eff.Resource.SoftDelete {
+		// `deleted_at` always exists on soft-delete resources. The
+		// `updated_at` bump is only appended when the resource also
+		// declares timestamps — otherwise the SET clause references
+		// an undefined column (PG 42703).
+		softSets := []string{`"deleted_at" = now()`}
+		if eff.Resource.HasColumn("updated_at") {
+			softSets = append(softSets, `"updated_at" = now()`)
+		}
 		sql = fmt.Sprintf(
-			`UPDATE %s SET "deleted_at" = now(), "updated_at" = now() WHERE %s RETURNING *`,
+			`UPDATE %s SET %s WHERE %s RETURNING *`,
 			quoteResourceTable(eff.Resource.Name),
+			strings.Join(softSets, ", "),
 			strings.Join(conds, " AND "),
 		)
 	} else {

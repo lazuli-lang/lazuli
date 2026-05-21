@@ -24,6 +24,14 @@ type Resource[T any] struct {
 	// to every default query.
 	SoftDelete bool
 
+	// Timestamps mirrors the DSL `defaults.timestamps` / per-resource
+	// `timestamps` knob: when true, the resource carries `created_at` and
+	// `updated_at` columns and the runtime bumps `updated_at = now()` on
+	// every UPDATE (and on soft-delete). When false, the columns are
+	// absent and the runtime MUST NOT emit `"updated_at" = now()` into
+	// the SET clause — doing so raises PG 42703 (undefined_column).
+	Timestamps bool
+
 	// Retention names the terminal lifecycle policy applied after soft-delete.
 	// Nil means "rows soft-deleted stay soft-deleted forever".
 	Retention *RetentionSpec
@@ -80,6 +88,7 @@ func (r *Resource[T]) erased() *resourceErased {
 		Feature:          r.Feature,
 		Tenancy:          r.Tenancy,
 		SoftDelete:       r.SoftDelete,
+		Timestamps:       r.Timestamps,
 		Retention:        r.Retention,
 		PIIFields:        r.PIIFields,
 		Validators:       r.Validators,
@@ -97,6 +106,7 @@ type resourceErased struct {
 	Feature          string
 	Tenancy          TenancyMode
 	SoftDelete       bool
+	Timestamps       bool
 	Retention        *RetentionSpec
 	PIIFields        []string
 	Validators       []ValidatorRef
@@ -104,6 +114,27 @@ type resourceErased struct {
 	HasMany          []HasMany
 	EncryptedColumns map[string]string
 	Decrypt          func(ctx *Ctx, row any) error
+}
+
+// HasColumn reports whether the resource declares the named column.
+// The runtime SET-clause builders (`applyUpdates`, `applyDeletes` soft
+// path) use this to gate the lifecycle-timestamp append: only resources
+// that declare the column receive the `<col> = now()` SET clause —
+// otherwise the emitted UPDATE raises PG 42703.
+//
+// The set is intentionally small (lifecycle timestamps only) since
+// every other column is supplied through the typed `Bind` map. Add
+// new entries here when a future lifecycle column needs the same
+// unconditional-bump treatment.
+func (r *resourceErased) HasColumn(name string) bool {
+	switch name {
+	case "updated_at", "created_at":
+		return r.Timestamps
+	case "deleted_at":
+		return r.SoftDelete
+	default:
+		return false
+	}
 }
 
 // Index declares an explicit DB index from the DSL `constraints` block.

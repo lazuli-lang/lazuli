@@ -22,8 +22,7 @@
 use std::fmt::Write;
 
 use lazuli_ir::{
-    BuiltinType, CapabilityRef, Feature, Field, Record, RetentionAction, Resource, Tenancy,
-    TypeRef,
+    BuiltinType, CapabilityRef, Feature, Field, Record, Resource, RetentionAction, Tenancy, TypeRef,
 };
 
 use super::cross_feature::CrossFeatureIndex;
@@ -101,7 +100,10 @@ pub fn emit_resource_file(
         }
     }
 
-    p.banner(source_label, &super::casing::gen_package_name(&feature.name));
+    p.banner(
+        source_label,
+        &super::casing::gen_package_name(&feature.name),
+    );
     imports.emit(&mut p);
     p.blank();
 
@@ -133,12 +135,7 @@ pub fn emit_resource_file(
 }
 
 /// Walk a single `Resource` — struct + `lazuli.Resource[T]` value.
-fn emit_resource(
-    p: &mut GoPrinter,
-    feature: &Feature,
-    resource: &Resource,
-    ctx: &TypeCtx<'_>,
-) {
+fn emit_resource(p: &mut GoPrinter, feature: &Feature, resource: &Resource, ctx: &TypeCtx<'_>) {
     let pascal = pascal_case(&resource.name);
     let var_name = format!("{}Resource", lower_camel(&resource.name));
     let resource_dsl_name = &resource.name;
@@ -250,9 +247,7 @@ fn emit_resource(
         .filter_map(|f| {
             use lazuli_ir::{BuiltinType, TypeRef};
             if matches!(f.type_ref, TypeRef::Builtin(BuiltinType::SemanticCurrency)) {
-                f.name
-                    .strip_suffix("_currency")
-                    .map(|stem| stem.to_owned())
+                f.name.strip_suffix("_currency").map(|stem| stem.to_owned())
             } else {
                 None
             }
@@ -268,10 +263,7 @@ fn emit_resource(
         }
         let pair_name = format!("{}_currency", field.name);
         let (go_type, json_suffix) = if field.required {
-            (
-                "lazuli.Currency".to_owned(),
-                pair_name.clone(),
-            )
+            ("lazuli.Currency".to_owned(), pair_name.clone())
         } else {
             (
                 "*lazuli.Currency".to_owned(),
@@ -337,9 +329,7 @@ fn emit_resource(
     // Resource[T] value. Keys are column-aligned so the value literal
     // reads as a stable table; `SoftDelete` is the longest key in the
     // closed catalog so we pad to its width.
-    p.line(&format!(
-        "var {var_name} = lazuli.Resource[{pascal}]{{"
-    ));
+    p.line(&format!("var {var_name} = lazuli.Resource[{pascal}]{{"));
     p.indent();
     let tenancy_const = tenancy_const(effective_tenancy(feature, resource));
     let mut kv_rows: Vec<(String, String)> = vec![
@@ -349,6 +339,14 @@ fn emit_resource(
     ];
     if resource.soft_delete {
         kv_rows.push(("SoftDelete:".to_owned(), "true,".to_owned()));
+    }
+    // `Timestamps: true` mirrors the same predicate the column emitter
+    // and the migration DDL use (`uses_timestamps`). The runtime gates
+    // the `"updated_at" = now()` SET-clause append on this flag — when
+    // the resource opts out of timestamps the column is absent and an
+    // unconditional bump would raise PG 42703.
+    if uses_timestamps(feature, resource) {
+        kv_rows.push(("Timestamps:".to_owned(), "true,".to_owned()));
     }
     let key_width = kv_rows.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
     for (key, value) in &kv_rows {
@@ -417,10 +415,7 @@ fn emit_record(p: &mut GoPrinter, record: &Record, ctx: &TypeCtx<'_>) {
     let pascal = pascal_case(&record.name);
     write_section_banner(
         p,
-        &[
-            format!("Record: {pascal}"),
-            format!("  record {pascal}"),
-        ],
+        &[format!("Record: {pascal}"), format!("  record {pascal}")],
     );
 
     let mut tagged: Vec<TaggedField> = Vec::new();
@@ -506,19 +501,22 @@ struct EncryptedFieldRef<'a> {
 /// both for the import-side gate (`imports.add("…/encryption")`) and
 /// for the helper-function body.
 fn encrypted_fields(resource: &Resource) -> impl Iterator<Item = EncryptedFieldRef<'_>> {
-    resource.fields.iter().filter_map(|field| match &field.type_ref {
-        TypeRef::Capability(CapabilityRef::Encrypted(cap)) => Some(EncryptedFieldRef {
-            field,
-            key: cap.key.as_str(),
-            e2ee: false,
-        }),
-        TypeRef::Capability(CapabilityRef::E2ee(cap)) => Some(EncryptedFieldRef {
-            field,
-            key: cap.key.as_str(),
-            e2ee: true,
-        }),
-        _ => None,
-    })
+    resource
+        .fields
+        .iter()
+        .filter_map(|field| match &field.type_ref {
+            TypeRef::Capability(CapabilityRef::Encrypted(cap)) => Some(EncryptedFieldRef {
+                field,
+                key: cap.key.as_str(),
+                e2ee: false,
+            }),
+            TypeRef::Capability(CapabilityRef::E2ee(cap)) => Some(EncryptedFieldRef {
+                field,
+                key: cap.key.as_str(),
+                e2ee: true,
+            }),
+            _ => None,
+        })
 }
 
 /// Emit `Encrypt<Pascal>` and `Decrypt<Pascal>` helpers for one
@@ -543,8 +541,7 @@ fn emit_encryption_helpers(p: &mut GoPrinter, resource: &Resource) {
         p,
         &[
             format!("Encryption helpers: {pascal}"),
-            "  one Encrypt/Decrypt call per @cap.Encrypted / @cap.E2ee field"
-                .to_owned(),
+            "  one Encrypt/Decrypt call per @cap.Encrypted / @cap.E2ee field".to_owned(),
         ],
     );
 
@@ -571,8 +568,7 @@ fn emit_encryption_helpers(p: &mut GoPrinter, resource: &Resource) {
     p.blank();
 
     // Decrypt — skips E2ee per proposal §Codegen rule 3.
-    let decryptable: Vec<&EncryptedFieldRef<'_>> =
-        encrypted.iter().filter(|e| !e.e2ee).collect();
+    let decryptable: Vec<&EncryptedFieldRef<'_>> = encrypted.iter().filter(|e| !e.e2ee).collect();
     p.line(&format!(
         "// Decrypt{pascal} undoes Encrypt{pascal} for every server-readable encrypted"
     ));
@@ -643,9 +639,7 @@ fn emit_field_cipher_call(
     p.line("return err");
     p.dedent();
     p.line("}");
-    p.line(&format!(
-        "{out_var}, err := cipher.{method}({access})"
-    ));
+    p.line(&format!("{out_var}, err := cipher.{method}({access})"));
     p.line("if err != nil {");
     p.indent();
     p.line("return err");
@@ -716,7 +710,11 @@ fn write_struct_rows(p: &mut GoPrinter, tagged: &[TaggedField]) {
         .unwrap_or(0);
 
     enum Row {
-        Data { name: String, ty: String, tag: String },
+        Data {
+            name: String,
+            ty: String,
+            tag: String,
+        },
         Comment(String),
     }
 
@@ -801,12 +799,7 @@ fn build_tag(
             json_suffix,
             v
         ),
-        None => format!(
-            "`{}{} json:\"{}\"`",
-            db_part,
-            " ".repeat(pad),
-            json_suffix
-        ),
+        None => format!("`{}{} json:\"{}\"`", db_part, " ".repeat(pad), json_suffix),
     }
 }
 
@@ -827,9 +820,7 @@ fn effective_tenancy(feature: &Feature, resource: &Resource) -> Tenancy {
 /// Resolve effective timestamps flag — `Resource.timestamps` overrides
 /// `Defaults.timestamps`. `Some(false)` is the explicit opt-out.
 fn uses_timestamps(feature: &Feature, resource: &Resource) -> bool {
-    resource
-        .timestamps
-        .unwrap_or(feature.defaults.timestamps)
+    resource.timestamps.unwrap_or(feature.defaults.timestamps)
 }
 
 /// Lift a `Tenancy` IR variant onto the `lazuli.Tenancy*` constant
@@ -889,10 +880,7 @@ fn plugin_semantic_validate_tag(type_ref: &TypeRef) -> Option<String> {
 }
 
 fn is_geo_point(type_ref: &TypeRef) -> bool {
-    matches!(
-        type_ref,
-        TypeRef::Builtin(BuiltinType::SemanticGeoPoint)
-    )
+    matches!(type_ref, TypeRef::Builtin(BuiltinType::SemanticGeoPoint))
 }
 
 /// True for capability-typed fields whose value the wire must never
@@ -923,11 +911,7 @@ fn is_secret_capability(type_ref: &TypeRef) -> bool {
 /// "third-party" bucket (the classifier doesn't know the difference,
 /// but the `import` block still compiles — Go doesn't care which
 /// group a local module sits in).
-fn register_imports_for_type(
-    type_ref: &TypeRef,
-    ctx: &TypeCtx<'_>,
-    imports: &mut ImportSet,
-) {
+fn register_imports_for_type(type_ref: &TypeRef, ctx: &TypeCtx<'_>, imports: &mut ImportSet) {
     let (_go, import) = types::go_type_for(type_ref, ctx);
     if let Some(path) = import {
         imports.add(&path);
@@ -976,7 +960,7 @@ mod tests {
                 name: "test".to_owned(),
                 title: None,
                 version: None,
-        lazuli_version: None,
+                lazuli_version: None,
                 targets: Vec::new(),
                 default_locale: None,
                 default_timezone: None,
@@ -1182,7 +1166,9 @@ mod tests {
             owner_axis: None,
             span_ref: None,
         };
-        feature.resources.push(simple_resource("Host", vec![plugin_field]));
+        feature
+            .resources
+            .push(simple_resource("Host", vec![plugin_field]));
         let out = emit(&feature).expect("must emit");
 
         // Carrier is `Text` → Go `string`.
@@ -1255,7 +1241,11 @@ mod tests {
         let mut feature = base_feature("places");
         let resource = simple_resource(
             "place",
-            vec![simple_field("location", BuiltinType::SemanticGeoPoint, true)],
+            vec![simple_field(
+                "location",
+                BuiltinType::SemanticGeoPoint,
+                true,
+            )],
         );
         feature.resources.push(resource);
         let out = emit(&feature).expect("must emit");
@@ -1591,8 +1581,7 @@ mod tests {
         customer.resources.push(resource);
 
         let mut org = base_feature("org");
-        org.resources
-            .push(simple_resource("user", Vec::new()));
+        org.resources.push(simple_resource("user", Vec::new()));
         // The org resource is named lowercase; pascal-case the
         // emitter-side declared type still appears as `User` in
         // the index because `CrossFeatureIndex` keys on
@@ -1628,7 +1617,7 @@ mod tests {
                 name: "test".to_owned(),
                 title: None,
                 version: None,
-        lazuli_version: None,
+                lazuli_version: None,
                 targets: Vec::new(),
                 default_locale: None,
                 default_timezone: None,
