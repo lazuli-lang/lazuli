@@ -21,6 +21,18 @@ Every `LZIR_SCHEMA` bump must ship a paired
 
 ### Added
 
+- **Codegen-correctness cycle 4
+  (`codegen-correctness-cycle-4-2026-05-21`) —
+  `LAZ-ATELIER-DUPLICATE-API-LIST` closed.** AU1 corrected the
+  inherited hypothesis: Atelier was not failing because `[crud]`
+  synthesized a duplicate `query.list`; it was failing because multiple
+  features authored bare `api list` blocks and codegen emitted
+  `Name: "list"` for each API. FX2 fixes the real runtime collision by
+  emitting feature-qualified API names. FX1 and DG1 landed
+  defense-in-depth guards around synthetic query overrides and duplicate
+  query names. Atelier's regenerated server now progresses past the
+  duplicate API registration panic. (`d823552`; lazuli-ops `ea692d7`)
+
 - **Codegen-correctness cycle 3
   (`codegen-correctness-cycle-3-2026-05-21`) — 4 LAZ items closed.**
   Hostpoint stayed at **95/95 pass, 0 skip**, but now with **0
@@ -271,6 +283,18 @@ Every `LZIR_SCHEMA` bump must ship a paired
     optional binding for `digest` mode. (`f4d1149`)
 
 ### Changed
+
+- **BREAKING — API wire `Name` shape.** Generated Go APIs now emit
+  `Name: "<feature>.<api_name>"` instead of the bare API name. This
+  prevents unrelated features that both declare `api list` (or
+  `api revoke_http`, etc.) from colliding in the runtime registry.
+  Consumers that key API registrations by bare `Name` must update to
+  the feature-qualified form. Route mounting is unchanged because
+  routing continues to use `api.Path`; pilot consumers already key
+  request flow by path, so this should be transparent after regen.
+  Regression coverage lives in `crates/lazuli_codegen_go/tests/
+  api_name_qualification.rs` and
+  `runtime/go/lazuli/registry_typed_test.go`. (`d823552`)
 
 - **BREAKING — query wire `Name` shape.** The redundant `.query.` infix
   on emitted query `Name`s is gone. Every pilot's `dist/go/<feature>/
