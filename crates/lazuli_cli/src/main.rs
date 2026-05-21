@@ -12895,7 +12895,7 @@ feature billing
             "command name should surface: {json}"
         );
         assert!(
-            json.contains("\"rate_limit\":\"30 per hour per ip\""),
+            json.contains("\"rate_limit\":{\"default\":\"30 per hour per ip\""),
             "rate_limit verbatim: {json}"
         );
         assert!(

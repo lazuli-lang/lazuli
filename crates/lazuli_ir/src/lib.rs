@@ -1017,7 +1017,6 @@ pub struct OwnerScopeSql {
     pub cte_owner_check: Option<String>,
 }
 
-
 /// L0 #3 §10 — inline field constraints. Each slot is `Option` so an
 /// absent constraint serializes off via `is_empty`. Combination rules
 /// (§10.2) and default-value compatibility (§10.3) are checked in
@@ -4591,6 +4590,18 @@ pub struct UniqueConstraint {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndexConstraint {
     pub fields: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<IndexMethod>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub full_text: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IndexMethod {
+    Btree,
+    Gin,
+    Gist,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

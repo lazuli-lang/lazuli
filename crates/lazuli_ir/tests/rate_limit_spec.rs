@@ -37,7 +37,9 @@ fn rate_limit_spec_with_by_env_serde_round_trip() {
             envs: vec![EnvName::Dev, EnvName::Staging, EnvName::Test],
             unknown_envs: vec![],
             limit: String::new(),
+            span_ref: None,
         }],
+        span_ref: None,
     };
     let json = serde_json::to_string(&spec).expect("serialize");
     // Empty `unknown_envs` is skipped by serde; envs render as the
@@ -96,7 +98,9 @@ fn unknown_envs_round_trip_through_serde() {
             envs: vec![EnvName::Dev, EnvName::Test],
             unknown_envs: vec!["qa".to_owned()],
             limit: "1000 per minute per ip".to_owned(),
+            span_ref: None,
         }],
+        span_ref: None,
     };
     let json = serde_json::to_string(&spec).expect("serialize");
     let parsed: RateLimitSpec = serde_json::from_str(&json).expect("deserialize");

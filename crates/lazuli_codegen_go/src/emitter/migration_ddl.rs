@@ -6,8 +6,8 @@
 use std::fmt::Write;
 
 use lazuli_ir::{
-    AuthSessions, BuiltinType, CapabilityRef, CompositeKey, Constraint, Feature, Field, Module,
-    Resource, Tenancy, TypeRef,
+    AuthSessions, BuiltinType, CapabilityRef, CompositeKey, Constraint, Feature, Field,
+    IndexConstraint, IndexMethod, Module, Resource, Tenancy, TypeRef,
 };
 
 use super::cross_feature::{CrossFeatureIndex, DeclKind};
@@ -169,6 +169,16 @@ fn emit_resource_migration<'a>(
         .unwrap();
     }
 
+    for index in resource.constraints.iter().filter_map(|constraint| {
+        let Constraint::Index(index) = constraint else {
+            return None;
+        };
+        authored_index_sql(&table_name, index)
+    }) {
+        writeln!(sql).unwrap();
+        writeln!(sql, "{index}").unwrap();
+    }
+
     if session_rotation_enabled_for_resource(module, feature, resource).is_some() {
         emit_session_rotation_indexes(&mut sql, &table_name);
     }
@@ -242,6 +252,23 @@ fn emit_resource_down_migration(feature: &Feature, resource: &Resource) -> Strin
                 sql_ident(&format!("{}_{}_fts", table_name, field.name))
             )
             .unwrap();
+        }
+    }
+
+    let authored_indexes: Vec<String> = resource
+        .constraints
+        .iter()
+        .filter_map(|constraint| {
+            let Constraint::Index(index) = constraint else {
+                return None;
+            };
+            authored_index_name(&table_name, index)
+        })
+        .collect();
+    if !authored_indexes.is_empty() {
+        writeln!(sql).unwrap();
+        for name in authored_indexes {
+            writeln!(sql, "-- DROP INDEX {};", sql_ident(&name)).unwrap();
         }
     }
 
@@ -783,6 +810,77 @@ fn unique_fields_sql<'a>(
         fields.push(sql_ident(&format!("{}_id", lower_snake(per))));
     }
     Some(SqlColumn::raw(&format!("UNIQUE ({})", fields.join(", "))))
+}
+
+fn authored_index_sql(table_name: &str, index: &IndexConstraint) -> Option<String> {
+    if index.fields.is_empty() {
+        return None;
+    }
+    let name = authored_index_name(table_name, index)?;
+    if index.full_text {
+        let expression = format!(
+            "to_tsvector('english', concat_ws(' ', {}))",
+            index
+                .fields
+                .iter()
+                .map(|field| sql_ident(field))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        return Some(format!(
+            "CREATE INDEX {} ON {} USING GIN ({});",
+            sql_ident(&name),
+            quote_ident(table_name),
+            expression
+        ));
+    }
+    let columns = index
+        .fields
+        .iter()
+        .map(|field| sql_ident(field))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let using = index
+        .method
+        .map(|method| format!(" USING {}", index_method_sql(method)))
+        .unwrap_or_default();
+    Some(format!(
+        "CREATE INDEX {} ON {}{} ({});",
+        sql_ident(&name),
+        quote_ident(table_name),
+        using,
+        columns
+    ))
+}
+
+fn authored_index_name(table_name: &str, index: &IndexConstraint) -> Option<String> {
+    if index.fields.is_empty() {
+        return None;
+    }
+    let field_slug = index
+        .fields
+        .iter()
+        .map(|field| lower_snake(field))
+        .collect::<Vec<_>>()
+        .join("_");
+    let suffix = if index.full_text {
+        "fts"
+    } else {
+        match index.method {
+            Some(IndexMethod::Gin) => "gin",
+            Some(IndexMethod::Gist) => "gist",
+            Some(IndexMethod::Btree) | None => "idx",
+        }
+    };
+    Some(format!("{}_{}_{}", table_name, field_slug, suffix))
+}
+
+fn index_method_sql(method: IndexMethod) -> &'static str {
+    match method {
+        IndexMethod::Btree => "BTREE",
+        IndexMethod::Gin => "GIN",
+        IndexMethod::Gist => "GIST",
+    }
 }
 
 /// Kahn-style topo sort over (feature, resource) pairs. Edges run from
@@ -2117,6 +2215,37 @@ DROP TABLE IF EXISTS \"customer\";
 
         assert!(sql.contains("UNIQUE (email, org_id),"));
         assert!(sql.contains("UNIQUE (external_id)"));
+    }
+
+    #[test]
+    fn emits_authored_resource_indexes() {
+        let module = parsed_module(
+            r#"feature post
+  domain
+    resource Post
+      title: Text required
+      tags: list of Text
+      unique (title, tags)
+      index on (title)
+      index on tags gin
+      fts on (title, tags)
+"#,
+        );
+
+        let files = emit_migrations(&module, "atelier");
+        let sql = files
+            .iter()
+            .find(|file| file.path == "migrations/001_post_post.sql")
+            .expect("post migration")
+            .contents
+            .as_str();
+
+        assert!(sql.contains("UNIQUE (title, tags)"));
+        assert!(sql.contains("CREATE INDEX post_title_idx ON \"post\" (title);"));
+        assert!(sql.contains("CREATE INDEX post_tags_gin ON \"post\" USING GIN (tags);"));
+        assert!(sql.contains(
+            "CREATE INDEX post_title_tags_fts ON \"post\" USING GIN (to_tsvector('english', concat_ws(' ', title, tags)));"
+        ));
     }
 
     #[test]

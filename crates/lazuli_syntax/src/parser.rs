@@ -1,5 +1,6 @@
 use thiserror::Error;
 
+use crate::ast::OwnerAxisAst;
 use crate::ast::{
     Agent, AgentEvalAssertion, AgentEvalCase, AgentEvalGolden, AgentEvalKind, AgentEvalPredicate,
     AgentExpose, AgentExposeRouteSlot, AgentInputSlot, AgentOutput, AgentTool, AggregateDecl,
@@ -26,19 +27,18 @@ use crate::ast::{
     PermissionDeclAst, PlanBlockAst, PlanFeatureRefAst, PlanLimitRefAst, PlanTrialAst,
     PoliciesDecl, PolicyAtomAst, PolicyCategoryDecl, PolicyExprAst, PublicContractDeclAst,
     QueryDecl, QuerySearch, RateLimitByEnvAst, RateLimitSpecAst, RecordDecl, ReportColumnAst,
-    ReportColumnSourceAst, ReportDecl, ResourceCompositeKey, ResourceConventionAst, ResourceDecl,
-    ResourceFieldDecl, ResourceHasMany, ResourceLock, ResourceRetention,
-    ResourceRetentionAction, RoleDeclAst, RoleGrantsAst, RouteParamAst,
-    ScaleTokenAst, SearchDeclAst, SearchFieldAst, SearchModeAst, SelectionDeclAst,
-    SelectionModeAst, SettingDeclAst, SettingPersistenceAst, SettingValueSpaceAst, ShadowTokenAst,
-    SortDeclAst, SortDirAst, Span, SqlQueryDecl, SurfaceAst, SurfaceTargetAst, TargetArgDecl,
-    TargetExprDecl, TenantMigration, TextScaleTokenAst, ToolsCallsOp, TrackingTokenAst,
-    TranslationDecl, TranslationKeyDecl, TranslationKeyRefAst, TranslationPluralArmDecl,
-    TranslationVariantDecl, TypographyAst, UsesClauseAst, ViewAst, ViewCreateAst, ViewDetailAst,
-    ViewListAst, Webhook, WebhookDlq, WebhookHandler, WebhookReplay, WebhookVerify, WeightTokenAst,
-    ZTokenAst,
+    ReportColumnSourceAst, ReportDecl, ResourceCompositeKey, ResourceConstraintAst,
+    ResourceConventionAst, ResourceDecl, ResourceFieldDecl, ResourceHasMany, ResourceIndexAst,
+    ResourceIndexMethodAst, ResourceLock, ResourceRetention, ResourceRetentionAction,
+    ResourceUniqueAst, RoleDeclAst, RoleGrantsAst, RouteParamAst, ScaleTokenAst, SearchDeclAst,
+    SearchFieldAst, SearchModeAst, SelectionDeclAst, SelectionModeAst, SettingDeclAst,
+    SettingPersistenceAst, SettingValueSpaceAst, ShadowTokenAst, SortDeclAst, SortDirAst, Span,
+    SqlQueryDecl, SurfaceAst, SurfaceTargetAst, TargetArgDecl, TargetExprDecl, TenantMigration,
+    TextScaleTokenAst, ToolsCallsOp, TrackingTokenAst, TranslationDecl, TranslationKeyDecl,
+    TranslationKeyRefAst, TranslationPluralArmDecl, TranslationVariantDecl, TypographyAst,
+    UsesClauseAst, ViewAst, ViewCreateAst, ViewDetailAst, ViewListAst, Webhook, WebhookDlq,
+    WebhookHandler, WebhookReplay, WebhookVerify, WeightTokenAst, ZTokenAst,
 };
-use crate::ast::OwnerAxisAst;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct LifecycleBlockAst {
@@ -7244,7 +7244,7 @@ fn parse_resource_decl(
         if !matched {
             return Err(line_error(
                 line,
-                "`resource` children are `previously`, `tenancy`, `soft_delete`, `timestamps`, `retention`, `validates`, `has_many`, `lifecycle`, `conventions`, or `<field>: <Type>`",
+                "`resource` children are `previously`, `tenancy`, `soft_delete`, `timestamps`, `retention`, `validates`, `has_many`, `lifecycle`, `conventions`, `index on`, `unique (...)`, `fts on (...)`, or `<field>: <Type>`",
             ));
         }
     }
@@ -7266,6 +7266,7 @@ fn parse_resource_decl(
             lock: state.lock,
             composite_key: state.composite_key,
             conventions: state.conventions,
+            constraints: state.constraints,
             span: Span::new(header.start, last_end),
         },
         i,
@@ -7292,6 +7293,8 @@ struct ResourceBodyState {
     /// `conventions [<name>, ...]` resource-level slot — closed catalog.
     /// See `docs/proposals/ir-resource-conventions-crud.md` §4.1.
     conventions: Vec<ResourceConventionAst>,
+    /// Authored DDL constraints (`index on`, compound `unique`, `fts on`).
+    constraints: Vec<ResourceConstraintAst>,
 }
 
 type ResourceBodyHandler =
@@ -7305,6 +7308,9 @@ fn resource_body_handlers() -> &'static [(&'static str, ResourceBodyHandler)] {
         ("validates ", handle_resource_validates),
         ("has_many ", handle_resource_has_many),
         ("lifecycle ", handle_resource_lifecycle),
+        ("index ", handle_resource_index),
+        ("unique ", handle_resource_unique),
+        ("fts ", handle_resource_fts),
     ]
 }
 
@@ -7368,6 +7374,89 @@ fn handle_resource_has_many(
     state: &mut ResourceBodyState,
 ) -> Result<(), ParseError> {
     state.has_many.push(parse_resource_has_many(line, rest)?);
+    Ok(())
+}
+
+fn handle_resource_index(
+    line: &SourceLine<'_>,
+    rest: &str,
+    state: &mut ResourceBodyState,
+) -> Result<(), ParseError> {
+    let rest = rest.trim();
+    let Some(target) = rest.strip_prefix("on ") else {
+        return Err(line_error(
+            line,
+            "`index` requires `on <field>` or `on (<field>, ...)`",
+        ));
+    };
+    let (fields, method) = parse_resource_index_target(line, target.trim())?;
+    state
+        .constraints
+        .push(ResourceConstraintAst::Index(ResourceIndexAst {
+            fields,
+            method,
+            full_text: false,
+            span: Span::new(line.start, line.end),
+        }));
+    Ok(())
+}
+
+fn handle_resource_unique(
+    line: &SourceLine<'_>,
+    rest: &str,
+    state: &mut ResourceBodyState,
+) -> Result<(), ParseError> {
+    let rest = rest.trim();
+    if !rest.starts_with('(') {
+        return Err(line_error(
+            line,
+            "`unique` resource constraints use `unique (<field>, <field>, ...)`",
+        ));
+    }
+    let (fields, trailing) = parse_parenthesized_field_list_with_trailing(line, rest)?;
+    if !trailing.trim().is_empty() {
+        return Err(line_error(
+            line,
+            "`unique (...)` does not accept trailing arguments",
+        ));
+    }
+    state
+        .constraints
+        .push(ResourceConstraintAst::Unique(ResourceUniqueAst {
+            fields,
+            span: Span::new(line.start, line.end),
+        }));
+    Ok(())
+}
+
+fn handle_resource_fts(
+    line: &SourceLine<'_>,
+    rest: &str,
+    state: &mut ResourceBodyState,
+) -> Result<(), ParseError> {
+    let rest = rest.trim();
+    let Some(target) = rest.strip_prefix("on ") else {
+        return Err(line_error(line, "`fts` requires `on (<field>, ...)`"));
+    };
+    let (fields, trailing) = parse_parenthesized_field_list_with_trailing(line, target.trim())?;
+    let method = match trailing.trim() {
+        "" => None,
+        "gin" => Some(ResourceIndexMethodAst::Gin),
+        other => {
+            return Err(line_error_owned(
+                line,
+                format!("`fts on (...)` only accepts an optional `gin` modifier (got `{other}`)"),
+            ));
+        }
+    };
+    state
+        .constraints
+        .push(ResourceConstraintAst::Index(ResourceIndexAst {
+            fields,
+            method,
+            full_text: true,
+            span: Span::new(line.start, line.end),
+        }));
     Ok(())
 }
 
@@ -8747,6 +8836,103 @@ fn parse_resource_has_many(
     })
 }
 
+fn parse_resource_index_target(
+    line: &SourceLine<'_>,
+    target: &str,
+) -> Result<(Vec<String>, Option<ResourceIndexMethodAst>), ParseError> {
+    let (fields, trailing) = if target.starts_with('(') {
+        parse_parenthesized_field_list_with_trailing(line, target)?
+    } else {
+        let mut parts = target.splitn(2, char::is_whitespace);
+        let field = parts.next().unwrap_or("").trim();
+        if field.is_empty() {
+            return Err(line_error(
+                line,
+                "`index on` requires a field name or parenthesized field list",
+            ));
+        }
+        if !is_policy_identifier(field) {
+            return Err(line_error_owned(
+                line,
+                format!("`{field}` is not a valid field name in `index on`"),
+            ));
+        }
+        (vec![field.to_owned()], parts.next().unwrap_or("").trim())
+    };
+    let method = parse_resource_index_method(line, trailing.trim())?;
+    Ok((fields, method))
+}
+
+fn parse_parenthesized_field_list_with_trailing<'a>(
+    line: &SourceLine<'_>,
+    text: &'a str,
+) -> Result<(Vec<String>, &'a str), ParseError> {
+    let text = text.trim();
+    if !text.starts_with('(') {
+        return Err(line_error(line, "expected parenthesized field list"));
+    }
+    let Some(end) = text.find(')') else {
+        return Err(line_error(line, "field list is missing its closing `)`"));
+    };
+    let inner = &text[1..end];
+    let fields = parse_resource_field_list(line, inner)?;
+    Ok((fields, &text[end + 1..]))
+}
+
+fn parse_resource_field_list(
+    line: &SourceLine<'_>,
+    fields: &str,
+) -> Result<Vec<String>, ParseError> {
+    let parsed: Vec<String> = fields
+        .split(',')
+        .map(|field| field.trim().to_owned())
+        .filter(|field| !field.is_empty())
+        .collect();
+    if parsed.is_empty() {
+        return Err(line_error(
+            line,
+            "field list requires at least one field name",
+        ));
+    }
+    for field in &parsed {
+        if !is_policy_identifier(field) {
+            return Err(line_error_owned(
+                line,
+                format!("`{field}` is not a valid field name in this list"),
+            ));
+        }
+    }
+    Ok(parsed)
+}
+
+fn parse_resource_index_method(
+    line: &SourceLine<'_>,
+    trailing: &str,
+) -> Result<Option<ResourceIndexMethodAst>, ParseError> {
+    let trailing = trailing.trim();
+    if trailing.is_empty() {
+        return Ok(None);
+    }
+    let method = trailing
+        .strip_prefix("using ")
+        .map(str::trim)
+        .unwrap_or(trailing);
+    let parsed = match method {
+        "btree" => ResourceIndexMethodAst::Btree,
+        "gin" => ResourceIndexMethodAst::Gin,
+        "gist" => ResourceIndexMethodAst::Gist,
+        other => {
+            return Err(line_error_owned(
+                line,
+                format!(
+                    "`index on` supports optional methods `btree`, `gin`, or `gist` (got `{other}`)"
+                ),
+            ));
+        }
+    };
+    Ok(Some(parsed))
+}
+
 fn parse_resource_field_decl(
     lines: &[SourceLine<'_>],
     start: usize,
@@ -8865,10 +9051,7 @@ fn extract_owner_axis_decorator(
     let mut i = 0usize;
     while i < bytes.len() {
         let ch = bytes[i] as char;
-        if depth == 0
-            && i + NEEDLE.len() <= bytes.len()
-            && &bytes[i..i + NEEDLE.len()] == NEEDLE
-        {
+        if depth == 0 && i + NEEDLE.len() <= bytes.len() && &bytes[i..i + NEEDLE.len()] == NEEDLE {
             let before_ok = i == 0 || (bytes[i - 1] as char).is_whitespace();
             let after_idx = i + NEEDLE.len();
             // The keyword must be followed (after optional whitespace)
@@ -8979,9 +9162,7 @@ fn parse_owner_axis_body(line: &SourceLine<'_>, body: &str) -> Result<String, Pa
             "`@owner_axis(through: <ident>)` requires a bare identifier, not a string literal",
         ));
     }
-    if !value
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    if !value.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
         || value
             .chars()
             .next()
@@ -17109,10 +17290,7 @@ feature customer_auth
         assert_eq!(password.algorithm, "argon2id");
         assert_eq!(password.hash, "@fn.hash_customer_password");
         assert_eq!(password.verify, "@fn.verify_customer_password");
-        let rate_limit = password
-            .rate_limit
-            .as_ref()
-            .expect("password rate_limit");
+        let rate_limit = password.rate_limit.as_ref().expect("password rate_limit");
         assert_eq!(rate_limit.default.as_deref(), Some("5 per 10 minutes"));
         assert!(rate_limit.by_env.is_empty());
 
@@ -17249,10 +17427,7 @@ feature customer_auth
         assert_eq!(password.algorithm, "argon2id");
         assert_eq!(password.hash, "@fn.hash_customer_password");
         assert_eq!(password.verify, "@fn.verify_customer_password");
-        let rate_limit = password
-            .rate_limit
-            .as_ref()
-            .expect("password rate_limit");
+        let rate_limit = password.rate_limit.as_ref().expect("password rate_limit");
         assert_eq!(rate_limit.default.as_deref(), Some("5 per 10 minutes"));
         assert!(rate_limit.by_env.is_empty());
     }
@@ -21216,7 +21391,10 @@ mod resource_conventions_tests {
             msg.contains("conventions_unknown"),
             "expected `conventions_unknown` code, got: {msg}",
         );
-        assert!(msg.contains("`foo`"), "expected offending ident, got: {msg}");
+        assert!(
+            msg.contains("`foo`"),
+            "expected offending ident, got: {msg}"
+        );
     }
 
     #[test]
@@ -21254,6 +21432,78 @@ mod resource_conventions_tests {
             msg.contains("at most one `conventions` slot"),
             "expected duplicate-slot diagnostic, got: {msg}",
         );
+    }
+}
+
+#[cfg(test)]
+mod resource_ddl_authoring_tests {
+    use super::parse_feature_skeletons;
+    use crate::ast::{ResourceConstraintAst, ResourceIndexMethodAst};
+
+    fn resource_with(lines: &[&str]) -> crate::ast::ResourceDecl {
+        let mut source = String::from(
+            "\nfeature customer\n  resource Customer\n    workspace: Workspace required\n    email: Text required\n    tags: list of Text\n",
+        );
+        for line in lines {
+            source.push_str("    ");
+            source.push_str(line);
+            source.push('\n');
+        }
+        parse_feature_skeletons(&source)
+            .expect("resource DDL authoring should parse")
+            .remove(0)
+            .resources
+            .remove(0)
+    }
+
+    #[test]
+    fn parses_single_column_index_on_parenthesized_field() {
+        let resource = resource_with(&["index on (workspace)"]);
+        match &resource.constraints[0] {
+            ResourceConstraintAst::Index(index) => {
+                assert_eq!(index.fields, vec!["workspace"]);
+                assert_eq!(index.method, None);
+                assert!(!index.full_text);
+            }
+            other => panic!("expected index constraint, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_single_column_index_with_gin_modifier() {
+        let resource = resource_with(&["index on tags gin"]);
+        match &resource.constraints[0] {
+            ResourceConstraintAst::Index(index) => {
+                assert_eq!(index.fields, vec!["tags"]);
+                assert_eq!(index.method, Some(ResourceIndexMethodAst::Gin));
+                assert!(!index.full_text);
+            }
+            other => panic!("expected index constraint, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_compound_unique_constraint() {
+        let resource = resource_with(&["unique (workspace, email)"]);
+        match &resource.constraints[0] {
+            ResourceConstraintAst::Unique(unique) => {
+                assert_eq!(unique.fields, vec!["workspace", "email"]);
+            }
+            other => panic!("expected unique constraint, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_resource_fts_as_full_text_gin_index() {
+        let resource = resource_with(&["fts on (email, tags)"]);
+        match &resource.constraints[0] {
+            ResourceConstraintAst::Index(index) => {
+                assert_eq!(index.fields, vec!["email", "tags"]);
+                assert_eq!(index.method, None);
+                assert!(index.full_text);
+            }
+            other => panic!("expected full-text index constraint, got {other:?}"),
+        }
     }
 }
 
@@ -21384,10 +21634,7 @@ mod rate_limit_env_aware_tests {
         assert_eq!(spec.by_env.len(), 1);
         // Raw identifiers as authored; analyzer normalises closed-catalog
         // names and surfaces unknowns via `ir::RateLimitByEnv.unknown_envs`.
-        assert_eq!(
-            spec.by_env[0].envs,
-            vec!["dev".to_owned(), "qa".to_owned()]
-        );
+        assert_eq!(spec.by_env[0].envs, vec!["dev".to_owned(), "qa".to_owned()]);
     }
 
     #[test]
@@ -21404,4 +21651,3 @@ mod rate_limit_env_aware_tests {
         );
     }
 }
-

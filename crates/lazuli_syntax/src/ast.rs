@@ -1437,7 +1437,43 @@ pub struct ResourceDecl {
     /// `docs/proposals/ir-resource-conventions-crud.md` §4.1.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conventions: Vec<ResourceConventionAst>,
+    /// Resource-authored DDL declarations:
+    /// `index on <field>`, `index on (<field>, ...) [using <method>]`,
+    /// `unique (<field>, ...)`, and `fts on (<field>, ...)`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub constraints: Vec<ResourceConstraintAst>,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum ResourceConstraintAst {
+    Index(ResourceIndexAst),
+    Unique(ResourceUniqueAst),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceIndexAst {
+    pub fields: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<ResourceIndexMethodAst>,
+    #[serde(default, skip_serializing_if = "is_false_bool")]
+    pub full_text: bool,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceUniqueAst {
+    pub fields: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceIndexMethodAst {
+    Btree,
+    Gin,
+    Gist,
 }
 
 /// Closed-catalog identifier inside a resource's `conventions [...]`

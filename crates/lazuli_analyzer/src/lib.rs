@@ -4508,6 +4508,11 @@ fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resource, Analyze
             syntax::ResourceConventionAst::Me => ir::ConventionRef::Me,
         })
         .collect();
+    let constraints = r
+        .constraints
+        .iter()
+        .map(lower_resource_constraint)
+        .collect();
     Ok(ir::Resource {
         name: r.name.clone(),
         public_contract: lower_public_contract(&r.public_contract),
@@ -4515,7 +4520,7 @@ fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resource, Analyze
         soft_delete: r.soft_delete,
         timestamps: if r.timestamps { Some(true) } else { None },
         fields,
-        constraints: Vec::new(),
+        constraints,
         validate,
         validates: Vec::new(),
         retention,
@@ -4531,6 +4536,26 @@ fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resource, Analyze
         composite_key,
         conventions,
     })
+}
+
+fn lower_resource_constraint(constraint: &syntax::ResourceConstraintAst) -> ir::Constraint {
+    match constraint {
+        syntax::ResourceConstraintAst::Unique(unique) => {
+            ir::Constraint::Unique(ir::UniqueConstraint {
+                fields: unique.fields.clone(),
+                per: None,
+            })
+        }
+        syntax::ResourceConstraintAst::Index(index) => ir::Constraint::Index(ir::IndexConstraint {
+            fields: index.fields.clone(),
+            method: index.method.map(|method| match method {
+                syntax::ResourceIndexMethodAst::Btree => ir::IndexMethod::Btree,
+                syntax::ResourceIndexMethodAst::Gin => ir::IndexMethod::Gin,
+                syntax::ResourceIndexMethodAst::Gist => ir::IndexMethod::Gist,
+            }),
+            full_text: index.full_text,
+        }),
+    }
 }
 
 /// Migrations bucket cycle Route C — strip the `migrated`/`alias` mode
