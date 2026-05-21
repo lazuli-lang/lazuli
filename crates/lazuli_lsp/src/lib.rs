@@ -13703,7 +13703,9 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "on_unauthorized" => Some(
             "Inside a view route guard, redirect target for signed-in users who fail the guard policy.",
         ),
-        "rate_limit" => Some("Declares a generated throttle policy for a command or auth flow."),
+        "rate_limit" => Some(
+            "`rate_limit \"N per UNIT per scope\" [in <env>, <env>...]`. Default rate limit applies in any env not matched by an `in`-qualified line. Closed env catalog: `production`, `staging`, `test`, `dev`, `local`. Multiple `rate_limit` lines per command are allowed when at most one is unqualified (the default)."
+        ),
         "calls" => Some(
             "Declares that a command or job calls an abstract integration/service operation; the runtime wires this to Go transport bindings.",
         ),
@@ -14926,6 +14928,15 @@ fn context_aware_completions(source: &str, position: Position) -> Option<Vec<Com
     // path so we don't drop into kind-child completion while the
     // cursor is inside a string literal on a `rate_limit` line.
     if let Some(items) = rate_limit_axis_completions(before) {
+        return Some(items);
+    }
+
+    // IR Rate-Limit env-aware (`docs/proposals/ir-rate-limit-env-aware.md`
+    // §11.3) — when the cursor sits inside the `in <env>` tail of a
+    // `rate_limit "..." in <|>` line, surface the 5-entry closed env
+    // catalog. Runs after `rate_limit_axis_completions` so the axis
+    // inside-string slot still wins when the cursor is in the spec.
+    if let Some(items) = rate_limit_env_completions(before) {
         return Some(items);
     }
 
@@ -18034,6 +18045,122 @@ fn snake_case(token: &str) -> String {
         }
     }
     out
+}
+
+/// Closed env catalog for `rate_limit "..." in <env>` qualifications.
+/// Mirrors `lazuli_ir::EnvName` (5-entry closed set per
+/// `docs/proposals/ir-rate-limit-env-aware.md` §4.3). Adding a name
+/// here without the matching IR variant + proposal is incorrect.
+pub const RATE_LIMIT_ENV_CATALOG: &[&str] =
+    &["production", "staging", "test", "dev", "local"];
+
+/// Inside a `rate_limit "<spec>" in <|>` (or `rate_limit "<spec>" in
+/// <env>, <|>`) context, offer the closed env catalog. Returns `None`
+/// outside that context.
+///
+/// Trigger conditions:
+/// - The line's first non-space token is `rate_limit`.
+/// - A complete double-quoted string literal sits between
+///   `rate_limit` and the `in` keyword (so we're past the spec).
+/// - The substring after the `in` keyword and before the cursor is
+///   either empty, ends with `, `, or contains a partial identifier
+///   word (so the author is mid-name).
+///
+/// Already-listed envs are filtered out so authors don't see
+/// duplicate offers (`rate_limit "..." in dev, |` skips `dev`).
+pub fn rate_limit_env_completions(before_cursor: &str) -> Option<Vec<CompletionItem>> {
+    let trimmed = before_cursor.trim_start();
+    if !trimmed.starts_with("rate_limit") {
+        return None;
+    }
+    // Locate the closing quote of the spec string and the `in` keyword
+    // that follows. We need both — without the closed string we're
+    // still inside the spec (handled by `rate_limit_axis_completions`),
+    // and without the `in` keyword the author hasn't reached the
+    // env-qualifier slot yet.
+    let close_quote = closing_quote_after_rate_limit(trimmed)?;
+    let after_quote = &trimmed[close_quote + 1..];
+    // Find the `in` keyword: token-aligned (preceded by whitespace,
+    // followed by whitespace). Strip leading whitespace, then check.
+    let after_quote_trimmed = after_quote.trim_start();
+    let in_rel_start = after_quote.len() - after_quote_trimmed.len();
+    if !after_quote_trimmed.starts_with("in ") && after_quote_trimmed != "in" {
+        return None;
+    }
+    let after_in_start = in_rel_start + 2; // skip the literal "in"
+    if after_in_start > after_quote.len() {
+        return None;
+    }
+    let after_in = &after_quote[after_in_start..];
+    // We accept exactly one separating space after `in`. The remainder
+    // is the env-list authored so far.
+    let env_list = after_in.trim_start_matches(' ');
+    // Already-listed envs (comma-separated names; partial trailing
+    // token is the in-flight prefix). We filter the catalog so the
+    // author doesn't see redundant offers.
+    let (committed, _partial) = split_trailing_token(env_list);
+    let already: Vec<&str> = committed
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    let items: Vec<CompletionItem> = RATE_LIMIT_ENV_CATALOG
+        .iter()
+        .filter(|env| !already.contains(env))
+        .map(|env| CompletionItem {
+            label: (*env).to_owned(),
+            kind: Some(CompletionItemKind::ENUM_MEMBER),
+            detail: Some(env_completion_detail(env).to_owned()),
+            ..CompletionItem::default()
+        })
+        .collect();
+    if items.is_empty() {
+        return None;
+    }
+    Some(items)
+}
+
+/// Find the closing `"` of the spec string on a `rate_limit` line.
+/// Returns the byte offset of the closing quote in `trimmed` (a string
+/// that starts with `rate_limit`). Returns `None` if either quote is
+/// missing.
+fn closing_quote_after_rate_limit(trimmed: &str) -> Option<usize> {
+    let first_quote = trimmed.find('"')?;
+    let after_first = &trimmed[first_quote + 1..];
+    let close_rel = after_first.find('"')?;
+    Some(first_quote + 1 + close_rel)
+}
+
+/// Split a comma-separated env list at the trailing in-flight token.
+/// Returns `(committed_part, partial_trailing_token)`.
+/// `"dev, staging, t"` -> `("dev, staging,", "t")`.
+/// `"dev, "` -> `("dev,", "")`.
+/// `""` -> `("", "")`.
+fn split_trailing_token(env_list: &str) -> (&str, &str) {
+    match env_list.rfind(',') {
+        Some(last_comma) => {
+            let after = env_list[last_comma + 1..].trim_start();
+            // Slice the input so committed includes the trailing comma.
+            // We can't just split because `after` may have leading whitespace
+            // that's not in the original; use char-offset arithmetic on the
+            // original `env_list` to recover the trailing token.
+            let trailing_start = env_list.len() - after.len();
+            (&env_list[..last_comma + 1], &env_list[trailing_start..])
+        }
+        None => ("", env_list),
+    }
+}
+
+fn env_completion_detail(env: &str) -> &'static str {
+    match env {
+        "production" => "Production deployment. `LAZULI_ENV=production`.",
+        "staging" => "Pre-production mirror. `LAZULI_ENV=staging`.",
+        "test" => "Automated test suite (CI + `pnpm test`). `LAZULI_ENV=test`.",
+        "dev" => "Developer-machine `pnpm dev`. `LAZULI_ENV=dev`.",
+        "local" => "Equivalent alias for `dev`. `LAZULI_ENV=local`.",
+        _ => "",
+    }
 }
 
 /// Inside a `rate_limit "<N> per <window> per "` value, offer the
@@ -24889,6 +25016,107 @@ feature customer
         assert!(
             super::conventions_list_completions("    conventions [crud] ").is_none(),
             "completion must not fire after the closing `]`"
+        );
+    }
+
+    // ----------------------------------------------------------------
+    // IR Rate-Limit env-aware — Cell 3 LSP surface. Spec:
+    // `docs/proposals/ir-rate-limit-env-aware.md` §11.3.
+    // Hover updates the `rate_limit` keyword description to cover the
+    // `in <env>` qualifier shape + the closed env catalog; completion
+    // inside `rate_limit "..." in <|>` offers the 5-entry catalog.
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn hover_describes_rate_limit_env_qualifier() {
+        // The keyword_description one-liner is the LSP hover seed for
+        // the `rate_limit` keyword. Per the cell brief, the description
+        // must mention the `in <env>` qualifier shape AND list the
+        // closed env catalog so an LLM author hovering on the keyword
+        // sees the full surface in one tooltip.
+        let description = super::keyword_description("rate_limit")
+            .expect("`rate_limit` keyword_description present");
+        assert!(
+            description.contains("in <env>"),
+            "hover must mention `in <env>` qualifier shape; got: {description}"
+        );
+        assert!(
+            description.contains("production"),
+            "hover must list `production` in the closed catalog; got: {description}"
+        );
+        assert!(
+            description.contains("staging"),
+            "hover must list `staging` in the closed catalog; got: {description}"
+        );
+        assert!(
+            description.contains("test"),
+            "hover must list `test` in the closed catalog; got: {description}"
+        );
+        assert!(
+            description.contains("dev"),
+            "hover must list `dev` in the closed catalog; got: {description}"
+        );
+        assert!(
+            description.contains("local"),
+            "hover must list `local` in the closed catalog; got: {description}"
+        );
+        assert!(
+            description.contains("default"),
+            "hover must describe the default-line semantics; got: {description}"
+        );
+    }
+
+    #[test]
+    fn completion_inside_in_offers_env_catalog() {
+        // Cursor sits at `rate_limit "5 per 10 minutes per ip" in <|>`.
+        // The completer surfaces the 5-entry closed env catalog so an
+        // author can pick `production` / `staging` / `test` / `dev` /
+        // `local` without typing it from memory.
+        let items =
+            super::rate_limit_env_completions("  rate_limit \"5 per 10 minutes per ip\" in ")
+                .expect("completion should fire inside `in <env>` slot");
+        let labels: Vec<&str> = items.iter().map(|item| item.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            vec!["production", "staging", "test", "dev", "local"],
+            "closed env catalog should match `production, staging, test, dev, local`"
+        );
+        // Sanity: every item is a closed-catalog ENUM_MEMBER (so
+        // editors render them distinctly from arbitrary keywords).
+        assert!(
+            items.iter().all(|i| i.kind
+                == Some(super::CompletionItemKind::ENUM_MEMBER)),
+            "all env completions should carry `ENUM_MEMBER` kind; got: {items:?}"
+        );
+
+        // After committing one env, the completer filters it out so the
+        // author doesn't see duplicate offers. Cursor sits at
+        // `rate_limit "..." in dev, <|>`.
+        let items = super::rate_limit_env_completions(
+            "  rate_limit \"5 per 10 minutes per ip\" in dev, ",
+        )
+        .expect("completion should fire after the comma");
+        let labels: Vec<&str> = items.iter().map(|item| item.label.as_str()).collect();
+        assert!(
+            !labels.contains(&"dev"),
+            "already-committed `dev` should be filtered; got: {labels:?}"
+        );
+        assert!(
+            labels.contains(&"staging"),
+            "remaining catalog entries should still be offered; got: {labels:?}"
+        );
+
+        // Negative case: cursor outside the `in <env>` slot — e.g.
+        // still mid-spec — must not fire (axis completion owns that).
+        assert!(
+            super::rate_limit_env_completions("  rate_limit \"5 per 10 minutes per ip\"")
+                .is_none(),
+            "completer must not fire when the `in` keyword is absent"
+        );
+        // Negative case: not a rate_limit line at all.
+        assert!(
+            super::rate_limit_env_completions("  audit default in ").is_none(),
+            "completer must only fire on `rate_limit` lines"
         );
     }
 

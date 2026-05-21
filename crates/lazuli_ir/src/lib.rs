@@ -46,6 +46,63 @@ pub struct SpanRef {
 /// Alias used by newer IR cells that name source anchors as `span`.
 pub type Span = SpanRef;
 
+/// Env-qualified `rate_limit` spec — see
+/// `docs/proposals/ir-rate-limit-env-aware.md` §4.1. The default line
+/// is the unqualified `rate_limit "<spec>"`; `by_env` carries any
+/// `rate_limit "<spec>" in <env_list>` overrides. Single-line legacy
+/// declarations lower to `RateLimitSpec { default: ..., by_env: [] }`
+/// (backward-compat).
+///
+/// Field on `Command`/`Query`/`Api`/`Agent`/`Report`/`AuthSessions`
+/// flips from `Option<String>` to `Option<RateLimitSpec>` in Cell 1
+/// of the proposal. Cell 3 (doctor + inspect + LSP) consumes the type
+/// to surface diagnostics + inspect projection; Cell 2 (codegen +
+/// runtime) emits the Go-side resolver.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RateLimitSpec {
+    /// Default rate limit applied when no env-qualified entry matches.
+    /// Empty string is invalid (use absence of the slot for "no rate
+    /// limit at all"); `"unlimited"` lowers to an empty-string `limit`
+    /// in `RateLimitByEnv` (see below) for the per-env carve-out case.
+    pub default: String,
+    /// Env-qualified overrides. The matching entry's `limit` replaces
+    /// `default` for the active env. Multiple envs may share an entry.
+    /// Order is preserved from source; resolution scans left-to-right
+    /// (first match wins) — see proposal §9 override semantics.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub by_env: Vec<RateLimitByEnv>,
+    /// Source spans preserved for doctor / inspect / LSP.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RateLimitByEnv {
+    /// Closed-catalog env identifiers. See `EnvName` below.
+    pub envs: Vec<EnvName>,
+    /// Spec literal (`"1000 per 10 minutes per ip"`) OR empty-string
+    /// (lowered from the `"unlimited"` keyword, see proposal §4.4).
+    /// Doctor validates the spec syntax (`rate_limit_invalid_spec`).
+    pub limit: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// Closed catalog of env identifiers accepted in
+/// `rate_limit "<spec>" in <env>` qualifications. The runtime
+/// compares `LAZULI_ENV` (lowercased) against the lowercased
+/// variant name; `dev` and `local` are recognised as equivalent
+/// aliases (see proposal §4.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EnvName {
+    Production,
+    Staging,
+    Test,
+    Dev,
+    Local,
+}
+
 /// SourceMap is the IR companion that resolves `SpanRef` byte
 /// offsets to (file, line, column). Sidecar to `Module` — passed
 /// alongside in codegen, serialized to `<module>.sourcemap.json`
