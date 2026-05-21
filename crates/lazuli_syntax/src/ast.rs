@@ -1391,7 +1391,21 @@ pub struct ResourceDecl {
     /// `id BIGSERIAL PRIMARY KEY` should be replaced.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub composite_key: Option<ResourceCompositeKey>,
+    /// `conventions [<name>, ...]` resource-level slot. Closed catalog
+    /// of named convention bundles (today: `crud`). Empty when the
+    /// resource opts into no conventions. See
+    /// `docs/proposals/ir-resource-conventions-crud.md` §4.1.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conventions: Vec<ResourceConventionAst>,
     pub span: Span,
+}
+
+/// Closed-catalog identifier inside a resource's `conventions [...]`
+/// slot. Adding a variant is an IR/parser change requiring a proposal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceConventionAst {
+    Crud,
 }
 
 /// Roadmap §1.5 (CL.C.2) — `lock` decorator closed catalog. Variant

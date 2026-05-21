@@ -98,6 +98,7 @@ mod tests {
             retention: None,
             previous_names: Vec::new(),
             span_ref: None,
+            conventions: Vec::new(),
             lifecycle: Some(ir::Lifecycle {
                 discriminator_field: "status".to_owned(),
                 generated_enum: "OrderStatus".to_owned(),
