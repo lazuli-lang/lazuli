@@ -200,6 +200,7 @@ mod tests {
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
+            owner_axis: None,
             span_ref: None,
         }
     }
@@ -282,6 +283,7 @@ mod tests {
                     policy_when_denied: None,
                     previous_names: Vec::new(),
                     span_ref: None,
+                    owner_scope_sql: None,
                 })],
                 resume_routers: Vec::new(),
                 workflows: Vec::new(),

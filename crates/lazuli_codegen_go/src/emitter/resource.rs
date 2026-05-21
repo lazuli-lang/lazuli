@@ -1087,6 +1087,7 @@ mod tests {
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
+            owner_axis: None,
             span_ref: None,
         }
     }
@@ -1178,6 +1179,7 @@ mod tests {
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
+            owner_axis: None,
             span_ref: None,
         };
         feature.resources.push(simple_resource("Host", vec![plugin_field]));
@@ -1238,6 +1240,7 @@ mod tests {
                 full_text: false,
                 previous_names: Vec::new(),
                 pii: None,
+                owner_axis: None,
                 span_ref: None,
             }],
         );
@@ -1390,6 +1393,7 @@ mod tests {
                 full_text: false,
                 previous_names: Vec::new(),
                 pii: None,
+                owner_axis: None,
                 span_ref: None,
             }],
         );
@@ -1417,6 +1421,7 @@ mod tests {
                 full_text: false,
                 previous_names: Vec::new(),
                 pii: None,
+                owner_axis: None,
                 span_ref: None,
             }],
         );
@@ -1470,6 +1475,7 @@ mod tests {
                 full_text: false,
                 previous_names: Vec::new(),
                 pii: None,
+                owner_axis: None,
                 span_ref: None,
             }],
         );
@@ -1503,6 +1509,7 @@ mod tests {
                 full_text: false,
                 previous_names: Vec::new(),
                 pii: None,
+                owner_axis: None,
                 span_ref: None,
             }],
         );
@@ -1577,6 +1584,7 @@ mod tests {
                 full_text: false,
                 previous_names: Vec::new(),
                 pii: None,
+                owner_axis: None,
                 span_ref: None,
             }],
         );
@@ -1699,6 +1707,7 @@ mod tests {
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
+            owner_axis: None,
             span_ref: None,
         }
     }
@@ -1718,6 +1727,7 @@ mod tests {
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
+            owner_axis: None,
             span_ref: None,
         }
     }
@@ -1740,6 +1750,7 @@ mod tests {
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
+            owner_axis: None,
             span_ref: None,
         }
     }
@@ -1760,6 +1771,7 @@ mod tests {
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
+            owner_axis: None,
             span_ref: None,
         }
     }
@@ -1865,6 +1877,7 @@ mod tests {
                 full_text: false,
                 previous_names: Vec::new(),
                 pii: None,
+                owner_axis: None,
                 span_ref: None,
             }],
         );
@@ -1914,6 +1927,7 @@ mod feature_emit_tests {
                     full_text: false,
                     previous_names: Vec::new(),
                     pii: None,
+                    owner_axis: None,
                     span_ref: None,
                 }],
                 constraints: Vec::new(),

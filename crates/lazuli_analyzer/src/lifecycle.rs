@@ -88,6 +88,7 @@ fn emit_discriminator_field(
         full_text: false,
         previous_names: Vec::new(),
         pii: None,
+        owner_axis: None,
         span_ref: Some(span_of(lifecycle_ast.span)),
     });
 }
@@ -112,6 +113,7 @@ fn emit_timestamp_fields(resource: &mut ir::Resource, lifecycle_ast: &syntax::Li
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
+            owner_axis: None,
             span_ref: Some(span_of(transition.span)),
         });
     }
@@ -208,6 +210,10 @@ fn lower_transition_command(
         tests: lower_tests(&transition.tests, transition.span),
         triggers: Vec::new(),
         synthesized_from_cap_file: None,
+        // owner-scope §7.3 — lifecycle transition commands are authored,
+        // not synthesized, so they default to tenant-only. Authors who
+        // want owner-scope on lifecycle flips override via handler.
+        owner_scope_sql: None,
         previous_names: transition.previously.clone(),
         span_ref: Some(span_of(transition.span)),
     }

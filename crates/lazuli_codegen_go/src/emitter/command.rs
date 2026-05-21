@@ -2297,6 +2297,7 @@ mod feature_emit_tests {
             tests: None,
             triggers: vec![],
             synthesized_from_cap_file: None,
+            owner_scope_sql: None,
             previous_names: Vec::new(),
             span_ref: None,
         }
@@ -2598,6 +2599,7 @@ mod tests {
             tests: None,
             triggers: vec![],
             synthesized_from_cap_file: None,
+            owner_scope_sql: None,
             previous_names: Vec::new(),
             span_ref: None,
         }
@@ -3439,6 +3441,7 @@ mod tests {
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
+            owner_axis: None,
             span_ref: None,
         }
     }
@@ -3612,6 +3615,7 @@ mod tests {
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
+            owner_axis: None,
             span_ref: None,
         });
         feature.resources.push(property);

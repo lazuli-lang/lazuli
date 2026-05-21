@@ -124,6 +124,7 @@ pub fn encrypted_field(name: &str, key_scope: &str) -> Field {
         full_text: false,
         previous_names: vec![],
         pii: None,
+        owner_axis: None,
         span_ref: None,
     }
 }
@@ -143,6 +144,7 @@ pub fn e2ee_field(name: &str, key_scope: &str) -> Field {
         full_text: false,
         previous_names: vec![],
         pii: None,
+        owner_axis: None,
         span_ref: None,
     }
 }

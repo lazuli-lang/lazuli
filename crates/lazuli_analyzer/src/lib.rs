@@ -2254,6 +2254,7 @@ fn build_auto_photo_command(
             field: field.to_owned(),
             role,
         }),
+        owner_scope_sql: None,
     }
 }
 
@@ -2278,6 +2279,7 @@ fn simple_field(name: &str, type_ref: ir::TypeRef, required: bool) -> ir::Field 
         full_text: false,
         previous_names: Vec::new(),
         pii: None,
+        owner_axis: None,
         span_ref: None,
     }
 }
@@ -2364,6 +2366,36 @@ pub enum ConventionSynthDiagnostic {
         synth_name: String,
         reason: String,
     },
+    /// `owner_axis_unknown_through` — `@owner_axis(through: <col>)`
+    /// names a column that doesn't exist on the FK target resource.
+    /// O3 formats the user-facing message with a nearest-name hint.
+    /// See `ir-resource-conventions-owner-scope.md` §7.4 + §11.1.
+    OwnerAxisUnknownThrough {
+        resource: String,
+        field: String,
+        through: String,
+        fk_target: String,
+        suggestion: Option<String>,
+    },
+    /// `owner_axis_through_not_user_keyed` — the FK target's `through:`
+    /// column is not typed as `User` (or `@semantic.UserID`). The
+    /// emitted chain can't resolve to `ctx.User.ID`. O3 surfaces this
+    /// as a warning. See §7.4 + §11.1.
+    OwnerAxisThroughNotUserKeyed {
+        resource: String,
+        field: String,
+        through: String,
+        fk_target: String,
+    },
+    /// `owner_axis_collides_with_unique_user` — the resource carries
+    /// BOTH `user: User required unique` AND
+    /// `@owner_axis(through: <col>)` on another field. The two scopes
+    /// would compose redundantly; the unique-user mode already
+    /// provides ownership. See §7.4 + §11.1.
+    OwnerAxisCollidesWithUniqueUser {
+        resource: String,
+        field: String,
+    },
 }
 
 /// Legacy alias preserved during the M2 rename. Downstream code should
@@ -2421,6 +2453,15 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
         if !has_crud && !has_me {
             continue;
         }
+
+        // owner-scope §7.3 — resolve once per resource so the crud and
+        // me blocks share one decision. Composability §5.3 / §6.1:
+        // one annotation drives mode for every bundle that synths
+        // against the resource. Diagnostics (§11.1) are pushed
+        // regardless of which bundles are active (they're a property
+        // of the resource shape, not of the bundle).
+        let owner_scope =
+            resolve_owner_scope(feature, resource, &mut diagnostics);
 
         // ===== `crud` bundle (§5) — gated; runs only when declared. =====
         if has_crud {
@@ -2488,11 +2529,21 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
                 ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
             ));
         } else {
-            to_add_commands.push(build_create_command(
+            let mut cmd = build_create_command(
                 &create_name,
                 &resource.name,
                 &create_input_fields,
-            ));
+            );
+            // §8.5.A — owner-scope create-side CTE-INSERT. The CREATE
+            // synth carries the *full* OwnerScopeSql (cte_owner_check
+            // populated) so codegen can paste the CTE prefix in front
+            // of the INSERT. Tenant-only resources keep
+            // `owner_scope_sql: None` and emit the same shape as
+            // before this cell.
+            if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
+                cmd.owner_scope_sql = Some(scope.clone());
+            }
+            to_add_commands.push(cmd);
             synth_origins_inserts.push((
                 create_name.clone(),
                 ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
@@ -2519,11 +2570,23 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
                 ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
             ));
         } else {
-            to_add_commands.push(build_update_command(
+            let mut cmd = build_update_command(
                 &update_name,
                 &resource.name,
                 &categorised.update_input_fields(),
-            ));
+            );
+            // §8.2 — owner-scope WHERE on UPDATE. The carrier carries
+            // ONLY the `where_predicate`; codegen drops the
+            // `cte_owner_check` (None here, since UPDATE doesn't need
+            // the CTE wrapper). We share the resolution by cloning;
+            // codegen reads only what it needs per shape.
+            if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
+                cmd.owner_scope_sql = Some(ir::OwnerScopeSql {
+                    cte_owner_check: None,
+                    ..scope.clone()
+                });
+            }
+            to_add_commands.push(cmd);
             synth_origins_inserts.push((
                 update_name.clone(),
                 ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
@@ -2549,7 +2612,17 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
                 ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
             ));
         } else {
-            to_add_commands.push(build_delete_command(&delete_name, &resource.name));
+            let mut cmd = build_delete_command(&delete_name, &resource.name);
+            // §8.1 — owner-scope WHERE on DELETE. Same shape as the
+            // pre-absorption hand-rolled handler in §1.1 trigger
+            // evidence. CTE not used on DELETE; only the predicate.
+            if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
+                cmd.owner_scope_sql = Some(ir::OwnerScopeSql {
+                    cte_owner_check: None,
+                    ..scope.clone()
+                });
+            }
+            to_add_commands.push(cmd);
             synth_origins_inserts.push((
                 delete_name.clone(),
                 ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
@@ -2574,7 +2647,19 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
                 ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
             ));
         } else {
-            to_add_queries.push(build_lookup_query(&lookup_name, &resource.name));
+            let mut q = build_lookup_query(&lookup_name, &resource.name);
+            // §8.3 — owner-scope WHERE on LOOKUP. The Lookup query's
+            // canonical keys (id = $1) get extended with the chain
+            // predicate emitted by codegen via `owner_scope_sql`.
+            if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
+                if let ir::Query::Lookup(lq) = &mut q {
+                    lq.owner_scope_sql = Some(ir::OwnerScopeSql {
+                        cte_owner_check: None,
+                        ..scope.clone()
+                    });
+                }
+            }
+            to_add_queries.push(q);
             synth_origins_inserts.push((
                 lookup_name.clone(),
                 ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
@@ -2599,7 +2684,18 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
                 ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
             ));
         } else {
-            to_add_queries.push(build_list_query(&list_name, &resource.name));
+            let mut q = build_list_query(&list_name, &resource.name);
+            // §8.4 — owner-scope WHERE on LIST. Same predicate; the
+            // synth's pagination shape is unaffected.
+            if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
+                if let ir::Query::List(lq) = &mut q {
+                    lq.owner_scope_sql = Some(ir::OwnerScopeSql {
+                        cte_owner_check: None,
+                        ..scope.clone()
+                    });
+                }
+            }
+            to_add_queries.push(q);
             synth_origins_inserts.push((
                 list_name.clone(),
                 ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
@@ -2672,8 +2768,28 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
                             ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Me),
                         ));
                     } else {
-                        to_add_queries
-                            .push(build_lookup_my_query(&lookup_my_name, &resource.name, m));
+                        let mut q = build_lookup_my_query(
+                            &lookup_my_name,
+                            &resource.name,
+                            m,
+                        );
+                        // §6.1 composition — `[crud, me]` + `@owner_axis`
+                        // composes uniformly: the `me` synth also reads
+                        // the resource-level annotation and appends the
+                        // chain predicate. The unique-user variant is
+                        // mutually exclusive with `@owner_axis` per
+                        // §11.1 collision check, so this path only
+                        // attaches scope when the resource is NOT
+                        // user-keyed and the resolution succeeded.
+                        if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
+                            if let ir::Query::Lookup(lq) = &mut q {
+                                lq.owner_scope_sql = Some(ir::OwnerScopeSql {
+                                    cte_owner_check: None,
+                                    ..scope.clone()
+                                });
+                            }
+                        }
+                        to_add_queries.push(q);
                         synth_origins_inserts.push((
                             lookup_my_name.clone(),
                             ir::ConventionOrigin::Synthesized(ir::ConventionRef::Me),
@@ -2858,6 +2974,7 @@ fn build_lookup_my_query(name: &str, resource: &str, mode: MeMode) -> ir::Query 
         policy_when_denied: None,
         previous_names: Vec::new(),
         span_ref: None,
+        owner_scope_sql: None,
     })
 }
 
@@ -2977,6 +3094,307 @@ fn categorize_fields(resource: &ir::Resource) -> CategorisedFields<'_> {
     }
 
     CategorisedFields { required, optional }
+}
+
+// =============================================================================
+// `@owner_axis(through: <col>)` synth-pass extension — Cell O2.
+//
+// Spec: `docs/proposals/ir-resource-conventions-owner-scope.md`
+// §7.3 (`build_where_clause` extension), §8 (auto-synth worked
+// examples), §8.5.A (CTE-INSERT for create-side verification),
+// §9 (override semantics), §11.1 (3 new doctor codes).
+//
+// **RULE-VOCAB-03 (§7 + §8.6)**: each shape composed here lowers to
+// exactly ONE SQL statement. The CTE-INSERT (§8.5.A) is a single
+// CTE-wrapped INSERT — Postgres evaluates the CTE either yields a
+// row and the INSERT fires once, or yields zero rows and the INSERT
+// fires zero times. No procedural sequencing; no runtime branching;
+// no two-roundtrip check-then-insert.
+// =============================================================================
+
+/// §7.3 — resolution result for the owner-scope synth lookup. Returned
+/// by `resolve_owner_scope`, consumed by the crud + me synth blocks.
+///
+/// - `Scoped(...)`: at least one `@owner_axis` field resolved cleanly;
+///   the analyzer should emit the WHERE / CTE fragments for downstream
+///   codegen consumption.
+/// - `Tenant`: no `@owner_axis` annotation present — fall back to the
+///   pre-existing tenant-only synth (today's default).
+/// - `Diagnostic(...)`: an `@owner_axis` annotation was found but
+///   doesn't resolve cleanly — surface the diagnostic and skip
+///   owner-scope emission for the offending field. Other fields on
+///   the same resource may still resolve.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum OwnerScopeResolution {
+    Scoped(ir::OwnerScopeSql),
+    Tenant,
+}
+
+/// §7.3 — table-name from PascalCase resource name. The convention
+/// existing crud / me synths follow (snake_case identifier, quoted
+/// per Postgres convention to dodge keyword collisions like `"user"`).
+fn quoted_table(resource_name: &str) -> String {
+    format!("\"{}\"", pascal_to_snake(resource_name))
+}
+
+/// §7.3 — quote an identifier when codegen will paste it inside an
+/// SQL fragment. Postgres treats `"user"` and `user` differently
+/// (the latter is a reserved keyword in many positions); the
+/// hand-rolled handlers in the trigger pilot (`hostpoint/.../delete_service.go`
+/// §1.1) quote both sides. We match that shape.
+fn quoted_ident(ident: &str) -> String {
+    format!("\"{}\"", ident)
+}
+
+/// §7.3 — resolve a resource's `@owner_axis` annotations into an
+/// emittable `OwnerScopeSql` carrier, OR emit diagnostics for the 3
+/// new doctor codes (§11.1) when the annotation can't resolve.
+///
+/// The function visits every field; the *first* cleanly-resolving
+/// `@owner_axis` wins for the synth's WHERE-clause (the pilot has
+/// exactly one owner-axis per resource — Property's `host`,
+/// Service's `host`, CustomServiceCategory's `host`). Multi-axis
+/// composition is deferred per §13.
+///
+/// Diagnostics are pushed into `diagnostics_out` for the caller; the
+/// return value indicates whether the synth should still emit
+/// owner-scope IR (yes for `Scoped`, no for `Tenant` — which also
+/// covers "diagnostic emitted, fell back to tenant-only").
+fn resolve_owner_scope(
+    feature: &ir::Feature,
+    resource: &ir::Resource,
+    diagnostics_out: &mut Vec<ConventionSynthDiagnostic>,
+) -> OwnerScopeResolution {
+    // §7.4 / §11.1 `owner_axis_collides_with_unique_user` — resource
+    // carries BOTH the user-keyed shape (`user: User required unique`)
+    // AND an `@owner_axis(through: ...)` on another field. The two
+    // scopes would compose redundantly; the unique-user mode already
+    // restricts to `WHERE "user" = ctx.User.ID`.
+    let has_user_unique = resource.fields.iter().any(|f| {
+        f.name == "user"
+            && f.required
+            && f.unique
+            && matches!(&f.type_ref, ir::TypeRef::UserDefined(q) if q.name == "User")
+    });
+
+    let mut emitted_collision_diag = false;
+    let mut chosen: Option<ir::OwnerScopeSql> = None;
+
+    for field in &resource.fields {
+        let Some(axis) = field.owner_axis.as_ref() else {
+            continue;
+        };
+
+        // §11.1 — collision check: declarative `user-keyed` mode
+        // already provides ownership; surface a warning and skip the
+        // owner-axis emission to avoid double-restriction. We emit
+        // the diagnostic once per resource even if multiple fields
+        // collide (rare; the spec describes "the resource has BOTH").
+        if has_user_unique {
+            if !emitted_collision_diag {
+                diagnostics_out.push(
+                    ConventionSynthDiagnostic::OwnerAxisCollidesWithUniqueUser {
+                        resource: resource.name.clone(),
+                        field: field.name.clone(),
+                    },
+                );
+                emitted_collision_diag = true;
+            }
+            continue;
+        }
+
+        // The annotated field must be a UserDefined FK to another
+        // resource. Primitive-field misuse is `owner_axis_on_non_fk`
+        // and lives in O1's parser-time surface (§7.4); the analyzer
+        // re-checks defensively so a hand-constructed IR fixture is
+        // still surfaced (otherwise this code path would silently
+        // skip the annotation).
+        let ir::TypeRef::UserDefined(fk_qname) = &field.type_ref else {
+            // Out-of-scope for O2 — O1 owns this diagnostic. Skip
+            // silently rather than double-emit; downstream check
+            // catches it.
+            continue;
+        };
+        let fk_target = fk_qname.name.clone();
+
+        // §11.1 `owner_axis_unknown_through` — the `through:` column
+        // doesn't exist on the FK target resource. Resolve the FK
+        // target in the feature's resource list.
+        let fk_resource = feature
+            .resources
+            .iter()
+            .find(|r| r.name == fk_target);
+        let Some(fk_resource) = fk_resource else {
+            // Cross-feature FK or unresolved target — same surface as
+            // any unresolved type ref. O1 / earlier passes catch this
+            // shape (`type_ref_unresolved`); we don't double-emit.
+            continue;
+        };
+
+        let through_field = fk_resource
+            .fields
+            .iter()
+            .find(|f| f.name == axis.through_column);
+        let Some(through_field) = through_field else {
+            let suggestion = nearest_field_name(&axis.through_column, &fk_resource.fields);
+            diagnostics_out.push(ConventionSynthDiagnostic::OwnerAxisUnknownThrough {
+                resource: resource.name.clone(),
+                field: field.name.clone(),
+                through: axis.through_column.clone(),
+                fk_target: fk_target.clone(),
+                suggestion,
+            });
+            continue;
+        };
+
+        // §11.1 `owner_axis_through_not_user_keyed` — the resolved
+        // `through:` column must be typed as `User` (a UserDefined
+        // ref to the User resource). Other actor types
+        // (`@semantic.UserID` etc.) are deferred per §13.
+        let is_user_keyed = matches!(
+            &through_field.type_ref,
+            ir::TypeRef::UserDefined(q) if q.name == "User"
+        );
+        if !is_user_keyed {
+            diagnostics_out.push(ConventionSynthDiagnostic::OwnerAxisThroughNotUserKeyed {
+                resource: resource.name.clone(),
+                field: field.name.clone(),
+                through: axis.through_column.clone(),
+                fk_target: fk_target.clone(),
+            });
+            // Warning, not error per §11.1 — still emit the chain so
+            // codegen can produce SQL the author can hand-correct.
+        }
+
+        // §7.3 / §8.1-8.4 — compose the WHERE predicate fragment.
+        // Shape per §1.1 trigger evidence: literal Postgres
+        // `<fk_col> IN (SELECT id FROM "<fk_table>" WHERE "<through>" = ctx.User.ID)`.
+        // Single statement; the IN-subquery is a semi-join in the
+        // planner (§8.6). The `ctx.User.ID` literal is a
+        // codegen-substituted placeholder — downstream codegen
+        // resolves to `$N` per its parameter-binding policy.
+        let where_predicate = format!(
+            "{fk_col} IN (SELECT id FROM {fk_table} WHERE {through} = ctx.User.ID)",
+            fk_col = field.name,
+            fk_table = quoted_table(&fk_target),
+            through = quoted_ident(&axis.through_column),
+        );
+
+        // §8.5.A — CTE prefix for `create_<resource>`. The CREATE
+        // synth pastes this in front of its INSERT; the INSERT then
+        // selects FROM the CTE so a zero-row CTE yields a zero-row
+        // INSERT (the synth surfaces a `not_owner` envelope via
+        // existing RowsAffected==0 handling in `delete_*` per §8.7,
+        // mirrored on create-side). One SQL statement total.
+        let cte_owner_check = Some(format!(
+            "WITH owner_check AS (SELECT 1 FROM {fk_table} WHERE id = ${fk_col} AND {through} = ctx.User.ID)",
+            fk_col = field.name,
+            fk_table = quoted_table(&fk_target),
+            through = quoted_ident(&axis.through_column),
+        ));
+
+        if chosen.is_none() {
+            chosen = Some(ir::OwnerScopeSql {
+                field_name: field.name.clone(),
+                fk_target,
+                through_column: axis.through_column.clone(),
+                where_predicate,
+                cte_owner_check,
+            });
+        }
+        // Multi-axis composition (multiple `@owner_axis` on one
+        // resource) is deferred per §13. We take the first.
+    }
+
+    match chosen {
+        Some(scope) => OwnerScopeResolution::Scoped(scope),
+        None => OwnerScopeResolution::Tenant,
+    }
+}
+
+/// §11.1 `owner_axis_unknown_through` — produce a nearest-name
+/// suggestion from the FK target's field list. Returns `None` when
+/// the closest candidate is not similar enough to be useful (Levenshtein
+/// distance > half the input length — same threshold used by the
+/// pre-existing nearest-string suggestions elsewhere in the doctor).
+fn nearest_field_name(target: &str, fields: &[ir::Field]) -> Option<String> {
+    let mut best: Option<(usize, &str)> = None;
+    for f in fields {
+        let dist = levenshtein(target, &f.name);
+        match best {
+            Some((b, _)) if dist >= b => {}
+            _ => best = Some((dist, f.name.as_str())),
+        }
+    }
+    let (dist, name) = best?;
+    if dist <= target.len().max(1) / 2 + 1 {
+        Some(name.to_owned())
+    } else {
+        None
+    }
+}
+
+/// Minimal Levenshtein for the nearest-name suggestion. Small (~12
+/// LOC) so we don't pull a dependency for a one-off use. Copying the
+/// pattern from elsewhere in the analyzer keeps the suggestion
+/// quality consistent.
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut dp = vec![vec![0usize; b.len() + 1]; a.len() + 1];
+    for i in 0..=a.len() {
+        dp[i][0] = i;
+    }
+    for j in 0..=b.len() {
+        dp[0][j] = j;
+    }
+    for i in 1..=a.len() {
+        for j in 1..=b.len() {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            dp[i][j] = (dp[i - 1][j] + 1)
+                .min(dp[i][j - 1] + 1)
+                .min(dp[i - 1][j - 1] + cost);
+        }
+    }
+    dp[a.len()][b.len()]
+}
+
+/// `pub` re-export of the §7.3 WHERE-clause builder for direct test
+/// access. Tests assert on the emitted SQL string; downstream codegen
+/// pulls the same string off `Command.owner_scope_sql.where_predicate`.
+///
+/// **Direct call form** (no diagnostic surface). Used in tests that
+/// construct a synthetic `Field` + `Resource` and want to round-trip
+/// the SQL without running the whole `synthesize_conventions` pass.
+/// For real synth, use `resolve_owner_scope` via `synthesize_conventions`.
+#[doc(hidden)]
+pub fn build_owner_scope_where_for_test(
+    fk_col: &str,
+    fk_target_resource: &str,
+    through_column: &str,
+) -> String {
+    format!(
+        "{fk_col} IN (SELECT id FROM {fk_table} WHERE {through} = ctx.User.ID)",
+        fk_col = fk_col,
+        fk_table = quoted_table(fk_target_resource),
+        through = quoted_ident(through_column),
+    )
+}
+
+/// §8.5.A — `pub` re-export of the CTE-INSERT prefix builder for
+/// direct test access. Same role as `build_owner_scope_where_for_test`.
+#[doc(hidden)]
+pub fn build_owner_scope_cte_prefix_for_test(
+    fk_col: &str,
+    fk_target_resource: &str,
+    through_column: &str,
+) -> String {
+    format!(
+        "WITH owner_check AS (SELECT 1 FROM {fk_table} WHERE id = ${fk_col} AND {through} = ctx.User.ID)",
+        fk_col = fk_col,
+        fk_table = quoted_table(fk_target_resource),
+        through = quoted_ident(through_column),
+    )
 }
 
 /// Canonical return shape for `crud_synth_signature_mismatch` (§9 / §11).
@@ -3171,6 +3589,7 @@ fn build_lookup_query(name: &str, resource: &str) -> ir::Query {
         policy_when_denied: None,
         previous_names: Vec::new(),
         span_ref: None,
+        owner_scope_sql: None,
     })
 }
 
@@ -3207,6 +3626,7 @@ fn build_list_query(name: &str, resource: &str) -> ir::Query {
         policy_when_denied: None,
         previous_names: Vec::new(),
         span_ref: None,
+        owner_scope_sql: None,
     })
 }
 
@@ -3267,6 +3687,11 @@ fn default_synth_command(rate_limit: &str) -> ir::Command {
         span_ref: None,
         triggers: Vec::new(),
         synthesized_from_cap_file: None,
+        // owner-scope §7.3 — left `None` here; the synth pass mutates
+        // each synthesized command to attach the resolved scope (see
+        // `synthesize_conventions`). The default keeps tenant-only
+        // shape stable for command IR not produced by the synth pass.
+        owner_scope_sql: None,
     }
 }
 
@@ -3576,6 +4001,10 @@ fn lower_query_decl(
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: Some(span_of(list.span)),
+            // owner-scope §7.3 — author-written queries default to
+            // tenant-only. Synth pass mutates the slot for
+            // convention-emitted queries.
+            owner_scope_sql: None,
         })),
         syntax::QueryDecl::Lookup(lookup) => Ok(ir::Query::Lookup(ir::LookupQuery {
             name: lookup.name.clone(),
@@ -3602,6 +4031,10 @@ fn lower_query_decl(
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: Some(span_of(lookup.span)),
+            // owner-scope §7.3 — author-written `query.lookup` defaults
+            // to tenant-only. Synth pass mutates for `lookup_<r>` /
+            // `lookup_my_<r>` when the resource carries `@owner_axis`.
+            owner_scope_sql: None,
         })),
         syntax::QueryDecl::Sql(sql) => Ok(ir::Query::Sql(ir::SqlQuery {
             name: sql.name.clone(),
@@ -4115,6 +4548,11 @@ fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> Result<ir::Field, Anal
             .map(|p| strip_previously_mode(p))
             .collect(),
         pii,
+        // Cell O2 inlined prereq — parser (O1) doesn't yet lift
+        // `@owner_axis(through: <col>)`. Default `None` keeps existing
+        // .lzi inputs behaviour-equivalent; analyzer-side tests
+        // construct `Field` values directly with `owner_axis` set.
+        owner_axis: None,
         span_ref: Some(span_of(f.span)),
     })
 }
@@ -4826,6 +5264,11 @@ fn lower_command_decl(c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeErr
         tests: None,
         triggers: c.triggers.clone(),
         synthesized_from_cap_file: None,
+        // owner-scope §7.3 — author-written commands default to
+        // tenant-only. The synth pass mutates the slot post-build for
+        // crud / me bundle outputs when the resource carries
+        // `@owner_axis`.
+        owner_scope_sql: None,
         previous_names: c.previously.clone(),
         span_ref: Some(span_of(c.span)),
     })
@@ -10442,6 +10885,7 @@ mod conventions_crud_synth_tests {
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
+            owner_axis: None,
             span_ref: None,
         }
     }
@@ -10692,6 +11136,7 @@ mod conventions_crud_synth_tests {
             span_ref: None,
             triggers: Vec::new(),
             synthesized_from_cap_file: None,
+            owner_scope_sql: None,
         };
         feature.commands.push(author_update);
 
@@ -10915,6 +11360,7 @@ mod conventions_crud_synth_tests {
             span_ref: None,
             triggers: Vec::new(),
             synthesized_from_cap_file: None,
+            owner_scope_sql: None,
         });
 
         let diags = synthesize_conventions(&mut feature);
@@ -11040,6 +11486,7 @@ mod conventions_me_synth_tests {
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
+            owner_axis: None,
             span_ref: None,
         }
     }
@@ -11295,6 +11742,7 @@ mod conventions_me_synth_tests {
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
+            owner_scope_sql: None,
         }));
 
         let diags = synthesize_conventions(&mut feature);
@@ -11460,6 +11908,7 @@ mod conventions_me_synth_tests {
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
+            owner_scope_sql: None,
         }));
 
         let diags = synthesize_conventions(&mut feature);
@@ -11501,5 +11950,706 @@ mod conventions_me_synth_tests {
         assert!(diags.is_empty());
         assert!(feature.queries.is_empty());
         assert!(feature.synth_origins.is_empty());
+    }
+}
+
+// =============================================================================
+// Cell O2 — `@owner_axis(through: <col>)` synth-pass tests.
+//
+// Spec: `docs/proposals/ir-resource-conventions-owner-scope.md`
+// §7.3 + §8 + §8.5.A + §11.1.
+//
+// Coverage matrix:
+//   1. Mode: owner-scope `delete_*` emits chain WHERE.
+//   2. Mode: owner-scope `update_*` / `lookup_*` / `list_*` emit chain WHERE.
+//   3. CTE: owner-scope `create_*` emits CTE-INSERT shape via `cte_owner_check`.
+//   4. Composition: `[crud, me]` + `@owner_axis` -> `lookup_my_*` ALSO carries scope.
+//   5. Diagnostic: `owner_axis_unknown_through`.
+//   6. Diagnostic: `owner_axis_through_not_user_keyed`.
+//   7. Diagnostic: `owner_axis_collides_with_unique_user`.
+//   8. Override: author's `command delete_<r>` skips synth; no diagnostic; scope
+//      is NOT attached to the author's command.
+//   9. Direct-call form: `build_owner_scope_where_for_test` round-trips the SQL.
+//
+// RULE-VOCAB-03 affirmation: each test asserts on the *single* SQL shape the
+// analyzer composes per synth call. No procedural sequencing is exercised.
+// =============================================================================
+#[cfg(test)]
+mod conventions_owner_scope_synth_tests {
+    use super::{
+        ConventionSynthDiagnostic, build_owner_scope_cte_prefix_for_test,
+        build_owner_scope_where_for_test, synthesize_conventions,
+    };
+    use lazuli_ir as ir;
+
+    fn empty_feature(name: &str) -> ir::Feature {
+        ir::Feature {
+            name: name.to_owned(),
+            purpose: None,
+            non_goals: Vec::new(),
+            context_path: None,
+            defaults: ir::Defaults {
+                tenancy: None,
+                timestamps: false,
+                policy: None,
+            },
+            uses: Vec::new(),
+            uses_spans: Vec::new(),
+            uses_versions: Vec::new(),
+            requirements: Vec::new(),
+            enums: Vec::new(),
+            resources: Vec::new(),
+            events: Vec::new(),
+            rules: Vec::new(),
+            policies: ir::Policies {
+                categories: vec![ir::PolicyCategory {
+                    name: "authenticated".to_owned(),
+                    atoms: vec!["@scope.authenticated".to_owned()],
+                    previous_names: Vec::new(),
+                    when_denied: None,
+                }],
+                fields: Vec::new(),
+                span_ref: None,
+            },
+            errors: None,
+            commands: Vec::new(),
+            apis: Vec::new(),
+            records: Vec::new(),
+            queries: Vec::new(),
+            resume_routers: Vec::new(),
+            workflows: Vec::new(),
+            jobs: Vec::new(),
+            webhooks: Vec::new(),
+            notifications: Vec::new(),
+            event_groups: Vec::new(),
+            tenant_migrations: Vec::new(),
+            translation: None,
+            pollers: Vec::new(),
+            auth: None,
+            surfaces: Vec::new(),
+            extensions: Vec::new(),
+            escape_routes: Vec::new(),
+            agents: Vec::new(),
+            reports: Vec::new(),
+            channels: Vec::new(),
+            caches: Vec::new(),
+            aggregates: Vec::new(),
+            mcp_servers: Vec::new(),
+            previous_names: Vec::new(),
+            span_ref: None,
+            synth_origins: std::collections::BTreeMap::new(),
+        }
+    }
+
+    fn req_field(name: &str, type_ref: ir::TypeRef) -> ir::Field {
+        ir::Field {
+            name: name.to_owned(),
+            type_ref,
+            required: true,
+            unique: false,
+            slug: false,
+            default: None,
+            derived_from: None,
+            constraints: ir::FieldConstraints::default(),
+            full_text: false,
+            previous_names: Vec::new(),
+            pii: None,
+            owner_axis: None,
+            span_ref: None,
+        }
+    }
+
+    fn req_unique_field(name: &str, type_ref: ir::TypeRef) -> ir::Field {
+        ir::Field {
+            unique: true,
+            ..req_field(name, type_ref)
+        }
+    }
+
+    /// Build an FK field annotated with `@owner_axis(through: <col>)`.
+    fn fk_field_with_axis(name: &str, target: &str, through: &str) -> ir::Field {
+        let mut f = req_field(
+            name,
+            ir::TypeRef::UserDefined(ir::QualifiedName {
+                feature: None,
+                name: target.to_owned(),
+            }),
+        );
+        f.owner_axis = Some(ir::OwnerAxis {
+            through_column: through.to_owned(),
+        });
+        f
+    }
+
+    fn user_qn(name: &str) -> ir::TypeRef {
+        ir::TypeRef::UserDefined(ir::QualifiedName {
+            feature: None,
+            name: name.to_owned(),
+        })
+    }
+
+    /// Build the Hostpoint pilot's `Host` resource (the FK target with
+    /// the `user: User required unique` actor key). Used to back the
+    /// owner-chain in fixtures.
+    fn host_resource() -> ir::Resource {
+        ir::Resource {
+            name: "Host".to_owned(),
+            public_contract: None,
+            tenancy: Some(ir::Tenancy::Org),
+            soft_delete: false,
+            timestamps: None,
+            fields: vec![
+                req_field("org", user_qn("Org")),
+                req_unique_field("user", user_qn("User")),
+                req_field("name", ir::TypeRef::Builtin(ir::BuiltinType::Text)),
+            ],
+            constraints: Vec::new(),
+            validate: None,
+            validates: Vec::new(),
+            retention: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            lifecycle: None,
+            invariants: Vec::new(),
+            lock: None,
+            composite_key: None,
+            conventions: Vec::new(),
+        }
+    }
+
+    /// Build the trigger pilot's `Property` resource — owner-scoped via
+    /// `host: Host required @owner_axis(through: user)`.
+    fn property_resource_with_axis() -> ir::Resource {
+        ir::Resource {
+            name: "Property".to_owned(),
+            public_contract: None,
+            tenancy: Some(ir::Tenancy::Org),
+            soft_delete: false,
+            timestamps: None,
+            fields: vec![
+                req_field("org", user_qn("Org")),
+                fk_field_with_axis("host", "Host", "user"),
+                req_field("name", ir::TypeRef::Builtin(ir::BuiltinType::Text)),
+            ],
+            constraints: Vec::new(),
+            validate: None,
+            validates: Vec::new(),
+            retention: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            lifecycle: None,
+            invariants: Vec::new(),
+            lock: None,
+            composite_key: None,
+            conventions: vec![ir::ConventionRef::Crud],
+        }
+    }
+
+    /// §8.1 — owner-scope mode emits a chain WHERE predicate on
+    /// `delete_<r>`. The synthesized command carries `owner_scope_sql`
+    /// with the `host IN (SELECT id FROM "host" WHERE "user" = ctx.User.ID)`
+    /// fragment — the same shape the trigger pilot's pre-absorption
+    /// `delete_property.go` (§1.1) used.
+    #[test]
+    fn owner_scope_delete_emits_chain_where_predicate() {
+        let mut feature = empty_feature("catalog");
+        feature.resources.push(host_resource());
+        feature.resources.push(property_resource_with_axis());
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(
+            diags.is_empty(),
+            "owner-scope delete_property should not emit diagnostics, got {:?}",
+            diags
+        );
+
+        let delete = feature
+            .commands
+            .iter()
+            .find(|c| c.name == "delete_property")
+            .expect("synth emits delete_property");
+        let scope = delete
+            .owner_scope_sql
+            .as_ref()
+            .expect("delete_property carries owner_scope_sql");
+        assert_eq!(scope.field_name, "host");
+        assert_eq!(scope.fk_target, "Host");
+        assert_eq!(scope.through_column, "user");
+        assert_eq!(
+            scope.where_predicate,
+            r#"host IN (SELECT id FROM "host" WHERE "user" = ctx.User.ID)"#
+        );
+        // DELETE doesn't need the CTE prefix — only CREATE does.
+        assert!(scope.cte_owner_check.is_none(), "DELETE carries no CTE");
+    }
+
+    /// §8.2 / §8.3 / §8.4 — owner-scope mode emits the same WHERE
+    /// fragment on UPDATE, LOOKUP, and LIST. Single test asserts all
+    /// three because the predicate is composed by the unified
+    /// builder; per-shape divergence would surface here.
+    #[test]
+    fn owner_scope_update_lookup_list_emit_chain_where_predicate() {
+        let mut feature = empty_feature("catalog");
+        feature.resources.push(host_resource());
+        feature.resources.push(property_resource_with_axis());
+
+        let _ = synthesize_conventions(&mut feature);
+
+        let expected = r#"host IN (SELECT id FROM "host" WHERE "user" = ctx.User.ID)"#;
+
+        let update = feature
+            .commands
+            .iter()
+            .find(|c| c.name == "update_property")
+            .expect("synth emits update_property");
+        assert_eq!(
+            update.owner_scope_sql.as_ref().map(|s| s.where_predicate.as_str()),
+            Some(expected)
+        );
+
+        let lookup = feature
+            .queries
+            .iter()
+            .find(|q| q.name() == "lookup_property")
+            .expect("synth emits lookup_property");
+        let lookup_scope = match lookup {
+            ir::Query::Lookup(lq) => lq.owner_scope_sql.as_ref(),
+            _ => panic!("expected Lookup variant"),
+        };
+        assert_eq!(
+            lookup_scope.map(|s| s.where_predicate.as_str()),
+            Some(expected),
+        );
+
+        let list = feature
+            .queries
+            .iter()
+            .find(|q| q.name() == "list_propertys")
+            .expect("synth emits list_propertys");
+        let list_scope = match list {
+            ir::Query::List(lq) => lq.owner_scope_sql.as_ref(),
+            _ => panic!("expected List variant"),
+        };
+        assert_eq!(
+            list_scope.map(|s| s.where_predicate.as_str()),
+            Some(expected),
+        );
+    }
+
+    /// §8.5.A — `create_<r>` synth emits the CTE-INSERT prefix in the
+    /// `cte_owner_check` slot. RULE-VOCAB-03 affirmation: one SQL
+    /// statement (CTE-wrapped INSERT), no procedural sequencing.
+    #[test]
+    fn owner_scope_create_emits_cte_owner_check_prefix() {
+        let mut feature = empty_feature("catalog");
+        feature.resources.push(host_resource());
+        feature.resources.push(property_resource_with_axis());
+
+        let _ = synthesize_conventions(&mut feature);
+
+        let create = feature
+            .commands
+            .iter()
+            .find(|c| c.name == "create_property")
+            .expect("synth emits create_property");
+        let scope = create
+            .owner_scope_sql
+            .as_ref()
+            .expect("create_property carries owner_scope_sql");
+        let cte = scope
+            .cte_owner_check
+            .as_ref()
+            .expect("create_property carries cte_owner_check prefix");
+        assert_eq!(
+            cte,
+            r#"WITH owner_check AS (SELECT 1 FROM "host" WHERE id = $host AND "user" = ctx.User.ID)"#
+        );
+    }
+
+    /// §6.1 composition — `[crud, me]` + `@owner_axis` propagates the
+    /// chain WHERE to `lookup_my_<r>`. This is the core composability
+    /// claim (§5.3 / proposal §6.2): one annotation, all bundles see
+    /// it. The fixture uses a `Profile` resource that is NOT user-keyed
+    /// (no `user: User required unique`) so the `me` mode falls back to
+    /// the owner-axis route via `host`.
+    ///
+    /// We exercise the lookup_my path with an `org_keyed` me mode (the
+    /// `Profile` has `org` but no direct `user` field) — the chain
+    /// WHERE adds the ownership filter on top of the actor-keyed
+    /// shape, exactly per §6.1's "compose, don't replace" rule.
+    #[test]
+    fn composition_crud_and_me_with_owner_axis_propagates_chain_to_lookup_my() {
+        let mut feature = empty_feature("catalog");
+        feature.resources.push(host_resource());
+        let profile = ir::Resource {
+            name: "Profile".to_owned(),
+            public_contract: None,
+            tenancy: Some(ir::Tenancy::Org),
+            soft_delete: false,
+            timestamps: None,
+            fields: vec![
+                req_field("org", user_qn("Org")),
+                fk_field_with_axis("host", "Host", "user"),
+                req_field("bio", ir::TypeRef::Builtin(ir::BuiltinType::Text)),
+            ],
+            constraints: Vec::new(),
+            validate: None,
+            validates: Vec::new(),
+            retention: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            lifecycle: None,
+            invariants: Vec::new(),
+            lock: None,
+            composite_key: None,
+            conventions: vec![ir::ConventionRef::Crud, ir::ConventionRef::Me],
+        };
+        // Sanity: not user-keyed (no `user: User required unique`).
+        profile
+            .fields
+            .iter()
+            .for_each(|f| assert_ne!(f.name, "user"));
+        feature.resources.push(profile);
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(
+            diags.is_empty(),
+            "composition + @owner_axis should not emit diagnostics, got {:?}",
+            diags
+        );
+
+        // lookup_my_profile is emitted (me §5.3 OrgKeyed route — Profile
+        // has `org`, no `user`). The owner-scope synth ALSO attached its
+        // chain predicate.
+        let lookup_my = feature
+            .queries
+            .iter()
+            .find(|q| q.name() == "lookup_my_profile")
+            .expect("composition emits lookup_my_profile");
+        let scope = match lookup_my {
+            ir::Query::Lookup(lq) => lq
+                .owner_scope_sql
+                .as_ref()
+                .expect("lookup_my_profile carries owner_scope_sql"),
+            _ => panic!("expected Lookup variant"),
+        };
+        assert_eq!(scope.field_name, "host");
+        assert_eq!(scope.fk_target, "Host");
+        assert_eq!(
+            scope.where_predicate,
+            r#"host IN (SELECT id FROM "host" WHERE "user" = ctx.User.ID)"#
+        );
+
+        // Plus the 5 crud entries all carry the same scope (spot-check
+        // delete_profile to confirm cross-bundle uniformity).
+        let delete = feature
+            .commands
+            .iter()
+            .find(|c| c.name == "delete_profile")
+            .expect("composition emits delete_profile");
+        assert!(delete.owner_scope_sql.is_some());
+    }
+
+    /// §11.1 `owner_axis_unknown_through` — annotation names a column
+    /// that doesn't exist on the FK target. Suggestion field is
+    /// populated when a nearest match exists.
+    #[test]
+    fn diagnostic_owner_axis_unknown_through() {
+        let mut feature = empty_feature("catalog");
+        feature.resources.push(host_resource());
+        // Property with `@owner_axis(through: usr)` — typo: `usr` not
+        // `user`. Nearest-match should suggest `user`.
+        let mut property = property_resource_with_axis();
+        // Replace the host field's owner_axis with the typo'd column.
+        for f in property.fields.iter_mut() {
+            if f.name == "host" {
+                f.owner_axis = Some(ir::OwnerAxis {
+                    through_column: "usr".to_owned(),
+                });
+            }
+        }
+        feature.resources.push(property);
+
+        let diags = synthesize_conventions(&mut feature);
+        let found = diags.iter().find_map(|d| match d {
+            ConventionSynthDiagnostic::OwnerAxisUnknownThrough {
+                resource,
+                field,
+                through,
+                fk_target,
+                suggestion,
+            } if resource == "Property" && field == "host" => Some((
+                through.clone(),
+                fk_target.clone(),
+                suggestion.clone(),
+            )),
+            _ => None,
+        });
+        let (through, fk_target, suggestion) =
+            found.expect("expected OwnerAxisUnknownThrough diagnostic");
+        assert_eq!(through, "usr");
+        assert_eq!(fk_target, "Host");
+        assert_eq!(suggestion, Some("user".to_owned()));
+
+        // Synth fell back to tenant-only — owner_scope_sql NOT attached.
+        let delete = feature
+            .commands
+            .iter()
+            .find(|c| c.name == "delete_property")
+            .expect("synth still emits delete_property");
+        assert!(
+            delete.owner_scope_sql.is_none(),
+            "unresolved @owner_axis must not produce SQL fragments"
+        );
+    }
+
+    /// §11.1 `owner_axis_through_not_user_keyed` — the resolved
+    /// `through:` column on the FK target is not typed as `User`.
+    /// Warning severity (proposal §11.1) — chain still emits so author
+    /// can hand-correct.
+    #[test]
+    fn diagnostic_owner_axis_through_not_user_keyed() {
+        let mut feature = empty_feature("catalog");
+
+        // Host with a `manager: Text required` (not a User type).
+        let mut host = host_resource();
+        host.fields = vec![
+            req_field("org", user_qn("Org")),
+            req_field("manager", ir::TypeRef::Builtin(ir::BuiltinType::Text)),
+        ];
+        feature.resources.push(host);
+
+        // Property with `@owner_axis(through: manager)` — `manager`
+        // exists on Host but is Text-typed, not User-typed.
+        let mut property = property_resource_with_axis();
+        for f in property.fields.iter_mut() {
+            if f.name == "host" {
+                f.owner_axis = Some(ir::OwnerAxis {
+                    through_column: "manager".to_owned(),
+                });
+            }
+        }
+        feature.resources.push(property);
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(
+            diags.iter().any(|d| matches!(
+                d,
+                ConventionSynthDiagnostic::OwnerAxisThroughNotUserKeyed {
+                    resource,
+                    field,
+                    through,
+                    fk_target,
+                } if resource == "Property"
+                    && field == "host"
+                    && through == "manager"
+                    && fk_target == "Host"
+            )),
+            "expected OwnerAxisThroughNotUserKeyed diagnostic, got {:?}",
+            diags
+        );
+
+        // Warning, not error — the chain SQL is still emitted so the
+        // author can hand-fix the chain.
+        let delete = feature
+            .commands
+            .iter()
+            .find(|c| c.name == "delete_property")
+            .expect("synth still emits delete_property");
+        let scope = delete
+            .owner_scope_sql
+            .as_ref()
+            .expect("warning-level diag still attaches scope");
+        assert!(scope.where_predicate.contains("manager"));
+    }
+
+    /// §11.1 `owner_axis_collides_with_unique_user` — resource has BOTH
+    /// `user: User required unique` AND `@owner_axis(through: <col>)`
+    /// on another field. Synth surfaces a warning and skips the
+    /// owner-axis emission (user-keyed mode already provides
+    /// ownership; §11.1 mitigation).
+    #[test]
+    fn diagnostic_owner_axis_collides_with_unique_user() {
+        let mut feature = empty_feature("catalog");
+        feature.resources.push(host_resource());
+        // Property with BOTH `user: User required unique` AND
+        // `host: Host required @owner_axis(through: user)`. The two
+        // are mutually redundant.
+        let property = ir::Resource {
+            name: "Property".to_owned(),
+            public_contract: None,
+            tenancy: Some(ir::Tenancy::Org),
+            soft_delete: false,
+            timestamps: None,
+            fields: vec![
+                req_field("org", user_qn("Org")),
+                req_unique_field("user", user_qn("User")),
+                fk_field_with_axis("host", "Host", "user"),
+                req_field("name", ir::TypeRef::Builtin(ir::BuiltinType::Text)),
+            ],
+            constraints: Vec::new(),
+            validate: None,
+            validates: Vec::new(),
+            retention: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            lifecycle: None,
+            invariants: Vec::new(),
+            lock: None,
+            composite_key: None,
+            conventions: vec![ir::ConventionRef::Crud],
+        };
+        feature.resources.push(property);
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(
+            diags.iter().any(|d| matches!(
+                d,
+                ConventionSynthDiagnostic::OwnerAxisCollidesWithUniqueUser {
+                    resource,
+                    field,
+                } if resource == "Property" && field == "host"
+            )),
+            "expected OwnerAxisCollidesWithUniqueUser diagnostic, got {:?}",
+            diags
+        );
+
+        // Owner-axis SQL must NOT be attached — user-keyed mode wins,
+        // the existing tenant categorization handles ownership via
+        // the `user: User required unique` field.
+        let delete = feature
+            .commands
+            .iter()
+            .find(|c| c.name == "delete_property")
+            .expect("synth still emits delete_property");
+        assert!(
+            delete.owner_scope_sql.is_none(),
+            "user-unique + @owner_axis must not double-restrict"
+        );
+    }
+
+    /// §9 override semantics — author writes `command delete_<r>` with
+    /// their own handler; synth skips just that name, no diagnostic.
+    /// The author's command is untouched (no `owner_scope_sql`
+    /// attached — the synth doesn't mutate author-written commands).
+    #[test]
+    fn override_with_handler_skips_synth_and_does_not_attach_scope() {
+        let mut feature = empty_feature("catalog");
+        feature.resources.push(host_resource());
+        feature.resources.push(property_resource_with_axis());
+
+        // Author-written `delete_property` — bare canonical shape so
+        // the existing signature-match logic passes; the analyzer
+        // simply records `AuthorOverride(Crud)` and skips the synth.
+        feature.commands.push(ir::Command {
+            name: "delete_property".to_owned(),
+            public_contract: None,
+            kind: ir::CommandKind::Delete,
+            route: vec![ir::RouteSlot {
+                name: "id".to_owned(),
+                type_ref: ir::TypeRef::Builtin(ir::BuiltinType::Id),
+                from: None,
+                kind: ir::RouteSlotKind::Plain,
+            }],
+            input: ir::CommandInput::Empty,
+            target: None,
+            lets: Vec::new(),
+            effect: ir::CommandEffect::Deletes(ir::DeleteEffect {
+                resource: ir::QualifiedName {
+                    feature: None,
+                    name: "Property".to_owned(),
+                },
+            }),
+            policy: ir::PolicyRef::Local("host_only".to_owned()),
+            policy_expr: None,
+            policy_when_denied: None,
+            emits: Vec::new(),
+            rate_limit: None,
+            audit: None,
+            approval: None,
+            invalidates: Vec::new(),
+            external_calls: Vec::new(),
+            timeout: None,
+            retry: None,
+            idempotency: None,
+            write_window: None,
+            deprecated: None,
+            handler: Some(ir::HandlerRef {
+                namespace: "fn".to_owned(),
+                name: "delete_property".to_owned(),
+                span_ref: None,
+            }),
+            tests: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            triggers: Vec::new(),
+            synthesized_from_cap_file: None,
+            owner_scope_sql: None,
+        });
+
+        let diags = synthesize_conventions(&mut feature);
+        // No diagnostic — override is first-class per §9 / RULE-VOCAB-02.
+        assert!(
+            !diags.iter().any(|d| matches!(
+                d,
+                ConventionSynthDiagnostic::OwnerAxisUnknownThrough { .. }
+                    | ConventionSynthDiagnostic::OwnerAxisThroughNotUserKeyed { .. }
+                    | ConventionSynthDiagnostic::OwnerAxisCollidesWithUniqueUser { .. }
+                    | ConventionSynthDiagnostic::SignatureMismatch { .. }
+            )),
+            "override should not emit owner-axis OR signature-mismatch diagnostics, got {:?}",
+            diags
+        );
+
+        // Exactly one `delete_property` — the author's, with policy
+        // `host_only`, handler set, NO `owner_scope_sql`.
+        let count = feature
+            .commands
+            .iter()
+            .filter(|c| c.name == "delete_property")
+            .count();
+        assert_eq!(count, 1, "delete_property must not be duplicated");
+        let delete = feature
+            .commands
+            .iter()
+            .find(|c| c.name == "delete_property")
+            .unwrap();
+        assert!(matches!(&delete.policy, ir::PolicyRef::Local(p) if p == "host_only"));
+        assert!(delete.handler.is_some(), "author's handler preserved");
+        assert!(
+            delete.owner_scope_sql.is_none(),
+            "synth must not mutate author-written delete_property",
+        );
+        // §11 — synth_origins records AuthorOverride(Crud).
+        assert_eq!(
+            feature.synth_origins.get("delete_property"),
+            Some(&ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud)),
+        );
+
+        // Other 4 crud entries still synth WITH owner-scope.
+        let create = feature
+            .commands
+            .iter()
+            .find(|c| c.name == "create_property")
+            .expect("create still synthesized");
+        assert!(create.owner_scope_sql.is_some());
+    }
+
+    /// Direct-call builder sanity — `build_owner_scope_where_for_test`
+    /// and `build_owner_scope_cte_prefix_for_test` round-trip the SQL.
+    /// Anchors the function-level surface in case downstream cells
+    /// invoke the builders directly (O3 inspect / LSP hover).
+    #[test]
+    fn builder_functions_round_trip_canonical_sql() {
+        // §7.3 — WHERE predicate shape.
+        assert_eq!(
+            build_owner_scope_where_for_test("host", "Host", "user"),
+            r#"host IN (SELECT id FROM "host" WHERE "user" = ctx.User.ID)"#,
+        );
+        // §8.5.A — CTE prefix shape.
+        assert_eq!(
+            build_owner_scope_cte_prefix_for_test("host", "Host", "user"),
+            r#"WITH owner_check AS (SELECT 1 FROM "host" WHERE id = $host AND "user" = ctx.User.ID)"#,
+        );
     }
 }

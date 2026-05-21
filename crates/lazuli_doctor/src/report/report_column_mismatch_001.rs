@@ -181,6 +181,7 @@ mod tests {
             full_text: false,
             previous_names: vec![],
             pii: None,
+            owner_axis: None,
             span_ref: None,
         }
     }
@@ -226,6 +227,7 @@ mod tests {
             policy_when_denied: None,
             previous_names: vec![],
             span_ref: None,
+            owner_scope_sql: None,
         })
     }
 
