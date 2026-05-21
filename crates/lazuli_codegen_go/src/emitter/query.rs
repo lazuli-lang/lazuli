@@ -1393,6 +1393,7 @@ mod tests {
             lock: None,
 
             composite_key: None,
+            conventions: Vec::new(),
         }
     }
 
@@ -2256,6 +2257,7 @@ mod feature_emit {
             lock: None,
 
             composite_key: None,
+            conventions: Vec::new(),
         }
     }
 

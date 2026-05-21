@@ -822,6 +822,7 @@ mod feature_emit_tests {
             lock: None,
 
             composite_key: None,
+            conventions: Vec::new(),
         });
         let mut job = handler_job("recompute_score_after_invoice");
         job.body = JobBody::Declarative(JobDeclarative {

@@ -170,6 +170,7 @@ mod tests {
             invariants: vec![],
             lock,
             composite_key: None,
+            conventions: Vec::new(),
         }
     }
 

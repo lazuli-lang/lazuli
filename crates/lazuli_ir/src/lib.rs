@@ -634,6 +634,28 @@ pub struct Resource {
     /// listed name against `Resource.fields`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub composite_key: Option<CompositeKey>,
+    /// Resource-level conventions opt-in: `conventions [crud, ...]`.
+    /// Each entry references a closed-catalog convention bundle that
+    /// auto-synthesizes commands/queries during lowering. Empty when
+    /// the resource opts into no conventions (the default).
+    ///
+    /// See `docs/proposals/ir-resource-conventions-crud.md` §4.2.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conventions: Vec<ConventionRef>,
+}
+
+/// Closed catalog of resource-level convention bundles. Adding a
+/// variant is an IR change requiring a proposal; the parser MUST
+/// reject any identifier not in this enum.
+///
+/// See `docs/proposals/ir-resource-conventions-crud.md` §4.2.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConventionRef {
+    /// `crud` — auto-synthesizes 5 commands + 2 queries per §5.
+    Crud,
+    // Future variants (NOT in this proposal):
+    //   Timestamped, PiiAware, SoftDelete, Slugged, Paginated.
 }
 
 /// Roadmap §1.5 (CL.C.2) — `lock` resource-level decorator. Closed
@@ -6402,6 +6424,7 @@ mod lifecycle_tests {
             lock: None,
 
             composite_key: None,
+            conventions: Vec::new(),
         };
         let json = serde_json::to_string(&r).unwrap();
         assert!(

@@ -126,6 +126,7 @@ mod tests {
             invariants: Vec::new(),
             lock: None,
             composite_key: None,
+            conventions: Vec::new(),
         }
     }
 

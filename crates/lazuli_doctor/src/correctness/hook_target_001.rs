@@ -300,6 +300,7 @@ mod tests {
             lock: None,
 
             composite_key: None,
+            conventions: Vec::new(),
         }
     }
 
