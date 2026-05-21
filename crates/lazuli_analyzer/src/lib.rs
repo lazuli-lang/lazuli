@@ -267,12 +267,11 @@ fn format_conventions_unknown(
 /// ir-resource-conventions-crud Cell C1 — closed catalog of resource
 /// convention identifiers accepted by the parser. Grows additively per
 /// future proposals (`timestamped`, `pii_aware`, `soft_delete`,
-/// `slugged`, `paginated`). Today only `crud` is defined; Cell C3
-/// implements the synthesis pass that consumes it. See §4.2 of the
-/// proposal.
+/// `slugged`, `paginated`). `me` was added by cell M1 of
+/// `ir-resource-conventions-me.md` §4.3.
 ///
 /// Sorted alphabetically for diff hygiene; keep new entries in order.
-pub const CONVENTION_CATALOG: &[&str] = &["crud"];
+pub const CONVENTION_CATALOG: &[&str] = &["crud", "me"];
 
 /// Resolve the closest catalog entry to a misspelled `conventions`
 /// identifier using plain Levenshtein distance. Returns the catalog
@@ -9915,11 +9914,12 @@ mod conventions_unknown_diagnostic_tests {
     use super::{AnalyzeError, CONVENTION_CATALOG, conventions_unknown_suggestion};
 
     #[test]
-    fn catalog_contains_crud_today() {
-        // §4.2: today the closed catalog is `{ crud }`. Any addition
-        // is an IR change requiring a proposal — this test fails on
-        // accidental growth.
-        assert_eq!(CONVENTION_CATALOG, &["crud"]);
+    fn catalog_contains_me_today() {
+        // `ir-resource-conventions-me.md` §4.3 + cell M1: the closed
+        // catalog grows to `{ crud, me }` (alphabetical). Any further
+        // addition is an IR change requiring a proposal — this test
+        // fails on accidental growth.
+        assert_eq!(CONVENTION_CATALOG, &["crud", "me"]);
     }
 
     #[test]
@@ -9934,6 +9934,17 @@ mod conventions_unknown_diagnostic_tests {
         // `crude` and `cruds` are also distance-1 from `crud`.
         assert_eq!(conventions_unknown_suggestion("crude"), Some("crud"));
         assert_eq!(conventions_unknown_suggestion("cruds"), Some("crud"));
+    }
+
+    #[test]
+    fn suggestion_for_typo_resolves_to_me() {
+        // `ir-resource-conventions-me.md` cell M1: typos distance-1
+        // from `me` resolve to `me`. `m` (deletion), `mee`/`mes`
+        // (insertion / substitution). Locks the nearest-match
+        // behaviour now that the catalog has a second entry.
+        assert_eq!(conventions_unknown_suggestion("m"), Some("me"));
+        assert_eq!(conventions_unknown_suggestion("mee"), Some("me"));
+        assert_eq!(conventions_unknown_suggestion("mes"), Some("me"));
     }
 
     #[test]

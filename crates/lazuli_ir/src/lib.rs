@@ -658,13 +658,17 @@ pub struct Resource {
 /// variant is an IR change requiring a proposal; the parser MUST
 /// reject any identifier not in this enum.
 ///
-/// See `docs/proposals/ir-resource-conventions-crud.md` §4.2.
+/// See `docs/proposals/ir-resource-conventions-crud.md` §4.2 and
+/// `docs/proposals/ir-resource-conventions-me.md` §4.2.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConventionRef {
     /// `crud` — auto-synthesizes 3 commands + 2 queries (5 entries
     /// total) per `ir-resource-conventions-crud.md` §5.1.
     Crud,
+    /// `me` — auto-synthesizes 1 query (`lookup_my_<resource>`)
+    /// keyed by ctx.User per `ir-resource-conventions-me.md` §5.
+    Me,
     // Future variants (NOT in this proposal):
     //   Timestamped, PiiAware, SoftDelete, Slugged, Paginated.
 }
@@ -6493,6 +6497,18 @@ mod lifecycle_tests {
 
         let back: ConventionRef = serde_json::from_str("\"crud\"").unwrap();
         assert_eq!(back, ConventionRef::Crud);
+    }
+
+    #[test]
+    fn convention_ref_me_serializes_snake_case() {
+        // `ir-resource-conventions-me.md` §4.2 — the `Me` variant
+        // serializes as `"me"` on the wire to match the .lzi
+        // keyword and the parser catalog identifier.
+        let json = serde_json::to_string(&ConventionRef::Me).unwrap();
+        assert_eq!(json, "\"me\"");
+
+        let back: ConventionRef = serde_json::from_str("\"me\"").unwrap();
+        assert_eq!(back, ConventionRef::Me);
     }
 
     #[test]
