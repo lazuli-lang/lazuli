@@ -11,6 +11,7 @@
 pub mod channel_payload_unresolved_001;
 pub mod command_input_shadows_field_001;
 pub mod composite_key_contract_001;
+pub mod duplicate_query_name;
 pub mod event_group_variant_type_001;
 pub mod event_outbox_001;
 pub mod full_text_type_001;
