@@ -925,6 +925,7 @@ feature customer
             default: "5 per 10 minutes per ip".to_owned(),
             by_env: vec![RateLimitByEnv {
                 envs: vec![EnvName::Dev, EnvName::Staging, EnvName::Test],
+                unknown_envs: Vec::new(),
                 // empty string == lowered "unlimited" (§4.4).
                 limit: String::new(),
                 span_ref: None,
@@ -949,11 +950,13 @@ feature customer
             by_env: vec![
                 RateLimitByEnv {
                     envs: vec![EnvName::Dev, EnvName::Staging],
+                    unknown_envs: Vec::new(),
                     limit: "60 per 10 minutes per ip".to_owned(),
                     span_ref: None,
                 },
                 RateLimitByEnv {
                     envs: vec![EnvName::Test],
+                    unknown_envs: Vec::new(),
                     limit: String::new(),
                     span_ref: None,
                 },
