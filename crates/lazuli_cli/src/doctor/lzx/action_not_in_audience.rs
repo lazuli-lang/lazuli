@@ -133,7 +133,6 @@ mod tests {
             actions,
             drawer: None,
             line,
-            redacted_fields: Vec::new(),
         })
     }
 

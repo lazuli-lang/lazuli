@@ -196,7 +196,6 @@ mod tests {
             actions: vec![],
             drawer: None,
             line,
-            redacted_fields: Vec::new(),
         })
     }
 
