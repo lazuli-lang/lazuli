@@ -1,7 +1,7 @@
 //! Source-of-truth parity test for the Lazuli Go version constant.
 //!
 //! The default version constraint emitted in the generated `go.mod`'s
-//! `require lazuli.dev/runtime/lazuli` line lives at
+//! `require lazuli.dev/runtime` line lives at
 //! `lazuli_codegen_go::LAZULI_GO_VERSION`. The Lazuli Go lib itself
 //! is at `runtime/go/` with its canonical version pinned in
 //! `runtime/go/VERSION` (single-line text file). These two must

@@ -28,7 +28,7 @@
 //!   responsibility (codegen layer only — doctor surfaces the
 //!   structural smell separately).
 
-use lazuli_ir::{BuiltinType, CapabilityRef, TypeRef};
+use lazuli_ir::{BuiltinType, CapabilityRef, QualifiedName, TypeRef};
 
 use super::cross_feature::{CrossFeatureIndex, DeclKind};
 
@@ -64,11 +64,15 @@ pub fn go_type_for(ty: &TypeRef, ctx: &TypeCtx) -> (String, Option<String>) {
             let (go, import) = go_type_for_builtin(builtin);
             (go, import.map(str::to_owned))
         }
+        TypeRef::UserDefined(qname) | TypeRef::EnumRef(qname) if is_implicit_empty(qname, ctx) => {
+            ("struct{}".to_owned(), None)
+        }
         TypeRef::UserDefined(qname) | TypeRef::EnumRef(qname) => resolve_named(qname, ctx),
         TypeRef::Many(inner) => {
             let (inner_go, import) = go_type_for(inner, ctx);
             (format!("[]{}", inner_go), import)
         }
+        TypeRef::Unresolved(name) if is_empty_name(name) => ("struct{}".to_owned(), None),
         TypeRef::Unresolved(name) => {
             // Surface as a string fallback; the §6.2.1 error catalog
             // (cell I4) will upgrade this to a hard failure under
@@ -102,17 +106,32 @@ pub fn go_return_type_for(ty: &TypeRef, ctx: &TypeCtx) -> (String, Option<String
             let (go, import) = go_type_for_builtin(builtin);
             (go, import.map(str::to_owned))
         }
+        TypeRef::UserDefined(qname) | TypeRef::EnumRef(qname) if is_implicit_empty(qname, ctx) => {
+            ("struct{}".to_owned(), None)
+        }
         TypeRef::UserDefined(qname) | TypeRef::EnumRef(qname) => resolve_named_full(qname, ctx),
         TypeRef::Many(inner) => {
             let (inner_go, import) = go_return_type_for(inner, ctx);
             (format!("[]{}", inner_go), import)
         }
+        TypeRef::Unresolved(name) if is_empty_name(name) => ("struct{}".to_owned(), None),
         TypeRef::Unresolved(name) => (sanitise_go_ident(name), None),
         TypeRef::Capability(cap) => {
             let (go, import) = go_type_for_capability(cap);
             (go, import.map(str::to_owned))
         }
     }
+}
+
+fn is_implicit_empty(qname: &QualifiedName, ctx: &TypeCtx<'_>) -> bool {
+    qname.feature.is_none()
+        && is_empty_name(&qname.name)
+        && ctx.cross_index.owner("Empty").is_none()
+        && !ctx.cross_index.is_ambiguous("Empty")
+}
+
+fn is_empty_name(name: &str) -> bool {
+    name.trim() == "Empty"
 }
 
 /// Like [`resolve_named`] but skips the FK collapse. Resources resolve
@@ -689,6 +708,48 @@ mod tests {
         };
         let (go, import) = go_type_for(&TypeRef::UserDefined(qname), &ctx);
         assert_eq!(go, "Ghost");
+        assert_eq!(import, None);
+    }
+
+    #[test]
+    fn implicit_empty_output_maps_to_struct_literal() {
+        // `output Empty` is the canonical no-body response shape for
+        // APIs/commands that deliberately return no payload. When the
+        // app has not declared a real `Empty` record, emit Go's unit
+        // shape directly instead of requiring dummy app records.
+        let module = cross_ref_module();
+        let index = CrossFeatureIndex::build(&module);
+        let ctx = TypeCtx {
+            current_feature: "customer",
+            module_name: "lazuli/test",
+            cross_index: &index,
+        };
+        let qname = QualifiedName {
+            feature: None,
+            name: "Empty".to_owned(),
+        };
+        let (go, import) = go_return_type_for(&TypeRef::UserDefined(qname), &ctx);
+        assert_eq!(go, "struct{}");
+        assert_eq!(import, None);
+    }
+
+    #[test]
+    fn declared_empty_record_stays_named() {
+        let mut customer = empty_feature("customer");
+        customer.records.push(make_record("Empty"));
+        let module = module_with_features(vec![customer]);
+        let index = CrossFeatureIndex::build(&module);
+        let ctx = TypeCtx {
+            current_feature: "customer",
+            module_name: "lazuli/test",
+            cross_index: &index,
+        };
+        let qname = QualifiedName {
+            feature: None,
+            name: "Empty".to_owned(),
+        };
+        let (go, import) = go_return_type_for(&TypeRef::UserDefined(qname), &ctx);
+        assert_eq!(go, "Empty");
         assert_eq!(import, None);
     }
 
