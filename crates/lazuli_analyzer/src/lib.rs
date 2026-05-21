@@ -267,12 +267,12 @@ fn format_conventions_unknown(
 /// ir-resource-conventions-crud Cell C1 — closed catalog of resource
 /// convention identifiers accepted by the parser. Grows additively per
 /// future proposals (`timestamped`, `pii_aware`, `soft_delete`,
-/// `slugged`, `paginated`). Today only `crud` is defined; Cell C3
-/// implements the synthesis pass that consumes it. See §4.2 of the
-/// proposal.
+/// `slugged`, `paginated`). Today `crud` (per the crud proposal) and
+/// `me` (per `ir-resource-conventions-me.md` §4.2) are defined; the
+/// per-bundle synthesis passes consume them. See §4.2 of each proposal.
 ///
 /// Sorted alphabetically for diff hygiene; keep new entries in order.
-pub const CONVENTION_CATALOG: &[&str] = &["crud"];
+pub const CONVENTION_CATALOG: &[&str] = &["crud", "me"];
 
 /// Resolve the closest catalog entry to a misspelled `conventions`
 /// identifier using plain Levenshtein distance. Returns the catalog
@@ -9915,11 +9915,11 @@ mod conventions_unknown_diagnostic_tests {
     use super::{AnalyzeError, CONVENTION_CATALOG, conventions_unknown_suggestion};
 
     #[test]
-    fn catalog_contains_crud_today() {
-        // §4.2: today the closed catalog is `{ crud }`. Any addition
-        // is an IR change requiring a proposal — this test fails on
-        // accidental growth.
-        assert_eq!(CONVENTION_CATALOG, &["crud"]);
+    fn catalog_contains_crud_and_me_today() {
+        // crud §4.2 + me §4.2: today the closed catalog is `{ crud, me }`.
+        // Any addition is an IR change requiring a proposal — this test
+        // fails on accidental growth.
+        assert_eq!(CONVENTION_CATALOG, &["crud", "me"]);
     }
 
     #[test]

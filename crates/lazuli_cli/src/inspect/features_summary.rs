@@ -115,11 +115,15 @@ fn format_origin_annotation(origin: Option<&ConventionOrigin>) -> String {
     }
 }
 
-/// `crud` etc. — single source of truth so the LSP catalog list, the
-/// doctor diagnostic suggestion, and this rendering all stay aligned.
+/// `crud`, `me`, etc. — single source of truth so the LSP catalog
+/// list, the doctor diagnostic suggestion, and this rendering all
+/// stay aligned. Adding a variant in `lazuli_ir::ConventionRef`
+/// requires extending this match — the closed `match` makes that
+/// failure mode load-bearing at compile time.
 fn convention_name(c: &ConventionRef) -> &'static str {
     match c {
         ConventionRef::Crud => "crud",
+        ConventionRef::Me => "me",
     }
 }
 
@@ -411,6 +415,134 @@ feature customer
         assert!(
             !out.contains("[conv:"),
             "convention tag leaked into pure-author command:\n{out}"
+        );
+    }
+
+    // ----------------------------------------------------------------
+    // Cell M3 — me bundle. Spec:
+    // `docs/proposals/ir-resource-conventions-me.md` §8 (Customer
+    // with `conventions [me]`) + §6.1 (composition `conventions
+    // [crud, me]`).
+    // ----------------------------------------------------------------
+
+    /// §8 Customer with `conventions [me]` only: header should
+    /// annotate `(conventions: me)` and the single synthesized
+    /// `lookup_my_customer` query carries `[conv:me]`.
+    #[test]
+    fn renders_section_8_customer_me_synth_output() {
+        let mut feature = empty_feature("customer");
+        feature
+            .resources
+            .push(customer_resource(vec![ConventionRef::Me]));
+        feature.queries.push(lookup_query("lookup_my_customer"));
+        feature.synth_origins.insert(
+            "lookup_my_customer".to_owned(),
+            ConventionOrigin::Synthesized(ConventionRef::Me),
+        );
+
+        let out = render_features_summary(&[feature]);
+        let expected = "\
+feature customer
+  resources:
+    Customer (conventions: me)
+  queries:
+    lookup_my_customer    [conv:me]
+";
+        assert_eq!(
+            out, expected,
+            "§8 customer-me summary diverged from spec"
+        );
+    }
+
+    /// §6.1 worked composition: `conventions [crud, me]` yields 6
+    /// entries (5 from crud + 1 from me) with no collisions. The
+    /// resource header lists bundles in declaration order
+    /// (`crud, me`); each synthesized command/query carries the
+    /// originating bundle's tag.
+    #[test]
+    fn renders_section_6_1_composition_crud_plus_me() {
+        let mut feature = empty_feature("customer");
+        feature.resources.push(customer_resource(vec![
+            ConventionRef::Crud,
+            ConventionRef::Me,
+        ]));
+        for n in ["create_customer", "update_customer", "delete_customer"] {
+            feature.commands.push(minimal_command(n));
+            feature.synth_origins.insert(
+                n.to_owned(),
+                ConventionOrigin::Synthesized(ConventionRef::Crud),
+            );
+        }
+        feature.queries.push(lookup_query("lookup_customer"));
+        feature.queries.push(list_query("list_customers"));
+        feature.queries.push(lookup_query("lookup_my_customer"));
+        feature.synth_origins.insert(
+            "lookup_customer".to_owned(),
+            ConventionOrigin::Synthesized(ConventionRef::Crud),
+        );
+        feature.synth_origins.insert(
+            "list_customers".to_owned(),
+            ConventionOrigin::Synthesized(ConventionRef::Crud),
+        );
+        feature.synth_origins.insert(
+            "lookup_my_customer".to_owned(),
+            ConventionOrigin::Synthesized(ConventionRef::Me),
+        );
+
+        let out = render_features_summary(&[feature]);
+        assert!(
+            out.contains("Customer (conventions: crud, me)"),
+            "expected composed-bundle header `(conventions: crud, me)`, got:\n{out}"
+        );
+        // Commands column width = 15 (`update_customer`, `delete_customer`, `create_customer`).
+        assert!(
+            out.contains("create_customer    [conv:crud]"),
+            "expected create_customer synth row, got:\n{out}"
+        );
+        assert!(
+            out.contains("delete_customer    [conv:crud]"),
+            "expected delete_customer synth row, got:\n{out}"
+        );
+        // Queries column width = 18 (`lookup_my_customer`). The shorter
+        // names get trailing padding before the bracketed annotation.
+        assert!(
+            out.contains("lookup_customer       [conv:crud]"),
+            "expected lookup_customer synth row (queries col width 18), got:\n{out}"
+        );
+        assert!(
+            out.contains("list_customers        [conv:crud]"),
+            "expected list_customers synth row (queries col width 18), got:\n{out}"
+        );
+        assert!(
+            out.contains("lookup_my_customer    [conv:me]"),
+            "expected lookup_my_customer me-synth row, got:\n{out}"
+        );
+    }
+
+    /// §6 worked override applied to the me bundle: author wrote
+    /// `lookup_my_customer`, the synth skipped. Inspect shows the
+    /// `[author override; convention skipped]` marker — same string
+    /// as the crud-side override.
+    #[test]
+    fn renders_me_author_override() {
+        let mut feature = empty_feature("customer");
+        feature
+            .resources
+            .push(customer_resource(vec![ConventionRef::Me]));
+        feature.queries.push(lookup_query("lookup_my_customer"));
+        feature.synth_origins.insert(
+            "lookup_my_customer".to_owned(),
+            ConventionOrigin::AuthorOverride(ConventionRef::Me),
+        );
+
+        let out = render_features_summary(&[feature]);
+        assert!(
+            out.contains("Customer (conventions: me)"),
+            "expected (conventions: me) header, got:\n{out}"
+        );
+        assert!(
+            out.contains("lookup_my_customer    [author override; convention skipped]"),
+            "expected author-override row, got:\n{out}"
         );
     }
 }

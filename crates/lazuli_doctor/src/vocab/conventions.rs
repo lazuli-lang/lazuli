@@ -1,9 +1,12 @@
 //! Conventions diagnostics — Cell C4 surface for the closed-catalog
-//! `conventions [crud]` resource slot.
+//! `conventions [crud]` resource slot, extended by Cell M3 for the
+//! `me` bundle.
 //!
-//! Reference: `docs/proposals/ir-resource-conventions-crud.md` §11.
+//! References:
+//! - `docs/proposals/ir-resource-conventions-crud.md` §11.
+//! - `docs/proposals/ir-resource-conventions-me.md` §11.
 //!
-//! Catalog (4 codes):
+//! Catalog (6 codes):
 //!
 //! | Code                              | Severity | Trigger                                                                                  |
 //! |-----------------------------------|----------|------------------------------------------------------------------------------------------|
@@ -11,6 +14,8 @@
 //! | `crud_synth_signature_mismatch`   | error    | An author override of a `crud` synth name diverges from the canonical signature. C3.     |
 //! | `crud_synth_policy_not_found`     | error    | A resource opts into `conventions [crud]` but the feature has no `authenticated` policy. |
 //! | `crud_synth_no_required_fields`   | error    | A `crud` synth's `create_<r>` would have an empty input (every required field is auto).  |
+//! | `me_synth_no_actor_resolution`    | error    | A `conventions [me]` resource has no owner axis to filter on (no `user`, no `org`, not `User`). M2/M3. |
+//! | `me_synth_signature_mismatch`     | error    | An author override of a `me` synth name diverges from the canonical signature. M2/M3.    |
 //!
 //! Each diagnostic message contains a suggested fix per the framework
 //! error message contract (rubric C11). The actual *firing* of these
@@ -128,13 +133,88 @@ impl CrudSynthNoRequiredFieldsFinding {
     }
 }
 
+// =============================================================================
+// me_synth_no_actor_resolution — emitted by Cell M2 (synthesis pass) when a
+//                                resource opts into `conventions [me]` but has
+//                                no field the synth can use as the actor key
+//                                (no `user: User required unique`, no `org`
+//                                axis, and the resource isn't named `User`).
+//                                See ir-resource-conventions-me.md §5.3.
+// =============================================================================
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MeSynthNoActorResolutionFinding {
+    pub path: PathBuf,
+    /// Resource name whose `conventions [me]` slot triggered the check.
+    pub resource: String,
+}
+
+impl MeSynthNoActorResolutionFinding {
+    pub const CODE: &'static str = "me_synth_no_actor_resolution";
+
+    pub fn message(&self) -> String {
+        format!(
+            "Resource `{}` opts into `conventions [me]`, but its fields can't resolve an actor — \
+             it has no `user: User required unique` field, no `org: Org required` field, and \
+             isn't named `User`. Either add a tenant column, remove `me` from conventions, or \
+             rename the resource to `User` if it represents the actor.",
+            self.resource
+        )
+    }
+}
+
+// =============================================================================
+// me_synth_signature_mismatch — emitted by Cell M2 (synthesis pass) when an
+//                               author override of a `me` synth name diverges
+//                               from the canonical shape (return type or
+//                               route-param surface). Parallel to
+//                               crud_synth_signature_mismatch.
+// =============================================================================
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MeSynthSignatureMismatchFinding {
+    pub path: PathBuf,
+    /// The resource snake-name suffix on the `lookup_my_<r>` query that
+    /// shares a name with a `me` synth — used to interpolate the query
+    /// name in the message.
+    pub resource_snake: String,
+}
+
+impl MeSynthSignatureMismatchFinding {
+    pub const CODE: &'static str = "me_synth_signature_mismatch";
+
+    pub fn message(&self) -> String {
+        format!(
+            "Your `lookup_my_{}` query's signature diverges from the `me` convention's canonical \
+             shape (returns `{}`, no route params). Either rename your query or restore the \
+             canonical return type / parameter set. See \
+             `docs/proposals/ir-resource-conventions-me.md` §6.",
+            self.resource_snake,
+            capitalize_first(&self.resource_snake)
+        )
+    }
+}
+
+/// Helper: capitalize the first ASCII byte of `input`. Used only to
+/// reconstruct the resource PascalCase from its snake suffix for the
+/// `me_synth_signature_mismatch` message ("returns `<R>`").
+fn capitalize_first(input: &str) -> String {
+    let mut chars = input.chars();
+    match chars.next() {
+        Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
 /// Closed-catalog list of `conventions [<name>]` identifiers accepted by
 /// the parser. Mirrored from `lazuli_ir::ConventionRef`. Adding a name
 /// here without the matching IR variant + proposal is incorrect.
-pub const CONVENTIONS_CATALOG: &[&str] = &["crud"];
+pub const CONVENTIONS_CATALOG: &[&str] = &["crud", "me"];
 
 /// Suggest the nearest closed-catalog convention name for a typo'd
-/// identifier. Single-element catalog today: always returns `Some("crud")`.
+/// identifier. Returns the first catalog entry as a defensive default;
+/// authoritative nearest-match logic lives in the parser/analyzer
+/// (`conventions_unknown_suggestion`).
 pub fn suggest_convention(_input: &str) -> Option<&'static str> {
     CONVENTIONS_CATALOG.first().copied()
 }
@@ -226,8 +306,48 @@ mod tests {
     }
 
     #[test]
-    fn closed_catalog_lists_crud() {
-        assert_eq!(CONVENTIONS_CATALOG, &["crud"]);
+    fn closed_catalog_lists_crud_and_me() {
+        assert_eq!(CONVENTIONS_CATALOG, &["crud", "me"]);
+        // Suggestion helper returns a defensive default; the parser
+        // owns the authoritative nearest-match logic.
         assert_eq!(suggest_convention("xyz"), Some("crud"));
+    }
+
+    #[test]
+    fn me_synth_no_actor_resolution_message_matches_spec() {
+        let f = MeSynthNoActorResolutionFinding {
+            path: PathBuf::from("orders.lzi"),
+            resource: "Order".to_owned(),
+        };
+        assert_eq!(
+            f.message(),
+            "Resource `Order` opts into `conventions [me]`, but its fields can't resolve an \
+             actor — it has no `user: User required unique` field, no `org: Org required` field, \
+             and isn't named `User`. Either add a tenant column, remove `me` from conventions, \
+             or rename the resource to `User` if it represents the actor."
+        );
+        assert_eq!(
+            MeSynthNoActorResolutionFinding::CODE,
+            "me_synth_no_actor_resolution"
+        );
+    }
+
+    #[test]
+    fn me_synth_signature_mismatch_message_matches_spec() {
+        let f = MeSynthSignatureMismatchFinding {
+            path: PathBuf::from("traveler.lzi"),
+            resource_snake: "traveler".to_owned(),
+        };
+        assert_eq!(
+            f.message(),
+            "Your `lookup_my_traveler` query's signature diverges from the `me` convention's \
+             canonical shape (returns `Traveler`, no route params). Either rename your query or \
+             restore the canonical return type / parameter set. See \
+             `docs/proposals/ir-resource-conventions-me.md` §6."
+        );
+        assert_eq!(
+            MeSynthSignatureMismatchFinding::CODE,
+            "me_synth_signature_mismatch"
+        );
     }
 }
