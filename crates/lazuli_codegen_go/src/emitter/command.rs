@@ -47,9 +47,10 @@
 use lazuli_ir::{
     ApprovalSpec, ApprovalThen, Assignment, BackoffStrategy, Command, CommandEffect, CommandInput,
     CreateEffect, DeleteEffect, Deprecation, DeprecationReplacement, Expr, ExternalCallRef,
-    Feature, Gate, HandlerRef, IdempotencyKey, InvalidatesSpec, Lifecycle, LifecycleStateKind,
-    LifecycleTransition, NamedArg, OwnerScopeSql, Path, Policies, PolicyExpr, PolicyRef,
-    QualifiedName, Resource, RetryPolicy, ReturnsEffect, TypedSlot, UpdateEffect,
+    Feature, FieldConstraints, Gate, HandlerRef, IdempotencyKey, InvalidatesSpec, Lifecycle,
+    LifecycleStateKind, LifecycleTransition, NamedArg, OwnerScopeSql, Path, Policies, PolicyExpr,
+    PolicyRef, QualifiedName, Resource, RetryPolicy, ReturnsEffect, RouteSlot, TypedSlot,
+    UpdateEffect,
 };
 use std::collections::BTreeMap;
 
@@ -61,7 +62,7 @@ use super::error_resolver::{
 use super::imports::ImportSet;
 use super::module::EmitContext;
 use super::patterns::{
-    PATTERN_COMMAND_PGX_INSERT, PATTERN_COMMAND_PGX_UPDATE, emit_pattern_header,
+    emit_pattern_header, PATTERN_COMMAND_PGX_INSERT, PATTERN_COMMAND_PGX_UPDATE,
 };
 use super::printer::GoPrinter;
 use super::types::{self, TypeCtx};
@@ -139,6 +140,12 @@ pub fn emit_command_file(
                 register_imports_for_type(&slot.type_ref, &type_ctx, &mut imports);
             }
         }
+        // Route slots (`route id: ID`, `route customer_id: ID`) are
+        // folded into the emitted `<Cmd>Input` struct, so their type
+        // refs also need import registration.
+        for slot in &command.route {
+            register_imports_for_type(&slot.type_ref, &type_ctx, &mut imports);
+        }
         if let CommandEffect::Returns(ret) = &command.effect {
             register_imports_for_type(&ret.return_type, &type_ctx, &mut imports);
         }
@@ -147,7 +154,10 @@ pub fn emit_command_file(
         // the resource emitter already registers in `resource.gen.go`.
     }
 
-    p.banner(source_label, &super::casing::gen_package_name(&feature.name));
+    p.banner(
+        source_label,
+        &super::casing::gen_package_name(&feature.name),
+    );
     imports.emit(&mut p);
     p.blank();
     if !wrap_buckets.is_empty() {
@@ -198,32 +208,53 @@ fn emit_command(
         ],
     );
 
-    // Input struct emission. `CommandInput::Empty` skips the type
-    // declaration entirely; the Command value still names a Go struct
-    // shape so we surface a `struct{}` synthetic for those.
+    // Input struct emission. `CommandInput::Empty` skips the typed
+    // declaration; the Command value still names a Go struct shape so
+    // we surface a `struct{}` synthetic when neither typed inputs nor
+    // route slots are declared.
+    //
+    // `route id: ID` slots are folded into the same `<Cmd>Input` struct
+    // ahead of the body slots so the Effect's `Bindings{"id":
+    // FromInput("ID")}` resolves against a real field. Order matches
+    // the typical REST convention (URL path params, then body fields).
+    // Empty / Short input forms that declare route slots still emit a
+    // struct carrying just the route fields so the runtime can bind
+    // them — without this, mutating commands with `route id: ID` and
+    // no body would 400-error on every dispatch.
+    let route_slots = command.route.as_slice();
     let input_type = match &command.input {
         CommandInput::Typed(slots) => {
             let input_struct = command_input_struct_name(&command.name, &resource_pascal);
-            emit_input_struct(p, &input_struct, slots, ctx);
+            emit_input_struct(p, &input_struct, route_slots, slots, ctx);
             p.blank();
             input_struct
         }
         CommandInput::Short(_) => {
             // Short form is sugar for typed inputs whose types live on
             // the targeted resource fields. The analyzer doesn't yet
-            // expand them; until then we emit a synthetic empty input
-            // and a TODO comment so the gap surfaces at review time.
+            // expand them; until then we emit a synthetic struct
+            // populated with only the route slots (if any) and a TODO
+            // comment so the gap surfaces at review time.
             let input_struct = command_input_struct_name(&command.name, &resource_pascal);
             p.line(&format!(
                 "// TODO(short-input): command {} declares a short input list;",
                 command.name
             ));
             p.line("// expand against the targeted resource fields (proposal §3.2).");
-            p.line(&format!("type {input_struct} struct {{}}"));
+            emit_input_struct(p, &input_struct, route_slots, &[], ctx);
             p.blank();
             input_struct
         }
-        CommandInput::Empty => "struct{}".to_owned(),
+        CommandInput::Empty => {
+            if route_slots.is_empty() {
+                "struct{}".to_owned()
+            } else {
+                let input_struct = command_input_struct_name(&command.name, &resource_pascal);
+                emit_input_struct(p, &input_struct, route_slots, &[], ctx);
+                p.blank();
+                input_struct
+            }
+        }
     };
 
     // Output type resolves from the effect. `None` falls back to
@@ -440,9 +471,7 @@ fn emit_command_handler_wrapper(
         // result, then conditionally bump every quota counter before
         // returning. Increment errors are swallowed (logged by the
         // runtime); the user-visible response is the handler's result.
-        p.line(&format!(
-            "out, err := {var_name}.Handle(ctx, input)"
-        ));
+        p.line(&format!("out, err := {var_name}.Handle(ctx, input)"));
         p.line("if err == nil {");
         p.indent();
         for limit in &quota_gates {
@@ -540,11 +569,39 @@ fn zero_value_for_go_type(ty: &str) -> String {
     }
 }
 
-/// Emit the `type <Name>Input struct` block for a typed input list.
-fn emit_input_struct(p: &mut GoPrinter, name: &str, slots: &[TypedSlot], ctx: &TypeCtx<'_>) {
+/// Emit the `type <Name>Input struct` block for a command.
+///
+/// Field order: route slots first (URL path params — `route id: ID`),
+/// then typed body slots. Route params always emit `validate:"required"`
+/// because the path is the addressing key; without them the Effect's
+/// `Bindings{...: FromInput("ID")}` resolves against nothing.
+fn emit_input_struct(
+    p: &mut GoPrinter,
+    name: &str,
+    route_slots: &[RouteSlot],
+    slots: &[TypedSlot],
+    ctx: &TypeCtx<'_>,
+) {
     p.line(&format!("type {name} struct {{"));
     p.indent();
-    let mut rows: Vec<(String, String, String)> = Vec::with_capacity(slots.len());
+    let mut rows: Vec<(String, String, String)> =
+        Vec::with_capacity(route_slots.len() + slots.len());
+    // Route slots come first — `route id: ID` becomes `Id ID
+    // \`json:"id" validate:"required"\``. Route slots have no inline
+    // constraints in the IR (`RouteSlot` carries no `FieldConstraints`),
+    // and are always required by definition (the URL path can't be
+    // optional).
+    let empty_constraints = FieldConstraints::default();
+    for slot in route_slots {
+        let (go_type, _import) = types::go_type_for(&slot.type_ref, ctx);
+        let validate_body = super::validator_tag_body(&empty_constraints, true);
+        let tag = if validate_body.is_empty() {
+            format!("`json:\"{}\"`", slot.name)
+        } else {
+            format!("`json:\"{}\" validate:\"{}\"`", slot.name, validate_body)
+        };
+        rows.push((pascal_case(&slot.name), go_type, tag));
+    }
     for slot in slots {
         let (go_type, _import) = types::go_type_for(&slot.type_ref, ctx);
         let optional = !slot.required;
@@ -562,15 +619,11 @@ fn emit_input_struct(p: &mut GoPrinter, name: &str, slots: &[TypedSlot], ctx: &T
         // tag chain stays deterministic: `json:"…"` then optional
         // `validate:"…"` (only when the slot is required OR carries
         // at least one constraint).
-        let validate_body =
-            super::validator_tag_body(&slot.constraints, slot.required);
+        let validate_body = super::validator_tag_body(&slot.constraints, slot.required);
         let tag = if validate_body.is_empty() {
             format!("`json:\"{}\"`", json_suffix)
         } else {
-            format!(
-                "`json:\"{}\" validate:\"{}\"`",
-                json_suffix, validate_body
-            )
+            format!("`json:\"{}\" validate:\"{}\"`", json_suffix, validate_body)
         };
         rows.push((pascal_case(&slot.name), final_type, tag));
     }
@@ -622,9 +675,7 @@ fn emit_effect(
             lifecycle_transition,
             scope_bindings,
         ),
-        CommandEffect::Deletes(delete) => {
-            emit_deletes_effect(p, command, delete, scope_bindings)
-        }
+        CommandEffect::Deletes(delete) => emit_deletes_effect(p, command, delete, scope_bindings),
         CommandEffect::Returns(ret) => {
             // Resolve the Output generic via the return-position resolver
             // so resource refs (`returns User`) render as the full struct
@@ -639,7 +690,8 @@ fn emit_effect(
             // when present; fall back to the command name. Either way
             // the registry name is `<feature>.<name>` so dispatches
             // don't collide across features.
-            let handler_short = handler_ref_name(handler).unwrap_or_else(|| command_name.to_owned());
+            let handler_short =
+                handler_ref_name(handler).unwrap_or_else(|| command_name.to_owned());
             let qualified = format!("{feature_name}.{handler_short}");
             p.line(&format!(
                 "Effect: lazuli.ReturnsFromRegistry[{input_type}, {return_type}](\"{qualified}\"),"
@@ -678,7 +730,9 @@ fn emit_effect(
                 ));
             } else {
                 p.line("Effect: nil,");
-                p.line("// No-effect commands are pure-read legacy APIs invoked via command.Invoke.");
+                p.line(
+                    "// No-effect commands are pure-read legacy APIs invoked via command.Invoke.",
+                );
             }
         }
     }
@@ -750,10 +804,7 @@ fn emit_creates_effect(
             "FKColumn:      \"{}\",",
             escape_string(&scope.field_name)
         ));
-        p.line(&format!(
-            "RelatedTable:  \"{}\",",
-            escape_string(&fk_table)
-        ));
+        p.line(&format!("RelatedTable:  \"{}\",", escape_string(&fk_table)));
         p.line(&format!(
             "ThroughColumn: \"{}\",",
             escape_string(&scope.through_column)
@@ -816,9 +867,7 @@ fn emit_updates_effect(
         p.line("lazuli.Bindings{");
         p.indent();
         if bulk_delete_only {
-            p.line(
-                "// bulk: no id/route key — `@scope.*` alone scopes the affected rows.",
-            );
+            p.line("// bulk: no id/route key — `@scope.*` alone scopes the affected rows.");
         }
         for k in &where_keys {
             p.line(&format!(
@@ -1035,9 +1084,7 @@ fn emit_deletes_effect(
     ));
     p.indent();
     if bulk_delete_only {
-        p.line(
-            "// bulk: no id/route key — `@scope.*` alone scopes the affected rows.",
-        );
+        p.line("// bulk: no id/route key — `@scope.*` alone scopes the affected rows.");
     }
     for k in &where_keys {
         p.line(&format!(
@@ -1360,11 +1407,7 @@ const SAME_ORG_COLUMNS: &[&str] = &["org_id", "org", "tenant_id", "tenant"];
 
 fn find_scope_column<'a>(resource: &'a Resource, priority: &[&str]) -> Option<&'a str> {
     for candidate in priority {
-        if resource
-            .fields
-            .iter()
-            .any(|f| f.name == *candidate)
-        {
+        if resource.fields.iter().any(|f| f.name == *candidate) {
             return resource
                 .fields
                 .iter()
@@ -1397,7 +1440,10 @@ fn command_policy_atoms(command: &Command, policies: &Policies) -> Vec<String> {
                 atoms.push(formatted);
             }
         }
-        PolicyRef::External { feature: _, name: _ } => {
+        PolicyRef::External {
+            feature: _,
+            name: _,
+        } => {
             // Cross-feature policy resolution requires the full module;
             // out of scope for the first scope-lowering pass.
         }
@@ -1898,8 +1944,7 @@ fn format_local_policy(name: &str, policies: &Policies) -> Option<String> {
         atom_literals.push("{Namespace: \"predicate\", Name: \"(\"}".to_owned());
         for (i, atom) in category.atoms.iter().enumerate() {
             if i > 0 {
-                atom_literals
-                    .push("{Namespace: \"predicate\", Name: \"and\"}".to_owned());
+                atom_literals.push("{Namespace: \"predicate\", Name: \"and\"}".to_owned());
             }
             atom_literals.push(render_atom(atom));
         }
@@ -1947,10 +1992,7 @@ fn format_policy_with_expr(
         let atoms = render_policy_expr_atoms(expr);
         let name = policy_expr_display_name(expr);
         if atoms.is_empty() {
-            return format!(
-                "lazuli.Policy{{Name: {:?}}},",
-                name
-            );
+            return format!("lazuli.Policy{{Name: {:?}}},", name);
         }
         let inner = atoms.join(", ");
         return format!(
@@ -2034,13 +2076,12 @@ fn render_policy_expr_atoms(expr: &PolicyExpr) -> Vec<String> {
 
 fn walk_policy_expr_atoms(expr: &PolicyExpr, out: &mut Vec<String>) {
     match expr {
-        PolicyExpr::Authenticated => out.push(
-            "{Namespace: \"predicate\", Name: \"authenticated\"}".to_owned(),
-        ),
-        PolicyExpr::HasRole(name) => out.push(format!(
-            "{{Namespace: \"rbac.role\", Name: {:?}}}",
-            name
-        )),
+        PolicyExpr::Authenticated => {
+            out.push("{Namespace: \"predicate\", Name: \"authenticated\"}".to_owned())
+        }
+        PolicyExpr::HasRole(name) => {
+            out.push(format!("{{Namespace: \"rbac.role\", Name: {:?}}}", name))
+        }
         PolicyExpr::HasPermission(perm) => out.push(format!(
             "{{Namespace: \"rbac.permission\", Name: {:?}}}",
             perm
@@ -2053,9 +2094,7 @@ fn walk_policy_expr_atoms(expr: &PolicyExpr, out: &mut Vec<String>) {
             out.push("{Namespace: \"predicate\", Name: \"(\"}".to_owned());
             for (i, term) in terms.iter().enumerate() {
                 if i > 0 {
-                    out.push(
-                        "{Namespace: \"predicate\", Name: \"and\"}".to_owned(),
-                    );
+                    out.push("{Namespace: \"predicate\", Name: \"and\"}".to_owned());
                 }
                 walk_policy_expr_atoms(term, out);
             }
@@ -2065,9 +2104,7 @@ fn walk_policy_expr_atoms(expr: &PolicyExpr, out: &mut Vec<String>) {
             out.push("{Namespace: \"predicate\", Name: \"(\"}".to_owned());
             for (i, term) in terms.iter().enumerate() {
                 if i > 0 {
-                    out.push(
-                        "{Namespace: \"predicate\", Name: \"or\"}".to_owned(),
-                    );
+                    out.push("{Namespace: \"predicate\", Name: \"or\"}".to_owned());
                 }
                 walk_policy_expr_atoms(term, out);
             }
@@ -2539,9 +2576,7 @@ mod feature_emit_tests {
         assert!(out.contains("// Code generated by lazuli; DO NOT EDIT."));
         assert!(out.contains("package customergen"));
         assert!(out.contains("type CreateCustomerInput struct {"));
-        assert!(
-            out.contains("var createCustomer = lazuli.Command[CreateCustomerInput, Customer]{")
-        );
+        assert!(out.contains("var createCustomer = lazuli.Command[CreateCustomerInput, Customer]{"));
         assert!(out.contains(
             "func HandleCreate(ctx *lazuli.Ctx, input CreateCustomerInput) (Customer, error) {"
         ));
@@ -2556,7 +2591,7 @@ mod tests {
         DeleteEffect, DeprecationReplacement, EnumLiteral, EnvName, Feature, HandlerRef,
         IdempotencyKey, LetBinding, Lifecycle, LifecycleState, LifecycleStateKind,
         LifecycleTransition, Module, NamedArg, Path, Policies, QualifiedName, RateLimitByEnv,
-        RateLimitSpec, Record, Resource, ReturnsEffect, RetryPolicy, RouteSlot, Tenancy, TypeRef,
+        RateLimitSpec, Record, Resource, RetryPolicy, ReturnsEffect, RouteSlot, Tenancy, TypeRef,
         UpdateEffect,
     };
 
@@ -2846,7 +2881,9 @@ mod tests {
             typed_slot("email", BuiltinType::SemanticEmail, true),
         ]);
         cmd.policy = PolicyRef::Atom("@role.admin".to_owned());
-        cmd.rate_limit = Some(lazuli_ir::RateLimitSpec::from_default("30 per hour per ip".to_owned()));
+        cmd.rate_limit = Some(lazuli_ir::RateLimitSpec::from_default(
+            "30 per hour per ip".to_owned(),
+        ));
         cmd.effect = CommandEffect::Creates(CreateEffect {
             resource: local_qname("Customer"),
             from_input: false,
@@ -2872,9 +2909,7 @@ mod tests {
         assert!(out.contains("json:\"email\" validate:\"required\""));
         assert!(out.contains("Email lazuli.Email"));
         // Command value shape.
-        assert!(
-            out.contains("var createCustomer = lazuli.Command[CreateCustomerInput, Customer]{")
-        );
+        assert!(out.contains("var createCustomer = lazuli.Command[CreateCustomerInput, Customer]{"));
         assert!(out.contains("Name:      \"customer.create\","));
         assert!(out.contains("Resource:  &customerResource,"));
         assert!(out.contains("lazuli.PolicyAtom{{Namespace: \"role\", Name: \"admin\"}}"));
@@ -2946,11 +2981,8 @@ mod tests {
         feature.commands.push(cmd);
 
         let out = emit(&feature).expect("must emit");
-        assert!(
-            out.contains(
-                "\"tier\": lazuli.FromConst(\"new_tier\") /* let new_tier = input.tier */,"
-            )
-        );
+        assert!(out
+            .contains("\"tier\": lazuli.FromConst(\"new_tier\") /* let new_tier = input.tier */,"));
     }
 
     #[test]
@@ -2982,6 +3014,33 @@ mod tests {
         assert!(out.contains("Effect: lazuli.Updates(&customerResource,"));
         assert!(out.contains("lazuli.Bindings{\"id\": lazuli.FromInput(\"ID\")},"));
         assert!(out.contains("\"tier\": lazuli.FromInput(\"tier\"),"));
+        // LAZ-route-id-codegen-go (Cell A1) — the route slot MUST land
+        // on the emitted Input struct so the `FromInput("ID")` binding
+        // above resolves at runtime. Route fields come first, body
+        // fields after. `pascal_case("id")` hits the acronym path so
+        // the Go field name is `ID`, not `Id`; the route type ref
+        // `BuiltinType::Id` lowers to `lazuli.ID` via go_type_for.
+        assert!(
+            out.contains("type UpdateCustomerTierInput struct {"),
+            "Input struct must be emitted for route + body commands:\n{out}"
+        );
+        assert!(
+            out.contains("ID   lazuli.ID `json:\"id\" validate:\"required\"`"),
+            "route id slot must surface as `ID lazuli.ID` aligned field:\n{out}"
+        );
+        assert!(
+            out.contains("Tier string    `json:\"tier\" validate:\"required\"`"),
+            "body Tier field must remain after the route Id field:\n{out}"
+        );
+        // Ordering invariant — route slots precede body slots.
+        let id_pos = out
+            .find("ID   lazuli.ID")
+            .expect("ID field must be emitted");
+        let tier_pos = out.find("Tier string").expect("Tier field must be emitted");
+        assert!(
+            id_pos < tier_pos,
+            "route slots must precede body slots in the Input struct:\n{out}"
+        );
         // Local policy renders as `@policy.<name>`. The exact padding
         // depends on which other kv rows landed; assertion targets the
         // payload so renaming the column doesn't break the test.
@@ -3967,6 +4026,17 @@ mod tests {
             !out.contains("\"reason\": lazuli.FromInput(\"Reason\"),"),
             "non-route, non-key input should not leak into WHERE bindings:\n{out}"
         );
+        // LAZ-route-id-codegen-go (Cell A1) — the route id slot must
+        // ALSO be present on the Input struct so the FromInput("ID")
+        // binding above resolves at dispatch.
+        assert!(
+            out.contains("ID     lazuli.ID `json:\"id\" validate:\"required\"`"),
+            "route id slot must land on the Input struct as `ID lazuli.ID`:\n{out}"
+        );
+        assert!(
+            out.contains("Reason string    `json:\"reason\" validate:\"required\"`"),
+            "body Reason field must still be present:\n{out}"
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -4095,6 +4165,22 @@ mod tests {
         assert!(
             out.contains("\"tag_id\": lazuli.FromInput(\"TagID\"),"),
             "second route slot should bind:\n{out}"
+        );
+        // LAZ-route-id-codegen-go (Cell A1) — Empty-input + route slots
+        // must STILL emit a synthetic Input struct carrying the route
+        // fields. Without it, FromInput("CustomerID") / FromInput("TagID")
+        // would resolve against `struct{}` and return 400 bad_request.
+        assert!(
+            out.contains("type RemoveCustomerTagAssignmentTagInput struct {"),
+            "Empty input + route slots must still emit an Input struct:\n{out}"
+        );
+        assert!(
+            out.contains("CustomerID lazuli.ID `json:\"customer_id\" validate:\"required\"`"),
+            "first composite-route slot must surface on the Input struct:\n{out}"
+        );
+        assert!(
+            out.contains("TagID      lazuli.ID `json:\"tag_id\" validate:\"required\"`"),
+            "second composite-route slot must surface on the Input struct:\n{out}"
         );
     }
 
@@ -4334,7 +4420,9 @@ mod tests {
 
         let out = emit(&feature).expect("must emit");
         assert!(
-            out.contains("Effect: lazuli.CreatesWithOwnerCheck(&propertyResource, lazuli.Bindings{"),
+            out.contains(
+                "Effect: lazuli.CreatesWithOwnerCheck(&propertyResource, lazuli.Bindings{"
+            ),
             "CREATE with cte_owner_check should emit CreatesWithOwnerCheck:\n{out}"
         );
         assert!(
@@ -4424,8 +4512,9 @@ mod tests {
             field_name: "proposal".to_owned(),
             fk_target: "BookingProposal".to_owned(),
             through_column: "user".to_owned(),
-            where_predicate: "proposal IN (SELECT id FROM \"booking_proposal\" WHERE \"user\" = ctx.User.ID)"
-                .to_owned(),
+            where_predicate:
+                "proposal IN (SELECT id FROM \"booking_proposal\" WHERE \"user\" = ctx.User.ID)"
+                    .to_owned(),
             cte_owner_check: None,
         });
         feature.commands.push(cmd);
@@ -4460,7 +4549,9 @@ mod tests {
 
         let out = emit(&feature).expect("must emit");
         assert!(
-            out.contains("Effect: lazuli.ReturnsFromRegistry[struct{}, struct{}](\"customer.logout\"),"),
+            out.contains(
+                "Effect: lazuli.ReturnsFromRegistry[struct{}, struct{}](\"customer.logout\"),"
+            ),
             "no-returns + @fn handler should emit O=struct{{}} (matches Go handler stub):\n{out}"
         );
         assert!(
@@ -4468,7 +4559,9 @@ mod tests {
             "regression: O=any breaks the runtime type-assert against the registered (struct{{}}, error) handler:\n{out}"
         );
         assert!(
-            out.contains("// Wire Logout as `func(ctx *lazuli.Ctx, input struct{}) (struct{}, error)`"),
+            out.contains(
+                "// Wire Logout as `func(ctx *lazuli.Ctx, input struct{}) (struct{}, error)`"
+            ),
             "handler signature comment should match the (struct{{}}, error) shape, got:\n{out}"
         );
     }
@@ -4492,7 +4585,9 @@ mod tests {
                 value: Expr::Path(Path::from_segments(["input", "name"])),
             }],
         });
-        cmd.rate_limit = Some(RateLimitSpec::from_default("5 per 10 minutes per ip".to_owned()));
+        cmd.rate_limit = Some(RateLimitSpec::from_default(
+            "5 per 10 minutes per ip".to_owned(),
+        ));
         feature.commands.push(cmd);
 
         let out = emit(&feature).expect("must emit");
