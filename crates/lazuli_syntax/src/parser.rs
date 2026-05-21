@@ -5499,6 +5499,17 @@ fn parse_command_decl(
             emits.push(parsed);
             last_end = lines[next.saturating_sub(1).max(i)].end;
             i = next;
+        } else if trimmed == "triggers" {
+            if !triggers.is_empty() {
+                return Err(line_error(
+                    line,
+                    "`triggers transition` may be declared at most once",
+                ));
+            }
+            let (parsed, next) = parse_command_triggers_block(lines, i)?;
+            triggers = parsed;
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
         } else if let Some(rest) = trimmed.strip_prefix("triggers ") {
             if !triggers.is_empty() {
                 return Err(line_error(
@@ -5614,10 +5625,10 @@ fn parse_command_triggers(line: &SourceLine<'_>, rest: &str) -> Result<Vec<Strin
     } else if let Some(names) = rest.strip_prefix("transition ") {
         names.trim()
     } else {
-        return Err(line_error(
-            line,
-            "`triggers` children use `triggers transition <name>[, <name>]`",
-        ));
+        // Legacy pilot files used `triggers <transition>` before the surface
+        // grew the explicit `transition` discriminator. Keep accepting it,
+        // but normalize to the same `CommandDecl.triggers` vector.
+        rest
     };
     if names.is_empty() {
         return Err(line_error(
@@ -5626,6 +5637,13 @@ fn parse_command_triggers(line: &SourceLine<'_>, rest: &str) -> Result<Vec<Strin
         ));
     }
 
+    parse_command_trigger_names(line, names)
+}
+
+fn parse_command_trigger_names(
+    line: &SourceLine<'_>,
+    names: &str,
+) -> Result<Vec<String>, ParseError> {
     let mut triggers = Vec::new();
     for name in names.split(',') {
         let name = name.trim();
@@ -5644,6 +5662,55 @@ fn parse_command_triggers(line: &SourceLine<'_>, rest: &str) -> Result<Vec<Strin
         triggers.push(name.to_owned());
     }
     Ok(triggers)
+}
+
+fn parse_command_triggers_block(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(Vec<String>, usize), ParseError> {
+    let mut triggers = Vec::new();
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+
+        if line.indent <= AGENT_INDENT_AGENT_CHILD {
+            break;
+        }
+
+        if line.indent != AGENT_INDENT_GRANDCHILD {
+            return Err(line_error(
+                line,
+                "`triggers` children use six-space indentation",
+            ));
+        }
+
+        let Some(rest) = trimmed.strip_prefix("transition ") else {
+            return Err(line_error(
+                line,
+                "`triggers` children use `transition <name>[, <name>]`",
+            ));
+        };
+
+        let parsed = parse_command_trigger_names(line, rest.trim())?;
+        triggers.extend(parsed);
+        i += 1;
+    }
+
+    if triggers.is_empty() {
+        return Err(line_error(
+            &lines[start],
+            "`triggers` requires at least one `transition <name>` child",
+        ));
+    }
+
+    Ok((triggers, i))
 }
 
 fn parse_command_write_window(
@@ -19605,18 +19672,36 @@ feature billing
     }
 
     #[test]
-    fn command_triggers_transition_parses_single_and_list_rejects_trailing_comma() {
+    fn command_triggers_transition_parses_canonical_and_legacy_shapes() {
         let source = r#"
 feature order
   command submit
     triggers transition approve
   command fulfill
     triggers transition approve, capture_payment, ship
+  command legacy_inline
+    triggers approve, capture_payment
+  command legacy_block
+    triggers
+      transition approve
+      transition capture_payment, ship
 "#;
         let features = parse_feature_skeletons(source).expect("parses");
         assert_eq!(features[0].commands[0].triggers, vec!["approve".to_owned()]);
         assert_eq!(
             features[0].commands[1].triggers,
+            vec![
+                "approve".to_owned(),
+                "capture_payment".to_owned(),
+                "ship".to_owned()
+            ]
+        );
+        assert_eq!(
+            features[0].commands[2].triggers,
+            vec!["approve".to_owned(), "capture_payment".to_owned()]
+        );
+        assert_eq!(
+            features[0].commands[3].triggers,
             vec![
                 "approve".to_owned(),
                 "capture_payment".to_owned(),
