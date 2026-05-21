@@ -126,18 +126,63 @@ func FromFn(name string, args []Source) Source {
 
 // CreatesEffect is the effect for a `creates <Resource>` block. Generated
 // code constructs one via `lazuli.Creates(&customerResource, lazuli.Bindings{...})`.
+//
+// `OwnerCheck` is populated by codegen for synth-emitted
+// `create_<resource>` commands on resources carrying an
+// `@owner_axis(through: <col>)` field. When set, the runtime composes
+// the §8.5.A CTE-INSERT shape from
+// `ir-resource-conventions-owner-scope.md` (one SQL statement; zero
+// rows out when the named FK isn't owned by `ctx.User.ID`). When nil,
+// the runtime emits the unchanged tenant-only INSERT.
 type CreatesEffect struct {
-	Resource *resourceErased
-	Bind     Bindings
+	Resource   *resourceErased
+	Bind       Bindings
+	OwnerCheck *OwnerCheckSpec
 }
 
 func (CreatesEffect) effectKind() effectKind { return effectCreates }
+
+// OwnerCheckSpec describes the pre-INSERT ownership verification a
+// synth-emitted `create_<resource>` command runs in the same SQL
+// statement as the INSERT, per `ir-resource-conventions-owner-scope.md`
+// §8.5.A.
+//
+// The runtime builds:
+//
+//	WITH owner_check AS (
+//	    SELECT 1 FROM "<related_table>" WHERE id = $<fk> AND "<through>" = $<actor>
+//	)
+//	INSERT INTO "<resource>" (...) SELECT ... FROM owner_check RETURNING *
+//
+// A zero-row CTE yields a zero-row INSERT — the caller sees the
+// `no row matches delete where clause`-style envelope on the
+// downstream scan, mapped to a `not_owner` framework error.
+type OwnerCheckSpec struct {
+	// FKColumn is the column on the resource being inserted that
+	// references the related (owner-chain) resource. Example: `host`
+	// on `property`.
+	FKColumn string
+	// RelatedTable is the SQL table name of the FK target — the
+	// resource whose ownership the CTE verifies. Example: `host`.
+	RelatedTable string
+	// ThroughColumn is the column on the related table that carries
+	// the actor key — typically `user`. The CTE checks
+	// `<RelatedTable>.<ThroughColumn> = ctx.User.ID`.
+	ThroughColumn string
+}
 
 // Creates builds a CreatesEffect for the given resource and field bindings.
 // The runtime, at command execution, resolves each binding and inserts the
 // row.
 func Creates[T any](r *Resource[T], bind Bindings) CreatesEffect {
 	return CreatesEffect{Resource: r.erased(), Bind: bind}
+}
+
+// CreatesWithOwnerCheck builds a CreatesEffect that wraps the INSERT
+// in the §8.5.A CTE shape. Codegen emits this constructor for synth
+// commands on `@owner_axis` resources.
+func CreatesWithOwnerCheck[T any](r *Resource[T], bind Bindings, check OwnerCheckSpec) CreatesEffect {
+	return CreatesEffect{Resource: r.erased(), Bind: bind, OwnerCheck: &check}
 }
 
 // UpdatesEffect is the effect for an `updates <Resource>` block.

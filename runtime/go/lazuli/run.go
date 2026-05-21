@@ -158,8 +158,15 @@ func (q *Query[A, R]) RunLookup(ctx *Ctx, args A) (R, error) {
 			return zero, &Error{Status: 400, Code: CodeBadRequest,
 				Message: "lookup key " + k.Column + " is required"}
 		}
-		conds = append(conds, fmt.Sprintf("%s = $%d", quoteIdent(k.Column), len(values)+1))
 		values = append(values, val)
+		// `ir-resource-conventions-owner-scope.md` §8.3 — owner-scope
+		// lookup keys carry `FromCtxOwnedVia` sources that must lower to
+		// `<col> IN (SELECT id FROM <related> WHERE <through> = $N)`.
+		// Route the cond construction through `whereConditionFragment`
+		// so this shape expands consistently with `applyUpdates` /
+		// `applyDeletes`. Direct scalar sources still collapse to the
+		// `<col> = $N` shape (the fragment helper is a no-op for them).
+		conds = append(conds, whereConditionFragment(k.Column, k.Source, len(values)))
 	}
 
 	// Same snake_case lowering as `RunList` — `Resource.Name` is the
