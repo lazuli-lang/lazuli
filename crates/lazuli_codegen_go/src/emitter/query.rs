@@ -172,7 +172,7 @@ fn emit_list_query(
     if query.modifier.is_some() {
         p.line("// TODO(runtime): ListQuery.modifier is not yet in Lazuli Go lib.");
     }
-    emit_filters(p, feature, resource, &query.filters);
+    emit_filters(p, feature, resource, &query.filters, query.owner_scope_sql.as_ref());
     emit_order(p, feature, resource, &query.order);
     if let Some(page_size) = query.paginate {
         p.line(&format!("Paginate: {page_size},"));
@@ -248,7 +248,14 @@ fn emit_lookup_query(
     );
     emit_gate_annotations(p, emit_ctx.gates_for("query.lookup", &query.name));
     emit_scope_gaps(p, &query.scope, query.scope_override);
-    emit_lookup_by_with_filters(p, feature, resource, &query.keys, &query.filters);
+    emit_lookup_by_with_filters(
+        p,
+        feature,
+        resource,
+        &query.keys,
+        &query.filters,
+        query.owner_scope_sql.as_ref(),
+    );
     p.dedent();
     p.line("}");
     emit_ctx.reset_line_directive(p, line_directive_emitted);
@@ -510,8 +517,10 @@ fn emit_filters(
     feature: &Feature,
     resource: Option<&Resource>,
     filters: &[Filter],
+    owner_scope: Option<&lazuli_ir::OwnerScopeSql>,
 ) {
-    if filters.is_empty() {
+    let owner_scope_entry = owner_scope.map(owner_scope_filter_entry);
+    if filters.is_empty() && owner_scope_entry.is_none() {
         return;
     }
     p.line("Filters: []lazuli.FilterRule{");
@@ -525,8 +534,45 @@ fn emit_filters(
             Err(message) => p.line(&format!("// TODO(ir): {message}")),
         }
     }
+    // `ir-resource-conventions-owner-scope.md` §8.4 — synth-side
+    // owner-scope predicate on `list_<resource>`. The analyzer
+    // composed the chain in `query.owner_scope_sql` (cell O2); codegen
+    // projects it through the existing `FromCtxOwnedVia` shape that the
+    // author-side `mine_*` filters already use. The runtime expands
+    // both to the same `<fk> IN (SELECT id FROM <fk_table>
+    // WHERE <through> = $N)` form via `whereConditionFragment`, so the
+    // emitted SQL matches spec §8.4 verbatim after the existing tenant
+    // predicates.
+    if let Some((column, source)) = owner_scope_entry {
+        p.line(&format!(
+            "// owner-scope: synth from @owner_axis (cell O2 + codegen-os projection)",
+        ));
+        p.line(&format!(
+            "{{Column: \"{}\", When: {source}}},",
+            escape_string(&column)
+        ));
+    }
     p.dedent();
     p.line("},");
+}
+
+/// Compose a `(column, FromCtxOwnedVia(...))` pair from the
+/// analyzer's `OwnerScopeSql` carrier. The column is the FK column on
+/// the resource (e.g. `host`); the source resolves to `ctx.User.ID`
+/// at runtime and the SQL fragment expands to the IN-subquery shape.
+///
+/// The PascalCase `fk_target` (e.g. `Host`) is snake-cased here so the
+/// emitted `relatedTable` matches the migrated schema's table name
+/// (`host`), consistent with how `quoteResourceTable` lowers names on
+/// the runtime side.
+fn owner_scope_filter_entry(scope: &lazuli_ir::OwnerScopeSql) -> (String, String) {
+    let fk_table = pascal_to_snake(&scope.fk_target);
+    let source = format!(
+        "lazuli.FromCtxOwnedVia(\"{}\", \"{}\", \"user.id\")",
+        escape_string(&fk_table),
+        escape_string(&scope.through_column),
+    );
+    (scope.field_name.clone(), source)
 }
 
 fn emit_order(
@@ -568,8 +614,10 @@ fn emit_lookup_by_with_filters(
     resource: Option<&Resource>,
     keys: &[KeyClause],
     filters: &[Filter],
+    owner_scope: Option<&lazuli_ir::OwnerScopeSql>,
 ) {
-    let mut entries: Vec<(String, String)> = Vec::with_capacity(keys.len() + filters.len());
+    let mut entries: Vec<(String, String)> =
+        Vec::with_capacity(keys.len() + filters.len() + usize::from(owner_scope.is_some()));
     for key in keys {
         let column = normalize_resource_column(
             feature,
@@ -582,6 +630,22 @@ fn emit_lookup_by_with_filters(
         match filter_rule(filter, feature, resource) {
             Ok(pair) => entries.push(pair),
             Err(message) => p.line(&format!("// TODO(ir): {message}")),
+        }
+    }
+    // `ir-resource-conventions-owner-scope.md` §8.3 — synth-side
+    // owner-scope predicate on `lookup_<resource>`. Mirrors §8.4 on
+    // List: the analyzer composed the chain; we project to
+    // `FromCtxOwnedVia` so the runtime's `whereConditionFragment` (cf.
+    // the runtime update accompanying this cell) lifts the LookupBy
+    // entry to `<fk> IN (SELECT id FROM <fk_table> WHERE <through> = $N)`
+    // after the existing tenant predicates.
+    if let Some(scope) = owner_scope {
+        let (column, source) = owner_scope_filter_entry(scope);
+        // Dedupe: if a hand-authored key already binds this column the
+        // analyzer's scope is redundant (extremely rare; the synth's
+        // canonical lookup keys are `id`).
+        if !entries.iter().any(|(col, _)| col == &column) {
+            entries.push((column, source));
         }
     }
     if entries.is_empty() {
@@ -2322,5 +2386,211 @@ mod feature_emit {
         assert!(out.contains("Search *string `json:\"search,omitempty\"`"));
         assert!(out.contains("var listCustomers = lazuli.Query[ListCustomersArgs, Customer]{"));
         assert!(out.contains("Paginate: 25,"));
+    }
+
+    // -------------------------------------------------------------------------
+    // Owner-scope projection — cell `codegen-os-projection`. The analyzer
+    // composes `Query::Lookup.owner_scope_sql` / `Query::List.owner_scope_sql`
+    // per spec `ir-resource-conventions-owner-scope.md` §7.3; this codegen
+    // cell appends the carrier to the runtime's existing FilterRule (LIST)
+    // and LookupBy (LOOKUP) pipelines as a `FromCtxOwnedVia` entry so the
+    // emitted SQL matches §8.3 / §8.4 verbatim.
+    // -------------------------------------------------------------------------
+
+    fn owner_scope_sql_property() -> lazuli_ir::OwnerScopeSql {
+        lazuli_ir::OwnerScopeSql {
+            field_name: "host".to_owned(),
+            fk_target: "Host".to_owned(),
+            through_column: "user".to_owned(),
+            where_predicate: "host IN (SELECT id FROM \"host\" WHERE \"user\" = ctx.User.ID)"
+                .to_owned(),
+            cte_owner_check: None,
+        }
+    }
+
+    #[test]
+    fn lookup_query_with_owner_scope_sql_appends_owned_via_lookup_by() {
+        // Spec §8.3: synth `lookup_property` lowers to
+        //   SELECT ... FROM "property" WHERE id = $1 AND org_id = $2
+        //     AND host IN (SELECT id FROM "host" WHERE "user" = $3)
+        // Codegen projects the analyzer's owner_scope_sql carrier as a
+        // `LookupBy` entry with `FromCtxOwnedVia`. The runtime's
+        // `whereConditionFragment` (updated alongside this cell) lifts
+        // the entry to the IN-subquery shape.
+        let mut feature = base_feature("catalog");
+        feature.resources.push(resource(
+            "Property",
+            vec![
+                field("host", TypeRef::Unresolved("Host".to_owned()), true),
+                field("name", TypeRef::Builtin(BuiltinType::Text), true),
+            ],
+        ));
+        feature.queries.push(Query::Lookup(LookupQuery {
+            name: "lookup_property".to_owned(),
+            public_contract: None,
+            params: Vec::new(),
+            keys: vec![KeyClause {
+                path: lazuli_ir::Path::from_segments(["id"]),
+                equals: Expr::Path(lazuli_ir::Path::from_segments(["id"])),
+            }],
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            policy: PolicyRef::None,
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            owner_scope_sql: Some(owner_scope_sql_property()),
+        }));
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("{Column: \"id\", Source: lazuli.FromInput(\"ID\")},"),
+            "canonical id LookupBy entry must remain:\n{out}"
+        );
+        assert!(
+            out.contains(
+                "{Column: \"host\", Source: lazuli.FromCtxOwnedVia(\"host\", \"user\", \"user.id\")},"
+            ),
+            "owner_scope_sql must project to FromCtxOwnedVia in LookupBy:\n{out}"
+        );
+    }
+
+    #[test]
+    fn list_query_with_owner_scope_sql_appends_owned_via_filter() {
+        // Spec §8.4: synth `list_propertys` lowers to
+        //   SELECT ... FROM "property"
+        //   WHERE org_id = $1 AND host IN (SELECT id FROM "host" WHERE "user" = $2)
+        //   ORDER BY created_at DESC LIMIT $3 OFFSET $4
+        // Codegen projects the analyzer's owner_scope_sql carrier as
+        // a `FilterRule` entry with `FromCtxOwnedVia`. The author's
+        // existing filters remain untouched.
+        let mut feature = base_feature("catalog");
+        feature.resources.push(resource(
+            "Property",
+            vec![
+                field("host", TypeRef::Unresolved("Host".to_owned()), true),
+                field("name", TypeRef::Builtin(BuiltinType::Text), true),
+            ],
+        ));
+        feature.queries.push(Query::List(ListQuery {
+            name: "list_propertys".to_owned(),
+            public_contract: None,
+            params: Vec::new(),
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            order: Vec::new(),
+            paginate: Some(50),
+            modifier: None,
+            cache: None,
+            policy: PolicyRef::None,
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            owner_scope_sql: Some(owner_scope_sql_property()),
+        }));
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("Filters: []lazuli.FilterRule{"),
+            "Filters block must be emitted when owner_scope_sql is present even if author filters are empty:\n{out}"
+        );
+        assert!(
+            out.contains(
+                "{Column: \"host\", When: lazuli.FromCtxOwnedVia(\"host\", \"user\", \"user.id\")},"
+            ),
+            "owner_scope_sql must project to FromCtxOwnedVia in Filters:\n{out}"
+        );
+        assert!(
+            out.contains("// owner-scope: synth from @owner_axis"),
+            "filter block should be annotated for traceability:\n{out}"
+        );
+    }
+
+    #[test]
+    fn lookup_query_without_owner_scope_sql_unchanged() {
+        // Tenant-only resources (no `@owner_axis`) carry
+        // `owner_scope_sql: None` and emit exactly today's shape.
+        let mut feature = base_feature("billing");
+        feature.resources.push(resource(
+            "Charge",
+            vec![field("name", TypeRef::Builtin(BuiltinType::Text), true)],
+        ));
+        feature.queries.push(Query::Lookup(LookupQuery {
+            name: "lookup_charge".to_owned(),
+            public_contract: None,
+            params: Vec::new(),
+            keys: vec![KeyClause {
+                path: lazuli_ir::Path::from_segments(["id"]),
+                equals: Expr::Path(lazuli_ir::Path::from_segments(["id"])),
+            }],
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            policy: PolicyRef::None,
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            owner_scope_sql: None,
+        }));
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            !out.contains("FromCtxOwnedVia"),
+            "tenant-only LOOKUP must NOT emit owned-via:\n{out}"
+        );
+    }
+
+    #[test]
+    fn list_query_owner_scope_snake_cases_pascal_fk_target() {
+        // PascalCase `OwnerScopeSql.fk_target` (e.g. `BookingProposal`)
+        // must be snake-cased when projected to FromCtxOwnedVia so the
+        // runtime's `quoteIdent` round-trips with the migrated SQL
+        // table identifier.
+        let mut feature = base_feature("operations");
+        feature.resources.push(resource(
+            "Transaction",
+            vec![field(
+                "proposal",
+                TypeRef::Unresolved("BookingProposal".to_owned()),
+                true,
+            )],
+        ));
+        feature.queries.push(Query::List(ListQuery {
+            name: "list_transactions".to_owned(),
+            public_contract: None,
+            params: Vec::new(),
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            order: Vec::new(),
+            paginate: None,
+            modifier: None,
+            cache: None,
+            policy: PolicyRef::None,
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            owner_scope_sql: Some(lazuli_ir::OwnerScopeSql {
+                field_name: "proposal".to_owned(),
+                fk_target: "BookingProposal".to_owned(),
+                through_column: "user".to_owned(),
+                where_predicate: "proposal IN (SELECT id FROM \"booking_proposal\" WHERE \"user\" = ctx.User.ID)".to_owned(),
+                cte_owner_check: None,
+            }),
+        }));
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains(
+                "{Column: \"proposal\", When: lazuli.FromCtxOwnedVia(\"booking_proposal\", \"user\", \"user.id\")},"
+            ),
+            "PascalCase fk_target must be snake-cased in FromCtxOwnedVia:\n{out}"
+        );
     }
 }

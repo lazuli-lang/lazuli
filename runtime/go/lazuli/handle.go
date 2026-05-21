@@ -621,12 +621,59 @@ func applyCreates[I, O any](ctx *Ctx, tx pgx.Tx, eff CreatesEffect, input I) (O,
 			Message: "insert encrypt failed: " + err.Error()}
 	}
 
-	sql := fmt.Sprintf(
-		`INSERT INTO %s (%s) VALUES (%s) RETURNING *`,
-		quoteResourceTable(eff.Resource.Name),
-		strings.Join(cols, ", "),
-		strings.Join(placeholders, ", "),
-	)
+	// `ir-resource-conventions-owner-scope.md` §8.5.A —
+	// CTE-prefixed INSERT for `@owner_axis` resources. The CTE
+	// verifies the actor owns the FK target row; when it returns
+	// zero rows, the INSERT fires zero times and the downstream
+	// `CollectOneRow` returns `ErrNoRows`, which we map to a 403
+	// `not_owner` envelope below. Tenant-only INSERTs (nil
+	// OwnerCheck) skip this branch entirely.
+	var sql string
+	if eff.OwnerCheck != nil {
+		oc := eff.OwnerCheck
+		// Find the placeholder index for the FK column in the
+		// already-resolved `cols`/`values` arrays. The codegen
+		// populates the binding via the standard `Bind` map so the
+		// FK value lands among the row values; the CTE just
+		// references the same `$N` slot.
+		fkPlaceholder := 0
+		for i, col := range cols {
+			if unquoteIdent(col) == oc.FKColumn {
+				fkPlaceholder = i + 1
+				break
+			}
+		}
+		if fkPlaceholder == 0 {
+			return zero, &Error{Status: 500, Code: CodeInternal,
+				Message: "owner-check FK column not bound: " + oc.FKColumn}
+		}
+		// Append the actor's user.ID as the last placeholder
+		// (`$<N+1>`) for the CTE's `<through> = $<actor>` clause.
+		actor, err := readCtx(ctx, "user.id")
+		if err != nil {
+			return zero, err
+		}
+		values = append(values, actor)
+		actorPlaceholder := len(values)
+		sql = fmt.Sprintf(
+			`WITH owner_check AS (SELECT 1 FROM %s WHERE id = $%d AND %s = $%d) `+
+				`INSERT INTO %s (%s) SELECT %s FROM owner_check RETURNING *`,
+			quoteIdent(oc.RelatedTable),
+			fkPlaceholder,
+			quoteIdent(oc.ThroughColumn),
+			actorPlaceholder,
+			quoteResourceTable(eff.Resource.Name),
+			strings.Join(cols, ", "),
+			strings.Join(placeholders, ", "),
+		)
+	} else {
+		sql = fmt.Sprintf(
+			`INSERT INTO %s (%s) VALUES (%s) RETURNING *`,
+			quoteResourceTable(eff.Resource.Name),
+			strings.Join(cols, ", "),
+			strings.Join(placeholders, ", "),
+		)
+	}
 
 	rows, err := tx.Query(ctx, sql, values...)
 	if err != nil {
@@ -635,6 +682,13 @@ func applyCreates[I, O any](ctx *Ctx, tx pgx.Tx, eff CreatesEffect, input I) (O,
 	defer rows.Close()
 
 	out, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[O])
+	if errors.Is(err, pgx.ErrNoRows) && eff.OwnerCheck != nil {
+		// Zero-row CTE → zero-row INSERT → ErrNoRows. Map to the
+		// canonical `not_owner` envelope. Tenant-only INSERT errors
+		// continue through `classifyDBError`.
+		return zero, &Error{Status: 403, Code: CodePolicyDenied,
+			Message: "actor does not own the referenced row"}
+	}
 	if err != nil {
 		return zero, classifyDBError("insert scan", err)
 	}

@@ -48,8 +48,8 @@ use lazuli_ir::{
     ApprovalSpec, ApprovalThen, Assignment, BackoffStrategy, Command, CommandEffect, CommandInput,
     CreateEffect, DeleteEffect, Deprecation, DeprecationReplacement, Expr, ExternalCallRef,
     Feature, Gate, HandlerRef, IdempotencyKey, InvalidatesSpec, Lifecycle, LifecycleStateKind,
-    LifecycleTransition, NamedArg, Path, Policies, PolicyExpr, PolicyRef, QualifiedName, Resource,
-    RetryPolicy, ReturnsEffect, TypedSlot, UpdateEffect,
+    LifecycleTransition, NamedArg, OwnerScopeSql, Path, Policies, PolicyExpr, PolicyRef,
+    QualifiedName, Resource, RetryPolicy, ReturnsEffect, TypedSlot, UpdateEffect,
 };
 use std::collections::BTreeMap;
 
@@ -318,7 +318,26 @@ fn emit_command(
     // emitted SQL constrains the row at the database, not just at the
     // policy-check gate. Matches the hostpoint pilot pattern surfaced
     // 2026-05-17 (closes the SHIP-NOW row-ownership gap).
-    let scope_bindings = resolve_scope_bindings(command, feature);
+    let mut scope_bindings = resolve_scope_bindings(command, feature);
+    // `ir-resource-conventions-owner-scope.md` §7.3 + §8.1-8.2 —
+    // project the analyzer-composed `owner_scope_sql` slot into the
+    // same WHERE-binding pipeline. The carrier is populated by the
+    // crud / me synth passes on resources carrying a
+    // `@owner_axis(through: <col>)` field; absence is the tenant-only
+    // default. We emit the binding through the existing
+    // `FromCtxOwnedVia` shape (column-traversal subquery) so the
+    // runtime composes `<fk_col> IN (SELECT id FROM <fk_table>
+    // WHERE <through> = $N)` after the existing tenant predicates,
+    // matching spec §8.1 verbatim. Author-override commands carry
+    // `owner_scope_sql: None` (handled by the analyzer); they may
+    // still emit `@scope.owner` via the legacy path above. We dedupe
+    // so a single resource doesn't get the same FK column bound twice.
+    if let Some(binding) = owner_scope_binding(command.owner_scope_sql.as_ref()) {
+        if !scope_bindings.iter().any(|b| b.column == binding.column) {
+            scope_bindings.push(binding);
+        }
+    }
+    let scope_bindings = scope_bindings;
 
     emit_effect(
         p,
@@ -589,7 +608,7 @@ fn emit_effect(
     scope_bindings: &[ScopeBinding],
 ) {
     match effect {
-        CommandEffect::Creates(create) => emit_creates_effect(p, create, let_bindings),
+        CommandEffect::Creates(create) => emit_creates_effect(p, command, create, let_bindings),
         CommandEffect::Updates(update) => emit_updates_effect(
             p,
             command,
@@ -675,6 +694,7 @@ fn handler_ref_name(handler: Option<&HandlerRef>) -> Option<String> {
 
 fn emit_creates_effect(
     p: &mut GoPrinter,
+    command: &Command,
     create: &CreateEffect,
     let_bindings: &BTreeMap<&str, &Expr>,
 ) {
@@ -691,6 +711,53 @@ fn emit_creates_effect(
         );
         return;
     }
+
+    // `ir-resource-conventions-owner-scope.md` §8.5.A — CTE-INSERT
+    // shape. When the analyzer attached `owner_scope_sql` with a
+    // populated `cte_owner_check` on a synth `create_<resource>`, the
+    // emitted INSERT becomes the CTE-prefixed form so the actor's
+    // ownership of the FK target row is verified in the same SQL
+    // statement (RULE-VOCAB-03 single-statement guarantee). Codegen
+    // here projects the analyzer's structural OwnerScopeSql carrier
+    // (`field_name`, `fk_target`, `through_column`) into the runtime's
+    // `OwnerCheckSpec`; the runtime composes the CTE prefix from
+    // those fields, matching the spec's `WITH owner_check AS (SELECT
+    // 1 FROM "<fk_table>" WHERE id = $<fk> AND "<through>" = ctx.User.ID)`
+    // shape verbatim.
+    let owner_check = command
+        .owner_scope_sql
+        .as_ref()
+        .filter(|s| s.cte_owner_check.is_some());
+
+    if let Some(scope) = owner_check {
+        let fk_table = command_pascal_to_snake(&scope.fk_target);
+        p.line(&format!(
+            "Effect: lazuli.CreatesWithOwnerCheck(&{resource_var}, lazuli.Bindings{{"
+        ));
+        p.indent();
+        for assignment in &create.assignments {
+            p.line(&format_binding_row(assignment, let_bindings));
+        }
+        p.dedent();
+        p.line("}, lazuli.OwnerCheckSpec{");
+        p.indent();
+        p.line(&format!(
+            "FKColumn:      \"{}\",",
+            escape_string(&scope.field_name)
+        ));
+        p.line(&format!(
+            "RelatedTable:  \"{}\",",
+            escape_string(&fk_table)
+        ));
+        p.line(&format!(
+            "ThroughColumn: \"{}\",",
+            escape_string(&scope.through_column)
+        ));
+        p.dedent();
+        p.line("}),");
+        return;
+    }
+
     p.line(&format!(
         "Effect: lazuli.Creates(&{resource_var}, lazuli.Bindings{{"
     ));
@@ -1064,6 +1131,61 @@ fn emit_scope_binding_row(p: &mut GoPrinter, binding: &ScopeBinding) {
             ));
         }
     }
+}
+
+/// Project `Command.owner_scope_sql` (composed by the analyzer under
+/// `ir-resource-conventions-owner-scope.md` §7.3) into a `Where`-map
+/// row on a synth `delete_<resource>` / `update_<resource>`. The shape
+/// matches the existing `@scope.owner via relation` projection
+/// (`FromCtxOwnedVia` → runtime composes the IN-subquery) so the
+/// emitted SQL ends up isomorphic to spec §8.1 / §8.2 verbatim.
+///
+/// We read the *structural* fields of `OwnerScopeSql` (field_name,
+/// fk_target, through_column) rather than splicing the pre-composed
+/// `where_predicate` string because the runtime SQL builder is the
+/// authoritative composer for `$N` placeholder offsets and identifier
+/// quoting (`whereConditionFragment` in `runtime/go/lazuli/handle.go`).
+/// The analyzer's `where_predicate` is a literal-form audit string for
+/// inspect / doctor surfaces; this projection ensures the same shape
+/// is rendered through the canonical `FromCtxOwnedVia` →
+/// `<fk_col> IN (SELECT id FROM <fk_table> WHERE <through_col> = $N)`
+/// pipeline that already powers `@scope.owner` relation-traversal.
+///
+/// Returns `None` when `owner_scope_sql` is absent (today's
+/// tenant-only default for resources without `@owner_axis`).
+fn owner_scope_binding(scope: Option<&OwnerScopeSql>) -> Option<ScopeBinding> {
+    let scope = scope?;
+    Some(ScopeBinding {
+        atom: "@owner_axis".to_owned(),
+        column: scope.field_name.clone(),
+        ctx_path: "user.id".to_owned(),
+        via: Some((
+            command_pascal_to_snake(&scope.fk_target),
+            scope.through_column.clone(),
+        )),
+    })
+}
+
+/// Snake-case lowering for PascalCase resource names. Mirrors the
+/// transform `quoteResourceTable` applies on the runtime side
+/// (`UserSession` → `user_session`) so the `relatedTable` argument to
+/// `FromCtxOwnedVia` round-trips with the migration-emitted SQL table
+/// name. Duplicated locally (query.rs has its own copy) to avoid a
+/// cross-module dependency that's not on the casing module's public
+/// surface today.
+fn command_pascal_to_snake(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    for (i, ch) in s.chars().enumerate() {
+        if ch.is_ascii_uppercase() {
+            if i > 0 {
+                out.push('_');
+            }
+            out.push(ch.to_ascii_lowercase());
+        } else {
+            out.push(ch);
+        }
+    }
+    out
 }
 
 /// One `@scope.<axis>` policy atom that resolves to a runtime WHERE
@@ -3936,6 +4058,302 @@ mod tests {
         assert!(
             out.contains("(Customer, error)"),
             "handler signature comment should return Customer, got:\n{out}"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Owner-scope projection — cell `codegen-os-projection`. The analyzer
+    // composes `Command.owner_scope_sql` per spec
+    // `ir-resource-conventions-owner-scope.md` §7.3; this codegen cell
+    // pastes the carrier through `FromCtxOwnedVia` (DELETE/UPDATE) and
+    // `CreatesWithOwnerCheck` (CREATE) so the emitted SQL matches §8.1 /
+    // §8.5.A verbatim after the existing tenant predicates.
+    // -------------------------------------------------------------------------
+
+    fn owner_scope_sql_property() -> lazuli_ir::OwnerScopeSql {
+        // Mirrors the analyzer's cell-O2 output for Hostpoint's
+        // `Property.host: Host required @owner_axis(through: user)`.
+        lazuli_ir::OwnerScopeSql {
+            field_name: "host".to_owned(),
+            fk_target: "Host".to_owned(),
+            through_column: "user".to_owned(),
+            where_predicate: "host IN (SELECT id FROM \"host\" WHERE \"user\" = ctx.User.ID)"
+                .to_owned(),
+            cte_owner_check: None,
+        }
+    }
+
+    #[test]
+    fn delete_with_owner_scope_sql_emits_owned_via_binding() {
+        // Spec §8.1: synth `delete_property` lowers to
+        // `DELETE FROM "property" WHERE id = $1 AND org_id = $2 AND
+        //   host IN (SELECT id FROM "host" WHERE "user" = $3)`.
+        // Codegen projection: existing `id` binding from route +
+        // tenant via baseScopeConditions + FromCtxOwnedVia for the
+        // ownership chain. We assert the emitted Go contains the
+        // owned-via binding row in the Deletes effect's Where map.
+        let mut feature = base_feature("catalog");
+        let mut resource = simple_resource("Property");
+        resource.fields.push(scope_field("host"));
+        feature.resources.push(resource);
+
+        let mut cmd = base_command("delete_property");
+        cmd.kind = CommandKind::Delete;
+        cmd.route = vec![RouteSlot {
+            name: "id".to_owned(),
+            type_ref: TypeRef::Builtin(BuiltinType::Id),
+            from: None,
+            kind: lazuli_ir::RouteSlotKind::Plain,
+        }];
+        cmd.effect = CommandEffect::Deletes(DeleteEffect {
+            resource: local_qname("Property"),
+        });
+        cmd.owner_scope_sql = Some(owner_scope_sql_property());
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("\"host\": lazuli.FromCtxOwnedVia(\"host\", \"user\", \"user.id\"),"),
+            "DELETE with owner_scope_sql should emit FromCtxOwnedVia binding:\n{out}"
+        );
+        assert!(
+            out.contains("\"id\": lazuli.FromInput(\"ID\"),"),
+            "existing route-key id binding must remain:\n{out}"
+        );
+        assert!(
+            out.contains("// scope: @owner_axis resolved via host"),
+            "scope-binding comment must document the owner-axis traversal:\n{out}"
+        );
+    }
+
+    #[test]
+    fn delete_without_owner_scope_sql_emits_unchanged_tenant_only_shape() {
+        // Resources without `@owner_axis` carry `owner_scope_sql: None`.
+        // The emitted Go must be identical to today's tenant-only DELETE
+        // shape — no FromCtxOwnedVia binding leaks into the Where map.
+        let mut feature = base_feature("billing");
+        feature.resources.push(simple_resource("Charge"));
+
+        let mut cmd = base_command("delete_charge");
+        cmd.kind = CommandKind::Delete;
+        cmd.route = vec![RouteSlot {
+            name: "id".to_owned(),
+            type_ref: TypeRef::Builtin(BuiltinType::Id),
+            from: None,
+            kind: lazuli_ir::RouteSlotKind::Plain,
+        }];
+        cmd.effect = CommandEffect::Deletes(DeleteEffect {
+            resource: local_qname("Charge"),
+        });
+        cmd.owner_scope_sql = None;
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            !out.contains("FromCtxOwnedVia"),
+            "DELETE without owner_scope_sql must NOT emit owned-via:\n{out}"
+        );
+        assert!(
+            !out.contains("@owner_axis"),
+            "no owner-axis annotation should appear in emitted code when carrier is None:\n{out}"
+        );
+        assert!(
+            out.contains("\"id\": lazuli.FromInput(\"ID\"),"),
+            "baseline route-key binding must be present:\n{out}"
+        );
+    }
+
+    #[test]
+    fn update_with_owner_scope_sql_emits_owned_via_binding() {
+        // Spec §8.2: synth `update_property` lowers to
+        // `UPDATE "property" SET ... WHERE id = $1 AND org_id = $4 AND
+        //   host IN (SELECT id FROM "host" WHERE "user" = $5)`.
+        let mut feature = base_feature("catalog");
+        let mut resource = simple_resource("Property");
+        resource.fields.push(scope_field("host"));
+        resource.fields.push(scope_field("name"));
+        feature.resources.push(resource);
+
+        let mut cmd = base_command("update_property");
+        cmd.kind = CommandKind::Update;
+        cmd.route = vec![RouteSlot {
+            name: "id".to_owned(),
+            type_ref: TypeRef::Builtin(BuiltinType::Id),
+            from: None,
+            kind: lazuli_ir::RouteSlotKind::Plain,
+        }];
+        cmd.input = CommandInput::Typed(vec![typed_slot("name", BuiltinType::Text, false)]);
+        cmd.effect = CommandEffect::Updates(UpdateEffect {
+            resource: local_qname("Property"),
+            assignments: vec![Assignment {
+                field: "name".to_owned(),
+                value: Expr::Path(Path::from_segments(["input", "name"])),
+            }],
+        });
+        cmd.owner_scope_sql = Some(owner_scope_sql_property());
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("\"host\": lazuli.FromCtxOwnedVia(\"host\", \"user\", \"user.id\"),"),
+            "UPDATE with owner_scope_sql should emit FromCtxOwnedVia binding:\n{out}"
+        );
+        // SET-side bindings should remain unaffected (host is not in SET).
+        assert!(
+            out.contains("\"name\": lazuli.FromInput(\"name\"),"),
+            "SET-side bindings must remain:\n{out}"
+        );
+    }
+
+    #[test]
+    fn create_with_cte_owner_check_emits_creates_with_owner_check() {
+        // Spec §8.5.A: synth `create_property` lowers to
+        //   WITH owner_check AS (SELECT 1 FROM "host" WHERE id = $<fk>
+        //     AND "user" = ctx.User.ID)
+        //   INSERT INTO "property" (...) SELECT ... FROM owner_check
+        //   RETURNING ...
+        // Codegen projection: switch from `lazuli.Creates(...)` to
+        // `lazuli.CreatesWithOwnerCheck(..., OwnerCheckSpec{...})`. The
+        // runtime composes the CTE prefix from the spec fields; codegen
+        // only emits the carrier.
+        let mut feature = base_feature("catalog");
+        let mut resource = simple_resource("Property");
+        resource.fields.push(scope_field("host"));
+        resource.fields.push(scope_field("name"));
+        feature.resources.push(resource);
+
+        let mut cmd = base_command("create_property");
+        cmd.kind = CommandKind::Create;
+        cmd.input = CommandInput::Typed(vec![
+            typed_slot("host", BuiltinType::Id, true),
+            typed_slot("name", BuiltinType::Text, true),
+        ]);
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Property"),
+            from_input: false,
+            assignments: vec![
+                Assignment {
+                    field: "host".to_owned(),
+                    value: Expr::Path(Path::from_segments(["input", "host"])),
+                },
+                Assignment {
+                    field: "name".to_owned(),
+                    value: Expr::Path(Path::from_segments(["input", "name"])),
+                },
+            ],
+        });
+        let mut scope = owner_scope_sql_property();
+        scope.cte_owner_check = Some(
+            "WITH owner_check AS (SELECT 1 FROM \"host\" WHERE id = $host AND \"user\" = ctx.User.ID)"
+                .to_owned(),
+        );
+        cmd.owner_scope_sql = Some(scope);
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("Effect: lazuli.CreatesWithOwnerCheck(&propertyResource, lazuli.Bindings{"),
+            "CREATE with cte_owner_check should emit CreatesWithOwnerCheck:\n{out}"
+        );
+        assert!(
+            out.contains("lazuli.OwnerCheckSpec{"),
+            "OwnerCheckSpec literal must be emitted:\n{out}"
+        );
+        assert!(
+            out.contains("FKColumn:      \"host\","),
+            "OwnerCheckSpec.FKColumn must point at the FK field:\n{out}"
+        );
+        assert!(
+            out.contains("RelatedTable:  \"host\","),
+            "OwnerCheckSpec.RelatedTable must be the snake-cased FK target:\n{out}"
+        );
+        assert!(
+            out.contains("ThroughColumn: \"user\","),
+            "OwnerCheckSpec.ThroughColumn must match the @owner_axis through: value:\n{out}"
+        );
+        assert!(
+            !out.contains("Effect: lazuli.Creates(&propertyResource"),
+            "tenant-only Creates form should NOT appear when CTE is active:\n{out}"
+        );
+    }
+
+    #[test]
+    fn create_without_cte_owner_check_emits_regular_creates() {
+        // When `owner_scope_sql.cte_owner_check` is None (or the slot
+        // itself is None), the CREATE emit falls back to the tenant-only
+        // `lazuli.Creates(...)` shape — no CTE wrapper.
+        let mut feature = base_feature("billing");
+        feature.resources.push(simple_resource("Charge"));
+
+        let mut cmd = base_command("create_charge");
+        cmd.input = CommandInput::Typed(vec![typed_slot("amount", BuiltinType::Integer, true)]);
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Charge"),
+            from_input: false,
+            assignments: vec![Assignment {
+                field: "amount".to_owned(),
+                value: Expr::Path(Path::from_segments(["input", "amount"])),
+            }],
+        });
+        cmd.owner_scope_sql = None;
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("Effect: lazuli.Creates(&chargeResource, lazuli.Bindings{"),
+            "CREATE without cte_owner_check must use the regular Creates form:\n{out}"
+        );
+        assert!(
+            !out.contains("CreatesWithOwnerCheck"),
+            "tenant-only CREATE must NOT use CreatesWithOwnerCheck:\n{out}"
+        );
+        assert!(
+            !out.contains("OwnerCheckSpec"),
+            "tenant-only CREATE must NOT emit OwnerCheckSpec:\n{out}"
+        );
+    }
+
+    #[test]
+    fn owner_scope_sql_snake_cases_pascal_fk_target() {
+        // The analyzer's `OwnerScopeSql.fk_target` carries PascalCase
+        // (`"Host"`, `"BookingProposal"`), matching the IR's resource
+        // name shape. Codegen lowers to snake_case when projecting to
+        // `FromCtxOwnedVia` so the runtime's `quoteIdent` round-trips
+        // with the migrated SQL table name (`booking_proposal`).
+        let mut feature = base_feature("operations");
+        let mut resource = simple_resource("Transaction");
+        resource.fields.push(scope_field("proposal"));
+        feature.resources.push(resource);
+
+        let mut cmd = base_command("cancel_transaction");
+        cmd.kind = CommandKind::Update;
+        cmd.route = vec![RouteSlot {
+            name: "id".to_owned(),
+            type_ref: TypeRef::Builtin(BuiltinType::Id),
+            from: None,
+            kind: lazuli_ir::RouteSlotKind::Plain,
+        }];
+        cmd.input = CommandInput::Empty;
+        cmd.effect = CommandEffect::Updates(UpdateEffect {
+            resource: local_qname("Transaction"),
+            assignments: Vec::new(),
+        });
+        cmd.owner_scope_sql = Some(lazuli_ir::OwnerScopeSql {
+            field_name: "proposal".to_owned(),
+            fk_target: "BookingProposal".to_owned(),
+            through_column: "user".to_owned(),
+            where_predicate: "proposal IN (SELECT id FROM \"booking_proposal\" WHERE \"user\" = ctx.User.ID)"
+                .to_owned(),
+            cte_owner_check: None,
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains(
+                "\"proposal\": lazuli.FromCtxOwnedVia(\"booking_proposal\", \"user\", \"user.id\"),"
+            ),
+            "PascalCase fk_target must be snake-cased in the emitted FromCtxOwnedVia:\n{out}"
         );
     }
 
