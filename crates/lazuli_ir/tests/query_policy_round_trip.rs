@@ -93,6 +93,7 @@ fn list_query_with_policy_round_trips() {
         policy_when_denied: None,
         previous_names: Vec::new(),
         span_ref: None,
+        owner_scope_sql: None,
     }));
 
     let json = serde_json::to_string(&feature).expect("serialize");
@@ -123,6 +124,7 @@ fn lookup_query_with_policy_round_trips() {
         policy_when_denied: None,
         previous_names: Vec::new(),
         span_ref: None,
+        owner_scope_sql: None,
     }));
 
     let json = serde_json::to_string(&feature).expect("serialize");
@@ -183,6 +185,7 @@ fn query_without_policy_omits_field_from_json() {
         policy_when_denied: None,
         previous_names: Vec::new(),
         span_ref: None,
+        owner_scope_sql: None,
     }));
 
     let json = serde_json::to_string(&feature).expect("serialize");

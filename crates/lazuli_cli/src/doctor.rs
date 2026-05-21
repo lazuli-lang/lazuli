@@ -19381,6 +19381,7 @@ feature customer
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
+            owner_scope_sql: None,
         });
         package.tier3_facts.push(Tier3FeatureFacts {
             feature: "customer".into(),

@@ -169,6 +169,7 @@ mod tests {
             tests: None,
             triggers: vec![],
             synthesized_from_cap_file: None,
+            owner_scope_sql: None,
             previous_names: vec![],
             span_ref: None,
         }

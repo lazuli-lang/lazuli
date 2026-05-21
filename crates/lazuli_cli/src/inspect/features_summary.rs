@@ -240,6 +240,7 @@ mod tests {
             span_ref: None,
             triggers: Vec::new(),
             synthesized_from_cap_file: None,
+            owner_scope_sql: None,
         }
     }
 
@@ -260,6 +261,7 @@ mod tests {
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
+            owner_scope_sql: None,
         })
     }
 
@@ -277,6 +279,7 @@ mod tests {
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
+            owner_scope_sql: None,
         })
     }
 

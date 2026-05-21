@@ -118,6 +118,7 @@ fn empty_command(name: &str) -> Command {
         tests: None,
         triggers: vec![],
         synthesized_from_cap_file: None,
+        owner_scope_sql: None,
         previous_names: Vec::new(),
         span_ref: None,
     }

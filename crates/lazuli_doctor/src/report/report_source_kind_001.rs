@@ -153,6 +153,7 @@ mod tests {
             policy_when_denied: None,
             previous_names: vec![],
             span_ref: None,
+            owner_scope_sql: None,
         });
         let feature = mk_feature(vec![lookup], vec![mk_report("by_id")]);
         let findings = check(&feature, Path::new("f.lzi"));
@@ -178,6 +179,7 @@ mod tests {
             policy_when_denied: None,
             previous_names: vec![],
             span_ref: None,
+            owner_scope_sql: None,
         });
         let feature = mk_feature(vec![list], vec![mk_report("list")]);
         assert!(check(&feature, Path::new("f.lzi")).is_empty());

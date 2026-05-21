@@ -228,6 +228,7 @@ fn feature_with_all_error_vocab_fields_round_trips() {
         tests: None,
         triggers: Vec::new(),
         synthesized_from_cap_file: None,
+        owner_scope_sql: None,
         previous_names: Vec::new(),
         span_ref: None,
     });
@@ -379,6 +380,7 @@ fn feature_with_all_error_vocab_fields_round_trips() {
         policy_when_denied: Some(key_ref("list_signin_required", 1100)),
         previous_names: Vec::new(),
         span_ref: None,
+        owner_scope_sql: None,
     }));
     feature.queries.push(Query::Lookup(LookupQuery {
         name: "by_id".to_owned(),
@@ -393,6 +395,7 @@ fn feature_with_all_error_vocab_fields_round_trips() {
         policy_when_denied: Some(key_ref("lookup_signin_required", 1200)),
         previous_names: Vec::new(),
         span_ref: None,
+        owner_scope_sql: None,
     }));
     feature.queries.push(Query::Sql(SqlQuery {
         name: "monthly_audit".to_owned(),

@@ -865,6 +865,39 @@ pub struct OwnerAxis {
     pub through_column: String,
 }
 
+/// `ir-resource-conventions-owner-scope.md` §7.3 + §8.5.A — analyzer
+/// synth output for owner-scope mode. Carries the SQL fragment the
+/// analyzer composes once at synth time so downstream codegen can
+/// emit it verbatim. One field per shape produced by the unified
+/// builder: `where_predicate` for DELETE/UPDATE/LOOKUP/LIST tails,
+/// `cte_owner_check` for the CREATE-side CTE prefix per §8.5.A.
+///
+/// **RULE-VOCAB-03**: this is a passive metadata container — codegen
+/// pastes the captured string into the lowered SQL. No runtime
+/// branching is introduced.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OwnerScopeSql {
+    /// Field name on the resource that bears `@owner_axis`. Stored for
+    /// inspect annotations (O3) and to support multi-axis composition
+    /// in future cycles. Example: `"host"` for Hostpoint Property.
+    pub field_name: String,
+    /// FK target resource name (PascalCase). Codegen lowers this to
+    /// the snake-cased table identifier. Example: `"Host"`.
+    pub fk_target: String,
+    /// The `through:` column on the FK target — typically `"user"`.
+    pub through_column: String,
+    /// Pre-composed predicate fragment used by DELETE / UPDATE /
+    /// LOOKUP / LIST. Example:
+    /// `host IN (SELECT id FROM "host" WHERE "user" = ctx.User.ID)`.
+    pub where_predicate: String,
+    /// Pre-composed CTE prefix for `create_<resource>` per §8.5.A.
+    /// Example: `WITH owner_check AS (SELECT 1 FROM "host" WHERE id = $host AND "user" = ctx.User.ID)`.
+    /// `None` when this slot is attached to a Lookup/List/Delete/Update.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cte_owner_check: Option<String>,
+}
+
+
 /// L0 #3 §10 — inline field constraints. Each slot is `Option` so an
 /// absent constraint serializes off via `is_empty`. Combination rules
 /// (§10.2) and default-value compatibility (§10.3) are checked in
@@ -1387,6 +1420,14 @@ pub struct Command {
     /// handler. See docs/proposals/fileref-jsonb-fr3-design.md.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub synthesized_from_cap_file: Option<SynthesizedFromCapFile>,
+    /// `ir-resource-conventions-owner-scope.md` §7.3 + §8.5.A —
+    /// owner-scope SQL fragment composed by the analyzer at synth
+    /// time. `Some` only when this command was emitted by the crud /
+    /// me synth pass for a resource carrying a `@owner_axis(through:
+    /// <col>)` field. Codegen passes the fragments through verbatim
+    /// — there is no runtime branching. See Cell O2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_scope_sql: Option<OwnerScopeSql>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1830,6 +1871,11 @@ pub struct ListQuery {
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+    /// `ir-resource-conventions-owner-scope.md` §7.3 + §8.4 — owner-
+    /// scope WHERE fragment composed at synth time for `list_<r>`
+    /// when the resource bears `@owner_axis`. See Cell O2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_scope_sql: Option<OwnerScopeSql>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1864,6 +1910,13 @@ pub struct LookupQuery {
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+    /// `ir-resource-conventions-owner-scope.md` §7.3 + §8.3 — owner-
+    /// scope WHERE fragment composed at synth time for `lookup_<r>`
+    /// AND `lookup_my_<r>` when the resource bears `@owner_axis`. See
+    /// Cell O2. `None` for author-written queries or tenant-only
+    /// shapes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_scope_sql: Option<OwnerScopeSql>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
