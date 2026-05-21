@@ -237,6 +237,13 @@ impl LanguageServer for Backend {
             if let Some(items) = cap_file_value_completions(source, position) {
                 return Ok(Some(CompletionResponse::Array(items)));
             }
+            // Cell O3 — `@owner_axis(through: ...)` FK column completion.
+            // Same narrowness criterion as `@cap.File(...)`: cursor must
+            // sit inside the parenthesised body after `through:`. Spec:
+            // `docs/proposals/ir-resource-conventions-owner-scope.md` §7.5.
+            if let Some(items) = owner_axis_through_completions(source, position) {
+                return Ok(Some(CompletionResponse::Array(items)));
+            }
             // Wave B — context-aware kind-child / namespace-prefix /
             // rate-limit axis completion for `command`/`query.*`/
             // `api`/`agent`/`policy`/`effect`/`audit`/`rate_limit`.
@@ -13123,6 +13130,141 @@ fn cap_file_value_completions(source: &str, position: Position) -> Option<Vec<Co
     )
 }
 
+/// `docs/proposals/ir-resource-conventions-owner-scope.md` §7.5 — when
+/// the cursor sits inside `@owner_axis(through: <|>)`, offer the FK
+/// fields of the current resource as completion candidates. "FK field"
+/// here means a field on the surrounding `resource <Name>` block whose
+/// `type_text` is a bare PascalCase identifier (the analyzer resolves
+/// these to `TypeRef::UserDefined(QualifiedName)` — surface-level
+/// references to other resources).
+///
+/// Returns `None` outside `@owner_axis(through: ...)`; when inside but
+/// no FK fields are visible on the surrounding resource, returns
+/// `Some(vec![])` (the LSP suppresses the global keyword list in
+/// favour of the empty context-specific list rather than offering noise).
+fn owner_axis_through_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
+    let line = source.lines().nth(position.line as usize)?;
+    let cursor = (position.character as usize).min(line.len());
+    let before = &line[..cursor];
+    // Cheap context check — only fire when we are inside an open
+    // `@owner_axis(` on the same line and the cursor is positioned
+    // after `through:` (the only keyword argument in this proposal —
+    // see §7.1 grammar).
+    let open = before.rfind("@owner_axis(")?;
+    let after_open = &before[open + "@owner_axis(".len()..];
+    let through_idx = after_open.rfind("through:")?;
+    let after_through = &after_open[through_idx + "through:".len()..];
+    // Accept either cursor right after `through:` (possibly with
+    // whitespace) or mid-value with a partial identifier. Reject when
+    // a comma intervenes (would mean we've moved to a different — and
+    // currently non-existent — argument).
+    if after_through.contains(',') {
+        return None;
+    }
+
+    // Walk source lines backward from the cursor to find the
+    // surrounding `resource <Name>` header. Indent-aware: the resource
+    // header is at the feature's `resource` indent (2 spaces in
+    // canonical authoring), and field lines sit one level deeper.
+    let cursor_line = position.line as usize;
+    let lines: Vec<&str> = source.lines().collect();
+    let mut resource_start: Option<usize> = None;
+    let mut resource_indent: Option<usize> = None;
+    for idx in (0..=cursor_line.min(lines.len().saturating_sub(1))).rev() {
+        let l = lines[idx];
+        let trimmed = l.trim_start();
+        if let Some(name) = trimmed.strip_prefix("resource ") {
+            // `resource <Name>` header — anchors our field scan.
+            // Ignore the trailing modifiers (none authored today).
+            let _ = name;
+            resource_start = Some(idx);
+            resource_indent = Some(l.len() - trimmed.len());
+            break;
+        }
+    }
+    let start = resource_start?;
+    let res_indent = resource_indent?;
+
+    // Scan forward from the resource header collecting field names
+    // whose `type_text` looks like a bare resource reference (PascalCase
+    // identifier with no decorator chain and no builtin keyword).
+    let mut fk_fields: Vec<String> = Vec::new();
+    for l in lines.iter().skip(start + 1) {
+        let trimmed = l.trim_start();
+        let indent = l.len() - trimmed.len();
+        // Stop at the next sibling/parent block (same or shallower indent
+        // than the resource header), skipping blank lines.
+        if !trimmed.is_empty() && indent <= res_indent {
+            break;
+        }
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        // Only consider direct-child lines of the resource (depth
+        // exactly `res_indent + 2`). Deeper indents are sub-clauses
+        // (e.g. `conventions [..]` children, lifecycle bodies).
+        if indent != res_indent + 2 {
+            continue;
+        }
+        // Field declarations have shape `<name>: <Type> ...`. Split
+        // off the type half and discard everything past the first
+        // whitespace / modifier / decorator.
+        let Some((name, after_colon)) = trimmed.split_once(':') else {
+            continue;
+        };
+        let field_name = name.trim();
+        // Field names are snake_case identifiers; reject other lines
+        // (e.g. `conventions [..]`).
+        if !field_name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+            || field_name.is_empty()
+        {
+            continue;
+        }
+        let type_text = after_colon.trim_start();
+        // Take the first whitespace-delimited token as the type. FK
+        // type refs are bare PascalCase identifiers with no `@` prefix
+        // and no `.` (builtins like `Text`/`Integer` are filtered by
+        // the closed-catalog skip-list below).
+        let head = type_text
+            .split(|c: char| c.is_ascii_whitespace())
+            .next()
+            .unwrap_or("");
+        if head.is_empty() || head.starts_with('@') || head.contains('.') {
+            continue;
+        }
+        let first_char = head.chars().next().unwrap_or('a');
+        if !first_char.is_ascii_uppercase() {
+            continue;
+        }
+        // Closed-catalog skip list — builtin PascalCase types that are
+        // not FK references. `User`/`Org` are excluded so the synth's
+        // tenant-keyed default is the canonical surface; authors who
+        // want owner-scope on a tenant column would do it via the
+        // `user: User required unique` field semantics, not @owner_axis.
+        if matches!(
+            head,
+            "Text" | "Integer" | "Boolean" | "Date" | "DateTime" | "Decimal" | "Json" | "ID" | "Id"
+        ) {
+            continue;
+        }
+        fk_fields.push(field_name.to_owned());
+    }
+
+    Some(
+        fk_fields
+            .into_iter()
+            .map(|name| CompletionItem {
+                label: name,
+                kind: Some(CompletionItemKind::FIELD),
+                detail: Some("FK column on the current resource".to_owned()),
+                ..CompletionItem::default()
+            })
+            .collect(),
+    )
+}
+
 fn design_keyword_description(keyword: &str) -> Option<&'static str> {
     match keyword {
         "design" => Some(
@@ -14039,6 +14181,16 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "conventions" => Some(
             "Resource-level conventions opt-in: `conventions [<name1>, <name2>, ...]`. Each entry references a closed-catalog convention bundle that auto-synthesizes commands/queries during lowering. Today's catalog: `crud`, `me`. See `docs/proposals/ir-resource-conventions-crud.md` and `docs/proposals/ir-resource-conventions-me.md`.",
         ),
+        // `docs/proposals/ir-resource-conventions-owner-scope.md` §7.5 +
+        // §11.3 — `@owner_axis(through: <column>)` field-level annotation
+        // marks an FK field as the ownership-chain anchor. The crud and
+        // me synth passes consume it to emit owner-restricted WHERE
+        // clauses. Both `@owner_axis` and `owner_axis` arms are listed
+        // because the parser's word-at-position scan swallows the `@`
+        // (mirrors the `@cap.File` / `cap.File` precedent above).
+        "@owner_axis" | "owner_axis" => Some(
+            "Field-level annotation: `@owner_axis(through: <column>)`. Marks the field as the FK that anchors the resource's ownership chain. The crud / me synth passes use this to emit ownership-restricted WHERE clauses (the row's owner is resolved through the chain to `ctx.User.ID` rather than just the tenant). See `docs/proposals/ir-resource-conventions-owner-scope.md` §7.",
+        ),
         _ => None,
     }
 }
@@ -14489,6 +14641,45 @@ pub fn rich_keyword_hover(keyword: &str) -> Option<String> {
                 "- Unknown identifiers fail at parse time with doctor code `conventions_unknown`.",
                 "",
                 "**Inspect**: `lazuli inspect features` annotates each opted-in resource with `(conventions: <bundle>)` and each synthesized command/query with `[conv:<bundle>]`.",
+            ]
+            .join("\n"),
+        ),
+        // `docs/proposals/ir-resource-conventions-owner-scope.md` §7.5 +
+        // §11.3 — rich Markdown hover for the `@owner_axis(through: <col>)`
+        // FK annotation. Body opens with the verbatim one-liner from
+        // §11.3 (also surfaced as the `keyword_description` fallback) so
+        // the hover surface, the doctor diagnostic phrasing, and the
+        // docstring on `Field.owner_axis` all agree. Cell O3.
+        "@owner_axis" | "owner_axis" => Some(
+            [
+                "**`@owner_axis`** — Field-level annotation: `@owner_axis(through: <column>)`. Marks the field as the FK that anchors the resource's ownership chain. The crud / me synth passes use this to emit ownership-restricted WHERE clauses (the row's owner is resolved through the chain to `ctx.User.ID` rather than just the tenant). See `docs/proposals/ir-resource-conventions-owner-scope.md` §7.",
+                "",
+                "**Required parameter**",
+                "- `through: <column>` — column on the FK target resource that holds the actor key. Typically `user` (the User-typed column on the target).",
+                "",
+                "**Example**",
+                "```lazuli",
+                "resource Property",
+                "  org: Org required",
+                "  host: Host required @owner_axis(through: user)",
+                "  name: Text required",
+                "  conventions [crud]",
+                "```",
+                "",
+                "**Lowered SQL** (for `delete_property` under `conventions [crud]`):",
+                "```sql",
+                "DELETE FROM \"property\"",
+                "WHERE id = $1",
+                "  AND org_id = $2",
+                "  AND host IN (SELECT id FROM \"host\" WHERE \"user\" = $3)",
+                "```",
+                "",
+                "**Authoring rules**",
+                "- Only valid on FK fields (the type must reference another resource). Doctor code `owner_axis_on_non_fk` fires otherwise.",
+                "- The `through:` column must exist on the FK target resource. Doctor code `owner_axis_unknown_through` fires otherwise.",
+                "- Redundant with `user: User required unique` on the same resource. Doctor code `owner_axis_collides_with_unique_user` warns when both are present.",
+                "",
+                "**Inspect**: `lazuli inspect features` adds `, owner-scope` to the resource's `(conventions: ...)` annotation and `, owner-scope` to each synth-origin command/query's `[conv:<bundle>]` tag.",
             ]
             .join("\n"),
         ),
@@ -24698,6 +24889,156 @@ feature customer
         assert!(
             super::conventions_list_completions("    conventions [crud] ").is_none(),
             "completion must not fire after the closing `]`"
+        );
+    }
+
+    // ----------------------------------------------------------------
+    // Cell O3 — `@owner_axis(through: <column>)` field annotation
+    // hover + completion. Spec:
+    // `docs/proposals/ir-resource-conventions-owner-scope.md`
+    // §7.5 + §11.3. The hover one-liner is also surfaced verbatim by
+    // the doctor diagnostic phrasing (§11.1 worded for messaging) so
+    // the LSP, doctor, and inspect surfaces agree.
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn hover_describes_owner_axis_annotation() {
+        // The verbatim one-liner from §11.3 is surfaced through the
+        // `keyword_description` fallback (matches the `@cap.File` /
+        // `cap.File` precedent — both `@owner_axis` and `owner_axis`
+        // arms must resolve to the same description).
+        let with_at = super::keyword_description("@owner_axis")
+            .expect("`@owner_axis` keyword_description present");
+        let without_at = super::keyword_description("owner_axis")
+            .expect("`owner_axis` keyword_description present");
+        assert_eq!(
+            with_at, without_at,
+            "both `@owner_axis` and `owner_axis` must resolve to the same one-liner"
+        );
+        assert!(
+            with_at.contains("Field-level annotation: `@owner_axis(through: <column>)`"),
+            "hover should open with the §11.3 verbatim sentence; got: {with_at}"
+        );
+        assert!(
+            with_at.contains("ownership chain"),
+            "hover should mention the ownership chain semantics; got: {with_at}"
+        );
+        assert!(
+            with_at.contains("`ctx.User.ID`"),
+            "hover should anchor the resolved actor key `ctx.User.ID`; got: {with_at}"
+        );
+        assert!(
+            with_at.contains("ir-resource-conventions-owner-scope.md"),
+            "hover should anchor the proposal path; got: {with_at}"
+        );
+
+        // The rich Markdown hover gates on the same key; ensure it
+        // surfaces the worked example and the doctor codes for the
+        // authoring rules (mirroring the `conventions` rich-hover
+        // pattern). Cell brief §11.3.
+        let rich = super::rich_keyword_hover("@owner_axis")
+            .expect("`@owner_axis` rich_keyword_hover present");
+        assert!(
+            rich.contains("**`@owner_axis`**"),
+            "rich hover should bold the annotation name; got:\n{rich}"
+        );
+        assert!(
+            rich.contains("host: Host required @owner_axis(through: user)"),
+            "rich hover should include the §11.2 worked Property example; got:\n{rich}"
+        );
+        assert!(
+            rich.contains("owner_axis_on_non_fk"),
+            "rich hover should reference the parser-level doctor code; got:\n{rich}"
+        );
+    }
+
+    #[test]
+    fn completion_inside_owner_axis_offers_fk_columns() {
+        // Authoring shape: cursor sits at the `<|>` position inside
+        // `@owner_axis(through: <|>)`. Per §7.5 + the cell brief, the
+        // completer offers the FK fields on the current `resource`
+        // block — fields whose type is a bare PascalCase identifier
+        // (i.e. a reference to another resource), with the builtin
+        // closed-catalog skip list (`Text`/`Integer`/`ID`/…) filtered out.
+        let source = "\
+feature catalog
+  resources
+    resource Property
+      org: Org required
+      host: Host required @owner_axis(through: )
+      category: ServiceCategory optional
+      name: Text required
+      conventions [crud]
+";
+        // The `through:` keyword sits after `: ` — column position is
+        // the byte index immediately after `through: ` on line index 4
+        // (0-based; the `host:` line).
+        let line_idx = 4u32;
+        let line = source
+            .lines()
+            .nth(line_idx as usize)
+            .expect("host line present");
+        // Cursor right after `through: ` (the trailing space inside the
+        // parens, before the closing `)`).
+        let cursor = line.find("through: ").expect("through: present") + "through: ".len();
+        let pos = super::Position {
+            line: line_idx,
+            character: cursor as u32,
+        };
+        let items =
+            super::owner_axis_through_completions(source, pos).expect("completion should fire");
+        let labels: Vec<&str> = items.iter().map(|item| item.label.as_str()).collect();
+        // The completer offers all FK fields on the resource. `Org`,
+        // `Host`, and `ServiceCategory` are PascalCase resource refs
+        // (FK). `name: Text` is filtered by the builtin skip list.
+        assert!(
+            labels.contains(&"org"),
+            "FK field `org: Org` should be offered; got: {labels:?}"
+        );
+        assert!(
+            labels.contains(&"host"),
+            "FK field `host: Host` should be offered; got: {labels:?}"
+        );
+        assert!(
+            labels.contains(&"category"),
+            "FK field `category: ServiceCategory` should be offered; got: {labels:?}"
+        );
+        assert!(
+            !labels.contains(&"name"),
+            "builtin-typed field `name: Text` should NOT be offered; got: {labels:?}"
+        );
+        // Sanity: every item is a FIELD kind (so editors can tag them
+        // differently from KEYWORD entries in the popup).
+        assert!(
+            items.iter().all(|i| i.kind
+                == Some(super::CompletionItemKind::FIELD)),
+            "all FK completions should carry `FIELD` kind; got: {items:?}"
+        );
+    }
+
+    #[test]
+    fn completion_outside_owner_axis_returns_none() {
+        // Sibling negative case: cursor is on a different line entirely
+        // (a plain `command` declaration), so `@owner_axis(...)` is not
+        // active. The dedicated completer returns `None`, leaving the
+        // global keyword list to take over.
+        let source = "\
+feature catalog
+  resources
+    resource Property
+      host: Host required @owner_axis(through: user)
+      conventions [crud]
+
+  command create_property
+    policy @policy.create
+";
+        let pos = super::Position {
+            line: 6,
+            character: 4,
+        };
+        assert!(
+            super::owner_axis_through_completions(source, pos).is_none(),
+            "completer must not fire outside `@owner_axis(...)`"
         );
     }
 

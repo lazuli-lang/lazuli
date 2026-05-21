@@ -14,7 +14,8 @@
 //! values produced by the analyzer + C3's synthesis pass. Tests below
 //! exercise the §8 Customer + §9 worked-override examples verbatim.
 
-use lazuli_ir::{ConventionOrigin, ConventionRef, Feature};
+use lazuli_ir::{ConventionOrigin, ConventionRef, Feature, Resource};
+use std::collections::BTreeMap;
 
 /// Render a `lazuli inspect features` text digest for one or more
 /// lowered features. The output shape matches the boxed listings in
@@ -36,12 +37,22 @@ pub fn render_features_summary(features: &[Feature]) -> String {
 fn render_one_feature(feature: &Feature, out: &mut String) {
     out.push_str(&format!("feature {}\n", feature.name));
 
+    // Pre-build a per-resource owner-scope flag so command/query rows
+    // can look up the owning resource's annotation in O(1). Per the
+    // owner-scope proposal §11.2, a resource is "owner-scoped" when at
+    // least one of its fields carries `@owner_axis(through: ...)`.
+    let owner_scope_by_resource = build_owner_scope_lookup(&feature.resources);
+
     // Resources section. Resources without a `conventions` slot still
     // surface — the inspect view is the full feature snapshot, not a
     // conventions-only filter.
     out.push_str("  resources:\n");
     for resource in &feature.resources {
-        let annotation = format_resource_conventions(&resource.conventions);
+        let owner_scope = owner_scope_by_resource
+            .get(resource.name.as_str())
+            .copied()
+            .unwrap_or(false);
+        let annotation = format_resource_conventions(&resource.conventions, owner_scope);
         out.push_str(&format!("    {}{}\n", resource.name, annotation));
     }
 
@@ -57,7 +68,9 @@ fn render_one_feature(feature: &Feature, out: &mut String) {
             .unwrap_or(0);
         for command in &feature.commands {
             let origin = feature.synth_origins.get(command.name.as_str());
-            let annotation = format_origin_annotation(origin);
+            let owner_scope =
+                origin_owner_scope(origin, &feature.resources, &owner_scope_by_resource);
+            let annotation = format_origin_annotation(origin, owner_scope);
             out.push_str(&render_name_row(&command.name, width, &annotation));
         }
     }
@@ -73,10 +86,58 @@ fn render_one_feature(feature: &Feature, out: &mut String) {
             .unwrap_or(0);
         for query in &feature.queries {
             let origin = feature.synth_origins.get(query.name());
-            let annotation = format_origin_annotation(origin);
+            let owner_scope =
+                origin_owner_scope(origin, &feature.resources, &owner_scope_by_resource);
+            let annotation = format_origin_annotation(origin, owner_scope);
             out.push_str(&render_name_row(query.name(), width, &annotation));
         }
     }
+}
+
+/// Map of `<Resource.name> -> has_any_owner_axis_field`. Built once per
+/// feature; queried by both the resource-header renderer and the
+/// command/query origin renderer so the `owner-scope` suffix is
+/// surfaced consistently. The map only includes resources whose fields
+/// actually carry `@owner_axis` — absence is treated as `false` (default
+/// tenant-only scope, per the owner-scope proposal §7.2).
+fn build_owner_scope_lookup(resources: &[Resource]) -> BTreeMap<&str, bool> {
+    let mut map = BTreeMap::new();
+    for resource in resources {
+        let has_owner_axis = resource
+            .fields
+            .iter()
+            .any(|field| field.owner_axis.is_some());
+        map.insert(resource.name.as_str(), has_owner_axis);
+    }
+    map
+}
+
+/// Resolve the owner-scope flag for a single command/query origin.
+/// Synth-origin entries inherit the flag from the resource the synth
+/// pass attaches the bundle to — for crud and me, that's the resource
+/// whose `conventions [..]` slot drives the synth. Author-overridden
+/// or pure-author entries always render without the suffix.
+fn origin_owner_scope(
+    origin: Option<&ConventionOrigin>,
+    resources: &[Resource],
+    owner_scope_by_resource: &BTreeMap<&str, bool>,
+) -> bool {
+    let Some(ConventionOrigin::Synthesized(_)) = origin else {
+        return false;
+    };
+    // The synth pass attaches one bundle per resource opted-in via
+    // `conventions [..]`. There is at most one resource per feature
+    // (in the current pilot) — we surface owner-scope iff any
+    // opted-in resource on the feature carries `@owner_axis`.
+    resources
+        .iter()
+        .filter(|r| !r.conventions.is_empty())
+        .any(|r| {
+            owner_scope_by_resource
+                .get(r.name.as_str())
+                .copied()
+                .unwrap_or(false)
+        })
 }
 
 /// Render one `<indent><name><pad>[<annotation>]` row, omitting the
@@ -92,23 +153,39 @@ fn render_name_row(name: &str, width: usize, annotation: &str) -> String {
     }
 }
 
-/// `(conventions: <a>, <b>)` annotation for a resource. Empty string
-/// when the slot is empty (no annotation rendered at all).
-fn format_resource_conventions(conventions: &[ConventionRef]) -> String {
+/// `(conventions: <a>, <b>)` annotation for a resource. Appends a
+/// trailing `, owner-scope` segment when at least one of the resource's
+/// fields carries `@owner_axis(through: ...)` — see owner-scope proposal
+/// §11.2. Empty string when the slot is empty (no annotation rendered at
+/// all); the owner-scope suffix is suppressed in that case because the
+/// inspect view scopes annotations to opted-in resources.
+fn format_resource_conventions(conventions: &[ConventionRef], owner_scope: bool) -> String {
     if conventions.is_empty() {
         return String::new();
     }
-    let names: Vec<&'static str> = conventions.iter().map(convention_name).collect();
+    let mut names: Vec<String> = conventions.iter().map(|c| convention_name(c).to_owned()).collect();
+    if owner_scope {
+        names.push("owner-scope".to_owned());
+    }
     format!(" (conventions: {})", names.join(", "))
 }
 
 /// Bracketed origin annotation for a command/query name. Empty when
 /// the entry carries no `synth_origins` record (a pure author-written
-/// command with no convention overlap).
-fn format_origin_annotation(origin: Option<&ConventionOrigin>) -> String {
+/// command with no convention overlap). Synth-origin entries carry the
+/// trailing `, owner-scope` segment when the originating resource has
+/// any field with `@owner_axis` — surfaces the owner-scope mode at
+/// per-command granularity per owner-scope proposal §11.2.
+fn format_origin_annotation(origin: Option<&ConventionOrigin>, owner_scope: bool) -> String {
     match origin {
         None => String::new(),
-        Some(ConventionOrigin::Synthesized(c)) => format!("[conv:{}]", convention_name(c)),
+        Some(ConventionOrigin::Synthesized(c)) => {
+            if owner_scope {
+                format!("[conv:{}, owner-scope]", convention_name(c))
+            } else {
+                format!("[conv:{}]", convention_name(c))
+            }
+        }
         Some(ConventionOrigin::AuthorOverride(_)) => {
             "[author override; convention skipped]".to_owned()
         }
@@ -133,8 +210,9 @@ fn convention_name(c: &ConventionRef) -> &'static str {
 mod tests {
     use super::*;
     use lazuli_ir::{
-        Command, CommandEffect, CommandInput, CommandKind, Defaults, Feature, ListQuery,
-        LookupQuery, Policies, PolicyRef, Query, Resource,
+        BuiltinType, Command, CommandEffect, CommandInput, CommandKind, Defaults, Feature, Field,
+        FieldConstraints, ListQuery, LookupQuery, OwnerAxis, Policies, PolicyRef, QualifiedName,
+        Query, Resource, TypeRef,
     };
     use std::collections::BTreeMap;
 
@@ -546,6 +624,194 @@ feature customer
         assert!(
             out.contains("lookup_my_customer    [author override; convention skipped]"),
             "expected author-override row, got:\n{out}"
+        );
+    }
+
+    // ----------------------------------------------------------------
+    // Cell O3 — owner-scope surface. Spec:
+    // `docs/proposals/ir-resource-conventions-owner-scope.md` §11.2.
+    // When a resource has `conventions [..]` AND any of its fields
+    // carries `@owner_axis(through: <col>)`, the inspect header gains
+    // an `, owner-scope` suffix, and every synth-origin command/query
+    // is annotated `[conv:<bundle>, owner-scope]`.
+    // ----------------------------------------------------------------
+
+    /// Build a `host: Host required` FK field carrying
+    /// `@owner_axis(through: user)`. Pattern lifted verbatim from the
+    /// Hostpoint pilot's `Property.host` field (§1.5).
+    fn owner_axis_host_field() -> Field {
+        Field {
+            name: "host".to_owned(),
+            type_ref: TypeRef::UserDefined(QualifiedName {
+                feature: None,
+                name: "Host".to_owned(),
+            }),
+            required: true,
+            unique: false,
+            slug: false,
+            default: None,
+            derived_from: None,
+            constraints: FieldConstraints::default(),
+            full_text: false,
+            previous_names: Vec::new(),
+            pii: None,
+            owner_axis: Some(OwnerAxis {
+                through_column: "user".to_owned(),
+            }),
+            span_ref: None,
+        }
+    }
+
+    /// Build a tenant-only `name: Text required` field used to pad out
+    /// the owner-scope fixtures so the resource has at least one
+    /// non-FK field too.
+    fn text_field(name: &str) -> Field {
+        Field {
+            name: name.to_owned(),
+            type_ref: TypeRef::Builtin(BuiltinType::Text),
+            required: true,
+            unique: false,
+            slug: false,
+            default: None,
+            derived_from: None,
+            constraints: FieldConstraints::default(),
+            full_text: false,
+            previous_names: Vec::new(),
+            pii: None,
+            owner_axis: None,
+            span_ref: None,
+        }
+    }
+
+    fn property_resource_with_owner_axis(conventions: Vec<ConventionRef>) -> Resource {
+        Resource {
+            name: "Property".to_owned(),
+            public_contract: None,
+            tenancy: None,
+            soft_delete: false,
+            timestamps: None,
+            fields: vec![owner_axis_host_field(), text_field("name")],
+            constraints: Vec::new(),
+            validate: None,
+            validates: Vec::new(),
+            retention: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            lifecycle: None,
+            invariants: Vec::new(),
+            lock: None,
+            composite_key: None,
+            conventions,
+        }
+    }
+
+    /// §11.2 — Property resource has `conventions [crud]` AND
+    /// `host: Host required @owner_axis(through: user)`. The header
+    /// becomes `Property (conventions: crud, owner-scope)` and every
+    /// synth-origin command/query gets `[conv:crud, owner-scope]`.
+    #[test]
+    fn renders_owner_scope_annotation_when_field_has_owner_axis() {
+        let mut feature = empty_feature("catalog");
+        feature
+            .resources
+            .push(property_resource_with_owner_axis(vec![ConventionRef::Crud]));
+        for n in ["create_property", "update_property", "delete_property"] {
+            feature.commands.push(minimal_command(n));
+            feature.synth_origins.insert(
+                n.to_owned(),
+                ConventionOrigin::Synthesized(ConventionRef::Crud),
+            );
+        }
+        feature.queries.push(lookup_query("lookup_property"));
+        feature.queries.push(list_query("list_propertys"));
+        feature.synth_origins.insert(
+            "lookup_property".to_owned(),
+            ConventionOrigin::Synthesized(ConventionRef::Crud),
+        );
+        feature.synth_origins.insert(
+            "list_propertys".to_owned(),
+            ConventionOrigin::Synthesized(ConventionRef::Crud),
+        );
+
+        let out = render_features_summary(&[feature]);
+        assert!(
+            out.contains("Property (conventions: crud, owner-scope)"),
+            "expected owner-scope-augmented header, got:\n{out}"
+        );
+        // Commands column width = 15 (`update_property`, `delete_property`,
+        // `create_property` are all 15 chars).
+        assert!(
+            out.contains("create_property    [conv:crud, owner-scope]"),
+            "expected create_property owner-scope synth row, got:\n{out}"
+        );
+        assert!(
+            out.contains("update_property    [conv:crud, owner-scope]"),
+            "expected update_property owner-scope synth row, got:\n{out}"
+        );
+        assert!(
+            out.contains("delete_property    [conv:crud, owner-scope]"),
+            "expected delete_property owner-scope synth row, got:\n{out}"
+        );
+        // Queries column width = 15 (`lookup_property`, `list_propertys`).
+        assert!(
+            out.contains("lookup_property    [conv:crud, owner-scope]"),
+            "expected lookup_property owner-scope synth row, got:\n{out}"
+        );
+        assert!(
+            out.contains("list_propertys     [conv:crud, owner-scope]"),
+            "expected list_propertys owner-scope synth row, got:\n{out}"
+        );
+    }
+
+    /// §11.2 composition: `conventions [crud, me]` + `@owner_axis` on
+    /// one of the resource's FK fields. Header carries every bundle
+    /// name plus the `owner-scope` suffix; every synth-origin row from
+    /// either bundle picks up the owner-scope tag.
+    #[test]
+    fn renders_composed_crud_me_owner_scope() {
+        let mut feature = empty_feature("catalog");
+        feature.resources.push(property_resource_with_owner_axis(vec![
+            ConventionRef::Crud,
+            ConventionRef::Me,
+        ]));
+        for n in ["create_property", "update_property", "delete_property"] {
+            feature.commands.push(minimal_command(n));
+            feature.synth_origins.insert(
+                n.to_owned(),
+                ConventionOrigin::Synthesized(ConventionRef::Crud),
+            );
+        }
+        feature.queries.push(lookup_query("lookup_property"));
+        feature.queries.push(list_query("list_propertys"));
+        feature.queries.push(lookup_query("lookup_my_property"));
+        feature.synth_origins.insert(
+            "lookup_property".to_owned(),
+            ConventionOrigin::Synthesized(ConventionRef::Crud),
+        );
+        feature.synth_origins.insert(
+            "list_propertys".to_owned(),
+            ConventionOrigin::Synthesized(ConventionRef::Crud),
+        );
+        feature.synth_origins.insert(
+            "lookup_my_property".to_owned(),
+            ConventionOrigin::Synthesized(ConventionRef::Me),
+        );
+
+        let out = render_features_summary(&[feature]);
+        assert!(
+            out.contains("Property (conventions: crud, me, owner-scope)"),
+            "expected composed `(conventions: crud, me, owner-scope)` header, got:\n{out}"
+        );
+        // crud-origin commands keep the crud tag with the owner-scope
+        // suffix. The me-origin query picks up the me tag with the
+        // same suffix.
+        assert!(
+            out.contains("create_property    [conv:crud, owner-scope]"),
+            "expected create_property crud+owner-scope row, got:\n{out}"
+        );
+        assert!(
+            out.contains("lookup_my_property    [conv:me, owner-scope]"),
+            "expected lookup_my_property me+owner-scope row, got:\n{out}"
         );
     }
 }

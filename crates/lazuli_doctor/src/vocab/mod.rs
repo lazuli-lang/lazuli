@@ -15,6 +15,7 @@
 //! resource-wide-cluster lints landing in subsequent cells).
 
 pub mod conventions;
+pub mod owner_axis;
 pub mod money_arithmetic_001;
 pub mod money_compare_001;
 pub mod universal_columns;
