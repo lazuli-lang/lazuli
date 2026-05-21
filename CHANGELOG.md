@@ -21,6 +21,40 @@ Every `LZIR_SCHEMA` bump must ship a paired
 
 ### Added
 
+- **Codegen-correctness cycle 2
+  (`codegen-correctness-cycle-2-2026-05-21`) — 5 LAZ items plus
+  doctor/docs polish closed.** Hostpoint moved from 94/95 with 1 skip
+  to **95/95 pass, 0 skip** after regen and traveler happy-path
+  unskip (hostpoint `5df6d6f`, `61394ea`, `31e992d`). Cycle 2 has
+  **no breaking changes**; the query wire-name rename from cycle 1
+  remains the last breaking change in this area. New gap inherited by
+  cycle 3: `WAR-LAZ-RU-TENANT-UPDATE-OFFSET-01`, where generated
+  tenant-scoped `updates Traveler` SQL collides placeholders after SET
+  bindings; hostpoint temporarily reroutes traveler sub-step commands
+  through `@fn` handlers. Closures:
+  - **LAZ-RU-UPDATED-AT** (RU1/RU2/RU3): runtime `applyUpdates` and
+    `applyDeletes` no longer append `"updated_at" = now()` to
+    resources that do not declare the column. Codegen now emits
+    `Timestamps: true` from the `uses_timestamps()` predicate, and
+    doctor diagnostic `@correctness.updates_missing_updated_at` warns
+    when an `updates` command targets a resource without `updated_at`.
+  - **LAZ-INVALIDATES-AUTHORING** (IA1/IA2/IA3): commands can now
+    author an `invalidates` block in `.lzi`. The analyzer normalizes
+    `<feature>.query.<name>` targets and warns on unknown targets.
+    Codegen-ts merges author-declared and same-feature auto-derived
+    invalidates with deduplication.
+  - **LAZ-ATELIER-GRAMMAR-DRIFT** (AT1/AT2/AT3): atelier audit
+    surfaced 7 unsupported forms. Grammar now accepts
+    `index on (col, col)` and compound `unique (col, col)` forms;
+    the atelier pilot migrated to canonical syntax, and 9 atelier
+    features now lower correctly.
+  - **LAZ-RATELIMITBYENV-UNKNOWN** + **LAZ-VIEW-REDACTED-FIELDS**
+    (PE1/PE2): resolved the pre-existing baseline `lazuli_cli` lib
+    test failures in `ir_stub`-based fixtures.
+  - **Doctor + docs polish** (DC1/DC2): 14 correctness modules are
+    wired into `DoctorPackage::diagnostics()`, and `docs/diagnostics/`
+    now catalogs 103 diagnostic rules.
+
 - **Codegen-correctness cycle (5 LAZ gaps closed, 20 cells, 3 waves).**
   Closed the codegen gaps surfaced by the hostpoint playwright sweep
   (`docs/proposals/codegen-correctness-cycle-2026-05-21.md` —
