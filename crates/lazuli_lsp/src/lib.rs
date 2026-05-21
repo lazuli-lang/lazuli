@@ -169,6 +169,11 @@ impl LanguageServer for Backend {
                 .and_then(|word| error_vocab_code_resolved_hover(source, position, word))
             {
                 Some(markdown)
+            } else if let Some(markdown) = word
+                .as_deref()
+                .and_then(|word| convention_bundle_hover(source, position, word))
+            {
+                Some(markdown)
             } else if let Some(markdown) = word.as_deref().and_then(rich_keyword_hover) {
                 Some(markdown)
             } else {
@@ -15249,6 +15254,55 @@ pub fn conventions_list_completions(before: &str) -> Option<Vec<CompletionItem>>
     )
 }
 
+fn convention_bundle_hover(source: &str, position: Position, word: &str) -> Option<String> {
+    let bundle = match word {
+        "crud" | "me" => word,
+        _ => return None,
+    };
+    if !is_inside_conventions_list(source, position) {
+        return None;
+    }
+
+    let lines: &[&str] = match bundle {
+        "crud" => &[
+            "`conventions [crud]` synthesizes:",
+            "- `query.list list_<resource_snake>s` - paginated list of rows",
+            "- `query.lookup lookup_<resource_snake>` - lookup by route id",
+            "- `command create_<resource_snake>`",
+            "- `command update_<resource_snake>`",
+            "- `command delete_<resource_snake>`",
+            "",
+            "When the author declares a query/command with one of these names, the synth silently skips that entry (author wins).",
+        ],
+        "me" => &[
+            "`conventions [me]` synthesizes:",
+            "- `query.lookup lookup_my_<resource_snake>` - lookup for the active actor",
+            "",
+            "When the author declares a query with this name, the synth silently skips that entry (author wins).",
+        ],
+        _ => return None,
+    };
+    Some(lines.join("\n"))
+}
+
+fn is_inside_conventions_list(source: &str, position: Position) -> bool {
+    let Some(line) = source.lines().nth(position.line as usize) else {
+        return false;
+    };
+    let trimmed = line.trim_start();
+    if !trimmed.starts_with("conventions ") {
+        return false;
+    }
+
+    let cursor = byte_index_for_utf16_position(line, position.character);
+    let before = &line[..cursor.min(line.len())];
+    let Some(conv_idx) = before.rfind("conventions") else {
+        return false;
+    };
+    let after_kw_before_cursor = &before[conv_idx + "conventions".len()..];
+    after_kw_before_cursor.contains('[') && !after_kw_before_cursor.contains(']')
+}
+
 #[derive(Debug, Clone, Copy)]
 struct AuthSessionsBlock {
     line_idx: usize,
@@ -20306,6 +20360,13 @@ fn doctor_file_local_diagnostics(source: &str) -> Vec<Diagnostic> {
             diagnostics,
             feature,
             synthetic_path,
+            lazuli_doctor::correctness::duplicate_query_name
+        );
+        wire_feature_check!(
+            source,
+            diagnostics,
+            feature,
+            synthetic_path,
             lazuli_doctor::correctness::full_text_type_001
         );
         wire_feature_check!(
@@ -25168,6 +25229,88 @@ feature customer
         assert!(
             rich.contains("ir-resource-conventions-me"),
             "rich hover should anchor the me proposal path; got:\n{rich}"
+        );
+    }
+
+    #[test]
+    fn conventions_bundle_hover_on_crud_token_lists_synthesized_entries() {
+        let source = r#"
+feature customer
+  resource Customer
+    org: Org required
+    name: Text required
+    conventions [crud]
+"#;
+        let offset = source.find("crud").expect("crud token") + 1;
+        let hover = super::convention_bundle_hover(
+            source,
+            super::position_for_offset(source, offset),
+            "crud",
+        )
+        .expect("crud bundle hover");
+
+        assert!(
+            hover.contains("`conventions [crud]` synthesizes:"),
+            "hover should name the bundle; got:\n{hover}"
+        );
+        assert!(
+            hover.contains("`query.list list_<resource_snake>s`"),
+            "hover should list the CRUD list query; got:\n{hover}"
+        );
+        assert!(
+            hover.contains("`query.lookup lookup_<resource_snake>`"),
+            "hover should list the CRUD lookup query; got:\n{hover}"
+        );
+        assert!(
+            hover.contains("`command create_<resource_snake>`"),
+            "hover should list create command; got:\n{hover}"
+        );
+        assert!(
+            hover.contains("author wins"),
+            "hover should explain author override behavior; got:\n{hover}"
+        );
+    }
+
+    #[test]
+    fn conventions_bundle_hover_on_me_token_lists_lookup_my() {
+        let source = r#"
+feature customer
+  resource Customer
+    org: Org required
+    conventions [crud, me]
+"#;
+        let offset = source.find("me]").expect("me token") + 1;
+        let hover =
+            super::convention_bundle_hover(source, super::position_for_offset(source, offset), "me")
+                .expect("me bundle hover");
+
+        assert!(
+            hover.contains("`conventions [me]` synthesizes:"),
+            "hover should name the bundle; got:\n{hover}"
+        );
+        assert!(
+            hover.contains("`query.lookup lookup_my_<resource_snake>`"),
+            "hover should list lookup_my query; got:\n{hover}"
+        );
+        assert!(
+            hover.contains("author wins"),
+            "hover should explain author override behavior; got:\n{hover}"
+        );
+    }
+
+    #[test]
+    fn conventions_bundle_hover_does_not_fire_for_crud_outside_conventions_list() {
+        let source = "feature crud\n";
+        let offset = source.find("crud").expect("crud word") + 1;
+
+        assert!(
+            super::convention_bundle_hover(
+                source,
+                super::position_for_offset(source, offset),
+                "crud",
+            )
+            .is_none(),
+            "crud should only hover as a convention bundle inside `conventions [...]`"
         );
     }
 

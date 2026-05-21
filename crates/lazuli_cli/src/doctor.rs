@@ -1057,6 +1057,7 @@ impl DoctorPackage {
             &self.experiences,
             &self.commands,
         ));
+        diagnostics.extend(duplicate_query_name_diagnostics(&self.tier3_facts));
         diagnostics.extend(missing_policy_on_query_diagnostics(&self.tier3_facts));
         diagnostics.extend(mutation_without_readback_diagnostics(&self.tier3_facts));
         diagnostics.extend(updates_missing_updated_at_diagnostics(&self.tier3_facts));
@@ -3746,6 +3747,34 @@ fn missing_policy_on_query_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<Docto
                 column: 1,
                 severity: DoctorSeverity::Warning,
                 code: correctness::missing_policy_on_query_001::Finding::CODE.to_owned(),
+            });
+        }
+    }
+
+    diagnostics
+}
+
+fn duplicate_query_name_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for fact in facts {
+        for finding in correctness::duplicate_query_name::check_queries(
+            &fact.feature,
+            &fact.queries,
+            &fact.path,
+        ) {
+            let line = fact
+                .query_lines
+                .get(&finding.query_name)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: correctness::duplicate_query_name::Finding::CODE.to_owned(),
             });
         }
     }
@@ -19701,6 +19730,37 @@ feature customer
             diagnostics.is_empty(),
             "expected explicit public fixture to emit zero diagnostics, got {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn duplicate_query_name_author_duplicate_fires_once_through_doctor() {
+        let package = package_from_sources(vec![(
+            "catalog.lzi",
+            r#"
+feature catalog
+  query.list list_customers
+  query.list list_customers
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let hits: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.code == "DUPLICATE-QUERY-NAME-001")
+            .collect();
+        assert_eq!(
+            hits.len(),
+            1,
+            "expected exactly one DUPLICATE-QUERY-NAME-001; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+        assert_eq!(hits[0].severity, DoctorSeverity::Error);
+        assert!(
+            hits[0]
+                .message
+                .contains("feature 'catalog' declares query 'list_customers' more than once"),
+            "message should name the feature and duplicate query; got {}",
+            hits[0].message
         );
     }
 
