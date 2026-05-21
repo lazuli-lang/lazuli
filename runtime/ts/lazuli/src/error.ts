@@ -28,12 +28,28 @@ export interface LazuliErrorEnvelope {
   code: LazuliErrorCode | string;
   message: string;
   data?: Json | undefined;
+  /**
+   * Stable identifier for the error message in the app's i18n catalog
+   * (e.g. `traveler_authenticated_signin_required`). Emitted by the Go
+   * runtime's `writeLazuliError` when the feature contract opts to
+   * expose `message_key` (see `i18n.ShouldExpose`). The wire form is
+   * snake_case (`message_key`); we surface it camelCased on the
+   * runtime instance, matching the rest of `case-mapper`'s convention.
+   *
+   * Frontend i18n layers should branch on `messageKey` first (most
+   * specific) and fall back to `code` when the key is absent or the
+   * client catalog doesn't know it. Undefined for legacy callers that
+   * predate the Error-Vocab proposal.
+   */
+  message_key?: string | undefined;
 }
 
 export class LazuliError extends Error {
   readonly code: LazuliErrorCode | string;
   readonly status: number;
   readonly data: Json | undefined;
+  /** See `LazuliErrorEnvelope.message_key`. */
+  readonly messageKey: string | undefined;
 
   constructor(status: number, envelope: LazuliErrorEnvelope) {
     super(envelope.message);
@@ -41,6 +57,7 @@ export class LazuliError extends Error {
     this.code = envelope.code;
     this.status = status;
     this.data = envelope.data;
+    this.messageKey = envelope.message_key;
   }
 }
 

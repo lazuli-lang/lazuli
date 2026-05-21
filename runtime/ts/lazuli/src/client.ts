@@ -210,6 +210,7 @@ function decodeError(status: number, raw: string): LazuliError {
       code: parsed.code ?? "internal",
       message: parsed.message ?? raw,
       data: parsed.data,
+      message_key: parsed.message_key,
     });
   } catch {
     return new LazuliError(status, {
