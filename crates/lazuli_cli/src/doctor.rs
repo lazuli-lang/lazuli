@@ -1047,6 +1047,7 @@ impl DoctorPackage {
             &self.commands,
         ));
         diagnostics.extend(missing_policy_on_query_diagnostics(&self.tier3_facts));
+        diagnostics.extend(mutation_without_readback_diagnostics(&self.tier3_facts));
         diagnostics.extend(route_id_effect_consistency_diagnostics(&self.tier3_facts));
         diagnostics.extend(app_contract_diagnostics(
             self.app.as_ref(),
@@ -3764,6 +3765,58 @@ fn route_id_effect_consistency_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<D
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: correctness::route_id_effect_consistency::Finding::CODE.to_owned(),
+            });
+        }
+    }
+
+    diagnostics
+}
+
+/// MUTATION-WITHOUT-READBACK-001 dispatch — codegen-correctness cycle
+/// 2026-05-21 cell A6. Pairs each mutating command (`creates` / `updates`
+/// / `deletes`) with the set of `query.lookup` / `query.list` shapes
+/// across ALL features (cross-feature read queries count, per cycle
+/// decision). Anchored at the command header line; falls back to the
+/// feature header when the command line is unknown.
+fn mutation_without_readback_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut seen = BTreeSet::new();
+
+    // Pre-build the cross-feature read-query index once. Each fact's
+    // own queries get re-included via `check_from_facts`, which dedupes
+    // against the current feature name to avoid double-counting.
+    let neighbor_queries: Vec<(String, &[lazuli_ir::Query])> = facts
+        .iter()
+        .map(|fact| (fact.feature.clone(), fact.queries.as_slice()))
+        .collect();
+
+    for fact in facts {
+        for finding in correctness::mutation_without_readback::check_from_facts(
+            &fact.feature,
+            &fact.commands,
+            &fact.queries,
+            &neighbor_queries,
+            &fact.path,
+        ) {
+            let line = fact
+                .command_lines
+                .get(&finding.command)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            if !seen.insert((
+                finding.path.clone(),
+                finding.feature.clone(),
+                finding.command.clone(),
+            )) {
+                continue;
+            }
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Warning,
+                code: correctness::mutation_without_readback::Finding::CODE.to_owned(),
             });
         }
     }
