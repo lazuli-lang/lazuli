@@ -1,14 +1,58 @@
 //! VOCAB-GRAMMAR-FORM-001 — deprecated `.lzi` grammar forms.
 //!
-//! Fires on compatibility forms that still parse for migration windows but are
-//! no longer canonical authoring vocabulary:
-//! - `validates resource @validator.X`
-//! - `validates field <name> @validator.X`
-//! - inline `previously migrated|alias <old>` on a kind/field header
-//! - `validate "./path.go"`
+//! ## Rule statement
 //!
-//! Severity: `warning` (strict), `error` (production). Prototype callers may
-//! choose to suppress this rule.
+//! Fires on compatibility forms that still parse during migration windows but
+//! are no longer canonical authoring vocabulary: `validates resource
+//! @validator.X`, `validates field <name> @validator.X`, inline `previously
+//! migrated|alias <old>` on a resource or field header, and legacy `validate
+//! "./path.go"`. The rule reports the authored form and the canonical
+//! replacement so automated migrations and CI can converge source onto the
+//! indentation-first grammar.
+//!
+//! ## Severity profile
+//!
+//! Severity: `warning` in strict/profiled authoring runs, `error` in production
+//! profile. Prototype callers may suppress the rule during a migration window,
+//! but production treats deprecated grammar as non-shippable because it keeps
+//! hidden compatibility paths alive.
+//!
+//! ## Fixture example
+//!
+//! ```lzi
+//! feature account
+//!   domain
+//!     resource Account previously alias Customer
+//!       email: Text required previously migrated email_address
+//!       validates resource @validator.account
+//!       validates field email @validator.email
+//!       validate "./account.go"
+//! ```
+//!
+//! Canonical fix:
+//!
+//! ```lzi
+//! feature account
+//!   domain
+//!     resource Account
+//!       previously alias Customer
+//!       email: Text required
+//!         previously migrated email_address
+//!       validates @validator.account
+//!       validates @validator.email
+//!       validates field <name> "./account.go"
+//! ```
+//!
+//! ## Proposal anchor
+//!
+//! Historical proposal: `docs/proposals/doctor-vocabulary-lints.md`
+//! §VOCAB-GRAMMAR-FORM-001 (extracted to `lazuli-ops` in commit `acbc3c14`).
+//! Runtime hint points at
+//! `migrations/recipes/v0.X-to-v0.Y/VOCAB-GRAMMAR-FORM-001.md` when present.
+//!
+//! Diagnostic ID / code constant: `VOCAB-GRAMMAR-FORM-001`;
+//! `Finding::CODE` is `pub const CODE: &'static str =
+//! "VOCAB-GRAMMAR-FORM-001";`.
 
 use std::path::{Path, PathBuf};
 

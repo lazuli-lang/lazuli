@@ -230,15 +230,15 @@ The canonical `.lzi` fixtures live under [`examples/full-capsule/`](../../exampl
 
 ## Documentation gaps
 
-The following rules lack a dedicated per-rule docstring; their module headers only carry a one-liner or reference the parent catalog. Filling these is low-cost (each rule already has tests that pin behavior):
+Cycle 3 DOC1 closed the five thin-coverage rows identified by DC2. These rules now carry dedicated per-rule module headers with rule statement, severity profile, fixture example, proposal/history anchor, and diagnostic code:
 
-- `vocab/vocab_grammar_form_001.rs` — header is one line of catalog form; trigger logic + severity profile pair are implicit.
-- `vocab/vocab_event_payload_001.rs` — the `payload none` opt-out is the only structured note; severity vs production isn't called out beyond "warning / warning".
-- `vocab/vocab_json_typed_001.rs` — header explains the trigger but doesn't state severity or reference proposal anchor.
-- `correctness/missing_policy_on_query_001.rs` — header is 3 lines describing the trigger but doesn't state severity or production-profile escalation explicitly.
-- `correctness/composite_key_contract_001.rs` — header carries severity but no reference beyond `roadmap.md §1.5`; per-rule proposal anchor would close the gap.
+- `vocab/vocab_grammar_form_001.rs`
+- `vocab/vocab_event_payload_001.rs`
+- `vocab/vocab_json_typed_001.rs`
+- `correctness/missing_policy_on_query_001.rs`
+- `correctness/composite_key_contract_001.rs`
 
-The remaining ~98 rules have complete headers (trigger + severity + reference). When mining for an authoring helper or LSP hover surface, prefer the per-rule `.rs` file's `//!` block — those are the canonical source of truth, updated alongside the logic.
+No currently cataloged documentation gaps remain. When mining for an authoring helper or LSP hover surface, prefer the per-rule `.rs` file's `//!` block — those are the canonical source of truth, updated alongside the logic.
 
 ## Maintenance
 

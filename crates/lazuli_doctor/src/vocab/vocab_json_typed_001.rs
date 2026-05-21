@@ -1,8 +1,54 @@
 //! VOCAB-JSON-TYPED-001 — untyped JSON bag + sibling closed-catalog enum.
 //!
+//! ## Rule statement
+//!
 //! Fires when a resource carries a `JSON` field while the same feature declares
-//! a related enum that is not referenced by any typed slot. That pattern means
-//! the enum documents a closed shape but the IR still sees an unconstrained bag.
+//! a thematically related enum that no typed slot references. The pattern means
+//! the author has documented a closed shape, such as quiz question kinds, but
+//! the IR still sees an unconstrained JSON bag; downstream codegen, validation,
+//! and clients cannot enforce the enum.
+//!
+//! ## Severity profile
+//!
+//! Severity: `warning` in both strict and production profiles. The rule is a
+//! vocabulary-fitness lint, not a correctness error, because raw JSON can still
+//! be intentional for opaque third-party blobs.
+//!
+//! ## Fixture example
+//!
+//! ```lzi
+//! feature quiz
+//!   enum QuizQuestionType
+//!     MultipleChoice
+//!     TrueFalse
+//!   resource Quiz
+//!     title: Text required
+//!     questions: JSON required
+//! ```
+//!
+//! Canonical fix:
+//!
+//! ```lzi
+//! feature quiz
+//!   enum QuizQuestionType
+//!     MultipleChoice
+//!     TrueFalse
+//!   record QuizQuestion
+//!     kind: QuizQuestionType required
+//!     text: Text required
+//!   resource Quiz
+//!     title: Text required
+//!     questions: Many<QuizQuestion> required
+//! ```
+//!
+//! ## Proposal anchor
+//!
+//! Historical proposal: `docs/proposals/doctor-vocabulary-lints.md`
+//! §VOCAB-JSON-TYPED-001 (extracted to `lazuli-ops` in commit `acbc3c14`).
+//!
+//! Diagnostic ID / code constant: `VOCAB-JSON-TYPED-001`;
+//! `Finding::CODE` is `pub const CODE: &'static str =
+//! "VOCAB-JSON-TYPED-001";`.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};

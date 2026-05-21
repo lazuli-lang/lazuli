@@ -1,16 +1,51 @@
 //! VOCAB-EVENT-PAYLOAD-001 — `emits` without typed payload.
 //!
-//! Fires when a `command` declares `emits <event.name>` and any of:
-//!   (i)  the event is not declared at the feature level at all, OR
-//!   (ii) the event is declared but has neither `payload <Type>` nor
-//!        `payload none` (the explicit opt-out sentinel).
+//! ## Rule statement
 //!
-//! `payload none` is the catalog-fixed opt-out for intentionally payload-less
-//! events (heartbeats, liveness signals). It is represented in the IR as
-//! `Event { payload_none: true, payload: [] }`.
+//! Fires when a `command` declares `emits <event.name>` but the emitted event
+//! does not have an IR-visible payload contract: either no same-feature
+//! `event <name>` declaration exists, or the event exists but has neither typed
+//! payload fields nor the explicit `payload none` sentinel. This keeps event
+//! producers visible to doctor, codegen, projections, and reaction-graph tools
+//! instead of letting handlers publish untyped names.
 //!
-//! Severity: `warning` (strict-profile), `warning` (production-profile).
-//! Reference: docs/proposals/doctor-vocabulary-lints.md §VOCAB-EVENT-PAYLOAD-001
+//! ## Severity profile
+//!
+//! Severity: `warning` in both strict and production profiles. Production does
+//! not escalate because some payload-less events are legitimate, but those cases
+//! must opt out with `payload none` so the contract remains explicit.
+//!
+//! ## Fixture example
+//!
+//! ```lzi
+//! feature post
+//!   command archive_post
+//!     emits post.archived
+//! ```
+//!
+//! Canonical fix:
+//!
+//! ```lzi
+//! feature post
+//!   event archived
+//!     payload
+//!       post_id: ID required
+//!   command archive_post
+//!     emits archived
+//! ```
+//!
+//! For an intentionally payload-less signal, the canonical fix is `event
+//! liveness payload none`; the IR stores that as `Event { payload_none: true,
+//! payload: [] }`.
+//!
+//! ## Proposal anchor
+//!
+//! Historical proposal: `docs/proposals/doctor-vocabulary-lints.md`
+//! §VOCAB-EVENT-PAYLOAD-001 (extracted to `lazuli-ops` in commit `acbc3c14`).
+//!
+//! Diagnostic ID / code constant: `VOCAB-EVENT-PAYLOAD-001`;
+//! `Finding::CODE` is `pub const CODE: &'static str =
+//! "VOCAB-EVENT-PAYLOAD-001";`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
