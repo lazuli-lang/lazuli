@@ -11402,6 +11402,7 @@ mod tests {
             synthesized_from_cap_file: None,
             previous_names: vec![],
             span_ref: None,
+            owner_scope_sql: None,
         });
         module.features = vec![feature.clone()];
 
@@ -11464,6 +11465,7 @@ mod tests {
             synthesized_from_cap_file: None,
             previous_names: vec![],
             span_ref: None,
+            owner_scope_sql: None,
         });
         module.features = vec![feature.clone()];
 

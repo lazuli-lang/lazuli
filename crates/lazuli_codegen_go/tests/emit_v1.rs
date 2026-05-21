@@ -168,6 +168,7 @@ fn empty_command(name: &str, span_ref: Option<SpanRef>) -> Command {
         synthesized_from_cap_file: None,
         previous_names: Vec::new(),
         span_ref,
+        owner_scope_sql: None,
     }
 }
 
@@ -836,6 +837,7 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
         synthesized_from_cap_file: None,
         previous_names: Vec::new(),
         span_ref: None,
+        owner_scope_sql: None,
     });
 
     let files = generate_v1(&module, &GoEmitOptions::default());

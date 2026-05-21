@@ -1481,6 +1481,7 @@ mod tests {
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
+            owner_scope_sql: None,
         }));
 
         let out = emit(&feature).expect("must emit");
@@ -1551,6 +1552,7 @@ mod tests {
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
+            owner_scope_sql: None,
         }));
 
         let out = emit(&feature).expect("must emit");
@@ -1588,6 +1590,7 @@ mod tests {
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
+            owner_scope_sql: None,
         }));
         let mut account = base_feature("account");
         account.resources.push(resource("User", Vec::new()));
@@ -1623,6 +1626,7 @@ mod tests {
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
+            owner_scope_sql: None,
         }));
         let mut account = base_feature("account");
         account.resources.push(resource("User", Vec::new()));
@@ -1661,6 +1665,7 @@ mod tests {
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
+            owner_scope_sql: None,
         }));
 
         let out = emit(&feature).expect("must emit");
@@ -1700,6 +1705,7 @@ mod tests {
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
+            owner_scope_sql: None,
         }));
 
         let out = emit(&feature).expect("must emit");
@@ -1774,6 +1780,7 @@ mod tests {
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
+            owner_scope_sql: None,
         }));
         feature.queries.push(Query::List(ListQuery {
             name: "alpha".to_owned(),
@@ -1791,6 +1798,7 @@ mod tests {
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
+            owner_scope_sql: None,
         }));
 
         let a = emit(&feature).expect("must emit");
@@ -1824,6 +1832,7 @@ mod tests {
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
+            owner_scope_sql: None,
         }));
 
         let mut gates: std::collections::BTreeMap<String, Vec<lazuli_ir::Gate>> =
@@ -1897,6 +1906,7 @@ mod tests {
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
+            owner_scope_sql: None,
         }));
         let out = emit(&feature).expect("must emit");
         assert!(!out.contains("Prelude:"), "no Prelude when no gates:\n{out}");
@@ -1945,6 +1955,7 @@ mod tests {
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
+            owner_scope_sql: None,
         }));
 
         let out = emit(&feature).expect("must emit");
@@ -1996,6 +2007,7 @@ mod tests {
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
+            owner_scope_sql: None,
         }));
 
         let out = emit(&feature).expect("must emit");
@@ -2043,6 +2055,7 @@ mod tests {
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
+            owner_scope_sql: None,
         }));
 
         let out = emit(&feature).expect("must emit");
@@ -2297,6 +2310,7 @@ mod feature_emit {
             policy_when_denied: None,
             previous_names: Vec::new(),
             span_ref: None,
+            owner_scope_sql: None,
         }));
 
         let out = emit(&feature).expect("query feature entry point must emit non-empty output");

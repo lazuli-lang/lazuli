@@ -227,6 +227,7 @@ mod tests {
             policy_when_denied: None,
             previous_names: vec![],
             span_ref: None,
+            owner_scope_sql: None,
         })
     }
 

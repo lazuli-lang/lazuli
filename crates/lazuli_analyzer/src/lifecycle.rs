@@ -211,6 +211,7 @@ fn lower_transition_command(
         triggers: Vec::new(),
         synthesized_from_cap_file: None,
         previous_names: transition.previously.clone(),
+        owner_scope_sql: None,
         span_ref: Some(span_of(transition.span)),
     }
 }

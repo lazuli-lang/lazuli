@@ -2299,6 +2299,7 @@ mod feature_emit_tests {
             synthesized_from_cap_file: None,
             previous_names: Vec::new(),
             span_ref: None,
+            owner_scope_sql: None,
         }
     }
 
@@ -2600,6 +2601,7 @@ mod tests {
             synthesized_from_cap_file: None,
             previous_names: Vec::new(),
             span_ref: None,
+            owner_scope_sql: None,
         }
     }
 
