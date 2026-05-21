@@ -3088,14 +3088,20 @@ pub fn lower_feature_skeleton(
         aggregates,
         mcp_servers,
         previous_names: Vec::new(),
+        // Cell C4 (inlined): empty until C3's synthesis pass populates the
+        // map per `docs/proposals/ir-resource-conventions-crud.md` §11.
+        synth_origins: std::collections::BTreeMap::new(),
         span_ref: Some(span_of(skeleton.span)),
     };
     lifecycle::lower_lifecycles(&mut feature, &skeleton.resources);
     synthesize_auto_photo(&mut feature);
-    // ir-resource-conventions-crud §5: synthesize 5 commands/queries
-    // per resource that opts into `conventions [crud]`. Diagnostics
-    // returned by `synthesize_conventions` are dropped here; Cell C4
-    // will wire them to doctor / inspect surfaces per §11.
+    // ir-resource-conventions-crud §5 — synthesize 3 commands + 2
+    // queries per resource that opts into `conventions [crud]`. The
+    // bridge to populate `Feature.synth_origins` (so the inspect
+    // surface from Cell C4 can annotate `[conv:crud]`) is wired in
+    // `synthesize_conventions` itself. Diagnostics returned here are
+    // currently dropped; the bridge cycle wires them through to
+    // doctor per §11.
     let _ = synthesize_conventions(&mut feature);
     Ok(feature)
 }

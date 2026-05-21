@@ -12378,6 +12378,7 @@ fn make_synthetic_feature_for_reports(fact: &Tier3FeatureFacts) -> lazuli_ir::Fe
         aggregates: fact.aggregates.clone(),
         mcp_servers: Vec::new(),
         previous_names: Vec::new(),
+        synth_origins: std::collections::BTreeMap::new(),
         span_ref: None,
     }
 }
@@ -12694,6 +12695,7 @@ fn make_synthetic_feature_for_error_vocab(fact: &Tier3FeatureFacts) -> lazuli_ir
         aggregates: Vec::new(),
         mcp_servers: Vec::new(),
         previous_names: Vec::new(),
+        synth_origins: std::collections::BTreeMap::new(),
         span_ref: None,
     }
 }

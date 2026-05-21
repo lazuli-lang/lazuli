@@ -531,6 +531,17 @@ pub struct Feature {
     pub mcp_servers: Vec<MCPServerSpec>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
+    /// `conventions [crud]` synth origin map — keys are `Command.name` /
+    /// `Query.name()` strings the synthesis pass either appended or
+    /// would have appended (when the author wrote an override). Values
+    /// describe whether the entry was synthesized or skipped because of
+    /// an author-side override. Populated by Cell C3's synthesizer;
+    /// consumed by Cell C4's `lazuli inspect features` annotation.
+    /// Inlined by Cell C4 ahead of Cell C1's IR landing. Additive:
+    /// pre-conventions fixtures deserialize empty.
+    /// See `docs/proposals/ir-resource-conventions-crud.md` §11.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub synth_origins: std::collections::BTreeMap<String, ConventionOrigin>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
@@ -656,6 +667,46 @@ pub enum ConventionRef {
     Crud,
     // Future variants (NOT in this proposal):
     //   Timestamped, PiiAware, SoftDelete, Slugged, Paginated.
+}
+
+/// Origin of a synth-eligible entry name in `Feature.synth_origins`.
+///
+/// Cell C3's synthesis pass marks each name that a convention bundle
+/// would have produced. The marker distinguishes the two relevant
+/// states the inspect surface (§11) renders:
+///
+/// * `Synthesized(<bundle>)` — C3 appended this command/query as part
+///   of the named bundle's expansion. Inspect annotates with
+///   `[conv:<bundle>]`.
+/// * `AuthorOverride(<bundle>)` — the name was in the bundle's set but
+///   an author-written command/query already existed with the same
+///   name. C3 skipped its synthesis. Inspect annotates with
+///   `[author override; convention skipped]`.
+///
+/// Entries C3 does not touch (pure author-written commands not in any
+/// convention's set) carry no entry in `synth_origins`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "convention", rename_all = "snake_case")]
+pub enum ConventionOrigin {
+    /// Entry was synthesized by the named bundle.
+    Synthesized(ConventionRef),
+    /// Author wrote this name; the named bundle would have synthesized it.
+    AuthorOverride(ConventionRef),
+}
+
+impl ConventionOrigin {
+    /// The bundle that produced (or would have produced) this entry.
+    pub fn convention(&self) -> ConventionRef {
+        match self {
+            ConventionOrigin::Synthesized(c) | ConventionOrigin::AuthorOverride(c) => *c,
+        }
+    }
+
+    /// `true` when an author wrote a command/query with this name and the
+    /// convention's synth for that name was skipped.
+    pub fn is_author_override(&self) -> bool {
+        matches!(self, ConventionOrigin::AuthorOverride(_))
+    }
 }
 
 /// Roadmap §1.5 (CL.C.2) — `lock` resource-level decorator. Closed
