@@ -106,7 +106,6 @@ mod tests {
             cells: vec![],
             actions: vec![],
             line,
-            redacted_fields: Vec::new(),
         })
     }
 

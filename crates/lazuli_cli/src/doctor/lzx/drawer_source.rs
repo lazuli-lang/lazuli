@@ -244,7 +244,6 @@ mod tests {
                 line: 14,
             }),
             line: 10,
-            redacted_fields: Vec::new(),
         })
     }
 
