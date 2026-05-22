@@ -1259,6 +1259,17 @@ fn emit_feature_ts_artifacts(
                 ),
                 contents: emit_feature_zod_ts(feature, module),
             });
+            if target_prefix == "ts-web" {
+                if let Some(contents) = lazuli_codegen_ts::emit_cap_file_hooks_ts(feature) {
+                    out.push(lazuli_codegen_ts::GeneratedFile {
+                        path: format!(
+                            "dist/{}/{}/{}.react.gen.ts",
+                            target_prefix, feature.name, feature.name
+                        ),
+                        contents,
+                    });
+                }
+            }
         }
     }
     let app_name = manifest
@@ -2251,6 +2262,13 @@ fn pick_query_resource_ts(feature: &lazuli_ir::Feature, query_name: &str) -> Opt
 /// `list_chat_inbox`). Their handler bodies are opaque to the analyzer
 /// but the IR-declared side-effect surface is the source of truth.
 fn command_is_pure_read(command: &lazuli_ir::Command) -> bool {
+    if command
+        .synthesized_from_cap_file
+        .as_ref()
+        .is_some_and(|marker| marker.role != lazuli_ir::AutoPhotoCommandRole::GetUrl)
+    {
+        return false;
+    }
     matches!(command.effect, lazuli_ir::CommandEffect::Returns(_))
         && command.emits.is_empty()
         && command.triggers.is_empty()
@@ -11595,6 +11613,59 @@ mod tests {
         // invalidates is always emitted even when empty — that's the
         // existing contract that this test does not change.
         assert!(output.contains("invalidates: []"));
+    }
+
+    #[test]
+    fn cap_file_request_upload_emits_command_spec_for_react_hook() {
+        // Wave C.2 upload hooks call request_*_upload through
+        // useLazuliCommand because minting a signed PUT URL is an
+        // imperative upload step, not a cacheable read. The get-url
+        // command remains query-shaped so the hook can expose photoUri
+        // from TanStack Query state.
+        let source = r#"feature host
+  defaults
+    tenancy org
+
+  uses org
+  uses account
+
+  policies
+    host_only: @scope.authenticated, @role.host
+
+  domain
+    resource Host
+      org: Org required
+      user: User required unique
+      profile_photo: @cap.File(max_size:5mb,accept:image/jpeg,visibility:signed,signed_ttl:1h) optional
+"#;
+        let parsed = lazuli_syntax::parse_feature_skeletons(source).expect("feature parses");
+        let feature =
+            lazuli_analyzer::lower_feature_skeleton(&parsed[0]).expect("feature lowers");
+        let module = lazuli_ir::Module {
+            workspace: None,
+            contracts: vec![],
+            app: None,
+            registry: None,
+            profiles: vec![],
+            design: None,
+            rbac: None,
+            features: vec![feature.clone()],
+        };
+
+        let output = emit_feature_sdk_ts(&feature, &module);
+
+        assert!(
+            output.contains(
+                "export const requestHostProfilePhotoUpload = defineCommand<RequestHostProfilePhotoUploadInput, ProfilePhotoUploadIntent>(\"host.request_profile_photo_upload\", {"
+            ),
+            "request upload must remain a CommandSpec for useLazuliCommand; got:\n{output}"
+        );
+        assert!(
+            output.contains(
+                "export const getHostProfilePhotoURL = defineQuery<GetHostProfilePhotoURLInput, ProfilePhotoDisplayUrl>(\"host.get_profile_photo_url\");"
+            ),
+            "get-url stays query-shaped for photoUri cache state; got:\n{output}"
+        );
     }
 
     #[test]

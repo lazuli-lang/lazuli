@@ -18,6 +18,7 @@
 //! Plan reference: `docs/proposals/ai-primitives-v0-implementation.md`
 //! §9.1. Runtime team: `docs/runtime-handoff.md`.
 
+pub mod cap_file_hooks;
 pub mod design;
 pub mod lifecycle_gate_emit;
 pub mod lzx;
@@ -29,6 +30,7 @@ pub mod rbac;
 pub mod runtime;
 pub mod zod_constraints;
 
+pub use cap_file_hooks::emit_cap_file_hooks_ts;
 pub use playwright::emit_playwright_api_policy;
 pub use runtime::{emit_feature_ts, lower_camel_export};
 pub use zod_constraints::{is_numeric, zod_constraint_chain, zod_enum_replacement};
