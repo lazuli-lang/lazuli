@@ -34,6 +34,10 @@ import type {
   RouteGuardVerdict,
 } from "./route-guard.js";
 import type { CommandSpec, QuerySpec } from "./spec.js";
+import type {
+  RouteParamParser,
+  UseLazuliRouteParamsOptions,
+} from "./use-lazuli-route-params.js";
 import type { DrawerConfig, DrawerSubView } from "./view-helpers.js";
 
 // Universal view-helper types and functions are re-exported as-is from
@@ -102,6 +106,20 @@ export declare function useLazuliCommand<Input, Output>(
   spec: CommandSpec<Input, Output>,
   options?: UseLazuliCommandOptions<Input, Output>,
 ): UseMutationResult<Output, Error, Input>;
+
+export {
+  LazuliRouteParamsError,
+  isLazuliRouteParamsError,
+  type RouteParamParser,
+  type UseLazuliRouteParamsOptions,
+} from "./use-lazuli-route-params.js";
+
+export declare function useLazuliRouteParams<T>(
+  viewName: string,
+  parser: RouteParamParser<T>,
+  raw: Record<string, string>,
+  options?: UseLazuliRouteParamsOptions,
+): T;
 
 // --- Route guards ---------------------------------------------------------
 

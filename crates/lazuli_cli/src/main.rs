@@ -1243,8 +1243,9 @@ fn emit_feature_ts_artifacts(
     manifest: &Option<lazurite_manifest::Manifest>,
 ) -> Vec<lazuli_codegen_ts::GeneratedFile> {
     let mut out = Vec::new();
+    let target_prefixes = feature_ts_target_prefixes(feature, manifest);
     if !feature.resources.is_empty() || !feature.commands.is_empty() {
-        for target_prefix in feature_ts_target_prefixes(feature, manifest) {
+        for target_prefix in &target_prefixes {
             out.push(lazuli_codegen_ts::GeneratedFile {
                 path: format!(
                     "dist/{}/{}/{}.gen.ts",
@@ -1258,6 +1259,19 @@ fn emit_feature_ts_artifacts(
                     target_prefix, feature.name, feature.name
                 ),
                 contents: emit_feature_zod_ts(feature, module),
+            });
+        }
+    }
+    for target_prefix in &target_prefixes {
+        if let Some(contents) =
+            lazuli_codegen_ts::lzx_route_params::emit_route_params_ts(feature, module, target_prefix)
+        {
+            out.push(lazuli_codegen_ts::GeneratedFile {
+                path: format!(
+                    "dist/{}/{}/{}.routes.gen.ts",
+                    target_prefix, feature.name, feature.name
+                ),
+                contents,
             });
         }
     }

@@ -21,6 +21,7 @@
 pub mod design;
 pub mod lifecycle_gate_emit;
 pub mod lzx;
+pub mod lzx_route_params;
 pub mod lzx_audience_slot;
 pub mod mobile_runtime;
 pub mod mobile_view_scaffold;

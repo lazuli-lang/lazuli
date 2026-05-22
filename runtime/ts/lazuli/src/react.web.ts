@@ -68,6 +68,13 @@ export {
   type LifecycleGateMetadata,
   type LifecycleVerdict,
 } from "./lifecycle-gate.js";
+export {
+  LazuliRouteParamsError,
+  isLazuliRouteParamsError,
+  useLazuliRouteParams,
+  type RouteParamParser,
+  type UseLazuliRouteParamsOptions,
+} from "./use-lazuli-route-params.js";
 
 // --- Universal client/query/command hooks --------------------------------
 

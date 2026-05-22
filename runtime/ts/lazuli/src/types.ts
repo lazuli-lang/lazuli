@@ -35,6 +35,10 @@ export function tryID(value: string | number | undefined | null): ID | null {
   return null;
 }
 
+// Alias used by generated route-param parsers. Kept as a thin wrapper
+// around the established non-throwing coercion helper.
+export const parseId = tryID;
+
 // `Money` is the currency-aware semantic value emitted by codegen for
 // `@semantic.Money` / bare `Money` field declarations. Per proposal
 // `docs/proposals/semantic-types-money-brazilian.md` v0.3:
