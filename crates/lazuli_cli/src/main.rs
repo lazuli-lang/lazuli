@@ -1824,6 +1824,26 @@ fn write_command_sdk(
             format!("{}.{}", feature_name, i.query.name)
         })
         .collect();
+    // Wave 0 (ir-returns-list-2026-05-22 §2.2): pure-read commands lower
+    // to `defineQuery` so the React app gets react-query semantics
+    // (cache, refetch, suspense, useLazuliQuery). The wire is identical;
+    // only the client-side factory differs. Non-read commands stay on
+    // `defineCommand` and keep carrying invalidates / policy / rate-limit
+    // / audit metadata for `useLazuliCommand` callers.
+    if command_is_pure_read(command) {
+        writeln!(
+            s,
+            "export const {} = defineQuery<{}, {}>(\"{}.{}\");",
+            command_ident(&feature.name, &command.name),
+            input_iface,
+            output_ty,
+            feature.name,
+            command.name
+        )
+        .ok();
+        writeln!(s).ok();
+        return;
+    }
     writeln!(
         s,
         "export const {} = defineCommand<{}, {}>(\"{}.{}\", {{",
@@ -2214,6 +2234,28 @@ fn pick_query_resource_ts(feature: &lazuli_ir::Feature, query_name: &str) -> Opt
         }
     }
     None
+}
+
+/// Wave 0 (ir-returns-list-2026-05-22 §2.2): a command is a *pure read*
+/// when its sole declared effect is `Returns(_)` and it carries no
+/// declared side-effects (no event emits, no lifecycle triggers, no
+/// invalidations, no external calls). Pure-read commands lower to
+/// `defineQuery<I, O>` on the TS side (consumable via `useLazuliQuery`)
+/// so the React app gets cache + refetch + suspense semantics for free,
+/// instead of `defineCommand` (which forces `useLazuliCommand` and
+/// imperative call sites). The wire payload is identical — only the
+/// client-side factory differs.
+///
+/// `@fn`-handlers are NOT disqualified: most pilot list_* commands are
+/// SQL-heavy reads with `@fn` handlers (e.g. `list_host_agenda`,
+/// `list_chat_inbox`). Their handler bodies are opaque to the analyzer
+/// but the IR-declared side-effect surface is the source of truth.
+fn command_is_pure_read(command: &lazuli_ir::Command) -> bool {
+    matches!(command.effect, lazuli_ir::CommandEffect::Returns(_))
+        && command.emits.is_empty()
+        && command.triggers.is_empty()
+        && command.invalidates.is_empty()
+        && command.external_calls.is_empty()
 }
 
 fn command_output_ts_type(
@@ -2664,25 +2706,32 @@ fn zod_expr_for_slot(
     out
 }
 
-fn zod_base_for_type_ref(type_ref: &lazuli_ir::TypeRef) -> &'static str {
+fn zod_base_for_type_ref(type_ref: &lazuli_ir::TypeRef) -> String {
     match type_ref {
         lazuli_ir::TypeRef::Builtin(builtin) => match builtin {
-            lazuli_ir::BuiltinType::Boolean => "z.boolean()",
+            lazuli_ir::BuiltinType::Boolean => "z.boolean()".to_owned(),
             lazuli_ir::BuiltinType::Integer
             | lazuli_ir::BuiltinType::Decimal
-            | lazuli_ir::BuiltinType::SemanticMoney { .. } => "z.number()",
+            | lazuli_ir::BuiltinType::SemanticMoney { .. } => "z.number()".to_owned(),
             lazuli_ir::BuiltinType::Json
             | lazuli_ir::BuiltinType::SemanticGeoPoint
-            | lazuli_ir::BuiltinType::CapFile => "z.unknown()",
-            _ => "z.string()",
+            | lazuli_ir::BuiltinType::CapFile => "z.unknown()".to_owned(),
+            _ => "z.string()".to_owned(),
         },
         lazuli_ir::TypeRef::Capability(capability) => match capability {
-            lazuli_ir::CapabilityRef::File(_) => "z.unknown()",
-            _ => "z.string()",
+            lazuli_ir::CapabilityRef::File(_) => "z.unknown()".to_owned(),
+            _ => "z.string()".to_owned(),
         },
-        lazuli_ir::TypeRef::Many(_) => "z.unknown()",
-        lazuli_ir::TypeRef::EnumRef(_) => "z.string()",
-        lazuli_ir::TypeRef::UserDefined(_) | lazuli_ir::TypeRef::Unresolved(_) => "z.unknown()",
+        // Wave 0 (ir-returns-list-2026-05-22 §2.3): closes the
+        // `SCHEMA-RICH-001` list axis early. `list <X>` lifts to
+        // `TypeRef::Many(X)` in the analyzer; emit `z.array(<inner>)`
+        // so form/wire schemas validate list-of-record at runtime
+        // instead of accepting any `unknown[]` shape.
+        lazuli_ir::TypeRef::Many(inner) => format!("z.array({})", zod_base_for_type_ref(inner)),
+        lazuli_ir::TypeRef::EnumRef(_) => "z.string()".to_owned(),
+        lazuli_ir::TypeRef::UserDefined(_) | lazuli_ir::TypeRef::Unresolved(_) => {
+            "z.unknown()".to_owned()
+        }
     }
 }
 
@@ -12265,9 +12314,33 @@ mod tests {
             "app/features/account/templates/welcome.pt-BR",
             "i18n/common.en-US.json",
             "scripts/seed.sh",
+            ".env.example",
+            "docker-compose.yml",
+            "scripts/bootstrap-storage.sh",
         ] {
             assert!(root.join(relative).is_file(), "missing {relative}");
         }
+
+        // The bootstrap-storage script substitutes `{{app_slug}}` as a
+        // bash-default fallback; the `.tmpl` suffix is stripped.
+        let bootstrap = fs::read_to_string(root.join("scripts/bootstrap-storage.sh"))
+            .expect("read bootstrap-storage.sh");
+        assert!(
+            bootstrap.contains(":-my_app"),
+            "bootstrap-storage.sh should embed app_slug as a default: {bootstrap}"
+        );
+        let env_example = fs::read_to_string(root.join(".env.example"))
+            .expect("read .env.example");
+        assert!(
+            env_example.contains("S3_ENDPOINT="),
+            ".env.example should declare S3_ENDPOINT"
+        );
+        let compose = fs::read_to_string(root.join("docker-compose.yml"))
+            .expect("read docker-compose.yml");
+        assert!(
+            compose.contains("MINIO_ROOT_USER_FILE: \"\""),
+            "docker-compose.yml should clear MinIO _FILE defaults"
+        );
 
         let _ = fs::remove_dir_all(root);
     }

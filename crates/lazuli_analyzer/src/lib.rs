@@ -1138,13 +1138,21 @@ pub fn type_ref_from_syntax_public(ty: &str) -> ir::TypeRef {
 
 fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
     let raw = ty.trim();
-    // Canonical authoring also allows `list of <Type>` in output and
-    // field positions. This must run before `first_paren_balanced_token`
-    // because that helper intentionally stops at the first whitespace
-    // boundary and would otherwise lower the whole construct as `List`.
+    // Canonical authoring allows `list of <Type>` (legacy) and `list <Type>`
+    // (Wave 0 canonical, per ir-returns-list-2026-05-22). Both lift to the
+    // same `TypeRef::Many` shape. The `list of` form stays for back-compat;
+    // `list ` is the form codegen + LSP completion will favour going
+    // forward (parity with `api.output list of <X>` callsites in
+    // atelier/erudito and with `command.returns list <X>` in pilots that
+    // commented-out blocks waiting on this lift). Must run before
+    // `first_paren_balanced_token` because that helper stops at the
+    // first whitespace boundary and would otherwise lower the whole
+    // construct as `List`.
     if let Some(inner) = raw
         .strip_prefix("list of ")
         .or_else(|| raw.strip_prefix("List of "))
+        .or_else(|| raw.strip_prefix("list "))
+        .or_else(|| raw.strip_prefix("List "))
     {
         let inner = type_ref_from_syntax(inner.trim());
         return ir::TypeRef::Many(Box::new(inner));
@@ -2622,6 +2630,8 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
             if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
                 cmd.owner_scope_sql = Some(scope.clone());
             }
+            cmd.invalidates =
+                synth_crud_invalidates(&lookup_name, &list_name, has_me, &resource_snake);
             to_add_commands.push(cmd);
             synth_origins_inserts.push((
                 create_name.clone(),
@@ -2665,6 +2675,8 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
                     ..scope.clone()
                 });
             }
+            cmd.invalidates =
+                synth_crud_invalidates(&lookup_name, &list_name, has_me, &resource_snake);
             to_add_commands.push(cmd);
             synth_origins_inserts.push((
                 update_name.clone(),
@@ -2701,6 +2713,8 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
                     ..scope.clone()
                 });
             }
+            cmd.invalidates =
+                synth_crud_invalidates(&lookup_name, &list_name, has_me, &resource_snake);
             to_add_commands.push(cmd);
             synth_origins_inserts.push((
                 delete_name.clone(),
@@ -3670,7 +3684,14 @@ fn build_create_command(
                 name: resource.to_owned(),
             },
             from_input: true,
-            assignments: Vec::new(),
+            // §5.2 — one `<field> = input.<field>` assignment per input
+            // slot so the codegen emits a populated `lazuli.Bindings{}`
+            // body. Without this, the synthesized INSERT had no columns
+            // to bind and tripped runtime panics at first call. The
+            // emitter checks `TypedSlot.required` to decide between
+            // `FromInput` (required) and `FromInputOptional` (optional,
+            // skip-on-nil so column defaults apply).
+            assignments: input_field_assignments(input_fields),
         }),
         ..default_synth_command(crud_write_rate_limit())
     }
@@ -3700,10 +3721,81 @@ fn build_update_command(
                 feature: None,
                 name: resource.to_owned(),
             },
-            assignments: Vec::new(),
+            // §5.3 — every input slot becomes a `<field> = input.<field>`
+            // assignment. `update_input_fields` marks all of them
+            // optional, so the codegen emits `FromInputOptional` and
+            // the runtime skips columns whose input pointer was nil —
+            // i.e. fields the wire payload didn't include stay
+            // untouched (partial-update semantics, §5.3 third para).
+            assignments: input_field_assignments(input_fields),
         }),
         ..default_synth_command(crud_write_rate_limit())
     }
+}
+
+/// Build the canonical `invalidates` list for a synth `create_<R>` /
+/// `update_<R>` / `delete_<R>` command. Without this list, clients
+/// (TS `useLazuliCommand`) never refresh `lookup_<R>` and
+/// `list_<R>s` after a mutation — the cached query result is shown
+/// until next manual reload. The 2026-05-22 hostpoint settings save
+/// outage surfaced exactly this: after the partial-update bug was
+/// fixed, users still saw stale data on re-entering the panel
+/// because every synth command shipped with `invalidates: []`.
+///
+/// When the resource also declares `conventions [me]`, the `me`
+/// bundle's `lookup_my_<R>` query is appended too — it shares the
+/// same row set, just keyed off the actor instead of the route id.
+fn synth_crud_invalidates(
+    lookup_name: &str,
+    list_name: &str,
+    has_me: bool,
+    resource_snake: &str,
+) -> Vec<ir::InvalidatesSpec> {
+    let mut out = vec![
+        ir::InvalidatesSpec {
+            query: ir::QualifiedName {
+                feature: None,
+                name: lookup_name.to_owned(),
+            },
+            args: Vec::new(),
+        },
+        ir::InvalidatesSpec {
+            query: ir::QualifiedName {
+                feature: None,
+                name: list_name.to_owned(),
+            },
+            args: Vec::new(),
+        },
+    ];
+    if has_me {
+        out.push(ir::InvalidatesSpec {
+            query: ir::QualifiedName {
+                feature: None,
+                name: format!("lookup_my_{}", resource_snake),
+            },
+            args: Vec::new(),
+        });
+    }
+    out
+}
+
+/// Build one `<field> = input.<field>` assignment per input slot.
+/// Used by both `build_create_command` and `build_update_command` so the
+/// codegen has a populated `Bindings` body to emit. The emitter inspects
+/// `TypedSlot.required` on the command's input to pick between
+/// `FromInput` (required slot) and `FromInputOptional` (optional slot,
+/// skip-on-nil at runtime).
+fn input_field_assignments(input_fields: &[(&ir::Field, bool)]) -> Vec<ir::Assignment> {
+    input_fields
+        .iter()
+        .map(|(f, _required)| ir::Assignment {
+            field: f.name.clone(),
+            value: ir::Expr::Path(ir::Path::from_segments([
+                "input".to_owned(),
+                f.name.clone(),
+            ])),
+        })
+        .collect()
 }
 
 /// §5.4 — build `delete_<resource>` command IR.
@@ -9680,6 +9772,45 @@ feature account
         }
     }
 
+    // Wave 0 (ir-returns-list-2026-05-22): `list <X>` (no "of") is the
+    // canonical authoring form, parity with `api.output list of <X>`
+    // and with pilots that commented-out `# returns list of <X>` blocks.
+    #[test]
+    fn type_ref_from_syntax_lowers_bare_list_builtin() {
+        let ty = type_ref_from_syntax("list Text");
+        match ty {
+            ir::TypeRef::Many(inner) => {
+                assert!(matches!(*inner, ir::TypeRef::Builtin(ir::BuiltinType::Text)));
+            }
+            other => panic!("expected Many(Text), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn type_ref_from_syntax_lowers_bare_list_user_defined() {
+        let ty = type_ref_from_syntax("list ReservationCard");
+        match ty {
+            ir::TypeRef::Many(inner) => match *inner {
+                ir::TypeRef::UserDefined(qname) => assert_eq!(qname.name, "ReservationCard"),
+                other => panic!("expected Many(UserDefined), got Many({other:?})"),
+            },
+            other => panic!("expected Many(...), got {other:?}"),
+        }
+    }
+
+    // Case-insensitive `List <X>` parity with legacy `List of <X>`.
+    #[test]
+    fn type_ref_from_syntax_lowers_capital_list() {
+        let ty = type_ref_from_syntax("List Post");
+        match ty {
+            ir::TypeRef::Many(inner) => match *inner {
+                ir::TypeRef::UserDefined(qname) => assert_eq!(qname.name, "Post"),
+                other => panic!("expected Many(Post), got Many({other:?})"),
+            },
+            other => panic!("expected Many(Post), got {other:?}"),
+        }
+    }
+
     #[test]
     fn type_ref_from_syntax_falls_through_when_cap_file_missing_max_size() {
         // No `max_size` arg → falls through to UserDefined so the LSP
@@ -11610,6 +11741,77 @@ mod conventions_crud_synth_tests {
                 assert!(matches!(&lq.policy, ir::PolicyRef::Local(p) if p == "authenticated"));
             }
             other => panic!("expected List query, got {:?}", other),
+        }
+    }
+
+    /// §5.2 / §5.3 binding axis — both the synthesized create_<R> and
+    /// update_<R> commands must carry one `<field> = input.<field>`
+    /// assignment per input slot, mirroring what the author would have
+    /// written by hand. Without these the Go codegen emits an empty
+    /// `lazuli.Bindings{}` body and every dispatch tripped the runtime
+    /// guard "updates effect requires Bind bindings" (PG 500 at first
+    /// call). Regression for the 2026-05-22 hostpoint /settings save
+    /// outage; pairs with `create_<R>` having the same gap.
+    #[test]
+    fn synth_create_and_update_populate_assignments_from_input() {
+        let mut feature = empty_feature("customer", true);
+        feature.resources.push(customer_resource());
+
+        let diags = synthesize_conventions(&mut feature);
+        assert!(diags.is_empty(), "unexpected synth diagnostics: {diags:?}");
+
+        let create = feature
+            .commands
+            .iter()
+            .find(|c| c.name == "create_customer")
+            .expect("create_customer must synth");
+        let create_assignments = match &create.effect {
+            ir::CommandEffect::Creates(e) => &e.assignments,
+            other => panic!("expected Creates effect, got {:?}", other),
+        };
+        let create_fields: Vec<&str> =
+            create_assignments.iter().map(|a| a.field.as_str()).collect();
+        assert_eq!(
+            create_fields,
+            vec!["email", "name", "status"],
+            "create assignments must mirror input slots in order"
+        );
+        for a in create_assignments {
+            match &a.value {
+                ir::Expr::Path(p) => assert_eq!(
+                    p.segments,
+                    vec!["input".to_owned(), a.field.clone()],
+                    "create assignment value must be `input.<field>`"
+                ),
+                other => panic!("create assignment value not a Path: {:?}", other),
+            }
+        }
+
+        let update = feature
+            .commands
+            .iter()
+            .find(|c| c.name == "update_customer")
+            .expect("update_customer must synth");
+        let update_assignments = match &update.effect {
+            ir::CommandEffect::Updates(e) => &e.assignments,
+            other => panic!("expected Updates effect, got {:?}", other),
+        };
+        let update_fields: Vec<&str> =
+            update_assignments.iter().map(|a| a.field.as_str()).collect();
+        assert_eq!(
+            update_fields,
+            vec!["email", "name", "status"],
+            "update assignments must mirror input slots in order"
+        );
+        for a in update_assignments {
+            match &a.value {
+                ir::Expr::Path(p) => assert_eq!(
+                    p.segments,
+                    vec!["input".to_owned(), a.field.clone()],
+                    "update assignment value must be `input.<field>`"
+                ),
+                other => panic!("update assignment value not a Path: {:?}", other),
+            }
         }
     }
 
