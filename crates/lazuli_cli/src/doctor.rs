@@ -4,6 +4,8 @@ pub mod folder;
 pub mod lifecycle_gate;
 pub mod lzx;
 pub mod rbac;
+mod returns_list_001;
+mod returns_list_002;
 pub mod route_guard;
 
 // Re-export file-local diagnostic sub-modules extracted to the `lazuli_doctor`
@@ -1073,6 +1075,11 @@ impl DoctorPackage {
             self.security_profile,
             self.single_file_input,
         ));
+        diagnostics.extend(returns_list_001::diagnostics(
+            &self.tier3_facts,
+            &self.project_root,
+        ));
+        diagnostics.extend(returns_list_002::diagnostics(&self.tier3_facts));
         diagnostics.extend(app_contract_diagnostics(
             self.app.as_ref(),
             self.registry.as_ref(),
