@@ -20,6 +20,11 @@
       "types": "./src/tanstack-adapter.ts",
       "import": "./src/tanstack-adapter.ts",
       "default": "./src/tanstack-adapter.ts"
+    },
+    "./formatters": {
+      "types": "./src/formatters.ts",
+      "import": "./src/formatters.ts",
+      "default": "./src/formatters.ts"
     }
   },
   "scripts": {
