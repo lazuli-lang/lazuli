@@ -1976,7 +1976,7 @@ fn emit_feature_zod_ts(feature: &lazuli_ir::Feature, module: &lazuli_ir::Module)
                 s,
                 "  {}: {},",
                 lazuli_codegen_ts::lower_camel_export(&slot.name),
-                zod_expr_for_slot(&slot.type_ref, &slot.constraints, !slot.required)
+                zod_expr_for_slot(&slot.type_ref, &slot.constraints, !slot.required, module)
             )
             .ok();
         }
@@ -2692,8 +2692,9 @@ fn zod_expr_for_slot(
     type_ref: &lazuli_ir::TypeRef,
     constraints: &lazuli_ir::FieldConstraints,
     optional: bool,
+    module: &lazuli_ir::Module,
 ) -> String {
-    let base = zod_base_for_type_ref(type_ref);
+    let base = zod_base_for_type_ref(type_ref, module);
     let is_text_base = zod_is_text_base(type_ref);
     let mut out = format!(
         "{}{}",
@@ -2706,13 +2707,22 @@ fn zod_expr_for_slot(
     out
 }
 
-fn zod_base_for_type_ref(type_ref: &lazuli_ir::TypeRef) -> String {
+fn zod_base_for_type_ref(type_ref: &lazuli_ir::TypeRef, module: &lazuli_ir::Module) -> String {
     match type_ref {
         lazuli_ir::TypeRef::Builtin(builtin) => match builtin {
             lazuli_ir::BuiltinType::Boolean => "z.boolean()".to_owned(),
             lazuli_ir::BuiltinType::Integer
             | lazuli_ir::BuiltinType::Decimal
             | lazuli_ir::BuiltinType::SemanticMoney { .. } => "z.number()".to_owned(),
+            lazuli_ir::BuiltinType::SemanticEmail => "z.string().email()".to_owned(),
+            lazuli_ir::BuiltinType::SemanticPhone => {
+                "/* TODO(@semantic.Phone): replace with pluggable locale-aware validator */ z.string().min(10).max(15)".to_owned()
+            }
+            lazuli_ir::BuiltinType::SemanticUuid => "z.string().uuid()".to_owned(),
+            lazuli_ir::BuiltinType::SemanticUrl => "z.string().url()".to_owned(),
+            lazuli_ir::BuiltinType::SemanticPluginType { name, .. } => {
+                zod_base_for_plugin_semantic(name)
+            }
             lazuli_ir::BuiltinType::Json
             | lazuli_ir::BuiltinType::SemanticGeoPoint
             | lazuli_ir::BuiltinType::CapFile => "z.unknown()".to_owned(),
@@ -2727,12 +2737,96 @@ fn zod_base_for_type_ref(type_ref: &lazuli_ir::TypeRef) -> String {
         // `TypeRef::Many(X)` in the analyzer; emit `z.array(<inner>)`
         // so form/wire schemas validate list-of-record at runtime
         // instead of accepting any `unknown[]` shape.
-        lazuli_ir::TypeRef::Many(inner) => format!("z.array({})", zod_base_for_type_ref(inner)),
-        lazuli_ir::TypeRef::EnumRef(_) => "z.string()".to_owned(),
-        lazuli_ir::TypeRef::UserDefined(_) | lazuli_ir::TypeRef::Unresolved(_) => {
+        lazuli_ir::TypeRef::Many(inner) => {
+            format!("z.array({})", zod_base_for_type_ref(inner, module))
+        }
+        lazuli_ir::TypeRef::EnumRef(name) => zod_base_for_enum_ref(module, name),
+        lazuli_ir::TypeRef::UserDefined(name) => find_enum_decl(module, name)
+            .map(zod_base_for_enum_decl)
+            .unwrap_or_else(|| "z.unknown()".to_owned()),
+        lazuli_ir::TypeRef::Unresolved(raw) => {
+            if !raw.starts_with('@') {
+                let synthetic = lazuli_ir::QualifiedName {
+                    feature: None,
+                    name: raw.clone(),
+                };
+                if let Some(enum_decl) = find_enum_decl(module, &synthetic) {
+                    return zod_base_for_enum_decl(enum_decl);
+                }
+            }
             "z.unknown()".to_owned()
         }
     }
+}
+
+fn zod_base_for_enum_ref(
+    module: &lazuli_ir::Module,
+    name: &lazuli_ir::QualifiedName,
+) -> String {
+    find_enum_decl(module, name)
+        .map(zod_base_for_enum_decl)
+        .unwrap_or_else(|| {
+            format!(
+                "/* TODO: cross-feature enum {}; generated as string until the enum catalog is visible */ z.string()",
+                sanitize_ts_block_comment(&qualified_type_label(name))
+            )
+        })
+}
+
+fn zod_base_for_enum_decl(enum_decl: &lazuli_ir::EnumDecl) -> String {
+    let values = enum_decl
+        .variants
+        .iter()
+        .map(enum_variant_ts_literal)
+        .collect::<Vec<_>>();
+
+    if values.is_empty() {
+        return "z.never()".to_owned();
+    }
+
+    let has_numeric_storage = enum_decl
+        .variants
+        .iter()
+        .any(|variant| matches!(&variant.storage_value, Some(lazuli_ir::StorageValue::Integer(_))));
+    if !has_numeric_storage {
+        return format!("z.enum([{}])", values.join(", "));
+    }
+
+    let literals = values
+        .iter()
+        .map(|value| format!("z.literal({value})"))
+        .collect::<Vec<_>>();
+    if literals.len() == 1 {
+        literals[0].clone()
+    } else {
+        format!("z.union([{}])", literals.join(", "))
+    }
+}
+
+fn zod_base_for_plugin_semantic(name: &str) -> String {
+    match name {
+        "BrazilianCPF" => {
+            "/* @semantic.BrazilianCPF: basic digit-only pattern; checksum validator belongs to the plugin */ z.string().regex(/^\\d{11}$/)".to_owned()
+        }
+        "BrazilianCNPJ" => {
+            "/* @semantic.BrazilianCNPJ: basic digit-only pattern; checksum validator belongs to the plugin */ z.string().regex(/^\\d{14}$/)".to_owned()
+        }
+        other => format!(
+            "/* TODO(@semantic.{}): pluggable Zod validator */ z.string()",
+            sanitize_ts_block_comment(other)
+        ),
+    }
+}
+
+fn qualified_type_label(name: &lazuli_ir::QualifiedName) -> String {
+    match &name.feature {
+        Some(feature) => format!("{feature}.{}", name.name),
+        None => name.name.clone(),
+    }
+}
+
+fn sanitize_ts_block_comment(value: &str) -> String {
+    value.replace("*/", "* /").replace('\r', " ").replace('\n', " ")
 }
 
 fn zod_is_text_base(type_ref: &lazuli_ir::TypeRef) -> bool {
@@ -2748,6 +2842,7 @@ fn zod_is_text_base(type_ref: &lazuli_ir::TypeRef) -> bool {
                 | lazuli_ir::BuiltinType::SemanticUrl
                 | lazuli_ir::BuiltinType::SemanticUuid
                 | lazuli_ir::BuiltinType::SemanticCurrency
+                | lazuli_ir::BuiltinType::SemanticPluginType { .. }
                 | lazuli_ir::BuiltinType::CapSecret
         ) | lazuli_ir::TypeRef::EnumRef(_)
             | lazuli_ir::TypeRef::Capability(
@@ -11418,6 +11513,117 @@ mod tests {
     }
 
     #[test]
+    fn rich_zod_base_emits_enum_catalog() {
+        let (_feature, module) = enum_sdk_fixture(false, false);
+        let schema = crate::zod_base_for_type_ref(
+            &lazuli_ir::TypeRef::EnumRef(local_qn("ItemType")),
+            &module,
+        );
+
+        assert_eq!(schema, "z.enum([\"doc\", \"decision\"])");
+    }
+
+    #[test]
+    fn rich_zod_base_emits_core_semantic_validators() {
+        let (_feature, module) = enum_sdk_fixture(false, false);
+        let cases = [
+            (
+                lazuli_ir::BuiltinType::SemanticEmail,
+                "z.string().email()",
+            ),
+            (
+                lazuli_ir::BuiltinType::SemanticPhone,
+                "/* TODO(@semantic.Phone): replace with pluggable locale-aware validator */ z.string().min(10).max(15)",
+            ),
+            (
+                lazuli_ir::BuiltinType::SemanticUuid,
+                "z.string().uuid()",
+            ),
+            (
+                lazuli_ir::BuiltinType::SemanticUrl,
+                "z.string().url()",
+            ),
+        ];
+
+        for (builtin, expected) in cases {
+            assert_eq!(
+                crate::zod_base_for_type_ref(&lazuli_ir::TypeRef::Builtin(builtin), &module),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn rich_zod_base_emits_plugin_semantic_digit_patterns() {
+        let (_feature, module) = enum_sdk_fixture(false, false);
+        let cpf = lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticPluginType {
+            plugin: "@plugin/scalars-br".to_owned(),
+            name: "BrazilianCPF".to_owned(),
+            carrier: Box::new(lazuli_ir::BuiltinType::Text),
+            validator: "ValidateCPF".to_owned(),
+        });
+        let cnpj = lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticPluginType {
+            plugin: "@plugin/scalars-br".to_owned(),
+            name: "BrazilianCNPJ".to_owned(),
+            carrier: Box::new(lazuli_ir::BuiltinType::Text),
+            validator: "ValidateCNPJ".to_owned(),
+        });
+        let other = lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticPluginType {
+            plugin: "@plugin/scalars-br".to_owned(),
+            name: "BrazilianCEP".to_owned(),
+            carrier: Box::new(lazuli_ir::BuiltinType::Text),
+            validator: "ValidateCEP".to_owned(),
+        });
+
+        assert_eq!(
+            crate::zod_base_for_type_ref(&cpf, &module),
+            "/* @semantic.BrazilianCPF: basic digit-only pattern; checksum validator belongs to the plugin */ z.string().regex(/^\\d{11}$/)"
+        );
+        assert_eq!(
+            crate::zod_base_for_type_ref(&cnpj, &module),
+            "/* @semantic.BrazilianCNPJ: basic digit-only pattern; checksum validator belongs to the plugin */ z.string().regex(/^\\d{14}$/)"
+        );
+        assert_eq!(
+            crate::zod_base_for_type_ref(&other, &module),
+            "/* TODO(@semantic.BrazilianCEP): pluggable Zod validator */ z.string()"
+        );
+    }
+
+    #[test]
+    fn feature_zod_emits_enum_and_semantic_command_schema() {
+        let (mut feature, mut module) = enum_sdk_fixture(false, false);
+        feature.commands.push(command_with_typed_input(
+            "create",
+            vec![
+                typed_slot(
+                    "type",
+                    lazuli_ir::TypeRef::EnumRef(local_qn("ItemType")),
+                ),
+                typed_slot(
+                    "email",
+                    lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticEmail),
+                ),
+            ],
+        ));
+        module.features = vec![feature.clone()];
+
+        let output = crate::emit_feature_zod_ts(&feature, &module);
+
+        assert!(
+            output.contains("type: z.enum([\"doc\", \"decision\"]),"),
+            "expected enum zod schema, got:\n{output}"
+        );
+        assert!(
+            output.contains("email: z.string().email(),"),
+            "expected email zod schema, got:\n{output}"
+        );
+        assert!(
+            !output.contains("type: z.unknown()"),
+            "enum slot must not fall back to unknown, got:\n{output}"
+        );
+    }
+
+    #[test]
     fn negative_unreferenced_enum_not_emitted() {
         let (feature, module) = enum_sdk_fixture(true, false);
         let output = emit_feature_sdk_ts(&feature, &module);
@@ -11791,6 +11997,52 @@ mod tests {
             pii: None,
             owner_axis: None,
             span_ref: None,
+        }
+    }
+
+    fn typed_slot(name: &str, type_ref: lazuli_ir::TypeRef) -> lazuli_ir::TypedSlot {
+        lazuli_ir::TypedSlot {
+            name: name.to_owned(),
+            type_ref,
+            required: true,
+            constraints: lazuli_ir::FieldConstraints::default(),
+        }
+    }
+
+    fn command_with_typed_input(
+        name: &str,
+        slots: Vec<lazuli_ir::TypedSlot>,
+    ) -> lazuli_ir::Command {
+        lazuli_ir::Command {
+            name: name.to_owned(),
+            public_contract: None,
+            kind: lazuli_ir::CommandKind::Update,
+            route: vec![],
+            input: lazuli_ir::CommandInput::Typed(slots),
+            target: None,
+            lets: vec![],
+            effect: lazuli_ir::CommandEffect::None,
+            policy: lazuli_ir::PolicyRef::None,
+            policy_expr: None,
+            policy_when_denied: None,
+            emits: vec![],
+            rate_limit: None,
+            audit: None,
+            approval: None,
+            invalidates: vec![],
+            external_calls: vec![],
+            timeout: None,
+            retry: None,
+            idempotency: None,
+            write_window: None,
+            deprecated: None,
+            handler: None,
+            tests: None,
+            triggers: vec![],
+            synthesized_from_cap_file: None,
+            previous_names: vec![],
+            span_ref: None,
+            owner_scope_sql: None,
         }
     }
 
