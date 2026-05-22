@@ -33,3 +33,4 @@ export {
 export type { ScalarFixtureProvider, ScalarFixtures } from "./scalars.js";
 export { toID, tryID, formatMoney } from "./types.js";
 export type { ID, Json, Money, Time } from "./types.js";
+export { messageForLazuliError, type LazuliErrorMessage } from "./message-for-error.js";
