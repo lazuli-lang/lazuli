@@ -1,6 +1,6 @@
 # Wave A.7 Status
 
-Commit hash: `4362068`
+Implementation commit hash: `bd27711`
 
 ## Edit sites
 
