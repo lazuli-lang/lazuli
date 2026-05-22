@@ -984,6 +984,13 @@ pub struct EnumVariantDecl {
     /// `None` when no `= <value>` is authored. `Some(Integer(_))` for
     /// `<name> = <number>`; `Some(String(_))` for `<name> = "<text>"`.
     pub storage: Option<EnumStorageValueDecl>,
+    /// Optional enum metadata parsed from
+    /// `<variant>: label @translation.<key>, hint @translation.<key>, icon "<name>"`.
+    /// Stored as opaque strings; validation against translation/icon catalogs
+    /// belongs to app tooling/doctor, not the parser.
+    pub label_key: Option<String>,
+    pub hint_key: Option<String>,
+    pub icon_key: Option<String>,
     pub span: Span,
 }
 

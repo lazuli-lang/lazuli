@@ -52,6 +52,9 @@ fn emit_lifecycle_enum(
             .map(|state| ir::EnumVariant {
                 name: pascal_case(&state.name),
                 storage_value: Some(ir::StorageValue::String(state.name.clone())),
+                label_key: None,
+                hint_key: None,
+                icon_key: None,
                 previous_names: Vec::new(),
             })
             .collect(),

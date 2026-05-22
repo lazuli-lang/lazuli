@@ -34,9 +34,9 @@ feature customer
 
     public contract CustomerTier as v1
     enum CustomerTier
-      free
-      pro
-      enterprise
+      free: label @translation.customer_tier_free, icon "gift"
+      pro: label @translation.customer_tier_pro, hint @translation.customer_tier_pro_hint, icon "briefcase"
+      enterprise: label @translation.customer_tier_enterprise, hint @translation.customer_tier_enterprise_hint, icon "building-2"
 
     enum CustomerSource
       manual
@@ -316,6 +316,26 @@ feature customer
     key capture_lead_signin_required
       pt-BR "Para capturar um lead, entre na sua conta primeiro."
       en-US "Please sign in to capture a lead."
+
+    key customer_tier_free
+      pt-BR "Gratuito"
+      en-US "Free"
+
+    key customer_tier_pro
+      pt-BR "Pro"
+      en-US "Pro"
+
+    key customer_tier_pro_hint
+      pt-BR "Plano para equipes em crescimento"
+      en-US "Plan for growing teams"
+
+    key customer_tier_enterprise
+      pt-BR "Enterprise"
+      en-US "Enterprise"
+
+    key customer_tier_enterprise_hint
+      pt-BR "Plano com controles e suporte avançados"
+      en-US "Plan with advanced controls and support"
 
   command capture_lead
     input

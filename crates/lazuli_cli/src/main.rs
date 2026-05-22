@@ -1637,6 +1637,7 @@ fn write_referenced_enum_aliases(
         }
         let type_name = pascal_case(&enum_decl.name);
         let const_name = enum_value_constant_name(&enum_decl.name);
+        let options_name = enum_option_constant_name(&enum_decl.name);
         let values = enum_decl
             .variants
             .iter()
@@ -1645,6 +1646,9 @@ fn write_referenced_enum_aliases(
             .join(", ");
         writeln!(s, "export const {const_name} = [{values}] as const;").ok();
         writeln!(s, "export type {type_name} = typeof {const_name}[number];").ok();
+        if enum_has_option_metadata(enum_decl) {
+            write_enum_options_alias(s, enum_decl, &type_name, &options_name);
+        }
         emitted = true;
     }
     if emitted {
@@ -2671,12 +2675,69 @@ fn enum_value_constant_name(type_ref: &str) -> String {
     out
 }
 
+fn enum_option_constant_name(type_ref: &str) -> String {
+    let mut out = enum_value_constant_name(type_ref);
+    if out.ends_with("_VALUES") {
+        let prefix_len = out.len() - "_VALUES".len();
+        out.truncate(prefix_len);
+        out.push_str("_OPTIONS");
+    }
+    out
+}
+
 fn enum_variant_ts_literal(variant: &lazuli_ir::EnumVariant) -> String {
     match &variant.storage_value {
         Some(lazuli_ir::StorageValue::String(value)) => format_ts_string(value),
         Some(lazuli_ir::StorageValue::Integer(value)) => value.to_string(),
         None => format_ts_string(&variant.name.to_ascii_lowercase()),
     }
+}
+
+fn enum_has_option_metadata(enum_decl: &lazuli_ir::EnumDecl) -> bool {
+    enum_decl.variants.iter().any(|variant| {
+        variant.label_key.is_some() || variant.hint_key.is_some() || variant.icon_key.is_some()
+    })
+}
+
+fn write_enum_options_alias(
+    s: &mut String,
+    enum_decl: &lazuli_ir::EnumDecl,
+    type_name: &str,
+    options_name: &str,
+) {
+    let label_required = enum_decl
+        .variants
+        .iter()
+        .all(|variant| variant.label_key.is_some());
+    let label_prop = if label_required {
+        "labelKey: string;"
+    } else {
+        "labelKey?: string;"
+    };
+    writeln!(s, "export const {options_name}: ReadonlyArray<{{").ok();
+    writeln!(s, "  value: {type_name};").ok();
+    writeln!(s, "  {label_prop}").ok();
+    writeln!(s, "  hintKey?: string;").ok();
+    writeln!(s, "  iconKey?: string;").ok();
+    writeln!(s, "}}> = [").ok();
+    for variant in &enum_decl.variants {
+        writeln!(s, "  {},", enum_variant_option_ts_literal(variant)).ok();
+    }
+    writeln!(s, "];").ok();
+}
+
+fn enum_variant_option_ts_literal(variant: &lazuli_ir::EnumVariant) -> String {
+    let mut props = vec![format!("value: {}", enum_variant_ts_literal(variant))];
+    if let Some(label_key) = &variant.label_key {
+        props.push(format!("labelKey: {}", format_ts_string(label_key)));
+    }
+    if let Some(hint_key) = &variant.hint_key {
+        props.push(format!("hintKey: {}", format_ts_string(hint_key)));
+    }
+    if let Some(icon_key) = &variant.icon_key {
+        props.push(format!("iconKey: {}", format_ts_string(icon_key)));
+    }
+    format!("{{ {} }}", props.join(", "))
 }
 
 fn format_ts_string(value: &str) -> String {
@@ -11393,6 +11454,44 @@ mod tests {
     }
 
     #[test]
+    fn enum_metadata_options_golden_emits_typed_literal() {
+        let (mut feature, mut module) = enum_sdk_fixture(false, false);
+        let item_type = feature
+            .enums
+            .iter_mut()
+            .find(|decl| decl.name == "ItemType")
+            .expect("ItemType enum");
+        item_type.variants[0].label_key = Some("item_doc".to_owned());
+        item_type.variants[0].icon_key = Some("file-text".to_owned());
+        item_type.variants[1].label_key = Some("item_decision".to_owned());
+        item_type.variants[1].hint_key = Some("item_decision_hint".to_owned());
+        module.features = vec![feature.clone()];
+
+        let output = emit_feature_sdk_ts(&feature, &module);
+
+        assert!(output.contains("export const ITEM_TYPE_VALUES = [\"doc\", \"decision\"] as const;"));
+        assert!(output.contains("export type ItemType = typeof ITEM_TYPE_VALUES[number];"));
+        assert!(output.contains(
+            "export const ITEM_TYPE_OPTIONS: ReadonlyArray<{\n  value: ItemType;\n  labelKey: string;\n  hintKey?: string;\n  iconKey?: string;\n}> = ["
+        ));
+        assert!(output.contains(
+            "  { value: \"doc\", labelKey: \"item_doc\", iconKey: \"file-text\" },"
+        ));
+        assert!(output.contains(
+            "  { value: \"decision\", labelKey: \"item_decision\", hintKey: \"item_decision_hint\" },"
+        ));
+    }
+
+    #[test]
+    fn enum_without_metadata_golden_omits_options() {
+        let (feature, module) = enum_sdk_fixture(false, false);
+        let output = emit_feature_sdk_ts(&feature, &module);
+
+        assert!(output.contains("export const ITEM_TYPE_VALUES"));
+        assert!(!output.contains("ITEM_TYPE_OPTIONS"));
+    }
+
+    #[test]
     fn positive_enum_field_uses_lifted_type() {
         let (feature, module) = enum_sdk_fixture(false, false);
         let output = emit_feature_sdk_ts(&feature, &module);
@@ -11645,11 +11744,17 @@ mod tests {
                 lazuli_ir::EnumVariant {
                     name: "Doc".to_owned(),
                     storage_value: None,
+                    label_key: None,
+                    hint_key: None,
+                    icon_key: None,
                     previous_names: vec![],
                 },
                 lazuli_ir::EnumVariant {
                     name: "Decision".to_owned(),
                     storage_value: Some(lazuli_ir::StorageValue::String("decision".to_owned())),
+                    label_key: None,
+                    hint_key: None,
+                    icon_key: None,
                     previous_names: vec![],
                 },
             ],
@@ -11663,6 +11768,9 @@ mod tests {
                 variants: vec![lazuli_ir::EnumVariant {
                     name: "Legacy".to_owned(),
                     storage_value: None,
+                    label_key: None,
+                    hint_key: None,
+                    icon_key: None,
                     previous_names: vec![],
                 }],
                 previous_names: vec![],
