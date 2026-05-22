@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Bring the local dev object store up and create the app bucket.
+# Idempotent: re-running is safe (mc mb -p / anonymous set are no-ops if
+# the bucket / policy already exist).
+#
+# Usage: bash scripts/bootstrap-storage.sh
+
+set -euo pipefail
+
+# shellcheck disable=SC1091
+if [ -f .env ]; then
+  set -a
+  . ./.env
+  set +a
+fi
+
+BUCKET="${S3_BUCKET_DEFAULT:-{{app_slug}}}"
+ENDPOINT="${S3_ENDPOINT:-http://localhost:9000}"
+ACCESS_KEY="${S3_ACCESS_KEY_ID:-{{app_slug}}}"
+SECRET_KEY="${S3_SECRET_ACCESS_KEY:-{{app_slug}}_dev_password}"
+
+echo "→ starting docker-compose minio service"
+docker compose --profile full up -d minio
+
+echo "→ waiting for MinIO to accept connections at $ENDPOINT"
+for i in $(seq 1 30); do
+  if curl -fsS "$ENDPOINT/minio/health/live" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+
+echo "→ ensuring bucket $BUCKET exists"
+docker compose exec -T minio sh -c "
+  mc alias set local '$ENDPOINT' '$ACCESS_KEY' '$SECRET_KEY' >/dev/null &&
+  mc mb -p local/'$BUCKET' >/dev/null 2>&1 || true &&
+  mc anonymous set download local/'$BUCKET' >/dev/null
+"
+
+echo "✓ object store ready: bucket=$BUCKET endpoint=$ENDPOINT"

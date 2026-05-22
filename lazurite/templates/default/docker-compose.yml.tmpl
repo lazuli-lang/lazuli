@@ -1,0 +1,54 @@
+# Local dev stack for {{app_name}}. Production typically uses managed Postgres
+# + managed S3-protocol object storage; this compose file targets first-time
+# local boot. `docker compose --profile full up -d` brings both services.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: {{app_slug}}-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-{{app_slug}}}
+      POSTGRES_USER: ${POSTGRES_USER:-{{app_slug}}}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-{{app_slug}}_dev_password}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-{{app_slug}}} -d ${POSTGRES_DB:-{{app_slug}}}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # MinIO speaks the S3 protocol locally so @plugin/object-store can sign and
+  # serve uploads without an AWS account. Production swaps in a managed
+  # provider (Backblaze, Hetzner, AWS S3) by pointing S3_* env vars elsewhere.
+  minio:
+    image: minio/minio:latest
+    container_name: {{app_slug}}-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-{{app_slug}}}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-{{app_slug}}_dev_password}
+      # minio:latest defaults _FILE vars to Docker-secret paths under
+      # /run/secrets/; if those files don't exist the cluster boots with
+      # unknown root credentials and every `mc admin` call returns
+      # "Access Denied". Empty strings here force MINIO_ROOT_USER/PASSWORD
+      # above to win.
+      MINIO_ROOT_USER_FILE: ""
+      MINIO_ROOT_PASSWORD_FILE: ""
+      MINIO_ACCESS_KEY_FILE: ""
+      MINIO_SECRET_KEY_FILE: ""
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+    profiles:
+      - full
+
+volumes:
+  postgres_data:
+  minio_data:

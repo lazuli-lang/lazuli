@@ -5,6 +5,9 @@ Lazuli app scaffolded with `lazuli new`.
 ## Getting started
 
 ```bash
+cp .env.example .env
+docker compose up -d postgres                    # database
+bash scripts/bootstrap-storage.sh                # MinIO + bucket (needed once @cap.File enters the app)
 lazuli doctor .
 lazuli generate go --out dist/go
 go work sync
