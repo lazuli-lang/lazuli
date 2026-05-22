@@ -1057,6 +1057,7 @@ fn generate_ts(input: &Path, output: Option<&Path>, check: bool) -> Result<()> {
         )
     })?;
     let module = build_module_from_path(input)?;
+    let lzx_bundle = collect_lzx_bundle(input);
 
     let mut files: Vec<lazuli_codegen_ts::GeneratedFile> = Vec::new();
 
@@ -1081,14 +1082,24 @@ fn generate_ts(input: &Path, output: Option<&Path>, check: bool) -> Result<()> {
 
     files.extend(
         lazuli_codegen_ts::lzx_audience_slot::emit_route_guard_artifacts(
-            module.app.as_ref(),
-            &[],
-            &[],
-            &[],
+            module.app.as_ref().or(lzx_bundle.app.as_ref()),
+            &lzx_bundle.routes,
+            &lzx_bundle.surfaces,
+            &lzx_bundle.experiences,
             &module.features,
             lazuli_codegen_ts::lzx_audience_slot::RouteGuardTarget::Web,
         ),
     );
+    files.push(lazuli_codegen_ts::GeneratedFile {
+        path: "dist/ts-web/tests/fixtures.gen.ts".to_owned(),
+        contents: lazuli_codegen_ts::playwright::emit_playwright_fixtures(
+            &module,
+            &lzx_bundle.routes,
+            &lzx_bundle.surfaces,
+            &lzx_bundle.experiences,
+            &playwright_fixture_config(&project_root, manifest.as_ref()),
+        ),
+    });
 
     // Per-feature: SDK (audience-filtered if frontend declares audiences),
     // Zod schemas, .lzx view hooks (one file per audience/view tuple),
@@ -3976,6 +3987,199 @@ fn attach_lzx_surfaces(input: &Path, module: &mut lazuli_ir::Module) {
             }
         }
     }
+}
+
+#[derive(Default)]
+struct LzxBundle {
+    app: Option<lazuli_ir::AppManifest>,
+    routes: Vec<lazuli_ir::AppRoute>,
+    experiences: Vec<lazuli_ir::Experience>,
+    surfaces: Vec<lazuli_ir::PlatformSurface>,
+}
+
+fn collect_lzx_bundle(input: &Path) -> LzxBundle {
+    let mut files = Vec::new();
+    if input.is_dir() {
+        collect_package_lzx_files(input, &mut files);
+    } else if input.extension().and_then(|s| s.to_str()) == Some("lzx") {
+        files.push(input.to_path_buf());
+    }
+    files.sort();
+
+    let mut bundle = LzxBundle::default();
+    for path in files {
+        let source = match fs::read_to_string(&path) {
+            Ok(source) => source,
+            Err(err) => {
+                eprintln!("lazuli: skipping {}: read failed: {:?}", path.display(), err);
+                continue;
+            }
+        };
+        let document = match lazuli_syntax::parse_lzx_document(&source) {
+            Ok(document) => document,
+            Err(err) => {
+                eprintln!(
+                    "lazuli: skipping {}: lzx parse failed: {:?}",
+                    path.display(),
+                    err
+                );
+                continue;
+            }
+        };
+        let lowered = lazuli_analyzer::lower_lzx_document(&document);
+        if bundle.app.is_none() {
+            bundle.app = lowered.app;
+        }
+        bundle.routes.extend(lowered.routes);
+        bundle.experiences.extend(lowered.experiences);
+        bundle.surfaces.extend(lowered.surfaces);
+    }
+    bundle
+}
+
+fn collect_package_lzx_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    const SKIP: &[&str] = &[
+        ".git",
+        ".hg",
+        ".svn",
+        ".lazuli",
+        "dist",
+        "node_modules",
+        "target",
+    ];
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if SKIP.iter().any(|s| *s == name) {
+                continue;
+            }
+            collect_package_lzx_files(&path, out);
+        } else if path.extension().and_then(|s| s.to_str()) == Some("lzx") {
+            out.push(path);
+        }
+    }
+}
+
+fn playwright_fixture_config(
+    project_root: &Path,
+    manifest: Option<&lazurite_manifest::Manifest>,
+) -> lazuli_codegen_ts::playwright::PlaywrightFixtureConfig {
+    let Some(frontend) = manifest
+        .and_then(|manifest| {
+            manifest.frontends.values().find(|frontend| {
+                matches!(
+                    frontend.target,
+                    lazurite_manifest::FrontendTarget::TanstackVite
+                )
+            })
+        })
+        .and_then(|frontend| frontend.source.as_deref())
+    else {
+        return lazuli_codegen_ts::playwright::PlaywrightFixtureConfig::without_helpers();
+    };
+
+    let helper_dir = project_root.join(frontend).join("e2e").join("helpers");
+    let api = helper_dir.join("api.ts");
+    let session = helper_dir.join("session.ts");
+    if !api.is_file() || !session.is_file() {
+        return lazuli_codegen_ts::playwright::PlaywrightFixtureConfig::without_helpers();
+    }
+
+    let from_dir = project_root.join("dist").join("ts-web").join("tests");
+    let Some(api_import) = relative_ts_import(&from_dir, &api) else {
+        return lazuli_codegen_ts::playwright::PlaywrightFixtureConfig::without_helpers();
+    };
+    let Some(session_import) = relative_ts_import(&from_dir, &session) else {
+        return lazuli_codegen_ts::playwright::PlaywrightFixtureConfig::without_helpers();
+    };
+
+    let onboarding = helper_dir.join("onboarding-progress.ts");
+    let (lifecycle_import, lifecycle_seeders) = if onboarding.is_file() {
+        let contents = fs::read_to_string(&onboarding).unwrap_or_default();
+        let import = relative_ts_import(&from_dir, &onboarding);
+        let seeders = ["host", "traveler", "operator"]
+            .into_iter()
+            .filter_map(|role| {
+                let function_name = format!("progress{}To", playwright_fixture_pascal_case(role));
+                if contents.contains(&format!("function {function_name}"))
+                    || contents.contains(&format!("function* {function_name}"))
+                {
+                    Some(lazuli_codegen_ts::playwright::LifecycleSeeder {
+                        role: role.to_owned(),
+                        function_name,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+        (import, seeders)
+    } else {
+        (None, Vec::new())
+    };
+
+    lazuli_codegen_ts::playwright::PlaywrightFixtureConfig {
+        helpers: Some(lazuli_codegen_ts::playwright::PlaywrightFixtureHelperImports {
+            api_import,
+            session_import,
+            lifecycle_import,
+            lifecycle_seeders,
+        }),
+    }
+}
+
+fn relative_ts_import(from_dir: &Path, target_file: &Path) -> Option<String> {
+    let from = normalized_components(from_dir);
+    let target = normalized_components(target_file);
+    let mut common = 0usize;
+    while common < from.len() && common < target.len() && from[common] == target[common] {
+        common += 1;
+    }
+    if common == 0 {
+        return None;
+    }
+
+    let mut parts = Vec::new();
+    for _ in common..from.len() {
+        parts.push("..".to_owned());
+    }
+    parts.extend(target[common..].iter().cloned());
+    let mut import = parts.join("/");
+    if let Some(stripped) = import.strip_suffix(".ts") {
+        import = stripped.to_owned();
+    } else if let Some(stripped) = import.strip_suffix(".tsx") {
+        import = stripped.to_owned();
+    }
+    if !import.starts_with('.') {
+        import = format!("./{import}");
+    }
+    Some(import)
+}
+
+fn normalized_components(path: &Path) -> Vec<String> {
+    path.components()
+        .map(|component| component.as_os_str().to_string_lossy().replace('\\', "/"))
+        .collect()
+}
+
+fn playwright_fixture_pascal_case(value: &str) -> String {
+    let mut out = String::new();
+    for word in value.split(|ch: char| ch == '_' || ch == '-' || ch == ' ') {
+        if word.is_empty() {
+            continue;
+        }
+        let mut chars = word.chars();
+        if let Some(first) = chars.next() {
+            out.extend(first.to_uppercase());
+            out.push_str(&chars.as_str().to_ascii_lowercase());
+        }
+    }
+    out
 }
 
 fn build_module_with_source_from_path(
