@@ -16,14 +16,14 @@ use crate::ast::{
     EventGroup, EventVariantFieldDecl, EventVariantKindAst, FamilyTokenAst, FeatureDefaults,
     FeatureErrorExposeRuleDecl, FeatureErrorMessageDecl, FeatureErrorsDecl, FeatureGatesAst,
     FeatureSkeleton, FieldConstraintsDecl, FieldPoliciesDecl, FieldPolicyDecl,
-    FilterCardinalityAst, FilterDeclAst, GateDirectiveAst, HttpMethod, InvalidatesDecl,
+    FilterCardinalityAst, FilterDeclAst, FlashSpecAst, GateDirectiveAst, HttpMethod, InvalidatesDecl,
     InvariantDecl, Job, JobBody, JobDeclarativeTyped, JobExternalCall, JobExternalCallArg,
     JobFanout, JobHandler, JobRetry, JobTrigger, LetBindingDecl, ListQueryDecl,
     LocaleNegotiateDecl, LookupKey, LookupQueryDecl, LzxAction, LzxApp, LzxAudience, LzxDocument,
     LzxErrorPage, LzxExperience, LzxExperienceView, LzxExtensionOrder, LzxExtensionSlot,
     LzxPlatform, LzxPlatformView, LzxRequiresLifecycle, LzxResumeArm, LzxResumeArmKind,
     LzxResumeRouter, LzxRoute, LzxRouteGuardDefaults, LzxSurface, LzxViewExtension, LzxViewGuard,
-    MotionAst, Notification, NotificationDigest, NotificationThrottle, PackageSkeleton,
+    MotionAst, Notification, NotificationDigest, NotificationThrottle, OnSuccessSpecAst, PackageSkeleton,
     PermissionDeclAst, PlanBlockAst, PlanFeatureRefAst, PlanLimitRefAst, PlanTrialAst,
     PoliciesDecl, PolicyAtomAst, PolicyCategoryDecl, PolicyExprAst, PublicContractDeclAst,
     QueryDecl, QuerySearch, RateLimitByEnvAst, RateLimitSpecAst, RecordDecl, ReportColumnAst,
@@ -1974,6 +1974,23 @@ fn parse_view_block(
             ));
         }
 
+        if trimmed == "on_success" {
+            if state.on_success.is_some() {
+                return Err(line_error(line, "view declares `on_success` at most once"));
+            }
+            let (on_success, next) = parse_on_success_block(lines, i, body_indent)?;
+            last_end = on_success.span.end;
+            state.on_success = Some(on_success);
+            i = next;
+            continue;
+        }
+        if trimmed.starts_with("on_success ") {
+            return Err(line_error(
+                line,
+                "`on_success` is a block keyword and does not accept inline content",
+            ));
+        }
+
         let mut matched = false;
         for (prefix, handler) in view_body_handlers() {
             if let Some(rest) = trimmed.strip_prefix(prefix) {
@@ -1986,7 +2003,7 @@ fn parse_view_block(
             return Err(line_error_owned(
                 line,
                 format!(
-                    "view body lines are `source`, `submit`, `columns`, `fields`, `search`, `filter`, `sections`, `cells`, `route`, or `actions` declarations (got `{}`)",
+                    "view body lines are `source`, `submit`, `on_success`, `columns`, `fields`, `search`, `filter`, `sections`, `cells`, `route`, or `actions` declarations (got `{}`)",
                     trimmed
                 ),
             ));
@@ -1998,6 +2015,12 @@ fn parse_view_block(
     let span = Span::new(header.start, last_end);
     let view = match kind {
         "list" => {
+            if state.on_success.is_some() {
+                return Err(line_error(
+                    header,
+                    "`on_success` is valid only in submit-backed `view create` bodies",
+                ));
+            }
             let selection = assemble_selection_decl(&state, span);
             ViewAst::List(ViewListAst {
                 name,
@@ -2025,6 +2048,12 @@ fn parse_view_block(
         }
         "detail" => {
             reject_list_only_view_body(header, &state, "view detail")?;
+            if state.on_success.is_some() {
+                return Err(line_error(
+                    header,
+                    "`on_success` is valid only in submit-backed `view create` bodies",
+                ));
+            }
             ViewAst::Detail(ViewDetailAst {
                 name,
                 route,
@@ -2053,6 +2082,7 @@ fn parse_view_block(
                         "view create requires a `submit <feature>.command.<name>` line",
                     )
                 })?,
+                on_success: state.on_success,
                 fields: state.fields,
                 cells: state.cells,
                 redacted_fields: state.redacted_fields,
@@ -2080,6 +2110,7 @@ struct ViewBodyState {
     actions: Vec<String>,
     route_params: Vec<RouteParamAst>,
     drawer: Option<DrawerSubViewAst>,
+    on_success: Option<OnSuccessSpecAst>,
     sort: Option<SortDeclAst>,
     selection: Option<SelectionDeclAst>,
     bulk_actions: Vec<String>,
@@ -2129,6 +2160,140 @@ fn parse_view_submit_line(
     }
     state.submit = Some(rest.to_owned());
     Ok(())
+}
+
+fn parse_on_success_block(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    parent_indent: usize,
+) -> Result<(OnSuccessSpecAst, usize), ParseError> {
+    let header = &lines[start];
+    let child_indent = parent_indent + 2;
+    let mut back = false;
+    let mut redirect: Option<String> = None;
+    let mut flash: Option<FlashSpecAst> = None;
+    let mut invalidates: Vec<InvalidatesDecl> = Vec::new();
+    let mut replace = false;
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let raw = line.text.trim_start();
+        if is_trivia(raw) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= parent_indent {
+            break;
+        }
+        if line.indent != child_indent {
+            return Err(line_error(
+                line,
+                "`on_success` children use one indentation level deeper than the block header",
+            ));
+        }
+
+        let trimmed = strip_inline_comment(raw).trim_end();
+        if trimmed == "back" {
+            if back {
+                return Err(line_error(line, "`on_success.back` is declared at most once"));
+            }
+            back = true;
+        } else if let Some(rest) = trimmed.strip_prefix("redirect ") {
+            if redirect.is_some() {
+                return Err(line_error(
+                    line,
+                    "`on_success.redirect` is declared at most once",
+                ));
+            }
+            redirect = Some(parse_on_success_redirect(line, rest)?);
+        } else if let Some(rest) = trimmed.strip_prefix("flash ") {
+            if flash.is_some() {
+                return Err(line_error(
+                    line,
+                    "`on_success.flash` is declared at most once",
+                ));
+            }
+            flash = Some(parse_on_success_flash(line, rest)?);
+        } else if let Some(rest) = trimmed.strip_prefix("invalidates ") {
+            invalidates.push(parse_invalidates_entry(line, rest)?);
+        } else if trimmed == "replace" {
+            if replace {
+                return Err(line_error(
+                    line,
+                    "`on_success.replace` is declared at most once",
+                ));
+            }
+            replace = true;
+        } else {
+            return Err(line_error(
+                line,
+                "`on_success` children are `back`, `redirect \"<path>\"`, `flash <success|error|info> @translation.<key>`, `invalidates query.<name>`, or `replace`",
+            ));
+        }
+        last_end = line.end;
+        i += 1;
+    }
+
+    Ok((
+        OnSuccessSpecAst {
+            back,
+            redirect,
+            flash,
+            invalidates,
+            replace,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+fn parse_on_success_redirect(
+    line: &SourceLine<'_>,
+    rest: &str,
+) -> Result<String, ParseError> {
+    let trimmed = rest.trim();
+    let Some(after_open) = trimmed.strip_prefix('"') else {
+        return Err(line_error(
+            line,
+            "`on_success.redirect` target must be a quoted string",
+        ));
+    };
+    let Some(close_idx) = after_open.find('"') else {
+        return Err(line_error(
+            line,
+            "`on_success.redirect` target is missing the closing quote",
+        ));
+    };
+    let value = after_open[..close_idx].to_owned();
+    if !after_open[close_idx + 1..].trim().is_empty() {
+        return Err(line_error(
+            line,
+            "`on_success.redirect` accepts exactly one quoted string",
+        ));
+    }
+    Ok(value)
+}
+
+fn parse_on_success_flash(
+    line: &SourceLine<'_>,
+    rest: &str,
+) -> Result<FlashSpecAst, ParseError> {
+    let mut parts = rest.trim().splitn(2, char::is_whitespace);
+    let kind = parts.next().unwrap_or("");
+    if !matches!(kind, "success" | "error" | "info") {
+        return Err(line_error(
+            line,
+            "`on_success.flash` kind must be `success`, `error`, or `info`",
+        ));
+    }
+    let message_key = parse_translation_key_token(line, parts.next().unwrap_or(""))?;
+    Ok(FlashSpecAst {
+        kind: kind.to_owned(),
+        message_key,
+        span: Span::new(line.start, line.end),
+    })
 }
 
 fn parse_view_columns_line(
@@ -20054,6 +20219,79 @@ surface slug web
         let source = "surface slug web\n  audience admin\n    view create bad\n      fields key\n";
         let err = parse_surface_document(source).unwrap_err();
         assert!(err.to_string().contains("view create requires"));
+    }
+
+    #[test]
+    fn view_create_parses_on_success_block() {
+        let source = r#"surface host web
+  audience admin
+    view create edit_host
+      submit host.command.update_host_basic_details
+      fields title
+      on_success
+        back
+        redirect "/host/property/{result.id}"
+        flash success @translation.saved
+        invalidates query.lookup_my_host
+        replace
+"#;
+        let surface = parse_surface_document(source).expect("parses on_success");
+        let create = match &surface.audiences[0].views[0] {
+            ViewAst::Create(v) => v,
+            other => panic!("expected create, got {other:?}"),
+        };
+        let on_success = create.on_success.as_ref().expect("on_success");
+        assert!(on_success.back);
+        assert_eq!(
+            on_success.redirect.as_deref(),
+            Some("/host/property/{result.id}")
+        );
+        let flash = on_success.flash.as_ref().expect("flash");
+        assert_eq!(flash.kind, "success");
+        assert_eq!(flash.message_key.key, "saved");
+        assert_eq!(on_success.invalidates.len(), 1);
+        assert_eq!(on_success.invalidates[0].query, "query.lookup_my_host");
+        assert!(on_success.replace);
+    }
+
+    #[test]
+    fn view_create_parses_on_success_redirect_only() {
+        let source = r#"surface host web
+  audience admin
+    view create create_property
+      submit host.command.create_property
+      fields title
+      on_success
+        redirect "/host/property/{result.id}"
+"#;
+        let surface = parse_surface_document(source).expect("parses redirect-only on_success");
+        let create = match &surface.audiences[0].views[0] {
+            ViewAst::Create(v) => v,
+            other => panic!("expected create, got {other:?}"),
+        };
+        let on_success = create.on_success.as_ref().expect("on_success");
+        assert!(!on_success.back);
+        assert_eq!(
+            on_success.redirect.as_deref(),
+            Some("/host/property/{result.id}")
+        );
+        assert!(on_success.flash.is_none());
+        assert!(on_success.invalidates.is_empty());
+        assert!(!on_success.replace);
+    }
+
+    #[test]
+    fn on_success_rejects_invalid_flash_kind() {
+        let source = r#"surface host web
+  audience admin
+    view create edit_host
+      submit host.command.update_host_basic_details
+      fields title
+      on_success
+        flash warning @translation.saved
+"#;
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("kind must be"));
     }
 
     #[test]

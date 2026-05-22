@@ -17,6 +17,14 @@ import type { CommandSpec, QuerySpec } from "./spec.js";
 
 export interface LazuliRouter {
   navigate(to: string | { to: string; replace?: boolean }): unknown;
+  history?: {
+    back(): unknown;
+  };
+}
+
+export interface LazuliFlash {
+  readonly kind: "success" | "error" | "info" | (string & {});
+  readonly messageKey: string;
 }
 
 export interface LazuliClientOptions {
@@ -41,6 +49,9 @@ export interface LazuliClientOptions {
 
   // Optional route adapter used by <RouteGuard>; callers can wrap any router.
   router?: LazuliRouter;
+
+  // Optional flash adapter used by declarative action success handlers.
+  onFlash?: (flash: LazuliFlash) => void;
 }
 
 export class LazuliClient {
@@ -51,6 +62,7 @@ export class LazuliClient {
   private readonly actorQuery: QuerySpec<unknown, LazuliActor | null> | null;
   private readonly actorQueryArgs: unknown;
   readonly router: LazuliRouter | null;
+  readonly onFlash: ((flash: LazuliFlash) => void) | null;
   private authToken: string | null = null;
   private refreshPromise: Promise<string> | null = null;
 
@@ -62,6 +74,7 @@ export class LazuliClient {
     this.actorQuery = options.actorQuery ?? null;
     this.actorQueryArgs = options.actorQueryArgs ?? {};
     this.router = options.router ?? null;
+    this.onFlash = options.onFlash ?? null;
   }
 
   /**

@@ -448,11 +448,31 @@ pub struct ViewCreateAst {
     pub route: Option<String>,
     /// `submit <feature>.command.<name>` — qualified reference text.
     pub submit: String,
+    /// `on_success` post-submit orchestration block.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_success: Option<OnSuccessSpecAst>,
     pub fields: Vec<String>,
     pub cells: Vec<CellBindingAst>,
     /// `fields <name> redacted` rows declared inside the view.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub redacted_fields: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OnSuccessSpecAst {
+    pub back: bool,
+    pub redirect: Option<String>,
+    pub flash: Option<FlashSpecAst>,
+    pub invalidates: Vec<InvalidatesDecl>,
+    pub replace: bool,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FlashSpecAst {
+    pub kind: String,
+    pub message_key: TranslationKeyRefAst,
     pub span: Span,
 }
 

@@ -20,7 +20,7 @@ import {
 } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 
-import { LazuliClient } from "./client.js";
+import { LazuliClient, type LazuliFlash } from "./client.js";
 import type { CommandSpec, QuerySpec } from "./spec.js";
 import { LazuliClientContext, useLazuliClient as useLazuliClientImpl } from "./use-actor.js";
 
@@ -116,7 +116,39 @@ export function useLazuliCommand<Input, Output>(
   spec: CommandSpec<Input, Output>,
   options: UseLazuliCommandOptions<Input, Output> = {},
 ): UseMutationResult<Output, Error, Input> {
-  const { client: clientOverride, onSuccess: userOnSuccess, ...mutationOptions } = options;
+  return useLazuliAction(spec, options);
+}
+
+export type LazuliActionOptions = {
+  readonly back?: boolean;
+  readonly redirect?: string;
+  readonly flash?: LazuliFlash;
+  readonly invalidates?: readonly string[];
+  readonly replace?: boolean;
+};
+
+export type UseLazuliActionOptions<Input, Output> =
+  UseLazuliCommandOptions<Input, Output> & LazuliActionOptions;
+
+export type UseLazuliActionOptionsFor<Spec> =
+  Spec extends CommandSpec<infer Input, infer Output>
+    ? UseLazuliActionOptions<Input, Output>
+    : never;
+
+export function useLazuliAction<Input, Output>(
+  spec: CommandSpec<Input, Output>,
+  options: UseLazuliActionOptions<Input, Output> = {},
+): UseMutationResult<Output, Error, Input> {
+  const {
+    client: clientOverride,
+    onSuccess: userOnSuccess,
+    back,
+    redirect,
+    flash,
+    invalidates = [],
+    replace,
+    ...mutationOptions
+  } = options;
   const client = useLazuliClientImpl(clientOverride);
   const queryClient = useQueryClient();
   return useMutation<Output, Error, Input>({
@@ -126,14 +158,47 @@ export function useLazuliCommand<Input, Output>(
       // `["lazuli", <invalidated query name>]`. This matches the server's
       // `c.Invalidates` evictions: any args-variant of that query refetches.
       await Promise.all(
-        spec.invalidates.map((name) =>
+        uniqueStrings([...spec.invalidates, ...invalidates]).map((name) =>
           queryClient.invalidateQueries({ queryKey: ["lazuli", name] }),
         ),
       );
+      if (flash) {
+        client.onFlash?.(flash);
+      }
+      if (redirect) {
+        client.router?.navigate({
+          to: interpolateResultPath(redirect, args[0]),
+          ...(replace ? { replace: true } : {}),
+        });
+      } else if (back) {
+        client.router?.history?.back();
+      }
       if (userOnSuccess) {
         await (userOnSuccess as (...a: typeof args) => unknown)(...args);
       }
     },
     ...mutationOptions,
   });
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  return Array.from(new Set(values));
+}
+
+function interpolateResultPath(template: string, result: unknown): string {
+  return template.replace(/\{result\.([A-Za-z0-9_.]+)\}/g, (_match, path: string) => {
+    const value = readResultPath(result, path);
+    return value === undefined || value === null ? "" : encodeURIComponent(String(value));
+  });
+}
+
+function readResultPath(value: unknown, path: string): unknown {
+  let current = value;
+  for (const segment of path.split(".")) {
+    if (current === null || typeof current !== "object") {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
 }

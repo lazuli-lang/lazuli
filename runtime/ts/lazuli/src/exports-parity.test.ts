@@ -32,6 +32,7 @@ const CONTRACTED_RUNTIME_EXPORTS = [
   "useLazuliClient",
   "useLazuliQuery",
   "useLazuliCommand",
+  "useLazuliAction",
   "evaluatePolicy",
   "withTanStackGuard",
   "RouteGuard",

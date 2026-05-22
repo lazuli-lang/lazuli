@@ -22,7 +22,7 @@ import type {
 } from "@tanstack/react-query";
 import type { ComponentType, ReactNode } from "react";
 
-import type { LazuliClient, LazuliRouter } from "./client.js";
+import type { LazuliClient, LazuliFlash, LazuliRouter } from "./client.js";
 import type {
   LifecycleGateEvaluator,
   LifecycleGateMetadata,
@@ -101,6 +101,27 @@ export type UseLazuliCommandOptions<Input, Output> = Omit<
 export declare function useLazuliCommand<Input, Output>(
   spec: CommandSpec<Input, Output>,
   options?: UseLazuliCommandOptions<Input, Output>,
+): UseMutationResult<Output, Error, Input>;
+
+export type LazuliActionOptions = {
+  readonly back?: boolean;
+  readonly redirect?: string;
+  readonly flash?: LazuliFlash;
+  readonly invalidates?: readonly string[];
+  readonly replace?: boolean;
+};
+
+export type UseLazuliActionOptions<Input, Output> =
+  UseLazuliCommandOptions<Input, Output> & LazuliActionOptions;
+
+export type UseLazuliActionOptionsFor<Spec> =
+  Spec extends CommandSpec<infer Input, infer Output>
+    ? UseLazuliActionOptions<Input, Output>
+    : never;
+
+export declare function useLazuliAction<Input, Output>(
+  spec: CommandSpec<Input, Output>,
+  options?: UseLazuliActionOptions<Input, Output>,
 ): UseMutationResult<Output, Error, Input>;
 
 // --- Route guards ---------------------------------------------------------

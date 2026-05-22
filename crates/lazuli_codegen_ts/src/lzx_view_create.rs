@@ -9,7 +9,8 @@ use std::fmt::Write;
 
 use crate::lzx::{
     Audience, Surface, ViewCreate, audience_view_pascal, banner, command_ident,
-    format_cells_literal, format_string_array, pascal_case, view_hook_name, view_spec_const,
+    format_cells_literal, format_on_success_options, format_string_array, pascal_case,
+    view_hook_name, view_spec_const,
 };
 
 /// Emit `dist/ts-<target>/<feat>/views/<audience>/<view-name>.gen.ts`
@@ -34,7 +35,8 @@ fn write_imports(s: &mut String, surface: &Surface, view: &ViewCreate) {
 
     // 1. Runtime hooks.
     writeln!(s, "import {{").ok();
-    writeln!(s, "  useLazuliCommand,").ok();
+    writeln!(s, "  useLazuliAction,").ok();
+    writeln!(s, "  type UseLazuliActionOptionsFor,").ok();
     writeln!(s, "}} from \"@lazuli/runtime/react\";").ok();
 
     // 2. React Hook Form + zodResolver.
@@ -93,6 +95,14 @@ fn write_spec_const(s: &mut String, audience: &Audience, view: &ViewCreate) {
     if let Some(route) = &view.route {
         writeln!(s, "  route: \"{}\",", route).ok();
     }
+    if let Some(on_success) = &view.on_success {
+        writeln!(
+            s,
+            "  onSuccess: {},",
+            format_on_success_options(on_success, &view.submit.feature)
+        )
+        .ok();
+    }
     writeln!(s, "}} as const;").ok();
     s.push('\n');
 }
@@ -123,8 +133,20 @@ fn write_hook(s: &mut String, audience: &Audience, view: &ViewCreate, _surface: 
     let feature_pascal = pascal_case(&view.submit.feature);
     let input_iface = command_input_iface(&view.submit, &feature_pascal);
 
-    writeln!(s, "export function {}() {{", hook_name).ok();
-    writeln!(s, "  const submit = useLazuliCommand({}.submit);", const_name).ok();
+    writeln!(
+        s,
+        "export function {}(opts?: UseLazuliActionOptionsFor<typeof {}.submit>) {{",
+        hook_name, const_name
+    )
+    .ok();
+    if view.on_success.is_some() {
+        writeln!(s, "  const submit = useLazuliAction({}.submit, {{", const_name).ok();
+        writeln!(s, "    ...{}.onSuccess,", const_name).ok();
+        writeln!(s, "    ...opts,").ok();
+        writeln!(s, "  }});").ok();
+    } else {
+        writeln!(s, "  const submit = useLazuliAction({}.submit, opts);", const_name).ok();
+    }
     writeln!(s, "  const form = useForm<{}>({{", input_iface).ok();
     writeln!(s, "    resolver: zodResolver({}.schema),", const_name).ok();
     writeln!(s, "  }});").ok();
@@ -195,6 +217,7 @@ mod tests {
                 feature: "thing".to_owned(),
                 name: "create".to_owned(),
             },
+            on_success: None,
             fields: vec!["id".to_owned()],
             cells: vec![],
             redacted_fields: Vec::new(),
@@ -275,7 +298,7 @@ mod tests {
         // Slot interface.
         assert!(out.contains("export interface AdminSlugCreateSlots"));
         // Hook body — RHF wiring.
-        assert!(out.contains("const submit = useLazuliCommand(adminSlugCreateView.submit);"));
+        assert!(out.contains("const submit = useLazuliAction(adminSlugCreateView.submit, opts);"));
         assert!(out.contains("const form = useForm<CreateSlugInput>({"));
         assert!(out.contains("resolver: zodResolver(adminSlugCreateView.schema)"));
         assert!(out.contains(
@@ -346,6 +369,41 @@ mod tests {
         assert!(out.contains("zodResolver"));
         assert!(out.contains("resolver: zodResolver"));
         assert!(out.contains("handleSubmit = form.handleSubmit"));
+    }
+
+    #[test]
+    fn emits_declarative_on_success_options() {
+        let mut view = minimal_view_create();
+        view.on_success = Some(OnSuccessSpec {
+            back: true,
+            redirect: None,
+            flash: Some(FlashSpec {
+                kind: "success".to_owned(),
+                message_key: TranslationKeyRef {
+                    key: "saved".to_owned(),
+                    span_ref: None,
+                },
+            }),
+            invalidates: vec![InvalidatesSpec {
+                query: QualifiedName {
+                    feature: Some("thing".to_owned()),
+                    name: "lookup_my_thing".to_owned(),
+                },
+                args: vec![],
+            }],
+            replace: false,
+        });
+        let audience = minimal_audience(view.clone());
+        let surface = minimal_surface(audience.clone());
+
+        let out = emit_view_create(&surface, &audience, &view);
+
+        assert!(out.contains(
+            "onSuccess: { back: true, flash: { kind: \"success\", messageKey: \"saved\" }, invalidates: [\"thing.lookup_my_thing\"] }"
+        ));
+        assert!(out.contains("const submit = useLazuliAction(viewerThingCreateView.submit, {"));
+        assert!(out.contains("...viewerThingCreateView.onSuccess,"));
+        assert!(out.contains("...opts,"));
     }
 
     #[test]
