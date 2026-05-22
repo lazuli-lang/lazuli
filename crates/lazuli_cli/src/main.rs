@@ -1792,6 +1792,8 @@ fn write_command_sdk(
     let feature_pascal = pascal_case(&feature.name);
     let input_iface = command_input_iface(&command.name, &feature_pascal);
     let output_ty = command_output_ts_type(feature, command, module);
+    let command_export = command_export_ident(feature, command, module);
+    let legacy_command_ident = command_ident(&feature.name, &command.name);
 
     writeln!(s, "export interface {input_iface} {{").ok();
     for slot in command_sdk_slots(feature, command, module) {
@@ -1834,7 +1836,7 @@ fn write_command_sdk(
         writeln!(
             s,
             "export const {} = defineQuery<{}, {}>(\"{}.{}\");",
-            command_ident(&feature.name, &command.name),
+            command_export,
             input_iface,
             output_ty,
             feature.name,
@@ -1842,12 +1844,15 @@ fn write_command_sdk(
         )
         .ok();
         writeln!(s).ok();
+        if legacy_command_ident != command_export {
+            write_deprecated_const_alias(s, &legacy_command_ident, &command_export);
+        }
         return;
     }
     writeln!(
         s,
         "export const {} = defineCommand<{}, {}>(\"{}.{}\", {{",
-        command_ident(&feature.name, &command.name),
+        command_export,
         input_iface,
         output_ty,
         feature.name,
@@ -1879,6 +1884,9 @@ fn write_command_sdk(
     }
     writeln!(s, "}});").ok();
     writeln!(s).ok();
+    if legacy_command_ident != command_export {
+        write_deprecated_const_alias(s, &legacy_command_ident, &command_export);
+    }
 }
 
 fn write_query_sdk(
@@ -1914,14 +1922,14 @@ fn write_query_sdk(
     // WAR-VOCAB-HOSTHOME-01). New heuristic: find a resource whose
     // PascalCase name appears as a token in the query name, falling
     // back to the first resource when no match is found.
-    let resource_ty = pick_query_resource_ts(feature, query.name())
-        .unwrap_or_else(|| {
-            feature
-                .resources
-                .first()
-                .map(|r| pascal_case(&r.name))
-                .unwrap_or_else(|| "unknown".to_owned())
-        });
+    let resource_ty = pick_query_resource_ts(feature, query.name()).unwrap_or_else(|| {
+        feature
+            .resources
+            .first()
+            .map(|r| pascal_case(&r.name))
+            .unwrap_or_else(|| "unknown".to_owned())
+    });
+    let resource_pascal = resource_ty.clone();
     let returns = match query {
         lazuli_ir::Query::Lookup(_) => resource_ty,
         lazuli_ir::Query::List(_) | lazuli_ir::Query::Sql(_) => format!("{resource_ty}[]"),
@@ -1943,7 +1951,7 @@ fn write_query_sdk(
         // Wire registry key: `<feature>.<query_name>` (cell B1 dropped
         // `.query.` infix — the `/q/` HTTP prefix already disambiguates kind).
         "export const {} = defineQuery<{}, {}>(\"{}.{}\");",
-        query_ident(&feature.name, query_ref_kind, query.name()),
+        query_ident(&feature.name, &resource_pascal, query_ref_kind, query.name()),
         args_ty,
         returns,
         feature.name,
@@ -1951,6 +1959,11 @@ fn write_query_sdk(
     )
     .ok();
     writeln!(s).ok();
+    let legacy_ident = legacy_query_ident(&feature.name, query_ref_kind, query.name());
+    let current_ident = query_ident(&feature.name, &resource_pascal, query_ref_kind, query.name());
+    if legacy_ident != current_ident {
+        write_deprecated_const_alias(s, &legacy_ident, &current_ident);
+    }
 }
 
 fn emit_feature_zod_ts(feature: &lazuli_ir::Feature, module: &lazuli_ir::Module) -> String {
@@ -2781,21 +2794,77 @@ fn command_ident(feature: &str, command_name: &str) -> String {
     out
 }
 
-fn query_ident(feature: &str, kind: lazuli_ir::QueryKind, query_name: &str) -> String {
-    let resource_pascal = pascal_case(feature);
+fn command_export_ident(
+    feature: &lazuli_ir::Feature,
+    command: &lazuli_ir::Command,
+    module: &lazuli_ir::Module,
+) -> String {
+    if command_is_pure_read(command) {
+        if let Some(resource_pascal) = command_return_resource_pascal(command, module) {
+            let resource_plural = lazuli_codegen_ts::pluralize(&resource_pascal);
+            if command.name.eq_ignore_ascii_case("list") {
+                return format!("list{resource_plural}");
+            }
+            if let Some(rest) = strip_query_verb_prefix(&command.name, "list_") {
+                let rest_pascal = pascal_case(rest);
+                return format!(
+                    "list{}",
+                    list_subject_pascal(&rest_pascal, &resource_pascal, &resource_plural)
+                );
+            }
+        }
+    }
+
+    command_ident(&feature.name, &command.name)
+}
+
+fn command_return_resource_pascal(
+    command: &lazuli_ir::Command,
+    module: &lazuli_ir::Module,
+) -> Option<String> {
+    let lazuli_ir::CommandEffect::Returns(effect) = &command.effect else {
+        return None;
+    };
+    resource_pascal_from_return_type(&effect.return_type, module)
+}
+
+fn resource_pascal_from_return_type(
+    type_ref: &lazuli_ir::TypeRef,
+    module: &lazuli_ir::Module,
+) -> Option<String> {
+    match type_ref {
+        lazuli_ir::TypeRef::Many(inner) => resource_pascal_from_return_type(inner, module),
+        lazuli_ir::TypeRef::UserDefined(name) if is_resource_ref(type_ref, module) => {
+            find_resource(module, name).map(|resource| pascal_case(&resource.name))
+        }
+        _ => None,
+    }
+}
+
+fn query_ident(
+    _feature: &str,
+    resource_pascal: &str,
+    kind: lazuli_ir::QueryKind,
+    query_name: &str,
+) -> String {
     match kind {
         lazuli_ir::QueryKind::List | lazuli_ir::QueryKind::Sql => {
+            let resource_plural = lazuli_codegen_ts::pluralize(resource_pascal);
             if query_name.eq_ignore_ascii_case("list") {
-                format!("list{}s", resource_pascal)
+                format!("list{resource_plural}")
             } else if query_name.eq_ignore_ascii_case("fulltext") {
-                format!("search{}sFulltext", resource_pascal)
+                format!("search{resource_plural}Fulltext")
             } else if let Some(rest) = strip_query_verb_prefix(query_name, "list_") {
                 // `conventions [crud]` synth produces `list_<resource>s`;
                 // without the dedup the legacy shape would emit
                 // `listListTravelersTravelers` from `list_travelers`.
-                format!("list{}", pascal_case(rest))
+                list_prefixed_ident(rest, resource_pascal, &resource_plural)
             } else {
-                format!("list{}{}s", pascal_case(query_name), resource_pascal)
+                let short_pascal = pascal_case(query_name);
+                format!(
+                    "list{}",
+                    list_subject_pascal(&short_pascal, resource_pascal, &resource_plural)
+                )
             }
         }
         lazuli_ir::QueryKind::Lookup => {
@@ -2811,6 +2880,115 @@ fn query_ident(feature: &str, kind: lazuli_ir::QueryKind, query_name: &str) -> S
             }
         }
     }
+}
+
+fn legacy_query_ident(feature: &str, kind: lazuli_ir::QueryKind, query_name: &str) -> String {
+    let resource_pascal = pascal_case(feature);
+    match kind {
+        lazuli_ir::QueryKind::List | lazuli_ir::QueryKind::Sql => {
+            if query_name.eq_ignore_ascii_case("list") {
+                format!("list{}s", resource_pascal)
+            } else if query_name.eq_ignore_ascii_case("fulltext") {
+                format!("search{}sFulltext", resource_pascal)
+            } else if let Some(rest) = strip_query_verb_prefix(query_name, "list_") {
+                format!("list{}", pascal_case(rest))
+            } else {
+                format!("list{}{}s", pascal_case(query_name), resource_pascal)
+            }
+        }
+        lazuli_ir::QueryKind::Lookup => {
+            if let Some(rest) = strip_query_verb_prefix(query_name, "lookup_") {
+                format!("lookup{}", pascal_case(rest))
+            } else {
+                let stripped = query_name.strip_prefix("by_").unwrap_or(query_name);
+                format!("lookup{}By{}", resource_pascal, pascal_case(stripped))
+            }
+        }
+    }
+}
+
+fn list_prefixed_ident(rest: &str, resource_pascal: &str, resource_plural: &str) -> String {
+    let rest_pascal = pascal_case(rest);
+    format!(
+        "list{}",
+        list_subject_pascal(&rest_pascal, resource_pascal, resource_plural)
+    )
+}
+
+fn list_subject_pascal(
+    short_pascal: &str,
+    resource_pascal: &str,
+    resource_plural: &str,
+) -> String {
+    let legacy_plural = format!("{resource_pascal}s");
+    if short_pascal == resource_plural || short_pascal.ends_with(resource_plural) {
+        short_pascal.to_owned()
+    } else if short_pascal == legacy_plural {
+        resource_plural.to_owned()
+    } else if let Some(stem) = short_pascal.strip_suffix(&legacy_plural) {
+        format!("{stem}{resource_plural}")
+    } else if short_pascal == resource_pascal {
+        resource_plural.to_owned()
+    } else if let Some(stem) = short_pascal.strip_suffix(resource_pascal) {
+        format!("{stem}{resource_plural}")
+    } else if let Some(cleaned) = remove_embedded_resource_plural(short_pascal, resource_pascal) {
+        format!("{cleaned}{resource_plural}")
+    } else {
+        format!("{short_pascal}{resource_plural}")
+    }
+}
+
+fn remove_embedded_resource_plural(short_pascal: &str, resource_pascal: &str) -> Option<String> {
+    let tokens = pascal_tokens(short_pascal);
+    let resource_tokens = pascal_tokens(resource_pascal);
+    let resource_last = resource_tokens.last()?;
+    let resource_last_plural = lazuli_codegen_ts::pluralize(resource_last);
+    let legacy_resource_last_plural = format!("{resource_last}s");
+    let mut remove = vec![false; tokens.len()];
+
+    for (index, token) in tokens.iter().enumerate() {
+        if token == &resource_last_plural || token == &legacy_resource_last_plural {
+            remove[index] = true;
+        }
+    }
+    if !remove.iter().any(|remove| *remove) {
+        return None;
+    }
+
+    for (index, token) in tokens.iter().enumerate() {
+        let adjacent_removed =
+            (index > 0 && remove[index - 1]) || remove.get(index + 1).copied().unwrap_or(false);
+        if token == "As" && adjacent_removed {
+            remove[index] = true;
+        }
+    }
+
+    let cleaned = tokens
+        .iter()
+        .zip(remove)
+        .filter_map(|(token, remove)| (!remove).then_some(token.as_str()))
+        .collect::<String>();
+    (!cleaned.is_empty()).then_some(cleaned)
+}
+
+fn pascal_tokens(value: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut start = 0;
+    for (index, ch) in value.char_indices().skip(1) {
+        if ch.is_ascii_uppercase() {
+            tokens.push(value[start..index].to_owned());
+            start = index;
+        }
+    }
+    tokens.push(value[start..].to_owned());
+    tokens.retain(|token| !token.is_empty());
+    tokens
+}
+
+fn write_deprecated_const_alias(s: &mut String, old_name: &str, new_name: &str) {
+    writeln!(s, "/** @deprecated use `{new_name}` */").ok();
+    writeln!(s, "export const {old_name} = {new_name};").ok();
+    writeln!(s).ok();
 }
 
 /// Strip a verb prefix (`lookup_` / `list_`) from a query name, returning
@@ -11634,6 +11812,124 @@ mod tests {
         assert_eq!(occurrences(&output, "export type ItemType"), 1);
     }
 
+    #[test]
+    fn feature_sdk_query_names_pluralize_resource_subjects_and_alias_legacy_exports() {
+        let (mut feature, mut module) = enum_sdk_fixture(false, false);
+        feature.name = "category".to_owned();
+        feature.resources = vec![resource("Category", vec![])];
+        feature.queries = vec![list_query("custom_service")];
+        module.features = vec![feature.clone()];
+
+        let output = emit_feature_sdk_ts(&feature, &module);
+
+        assert!(
+            output.contains("export const listCustomServiceCategories = defineQuery"),
+            "expected pluralized category list export, got:\n{output}"
+        );
+        assert!(
+            output.contains("/** @deprecated use `listCustomServiceCategories` */"),
+            "expected deprecated const alias doc, got:\n{output}"
+        );
+        assert!(
+            output
+                .contains("export const listCustomServiceCategorys = listCustomServiceCategories;"),
+            "expected legacy const alias, got:\n{output}"
+        );
+
+        let (mut feature, mut module) = enum_sdk_fixture(false, false);
+        feature.name = "catalog".to_owned();
+        feature.resources = vec![
+            resource("CustomServiceCategory", vec![]),
+            resource("Property", vec![]),
+        ];
+        feature.queries = vec![
+            list_query("list_custom_service_categorys"),
+            list_query("list_propertys"),
+        ];
+        module.features = vec![feature.clone()];
+
+        let output = emit_feature_sdk_ts(&feature, &module);
+
+        assert!(
+            output.contains("export const listCustomServiceCategories = defineQuery"),
+            "expected legacy categorys shortname to normalize, got:\n{output}"
+        );
+        assert!(
+            output
+                .contains("export const listCustomServiceCategorys = listCustomServiceCategories;"),
+            "expected legacy categorys alias, got:\n{output}"
+        );
+        assert!(
+            output.contains("export const listProperties = defineQuery"),
+            "expected legacy propertys shortname to normalize, got:\n{output}"
+        );
+        assert!(
+            output.contains("export const listPropertys = listProperties;"),
+            "expected legacy propertys alias, got:\n{output}"
+        );
+    }
+
+    #[test]
+    fn feature_sdk_query_names_dedup_resource_suffixes() {
+        let (mut feature, mut module) = enum_sdk_fixture(false, false);
+        feature.name = "host".to_owned();
+        feature.resources = vec![resource("Host", vec![])];
+        feature.queries = vec![list_query("pending_basic_details_hosts")];
+        module.features = vec![feature.clone()];
+
+        let output = emit_feature_sdk_ts(&feature, &module);
+
+        assert!(
+            output.contains("export const listPendingBasicDetailsHosts = defineQuery"),
+            "expected deduped host suffix, got:\n{output}"
+        );
+        assert!(
+            output.contains(
+                "export const listPendingBasicDetailsHostsHosts = listPendingBasicDetailsHosts;"
+            ),
+            "expected legacy suffix alias, got:\n{output}"
+        );
+
+        let (mut feature, mut module) = enum_sdk_fixture(false, false);
+        feature.name = "operations".to_owned();
+        feature.resources = vec![resource("ServiceTransaction", vec![])];
+        feature.queries = vec![list_query("mine_transactions_as_host")];
+        module.features = vec![feature.clone()];
+
+        let output = emit_feature_sdk_ts(&feature, &module);
+
+        assert!(
+            output.contains("export const listMineHostServiceTransactions = defineQuery"),
+            "expected embedded transaction noun cleanup, got:\n{output}"
+        );
+        assert!(
+            output.contains(
+                "export const listMineTransactionsAsHostOperationss = listMineHostServiceTransactions;"
+            ),
+            "expected legacy operations alias, got:\n{output}"
+        );
+    }
+
+    #[test]
+    fn feature_sdk_pure_read_list_commands_pluralize_return_resource() {
+        let (mut feature, mut module) = enum_sdk_fixture(false, false);
+        feature.name = "payment".to_owned();
+        feature.resources = vec![resource("Payment", vec![])];
+        feature.commands = vec![pure_read_list_command("list_payments", "Payment")];
+        module.features = vec![feature.clone()];
+
+        let output = emit_feature_sdk_ts(&feature, &module);
+
+        assert!(
+            output.contains("export const listPayments = defineQuery"),
+            "expected listPayments pure-read command export, got:\n{output}"
+        );
+        assert!(
+            output.contains("export const listPaymentPayments = listPayments;"),
+            "expected legacy pure-read command alias, got:\n{output}"
+        );
+    }
+
     fn enum_sdk_fixture(
         include_unused_enum: bool,
         include_second_resource: bool,
@@ -11790,6 +12086,65 @@ mod tests {
             previous_names: vec![],
             pii: None,
             owner_axis: None,
+            span_ref: None,
+        }
+    }
+
+    fn list_query(name: &str) -> lazuli_ir::Query {
+        lazuli_ir::Query::List(lazuli_ir::ListQuery {
+            name: name.to_owned(),
+            public_contract: None,
+            params: vec![],
+            scope: vec![],
+            scope_override: false,
+            filters: vec![],
+            order: vec![],
+            paginate: None,
+            modifier: None,
+            cache: None,
+            policy: lazuli_ir::PolicyRef::None,
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: vec![],
+            span_ref: None,
+            owner_scope_sql: None,
+        })
+    }
+
+    fn pure_read_list_command(name: &str, resource_name: &str) -> lazuli_ir::Command {
+        lazuli_ir::Command {
+            name: name.to_owned(),
+            public_contract: None,
+            kind: lazuli_ir::CommandKind::Returns,
+            route: vec![],
+            input: lazuli_ir::CommandInput::Typed(vec![]),
+            target: None,
+            lets: vec![],
+            effect: lazuli_ir::CommandEffect::Returns(lazuli_ir::ReturnsEffect {
+                return_type: lazuli_ir::TypeRef::Many(Box::new(lazuli_ir::TypeRef::UserDefined(
+                    local_qn(resource_name),
+                ))),
+            }),
+            policy: lazuli_ir::PolicyRef::None,
+            policy_expr: None,
+            policy_when_denied: None,
+            emits: vec![],
+            rate_limit: None,
+            audit: None,
+            approval: None,
+            invalidates: vec![],
+            external_calls: vec![],
+            timeout: None,
+            retry: None,
+            idempotency: None,
+            write_window: None,
+            deprecated: None,
+            handler: None,
+            tests: None,
+            triggers: vec![],
+            synthesized_from_cap_file: None,
+            owner_scope_sql: None,
+            previous_names: vec![],
             span_ref: None,
         }
     }

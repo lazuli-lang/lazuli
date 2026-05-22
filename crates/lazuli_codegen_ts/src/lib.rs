@@ -25,11 +25,13 @@ pub mod lzx_audience_slot;
 pub mod mobile_runtime;
 pub mod mobile_view_scaffold;
 pub mod playwright;
+pub mod plural;
 pub mod rbac;
 pub mod runtime;
 pub mod zod_constraints;
 
 pub use playwright::emit_playwright_api_policy;
+pub use plural::pluralize;
 pub use runtime::{emit_feature_ts, lower_camel_export};
 pub use zod_constraints::{is_numeric, zod_constraint_chain, zod_enum_replacement};
 

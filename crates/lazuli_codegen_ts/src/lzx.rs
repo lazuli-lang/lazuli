@@ -49,7 +49,7 @@ pub mod lzx_view_detail;
 #[path = "lzx_view_create.rs"]
 pub mod lzx_view_create;
 
-use crate::GeneratedFile;
+use crate::{GeneratedFile, pluralize};
 use lzx_router_adapter::RouterTarget;
 
 // ---------------------------------------------------------------------------
@@ -158,9 +158,10 @@ pub(crate) fn command_action_key(cmd: &CommandRef) -> String {
 }
 
 /// Resolve a `QueryRef` to its imported SDK identifier per §6 examples.
-/// - List: `list<PascalShort><PascalFeature>s` (e.g. `slug.query.mine`
+/// - List: `list<PascalShort><PluralFeature>` (e.g. `slug.query.mine`
 ///   → `listMineSlugs`). If `short` is exactly `list`, the short is
-///   dropped (`slug.query.list` → `listSlugs`).
+///   dropped (`slug.query.list` → `listSlugs`). Resource suffixes already
+///   present in `short` are normalized instead of duplicated.
 /// - Lookup: `lookup<PascalFeature>By<PascalShort>` — a leading `by_`
 ///   is stripped from `short` first, so `by_key` → `Key`. If `short`
 ///   has no `by_` prefix, the entire short pascal-cases.
@@ -170,9 +171,9 @@ pub(crate) fn command_action_key(cmd: &CommandRef) -> String {
 /// Verb-prefix dedup: when the author-side or synth-side query name
 /// itself already starts with `lookup_` / `list_` (e.g. `lookup_my_host`,
 /// `list_travelers` from `conventions [crud, me]`), the legacy
-/// `<verb><Resource>By<PascalShort>` / `list<PascalShort><Resource>s`
+/// `<verb><Resource>By<PascalShort>` / `list<PascalShort><PluralResource>`
 /// shape would double-prefix the verb. In that case we drop the
-/// `<Resource>By` / `<Resource>s` infix entirely and emit just
+/// `<Resource>By` / duplicated resource suffix entirely and emit just
 /// `<verb><RestPascal>`: `lookup_my_host` → `lookupMyHost`,
 /// `list_travelers` → `listTravelers`. Empty/trivial rest falls back
 /// to the legacy shape (defensive).
@@ -181,12 +182,17 @@ pub(crate) fn query_ident(q: &QueryRef) -> String {
     match q.kind {
         QueryKind::List | QueryKind::Sql => {
             let short = q.name.as_str();
+            let resource_plural = pluralize(&resource_pascal);
             if short.eq_ignore_ascii_case("list") {
-                format!("list{}s", resource_pascal)
+                format!("list{resource_plural}")
             } else if let Some(rest) = strip_verb_prefix(short, "list_") {
-                format!("list{}", pascal_case(rest))
+                list_prefixed_ident(rest, &resource_pascal, &resource_plural)
             } else {
-                format!("list{}{}s", pascal_case(short), resource_pascal)
+                let short_pascal = pascal_case(short);
+                format!(
+                    "list{}",
+                    list_subject_pascal(&short_pascal, &resource_pascal, &resource_plural)
+                )
             }
         }
         QueryKind::Lookup => {
@@ -214,6 +220,84 @@ pub(crate) fn strip_verb_prefix<'a>(name: &'a str, prefix: &str) -> Option<&'a s
         return None;
     }
     Some(rest)
+}
+
+fn list_prefixed_ident(rest: &str, resource_pascal: &str, resource_plural: &str) -> String {
+    let rest_pascal = pascal_case(rest);
+    format!(
+        "list{}",
+        list_subject_pascal(&rest_pascal, resource_pascal, resource_plural)
+    )
+}
+
+fn list_subject_pascal(
+    short_pascal: &str,
+    resource_pascal: &str,
+    resource_plural: &str,
+) -> String {
+    let legacy_plural = format!("{resource_pascal}s");
+    if short_pascal == resource_plural || short_pascal.ends_with(resource_plural) {
+        short_pascal.to_owned()
+    } else if short_pascal == legacy_plural {
+        resource_plural.to_owned()
+    } else if let Some(stem) = short_pascal.strip_suffix(&legacy_plural) {
+        format!("{stem}{resource_plural}")
+    } else if short_pascal == resource_pascal {
+        resource_plural.to_owned()
+    } else if let Some(stem) = short_pascal.strip_suffix(resource_pascal) {
+        format!("{stem}{resource_plural}")
+    } else if let Some(cleaned) = remove_embedded_resource_plural(short_pascal, resource_pascal) {
+        format!("{cleaned}{resource_plural}")
+    } else {
+        format!("{short_pascal}{resource_plural}")
+    }
+}
+
+fn remove_embedded_resource_plural(short_pascal: &str, resource_pascal: &str) -> Option<String> {
+    let tokens = pascal_tokens(short_pascal);
+    let resource_tokens = pascal_tokens(resource_pascal);
+    let resource_last = resource_tokens.last()?;
+    let resource_last_plural = pluralize(resource_last);
+    let legacy_resource_last_plural = format!("{resource_last}s");
+    let mut remove = vec![false; tokens.len()];
+
+    for (index, token) in tokens.iter().enumerate() {
+        if token == &resource_last_plural || token == &legacy_resource_last_plural {
+            remove[index] = true;
+        }
+    }
+    if !remove.iter().any(|remove| *remove) {
+        return None;
+    }
+
+    for (index, token) in tokens.iter().enumerate() {
+        let adjacent_removed =
+            (index > 0 && remove[index - 1]) || remove.get(index + 1).copied().unwrap_or(false);
+        if token == "As" && adjacent_removed {
+            remove[index] = true;
+        }
+    }
+
+    let cleaned = tokens
+        .iter()
+        .zip(remove)
+        .filter_map(|(token, remove)| (!remove).then_some(token.as_str()))
+        .collect::<String>();
+    (!cleaned.is_empty()).then_some(cleaned)
+}
+
+fn pascal_tokens(value: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut start = 0;
+    for (index, ch) in value.char_indices().skip(1) {
+        if ch.is_ascii_uppercase() {
+            tokens.push(value[start..index].to_owned());
+            start = index;
+        }
+    }
+    tokens.push(value[start..].to_owned());
+    tokens.retain(|token| !token.is_empty());
+    tokens
 }
 
 /// File path for the emitted view hook per L0 #1 §4:
@@ -581,6 +665,52 @@ mod tests {
     }
 
     #[test]
+    fn query_ident_list_pluralizes_resource_subject() {
+        let custom_service_categories = QueryRef {
+            feature: "category".to_owned(),
+            kind: QueryKind::List,
+            name: "custom_service".to_owned(),
+        };
+        assert_eq!(
+            query_ident(&custom_service_categories),
+            "listCustomServiceCategories"
+        );
+        let legacy_custom_service_categories = QueryRef {
+            feature: "custom_service_category".to_owned(),
+            kind: QueryKind::List,
+            name: "list_custom_service_categorys".to_owned(),
+        };
+        assert_eq!(
+            query_ident(&legacy_custom_service_categories),
+            "listCustomServiceCategories"
+        );
+
+        let properties = QueryRef {
+            feature: "property".to_owned(),
+            kind: QueryKind::List,
+            name: "list".to_owned(),
+        };
+        assert_eq!(query_ident(&properties), "listProperties");
+
+        let payments = QueryRef {
+            feature: "payments".to_owned(),
+            kind: QueryKind::List,
+            name: "list".to_owned(),
+        };
+        assert_eq!(query_ident(&payments), "listPayments");
+
+        let host_transactions = QueryRef {
+            feature: "service_transaction".to_owned(),
+            kind: QueryKind::List,
+            name: "mine_transactions_as_host".to_owned(),
+        };
+        assert_eq!(
+            query_ident(&host_transactions),
+            "listMineHostServiceTransactions"
+        );
+    }
+
+    #[test]
     fn query_ident_lookup_strips_by_prefix() {
         let by_key = QueryRef {
             feature: "slug".to_owned(),
@@ -646,6 +776,19 @@ mod tests {
     }
 
     #[test]
+    fn query_ident_list_dedups_resource_suffix_without_list_prefix() {
+        let pending_basic_details_hosts = QueryRef {
+            feature: "host".to_owned(),
+            kind: QueryKind::List,
+            name: "pending_basic_details_hosts".to_owned(),
+        };
+        assert_eq!(
+            query_ident(&pending_basic_details_hosts),
+            "listPendingBasicDetailsHosts"
+        );
+    }
+
+    #[test]
     fn query_ident_preserves_legacy_shape_when_no_verb_prefix() {
         // Author-written non-prefix query: `by_email` keeps the legacy
         // `lookup<R>By<X>` shape (with `by_` stripped per existing rule).
@@ -656,8 +799,8 @@ mod tests {
         };
         assert_eq!(query_ident(&by_email), "lookupUserByEmail");
 
-        // Author-written list query: `mine` keeps the legacy
-        // `list<PascalShort><R>s` shape.
+        // Author-written list query: `mine` keeps the
+        // `list<PascalShort><PluralResource>` shape.
         let mine = QueryRef {
             feature: "slug".to_owned(),
             kind: QueryKind::List,
