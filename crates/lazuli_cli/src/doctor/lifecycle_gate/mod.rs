@@ -208,9 +208,11 @@ fn logical_lines(source: &str) -> Vec<LogicalLine<'_>> {
 fn parse_requires(line: &LogicalLine<'_>) -> Option<RequiresLifecycle> {
     let rest = line.text.strip_prefix("requires_lifecycle ")?;
     let (resource, state) = rest.split_once('=')?;
+    let (state, substep) = parse_state_substep(state.trim());
     Some(RequiresLifecycle {
         resource: resource.trim().to_owned(),
-        state: state.trim().to_owned(),
+        state: state.to_owned(),
+        substep,
         span: Some(line.span),
     })
 }
@@ -251,11 +253,22 @@ fn parse_arm(line: &LogicalLine<'_>) -> Option<LifecycleGateResumeArm> {
         .text
         .split_once("->")
         .or_else(|| line.text.split_once('\u{2192}'))?;
+    let (state, substep) = parse_state_substep(state.trim());
     let target = target.trim();
     let target_view = target.strip_prefix("view ").unwrap_or(target).trim();
     Some(LifecycleGateResumeArm {
-        state: state.trim().to_owned(),
+        state: state.to_owned(),
+        substep,
         target_view: target_view.to_owned(),
         span: Some(line.span),
     })
+}
+
+fn parse_state_substep(value: &str) -> (&str, Option<String>) {
+    let parts: Vec<_> = value.split_whitespace().collect();
+    match parts.as_slice() {
+        [state, "substep", substep] => (*state, Some((*substep).to_owned())),
+        [state] => (*state, None),
+        _ => (value.trim(), None),
+    }
 }

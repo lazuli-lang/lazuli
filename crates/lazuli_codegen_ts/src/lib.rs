@@ -26,6 +26,7 @@ pub mod mobile_runtime;
 pub mod mobile_view_scaffold;
 pub mod playwright;
 pub mod rbac;
+pub mod routes;
 pub mod runtime;
 pub mod zod_constraints;
 

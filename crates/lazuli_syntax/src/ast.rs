@@ -158,6 +158,7 @@ pub struct LzxViewGuard {
 pub struct LzxRequiresLifecycle {
     pub resource: String,
     pub state: String,
+    pub substep: Option<String>,
     pub span: Span,
 }
 
@@ -204,6 +205,7 @@ pub struct LzxResumeRouter {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LzxResumeArm {
     pub kind: LzxResumeArmKind,
+    pub substep: Option<String>,
     pub target_view: String,
     pub span: Span,
 }
@@ -829,7 +831,34 @@ pub struct PolicyCategoryDecl {
     /// `docs/proposals/ir-error-messages-vocab.md` §2.B.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub when_denied: Option<TranslationKeyRefAst>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when_denied_route: Option<WhenDeniedRouteAst>,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WhenDeniedRouteAst {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unauthenticated: Option<RouteRedirectTargetAst>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub role_mismatch: Vec<RoleMismatchArmAst>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<RouteRedirectTargetAst>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoleMismatchArmAst {
+    pub role: String,
+    pub target: RouteRedirectTargetAst,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum RouteRedirectTargetAst {
+    View(String),
+    Path(String),
 }
 
 /// IR Error-Vocab (Cell PARSE-1) — surface AST mirror of

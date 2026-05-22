@@ -30,14 +30,15 @@ use crate::ast::{
     ReportColumnSourceAst, ReportDecl, ResourceCompositeKey, ResourceConstraintAst,
     ResourceConventionAst, ResourceDecl, ResourceFieldDecl, ResourceHasMany, ResourceIndexAst,
     ResourceIndexMethodAst, ResourceLock, ResourceRetention, ResourceRetentionAction,
-    ResourceUniqueAst, RoleDeclAst, RoleGrantsAst, RouteParamAst, ScaleTokenAst, SearchDeclAst,
-    SearchFieldAst, SearchModeAst, SelectionDeclAst, SelectionModeAst, SettingDeclAst,
-    SettingPersistenceAst, SettingValueSpaceAst, ShadowTokenAst, SortDeclAst, SortDirAst, Span,
-    SqlQueryDecl, SurfaceAst, SurfaceTargetAst, TargetArgDecl, TargetExprDecl, TenantMigration,
-    TextScaleTokenAst, ToolsCallsOp, TrackingTokenAst, TranslationDecl, TranslationKeyDecl,
-    TranslationKeyRefAst, TranslationPluralArmDecl, TranslationVariantDecl, TypographyAst,
-    UsesClauseAst, ViewAst, ViewCreateAst, ViewDetailAst, ViewListAst, Webhook, WebhookDlq,
-    WebhookHandler, WebhookReplay, WebhookVerify, WeightTokenAst, ZTokenAst,
+    ResourceUniqueAst, RoleDeclAst, RoleGrantsAst, RoleMismatchArmAst, RouteParamAst,
+    RouteRedirectTargetAst, ScaleTokenAst, SearchDeclAst, SearchFieldAst, SearchModeAst,
+    SelectionDeclAst, SelectionModeAst, SettingDeclAst, SettingPersistenceAst,
+    SettingValueSpaceAst, ShadowTokenAst, SortDeclAst, SortDirAst, Span, SqlQueryDecl, SurfaceAst,
+    SurfaceTargetAst, TargetArgDecl, TargetExprDecl, TenantMigration, TextScaleTokenAst,
+    ToolsCallsOp, TrackingTokenAst, TranslationDecl, TranslationKeyDecl, TranslationKeyRefAst,
+    TranslationPluralArmDecl, TranslationVariantDecl, TypographyAst, UsesClauseAst, ViewAst,
+    ViewCreateAst, ViewDetailAst, ViewListAst, Webhook, WebhookDlq, WebhookHandler, WebhookReplay,
+    WebhookVerify, WeightTokenAst, WhenDeniedRouteAst, ZTokenAst,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -596,6 +597,7 @@ fn parse_lzx_requires_lifecycle(
     };
     let resource = resource.trim();
     let state = state.trim();
+    let (state, substep) = parse_lzx_optional_substep_tail(line, state, "`requires_lifecycle`")?;
     if resource.is_empty()
         || !resource
             .chars()
@@ -617,8 +619,33 @@ fn parse_lzx_requires_lifecycle(
     Ok(LzxRequiresLifecycle {
         resource: resource.to_owned(),
         state: state.to_owned(),
+        substep,
         span: Span::new(line.start, line.end),
     })
+}
+
+fn parse_lzx_optional_substep_tail<'a>(
+    line: &SourceLine<'_>,
+    value: &'a str,
+    context: &str,
+) -> Result<(&'a str, Option<String>), ParseError> {
+    let parts: Vec<_> = value.split_whitespace().collect();
+    match parts.as_slice() {
+        [state] => Ok((*state, None)),
+        [state, "substep", substep] => {
+            if !is_lzx_bare_ident(substep) {
+                return Err(line_error_owned(
+                    line,
+                    format!("{context} substep must be a bare identifier"),
+                ));
+            }
+            Ok((*state, Some((*substep).to_owned())))
+        }
+        _ => Err(line_error_owned(
+            line,
+            format!("{context} accepts an optional `substep <name>` tail"),
+        )),
+    }
 }
 
 fn parse_lzx_on_lifecycle_pending(line: &SourceLine<'_>, rest: &str) -> Result<String, ParseError> {
@@ -991,6 +1018,7 @@ fn parse_lzx_resume_arm(line: &SourceLine<'_>, trimmed: &str) -> Result<LzxResum
         ));
     };
     let arm = left.trim();
+    let (arm, substep) = parse_lzx_optional_substep_tail(line, arm, "resume arm")?;
     let kind = match arm {
         "none" => LzxResumeArmKind::None,
         "*" => LzxResumeArmKind::Wildcard,
@@ -1002,6 +1030,12 @@ fn parse_lzx_resume_arm(line: &SourceLine<'_>, trimmed: &str) -> Result<LzxResum
             ));
         }
     };
+    if substep.is_some() && matches!(kind, LzxResumeArmKind::None | LzxResumeArmKind::Wildcard) {
+        return Err(line_error(
+            line,
+            "resume arm `substep` is only valid on lifecycle state arms",
+        ));
+    }
 
     let Some(target_view) = right.trim().strip_prefix("view ") else {
         return Err(line_error(
@@ -1019,6 +1053,7 @@ fn parse_lzx_resume_arm(line: &SourceLine<'_>, trimmed: &str) -> Result<LzxResum
 
     Ok(LzxResumeArm {
         kind,
+        substep,
         target_view: target_view.to_owned(),
         span: Span::new(line.start, line.end),
     })
@@ -4507,6 +4542,7 @@ fn parse_policies_decl(
             // grandchild_indent (6 spaces under a feature). Zero-or-one
             // per category; duplicate is a parse error.
             let mut when_denied: Option<TranslationKeyRefAst> = None;
+            let mut when_denied_route: Option<WhenDeniedRouteAst> = None;
             let mut j = i + 1;
             while j < lines.len() {
                 let inner = &lines[j];
@@ -4536,15 +4572,34 @@ fn parse_policies_decl(
                     j += 1;
                     continue;
                 }
+                if inner_trim == "when_denied_route" {
+                    if when_denied_route.is_some() {
+                        return Err(line_error(
+                            inner,
+                            "policy category may declare at most one `when_denied_route` child",
+                        ));
+                    }
+                    let (parsed, next) = parse_when_denied_route_block(
+                        lines,
+                        j,
+                        grandchild_indent,
+                        greatgrand_indent,
+                    )?;
+                    category_last_end = lines[next.saturating_sub(1).max(j)].end;
+                    when_denied_route = Some(parsed);
+                    j = next;
+                    continue;
+                }
                 return Err(line_error(
                     inner,
-                    "policy category children are `when_denied @translation.<key>` only",
+                    "policy category children are `when_denied @translation.<key>` or `when_denied_route` only",
                 ));
             }
             categories.push(PolicyCategoryDecl {
                 name: name.to_owned(),
                 atoms,
                 when_denied,
+                when_denied_route,
                 span: Span::new(category_header_line.start, category_last_end),
             });
             last_end = category_last_end;
@@ -4565,6 +4620,146 @@ fn parse_policies_decl(
             span: Span::new(header.start, last_end),
         },
         i,
+    ))
+}
+
+fn parse_when_denied_route_block(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    header_indent: usize,
+    arm_indent: usize,
+) -> Result<(WhenDeniedRouteAst, usize), ParseError> {
+    let header = &lines[start];
+    if header.indent != header_indent || header.text.trim_start() != "when_denied_route" {
+        return Err(line_error(
+            header,
+            "policy route denial blocks use `when_denied_route`",
+        ));
+    }
+
+    let mut unauthenticated: Option<RouteRedirectTargetAst> = None;
+    let mut role_mismatch: Vec<RoleMismatchArmAst> = Vec::new();
+    let mut default: Option<RouteRedirectTargetAst> = None;
+    let mut seen_roles = std::collections::BTreeSet::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= header_indent {
+            break;
+        }
+        if line.indent != arm_indent {
+            return Err(line_error(
+                line,
+                "`when_denied_route` arms use one indentation level deeper than the block",
+            ));
+        }
+        let Some((left, right)) = split_lzx_arrow(trimmed) else {
+            return Err(line_error(
+                line,
+                "`when_denied_route` arms use `<case> -> view <name>` or `<case> -> path \"...\"`",
+            ));
+        };
+        let left = left.trim();
+        let target = parse_route_redirect_target(line, right.trim())?;
+        if left == "unauthenticated" {
+            if unauthenticated.is_some() {
+                return Err(line_error(
+                    line,
+                    "`when_denied_route` declares `unauthenticated` at most once",
+                ));
+            }
+            unauthenticated = Some(target);
+        } else if left == "default" {
+            if default.is_some() {
+                return Err(line_error(
+                    line,
+                    "`when_denied_route` declares `default` at most once",
+                ));
+            }
+            default = Some(target);
+        } else if let Some(role) = left.strip_prefix("role_mismatch ") {
+            let role = role.trim();
+            if !is_lzx_bare_ident(role) {
+                return Err(line_error(
+                    line,
+                    "`role_mismatch` requires a bare role identifier",
+                ));
+            }
+            if !seen_roles.insert(role.to_owned()) {
+                return Err(line_error(
+                    line,
+                    "`when_denied_route` declares each `role_mismatch <role>` at most once",
+                ));
+            }
+            role_mismatch.push(RoleMismatchArmAst {
+                role: role.to_owned(),
+                target,
+                span: Span::new(line.start, line.end),
+            });
+        } else {
+            return Err(line_error(
+                line,
+                "`when_denied_route` arms are `unauthenticated`, `role_mismatch <role>`, or `default`",
+            ));
+        }
+        last_end = line.end;
+        i += 1;
+    }
+
+    if unauthenticated.is_none() && role_mismatch.is_empty() && default.is_none() {
+        return Err(line_error(
+            header,
+            "`when_denied_route` requires at least one arm",
+        ));
+    }
+
+    Ok((
+        WhenDeniedRouteAst {
+            unauthenticated,
+            role_mismatch,
+            default,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+fn parse_route_redirect_target(
+    line: &SourceLine<'_>,
+    value: &str,
+) -> Result<RouteRedirectTargetAst, ParseError> {
+    if let Some(view) = value.strip_prefix("view ") {
+        let view = view.trim();
+        if !is_lzx_resume_ref(view) {
+            return Err(line_error(
+                line,
+                "`view` redirect targets use `<view>` or `<feature>.<view>`",
+            ));
+        }
+        return Ok(RouteRedirectTargetAst::View(view.to_owned()));
+    }
+    if let Some(path) = value.strip_prefix("path ") {
+        let path = path.trim();
+        if !(path.starts_with('"') && path.ends_with('"')) {
+            return Err(line_error(
+                line,
+                "`path` redirect targets must be quoted string literals",
+            ));
+        }
+        return Ok(RouteRedirectTargetAst::Path(
+            unquote_lzx_value(path).to_owned(),
+        ));
+    }
+    Err(line_error(
+        line,
+        "`when_denied_route` targets use `view <name>` or `path \"...\"`",
     ))
 }
 
@@ -16550,6 +16745,43 @@ surface customer web
     }
 
     #[test]
+    fn parses_lzx_lifecycle_substep_on_view_and_resume_arm() {
+        let source = r#"
+experience host
+  imports host
+
+  view phone_verification
+    policy @policy.host_only
+    requires_lifecycle Host = basic_details_pending substep phone_verification
+    on_lifecycle_pending @resume host_onboarding
+    source host.query.lookup.my_host
+
+  resume host_onboarding
+    source query.lookup my_host
+    none -> view phone_verification
+    basic_details_pending substep phone_verification -> view phone_verification
+    * -> view phone_verification
+"#;
+
+        let document = parse_lzx_document(source).expect("parses");
+        let view = &document.experiences[0].views[0];
+        let requires = view
+            .guard
+            .as_ref()
+            .and_then(|guard| guard.requires_lifecycle.as_ref())
+            .expect("requires_lifecycle");
+        assert_eq!(requires.state, "basic_details_pending");
+        assert_eq!(requires.substep.as_deref(), Some("phone_verification"));
+
+        let arm = &document.experiences[0].resume_routers[0].arms[1];
+        assert_eq!(
+            arm.kind,
+            super::LzxResumeArmKind::State("basic_details_pending".to_string())
+        );
+        assert_eq!(arm.substep.as_deref(), Some("phone_verification"));
+    }
+
+    #[test]
     fn parses_lzx_audience_policy_single_and_list_rejects_trailing_comma() {
         let source = r#"
 surface booking web
@@ -18995,6 +19227,65 @@ feature account
         assert_eq!(
             admin.when_denied.as_ref().map(|k| k.key.as_str()),
             Some("admin_only_action")
+        );
+    }
+
+    #[test]
+    fn policy_category_when_denied_route_lifts_route_targets() {
+        let source = r#"
+feature account
+  policies
+    host_only: @scope.authenticated, @role.host
+      when_denied @translation.host_only_required
+      when_denied_route
+        unauthenticated -> view sign_in
+        role_mismatch traveler -> view explore
+        role_mismatch operator -> view dashboard
+        default -> path "/welcome"
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let policies = features[0].policies.as_ref().expect("policies block");
+        let category = policies
+            .categories
+            .iter()
+            .find(|category| category.name == "host_only")
+            .expect("host_only category");
+        let route = category
+            .when_denied_route
+            .as_ref()
+            .expect("when_denied_route lifted");
+
+        assert_eq!(
+            route.unauthenticated,
+            Some(super::RouteRedirectTargetAst::View("sign_in".to_string()))
+        );
+        assert_eq!(route.role_mismatch.len(), 2);
+        assert_eq!(route.role_mismatch[0].role, "traveler");
+        assert_eq!(
+            route.role_mismatch[0].target,
+            super::RouteRedirectTargetAst::View("explore".to_string())
+        );
+        assert_eq!(
+            route.default,
+            Some(super::RouteRedirectTargetAst::Path("/welcome".to_string()))
+        );
+    }
+
+    #[test]
+    fn policy_category_when_denied_route_rejects_duplicate_default() {
+        let source = r#"
+feature account
+  policies
+    host_only: @scope.authenticated
+      when_denied_route
+        default -> view welcome
+        default -> path "/"
+"#;
+        let err = parse_feature_skeletons(source).expect_err("duplicate default must reject");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("declares `default` at most once"),
+            "expected duplicate default error, got {msg}"
         );
     }
 

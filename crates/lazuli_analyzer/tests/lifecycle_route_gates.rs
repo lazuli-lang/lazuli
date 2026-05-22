@@ -114,6 +114,54 @@ experience host
     assert_eq!(resume_arm_semantics(&ascii), resume_arm_semantics(&unicode));
 }
 
+#[test]
+fn lifecycle_substep_lowers_to_ir_json() {
+    let module = lower(
+        r#"
+experience host
+  imports host
+
+  view phone_verification
+    policy @policy.host_only
+    requires_lifecycle Host = basic_details_pending substep phone_verification
+    on_lifecycle_pending @resume host_onboarding
+    source host.query.lookup.my_host
+
+  resume host_onboarding
+    source query.lookup my_host
+    none -> view phone_verification
+    basic_details_pending substep phone_verification -> view phone_verification
+    * -> view phone_verification
+"#,
+    );
+
+    let guard = module.experiences[0].views[0]
+        .guard
+        .as_ref()
+        .expect("view guard lowers");
+    let requires = guard
+        .requires_lifecycle
+        .as_ref()
+        .expect("requires_lifecycle lowers");
+    assert_eq!(requires.substep.as_deref(), Some("phone_verification"));
+    assert_eq!(
+        module.experiences[0].resume_routers[0].arms[1]
+            .substep
+            .as_deref(),
+        Some("phone_verification")
+    );
+
+    let json = serde_json::to_value(module).expect("ir serializes");
+    assert_eq!(
+        json["experiences"][0]["views"][0]["guard"]["requires_lifecycle"]["substep"],
+        "phone_verification"
+    );
+    assert_eq!(
+        json["experiences"][0]["resume_routers"][0]["arms"][1]["substep"],
+        "phone_verification"
+    );
+}
+
 fn resume_arm_semantics(module: &lazuli_ir::ExperienceModule) -> Vec<(ResumeArmKind, String)> {
     module.experiences[0].resume_routers[0]
         .arms

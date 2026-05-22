@@ -4265,6 +4265,10 @@ pub struct RequiresLifecycle {
     pub resource: String,
     /// snake_case state name matching `LifecycleState.name`.
     pub state: String,
+    /// Optional sub-step tag for multiple route screens that share one
+    /// lifecycle state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub substep: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
@@ -4286,6 +4290,10 @@ pub struct ResumeRouter {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResumeArm {
     pub kind: ResumeArmKind,
+    /// Optional sub-step tag used when multiple resume arms target
+    /// screens within the same lifecycle state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub substep: Option<String>,
     /// View name in the same feature, or `<feature>.<view>` cross-feature.
     pub target_view: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4310,6 +4318,9 @@ pub enum ResumeArmKind {
 pub struct ResolvedLifecycleGate {
     pub resource: String,
     pub state: String,
+    /// Optional sub-step tag copied from `RequiresLifecycle.substep`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub substep: Option<String>,
     /// Name of the resume router resolved from `on_lifecycle_pending`.
     pub resume_router: String,
     /// Qualified source query, e.g. `host.query.my_host`.
@@ -6285,6 +6296,38 @@ pub struct PolicyCategory {
     /// `docs/proposals/ir-error-messages-vocab.md` §3.2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub when_denied: Option<TranslationKeyRef>,
+    /// Route-only denial redirect targets. Command/query/api codegen ignores
+    /// this slot; route guard codegen consumes it when a view guard references
+    /// this policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when_denied_route: Option<WhenDeniedRoute>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WhenDeniedRoute {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unauthenticated: Option<RouteRedirectTarget>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub role_mismatch: Vec<RoleMismatchArm>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<RouteRedirectTarget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoleMismatchArm {
+    pub role: String,
+    pub target: RouteRedirectTarget,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum RouteRedirectTarget {
+    View(String),
+    Path(String),
 }
 
 /// Per-resource field policies: `fields Customer\n  email\n    read: ...`.
@@ -7195,6 +7238,7 @@ mod l0_6_ir_tests {
             requires_lifecycle: Some(RequiresLifecycle {
                 resource: "Host".to_string(),
                 state: "complete".to_string(),
+                substep: None,
                 span_ref: Some(SpanRef { start: 10, end: 47 }),
             }),
             on_lifecycle_pending: Some("host_onboarding".to_string()),
@@ -7226,6 +7270,7 @@ mod l0_6_ir_tests {
         let requires = RequiresLifecycle {
             resource: "Host".to_string(),
             state: "complete".to_string(),
+            substep: Some("phone_verification".to_string()),
             span_ref: Some(lifecycle_span),
         };
         let guard = ViewGuard {
@@ -7239,6 +7284,7 @@ mod l0_6_ir_tests {
         let resolved = ResolvedLifecycleGate {
             resource: "Host".to_string(),
             state: "complete".to_string(),
+            substep: Some("phone_verification".to_string()),
             resume_router: "host_onboarding".to_string(),
             source_query_qualified: "host.query.my_host".to_string(),
         };
@@ -7248,16 +7294,19 @@ mod l0_6_ir_tests {
             arms: vec![
                 ResumeArm {
                     kind: ResumeArmKind::None,
+                    substep: None,
                     target_view: "host_onboarding_intermediation".to_string(),
                     span_ref: Some(resume_span),
                 },
                 ResumeArm {
                     kind: ResumeArmKind::State("complete".to_string()),
+                    substep: Some("phone_verification".to_string()),
                     target_view: "host_home".to_string(),
                     span_ref: None,
                 },
                 ResumeArm {
                     kind: ResumeArmKind::Wildcard,
+                    substep: None,
                     target_view: "host_onboarding_intermediation".to_string(),
                     span_ref: None,
                 },
@@ -7388,6 +7437,20 @@ mod l0_6_ir_tests {
         };
         let v = serde_json::to_value(&d).unwrap();
         assert_eq!(v, json!({}));
+    }
+
+    #[test]
+    fn when_denied_route_round_trips_with_all_arms() {
+        round_trip(&WhenDeniedRoute {
+            unauthenticated: Some(RouteRedirectTarget::View("sign_in".to_string())),
+            role_mismatch: vec![RoleMismatchArm {
+                role: "traveler".to_string(),
+                target: RouteRedirectTarget::View("explore".to_string()),
+                span_ref: None,
+            }],
+            default: Some(RouteRedirectTarget::Path("/welcome".to_string())),
+            span_ref: Some(SpanRef { start: 20, end: 80 }),
+        });
     }
 
     #[test]

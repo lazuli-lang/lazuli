@@ -636,6 +636,7 @@ mod tests {
             atoms: vec!["@role.admin".to_owned(), "@scope.same_org".to_owned()],
             previous_names: Vec::new(),
             when_denied: None,
+            when_denied_route: None,
         });
         feature
             .reports
@@ -655,6 +656,7 @@ mod tests {
             atoms: vec!["@role.admin".to_owned()],
             previous_names: Vec::new(),
             when_denied: None,
+            when_denied_route: None,
         });
         let mut report = mk_report("monthly_audit", vec![ReportFormat::Csv]);
         report.policy = PolicyRef::Atom("policy.global_read".to_owned());
@@ -673,6 +675,7 @@ mod tests {
             atoms: vec!["@role.admin".to_owned()],
             previous_names: Vec::new(),
             when_denied: None,
+            when_denied_route: None,
         });
         let mut report = mk_report("monthly_audit", vec![ReportFormat::Csv]);
         report.policy = PolicyRef::Unresolved("@policy.global_read".to_owned());

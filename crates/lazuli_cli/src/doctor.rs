@@ -13102,7 +13102,7 @@ fn make_synthetic_feature_for_error_vocab(fact: &Tier3FeatureFacts) -> lazuli_ir
         policies: fact.policies.clone(),
         errors: fact.errors.clone(),
         commands: fact.commands.clone(),
-        apis: Vec::new(),
+        apis: fact.apis.clone(),
         records: Vec::new(),
         queries: Vec::new(),
             resume_routers: Vec::new(),

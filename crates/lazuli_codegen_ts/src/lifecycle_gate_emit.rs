@@ -76,6 +76,7 @@ struct LifecycleGate {
     route_const: String,
     resource: String,
     expected_state: String,
+    expected_substep: Option<String>,
     resume_feature: String,
     resume_name: String,
     guard: RouteGuardShape,
@@ -379,7 +380,8 @@ fn collect_lifecycle_gates(
                     };
                     let gate = extract_gate_from_holder(view, feature_name, app_resume.as_ref())
                         .or_else(|| audience_gate.clone());
-                    let Some((resource, expected_state, resume_ref)) = gate else {
+                    let Some((resource, expected_state, expected_substep, resume_ref)) = gate
+                    else {
                         continue;
                     };
                     let path = string_field(view, "route")
@@ -403,6 +405,7 @@ fn collect_lifecycle_gates(
                             route_const: route_const_name(view_name),
                             resource,
                             expected_state,
+                            expected_substep,
                             resume_feature: resume_ref.feature,
                             resume_name: resume_ref.name,
                             guard: extract_guard_shape(view).unwrap_or_default(),
@@ -426,7 +429,7 @@ fn collect_lifecycle_gates(
                 };
                 let gate = extract_gate_from_holder(view, feature_name, app_resume.as_ref())
                     .or_else(|| audience_gate.clone());
-                let Some((resource, expected_state, resume_ref)) = gate else {
+                let Some((resource, expected_state, expected_substep, resume_ref)) = gate else {
                     continue;
                 };
                 let path = view_paths
@@ -446,6 +449,7 @@ fn collect_lifecycle_gates(
                         route_const: route_const_name(view_name),
                         resource,
                         expected_state,
+                        expected_substep,
                         resume_feature: resume_ref.feature,
                         resume_name: resume_ref.name,
                         guard: extract_guard_shape(view).unwrap_or_default(),
@@ -476,7 +480,7 @@ fn collect_lifecycle_gates(
         let gate = route
             .get("guard")
             .and_then(|guard| extract_gate_from_guard(guard, &route_feature, app_resume.as_ref()));
-        let Some((resource, expected_state, resume_ref)) = gate else {
+        let Some((resource, expected_state, expected_substep, resume_ref)) = gate else {
             continue;
         };
         push_gate(
@@ -492,6 +496,7 @@ fn collect_lifecycle_gates(
                 route_const: route_const_name(&view_name),
                 resource,
                 expected_state,
+                expected_substep,
                 resume_feature: resume_ref.feature,
                 resume_name: resume_ref.name,
                 guard: extract_guard_shape(route).unwrap_or_default(),
@@ -683,11 +688,13 @@ fn write_evaluator(s: &mut String, resume: &ResumeRouter) {
     .ok();
     writeln!(s, "  client: LazuliClient,").ok();
     writeln!(s, "  expectedState: {},", resume.resource.state_type).ok();
+    writeln!(s, "  expectedSubstep?: string,").ok();
     writeln!(
         s,
         "): Promise<{{ verdict: \"pass\" }} | {{ verdict: \"redirect\"; to: string }}> {{"
     )
     .ok();
+    writeln!(s, "  void expectedSubstep;").ok();
     writeln!(s, "  try {{").ok();
     writeln!(
         s,
@@ -764,6 +771,9 @@ fn write_route_spec(s: &mut String, gate: &LifecycleGate) {
     if let Some(path) = &gate.guard.on_unauthorized {
         writeln!(s, "  onUnauthorized: {},", ts_string(path)).ok();
     }
+    if let Some(substep) = &gate.expected_substep {
+        writeln!(s, "  substep: {},", ts_string(substep)).ok();
+    }
     writeln!(
         s,
         "}} as const satisfies RouteGuardSpec<typeof {}>;",
@@ -810,6 +820,9 @@ fn write_tanstack_route_options(s: &mut String, gate: &LifecycleGate) {
     .ok();
     writeln!(s, "      context.client,").ok();
     writeln!(s, "      {},", ts_string(&gate.expected_state)).ok();
+    if let Some(substep) = &gate.expected_substep {
+        writeln!(s, "      {},", ts_string(substep)).ok();
+    }
     writeln!(s, "    );").ok();
     writeln!(s, "    if (lifecycleVerdict.verdict === \"redirect\") {{").ok();
     writeln!(
@@ -835,14 +848,14 @@ fn write_hoc_guard(s: &mut String, gate: &LifecycleGate) {
     writeln!(s, "  withLifecycleGate(").ok();
     writeln!(s, "    {},", gate.component).ok();
     writeln!(s, "    {{").ok();
-    writeln!(s, "      evaluateGate: {}EvaluateGate,", resume_fn).ok();
-    writeln!(
-        s,
-        "      expectedState: {},",
-        ts_string(&gate.expected_state)
-    )
-    .ok();
+    writeln!(s, "      resource: {},", ts_string(&gate.resource)).ok();
+    writeln!(s, "      state: {},", ts_string(&gate.expected_state)).ok();
+    if let Some(substep) = &gate.expected_substep {
+        writeln!(s, "      substep: {},", ts_string(substep)).ok();
+    }
+    writeln!(s, "      resume: {},", ts_string(&gate.resume_name)).ok();
     writeln!(s, "    }},").ok();
+    writeln!(s, "    {}EvaluateGate,", resume_fn).ok();
     writeln!(s, "  ),").ok();
     writeln!(s, "  {},", gate.route_const).ok();
     writeln!(s, ");").ok();
@@ -858,15 +871,28 @@ fn emit_registry_file(gates: &[LifecycleGate]) -> String {
     sorted.sort_by(|a, b| a.view_name.cmp(&b.view_name));
     sorted.dedup_by(|a, b| a.view_name == b.view_name);
     for gate in sorted {
-        writeln!(
-            s,
-            "  {}: {{ resource: {}, state: {}, resume: {} }},",
-            ts_string(&gate.view_name),
-            ts_string(&gate.resource),
-            ts_string(&gate.expected_state),
-            ts_string(&gate.resume_name)
-        )
-        .ok();
+        if let Some(substep) = &gate.expected_substep {
+            writeln!(
+                s,
+                "  {}: {{ resource: {}, state: {}, substep: {}, resume: {} }},",
+                ts_string(&gate.view_name),
+                ts_string(&gate.resource),
+                ts_string(&gate.expected_state),
+                ts_string(substep),
+                ts_string(&gate.resume_name)
+            )
+            .ok();
+        } else {
+            writeln!(
+                s,
+                "  {}: {{ resource: {}, state: {}, resume: {} }},",
+                ts_string(&gate.view_name),
+                ts_string(&gate.resource),
+                ts_string(&gate.expected_state),
+                ts_string(&gate.resume_name)
+            )
+            .ok();
+        }
     }
     writeln!(s, "}} as const;").ok();
     s
@@ -971,7 +997,7 @@ fn extract_gate_from_holder(
     holder: &Value,
     default_feature: &str,
     app_resume: Option<&ResumeRef>,
-) -> Option<(String, String, ResumeRef)> {
+) -> Option<(String, String, Option<String>, ResumeRef)> {
     holder
         .get("resolved_lifecycle_gate")
         .and_then(|gate| extract_resolved_gate(gate, default_feature))
@@ -990,18 +1016,23 @@ fn extract_gate_from_holder(
 fn extract_resolved_gate(
     gate: &Value,
     default_feature: &str,
-) -> Option<(String, String, ResumeRef)> {
+) -> Option<(String, String, Option<String>, ResumeRef)> {
     let resource = string_field(gate, "resource")?.to_owned();
     let expected_state = string_field(gate, "expected_state")
         .or_else(|| string_field(gate, "state"))
         .or_else(|| string_field(gate, "expectedState"))?
         .to_owned();
+    let expected_substep = string_field(gate, "substep")
+        .or_else(|| string_field(gate, "expected_substep"))
+        .or_else(|| string_field(gate, "expectedSubstep"))
+        .map(str::to_owned);
     let resume = string_field(gate, "resume_router")
         .or_else(|| string_field(gate, "resume"))
         .or_else(|| string_field(gate, "resumeRouter"))?;
     Some((
         resource,
         expected_state,
+        expected_substep,
         parse_resume_ref(default_feature, resume),
     ))
 }
@@ -1010,27 +1041,40 @@ fn extract_gate_from_guard(
     guard: &Value,
     default_feature: &str,
     app_resume: Option<&ResumeRef>,
-) -> Option<(String, String, ResumeRef)> {
+) -> Option<(String, String, Option<String>, ResumeRef)> {
     let requires = guard
         .get("requires_lifecycle")
         .or_else(|| guard.get("requiresLifecycle"))?;
-    let (resource, expected_state) = parse_requires_lifecycle(requires)?;
+    let (resource, expected_state, expected_substep) = parse_requires_lifecycle(requires)?;
     let resume = resume_ref_from_guard(guard, default_feature).or_else(|| app_resume.cloned())?;
-    Some((resource, expected_state, resume))
+    Some((resource, expected_state, expected_substep, resume))
 }
 
-fn parse_requires_lifecycle(value: &Value) -> Option<(String, String)> {
+fn parse_requires_lifecycle(value: &Value) -> Option<(String, String, Option<String>)> {
     if let Some(raw) = value.as_str() {
         let (resource, state) = raw.split_once('=')?;
-        return Some((resource.trim().to_owned(), state.trim().to_owned()));
+        let (state, substep) = parse_state_substep(state.trim());
+        return Some((resource.trim().to_owned(), state, substep));
     }
-    Some((
-        string_field(value, "resource")?.to_owned(),
-        string_field(value, "state")
-            .or_else(|| string_field(value, "expected_state"))
-            .or_else(|| string_field(value, "expectedState"))?
-            .to_owned(),
-    ))
+    let state = string_field(value, "state")
+        .or_else(|| string_field(value, "expected_state"))
+        .or_else(|| string_field(value, "expectedState"))?
+        .to_owned();
+    let substep = string_field(value, "substep")
+        .or_else(|| string_field(value, "expected_substep"))
+        .or_else(|| string_field(value, "expectedSubstep"))
+        .map(str::to_owned);
+    Some((string_field(value, "resource")?.to_owned(), state, substep))
+}
+
+fn parse_state_substep(value: &str) -> (String, Option<String>) {
+    let mut parts = value.split_whitespace();
+    let state = parts.next().unwrap_or(value).to_owned();
+    let substep = match (parts.next(), parts.next(), parts.next()) {
+        (Some("substep"), Some(substep), None) => Some(substep.to_owned()),
+        _ => None,
+    };
+    (state, substep)
 }
 
 fn resume_ref_from_guard(guard: &Value, default_feature: &str) -> Option<ResumeRef> {
@@ -1388,7 +1432,10 @@ mod tests {
     fn query_ident_dedups_lookup_prefix() {
         assert_eq!(query_ident("host", "lookup_my_host"), "lookupMyHost");
         assert_eq!(query_ident("traveler", "lookup_traveler"), "lookupTraveler");
-        assert_eq!(query_ident("user", "lookup_active_users"), "lookupActiveUsers");
+        assert_eq!(
+            query_ident("user", "lookup_active_users"),
+            "lookupActiveUsers"
+        );
     }
 
     #[test]

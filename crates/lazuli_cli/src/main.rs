@@ -1089,6 +1089,21 @@ fn generate_ts(input: &Path, output: Option<&Path>, check: bool) -> Result<()> {
             lazuli_codegen_ts::lzx_audience_slot::RouteGuardTarget::Web,
         ),
     );
+    let lzx_module = collect_lzx_experience_module(input);
+    files.extend(lazuli_codegen_ts::routes::emit_routes_artifacts(
+        lzx_module.app.as_ref().or(module.app.as_ref()),
+        &lzx_module.routes,
+        &lzx_module.surfaces,
+        &lzx_module.experiences,
+        lazuli_codegen_ts::routes::RoutesTarget::Web,
+    ));
+    files.extend(lazuli_codegen_ts::routes::emit_routes_artifacts(
+        lzx_module.app.as_ref().or(module.app.as_ref()),
+        &lzx_module.routes,
+        &lzx_module.surfaces,
+        &lzx_module.experiences,
+        lazuli_codegen_ts::routes::RoutesTarget::Mobile,
+    ));
 
     // Per-feature: SDK (audience-filtered if frontend declares audiences),
     // Zod schemas, .lzx view hooks (one file per audience/view tuple),
@@ -3760,6 +3775,82 @@ fn collect_package_lzi_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn collect_package_lzx_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+    const SKIP: &[&str] = &[
+        ".git",
+        ".hg",
+        ".svn",
+        ".lazuli",
+        "dist",
+        "node_modules",
+        "target",
+    ];
+    let entries =
+        fs::read_dir(dir).with_context(|| format!("reading directory {}", dir.display()))?;
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if SKIP.iter().any(|s| *s == name) {
+                continue;
+            }
+            collect_package_lzx_files(&path, out)?;
+        } else if path.extension().and_then(|s| s.to_str()) == Some("lzx") {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn collect_lzx_experience_module(input: &Path) -> lazuli_ir::ExperienceModule {
+    let mut module = lazuli_ir::ExperienceModule {
+        app: None,
+        routes: Vec::new(),
+        experiences: Vec::new(),
+        surfaces: Vec::new(),
+    };
+    let mut files = Vec::new();
+    let result = if input.is_dir() {
+        collect_package_lzx_files(input, &mut files)
+    } else if input.extension().and_then(|s| s.to_str()) == Some("lzx") {
+        files.push(input.to_path_buf());
+        Ok(())
+    } else {
+        Ok(())
+    };
+    if let Err(err) = result {
+        eprintln!("lazuli: skipping .lzx route lift: {err:#}");
+        return module;
+    }
+    files.sort();
+    for path in files {
+        let source = match fs::read_to_string(&path) {
+            Ok(source) => source,
+            Err(err) => {
+                eprintln!("lazuli: skipping {}: {err}", path.display());
+                continue;
+            }
+        };
+        let parsed = match lazuli_syntax::parse_lzx_document(&source) {
+            Ok(parsed) => parsed,
+            Err(err) => {
+                eprintln!("lazuli: skipping {}: lzx parse failed: {:?}", path.display(), err);
+                continue;
+            }
+        };
+        let lowered = lazuli_analyzer::lower_lzx_document(&parsed);
+        if module.app.is_none() {
+            module.app = lowered.app;
+        }
+        module.routes.extend(lowered.routes);
+        module.experiences.extend(lowered.experiences);
+        module.surfaces.extend(lowered.surfaces);
+    }
+    module
 }
 
 fn read_package_lzi_source(dir: &Path) -> Result<String> {
@@ -11478,6 +11569,7 @@ mod tests {
                 atoms: vec!["@role.admin".to_owned(), "@role.sales".to_owned()],
                 previous_names: vec![],
                 when_denied: None,
+                when_denied_route: None,
             }],
             fields: vec![],
             span_ref: None,

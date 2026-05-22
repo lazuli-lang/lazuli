@@ -123,7 +123,10 @@ fn collect_generated_files(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 fn is_feature_gen_file(path: &Path) -> bool {
-    if path.file_name().and_then(|n| n.to_str()) == Some("routes.gen.ts") {
+    if matches!(
+        path.file_name().and_then(|n| n.to_str()),
+        Some("routes.gen.ts" | "routes.gen.tsx")
+    ) {
         return false;
     }
 
@@ -589,7 +592,8 @@ mod tests {
         assert_eq!(findings[0].type_name, "HostHomePending");
         assert_eq!(
             findings[0].user_file,
-            dir.path().join("app/clients/web-app/src/routes/HostHome.tsx")
+            dir.path()
+                .join("app/clients/web-app/src/routes/HostHome.tsx")
         );
     }
 
@@ -767,7 +771,12 @@ mod tests {
         );
 
         let findings = check(dir.path());
-        assert_eq!(findings.len(), 1, "found: {findings:?}", findings = findings.iter().map(|f| &f.type_name).collect::<Vec<_>>());
+        assert_eq!(
+            findings.len(),
+            1,
+            "found: {findings:?}",
+            findings = findings.iter().map(|f| &f.type_name).collect::<Vec<_>>()
+        );
         assert_eq!(findings[0].type_name, "HostHomePending");
     }
 
