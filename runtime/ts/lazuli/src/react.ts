@@ -23,6 +23,7 @@ import type {
 import type { ComponentType, ReactNode } from "react";
 
 import type { LazuliClient, LazuliRouter } from "./client.js";
+import type { UseLazuliActionOptions, UseLazuliActionResult } from "./use-lazuli-action.js";
 import type {
   LifecycleGateEvaluator,
   LifecycleGateMetadata,
@@ -102,6 +103,29 @@ export declare function useLazuliCommand<Input, Output>(
   spec: CommandSpec<Input, Output>,
   options?: UseLazuliCommandOptions<Input, Output>,
 ): UseMutationResult<Output, Error, Input>;
+
+export type {
+  UseLazuliActionOptions,
+  UseLazuliActionResult,
+};
+
+export {
+  LazuliFlashAdapterContext,
+  LazuliFlashAdapterProvider,
+  type FlashAdapter,
+  type FlashKind,
+} from "./flash-adapter.js";
+
+export {
+  LazuliRouterAdapterContext,
+  LazuliRouterAdapterProvider,
+  type RouterAdapter,
+} from "./router-adapter.js";
+
+export declare function useLazuliAction<Input, Output>(
+  spec: CommandSpec<Input, Output>,
+  options?: UseLazuliActionOptions<Input, Output>,
+): UseLazuliActionResult<Input, Output>;
 
 // --- Route guards ---------------------------------------------------------
 

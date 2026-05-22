@@ -23,6 +23,7 @@ import { createElement, type ReactNode } from "react";
 import { LazuliClient } from "./client.js";
 import type { CommandSpec, QuerySpec } from "./spec.js";
 import { LazuliClientContext, useLazuliClient as useLazuliClientImpl } from "./use-actor.js";
+import { createUseLazuliAction } from "./use-lazuli-action.js";
 
 // Universal view-helper re-exports — same in `.web.ts` and `.native.ts`.
 export {
@@ -61,6 +62,21 @@ export {
   type RouteGuardProps,
 } from "./route-guard-component.js";
 export { useActor, useLazuliClient, type UseActorResult } from "./use-actor.js";
+export {
+  LazuliFlashAdapterContext,
+  LazuliFlashAdapterProvider,
+  type FlashAdapter,
+  type FlashKind,
+} from "./flash-adapter.js";
+export {
+  LazuliRouterAdapterContext,
+  LazuliRouterAdapterProvider,
+  type RouterAdapter,
+} from "./router-adapter.js";
+export {
+  type UseLazuliActionOptions,
+  type UseLazuliActionResult,
+} from "./use-lazuli-action.js";
 export {
   useLifecycleGate,
   withLifecycleGate,
@@ -137,3 +153,5 @@ export function useLazuliCommand<Input, Output>(
     ...mutationOptions,
   });
 }
+
+export const useLazuliAction = createUseLazuliAction(useLazuliCommand);
