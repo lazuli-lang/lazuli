@@ -2379,36 +2379,85 @@ The walk is per slot. A view can set `policy @policy.host_only` and inherit the
 redirect paths from the audience or app. If every layer leaves `policy` unset,
 the route remains unguarded for backward compatibility.
 
-Until `crates/lazuli_cli/tests/fixtures/route-guard/happy.lzx` exists, this
-example follows the shipped proposal/parser grammar:
-
 ```lazuli
-app HostPoint
-  actor_query account.query.me
-  route_guard
-    default_policy @scope.authenticated
-    on_unauthenticated redirect "/sign-in"
-    on_unauthorized redirect "/403"
+route sign_in
+  path "/sign-in"
+  to account.view.sign_in
+  surface account web
+  audience public
+
+route forbidden
+  path "/403"
+  to account.view.forbidden
+  surface account web
+  audience public
+
+route host_home
+  path "/host"
+  to account.view.host_dashboard
+  surface account web
+  audience host
+
+route profile
+  path "/profile"
+  to account.view.profile
+  surface account web
+  audience account
+
+route host_profile
+  path "/host/profile"
+  to host.view.profile
+  surface host web
+  audience host
+
+experience account
+  view sign_in
+
+  view forbidden
+
+  view host_dashboard
+    policy @policy.host
+      on_unauthenticated redirect "/sign-in"
+      on_unauthorized redirect "/403"
+    source account.query.host_dashboard
+
+  view profile
+    policy @policy.account.authenticated
+      on_unauthenticated redirect "/sign-in"
+    submit account.command.save_profile
+
+experience host
+  view profile
+    source host.query.profile
+
+surface account web
+  uses experience account
+
+  audience host
+    policy @policy.host
+    view host_dashboard Detail
+      sections main
+
+  audience account
+    policy @policy.account.authenticated
+    view profile Form
+      fields id
 
 surface host web
   uses experience host
 
   audience host
-    policy @policy.host_only
-      on_unauthenticated redirect "/sign-in"
-      on_unauthorized redirect "/explore"
-
-    view property_create Form
-      submit catalog.command.create_property
+    policy @policy.account.authenticated
+    view profile Detail
+      sections main
 ```
 
-For `/host/properties/new` backed by `property_create`, a logged-out actor gets
-`@policy.host_only` from the audience and falls through to
-`on_unauthenticated`, which resolves to `/sign-in`. A signed-in non-host actor
-gets the same audience policy, fails it as unauthorized, and resolves
-`on_unauthorized` to `/explore`. A signed-in host passes and the view renders.
-If the view later declares its own `policy`, only that slot changes unless the
-view also declares redirect children.
+For `/host` backed by `host_dashboard`, a logged-out actor triggers
+`on_unauthenticated` from view `host_dashboard`'s `@policy.host` policy and
+redirects to `/sign-in`. A signed-in non-host actor fails the same policy as
+unauthorized and redirects to `/403`. A signed-in host passes and the view
+renders. If the view later declares its own `policy`, only that slot changes
+unless the view also declares redirect children.
 
 The compiler should surface this derivation in `explain`.
 
