@@ -47,6 +47,15 @@ type Provider interface {
 	// `ErrFileNotFound` if `(bucket, key)` is unknown.
 	DeleteObject(ctx context.Context, bucket, key string) error
 
+	// HeadObject returns metadata (size, content-type, last-modified)
+	// without streaming the body. Used by post-PUT verification flows
+	// (SEC-H7): the AutoPhoto confirm path probes the actual object
+	// to reject clients that lied about size_bytes / content_type at
+	// request time. Returns `ErrFileNotFound` if `(bucket, key)` is
+	// unknown — callers should treat that as "client never finished
+	// the PUT" rather than a server error.
+	HeadObject(ctx context.Context, bucket, key string) (ObjectMeta, error)
+
 	// ListPrefix yields `ObjectMeta` entries for every object whose
 	// key shares the supplied `prefix` under `bucket`. Adapters MAY
 	// page transparently; callers consume the iterator in order. A

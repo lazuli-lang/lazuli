@@ -38,12 +38,13 @@ type Source struct {
 type sourceKind int
 
 const (
-	sourceInput        sourceKind = iota // value comes from `input.<path>`
-	sourceCtx                            // value comes from `ctx.<path>`
-	sourceTarget                         // value comes from the loaded `target.<path>`
-	sourceConst                          // value is a literal
-	sourceFn                             // value comes from invoking a registered binding fn
-	sourceCtxOwnedVia                    // WHERE binding expands to `<col> IN (SELECT id FROM <related> WHERE <owner_col> = $N)`
+	sourceInput         sourceKind = iota // value comes from `input.<path>`
+	sourceCtx                             // value comes from `ctx.<path>`
+	sourceTarget                          // value comes from the loaded `target.<path>`
+	sourceConst                           // value is a literal
+	sourceFn                              // value comes from invoking a registered binding fn
+	sourceCtxOwnedVia                     // WHERE binding expands to `<col> IN (SELECT id FROM <related> WHERE <owner_col> = $N)`
+	sourceInputOptional                   // value comes from `input.<path>`; skip the column entirely when value is nil (partial-update / partial-create semantics)
 )
 
 // ownedViaSubquery captures the related-resource traversal for
@@ -68,6 +69,19 @@ type ownedViaSubquery struct {
 //
 //	"name": lazuli.FromInput("name")
 func FromInput(path string) Source { return Source{kind: sourceInput, path: path} }
+
+// FromInputOptional behaves like [FromInput] but signals partial-write
+// semantics: when the resolved value is nil (e.g. an unset optional input
+// field), the runtime SKIPS the column from the emitted INSERT / UPDATE
+// instead of writing NULL. Used by `conventions [crud]` synth for the
+// auto-generated `create_<resource>` / `update_<resource>` commands so
+// fields omitted from the wire stay at their existing value (UPDATE) or
+// pick up the column default (INSERT).
+//
+//	"gender": lazuli.FromInputOptional("gender")
+func FromInputOptional(path string) Source {
+	return Source{kind: sourceInputOptional, path: path}
+}
 
 // FromCtx binds a target field to a context value (e.g. "user", "tenant.org_id").
 func FromCtx(path string) Source { return Source{kind: sourceCtx, path: path} }

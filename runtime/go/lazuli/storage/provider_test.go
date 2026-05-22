@@ -63,6 +63,20 @@ func (f *fakeProvider) DeleteObject(ctx context.Context, bucket, key string) err
 	return nil
 }
 
+func (f *fakeProvider) HeadObject(ctx context.Context, bucket, key string) (ObjectMeta, error) {
+	_ = ctx
+	bk := f.bucketKey(bucket, key)
+	bytes, ok := f.objects[bk]
+	if !ok {
+		return ObjectMeta{}, ErrFileNotFound
+	}
+	return ObjectMeta{
+		Key:         key,
+		Size:        int64(len(bytes)),
+		ContentType: f.mimes[bk],
+	}, nil
+}
+
 func (f *fakeProvider) ListPrefix(ctx context.Context, bucket, prefix string) iter.Seq2[ObjectMeta, error] {
 	_ = ctx
 	return func(yield func(ObjectMeta, error) bool) {

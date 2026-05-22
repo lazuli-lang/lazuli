@@ -179,6 +179,17 @@ const (
 	CodeNotNullViolation       = "not_null_violation"
 	CodeCheckViolation         = "check_violation"
 	CodeLifecycleStateMismatch = "lifecycle_state_mismatch"
+	// @cap.File / auto_photo error codes. The runtime surfaces these
+	// from AutoPhotoRequest (pre-PUT) and AutoPhotoConfirm (HEAD-probe
+	// post-PUT). Wire each one with a user-facing translation in your
+	// `errors` block so the UI shows a real message instead of
+	// `{code:internal}`. HTTP-wire:
+	//   file_size_exceeded → 400, file_mime_rejected → 400,
+	//   file_not_uploaded  → 409, file_key_mismatch  → 400.
+	CodeFileSizeExceeded = "file_size_exceeded"
+	CodeFileMimeRejected = "file_mime_rejected"
+	CodeFileNotUploaded  = "file_not_uploaded"
+	CodeFileKeyMismatch  = "file_key_mismatch"
 )
 
 // ErrTenantRequired is returned when a TenancyOrg resource is accessed

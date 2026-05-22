@@ -571,6 +571,15 @@ func applyCreates[I, O any](ctx *Ctx, tx pgx.Tx, eff CreatesEffect, input I) (O,
 		if err != nil {
 			return zero, err
 		}
+		// `conventions [crud]` synth `create_<resource>` emits
+		// `FromInputOptional` for every non-required input slot — when
+		// the wire payload omits the field, skip the column so the DB
+		// default (or NULL) takes over. `val == nil` only matches the
+		// nil-pointer case from `readPath`; a wire `"col": 0` / `""`
+		// still resolves to a non-nil zero value and is preserved.
+		if src.kind == sourceInputOptional && val == nil {
+			continue
+		}
 		cols = append(cols, quoteIdent(col))
 		values = append(values, val)
 		placeholders = append(placeholders, fmt.Sprintf("$%d", len(values)))
@@ -751,6 +760,16 @@ func applyUpdates[I, O any](ctx *Ctx, tx pgx.Tx, eff UpdatesEffect, input I) (O,
 		if err != nil {
 			return zero, err
 		}
+		// `conventions [crud]` synth `update_<resource>` emits
+		// `FromInputOptional` for every input slot — when the wire
+		// payload omits the field, skip the SET clause so the existing
+		// column value stays put (partial-update semantics). `val ==
+		// nil` only matches the nil-pointer case from `readPath`; a
+		// wire `"col": 0` / `""` still resolves to a non-nil zero
+		// value and is written.
+		if src.kind == sourceInputOptional && val == nil {
+			continue
+		}
 		values = append(values, val)
 		bindCols = append(bindCols, col)
 		sets = append(sets, fmt.Sprintf("%s = $%d", quoteIdent(col), len(values)))
@@ -768,6 +787,15 @@ func applyUpdates[I, O any](ctx *Ctx, tx pgx.Tx, eff UpdatesEffect, input I) (O,
 	// PG 42703 (undefined_column) at execute time.
 	if eff.Resource.HasColumn("updated_at") {
 		sets = append(sets, `"updated_at" = now()`)
+	}
+	// Partial-update no-op: every Bind binding was `sourceInputOptional`
+	// with a nil value AND the resource has no `updated_at` column, so
+	// there is nothing to SET. Composing `UPDATE foo SET WHERE …` is
+	// invalid SQL — instead, SELECT the row that the WHERE would have
+	// matched and return it unchanged, mirroring what the UPDATE …
+	// RETURNING * would have produced if a noop SET were legal.
+	if len(sets) == 0 {
+		return selectByEffectWhere[I, O](ctx, tx, eff, input)
 	}
 
 	conds, condValues, err := baseScopeConditions(ctx, eff.Resource, len(values)+1)
@@ -807,6 +835,51 @@ func applyUpdates[I, O any](ctx *Ctx, tx pgx.Tx, eff UpdatesEffect, input I) (O,
 	}
 	if err := decryptScannedRow(ctx, eff.Resource, &out); err != nil {
 		return zero, internalServerError(err, "update decrypt failed")
+	}
+	return out, nil
+}
+
+// selectByEffectWhere resolves the WHERE side of an UpdatesEffect and
+// returns the matching row unchanged. Used as the no-op fallback when
+// every Bind binding was a `sourceInputOptional` with a nil value AND
+// the resource has no `updated_at` column to bump — in that case
+// composing `UPDATE … SET … WHERE …` would yield invalid SQL with an
+// empty SET. Mirrors the SELECT shape of `applyUpdates` so the caller
+// sees the same row payload UPDATE … RETURNING * would have produced.
+func selectByEffectWhere[I, O any](ctx *Ctx, tx pgx.Tx, eff UpdatesEffect, input I) (O, error) {
+	var zero O
+	conds, values, err := baseScopeConditions(ctx, eff.Resource, 1)
+	if err != nil {
+		return zero, err
+	}
+	for col, src := range eff.Where {
+		val, err := resolveSource(ctx, src, input)
+		if err != nil {
+			return zero, err
+		}
+		values = append(values, val)
+		conds = append(conds, whereConditionFragment(col, src, len(values)))
+	}
+	sql := fmt.Sprintf(
+		`SELECT * FROM %s WHERE %s LIMIT 1`,
+		quoteResourceTable(eff.Resource.Name),
+		strings.Join(conds, " AND "),
+	)
+	rows, err := tx.Query(ctx, sql, values...)
+	if err != nil {
+		return zero, classifyDBError("update noop select", err)
+	}
+	defer rows.Close()
+	out, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[O])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return zero, &Error{Status: 404, Code: CodeNotFound,
+			Message: "no row matches update where clause"}
+	}
+	if err != nil {
+		return zero, classifyDBError("update noop scan", err)
+	}
+	if err := decryptScannedRow(ctx, eff.Resource, &out); err != nil {
+		return zero, internalServerError(err, "update noop decrypt failed")
 	}
 	return out, nil
 }
@@ -885,7 +958,7 @@ func resolveSource[I any](ctx *Ctx, src Source, input I) (any, error) {
 	switch src.kind {
 	case sourceConst:
 		return src.value, nil
-	case sourceInput:
+	case sourceInput, sourceInputOptional:
 		return readPath(reflect.ValueOf(input), src.path)
 	case sourceCtx, sourceCtxOwnedVia:
 		return readCtx(ctx, src.path)

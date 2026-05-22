@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"lazuli.dev/runtime/lazuli/storage"
@@ -90,27 +89,17 @@ func AutoPhotoRequest(
 
 	// Size guard -- short-circuit before we touch the object store.
 	if args.SizeBytes > spec.Contract.MaxSize {
-		return AutoPhotoUploadIntent{}, errors.New("auto_photo: file_size_exceeded")
+		return AutoPhotoUploadIntent{}, fileSizeExceededError(spec.Contract.MaxSize, args.SizeBytes)
 	}
-	// SECURITY (SEC-H7): the presigned PUT URL alone does not enforce
-	// max_size at the bucket. Clients can lie about Content-Length or
-	// upload via multipart. Defense-in-depth options:
-	//   1. Sign the URL with explicit Content-Length-Range constraints
-	//      (S3 supports POST policy with content-length-range; PUT does not).
-	//   2. Post-PUT HEAD-probe in the Confirm path and reject + delete
-	//      objects exceeding contract.MaxSize.
-	//   3. Bucket lifecycle policy with object-size limit.
-	// Provider has no HeadObject/StatObject hook today, so v0 keeps the
-	// pre-PUT declaration check and logs the residual follow-up.
-	slog.Info("auto_photo: SEC-H7: relying on pre-PUT size declaration; HEAD-probe is followup work",
-		"store_binding", spec.StoreBinding,
-		"bucket_slot", spec.BucketSlot,
-		"max_size", spec.Contract.MaxSize,
-	)
+	// SECURITY (SEC-H7): the pre-PUT check above is a fast-fail on
+	// honest clients. The Confirm path runs an authoritative HEAD
+	// probe and deletes+rejects anything that exceeded MaxSize or
+	// fell outside the Accept list at PUT time, so a lying client
+	// cannot persist an oversized/wrong-mime FileRef.
 	// MIME guard against the contract's Accept list (any wildcard
 	// entry passes -- see storage.MimeType.Matches).
 	if !contractAcceptsMime(spec.Contract, args.ContentType) {
-		return AutoPhotoUploadIntent{}, errors.New("auto_photo: file_mime_rejected")
+		return AutoPhotoUploadIntent{}, fileMimeRejectedError(spec.Contract.Accept, args.ContentType)
 	}
 
 	key := autoPhotoKey(spec, orgID, ctx.User.ID)
@@ -140,6 +129,16 @@ func AutoPhotoRequest(
 // AutoPhotoConfirm persists the FileRef on the resource row. The
 // caller MUST pass the same key the request handler returned -- we
 // cross-check the deterministic shape to refuse cross-user pivots.
+//
+// SECURITY (SEC-H7 closure): the request-time `size_bytes` /
+// `content_type` are client-declared and not bound to the actual PUT
+// (the presigned PUT URL is keyed on bucket+key+TTL only — S3 has no
+// way to bind a Content-Length to a PUT signature). Confirm closes
+// the loop with a single HEAD probe: anything that exceeds
+// `Contract.MaxSize` or sits outside `Contract.Accept` gets deleted
+// and rejected with `file_size_exceeded` / `file_mime_rejected`. The
+// honest size + mime are then backfilled onto the persisted FileRef
+// so downstream views render correct metadata.
 func AutoPhotoConfirm(ctx *Ctx, spec AutoPhotoSpec, args AutoPhotoConfirmArgs) error {
 	if ctx == nil || ctx.User == nil {
 		return errors.New("auto_photo: not_authenticated")
@@ -150,15 +149,43 @@ func AutoPhotoConfirm(ctx *Ctx, spec AutoPhotoSpec, args AutoPhotoConfirmArgs) e
 	}
 	expected := autoPhotoKey(spec, orgID, ctx.User.ID)
 	if args.Key != expected {
-		return errors.New("auto_photo: file_key_mismatch")
+		return fileKeyMismatchError()
 	}
 
-	// We don't have ContentType / Size at confirm time without an
-	// extra round-trip to the bucket. v0 writes the key alone and
-	// leaves ContentType/Size empty in the FileRef -- adapters that
-	// need them HEAD the object on demand. Future cycle can wire a
-	// HEAD probe here.
-	ref := storage.FileRef{Key: storage.Key(args.Key)}
+	store, err := ObjectStore(spec.StoreBinding)
+	if err != nil {
+		return fmt.Errorf("auto_photo: %w", err)
+	}
+
+	meta, headErr := store.HeadObject(autoPhotoContext(ctx), spec.BucketSlot, args.Key)
+	if headErr != nil {
+		// NoSuchKey here means the client never finished the PUT
+		// (or the URL expired before they did). Surface it as a
+		// distinct 409 so the UI can prompt retry instead of a
+		// generic 500.
+		if errors.Is(headErr, storage.ErrFileNotFound) {
+			return fileNotUploadedError()
+		}
+		return fmt.Errorf("auto_photo: head_probe: %w", headErr)
+	}
+
+	if spec.Contract.MaxSize > 0 && meta.Size > spec.Contract.MaxSize {
+		// Stream rejected: client lied about size_bytes at request
+		// time and pushed past the contract. Best-effort delete so
+		// the orphan doesn't squat in the bucket.
+		_ = store.DeleteObject(autoPhotoContext(ctx), spec.BucketSlot, args.Key)
+		return fileSizeExceededError(spec.Contract.MaxSize, meta.Size)
+	}
+	if !contractAcceptsMime(spec.Contract, meta.ContentType) {
+		_ = store.DeleteObject(autoPhotoContext(ctx), spec.BucketSlot, args.Key)
+		return fileMimeRejectedError(spec.Contract.Accept, meta.ContentType)
+	}
+
+	ref := storage.FileRef{
+		Key:         storage.Key(args.Key),
+		ContentType: meta.ContentType,
+		Size:        meta.Size,
+	}
 	payload, err := json.Marshal(struct {
 		Key         storage.Key `json:"key"`
 		ContentType string      `json:"content_type"`
@@ -308,4 +335,56 @@ func autoPhotoContext(ctx *Ctx) context.Context {
 		return ctx.Context
 	}
 	return context.Background()
+}
+
+// Typed-error constructors. Each one carries the structured `Data`
+// payload the UI can use to render specific copy (e.g. "Arquivo maior
+// que 2 MB" instead of "Tamanho excedido"). Apps wire the matching
+// `errors` block in `.lzi` to localize.
+func fileSizeExceededError(maxBytes, gotBytes int64) *Error {
+	return &Error{
+		Status:     400,
+		Code:       CodeFileSizeExceeded,
+		MessageKey: CodeFileSizeExceeded,
+		Message:    fmt.Sprintf("file exceeds max size of %d bytes (got %d)", maxBytes, gotBytes),
+		Data: map[string]any{
+			"max_bytes": maxBytes,
+			"got_bytes": gotBytes,
+		},
+	}
+}
+
+func fileMimeRejectedError(accept []storage.MimeType, got string) *Error {
+	acceptList := make([]string, 0, len(accept))
+	for _, m := range accept {
+		acceptList = append(acceptList, m.Family+"/"+m.Subtype)
+	}
+	return &Error{
+		Status:     400,
+		Code:       CodeFileMimeRejected,
+		MessageKey: CodeFileMimeRejected,
+		Message:    fmt.Sprintf("content type %q not in accept list %v", got, acceptList),
+		Data: map[string]any{
+			"got":    got,
+			"accept": acceptList,
+		},
+	}
+}
+
+func fileNotUploadedError() *Error {
+	return &Error{
+		Status:     409,
+		Code:       CodeFileNotUploaded,
+		MessageKey: CodeFileNotUploaded,
+		Message:    "file not found in object store; the PUT did not complete",
+	}
+}
+
+func fileKeyMismatchError() *Error {
+	return &Error{
+		Status:     400,
+		Code:       CodeFileKeyMismatch,
+		MessageKey: CodeFileKeyMismatch,
+		Message:    "key does not match the one issued by the request handler",
+	}
 }

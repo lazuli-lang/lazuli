@@ -27,6 +27,10 @@ func (stubProvider) GetObject(_ context.Context, _, _ string) (io.ReadCloser, st
 
 func (stubProvider) DeleteObject(_ context.Context, _, _ string) error { return nil }
 
+func (stubProvider) HeadObject(_ context.Context, _, _ string) (storage.ObjectMeta, error) {
+	return storage.ObjectMeta{}, nil
+}
+
 func (stubProvider) ListPrefix(_ context.Context, _, _ string) iter.Seq2[storage.ObjectMeta, error] {
 	return func(_ func(storage.ObjectMeta, error) bool) {}
 }
