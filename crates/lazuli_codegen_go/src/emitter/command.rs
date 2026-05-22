@@ -52,7 +52,7 @@ use lazuli_ir::{
     PolicyRef, QualifiedName, Resource, RetryPolicy, ReturnsEffect, RouteSlot, TypedSlot,
     UpdateEffect,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::cross_feature::CrossFeatureIndex;
 use super::error_envelope::{bucket_names_for_external_calls, emit_wrap_helper, sentinel_buckets};
@@ -706,6 +706,15 @@ fn emit_effect(
             ));
         }
         CommandEffect::None => {
+            // cap_file-synthesised commands (auto-photo confirm/clear) have no
+            // explicit `handler @fn.X` ref in IR — the analyzer leaves
+            // `command.handler = None` and the runtime fn is registered by
+            // the parallel `auto_photo.gen.go` emitter under the qualified
+            // name `<feature>.<command_name>`. Without this branch we'd fall
+            // through to `Effect: nil` and dispatch 500s with "command has no
+            // effect" the moment the synthesised confirm fires. Take the
+            // cap_file shortcut: pin the registry key to the command name,
+            // generic `struct{}` (the auto_photo handler's return type).
             if let Some(handler_short) = handler_ref_name(handler) {
                 let qualified = format!("{feature_name}.{handler_short}");
                 // `command X` with no `returns` clause and an `@fn`
@@ -727,6 +736,14 @@ fn emit_effect(
                 p.line(&format!(
                     "// then register with `lazuli.RegisterFn(\"{qualified}\", {pascal})` at init().",
                     pascal = pascal_case(&handler_short),
+                ));
+            } else if command.synthesized_from_cap_file.is_some() {
+                let qualified = format!("{feature_name}.{command_name}");
+                p.line(&format!(
+                    "Effect: lazuli.ReturnsFromRegistry[{input_type}, struct{{}}](\"{qualified}\"),"
+                ));
+                p.line(&format!(
+                    "// cap_file synth: handler registered by auto_photo.gen.go under \"{qualified}\"."
                 ));
             } else {
                 p.line("Effect: nil,");
@@ -758,10 +775,14 @@ fn emit_creates_effect(
     let_bindings: &BTreeMap<&str, &Expr>,
 ) {
     let resource_var = resource_var_for_qname(&create.resource);
+    let optional_inputs = collect_optional_inputs(command);
     if create.assignments.is_empty() && create.from_input {
-        // `creates Customer from input` — bind every input field by
-        // name. The analyzer has not yet materialised the input axis
-        // into assignments; surface a TODO so the gap is visible.
+        // `creates Customer from input` with no explicit assignments —
+        // the analyzer's `conventions [crud]` synth was supposed to
+        // materialise one assignment per input slot but didn't (older
+        // pre-`input_field_assignments` build). Keep the legacy TODO
+        // emit so the gap is visible at codegen time instead of at
+        // dispatch time.
         p.line(&format!(
             "Effect: lazuli.Creates(&{resource_var}, lazuli.Bindings{{}}),"
         ));
@@ -795,7 +816,7 @@ fn emit_creates_effect(
         ));
         p.indent();
         for assignment in &create.assignments {
-            p.line(&format_binding_row(assignment, let_bindings));
+            p.line(&format_binding_row(assignment, let_bindings, &optional_inputs));
         }
         p.dedent();
         p.line("}, lazuli.OwnerCheckSpec{");
@@ -819,7 +840,7 @@ fn emit_creates_effect(
     ));
     p.indent();
     for assignment in &create.assignments {
-        p.line(&format_binding_row(assignment, let_bindings));
+        p.line(&format_binding_row(assignment, let_bindings, &optional_inputs));
     }
     p.dedent();
     p.line("}),");
@@ -834,7 +855,8 @@ fn emit_updates_effect(
     scope_bindings: &[ScopeBinding],
 ) {
     let resource_var = resource_var_for_qname(&update.resource);
-    let scope_columns: std::collections::BTreeSet<&str> =
+    let optional_inputs = collect_optional_inputs(command);
+    let scope_columns: BTreeSet<&str> =
         scope_bindings.iter().map(|b| b.column.as_str()).collect();
     // Suppress route/input-derived where keys when scope_bindings
     // claim the same column (e.g. `@scope.self` claims `id` from
@@ -885,7 +907,7 @@ fn emit_updates_effect(
     p.line("lazuli.Bindings{");
     p.indent();
     for assignment in &update.assignments {
-        p.line(&format_binding_row(assignment, let_bindings));
+        p.line(&format_binding_row(assignment, let_bindings, &optional_inputs));
     }
     p.dedent();
     p.line("},");
@@ -904,9 +926,8 @@ struct TransitionAdvanceLiteral<'a> {
     to: &'a str,
 }
 
-fn command_trigger_names(_command: &Command) -> &[String] {
-    // FIXME: drop after CTB-IR-1 merge; use command.triggers directly.
-    &[]
+fn command_trigger_names(command: &Command) -> &[String] {
+    &command.triggers
 }
 
 fn lifecycle_transition_for<'a>(
@@ -1463,15 +1484,33 @@ fn command_policy_atoms(command: &Command, policies: &Policies) -> Vec<String> {
 
 /// Render one `Bindings` entry from an `Assignment`. Walks the Expr
 /// shape to pick the right Lazuli Go lib `From*` constructor.
-fn format_binding_row(assignment: &Assignment, let_bindings: &BTreeMap<&str, &Expr>) -> String {
+///
+/// `optional_inputs` carries the set of input slot names that are
+/// optional on the current command — when the assignment value is
+/// `input.<X>` and X is in the set, the emitter renders
+/// `lazuli.FromInputOptional("X")` so the runtime skips the column at
+/// dispatch time if the wire payload omitted it (partial-write
+/// semantics for `conventions [crud]` synth + any handwritten command
+/// that exposes optional input slots). An empty set degrades to the
+/// always-`FromInput` behaviour and preserves existing snapshots for
+/// commands whose inputs are all required.
+fn format_binding_row(
+    assignment: &Assignment,
+    let_bindings: &BTreeMap<&str, &Expr>,
+    optional_inputs: &BTreeSet<&str>,
+) -> String {
     let column = assignment.field.to_ascii_lowercase();
-    let value_repr = format_binding_source(&assignment.value, let_bindings);
+    let value_repr = format_binding_source(&assignment.value, let_bindings, optional_inputs);
     format!("\"{column}\": {value_repr},")
 }
 
-fn format_binding_source(expr: &Expr, let_bindings: &BTreeMap<&str, &Expr>) -> String {
+fn format_binding_source(
+    expr: &Expr,
+    let_bindings: &BTreeMap<&str, &Expr>,
+    optional_inputs: &BTreeSet<&str>,
+) -> String {
     match expr {
-        Expr::Path(path) => format_path_source(&path.segments, let_bindings),
+        Expr::Path(path) => format_path_source(&path.segments, let_bindings, optional_inputs),
         Expr::String(s) => format!("lazuli.FromConst(\"{}\")", escape_string(s)),
         Expr::Integer(n) => format!("lazuli.FromConst({n})"),
         Expr::Boolean(b) => format!("lazuli.FromConst({b})"),
@@ -1503,7 +1542,7 @@ fn format_binding_source(expr: &Expr, let_bindings: &BTreeMap<&str, &Expr>) -> S
             let arg_sources: Vec<String> = call
                 .args
                 .iter()
-                .map(|a| format_binding_source(a, let_bindings))
+                .map(|a| format_binding_source(a, let_bindings, optional_inputs))
                 .collect();
             let args_arr = if arg_sources.is_empty() {
                 "nil".to_owned()
@@ -1520,8 +1559,15 @@ fn format_binding_source(expr: &Expr, let_bindings: &BTreeMap<&str, &Expr>) -> S
 }
 
 /// Classify a `Path` (e.g. `input.name`, `ctx.user`, `route.id`) into
-/// the matching Lazuli Go lib source constructor.
-fn format_path_source(segments: &[String], let_bindings: &BTreeMap<&str, &Expr>) -> String {
+/// the matching Lazuli Go lib source constructor. `optional_inputs`
+/// names the input slots whose Go type is `*T` (optional); for those,
+/// `input.<X>` is rendered as `lazuli.FromInputOptional` so the runtime
+/// can skip the column when the wire payload omits the field.
+fn format_path_source(
+    segments: &[String],
+    let_bindings: &BTreeMap<&str, &Expr>,
+    optional_inputs: &BTreeSet<&str>,
+) -> String {
     if let [name] = segments {
         if let Some(target_expr) = let_bindings.get(name.as_str()) {
             return format!(
@@ -1540,7 +1586,21 @@ fn format_path_source(segments: &[String], let_bindings: &BTreeMap<&str, &Expr>)
         String::new()
     };
     match head {
-        "input" => format!("lazuli.FromInput(\"{tail}\")"),
+        "input" => {
+            // For nested paths like `input.address.city`, only the
+            // top-level slot's optionality determines skip-on-nil — the
+            // runtime's `readPath` returns nil for any nil pointer
+            // encountered en route, so the same FromInputOptional
+            // contract applies. The set is keyed by the top-level slot
+            // name, which is `tail` for `[input, X]` and the first
+            // component for deeper paths.
+            let first_segment = tail.split('.').next().unwrap_or(tail.as_str());
+            if optional_inputs.contains(first_segment) {
+                format!("lazuli.FromInputOptional(\"{tail}\")")
+            } else {
+                format!("lazuli.FromInput(\"{tail}\")")
+            }
+        }
         "ctx" => format!("lazuli.FromCtx(\"{tail}\")"),
         "target" => format!("lazuli.FromTarget(\"{tail}\")"),
         "route" => format!("lazuli.FromInput(\"{tail}\")"),
@@ -1551,6 +1611,23 @@ fn format_path_source(segments: &[String], let_bindings: &BTreeMap<&str, &Expr>)
             format!("lazuli.FromConst(\"{}\")", segments.join("."))
         }
     }
+}
+
+/// Collect the set of optional input slot names on `command`. Returns
+/// an empty set when `command.input` is anything other than
+/// `CommandInput::Typed` (Json / Empty inputs have no slots to mark
+/// optional). The set is consumed by `format_binding_row` to decide
+/// between `FromInput` and `FromInputOptional` per binding.
+fn collect_optional_inputs(command: &Command) -> BTreeSet<&str> {
+    let mut out = BTreeSet::new();
+    if let CommandInput::Typed(slots) = &command.input {
+        for slot in slots {
+            if !slot.required {
+                out.insert(slot.name.as_str());
+            }
+        }
+    }
+    out
 }
 
 /// Emit `Emits: []lazuli.EventEmit{...}` block. The IR `emits: Vec<String>`
@@ -2968,6 +3045,37 @@ mod tests {
     }
 
     #[test]
+    fn cap_file_synthesised_no_effect_command_wires_returns_from_registry() {
+        use lazuli_ir::{AutoPhotoCommandRole, BuiltinType, CommandInput, SynthesizedFromCapFile};
+        let mut feature = base_feature("customer");
+        let mut cmd = base_command("confirm_profile_photo_upload");
+        cmd.input = CommandInput::Typed(vec![typed_slot("key", BuiltinType::Text, true)]);
+        cmd.effect = CommandEffect::None;
+        cmd.handler = None;
+        cmd.synthesized_from_cap_file = Some(SynthesizedFromCapFile {
+            resource: "Customer".to_owned(),
+            field: "profile_photo".to_owned(),
+            role: AutoPhotoCommandRole::Confirm,
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        // The runtime fn lives in auto_photo.gen.go under "customer.confirm_profile_photo_upload".
+        // Effect must forward to that registry key with struct{} return — without
+        // the wire-up the runtime 500s with "command has no effect".
+        assert!(
+            out.contains(
+                "Effect: lazuli.ReturnsFromRegistry[ConfirmResultProfilePhotoUploadInput, struct{}](\"customer.confirm_profile_photo_upload\"),"
+            ),
+            "missing ReturnsFromRegistry wire-up for cap_file confirm:\n{out}"
+        );
+        assert!(!out.contains("Effect: nil,"));
+        assert!(out.contains(
+            "// cap_file synth: handler registered by auto_photo.gen.go under \"customer.confirm_profile_photo_upload\"."
+        ));
+    }
+
+    #[test]
     fn bare_identifier_binding_source_traces_command_let() {
         let mut feature = base_feature("customer");
         let mut cmd = base_command("create");
@@ -4374,10 +4482,111 @@ mod tests {
             out.contains("\"host\": lazuli.FromCtxOwnedVia(\"host\", \"user\", \"user.id\"),"),
             "UPDATE with owner_scope_sql should emit FromCtxOwnedVia binding:\n{out}"
         );
-        // SET-side bindings should remain unaffected (host is not in SET).
+        // SET-side binding: `name` is an optional input slot (above) so
+        // the emitter now picks `FromInputOptional` so the runtime
+        // skips the column when the wire payload omits it (partial-
+        // update semantics). Required slots keep emitting plain
+        // `FromInput`.
+        assert!(
+            out.contains("\"name\": lazuli.FromInputOptional(\"name\"),"),
+            "SET-side optional input must emit FromInputOptional:\n{out}"
+        );
+    }
+
+    /// Partial-write axis: an UPDATE command whose typed input mixes
+    /// required + optional slots must emit `FromInput` for the
+    /// required ones and `FromInputOptional` for the optional ones, so
+    /// the runtime keeps the existing column value when the wire
+    /// payload omits an optional field. Regression for the hostpoint
+    /// 2026-05-22 settings-save outage.
+    #[test]
+    fn update_emits_from_input_optional_for_optional_input_slots() {
+        let mut feature = base_feature("widget");
+        let mut resource = simple_resource("Widget");
+        resource.fields.push(scope_field("name"));
+        resource.fields.push(scope_field("color"));
+        feature.resources.push(resource);
+
+        let mut cmd = base_command("update_widget");
+        cmd.kind = CommandKind::Update;
+        cmd.route = vec![RouteSlot {
+            name: "id".to_owned(),
+            type_ref: TypeRef::Builtin(BuiltinType::Id),
+            from: None,
+            kind: lazuli_ir::RouteSlotKind::Plain,
+        }];
+        cmd.input = CommandInput::Typed(vec![
+            typed_slot("name", BuiltinType::Text, true),  // required
+            typed_slot("color", BuiltinType::Text, false), // optional
+        ]);
+        cmd.effect = CommandEffect::Updates(UpdateEffect {
+            resource: local_qname("Widget"),
+            assignments: vec![
+                Assignment {
+                    field: "name".to_owned(),
+                    value: Expr::Path(Path::from_segments(["input", "name"])),
+                },
+                Assignment {
+                    field: "color".to_owned(),
+                    value: Expr::Path(Path::from_segments(["input", "color"])),
+                },
+            ],
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
         assert!(
             out.contains("\"name\": lazuli.FromInput(\"name\"),"),
-            "SET-side bindings must remain:\n{out}"
+            "required input slot must emit plain FromInput:\n{out}"
+        );
+        assert!(
+            out.contains("\"color\": lazuli.FromInputOptional(\"color\"),"),
+            "optional input slot must emit FromInputOptional:\n{out}"
+        );
+    }
+
+    /// Mirror of the above for CREATE — required slots stay
+    /// `FromInput`, optional slots become `FromInputOptional` so the
+    /// INSERT skips columns whose wire field was nil and lets the
+    /// column default take effect.
+    #[test]
+    fn create_emits_from_input_optional_for_optional_input_slots() {
+        let mut feature = base_feature("widget");
+        let mut resource = simple_resource("Widget");
+        resource.fields.push(scope_field("name"));
+        resource.fields.push(scope_field("color"));
+        feature.resources.push(resource);
+
+        let mut cmd = base_command("create_widget");
+        cmd.kind = CommandKind::Create;
+        cmd.input = CommandInput::Typed(vec![
+            typed_slot("name", BuiltinType::Text, true),
+            typed_slot("color", BuiltinType::Text, false),
+        ]);
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Widget"),
+            from_input: false,
+            assignments: vec![
+                Assignment {
+                    field: "name".to_owned(),
+                    value: Expr::Path(Path::from_segments(["input", "name"])),
+                },
+                Assignment {
+                    field: "color".to_owned(),
+                    value: Expr::Path(Path::from_segments(["input", "color"])),
+                },
+            ],
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("\"name\": lazuli.FromInput(\"name\"),"),
+            "required input slot must emit plain FromInput:\n{out}"
+        );
+        assert!(
+            out.contains("\"color\": lazuli.FromInputOptional(\"color\"),"),
+            "optional input slot must emit FromInputOptional:\n{out}"
         );
     }
 
