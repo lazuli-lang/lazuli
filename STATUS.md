@@ -1,6 +1,6 @@
 # Status - Cell B.4 query.view
 
-Commit: pending
+Commit: 74e510414bf9d46660ec9a2f8ad5ccd6139e4e04
 
 IR delta:
 - Added `SqlQuery.sql_kind: SqlQueryKind::{Sql, View}` with default SQL back-compat serialization.
