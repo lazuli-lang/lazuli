@@ -1274,6 +1274,10 @@ impl DoctorPackage {
             &self.tier3_facts,
             self.registry.as_ref().map(|reg| &reg.manifest),
         ));
+        diagnostics.extend(query_view_sql_file_diagnostics(
+            &self.tier3_facts,
+            &self.project_root,
+        ));
 
         // Row 54 — i18n bucket cycle: 15 locale/translation diagnostics.
         // See `docs/proposals/bucket-i18n-cycle.md` §Doctor/LSP.
@@ -3153,6 +3157,7 @@ fn callable_header_key_from_trimmed(trimmed: &str) -> Option<String> {
         ("query.list ", "query.list"),
         ("query.lookup ", "query.lookup"),
         ("query.sql ", "query.sql"),
+        ("query.view ", "query.view"),
     ];
     for (prefix, kind) in prefixes {
         if let Some(rest) = trimmed.strip_prefix(*prefix) {
@@ -8505,6 +8510,7 @@ fn resolve_tool(
                     ir::ToolKind::QueryList
                     | ir::ToolKind::QueryLookup
                     | ir::ToolKind::QuerySql
+                    | ir::ToolKind::QueryView
                     | ir::ToolKind::QueryUnspecified,
                     _,
                 ) => {
@@ -8541,6 +8547,7 @@ fn tool_kind_word(kind: ir::ToolKind) -> &'static str {
         ir::ToolKind::QueryList => "query.list",
         ir::ToolKind::QueryLookup => "query.lookup",
         ir::ToolKind::QuerySql => "query.sql",
+        ir::ToolKind::QueryView => "query.view",
         ir::ToolKind::QueryUnspecified => "query",
         ir::ToolKind::Command => "command",
         ir::ToolKind::Api => "api",
@@ -10853,6 +10860,7 @@ fn rbac_missing_policy_diagnostics(files: &[DoctorFile]) -> Vec<DoctorDiagnostic
                     || trimmed.starts_with("query.list ")
                     || trimmed.starts_with("query.lookup ")
                     || trimmed.starts_with("query.sql ")
+                    || trimmed.starts_with("query.view ")
                     || trimmed.starts_with("api "))
             {
                 let name = trimmed
@@ -11051,7 +11059,7 @@ fn collect_construct_lines(
 }
 
 /// OpenAPI/Cache bucket cycles — line lookup for `query.list`,
-/// `query.lookup`, `query.sql` headers. Mirrors `collect_construct_lines`
+/// `query.lookup`, `query.sql`, `query.view` headers. Mirrors `collect_construct_lines`
 /// but the parser folds the kind into the header keyword.
 fn collect_query_lines(source: &str, queries: &[lazuli_ir::Query]) -> BTreeMap<String, usize> {
     let mut out = BTreeMap::new();
@@ -11071,7 +11079,8 @@ fn collect_query_lines(source: &str, queries: &[lazuli_ir::Query]) -> BTreeMap<S
         let after = trimmed
             .strip_prefix("query.list ")
             .or_else(|| trimmed.strip_prefix("query.lookup "))
-            .or_else(|| trimmed.strip_prefix("query.sql "));
+            .or_else(|| trimmed.strip_prefix("query.sql "))
+            .or_else(|| trimmed.strip_prefix("query.view "));
         let Some(rest) = after else {
             continue;
         };
@@ -13987,6 +13996,110 @@ fn query_name_and_cache(q: &lazuli_ir::Query) -> (&str, Option<&lazuli_ir::Query
     }
 }
 
+/// Wave B.4 — `query.view` is a typed SQL-backed screen-read primitive.
+/// The analyzer lowers `source @file.<name>.sql` into the canonical
+/// project-relative file path; doctor owns the filesystem and best-effort
+/// unsafe-SQL checks.
+fn query_view_sql_file_diagnostics(
+    facts: &[Tier3FeatureFacts],
+    project_root: &Path,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for feature in facts {
+        for query in &feature.queries {
+            let lazuli_ir::Query::Sql(query) = query else {
+                continue;
+            };
+            if query.sql_kind != lazuli_ir::SqlQueryKind::View {
+                continue;
+            }
+
+            let line = feature
+                .query_lines
+                .get(query.name.as_str())
+                .copied()
+                .unwrap_or(feature.feature_line);
+            let sql_path = resolve_query_view_sql_path(project_root, &query.sql_path);
+            if !sql_path.is_file() {
+                diagnostics.push(DoctorDiagnostic {
+                    path: feature.path.clone(),
+                    line,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "QUERY-VIEW-SQL-FILE-001".to_owned(),
+                    message: format!(
+                        "`query.view {}` references SQL source `{}` but the file does not exist.",
+                        query.name, query.sql_path
+                    ),
+                });
+                continue;
+            }
+
+            let Ok(sql) = fs::read_to_string(&sql_path) else {
+                continue;
+            };
+            if let Some((sql_line, reason)) = query_view_unsafe_sql_line(&sql) {
+                diagnostics.push(DoctorDiagnostic {
+                    path: sql_path,
+                    line: sql_line,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: "QUERY-VIEW-SQL-UNSAFE-001".to_owned(),
+                    message: format!(
+                        "`query.view {}` SQL looks like it builds user-influenced text instead of binding parameters: {reason}.",
+                        query.name
+                    ),
+                });
+            }
+        }
+    }
+
+    diagnostics
+}
+
+fn resolve_query_view_sql_path(project_root: &Path, sql_path: &str) -> PathBuf {
+    let path = Path::new(sql_path);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        project_root.join(path)
+    }
+}
+
+fn query_view_unsafe_sql_line(sql: &str) -> Option<(usize, &'static str)> {
+    for (idx, line) in sql.lines().enumerate() {
+        if line.contains("'%s'") || line.contains("\"%s\"") || line.contains("%s") {
+            return Some((idx + 1, "`%s` formatting marker"));
+        }
+        if plus_near_dollar_placeholder(line) {
+            return Some((idx + 1, "`+` near a `$<n>` placeholder"));
+        }
+    }
+    None
+}
+
+fn plus_near_dollar_placeholder(line: &str) -> bool {
+    let bytes = line.as_bytes();
+    for (idx, byte) in bytes.iter().enumerate() {
+        if *byte != b'$'
+            || !bytes
+                .get(idx + 1)
+                .map(|b| b.is_ascii_digit())
+                .unwrap_or(false)
+        {
+            continue;
+        }
+        let start = idx.saturating_sub(48);
+        let end = (idx + 48).min(bytes.len());
+        let window = &bytes[start..end];
+        if window.contains(&b'+') && window.contains(&b'\'') {
+            return true;
+        }
+    }
+    false
+}
+
 /// CL.C.3 — convert a `CacheTtl` to seconds for ordering comparisons
 /// (`stale_while_revalidate` <= `ttl`). Returns `None` for quoted prose
 /// (adapter-parsed; we don't second-guess the runtime there).
@@ -16873,6 +16986,72 @@ contract acme.ai.v1
         assert!(
             surfaced.contains("design-token-hex-leak"),
             "expected design rule to fire; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_query_view_reports_missing_sql_file() {
+        let temp = tempfile::TempDir::new().expect("create tempdir");
+        let root = temp.path();
+
+        write_file(&root.join("app.lzi"), "app Acme\n");
+        write_file(
+            &root.join("app/features/host/host.lzi"),
+            r#"
+feature host
+  record HostHomeRow
+    id: ID required
+  query.view host_home_view
+    returns list of HostHomeRow
+    source @file.host_home_view.sql
+    params
+      user_id: ID required
+"#,
+        );
+
+        let package = DoctorPackage::load(root, SecurityProfile::Strict).expect("load package");
+        let diagnostics = package.diagnostics();
+        let surfaced = codes(&diagnostics);
+
+        assert!(
+            surfaced.contains("QUERY-VIEW-SQL-FILE-001"),
+            "expected missing SQL file diagnostic; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_query_view_reports_unsafe_sql_pattern() {
+        let temp = tempfile::TempDir::new().expect("create tempdir");
+        let root = temp.path();
+
+        write_file(&root.join("app.lzi"), "app Acme\n");
+        write_file(
+            &root.join("app/features/host/host.lzi"),
+            r#"
+feature host
+  record HostHomeRow
+    id: ID required
+  query.view host_home_view
+    returns list of HostHomeRow
+    source @file.host_home_view.sql
+    params
+      user_id: ID required
+"#,
+        );
+        write_file(
+            &root.join("app/features/host/queries/host_home_view.sql"),
+            "select id from host_rows where title like '%' + $1 + '%'\n",
+        );
+
+        let package = DoctorPackage::load(root, SecurityProfile::Strict).expect("load package");
+        let diagnostics = package.diagnostics();
+        let surfaced = codes(&diagnostics);
+
+        assert!(
+            surfaced.contains("QUERY-VIEW-SQL-UNSAFE-001"),
+            "expected unsafe SQL diagnostic; got {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
     }

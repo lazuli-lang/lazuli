@@ -33,7 +33,7 @@ use crate::ast::{
     ResourceUniqueAst, RoleDeclAst, RoleGrantsAst, RouteParamAst, ScaleTokenAst, SearchDeclAst,
     SearchFieldAst, SearchModeAst, SelectionDeclAst, SelectionModeAst, SettingDeclAst,
     SettingPersistenceAst, SettingValueSpaceAst, ShadowTokenAst, SortDeclAst, SortDirAst, Span,
-    SqlQueryDecl, SurfaceAst, SurfaceTargetAst, TargetArgDecl, TargetExprDecl, TenantMigration,
+    SqlQueryDecl, SqlQueryKind, SurfaceAst, SurfaceTargetAst, TargetArgDecl, TargetExprDecl, TenantMigration,
     TextScaleTokenAst, ToolsCallsOp, TrackingTokenAst, TranslationDecl, TranslationKeyDecl,
     TranslationKeyRefAst, TranslationPluralArmDecl, TranslationVariantDecl, TypographyAst,
     UsesClauseAst, ViewAst, ViewCreateAst, ViewDetailAst, ViewListAst, Webhook, WebhookDlq,
@@ -4029,11 +4029,13 @@ fn parse_feature_skeleton(
         }
 
         // Phase L Tier 4d — `query.list` / `query.lookup` / `query.sql`
+        // / `query.view`
         // blocks. Authored inside `domain` at indent 4. Header is
         // recognised unambiguously by the keyword prefix.
         if trimmed.starts_with("query.list ")
             || trimmed.starts_with("query.lookup ")
             || trimmed.starts_with("query.sql ")
+            || trimmed.starts_with("query.view ")
         {
             let (mut parsed, next) = parse_query_decl(lines, i)?;
             attach_public_contract_to_query(line, &mut pending_contract, &mut parsed)?;
@@ -4411,8 +4413,11 @@ fn attach_public_contract_to_query(
                 take_matching_public_contract(line, pending_contract, "query.lookup", &q.name)?;
         }
         QueryDecl::Sql(q) => {
-            q.public_contract =
-                take_matching_public_contract(line, pending_contract, "query.sql", &q.name)?;
+            let kind = match q.kind {
+                SqlQueryKind::Sql => "query.sql",
+                SqlQueryKind::View => "query.view",
+            };
+            q.public_contract = take_matching_public_contract(line, pending_contract, kind, &q.name)?;
         }
     }
     Ok(())
@@ -10129,7 +10134,8 @@ fn find_default_assignment(text: &str) -> Option<usize> {
 }
 
 // -----------------------------------------------------------------------------
-// Phase L Tier 4d — `query.list` / `query.lookup` / `query.sql` and
+// Phase L Tier 4d — `query.list` / `query.lookup` / `query.sql` /
+// `query.view` and
 // `record <Name>` block parsers.
 //
 // Queries live inside `domain` at indent 4. Children at indent 6 are
@@ -10153,9 +10159,12 @@ fn parse_query_decl(
     if let Some(rest) = trimmed.strip_prefix("query.sql ") {
         return parse_query_sql_decl(lines, start, rest);
     }
+    if let Some(rest) = trimmed.strip_prefix("query.view ") {
+        return parse_query_view_decl(lines, start, rest);
+    }
     Err(line_error(
         header,
-        "query header must be `query.list <name>`, `query.lookup <name> by ...`, or `query.sql <name>`",
+        "query header must be `query.list <name>`, `query.lookup <name> by ...`, `query.sql <name>`, or `query.view <name>`",
     ))
 }
 
@@ -10466,10 +10475,33 @@ fn parse_query_sql_decl(
     start: usize,
     rest: &str,
 ) -> Result<(QueryDecl, usize), ParseError> {
+    parse_sql_backed_query_decl(lines, start, rest, SqlQueryKind::Sql)
+}
+
+fn parse_query_view_decl(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    rest: &str,
+) -> Result<(QueryDecl, usize), ParseError> {
+    parse_sql_backed_query_decl(lines, start, rest, SqlQueryKind::View)
+}
+
+fn parse_sql_backed_query_decl(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    rest: &str,
+    kind: SqlQueryKind,
+) -> Result<(QueryDecl, usize), ParseError> {
     let header = &lines[start];
     let name = rest.trim().to_owned();
     if name.is_empty() {
-        return Err(line_error(header, "`query.sql` requires a name"));
+        return Err(line_error(
+            header,
+            match kind {
+                SqlQueryKind::Sql => "`query.sql` requires a name",
+                SqlQueryKind::View => "`query.view` requires a name",
+            },
+        ));
     }
     let header_indent = header.indent;
     let child_indent = header_indent + 2;
@@ -10497,7 +10529,14 @@ fn parse_query_sql_decl(
         if line.indent != child_indent {
             return Err(line_error(
                 line,
-                "`query.sql` body children use one indentation level deeper than the header",
+                match kind {
+                    SqlQueryKind::Sql => {
+                        "`query.sql` body children use one indentation level deeper than the header"
+                    }
+                    SqlQueryKind::View => {
+                        "`query.view` body children use one indentation level deeper than the header"
+                    }
+                },
             ));
         }
 
@@ -10521,7 +10560,30 @@ fn parse_query_sql_decl(
             last_end = line.end;
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("sql ") {
+            if kind == SqlQueryKind::View {
+                return Err(line_error(
+                    line,
+                    "`query.view` uses `source @file.<name>.sql`; `sql \"./<path>.sql\"` is reserved for `query.sql`",
+                ));
+            }
             sql_path = Some(unquote_lzx_value(rest.trim()).to_owned());
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("source ") {
+            if kind != SqlQueryKind::View {
+                return Err(line_error(
+                    line,
+                    "`source @file.<name>.sql` is only valid on `query.view`; use `sql \"./<path>.sql\"` on `query.sql`",
+                ));
+            }
+            let source = rest.trim();
+            if !source.starts_with("@file.") || !source.ends_with(".sql") {
+                return Err(line_error(
+                    line,
+                    "`query.view source` must be shaped `@file.<name>.sql`",
+                ));
+            }
+            sql_path = Some(source.to_owned());
             last_end = line.end;
             i += 1;
         } else if trimmed.starts_with("gate ") {
@@ -10531,7 +10593,14 @@ fn parse_query_sql_decl(
         } else {
             return Err(line_error(
                 line,
-                "`query.sql` children are `policy`, `params`, `scope`, `returns`, `sql`, or `gate behind/quota plan.*`",
+                match kind {
+                    SqlQueryKind::Sql => {
+                        "`query.sql` children are `policy`, `params`, `scope`, `returns`, `sql`, or `gate behind/quota plan.*`"
+                    }
+                    SqlQueryKind::View => {
+                        "`query.view` children are `policy`, `returns`, `source`, `params`, `scope`, or `gate behind/quota plan.*`"
+                    }
+                },
             ));
         }
     }
@@ -10539,18 +10608,29 @@ fn parse_query_sql_decl(
     let returns = returns.ok_or_else(|| {
         line_error(
             header,
-            "`query.sql` requires a `returns <Type>` declaration",
+            match kind {
+                SqlQueryKind::Sql => "`query.sql` requires a `returns <Type>` declaration",
+                SqlQueryKind::View => "`query.view` requires a `returns <Type>` declaration",
+            },
         )
     })?;
     let sql_path = sql_path.ok_or_else(|| {
         line_error(
             header,
-            "`query.sql` requires a `sql \"./<path>.sql\"` declaration",
+            match kind {
+                SqlQueryKind::Sql => {
+                    "`query.sql` requires a `sql \"./<path>.sql\"` declaration"
+                }
+                SqlQueryKind::View => {
+                    "`query.view` requires a `source @file.<name>.sql` declaration"
+                }
+            },
         )
     })?;
     Ok((
         QueryDecl::Sql(SqlQueryDecl {
             name,
+            kind,
             public_contract: None,
             policy,
             policy_expr,
@@ -15854,7 +15934,7 @@ fn is_plan_ident(s: &str) -> bool {
 /// Returns a map keyed by qualified callable id
 /// (`command:<name>` / `job:<name>` / `webhook:<name>` /
 /// `api:<name>` / `query.list:<name>` / `query.lookup:<name>` /
-/// `query.sql:<name>`) into the gate directives declared in source
+/// `query.sql:<name>` / `query.view:<name>`) into the gate directives declared in source
 /// order for that callable.
 ///
 /// The scanner is a single-pass text walker. It tracks the current
@@ -15912,7 +15992,7 @@ pub fn parse_feature_gates(source: &str) -> Result<FeatureGatesAst, ParseError> 
 
 /// Recognise `command <name>` / `job <name>` / `webhook <name>` /
 /// `api <name>` / `query.list <name>` / `query.lookup <name>` /
-/// `query.sql <name>` headers and produce the qualified key the
+/// `query.sql <name>` / `query.view <name>` headers and produce the qualified key the
 /// downstream side-table uses.
 fn callable_header_key(trimmed: &str) -> Option<String> {
     let prefixes: &[(&str, &str)] = &[
@@ -15923,6 +16003,7 @@ fn callable_header_key(trimmed: &str) -> Option<String> {
         ("query.list ", "query.list"),
         ("query.lookup ", "query.lookup"),
         ("query.sql ", "query.sql"),
+        ("query.view ", "query.view"),
     ];
     for (prefix, kind) in prefixes {
         if let Some(rest) = trimmed.strip_prefix(*prefix) {
@@ -18461,12 +18542,65 @@ feature customer
         let features = parse_feature_skeletons(source).unwrap();
         match &features[0].queries[0] {
             crate::QueryDecl::Sql(s) => {
+                assert_eq!(s.kind, crate::SqlQueryKind::Sql);
                 assert_eq!(s.name, "lifetime_value");
                 assert_eq!(s.returns, "CustomerLtv[]");
                 assert_eq!(s.sql_path, "./queries/customer_lifetime_value.sql");
                 assert_eq!(s.scope_lines.len(), 1);
             }
             other => panic!("expected query.sql, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn query_view_parses_file_source_and_list_returns() {
+        let source = r#"
+feature host
+  domain
+    query.view host_home_view
+      policy @policy.host_only
+      returns list of HostHomeRow
+      source @file.host_home_view.sql
+      params
+        user_id: ID required
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        match &features[0].queries[0] {
+            crate::QueryDecl::Sql(s) => {
+                assert_eq!(s.kind, crate::SqlQueryKind::View);
+                assert_eq!(s.name, "host_home_view");
+                assert_eq!(s.policy.as_deref(), Some("@policy.host_only"));
+                assert_eq!(s.returns, "list of HostHomeRow");
+                assert_eq!(s.sql_path, "@file.host_home_view.sql");
+                assert_eq!(s.params.len(), 1);
+                assert_eq!(s.params[0].name, "user_id");
+            }
+            other => panic!("expected query.view, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn query_view_parses_scalar_returns_and_scope() {
+        let source = r#"
+feature host
+  domain
+    query.view property_detail_view
+      returns PropertyDetailRow
+      source @file.property_detail_view.sql
+      scope
+        org = ctx.actor.org_id
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        match &features[0].queries[0] {
+            crate::QueryDecl::Sql(s) => {
+                assert_eq!(s.kind, crate::SqlQueryKind::View);
+                assert_eq!(s.name, "property_detail_view");
+                assert_eq!(s.returns, "PropertyDetailRow");
+                assert_eq!(s.sql_path, "@file.property_detail_view.sql");
+                assert_eq!(s.scope_lines, vec!["org = ctx.actor.org_id"]);
+                assert!(s.params.is_empty());
+            }
+            other => panic!("expected query.view, got {other:?}"),
         }
     }
 

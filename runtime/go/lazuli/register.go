@@ -123,6 +123,8 @@ func (q *Query[A, R]) dispatch(ctx *Ctx, raw json.RawMessage) (any, error) {
 		return q.RunList(ctx, args)
 	case QueryLookup:
 		return q.RunLookup(ctx, args)
+	case QueryView:
+		return q.RunSQL(ctx, args)
 	case QuerySQL:
 		return nil, &Error{Status: 501, Code: CodeInternal,
 			Message: "query.sql execution not yet implemented in runtime spike"}

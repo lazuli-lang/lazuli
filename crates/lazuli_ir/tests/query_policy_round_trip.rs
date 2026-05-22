@@ -17,7 +17,7 @@
 
 use lazuli_ir::{
     BuiltinType, Defaults, Feature, KeyClause, ListQuery, LookupQuery, Path, Policies, PolicyRef,
-    Query, SqlQuery, TypeRef,
+    Query, QualifiedName, SqlQuery, TypeRef,
 };
 
 fn base_feature() -> Feature {
@@ -141,6 +141,7 @@ fn sql_query_with_policy_round_trips() {
     let mut feature = base_feature();
     feature.queries.push(Query::Sql(SqlQuery {
         name: "traveler_audit".to_owned(),
+        sql_kind: lazuli_ir::SqlQueryKind::Sql,
         public_contract: None,
         params: Vec::new(),
         scope: Vec::new(),
@@ -161,6 +162,38 @@ fn sql_query_with_policy_round_trips() {
     assert!(
         json.contains("\"role.admin\""),
         "sql-query policy atom missing from JSON: {json}"
+    );
+}
+
+#[test]
+fn query_view_sql_kind_round_trips_without_colliding_with_query_tag() {
+    let mut feature = base_feature();
+    feature.queries.push(Query::Sql(SqlQuery {
+        name: "host_home_view".to_owned(),
+        sql_kind: lazuli_ir::SqlQueryKind::View,
+        public_contract: None,
+        params: Vec::new(),
+        scope: Vec::new(),
+        scope_override: false,
+        returns: TypeRef::Many(Box::new(TypeRef::UserDefined(QualifiedName {
+            feature: None,
+            name: "HostHomeRow".to_owned(),
+        }))),
+        sql_path: "app/features/host/queries/host_home_view.sql".to_owned(),
+        cache: None,
+        policy: PolicyRef::Local("host_only".to_owned()),
+        policy_expr: None,
+        policy_when_denied: None,
+        previous_names: Vec::new(),
+        span_ref: None,
+    }));
+
+    let json = serde_json::to_string(&feature).expect("serialize");
+    let back: Feature = serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(feature, back);
+    assert!(
+        json.contains("\"kind\":\"Sql\"") && json.contains("\"sql_kind\":\"view\""),
+        "query.view should preserve both the Query tag and SQL discriminator: {json}"
     );
 }
 

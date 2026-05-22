@@ -2044,6 +2044,8 @@ pub struct LookupQuery {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SqlQuery {
     pub name: String,
+    #[serde(default, skip_serializing_if = "SqlQueryKind::is_sql")]
+    pub sql_kind: SqlQueryKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public_contract: Option<PublicContract>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -2078,6 +2080,20 @@ pub struct SqlQuery {
     pub previous_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SqlQueryKind {
+    #[default]
+    Sql,
+    View,
+}
+
+impl SqlQueryKind {
+    pub fn is_sql(&self) -> bool {
+        matches!(self, Self::Sql)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -3027,7 +3043,8 @@ pub struct ViewCreate {
 }
 
 /// Reference to a query declared in some feature. The `kind` field
-/// surfaces the textual form (`query.list` / `query.lookup` / `query.sql`).
+/// surfaces the textual form (`query.list` / `query.lookup` / `query.sql`
+/// / `query.view`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueryRef {
     pub feature: String,
@@ -3041,6 +3058,7 @@ pub enum QueryKind {
     List,
     Lookup,
     Sql,
+    View,
 }
 
 /// Reference to a command. `feature` is set when the source uses the
@@ -6116,12 +6134,14 @@ pub enum ToolKind {
     QueryLookup,
     /// `query.sql` — opaque SQL read.
     QuerySql,
+    /// `query.view` — typed screen-read SQL projection.
+    QueryView,
     /// `command` — write.
     Command,
     /// `api` — custom HTTP endpoint; effect derived from `method`.
     Api,
     /// `query` — unspecified subkind; the analyzer narrows to
-    /// `QueryList`/`QueryLookup`/`QuerySql` once the target is known.
+    /// `QueryList`/`QueryLookup`/`QuerySql`/`QueryView` once the target is known.
     QueryUnspecified,
 }
 
