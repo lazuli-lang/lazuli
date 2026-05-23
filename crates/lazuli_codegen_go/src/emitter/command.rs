@@ -134,6 +134,7 @@ pub fn emit_command_file(
     // Handlers live in the same Go package as the feature (see
     // `emitter/handlers.rs` module docs) — no extra package import
     // needed for `lazuli.Returns(<HandlerName>)` calls.
+    let mut any_semantic_validators = false;
     for command in &commands {
         if let CommandInput::Typed(slots) = &command.input {
             for slot in slots {
@@ -152,6 +153,18 @@ pub fn emit_command_file(
         // Resource references (Creates/Updates/Deletes) live in the
         // same Go package — no cross-feature import needed beyond what
         // the resource emitter already registers in `resource.gen.go`.
+
+        // LAZ-SEMANTIC-AUTO-VALIDATE — every input field that resolves to
+        // a SemanticPluginType carrying a non-empty validator name pulls
+        // in the plugin's Go package so the pre-handler validation pass
+        // can call `<alias>.<Validator>(...)`.
+        for plugin in semantic_validator_plugins(command) {
+            imports.add_aliased(&plugin.alias, &plugin.import_path);
+            any_semantic_validators = true;
+        }
+    }
+    if any_semantic_validators {
+        imports.add("lazuli.dev/runtime/lazuli");
     }
 
     p.banner(
@@ -456,6 +469,12 @@ fn emit_command_handler_wrapper(
     p.line("var endOp func()");
     p.line("ctx.Context, endOp = observability.StartOp(ctx.Context)");
     p.line("defer endOp()");
+    // LAZ-SEMANTIC-AUTO-VALIDATE (ir-semantic-auto-validate-2026-05-22).
+    // Pre-handler validation pass for fields whose type is a
+    // @semantic.X scalar with a plugin-declared validator. Returns
+    // validation_failed with {data:{fields:{<field>:<code>}}} — the
+    // same shape useLazuliFormRHF + setServerFieldErrors expects.
+    emit_semantic_validate_prelude(p, command, output_type);
     // PG.C.1 — plan-gate prelude (pre-dispatch). Behind-gates run
     // first (boolean feature check → 402 plan.feature_forbidden on
     // failure). Quota gates next (counter check → 402
@@ -2331,6 +2350,177 @@ fn pascal_case(s: &str) -> String {
 
 fn lower_camel(s: &str) -> String {
     super::casing::lower_camel(s)
+}
+
+// ---------------------------------------------------------------------------
+// LAZ-SEMANTIC-AUTO-VALIDATE (ir-semantic-auto-validate-2026-05-22.md)
+// ---------------------------------------------------------------------------
+
+/// One @semantic.X field on a command input that needs a runtime
+/// validator call before the user handler runs.
+#[derive(Debug, Clone)]
+struct SemanticValidatorSlot {
+    /// `pascal_case(slot.name)` — Go field name on the input struct.
+    go_field: String,
+    /// Raw slot name — used as the `fields[...]` key (matches JSON shape).
+    json_field: String,
+    /// True when the slot is `*T` (optional). Validation skips nil/empty.
+    optional: bool,
+    /// `<alias>.<Validator>` — full Go call site (e.g.
+    /// `scalarsbr.ValidateCPF`).
+    call: String,
+    /// Stable code surfaced to the client (e.g. `cpf_invalid`). Derived
+    /// from the alias name terminal segment per v1 convention.
+    error_code: String,
+}
+
+/// One plugin Go package referenced by a command's semantic
+/// validators. Used to register `add_aliased` imports.
+#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
+struct SemanticValidatorPlugin {
+    alias: String,
+    import_path: String,
+}
+
+/// Walk a command's typed input slots and collect every plugin whose
+/// semantic-validator must be imported. Deduplicated.
+fn semantic_validator_plugins(command: &Command) -> Vec<SemanticValidatorPlugin> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = Vec::new();
+    for slot in semantic_validator_slots(command) {
+        let (alias, _) = slot.call.split_once('.').unwrap_or((slot.call.as_str(), ""));
+        if !seen.insert(alias.to_owned()) {
+            continue;
+        }
+        out.push(SemanticValidatorPlugin {
+            alias: alias.to_owned(),
+            import_path: plugin_import_path_for_alias(alias),
+        });
+    }
+    out
+}
+
+/// Convention v1 — every plugin lives at `lazuli.dev/plugin/<short>`
+/// where `<short>` is the alias with hyphens re-inserted between the
+/// runs of letters that map to the alias collapse rule (`scalars-br`
+/// ⇄ `scalarsbr`). v1 keeps a tiny known-plugin map; future plugins
+/// declare their go module path in the manifest (Wave 2 of this
+/// proposal).
+fn plugin_import_path_for_alias(alias: &str) -> String {
+    // Minimal known set used by hostpoint today. Authoring more
+    // plugins or letting users override this lookup is the W2 work
+    // tracked in the auto-validate proposal.
+    match alias {
+        "scalarsbr" => "lazuli.dev/plugin/scalars-br".to_owned(),
+        // Fallback: assume the alias IS the module suffix as-is.
+        other => format!("lazuli.dev/plugin/{other}"),
+    }
+}
+
+/// Walk a command's typed input slots and emit one
+/// `SemanticValidatorSlot` per field whose type carries a non-empty
+/// validator. Route slots never carry semantic types in v1.
+fn semantic_validator_slots(command: &Command) -> Vec<SemanticValidatorSlot> {
+    let mut out = Vec::new();
+    let slots = match &command.input {
+        CommandInput::Typed(slots) => slots,
+        _ => return out,
+    };
+    for slot in slots {
+        let (plugin_ns, name, validator) = match &slot.type_ref {
+            lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticPluginType {
+                plugin,
+                name,
+                validator,
+                ..
+            }) if !validator.is_empty() => (plugin.as_str(), name.as_str(), validator.as_str()),
+            _ => continue,
+        };
+        let plugin_short = plugin_ns
+            .strip_prefix("@plugin/")
+            .unwrap_or(plugin_ns)
+            .to_owned();
+        let alias = plugin_short.replace('-', "");
+        let call = format!("{alias}.{validator}");
+        let error_code = format!("{}_invalid", semantic_error_stem(name));
+        out.push(SemanticValidatorSlot {
+            go_field: pascal_case(&slot.name),
+            json_field: slot.name.clone(),
+            optional: !slot.required,
+            call,
+            error_code,
+        });
+    }
+    out
+}
+
+/// `BrazilianCPF` → `cpf` ; `BrazilianCNPJ` → `cnpj`. Strips a leading
+/// nationality prefix (the common pattern across the scalars-br
+/// catalog) and lowercases. Plugins whose names don't match the
+/// pattern fall back to the lower-cased name.
+fn semantic_error_stem(name: &str) -> String {
+    for prefix in ["Brazilian"] {
+        if let Some(rest) = name.strip_prefix(prefix) {
+            return rest.to_ascii_lowercase();
+        }
+    }
+    name.to_ascii_lowercase()
+}
+
+/// Emit the pre-handler validation block for one command. When the
+/// command has no semantic-validator slots, this is a no-op.
+fn emit_semantic_validate_prelude(p: &mut GoPrinter, command: &Command, output_type: &str) {
+    let slots = semantic_validator_slots(command);
+    if slots.is_empty() {
+        return;
+    }
+    let zero = zero_value_for_go_type(output_type);
+    p.line("// semantic-scalar validation (LAZ-SEMANTIC-AUTO-VALIDATE).");
+    p.line("if __fields := func() map[string]string {");
+    p.indent();
+    p.line("__out := map[string]string{}");
+    for slot in &slots {
+        if slot.optional {
+            p.line(&format!(
+                "if input.{f} != nil && *input.{f} != \"\" {{",
+                f = slot.go_field
+            ));
+            p.indent();
+            p.line(&format!(
+                "if err := {call}(*input.{f}); err != nil {{ __out[\"{json}\"] = \"{code}\"; _ = err }}",
+                call = slot.call,
+                f = slot.go_field,
+                json = slot.json_field,
+                code = slot.error_code,
+            ));
+            p.dedent();
+            p.line("}");
+        } else {
+            p.line(&format!(
+                "if input.{f} != \"\" {{",
+                f = slot.go_field
+            ));
+            p.indent();
+            p.line(&format!(
+                "if err := {call}(input.{f}); err != nil {{ __out[\"{json}\"] = \"{code}\"; _ = err }}",
+                call = slot.call,
+                f = slot.go_field,
+                json = slot.json_field,
+                code = slot.error_code,
+            ));
+            p.dedent();
+            p.line("}");
+        }
+    }
+    p.line("return __out");
+    p.dedent();
+    p.line("}(); len(__fields) > 0 {");
+    p.indent();
+    p.line(&format!(
+        "return {zero}, &lazuli.Error{{Status: 400, Code: lazuli.CodeValidationFailed, Message: \"validation failed\", Data: map[string]any{{\"fields\": __fields}}}}"
+    ));
+    p.dedent();
+    p.line("}");
 }
 
 fn is_acronym(word: &str) -> bool {

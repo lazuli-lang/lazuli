@@ -9,7 +9,7 @@
 //! Lazuli reference resolves through this layer, never as a raw
 //! string write into `printer.line`.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::printer::GoPrinter;
 
@@ -26,6 +26,11 @@ pub struct ImportSet {
     stdlib: BTreeSet<String>,
     lazuli: BTreeSet<String>,
     third_party: BTreeSet<String>,
+    /// Explicitly-aliased third-party imports — emitted as
+    /// `alias "path"`. Used when the path's last segment is not a
+    /// valid Go identifier (e.g. `lazuli.dev/plugin/scalars-br` →
+    /// `scalarsbr "lazuli.dev/plugin/scalars-br"`).
+    third_party_aliased: BTreeMap<String, String>,
 }
 
 impl ImportSet {
@@ -54,11 +59,29 @@ impl ImportSet {
         }
     }
 
+    /// Add a third-party import with an explicit local alias. The
+    /// alias is the identifier used in source code (e.g. `scalarsbr`)
+    /// and the path is the import path (e.g.
+    /// `lazuli.dev/plugin/scalars-br`). Two adds with the same alias
+    /// + path collapse; adds with the same alias but a different
+    /// path are unsupported (the second silently overwrites — caller
+    /// must avoid alias collisions).
+    pub fn add_aliased(&mut self, alias: &str, path: &str) {
+        if alias.is_empty() || path.is_empty() {
+            return;
+        }
+        self.third_party_aliased
+            .insert(alias.to_owned(), path.to_owned());
+    }
+
     /// `true` when no imports are queued. The emitter uses this to
     /// skip emitting an empty `import ()` block (which `gofmt` would
     /// remove).
     pub fn is_empty(&self) -> bool {
-        self.stdlib.is_empty() && self.lazuli.is_empty() && self.third_party.is_empty()
+        self.stdlib.is_empty()
+            && self.lazuli.is_empty()
+            && self.third_party.is_empty()
+            && self.third_party_aliased.is_empty()
     }
 
     /// Emit the full `import (...)` block. Groups separated by a
@@ -75,7 +98,8 @@ impl ImportSet {
         let mut wrote_any = false;
         wrote_any |= write_group(p, &self.stdlib, false);
         wrote_any |= write_group(p, &self.lazuli, wrote_any);
-        let _ = write_group(p, &self.third_party, wrote_any);
+        wrote_any |= write_group(p, &self.third_party, wrote_any);
+        let _ = write_aliased_group(p, &self.third_party_aliased, wrote_any);
         p.dedent();
         p.line(")");
     }
@@ -90,6 +114,23 @@ fn write_group(p: &mut GoPrinter, group: &BTreeSet<String>, needs_separator: boo
     }
     for path in group {
         p.line(&format!("\"{}\"", path));
+    }
+    true
+}
+
+fn write_aliased_group(
+    p: &mut GoPrinter,
+    group: &BTreeMap<String, String>,
+    needs_separator: bool,
+) -> bool {
+    if group.is_empty() {
+        return false;
+    }
+    if needs_separator {
+        p.blank();
+    }
+    for (alias, path) in group {
+        p.line(&format!("{alias} \"{path}\""));
     }
     true
 }
