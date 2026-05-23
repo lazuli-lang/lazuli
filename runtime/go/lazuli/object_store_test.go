@@ -42,8 +42,8 @@ func (stubProvider) PresignedURL(_ context.Context, _, _ string, _ time.Duration
 func TestObjectStoreResolvesRegisteredBinding(t *testing.T) {
 	withEmptyAdapterRegistry(t)
 
-	RegisterAdapter("@plugin/object_store_facade", stubProvider{})
-	RegisterAppIntegration("object_store_facade_smoke", "@plugin/object_store_facade")
+	RegisterAdapter("@lazuli/plugin-object_store_facade", stubProvider{})
+	RegisterAppIntegration("object_store_facade_smoke", "@lazuli/plugin-object_store_facade")
 	got, err := ObjectStore("object_store_facade_smoke")
 	if err != nil {
 		t.Fatalf("ObjectStore: %v", err)
@@ -75,8 +75,8 @@ type wrongTypeIntegration struct{}
 func TestObjectStoreWrongTypeReturnsError(t *testing.T) {
 	withEmptyAdapterRegistry(t)
 
-	RegisterAdapter("@plugin/wrong-type-test", wrongTypeIntegration{})
-	RegisterAppIntegration("wrong_type_test", "@plugin/wrong-type-test")
+	RegisterAdapter("@lazuli/plugin-wrong-type-test", wrongTypeIntegration{})
+	RegisterAppIntegration("wrong_type_test", "@lazuli/plugin-wrong-type-test")
 	_, err := ObjectStore("wrong_type_test")
 	if err == nil {
 		t.Fatal("ObjectStore: want type-assertion error, got nil")

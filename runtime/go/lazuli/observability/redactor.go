@@ -3,7 +3,7 @@
 // PII scanning is a pre-emission filter: before any log line, error
 // envelope, or diagnostic output leaves the process, the active
 // Redactor scans for known patterns (CPF, CNPJ, email, phone, credit
-// card) and masks them. The default uses Go regex; @plugin/pii-scan
+// card) and masks them. The default uses Go regex; @lazuli/plugin-pii-scan
 // can swap in a smarter matcher (NER models, custom dictionaries).
 package observability
 
@@ -21,7 +21,7 @@ type Redactor interface {
 
 var activeRedactor atomic.Value
 
-// SetRedactor installs the active redactor. Called from @plugin/pii-scan's
+// SetRedactor installs the active redactor. Called from @lazuli/plugin-pii-scan's
 // init block; nil resets to RegexRedactor.
 func SetRedactor(r Redactor) {
 	if r == nil {
@@ -43,7 +43,7 @@ type redactorHolder struct {
 }
 
 // RegexRedactor is the default v0 redactor: regex match-and-replace for a
-// closed catalog of patterns. @plugin/pii-scan replaces this with a richer
+// closed catalog of patterns. @lazuli/plugin-pii-scan replaces this with a richer
 // matcher.
 type RegexRedactor struct{}
 

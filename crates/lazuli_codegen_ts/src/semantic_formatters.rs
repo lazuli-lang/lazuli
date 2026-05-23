@@ -393,12 +393,12 @@ mod tests {
 
     fn plugin_type(name: &str) -> TypeRef {
         TypeRef::Builtin(BuiltinType::SemanticPluginType {
-            plugin: "@plugin/scalars-br".to_owned(),
+            plugin: "@lazuli/plugin-scalars-br".to_owned(),
             name: name.to_owned(),
             carrier: Box::new(BuiltinType::Text),
             validator: format!("Validate{name}"),
             go_module: "lazuli.dev/plugin/scalars-br".to_owned(),
-            ts_package: "@plugin/scalars-br".to_owned(),
+            ts_package: "@lazuli/plugin-scalars-br".to_owned(),
             error_code: format!("{}_invalid", name.to_lowercase()),
             message_key: String::new(),
             ts_validator: String::new(),

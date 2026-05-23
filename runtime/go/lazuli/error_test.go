@@ -102,8 +102,8 @@ func TestErrorHierarchy(t *testing.T) {
 	})
 
 	t.Run("adapter_error_basic", func(t *testing.T) {
-		err := &AdapterError{Adapter: "@plugin/example/payment-gateway", Op: "create_preference", RetryBudgetConsumed: 2, RetryBudgetMax: 3}
-		if got, want := err.Error(), "adapter_error: @plugin/example/payment-gateway.create_preference (retries=2/3)"; got != want {
+		err := &AdapterError{Adapter: "@lazuli/plugin-example/payment-gateway", Op: "create_preference", RetryBudgetConsumed: 2, RetryBudgetMax: 3}
+		if got, want := err.Error(), "adapter_error: @lazuli/plugin-example/payment-gateway.create_preference (retries=2/3)"; got != want {
 			t.Fatalf("Error() = %q, want %q", got, want)
 		}
 	})

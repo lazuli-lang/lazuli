@@ -1,10 +1,10 @@
-// Package payments declares the runtime contract for `@plugin/<name>`
+// Package payments declares the runtime contract for `@lazuli/plugin-<name>`
 // adapters that provide payment-gateway services (preference / checkout
 // creation, webhook signature verification, refund operations).
 //
 // The contract is intentionally minimal — wire-thin. Concrete adapters
 // (MercadoPago, Stripe, Pagar.me, PayPal, Pix-direct, etc.) live in
-// separate `@plugin/<name>` repos and register via
+// separate `@lazuli/plugin-<name>` repos and register via
 // `lazuli.RegisterAdapter` against this package's `PaymentGateway`
 // interface.
 //
@@ -75,7 +75,7 @@ const (
 )
 
 // PaymentGateway is the closed adapter contract. Implementations live
-// in `@plugin/<name>` repos.
+// in `@lazuli/plugin-<name>` repos.
 //
 // Implementations MUST be safe for concurrent use.
 type PaymentGateway interface {

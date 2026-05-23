@@ -27,7 +27,7 @@ var ErrAdapterMissing = errors.New("lazuli: adapter not registered")
 // RegisterAdapter records a concrete adapter under its DSL-level reference.
 // Plugin packages call this from init():
 //
-//	func init() { lazuli.RegisterAdapter("@plugin/mercadopago", &MercadoPagoAdapter{}) }
+//	func init() { lazuli.RegisterAdapter("@lazuli/plugin-mercadopago", &MercadoPagoAdapter{}) }
 //
 // SECURITY (FR SEC-C3): duplicate registrations panic to prevent
 // supply-chain init()-shadowing hijack. After Boot() locks the

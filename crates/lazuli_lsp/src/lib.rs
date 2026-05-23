@@ -9318,7 +9318,7 @@ fn validate_profile_integration_line(
         line,
         DiagnosticSeverity::WARNING,
         "profile-integration-contract",
-        "profile integration overrides use `<integration> environment sandbox|production` or `<integration> adapter <source>`, where adapter sources are `@runtime/...`, `@plugin/publisher/name`, `@adapter.local`, or a local path.",
+        "profile integration overrides use `<integration> environment sandbox|production` or `<integration> adapter <source>`, where adapter sources are `@runtime/...`, `@lazuli/plugin-publisher/name`, `@adapter.local`, or a local path.",
     ));
 }
 
@@ -10176,7 +10176,7 @@ fn validate_app_integration_child(
             line,
             DiagnosticSeverity::WARNING,
             "app-integration-contract",
-            "integration children use `adapter @runtime/...`, `adapter @plugin/publisher/name`, `adapter @adapter.<local>`, local adapter paths, `environments ...`, `credentials platform|tenant|actor`, `endpoint env.<NAME>`, `auth keys env.<ID> env.<SECRET>`, or `data_classification @pii.<class>`.",
+            "integration children use `adapter @runtime/...`, `adapter @lazuli/plugin-publisher/name`, `adapter @adapter.<local>`, local adapter paths, `environments ...`, `credentials platform|tenant|actor`, `endpoint env.<NAME>`, `auth keys env.<ID> env.<SECRET>`, or `data_classification @pii.<class>`.",
         )),
     }
 }
@@ -10188,7 +10188,7 @@ fn adapter_source_provenance(source: &str) -> Option<&'static str> {
     {
         Some("runtime")
     } else if source
-        .strip_prefix("@plugin/")
+        .strip_prefix("@lazuli/plugin-")
         .is_some_and(valid_plugin_tail)
     {
         Some("plugin")
@@ -10205,7 +10205,7 @@ fn adapter_source_provenance(source: &str) -> Option<&'static str> {
 
 fn valid_plugin_tail(value: &str) -> bool {
     // Mirror `app_manifest::valid_plugin_tail` — accept single-segment
-    // (`@plugin/<name>`) as well as multi-segment (`@plugin/<publisher>/<name>`).
+    // (`@lazuli/plugin-<name>`) as well as multi-segment (`@lazuli/plugin-<publisher>/<name>`).
     // All currently-shipped Lazuli plugins use the single-segment convention.
     let segments: Vec<&str> = value.split('/').filter(|p| !p.is_empty()).collect();
     !segments.is_empty() && segments.iter().all(|s| valid_path_segment(s))
@@ -14225,7 +14225,7 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "hook" => Some("Declares a reusable lifecycle hook extension contract."),
         "validator" => Some("Declares a reusable validator extension contract."),
         "adapter" => Some(
-            "Adapter slot: `@runtime/...`, `@plugin/publisher/name`, `@adapter.<local>`, or a local path. Inside `auth`, resolved against `extensions adapter <name>` or `registry.integrations`.",
+            "Adapter slot: `@runtime/...`, `@lazuli/plugin-publisher/name`, `@adapter.<local>`, or a local path. Inside `auth`, resolved against `extensions adapter <name>` or `registry.integrations`.",
         ),
         "query_modifier" => Some("Declares a reusable query modifier extension contract."),
         "escape_route" => Some("Declares a custom route outside generated UI ownership."),
@@ -21051,7 +21051,7 @@ registry
 registry
   bindings
     object_store: ObjectStore
-      adapter @plugin/object-store
+      adapter @lazuli/plugin-object-store
       endpoint env.S3_ENDPOINT
       auth keys env.S3_ACCESS_KEY_ID env.S3_SECRET_ACCESS_KEY
 "#;
@@ -21568,7 +21568,7 @@ registry
     mercadopago: PaymentGateway
       adapter @runtime/mercadopago
     serasa: CreditBureau
-      adapter @plugin/acme/serasa
+      adapter @lazuli/plugin-acme/serasa
   packs
     payments from @runtime/payments
       version "0.1.0"

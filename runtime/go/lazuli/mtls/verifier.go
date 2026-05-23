@@ -1,4 +1,4 @@
-// Package mtls is the runtime-level Verifier seam for @plugin/mtls.
+// Package mtls is the runtime-level Verifier seam for @lazuli/plugin-mtls.
 // Adapters validate client certificates against a configured CA bundle
 // (or SPIRE/SPIFFE for service-mesh deployments).
 //

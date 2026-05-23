@@ -1,5 +1,5 @@
 // Package breach is the runtime-level Checker seam for
-// @plugin/breach-watch. Adapters query Have-I-Been-Pwned-style
+// @lazuli/plugin-breach-watch. Adapters query Have-I-Been-Pwned-style
 // services to reject signup/password-change with credentials
 // known to be leaked.
 //
@@ -34,7 +34,7 @@ var (
 )
 
 // NoopChecker treats every password as clean. Default when no
-// adapter binds. Pilots SHOULD bind @plugin/breach-watch on
+// adapter binds. Pilots SHOULD bind @lazuli/plugin-breach-watch on
 // signup/password-change flows.
 type NoopChecker struct{}
 

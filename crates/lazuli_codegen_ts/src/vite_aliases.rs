@@ -224,7 +224,7 @@ pub fn plugin_subpath_conventions(namespace: &str) -> Vec<String> {
     // `[plugin].ts_subpaths = ["react"]` slot in the plugin's
     // manifest.toml so this list isn't hardcoded.
     match namespace {
-        "@plugin/viacep" => vec!["react".to_owned()],
+        "@lazuli/plugin-viacep" => vec!["react".to_owned()],
         _ => Vec::new(),
     }
 }

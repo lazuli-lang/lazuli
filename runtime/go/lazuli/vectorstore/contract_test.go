@@ -47,7 +47,7 @@ func TestVectorFilterZeroValue(t *testing.T) {
 // makes this file fail to compile.
 type fakeStore struct{}
 
-func (fakeStore) Provider() string                  { return "@plugin/test" }
+func (fakeStore) Provider() string                  { return "@lazuli/plugin-test" }
 func (fakeStore) Collection(name string) Collection { return fakeCollection{} }
 
 type fakeCollection struct{}
@@ -67,7 +67,7 @@ func (fakeCollection) QueryByText(_ context.Context, _ string, _ VectorQuery) ([
 
 func TestVectorStoreInterfaceShape(t *testing.T) {
 	var s VectorStore = fakeStore{}
-	if s.Provider() != "@plugin/test" {
+	if s.Provider() != "@lazuli/plugin-test" {
 		t.Errorf("Provider mismatch: %q", s.Provider())
 	}
 	c := s.Collection("smoke")
@@ -82,7 +82,7 @@ func TestVectorStoreInterfaceShape(t *testing.T) {
 // fakeEmbedder is the smallest Embedder implementation.
 type fakeEmbedder struct{}
 
-func (fakeEmbedder) Provider() string { return "@plugin/test-embedder" }
+func (fakeEmbedder) Provider() string { return "@lazuli/plugin-test-embedder" }
 func (fakeEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
 	return []float32{0.1, 0.2, 0.3}, nil
 }

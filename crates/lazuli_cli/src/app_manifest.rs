@@ -2127,7 +2127,7 @@ fn adapter_source_provenance(source: &str) -> Option<&'static str> {
     {
         Some("runtime")
     } else if source
-        .strip_prefix("@plugin/")
+        .strip_prefix("@lazuli/plugin-")
         .is_some_and(valid_plugin_tail)
     {
         Some("plugin")
@@ -2143,11 +2143,11 @@ fn adapter_source_provenance(source: &str) -> Option<&'static str> {
 }
 
 fn valid_plugin_tail(value: &str) -> bool {
-    // Single-segment (`@plugin/<name>`) and multi-segment
-    // (`@plugin/<publisher>/<name>`) refs are both valid — the convention
+    // Single-segment (`@lazuli/plugin-<name>`) and multi-segment
+    // (`@lazuli/plugin-<publisher>/<name>`) refs are both valid — the convention
     // shipped by the existing plugin repos (chromadb, expo-push, google-maps,
     // mercadopago, openai-embeddings, scalars-br, object-store, smtp, sms-twilio,
-    // social-google, social-apple) uses single-segment `@plugin/<name>` per their
+    // social-google, social-apple) uses single-segment `@lazuli/plugin-<name>` per their
     // manifest.toml + Lazurite.toml [plugins] keys.
     let segments: Vec<&str> = value.split('/').filter(|p| !p.is_empty()).collect();
     !segments.is_empty() && segments.iter().all(|s| valid_path_segment(s))
@@ -2731,7 +2731,7 @@ registry
 registry
   bindings
     object_store: ObjectStore
-      adapter @plugin/object-store
+      adapter @lazuli/plugin-object-store
       endpoint env.S3_ENDPOINT
       auth keys env.S3_ACCESS_KEY_ID env.S3_SECRET_ACCESS_KEY
 "#;
@@ -2741,7 +2741,7 @@ registry
         let integration = &registry.integrations[0];
         assert_eq!(integration.name, "object_store");
         assert_eq!(integration.kind, "ObjectStore");
-        assert_eq!(integration.adapter.as_deref(), Some("@plugin/object-store"));
+        assert_eq!(integration.adapter.as_deref(), Some("@lazuli/plugin-object-store"));
         assert_eq!(integration.adapter_provenance.as_deref(), Some("plugin"));
 
         let credentials = integration
@@ -2777,10 +2777,10 @@ registry
 registry
   integrations
     payment_gateway: PaymentGateway
-      adapter @plugin/mercadopago
+      adapter @lazuli/plugin-mercadopago
   bindings
     object_store: ObjectStore
-      adapter @plugin/object-store
+      adapter @lazuli/plugin-object-store
       endpoint env.S3_ENDPOINT
       auth keys env.S3_ACCESS_KEY_ID env.S3_SECRET_ACCESS_KEY
 "#;

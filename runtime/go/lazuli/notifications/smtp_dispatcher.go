@@ -4,7 +4,7 @@
 // queue (the framework's `retry` policy handles transient failures),
 // no template engine (`Envelope.TemplateData` is rendered upstream by
 // the caller — see codegen), no per-vendor quirks (SendGrid / Postmark
-// / SES live in `@plugin/notification-<vendor>` per scope-discipline).
+// / SES live in `@lazuli/plugin-notification-<vendor>` per scope-discipline).
 //
 // Activates when SMTP_HOST is set; otherwise `NewSMTPDispatcher`
 // returns nil, signaling "no transport bound" so the registry skips

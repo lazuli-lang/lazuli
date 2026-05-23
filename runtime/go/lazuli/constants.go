@@ -115,7 +115,7 @@ func ResolveConstant(_ context.Context, name string) string {
 //
 // Implementation is identical to ResolveConstant (env-backed today) —
 // the boundary is in the API, not the storage. A future capability
-// adapter (`@plugin/secrets-vault`, etc.) replaces the storage without
+// adapter (`@lazuli/plugin-secrets-vault`, etc.) replaces the storage without
 // touching any call site.
 //
 // Naming: see ResolveConstant. The `Secret` identifier is taken by the

@@ -1,7 +1,7 @@
 // Tracing contract stubs. The language declares `app.tracing` intent
 // (sample rate, propagation, exporter slot); the runtime owns span
 // allocation, context propagation, and adapter dispatch. Adapter
-// packages (`@runtime/otel`, `@plugin/datadog/tracer`, etc.) ship the
+// packages (`@runtime/otel`, `@lazuli/plugin-datadog/tracer`, etc.) ship the
 // concrete exporter wiring.
 //
 // See `docs/proposals/bucket-observability-cycle.md` §3.2 §6.2.

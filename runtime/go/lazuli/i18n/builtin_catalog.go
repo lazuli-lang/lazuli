@@ -18,7 +18,7 @@
 // that prefixing on its end.
 //
 // Adapters may ship `builtin.<locale>.json` for additional locales
-// (`@plugin/lazuli-i18n-locales-fr`, …) via the adapter contribution
+// (`@lazuli/plugin-lazuli-i18n-locales-fr`, …) via the adapter contribution
 // hook in §5.5 — out of v1 scope; this file ships only the two
 // locales the framework guarantees.
 package i18n

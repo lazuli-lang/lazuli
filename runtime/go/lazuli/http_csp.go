@@ -30,7 +30,7 @@ const (
 var globalCSPBuilder CSPBuilder = DefaultCSPBuilder{}
 
 // SetCSPBuilder overrides the default CSP builder. Called by
-// @plugin/csp-builder's init block.
+// @lazuli/plugin-csp-builder's init block.
 func SetCSPBuilder(b CSPBuilder) {
 	if b == nil {
 		globalCSPBuilder = DefaultCSPBuilder{}

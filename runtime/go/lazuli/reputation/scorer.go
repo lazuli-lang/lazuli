@@ -1,5 +1,5 @@
 // Package reputation is the runtime-level IPScorer seam for
-// @plugin/ip-reputation. Adapters call abuse-signal feeds
+// @lazuli/plugin-ip-reputation. Adapters call abuse-signal feeds
 // (AbuseIPDB, Cloudflare Radar, Project Honey Pot) to annotate
 // inbound requests with risk scores.
 //
@@ -38,7 +38,7 @@ var (
 )
 
 // NeutralScorer returns Risk=0.0 for everything. Default when no
-// adapter binds. Pilots SHOULD bind @plugin/ip-reputation for
+// adapter binds. Pilots SHOULD bind @lazuli/plugin-ip-reputation for
 // production hardening.
 type NeutralScorer struct{}
 

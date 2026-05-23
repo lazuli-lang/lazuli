@@ -47,7 +47,7 @@ var (
 )
 
 // Store is the backing store for per-bucket rate-limit counters. The default is
-// in-process; @plugin/ratelimit-redis replaces it with Redis across replicas.
+// in-process; @lazuli/plugin-ratelimit-redis replaces it with Redis across replicas.
 type Store interface {
 	// Inc increments the counter for key by 1 and returns the new count.
 	// If the key was just created, the store sets its TTL to window.

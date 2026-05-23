@@ -712,7 +712,7 @@ schema = 1
 runtime = "0.1.0"
 
 [plugins]
-"@plugin/scalars-br" = {{ path = "{}" }}
+"@lazuli/plugin-scalars-br" = {{ path = "{}" }}
 "#,
                 plugin_path.display().to_string().replace('\\', "\\\\")
             ),
@@ -726,7 +726,7 @@ runtime = "0.1.0"
                 r#"
 [plugin]
 name = "scalars-br"
-namespace = "@plugin/scalars-br"
+namespace = "@lazuli/plugin-scalars-br"
 
 [[semantic_types]]
 name = "{semantic_type}"

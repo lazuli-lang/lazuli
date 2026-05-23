@@ -4,7 +4,7 @@
 // and reserves 4 built-in trace events (`agent_run`, `command_run`,
 // `job_run`, `webhook_run`); this package owns the dispatchers and
 // typed errors. Concrete exporters (OpenTelemetry, Datadog, slog
-// handlers) sit in `@runtime/...` or `@plugin/...` adapter packages
+// handlers) sit in `@runtime/...` or `@lazuli/plugin-...` adapter packages
 // and bind via `registry.capabilities` resolution at boot.
 //
 // This file ships the logging contract: signatures + struct contracts
@@ -223,7 +223,7 @@ func redactingReplaceAttr(redactKeys []string) func([]string, slog.Attr) slog.At
 			a.Value = slog.StringValue("[REDACTED]")
 			return a
 		}
-		// TODO(@plugin/pii-scan): once the root lazuli -> observability import
+		// TODO(@lazuli/plugin-pii-scan): once the root lazuli -> observability import
 		// cycle is split, wrap direct hot sites too: http.go writeError,
 		// handle_db_errors.go classifyDBError, and eventbus.go subscriber errors.
 		switch a.Value.Kind() {

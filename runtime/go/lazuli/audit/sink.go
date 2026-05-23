@@ -3,7 +3,7 @@
 //
 // Boundary discipline: this package never names a concrete sink.
 // Adapters (Splunk HEC, Datadog Logs, Elastic, S3+Athena) live in
-// @plugin/audit-sink, selected at boot via registry.lzi bindings.
+// @lazuli/plugin-audit-sink, selected at boot via registry.lzi bindings.
 package audit
 
 import (

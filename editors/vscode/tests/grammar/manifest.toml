@@ -43,5 +43,5 @@ strategy = "auto"
 dir = "seeds"
 
 [plugins]
-"@plugin/example/payment-gateway" = { module = "github.com/lazuli-lang/example-payment-gateway", version = "v0.1.0" }
-"@plugin/example/marketplace-pack" = { module = "github.com/lazuli-lang/example-marketplace-pack", version = "v0.1.0", path = "../local-pack" }
+"@lazuli/plugin-example/payment-gateway" = { module = "github.com/lazuli-lang/example-payment-gateway", version = "v0.1.0" }
+"@lazuli/plugin-example/marketplace-pack" = { module = "github.com/lazuli-lang/example-marketplace-pack", version = "v0.1.0", path = "../local-pack" }

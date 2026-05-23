@@ -1010,11 +1010,11 @@ fn emit_v1_with_manifest_plugins_emits_anonymous_imports() {
     let manifest = lazurite_manifest(
         vec![
             (
-                "@plugin/mercadopago",
+                "@lazuli/plugin-mercadopago",
                 "github.com/lazuli-lang/lazuli-plugin-mercadopago",
             ),
             (
-                "@plugin/expo_push",
+                "@lazuli/plugin-expo_push",
                 "github.com/lazuli-lang/lazuli-plugin-expo-push",
             ),
         ],
@@ -1099,7 +1099,7 @@ fn emit_v1_with_local_plugin_paths_emits_replace_directives() {
     let module = minimal_module("test_app", "customer");
     let manifest = lazurite_manifest(
         vec![(
-            "@plugin/mercadopago",
+            "@lazuli/plugin-mercadopago",
             "github.com/lazuli-lang/lazuli-plugin-mercadopago",
         )],
         Some(LazuriteGenerateGo {
@@ -1108,7 +1108,7 @@ fn emit_v1_with_local_plugin_paths_emits_replace_directives() {
             dev_replace: None,
             dev_work_replace: None,
         }),
-        vec![("@plugin/mercadopago", "../lazuli-plugin-mercadopago")],
+        vec![("@lazuli/plugin-mercadopago", "../lazuli-plugin-mercadopago")],
     );
     let files = generate_v1_with_manifest(&module, &GoEmitOptions::default(), Some(&manifest));
     let go_mod = files
@@ -1133,7 +1133,7 @@ fn emit_v1_with_local_plugin_paths_emits_replace_directives() {
 fn emit_go_mod_with_plugins_emits_require_lines() {
     let module = minimal_module("test_app", "customer");
     let manifest = lazurite_manifest(
-        vec![("@plugin/foo", "github.com/lazuli-lang/lazuli-plugin-foo")],
+        vec![("@lazuli/plugin-foo", "github.com/lazuli-lang/lazuli-plugin-foo")],
         Some(LazuriteGenerateGo {
             emit_main: true,
             submodule: true,

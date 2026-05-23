@@ -11,8 +11,8 @@ template = "lazurite-default"
 template_version = "0.1.0"
 
 [plugins]
-"@plugin/example/marketplace-pack" = { module = "github.com/lazuli-lang/example-marketplace-pack", version = "v0.1.0" }
-"@plugin/example/payment-gateway" = { module = "github.com/lazuli-lang/example-payment-gateway", version = "v0.1.0" }
+"@lazuli/plugin-example/marketplace-pack" = { module = "github.com/lazuli-lang/example-marketplace-pack", version = "v0.1.0" }
+"@lazuli/plugin-example/payment-gateway" = { module = "github.com/lazuli-lang/example-payment-gateway", version = "v0.1.0" }
 
 [generate.go]
 out = "dist/go"

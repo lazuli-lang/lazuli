@@ -1,7 +1,7 @@
-// Package secrets is the runtime-level Provider seam for the @plugin/
+// Package secrets is the runtime-level Provider seam for the @lazuli/plugin-
 // secret-vault binding. The framework reads secrets through a single
 // pluggable interface; concrete backend adapters live in
-// @plugin/secret-vault repos.
+// @lazuli/plugin-secret-vault repos.
 //
 // Boundary discipline: this file never names a concrete provider. The
 // `Provider` interface is implemented by adapter packages selected at
@@ -48,10 +48,10 @@ var (
 )
 
 // EnvProvider is the default fallback: reads from os.Getenv. Lazuli
-// boot wires this as the default when no @plugin/secret-vault binding
+// boot wires this as the default when no @lazuli/plugin-secret-vault binding
 // is declared. SECURITY: env-only resolution is the same as the
 // pre-FR-SEC-C3 behavior; closer to "no plugin" than "secure".
-// Pilots SHOULD declare @plugin/secret-vault for prod.
+// Pilots SHOULD declare @lazuli/plugin-secret-vault for prod.
 type EnvProvider struct{}
 
 func (e EnvProvider) Get(ctx context.Context, key string) (string, error) {

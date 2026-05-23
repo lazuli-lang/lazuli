@@ -860,8 +860,8 @@ fn db_col_for(field: &lazuli_ir::Field, type_ref: &TypeRef) -> String {
 
 /// B3 — derive the `validate:"<plugin-short>.<validator>"` clause for
 /// plugin-contributed `@semantic.<Name>` fields. The IR carries the
-/// plugin namespace verbatim (`@plugin/scalars-br`) — strip the
-/// `@plugin/` prefix to recover the short name — plus the `validator`
+/// plugin namespace verbatim (`@lazuli/plugin-scalars-br`) — strip the
+/// `@lazuli/plugin-` prefix to recover the short name — plus the `validator`
 /// function name lifted directly from the plugin's manifest. The
 /// runtime dispatcher maps `<plugin-short>.<validator>` to the
 /// registered Go function via the anonymous-import contract
@@ -875,7 +875,7 @@ fn plugin_semantic_validate_tag(type_ref: &TypeRef) -> Option<String> {
     else {
         return None;
     };
-    let short = plugin.strip_prefix("@plugin/").unwrap_or(plugin.as_str());
+    let short = plugin.strip_prefix("@lazuli/plugin-").unwrap_or(plugin.as_str());
     Some(format!("{}.{}", short, validator))
 }
 
@@ -1140,7 +1140,7 @@ mod tests {
     #[test]
     fn semantic_plugin_type_field_emits_validate_tag() {
         // B3 — `@semantic.BrazilianCPF` lowers to
-        // `SemanticPluginType { plugin: "@plugin/scalars-br", name:
+        // `SemanticPluginType { plugin: "@lazuli/plugin-scalars-br", name:
         // "BrazilianCPF", carrier: Text, validator: "ValidateCPF" }`.
         // The emitted struct field must carry the `string` carrier
         // Go type plus a `validate:"scalars-br.ValidateCPF"` tag clause.
@@ -1149,12 +1149,12 @@ mod tests {
         let plugin_field = Field {
             name: "cpf".to_owned(),
             type_ref: TypeRef::Builtin(BuiltinType::SemanticPluginType {
-                plugin: "@plugin/scalars-br".to_owned(),
+                plugin: "@lazuli/plugin-scalars-br".to_owned(),
                 name: "BrazilianCPF".to_owned(),
                 carrier: Box::new(BuiltinType::Text),
                 validator: "ValidateCPF".to_owned(),
                 go_module: "lazuli.dev/plugin/scalars-br".to_owned(),
-                ts_package: "@plugin/scalars-br".to_owned(),
+                ts_package: "@lazuli/plugin-scalars-br".to_owned(),
                 error_code: "cpf_invalid".to_owned(),
                 message_key: String::new(),
                 ts_validator: String::new(),

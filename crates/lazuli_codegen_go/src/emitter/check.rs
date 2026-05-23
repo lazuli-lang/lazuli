@@ -67,7 +67,7 @@ pub fn run_checks(module: &Module) -> Vec<CheckIssue> {
     let mut issues = Vec::new();
     let mut seen = BTreeSet::new();
     for reference in refs {
-        if let Some(name) = reference.literal.strip_prefix("@plugin/") {
+        if let Some(name) = reference.literal.strip_prefix("@lazuli/plugin-") {
             if !plugin_declared(&declared_plugins, name) {
                 push_issue(
                     &mut issues,
@@ -197,7 +197,7 @@ fn collect_declared_plugins_from_integrations(
         if let Some(tail) = integration
             .adapter
             .as_deref()
-            .and_then(|adapter| adapter.strip_prefix("@plugin/"))
+            .and_then(|adapter| adapter.strip_prefix("@lazuli/plugin-"))
         {
             insert_plugin_name_variants(names, tail);
         }
@@ -558,7 +558,7 @@ fn collect_type_ref(type_ref: &TypeRef, feature: &str, site: &str, refs: &mut Ve
         }
         TypeRef::Unresolved(raw) => {
             // First, let the legacy text-extractor pick up any nested
-            // `@plugin/`, `@semantic.`, `@cap.` references inside the
+            // `@lazuli/plugin-`, `@semantic.`, `@cap.` references inside the
             // raw string — that preserves existing diagnostics for
             // fixtures that author e.g. `TypeRef::Unresolved("@semantic.Currency")`.
             collect_text_refs(raw, feature, site, refs);
@@ -701,7 +701,7 @@ fn push_ref(literal: &str, feature: &str, site: &str, refs: &mut Vec<RefUse>) {
 
 fn extract_codegen_refs(text: &str) -> Vec<String> {
     let prefixes = [
-        "@plugin/",
+        "@lazuli/plugin-",
         "@runtime/",
         "@adapter.",
         "@fn.",
@@ -909,7 +909,7 @@ mod tests {
     #[test]
     fn missing_plugin_reference_reports_plugin_001() {
         let mut feature = empty_feature("billing");
-        feature.uses.push("@plugin/mercadopago".to_owned());
+        feature.uses.push("@lazuli/plugin-mercadopago".to_owned());
 
         let issues = run_checks(&module_with_feature(feature));
 
@@ -921,12 +921,12 @@ mod tests {
     #[test]
     fn declared_plugin_registry_entry_suppresses_plugin_001() {
         let mut feature = empty_feature("billing");
-        feature.uses.push("@plugin/mercadopago".to_owned());
+        feature.uses.push("@lazuli/plugin-mercadopago".to_owned());
         let mut registry = empty_registry();
         registry.integrations.push(AppIntegration {
             name: "mercadopago".to_owned(),
             kind: "PaymentGateway".to_owned(),
-            adapter: Some("@plugin/mercadopago".to_owned()),
+            adapter: Some("@lazuli/plugin-mercadopago".to_owned()),
             adapter_provenance: Some("plugin".to_owned()),
             environments: Vec::new(),
             credentials: None,

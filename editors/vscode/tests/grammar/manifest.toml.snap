@@ -152,7 +152,7 @@
 #^ source.lazurite-toml punctuation.definition.table.toml
 # ^^^^^^^ source.lazurite-toml entity.name.namespace.lazurite.toml
 #        ^ source.lazurite-toml punctuation.definition.table.toml
->"@plugin/example/payment-gateway" = { module = "github.com/lazuli-lang/example-payment-gateway", version = "v0.1.0" }
+>"@lazuli/plugin-example/payment-gateway" = { module = "github.com/lazuli-lang/example-payment-gateway", version = "v0.1.0" }
 #^ source.lazurite-toml punctuation.definition.string.begin.toml
 # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazurite-toml entity.name.tag.plugin.lazuli
 #                                ^ source.lazurite-toml punctuation.definition.string.end.toml
@@ -166,7 +166,7 @@
 #                                                                                                 ^^^^^^^ source.lazurite-toml support.function.lazurite-key.toml
 #                                                                                                        ^ source.lazurite-toml
 #                                                                                                         ^^^^^^^^^^^^^ source.lazurite-toml
->"@plugin/example/marketplace-pack" = { module = "github.com/lazuli-lang/example-marketplace-pack", version = "v0.1.0", path = "../local-pack" }
+>"@lazuli/plugin-example/marketplace-pack" = { module = "github.com/lazuli-lang/example-marketplace-pack", version = "v0.1.0", path = "../local-pack" }
 #^ source.lazurite-toml punctuation.definition.string.begin.toml
 # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazurite-toml entity.name.tag.plugin.lazuli
 #                                 ^ source.lazurite-toml punctuation.definition.string.end.toml

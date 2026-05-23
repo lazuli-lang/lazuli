@@ -1214,7 +1214,7 @@ pub enum BuiltinType {
     SemanticGeoPoint,
     /// B3 — plugin-contributed `@semantic.<Name>` resolved through a
     /// plugin's `manifest.toml`. The IR layer is locale-agnostic: it
-    /// knows only the declaring plugin namespace (`@plugin/scalars-br`),
+    /// knows only the declaring plugin namespace (`@lazuli/plugin-scalars-br`),
     /// the manifest-local alias terminal name (`BrazilianCPF`), the
     /// carrier built-in (currently always `Text`), and the validator
     /// function name from the manifest. Codegen reads the validator
@@ -1238,7 +1238,7 @@ pub enum BuiltinType {
         /// IR predates W2 lift.
         #[serde(default)]
         go_module: String,
-        /// W2: effective TS/npm package (`@plugin/scalars-br`).
+        /// W2: effective TS/npm package (`@lazuli/plugin-scalars-br`).
         #[serde(default)]
         ts_package: String,
         /// W2: effective error code surfaced on validation_failed
@@ -6875,7 +6875,7 @@ mod lifecycle_tests {
     fn semantic_plugin_type_round_trips_through_json() {
         // B3 — see `docs/proposals/semantic-types-plugin-locales.md`.
         let plugin = BuiltinType::SemanticPluginType {
-            plugin: "@plugin/scalars-br".to_owned(),
+            plugin: "@lazuli/plugin-scalars-br".to_owned(),
             name: "BrazilianCPF".to_owned(),
             carrier: Box::new(BuiltinType::Text),
             validator: "ValidateCPF".to_owned(),

@@ -63,7 +63,7 @@ func providerEndpoint(provider string) (oauth2.Endpoint, error) {
 
 // BuildOAuthConfig assembles the `*oauth2.Config` from the contract.
 // Exported so adapters can stack additional configuration (e.g.
-// custom endpoints for `@plugin/...` providers) without
+// custom endpoints for `@lazuli/plugin-...` providers) without
 // re-implementing the wiring.
 func BuildOAuthConfig(contract OAuthContract) (*oauth2.Config, error) {
 	endpoint, err := providerEndpoint(contract.Provider)

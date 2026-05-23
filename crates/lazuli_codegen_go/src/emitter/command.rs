@@ -2442,7 +2442,7 @@ fn semantic_validator_slots(command: &Command) -> Vec<SemanticValidatorSlot> {
             _ => continue,
         };
         let plugin_short = plugin_ns
-            .strip_prefix("@plugin/")
+            .strip_prefix("@lazuli/plugin-")
             .unwrap_or(plugin_ns)
             .to_owned();
         // Go import alias = short name with hyphens stripped

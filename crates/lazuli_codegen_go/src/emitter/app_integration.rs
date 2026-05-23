@@ -1,6 +1,6 @@
 //! Cell B4-runtime-facade — `app/app_integrations.gen.go` emission.
 //! Walks `module.app.registry.integrations` (synthesised from
-//! `registry.bindings.<name>: <Kind> / adapter @plugin/<x>` sugar by
+//! `registry.bindings.<name>: <Kind> / adapter @lazuli/plugin-<x>` sugar by
 //! the app-manifest parser) and emits one `lazuli.RegisterAppIntegration`
 //! call per binding so the runtime can resolve binding-name →
 //! adapter at boot.
@@ -9,7 +9,7 @@
 //!
 //! ```go
 //! func init() {
-//!     lazuli.RegisterAppIntegration("object_store", "@plugin/object-store")
+//!     lazuli.RegisterAppIntegration("object_store", "@lazuli/plugin-object-store")
 //! }
 //! ```
 //!
@@ -56,7 +56,7 @@ pub fn emit_app_integrations(source_label: &str, module: &Module) -> Option<Stri
     //  2. `module.registry.integrations` — the `registry` block
     //     in `registry.lzi`, including entries synthesised by the
     //     B1 `bindings` sugar (`bindings.<name>: <Kind> / adapter
-    //     @plugin/<x>`).
+    //     @lazuli/plugin-<x>`).
     //
     // The walker merges both into a BTreeMap keyed by name; later
     // entries (registry) win on collision so the sugar shape is
@@ -92,7 +92,7 @@ pub fn emit_app_integrations(source_label: &str, module: &Module) -> Option<Stri
 
     p.line("// App integrations registry — wires each `registry.bindings.<name>`");
     p.line("// declared in registry.lzi to the adapter shipped by the bound");
-    p.line("// `@plugin/<x>` package. Facades (`lazuli.ObjectStore`,");
+    p.line("// `@lazuli/plugin-<x>` package. Facades (`lazuli.ObjectStore`,");
     p.line("// `lazuli.PaymentGateway`, ...) resolve through this registry, so");
     p.line("// handlers reach `lazuli.ObjectStore(\"object_store\")` instead of");
     p.line("// reading `S3_ENDPOINT` env vars directly. See");
@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn integration_without_adapter_skipped() {
-        // Legacy `integrations` entries without `adapter @plugin/...`
+        // Legacy `integrations` entries without `adapter @lazuli/plugin-...`
         // (env-var-only credentials) cannot resolve a facade, so they
         // contribute zero RegisterAppIntegration calls.
         let module = module_with(vec![integration("payments", "PaymentGateway", None)]);
@@ -237,14 +237,14 @@ mod tests {
         let module = module_with(vec![integration(
             "object_store",
             "ObjectStore",
-            Some("@plugin/object-store"),
+            Some("@lazuli/plugin-object-store"),
         )]);
         let out = emit_app_integrations("test.lzi", &module).expect("emits file");
         assert!(out.contains("package app"));
         assert!(out.contains("\"lazuli.dev/runtime/lazuli\""));
         assert!(
             out.contains(
-                "lazuli.RegisterAppIntegration(\"object_store\", \"@plugin/object-store\")"
+                "lazuli.RegisterAppIntegration(\"object_store\", \"@lazuli/plugin-object-store\")"
             )
         );
         // Deferred resolution invariant: emitter must NOT call
@@ -266,12 +266,12 @@ mod tests {
         let module = module_with_registry(vec![integration(
             "object_store",
             "ObjectStore",
-            Some("@plugin/object-store"),
+            Some("@lazuli/plugin-object-store"),
         )]);
         let out = emit_app_integrations("test.lzi", &module).expect("emits file");
         assert!(
             out.contains(
-                "lazuli.RegisterAppIntegration(\"object_store\", \"@plugin/object-store\")"
+                "lazuli.RegisterAppIntegration(\"object_store\", \"@lazuli/plugin-object-store\")"
             )
         );
         assert!(
@@ -283,9 +283,9 @@ mod tests {
     #[test]
     fn multiple_integrations_emit_deterministic_order() {
         let module = module_with(vec![
-            integration("zeta", "Z", Some("@plugin/z")),
-            integration("alpha", "A", Some("@plugin/a")),
-            integration("mid", "M", Some("@plugin/m")),
+            integration("zeta", "Z", Some("@lazuli/plugin-z")),
+            integration("alpha", "A", Some("@lazuli/plugin-a")),
+            integration("mid", "M", Some("@lazuli/plugin-m")),
         ]);
         let out = emit_app_integrations("test.lzi", &module).expect("emits file");
         // BTreeMap walk → alpha before mid before zeta.

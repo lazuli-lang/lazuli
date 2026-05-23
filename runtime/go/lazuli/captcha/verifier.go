@@ -1,4 +1,4 @@
-// Package captcha is the runtime-level Verifier seam for @plugin/
+// Package captcha is the runtime-level Verifier seam for @lazuli/plugin-
 // captcha. Adapters wrap Cloudflare Turnstile / hCaptcha /
 // Google reCAPTCHA.
 //
@@ -41,7 +41,7 @@ var (
 
 // NoopVerifier accepts ALL tokens (Score=0.0, Passed=true). Default
 // when no adapter binds. SECURITY: dev-only. Prod pilots MUST bind
-// @plugin/captcha.
+// @lazuli/plugin-captcha.
 type NoopVerifier struct{}
 
 func (NoopVerifier) Verify(ctx context.Context, token string, remoteIP string) (Verdict, error) {

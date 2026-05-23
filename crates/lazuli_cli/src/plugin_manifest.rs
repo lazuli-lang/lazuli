@@ -44,7 +44,7 @@ pub const PLUGIN_MANIFEST_FILENAME: &str = "manifest.toml";
 
 /// Top-level shape of a plugin's `manifest.toml`. Every field is
 /// optional so manifests authored against a different sibling
-/// contract (e.g. `@plugin/object-store`'s storage-contract manifest
+/// contract (e.g. `@lazuli/plugin-object-store`'s storage-contract manifest
 /// with top-level `name`/`version`/`implements` keys) deserialise
 /// cleanly without forcing the semantic-types path. The B3 alias
 /// builder skips manifests that lack `[plugin]` or `[[semantic_types]]`.
@@ -62,7 +62,7 @@ pub struct PluginManifest {
 ///
 /// `go_module` + `ts_package` (W2): the plugin's package paths in each
 /// host runtime. When omitted, codegen falls back to the v1 convention
-/// (`lazuli.dev/plugin/<short>` for Go, `@plugin/<short>` for TS).
+/// (`lazuli.dev/plugin/<short>` for Go, `@lazuli/plugin-<short>` for TS).
 #[derive(Debug, Clone, Deserialize)]
 pub struct PluginIdentity {
     pub name: String,
@@ -122,7 +122,7 @@ pub struct PluginSemanticTypeDecl {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedPluginSemantic {
     /// Plugin namespace as written in `Lazurite.toml [plugins]`
-    /// (e.g. `@plugin/scalars-br`). The IR variant carries this string
+    /// (e.g. `@lazuli/plugin-scalars-br`). The IR variant carries this string
     /// verbatim so cold readers see the registration source.
     pub plugin_namespace: String,
     /// Plugin short name (e.g. `scalars-br`). Used to build the
@@ -144,8 +144,8 @@ pub struct ResolvedPluginSemantic {
     /// (e.g. `lazuli.dev/plugin/scalars-br`). Plugin-level value or
     /// `lazuli.dev/plugin/<short>` convention fallback.
     pub go_module: String,
-    /// Effective TS/npm package of the plugin (e.g. `@plugin/scalars-br`).
-    /// Plugin-level value or `@plugin/<short>` convention fallback.
+    /// Effective TS/npm package of the plugin (e.g. `@lazuli/plugin-scalars-br`).
+    /// Plugin-level value or `@lazuli/plugin-<short>` convention fallback.
     pub ts_package: String,
     /// Effective error code surfaced to clients (e.g. `cpf_invalid`).
     /// Scalar-level value or convention fallback (`<terminal stem>_invalid`).
@@ -440,7 +440,7 @@ pub fn build_alias_map(
                     .ts_package
                     .clone()
                     .filter(|s| !s.is_empty())
-                    .unwrap_or_else(|| format!("@plugin/{}", identity.name)),
+                    .unwrap_or_else(|| format!("@lazuli/plugin-{}", identity.name)),
                 error_code: entry
                     .error_code
                     .clone()
@@ -508,7 +508,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mut plugins = BTreeMap::new();
         plugins.insert(
-            "@plugin/empty".to_owned(),
+            "@lazuli/plugin-empty".to_owned(),
             Plugin::Local {
                 path: tmp.path().display().to_string(),
             },
@@ -526,7 +526,7 @@ mod tests {
             r#"
 [plugin]
 name = "scalars-br"
-namespace = "@plugin/scalars-br"
+namespace = "@lazuli/plugin-scalars-br"
 
 [[semantic_types]]
 name = "BrazilianCPF"
@@ -538,7 +538,7 @@ formatter = "FormatCPF"
         );
         let mut plugins = BTreeMap::new();
         plugins.insert(
-            "@plugin/scalars-br".to_owned(),
+            "@lazuli/plugin-scalars-br".to_owned(),
             Plugin::Local {
                 path: tmp.path().display().to_string(),
             },
@@ -546,7 +546,7 @@ formatter = "FormatCPF"
         let manifest = make_manifest(plugins);
         let map = build_alias_map(Some(&manifest), tmp.path()).unwrap();
         let entry = map.get("@semantic.BrazilianCPF").expect("alias resolved");
-        assert_eq!(entry.plugin_namespace, "@plugin/scalars-br");
+        assert_eq!(entry.plugin_namespace, "@lazuli/plugin-scalars-br");
         assert_eq!(entry.plugin_short_name, "scalars-br");
         assert_eq!(entry.name, "BrazilianCPF");
         assert_eq!(entry.validator, "ValidateCPF");
@@ -563,7 +563,7 @@ formatter = "FormatCPF"
             r#"
 [plugin]
 name = "alpha"
-namespace = "@plugin/alpha"
+namespace = "@lazuli/plugin-alpha"
 
 [[semantic_types]]
 name = "MyType"
@@ -577,7 +577,7 @@ validator = "ValidateAlpha"
             r#"
 [plugin]
 name = "beta"
-namespace = "@plugin/beta"
+namespace = "@lazuli/plugin-beta"
 
 [[semantic_types]]
 name = "MyType"
@@ -588,13 +588,13 @@ validator = "ValidateBeta"
         );
         let mut plugins = BTreeMap::new();
         plugins.insert(
-            "@plugin/alpha".to_owned(),
+            "@lazuli/plugin-alpha".to_owned(),
             Plugin::Local {
                 path: tmp_a.path().display().to_string(),
             },
         );
         plugins.insert(
-            "@plugin/beta".to_owned(),
+            "@lazuli/plugin-beta".to_owned(),
             Plugin::Local {
                 path: tmp_b.path().display().to_string(),
             },
@@ -604,7 +604,7 @@ validator = "ValidateBeta"
         match err {
             PluginManifestError::Conflict { alias, plugins } => {
                 assert_eq!(alias, "@semantic.MyType");
-                assert_eq!(plugins, vec!["@plugin/alpha", "@plugin/beta"]);
+                assert_eq!(plugins, vec!["@lazuli/plugin-alpha", "@lazuli/plugin-beta"]);
             }
             other => panic!("expected Conflict, got {other:?}"),
         }
@@ -618,7 +618,7 @@ validator = "ValidateBeta"
             r#"
 [plugin]
 name = "scalars-br"
-namespace = "@plugin/scalars-br"
+namespace = "@lazuli/plugin-scalars-br"
 
 [[semantic_types]]
 name = "WideThing"
@@ -629,7 +629,7 @@ validator = "ValidateWide"
         );
         let mut plugins = BTreeMap::new();
         plugins.insert(
-            "@plugin/scalars-br".to_owned(),
+            "@lazuli/plugin-scalars-br".to_owned(),
             Plugin::Local {
                 path: tmp.path().display().to_string(),
             },
@@ -650,7 +650,7 @@ validator = "ValidateWide"
             r#"
 [plugin]
 name = "scalars-br"
-namespace = "@plugin/scalars-br"
+namespace = "@lazuli/plugin-scalars-br"
 
 [[semantic_types]]
 name = "Foo"
@@ -661,7 +661,7 @@ validator = "ValidateThing"
         );
         let mut plugins = BTreeMap::new();
         plugins.insert(
-            "@plugin/scalars-br".to_owned(),
+            "@lazuli/plugin-scalars-br".to_owned(),
             Plugin::Local {
                 path: tmp.path().display().to_string(),
             },
@@ -683,7 +683,7 @@ validator = "ValidateThing"
             r#"
 [plugin]
 name = "scalars-br"
-namespace = "@plugin/something-else"
+namespace = "@lazuli/plugin-something-else"
 
 [[semantic_types]]
 name = "MyType"
@@ -694,7 +694,7 @@ validator = "ValidateMine"
         );
         let mut plugins = BTreeMap::new();
         plugins.insert(
-            "@plugin/scalars-br".to_owned(),
+            "@lazuli/plugin-scalars-br".to_owned(),
             Plugin::Local {
                 path: tmp.path().display().to_string(),
             },
@@ -715,14 +715,14 @@ validator = "ValidateMine"
         write_manifest(
             tmp.path(),
             r#"
-name = "@plugin/object-store"
+name = "@lazuli/plugin-object-store"
 version = "0.1.0"
 implements = ["storage.ObjectStore"]
 "#,
         );
         let mut plugins = BTreeMap::new();
         plugins.insert(
-            "@plugin/object-store".to_owned(),
+            "@lazuli/plugin-object-store".to_owned(),
             Plugin::Local {
                 path: tmp.path().display().to_string(),
             },

@@ -10,7 +10,7 @@ import (
 // `bindings.<name>: <Kind>` (e.g. `object_store`, `payment_gateway`,
 // `email_sender`). It identifies an app-level integration slot; the
 // concrete adapter behind the slot is resolved through `RegisterAdapter`
-// against the plugin reference (`@plugin/<name>`).
+// against the plugin reference (`@lazuli/plugin-<name>`).
 //
 // Codegen emits one `RegisterAppIntegration` call per binding at boot
 // (in `app/app_integrations.gen.go`) so the runtime can resolve the
@@ -33,7 +33,7 @@ var ErrAppIntegrationMissing = errors.New("lazuli: app integration not registere
 // binding slot. Codegen calls this at boot:
 //
 //	func init() {
-//	    lazuli.RegisterAppIntegration("object_store", "@plugin/object-store")
+//	    lazuli.RegisterAppIntegration("object_store", "@lazuli/plugin-object-store")
 //	}
 //
 // Deferred resolution: the registry stores the binding-name → adapter

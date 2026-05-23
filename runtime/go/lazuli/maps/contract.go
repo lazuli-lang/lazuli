@@ -1,9 +1,9 @@
-// Package maps declares the runtime contract for `@plugin/<name>`
+// Package maps declares the runtime contract for `@lazuli/plugin-<name>`
 // adapters that provide geocoding + reverse-geocoding services.
 //
 // The contract is intentionally minimal — wire-thin. Concrete adapters
 // (Google Maps, Mapbox, HERE, Nominatim, etc.) live in separate
-// `@plugin/<name>` repos and register via `lazuli.RegisterAdapter`
+// `@lazuli/plugin-<name>` repos and register via `lazuli.RegisterAdapter`
 // against this package's `Geocoder` interface.
 //
 // EXPERIMENTAL: shape may grow additive fields before 1.0. Stable
@@ -54,7 +54,7 @@ type ReverseGeocodeResponse struct {
 }
 
 // Geocoder is the closed adapter contract. Implementations live in
-// `@plugin/<name>` repos.
+// `@lazuli/plugin-<name>` repos.
 //
 // Implementations MUST be safe for concurrent use; the runtime calls
 // `Geocode` / `ReverseGeocode` from many goroutines.

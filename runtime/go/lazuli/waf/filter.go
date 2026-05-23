@@ -1,4 +1,4 @@
-// Package waf is the runtime-level Filter seam for @plugin/waf.
+// Package waf is the runtime-level Filter seam for @lazuli/plugin-waf.
 // Adapters wrap Cloudflare WAF / AWS WAF / Imperva / ModSecurity.
 //
 // Filter is invoked from the HTTP middleware chain BEFORE the
@@ -48,7 +48,7 @@ var (
 )
 
 // NoopFilter is the default. ALL requests Allow. Pilots SHOULD
-// bind @plugin/waf for prod.
+// bind @lazuli/plugin-waf for prod.
 type NoopFilter struct{}
 
 func (NoopFilter) Inspect(ctx context.Context, r *http.Request) (Decision, error) {

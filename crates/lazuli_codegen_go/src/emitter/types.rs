@@ -343,7 +343,7 @@ fn go_type_for_capability(cap: &CapabilityRef) -> (String, Option<&'static str>)
 }
 
 /// Cheap sanitiser for unresolved identifiers so we never emit raw
-/// `@plugin/foo` text into Go source. The §6.2.1 error catalog (cell
+/// `@lazuli/plugin-foo` text into Go source. The §6.2.1 error catalog (cell
 /// I4) replaces this with a hard error.
 fn sanitise_go_ident(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
@@ -847,12 +847,12 @@ mod tests {
             cross_index: &index,
         };
         let plugin_type = TypeRef::Builtin(BuiltinType::SemanticPluginType {
-            plugin: "@plugin/scalars-br".to_owned(),
+            plugin: "@lazuli/plugin-scalars-br".to_owned(),
             name: "BrazilianCPF".to_owned(),
             carrier: Box::new(BuiltinType::Text),
             validator: "ValidateCPF".to_owned(),
             go_module: "lazuli.dev/plugin/scalars-br".to_owned(),
-            ts_package: "@plugin/scalars-br".to_owned(),
+            ts_package: "@lazuli/plugin-scalars-br".to_owned(),
             error_code: "cpf_invalid".to_owned(),
             message_key: String::new(),
             ts_validator: String::new(),

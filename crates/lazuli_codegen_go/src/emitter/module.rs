@@ -341,7 +341,7 @@ pub fn emit_module(
     }
 
     // Cell B4-runtime-facade — `app/app_integrations.gen.go` wires
-    // each `registry.bindings.<name>: <Kind> / adapter @plugin/<x>`
+    // each `registry.bindings.<name>: <Kind> / adapter @lazuli/plugin-<x>`
     // declaration to the runtime adapter registry via
     // `lazuli.RegisterAppIntegration`. Skipped when no integration
     // carries an adapter (legacy env-var-only entries do not need a

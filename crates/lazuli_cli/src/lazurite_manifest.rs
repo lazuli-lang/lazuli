@@ -249,7 +249,7 @@ impl Manifest {
         }
 
         for key in self.plugins.keys() {
-            if !key.starts_with("@plugin/") {
+            if !key.starts_with("@lazuli/plugin-") {
                 return Err(ManifestError::InvalidPluginNamespace(key.clone()));
             }
         }
@@ -321,7 +321,7 @@ impl fmt::Display for ManifestError {
                 write!(f, "unsupported Lazurite.toml schema version {schema}")
             }
             ManifestError::InvalidPluginNamespace(key) => {
-                write!(f, "plugin key `{key}` must start with `@plugin/`")
+                write!(f, "plugin key `{key}` must start with `@lazuli/plugin-`")
             }
             ManifestError::FrontendOutCollision(name, out) => {
                 write!(f, "frontend `{name}` reuses generated output path `{out}`")

@@ -12666,34 +12666,34 @@ mod tests {
     fn rich_zod_base_emits_plugin_semantic_digit_patterns() {
         let (_feature, module) = enum_sdk_fixture(false, false);
         let cpf = lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticPluginType {
-            plugin: "@plugin/scalars-br".to_owned(),
+            plugin: "@lazuli/plugin-scalars-br".to_owned(),
             name: "BrazilianCPF".to_owned(),
             carrier: Box::new(lazuli_ir::BuiltinType::Text),
             validator: "ValidateCPF".to_owned(),
             go_module: "lazuli.dev/plugin/scalars-br".to_owned(),
-            ts_package: "@plugin/scalars-br".to_owned(),
+            ts_package: "@lazuli/plugin-scalars-br".to_owned(),
             error_code: "cpf_invalid".to_owned(),
             message_key: String::new(),
             ts_validator: String::new(),
         });
         let cnpj = lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticPluginType {
-            plugin: "@plugin/scalars-br".to_owned(),
+            plugin: "@lazuli/plugin-scalars-br".to_owned(),
             name: "BrazilianCNPJ".to_owned(),
             carrier: Box::new(lazuli_ir::BuiltinType::Text),
             validator: "ValidateCNPJ".to_owned(),
             go_module: "lazuli.dev/plugin/scalars-br".to_owned(),
-            ts_package: "@plugin/scalars-br".to_owned(),
+            ts_package: "@lazuli/plugin-scalars-br".to_owned(),
             error_code: "cnpj_invalid".to_owned(),
             message_key: String::new(),
             ts_validator: String::new(),
         });
         let other = lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticPluginType {
-            plugin: "@plugin/scalars-br".to_owned(),
+            plugin: "@lazuli/plugin-scalars-br".to_owned(),
             name: "BrazilianCEP".to_owned(),
             carrier: Box::new(lazuli_ir::BuiltinType::Text),
             validator: "ValidateCEP".to_owned(),
             go_module: "lazuli.dev/plugin/scalars-br".to_owned(),
-            ts_package: "@plugin/scalars-br".to_owned(),
+            ts_package: "@lazuli/plugin-scalars-br".to_owned(),
             error_code: "cep_invalid".to_owned(),
             message_key: String::new(),
             ts_validator: String::new(),
@@ -13729,12 +13729,12 @@ mod tests {
             vec![field(
                 "cpf",
                 lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticPluginType {
-                    plugin: "@plugin/scalars-br".to_owned(),
+                    plugin: "@lazuli/plugin-scalars-br".to_owned(),
                     name: "BrazilianCPF".to_owned(),
                     carrier: Box::new(lazuli_ir::BuiltinType::Text),
                     validator: "ValidateCPF".to_owned(),
                     go_module: "lazuli.dev/plugin/scalars-br".to_owned(),
-                    ts_package: "@plugin/scalars-br".to_owned(),
+                    ts_package: "@lazuli/plugin-scalars-br".to_owned(),
                     error_code: "cpf_invalid".to_owned(),
                     message_key: String::new(),
                     ts_validator: String::new(),
@@ -14603,7 +14603,7 @@ schema = 1
 runtime = "0.1.0"
 
 [plugins]
-"@plugin/example/payment-gateway" = { module = "github.com/lazuli-lang/lazuli-plugin-example-payment", version = "v0.2.0" }
+"@lazuli/plugin-example/payment-gateway" = { module = "github.com/lazuli-lang/lazuli-plugin-example-payment", version = "v0.2.0" }
 
 [generate.go]
 out = "dist/go"
@@ -14631,7 +14631,7 @@ strategy = "auto"
         assert_eq!(json["manifest"]["project"]["name"], "marketplace");
         assert_eq!(
             json["manifest"]["plugins"][0]["ref"],
-            "@plugin/example/payment-gateway"
+            "@lazuli/plugin-example/payment-gateway"
         );
         assert_eq!(json["manifest"]["plugins"][0]["source"], "remote");
         assert_eq!(json["manifest"]["frontends"][0]["name"], "mobile");

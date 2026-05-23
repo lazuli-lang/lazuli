@@ -4,7 +4,7 @@
 // Wire-thin: every file here is < 100 effective LOC, with no
 // reimplementation of subscription state machines, plan transitions,
 // or webhook protocols. Provider integrations (Stripe, MercadoPago,
-// Pagar.me, etc.) live in `@plugin/<provider>` repos and implement
+// Pagar.me, etc.) live in `@lazuli/plugin-<provider>` repos and implement
 // SubscriptionStore. The default postgres store uses the same pgx pool
 // as the rest of the Lazuli runtime.
 package billing
@@ -92,7 +92,7 @@ type ActiveSubscription struct {
 // SubscriptionStore is the adapter seam. The default postgres store
 // reads from the table named by the anchor; hosted-billing adapters
 // (Stripe, MercadoPago) implement this interface from their own
-// `@plugin/<provider>` repos.
+// `@lazuli/plugin-<provider>` repos.
 type SubscriptionStore interface {
 	LookupActive(ctx context.Context, subjectID lazuli.ID) (*ActiveSubscription, error)
 }

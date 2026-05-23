@@ -13,8 +13,8 @@ func TestRegisterAndResolveAppIntegration(t *testing.T) {
 	withEmptyAdapterRegistry(t)
 
 	want := &fakeIntegration{id: "object_store"}
-	RegisterAdapter("@plugin/object_store_test_register", want)
-	RegisterAppIntegration("object_store_test_register", "@plugin/object_store_test_register")
+	RegisterAdapter("@lazuli/plugin-object_store_test_register", want)
+	RegisterAppIntegration("object_store_test_register", "@lazuli/plugin-object_store_test_register")
 
 	got, err := ResolveAppIntegration("object_store_test_register")
 	if err != nil {
@@ -41,7 +41,7 @@ func TestRegisterAppIntegrationWithMissingAdapterDeferresError(t *testing.T) {
 	// Register the binding before any RegisterAdapter call — this is
 	// exactly the init-order panic class we are closing. Registration
 	// must succeed even though the adapter ref is not yet present.
-	RegisterAppIntegration("deferred_missing_adapter", "@plugin/not-yet-here")
+	RegisterAppIntegration("deferred_missing_adapter", "@lazuli/plugin-not-yet-here")
 
 	_, err := ResolveAppIntegration("deferred_missing_adapter")
 	if !errors.Is(err, ErrAdapterMissing) {
@@ -57,9 +57,9 @@ func TestRegisterAppIntegrationWithMissingAdapterDeferresError(t *testing.T) {
 func TestRegisterAppIntegrationResolvesAdapterRegisteredLater(t *testing.T) {
 	withEmptyAdapterRegistry(t)
 
-	RegisterAppIntegration("late_adapter_binding", "@plugin/late-adapter")
+	RegisterAppIntegration("late_adapter_binding", "@lazuli/plugin-late-adapter")
 	want := &fakeIntegration{id: "late"}
-	RegisterAdapter("@plugin/late-adapter", want)
+	RegisterAdapter("@lazuli/plugin-late-adapter", want)
 
 	got, err := ResolveAppIntegration("late_adapter_binding")
 	if err != nil {
@@ -75,10 +75,10 @@ func TestRegisterAppIntegrationLastWriteWins(t *testing.T) {
 
 	first := &fakeIntegration{id: "first"}
 	second := &fakeIntegration{id: "second"}
-	RegisterAdapter("@plugin/last-write-first", first)
-	RegisterAdapter("@plugin/last-write-second", second)
-	RegisterAppIntegration("test_last_write_wins", "@plugin/last-write-first")
-	RegisterAppIntegration("test_last_write_wins", "@plugin/last-write-second")
+	RegisterAdapter("@lazuli/plugin-last-write-first", first)
+	RegisterAdapter("@lazuli/plugin-last-write-second", second)
+	RegisterAppIntegration("test_last_write_wins", "@lazuli/plugin-last-write-first")
+	RegisterAppIntegration("test_last_write_wins", "@lazuli/plugin-last-write-second")
 
 	got, err := ResolveAppIntegration("test_last_write_wins")
 	if err != nil {

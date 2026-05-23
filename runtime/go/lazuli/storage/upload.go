@@ -18,7 +18,7 @@ import (
 
 // ObjectStore is the adapter contract for the `object_storage`
 // capability. Adapter packages (`@runtime/local`, `@runtime/s3`,
-// `@plugin/.../gcs`) implement this interface; Lazuli core never
+// `@lazuli/plugin-.../gcs`) implement this interface; Lazuli core never
 // names any of them.
 type ObjectStore interface {
 	// Put streams the body into the adapter's backing store
@@ -114,7 +114,7 @@ func (r *uploadSizeLimitReader) BytesRead() int64 {
 
 // LocalStore implements `ObjectStore` against the local filesystem.
 // It is the canonical development adapter; production deployments
-// bind `@runtime/s3` or a `@plugin/.../<provider>` adapter.
+// bind `@runtime/s3` or a `@lazuli/plugin-.../<provider>` adapter.
 type LocalStore struct {
 	// Root is the directory that all objects are written under.
 	Root string
@@ -287,7 +287,7 @@ type S3Store struct {
 // NewS3Store builds an S3Store wired to a live `*s3.Client` and
 // `*s3.PresignClient`. `cfg` is the SDK config (region, credentials,
 // retries) the adapter resolved at boot from environment / AWS
-// profile / `@plugin/...` secret manager.
+// profile / `@lazuli/plugin-...` secret manager.
 func NewS3Store(cfg aws.Config, bucket, region, prefix, endpoint string) *S3Store {
 	opts := []func(*s3.Options){}
 	if endpoint != "" {

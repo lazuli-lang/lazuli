@@ -5,7 +5,7 @@
 // Spec: docs/proposals/hostpoint-complete-roadmap-2026-05-18.md §3.5.
 // Boundary discipline: this file never names S3, MinIO, R2, Tigris,
 // GCS, or any concrete provider. The S3-specific implementation lives
-// in the `@plugin/object-store` adapter package; this contract is the
+// in the `@lazuli/plugin-object-store` adapter package; this contract is the
 // stable seam handlers code against.
 package storage
 
@@ -20,7 +20,7 @@ import (
 // runtime via `lazuli.ObjectStore("<binding-name>")`. The binding name
 // comes from `registry.lzi`'s `bindings.<name>: <Kind>` declaration;
 // the concrete implementation behind the resolved adapter lives in a
-// `@plugin/<name>` package (e.g. `@plugin/object-store` for the
+// `@lazuli/plugin-<name>` package (e.g. `@lazuli/plugin-object-store` for the
 // S3-compatible adapter).
 //
 // Implementations MUST be safe for concurrent use.

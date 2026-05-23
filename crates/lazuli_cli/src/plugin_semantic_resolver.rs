@@ -238,7 +238,7 @@ mod tests {
         map.insert(
             "@semantic.BrazilianCPF".to_owned(),
             ResolvedPluginSemantic {
-                plugin_namespace: "@plugin/scalars-br".to_owned(),
+                plugin_namespace: "@lazuli/plugin-scalars-br".to_owned(),
                 plugin_short_name: "scalars-br".to_owned(),
                 name: "BrazilianCPF".to_owned(),
                 alias: "@semantic.BrazilianCPF".to_owned(),
@@ -273,7 +273,7 @@ mod tests {
                 validator,
                 ..
             }) => {
-                assert_eq!(plugin, "@plugin/scalars-br");
+                assert_eq!(plugin, "@lazuli/plugin-scalars-br");
                 assert_eq!(name, "BrazilianCPF");
                 assert!(matches!(**carrier, BuiltinType::Text));
                 assert_eq!(validator, "ValidateCPF");

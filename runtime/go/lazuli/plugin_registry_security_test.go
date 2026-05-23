@@ -9,7 +9,7 @@ func TestRegisterAdapterRejectsDuplicates(t *testing.T) {
 		}
 	}()
 	// Use a unique ref to avoid colliding with real plugins.
-	const ref = "@plugin/test-duplicate-c3"
+	const ref = "@lazuli/plugin-test-duplicate-c3"
 	RegisterAdapter(ref, struct{}{})
 	RegisterAdapter(ref, struct{}{}) // should panic
 }
@@ -25,5 +25,5 @@ func TestRegisterAdapterRejectsAfterLock(t *testing.T) {
 		}
 	}()
 	LockAdapterRegistry()
-	RegisterAdapter("@plugin/test-after-lock-c3", struct{}{})
+	RegisterAdapter("@lazuli/plugin-test-after-lock-c3", struct{}{})
 }

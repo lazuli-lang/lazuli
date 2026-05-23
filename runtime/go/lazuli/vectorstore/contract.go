@@ -1,9 +1,9 @@
-// Package vectorstore declares the runtime contract for `@plugin/<name>`
+// Package vectorstore declares the runtime contract for `@lazuli/plugin-<name>`
 // adapters that provide vector storage and similarity search.
 //
 // The contract is intentionally minimal — wire-thin. Concrete adapters
 // (Chroma, pgvector, Qdrant, Weaviate, ...) live in separate
-// `@plugin/<name>` repos and register via `lazuli.RegisterAdapter`
+// `@lazuli/plugin-<name>` repos and register via `lazuli.RegisterAdapter`
 // against this package's `VectorStore` interface.
 //
 // See `docs/proposals/bucket-vectorstore-cycle.md` §V1.
@@ -22,7 +22,7 @@ import (
 //
 // Implementations MUST be safe for concurrent use across goroutines.
 type VectorStore interface {
-	// Provider returns the adapter id, e.g. "@plugin/chromadb".
+	// Provider returns the adapter id, e.g. "@lazuli/plugin-chromadb".
 	Provider() string
 
 	// Collection scopes operations to a named bucket. Adapters create
@@ -125,7 +125,7 @@ type Match struct {
 // the Embedder (for `QueryByText`); the Embedder NEVER depends on the
 // VectorStore.
 type Embedder interface {
-	// Provider returns the adapter id, e.g. "@plugin/openai-embeddings".
+	// Provider returns the adapter id, e.g. "@lazuli/plugin-openai-embeddings".
 	Provider() string
 
 	// Embed converts a single text to a vector. Adapters declare

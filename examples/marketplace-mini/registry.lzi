@@ -8,7 +8,7 @@ registry
     payment_gateway payment_gateway
 
   packs
-    marketplace from @plugin/example/marketplace-pack
+    marketplace from @lazuli/plugin-example/marketplace-pack
       version "0.1.0"
       provides feature account
       provides feature listing
@@ -18,7 +18,7 @@ registry
 
   integrations
     payment_gateway: PaymentGateway
-      adapter @plugin/example/payment-gateway
+      adapter @lazuli/plugin-example/payment-gateway
       environments sandbox, production
       credentials platform
         access_token env.PAYMENT_ACCESS_TOKEN

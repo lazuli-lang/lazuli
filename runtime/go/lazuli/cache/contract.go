@@ -6,7 +6,7 @@
 // Boundary discipline: this file declares the contract that codegen
 // consumes; concrete LRU / Redis / Memcached / Valkey adapters
 // implement `Backend` in sibling packages (`@runtime/local`,
-// `@runtime/redis`, `@plugin/<publisher>/memcached`, etc.).
+// `@runtime/redis`, `@lazuli/plugin-<publisher>/memcached`, etc.).
 package cache
 
 import (
@@ -84,7 +84,7 @@ func Tag(label string) TagTarget {
 
 // Backend is the adapter contract. Concrete implementations live in
 // `@runtime/local` (in-process LRU; default), `@runtime/redis`,
-// `@plugin/<publisher>/memcached`, etc.
+// `@lazuli/plugin-<publisher>/memcached`, etc.
 type Backend interface {
 	Get(ctx context.Context, key string) (value []byte, hit bool, err error)
 	Put(ctx context.Context, key string, value []byte, ttl time.Duration, tags []string) error

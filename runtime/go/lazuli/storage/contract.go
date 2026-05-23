@@ -7,7 +7,7 @@
 // Boundary discipline: this package never names a concrete provider
 // (S3, GCS, MinIO, Azure Blob, R2). The `ObjectStore` interface is
 // implemented by adapter packages (`@runtime/local`, `@runtime/s3`,
-// `@plugin/...`) selected at boot from `registry.lzi`.
+// `@lazuli/plugin-...`) selected at boot from `registry.lzi`.
 package storage
 
 import (

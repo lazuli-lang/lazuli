@@ -35,8 +35,8 @@
       }
     },
     {
-      "comment": "Plugin module references (\"@plugin/<name>\") — keys inside [plugins]",
-      "match": "^\\s*(\")(@plugin/[A-Za-z0-9_./-]+)(\")\\s*(?==)",
+      "comment": "Plugin module references (\"@lazuli/plugin-<name>\") — keys inside [plugins]",
+      "match": "^\\s*(\")(@lazuli/plugin-[A-Za-z0-9_./-]+)(\")\\s*(?==)",
       "captures": {
         "1": { "name": "punctuation.definition.string.begin.toml" },
         "2": { "name": "entity.name.tag.plugin.lazuli" },

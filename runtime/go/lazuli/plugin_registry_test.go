@@ -32,9 +32,9 @@ func TestRegisterAndResolveAdapter(t *testing.T) {
 	withEmptyAdapterRegistry(t)
 
 	want := &pluginRegistryTestAdapter{name: "mercadopago"}
-	RegisterAdapter("@plugin/mercadopago", want)
+	RegisterAdapter("@lazuli/plugin-mercadopago", want)
 
-	got, err := ResolveAdapter("@plugin/mercadopago")
+	got, err := ResolveAdapter("@lazuli/plugin-mercadopago")
 	if err != nil {
 		t.Fatalf("ResolveAdapter returned error: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestRegisterAndResolveAdapter(t *testing.T) {
 func TestResolveAdapterMissing(t *testing.T) {
 	withEmptyAdapterRegistry(t)
 
-	_, err := ResolveAdapter("@plugin/missing")
+	_, err := ResolveAdapter("@lazuli/plugin-missing")
 	if !errors.Is(err, ErrAdapterMissing) {
 		t.Fatalf("ResolveAdapter missing error = %v, want ErrAdapterMissing", err)
 	}
@@ -55,9 +55,9 @@ func TestResolveAdapterMissing(t *testing.T) {
 func TestResolveTypedMismatch(t *testing.T) {
 	withEmptyAdapterRegistry(t)
 
-	RegisterAdapter("@plugin/wrong", &pluginRegistryTestAdapter{name: "wrong"})
+	RegisterAdapter("@lazuli/plugin-wrong", &pluginRegistryTestAdapter{name: "wrong"})
 
-	_, err := ResolveTyped[pluginRegistryExpected]("@plugin/wrong")
+	_, err := ResolveTyped[pluginRegistryExpected]("@lazuli/plugin-wrong")
 	if err == nil {
 		t.Fatal("ResolveTyped mismatch returned nil error")
 	}

@@ -392,7 +392,7 @@ impl DoctorPackage {
         // directory so project-level rules (MANIFEST-REQUIRED-001) can skip
         // when no real project root is present. Audit ref: R1.C sweep
         // produced 12 false positives because the parent dir of standalone
-        // `.lzi` fixtures was scanned for @plugin/* refs from sibling files.
+        // `.lzi` fixtures was scanned for @lazuli/plugin-* refs from sibling files.
         let single_file_input = input.is_file();
         let project_root = doctor_project_root(input);
         let lazurite_manifest = lazurite_manifest::load(&project_root).with_context(|| {
@@ -2423,7 +2423,7 @@ fn manifest_required_diagnostics(
 ) -> Vec<DoctorDiagnostic> {
     // Single-file invocation (`lazuli doctor path/to/file.lzi`) has no
     // project context — the rule walked the parent directory, picked up
-    // unrelated sibling fixtures' `@plugin/*` refs, and pointed the user
+    // unrelated sibling fixtures' `@lazuli/plugin-*` refs, and pointed the user
     // at a phantom `Lazurite.toml`. Audit ref: R1.C real-world sweep
     // (12 false positives across standalone fixtures).
     if single_file_input {
@@ -2440,7 +2440,7 @@ fn manifest_required_diagnostics(
         column: 1,
         severity: DoctorSeverity::Error,
         code: "MANIFEST-REQUIRED-001".to_owned(),
-        message: "project uses @plugin/* references but is missing Lazurite.toml.".to_owned(),
+        message: "project uses @lazuli/plugin-* references but is missing Lazurite.toml.".to_owned(),
     }]
 }
 
@@ -2755,7 +2755,7 @@ fn check_semantic_plugin_unresolved(
                 severity: DoctorSeverity::Error,
                 code: "SEMANTIC-PLUGIN-001".to_owned(),
                 message: format!(
-                    "unknown plugin semantic type `{alias}`. No plugin in Lazurite.toml [plugins] declares this alias. Add the appropriate `@plugin/<name>` to [plugins] or replace the field with a built-in `@semantic.*` type.",
+                    "unknown plugin semantic type `{alias}`. No plugin in Lazurite.toml [plugins] declares this alias. Add the appropriate `@lazuli/plugin-<name>` to [plugins] or replace the field with a built-in `@semantic.*` type.",
                 ),
             });
         }
@@ -3040,23 +3040,21 @@ fn check_plugin_namespace_mismatch(
     let declared_short: BTreeSet<String> = manifest
         .plugins
         .keys()
-        .filter_map(|key| key.strip_prefix("@plugin/").map(|name| name.to_owned()))
+        .filter_map(|key| key.strip_prefix("@lazuli/plugin-").map(|name| name.to_owned()))
         .collect();
 
     for key in manifest.plugins.keys() {
-        if let Some(namespace) = reference_namespace(key) {
-            if namespace != "plugin" {
-                diagnostics.push(DoctorDiagnostic {
-                    path: package.project_root.join("Lazurite.toml"),
-                    line: 1,
-                    column: 1,
-                    severity: DoctorSeverity::Error,
-                    code: "PLUGIN-NAMESPACE-MISMATCH-001".to_owned(),
-                    message: format!(
-                        "manifest plugin key `{key}` uses namespace `@{namespace}`, but plugins must use `@plugin/<name>`."
-                    ),
-                });
-            }
+        if !key.starts_with("@lazuli/plugin-") {
+            diagnostics.push(DoctorDiagnostic {
+                path: package.project_root.join("Lazurite.toml"),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "PLUGIN-NAMESPACE-MISMATCH-001".to_owned(),
+                message: format!(
+                    "manifest plugin key `{key}` does not use the canonical plugin namespace; plugins must be declared as `@lazuli/plugin-<name>`."
+                ),
+            });
         }
     }
 
@@ -3065,6 +3063,13 @@ fn check_plugin_namespace_mismatch(
             continue;
         }
         for reference in collect_at_references_in_source(&file.path, &file.source) {
+            // A canonical plugin reference is `@lazuli/plugin-<name>` —
+            // the @-reference parser yields namespace=`lazuli`,
+            // name=`plugin-<name>` for that shape. Skip it before the
+            // mismatch detector runs.
+            if reference.namespace == "lazuli" && reference.name.starts_with("plugin-") {
+                continue;
+            }
             if reference.namespace == "adapter" && declared_short.contains(&reference.name) {
                 diagnostics.push(DoctorDiagnostic {
                     path: reference.path,
@@ -3073,12 +3078,11 @@ fn check_plugin_namespace_mismatch(
                     severity: DoctorSeverity::Error,
                     code: "PLUGIN-NAMESPACE-MISMATCH-001".to_owned(),
                     message: format!(
-                        "`{}` uses the local adapter namespace, but Lazurite.toml declares `@plugin/{}`; use the plugin reference.",
+                        "`{}` uses the local adapter namespace, but Lazurite.toml declares `@lazuli/plugin-{}`; use the plugin reference.",
                         reference.reference, reference.name
                     ),
                 });
-            } else if reference.namespace != "plugin"
-                && !is_allowed_reference_namespace_for_doctor(&reference.namespace)
+            } else if !is_allowed_reference_namespace_for_doctor(&reference.namespace)
                 && declared_short.contains(&reference.name)
             {
                 diagnostics.push(DoctorDiagnostic {
@@ -3088,7 +3092,7 @@ fn check_plugin_namespace_mismatch(
                     severity: DoctorSeverity::Error,
                     code: "PLUGIN-NAMESPACE-MISMATCH-001".to_owned(),
                     message: format!(
-                        "`{}` uses unknown namespace `@{}`, but Lazurite.toml declares `@plugin/{}`; use the plugin reference.",
+                        "`{}` uses unknown namespace `@{}`, but Lazurite.toml declares `@lazuli/plugin-{}`; use the plugin reference.",
                         reference.reference, reference.namespace, reference.name
                     ),
                 });
@@ -6714,7 +6718,7 @@ fn adapter_source_diagnostic(
         severity: DoctorSeverity::Error,
         code: code.to_owned(),
         message: format!(
-            "integration `{integration_name}` uses adapter `{adapter}`, but adapter sources must declare provenance with `@runtime/...`, `@plugin/<name>` (or `@plugin/<publisher>/<name>`), `@adapter.<local>`, or a local path."
+            "integration `{integration_name}` uses adapter `{adapter}`, but adapter sources must declare provenance with `@runtime/...`, `@lazuli/plugin-<name>` (or `@lazuli/plugin-<publisher>/<name>`), `@adapter.<local>`, or a local path."
         ),
     }
 }
@@ -7326,9 +7330,9 @@ fn collect_package_plugin_references(package: &DoctorPackage) -> Vec<PluginRefer
 fn collect_plugin_references_in_source(path: &Path, source: &str) -> Vec<PluginReferenceFact> {
     let mut references = Vec::new();
     let mut offset = 0;
-    while let Some(relative_start) = source[offset..].find("@plugin/") {
+    while let Some(relative_start) = source[offset..].find("@lazuli/plugin-") {
         let start = offset + relative_start;
-        let after_prefix = &source[start + "@plugin/".len()..];
+        let after_prefix = &source[start + "@lazuli/plugin-".len()..];
         let name_len = plugin_reference_name_len(after_prefix);
         if name_len > 0 {
             let (line, column) = line_col_for_offset(source, start);
@@ -7336,10 +7340,10 @@ fn collect_plugin_references_in_source(path: &Path, source: &str) -> Vec<PluginR
                 path: path.to_path_buf(),
                 line,
                 column,
-                reference: source[start..start + "@plugin/".len() + name_len].to_owned(),
+                reference: source[start..start + "@lazuli/plugin-".len() + name_len].to_owned(),
             });
         }
-        offset = start + "@plugin/".len() + name_len.max(1);
+        offset = start + "@lazuli/plugin-".len() + name_len.max(1);
     }
     references
 }
@@ -15390,7 +15394,7 @@ runtime = "v0.1.0"
 
         assert!(
             !codes(&diagnostics).contains("MANIFEST-REQUIRED-001"),
-            "MANIFEST-REQUIRED-001 should not fire without @plugin/* refs"
+            "MANIFEST-REQUIRED-001 should not fire without @lazuli/plugin-* refs"
         );
     }
 
@@ -15405,7 +15409,7 @@ runtime = "v0.1.0"
         let result = doctor_command(&root, SecurityProfile::Strict, false, false);
         let _ = fs::remove_dir_all(&root);
 
-        result.expect("doctor should pass without Lazurite.toml when no @plugin/* refs");
+        result.expect("doctor should pass without Lazurite.toml when no @lazuli/plugin-* refs");
     }
 
     #[test]
@@ -15435,7 +15439,7 @@ runtime = "v0.1.0"
             r#"
 feature billing
   command charge
-    policy @plugin/payments
+    policy @lazuli/plugin-payments
 "#,
         )
         .expect("write app.lzi");
@@ -15464,14 +15468,14 @@ feature billing
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).expect("create temp doctor project");
 
-        // Sibling file in the parent dir uses @plugin/payments, but we
+        // Sibling file in the parent dir uses @lazuli/plugin-payments, but we
         // are NOT going to invoke the doctor on it.
         fs::write(
             root.join("sibling.lzi"),
             r#"
 feature billing
   command charge
-    policy @plugin/payments
+    policy @lazuli/plugin-payments
 "#,
         )
         .expect("write sibling.lzi");
@@ -15578,7 +15582,7 @@ feature greetings
                 r#"
 feature billing
   command charge
-    policy @plugin/payments
+    policy @lazuli/plugin-payments
 "#,
             )],
             &minimal_manifest(""),
@@ -15631,7 +15635,7 @@ feature host
             &minimal_manifest(
                 r#"
 [plugins]
-"@plugin/payments" = { module = "example.com/payments", version = "v0.1.0" }
+"@lazuli/plugin-payments" = { module = "example.com/payments", version = "v0.1.0" }
 "#,
             ),
         );
@@ -15653,7 +15657,7 @@ app Demo
             &minimal_manifest(
                 r#"
 [plugins]
-"@plugin/payments" = { module = "example.com/payments", version = "v0.1.0" }
+"@lazuli/plugin-payments" = { module = "example.com/payments", version = "v0.1.0" }
 "#,
             ),
         );
