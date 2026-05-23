@@ -15,7 +15,7 @@ export {
   createRootRouteWithContext,
   redirect,
 } from "@tanstack/react-router";
-export type { LinkProps } from "@tanstack/react-router";
+export type { LinkProps, NotFoundRouteComponent } from "@tanstack/react-router";
 export type { QueryClient } from "@tanstack/react-query";
 
 export type RouteGuardSpec<Component = unknown> = {
