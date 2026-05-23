@@ -468,6 +468,7 @@ fn parse_lzx_view_guard(
     let mut on_unauthorized = None;
     let mut requires_lifecycle = None;
     let mut on_lifecycle_pending = None;
+    let mut forbid_when: Vec<crate::ast::LzxForbidWhen> = Vec::new();
     let mut index = start + 1;
     let mut last_end = header.end;
 
@@ -526,10 +527,15 @@ fn parse_lzx_view_guard(
                 ));
             }
             on_lifecycle_pending = Some(parse_lzx_on_lifecycle_pending(line, rest.trim())?);
+        } else if let Some(rest) = trimmed.strip_prefix("forbid_when ") {
+            // router-w3 Tier 3 — positive-state redirect. Format:
+            //   forbid_when <atom> dispatch_to "<url>"
+            // where <atom> is `@<ns>.<name>` (e.g. `@role.host`).
+            forbid_when.push(parse_lzx_forbid_when(line, rest.trim())?);
         } else {
             return Err(line_error(
                 line,
-                "`policy` children are `on_unauthenticated redirect \"<path>\"`, `on_unauthorized redirect \"<path>\"`, `requires_lifecycle <Resource> = <state>`, or `on_lifecycle_pending @resume <name>`",
+                "`policy` children are `on_unauthenticated redirect \"<path>\"`, `on_unauthorized redirect \"<path>\"`, `requires_lifecycle <Resource> = <state>`, `on_lifecycle_pending @resume <name>`, or `forbid_when <atom> dispatch_to \"<path>\"`",
             ));
         }
 
@@ -544,10 +550,44 @@ fn parse_lzx_view_guard(
             on_unauthorized,
             requires_lifecycle,
             on_lifecycle_pending,
+            forbid_when,
             span: Span::new(header.start, last_end),
         },
         index,
     ))
+}
+
+/// router-w3 Tier 3 — parse `forbid_when <atom> dispatch_to "<url>"`.
+fn parse_lzx_forbid_when(
+    line: &SourceLine<'_>,
+    text: &str,
+) -> Result<crate::ast::LzxForbidWhen, ParseError> {
+    let (atom_part, url_part) = text.split_once("dispatch_to").ok_or_else(|| {
+        line_error(
+            line,
+            "`forbid_when` uses `forbid_when <atom> dispatch_to \"<url>\"`",
+        )
+    })?;
+    let atom_ref = atom_part.trim().to_owned();
+    if !atom_ref.starts_with('@') {
+        return Err(line_error(
+            line,
+            "`forbid_when` atom must be a policy atom like `@role.host` or `@scope.X`",
+        ));
+    }
+    let url_text = url_part.trim();
+    if !url_text.starts_with('"') || !url_text.ends_with('"') || url_text.len() < 2 {
+        return Err(line_error(
+            line,
+            "`forbid_when` URL must be a double-quoted string",
+        ));
+    }
+    let dispatch_to = url_text[1..url_text.len() - 1].to_owned();
+    Ok(crate::ast::LzxForbidWhen {
+        atom_ref,
+        dispatch_to,
+        span: Span::new(line.start, line.end),
+    })
 }
 
 fn parse_lzx_view_guard_policy(

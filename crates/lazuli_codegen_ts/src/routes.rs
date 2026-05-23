@@ -76,6 +76,17 @@ struct GuardEmit {
     policy_atoms: Vec<(String, String)>,
     on_unauthenticated: Option<String>,
     on_unauthorized: Option<String>,
+    /// W3 Tier 3 — forbid_when checks that run BEFORE the main
+    /// policy gate (signed-in actors who already satisfy the listed
+    /// atom redirect away rather than seeing the route).
+    forbid_when: Vec<ForbidEmit>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ForbidEmit {
+    atom_namespace: String,
+    atom_name: String,
+    dispatch_to: String,
 }
 
 /// W3 Tier 2 + W4 — lifecycle dispatch payload. Carries the
@@ -191,6 +202,9 @@ fn emit_routes_file(specs: &[RouteSpec]) -> String {
     // and the router instance is not assignable to RouterProvider).
     let any_ir_guard = specs.iter().any(|s| s.guard_emit.is_some());
     let any_lifecycle = specs.iter().any(|s| s.lifecycle_emit.is_some());
+    let any_forbid_when = specs
+        .iter()
+        .any(|s| s.guard_emit.as_ref().is_some_and(|g| !g.forbid_when.is_empty()));
     s.push_str("import { createElement, type FunctionComponent, type ReactElement } from \"@lazuli/runtime/react\";\n");
     s.push_str(
         "import { Link, Outlet, createRootRouteWithContext, createRoute, createRouter, redirect, type LinkProps, type NotFoundRouteComponent, type QueryClient } from \"@lazuli/runtime/react/tanstack\";\n",
@@ -205,6 +219,12 @@ fn emit_routes_file(specs: &[RouteSpec]) -> String {
         // codegen-emitted lifecycle gates call it for the fetchQuery key.
         s.push_str("import { queryKeyFor } from \"@lazuli/runtime/react\";\n");
         s.push_str("import { isLazuliError } from \"@lazuli/runtime\";\n");
+    }
+    if any_forbid_when {
+        // evaluatePolicy is the closed-catalog policy verdict helper;
+        // forbid_when arms call it with a single-atom policy to detect
+        // whether the actor satisfies the listed atom.
+        s.push_str("import { evaluatePolicy } from \"@lazuli/runtime/react\";\n");
     }
     s.push_str("import type { LazuliClient } from \"@lazuli/runtime\";\n");
     // Per-feature SDK imports for every lifecycle gate's
@@ -334,6 +354,28 @@ fn emit_before_load(out: &mut String, spec: &RouteSpec) {
     }
     out.push_str("    beforeLoad: async (params) => {\n");
     if let Some(guard) = &spec.guard_emit {
+        // W3 Tier 3 — forbid_when atoms run BEFORE the policy gate.
+        // The actor is fetched once via resolveActor, then each atom
+        // is checked against the closed-catalog evaluatePolicy helper.
+        // A signed-out actor short-circuits to the policy gate
+        // (signed-out users can't satisfy a role/scope atom).
+        if !guard.forbid_when.is_empty() {
+            out.push_str("      const __forbidActor = await options.client.resolveActor();\n");
+            out.push_str("      if (__forbidActor) {\n");
+            for fw in &guard.forbid_when {
+                out.push_str(&format!(
+                    "        if (evaluatePolicy(__forbidActor, {{ name: \"@{ns}.{name}\", atoms: [{{ namespace: {ns:?}, name: {name:?} }}] }}) === \"authorized\") {{\n",
+                    ns = fw.atom_namespace,
+                    name = fw.atom_name,
+                ));
+                out.push_str(&format!(
+                    "          throw redirect({{ to: {:?} }});\n",
+                    fw.dispatch_to
+                ));
+                out.push_str("        }\n");
+            }
+            out.push_str("      }\n");
+        }
         let atoms_literal = guard
             .policy_atoms
             .iter()
@@ -397,6 +439,43 @@ fn emit_before_load(out: &mut String, spec: &RouteSpec) {
     out.push_str("    },\n");
 }
 
+fn resolve_guard_emit(guard: &ViewGuard, features: &[Feature]) -> Option<GuardEmit> {
+    let has_policy = !guard.policy.is_empty();
+    let has_forbid = !guard.forbid_when.is_empty();
+    if !has_policy && !has_forbid {
+        return None;
+    }
+    let (policy_name, policy_atoms) = if let Some(policy_ref) = guard.policy.first() {
+        let policy_ref = policy_ref.trim();
+        (
+            policy_ref.to_owned(),
+            resolve_policy_atoms(policy_ref, features),
+        )
+    } else {
+        // forbid_when alone with no main policy: emit a trivial
+        // always-authorized policy so the verdict logic falls through.
+        (
+            "@scope.authenticated".to_owned(),
+            vec![("scope".to_owned(), "authenticated".to_owned())],
+        )
+    };
+    Some(GuardEmit {
+        policy_name,
+        policy_atoms,
+        on_unauthenticated: guard.on_unauthenticated.clone(),
+        on_unauthorized: guard.on_unauthorized.clone(),
+        forbid_when: guard
+            .forbid_when
+            .iter()
+            .map(|fw| ForbidEmit {
+                atom_namespace: fw.atom.namespace.clone(),
+                atom_name: fw.atom.name.clone(),
+                dispatch_to: fw.dispatch_to.clone(),
+            })
+            .collect(),
+    })
+}
+
 /// router-w4 — resolve `requires_lifecycle <Resource> = <state>` into
 /// a `LifecycleEmit` by locating the owning feature (the one with a
 /// `lookup_my_<snake_resource>` query and a `lifecycle_routes` table
@@ -450,24 +529,7 @@ fn lower_camel_export(s: &str) -> String {
     super::runtime::lower_camel_export(s)
 }
 
-/// Resolve a `ViewGuard` IR node (`policy: ["@policy.X"]` + optional
-/// redirects) into the codegen-ready payload. v1 supports a single
-/// policy atom reference per route — additional policies in the
-/// vector are folded into the first (OR semantics). Composed policy
-/// expressions go via the existing `PolicyExpr` IR path (deferred).
-fn resolve_guard_emit(guard: &ViewGuard, features: &[Feature]) -> Option<GuardEmit> {
-    let policy_ref = guard.policy.first()?.trim();
-    if policy_ref.is_empty() {
-        return None;
-    }
-    let atoms = resolve_policy_atoms(policy_ref, features);
-    Some(GuardEmit {
-        policy_name: policy_ref.to_owned(),
-        policy_atoms: atoms,
-        on_unauthenticated: guard.on_unauthenticated.clone(),
-        on_unauthorized: guard.on_unauthorized.clone(),
-    })
-}
+// resolve_guard_emit defined above (combined policy + forbid_when payload).
 
 /// Decompose a policy reference into its atoms. Handles two shapes:
 /// 1. Atom-form: `@<ns>.<name>` (e.g. `@role.host`) — single atom.

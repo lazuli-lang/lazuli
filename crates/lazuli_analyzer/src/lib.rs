@@ -620,8 +620,34 @@ fn lower_view_guard(guard: &syntax::LzxViewGuard) -> ir::ViewGuard {
             }
         }),
         on_lifecycle_pending: guard.on_lifecycle_pending.clone(),
+        forbid_when: guard
+            .forbid_when
+            .iter()
+            .filter_map(lower_forbid_when)
+            .collect(),
         span_ref: Some(span_of(guard.span)),
     }
+}
+
+/// router-w3 Tier 3 — lift `LzxForbidWhen` to `ir::ForbidWhen`,
+/// resolving the `@<ns>.<name>` atom into a `PolicyAtom`. Returns
+/// `None` for atoms that don't parse — silently drops; the analyzer's
+/// existing atom validator passes will surface the invalid reference
+/// against the source line.
+fn lower_forbid_when(fw: &syntax::LzxForbidWhen) -> Option<ir::ForbidWhen> {
+    let bare = fw.atom_ref.strip_prefix('@').unwrap_or(&fw.atom_ref);
+    let (ns, rest) = bare.split_once('.')?;
+    let name = rest.split('(').next().unwrap_or(rest);
+    Some(ir::ForbidWhen {
+        atom_ref: fw.atom_ref.clone(),
+        atom: ir::PolicyAtom {
+            namespace: ns.to_owned(),
+            name: name.to_owned(),
+            args: None,
+        },
+        dispatch_to: fw.dispatch_to.clone(),
+        span_ref: Some(span_of(fw.span)),
+    })
 }
 
 fn lower_route_guard_defaults(defaults: &syntax::LzxRouteGuardDefaults) -> ir::RouteGuardDefaults {

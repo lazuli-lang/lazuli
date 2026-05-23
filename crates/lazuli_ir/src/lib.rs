@@ -4472,6 +4472,30 @@ pub struct ViewGuard {
     /// the lifecycle gate does not match.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_lifecycle_pending: Option<String>,
+    /// router-w3 Tier 3 — positive-state redirects. Each entry pairs
+    /// a policy atom (`@role.host`, `@scope.X`, etc.) with a URL.
+    /// When the actor satisfies the atom, codegen throws a redirect
+    /// BEFORE running the main policy gate. Use case: a "choose role"
+    /// route that should never paint for users who already chose.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub forbid_when: Vec<ForbidWhen>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// router-w3 Tier 3 — `forbid_when <atom> dispatch_to "<url>"` slot
+/// under a route's `policy` block. Codegen emits an
+/// `evaluatePolicy(actor, atom)` check BEFORE the main guard; if the
+/// actor satisfies the atom, redirect to `dispatch_to`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ForbidWhen {
+    /// The policy atom as authored, e.g. `@role.host`.
+    pub atom_ref: String,
+    /// Resolved atom (namespace + name) used by codegen to emit a
+    /// `LazuliRouteGuardPolicy` literal.
+    pub atom: PolicyAtom,
+    /// URL the actor is redirected to when the atom matches.
+    pub dispatch_to: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }

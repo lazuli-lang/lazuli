@@ -151,6 +151,17 @@ pub struct LzxViewGuard {
     pub on_unauthorized: Option<String>,
     pub requires_lifecycle: Option<LzxRequiresLifecycle>,
     pub on_lifecycle_pending: Option<String>,
+    /// router-w3 Tier 3 — `forbid_when <atom> dispatch_to "<url>"`
+    /// children. Ordered; codegen emits checks in source order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub forbid_when: Vec<LzxForbidWhen>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LzxForbidWhen {
+    pub atom_ref: String,
+    pub dispatch_to: String,
     pub span: Span,
 }
 
