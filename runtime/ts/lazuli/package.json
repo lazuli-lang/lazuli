@@ -21,6 +21,11 @@
       "import": "./src/tanstack-adapter.ts",
       "default": "./src/tanstack-adapter.ts"
     },
+    "./react/rhf": {
+      "types": "./src/react-rhf.ts",
+      "import": "./src/react-rhf.ts",
+      "default": "./src/react-rhf.ts"
+    },
     "./formatters": {
       "types": "./src/formatters.ts",
       "import": "./src/formatters.ts",
@@ -37,20 +42,27 @@
     "search-query-parser": "^1.6.0"
   },
   "peerDependencies": {
+    "@hookform/resolvers": ">=3.9.0",
     "@react-native-async-storage/async-storage": ">=1.23.0",
     "@tanstack/react-query": ">=5.0.0",
     "@tanstack/react-router": ">=1.0.0",
     "react": ">=18.0.0",
-    "react-native": ">=0.74.0"
+    "react-hook-form": ">=7.52.0",
+    "react-native": ">=0.74.0",
+    "zod": ">=3.23.0"
   },
   "peerDependenciesMeta": {
+    "@hookform/resolvers": { "optional": true },
     "@react-native-async-storage/async-storage": { "optional": true },
     "@tanstack/react-query": { "optional": true },
     "@tanstack/react-router": { "optional": true },
     "react": { "optional": true },
-    "react-native": { "optional": true }
+    "react-hook-form": { "optional": true },
+    "react-native": { "optional": true },
+    "zod": { "optional": true }
   },
   "devDependencies": {
+    "@hookform/resolvers": "^3.9.0",
     "@tanstack/react-query": "^5.59.0",
     "@testing-library/react": "^16.1.0",
     "@types/react": "^18.3.0",
@@ -58,7 +70,9 @@
     "happy-dom": "^15.11.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
+    "react-hook-form": "^7.52.0",
     "typescript": "^5.6.0",
-    "vitest": "^2.1.0"
+    "vitest": "^2.1.0",
+    "zod": "^3.23.0"
   }
 }
