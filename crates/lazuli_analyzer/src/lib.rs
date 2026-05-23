@@ -497,6 +497,7 @@ fn lower_resume_arm(arm: &syntax::LzxResumeArm) -> ir::ResumeArm {
             syntax::LzxResumeArmKind::None => ir::ResumeArmKind::None,
             syntax::LzxResumeArmKind::Wildcard => ir::ResumeArmKind::Wildcard,
         },
+        substep: arm.substep.clone(),
         target_view: arm.target_view.clone(),
         span_ref: Some(span_of(arm.span)),
     }
@@ -614,6 +615,7 @@ fn lower_view_guard(guard: &syntax::LzxViewGuard) -> ir::ViewGuard {
             ir::RequiresLifecycle {
                 resource: requires.resource.clone(),
                 state: requires.state.clone(),
+                substep: requires.substep.clone(),
                 span_ref: Some(span_of(requires.span)),
             }
         }),
@@ -4646,6 +4648,7 @@ fn lower_policies_decl(decl: &syntax::PoliciesDecl) -> ir::Policies {
             // slot. Same-feature scope; cross-feature key resolution
             // lives in doctor (`translation_key_unknown` + ERR-VOCAB-002).
             when_denied: c.when_denied.as_ref().map(lower_translation_key_ref),
+            when_denied_route: c.when_denied_route.as_ref().map(lower_when_denied_route),
         })
         .collect();
     let fields = decl
@@ -4669,6 +4672,33 @@ fn lower_policies_decl(decl: &syntax::PoliciesDecl) -> ir::Policies {
         categories,
         fields,
         span_ref: Some(span_of(decl.span)),
+    }
+}
+
+fn lower_when_denied_route(route: &syntax::WhenDeniedRouteAst) -> ir::WhenDeniedRoute {
+    ir::WhenDeniedRoute {
+        unauthenticated: route
+            .unauthenticated
+            .as_ref()
+            .map(lower_route_redirect_target),
+        role_mismatch: route
+            .role_mismatch
+            .iter()
+            .map(|arm| ir::RoleMismatchArm {
+                role: arm.role.clone(),
+                target: lower_route_redirect_target(&arm.target),
+                span_ref: Some(span_of(arm.span)),
+            })
+            .collect(),
+        default: route.default.as_ref().map(lower_route_redirect_target),
+        span_ref: Some(span_of(route.span)),
+    }
+}
+
+fn lower_route_redirect_target(target: &syntax::RouteRedirectTargetAst) -> ir::RouteRedirectTarget {
+    match target {
+        syntax::RouteRedirectTargetAst::View(view) => ir::RouteRedirectTarget::View(view.clone()),
+        syntax::RouteRedirectTargetAst::Path(path) => ir::RouteRedirectTarget::Path(path.clone()),
     }
 }
 
@@ -11594,6 +11624,7 @@ mod conventions_crud_synth_tests {
                     atoms: vec!["@scope.authenticated".to_owned()],
                     previous_names: Vec::new(),
                     when_denied: None,
+                    when_denied_route: None,
                 }],
                 fields: Vec::new(),
                 span_ref: None,
@@ -12387,6 +12418,7 @@ mod conventions_me_synth_tests {
                     atoms: vec!["@scope.authenticated".to_owned()],
                     previous_names: Vec::new(),
                     when_denied: None,
+                    when_denied_route: None,
                 }],
                 fields: Vec::new(),
                 span_ref: None,
@@ -12955,6 +12987,7 @@ mod conventions_owner_scope_synth_tests {
                     atoms: vec!["@scope.authenticated".to_owned()],
                     previous_names: Vec::new(),
                     when_denied: None,
+                    when_denied_route: None,
                 }],
                 fields: Vec::new(),
                 span_ref: None,

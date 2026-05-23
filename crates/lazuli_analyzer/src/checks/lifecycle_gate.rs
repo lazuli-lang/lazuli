@@ -52,6 +52,7 @@ pub struct LifecycleGateView {
 pub struct RequiresLifecycle {
     pub resource: String,
     pub state: String,
+    pub substep: Option<String>,
     pub span: Option<SpanRef>,
 }
 
@@ -76,6 +77,7 @@ pub struct LifecycleGateResumeSource {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LifecycleGateResumeArm {
     pub state: String,
+    pub substep: Option<String>,
     pub target_view: String,
     pub span: Option<SpanRef>,
 }

@@ -144,7 +144,7 @@ pub fn scaffold_frontend_web(project_root: &Path, _app_name: &str) -> Result<()>
     )?;
 
     // routes/ placeholder — minimal route component until v0.2 codegen
-    // emits a `routes.gen.ts` table from `.lzx` view declarations.
+    // emits a `routes.gen.tsx` table from `.lzx` view declarations.
     write_if_absent(
         &routes_dir.join("index.tsx"),
         templates::FRONTEND_WEB_ROUTES_INDEX_TSX,

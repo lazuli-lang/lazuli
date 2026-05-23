@@ -15,6 +15,7 @@ pub(super) fn diagnostics(
         .map(|fact| {
             let mut feature = super::make_synthetic_feature_for_error_vocab(fact);
             feature.queries = fact.queries.clone();
+            feature.apis = fact.apis.clone();
             feature
         })
         .collect();

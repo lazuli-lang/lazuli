@@ -570,6 +570,7 @@ mod tests {
                     key: "account_signin".to_owned(),
                     span_ref: None,
                 }),
+                when_denied_route: None,
             }],
             fields: Vec::new(),
             span_ref: None,

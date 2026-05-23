@@ -22,7 +22,9 @@ export function hostOnboardingResume(state: HostLifecycleState | null): string {
 export async function hostOnboardingEvaluateGate(
   client: LazuliClient,
   expectedState: HostLifecycleState,
+  expectedSubstep?: string,
 ): Promise<{ verdict: "pass" } | { verdict: "redirect"; to: string }> {
+  void expectedSubstep;
   try {
     const row = await client.runQuery(lookupHostByMyHost, {});
     if (row === null || row === undefined) {
@@ -60,9 +62,11 @@ export const HostHomeScreenGuarded = withRouteGuard(
   withLifecycleGate(
     HostHomeScreen,
     {
-      evaluateGate: hostOnboardingEvaluateGate,
-      expectedState: "complete",
+      resource: "Host",
+      state: "complete",
+      resume: "host_onboarding",
     },
+    hostOnboardingEvaluateGate,
   ),
   hostHomeRoute,
 );
@@ -85,9 +89,11 @@ export const HostOnboardingBasicDetailsScreenGuarded = withRouteGuard(
   withLifecycleGate(
     HostOnboardingBasicDetailsScreen,
     {
-      evaluateGate: hostOnboardingEvaluateGate,
-      expectedState: "basic_details_pending",
+      resource: "Host",
+      state: "basic_details_pending",
+      resume: "host_onboarding",
     },
+    hostOnboardingEvaluateGate,
   ),
   hostOnboardingBasicDetailsRoute,
 );
@@ -110,9 +116,11 @@ export const HostOnboardingIntermediationScreenGuarded = withRouteGuard(
   withLifecycleGate(
     HostOnboardingIntermediationScreen,
     {
-      evaluateGate: hostOnboardingEvaluateGate,
-      expectedState: "intermediation_terms_pending",
+      resource: "Host",
+      state: "intermediation_terms_pending",
+      resume: "host_onboarding",
     },
+    hostOnboardingEvaluateGate,
   ),
   hostOnboardingIntermediationRoute,
 );

@@ -347,7 +347,7 @@ pub fn emit_lazuli_app_gen(module: &Module, source_label: &str) -> Option<String
     let emit_tracing = manifest.tracing.is_some();
     let emit_name = !manifest.name.trim().is_empty();
     let emit_cors_todo = manifest.cors.is_some();
-    let emit_routes_todo = false; // `Module.app.routes` is on `ExperienceModule`, not `AppManifest`.
+    let emit_routes_todo = true; // `Module.app.routes` lifts from `ExperienceModule`.
                                   // Encryption bucket cycle — emit `var EncryptionBindings = ...`
                                   // when the capsule declares one or more `encryption.key @key.<scope>`
                                   // bindings. Each binding wires to the runtime registry via an

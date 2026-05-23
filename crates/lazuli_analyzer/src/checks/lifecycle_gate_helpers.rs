@@ -244,7 +244,48 @@ fn check_views(
                 ));
             }
         }
+        if let Some(substep) = req.substep.as_deref()
+            && !has_matching_substep(input, view, resume, substep)
+        {
+            out.push(diag(
+                "LIFECYCLE-SUBSTEP-001",
+                LifecycleGateSeverity::Error,
+                req.span.or(view.span),
+                format!(
+                    "view `{}` declares `requires_lifecycle {} = {} substep {}`, but no matching resume arm or sibling view declares that substep.",
+                    view.name, req.resource, req.state, substep
+                ),
+            ));
+        }
     }
+}
+
+fn has_matching_substep(
+    input: &LifecycleGateInput,
+    view: &LifecycleGateView,
+    resume: &LifecycleGateResume,
+    substep: &str,
+) -> bool {
+    let Some(req) = view.requires.as_ref() else {
+        return false;
+    };
+    resume
+        .arms
+        .iter()
+        .any(|arm| arm.state == req.state && arm.substep.as_deref() == Some(substep))
+        || input.views.iter().any(|other| {
+            other.feature == view.feature
+                && other.name != view.name
+                && other
+                    .requires
+                    .as_ref()
+                    .map(|other_req| {
+                        other_req.resource == req.resource
+                            && other_req.state == req.state
+                            && other_req.substep.as_deref() == Some(substep)
+                    })
+                    .unwrap_or(false)
+        })
 }
 
 fn check_resumes(index: &Index<'_>, out: &mut Vec<LifecycleGateDiagnostic>) {
@@ -585,6 +626,7 @@ fn cache_resolved_json(
                         obj.insert("resolved_lifecycle_gate".to_owned(), json!({
                             "resource": req.resource,
                             "expected_state": req.state,
+                            "substep": req.substep,
                             "resume_router": format!("{}.{}", resume.feature, resume.name),
                             "resume_source_query": format!("{}.{}", hit.feature, hit.query.name()),
                             "resume_source_layer": if view.on_lifecycle_pending.is_some() { "view" } else { "app" },
@@ -701,6 +743,10 @@ fn source_from_json(default_feature: &str, value: &Value) -> Option<LifecycleGat
 fn arm_from_json(value: &Value) -> Option<LifecycleGateResumeArm> {
     Some(LifecycleGateResumeArm {
         state: value.get("state").and_then(Value::as_str)?.to_owned(),
+        substep: value
+            .get("substep")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
         target_view: value
             .get("target_view")
             .or_else(|| value.get("view"))
@@ -731,6 +777,7 @@ fn requires_from_json(value: &Value) -> Option<RequiresLifecycle> {
         return Some(RequiresLifecycle {
             resource,
             state,
+            substep: None,
             span: None,
         });
     }
@@ -741,6 +788,10 @@ fn requires_from_json(value: &Value) -> Option<RequiresLifecycle> {
             .or_else(|| value.get("expected_state"))
             .and_then(Value::as_str)?
             .to_owned(),
+        substep: value
+            .get("substep")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
         span: span(value),
     })
 }
@@ -809,7 +860,12 @@ fn parse_source(
 fn parse_requires(text: &str) -> Option<(String, String)> {
     let rest = text.trim().strip_prefix("requires_lifecycle")?.trim();
     let (resource, state) = rest.split_once('=')?;
-    Some((resource.trim().to_owned(), state.trim().to_owned()))
+    let state = state
+        .trim()
+        .split_whitespace()
+        .next()
+        .unwrap_or(state.trim());
+    Some((resource.trim().to_owned(), state.to_owned()))
 }
 
 fn parse_resume_ref(default_feature: &str, text: &str) -> Option<(String, String)> {
@@ -892,4 +948,121 @@ fn diag(
 fn dedupe(out: &mut Vec<LifecycleGateDiagnostic>) {
     let mut seen = BTreeSet::new();
     out.retain(|d| seen.insert((d.code, d.span.map(|s| (s.start, s.end)), d.message.clone())));
+}
+
+#[cfg(test)]
+mod tests {
+    use lazuli_ir::Feature;
+    use serde_json::json;
+
+    use super::{
+        LifecycleGateInput, LifecycleGateResume, LifecycleGateResumeArm, LifecycleGateResumeSource,
+        LifecycleGateView, RequiresLifecycle, check_input,
+    };
+
+    fn feature_with_host_lifecycle() -> Feature {
+        serde_json::from_value(json!({
+            "name": "host",
+            "purpose": null,
+            "defaults": {},
+            "uses": [],
+            "enums": [],
+            "resources": [
+                {
+                    "name": "Host",
+                    "fields": [],
+                    "lifecycle": {
+                        "discriminator_field": "lifecycle_state",
+                        "generated_enum": "HostLifecycleState",
+                        "states": [
+                            { "name": "basic_details_pending", "kind": "intermediate" }
+                        ],
+                        "transitions": []
+                    }
+                }
+            ],
+            "events": [],
+            "rules": [],
+            "policies": { "categories": [], "fields": [] },
+            "commands": [],
+            "queries": [
+                { "kind": "Lookup", "name": "my_host", "keys": [] }
+            ],
+            "workflows": [],
+            "jobs": [],
+            "webhooks": [],
+            "surfaces": [],
+            "extensions": [],
+            "escape_routes": []
+        }))
+        .expect("feature json")
+    }
+
+    fn input_with_substep(arm_substep: Option<&str>) -> LifecycleGateInput {
+        LifecycleGateInput {
+            views: vec![LifecycleGateView {
+                feature: "host".to_string(),
+                name: "phone_verification".to_string(),
+                policy_present: true,
+                requires: Some(RequiresLifecycle {
+                    resource: "Host".to_string(),
+                    state: "basic_details_pending".to_string(),
+                    substep: Some("phone_verification".to_string()),
+                    span: None,
+                }),
+                on_lifecycle_pending: Some("host_onboarding".to_string()),
+                span: None,
+            }],
+            resumes: vec![LifecycleGateResume {
+                feature: "host".to_string(),
+                name: "host_onboarding".to_string(),
+                source: Some(LifecycleGateResumeSource {
+                    feature: Some("host".to_string()),
+                    kind: Some("lookup".to_string()),
+                    query: "my_host".to_string(),
+                    text: "query.lookup my_host".to_string(),
+                    span: None,
+                }),
+                arms: vec![LifecycleGateResumeArm {
+                    state: "basic_details_pending".to_string(),
+                    substep: arm_substep.map(str::to_string),
+                    target_view: "phone_verification".to_string(),
+                    span: None,
+                }],
+                span: None,
+            }],
+            app_on_lifecycle_pending: None,
+            app_span: None,
+        }
+    }
+
+    #[test]
+    fn lifecycle_substep_001_flags_missing_matching_resume_arm_or_sibling() {
+        let input = input_with_substep(None);
+        let features = vec![feature_with_host_lifecycle()];
+
+        let diagnostics = check_input(&input, &features);
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "LIFECYCLE-SUBSTEP-001"),
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn lifecycle_substep_001_allows_matching_resume_arm() {
+        let input = input_with_substep(Some("phone_verification"));
+        let features = vec![feature_with_host_lifecycle()];
+
+        let diagnostics = check_input(&input, &features);
+
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.code != "LIFECYCLE-SUBSTEP-001"),
+            "{diagnostics:#?}"
+        );
+    }
 }

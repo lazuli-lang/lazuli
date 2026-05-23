@@ -1,7 +1,7 @@
 //! Doctor rule `pages-bypass`.
 //!
 //! Routing in Lazurite comes from `.lzx` `view ... at "<route>"`
-//! declarations, lowered to `dist/ts-web/routes.gen.ts`. Filesystem
+//! declarations, lowered to `dist/ts-web/<audience>/routes.gen.tsx`. Filesystem
 //! routing (Next.js pages/, app/(routes)/) bypasses the
 //! audience-scoping and typed-route-param contracts. This rule fires
 //! when filesystem routing is detected at the project root.
@@ -31,7 +31,7 @@ impl Finding {
         format!(
             "`{}` looks like {}. Lazurite routing comes from `.lzx` \
              `view ... at \"<route>\"` declarations + emitted \
-             `dist/ts-web/routes.gen.ts`. Move route definitions to \
+             `dist/ts-web/<audience>/routes.gen.tsx`. Move route definitions to \
              `<feature>.web.lzx`.",
             path.display(),
             style

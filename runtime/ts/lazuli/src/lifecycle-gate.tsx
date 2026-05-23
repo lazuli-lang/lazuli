@@ -10,12 +10,14 @@ export type LifecycleVerdict =
 export type LifecycleGateMetadata = {
   readonly resource: string;
   readonly state: string;
+  readonly substep?: string;
   readonly resume: string;
 };
 
 export type LifecycleGateEvaluator = (
   client: import("./client.js").LazuliClient,
   expectedState: string,
+  expectedSubstep?: string,
 ) => Promise<LifecycleVerdict>;
 
 export function withLifecycleGate<P extends object>(
@@ -42,7 +44,11 @@ export function useLifecycleGate(
 
   useEffect(() => {
     let cancelled = false;
-    evaluator(client, metadata.state)
+    const result =
+      metadata.substep === undefined
+        ? evaluator(client, metadata.state)
+        : evaluator(client, metadata.state, metadata.substep);
+    result
       .then((next) => {
         if (cancelled) return;
         setVerdict(next);

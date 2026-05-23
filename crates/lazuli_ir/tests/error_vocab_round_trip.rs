@@ -57,7 +57,7 @@ fn empty_feature() -> Feature {
         apis: Vec::new(),
         records: Vec::new(),
         queries: Vec::new(),
-            resume_routers: Vec::new(),
+        resume_routers: Vec::new(),
         workflows: Vec::new(),
         jobs: Vec::new(),
         webhooks: Vec::new(),
@@ -115,8 +115,7 @@ fn error_exposure_default_round_trips_snake_case() {
     let expose_json = serde_json::to_string(&ErrorExposureDefault::Expose).expect("serialize");
     assert_eq!(expose_json, "\"expose\"");
 
-    let back: ErrorExposureDefault =
-        serde_json::from_str(&hide_json).expect("deserialize hide");
+    let back: ErrorExposureDefault = serde_json::from_str(&hide_json).expect("deserialize hide");
     assert_eq!(back, ErrorExposureDefault::Hide);
 }
 
@@ -124,7 +123,11 @@ fn error_exposure_default_round_trips_snake_case() {
 fn feature_errors_round_trips_with_all_subshapes() {
     let errors = FeatureErrors {
         default: Some(ErrorExposureDefault::Hide),
-        exposure_4xx: vec!["message".to_owned(), "code".to_owned(), "message_key".to_owned()],
+        exposure_4xx: vec![
+            "message".to_owned(),
+            "code".to_owned(),
+            "message_key".to_owned(),
+        ],
         exposure_5xx: vec!["code".to_owned()],
         messages: vec![
             FeatureErrorMessage {
@@ -153,11 +156,13 @@ fn feature_errors_round_trips_with_all_subshapes() {
         }],
         audience_exposure: Vec::new(),
         redact_patterns: Vec::new(),
-        span_ref: Some(SpanRef { start: 80, end: 260 }),
+        span_ref: Some(SpanRef {
+            start: 80,
+            end: 260,
+        }),
     };
     let json = serde_json::to_string(&errors).expect("serialize FeatureErrors");
-    let back: FeatureErrors =
-        serde_json::from_str(&json).expect("deserialize FeatureErrors");
+    let back: FeatureErrors = serde_json::from_str(&json).expect("deserialize FeatureErrors");
     assert_eq!(errors, back);
 }
 
@@ -189,7 +194,10 @@ fn feature_with_all_error_vocab_fields_round_trips() {
         field_messages: Vec::new(),
         audience_exposure: Vec::new(),
         redact_patterns: Vec::new(),
-        span_ref: Some(SpanRef { start: 80, end: 200 }),
+        span_ref: Some(SpanRef {
+            start: 80,
+            end: 200,
+        }),
     });
 
     // PolicyCategory.when_denied — per-policy default.
@@ -198,6 +206,7 @@ fn feature_with_all_error_vocab_fields_round_trips() {
         atoms: vec!["@scope.authenticated".to_owned()],
         previous_names: Vec::new(),
         when_denied: Some(key_ref("must_be_signed_in", 300)),
+        when_denied_route: None,
     });
 
     // Command.policy_when_denied — per-command override.

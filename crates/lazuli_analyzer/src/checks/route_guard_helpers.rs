@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use lazuli_ir::{
     AppManifest, AppRoute, ExperienceModule, ExperienceView, Feature, PlatformSurface,
@@ -46,6 +46,7 @@ pub fn check(
         .collect();
 
     check_actor_query(app, module, features, &mut out);
+    check_when_denied_route_policy_use(module, app, features, &mut out);
     if let Some(defaults) = app.and_then(|app| app.route_guard.as_ref()) {
         check_default_redirects(
             defaults,
@@ -144,6 +145,162 @@ pub fn check(
     out
 }
 
+fn check_when_denied_route_policy_use(
+    module: &ExperienceModule,
+    app: Option<&AppManifest>,
+    features: &[Feature],
+    out: &mut Vec<RouteGuardDiagnostic>,
+) {
+    let route_refs = collect_route_policy_refs(module, app, features);
+    let nonroute_refs = collect_nonroute_policy_refs(features);
+    let mut declared = BTreeMap::new();
+    for feature in features {
+        for category in &feature.policies.categories {
+            if category.when_denied_route.is_some() {
+                declared.insert(
+                    (feature.name.clone(), category.name.clone()),
+                    category.name.clone(),
+                );
+            }
+        }
+    }
+    for (key, name) in declared {
+        if nonroute_refs.contains(&key) && !route_refs.contains(&key) {
+            out.push(RouteGuardDiagnostic {
+                code: "ROUTE-POLICY-001",
+                severity: RouteGuardSeverity::Error,
+                origin: RouteGuardOrigin::App,
+                span: None,
+                message: format!(
+                    "policy `{}` declares `when_denied_route` but is referenced only by command/query/api surfaces; route-only denial targets must be used by a view guard.",
+                    name
+                ),
+            });
+        }
+    }
+}
+
+fn collect_route_policy_refs(
+    module: &ExperienceModule,
+    app: Option<&AppManifest>,
+    features: &[Feature],
+) -> BTreeSet<(String, String)> {
+    let mut out = BTreeSet::new();
+    for route in &module.routes {
+        let default_feature = target_view(route.to.as_deref())
+            .map(|(feature, _)| feature)
+            .or_else(|| route.surface.as_deref().and_then(surface_feature))
+            .unwrap_or_else(|| route_feature_from_name(&route.name));
+        collect_guard_refs(route.guard.as_ref(), &default_feature, features, &mut out);
+    }
+    for experience in &module.experiences {
+        for view in &experience.views {
+            collect_guard_refs(view.guard.as_ref(), &experience.name, features, &mut out);
+        }
+    }
+    for surface in &module.surfaces {
+        for audience in &surface.audiences {
+            collect_guard_refs(
+                audience.guard.as_ref(),
+                &surface.experience,
+                features,
+                &mut out,
+            );
+            for view in &audience.views {
+                collect_guard_refs(view.guard.as_ref(), &surface.experience, features, &mut out);
+            }
+        }
+    }
+    if !module.routes.is_empty()
+        && let Some(default_policy) = app
+            .and_then(|app| app.route_guard.as_ref())
+            .and_then(|defaults| defaults.default_policy.as_deref())
+        && let Some(key) = policy_text_category(default_policy, "", features)
+    {
+        out.insert(key);
+    }
+    out
+}
+
+fn collect_guard_refs(
+    guard: Option<&ViewGuard>,
+    default_feature: &str,
+    features: &[Feature],
+    out: &mut BTreeSet<(String, String)>,
+) {
+    let Some(guard) = guard else {
+        return;
+    };
+    for policy in &guard.policy {
+        if let Some(key) = policy_text_category(policy, default_feature, features) {
+            out.insert(key);
+        }
+    }
+}
+
+fn collect_nonroute_policy_refs(features: &[Feature]) -> BTreeSet<(String, String)> {
+    let mut out = BTreeSet::new();
+    for feature in features {
+        for command in &feature.commands {
+            if let Some(key) = policy_ref_category(
+                effective_policy(&command.policy, &feature.defaults.policy),
+                &feature.name,
+                features,
+            ) {
+                out.insert(key);
+            }
+        }
+        for query in &feature.queries {
+            if let Some(key) = policy_ref_category(
+                effective_policy(query_policy(query), &feature.defaults.policy),
+                &feature.name,
+                features,
+            ) {
+                out.insert(key);
+            }
+        }
+        for api in &feature.apis {
+            if let Some(key) = policy_ref_category(Some(&api.policy), &feature.name, features) {
+                out.insert(key);
+            }
+        }
+    }
+    out
+}
+
+fn policy_ref_category(
+    policy: Option<&PolicyRef>,
+    default_feature: &str,
+    features: &[Feature],
+) -> Option<(String, String)> {
+    match policy? {
+        PolicyRef::None => None,
+        PolicyRef::Atom(atom) => atom
+            .strip_prefix("policy.")
+            .map(|name| (default_feature.to_owned(), name.to_owned())),
+        PolicyRef::Local(name) => Some((default_feature.to_owned(), name.clone())),
+        PolicyRef::External { feature, name } => Some((feature.clone(), name.clone())),
+        PolicyRef::Unresolved(text) => policy_text_category(text, default_feature, features),
+    }
+}
+
+fn policy_text_category(
+    text: &str,
+    default_feature: &str,
+    features: &[Feature],
+) -> Option<(String, String)> {
+    let raw = text.trim().trim_start_matches('@');
+    let tail = raw.strip_prefix("policy.")?;
+    let mut parts = tail.splitn(2, '.');
+    let first = parts.next().unwrap_or_default();
+    if let Some(second) = parts.next()
+        && features.iter().any(|feature| feature.name == first)
+    {
+        return Some((first.to_owned(), second.to_owned()));
+    }
+    (!default_feature.is_empty()).then(|| (default_feature.to_owned(), tail.to_owned()))
+}
+
 fn check_actor_query(
     app: Option<&AppManifest>,
     module: &ExperienceModule,
@@ -205,17 +362,14 @@ fn push_004(message: &str, span: Option<SpanRef>, out: &mut Vec<RouteGuardDiagno
 
 fn route_ctx(module: &ExperienceModule, route: &AppRoute) -> Option<RouteCtx> {
     let (feature, view) = target_view(route.to.as_deref())?;
-    let surface = module
-        .surfaces
-        .iter()
-        .position(|s| {
-            surface_matches(s, route.surface.as_deref(), &feature)
-                && route
-                    .audience
-                    .as_deref()
-                    .map(|name| s.audiences.iter().any(|a| a.name == name))
-                    .unwrap_or(!s.audiences.is_empty())
-        })?;
+    let surface = module.surfaces.iter().position(|s| {
+        surface_matches(s, route.surface.as_deref(), &feature)
+            && route
+                .audience
+                .as_deref()
+                .map(|name| s.audiences.iter().any(|a| a.name == name))
+                .unwrap_or(!s.audiences.is_empty())
+    })?;
     let s = &module.surfaces[surface];
     let audience = route
         .audience
@@ -584,6 +738,22 @@ fn target_view(to: Option<&str>) -> Option<(String, String)> {
     (parts.len() >= 3 && parts[1] == "view").then(|| (parts[0].to_owned(), parts[2].to_owned()))
 }
 
+fn surface_feature(surface: &str) -> Option<String> {
+    surface
+        .split(|ch: char| ch == ' ' || ch == '.')
+        .next()
+        .filter(|feature| !feature.is_empty())
+        .map(str::to_owned)
+}
+
+fn route_feature_from_name(name: &str) -> String {
+    name.split('_')
+        .next()
+        .filter(|part| !part.is_empty())
+        .unwrap_or("app")
+        .to_owned()
+}
+
 fn parse_query_ref(text: &str, default_feature: &str) -> Option<(String, String)> {
     let head = text.split('(').next().unwrap_or(text).trim();
     let parts: Vec<_> = head.split('.').collect();
@@ -628,4 +798,110 @@ fn runtime_audience_disagrees(route: &AppRoute, _ctx: &RouteCtx) -> bool {
         first,
         "admin" | "account" | "host" | "public" | "sales" | "buyer" | "seller"
     ) && first != audience
+}
+
+#[cfg(test)]
+mod tests {
+    use lazuli_ir::{AppRoute, ExperienceModule, Feature, ViewGuard};
+    use serde_json::json;
+
+    use super::check;
+
+    fn feature_with_route_denial_policy() -> Feature {
+        serde_json::from_value(json!({
+            "name": "host",
+            "purpose": null,
+            "defaults": {},
+            "uses": [],
+            "enums": [],
+            "resources": [],
+            "events": [],
+            "rules": [],
+            "policies": {
+                "categories": [
+                    {
+                        "name": "host_only",
+                        "atoms": ["@scope.authenticated", "@role.host"],
+                        "when_denied_route": {
+                            "unauthenticated": { "kind": "view", "value": "sign_in" }
+                        }
+                    }
+                ],
+                "fields": []
+            },
+            "commands": [],
+            "queries": [
+                {
+                    "kind": "List",
+                    "name": "list_hosts",
+                    "policy": { "kind": "Local", "value": "host_only" }
+                }
+            ],
+            "workflows": [],
+            "jobs": [],
+            "webhooks": [],
+            "surfaces": [],
+            "extensions": [],
+            "escape_routes": []
+        }))
+        .expect("feature json")
+    }
+
+    fn empty_module() -> ExperienceModule {
+        ExperienceModule {
+            app: None,
+            routes: Vec::new(),
+            experiences: Vec::new(),
+            surfaces: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn route_policy_001_flags_route_denial_policy_on_nonroute_only_policy() {
+        let mut module = empty_module();
+        let features = vec![feature_with_route_denial_policy()];
+
+        let diagnostics = check(&mut module, None, &features);
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == "ROUTE-POLICY-001"),
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn route_policy_001_allows_policy_also_used_by_route_guard() {
+        let mut module = empty_module();
+        module.routes.push(AppRoute {
+            name: "host_home".to_string(),
+            path: Some("/host".to_string()),
+            routes: Vec::new(),
+            to: Some("host.view.host_home".to_string()),
+            surface: Some("host web".to_string()),
+            audience: Some("host".to_string()),
+            lazy: None,
+            prerender: None,
+            guard: Some(ViewGuard {
+                policy: vec!["@policy.host_only".to_string()],
+                on_unauthenticated: None,
+                on_unauthorized: None,
+                requires_lifecycle: None,
+                on_lifecycle_pending: None,
+                span_ref: None,
+            }),
+            span_ref: None,
+        });
+        let features = vec![feature_with_route_denial_policy()];
+
+        let diagnostics = check(&mut module, None, &features);
+
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.code != "ROUTE-POLICY-001"),
+            "{diagnostics:#?}"
+        );
+    }
 }

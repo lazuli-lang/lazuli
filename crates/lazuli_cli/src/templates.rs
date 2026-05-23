@@ -92,7 +92,7 @@ pub const FRONTEND_WEB_LAYOUT_TSX: &str = r#"import { Outlet } from "@tanstack/r
 
 /**
  * App-shell layout. Wraps every routed view rendered through the
- * router emitted at `dist/ts-web/routes.gen.ts`.
+ * router emitted at `dist/ts-web/<audience>/routes.gen.tsx`.
  *
  * User-owned. Add nav, header, footer, sidebars, etc. here.
  */
@@ -372,7 +372,7 @@ dist/
 /// `[[client_src_canonical_architecture_2026-05-17]]` §3.
 pub const FRONTEND_WEB_ROUTES_INDEX_TSX: &str = r#"/**
  * Default landing route. User-owned. v0.2 codegen will emit a
- * `routes.gen.ts` table from `.lzx` `view ... at "<route>"` declarations
+ * `routes.gen.tsx` table from `.lzx` `view ... at "<route>"` declarations
  * — until then, the canonical `routes/` folder hosts handcrafted entries.
  */
 export default function Index() {

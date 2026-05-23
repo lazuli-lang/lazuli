@@ -23,7 +23,9 @@ export function hostOnboardingResume(state: HostLifecycleState | null): string {
 export async function hostOnboardingEvaluateGate(
   client: LazuliClient,
   expectedState: HostLifecycleState,
+  expectedSubstep?: string,
 ): Promise<{ verdict: "pass" } | { verdict: "redirect"; to: string }> {
+  void expectedSubstep;
   try {
     const row = await client.runQuery(lookupHostByMyHost, {});
     if (row === null || row === undefined) {

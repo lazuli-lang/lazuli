@@ -95,6 +95,27 @@ describe("lifecycle route gates", () => {
     await waitFor(() => expect(result.current.verdict).toEqual({ kind: "pass" }));
   });
 
+  it("passes optional substep metadata to the lifecycle evaluator", async () => {
+    const { client } = mockClient();
+    const evaluator = vi.fn<LifecycleGateEvaluator>().mockResolvedValue({ kind: "pass" });
+    const wrapper = wrapperFor(client);
+    const substepMetadata: LifecycleGateMetadata = {
+      ...metadata,
+      state: "basic_details_pending",
+      substep: "phone_verification",
+    };
+
+    renderHook(() => useLifecycleGate(substepMetadata, evaluator), { wrapper });
+
+    await waitFor(() =>
+      expect(evaluator).toHaveBeenCalledWith(
+        client,
+        "basic_details_pending",
+        "phone_verification",
+      ),
+    );
+  });
+
   it("does not call the lifecycle evaluator when withRouteGuard rejects the actor", async () => {
     const { client, router } = mockClient(null);
     const evaluator = vi.fn<LifecycleGateEvaluator>().mockResolvedValue({ kind: "pass" });

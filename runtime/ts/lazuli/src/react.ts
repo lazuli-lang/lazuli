@@ -166,6 +166,7 @@ export type RouteGuardSpec<Component = unknown> = {
   readonly policy: LazuliRouteGuardPolicy;
   readonly onUnauthenticated?: string | null;
   readonly onUnauthorized?: string | null;
+  readonly substep?: string;
 };
 
 export type RouteGuard = RouteGuardSpec<unknown>;

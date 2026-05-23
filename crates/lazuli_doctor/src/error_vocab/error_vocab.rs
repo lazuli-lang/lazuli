@@ -815,6 +815,7 @@ mod tests {
             atoms: atoms.iter().map(|a| (*a).to_owned()).collect(),
             previous_names: vec![],
             when_denied: when_denied.map(key_ref),
+            when_denied_route: None,
         }
     }
 
