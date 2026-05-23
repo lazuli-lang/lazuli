@@ -385,8 +385,66 @@ fn emit_routes_file(specs: &[RouteSpec]) -> String {
     s.push_str("}\n\n");
     s.push_str("export const AppLink = Link as <T extends LinkProps[\"to\"]>(\n");
     s.push_str("  props: LinkProps & { to: T },\n");
-    s.push_str(") => ReactElement;\n");
+    s.push_str(") => ReactElement;\n\n");
+    // router-w7 — typed nav helpers. One function per route, keyed by
+    // the camelCase route name (same as ClientComponentKey for the
+    // main component). Returns a `{ to, params? }` literal that
+    // spreads into `<Link {...nav.foo()}>`. Routes with path params
+    // (`$id`-style segments) accept a typed `params` argument; param-
+    // less routes accept no argument. Rename in .lzx → call sites
+    // fail typecheck → safe refactoring.
+    emit_nav_helpers(&mut s, specs);
     s
+}
+
+fn emit_nav_helpers(out: &mut String, specs: &[RouteSpec]) {
+    if specs.is_empty() {
+        return;
+    }
+    out.push_str("export const nav = {\n");
+    for spec in specs {
+        let params = path_params(&spec.path);
+        if params.is_empty() {
+            out.push_str(&format!(
+                "  {}: () => ({{ to: {} as const }}),\n",
+                spec.component_key,
+                ts_string(&spec.path),
+            ));
+        } else {
+            let arg_fields = params
+                .iter()
+                .map(|p| format!("{p}: string"))
+                .collect::<Vec<_>>()
+                .join("; ");
+            let params_field = params
+                .iter()
+                .map(|p| format!("{p}: params.{p}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push_str(&format!(
+                "  {}: (params: {{ {} }}) => ({{ to: {} as const, params: {{ {} }} }}),\n",
+                spec.component_key,
+                arg_fields,
+                ts_string(&spec.path),
+                params_field,
+            ));
+        }
+    }
+    out.push_str("};\n");
+}
+
+/// Extract the path-param names from a TanStack-formatted path
+/// (`/host/services/$id` → `["id"]`). Order preserved.
+fn path_params(path: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for segment in path.split('/') {
+        if let Some(name) = segment.strip_prefix('$') {
+            if !name.is_empty() {
+                out.push(name.to_owned());
+            }
+        }
+    }
+    out
 }
 
 /// W3 Tier 1/2 + W4 — decide whether to emit an inline `beforeLoad`

@@ -59,3 +59,8 @@ export function createGeneratedRouter(options: {
 export const AppLink = Link as <T extends LinkProps["to"]>(
   props: LinkProps & { to: T },
 ) => ReactElement;
+
+export const nav = {
+  hostBookingDetail: (params: { booking_id: string }) => ({ to: "/host/bookings/$booking_id" as const, params: { booking_id: params.booking_id } }),
+  hostHome: () => ({ to: "/host" as const }),
+};
