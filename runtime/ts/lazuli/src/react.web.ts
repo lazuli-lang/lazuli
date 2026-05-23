@@ -18,7 +18,7 @@ import {
   type UseQueryOptions,
   type UseQueryResult,
 } from "@tanstack/react-query";
-import { createElement, type ReactNode } from "react";
+import { createElement, useCallback, useState, type ReactNode } from "react";
 
 import { LazuliClient } from "./client.js";
 import type { CommandSpec, QuerySpec } from "./spec.js";
@@ -165,3 +165,11 @@ export function useLazuliCommand<Input, Output>(
 
 export const useLazuliAction = createUseLazuliAction(useLazuliCommand);
 export const useLazuliForm = createUseLazuliForm(useLazuliQuery, useLazuliCommand);
+
+// React + react-query primitives re-exported so generated code (cap_file
+// hooks, future codegen) can import everything via @lazuli/runtime/react
+// without depending on raw `react` / `@tanstack/react-query` modules that
+// the dist file's host filesystem location can't always resolve (e.g. a
+// pilot's per-app node_modules).
+export { useCallback, useState };
+export { useQueryClient };

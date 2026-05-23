@@ -118,18 +118,23 @@ fn write_header(out: &mut String) {
 }
 
 fn write_imports(out: &mut String, feature: &ir::Feature, sites: &[CapFileHookSite<'_>]) {
-    writeln!(out, "import {{ useCallback, useState }} from \"react\";").ok();
-    writeln!(
-        out,
-        "import {{ useQueryClient }} from \"@tanstack/react-query\";"
-    )
-    .ok();
     writeln!(out, "import {{ LazuliError }} from \"@lazuli/runtime\";").ok();
+    // React + react-query primitives imported via @lazuli/runtime/react
+    // re-exports. Pilots may host the generated file at a path that can't
+    // resolve raw `react` / `@tanstack/react-query` (e.g. dist/ts-web/
+    // outside the per-app node_modules walk). The runtime re-export
+    // funnels them through the same path map the rest of the SDK uses.
     writeln!(
         out,
-        "import {{ useLazuliCommand, useLazuliQuery }} from \"@lazuli/runtime/react\";"
+        "import {{"
     )
     .ok();
+    writeln!(out, "  useCallback,").ok();
+    writeln!(out, "  useState,").ok();
+    writeln!(out, "  useQueryClient,").ok();
+    writeln!(out, "  useLazuliCommand,").ok();
+    writeln!(out, "  useLazuliQuery,").ok();
+    writeln!(out, "}} from \"@lazuli/runtime/react\";").ok();
 
     let mut imports = Vec::new();
     for site in sites {

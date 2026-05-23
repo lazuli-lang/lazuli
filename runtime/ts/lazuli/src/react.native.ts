@@ -18,7 +18,7 @@ import {
   type UseQueryOptions,
   type UseQueryResult,
 } from "@tanstack/react-query";
-import { createElement, type ReactNode } from "react";
+import { createElement, useCallback, useState, type ReactNode } from "react";
 
 import { LazuliClient } from "./client.js";
 import type { CommandSpec, QuerySpec } from "./spec.js";
@@ -165,3 +165,8 @@ export function useLazuliCommand<Input, Output>(
 
 export const useLazuliAction = createUseLazuliAction(useLazuliCommand);
 export const useLazuliForm = createUseLazuliForm(useLazuliQuery, useLazuliCommand);
+
+// React + react-query primitives re-exported (parity with react.web.ts) —
+// generated code (cap_file hooks) imports via @lazuli/runtime/react.
+export { useCallback, useState };
+export { useQueryClient };

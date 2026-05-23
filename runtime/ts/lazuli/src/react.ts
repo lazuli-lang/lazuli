@@ -293,3 +293,10 @@ export declare function useLocalSetting<T>(
 export declare function useDrawerSubView<TInput, TItem>(
   config?: DrawerConfig<TInput, TItem>,
 ): DrawerSubView<TInput, TItem>;
+
+// React + react-query primitives re-exported via @lazuli/runtime/react so
+// generated codegen (cap_file hooks) doesn't import raw `react` /
+// `@tanstack/react-query` modules from dist file locations that can't
+// resolve them through the pilot's per-app node_modules.
+export { useCallback, useState } from "react";
+export { useQueryClient } from "@tanstack/react-query";

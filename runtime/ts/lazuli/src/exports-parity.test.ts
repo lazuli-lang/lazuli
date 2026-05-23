@@ -57,6 +57,11 @@ const CONTRACTED_RUNTIME_EXPORTS = [
   // Platform-split hooks
   "useLocalSetting",
   "useDrawerSubView",
+  // React + react-query primitive re-exports (for generated cap-file
+  // hooks; consumers should still import these from `react` directly).
+  "useCallback",
+  "useState",
+  "useQueryClient",
 ] as const;
 
 describe("@lazuli/runtime/react — exports parity", () => {
