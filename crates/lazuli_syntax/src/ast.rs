@@ -209,6 +209,9 @@ pub struct LzxRoute {
     /// router-w6 — `error_view <component_key>` declaration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_view: Option<String>,
+    /// router-w8 — `parent <route_name>` declaration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
     pub span: Span,
 }
 

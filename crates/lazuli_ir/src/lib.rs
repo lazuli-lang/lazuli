@@ -4385,6 +4385,11 @@ pub struct AppRoute {
     /// `errorComponent` on the route.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_view: Option<String>,
+    /// router-w8 — `parent <route_name>` declaration. When set,
+    /// codegen emits `getParentRoute: () => <parent>` instead of
+    /// `rootRoute`. Enables nested route trees with shared chrome.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
@@ -7528,6 +7533,7 @@ mod l0_6_ir_tests {
                 loaders: Vec::new(),
                 pending_view: None,
                 error_view: None,
+                parent: None,
                 span_ref: None,
             }],
             experiences: vec![Experience {
@@ -7548,6 +7554,7 @@ mod l0_6_ir_tests {
                     loaders: Vec::new(),
                     pending_view: None,
                     error_view: None,
+                    parent: None,
                     resolved_guard_policy: None,
                     resolved_lifecycle_gate: Some(resolved.clone()),
                     span_ref: None,

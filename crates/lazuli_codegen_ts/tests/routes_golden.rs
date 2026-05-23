@@ -18,6 +18,7 @@ fn fixture_routes() -> (Vec<AppRoute>, Vec<PlatformSurface>, Vec<Experience>) {
                 loaders: Vec::new(),
                 pending_view: None,
                 error_view: None,
+                parent: None,
                 span_ref: None,
             },
             AppRoute {
@@ -33,6 +34,7 @@ fn fixture_routes() -> (Vec<AppRoute>, Vec<PlatformSurface>, Vec<Experience>) {
                 loaders: Vec::new(),
                 pending_view: None,
                 error_view: None,
+                parent: None,
                 span_ref: None,
             },
         ],

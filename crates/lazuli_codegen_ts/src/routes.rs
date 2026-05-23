@@ -75,6 +75,9 @@ struct RouteSpec {
     pending_component_key: Option<String>,
     /// router-w6 — error_view component-key.
     error_component_key: Option<String>,
+    /// router-w8 — parent route name (used to compute the parent's
+    /// route const). None means the route mounts under rootRoute.
+    parent_route_const: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -164,6 +167,7 @@ pub fn emit_routes_artifacts(
                 .collect(),
             pending_component_key: route.pending_view.as_ref().map(|v| lower_camel(v)),
             error_component_key: route.error_view.as_ref().map(|v| lower_camel(v)),
+            parent_route_const: route.parent.as_ref().map(|p| route_const_name(p)),
         });
     }
 
@@ -346,7 +350,16 @@ fn emit_routes_file(specs: &[RouteSpec]) -> String {
     s.push_str("  });\n");
     for spec in specs {
         writeln!(s, "  const {} = createRoute({{", spec.route_const).ok();
-        s.push_str("    getParentRoute: () => rootRoute,\n");
+        // router-w8 — nested routes pin getParentRoute to a sibling
+        // const; default is the root route. Specs are emitted in
+        // route_const sort order; if a child appears before its
+        // parent the const reference works (Rust closures are
+        // resolved at call time, JS arrow's lazy via the closure).
+        if let Some(parent) = &spec.parent_route_const {
+            writeln!(s, "    getParentRoute: () => {},", parent).ok();
+        } else {
+            s.push_str("    getParentRoute: () => rootRoute,\n");
+        }
         writeln!(s, "    path: {},", ts_string(&spec.path)).ok();
         writeln!(
             s,
@@ -365,15 +378,15 @@ fn emit_routes_file(specs: &[RouteSpec]) -> String {
         emit_loader(&mut s, spec);
         s.push_str("  });\n");
     }
-    let children = specs
-        .iter()
-        .map(|spec| spec.route_const.as_str())
-        .collect::<Vec<_>>()
-        .join(", ");
+    // router-w8 — compose the route tree with nested addChildren for
+    // routes that declared `parent`. Top-level routes (no parent)
+    // attach directly to rootRoute. Each parent that has children
+    // gets `.addChildren([...] as const)` recursively.
+    let tree_children = build_tree_expr(specs);
     writeln!(
         s,
         "  const routeTree = rootRoute.addChildren([{}] as const);",
-        children
+        tree_children
     )
     .ok();
     s.push_str("  return createRouter({\n");
@@ -592,6 +605,45 @@ fn resolve_guard_emit(guard: &ViewGuard, features: &[Feature]) -> Option<GuardEm
             })
             .collect(),
     })
+}
+
+/// router-w8 — build the comma-joined `routeTree` children list,
+/// recursively wrapping each parent in
+/// `<parent>.addChildren([<children>] as const)`. Children of a
+/// parent are sorted by route_const to keep emission stable.
+fn build_tree_expr(specs: &[RouteSpec]) -> String {
+    let mut children_of: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut top_level: Vec<String> = Vec::new();
+    for spec in specs {
+        if let Some(parent) = &spec.parent_route_const {
+            children_of
+                .entry(parent.clone())
+                .or_default()
+                .push(spec.route_const.clone());
+        } else {
+            top_level.push(spec.route_const.clone());
+        }
+    }
+    // Sort each child list for deterministic emission.
+    for children in children_of.values_mut() {
+        children.sort();
+    }
+    fn render(route_const: &str, children_of: &BTreeMap<String, Vec<String>>) -> String {
+        if let Some(children) = children_of.get(route_const) {
+            let parts: Vec<String> = children
+                .iter()
+                .map(|c| render(c, children_of))
+                .collect();
+            format!("{route_const}.addChildren([{}] as const)", parts.join(", "))
+        } else {
+            route_const.to_owned()
+        }
+    }
+    top_level
+        .iter()
+        .map(|c| render(c, &children_of))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// router-w5 — emit `loader: ({ context }) => ...` when the route

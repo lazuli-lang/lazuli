@@ -470,6 +470,7 @@ fn lower_lzx_route(route: &syntax::LzxRoute) -> ir::AppRoute {
             .collect(),
         pending_view: route.pending_view.clone(),
         error_view: route.error_view.clone(),
+        parent: route.parent.clone(),
         span_ref: Some(span_of(route.span)),
     }
 }

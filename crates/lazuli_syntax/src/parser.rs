@@ -850,6 +850,7 @@ fn parse_lzx_route(
     let mut loaders: Vec<crate::ast::LzxRouteLoader> = Vec::new();
     let mut pending_view: Option<String> = None;
     let mut error_view: Option<String> = None;
+    let mut parent: Option<String> = None;
     let mut index = start + 1;
 
     while index < lines.len() {
@@ -927,6 +928,13 @@ fn parse_lzx_route(
                 ));
             }
             error_view = Some(rest.trim().to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("parent ") {
+            // router-w8 — `parent <route_name>` nests this route
+            // under another route's tree.
+            if parent.is_some() {
+                return Err(line_error(line, "route declares `parent` at most once"));
+            }
+            parent = Some(rest.trim().to_owned());
         } else {
             return Err(line_error(
                 line,
@@ -950,6 +958,7 @@ fn parse_lzx_route(
             loaders,
             pending_view,
             error_view,
+            parent,
             span: Span::new(header.start, lines[index.saturating_sub(1)].end),
         },
         index,
