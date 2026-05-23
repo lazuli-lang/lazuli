@@ -1153,61 +1153,20 @@ fn generate_ts(input: &Path, output: Option<&Path>, check: bool) -> Result<()> {
         });
     }
 
-    // Portable vite-alias bundle. Replaces `c:/Users/...` hardcodes
-    // in the consumer's vite.config with relative-resolved entries.
-    // Apps import `dist/ts-web/lazurite.vite.mjs` and spread the
-    // exported `lazuliAliases` array.
+    // Plugin catalog — single JSON file consolidating every plugin's
+    // manifest + README excerpt + Go/TS exports. Consumed by apps,
+    // docs sites, the LSP, and the planned `lazuli plugins` CLI.
+    // Spec: docs/proposals/plugin-catalog-file-2026-05-23.md.
+    //
+    // Vite aliases used to be emitted alongside the catalog as
+    // `dist/ts-web/lazurite.vite.mjs`, but that meant consumer
+    // `vite.config.ts` files imported from a build artifact (and
+    // failed on fresh checkouts before the first `lazuli generate`).
+    // Replaced by the `@lazuli/vite` runtime package, which reads
+    // Lazurite.toml at vite-config-load time on the actual host.
     if let Some(m) = manifest.as_ref() {
-        // Canonicalise project_root so the relative-path math against
-        // absolute plugin paths in Lazurite.toml shares a common
-        // prefix; otherwise `dist/ts-web` (relative) vs
-        // `c:/Users/.../plugin` (absolute) yields a junk pathdiff.
         let project_root_abs = std::fs::canonicalize(&project_root)
             .unwrap_or_else(|_| project_root.clone());
-        let lazuli_path = m
-            .lazuli
-            .path
-            .as_ref()
-            .map(|p| {
-                let candidate = std::path::Path::new(p);
-                let joined = if candidate.is_absolute() {
-                    candidate.to_path_buf()
-                } else {
-                    project_root_abs.join(candidate)
-                };
-                std::fs::canonicalize(&joined).unwrap_or(joined)
-            });
-        let mut plugin_paths: std::collections::BTreeMap<String, std::path::PathBuf> =
-            std::collections::BTreeMap::new();
-        for plugin_ref in m.plugins.keys() {
-            if let Some(root) =
-                crate::plugin_manifest::resolve_plugin_root(m, &project_root_abs, plugin_ref)
-            {
-                let canonical = std::fs::canonicalize(&root).unwrap_or(root);
-                plugin_paths.insert(plugin_ref.clone(), canonical);
-            }
-        }
-        let plugins = lazuli_codegen_ts::vite_aliases::build_plugin_entries(&plugin_paths);
-        let dist_dir = project_root_abs.join("dist").join("ts-web");
-        if let Some(contents) = lazuli_codegen_ts::vite_aliases::emit_vite_aliases(
-            lazuli_path.as_deref(),
-            &plugins,
-            &dist_dir,
-        ) {
-            files.push(lazuli_codegen_ts::GeneratedFile {
-                path: "dist/ts-web/lazurite.vite.mjs".to_owned(),
-                contents,
-            });
-            files.push(lazuli_codegen_ts::GeneratedFile {
-                path: "dist/ts-web/lazurite.vite.d.mts".to_owned(),
-                contents: lazuli_codegen_ts::vite_aliases::emit_vite_aliases_dts(),
-            });
-        }
-
-        // Plugin catalog — single JSON file consolidating every plugin's
-        // manifest + README excerpt + Go/TS exports. Consumed by apps,
-        // docs sites, the LSP, and the planned `lazuli plugins` CLI.
-        // Spec: docs/proposals/plugin-catalog-file-2026-05-23.md.
         if let Some(contents) = crate::plugin_catalog::emit_plugin_catalog(m, &project_root_abs) {
             files.push(lazuli_codegen_ts::GeneratedFile {
                 path: "dist/plugin-catalog.json".to_owned(),
