@@ -1517,6 +1517,15 @@ fn emit_feature_sdk_ts(feature: &lazuli_ir::Feature, module: &lazuli_ir::Module)
         write_query_sdk(&mut s, feature, query, module);
     }
 
+    // router-w4 — per-resource lifecycle_route helpers. Appended at
+    // the tail so feature SDK consumers can `import { hostLifecycleRoute }
+    // from '@hostpoint/sdk/host/host.gen'` and the routes.gen.tsx
+    // beforeLoad closures can call the helper via the same path.
+    if let Some(helpers) = lazuli_codegen_ts::emit_lifecycle_route_helpers_ts(feature) {
+        writeln!(s).ok();
+        s.push_str(&helpers);
+    }
+
     s
 }
 
@@ -13479,6 +13488,7 @@ mod tests {
             lock: None,
             composite_key: None,
             conventions: vec![],
+            lifecycle_routes: None,
         }
     }
 

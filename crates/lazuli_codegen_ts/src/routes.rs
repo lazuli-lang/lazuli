@@ -1,7 +1,10 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
-use lazuli_ir::{AppManifest, AppRoute, Experience, Feature, Platform, PlatformSurface, ViewGuard};
+use lazuli_ir::{
+    AppManifest, AppRoute, Experience, Feature, Platform, PlatformSurface, RequiresLifecycle,
+    ViewGuard,
+};
 
 use crate::GeneratedFile;
 use crate::lzx::lzx_router_adapter::{RouterTarget, translate_route_path};
@@ -56,6 +59,12 @@ struct RouteSpec {
     /// through to `options.guards?.<key>` (consumer-supplied closure;
     /// the Wave 2 escape hatch stays available for app-bespoke logic).
     guard_emit: Option<GuardEmit>,
+    /// W3 Tier 2 + W4 — when the .lzx route block declared
+    /// `requires_lifecycle <Resource> = <state>` and the resource
+    /// authored a `lifecycle_routes` table, codegen chains the policy
+    /// gate with a lifecycle fetch + dispatch via the per-resource
+    /// helper.
+    lifecycle_emit: Option<LifecycleEmit>,
 }
 
 /// Resolved per-route guard payload for codegen. Atoms are decomposed
@@ -67,6 +76,25 @@ struct GuardEmit {
     policy_atoms: Vec<(String, String)>,
     on_unauthenticated: Option<String>,
     on_unauthorized: Option<String>,
+}
+
+/// W3 Tier 2 + W4 — lifecycle dispatch payload. Carries the
+/// `lookup_my_<resource>` query reference + the per-resource
+/// lifecycle-route helper export so the emitted beforeLoad can fetch
+/// + redirect deterministically.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LifecycleEmit {
+    /// snake_case feature name owning the resource (used as the
+    /// import path: `../<feature>/<feature>.gen.js`).
+    feature: String,
+    /// camelCase export name of the lookup_my_<resource> query.
+    lookup_export: String,
+    /// camelCase export name of the lifecycle_route helper.
+    helper_export: String,
+    /// Required lifecycle state. The route renders only when the
+    /// actor's row reports this state; any other state triggers a
+    /// redirect via the helper.
+    required_state: String,
 }
 
 pub fn emit_routes_artifacts(
@@ -93,6 +121,11 @@ pub fn emit_routes_artifacts(
             component_key: lower_camel(&route.name),
             route_const: route_const_name(&route.name),
             guard_emit: route.guard.as_ref().and_then(|g| resolve_guard_emit(g, features)),
+            lifecycle_emit: route
+                .guard
+                .as_ref()
+                .and_then(|g| g.requires_lifecycle.as_ref())
+                .and_then(|rl| resolve_lifecycle_emit(rl, features)),
         });
     }
 
@@ -157,16 +190,41 @@ fn emit_routes_file(specs: &[RouteSpec]) -> String {
     // pnpm's per-package isolation produces different `#private` brands
     // and the router instance is not assignable to RouterProvider).
     let any_ir_guard = specs.iter().any(|s| s.guard_emit.is_some());
+    let any_lifecycle = specs.iter().any(|s| s.lifecycle_emit.is_some());
     s.push_str("import { createElement, type FunctionComponent, type ReactElement } from \"@lazuli/runtime/react\";\n");
     s.push_str(
-        "import { Link, Outlet, createRootRouteWithContext, createRoute, createRouter, type LinkProps, type NotFoundRouteComponent, type QueryClient } from \"@lazuli/runtime/react/tanstack\";\n",
+        "import { Link, Outlet, createRootRouteWithContext, createRoute, createRouter, redirect, type LinkProps, type NotFoundRouteComponent, type QueryClient } from \"@lazuli/runtime/react/tanstack\";\n",
     );
     if any_ir_guard {
         // tanstackBeforeLoadGuard is the runtime helper that decomposes
         // policy → verdict and throws the configured redirect.
         s.push_str("import { tanstackBeforeLoadGuard } from \"@lazuli/runtime/react/tanstack\";\n");
     }
-    s.push_str("import type { LazuliClient } from \"@lazuli/runtime\";\n\n");
+    if any_lifecycle {
+        // queryKeyFor is the canonical TanStack-Query cache key builder;
+        // codegen-emitted lifecycle gates call it for the fetchQuery key.
+        s.push_str("import { queryKeyFor } from \"@lazuli/runtime/react\";\n");
+        s.push_str("import { isLazuliError } from \"@lazuli/runtime\";\n");
+    }
+    s.push_str("import type { LazuliClient } from \"@lazuli/runtime\";\n");
+    // Per-feature SDK imports for every lifecycle gate's
+    // lookup_my_<resource> query + helper.
+    let mut feature_imports: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for spec in specs {
+        if let Some(lc) = &spec.lifecycle_emit {
+            let bucket = feature_imports.entry(lc.feature.clone()).or_default();
+            bucket.insert(lc.lookup_export.clone());
+            bucket.insert(lc.helper_export.clone());
+        }
+    }
+    for (feature, names) in &feature_imports {
+        let list = names.iter().cloned().collect::<Vec<_>>().join(", ");
+        s.push_str(&format!(
+            "import {{ {} }} from \"../{}/{}.gen.js\";\n",
+            list, feature, feature
+        ));
+    }
+    s.push('\n');
 
     s.push_str("export const routeSpecs = [\n");
     for spec in specs {
@@ -251,14 +309,21 @@ fn emit_routes_file(specs: &[RouteSpec]) -> String {
     s
 }
 
-/// W3 Tier 1 — decide whether to emit an inline `beforeLoad` (driven
-/// by the IR-resolved guard) or fall through to the Wave-2 escape
-/// hatch (`options.guards?.<key>`). Both shapes can coexist: if the
-/// route both declared `policy` in .lzx AND the app passes a guard by
-/// key, the IR guard runs first; the consumer's guard is never
-/// reached because TanStack's beforeLoad slot is single-valued.
+/// W3 Tier 1/2 + W4 — decide whether to emit an inline `beforeLoad`
+/// (driven by the IR-resolved guard + optional lifecycle gate) or
+/// fall through to the Wave-2 escape hatch (`options.guards?.<key>`).
+///
+/// Combined emission ordering:
+///   1. Policy gate (tanstackBeforeLoadGuard) — auth + role + redirect.
+///   2. Lifecycle gate — fetch lookup_my_<resource>, redirect via
+///      `<resource>LifecycleRoute(state)` when state mismatches.
+///
+/// Both shapes can coexist: if the route both declared `policy` in
+/// .lzx AND the app passes a guard by key, the IR guard runs first;
+/// the consumer's guard is never reached because TanStack's
+/// beforeLoad slot is single-valued.
 fn emit_before_load(out: &mut String, spec: &RouteSpec) {
-    let Some(guard) = &spec.guard_emit else {
+    if spec.guard_emit.is_none() && spec.lifecycle_emit.is_none() {
         writeln!(
             out,
             "    beforeLoad: options.guards?.{},",
@@ -266,29 +331,123 @@ fn emit_before_load(out: &mut String, spec: &RouteSpec) {
         )
         .ok();
         return;
-    };
-    let atoms_literal = guard
-        .policy_atoms
-        .iter()
-        .map(|(ns, name)| format!("{{ namespace: {:?}, name: {:?} }}", ns, name))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let on_unauth = match guard.on_unauthenticated.as_deref() {
-        Some(p) => format!("{:?}", p),
-        None => "undefined".to_owned(),
-    };
-    let on_unauth_role = match guard.on_unauthorized.as_deref() {
-        Some(p) => format!("{:?}", p),
-        None => "undefined".to_owned(),
-    };
-    out.push_str("    beforeLoad: tanstackBeforeLoadGuard(options.client, {\n");
-    out.push_str(&format!(
-        "      policy: {{ name: {:?}, atoms: [{}] }},\n",
-        guard.policy_name, atoms_literal
-    ));
-    out.push_str(&format!("      onUnauthenticated: {},\n", on_unauth));
-    out.push_str(&format!("      onUnauthorized: {},\n", on_unauth_role));
-    out.push_str("    }),\n");
+    }
+    out.push_str("    beforeLoad: async (params) => {\n");
+    if let Some(guard) = &spec.guard_emit {
+        let atoms_literal = guard
+            .policy_atoms
+            .iter()
+            .map(|(ns, name)| format!("{{ namespace: {:?}, name: {:?} }}", ns, name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let on_unauth = match guard.on_unauthenticated.as_deref() {
+            Some(p) => format!("{:?}", p),
+            None => "undefined".to_owned(),
+        };
+        let on_unauth_role = match guard.on_unauthorized.as_deref() {
+            Some(p) => format!("{:?}", p),
+            None => "undefined".to_owned(),
+        };
+        out.push_str("      await tanstackBeforeLoadGuard(options.client, {\n");
+        out.push_str(&format!(
+            "        policy: {{ name: {:?}, atoms: [{}] }},\n",
+            guard.policy_name, atoms_literal
+        ));
+        out.push_str(&format!("        onUnauthenticated: {},\n", on_unauth));
+        out.push_str(&format!("        onUnauthorized: {},\n", on_unauth_role));
+        out.push_str("      })();\n");
+    }
+    if let Some(lc) = &spec.lifecycle_emit {
+        // Fetch lookup_my_<resource> via the route context's
+        // queryClient. The fetchQuery promise resolves (or rejects) the
+        // route's beforeLoad atomically; TanStack waits for the redirect
+        // throw before painting the route.
+        out.push_str("      let __row;\n");
+        out.push_str("      try {\n");
+        out.push_str("        __row = await params.context.queryClient.fetchQuery({\n");
+        out.push_str(&format!(
+            "          queryKey: queryKeyFor({}, {{}}),\n",
+            lc.lookup_export
+        ));
+        out.push_str(&format!(
+            "          queryFn: () => params.context.client.runQuery({}, {{}}),\n",
+            lc.lookup_export
+        ));
+        out.push_str("        });\n");
+        out.push_str("      } catch (err) {\n");
+        out.push_str("        if (isLazuliError(err) && err.status === 404) {\n");
+        out.push_str(&format!(
+            "          throw redirect({{ to: {}(null) }});\n",
+            lc.helper_export
+        ));
+        out.push_str("        }\n");
+        out.push_str("        throw err;\n");
+        out.push_str("      }\n");
+        out.push_str("      const __state = (__row as { lifecycleState?: string }).lifecycleState ?? null;\n");
+        out.push_str(&format!(
+            "      if (__state !== {:?}) {{\n",
+            lc.required_state
+        ));
+        out.push_str(&format!(
+            "        throw redirect({{ to: {}(__state) }});\n",
+            lc.helper_export
+        ));
+        out.push_str("      }\n");
+    }
+    out.push_str("    },\n");
+}
+
+/// router-w4 — resolve `requires_lifecycle <Resource> = <state>` into
+/// a `LifecycleEmit` by locating the owning feature (the one with a
+/// `lookup_my_<snake_resource>` query and a `lifecycle_routes` table
+/// on the resource).
+fn resolve_lifecycle_emit(
+    rl: &RequiresLifecycle,
+    features: &[Feature],
+) -> Option<LifecycleEmit> {
+    let snake = snake_case(&rl.resource);
+    let lookup_name = format!("lookup_my_{snake}");
+    for feature in features {
+        // The resource must live in this feature.
+        let Some(resource) = feature.resources.iter().find(|r| r.name == rl.resource) else {
+            continue;
+        };
+        if resource.lifecycle_routes.is_none() {
+            return None;
+        }
+        // The lookup query must exist on the same feature.
+        let has_lookup = feature
+            .queries
+            .iter()
+            .any(|q| q.name() == lookup_name.as_str());
+        if !has_lookup {
+            return None;
+        }
+        return Some(LifecycleEmit {
+            feature: feature.name.clone(),
+            lookup_export: lower_camel_export(&lookup_name),
+            helper_export: lower_camel_export(&format!("{snake}_lifecycle_route")),
+            required_state: rl.state.clone(),
+        });
+    }
+    None
+}
+
+fn snake_case(s: &str) -> String {
+    // Resource names are PascalCase; convert to snake_case for the
+    // lookup_my_<snake> query name + helper export.
+    let mut out = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if c.is_uppercase() && i > 0 {
+            out.push('_');
+        }
+        out.extend(c.to_lowercase());
+    }
+    out
+}
+
+fn lower_camel_export(s: &str) -> String {
+    super::runtime::lower_camel_export(s)
 }
 
 /// Resolve a `ViewGuard` IR node (`policy: ["@policy.X"]` + optional

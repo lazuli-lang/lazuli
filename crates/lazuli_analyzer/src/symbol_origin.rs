@@ -369,6 +369,7 @@ mod tests {
             lock: None,
             composite_key: None,
             conventions: vec![],
+            lifecycle_routes: None,
         }
     }
 

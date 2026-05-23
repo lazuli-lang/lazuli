@@ -47,6 +47,65 @@ pub fn emit_lifecycle_action_maps_ts(feature: &ir::Feature) -> String {
     s
 }
 
+/// router-w4 — per-resource `<resource>LifecycleRoute(state)` helper.
+/// Emitted from each `Resource.lifecycle_routes` table. The function
+/// is a flat switch over the declared arms; `null`/`undefined` state
+/// falls through to the `none` arm if present, otherwise to `*`.
+/// Routes that declared `requires_lifecycle X = <state>` with
+/// `on_lifecycle_pending dispatch_via X.lifecycle_route` consume this
+/// helper from routes.gen.tsx beforeLoad closures.
+pub fn emit_lifecycle_route_helpers_ts(feature: &ir::Feature) -> Option<String> {
+    let resources: Vec<&ir::Resource> = feature
+        .resources
+        .iter()
+        .filter(|r| r.lifecycle_routes.is_some())
+        .collect();
+    if resources.is_empty() {
+        return None;
+    }
+    let mut s = String::new();
+    s.push_str("// router-w4 — lifecycle_routes helpers. One function per\n");
+    s.push_str("// resource that authored a `lifecycle_routes` block.\n");
+    for resource in resources {
+        let helper = super::lower_camel_export(&format!("{}_lifecycle_route", resource.name));
+        let table = resource.lifecycle_routes.as_ref().unwrap();
+        let none_url = table
+            .arms
+            .iter()
+            .find(|a| a.state == "none")
+            .map(|a| a.url.clone());
+        let wildcard_url = table
+            .arms
+            .iter()
+            .find(|a| a.state == "*")
+            .map(|a| a.url.clone());
+        s.push_str(&format!(
+            "export function {helper}(state: string | null | undefined): string {{\n"
+        ));
+        s.push_str("  if (state === null || state === undefined) {\n");
+        let none_fallback = none_url
+            .clone()
+            .or(wildcard_url.clone())
+            .unwrap_or_else(|| "/".to_owned());
+        s.push_str(&format!("    return {:?};\n", none_fallback));
+        s.push_str("  }\n");
+        s.push_str("  switch (state) {\n");
+        for arm in &table.arms {
+            if arm.state == "*" || arm.state == "none" {
+                continue;
+            }
+            s.push_str(&format!("    case {:?}: return {:?};\n", arm.state, arm.url));
+        }
+        let default = wildcard_url
+            .or(none_url)
+            .unwrap_or_else(|| "/".to_owned());
+        s.push_str(&format!("    default: return {:?};\n", default));
+        s.push_str("  }\n");
+        s.push_str("}\n");
+    }
+    Some(s)
+}
+
 // ----------------------------------------------------------------------------
 // Header / imports
 // ----------------------------------------------------------------------------
@@ -816,6 +875,7 @@ mod tests {
                     type_ref: ir::TypeRef::Builtin(ir::BuiltinType::Text),
                     required: true,
                     constraints: ir::FieldConstraints::default(),
+                    validate_skip: false,
                 }]),
             ),
             lifecycle_command("cancel", ir::CommandInput::Empty),
@@ -888,6 +948,7 @@ mod tests {
             lock: None,
             composite_key: None,
             conventions: Vec::new(),
+            lifecycle_routes: None,
         }
     }
 

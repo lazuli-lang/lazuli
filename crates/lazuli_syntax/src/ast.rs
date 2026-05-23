@@ -1493,6 +1493,13 @@ pub struct ResourceDecl {
     /// `docs/proposals/ir-resource-conventions-crud.md` §4.1.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conventions: Vec<ResourceConventionAst>,
+    /// router-w4 — `lifecycle_routes` block: a `<state> -> "<url>"`
+    /// table on a lifecycle-bearing resource. Lowered to
+    /// `ir::LifecycleRoutes`; TS codegen emits a per-resource
+    /// `<resource>LifecycleRoute(state: string | null): string` helper
+    /// that routes.gen.tsx beforeLoad closures call.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifecycle_routes: Option<ResourceLifecycleRoutesAst>,
     /// Resource-authored DDL declarations:
     /// `index on <field>`, `index on (<field>, ...) [using <method>]`,
     /// `unique (<field>, ...)`, and `fts on (<field>, ...)`.
@@ -1561,6 +1568,21 @@ pub struct ResourceCompositeKey {
     pub fields: Vec<String>,
     #[serde(default)]
     pub primary: bool,
+    pub span: Span,
+}
+
+/// router-w4 — `lifecycle_routes` block AST. Each arm pairs a
+/// lifecycle state name (or `none` / `*`) with a literal URL string.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceLifecycleRoutesAst {
+    pub arms: Vec<ResourceLifecycleRouteArmAst>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceLifecycleRouteArmAst {
+    pub state: String,
+    pub url: String,
     pub span: Span,
 }
 

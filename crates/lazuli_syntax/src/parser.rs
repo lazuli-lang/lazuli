@@ -466,6 +466,8 @@ fn parse_lzx_view_guard(
     let child_indent = policy_indent + 2;
     let mut on_unauthenticated = None;
     let mut on_unauthorized = None;
+    let mut requires_lifecycle = None;
+    let mut on_lifecycle_pending = None;
     let mut index = start + 1;
     let mut last_end = header.end;
 
@@ -502,10 +504,32 @@ fn parse_lzx_view_guard(
                 ));
             }
             on_unauthorized = Some(parse_lzx_redirect_clause(line, rest.trim())?);
+        } else if let Some(rest) = trimmed.strip_prefix("requires_lifecycle ") {
+            // router-w3 Tier 2 — lifecycle gate. Format:
+            //   requires_lifecycle <Resource> = <state>[ on substep <tag>]
+            if requires_lifecycle.is_some() {
+                return Err(line_error(
+                    line,
+                    "`policy` declares `requires_lifecycle` at most once",
+                ));
+            }
+            requires_lifecycle = Some(parse_lzx_requires_lifecycle(line, rest.trim())?);
+        } else if let Some(rest) = trimmed.strip_prefix("on_lifecycle_pending ") {
+            // router-w3 Tier 2 — optional resume router reference. v1
+            // codegen prefers the W4 lifecycle_routes table on the
+            // resource; this slot is kept for back-compat with apps
+            // that authored resume routers.
+            if on_lifecycle_pending.is_some() {
+                return Err(line_error(
+                    line,
+                    "`policy` declares `on_lifecycle_pending` at most once",
+                ));
+            }
+            on_lifecycle_pending = Some(parse_lzx_on_lifecycle_pending(line, rest.trim())?);
         } else {
             return Err(line_error(
                 line,
-                "`policy` children are `on_unauthenticated redirect \"<path>\"` or `on_unauthorized redirect \"<path>\"`",
+                "`policy` children are `on_unauthenticated redirect \"<path>\"`, `on_unauthorized redirect \"<path>\"`, `requires_lifecycle <Resource> = <state>`, or `on_lifecycle_pending @resume <name>`",
             ));
         }
 
@@ -518,8 +542,8 @@ fn parse_lzx_view_guard(
             policy,
             on_unauthenticated,
             on_unauthorized,
-            requires_lifecycle: None,
-            on_lifecycle_pending: None,
+            requires_lifecycle,
+            on_lifecycle_pending,
             span: Span::new(header.start, last_end),
         },
         index,
@@ -7730,6 +7754,20 @@ fn parse_resource_decl(
             i = next;
             continue;
         }
+        // router-w4 — `lifecycle_routes` block.
+        if trimmed == "lifecycle_routes" {
+            if state.lifecycle_routes.is_some() {
+                return Err(line_error(
+                    line,
+                    "a resource may declare at most one `lifecycle_routes` block",
+                ));
+            }
+            let (block, next) = parse_resource_lifecycle_routes(lines, i)?;
+            state.lifecycle_routes = Some(block);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+            continue;
+        }
 
         // CL.C.4 — resource-scoped `invariant <name>` block. Shares
         // parser with the aggregate-scoped form; closed body is
@@ -7863,6 +7901,7 @@ fn parse_resource_decl(
             composite_key: state.composite_key,
             conventions: state.conventions,
             constraints: state.constraints,
+            lifecycle_routes: state.lifecycle_routes,
             span: Span::new(header.start, last_end),
         },
         i,
@@ -7891,6 +7930,8 @@ struct ResourceBodyState {
     conventions: Vec<ResourceConventionAst>,
     /// Authored DDL constraints (`index on`, compound `unique`, `fts on`).
     constraints: Vec<ResourceConstraintAst>,
+    /// router-w4 — `lifecycle_routes` block.
+    lifecycle_routes: Option<crate::ast::ResourceLifecycleRoutesAst>,
 }
 
 type ResourceBodyHandler =
@@ -9956,6 +9997,80 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
         std::mem::swap(&mut prev, &mut curr);
     }
     prev[m]
+}
+
+/// router-w4 — parse a `lifecycle_routes` block. Children are at
+/// grandchild indent (4 spaces from resource start): `<state> -> "<url>"`.
+/// State must be a bare identifier, `none`, or `*`. URL is a
+/// double-quoted string. Empty body is an error (an empty table has
+/// no purpose; authors should omit the block).
+fn parse_resource_lifecycle_routes(
+    lines: &[SourceLine<'_>],
+    start: usize,
+) -> Result<(crate::ast::ResourceLifecycleRoutesAst, usize), ParseError> {
+    let header = &lines[start];
+    let mut arms = Vec::new();
+    let mut i = start + 1;
+    let body_indent = header.indent + 2;
+    let mut last_end = header.end;
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent < body_indent {
+            break;
+        }
+        if line.indent != body_indent {
+            return Err(line_error(
+                line,
+                "`lifecycle_routes` arms use grandchild indentation (4 spaces)",
+            ));
+        }
+        let (state, rest) = trimmed.split_once("->").ok_or_else(|| {
+            line_error(
+                line,
+                "`lifecycle_routes` arms use `<state> -> \"<url>\"` (state name, `none`, or `*`)",
+            )
+        })?;
+        let state = state.trim().to_owned();
+        if state.is_empty() {
+            return Err(line_error(
+                line,
+                "`lifecycle_routes` arm state must be a bare identifier, `none`, or `*`",
+            ));
+        }
+        let url_text = rest.trim();
+        if !url_text.starts_with('"') || !url_text.ends_with('"') || url_text.len() < 2 {
+            return Err(line_error(
+                line,
+                "`lifecycle_routes` arm URL must be a double-quoted string",
+            ));
+        }
+        let url = url_text[1..url_text.len() - 1].to_owned();
+        arms.push(crate::ast::ResourceLifecycleRouteArmAst {
+            state,
+            url,
+            span: Span::new(line.start, line.end),
+        });
+        last_end = line.end;
+        i += 1;
+    }
+    if arms.is_empty() {
+        return Err(line_error(
+            header,
+            "`lifecycle_routes` requires at least one `<state> -> \"<url>\"` arm",
+        ));
+    }
+    Ok((
+        crate::ast::ResourceLifecycleRoutesAst {
+            arms,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
 }
 
 fn parse_resource_lock(line: &SourceLine<'_>, rest: &str) -> Result<ResourceLock, ParseError> {

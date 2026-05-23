@@ -3738,6 +3738,7 @@ mod tests {
             }),
             required: true,
             constraints: lazuli_ir::FieldConstraints::default(),
+            validate_skip: false,
         }]);
         cmd.effect = CommandEffect::Updates(UpdateEffect {
             resource: local_qname("Customer"),

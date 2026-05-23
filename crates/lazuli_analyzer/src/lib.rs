@@ -4828,6 +4828,20 @@ fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resource, Analyze
         .iter()
         .map(lower_resource_constraint)
         .collect();
+    let lifecycle_routes = r
+        .lifecycle_routes
+        .as_ref()
+        .map(|lr| ir::LifecycleRoutes {
+            arms: lr
+                .arms
+                .iter()
+                .map(|arm| ir::LifecycleRouteArm {
+                    state: arm.state.clone(),
+                    url: arm.url.clone(),
+                })
+                .collect(),
+            span_ref: Some(span_of(lr.span)),
+        });
     Ok(ir::Resource {
         name: r.name.clone(),
         public_contract: lower_public_contract(&r.public_contract),
@@ -4850,6 +4864,7 @@ fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resource, Analyze
         lock,
         composite_key,
         conventions,
+        lifecycle_routes,
     })
 }
 
@@ -11783,6 +11798,7 @@ mod conventions_crud_synth_tests {
             lock: None,
             composite_key: None,
             conventions: vec![ir::ConventionRef::Crud],
+            lifecycle_routes: None,
         }
     }
 
@@ -12010,12 +12026,14 @@ mod conventions_crud_synth_tests {
                     type_ref: ir::TypeRef::Builtin(ir::BuiltinType::SemanticEmail),
                     required: false,
                     constraints: ir::FieldConstraints::default(),
+                    validate_skip: false,
                 },
                 ir::TypedSlot {
                     name: "name".to_owned(),
                     type_ref: ir::TypeRef::Builtin(ir::BuiltinType::Text),
                     required: false,
                     constraints: ir::FieldConstraints::default(),
+                    validate_skip: false,
                 },
                 ir::TypedSlot {
                     name: "status".to_owned(),
@@ -12025,6 +12043,7 @@ mod conventions_crud_synth_tests {
                     }),
                     required: false,
                     constraints: ir::FieldConstraints::default(),
+                    validate_skip: false,
                 },
             ]),
             target: None,
@@ -12205,6 +12224,7 @@ mod conventions_crud_synth_tests {
             lock: None,
             composite_key: None,
             conventions: vec![ir::ConventionRef::Crud],
+            lifecycle_routes: None,
         });
 
         let diags = synthesize_conventions(&mut feature);
@@ -12277,6 +12297,7 @@ mod conventions_crud_synth_tests {
             lock: None,
             composite_key: None,
             conventions: vec![ir::ConventionRef::Crud],
+            lifecycle_routes: None,
         });
 
         let diags = synthesize_conventions(&mut feature);
@@ -12332,12 +12353,14 @@ mod conventions_crud_synth_tests {
                     type_ref: ir::TypeRef::Builtin(ir::BuiltinType::Text),
                     required: false,
                     constraints: ir::FieldConstraints::default(),
+                    validate_skip: false,
                 },
                 ir::TypedSlot {
                     name: "notes".to_owned(),
                     type_ref: ir::TypeRef::Builtin(ir::BuiltinType::Text),
                     required: false,
                     constraints: ir::FieldConstraints::default(),
+                    validate_skip: false,
                 },
             ]),
             target: None,
@@ -12535,6 +12558,7 @@ mod conventions_me_synth_tests {
             lock: None,
             composite_key: None,
             conventions: vec![ir::ConventionRef::Me],
+            lifecycle_routes: None,
         }
     }
 
@@ -12908,6 +12932,7 @@ mod conventions_me_synth_tests {
                 type_ref: ir::TypeRef::Builtin(ir::BuiltinType::Text),
                 required: false,
                 constraints: ir::FieldConstraints::default(),
+                validate_skip: false,
             }],
             keys: Vec::new(),
             scope: Vec::new(),
@@ -13125,6 +13150,7 @@ mod conventions_owner_scope_synth_tests {
             lock: None,
             composite_key: None,
             conventions: Vec::new(),
+            lifecycle_routes: None,
         }
     }
 
@@ -13153,6 +13179,7 @@ mod conventions_owner_scope_synth_tests {
             lock: None,
             composite_key: None,
             conventions: vec![ir::ConventionRef::Crud],
+            lifecycle_routes: None,
         }
     }
 
@@ -13314,6 +13341,7 @@ mod conventions_owner_scope_synth_tests {
             lock: None,
             composite_key: None,
             conventions: vec![ir::ConventionRef::Crud, ir::ConventionRef::Me],
+            lifecycle_routes: None,
         };
         // Sanity: not user-keyed (no `user: User required unique`).
         profile
@@ -13509,6 +13537,7 @@ mod conventions_owner_scope_synth_tests {
             lock: None,
             composite_key: None,
             conventions: vec![ir::ConventionRef::Crud],
+            lifecycle_routes: None,
         };
         feature.resources.push(property);
 

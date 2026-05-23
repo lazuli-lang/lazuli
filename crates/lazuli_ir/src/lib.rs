@@ -780,6 +780,43 @@ pub struct Resource {
     /// `docs/proposals/ir-resource-conventions-crud.md` §4.2.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conventions: Vec<ConventionRef>,
+    /// router-w4 — `lifecycle_routes` block on a lifecycle-bearing
+    /// resource. Declares a state→URL table that codegen lowers into
+    /// a per-resource helper function (`<resource>LifecycleRoute(state)`).
+    /// Route `requires_lifecycle X = state` / `on_lifecycle_pending
+    /// dispatch_via X.lifecycle_route` consumes the helper to redirect
+    /// when the actor's row is at a different lifecycle state.
+    /// `None` for resources without a lifecycle routes table; doctor
+    /// will eventually warn when a route declares `dispatch_via
+    /// X.lifecycle_route` against a resource that doesn't have one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifecycle_routes: Option<LifecycleRoutes>,
+}
+
+/// router-w4 — `lifecycle_routes` block on a Resource. Maps every
+/// lifecycle state name (plus `none` for "no row" / `*` for the
+/// catch-all wildcard) to a URL string. Codegen emits a per-resource
+/// `<resource>LifecycleRoute(state: string | null): string` helper
+/// that the routes.gen.tsx beforeLoad closures call when the route's
+/// `requires_lifecycle` gate fails.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct LifecycleRoutes {
+    /// Ordered arms — state name → URL. Insertion order preserved
+    /// for deterministic codegen output. The special keys `none`
+    /// (missing row / 404) and `*` (wildcard fallback) are accepted
+    /// alongside lifecycle state names.
+    pub arms: Vec<LifecycleRouteArm>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LifecycleRouteArm {
+    /// Match key — lifecycle state name, `none`, or `*`.
+    pub state: String,
+    /// URL string the helper returns when the actor's row is in this
+    /// lifecycle state.
+    pub url: String,
 }
 
 /// Closed catalog of resource-level convention bundles. Adding a
