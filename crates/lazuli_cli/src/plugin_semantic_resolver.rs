@@ -159,6 +159,7 @@ mod tests {
             previous_names: Vec::new(),
             span_ref: None,
             lifecycle: None,
+            lifecycle_routes: None,
             invariants: vec![],
             lock: None,
             composite_key: None,
@@ -245,6 +246,11 @@ mod tests {
                 carrier: BuiltinType::Text,
                 validator: "ValidateCPF".to_owned(),
                 formatter: Some("FormatCPF".to_owned()),
+                go_module: "lazuli.dev/plugin/scalars-br".to_owned(),
+                ts_package: "@lazuli/plugin-scalars-br".to_owned(),
+                error_code: "cpf_invalid".to_owned(),
+                message_key: String::new(),
+                ts_validator: String::new(),
             },
         );
         map

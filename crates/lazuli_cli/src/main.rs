@@ -13255,6 +13255,7 @@ mod tests {
                 type_ref: lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::Id),
                 required: true,
                 constraints: lazuli_ir::FieldConstraints::default(),
+                validate_skip: false,
             }],
             scope: Vec::new(),
             scope_override: false,
@@ -13586,6 +13587,7 @@ mod tests {
             type_ref,
             required,
             constraints: lazuli_ir::FieldConstraints::default(),
+            validate_skip: false,
         }
     }
 

@@ -253,6 +253,7 @@ mod tests {
                     previous_names: Vec::new(),
                     span_ref: None,
                     lifecycle: None,
+                    lifecycle_routes: None,
                     invariants: vec![],
 
                     lock: None,

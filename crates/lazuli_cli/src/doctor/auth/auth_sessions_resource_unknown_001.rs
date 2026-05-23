@@ -117,6 +117,7 @@ mod tests {
             previous_names: vec![],
             span_ref: None,
             lifecycle: None,
+            lifecycle_routes: None,
             invariants: vec![],
 
             lock: None,

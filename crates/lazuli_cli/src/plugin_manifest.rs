@@ -488,6 +488,7 @@ mod tests {
             },
             lazuli: LazuliPin {
                 runtime: "0.1.0".to_owned(),
+                path: None,
             },
             lazurite: None,
             plugins,
