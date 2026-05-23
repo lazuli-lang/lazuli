@@ -105,6 +105,11 @@ pub fn rewrite_type_ref(
                     name: resolved.name.clone(),
                     carrier: Box::new(resolved.carrier.clone()),
                     validator: resolved.validator.clone(),
+                    go_module: resolved.go_module.clone(),
+                    ts_package: resolved.ts_package.clone(),
+                    error_code: resolved.error_code.clone(),
+                    message_key: resolved.message_key.clone(),
+                    ts_validator: resolved.ts_validator.clone(),
                 });
             }
         }
@@ -266,6 +271,7 @@ mod tests {
                 name,
                 carrier,
                 validator,
+                ..
             }) => {
                 assert_eq!(plugin, "@plugin/scalars-br");
                 assert_eq!(name, "BrazilianCPF");

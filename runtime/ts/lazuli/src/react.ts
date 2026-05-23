@@ -303,3 +303,11 @@ export declare function useDrawerSubView<TInput, TItem>(
 export { createElement, useCallback, useState } from "react";
 export type { ComponentType, FunctionComponent, ReactElement } from "react";
 export { useQueryClient } from "@tanstack/react-query";
+// LAZ-SEMANTIC-AUTO-VALIDATE — preflight registry contract.
+export {
+  registerPreflight,
+  lookupPreflight,
+  type PreflightFn,
+  type PreflightFieldErrors,
+  type PreflightResult,
+} from "./preflight.js";

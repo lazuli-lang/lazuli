@@ -851,6 +851,11 @@ mod tests {
             name: "BrazilianCPF".to_owned(),
             carrier: Box::new(BuiltinType::Text),
             validator: "ValidateCPF".to_owned(),
+            go_module: "lazuli.dev/plugin/scalars-br".to_owned(),
+            ts_package: "@plugin/scalars-br".to_owned(),
+            error_code: "cpf_invalid".to_owned(),
+            message_key: String::new(),
+            ts_validator: String::new(),
         });
         let (go, import) = go_type_for(&plugin_type, &ctx);
         assert_eq!(go, "string");

@@ -1195,6 +1195,26 @@ pub enum BuiltinType {
         /// source is the plugin's manifest `[[semantic_types]].validator`
         /// — the resolver pass copies it here at lift time.
         validator: String,
+        /// W2 (ir-semantic-auto-validate-2026-05-22): effective Go
+        /// module path of the plugin (`lazuli.dev/plugin/scalars-br`).
+        /// Plugin-level value or convention fallback. Empty when the
+        /// IR predates W2 lift.
+        #[serde(default)]
+        go_module: String,
+        /// W2: effective TS/npm package (`@plugin/scalars-br`).
+        #[serde(default)]
+        ts_package: String,
+        /// W2: effective error code surfaced on validation_failed
+        /// (`cpf_invalid`).
+        #[serde(default)]
+        error_code: String,
+        /// W2: optional i18n message key. Empty when not declared.
+        #[serde(default)]
+        message_key: String,
+        /// W2: TS validator function (`validateCPF`). Empty when not
+        /// declared — TS preflight emission is skipped.
+        #[serde(default)]
+        ts_validator: String,
     },
     CapSecret,
     /// Deprecated: the flat `CapFile` variant never carried arguments.
@@ -1743,6 +1763,14 @@ pub struct TypedSlot {
     /// the same six-keyword catalog without a parallel field.
     #[serde(default, skip_serializing_if = "FieldConstraints::is_empty")]
     pub constraints: FieldConstraints,
+    /// LAZ-SEMANTIC-AUTO-VALIDATE W2 — `@validate.skip` annotation on
+    /// the slot. Codegen skips emitting the semantic-scalar runtime
+    /// validation pre-pass for this field, even when the
+    /// `@semantic.X` type declares a validator. Used for migration /
+    /// legacy import flows where authors knowingly accept invalid
+    /// scalar values. Doctor SEMANTIC-PLUGIN-002 stays silent when set.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub validate_skip: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

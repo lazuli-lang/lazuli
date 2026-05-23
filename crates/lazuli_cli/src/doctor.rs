@@ -2458,11 +2458,64 @@ fn lazurite_manifest_diagnostics(package: &DoctorPackage) -> Vec<DoctorDiagnosti
     diagnostics.extend(check_plugin_unused(manifest, package));
     diagnostics.extend(check_plugin_namespace_mismatch(manifest, package));
     diagnostics.extend(check_semantic_plugin_unresolved(manifest, package));
+    diagnostics.extend(check_semantic_plugin_no_validator(manifest, package));
     diagnostics.extend(check_submodule_drift(manifest, package));
     diagnostics.extend(check_migration_strategy_conflict(manifest, package));
     diagnostics.extend(check_frontend_audience_unknown(manifest, package));
     diagnostics.extend(check_audience_no_frontend(manifest, package));
     diagnostics.extend(check_frontend_out_collision(manifest, package));
+    diagnostics
+}
+
+/// SEMANTIC-PLUGIN-002 (B4) — `@semantic.<Name>` references that
+/// resolve to a plugin scalar with NO `validator` declared. The type
+/// alias exists but no runtime check enforces it; the field accepts
+/// any string at the wire boundary. Warn-level: some plugins ship
+/// brand aliases intentionally without validation.
+///
+/// Source-of-truth: `docs/proposals/ir-semantic-auto-validate-2026-05-22.md`
+/// (W2 §"Doctor B4").
+fn check_semantic_plugin_no_validator(
+    manifest: &crate::lazurite_manifest::Manifest,
+    package: &DoctorPackage,
+) -> Vec<DoctorDiagnostic> {
+    let alias_map = match crate::plugin_manifest::build_alias_map(
+        Some(manifest),
+        &package.project_root,
+    ) {
+        Ok(map) => map,
+        Err(_) => return Vec::new(), // SEMANTIC-PLUGIN-001 already covers this
+    };
+    let mut diagnostics = Vec::new();
+    for file in &package.files {
+        if !is_lzi_path(&file.path) {
+            continue;
+        }
+        for reference in collect_at_references_in_source(&file.path, &file.source) {
+            let Some(rest) = reference.reference.strip_prefix("@semantic.") else {
+                continue;
+            };
+            let head = rest.split('(').next().unwrap_or(rest);
+            let alias = format!("@semantic.{}", head);
+            let Some(resolved) = alias_map.get(&alias) else {
+                continue;
+            };
+            if !resolved.validator.is_empty() {
+                continue;
+            }
+            diagnostics.push(DoctorDiagnostic {
+                path: reference.path.clone(),
+                line: reference.line,
+                column: reference.column,
+                severity: DoctorSeverity::Warning,
+                code: "SEMANTIC-PLUGIN-002".to_owned(),
+                message: format!(
+                    "plugin semantic type `{alias}` from `{}` does not declare a `validator` in its manifest. The type alias is accepted, but no runtime check enforces the value — invalid input is silently stored. Add a `validator` to the plugin's `[[semantic_types]]` entry, or annotate the field with `@validate.skip` to acknowledge the bypass.",
+                    resolved.plugin_namespace
+                ),
+            });
+        }
+    }
     diagnostics
 }
 

@@ -59,10 +59,18 @@ pub struct PluginManifest {
 /// `[plugin]` block — namespace + short name. `namespace` must equal
 /// the `Lazurite.toml [plugins]` key; `name` is used as the prefix in
 /// generated Go validate tags (`<name>.<validator>`).
+///
+/// `go_module` + `ts_package` (W2): the plugin's package paths in each
+/// host runtime. When omitted, codegen falls back to the v1 convention
+/// (`lazuli.dev/plugin/<short>` for Go, `@plugin/<short>` for TS).
 #[derive(Debug, Clone, Deserialize)]
 pub struct PluginIdentity {
     pub name: String,
     pub namespace: String,
+    #[serde(default)]
+    pub go_module: Option<String>,
+    #[serde(default)]
+    pub ts_package: Option<String>,
 }
 
 /// One `[[semantic_types]]` entry. `alias` is the source-form authoring
@@ -72,6 +80,10 @@ pub struct PluginIdentity {
 /// `validator` is the exported Go function on the plugin adapter; it
 /// pairs with `name` to form the runtime validate-tag key. `formatter`
 /// is optional and unused by storage validity.
+///
+/// W2 (ir-semantic-auto-validate-2026-05-22): adds `error_code`,
+/// `message_key`, `ts_validator`. All optional — codegen derives
+/// conventions when absent.
 #[derive(Debug, Clone, Deserialize)]
 pub struct PluginSemanticTypeDecl {
     pub name: String,
@@ -80,6 +92,22 @@ pub struct PluginSemanticTypeDecl {
     pub validator: String,
     #[serde(default)]
     pub formatter: Option<String>,
+    /// Stable error code surfaced to clients when validation fails.
+    /// Defaults to the alias terminal lower-cased with `_invalid` suffix
+    /// (e.g. `BrazilianCPF` → `cpf_invalid`).
+    #[serde(default)]
+    pub error_code: Option<String>,
+    /// Optional i18n key the runtime resolver consults for a localized
+    /// error message. Empty → no key resolution (client formats from
+    /// `error_code`).
+    #[serde(default)]
+    pub message_key: Option<String>,
+    /// Exported TS/JS function on the plugin's npm package
+    /// (e.g. `validateCPF`). When present, TS codegen emits a
+    /// client-side preflight so bad input fails locally before the
+    /// round-trip. Empty → preflight skipped; server is sole enforcer.
+    #[serde(default)]
+    pub ts_validator: Option<String>,
 }
 
 /// Resolved alias entry — everything the analyzer, doctor, codegen,
@@ -107,6 +135,21 @@ pub struct ResolvedPluginSemantic {
     /// Optional exported formatter (rarely used in v1; reserved for
     /// future display-side codegen).
     pub formatter: Option<String>,
+    /// Effective Go module path of the plugin
+    /// (e.g. `lazuli.dev/plugin/scalars-br`). Plugin-level value or
+    /// `lazuli.dev/plugin/<short>` convention fallback.
+    pub go_module: String,
+    /// Effective TS/npm package of the plugin (e.g. `@plugin/scalars-br`).
+    /// Plugin-level value or `@plugin/<short>` convention fallback.
+    pub ts_package: String,
+    /// Effective error code surfaced to clients (e.g. `cpf_invalid`).
+    /// Scalar-level value or convention fallback (`<terminal stem>_invalid`).
+    pub error_code: String,
+    /// Effective i18n message key. Scalar-level value or empty.
+    pub message_key: String,
+    /// Effective TS validator function name (e.g. `validateCPF`).
+    /// Scalar-level value or empty (skip preflight emission).
+    pub ts_validator: String,
 }
 
 /// Error produced when alias resolution fails.
@@ -199,6 +242,19 @@ impl std::fmt::Display for PluginManifestError {
 }
 
 impl std::error::Error for PluginManifestError {}
+
+/// `BrazilianCPF` → `cpf_invalid`. Strips a leading nationality prefix
+/// (the common pattern across the scalars-br catalog) and lowercases,
+/// then appends `_invalid`. Used as the fallback when a scalar entry
+/// doesn't declare an explicit `error_code`.
+fn default_error_code(name: &str) -> String {
+    for prefix in ["Brazilian"] {
+        if let Some(rest) = name.strip_prefix(prefix) {
+            return format!("{}_invalid", rest.to_ascii_lowercase());
+        }
+    }
+    format!("{}_invalid", name.to_ascii_lowercase())
+}
 
 /// Load `manifest.toml` from a single plugin root. Returns `Ok(None)`
 /// when the file is absent (a plugin without semantic-types is a valid
@@ -370,6 +426,23 @@ pub fn build_alias_map(
                 carrier,
                 validator: entry.validator.clone(),
                 formatter: entry.formatter.clone(),
+                go_module: identity
+                    .go_module
+                    .clone()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| format!("lazuli.dev/plugin/{}", identity.name)),
+                ts_package: identity
+                    .ts_package
+                    .clone()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| format!("@plugin/{}", identity.name)),
+                error_code: entry
+                    .error_code
+                    .clone()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| default_error_code(&entry.name)),
+                message_key: entry.message_key.clone().unwrap_or_default(),
+                ts_validator: entry.ts_validator.clone().unwrap_or_default(),
             };
             by_alias
                 .entry(entry.alias.clone())

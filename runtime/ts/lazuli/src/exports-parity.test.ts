@@ -63,6 +63,9 @@ const CONTRACTED_RUNTIME_EXPORTS = [
   "useCallback",
   "useState",
   "useQueryClient",
+  // LAZ-SEMANTIC-AUTO-VALIDATE preflight registry.
+  "registerPreflight",
+  "lookupPreflight",
 ] as const;
 
 describe("@lazuli/runtime/react — exports parity", () => {

@@ -2262,12 +2262,14 @@ fn build_auto_photo_command(
                     type_ref: builtin_text(),
                     required: true,
                     constraints: FieldConstraints::default(),
+                    validate_skip: false,
                 },
                 TypedSlot {
                     name: "size_bytes".to_owned(),
                     type_ref: builtin_integer(),
                     required: true,
                     constraints: FieldConstraints::default(),
+                    validate_skip: false,
                 },
             ]),
             CommandEffect::Returns(ReturnsEffect {
@@ -2284,6 +2286,7 @@ fn build_auto_photo_command(
                 type_ref: builtin_text(),
                 required: true,
                 constraints: FieldConstraints::default(),
+                validate_skip: false,
             }]),
             CommandEffect::None,
             "30 per 10 minutes per ip",
@@ -3893,12 +3896,14 @@ fn build_list_query(name: &str, resource: &str) -> ir::Query {
                 type_ref: ir::TypeRef::Builtin(ir::BuiltinType::Integer),
                 required: false,
                 constraints: ir::FieldConstraints::default(),
+                validate_skip: false,
             },
             ir::TypedSlot {
                 name: "offset".to_owned(),
                 type_ref: ir::TypeRef::Builtin(ir::BuiltinType::Integer),
                 required: false,
                 constraints: ir::FieldConstraints::default(),
+                validate_skip: false,
             },
         ],
         scope: Vec::new(),
@@ -3930,6 +3935,7 @@ fn input_to_command_input(fields: &[(&ir::Field, bool)]) -> ir::CommandInput {
             type_ref: f.type_ref.clone(),
             required: *required,
             constraints: f.constraints.clone(),
+            validate_skip: false,
         })
         .collect();
     ir::CommandInput::Typed(slots)
@@ -4606,12 +4612,32 @@ fn parse_cache_ttl(value: &str) -> ir::CacheTtl {
 fn lower_command_input_to_typed(
     slot: &syntax::CommandInputSlot,
 ) -> Result<ir::TypedSlot, AnalyzeError> {
+    // LAZ-SEMANTIC-AUTO-VALIDATE W2 — `@validate.skip` is an authoring
+    // annotation that opts the field out of semantic-scalar
+    // auto-validation. Detected anywhere in the slot's type text and
+    // stripped before type resolution.
+    let (cleaned_type_text, validate_skip) = strip_validate_skip(&slot.type_text);
     Ok(ir::TypedSlot {
         name: slot.name.clone(),
-        type_ref: type_ref_from_text(&slot.type_text),
+        type_ref: type_ref_from_text(&cleaned_type_text),
         required: slot.required,
         constraints: lift_field_constraints(&slot.name, &slot.constraints)?,
+        validate_skip,
     })
+}
+
+/// Strip `@validate.skip` (anywhere in the text) and return the
+/// trimmed remainder + whether the marker was present.
+fn strip_validate_skip(text: &str) -> (String, bool) {
+    if !text.contains("@validate.skip") {
+        return (text.to_owned(), false);
+    }
+    let cleaned = text
+        .replace("@validate.skip", " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    (cleaned, true)
 }
 
 /// Phase L Tier 4d — lower a canonical-indent `record` block into
@@ -5581,13 +5607,15 @@ fn lower_command_decl(feature: &str, c: &syntax::CommandDecl) -> Result<ir::Comm
             for s in slots {
                 validate_constraint_combinations(&s.name, &s.constraints)?;
                 validate_constraint_range_invariant(&s.name, &s.constraints)?;
-                validate_constraint_type_compatibility(&s.name, &s.type_text, &s.constraints)?;
+                let (cleaned, vskip) = strip_validate_skip(&s.type_text);
+                validate_constraint_type_compatibility(&s.name, &cleaned, &s.constraints)?;
                 validate_constraint_pattern_compile(&s.name, &s.constraints)?;
                 lifted.push(ir::TypedSlot {
                     name: s.name.clone(),
-                    type_ref: type_ref_from_text(&s.type_text),
+                    type_ref: type_ref_from_text(&cleaned),
                     required: s.required,
                     constraints: lift_field_constraints(&s.name, &s.constraints)?,
+                    validate_skip: vskip,
                 });
             }
             ir::CommandInput::Typed(lifted)
@@ -7463,6 +7491,7 @@ pub fn lower_agent(feature: &str, agent: &syntax::Agent) -> Result<ir::Agent, An
             type_ref: type_ref_from_text(&slot.type_text),
             required: slot.required,
             constraints: ir::FieldConstraints::default(),
+            validate_skip: false,
         })
         .collect();
 
@@ -7559,6 +7588,7 @@ fn lower_agent_expose(expose: &syntax::AgentExpose) -> ir::HttpExposure {
             type_ref: type_ref_from_text(&slot.type_text),
             required: true,
             constraints: ir::FieldConstraints::default(),
+            validate_skip: false,
         })
         .collect();
     ir::HttpExposure {

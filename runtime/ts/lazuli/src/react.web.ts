@@ -21,6 +21,8 @@ import {
 import { createElement, useCallback, useState, type ReactNode } from "react";
 
 import { LazuliClient } from "./client.js";
+import { LazuliError } from "./error.js";
+import { lookupPreflight } from "./preflight.js";
 import type { CommandSpec, QuerySpec } from "./spec.js";
 import { LazuliClientContext, useLazuliClient as useLazuliClientImpl } from "./use-actor.js";
 import { createUseLazuliAction } from "./use-lazuli-action.js";
@@ -145,7 +147,30 @@ export function useLazuliCommand<Input, Output>(
   const client = useLazuliClientImpl(clientOverride);
   const queryClient = useQueryClient();
   return useMutation<Output, Error, Input>({
-    mutationFn: (input) => client.runCommand(spec, input),
+    mutationFn: (input) => {
+      // LAZ-SEMANTIC-AUTO-VALIDATE — client-side preflight registered
+      // by codegen-emitted preflight.gen.ts. Failing input rejects
+      // with a validation_failed LazuliError (same shape the server
+      // produces) so the caller's error path is identical.
+      const preflight = lookupPreflight(spec.name);
+      if (preflight) {
+        const result = preflight(input);
+        if (!result.ok) {
+          const data: Record<string, unknown> = { fields: result.fields };
+          if (result.fieldMessageKeys && Object.keys(result.fieldMessageKeys).length > 0) {
+            data.field_message_keys = result.fieldMessageKeys;
+          }
+          return Promise.reject(
+            new LazuliError(400, {
+              code: "validation_failed",
+              message: "validation failed",
+              data: data as never,
+            }),
+          );
+        }
+      }
+      return client.runCommand(spec, input);
+    },
     onSuccess: async (...args) => {
       // Invalidate every TanStack Query cache entry whose key starts with
       // `["lazuli", <invalidated query name>]`. This matches the server's
@@ -177,3 +202,12 @@ export const useLazuliForm = createUseLazuliForm(useLazuliQuery, useLazuliComman
 export { createElement, useCallback, useState };
 export type { ComponentType, FunctionComponent, ReactElement } from "react";
 export { useQueryClient };
+// LAZ-SEMANTIC-AUTO-VALIDATE — preflight registry. Codegen-emitted
+// `preflight.gen.ts` files call `registerPreflight` at import-time.
+export {
+  registerPreflight,
+  lookupPreflight,
+  type PreflightFn,
+  type PreflightFieldErrors,
+  type PreflightResult,
+} from "./preflight.js";

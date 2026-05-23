@@ -1139,6 +1139,17 @@ fn generate_ts(input: &Path, output: Option<&Path>, check: bool) -> Result<()> {
         files.extend(emit_feature_ts_artifacts(feature, &module, &manifest));
     }
 
+    // LAZ-SEMANTIC-AUTO-VALIDATE — top-level dist/ts-web/preflight.gen.ts
+    // side-effect-imports every per-feature preflight. Apps consume it
+    // once (e.g. in main.tsx) so the registry is hot before any
+    // useLazuliCommand renders.
+    if let Some(contents) = lazuli_codegen_ts::emit_preflight_index_ts(&module) {
+        files.push(lazuli_codegen_ts::GeneratedFile {
+            path: "dist/ts-web/preflight.gen.ts".to_owned(),
+            contents,
+        });
+    }
+
     if check {
         println!("lazuli generate ts --check");
         println!("would emit {} file(s):", files.len());
@@ -1327,6 +1338,18 @@ fn emit_feature_ts_artifacts(
                         contents,
                     });
                 }
+                // LAZ-SEMANTIC-AUTO-VALIDATE Wave 2 — per-feature preflight
+                // registrations for commands with @semantic.X fields whose
+                // plugin declares a TS validator.
+                if let Some(contents) = lazuli_codegen_ts::emit_preflight_ts(feature) {
+                    out.push(lazuli_codegen_ts::GeneratedFile {
+                        path: format!(
+                            "dist/{}/{}/{}.preflight.gen.ts",
+                            target_prefix, feature.name, feature.name
+                        ),
+                        contents,
+                    });
+                }
             }
             // A.1 also emits a per-feature barrel `index.ts` so consumers
             // import named hooks via `from '@app/sdk/<feature>'`.
@@ -1502,7 +1525,42 @@ fn emit_feature_barrel_ts(feature: &lazuli_ir::Feature) -> String {
     if !feature.commands.is_empty() || !feature.queries.is_empty() {
         writeln!(s, "export * from \"./{}.react.gen.js\";", feature.name).ok();
     }
+    // LAZ-SEMANTIC-AUTO-VALIDATE — side-effect import so the
+    // preflight registrations run at app boot when the feature SDK
+    // is imported. The barrel always references the file; the file
+    // itself only exists when the feature has eligible commands, so
+    // a missing-file resolution error means the barrel and the
+    // generator drifted (the feature_has_semantic_preflight check
+    // below keeps them in sync).
+    if feature_has_semantic_preflight(feature) {
+        writeln!(s, "import \"./{}.preflight.gen.js\";", feature.name).ok();
+    }
     s
+}
+
+/// Mirror of `lazuli_codegen_ts::preflight::emit_preflight_ts`'s
+/// eligibility predicate so the barrel doesn't emit a side-effect
+/// import for a file that won't exist.
+fn feature_has_semantic_preflight(feature: &lazuli_ir::Feature) -> bool {
+    for command in &feature.commands {
+        let lazuli_ir::CommandInput::Typed(slots) = &command.input else { continue };
+        for slot in slots {
+            if slot.validate_skip {
+                continue;
+            }
+            if let lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticPluginType {
+                ts_validator,
+                ts_package,
+                ..
+            }) = &slot.type_ref
+            {
+                if !ts_validator.is_empty() && !ts_package.is_empty() {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 fn emit_feature_react_hooks_ts(
@@ -12537,18 +12595,33 @@ mod tests {
             name: "BrazilianCPF".to_owned(),
             carrier: Box::new(lazuli_ir::BuiltinType::Text),
             validator: "ValidateCPF".to_owned(),
+            go_module: "lazuli.dev/plugin/scalars-br".to_owned(),
+            ts_package: "@plugin/scalars-br".to_owned(),
+            error_code: "cpf_invalid".to_owned(),
+            message_key: String::new(),
+            ts_validator: String::new(),
         });
         let cnpj = lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticPluginType {
             plugin: "@plugin/scalars-br".to_owned(),
             name: "BrazilianCNPJ".to_owned(),
             carrier: Box::new(lazuli_ir::BuiltinType::Text),
             validator: "ValidateCNPJ".to_owned(),
+            go_module: "lazuli.dev/plugin/scalars-br".to_owned(),
+            ts_package: "@plugin/scalars-br".to_owned(),
+            error_code: "cnpj_invalid".to_owned(),
+            message_key: String::new(),
+            ts_validator: String::new(),
         });
         let other = lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticPluginType {
             plugin: "@plugin/scalars-br".to_owned(),
             name: "BrazilianCEP".to_owned(),
             carrier: Box::new(lazuli_ir::BuiltinType::Text),
             validator: "ValidateCEP".to_owned(),
+            go_module: "lazuli.dev/plugin/scalars-br".to_owned(),
+            ts_package: "@plugin/scalars-br".to_owned(),
+            error_code: "cep_invalid".to_owned(),
+            message_key: String::new(),
+            ts_validator: String::new(),
         });
 
         assert_eq!(
@@ -13584,6 +13657,11 @@ mod tests {
                     name: "BrazilianCPF".to_owned(),
                     carrier: Box::new(lazuli_ir::BuiltinType::Text),
                     validator: "ValidateCPF".to_owned(),
+                    go_module: "lazuli.dev/plugin/scalars-br".to_owned(),
+                    ts_package: "@plugin/scalars-br".to_owned(),
+                    error_code: "cpf_invalid".to_owned(),
+                    message_key: String::new(),
+                    ts_validator: String::new(),
                 }),
             )],
         ));

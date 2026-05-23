@@ -1139,6 +1139,7 @@ fn lookup_args(query: &LookupQuery, resource: Option<&Resource>) -> Vec<TypedSlo
             type_ref: infer_lookup_type(key, resource),
             required: true,
             constraints: lazuli_ir::FieldConstraints::default(),
+            validate_skip: false,
         });
     }
     args
