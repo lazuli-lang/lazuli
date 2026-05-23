@@ -1,0 +1,65 @@
+# Air config — Go hot reload for the Lazuli backend.
+#
+# Invoke via `pnpm go:watch` (wraps air with dotenv so the API
+# inherits .env). On any .go change under the watched roots, air
+# rebuilds and restarts the binary in ~1s.
+#
+# What this watches:
+#   - app/features/**/handlers/*.go      (user-authored handler code)
+#   - dist/go/**/*.go                    (lazuli-generated runtime)
+#
+# What air does NOT watch (handled out-of-band):
+#   - .lzi / .lzx — DSL changes need `pnpm lazuli:generate` explicitly
+#     to refresh .gen.go files. Watching DSL here would race with
+#     codegen; the manual gate is the right boundary.
+
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -C dist/go -o {{app_slug}}-api.exe ."
+bin = "dist/go/{{app_slug}}-api.exe"
+
+include_dir = [
+  "app/features",
+  "dist/go",
+]
+include_ext = ["go"]
+
+exclude_dir = [
+  "tmp",
+  "node_modules",
+  "app/web",
+  "app/clients",
+  "migrations",
+  "seeds",
+  "tests",
+  "dist/go/migrations",
+  "dist/ts-web",
+  "dist/ts-mobile",
+]
+
+exclude_regex = [
+  "_test\\.go$",
+  # The compiled binary itself — air would otherwise see its own
+  # write as a "change" and loop forever.
+  "{{app_slug}}-api\\.exe$",
+]
+
+delay = 600
+kill_delay = "500ms"
+send_interrupt = true
+stop_on_error = true
+
+[log]
+time = true
+
+[color]
+main = "magenta"
+watcher = "cyan"
+build = "yellow"
+runner = "green"
+app = ""
+
+[misc]
+clean_on_exit = true

@@ -6595,48 +6595,115 @@ fn is_lazuli_runtime_dir(candidate: &Path) -> bool {
         .any(|line| line.trim() == "module lazuli.dev/runtime")
 }
 
-/// Append `use <runtime_dir>` to the scaffold's `go.work`. The
-/// scaffold ships a `go.work` with `.` and `./dist/go`; this adds the
-/// local runtime as a third entry so `go mod tidy`/`go build` resolve
-/// `lazuli.dev/runtime` without hitting the network.
+/// Append `use <runtime_dir>` to the scaffold's `go.work` and write
+/// the same path into Lazurite.toml as `[lazuli] path = "<root>"`
+/// (without the trailing `/runtime/go` — Lazurite.toml points at the
+/// lazuli source root). The scaffold ships a `go.work` with `.` and
+/// `./dist/go`; this adds the local runtime as a third entry so
+/// `go mod tidy` / `go build` resolve `lazuli.dev/runtime` without
+/// hitting the network.
 ///
-/// We use an absolute path so the workspace works regardless of where
-/// the project lives relative to the runtime checkout.
+/// Path discipline: relative when project and runtime share a common
+/// ancestor (the canonical sibling layout), absolute otherwise (e.g.
+/// different Windows drives). Avoids baking machine-specific paths
+/// like `c:/Users/lucas/lazuli/...` into the scaffold output — those
+/// would leak the scaffolder's filesystem layout into every new
+/// project and break cross-developer builds on day one.
+///
+/// Once `[lazuli] path` is wired, downstream `lazuli generate go`
+/// runs treat it as authoritative and emit `go.work` entries from
+/// `Lazurite.toml [plugins]` plus this runtime entry. Subsequent
+/// regens stay portable without manual intervention.
 fn inject_runtime_into_go_work(project: &Path, runtime_dir: &Path) -> Result<()> {
     let go_work_path = project.join("go.work");
     let original = fs::read_to_string(&go_work_path)
         .with_context(|| format!("failed to read {}", go_work_path.display()))?;
 
-    // Use forward slashes in `go.work` for cross-platform readability;
-    // the go toolchain accepts both on Windows.
-    let absolute = if runtime_dir.is_absolute() {
+    let project_abs = absolutize_project_root(project);
+    let runtime_abs = if runtime_dir.is_absolute() {
         runtime_dir.to_path_buf()
     } else {
         std::env::current_dir()
             .unwrap_or_else(|_| Path::new(".").to_path_buf())
             .join(runtime_dir)
     };
-    let absolute_str = absolute.to_string_lossy().replace('\\', "/");
+
+    // Prefer relative; fall back to absolute when no common prefix
+    // exists (e.g. Windows cross-drive). `relative_path` already
+    // walks components and emits forward-slash output.
+    let rel = relative_path(&project_abs, &runtime_abs);
+    let go_work_entry = if rel.starts_with("..") || rel == "." || rel.starts_with('.') {
+        rel.clone()
+    } else {
+        // No common ancestor — relative_path would return a string
+        // that isn't a valid relative path. Use absolute as a
+        // last-resort fallback.
+        runtime_abs.to_string_lossy().replace('\\', "/")
+    };
+
+    // Lazurite.toml `[lazuli] path` points at the lazuli source ROOT
+    // (e.g. `../lazuli`), not at `runtime/go`. Strip the trailing
+    // `/runtime/go` so the field carries the canonical value the
+    // rest of the codegen expects.
+    let lazuli_root_entry = go_work_entry
+        .strip_suffix("/runtime/go")
+        .unwrap_or(&go_work_entry)
+        .to_owned();
 
     // Idempotency: if the user already wired the runtime in go.work,
     // don't write again.
-    if original.contains(&absolute_str) {
-        return Ok(());
+    if !original.contains(&go_work_entry) {
+        let updated = if let Some(close_idx) = original.find(")") {
+            let (head, tail) = original.split_at(close_idx);
+            format!("{head}    {go_work_entry}\n{tail}")
+        } else {
+            format!("{original}\nuse {go_work_entry}\n")
+        };
+        fs::write(&go_work_path, updated)
+            .with_context(|| format!("failed to write {}", go_work_path.display()))?;
     }
 
-    // Find the closing `)` of the `use ( ... )` block and inject our
-    // line just before it. Falls back to appending a fresh block when
-    // the template format ever drifts.
-    let updated = if let Some(close_idx) = original.find(")") {
-        let (head, tail) = original.split_at(close_idx);
-        format!("{head}    {absolute_str}\n{tail}")
-    } else {
-        format!("{original}\nuse {absolute_str}\n")
-    };
+    // Also wire `[lazuli] path` into Lazurite.toml so downstream
+    // tooling (@lazuli/vite, `lazuli generate go`, `lazuli generate
+    // ts`) reads the same source-of-truth.
+    let lazurite_path = project.join("Lazurite.toml");
+    if let Ok(manifest_src) = fs::read_to_string(&lazurite_path) {
+        if manifest_src.contains("path = \"") && manifest_src.contains("[lazuli]") {
+            // Field already declared; leave it.
+        } else {
+            let updated_manifest =
+                inject_lazuli_path_into_lazurite(&manifest_src, &lazuli_root_entry);
+            if let Err(err) = fs::write(&lazurite_path, updated_manifest) {
+                eprintln!(
+                    "warning: failed to write [lazuli] path into Lazurite.toml: {err:#}"
+                );
+            }
+        }
+    }
 
-    fs::write(&go_work_path, updated)
-        .with_context(|| format!("failed to write {}", go_work_path.display()))?;
     Ok(())
+}
+
+/// Add `path = "<value>"` as the FIRST field of the `[lazuli]` section
+/// in Lazurite.toml. Idempotent: returns the original source unchanged
+/// when the section already declares a `path` (any value). When the
+/// `[lazuli]` section is absent, appends a fresh one at end-of-file.
+fn inject_lazuli_path_into_lazurite(src: &str, path: &str) -> String {
+    if let Some(section_idx) = src.find("[lazuli]") {
+        // Insertion point: end of the `[lazuli]\n` header line. The
+        // new `path = ...` becomes the first field, sitting flush
+        // against `runtime = "..."` and friends.
+        let after_header_idx = section_idx + "[lazuli]".len();
+        let newline_offset = src[after_header_idx..]
+            .find('\n')
+            .map(|n| after_header_idx + n + 1)
+            .unwrap_or(src.len());
+        let (head, tail) = src.split_at(newline_offset);
+        return format!("{head}path = \"{path}\"\n{tail}");
+    }
+    // No [lazuli] section: append a complete block at EOF.
+    let sep = if src.ends_with('\n') { "" } else { "\n" };
+    format!("{src}{sep}\n[lazuli]\npath = \"{path}\"\n")
 }
 
 fn run_doctor_sanity_check(project: &Path) -> Result<()> {

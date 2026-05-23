@@ -263,23 +263,34 @@ pub const FRONTEND_TSCONFIG_JSON: &str = r#"{
 pub const FRONTEND_VITE_CONFIG_TS: &str = r#"import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const projectRoot = path.resolve(__dirname, "../..");
+// @lazuli/vite reads Lazurite.toml at config-load time and computes
+// the @lazuli/runtime/* + @lazuli/plugin-* alias array on the actual
+// host. No absolute filesystem paths in this file — works on CI /
+// fresh clones / any OS as long as the canonical sibling layout
+// holds (project + lazuli as siblings; see Lazurite.toml [lazuli] path).
+import { lazuliAliases } from "@lazuli/vite";
+
+const rootDir = fileURLToPath(new URL(".", import.meta.url));
+const projectRoot = path.resolve(rootDir, "../..");
 
 export default defineConfig({
   root: __dirname,
   // .env lives at the Lazurite project root (`projectRoot`) so the
   // backend (Go API) and the frontend (vite) share a single env file.
-  // Vite's default is to read .env from `root` — we override here so
-  // `VITE_*` vars defined at the monorepo root reach the bundle.
   envDir: projectRoot,
   plugins: [react()],
   resolve: {
-    alias: {
-      "@app": path.resolve(projectRoot, "app"),
-      "@generated": path.resolve(projectRoot, "dist/ts-web"),
-      "@web": path.resolve(projectRoot, "frontends/web"),
-    },
+    alias: [
+      // Lazuli runtime + every @lazuli/plugin-* alias. Spread FIRST so
+      // the more-specific subpaths (e.g. @lazuli/runtime/react/tanstack)
+      // get matched before any later catch-all entry.
+      ...lazuliAliases({ projectRoot }),
+      { find: "@app", replacement: path.resolve(projectRoot, "app") },
+      { find: "@generated", replacement: path.resolve(projectRoot, "dist/ts-web") },
+      { find: "@web", replacement: __dirname },
+    ],
   },
   build: {
     outDir: path.resolve(projectRoot, "dist/web"),
@@ -302,20 +313,15 @@ export default defineConfig({
 /// Vitest + Playwright + React Testing Library. W7 lint/format: Biome
 /// (no eslint/prettier).
 pub const FRONTEND_PACKAGE_JSON: &str = r#"{
-  "name": "lazuli-app",
+  "name": "lazuli-app-web",
   "private": true,
   "type": "module",
   "scripts": {
-    "lazuli:check": "lazuli check ../..",
-    "lazuli:generate:go": "lazuli generate go ../.. -o ../../dist/go",
-    "lazuli:generate:ts": "lazuli generate ts ../..",
-    "lazuli:generate": "pnpm lazuli:generate:go && pnpm lazuli:generate:ts",
-    "build:go": "go -C ../../dist/go build .",
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "pnpm -w lazuli:generate && vite",
+    "build": "pnpm -w lazuli:generate && vite build",
     "preview": "vite preview",
-    "dev:go": "go -C ../../dist/go run .",
-    "test:go": "go -C ../../dist/go test ./...",
+    "typecheck": "pnpm -w lazuli:generate && tsc --noEmit",
+    "test": "vitest run",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
     "lint": "biome check .",
@@ -343,6 +349,7 @@ pub const FRONTEND_PACKAGE_JSON: &str = r#"{
   },
   "devDependencies": {
     "@biomejs/biome": "^1.8.0",
+    "@lazuli/vite": "^0.1.0",
     "@playwright/test": "^1.46.0",
     "@testing-library/react": "^16.0.0",
     "@testing-library/user-event": "^14.5.0",
