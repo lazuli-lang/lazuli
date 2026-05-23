@@ -108,6 +108,50 @@ describe("useLazuliAction", () => {
     expect(router.back).not.toHaveBeenCalled();
   });
 
+  // Wave A.2.2 — `{result.X}` placeholder in string `redirect` interpolates
+  // from command output (matches the on_success declarative form emitted
+  // by .lzx codegen in Wave A.8).
+  it("interpolates {result.X} placeholders in string redirect", async () => {
+    const router: RouterAdapter = { navigate: vi.fn(), back: vi.fn() };
+    const { spec, wrapper } = makeHarness({ router });
+    const { result } = renderHook(
+      () =>
+        useLazuliAction(spec, {
+          redirect: "/host/property/{result.id}/edit",
+        }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.mutateAsync({ name: "Ada" });
+    });
+
+    expect(router.navigate).toHaveBeenCalledWith(
+      "/host/property/cmd_1/edit",
+      undefined,
+    );
+  });
+
+  // Wave A.2.2 — undefined/null placeholder fields substitute as empty
+  // (avoid `undefined` literals in URLs).
+  it("substitutes empty for undefined {result.X} placeholders", async () => {
+    const router: RouterAdapter = { navigate: vi.fn(), back: vi.fn() };
+    const { spec, wrapper } = makeHarness({ router });
+    const { result } = renderHook(
+      () =>
+        useLazuliAction(spec, {
+          redirect: "/x/{result.missing}/y",
+        }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.mutateAsync({ name: "Ada" });
+    });
+
+    expect(router.navigate).toHaveBeenCalledWith("/x//y", undefined);
+  });
+
   it("goes back on success when back is set", async () => {
     const router: RouterAdapter = { navigate: vi.fn(), back: vi.fn() };
     const { spec, wrapper } = makeHarness({ router });

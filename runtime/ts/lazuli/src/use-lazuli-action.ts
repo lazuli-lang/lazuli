@@ -57,7 +57,15 @@ export function createUseLazuliAction(useLazuliCommand: UseLazuliCommandHook) {
     const actionOnSuccess = useCallback(
       async (out: O, input: I) => {
         if (redirect !== undefined) {
-          const to = typeof redirect === "function" ? redirect(out) : redirect;
+          const raw = typeof redirect === "function" ? redirect(out) : redirect;
+          // Wave A.2.2 — string `redirect` may contain `{result.X}`
+          // placeholders that interpolate from the command output. Matches
+          // the declarative `on_success / redirect "/X/{result.id}"` block
+          // emitted by `.lzx` codegen (Wave A.8). Function-form `redirect`
+          // bypasses interpolation since the caller already controls the
+          // output access.
+          const to =
+            typeof redirect === "function" ? raw : interpolateResultPath(raw, out);
           const navOptions = replace === undefined ? undefined : { replace };
           router.navigate(to, navOptions);
         }
@@ -101,4 +109,31 @@ export function createUseLazuliAction(useLazuliCommand: UseLazuliCommandHook) {
       reset: command.reset,
     };
   };
+}
+
+/**
+ * Interpolate `{result.X}` / `{result.X.Y}` placeholders in a path
+ * template against the command's output object. Undefined / null fields
+ * substitute as empty strings; substituted values are URL-encoded so a
+ * value like `"foo/bar"` doesn't escape its path segment.
+ *
+ * Templates without placeholders return verbatim — common case is free.
+ */
+export function interpolateResultPath(template: string, result: unknown): string {
+  if (!template.includes("{result.")) return template;
+  return template.replace(/\{result\.([A-Za-z0-9_.]+)\}/g, (_match, path: string) => {
+    const value = readResultPath(result, path);
+    return value === undefined || value === null ? "" : encodeURIComponent(String(value));
+  });
+}
+
+function readResultPath(value: unknown, path: string): unknown {
+  let current: unknown = value;
+  for (const segment of path.split(".")) {
+    if (current === null || typeof current !== "object") {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
 }
