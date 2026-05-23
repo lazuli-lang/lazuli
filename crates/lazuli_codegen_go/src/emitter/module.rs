@@ -873,11 +873,20 @@ fn emit_go_mod(
     p.dedent();
     p.line(")");
 
-    if !workspace_mode {
-        if let Some(path) = dev_replace_runtime {
-            p.blank();
-            p.line(&format!("replace lazuli.dev/runtime => {}", path));
-        }
+    // Emit `replace lazuli.dev/runtime => <path>` whenever a local
+    // runtime checkout is wired (workspace or not). Originally this
+    // was workspace-mode-gated on the assumption that `go.work` `use`
+    // entries fully satisfy the require. Empirically that's not
+    // reliable: a freshly-scaffolded project whose go.work and
+    // go.mod are otherwise identical to a working project fails with
+    // `lazuli.dev/runtime@v0.0.0: unrecognized import path` until a
+    // replace directive lands here. The replace is harmless when
+    // workspace mode is also active (both point at the same path),
+    // and saves the build when workspace resolution silently
+    // skips the entry.
+    if let Some(path) = dev_replace_runtime {
+        p.blank();
+        p.line(&format!("replace lazuli.dev/runtime => {}", path));
     }
     if let Some(manifest) = manifest {
         if let Some(dev) = manifest.dev.as_ref() {
@@ -916,11 +925,6 @@ fn emit_go_work(
     if let Some(path) = dev_runtime_path {
         p.line(path);
     }
-    // Plugin `use ()` entries — every plugin with a local path
-    // (resolved via `[plugins].<ns> = { path = "..." }` OR a
-    // `[dev.plugin_paths]` override). Sorted by namespace for
-    // deterministic output. Remote-only plugins (no local path)
-    // are skipped — Go's module resolution + go.sum handles them.
     if let Some(m) = manifest {
         let dev_overrides = m
             .dev
