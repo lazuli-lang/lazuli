@@ -86,6 +86,13 @@ export {
   type LifecycleVerdict,
 } from "./lifecycle-gate.js";
 export type { UseLazuliFormOptions, UseLazuliFormResult } from "./use-lazuli-form.js";
+export {
+  LazuliRouteParamsError,
+  isLazuliRouteParamsError,
+  useLazuliRouteParams,
+  type RouteParamParser,
+  type UseLazuliRouteParamsOptions,
+} from "./use-lazuli-route-params.js";
 
 // --- Universal client/query/command hooks --------------------------------
 

@@ -47,6 +47,10 @@ export {
   parseMoneyInput,
   parsePhoneInput,
 } from "./formatters.js";
-export { toID, tryID } from "./types.js";
+// `parseId` added by Wave A.7 (useLazuliRouteParams typed parsers).
+// c-3 owns `formatMoney` canonically; a-7's types.js variant (if any)
+// is shadowed by the formatters.js re-export above. Build will catch
+// any name collision.
+export { toID, tryID, parseId } from "./types.js";
 export type { ID, Json, Money, Time } from "./types.js";
 export { messageForLazuliError, type LazuliErrorMessage } from "./message-for-error.js";
