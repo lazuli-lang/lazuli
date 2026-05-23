@@ -66,7 +66,8 @@ pub mod ir {
         ListRender, SearchDecl, SearchMode, SearchField, BindingRef, FilterDecl, FilterCardinality,
         DrawerSubView, DrawerTrigger, DrawerRouteBinding, DrawerBindingSource,
         SortDecl, SortDir, SelectionDecl, SelectionMode, SettingDecl,
-        SettingValueSpace, SettingPersistence,
+        SettingValueSpace, SettingPersistence, OnSuccessSpec, FlashSpec,
+        InvalidatesSpec, TranslationKeyRef, QualifiedName,
     };
 }
 
@@ -282,6 +283,51 @@ pub(crate) fn format_string_array(items: &[String]) -> String {
     format!("[{}]", parts.join(", "))
 }
 
+pub(crate) fn format_on_success_options(spec: &OnSuccessSpec, host_feature: &str) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if spec.back {
+        parts.push("back: true".to_owned());
+    }
+    if let Some(redirect) = &spec.redirect {
+        parts.push(format!("redirect: \"{}\"", escape_ts_string(redirect)));
+    }
+    if let Some(flash) = &spec.flash {
+        parts.push(format!(
+            "flash: {{ kind: \"{}\", messageKey: \"{}\" }}",
+            escape_ts_string(&flash.kind),
+            escape_ts_string(&flash.message_key.key)
+        ));
+    }
+    if !spec.invalidates.is_empty() {
+        parts.push(format!(
+            "invalidates: {}",
+            format_string_array(&on_success_invalidates(spec, host_feature))
+        ));
+    }
+    if spec.replace {
+        parts.push("replace: true".to_owned());
+    }
+    format!("{{ {} }}", parts.join(", "))
+}
+
+fn on_success_invalidates(spec: &OnSuccessSpec, host_feature: &str) -> Vec<String> {
+    spec.invalidates
+        .iter()
+        .map(|invalidates| {
+            let feature = invalidates
+                .query
+                .feature
+                .as_deref()
+                .unwrap_or(host_feature);
+            format!("{}.{}", feature, invalidates.query.name)
+        })
+        .collect()
+}
+
+pub(crate) fn escape_ts_string(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
 // ---------------------------------------------------------------------------
 // Top-level walker — orchestrator wires this into `generate()` post-merge.
 // ---------------------------------------------------------------------------
@@ -441,6 +487,7 @@ pub(crate) mod test_fixtures {
                 feature: "slug".to_owned(),
                 name: "create".to_owned(),
             },
+            on_success: None,
             fields: vec![
                 "key".to_owned(),
                 "title".to_owned(),

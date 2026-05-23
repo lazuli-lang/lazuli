@@ -3022,6 +3022,9 @@ pub struct ViewCreate {
     pub route: Option<String>,
     /// `submit <feature>.command.<name>` (required).
     pub submit: CommandRef,
+    /// Submit-success orchestration lowered from `.lzx on_success`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_success: Option<OnSuccessSpec>,
     /// `fields <name>, <name>` — subset of the command's input slots.
     pub fields: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -3032,6 +3035,26 @@ pub struct ViewCreate {
     pub redacted_fields: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OnSuccessSpec {
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub back: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redirect: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flash: Option<FlashSpec>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub invalidates: Vec<InvalidatesSpec>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub replace: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FlashSpec {
+    pub kind: String,
+    pub message_key: TranslationKeyRef,
 }
 
 /// Reference to a query declared in some feature. The `kind` field
@@ -6990,6 +7013,36 @@ mod l0_6_ir_tests {
                 "source": { "feature": "item", "kind": "lookup", "name": "by_id" }
             })
         );
+    }
+
+    #[test]
+    fn on_success_spec_round_trips_and_skips_empty_slots() {
+        let spec = OnSuccessSpec {
+            back: true,
+            redirect: Some("/host/property/{result.id}".to_owned()),
+            flash: Some(FlashSpec {
+                kind: "success".to_owned(),
+                message_key: TranslationKeyRef {
+                    key: "saved".to_owned(),
+                    span_ref: None,
+                },
+            }),
+            invalidates: vec![InvalidatesSpec {
+                query: QualifiedName {
+                    feature: Some("host".to_owned()),
+                    name: "lookup_my_host".to_owned(),
+                },
+                args: vec![],
+            }],
+            replace: false,
+        };
+        round_trip(&spec);
+        let value = serde_json::to_value(&spec).expect("serialize on_success");
+        assert_eq!(value["back"], json!(true));
+        assert_eq!(value["redirect"], json!("/host/property/{result.id}"));
+        assert_eq!(value["flash"]["message_key"]["key"], json!("saved"));
+        assert_eq!(value["invalidates"][0]["query"]["name"], json!("lookup_my_host"));
+        assert!(value.get("replace").is_none());
     }
 
     // -------------------------------------------------------------------

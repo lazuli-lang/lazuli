@@ -822,6 +822,10 @@ fn lower_view_ast(ast: &syntax::ViewAst, owning_feature: &str) -> Result<ir::Vie
                 name: v.name.clone(),
                 route: v.route.clone(),
                 submit,
+                on_success: v
+                    .on_success
+                    .as_ref()
+                    .map(|spec| lower_on_success_spec(owning_feature, spec)),
                 fields: v.fields.clone(),
                 cells: v
                     .cells
@@ -835,6 +839,29 @@ fn lower_view_ast(ast: &syntax::ViewAst, owning_feature: &str) -> Result<ir::Vie
                 span_ref: Some(span_of(v.span)),
             }))
         }
+    }
+}
+
+fn lower_on_success_spec(
+    feature: &str,
+    spec: &syntax::OnSuccessSpecAst,
+) -> ir::OnSuccessSpec {
+    ir::OnSuccessSpec {
+        back: spec.back,
+        redirect: spec.redirect.clone(),
+        flash: spec.flash.as_ref().map(|flash| ir::FlashSpec {
+            kind: flash.kind.clone(),
+            message_key: lower_translation_key_ref(&flash.message_key),
+        }),
+        invalidates: spec
+            .invalidates
+            .iter()
+            .map(|inv| ir::InvalidatesSpec {
+                query: lower_invalidates_query_ref(feature, &inv.query),
+                args: inv.args.iter().map(lower_named_arg).collect(),
+            })
+            .collect(),
+        replace: spec.replace,
     }
 }
 
@@ -10742,6 +10769,28 @@ mod surface_lowering_tests {
         assert_eq!(create.submit.feature, "slug");
         assert_eq!(create.submit.name, "create");
         assert_eq!(create.fields, vec!["key", "title"]);
+    }
+
+    #[test]
+    fn create_view_lifts_on_success_to_ir() {
+        let surface = parse(
+            "surface host web\n  audience admin\n    view create edit_host\n      submit host.command.update_host_basic_details\n      fields title\n      on_success\n        back\n        flash success @translation.saved\n        invalidates query.lookup_my_host\n",
+        );
+        let create = match &surface.audiences[0].views[0] {
+            ir::View::Create(v) => v,
+            _ => unreachable!(),
+        };
+        let on_success = create.on_success.as_ref().expect("on_success");
+        assert!(on_success.back);
+        let flash = on_success.flash.as_ref().expect("flash");
+        assert_eq!(flash.kind, "success");
+        assert_eq!(flash.message_key.key, "saved");
+        assert_eq!(on_success.invalidates.len(), 1);
+        assert_eq!(
+            on_success.invalidates[0].query.feature.as_deref(),
+            Some("host")
+        );
+        assert_eq!(on_success.invalidates[0].query.name, "lookup_my_host");
     }
 
     #[test]

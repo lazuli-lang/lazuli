@@ -3,7 +3,12 @@
 // Query bindings without forcing React on non-UI consumers (Node scripts,
 // tests, edge workers).
 
-export { LazuliClient, type LazuliClientOptions, type LazuliRouter } from "./client.js";
+export {
+  LazuliClient,
+  type LazuliClientOptions,
+  type LazuliFlash,
+  type LazuliRouter,
+} from "./client.js";
 export {
   LifecycleStateMismatchError,
   LazuliError,

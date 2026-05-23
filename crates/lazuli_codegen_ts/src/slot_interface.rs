@@ -558,6 +558,7 @@ mod tests {
                 feature: "slug".to_owned(),
                 name: "create".to_owned(),
             },
+            on_success: None,
             fields: vec!["key".to_owned(), "tags".to_owned()],
             cells,
             redacted_fields: Vec::new(),
