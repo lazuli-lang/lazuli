@@ -120,16 +120,46 @@ function mergeDefaults<Values extends FieldValues>(
   return { ...defaults, ...(next ?? {}) } as Values;
 }
 
-function setServerFieldErrors<Values extends FieldValues>(
+/**
+ * Route a Lazuli `validation_failed` envelope's per-field errors into a
+ * react-hook-form's `setError`. Returns `true` when at least one field
+ * error was applied (caller can then skip a top-level form banner —
+ * the inline messages cover it).
+ *
+ * Backend envelope shape (emitted by codegen-go's semantic-scalar
+ * validation block):
+ * ```json
+ * {
+ *   "code": "validation_failed",
+ *   "data": {
+ *     "fields":             { "cpf": "cpf_invalid" },
+ *     "field_message_keys": { "cpf": "validation.cpf_invalid" }
+ *   }
+ * }
+ * ```
+ *
+ * Message priority per field: `field_message_keys[field]` (i18n catalog
+ * key) wins over `fields[field]` (stable error code). Screens that
+ * translate `validation.*` keys at render time get localised strings;
+ * those that pass the message through verbatim get the stable code
+ * fallback.
+ *
+ * Exposed for screens that use raw `useForm` + `useLazuliCommand`
+ * (instead of the all-in-one `useLazuliFormRHF`) so they can adopt
+ * inline field errors without refactoring the whole form harness.
+ */
+export function setServerFieldErrors<Values extends FieldValues>(
   err: unknown,
   values: Values,
   setError: UseFormReturn<Values>["setError"],
 ): boolean {
   if (!isLazuliError(err) || err.code !== "validation_failed") return false;
-  const fields = asRecord(asRecord(err.data).fields);
+  const data = asRecord(err.data);
+  const fields = asRecord(data.fields);
+  const messageKeys = asRecord(data.field_message_keys);
   let used = false;
   for (const [rawField, rawMessage] of Object.entries(fields)) {
-    const message = fieldMessage(rawMessage);
+    const message = fieldMessage(messageKeys[rawField] ?? rawMessage);
     if (!message) continue;
     setError(normalizeFieldName(rawField, values), { type: "server", message });
     used = true;
