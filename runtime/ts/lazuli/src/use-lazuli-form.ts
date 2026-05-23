@@ -160,7 +160,8 @@ function fieldMessage(value: unknown): string | null {
   }
   const record = asRecord(value);
   for (const key of ["message", "reason", "code"] as const) {
-    if (typeof record[key] === "string") return record[key];
+    const candidate = record[key];
+    if (typeof candidate === "string") return candidate;
   }
   return null;
 }
