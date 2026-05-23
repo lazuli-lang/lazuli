@@ -889,8 +889,13 @@ mod tests {
                 on_unauthorized: None,
                 requires_lifecycle: None,
                 on_lifecycle_pending: None,
+                forbid_when: Vec::new(),
                 span_ref: None,
             }),
+            loaders: Vec::new(),
+            pending_view: None,
+            error_view: None,
+            parent: None,
             span_ref: None,
         });
         let features = vec![feature_with_route_denial_policy()];

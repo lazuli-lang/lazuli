@@ -359,6 +359,7 @@ mod tests {
             lock: None,
             composite_key: None,
             conventions: vec![],
+            lifecycle_routes: None,
         }
     }
 
@@ -396,6 +397,11 @@ mod tests {
             name: name.to_owned(),
             carrier: Box::new(BuiltinType::Text),
             validator: format!("Validate{name}"),
+            go_module: "lazuli.dev/plugin/scalars-br".to_owned(),
+            ts_package: "@plugin/scalars-br".to_owned(),
+            error_code: format!("{}_invalid", name.to_lowercase()),
+            message_key: String::new(),
+            ts_validator: String::new(),
         })
     }
 }
