@@ -2459,11 +2459,93 @@ fn lazurite_manifest_diagnostics(package: &DoctorPackage) -> Vec<DoctorDiagnosti
     diagnostics.extend(check_plugin_namespace_mismatch(manifest, package));
     diagnostics.extend(check_semantic_plugin_unresolved(manifest, package));
     diagnostics.extend(check_semantic_plugin_no_validator(manifest, package));
+    diagnostics.extend(check_plugin_manifest_missing(manifest, package));
+    diagnostics.extend(check_plugin_readme_missing(manifest, package));
     diagnostics.extend(check_submodule_drift(manifest, package));
     diagnostics.extend(check_migration_strategy_conflict(manifest, package));
     diagnostics.extend(check_frontend_audience_unknown(manifest, package));
     diagnostics.extend(check_audience_no_frontend(manifest, package));
     diagnostics.extend(check_frontend_out_collision(manifest, package));
+    diagnostics
+}
+
+/// PLUGIN-MANIFEST-MISSING (error) — every plugin declared in
+/// `Lazurite.toml [plugins]` with a resolvable local path must ship a
+/// `manifest.toml` at its root. Today the framework silently skips
+/// plugins without a manifest (the alias-builder pass returns
+/// `Ok(None)`); doctor escalates that to an error so the plugin
+/// catalog stays self-describing.
+///
+/// Remote plugins without a `dev.plugin_paths` override skip the
+/// check (the manifest isn't on the local filesystem at all — a
+/// different diagnostic class).
+fn check_plugin_manifest_missing(
+    manifest: &crate::lazurite_manifest::Manifest,
+    package: &DoctorPackage,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    for plugin_ref in manifest.plugins.keys() {
+        let Some(plugin_root) =
+            crate::plugin_manifest::resolve_plugin_root(manifest, &package.project_root, plugin_ref)
+        else {
+            continue;
+        };
+        let manifest_path = plugin_root.join(crate::plugin_manifest::PLUGIN_MANIFEST_FILENAME);
+        if manifest_path.exists() {
+            continue;
+        }
+        diagnostics.push(DoctorDiagnostic {
+            path: package.project_root.join("Lazurite.toml"),
+            line: 1,
+            column: 1,
+            severity: DoctorSeverity::Error,
+            code: "PLUGIN-MANIFEST-MISSING".to_owned(),
+            message: format!(
+                "plugin `{plugin_ref}` at `{}` is missing `manifest.toml`. Every plugin must declare a `[plugin]` block (name + namespace + go_module + ts_package) so the catalog stays self-describing. Add `manifest.toml` to the plugin root or remove the plugin from Lazurite.toml [plugins].",
+                plugin_root.display(),
+            ),
+        });
+    }
+    diagnostics
+}
+
+/// PLUGIN-README-MISSING (warning) — every plugin with a resolvable
+/// local path should ship a `README.md`. Authors of new pilots (and
+/// new plugin contributors) rely on the README to understand the
+/// surface; missing READMEs silently degrade the catalog quality.
+fn check_plugin_readme_missing(
+    manifest: &crate::lazurite_manifest::Manifest,
+    package: &DoctorPackage,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    for plugin_ref in manifest.plugins.keys() {
+        let Some(plugin_root) =
+            crate::plugin_manifest::resolve_plugin_root(manifest, &package.project_root, plugin_ref)
+        else {
+            continue;
+        };
+        // Skip when the manifest itself is missing — the manifest lint
+        // anchors that failure mode, no need to double-flag.
+        let manifest_path = plugin_root.join(crate::plugin_manifest::PLUGIN_MANIFEST_FILENAME);
+        if !manifest_path.exists() {
+            continue;
+        }
+        let readme_path = plugin_root.join("README.md");
+        if readme_path.exists() {
+            continue;
+        }
+        diagnostics.push(DoctorDiagnostic {
+            path: package.project_root.join("Lazurite.toml"),
+            line: 1,
+            column: 1,
+            severity: DoctorSeverity::Warning,
+            code: "PLUGIN-README-MISSING".to_owned(),
+            message: format!(
+                "plugin `{plugin_ref}` at `{}` is missing `README.md`. Plugins should ship a README documenting their surface (Go fns, TS fns, manifest scalars). The catalog page derives from it.",
+                plugin_root.display(),
+            ),
+        });
+    }
     diagnostics
 }
 
