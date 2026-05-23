@@ -1280,7 +1280,7 @@ fn emit_feature_ts_artifacts(
                 ),
                 contents: emit_feature_zod_ts(feature, module),
             });
-            if target_prefix == "ts-web" {
+            if *target_prefix == "ts-web" {
                 if let Some(contents) = lazuli_codegen_ts::emit_cap_file_hooks_ts(feature) {
                     out.push(lazuli_codegen_ts::GeneratedFile {
                         path: format!(
