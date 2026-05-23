@@ -33,6 +33,7 @@ const CONTRACTED_RUNTIME_EXPORTS = [
   "useLazuliQuery",
   "useLazuliCommand",
   "useLazuliAction",
+  "useLazuliForm",
   "LazuliRouterAdapterContext",
   "LazuliRouterAdapterProvider",
   "LazuliFlashAdapterContext",

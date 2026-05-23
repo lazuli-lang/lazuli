@@ -24,6 +24,7 @@ import { LazuliClient } from "./client.js";
 import type { CommandSpec, QuerySpec } from "./spec.js";
 import { LazuliClientContext, useLazuliClient as useLazuliClientImpl } from "./use-actor.js";
 import { createUseLazuliAction } from "./use-lazuli-action.js";
+import { createUseLazuliForm } from "./use-lazuli-form.js";
 
 // Universal view-helper re-exports — same in `.web.ts` and `.native.ts`.
 export {
@@ -84,6 +85,7 @@ export {
   type LifecycleGateMetadata,
   type LifecycleVerdict,
 } from "./lifecycle-gate.js";
+export type { UseLazuliFormOptions, UseLazuliFormResult } from "./use-lazuli-form.js";
 
 // --- Universal client/query/command hooks --------------------------------
 
@@ -155,3 +157,4 @@ export function useLazuliCommand<Input, Output>(
 }
 
 export const useLazuliAction = createUseLazuliAction(useLazuliCommand);
+export const useLazuliForm = createUseLazuliForm(useLazuliQuery, useLazuliCommand);

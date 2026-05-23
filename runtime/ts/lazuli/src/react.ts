@@ -35,6 +35,7 @@ import type {
   RouteGuardVerdict,
 } from "./route-guard.js";
 import type { CommandSpec, QuerySpec } from "./spec.js";
+import type { UseLazuliFormOptions, UseLazuliFormResult } from "./use-lazuli-form.js";
 import type { DrawerConfig, DrawerSubView } from "./view-helpers.js";
 
 // Universal view-helper types and functions are re-exported as-is from
@@ -126,6 +127,12 @@ export declare function useLazuliAction<Input, Output>(
   spec: CommandSpec<Input, Output>,
   options?: UseLazuliActionOptions<Input, Output>,
 ): UseLazuliActionResult<Input, Output>;
+
+export type { UseLazuliFormOptions, UseLazuliFormResult };
+
+export declare function useLazuliForm<Values extends object, Input, Output>(
+  opts: UseLazuliFormOptions<Values, Input, Output>,
+): UseLazuliFormResult<Values>;
 
 // --- Route guards ---------------------------------------------------------
 
