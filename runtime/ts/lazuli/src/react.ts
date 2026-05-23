@@ -296,7 +296,10 @@ export declare function useDrawerSubView<TInput, TItem>(
 
 // React + react-query primitives re-exported via @lazuli/runtime/react so
 // generated codegen (cap_file hooks) doesn't import raw `react` /
-// `@tanstack/react-query` modules from dist file locations that can't
-// resolve them through the pilot's per-app node_modules.
+// `@tanstack/react-query` modules from dist file locations that can't resolve
+// them through the pilot's per-app node_modules. TanStack Router re-exports
+// live in @lazuli/runtime/react/tanstack to keep the router peer out of the
+// default React surface.
 export { useCallback, useState } from "react";
+export type { ComponentType, FunctionComponent, ReactElement } from "react";
 export { useQueryClient } from "@tanstack/react-query";

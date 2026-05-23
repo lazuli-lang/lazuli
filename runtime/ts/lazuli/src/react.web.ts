@@ -170,6 +170,10 @@ export const useLazuliForm = createUseLazuliForm(useLazuliQuery, useLazuliComman
 // hooks, future codegen) can import everything via @lazuli/runtime/react
 // without depending on raw `react` / `@tanstack/react-query` modules that
 // the dist file's host filesystem location can't always resolve (e.g. a
-// pilot's per-app node_modules).
+// pilot's per-app node_modules). TanStack Router re-exports live in
+// @lazuli/runtime/react/tanstack (subpath) to keep the router peer out of
+// the default React surface — consumers without TanStack don't pay the
+// bundle cost.
 export { useCallback, useState };
+export type { ComponentType, FunctionComponent, ReactElement } from "react";
 export { useQueryClient };
