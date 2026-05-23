@@ -6,26 +6,57 @@ Lazuli app scaffolded with `lazuli new`.
 
 ```bash
 cp .env.example .env
-docker compose up -d postgres                    # database
-bash scripts/bootstrap-storage.sh                # MinIO + bucket (needed once @cap.File enters the app)
-lazuli doctor .
-lazuli generate go --out dist/go
-go work sync
-go run ./dist/go
+pnpm install                    # node deps + workspace links
+pnpm setup                      # lazuli:generate + first go build (warms cache)
+docker compose up -d postgres   # local database
+bash scripts/bootstrap-storage.sh  # MinIO + bucket (only when @cap.File enters the app)
+pnpm db:migrate                 # apply generated SQL migrations
 ```
 
-## Development loop
+Then start everything with hot reload:
 
 ```bash
-lazuli dev .
+pnpm dev
 ```
 
-Watches `.lzi` and `lazurite.toml` for changes; regenerates `dist/` and restarts the server.
+Runs api (Go via [air](https://github.com/air-verse/air)) + web (Vite HMR) concurrently. Edit any `.go`, `.tsx`, or `.ts` → reload in ~1s.
+
+For DSL changes (`.lzi`, `.lzx`), run `pnpm lazuli:generate` manually — codegen is intentionally NOT in the watcher to avoid racing with file watchers.
 
 ## Layout
 
-- `app/` - product kernel: app manifest, design tokens, registry, and features.
-- `app/features/` - domain features. Each is a Lazuli capability bundle.
-- `frontends/web/` - React/Vite adapter: shell, theme, UI primitives, and package config.
-- `lazurite.toml` - workspace manifest (Lazuli framework pin, plugins, codegen settings).
-- `dist/` - generated code (regen-only; do not edit).
+- `app/` — product kernel: app manifest, design tokens, registry, and features.
+- `app/features/` — domain features (`.lzi`). Each is a Lazuli capability bundle.
+- `app/features/<f>/handlers/` — user-authored Go handlers wired via `lazuli.RegisterFn(...)`.
+- `app/web/` — React/Vite frontend: shell, theme, UI primitives, routes.
+- `Lazurite.toml` — workspace manifest (Lazuli framework pin, plugins, codegen settings).
+- `.air.toml` — Go hot-reload config (see `pnpm go:watch`).
+- `dist/` — generated artifacts (regen-overwritable; do not edit hand-authored Lazuli IR there).
+
+## Canonical sibling layout
+
+`Lazurite.toml [lazuli] path = "../lazuli"` assumes this directory structure on disk:
+
+```
+<root>/
+├── lazuli/                     # Lazuli framework source
+├── dev/                        # local plugin checkouts (one repo per plugin)
+│   └── lazuli-plugin-X/
+└── {{app_slug}}/               # this app
+```
+
+Check out everything as siblings under one parent. `pnpm dev` and `lazuli generate` resolve paths relative to this layout.
+
+## Scripts cheat sheet
+
+| Command | What it does |
+|---|---|
+| `pnpm dev` | full stack with hot reload (api + web) |
+| `pnpm setup` | one-time first-run: codegen + warm go build cache |
+| `pnpm build` | production build (Go binary + Vite bundle) |
+| `pnpm typecheck` | TypeScript check (auto-runs codegen first) |
+| `pnpm lazuli:generate` | regenerate `dist/go` + `dist/ts-web` from `.lzi`/`.lzx` |
+| `pnpm lazuli:doctor` | run all Lazuli lints |
+| `pnpm go:watch` | api only with hot reload |
+| `pnpm stack:up` | db up + codegen + migrate + build (no run) |
+| `pnpm db:migrate` | apply generated SQL migrations |

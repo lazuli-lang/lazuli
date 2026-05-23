@@ -15,6 +15,7 @@
     "db:migrate": "for f in dist/go/migrations/*.sql; do echo \"Applying $f\"; docker compose exec -T postgres psql -U {{app_slug}} -d {{app_slug}} -f - < \"$f\" || exit 1; done",
     "db:reset": "docker compose down -v postgres && pnpm db:up && sleep 3 && pnpm db:migrate",
     "stack:up": "pnpm db:up && pnpm lazuli:generate && pnpm db:migrate && pnpm go:build",
+    "setup": "pnpm lazuli:generate && pnpm go:build",
     "dev": "concurrently -k -n api,web \"pnpm go:watch\" \"pnpm --filter ./app/web dev\"",
     "build": "pnpm lazuli:generate && pnpm --filter ./app/web build && pnpm go:build",
     "typecheck": "pnpm lazuli:generate && pnpm --filter ./app/web typecheck",
