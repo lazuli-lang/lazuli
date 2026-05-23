@@ -15,6 +15,7 @@ fn fixture_routes() -> (Vec<AppRoute>, Vec<PlatformSurface>, Vec<Experience>) {
                 lazy: None,
                 prerender: None,
                 guard: None,
+                loaders: Vec::new(),
                 span_ref: None,
             },
             AppRoute {
@@ -27,6 +28,7 @@ fn fixture_routes() -> (Vec<AppRoute>, Vec<PlatformSurface>, Vec<Experience>) {
                 lazy: None,
                 prerender: None,
                 guard: None,
+                loaders: Vec::new(),
                 span_ref: None,
             },
         ],

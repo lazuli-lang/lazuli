@@ -458,6 +458,16 @@ fn lower_lzx_route(route: &syntax::LzxRoute) -> ir::AppRoute {
         prerender: route.prerender.clone(),
         // ir-route-guards Cell IR-1 — guard slot wired by Cell PARSE-1.
         guard: route.guard.as_ref().map(lower_view_guard),
+        // router-w5 — loader declarations.
+        loaders: route
+            .loaders
+            .iter()
+            .map(|l| ir::RouteLoader {
+                feature: l.feature.clone(),
+                query: l.query.clone(),
+                span_ref: Some(span_of(l.span)),
+            })
+            .collect(),
         span_ref: Some(span_of(route.span)),
     }
 }

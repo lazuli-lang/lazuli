@@ -165,6 +165,14 @@ pub struct LzxForbidWhen {
     pub span: Span,
 }
 
+/// router-w5 — `loader <feature>.<query>` slot under a route block.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LzxRouteLoader {
+    pub feature: String,
+    pub query: String,
+    pub span: Span,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LzxRequiresLifecycle {
     pub resource: String,
@@ -192,6 +200,9 @@ pub struct LzxRoute {
     pub lazy: Option<bool>,
     pub prerender: Option<String>,
     pub guard: Option<LzxViewGuard>,
+    /// router-w5 — `loader <feature>.<query>` declarations.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub loaders: Vec<LzxRouteLoader>,
     pub span: Span,
 }
 

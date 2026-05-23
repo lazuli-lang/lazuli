@@ -65,6 +65,17 @@ struct RouteSpec {
     /// gate with a lifecycle fetch + dispatch via the per-resource
     /// helper.
     lifecycle_emit: Option<LifecycleEmit>,
+    /// router-w5 — declarative loaders. Each entry prefetches a
+    /// feature-level zero-arg query via TanStack Query's
+    /// `ensureQueryData`. Multiple loaders run in parallel.
+    loaders: Vec<LoaderEmit>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LoaderEmit {
+    feature: String,
+    /// camelCase TS export of the query (e.g. `lookupMyHost`).
+    query_export: String,
 }
 
 /// Resolved per-route guard payload for codegen. Atoms are decomposed
@@ -137,6 +148,14 @@ pub fn emit_routes_artifacts(
                 .as_ref()
                 .and_then(|g| g.requires_lifecycle.as_ref())
                 .and_then(|rl| resolve_lifecycle_emit(rl, features)),
+            loaders: route
+                .loaders
+                .iter()
+                .map(|l| LoaderEmit {
+                    feature: l.feature.clone(),
+                    query_export: lower_camel_export(&l.query),
+                })
+                .collect(),
         });
     }
 
@@ -227,14 +246,25 @@ fn emit_routes_file(specs: &[RouteSpec]) -> String {
         s.push_str("import { evaluatePolicy } from \"@lazuli/runtime/react\";\n");
     }
     s.push_str("import type { LazuliClient } from \"@lazuli/runtime\";\n");
+    let any_loaders = specs.iter().any(|s| !s.loaders.is_empty());
+    if any_loaders && !any_lifecycle {
+        // queryKeyFor already imported when any_lifecycle is true.
+        s.push_str("import { queryKeyFor } from \"@lazuli/runtime/react\";\n");
+    }
     // Per-feature SDK imports for every lifecycle gate's
-    // lookup_my_<resource> query + helper.
+    // lookup_my_<resource> query + helper, plus every loader query.
     let mut feature_imports: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for spec in specs {
         if let Some(lc) = &spec.lifecycle_emit {
             let bucket = feature_imports.entry(lc.feature.clone()).or_default();
             bucket.insert(lc.lookup_export.clone());
             bucket.insert(lc.helper_export.clone());
+        }
+        for loader in &spec.loaders {
+            feature_imports
+                .entry(loader.feature.clone())
+                .or_default()
+                .insert(loader.query_export.clone());
         }
     }
     for (feature, names) in &feature_imports {
@@ -303,6 +333,7 @@ fn emit_routes_file(specs: &[RouteSpec]) -> String {
         )
         .ok();
         emit_before_load(&mut s, spec);
+        emit_loader(&mut s, spec);
         s.push_str("  });\n");
     }
     let children = specs
@@ -474,6 +505,27 @@ fn resolve_guard_emit(guard: &ViewGuard, features: &[Feature]) -> Option<GuardEm
             })
             .collect(),
     })
+}
+
+/// router-w5 — emit `loader: ({ context }) => ...` when the route
+/// declared one or more `loader <feature>.<query>` slots. Multiple
+/// loaders run in parallel via `Promise.all`; each calls
+/// `queryClient.ensureQueryData` so the data is hydrated before the
+/// route component paints.
+fn emit_loader(out: &mut String, spec: &RouteSpec) {
+    if spec.loaders.is_empty() {
+        return;
+    }
+    out.push_str("    loader: async ({ context }) => {\n");
+    out.push_str("      await Promise.all([\n");
+    for loader in &spec.loaders {
+        out.push_str(&format!(
+            "        context.queryClient.ensureQueryData({{ queryKey: queryKeyFor({q}, {{}}), queryFn: () => context.client.runQuery({q}, {{}}) }}),\n",
+            q = loader.query_export
+        ));
+    }
+    out.push_str("      ]);\n");
+    out.push_str("    },\n");
 }
 
 /// router-w4 — resolve `requires_lifecycle <Resource> = <state>` into

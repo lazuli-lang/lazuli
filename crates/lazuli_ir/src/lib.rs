@@ -4368,6 +4368,24 @@ pub struct AppRoute {
     /// `None`, the runtime falls back to the audience/app defaults.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub guard: Option<ViewGuard>,
+    /// router-w5 — `loader <feature>.<query>` declarations. Each entry
+    /// prefetches the named query via TanStack Query's
+    /// `ensureQueryData` before the route component paints. Empty when
+    /// the route declares no loaders.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub loaders: Vec<RouteLoader>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// router-w5 — `loader <feature>.<query>` slot on a route. Codegen
+/// emits a parallel `ensureQueryData` for every entry so the data
+/// hydrates before the route component mounts. v1 supports zero-arg
+/// queries only; route-param threading is a follow-up.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RouteLoader {
+    pub feature: String,
+    pub query: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
@@ -7496,6 +7514,7 @@ mod l0_6_ir_tests {
                 lazy: None,
                 prerender: None,
                 guard: Some(guard.clone()),
+                loaders: Vec::new(),
                 span_ref: None,
             }],
             experiences: vec![Experience {
@@ -7513,6 +7532,7 @@ mod l0_6_ir_tests {
                     opens: Vec::new(),
                     tests: Vec::new(),
                     guard: Some(guard.clone()),
+                    loaders: Vec::new(),
                     resolved_guard_policy: None,
                     resolved_lifecycle_gate: Some(resolved.clone()),
                     span_ref: None,

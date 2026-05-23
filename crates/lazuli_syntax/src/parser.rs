@@ -847,6 +847,7 @@ fn parse_lzx_route(
     let mut lazy = None;
     let mut prerender = None;
     let mut guard = None;
+    let mut loaders: Vec<crate::ast::LzxRouteLoader> = Vec::new();
     let mut index = start + 1;
 
     while index < lines.len() {
@@ -891,10 +892,25 @@ fn parse_lzx_route(
             guard = Some(parsed);
             index = next;
             continue;
+        } else if let Some(rest) = trimmed.strip_prefix("loader ") {
+            // router-w5 — `loader <feature>.<query>`. Multiple
+            // declarations supported (codegen emits Promise.all).
+            let qualified = rest.trim();
+            let (feature, query) = qualified.split_once('.').ok_or_else(|| {
+                line_error(
+                    line,
+                    "`loader` references must be `<feature>.<query>` (e.g. `loader host.lookup_my_host`)",
+                )
+            })?;
+            loaders.push(crate::ast::LzxRouteLoader {
+                feature: feature.trim().to_owned(),
+                query: query.trim().to_owned(),
+                span: Span::new(line.start, line.end),
+            });
         } else {
             return Err(line_error(
                 line,
-                "route children are `path`, `route <name>: <Type>`, `to`, `surface`, `audience`, `lazy`, `prerender`, or `policy` declarations",
+                "route children are `path`, `route <name>: <Type>`, `to`, `surface`, `audience`, `lazy`, `prerender`, `loader <feature>.<query>`, or `policy` declarations",
             ));
         }
         index += 1;
@@ -911,6 +927,7 @@ fn parse_lzx_route(
             lazy,
             prerender,
             guard,
+            loaders,
             span: Span::new(header.start, lines[index.saturating_sub(1)].end),
         },
         index,
