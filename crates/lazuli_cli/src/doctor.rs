@@ -5,6 +5,7 @@ pub mod lifecycle_gate;
 pub mod lzx;
 pub mod rbac;
 pub mod route_guard;
+pub mod schema_rich_001;
 
 // Re-export file-local diagnostic sub-modules extracted to the `lazuli_doctor`
 // crate on 2026-05-15 so the LSP can import them. Existing call sites inside
@@ -1287,6 +1288,18 @@ impl DoctorPackage {
             &self.files,
         ));
         diagnostics.extend(check_codegen_wrap_001(&self.project_root));
+        diagnostics.extend(
+            schema_rich_001::check(&self.project_root)
+                .into_iter()
+                .map(|finding| DoctorDiagnostic {
+                    path: doctor_rule_path(&self.project_root, finding.path),
+                    line: finding.line,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: schema_rich_001::Finding::CODE.to_owned(),
+                    message: finding.message,
+                }),
+        );
         diagnostics.extend(check_pattern_draft_stale_001(&self.project_root));
 
         // Report vocab — 10 doctor codes per
