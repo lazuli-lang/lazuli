@@ -1805,6 +1805,8 @@ pub struct LookupKey {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SqlQueryDecl {
     pub name: String,
+    #[serde(default, skip_serializing_if = "SqlQueryKind::is_sql")]
+    pub kind: SqlQueryKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public_contract: Option<PublicContractDeclAst>,
     pub policy: Option<String>,
@@ -1815,11 +1817,25 @@ pub struct SqlQueryDecl {
     pub params: Vec<CommandInputSlot>,
     /// `scope` block — verbatim lines.
     pub scope_lines: Vec<String>,
-    /// `returns <Type>` declaration (required for SQL queries).
+    /// `returns <Type>` declaration (required for SQL-backed queries).
     pub returns: String,
-    /// `sql "./queries/<name>.sql"` path literal.
+    /// `sql "./queries/<name>.sql"` path literal or `source @file.<name>.sql`.
     pub sql_path: String,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SqlQueryKind {
+    #[default]
+    Sql,
+    View,
+}
+
+impl SqlQueryKind {
+    pub fn is_sql(&self) -> bool {
+        matches!(self, Self::Sql)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

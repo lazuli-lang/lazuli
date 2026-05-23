@@ -3,6 +3,7 @@ package lazuli
 import (
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"time"
@@ -113,6 +114,72 @@ func (q *Query[A, R]) RunLookup(ctx *Ctx, args A) (R, error) {
 	}
 	_ = RunIncrement(ctx, q.Prelude)
 	return out, nil
+}
+
+// RunSQL executes a SQL-backed `query.view` and scans the result into the
+// generated row shape. Codegen supplies SQLArgs in the same order as authored
+// `params`; SQLMany selects list vs single-row scan.
+func (q *Query[A, R]) RunSQL(ctx *Ctx, args A) (any, error) {
+	if q.Kind != QueryView && q.Kind != QuerySQL {
+		return nil, &Error{Status: 500, Code: CodeInternal,
+			Message: "RunSQL called on non-SQL query: " + q.Name}
+	}
+	if err := EvalPolicy(ctx, q.Policy); err != nil {
+		return nil, err
+	}
+	if err := RunPrelude(ctx, q.Prelude); err != nil {
+		return nil, err
+	}
+
+	sqlText, err := q.sqlText()
+	if err != nil {
+		return nil, err
+	}
+	var values []any
+	if q.SQLArgs != nil {
+		values = q.SQLArgs(args)
+	}
+
+	rows, err := DB().Query(ctx, sqlText, values...)
+	if err != nil {
+		return nil, internalServerError(err, "sql query failed")
+	}
+	defer rows.Close()
+
+	if q.SQLMany {
+		out, err := pgx.CollectRows(rows, pgx.RowToStructByName[R])
+		if err != nil {
+			return nil, internalServerError(err, "sql scan failed")
+		}
+		_ = RunIncrement(ctx, q.Prelude)
+		return out, nil
+	}
+
+	out, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[R])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, &Error{Status: 404, Code: CodeNotFound,
+			Message: "no row matches SQL query"}
+	}
+	if err != nil {
+		return nil, internalServerError(err, "sql scan failed")
+	}
+	_ = RunIncrement(ctx, q.Prelude)
+	return out, nil
+}
+
+func (q *Query[A, R]) sqlText() (string, error) {
+	if strings.TrimSpace(q.SQLText) != "" {
+		return q.SQLText, nil
+	}
+	if strings.TrimSpace(q.SQL) == "" {
+		return "", &Error{Status: 500, Code: CodeInternal,
+			Message: "SQL query has no SQL body or path: " + q.Name}
+	}
+	raw, err := os.ReadFile(q.SQL)
+	if err != nil {
+		return "", internalServerError(err, "read SQL query file failed")
+	}
+	return string(raw), nil
 }
 
 func (q *Query[A, R]) buildListSQL(ctx *Ctx, args A) (string, []any, *resourceErased, error) {

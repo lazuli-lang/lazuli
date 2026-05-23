@@ -949,7 +949,10 @@ fn collect_query_refs(
             }
         }
         Query::Sql(query) => {
-            let site = format!("query.sql.{}", query.name);
+            let site = match query.sql_kind {
+                lazuli_ir::SqlQueryKind::Sql => format!("query.sql.{}", query.name),
+                lazuli_ir::SqlQueryKind::View => format!("query.view.{}", query.name),
+            };
             for param in &query.params {
                 collect_type_ref(&param.type_ref, feature, &site, signatures, stubs);
             }

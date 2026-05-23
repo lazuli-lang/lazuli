@@ -180,7 +180,7 @@ pub(crate) fn command_action_key(cmd: &CommandRef) -> String {
 pub(crate) fn query_ident(q: &QueryRef) -> String {
     let resource_pascal = pascal_case(&q.feature);
     match q.kind {
-        QueryKind::List | QueryKind::Sql => {
+        QueryKind::List | QueryKind::Sql | QueryKind::View => {
             let short = q.name.as_str();
             if short.eq_ignore_ascii_case("list") {
                 format!("list{}s", resource_pascal)

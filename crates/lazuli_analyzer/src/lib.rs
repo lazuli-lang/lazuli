@@ -1104,7 +1104,8 @@ fn path_placeholders(path: &str) -> Vec<String> {
 
 /// Parse `<feature>.query.<short>` into a `QueryRef`. The middle token
 /// disambiguates list / lookup / sql when the source pre-qualifies it
-/// (`feat.query.list.mine` / `feat.query.lookup.by_key` / `feat.query.sql.raw`).
+/// (`feat.query.list.mine` / `feat.query.lookup.by_key` /
+/// `feat.query.sql.raw` / `feat.query.view.home`).
 /// The shorter form `<feat>.query.<short>` defaults to `List`.
 fn parse_query_ref(text: &str) -> Option<ir::QueryRef> {
     let parts: Vec<&str> = text.split('.').collect();
@@ -1127,6 +1128,11 @@ fn parse_query_ref(text: &str) -> Option<ir::QueryRef> {
         [feature, "query", "sql", name] => Some(ir::QueryRef {
             feature: (*feature).to_owned(),
             kind: ir::QueryKind::Sql,
+            name: (*name).to_owned(),
+        }),
+        [feature, "query", "view", name] => Some(ir::QueryRef {
+            feature: (*feature).to_owned(),
+            kind: ir::QueryKind::View,
             name: (*name).to_owned(),
         }),
         _ => None,
@@ -4083,7 +4089,7 @@ pub fn lower_feature_skeleton(
     let queries = skeleton
         .queries
         .iter()
-        .map(|q| lower_query_decl(q, &skeleton.caches))
+        .map(|q| lower_query_decl(&skeleton.name, q, &skeleton.caches))
         .collect::<Result<Vec<_>, _>>()?;
     let records = skeleton
         .records
@@ -4238,7 +4244,7 @@ fn lower_invariant_decl(decl: &syntax::InvariantDecl) -> ir::Invariant {
 
 /// Phase L Tier 4d — lower a canonical-indent query declaration into
 /// `ir::Query`. The three shapes (`query.list`, `query.lookup`,
-/// `query.sql`) project onto the existing IR variants.
+/// `query.sql` / `query.view`) project onto the existing IR variants.
 ///
 /// Cache (CL.C.3): if the query authors `cache <profile_name>`, the
 /// inline `cache` field is populated by resolving the profile against
@@ -4246,6 +4252,7 @@ fn lower_invariant_decl(decl: &syntax::InvariantDecl) -> ir::Invariant {
 /// reference (so doctor can fire `cache-profile-unknown`) without
 /// inventing a body.
 fn lower_query_decl(
+    feature_name: &str,
     q: &syntax::QueryDecl,
     caches: &[syntax::CacheProfileDecl],
 ) -> Result<ir::Query, AnalyzeError> {
@@ -4318,6 +4325,10 @@ fn lower_query_decl(
         })),
         syntax::QueryDecl::Sql(sql) => Ok(ir::Query::Sql(ir::SqlQuery {
             name: sql.name.clone(),
+            sql_kind: match sql.kind {
+                syntax::SqlQueryKind::Sql => ir::SqlQueryKind::Sql,
+                syntax::SqlQueryKind::View => ir::SqlQueryKind::View,
+            },
             public_contract: lower_public_contract(&sql.public_contract),
             params: sql
                 .params
@@ -4327,7 +4338,7 @@ fn lower_query_decl(
             scope: Vec::new(),
             scope_override: false,
             returns: type_ref_from_text(&sql.returns),
-            sql_path: sql.sql_path.clone(),
+            sql_path: lower_sql_file_ref(feature_name, &sql.sql_path),
             cache: None,
             // QUERY-POLICY-001 — same lowering as `query.list`.
             policy: sql
@@ -4341,6 +4352,24 @@ fn lower_query_decl(
             span_ref: Some(span_of(sql.span)),
         })),
     }
+}
+
+fn lower_sql_file_ref(feature_name: &str, source: &str) -> String {
+    let trimmed = source.trim();
+    let Some(rest) = trimmed.strip_prefix("@file.") else {
+        return trimmed.to_owned();
+    };
+    if rest.ends_with(".sql")
+        && !rest.contains('/')
+        && !rest.contains('\\')
+        && rest
+            .trim_end_matches(".sql")
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        return format!("app/features/{feature_name}/queries/{rest}");
+    }
+    trimmed.to_owned()
 }
 
 /// WAR-VOCAB-QUERY-ENUM-01 closure — lower the verbatim
@@ -7571,6 +7600,7 @@ fn lower_tool_ref(raw: &str, _feature: &str) -> Result<ir::QualifiedToolRef, Ana
 ///   - `query.list.<name>`     -> QueryList
 ///   - `query.lookup.<name>`   -> QueryLookup
 ///   - `query.sql.<name>`      -> QuerySql
+///   - `query.view.<name>`     -> QueryView
 ///   - `query.<name>`          -> QueryUnspecified
 ///   - `command.<name>`        -> Command
 ///   - `api.<name>`            -> Api
@@ -7579,6 +7609,7 @@ fn parse_tool_kind_local(segments: &[&str]) -> Option<(ir::ToolKind, String)> {
         ["query", "list", name] => Some((ir::ToolKind::QueryList, (*name).to_owned())),
         ["query", "lookup", name] => Some((ir::ToolKind::QueryLookup, (*name).to_owned())),
         ["query", "sql", name] => Some((ir::ToolKind::QuerySql, (*name).to_owned())),
+        ["query", "view", name] => Some((ir::ToolKind::QueryView, (*name).to_owned())),
         ["query", name] => Some((ir::ToolKind::QueryUnspecified, (*name).to_owned())),
         ["command", name] => Some((ir::ToolKind::Command, (*name).to_owned())),
         ["api", name] => Some((ir::ToolKind::Api, (*name).to_owned())),

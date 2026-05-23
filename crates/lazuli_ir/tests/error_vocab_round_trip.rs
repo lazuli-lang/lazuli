@@ -399,6 +399,7 @@ fn feature_with_all_error_vocab_fields_round_trips() {
     }));
     feature.queries.push(Query::Sql(SqlQuery {
         name: "monthly_audit".to_owned(),
+        sql_kind: lazuli_ir::SqlQueryKind::Sql,
         public_contract: None,
         params: Vec::new(),
         scope: Vec::new(),

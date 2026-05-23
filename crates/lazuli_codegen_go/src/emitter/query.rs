@@ -424,14 +424,16 @@ fn emit_sql_query(
     let args_struct = format!("{}Args", pascal_case(&query.name));
     let var_name = lower_camel(&query.name);
     let error_keys_var = query_error_keys_var(&var_name);
-    let (return_type, _import) = types::go_type_for(&query.returns, ctx);
+    let return_ref = sql_query_row_type(query);
+    let (return_type, _import) = types::go_type_for(return_ref, ctx);
     let returns_name = return_name(&query.returns, ctx);
+    let query_kind = sql_query_callable_kind(query);
 
     write_section_banner(
         p,
         &[
             format!("Query: {qualified_name}"),
-            format!("  query.sql {}", query.name),
+            format!("  {query_kind} {}", query.name),
         ],
     );
 
@@ -459,7 +461,11 @@ fn emit_sql_query(
         feature,
         &qualified_name,
         None,
-        "lazuli.QuerySQL",
+        if query.sql_kind == lazuli_ir::SqlQueryKind::View {
+            "lazuli.QueryView"
+        } else {
+            "lazuli.QuerySQL"
+        },
         emit_ctx,
         &query.name,
         query.span_ref,
@@ -468,13 +474,14 @@ fn emit_sql_query(
         query.policy_when_denied.as_ref(),
         &error_keys_var,
     );
-    emit_gate_annotations(p, emit_ctx.gates_for("query.sql", &query.name));
+    emit_gate_annotations(p, emit_ctx.gates_for(query_kind, &query.name));
     emit_scope_gaps(p, &query.scope, query.scope_override);
-    p.line(&format!(
-        "SQL:     \"./queries/{}.sql\",",
-        escape_string(&query.name)
-    ));
+    p.line(&format!("SQL:     \"{}\",", escape_string(&query.sql_path)));
     p.line(&format!("Returns: \"{}\",", escape_string(&returns_name)));
+    if query.sql_kind == lazuli_ir::SqlQueryKind::View {
+        p.line(&format!("SQLMany: {},", sql_query_returns_many(query)));
+        emit_sql_args_fn(p, &args_struct, &query.params);
+    }
     if let Some(cache) = &query.cache {
         emit_cache(p, cache);
     }
@@ -1229,6 +1236,44 @@ fn register_imports_for_type(type_ref: &TypeRef, ctx: &TypeCtx<'_>, imports: &mu
     }
 }
 
+fn sql_query_callable_kind(query: &SqlQuery) -> &'static str {
+    match query.sql_kind {
+        lazuli_ir::SqlQueryKind::Sql => "query.sql",
+        lazuli_ir::SqlQueryKind::View => "query.view",
+    }
+}
+
+fn sql_query_returns_many(query: &SqlQuery) -> bool {
+    matches!(query.returns, TypeRef::Many(_))
+}
+
+fn sql_query_row_type(query: &SqlQuery) -> &TypeRef {
+    if query.sql_kind == lazuli_ir::SqlQueryKind::View {
+        if let TypeRef::Many(inner) = &query.returns {
+            return inner;
+        }
+    }
+    &query.returns
+}
+
+fn emit_sql_args_fn(p: &mut GoPrinter, args_struct: &str, params: &[TypedSlot]) {
+    p.line(&format!("SQLArgs: func(args {args_struct}) []any {{"));
+    p.indent();
+    if params.is_empty() {
+        p.line("return nil");
+    } else {
+        p.line("return []any{");
+        p.indent();
+        for param in params {
+            p.line(&format!("args.{},", pascal_case(&param.name)));
+        }
+        p.dedent();
+        p.line("}");
+    }
+    p.dedent();
+    p.line("},");
+}
+
 fn cache_uses_time(cache: &QueryCache) -> bool {
     matches!(cache.ttl, CacheTtl::Literal(_))
 }
@@ -1284,7 +1329,8 @@ fn query_kind_rank(query: &Query) -> u8 {
     match query {
         Query::List(_) => 0,
         Query::Lookup(_) => 1,
-        Query::Sql(_) => 2,
+        Query::Sql(q) if q.sql_kind == lazuli_ir::SqlQueryKind::View => 2,
+        Query::Sql(_) => 3,
     }
 }
 
@@ -1456,7 +1502,7 @@ fn query_callable_kind(query: &Query) -> &'static str {
     match query {
         Query::List(_) => "query.list",
         Query::Lookup(_) => "query.lookup",
-        Query::Sql(_) => "query.sql",
+        Query::Sql(q) => sql_query_callable_kind(q),
     }
 }
 
@@ -2208,6 +2254,7 @@ mod tests {
         feature.records.push(record("CustomerLtv"));
         feature.queries.push(Query::Sql(SqlQuery {
             name: "lifetime_value".to_owned(),
+            sql_kind: lazuli_ir::SqlQueryKind::Sql,
             public_contract: None,
             params: vec![slot(
                 "min_score",
@@ -2239,9 +2286,43 @@ mod tests {
             out.contains("var lifetimeValue = lazuli.Query[LifetimeValueArgs, []CustomerLtv]{")
         );
         assert!(out.contains("Kind:     lazuli.QuerySQL,"));
-        assert!(out.contains("SQL:     \"./queries/lifetime_value.sql\","));
+        assert!(out.contains("SQL:     \"./queries/customer_lifetime_value.sql\","));
         assert!(out.contains("Returns: \"CustomerLtv[]\","));
         assert!(out.contains("// TODO(runtime): quoted QueryCache.ttl"));
+    }
+
+    #[test]
+    fn query_view_emits_typed_sql_runtime_binding() {
+        let mut feature = base_feature("host");
+        feature.records.push(record("HostHomeRow"));
+        feature.queries.push(Query::Sql(SqlQuery {
+            name: "host_home_view".to_owned(),
+            sql_kind: lazuli_ir::SqlQueryKind::View,
+            public_contract: None,
+            params: vec![slot("user_id", TypeRef::Builtin(BuiltinType::Id), true)],
+            scope: Vec::new(),
+            scope_override: false,
+            returns: TypeRef::Many(Box::new(TypeRef::UserDefined(qname("HostHomeRow")))),
+            sql_path: "app/features/host/queries/host_home_view.sql".to_owned(),
+            cache: None,
+            policy: PolicyRef::None,
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }));
+
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains("//   query.view host_home_view"));
+        assert!(out.contains("type HostHomeViewArgs struct {"));
+        assert!(out.contains("UserID lazuli.ID `json:\"user_id\"`"));
+        assert!(out.contains("var hostHomeView = lazuli.Query[HostHomeViewArgs, HostHomeRow]{"));
+        assert!(out.contains("Kind:     lazuli.QueryView,"));
+        assert!(out.contains("SQL:     \"app/features/host/queries/host_home_view.sql\","));
+        assert!(out.contains("Returns: \"HostHomeRow[]\","));
+        assert!(out.contains("SQLMany: true,"));
+        assert!(out.contains("SQLArgs: func(args HostHomeViewArgs) []any {"));
+        assert!(out.contains("args.UserID,"));
     }
 
     #[test]
@@ -2583,6 +2664,7 @@ mod tests {
         feature.records.push(record("AuditRow"));
         feature.queries.push(Query::Sql(SqlQuery {
             name: "audit_dump".to_owned(),
+            sql_kind: lazuli_ir::SqlQueryKind::Sql,
             public_contract: None,
             params: Vec::new(),
             scope: Vec::new(),

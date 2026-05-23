@@ -1607,6 +1607,7 @@ const FEATURE_BODY_KINDS: &[&str] = &[
     "query.list",
     "query.lookup",
     "query.sql",
+    "query.view",
     "record",
     "refs",
     "report",
@@ -1673,7 +1674,7 @@ fn feature_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
                 format!("unknown feature block kind `{first}`. Did you mean `{suggested}`?")
             }
             None => format!(
-                "unknown feature block kind `{first}`. Valid kinds: command / api / query.list / query.lookup / query.sql / view / webhook / job / agent / notification / poller / report / channel / cache / aggregate / events / event_group / event.trace / workflow / surface / extensions / tests / auth / errors / policies / domain / defaults / uses / purpose / context / non_goals / role / permission / etc."
+                "unknown feature block kind `{first}`. Valid kinds: command / api / query.list / query.lookup / query.sql / query.view / view / webhook / job / agent / notification / poller / report / channel / cache / aggregate / events / event_group / event.trace / workflow / surface / extensions / tests / auth / errors / policies / domain / defaults / uses / purpose / context / non_goals / role / permission / etc."
             ),
         };
         // ERROR not WARNING: an unknown kind keyword causes the
@@ -1913,7 +1914,7 @@ const COMMAND_STATEMENT_KINDS: &[&str] = &[
 ];
 
 /// Closed catalog of indent-4 statement keywords inside `query.list`,
-/// `query.lookup`, and `query.sql` bodies. Mirrors the prefix-dispatch
+/// `query.lookup`, `query.sql`, and `query.view` bodies. Mirrors the prefix-dispatch
 /// arms in `parse_query_list_decl`, `parse_query_lookup_decl`, and
 /// `parse_query_sql_decl`. Includes the union (a `query.lookup` body
 /// will never use `cache`/`paginate`/`order` — but flagging those as
@@ -1922,7 +1923,7 @@ const COMMAND_STATEMENT_KINDS: &[&str] = &[
 /// Sorted alphabetically.
 const QUERY_STATEMENT_KINDS: &[&str] = &[
     "cache", "filters", "gate", "modifier", "order", "paginate", "params", "policy", "returns",
-    "scope", "search", "sql",
+    "scope", "search", "source", "sql",
 ];
 
 /// Closed catalog of children inside `audience <name>` blocks.
@@ -2263,7 +2264,7 @@ fn command_statement_unknown_diagnostics(source: &str) -> Vec<Diagnostic> {
 }
 
 /// 2026-05-15 — Indent-4 statement keywords inside `query.list`,
-/// `query.lookup`, and `query.sql` bodies. A typo like `paginat` silently
+/// `query.lookup`, `query.sql`, and `query.view` bodies. A typo like `paginat` silently
 /// drops pagination; `cahce` drops the cache profile binding.
 fn query_statement_unknown_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
@@ -2286,6 +2287,7 @@ fn query_statement_unknown_diagnostics(source: &str) -> Vec<Diagnostic> {
             if trimmed.starts_with("query.list ")
                 || trimmed.starts_with("query.lookup ")
                 || trimmed.starts_with("query.sql ")
+                || trimmed.starts_with("query.view ")
             {
                 current_query = Some((leading, leading + 2));
             }
@@ -2315,7 +2317,7 @@ fn query_statement_unknown_diagnostics(source: &str) -> Vec<Diagnostic> {
                 format!("unknown query statement `{first}`. Did you mean `{suggested}`?")
             }
             None => format!(
-                "unknown query statement `{first}`. Valid statements: policy / params / filters / scope / modifier / search / cache / paginate / order / returns / sql / gate."
+                "unknown query statement `{first}`. Valid statements: policy / params / filters / scope / modifier / search / cache / paginate / order / returns / sql / source / gate."
             ),
         };
         diagnostics.push(simple_canonical_diagnostic(
@@ -2426,7 +2428,7 @@ fn query_mode_diagnostics(source: &str) -> Vec<Diagnostic> {
                 line,
                 DiagnosticSeverity::WARNING,
                 "query-mode",
-                "query declarations should use an explicit mode: `query.list <name>`, `query.lookup <name>`, or `query.sql <name>`. The kind belongs in the header so cold-readers see it before the body.",
+                "query declarations should use an explicit mode: `query.list <name>`, `query.lookup <name>`, `query.sql <name>`, or `query.view <name>`. The kind belongs in the header so cold-readers see it before the body.",
             ));
         } else if let Some(mode) = first.strip_prefix("query.") {
             // Strip parens/args used in references like `query.by_id(id: route.id)`.
@@ -2434,13 +2436,13 @@ fn query_mode_diagnostics(source: &str) -> Vec<Diagnostic> {
                 .split(|c: char| !c.is_alphanumeric() && c != '_')
                 .next()
                 .unwrap_or("");
-            if !matches!(mode, "list" | "lookup" | "sql") {
+            if !matches!(mode, "list" | "lookup" | "sql" | "view") {
                 diagnostics.push(simple_canonical_diagnostic(
                     line_index,
                     line,
                     DiagnosticSeverity::WARNING,
                     "query-mode",
-                    "unknown query mode. Use `query.list`, `query.lookup`, or `query.sql`.",
+                    "unknown query mode. Use `query.list`, `query.lookup`, `query.sql`, or `query.view`.",
                 ));
             }
         }
@@ -4303,7 +4305,7 @@ fn sql_return_type_diagnostics(source: &str) -> Vec<Diagnostic> {
                 in_sql_query = false;
             }
             4 => {
-                in_sql_query = trimmed.starts_with("query.sql ");
+                in_sql_query = trimmed.starts_with("query.sql ") || trimmed.starts_with("query.view ");
             }
             6 if in_sql_query && trimmed.starts_with("returns ") => {
                 let Some(feature) = current_feature.as_deref() else {
@@ -4332,7 +4334,7 @@ fn sql_return_type_diagnostics(source: &str) -> Vec<Diagnostic> {
                         DiagnosticSeverity::WARNING,
                         "sql-return-type",
                         &format!(
-                            "`query.sql` return type `{return_type}` should resolve to a local `record` or `resource`; SQL result shapes are not inferred from the SQL file."
+                            "`query.sql`/`query.view` return type `{return_type}` should resolve to a local `record` or `resource`; SQL result shapes are not inferred from the SQL file."
                         ),
                     ));
                 }
@@ -4721,7 +4723,8 @@ fn agent_tools_diagnostics(source: &str) -> Vec<Diagnostic> {
 
 /// Validate one tool-entry source token. The closed shapes:
 ///   - `@tool.<seg>(.<seg>)*` — adapter tool
-///   - `query.list.<name>` / `query.lookup.<name>` / `query.sql.<name>`
+///   - `query.list.<name>` / `query.lookup.<name>` / `query.sql.<name>` /
+///     `query.view.<name>`
 ///   - `query.<name>` (unspecified subkind — doctor narrows)
 ///   - `command.<name>` / `api.<name>`
 ///   - `<feature>.<above>` cross-feature prefix
@@ -4752,6 +4755,7 @@ fn validate_tool_reference_shape(text: &str) -> Option<String> {
         ["query", "list", _name]
             | ["query", "lookup", _name]
             | ["query", "sql", _name]
+            | ["query", "view", _name]
             | ["query", _name]
             | ["command", _name]
             | ["api", _name]
@@ -4770,6 +4774,7 @@ fn validate_tool_reference_shape(text: &str) -> Option<String> {
         [_feature, "query", "list", _name]
             | [_feature, "query", "lookup", _name]
             | [_feature, "query", "sql", _name]
+            | [_feature, "query", "view", _name]
             | [_feature, "query", _name]
             | [_feature, "command", _name]
             | [_feature, "api", _name]
@@ -4784,7 +4789,7 @@ fn validate_tool_reference_shape(text: &str) -> Option<String> {
     }
 
     Some(format!(
-        "tool reference `{token}` is not a recognised shape; expected `<feature>.<kind>.<name>`, `<kind>.<name>`, or `@tool.<dotted>` where kind is `query[.list|.lookup|.sql]`, `command`, or `api`"
+        "tool reference `{token}` is not a recognised shape; expected `<feature>.<kind>.<name>`, `<kind>.<name>`, or `@tool.<dotted>` where kind is `query[.list|.lookup|.sql|.view]`, `command`, or `api`"
     ))
 }
 
@@ -13719,6 +13724,7 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
         "query.list" => Some("Declares a generated collection query."),
         "query.lookup" => Some("Declares a generated single-record lookup query."),
         "query.sql" => Some("Declares a query backed by an external SQL file."),
+        "query.view" => Some("Declares a typed SQL-backed screen-read query."),
         "defaults" => Some(
             "Declares repeated feature defaults such as tenancy and timestamps. Inspect with `lazuli inspect <file> --expand=defaults` to project the IR-driven defaults block.",
         ),
@@ -14545,6 +14551,33 @@ pub fn rich_keyword_hover(keyword: &str) -> Option<String> {
             ]
             .join("\n"),
         ),
+        "query.view" => Some(
+            [
+                "**`query.view`** — typed SQL-backed screen-read projection. Use it for denormalized reads whose row shape is declared as a local `record`.",
+                "",
+                "**Required children**",
+                "- `returns list of <Record>` or `returns <Record>` — typed row shape for the generated SDK.",
+                "- `source @file.<name>.sql` — SQL file under the feature `queries/` directory.",
+                "",
+                "**Optional children**",
+                "- `policy @policy.<name>` — explicit category.",
+                "- `params` — typed query arguments bound to SQL placeholders in source order.",
+                "- `scope` — tenancy or filter scope applied at codegen.",
+                "",
+                "**Example**",
+                "```lazuli",
+                "query.view host_home_view",
+                "  policy @policy.host_only",
+                "  returns list of HostHomeRow",
+                "  source @file.host_home_view.sql",
+                "  params",
+                "    user_id: ID required",
+                "```",
+                "",
+                "See [quickref.md §Queries](docs/quickref.md) and [invariants.md §Queries And Relations](docs/invariants.md).",
+            ]
+            .join("\n"),
+        ),
         "api" => Some(
             [
                 "**`api`** — custom typed HTTP endpoint outside `command`/`query`/`webhook` semantics. Use it when the handler does meaningful work beyond translating HTTP to a single dispatch; otherwise prefer `expose http` on an `agent` or a generated command/query.",
@@ -14955,6 +14988,10 @@ const KIND_CHILD_COMPLETIONS: &[(&str, &[&str])] = &[
         &[
             "returns", "sql", "params", "scope", "policy", "cache", "audit",
         ],
+    ),
+    (
+        "query.view",
+        &["policy", "returns", "source", "params", "scope"],
     ),
     // CL.C.3 — feature-level `cache <name>` profile children. The
     // inline (per-query) cache shape reuses these same keywords; the
@@ -16209,7 +16246,7 @@ pub fn collect_query_refs(source: &str) -> Vec<String> {
         let Some(feature) = current_feature.as_deref() else {
             continue;
         };
-        for prefix in ["query.list ", "query.lookup ", "query.sql "] {
+        for prefix in ["query.list ", "query.lookup ", "query.sql ", "query.view "] {
             if let Some(rest) = trimmed.strip_prefix(prefix) {
                 let name = rest.split_whitespace().next().unwrap_or("");
                 if !name.is_empty() {
@@ -16613,7 +16650,7 @@ fn backend_policy_for_ref(source: &str, backend_ref: &str) -> Option<String> {
                 .strip_prefix("command ")
                 .map(|rest| rest.split_whitespace().next().unwrap_or("") == name)
                 .unwrap_or(false),
-            "query" => ["query.list ", "query.lookup ", "query.sql "]
+            "query" => ["query.list ", "query.lookup ", "query.sql ", "query.view "]
                 .iter()
                 .any(|prefix| {
                     trimmed
@@ -18517,6 +18554,7 @@ const KEYWORDS: &[&str] = &[
     "query.list",
     "query.lookup",
     "query.sql",
+    "query.view",
     "agent",
     "model",
     "prompt",
@@ -20081,6 +20119,7 @@ fn enclosing_command_name(source: &str, line_idx: usize) -> Option<String> {
                 | "query.list"
                 | "query.lookup"
                 | "query.sql"
+                | "query.view"
                 | "api"
                 | "webhook"
                 | "job"
@@ -25620,8 +25659,8 @@ feature catalog
 
     // ----------------------------------------------------------------
     // Wave B — LSP hover + completion coverage for
-    // `command`/`query.list`/`query.lookup`/`query.sql`/`api`/`policy`/
-    // `effect`/`audit`/`rate_limit`. Each kind gets one hover
+    // `command`/`query.list`/`query.lookup`/`query.sql`/`query.view`/
+    // `api`/`policy`/`effect`/`audit`/`rate_limit`. Each kind gets one hover
     // assertion and one completion assertion so the closed catalogs
     // surface to editors instead of being shape-only strings.
     // ----------------------------------------------------------------
@@ -25711,6 +25750,22 @@ feature catalog
                 "record",
                 "**Example**",
                 "docs/invariants.md",
+            ],
+        );
+    }
+
+    #[test]
+    fn rich_hover_for_query_view_requires_returns_and_file_source() {
+        assert_rich_hover_contains(
+            "query.view",
+            &[
+                "**`query.view`**",
+                "**Required children**",
+                "returns list of <Record>",
+                "source @file.",
+                "params",
+                "**Example**",
+                "docs/quickref.md",
             ],
         );
     }
@@ -25890,6 +25945,19 @@ feature catalog
             assert!(
                 labels.contains(&child),
                 "query.sql completion must offer `{child}`; got {labels:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn completion_inside_query_view_offers_returns_source_params() {
+        let source = "feature customer\n  query.view host_home_view\n    \n";
+        let items = completions_at(source, 2, 4);
+        let labels = labels(&items);
+        for child in ["policy", "returns", "source", "params", "scope"] {
+            assert!(
+                labels.contains(&child),
+                "query.view completion must offer `{child}`; got {labels:?}"
             );
         }
     }

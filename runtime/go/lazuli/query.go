@@ -3,13 +3,15 @@ package lazuli
 import "context"
 
 // QueryKind names which canonical query shape a `Query[A, R]` represents.
-// Mirrors the DSL `query.list`, `query.lookup`, `query.sql` distinction.
+// Mirrors the DSL `query.list`, `query.lookup`, `query.sql`, `query.view`
+// distinction.
 type QueryKind int
 
 const (
 	QueryList   QueryKind = iota // collection query with filters/order/paginate
 	QueryLookup                  // single-record query keyed by columns
 	QuerySQL                     // opaque SQL backed by a `.sql` file
+	QueryView                    // typed SQL projection backed by a `.sql` file
 )
 
 // Query declares a read operation. Type parameter A is the args shape (the
@@ -34,7 +36,7 @@ type Query[A, R any] struct {
 	// registry can hold queries with different row types side-by-side.
 	Resource any
 
-	// Kind names the canonical shape: list, lookup, or sql.
+	// Kind names the canonical shape: list, lookup, sql, or view.
 	Kind QueryKind
 
 	// Policy resolves which actors may invoke the query. Empty means
@@ -70,8 +72,22 @@ type Query[A, R any] struct {
 	LookupBy []LookupKey
 
 	// SQL is the relative path to the `.sql` file that backs a `query.sql`.
+	// For `query.view`, this is read by RunSQL unless SQLText is already set.
 	// Ignored for list/lookup.
 	SQL string
+
+	// SQLText is an optional embedded SQL body. When empty, RunSQL reads SQL
+	// from the SQL path. Codegen can choose either strategy; both keep the
+	// runtime as wire over pgx.
+	SQLText string
+
+	// SQLArgs converts typed query args into positional SQL bind values.
+	// Used by `query.view`; nil means no args.
+	SQLArgs func(A) []any
+
+	// SQLMany says the SQL-backed query returns many rows. When false, RunSQL
+	// returns exactly one row or a not_found error.
+	SQLMany bool
 
 	// Returns is the canonical name of the resource or record the SQL query
 	// returns. Used for documentation and codegen of the row type. Ignored
@@ -159,6 +175,8 @@ func (q *Query[A, R]) erased() *queryErased {
 		Paginate:   q.Paginate,
 		LookupBy:   q.LookupBy,
 		SQL:        q.SQL,
+		SQLText:    q.SQLText,
+		SQLMany:    q.SQLMany,
 		Returns:    q.Returns,
 		Cache:      q.Cache,
 		Prelude:    q.Prelude,
@@ -180,6 +198,8 @@ type queryErased struct {
 	Paginate   int
 	LookupBy   []LookupKey
 	SQL        string
+	SQLText    string
+	SQLMany    bool
 	Returns    string
 	Cache      *CacheSpec
 	Prelude    []GateRef

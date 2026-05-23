@@ -1264,7 +1264,11 @@ fn emit_feature_ts_artifacts(
 ) -> Vec<lazuli_codegen_ts::GeneratedFile> {
     let mut out = Vec::new();
     let target_prefixes = feature_ts_target_prefixes(feature, manifest);
-    if !feature.resources.is_empty() || !feature.commands.is_empty() {
+    if !feature.resources.is_empty()
+        || !feature.records.is_empty()
+        || !feature.commands.is_empty()
+        || !feature.queries.is_empty()
+    {
         for target_prefix in &target_prefixes {
             out.push(lazuli_codegen_ts::GeneratedFile {
                 path: format!(
@@ -2008,12 +2012,16 @@ fn write_query_sdk(
         });
     let returns = match query {
         lazuli_ir::Query::Lookup(_) => resource_ty,
-        lazuli_ir::Query::List(_) | lazuli_ir::Query::Sql(_) => format!("{resource_ty}[]"),
+        lazuli_ir::Query::List(_) => format!("{resource_ty}[]"),
+        lazuli_ir::Query::Sql(q) => ts_type_for_type_ref(&q.returns, module),
     };
     let query_ref_kind = match query {
         lazuli_ir::Query::List(_) => lazuli_ir::QueryKind::List,
         lazuli_ir::Query::Lookup(_) => lazuli_ir::QueryKind::Lookup,
-        lazuli_ir::Query::Sql(_) => lazuli_ir::QueryKind::Sql,
+        lazuli_ir::Query::Sql(q) => match q.sql_kind {
+            lazuli_ir::SqlQueryKind::Sql => lazuli_ir::QueryKind::Sql,
+            lazuli_ir::SqlQueryKind::View => lazuli_ir::QueryKind::View,
+        },
     };
     // Query-side operational metadata (review bug #7, 2026-05-15).
     // Today `lazuli_ir::Query` carries no explicit policy/rate_limit at
@@ -2959,7 +2967,7 @@ fn command_ident(feature: &str, command_name: &str) -> String {
 fn query_ident(feature: &str, kind: lazuli_ir::QueryKind, query_name: &str) -> String {
     let resource_pascal = pascal_case(feature);
     match kind {
-        lazuli_ir::QueryKind::List | lazuli_ir::QueryKind::Sql => {
+        lazuli_ir::QueryKind::List | lazuli_ir::QueryKind::Sql | lazuli_ir::QueryKind::View => {
             if query_name.eq_ignore_ascii_case("list") {
                 format!("list{}s", resource_pascal)
             } else if query_name.eq_ignore_ascii_case("fulltext") {
@@ -7836,6 +7844,7 @@ fn tool_kind_segment(kind: lazuli_ir::ToolKind) -> &'static str {
         lazuli_ir::ToolKind::QueryList => "query.list",
         lazuli_ir::ToolKind::QueryLookup => "query.lookup",
         lazuli_ir::ToolKind::QuerySql => "query.sql",
+        lazuli_ir::ToolKind::QueryView => "query.view",
         lazuli_ir::ToolKind::Command => "command",
         lazuli_ir::ToolKind::Api => "api",
         lazuli_ir::ToolKind::QueryUnspecified => "query",
@@ -8244,12 +8253,14 @@ fn tool_binding_for_reference(reference: &str) -> InspectAgentToolBinding {
         ["query", "list", _] => ("query.list", "local"),
         ["query", "lookup", _] => ("query.lookup", "local"),
         ["query", "sql", _] => ("query.sql", "local"),
+        ["query", "view", _] => ("query.view", "local"),
         ["query", _] => ("query", "local"),
         ["command", _] => ("command", "local"),
         ["api", _] => ("api", "local"),
         [_feature, "query", "list", _] => ("query.list", "cross_feature"),
         [_feature, "query", "lookup", _] => ("query.lookup", "cross_feature"),
         [_feature, "query", "sql", _] => ("query.sql", "cross_feature"),
+        [_feature, "query", "view", _] => ("query.view", "cross_feature"),
         [_feature, "query", _] => ("query", "cross_feature"),
         [_feature, "command", _] => ("command", "cross_feature"),
         [_feature, "api", _] => ("api", "cross_feature"),
@@ -8258,7 +8269,7 @@ fn tool_binding_for_reference(reference: &str) -> InspectAgentToolBinding {
 
     let derived_effect = match kind {
         "command" => "write",
-        "query.list" | "query.lookup" | "query.sql" | "query" => "read",
+        "query.list" | "query.lookup" | "query.sql" | "query.view" | "query" => "read",
         _ => "unknown",
     };
 
@@ -12091,6 +12102,55 @@ mod tests {
 
         assert_eq!(occurrences(&output, "export const ITEM_TYPE_VALUES"), 1);
         assert_eq!(occurrences(&output, "export type ItemType"), 1);
+    }
+
+    #[test]
+    fn query_view_sdk_uses_declared_returns_type() {
+        let (mut feature, mut module) = enum_sdk_fixture(false, false);
+        feature.name = "host".to_owned();
+        feature.records.push(lazuli_ir::Record {
+            name: "HostHomeRow".to_owned(),
+            public_contract: None,
+            fields: vec![field(
+                "id",
+                lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::Id),
+            )],
+            discriminator_field: None,
+            span_ref: None,
+        });
+        feature.queries.push(lazuli_ir::Query::Sql(lazuli_ir::SqlQuery {
+            name: "host_home_view".to_owned(),
+            sql_kind: lazuli_ir::SqlQueryKind::View,
+            public_contract: None,
+            params: vec![lazuli_ir::TypedSlot {
+                name: "user_id".to_owned(),
+                type_ref: lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::Id),
+                required: true,
+                constraints: lazuli_ir::FieldConstraints::default(),
+            }],
+            scope: Vec::new(),
+            scope_override: false,
+            returns: lazuli_ir::TypeRef::Many(Box::new(lazuli_ir::TypeRef::UserDefined(
+                local_qn("HostHomeRow"),
+            ))),
+            sql_path: "app/features/host/queries/host_home_view.sql".to_owned(),
+            cache: None,
+            policy: lazuli_ir::PolicyRef::None,
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }));
+        module.features = vec![feature.clone()];
+
+        let output = emit_feature_sdk_ts(&feature, &module);
+
+        assert!(
+            output.contains(
+                "export const listHostHomeViewHosts = defineQuery<{ user_id: ID }, HostHomeRow[]>(\"host.host_home_view\");"
+            ),
+            "query.view SDK should use the declared typed returns shape; got:\n{output}"
+        );
     }
 
     fn enum_sdk_fixture(

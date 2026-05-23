@@ -686,6 +686,7 @@ mod tests {
         let mut host = empty_feature("host");
         host.queries.push(Query::Sql(lazuli_ir::SqlQuery {
             name: "recent_users".to_owned(),
+            sql_kind: lazuli_ir::SqlQueryKind::Sql,
             public_contract: None,
             params: vec![],
             scope: vec![],
