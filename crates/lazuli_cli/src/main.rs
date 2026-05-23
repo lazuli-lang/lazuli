@@ -4149,34 +4149,11 @@ fn codegen_lazurite_manifest(
             // `path` is the lazuli source ROOT (e.g. `../lazuli`);
             // the runtime/go module lives at `<root>/runtime/go`.
             let runtime_rel = format!("{}/runtime/go", p.trim_end_matches('/'));
-            // go.work: relative (portable across devs sharing the
-            //   canonical sibling layout).
-            // go.mod replace: ABSOLUTE forward-slash. Empirically Go
-            //   on Windows conflicts on `replace` paths that differ
-            //   in separator (workspace `use` normalises one way,
-            //   plugin-shipped `replace` directives the other). Every
-            //   `@lazuli/plugin-*` repo ships a baked-in
-            //   `replace lazuli.dev/runtime => C:/Users/.../lazuli/runtime/go`;
-            //   matching that format here avoids "conflicting
-            //   replacements" at workspace build time. The price is
-            //   that dist/go/go.mod becomes machine-specific —
-            //   acceptable because dist/go/* is git-ignored / regen-
-            //   overwritable.
-            let project_abs = absolutize_project_root(project_root);
-            let runtime_abs_path = std::path::Path::new(&runtime_rel);
-            let runtime_abs = if runtime_abs_path.is_absolute() {
-                runtime_abs_path.to_path_buf()
-            } else {
-                project_abs.join(runtime_abs_path)
-            };
-            let go_mod_abs = std::fs::canonicalize(&runtime_abs)
-                .unwrap_or(runtime_abs)
-                .to_string_lossy()
-                .replace('\\', "/")
-                .trim_start_matches("//?/")
-                .to_owned();
+            // dist/go/go.mod sits TWO levels deeper than the project
+            // root (project → dist → dist/go), so prepend `../../`
+            // for the go.mod replace.
             RuntimeDevReplace {
-                go_mod: go_mod_abs,
+                go_mod: format!("../../{}", runtime_rel),
                 go_work: runtime_rel,
             }
         });
