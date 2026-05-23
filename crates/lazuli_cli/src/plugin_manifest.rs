@@ -71,6 +71,11 @@ pub struct PluginIdentity {
     pub go_module: Option<String>,
     #[serde(default)]
     pub ts_package: Option<String>,
+    /// One-line description surfaced in the plugin catalog (LSP
+    /// hover, docs site, `lazuli plugins` CLI). When absent the
+    /// catalog falls back to the README's first paragraph.
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 /// One `[[semantic_types]]` entry. `alias` is the source-form authoring

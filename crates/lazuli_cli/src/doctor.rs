@@ -2461,6 +2461,7 @@ fn lazurite_manifest_diagnostics(package: &DoctorPackage) -> Vec<DoctorDiagnosti
     diagnostics.extend(check_semantic_plugin_no_validator(manifest, package));
     diagnostics.extend(check_plugin_manifest_missing(manifest, package));
     diagnostics.extend(check_plugin_readme_missing(manifest, package));
+    diagnostics.extend(check_plugin_catalog_drift(manifest, package));
     diagnostics.extend(check_submodule_drift(manifest, package));
     diagnostics.extend(check_migration_strategy_conflict(manifest, package));
     diagnostics.extend(check_frontend_audience_unknown(manifest, package));
@@ -2547,6 +2548,67 @@ fn check_plugin_readme_missing(
         });
     }
     diagnostics
+}
+
+/// PLUGIN-CATALOG-DRIFT (warning) — `dist/plugin-catalog.json` is
+/// expected to be regenerated whenever a plugin's manifest or README
+/// changes. When the catalog's mtime predates any plugin's
+/// `manifest.toml` or `README.md`, the catalog is stale and the LSP /
+/// docs site / `lazuli plugins` CLI will show outdated info.
+///
+/// Quietly skips when the catalog file doesn't exist yet (the next
+/// `lazuli generate ts` will produce it) and when no plugins are
+/// declared. Spec: `docs/proposals/plugin-catalog-file-2026-05-23.md`.
+fn check_plugin_catalog_drift(
+    manifest: &crate::lazurite_manifest::Manifest,
+    package: &DoctorPackage,
+) -> Vec<DoctorDiagnostic> {
+    if manifest.plugins.is_empty() {
+        return Vec::new();
+    }
+    let catalog_path = package.project_root.join("dist").join("plugin-catalog.json");
+    let Ok(catalog_meta) = std::fs::metadata(&catalog_path) else {
+        return Vec::new();
+    };
+    let Ok(catalog_mtime) = catalog_meta.modified() else {
+        return Vec::new();
+    };
+
+    let mut stale_sources: Vec<String> = Vec::new();
+    for plugin_ref in manifest.plugins.keys() {
+        let Some(plugin_root) =
+            crate::plugin_manifest::resolve_plugin_root(manifest, &package.project_root, plugin_ref)
+        else {
+            continue;
+        };
+        for relpath in [crate::plugin_manifest::PLUGIN_MANIFEST_FILENAME, "README.md"] {
+            let p = plugin_root.join(relpath);
+            let Ok(meta) = std::fs::metadata(&p) else { continue };
+            let Ok(mtime) = meta.modified() else { continue };
+            if mtime > catalog_mtime {
+                stale_sources.push(format!("{plugin_ref} ({relpath})"));
+                break;
+            }
+        }
+    }
+
+    if stale_sources.is_empty() {
+        return Vec::new();
+    }
+    stale_sources.sort();
+
+    vec![DoctorDiagnostic {
+        path: catalog_path.clone(),
+        line: 1,
+        column: 1,
+        severity: DoctorSeverity::Warning,
+        code: "PLUGIN-CATALOG-DRIFT".to_owned(),
+        message: format!(
+            "`dist/plugin-catalog.json` is older than {} plugin source(s) ({}). Run `lazuli generate ts` to refresh the catalog so the LSP / docs site / `lazuli plugins` CLI see current plugin info.",
+            stale_sources.len(),
+            stale_sources.join(", "),
+        ),
+    }]
 }
 
 /// SEMANTIC-PLUGIN-002 (B4) — `@semantic.<Name>` references that

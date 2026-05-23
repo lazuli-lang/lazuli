@@ -29,6 +29,7 @@ mod inspect {
 }
 mod lazurite_manifest;
 mod migrate;
+mod plugin_catalog;
 mod plugin_manifest;
 mod plugin_semantic_resolver;
 mod profile;
@@ -1200,6 +1201,17 @@ fn generate_ts(input: &Path, output: Option<&Path>, check: bool) -> Result<()> {
             files.push(lazuli_codegen_ts::GeneratedFile {
                 path: "dist/ts-web/lazurite.vite.d.mts".to_owned(),
                 contents: lazuli_codegen_ts::vite_aliases::emit_vite_aliases_dts(),
+            });
+        }
+
+        // Plugin catalog — single JSON file consolidating every plugin's
+        // manifest + README excerpt + Go/TS exports. Consumed by apps,
+        // docs sites, the LSP, and the planned `lazuli plugins` CLI.
+        // Spec: docs/proposals/plugin-catalog-file-2026-05-23.md.
+        if let Some(contents) = crate::plugin_catalog::emit_plugin_catalog(m, &project_root_abs) {
+            files.push(lazuli_codegen_ts::GeneratedFile {
+                path: "dist/plugin-catalog.json".to_owned(),
+                contents,
             });
         }
     }
