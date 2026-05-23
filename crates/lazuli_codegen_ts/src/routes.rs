@@ -78,6 +78,11 @@ struct RouteSpec {
     /// router-w8 — parent route name (used to compute the parent's
     /// route const). None means the route mounts under rootRoute.
     parent_route_const: Option<String>,
+    /// router-w9 — `lazy true` on the route. When set, codegen emits
+    /// `lazy: () => options.lazyComponents?.<key>?.()` and drops the
+    /// synchronous `component` field. Consumer registers a `()
+    /// => import('./Foo')` thunk in the `lazyComponents` map.
+    lazy: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -168,6 +173,7 @@ pub fn emit_routes_artifacts(
             pending_component_key: route.pending_view.as_ref().map(|v| lower_camel(v)),
             error_component_key: route.error_view.as_ref().map(|v| lower_camel(v)),
             parent_route_const: route.parent.as_ref().map(|p| route_const_name(p)),
+            lazy: route.lazy.unwrap_or(false),
         });
     }
 
@@ -237,9 +243,16 @@ fn emit_routes_file(specs: &[RouteSpec]) -> String {
         .iter()
         .any(|s| s.guard_emit.as_ref().is_some_and(|g| !g.forbid_when.is_empty()));
     s.push_str("import { createElement, type FunctionComponent, type ReactElement } from \"@lazuli/runtime/react\";\n");
+    let any_lazy = specs.iter().any(|s| s.lazy);
     s.push_str(
         "import { Link, Outlet, createRootRouteWithContext, createRoute, createRouter, redirect, type LinkProps, type NotFoundRouteComponent, type QueryClient } from \"@lazuli/runtime/react/tanstack\";\n",
     );
+    if any_lazy {
+        // router-w9 — lazyRouteComponent wraps the consumer-provided
+        // `() => import('./Foo')` thunk so the chunk is loaded only
+        // when the route is navigated to.
+        s.push_str("import { lazyRouteComponent } from \"@lazuli/runtime/react/tanstack\";\n");
+    }
     if any_ir_guard {
         // tanstackBeforeLoadGuard is the runtime helper that decomposes
         // policy → verdict and throws the configured redirect.
@@ -327,12 +340,17 @@ fn emit_routes_file(specs: &[RouteSpec]) -> String {
     s.push_str(
         "export type GeneratedRouterComponents = Record<ClientComponentKey, FunctionComponent<any>>;\n",
     );
-    s.push_str("export type GeneratedRouterGuards = Partial<Record<ClientComponentKey, (params: { context: GeneratedRouterContext }) => unknown | Promise<unknown>>>;\n\n");
+    s.push_str("export type GeneratedRouterGuards = Partial<Record<ClientComponentKey, (params: { context: GeneratedRouterContext }) => unknown | Promise<unknown>>>;\n");
+    // router-w9 — lazy components thunks. Each entry returns a
+    // Promise resolving to `{ default: ComponentType }` so the
+    // bundler emits a separate chunk per route.
+    s.push_str("export type GeneratedLazyComponents = Partial<Record<ClientComponentKey, () => Promise<{ default: FunctionComponent<any> }>>>;\n\n");
     s.push_str("export function createGeneratedRouter(options: {\n");
     s.push_str("  client: LazuliClient;\n");
     s.push_str("  queryClient: QueryClient;\n");
     s.push_str("  components: GeneratedRouterComponents;\n");
     s.push_str("  guards?: GeneratedRouterGuards;\n");
+    s.push_str("  lazyComponents?: GeneratedLazyComponents;\n");
     s.push_str("  notFoundComponent?: NotFoundRouteComponent;\n");
     s.push_str("  defaultPreload?: \"intent\" | \"viewport\" | \"render\" | false;\n");
     s.push_str("}) {\n");
@@ -361,12 +379,28 @@ fn emit_routes_file(specs: &[RouteSpec]) -> String {
             s.push_str("    getParentRoute: () => rootRoute,\n");
         }
         writeln!(s, "    path: {},", ts_string(&spec.path)).ok();
-        writeln!(
-            s,
-            "    component: options.components.{},",
-            spec.component_key
-        )
-        .ok();
+        if spec.lazy {
+            // router-w9 — wrap the consumer's import thunk with
+            // lazyRouteComponent so the chunk loads on navigation.
+            // The non-null assertion (`!`) keeps the runtime simple:
+            // any route declared `lazy true` requires the consumer
+            // to register the thunk; missing entries are an authoring
+            // error caught by typecheck (Partial allows missing, but
+            // runtime throws if asserted-unset).
+            writeln!(
+                s,
+                "    component: lazyRouteComponent(options.lazyComponents?.{key}!, {key:?}),",
+                key = spec.component_key
+            )
+            .ok();
+        } else {
+            writeln!(
+                s,
+                "    component: options.components.{},",
+                spec.component_key
+            )
+            .ok();
+        }
         // router-w6 — pending_view / error_view slots, when declared.
         if let Some(key) = &spec.pending_component_key {
             writeln!(s, "    pendingComponent: options.components.{},", key).ok();

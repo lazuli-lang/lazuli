@@ -14,6 +14,7 @@ export {
   createRoute,
   createRouter,
   createRootRouteWithContext,
+  lazyRouteComponent,
   redirect,
 } from "@tanstack/react-router";
 export type { LinkProps, NotFoundRouteComponent } from "@tanstack/react-router";

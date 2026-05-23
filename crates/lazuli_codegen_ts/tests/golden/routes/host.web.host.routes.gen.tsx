@@ -22,12 +22,14 @@ export type ClientComponentKey = "hostBookingDetail" | "hostHome";
 export type GeneratedRouterContext = { client: LazuliClient; queryClient: QueryClient };
 export type GeneratedRouterComponents = Record<ClientComponentKey, FunctionComponent<any>>;
 export type GeneratedRouterGuards = Partial<Record<ClientComponentKey, (params: { context: GeneratedRouterContext }) => unknown | Promise<unknown>>>;
+export type GeneratedLazyComponents = Partial<Record<ClientComponentKey, () => Promise<{ default: FunctionComponent<any> }>>>;
 
 export function createGeneratedRouter(options: {
   client: LazuliClient;
   queryClient: QueryClient;
   components: GeneratedRouterComponents;
   guards?: GeneratedRouterGuards;
+  lazyComponents?: GeneratedLazyComponents;
   notFoundComponent?: NotFoundRouteComponent;
   defaultPreload?: "intent" | "viewport" | "render" | false;
 }) {
