@@ -203,6 +203,12 @@ pub struct LzxRoute {
     /// router-w5 — `loader <feature>.<query>` declarations.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub loaders: Vec<LzxRouteLoader>,
+    /// router-w6 — `pending_view <component_key>` declaration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_view: Option<String>,
+    /// router-w6 — `error_view <component_key>` declaration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_view: Option<String>,
     pub span: Span,
 }
 

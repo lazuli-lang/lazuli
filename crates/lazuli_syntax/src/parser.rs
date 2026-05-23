@@ -848,6 +848,8 @@ fn parse_lzx_route(
     let mut prerender = None;
     let mut guard = None;
     let mut loaders: Vec<crate::ast::LzxRouteLoader> = Vec::new();
+    let mut pending_view: Option<String> = None;
+    let mut error_view: Option<String> = None;
     let mut index = start + 1;
 
     while index < lines.len() {
@@ -907,10 +909,28 @@ fn parse_lzx_route(
                 query: query.trim().to_owned(),
                 span: Span::new(line.start, line.end),
             });
+        } else if let Some(rest) = trimmed.strip_prefix("pending_view ") {
+            // router-w6 — `pending_view <component_key>`.
+            if pending_view.is_some() {
+                return Err(line_error(
+                    line,
+                    "route declares `pending_view` at most once",
+                ));
+            }
+            pending_view = Some(rest.trim().to_owned());
+        } else if let Some(rest) = trimmed.strip_prefix("error_view ") {
+            // router-w6 — `error_view <component_key>`.
+            if error_view.is_some() {
+                return Err(line_error(
+                    line,
+                    "route declares `error_view` at most once",
+                ));
+            }
+            error_view = Some(rest.trim().to_owned());
         } else {
             return Err(line_error(
                 line,
-                "route children are `path`, `route <name>: <Type>`, `to`, `surface`, `audience`, `lazy`, `prerender`, `loader <feature>.<query>`, or `policy` declarations",
+                "route children are `path`, `route <name>: <Type>`, `to`, `surface`, `audience`, `lazy`, `prerender`, `loader <feature>.<query>`, `pending_view <key>`, `error_view <key>`, or `policy` declarations",
             ));
         }
         index += 1;
@@ -928,6 +948,8 @@ fn parse_lzx_route(
             prerender,
             guard,
             loaders,
+            pending_view,
+            error_view,
             span: Span::new(header.start, lines[index.saturating_sub(1)].end),
         },
         index,

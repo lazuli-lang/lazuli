@@ -69,6 +69,12 @@ struct RouteSpec {
     /// feature-level zero-arg query via TanStack Query's
     /// `ensureQueryData`. Multiple loaders run in parallel.
     loaders: Vec<LoaderEmit>,
+    /// router-w6 — pending_view component-key. None when the route
+    /// doesn't declare one. Consumers register the component in
+    /// ROUTE_COMPONENTS under the same key (joins ClientComponentKey).
+    pending_component_key: Option<String>,
+    /// router-w6 — error_view component-key.
+    error_component_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -156,6 +162,8 @@ pub fn emit_routes_artifacts(
                     query_export: lower_camel_export(&l.query),
                 })
                 .collect(),
+            pending_component_key: route.pending_view.as_ref().map(|v| lower_camel(v)),
+            error_component_key: route.error_view.as_ref().map(|v| lower_camel(v)),
         });
     }
 
@@ -290,12 +298,26 @@ fn emit_routes_file(specs: &[RouteSpec]) -> String {
     if specs.is_empty() {
         s.push_str("export type ClientComponentKey = never;\n");
     } else {
-        let keys = specs
+        // ClientComponentKey unions every component-key the consumer
+        // must register: the main route component, plus any
+        // pending_view / error_view (router-w6) keys declared on a
+        // route. Dedup'd alphabetically for deterministic output.
+        let mut keys: BTreeSet<String> = BTreeSet::new();
+        for spec in specs {
+            keys.insert(spec.component_key.clone());
+            if let Some(k) = &spec.pending_component_key {
+                keys.insert(k.clone());
+            }
+            if let Some(k) = &spec.error_component_key {
+                keys.insert(k.clone());
+            }
+        }
+        let union = keys
             .iter()
-            .map(|spec| ts_string(&spec.component_key))
+            .map(|k| ts_string(k))
             .collect::<Vec<_>>()
             .join(" | ");
-        writeln!(s, "export type ClientComponentKey = {};", keys).ok();
+        writeln!(s, "export type ClientComponentKey = {};", union).ok();
     }
     s.push_str("export type GeneratedRouterContext = { client: LazuliClient; queryClient: QueryClient };\n");
     s.push_str(
@@ -332,6 +354,13 @@ fn emit_routes_file(specs: &[RouteSpec]) -> String {
             spec.component_key
         )
         .ok();
+        // router-w6 — pending_view / error_view slots, when declared.
+        if let Some(key) = &spec.pending_component_key {
+            writeln!(s, "    pendingComponent: options.components.{},", key).ok();
+        }
+        if let Some(key) = &spec.error_component_key {
+            writeln!(s, "    errorComponent: options.components.{},", key).ok();
+        }
         emit_before_load(&mut s, spec);
         emit_loader(&mut s, spec);
         s.push_str("  });\n");

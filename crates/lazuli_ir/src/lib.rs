@@ -4374,6 +4374,17 @@ pub struct AppRoute {
     /// the route declares no loaders.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub loaders: Vec<RouteLoader>,
+    /// router-w6 — `pending_view <component_key>` declaration. When
+    /// set, codegen wires the named component to the route's
+    /// `pendingComponent` slot. TanStack renders it while the
+    /// route's loader is pending; consumers register the component
+    /// in the GeneratedRouterComponents map under this key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_view: Option<String>,
+    /// router-w6 — `error_view <component_key>` declaration. Wires
+    /// `errorComponent` on the route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_view: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
@@ -7515,6 +7526,8 @@ mod l0_6_ir_tests {
                 prerender: None,
                 guard: Some(guard.clone()),
                 loaders: Vec::new(),
+                pending_view: None,
+                error_view: None,
                 span_ref: None,
             }],
             experiences: vec![Experience {
@@ -7533,6 +7546,8 @@ mod l0_6_ir_tests {
                     tests: Vec::new(),
                     guard: Some(guard.clone()),
                     loaders: Vec::new(),
+                    pending_view: None,
+                    error_view: None,
                     resolved_guard_policy: None,
                     resolved_lifecycle_gate: Some(resolved.clone()),
                     span_ref: None,
