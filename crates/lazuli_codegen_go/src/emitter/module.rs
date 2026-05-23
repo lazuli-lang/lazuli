@@ -305,7 +305,7 @@ pub fn emit_module(
     if manifest.is_some() && submodule {
         files.push(GeneratedFile {
             path: "go.work".to_owned(),
-            contents: emit_go_work(dev_work_runtime),
+            contents: emit_go_work(dev_work_runtime, manifest),
         });
     }
 
@@ -902,7 +902,10 @@ fn emit_go_mod(
     p.finish()
 }
 
-fn emit_go_work(dev_runtime_path: Option<&str>) -> String {
+fn emit_go_work(
+    dev_runtime_path: Option<&str>,
+    manifest: Option<&LazuriteManifest>,
+) -> String {
     let mut p = GoPrinter::new();
     p.line(DEFAULT_GO_TOOLCHAIN);
     p.blank();
@@ -912,6 +915,28 @@ fn emit_go_work(dev_runtime_path: Option<&str>) -> String {
     p.line("./dist/go");
     if let Some(path) = dev_runtime_path {
         p.line(path);
+    }
+    // Plugin `use ()` entries — every plugin with a local path
+    // (resolved via `[plugins].<ns> = { path = "..." }` OR a
+    // `[dev.plugin_paths]` override). Sorted by namespace for
+    // deterministic output. Remote-only plugins (no local path)
+    // are skipped — Go's module resolution + go.sum handles them.
+    if let Some(m) = manifest {
+        let dev_overrides = m
+            .dev
+            .as_ref()
+            .map(|d| &d.plugin_paths)
+            .map(|p| p.clone())
+            .unwrap_or_default();
+        for (namespace, plugin) in &m.plugins {
+            let path = dev_overrides
+                .get(namespace)
+                .cloned()
+                .or_else(|| plugin.path.clone());
+            if let Some(path) = path {
+                p.line(&path);
+            }
+        }
     }
     p.dedent();
     p.line(")");

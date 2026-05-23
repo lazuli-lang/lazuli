@@ -4139,19 +4139,37 @@ fn codegen_lazurite_manifest(
         })
         .collect::<BTreeMap<_, _>>();
     let generate_go = manifest.generate.go.as_ref().map(|go| {
+        // Resolve the Lazuli runtime/go path. Lazurite.toml's
+        // `[lazuli] path` is authoritative (the user explicitly
+        // points at a local checkout); fall back to the ancestor
+        // heuristic for legacy projects that haven't set it.
         let detected =
             out_dir.and_then(|out_dir| detect_runtime_dev_replace(project_root, out_dir));
+        let manifest_runtime = manifest.lazuli.path.as_ref().map(|p| {
+            // `path` is the lazuli source ROOT (e.g. `../lazuli`);
+            // the runtime/go module lives at `<root>/runtime/go`.
+            // Keep it relative so the emitted go.work is portable.
+            let runtime_rel = format!("{}/runtime/go", p.trim_end_matches('/'));
+            RuntimeDevReplace {
+                // dist/go/go.mod sits one level deeper than the
+                // project root, so prepend `../` to the relative
+                // path the manifest declared from the project root.
+                go_mod: format!("../{}", runtime_rel),
+                go_work: runtime_rel,
+            }
+        });
+        let resolved = manifest_runtime.or(detected);
         lazuli_codegen_go::LazuriteGenerateGo {
             emit_main: go.emit_main,
             submodule: go.submodule,
             dev_replace: go
                 .dev_replace
                 .clone()
-                .or_else(|| detected.as_ref().map(|paths| paths.go_mod.clone())),
+                .or_else(|| resolved.as_ref().map(|paths| paths.go_mod.clone())),
             dev_work_replace: go
                 .dev_replace
                 .clone()
-                .or_else(|| detected.map(|paths| paths.go_work)),
+                .or_else(|| resolved.map(|paths| paths.go_work)),
         }
     });
     let dev = manifest
