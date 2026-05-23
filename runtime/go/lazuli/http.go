@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"lazuli.dev/runtime/lazuli/i18n"
@@ -71,6 +72,19 @@ func Mux() http.Handler {
 		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 			handleCommandRequest(w, r, cmd)
 		})
+		// Mirror pure-read commands at /api/v1/q/<name>. The TS codegen
+		// classifies these as `defineQuery` (see lazuli_cli/main.rs:
+		// `command_is_pure_read`) for cache/suspense/refetch semantics on
+		// the React side, so consumers route them through /q/. Without
+		// the mirror, every defineQuery call against a Returns-only
+		// command 404s. The handler delegates to handleCommandRequest
+		// unchanged — only the URL differs.
+		if isPureReadCommand(cmd) {
+			qPath := "POST /api/v1/q/" + cmd.Name
+			mux.HandleFunc(qPath, func(w http.ResponseWriter, r *http.Request) {
+				handleCommandRequest(w, r, cmd)
+			})
+		}
 	}
 
 	for _, q := range Queries() {
@@ -358,6 +372,49 @@ func newRequestCtx(r *http.Request) *Ctx {
 	populateProductionSession(r, ctx)
 	populateDevSession(r, ctx)
 	return ctx
+}
+
+// isPureReadCommand mirrors the TS-codegen classifier in
+// `crates/lazuli_cli/src/main.rs::command_is_pure_read`. A command
+// qualifies when:
+//   - its `Effect` is a `ReturnsEffect` (no transactional INSERT/
+//     UPDATE/DELETE on a resource),
+//   - it declares no side-effects (no Emits/EmitsTrace/Invalidates/
+//     ExternalCalls/Transitions),
+//   - its name starts with a read-verb prefix (`list_`, `get_`,
+//     `lookup_`, `search_`, `find_`, `count_`).
+//
+// Pure-read commands are mirrored at `/api/v1/q/<name>` so the TS
+// SDK's `defineQuery` factory (which routes to /q/) resolves. The
+// name-prefix gate keeps the classification conservative — a return-
+// only command without a read verb (e.g. `request_profile_photo_upload`,
+// which mints a presigned URL) stays /c/-only and uses
+// `useLazuliCommand` on the React side.
+//
+// Keep the prefix list in sync with `READ_VERB_PREFIXES` in
+// `lazuli_cli/src/main.rs`.
+func isPureReadCommand(cmd *commandErased) bool {
+	if cmd == nil {
+		return false
+	}
+	if _, ok := cmd.Effect.(ReturnsEffect); !ok {
+		return false
+	}
+	if len(cmd.Emits) > 0 || len(cmd.EmitsTrace) > 0 || len(cmd.Invalidates) > 0 ||
+		len(cmd.ExternalCalls) > 0 || len(cmd.Transitions) > 0 {
+		return false
+	}
+	// Strip "<feature>." prefix to match against the bare command name.
+	short := cmd.Name
+	if dot := strings.IndexByte(short, '.'); dot >= 0 {
+		short = short[dot+1:]
+	}
+	for _, prefix := range []string{"list_", "get_", "lookup_", "search_", "find_", "count_"} {
+		if strings.HasPrefix(short, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // writeJSON marshals v to JSON with the given status. Encoding errors are
