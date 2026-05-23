@@ -1090,6 +1090,15 @@ fn generate_ts(input: &Path, output: Option<&Path>, check: bool) -> Result<()> {
         ),
     );
 
+    if let Some(contents) = lazuli_codegen_ts::emit_semantic_formatters_ts(&module) {
+        for target_prefix in app_ts_target_prefixes(&module, &manifest) {
+            files.push(lazuli_codegen_ts::GeneratedFile {
+                path: format!("dist/{target_prefix}/runtime/formatters.gen.ts"),
+                contents: contents.clone(),
+            });
+        }
+    }
+
     // Per-feature: SDK (audience-filtered if frontend declares audiences),
     // Zod schemas, .lzx view hooks (one file per audience/view tuple),
     // slot interfaces (one per @client.<slot> binding).
@@ -1323,6 +1332,41 @@ fn feature_ts_target_prefixes(
             }
             lazuli_ir::SurfaceTarget::Mobile => {
                 targets.insert("ts-mobile");
+            }
+        }
+    }
+    if targets.is_empty() {
+        targets.insert("ts-web");
+    }
+    targets
+}
+
+fn app_ts_target_prefixes(
+    module: &lazuli_ir::Module,
+    manifest: &Option<lazurite_manifest::Manifest>,
+) -> BTreeSet<&'static str> {
+    let mut targets = BTreeSet::new();
+    if let Some(manifest) = manifest {
+        for frontend in manifest.frontends.values() {
+            match frontend.target {
+                lazurite_manifest::FrontendTarget::TanstackVite => {
+                    targets.insert("ts-web");
+                }
+                lazurite_manifest::FrontendTarget::Expo => {
+                    targets.insert("ts-mobile");
+                }
+            }
+        }
+    }
+    for feature in &module.features {
+        for surface in &feature.surfaces {
+            match surface.target {
+                lazuli_ir::SurfaceTarget::Web => {
+                    targets.insert("ts-web");
+                }
+                lazuli_ir::SurfaceTarget::Mobile => {
+                    targets.insert("ts-mobile");
+                }
             }
         }
     }
