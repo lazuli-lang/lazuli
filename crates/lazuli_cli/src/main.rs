@@ -12598,9 +12598,14 @@ mod tests {
 
         let output = emit_feature_sdk_ts(&feature, &module);
 
+        // A.6 pluralization renames `Item` (the default fixture's resource)
+        // → `Items`, so the canonical export is `listHostHomeViewItems`;
+        // the legacy `listHostHomeViewHosts` is preserved as a deprecation
+        // alias. Test asserts the typed `returns list <Record>` shape on
+        // the canonical export.
         assert!(
             output.contains(
-                "export const listHostHomeViewHosts = defineQuery<{ user_id: ID }, HostHomeRow[]>(\"host.host_home_view\");"
+                "export const listHostHomeViewItems = defineQuery<{ user_id: ID }, HostHomeRow[]>(\"host.host_home_view\");"
             ),
             "query.view SDK should use the declared typed returns shape; got:\n{output}"
         );
