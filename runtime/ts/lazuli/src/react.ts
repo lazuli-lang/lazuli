@@ -300,6 +300,6 @@ export declare function useDrawerSubView<TInput, TItem>(
 // them through the pilot's per-app node_modules. TanStack Router re-exports
 // live in @lazuli/runtime/react/tanstack to keep the router peer out of the
 // default React surface.
-export { useCallback, useState } from "react";
+export { createElement, useCallback, useState } from "react";
 export type { ComponentType, FunctionComponent, ReactElement } from "react";
 export { useQueryClient } from "@tanstack/react-query";

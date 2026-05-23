@@ -174,6 +174,6 @@ export const useLazuliForm = createUseLazuliForm(useLazuliQuery, useLazuliComman
 // @lazuli/runtime/react/tanstack (subpath) to keep the router peer out of
 // the default React surface — consumers without TanStack don't pay the
 // bundle cost.
-export { useCallback, useState };
+export { createElement, useCallback, useState };
 export type { ComponentType, FunctionComponent, ReactElement } from "react";
 export { useQueryClient };

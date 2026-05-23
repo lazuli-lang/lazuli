@@ -10,6 +10,7 @@ import { evaluatePolicy, type LazuliRouteGuardPolicy } from "./route-guard.js";
 // pay the bundle cost).
 export {
   Link,
+  Outlet,
   createRoute,
   createRouter,
   createRootRouteWithContext,

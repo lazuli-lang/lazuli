@@ -136,9 +136,9 @@ fn emit_routes_file(specs: &[RouteSpec]) -> String {
     // the consumer's imports unify on a single physical module (otherwise
     // pnpm's per-package isolation produces different `#private` brands
     // and the router instance is not assignable to RouterProvider).
-    s.push_str("import type { FunctionComponent, ReactElement } from \"@lazuli/runtime/react\";\n");
+    s.push_str("import { createElement, type FunctionComponent, type ReactElement } from \"@lazuli/runtime/react\";\n");
     s.push_str(
-        "import { Link, createRootRouteWithContext, createRoute, createRouter, type LinkProps, type NotFoundRouteComponent, type QueryClient } from \"@lazuli/runtime/react/tanstack\";\n",
+        "import { Link, Outlet, createRootRouteWithContext, createRoute, createRouter, type LinkProps, type NotFoundRouteComponent, type QueryClient } from \"@lazuli/runtime/react/tanstack\";\n",
     );
     s.push_str("import type { LazuliClient } from \"@lazuli/runtime\";\n\n");
 
@@ -176,8 +176,13 @@ fn emit_routes_file(specs: &[RouteSpec]) -> String {
     s.push_str("  notFoundComponent?: NotFoundRouteComponent;\n");
     s.push_str("  defaultPreload?: \"intent\" | \"viewport\" | \"render\" | false;\n");
     s.push_str("}) {\n");
+    // Root route renders Outlet so child route components actually mount.
+    // notFoundComponent is wired separately via createRouter's
+    // defaultNotFoundComponent — they are distinct concepts. Emitted as
+    // createElement(Outlet) (not JSX) so the dist file doesn't need a
+    // resolvable `react/jsx-runtime` from its filesystem walk.
     s.push_str("  const rootRoute = createRootRouteWithContext<GeneratedRouterContext>()({\n");
-    s.push_str("    component: () => null,\n");
+    s.push_str("    component: () => createElement(Outlet),\n");
     s.push_str("  });\n");
     for spec in specs {
         writeln!(s, "  const {} = createRoute({{", spec.route_const).ok();

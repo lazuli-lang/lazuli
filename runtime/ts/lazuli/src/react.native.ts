@@ -169,6 +169,6 @@ export const useLazuliForm = createUseLazuliForm(useLazuliQuery, useLazuliComman
 // React + react-query primitives re-exported (parity with react.web.ts) —
 // generated code (cap_file hooks) imports via @lazuli/runtime/react.
 // TanStack Router re-exports live in @lazuli/runtime/react/tanstack.
-export { useCallback, useState };
+export { createElement, useCallback, useState };
 export type { ComponentType, FunctionComponent, ReactElement } from "react";
 export { useQueryClient };

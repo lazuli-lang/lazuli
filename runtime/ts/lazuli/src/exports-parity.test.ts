@@ -59,6 +59,7 @@ const CONTRACTED_RUNTIME_EXPORTS = [
   "useDrawerSubView",
   // React + react-query primitive re-exports (for generated cap-file
   // hooks; consumers should still import these from `react` directly).
+  "createElement",
   "useCallback",
   "useState",
   "useQueryClient",
