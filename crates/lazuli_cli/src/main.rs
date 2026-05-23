@@ -1120,6 +1120,7 @@ fn generate_ts(input: &Path, output: Option<&Path>, check: bool) -> Result<()> {
         &lzx_module.routes,
         &lzx_module.surfaces,
         &lzx_module.experiences,
+        &module.features,
         lazuli_codegen_ts::routes::RoutesTarget::Web,
     ));
     files.extend(lazuli_codegen_ts::routes::emit_routes_artifacts(
@@ -1127,6 +1128,7 @@ fn generate_ts(input: &Path, output: Option<&Path>, check: bool) -> Result<()> {
         &lzx_module.routes,
         &lzx_module.surfaces,
         &lzx_module.experiences,
+        &module.features,
         lazuli_codegen_ts::routes::RoutesTarget::Mobile,
     ));
 

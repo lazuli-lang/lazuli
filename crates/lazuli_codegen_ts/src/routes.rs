@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-use lazuli_ir::{AppManifest, AppRoute, Experience, Platform, PlatformSurface};
+use lazuli_ir::{AppManifest, AppRoute, Experience, Feature, Platform, PlatformSurface, ViewGuard};
 
 use crate::GeneratedFile;
 use crate::lzx::lzx_router_adapter::{RouterTarget, translate_route_path};
@@ -49,6 +49,24 @@ struct RouteSpec {
     audience: String,
     component_key: String,
     route_const: String,
+    /// W3 Tier 1 — when the .lzx route block declared `policy @policy.X`
+    /// (plus optional `on_unauthenticated`/`on_unauthorized`), codegen
+    /// emits a `beforeLoad` that calls the runtime's
+    /// `tanstackBeforeLoadGuard`. None ⇒ route's `beforeLoad` falls
+    /// through to `options.guards?.<key>` (consumer-supplied closure;
+    /// the Wave 2 escape hatch stays available for app-bespoke logic).
+    guard_emit: Option<GuardEmit>,
+}
+
+/// Resolved per-route guard payload for codegen. Atoms are decomposed
+/// from `@<ns>.<name>` strings at IR-resolution time so the emitted
+/// TS doesn't need a runtime lookup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GuardEmit {
+    policy_name: String,
+    policy_atoms: Vec<(String, String)>,
+    on_unauthenticated: Option<String>,
+    on_unauthorized: Option<String>,
 }
 
 pub fn emit_routes_artifacts(
@@ -56,6 +74,7 @@ pub fn emit_routes_artifacts(
     routes: &[AppRoute],
     surfaces: &[PlatformSurface],
     experiences: &[Experience],
+    features: &[Feature],
     target: RoutesTarget,
 ) -> Vec<GeneratedFile> {
     let mut groups: BTreeMap<String, Vec<RouteSpec>> = BTreeMap::new();
@@ -73,6 +92,7 @@ pub fn emit_routes_artifacts(
             audience,
             component_key: lower_camel(&route.name),
             route_const: route_const_name(&route.name),
+            guard_emit: route.guard.as_ref().and_then(|g| resolve_guard_emit(g, features)),
         });
     }
 
@@ -136,10 +156,16 @@ fn emit_routes_file(specs: &[RouteSpec]) -> String {
     // the consumer's imports unify on a single physical module (otherwise
     // pnpm's per-package isolation produces different `#private` brands
     // and the router instance is not assignable to RouterProvider).
+    let any_ir_guard = specs.iter().any(|s| s.guard_emit.is_some());
     s.push_str("import { createElement, type FunctionComponent, type ReactElement } from \"@lazuli/runtime/react\";\n");
     s.push_str(
         "import { Link, Outlet, createRootRouteWithContext, createRoute, createRouter, type LinkProps, type NotFoundRouteComponent, type QueryClient } from \"@lazuli/runtime/react/tanstack\";\n",
     );
+    if any_ir_guard {
+        // tanstackBeforeLoadGuard is the runtime helper that decomposes
+        // policy → verdict and throws the configured redirect.
+        s.push_str("import { tanstackBeforeLoadGuard } from \"@lazuli/runtime/react/tanstack\";\n");
+    }
     s.push_str("import type { LazuliClient } from \"@lazuli/runtime\";\n\n");
 
     s.push_str("export const routeSpecs = [\n");
@@ -198,12 +224,7 @@ fn emit_routes_file(specs: &[RouteSpec]) -> String {
             spec.component_key
         )
         .ok();
-        writeln!(
-            s,
-            "    beforeLoad: options.guards?.{},",
-            spec.component_key
-        )
-        .ok();
+        emit_before_load(&mut s, spec);
         s.push_str("  });\n");
     }
     let children = specs
@@ -228,6 +249,105 @@ fn emit_routes_file(specs: &[RouteSpec]) -> String {
     s.push_str("  props: LinkProps & { to: T },\n");
     s.push_str(") => ReactElement;\n");
     s
+}
+
+/// W3 Tier 1 — decide whether to emit an inline `beforeLoad` (driven
+/// by the IR-resolved guard) or fall through to the Wave-2 escape
+/// hatch (`options.guards?.<key>`). Both shapes can coexist: if the
+/// route both declared `policy` in .lzx AND the app passes a guard by
+/// key, the IR guard runs first; the consumer's guard is never
+/// reached because TanStack's beforeLoad slot is single-valued.
+fn emit_before_load(out: &mut String, spec: &RouteSpec) {
+    let Some(guard) = &spec.guard_emit else {
+        writeln!(
+            out,
+            "    beforeLoad: options.guards?.{},",
+            spec.component_key
+        )
+        .ok();
+        return;
+    };
+    let atoms_literal = guard
+        .policy_atoms
+        .iter()
+        .map(|(ns, name)| format!("{{ namespace: {:?}, name: {:?} }}", ns, name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let on_unauth = match guard.on_unauthenticated.as_deref() {
+        Some(p) => format!("{:?}", p),
+        None => "undefined".to_owned(),
+    };
+    let on_unauth_role = match guard.on_unauthorized.as_deref() {
+        Some(p) => format!("{:?}", p),
+        None => "undefined".to_owned(),
+    };
+    out.push_str("    beforeLoad: tanstackBeforeLoadGuard(options.client, {\n");
+    out.push_str(&format!(
+        "      policy: {{ name: {:?}, atoms: [{}] }},\n",
+        guard.policy_name, atoms_literal
+    ));
+    out.push_str(&format!("      onUnauthenticated: {},\n", on_unauth));
+    out.push_str(&format!("      onUnauthorized: {},\n", on_unauth_role));
+    out.push_str("    }),\n");
+}
+
+/// Resolve a `ViewGuard` IR node (`policy: ["@policy.X"]` + optional
+/// redirects) into the codegen-ready payload. v1 supports a single
+/// policy atom reference per route — additional policies in the
+/// vector are folded into the first (OR semantics). Composed policy
+/// expressions go via the existing `PolicyExpr` IR path (deferred).
+fn resolve_guard_emit(guard: &ViewGuard, features: &[Feature]) -> Option<GuardEmit> {
+    let policy_ref = guard.policy.first()?.trim();
+    if policy_ref.is_empty() {
+        return None;
+    }
+    let atoms = resolve_policy_atoms(policy_ref, features);
+    Some(GuardEmit {
+        policy_name: policy_ref.to_owned(),
+        policy_atoms: atoms,
+        on_unauthenticated: guard.on_unauthenticated.clone(),
+        on_unauthorized: guard.on_unauthorized.clone(),
+    })
+}
+
+/// Decompose a policy reference into its atoms. Handles two shapes:
+/// 1. Atom-form: `@<ns>.<name>` (e.g. `@role.host`) — single atom.
+/// 2. Named-form: `@policy.<name>` — look up the policy by name across
+///    every feature's catalog; flatten its atom strings.
+fn resolve_policy_atoms(policy_ref: &str, features: &[Feature]) -> Vec<(String, String)> {
+    let bare = policy_ref.strip_prefix('@').unwrap_or(policy_ref);
+    let (ns, name) = match bare.split_once('.') {
+        Some(parts) => parts,
+        None => return Vec::new(),
+    };
+    if ns == "policy" {
+        // Named policy — look it up in every feature's catalog.
+        for feature in features {
+            for category in &feature.policies.categories {
+                if category.name == name {
+                    return category
+                        .atoms
+                        .iter()
+                        .filter_map(|atom| parse_atom_string(atom))
+                        .collect();
+                }
+            }
+        }
+        Vec::new()
+    } else {
+        // Inline atom shape: `@role.host` etc.
+        vec![(ns.to_owned(), name.to_owned())]
+    }
+}
+
+fn parse_atom_string(s: &str) -> Option<(String, String)> {
+    let bare = s.strip_prefix('@').unwrap_or(s);
+    let (ns, rest) = bare.split_once('.')?;
+    // Strip any trailing `(args)` parameterisation; codegen doesn't
+    // forward those today (only `@mfa.required(within:15m)` carries
+    // args, and route guards don't use it).
+    let name = rest.split('(').next().unwrap_or(rest);
+    Some((ns.to_owned(), name.to_owned()))
 }
 
 fn surface_matches(surface: &PlatformSurface, label: &str) -> bool {

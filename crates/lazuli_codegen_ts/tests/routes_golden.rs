@@ -60,7 +60,7 @@ fn file<'a>(files: &'a [GeneratedFile], path: &str) -> &'a str {
 #[test]
 fn routes_gen_tsx_emit_matches_golden() {
     let (routes, surfaces, experiences) = fixture_routes();
-    let files = emit_routes_artifacts(None, &routes, &surfaces, &experiences, RoutesTarget::Web);
+    let files = emit_routes_artifacts(None, &routes, &surfaces, &experiences, &[], RoutesTarget::Web);
 
     assert_eq!(files.len(), 1, "{files:#?}");
     assert_eq!(
