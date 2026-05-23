@@ -30,6 +30,7 @@ pub mod playwright;
 pub mod plural;
 pub mod preflight;
 pub mod rbac;
+pub mod vite_aliases;
 pub mod routes;
 pub mod runtime;
 pub mod semantic_formatters;

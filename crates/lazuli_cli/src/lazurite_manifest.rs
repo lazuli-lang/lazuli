@@ -29,6 +29,17 @@ pub struct Project {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct LazuliPin {
     pub runtime: String,
+    /// Optional path to the Lazuli source checkout, used by codegen
+    /// to emit portable `dist/lazurite.vite.mjs` aliases (and other
+    /// dev-time runtime path resolution). Absolute or relative to
+    /// the project root. When `None`, codegen assumes
+    /// `@lazuli/runtime` is installed as an npm package (no alias
+    /// needed); when `Some`, codegen emits aliases pointing at the
+    /// source tree via `import.meta.url`-relative paths so the
+    /// generated file works regardless of where the project is
+    /// checked out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
