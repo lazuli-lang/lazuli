@@ -871,6 +871,9 @@ mod tests {
             variants: vec![lazuli_ir::EnumVariant {
                 name: "free".to_owned(),
                 storage_value: None,
+                label_key: None,
+                hint_key: None,
+                icon_key: None,
                 previous_names: Vec::new(),
             }],
             previous_names: Vec::new(),

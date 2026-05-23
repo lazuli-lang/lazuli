@@ -529,11 +529,17 @@ fn enum_kind_emits_typed_alias_and_const_block() {
             EnumVariant {
                 name: "lead".to_owned(),
                 storage_value: Some(StorageValue::Integer(10)),
+                label_key: None,
+                hint_key: None,
+                icon_key: None,
                 previous_names: Vec::new(),
             },
             EnumVariant {
                 name: "active".to_owned(),
                 storage_value: Some(StorageValue::Integer(20)),
+                label_key: None,
+                hint_key: None,
+                icon_key: None,
                 previous_names: Vec::new(),
             },
         ],

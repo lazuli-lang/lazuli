@@ -4645,6 +4645,9 @@ fn lower_enum_decl(decl: &syntax::EnumDeclAst) -> ir::EnumDecl {
                     syntax::EnumStorageValueDecl::Integer(n) => ir::StorageValue::Integer(*n),
                     syntax::EnumStorageValueDecl::String(s) => ir::StorageValue::String(s.clone()),
                 }),
+                label_key: v.label_key.clone(),
+                hint_key: v.hint_key.clone(),
+                icon_key: v.icon_key.clone(),
                 previous_names: Vec::new(),
             })
             .collect(),
@@ -8252,6 +8255,32 @@ mod tests {
             rbac: None,
             features,
         }
+    }
+
+    #[test]
+    fn enum_metadata_lowers_to_ir_variant_fields() {
+        let source = r#"
+feature account
+  domain
+    enum Gender
+      male: label @translation.gender_male, icon "user"
+      prefer_not: label @translation.gender_prefer_not, hint @translation.gender_prefer_not_hint
+"#;
+        let module = lower_module_for_test(source);
+        let variants = &module.features[0].enums[0].variants;
+
+        assert_eq!(variants[0].name, "male");
+        assert_eq!(variants[0].label_key.as_deref(), Some("gender_male"));
+        assert_eq!(variants[0].hint_key, None);
+        assert_eq!(variants[0].icon_key.as_deref(), Some("user"));
+
+        assert_eq!(variants[1].name, "prefer_not");
+        assert_eq!(variants[1].label_key.as_deref(), Some("gender_prefer_not"));
+        assert_eq!(
+            variants[1].hint_key.as_deref(),
+            Some("gender_prefer_not_hint")
+        );
+        assert_eq!(variants[1].icon_key, None);
     }
 
     #[test]

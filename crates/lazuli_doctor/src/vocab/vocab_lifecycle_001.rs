@@ -225,6 +225,9 @@ mod tests {
                 .map(|variant| EnumVariant {
                     name: (*variant).to_owned(),
                     storage_value: None,
+                    label_key: None,
+                    hint_key: None,
+                    icon_key: None,
                     previous_names: vec![],
                 })
                 .collect(),

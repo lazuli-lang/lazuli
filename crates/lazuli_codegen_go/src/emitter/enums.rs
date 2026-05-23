@@ -192,6 +192,51 @@ fn emit_enum(p: &mut GoPrinter, decl: &EnumDecl) {
     }
     p.dedent();
     p.line(")");
+
+    if enum_has_option_metadata(decl) {
+        p.blank();
+        emit_enum_options(p, decl, &pascal);
+    }
+}
+
+fn enum_has_option_metadata(decl: &EnumDecl) -> bool {
+    decl.variants.iter().any(|variant| {
+        variant.label_key.is_some() || variant.hint_key.is_some() || variant.icon_key.is_some()
+    })
+}
+
+fn emit_enum_options(p: &mut GoPrinter, decl: &EnumDecl, pascal: &str) {
+    let option_type = format!("{pascal}Option");
+    let options_var = format!("{pascal}Options");
+
+    p.line(&format!("type {option_type} struct {{"));
+    p.indent();
+    p.line(&format!("Value {pascal}"));
+    p.line("LabelKey string");
+    p.line("HintKey string");
+    p.line("IconKey string");
+    p.dedent();
+    p.line("}");
+    p.blank();
+
+    p.line(&format!("var {options_var} = []{option_type}{{"));
+    p.indent();
+    for variant in &decl.variants {
+        let const_name = format!("{}{}", pascal, pascal_case(&variant.name));
+        let mut fields = vec![format!("Value: {const_name}")];
+        if let Some(label_key) = &variant.label_key {
+            fields.push(format!("LabelKey: {}", go_string_literal(label_key)));
+        }
+        if let Some(hint_key) = &variant.hint_key {
+            fields.push(format!("HintKey: {}", go_string_literal(hint_key)));
+        }
+        if let Some(icon_key) = &variant.icon_key {
+            fields.push(format!("IconKey: {}", go_string_literal(icon_key)));
+        }
+        p.line(&format!("{{{}}},", fields.join(", ")));
+    }
+    p.dedent();
+    p.line("}");
 }
 
 /// Classify the storage strategy for an enum. Any variant carrying an
@@ -253,6 +298,24 @@ fn write_section_banner(p: &mut GoPrinter, lines: &[String]) {
 
 fn pascal_case(s: &str) -> String {
     super::casing::pascal_case(s)
+}
+
+fn go_string_literal(raw: &str) -> String {
+    format!("\"{}\"", escape_string(raw))
+}
+
+fn escape_string(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for ch in raw.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -318,6 +381,9 @@ mod tests {
         EnumVariant {
             name: name.to_owned(),
             storage_value: value,
+            label_key: None,
+            hint_key: None,
+            icon_key: None,
             previous_names: Vec::new(),
         }
     }
@@ -384,6 +450,47 @@ mod tests {
         assert!(out.contains("CustomerTierFree       CustomerTier = \"free\""));
         assert!(out.contains("CustomerTierPro        CustomerTier = \"pro\""));
         assert!(out.contains("CustomerTierEnterprise CustomerTier = \"enterprise\""));
+    }
+
+    #[test]
+    fn metadata_enum_emits_options_struct_and_values() {
+        let mut feature = base_feature("customer");
+        let mut free = variant("free", None);
+        free.label_key = Some("tier_free".to_owned());
+        free.icon_key = Some("gift".to_owned());
+        let mut enterprise = variant("enterprise", None);
+        enterprise.label_key = Some("tier_enterprise".to_owned());
+        enterprise.hint_key = Some("tier_enterprise_hint".to_owned());
+        feature
+            .enums
+            .push(make_enum("CustomerTier", vec![free, enterprise]));
+
+        let out = emit_enum_file("examples/x.lzi", &feature).expect("must emit");
+
+        assert!(out.contains("type CustomerTierOption struct {"));
+        assert!(out.contains("Value CustomerTier"));
+        assert!(out.contains("LabelKey string"));
+        assert!(out.contains("var CustomerTierOptions = []CustomerTierOption{"));
+        assert!(out.contains(
+            "{Value: CustomerTierFree, LabelKey: \"tier_free\", IconKey: \"gift\"},"
+        ));
+        assert!(out.contains(
+            "{Value: CustomerTierEnterprise, LabelKey: \"tier_enterprise\", HintKey: \"tier_enterprise_hint\"},"
+        ));
+    }
+
+    #[test]
+    fn metadata_free_enum_omits_options_struct() {
+        let mut feature = base_feature("customer");
+        feature.enums.push(make_enum(
+            "CustomerTier",
+            vec![variant("free", None), variant("enterprise", None)],
+        ));
+
+        let out = emit_enum_file("examples/x.lzi", &feature).expect("must emit");
+
+        assert!(!out.contains("CustomerTierOption"));
+        assert!(!out.contains("CustomerTierOptions"));
     }
 
     #[test]

@@ -176,6 +176,9 @@ mod tests {
                 .map(|v| EnumVariant {
                     name: v.to_string(),
                     storage_value: None,
+                    label_key: None,
+                    hint_key: None,
+                    icon_key: None,
                     previous_names: vec![],
                 })
                 .collect(),

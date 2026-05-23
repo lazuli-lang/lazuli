@@ -692,6 +692,14 @@ pub struct EnumVariant {
     /// derived storage values do not enter the IR.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage_value: Option<StorageValue>,
+    /// Optional UI-facing metadata. Keys are opaque app-catalog strings;
+    /// IR and codegen do not validate catalog/icon existence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hint_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_key: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
 }
