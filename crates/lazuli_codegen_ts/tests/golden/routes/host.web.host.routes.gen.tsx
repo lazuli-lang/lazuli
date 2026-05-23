@@ -33,6 +33,7 @@ export function createGeneratedRouter(options: {
 }) {
   const rootRoute = createRootRouteWithContext<GeneratedRouterContext>()({
     component: () => createElement(Outlet),
+    notFoundComponent: options.notFoundComponent,
   });
   const hostBookingDetailRoute = createRoute({
     getParentRoute: () => rootRoute,

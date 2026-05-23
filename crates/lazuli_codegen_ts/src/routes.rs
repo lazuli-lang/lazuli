@@ -177,12 +177,16 @@ fn emit_routes_file(specs: &[RouteSpec]) -> String {
     s.push_str("  defaultPreload?: \"intent\" | \"viewport\" | \"render\" | false;\n");
     s.push_str("}) {\n");
     // Root route renders Outlet so child route components actually mount.
-    // notFoundComponent is wired separately via createRouter's
-    // defaultNotFoundComponent — they are distinct concepts. Emitted as
-    // createElement(Outlet) (not JSX) so the dist file doesn't need a
-    // resolvable `react/jsx-runtime` from its filesystem walk.
+    // Emitted as createElement(Outlet) (not JSX) so the dist file doesn't
+    // need a resolvable `react/jsx-runtime` from its filesystem walk.
+    // notFoundComponent is set on the rootRoute (catches __root__ errors)
+    // AND wired as router-level defaultNotFoundComponent (catches mismatches
+    // bubbled up from child routes) — both are required because TanStack's
+    // fuzzy notFoundMode doesn't always cascade router-level default to
+    // root-level errors.
     s.push_str("  const rootRoute = createRootRouteWithContext<GeneratedRouterContext>()({\n");
     s.push_str("    component: () => createElement(Outlet),\n");
+    s.push_str("    notFoundComponent: options.notFoundComponent,\n");
     s.push_str("  });\n");
     for spec in specs {
         writeln!(s, "  const {} = createRoute({{", spec.route_const).ok();
