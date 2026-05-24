@@ -25,24 +25,21 @@ pub struct Manifest {
     /// `docs/proposals/tdd-bdd-first-2026-05-23.md` §Wave 0.5 + Wave 6.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub doctor: Option<Doctor>,
+    /// Sibling T0-T5 — `[testing]` section consumed by `lazuli test`.
+    /// Optional; when absent the runner falls back to conventional
+    /// discovery. Schema per
+    /// `docs/proposals/lazuli-test-runner-2026-05-24.md` §3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub testing: Option<Testing>,
 }
 
 /// Wave 0.5 + Wave 6 — `[doctor]` block in `Lazurite.toml`.
-///
-/// Carries: optional profile pin, `[doctor.test_discipline]` severity
-/// overrides (Wave 0.5), and `[doctor.coverage]` per-layer thresholds (Wave 6).
-/// Subsequent waves will add `[doctor.vocabulary]`, `[doctor.security]`, etc.
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct Doctor {
-    /// Optional per-project profile pin (`prototype`, `strict`,
-    /// `production`). Flag wins when both set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
-    /// Wave 0.5 — `[doctor.test_discipline]` overrides for `TEST-*` and
-    /// `DOCTOR-*` rules.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub test_discipline: Option<TestDisciplineDoctor>,
-    /// Wave 6 — `[doctor.coverage]` per-layer thresholds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coverage: Option<CoverageSection>,
 }
@@ -50,9 +47,6 @@ pub struct Doctor {
 /// Wave 0.5 — `[doctor.test_discipline]` block.
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct TestDisciplineDoctor {
-    /// Rule-code → override entry. Authors keyed by canonical rule code
-    /// (e.g. `TEST-MISSING-AUTHORED-001`). Each entry must carry a
-    /// non-blank `reason` per `DOCTOR-OVERRIDE-NEEDS-REASON-001`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub severity_override: BTreeMap<String, SeverityOverride>,
 }
@@ -65,30 +59,79 @@ pub struct SeverityOverride {
     pub reason: Option<String>,
 }
 
-/// Wave 6 — `[doctor.coverage]` schema. Per-layer entries live as top-level
-/// keys (`spec_predicate = { block_under = 50, warn_under = 80 }`); the
-/// `aggregate_method` sibling toggles aggregate emission. Unknown layer
-/// names are ignored (forward-compat).
+/// Wave 6 — `[doctor.coverage]` schema.
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct CoverageSection {
-    /// Per-layer overrides keyed by canonical layer name (`spec_predicate`,
-    /// `spec_actor_matrix`, `spec_transition_state`, `view_extensibility`,
-    /// `view_e2e_pair`, `handler_go`).
     #[serde(flatten)]
     pub per_layer: BTreeMap<String, LayerThresholdConfig>,
-    /// Optional aggregate-method disclosure. When set, doctor emits the
-    /// `aggregate` field on the coverage report.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aggregate_method: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy)]
 pub struct LayerThresholdConfig {
-    /// CI MUST fail when the layer's coverage is strictly below `block_under`.
     pub block_under: u32,
-    /// CI warns when coverage is strictly below `warn_under` but at or above
-    /// `block_under`.
     pub warn_under: u32,
+}
+
+/// Sibling T0-T5 — `[testing]` block consumed by `lazuli test`.
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
+pub struct Testing {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_layers: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub go: Option<TestingGo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub playwright: Option<TestingPlaywright>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ts: Option<TestingTs>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spec: Option<TestingSpec>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
+pub struct TestingGo {
+    #[serde(default)]
+    pub flags: Vec<String>,
+    #[serde(default)]
+    pub coverage: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage_out: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package_pattern: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
+pub struct TestingPlaywright {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workers: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discovery_root: Option<String>,
+    #[serde(default)]
+    pub flags: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct TestingTs {
+    pub runner: String,
+    #[serde(default)]
+    pub flags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discovery_root: Option<String>,
+    #[serde(default)]
+    pub coverage: bool,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
+pub struct TestingSpec {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

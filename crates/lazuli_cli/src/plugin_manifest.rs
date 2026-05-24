@@ -498,6 +498,7 @@ mod tests {
             seeds: None,
             dev: None,
             doctor: None,
+            testing: None,
         }
     }
 
