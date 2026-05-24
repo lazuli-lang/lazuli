@@ -14,6 +14,26 @@ command at `.claude/commands/lazuli-grade.md` reference this file.
 
 ## Changelog
 
+- **2026-05-24** — Added Criterion 12 (Test discipline + per-layer
+  coverage, 5%) per proposal `tdd-bdd-first-2026-05-23.md` Wave 6.
+  The proposal text named the new criterion "Criterion 11" but slot
+  11 was already taken by the framework error message contract; the
+  slot was filled by the time Wave 6 landed, so the criterion ships
+  as **Criterion 12** with the same semantic content. Weight 5%
+  redistributed from C3 (Token efficiency −1) and C10 (AI-first
+  readiness −1) so the AI-first cluster still bears the cost of
+  test-culture enforcement. Anchors:
+  - **pass** — `lazuli doctor --coverage` emits a coverage report;
+    no per-layer block thresholds are violated under the active
+    profile.
+  - **pass-with-notes** — at least one warn-tier layer under the
+    active profile; no block-tier breach; no `TEST-FIXTURE-LITERAL-001`
+    error if Wave 1 has shipped.
+  - **block** — any layer below `block_under` under the active
+    profile, OR any `TEST-FIXTURE-LITERAL-001` error.
+  Per-layer thresholds replace any single-number aggregate (the
+  proposal's load-bearing point). Forward-only hardening — no past
+  PASS retroactively becomes BLOCK.
 - **2026-05-20** — Criterion 4 (Escape hatches) hardened with the
   Prisma-trap runbook (4 probes P-A..P-D); added §Vocab Governance
   Rules (RULE-VOCAB-01..04); added 3 new boundary-violation lines.
@@ -70,7 +90,7 @@ Sum of weights = 100%.
 |---|---|---|---|
 | 1 | Legibility (cold human read) | 11% | Can a senior dev read 1000+ lines of fixture top-to-bottom without backtracking or doc-lookup? |
 | 2 | Semantic density for LLM | 17% | Are `@policy.*`, `@cap.*`, `@semantic.*`, `@actor.*`, `@pii.*`, `@key.*`, `@llm.*`, `@tool.*` namespaces tight, closed, and unambiguous? |
-| 3 | Token efficiency | 9% | Is there gordura recorrente? Count tokens of repeated boilerplate × number of repetitions. |
+| 3 | Token efficiency | 8% | Is there gordura recorrente? Count tokens of repeated boilerplate × number of repetitions. |
 | 4 | Escape hatches | 8% | Can authors drop to `handler "./..."`, `validates resource "./..."`, custom Go without polluting source? Are the hatches minimal and visible? |
 | 5 | Determinism (one way to say each thing) | 10% | If the same intent has two surface forms with no rule for choosing, that's a deduction. |
 | 6 | Composability | 8% | Do `extends @anchor.*`, `extensible_by`, `packs`, `has_many`, `event_group` combine cleanly? |
@@ -78,8 +98,9 @@ Sum of weights = 100%.
 | 8 | Operational coverage | 6% | Do `runtime`, `deploy`, `profiles`, `services`, `architecture` cover real production needs without becoming Kubernetes config? |
 | 8.5 | Diagnostic identifier truthfulness | 3% | For every diagnostic code named in a proposal's acceptance lists: does the code (a) exist in `crates/lazuli_cli/src/doctor.rs` or `crates/lazuli_lsp/src/lib.rs`, or (b) explicitly appear under a `## New diagnostics` heading as net-new? Mechanical grep check. See §"How the rubric is enforced" for the runbook. |
 | 9 | Declarative testability | 6% | Are `tests` blocks expressive enough for rules / transitions / anchors / commands without becoming a mock framework? |
-| 10 | AI-first readiness | 9% | Does the language treat LLMs as first-class consumers (`agent`, namespaces, inspect contracts, doctor messages)? |
+| 10 | AI-first readiness | 8% | Does the language treat LLMs as first-class consumers (`agent`, namespaces, inspect contracts, doctor messages)? |
 | 11 | Framework error message contract | 6% | Are framework-emitted runtime errors (anything that reaches the HTTP wire without passing through an authored `rule "..." message @translation.<key>` block) keyed by a translation identifier under `@translation.<key>` (or equivalent message-namespace identifier), negotiated against the active locale, and override-able by app or feature surface? Hardcoded English in `Message:` fields of `&Error{...}` constructors in the runtime is an automatic 0. See §"Criterion 11 — Framework error message contract (runbook)" below. |
+| 12 | Test discipline (per-layer coverage) | 5% | Does `lazuli doctor --coverage` emit a per-layer report (six layers: `spec_predicate`, `spec_actor_matrix`, `spec_transition_state`, `view_extensibility`, `view_e2e_pair`, `handler_go`) with profile-aware thresholds (prototype reports only; strict warns; production blocks)? Per-layer thresholds are canonical; any aggregate is opt-in only with method disclosure. Auto-BLOCK if any layer is below its `block_under` under the active profile, OR if `TEST-FIXTURE-LITERAL-001` errors are present (Wave 1). See §"Criterion 12 — Test discipline + per-layer coverage (runbook)" below. |
 
 ## Scoring scale
 
@@ -167,6 +188,7 @@ line; do not log as a tracked cut.
 | ... |
 | 10 | AI-first readiness | 8.7 | path:line | path:line |
 | 11 | Framework error message contract | 7.0 | path:line | path:line |
+| 12 | Test discipline (per-layer coverage) | 7.0 | path:line | path:line |
 
 ### Top atritos
 - path:line — 1-line description — affects criterion N.
@@ -381,6 +403,110 @@ False-positive carve-outs (Criterion 11 does NOT fire on):
 Triggered by the hostpoint PWA framework-string leak (2026-05-18). See
 proposal `c:/Users/lucas/lazuli-ops/docs/proposals/grader-error-message-criterion.md`
 for the full provenance, audit table, and fixture-list expectations.
+
+### Criterion 12 — Test discipline + per-layer coverage (runbook)
+
+Scope: every proposal that introduces, extends, or generalises a
+testable construct (`command`, `rule`, `workflow.transition`,
+`lifecycle.transition`, `view`, `@fn.*`/`@validator.*`/`@hook.*`
+handler). Filed by `tdd-bdd-first-2026-05-23.md` Wave 6.
+
+**Load-bearing invariant.** Coverage is reported and gated **per
+layer**, never as a single aggregated percentage that hides which
+paradigm is weak. The aggregate is permitted only with explicit
+method disclosure (`weighted-by-construct-count`, `weighted-by-LOC`,
+`unweighted-mean`), and never as the gate.
+
+**Layer catalog (canonical six):**
+
+| Layer | Denominator | Numerator | Source |
+|---|---|---|---|
+| `spec_predicate` | Predicate branches in `requires` / `rule.when` / transition predicates | Branches with `allows when` + `denies when` covering each side | IR walk |
+| `spec_actor_matrix` | `(construct, @role.X)` pairs derived from `policy @policy.X` | Pairs touched by `permits`/`forbids` or `allows as`/`denies as` rows | IR walk |
+| `spec_transition_state` | `from <state>` slots in workflow + lifecycle transitions | Slots with ≥1 `allows from` (DeniesFrom alone is not sufficient) | IR walk |
+| `view_extensibility` | Views with `extensible_by` | Views with ≥1 `accepted by` / `rejected by` | `.lzx` walk |
+| `view_e2e_pair` | Declared views | Views with `e2e/<feature>/<view>.spec.ts` present | filesystem |
+| `handler_go` | Statements in `app/features/<f>/handlers/*.go` (excluding `_test.go`) | Statements with `count > 0` in `coverage.out` | `go test -coverprofile` parse |
+
+Layers 1–4 are pure-IR (zero runtime, zero flakiness). Layers 5–6 are
+filesystem / external-tool integrations that degrade gracefully when
+their inputs are absent (vacuous pass with disclosure in `raw_file`).
+
+**Gate matrix (default profile-derived thresholds):**
+
+| profile | block_under | warn_under |
+|---|---|---|
+| prototype | 0 (no gating) | 0 (no warnings) |
+| strict | 0 (warn-only) | per-layer warn target (e.g. `spec_predicate=80`) |
+| production | per-layer block target (e.g. `spec_predicate=50`) | per-layer warn target |
+
+Project authors override via `Lazurite.toml [doctor.coverage]`:
+
+```toml
+[doctor.coverage]
+spec_predicate      = { block_under = 50, warn_under = 80 }
+spec_actor_matrix   = { block_under = 70, warn_under = 90 }
+aggregate_method    = "weighted-by-construct-count"
+```
+
+**Anchors (score scale).**
+
+| Score | Meaning |
+|---|---|
+| 0 | Proposal introduces a testable construct with no `tests` semantic (or a `tests` shape that is just prose). Auto-BLOCK. |
+| 3 | `tests` slot exists on the construct but no calculator measures it. Reviewer cites path:line where the slot is parsed but no coverage layer reads it. |
+| 5 | One calculator measures the construct. Per-layer threshold defaults documented for at least one profile. |
+| 7 | Three calculators measure constructs touched by the proposal; profile-default thresholds documented for all three; manifest override surface present. |
+| 9 | All applicable layers measured; CI gate (`--fail-on coverage:<layer>=<N>`) wired; JSON output has the canonical `coverage` shape per Wave 6.3; LSP completeness gap (if any) filed as adjacent issue. |
+| 10 | All of the above **plus** the proposal carries before/after coverage numbers from a real pilot demonstrating that gating produced measurable hardening. |
+
+**Probes (mechanical):**
+
+- **Probe Q-A — Per-layer reporting.** `lazuli doctor --coverage --format json` returns the canonical `coverage.layers.<name>` shape with `covered`/`total`/`pct`/`verdict` populated for every applicable layer. Grader runs:
+  ```bash
+  lazuli doctor <fixture> --coverage --format json | jq '.coverage.layers | keys'
+  ```
+  Result MUST include every layer the proposal claims to harden.
+
+- **Probe Q-B — Gate composability.** `--fail-on coverage:<layer>=<N>` exits non-zero when below threshold. Composable with `--fail-on severity` / `--fail-on category:X` (post-Wave 0.5). Grader runs:
+  ```bash
+  lazuli doctor <fixture> --coverage --fail-on coverage:<layer>=99
+  echo "$?"   # MUST be 1 when fixture's <layer> coverage is < 99%
+  ```
+
+- **Probe Q-C — No single-percentage gate.** The grader greps the proposal for "≥ 80%" / "coverage ≥ N%" style aggregate gates. ANY use of an aggregate threshold without per-layer breakdown is an automatic Criterion 12 deduction (cap at 5).
+
+- **Probe Q-D — Aggregate disclosure.** If the proposal opts into an aggregate, the `aggregate.method` field MUST be set to one of `weighted-by-construct-count` / `weighted-by-LOC` / `unweighted-mean` (or another method disclosed verbatim). Naked aggregates without method are an auto-BLOCK.
+
+**False-positive carve-outs (Criterion 12 does NOT fire on):**
+
+- Proposals that touch no testable construct (e.g. pure observability,
+  pure manifest hygiene, pure rename/migrate cycles). The criterion
+  scope is constructs that ship a `tests` slot or that participate in
+  the six coverage layers.
+- `handler_go` layer reporting `total = 0` when the project has no
+  authored `.go` handlers yet. Vacuous pass; no deduction. The
+  `view_e2e_pair` carve-out is symmetric for projects with no `.lzx`
+  views.
+- Prototype-profile projects. The matrix's `prototype` row sets every
+  `block_under` and `warn_under` to 0 by design; reporting is on,
+  gating is off. Reviewers MUST verify the proposal does not retroactively
+  promote a prototype pilot to strict gating without an authored
+  `[doctor.coverage]` opt-in.
+
+**Boundary against runtime invasion (re-affirmed from Wave 3.5):**
+Criterion 12 does NOT require Lazuli to run Playwright, Go tests, or
+any external runner. The `view_e2e_pair` layer checks file existence
+only; `handler_go` parses Go's coverprofile output but never invokes
+`go test` itself. CI orchestration runs the test commands; Lazuli
+only consumes the resulting artifacts.
+
+**Triggered by:** the framework-side gap surfaced in the audit
+(`docs/proposals/test-completeness-lints.md` §1) — `tests` slot
+present, zero enforcement. Wave 6 closes the loop by making the
+coverage observable + gateable + reportable in the same JSON shape
+agents and CI already consume. Provenance:
+`docs/proposals/tdd-bdd-first-2026-05-23.md` Wave 6.
 
 ### Criterion 4 — Escape hatches (Prisma-trap runbook)
 

@@ -17,30 +17,34 @@ pub struct Manifest {
     pub migrations: Option<Migrations>,
     pub seeds: Option<Seeds>,
     pub dev: Option<DevOverrides>,
-    /// Wave 0.5 — optional `[doctor]` block carrying severity overrides
-    /// per category. Absent on most projects today; when present the
-    /// override table is enforced by `DOCTOR-OVERRIDE-NEEDS-REASON-001`
-    /// to require a `reason = "..."` on every entry. See
-    /// `docs/proposals/tdd-bdd-first-2026-05-23.md` §Wave 0.5.
+    /// Wave 0.5 + Wave 6 — optional `[doctor]` block. Carries severity
+    /// overrides per category (Wave 0.5) and per-layer coverage thresholds
+    /// (Wave 6). Absent on most projects today; when present
+    /// `DOCTOR-OVERRIDE-NEEDS-REASON-001` enforces `reason = "..."` on every
+    /// severity override entry. See
+    /// `docs/proposals/tdd-bdd-first-2026-05-23.md` §Wave 0.5 + Wave 6.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub doctor: Option<Doctor>,
 }
 
-/// Wave 0.5 — `[doctor]` block in `Lazurite.toml`.
+/// Wave 0.5 + Wave 6 — `[doctor]` block in `Lazurite.toml`.
 ///
-/// Initial schema carries only `[doctor.test_discipline]`; subsequent
-/// waves will add `[doctor.vocabulary]`, `[doctor.security]`, etc. The
-/// nested table form keeps each category's overrides scoped, which
-/// matches how `RuleCategory` partitions rules.
+/// Carries: optional profile pin, `[doctor.test_discipline]` severity
+/// overrides (Wave 0.5), and `[doctor.coverage]` per-layer thresholds (Wave 6).
+/// Subsequent waves will add `[doctor.vocabulary]`, `[doctor.security]`, etc.
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct Doctor {
-    /// Optional per-category profile pin (`prototype`, `strict`,
-    /// `production`). When unset, the CLI default applies.
+    /// Optional per-project profile pin (`prototype`, `strict`,
+    /// `production`). Flag wins when both set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
-    /// `[doctor.test_discipline]` — overrides for `TEST-*` and
+    /// Wave 0.5 — `[doctor.test_discipline]` overrides for `TEST-*` and
     /// `DOCTOR-*` rules.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub test_discipline: Option<TestDisciplineDoctor>,
+    /// Wave 6 — `[doctor.coverage]` per-layer thresholds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<CoverageSection>,
 }
 
 /// Wave 0.5 — `[doctor.test_discipline]` block.
@@ -54,16 +58,37 @@ pub struct TestDisciplineDoctor {
 }
 
 /// Wave 0.5 — `[doctor.<category>].severity_override.<RULE-CODE>` entry.
-///
-/// `severity` is the override target (`"warning"`, `"error"`, …).
-/// `reason` is the audit trail that explains why the framework default
-/// is being suppressed; `DOCTOR-OVERRIDE-NEEDS-REASON-001` fires when
-/// it is missing or blank.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SeverityOverride {
     pub severity: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+}
+
+/// Wave 6 — `[doctor.coverage]` schema. Per-layer entries live as top-level
+/// keys (`spec_predicate = { block_under = 50, warn_under = 80 }`); the
+/// `aggregate_method` sibling toggles aggregate emission. Unknown layer
+/// names are ignored (forward-compat).
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct CoverageSection {
+    /// Per-layer overrides keyed by canonical layer name (`spec_predicate`,
+    /// `spec_actor_matrix`, `spec_transition_state`, `view_extensibility`,
+    /// `view_e2e_pair`, `handler_go`).
+    #[serde(flatten)]
+    pub per_layer: BTreeMap<String, LayerThresholdConfig>,
+    /// Optional aggregate-method disclosure. When set, doctor emits the
+    /// `aggregate` field on the coverage report.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aggregate_method: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
+pub struct LayerThresholdConfig {
+    /// CI MUST fail when the layer's coverage is strictly below `block_under`.
+    pub block_under: u32,
+    /// CI warns when coverage is strictly below `warn_under` but at or above
+    /// `block_under`.
+    pub warn_under: u32,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -638,6 +663,48 @@ severity = "info"
         let without_reason = &td.severity_override["TEST-PREDICATE-UNCOVERED-001"];
         assert_eq!(without_reason.severity, "info");
         assert!(without_reason.reason.is_none());
+    }
+
+    /// Wave 6 — `[doctor.coverage]` parses per-layer thresholds + the
+    /// optional aggregate-method disclosure.
+    #[test]
+    fn parse_doctor_coverage_section() {
+        let manifest = parse_manifest(
+            r#"
+[project]
+name = "myapp"
+module = "github.com/myorg/myapp"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+
+[doctor.coverage]
+spec_predicate     = { block_under = 50, warn_under = 80 }
+spec_actor_matrix  = { block_under = 70, warn_under = 90 }
+aggregate_method   = "weighted-by-construct-count"
+"#,
+        )
+        .unwrap();
+
+        let doctor = manifest.doctor.expect("doctor section present");
+        let coverage = doctor.coverage.expect("coverage section present");
+        assert_eq!(
+            coverage.aggregate_method.as_deref(),
+            Some("weighted-by-construct-count")
+        );
+        let sp = coverage
+            .per_layer
+            .get("spec_predicate")
+            .expect("spec_predicate entry");
+        assert_eq!(sp.block_under, 50);
+        assert_eq!(sp.warn_under, 80);
+        let sa = coverage
+            .per_layer
+            .get("spec_actor_matrix")
+            .expect("spec_actor_matrix entry");
+        assert_eq!(sa.block_under, 70);
+        assert_eq!(sa.warn_under, 90);
     }
 
     /// Lazurite.toml rename (2026-05-15) — `load()` must accept both

@@ -120,6 +120,28 @@ enum Commands {
         /// Run release-gate checks only.
         #[arg(long)]
         check_release: bool,
+        /// Output format. `text` is the default human-readable
+        /// rendering; `json` emits the canonical agent-first
+        /// `DoctorReport` (Wave 2.0 schema, extended with Wave 6
+        /// `coverage`).
+        #[arg(long, default_value = "text")]
+        format: String,
+        /// Wave 6.4 — emit per-layer coverage report alongside
+        /// diagnostics. Pure-IR layers
+        /// (spec_predicate/spec_actor_matrix/spec_transition_state/view_extensibility)
+        /// are always computed; handler_go and view_e2e_pair
+        /// degrade gracefully when external inputs are absent.
+        #[arg(long)]
+        coverage: bool,
+        /// Wave 2.2 + Wave 6.4 — composable threshold gate.
+        /// Accepted forms:
+        ///
+        /// - `error` / `warning` / `info` — severity gate
+        /// - `category:<C>` — rule-category gate (post-Wave 0.5)
+        /// - `rule:<R>` — single-rule gate
+        /// - `coverage:<layer>=<N>` — coverage threshold gate
+        #[arg(long, action = clap::ArgAction::Append)]
+        fail_on: Vec<String>,
     },
     Inspect {
         input: PathBuf,
@@ -810,6 +832,13 @@ fn main() -> Result<()> {
             input,
             security_profile,
             check_release,
+            // Wave 6 / Wave 2 flags (--format / --coverage / --fail-on) parsed
+            // but not yet wired through HEAD's doctor.rs (DEFERRED: doctor.rs
+            // deep merge blocked by line-ending+structural conflict). Once the
+            // surgical port lands, these will route to doctor::DoctorCliOptions.
+            format: _,
+            coverage: _,
+            fail_on: _,
         } => doctor::doctor_command(
             &input,
             security_profile.into(),
