@@ -535,12 +535,35 @@ fn lower_experience_view(view: &syntax::LzxExperienceView) -> ir::ExperienceView
         blocks: view.blocks.clone(),
         actions: view.actions.iter().map(lower_experience_action).collect(),
         opens: view.opens.clone(),
-        tests: view.tests.clone(),
+        // Wave 4 — typed view test assertions. Surface AST and IR shapes
+        // are 1:1 isomorphic, so this lowering preserves the closed
+        // catalog (`accepted by` / `rejected by`) verbatim while
+        // forwarding the source span for diagnostic surfaces.
+        tests: view.tests.iter().map(lower_view_test_assertion).collect(),
         // ir-route-guards Cell IR-1 — guard slot wired by Cell PARSE-1.
         guard: view.guard.as_ref().map(lower_view_guard),
         resolved_guard_policy: None,
         resolved_lifecycle_gate: None,
         span_ref: Some(span_of(view.span)),
+    }
+}
+
+fn lower_view_test_assertion(
+    assertion: &syntax::LzxViewTestAssertion,
+) -> ir::ViewTestAssertion {
+    match assertion {
+        syntax::LzxViewTestAssertion::AcceptedBy { feature, span } => {
+            ir::ViewTestAssertion::AcceptedBy {
+                feature: feature.clone(),
+                span_ref: Some(span_of(*span)),
+            }
+        }
+        syntax::LzxViewTestAssertion::RejectedBy { feature, span } => {
+            ir::ViewTestAssertion::RejectedBy {
+                feature: feature.clone(),
+                span_ref: Some(span_of(*span)),
+            }
+        }
     }
 }
 
