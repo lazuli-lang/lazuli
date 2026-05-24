@@ -23,6 +23,7 @@ use crate::ast::{
     LzxErrorPage, LzxExperience, LzxExperienceView, LzxExtensionOrder, LzxExtensionSlot,
     LzxPlatform, LzxPlatformView, LzxRequiresLifecycle, LzxResumeArm, LzxResumeArmKind,
     LzxResumeRouter, LzxRoute, LzxRouteGuardDefaults, LzxSurface, LzxViewExtension, LzxViewGuard,
+    LzxViewTestAssertion,
     MotionAst, Notification, NotificationDigest, NotificationThrottle, OnSuccessSpecAst, PackageSkeleton,
     PermissionDeclAst, PlanBlockAst, PlanFeatureRefAst, PlanLimitRefAst, PlanTrialAst,
     PoliciesDecl, PolicyAtomAst, PolicyCategoryDecl, PolicyExprAst, PublicContractDeclAst,
@@ -1345,7 +1346,44 @@ fn parse_lzx_experience_view(
                         "test assertions inside experience views use six-space indentation",
                     ));
                 }
-                tests.push(test_trimmed.to_owned());
+                // Wave 4 — view tests are an extensibility vocabulary,
+                // not policy/predicate. Closed catalog: `accepted by
+                // <feature>` / `rejected by <feature>`. Anything else is
+                // a hard parse error (no silent acceptance).
+                let assertion =
+                    if let Some(rest) = test_trimmed.strip_prefix("accepted by ") {
+                        let feature = rest.trim().to_owned();
+                        if feature.is_empty() {
+                            return Err(line_error(
+                                test_line,
+                                "view test `accepted by` requires a feature name",
+                            ));
+                        }
+                        LzxViewTestAssertion::AcceptedBy {
+                            feature,
+                            span: Span::new(test_line.start, test_line.end),
+                        }
+                    } else if let Some(rest) = test_trimmed.strip_prefix("rejected by ") {
+                        let feature = rest.trim().to_owned();
+                        if feature.is_empty() {
+                            return Err(line_error(
+                                test_line,
+                                "view test `rejected by` requires a feature name",
+                            ));
+                        }
+                        LzxViewTestAssertion::RejectedBy {
+                            feature,
+                            span: Span::new(test_line.start, test_line.end),
+                        }
+                    } else {
+                        return Err(line_error(
+                            test_line,
+                            "view test assertion must start with `accepted by` or `rejected by` \
+                             (extensibility vocabulary only — policy / predicate testing lives \
+                             on commands, rules, and transitions)",
+                        ));
+                    };
+                tests.push(assertion);
                 index += 1;
             }
             continue;
@@ -17138,7 +17176,7 @@ fn is_rbac_segment_ident(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{InvariantForm, SourceLine, parse_invariant_form, parse_lzx_document};
-    use crate::LzxPlatform;
+    use crate::{LzxPlatform, LzxViewTestAssertion};
 
     fn make_invariant_line() -> SourceLine<'static> {
         SourceLine {
@@ -17211,6 +17249,102 @@ mod tests {
         let err = parse_invariant_form(&line, "single gold where item_id = parent.id").unwrap_err();
         let msg = format!("{:?}", err);
         assert!(msg.contains("closed catalog"));
+    }
+
+    /// Wave 4 — parser must lift view `tests` into the typed
+    /// `LzxViewTestAssertion` enum. `accepted by` / `rejected by` are
+    /// the only admissible shapes; anything else is a hard parse error.
+    #[test]
+    fn lzx_view_tests_lift_to_typed_assertions() {
+        let source = "experience customer
+  view detail
+    anchor @anchor.customer_detail
+    extensible_by customer_tags, customer_import
+    source customer.query.by_id(id: route.id)
+
+    tests
+      accepted by customer_tags
+      accepted by customer_import
+      rejected by billing
+";
+        let document = parse_lzx_document(source).unwrap();
+        let view = &document.experiences[0].views[0];
+        assert_eq!(view.tests.len(), 3);
+
+        match &view.tests[0] {
+            LzxViewTestAssertion::AcceptedBy { feature, .. } => {
+                assert_eq!(feature, "customer_tags")
+            }
+            other => panic!("expected AcceptedBy, got {other:?}"),
+        }
+        match &view.tests[1] {
+            LzxViewTestAssertion::AcceptedBy { feature, .. } => {
+                assert_eq!(feature, "customer_import")
+            }
+            other => panic!("expected AcceptedBy, got {other:?}"),
+        }
+        match &view.tests[2] {
+            LzxViewTestAssertion::RejectedBy { feature, .. } => {
+                assert_eq!(feature, "billing")
+            }
+            other => panic!("expected RejectedBy, got {other:?}"),
+        }
+    }
+
+    /// Wave 4 — the parser must reject any view test assertion outside
+    /// the closed extensibility vocabulary (policy / predicate
+    /// vocabulary belongs to commands, rules, and transitions).
+    #[test]
+    fn lzx_view_tests_reject_non_extensibility_shapes() {
+        let source = "experience customer
+  view detail
+    anchor @anchor.customer_detail
+
+    tests
+      allows when target.status = active
+";
+        let err = parse_lzx_document(source).unwrap_err();
+        let msg = format!("{:?}", err);
+        assert!(
+            msg.contains("accepted by") && msg.contains("rejected by"),
+            "expected guidance about closed catalog, got {msg}"
+        );
+    }
+
+    /// Wave 4 — the live full-capsule fixture must still parse and its
+    /// `accepted by` / `rejected by` lines must lift to the new typed
+    /// shape (regression guard for the existing example).
+    #[test]
+    fn full_capsule_view_tests_round_trip() {
+        let document =
+            parse_lzx_document(include_str!("../../../examples/full-capsule/full-capsule.lzx"))
+                .unwrap();
+        let detail_view = document
+            .experiences
+            .iter()
+            .flat_map(|e| e.views.iter())
+            .find(|v| v.name == "detail")
+            .expect("detail view present in fixture");
+        // Sanity-check the assertion shape — the fixture has two
+        // `accepted by` and one `rejected by` under the `detail` view.
+        let accepted: Vec<&str> = detail_view
+            .tests
+            .iter()
+            .filter_map(|t| match t {
+                LzxViewTestAssertion::AcceptedBy { feature, .. } => Some(feature.as_str()),
+                _ => None,
+            })
+            .collect();
+        let rejected: Vec<&str> = detail_view
+            .tests
+            .iter()
+            .filter_map(|t| match t {
+                LzxViewTestAssertion::RejectedBy { feature, .. } => Some(feature.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(accepted, vec!["customer_tags", "customer_import"]);
+        assert_eq!(rejected, vec!["billing"]);
     }
 
     #[test]

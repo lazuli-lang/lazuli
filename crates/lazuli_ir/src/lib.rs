@@ -4603,8 +4603,14 @@ pub struct ExperienceView {
     pub actions: Vec<ExperienceAction>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub opens: Vec<String>,
+    /// Wave 4 — view test assertions. Previously `Vec<String>` raw lines;
+    /// now a typed enum carrying `accepted by <feature>` / `rejected by
+    /// <feature>` semantics with span back-references for diagnostic
+    /// surfaces. The closed catalog is **extensibility-only**: views do
+    /// NOT participate in policy / predicate testing (those belong to
+    /// `command.tests`, `rule.tests`, `transition.tests`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tests: Vec<String>,
+    pub tests: Vec<ViewTestAssertion>,
     /// `ir-route-guards` §3.2 — per-view policy + redirects.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub guard: Option<ViewGuard>,
@@ -4617,6 +4623,51 @@ pub struct ExperienceView {
     pub resolved_lifecycle_gate: Option<ResolvedLifecycleGate>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
+}
+
+/// Wave 4 (TDD/BDD proposal) — typed view test assertion.
+///
+/// View tests use a closed extensibility vocabulary; they do NOT
+/// participate in policy / predicate testing. Only `accepted by
+/// <feature>` and `rejected by <feature>` are admissible. The parser
+/// rejects any other shape; the analyzer passes the typed value through
+/// to doctor rules `TEST-VIEW-EXTENSIBILITY-001` and `TEST-VIEW-DRIFT-001`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ViewTestAssertion {
+    /// `accepted by <feature>` — declares that `<feature>` may extend
+    /// the view via its anchor.
+    AcceptedBy {
+        feature: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        span_ref: Option<SpanRef>,
+    },
+    /// `rejected by <feature>` — declares that `<feature>` must NOT
+    /// extend the view via its anchor.
+    RejectedBy {
+        feature: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        span_ref: Option<SpanRef>,
+    },
+}
+
+impl ViewTestAssertion {
+    /// Returns the asserted feature name (the value to the right of
+    /// `accepted by` / `rejected by`).
+    pub fn feature(&self) -> &str {
+        match self {
+            ViewTestAssertion::AcceptedBy { feature, .. }
+            | ViewTestAssertion::RejectedBy { feature, .. } => feature,
+        }
+    }
+
+    /// Returns the source span for this assertion, when known.
+    pub fn span_ref(&self) -> Option<&SpanRef> {
+        match self {
+            ViewTestAssertion::AcceptedBy { span_ref, .. }
+            | ViewTestAssertion::RejectedBy { span_ref, .. } => span_ref.as_ref(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -7557,7 +7608,7 @@ mod l0_6_ir_tests {
                     blocks: vec!["host_home_shell".to_string()],
                     actions: Vec::new(),
                     opens: Vec::new(),
-                    tests: Vec::new(),
+                    tests: Vec::<ViewTestAssertion>::new(),
                     guard: Some(guard.clone()),
                     loaders: Vec::new(),
                     pending_view: None,

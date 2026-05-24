@@ -268,9 +268,37 @@ pub struct LzxExperienceView {
     pub blocks: Vec<String>,
     pub actions: Vec<LzxAction>,
     pub opens: Vec<String>,
-    pub tests: Vec<String>,
+    /// Wave 4 — typed view test assertions parsed from the `tests` block.
+    /// Only `accepted by <feature>` / `rejected by <feature>` shapes are
+    /// admissible; the parser rejects any other line as a `ParseError`.
+    pub tests: Vec<LzxViewTestAssertion>,
     pub guard: Option<LzxViewGuard>,
     pub span: Span,
+}
+
+/// Wave 4 — surface-AST mirror of `lazuli_ir::ViewTestAssertion`. The
+/// analyzer lowers each variant 1:1 to the IR enum.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LzxViewTestAssertion {
+    AcceptedBy { feature: String, span: Span },
+    RejectedBy { feature: String, span: Span },
+}
+
+impl LzxViewTestAssertion {
+    pub fn feature(&self) -> &str {
+        match self {
+            LzxViewTestAssertion::AcceptedBy { feature, .. }
+            | LzxViewTestAssertion::RejectedBy { feature, .. } => feature,
+        }
+    }
+
+    pub fn span(&self) -> Span {
+        match self {
+            LzxViewTestAssertion::AcceptedBy { span, .. }
+            | LzxViewTestAssertion::RejectedBy { span, .. } => *span,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

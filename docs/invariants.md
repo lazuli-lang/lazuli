@@ -578,6 +578,55 @@ source that only fails later.
 - Tests use the same closed predicate language as rules and filters; no
   fixtures, mocks, or `given/when/then` framing.
 
+### View tests are extensibility, NOT policy (Wave 4)
+
+View tests in `.lzx` use a DIFFERENT closed vocabulary from command / rule /
+transition tests. The only admissible shapes are `accepted by <feature>` and
+`rejected by <feature>`. They assert which sibling features may extend the
+view via its anchor — they are NOT policy resolution, NOT predicate
+boundaries, NOT DOM-level interaction tests. They do NOT use `allows` /
+`denies` / `when` / `as` (those belong to commands, rules, and transitions
+per the section above).
+
+View tests are validated by two doctor rules:
+
+- `TEST-VIEW-EXTENSIBILITY-001` (warning) — a view that declares
+  `extensible_by` MUST author at least one `accepted by` or `rejected by`
+  assertion. Without one, the extension surface is undocumented and
+  `TEST-VIEW-DRIFT-001` cannot cross-check it.
+- `TEST-VIEW-DRIFT-001` (error) — every `accepted by <feature>` must
+  resolve to a sibling experience whose `extends @anchor.<X>` clause
+  matches the host view's anchor. Two finding shapes: `MissingFeature`
+  (the named experience does not exist) and `MissingAnchorExtension`
+  (the experience exists but does not extend the host view's anchor).
+  `rejected by` is intentionally existence-tolerant: it pre-commits a
+  forbidden surface even before the would-be extender ships.
+
+View tests do NOT participate in DOM-level or interaction-level testing.
+That layer belongs to the frontend test suite (Playwright per the
+Wave 3.5 surface; React Testing Library at the app level), not to the
+Lazuli spec.
+
+### Command/rule/transition `denies when` requires IR-level backing (Wave 4 §7.1)
+
+`TEST-COMMAND-ASSERTION-DRIFT-001` (error) — when a `command tests` block
+declares `denies when target.<field> = <value>`, the rule cross-checks the
+IR for backing: an `Invariant` on the target resource that mentions the
+field, a `lifecycle` whose discriminator is the field, or a `triggers`
+binding that already filters state through a lifecycle transition. Without
+backing the assertion is documentation-only and the handler's WHERE clause
+may silently disagree with the declared spec (the `leave_host_reply`
+pattern from proposal §7.1 — the resource had a non-lifecycle `status`
+field, the test declared the gate, and the handler ignored it).
+
+The rule reads IR only — it does NOT consume codegen output, by design.
+The IR-backing surface (invariant / lifecycle / triggers) is stable
+across emitters and survives codegen rewrites; reading generated state
+would couple doctor to emitter implementation details. The trade-off
+is that handler-level WHERE clauses missing despite consistent IR are
+out of scope for v0.1 — those land in a future rule when codegen and
+runtime grow a shared `effective_filter` projection.
+
 ## Authored Shape
 
 - Features are product capabilities, not entity buckets.
