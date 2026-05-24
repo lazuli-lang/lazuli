@@ -280,6 +280,11 @@ export default defineConfig({
   // .env lives at the Lazurite project root (`projectRoot`) so the
   // backend (Go API) and the frontend (vite) share a single env file.
   envDir: projectRoot,
+  // Expose both `VITE_*` and `PUBLIC_*` to the client bundle. `PUBLIC_*`
+  // is the canonical shape across Lazuli pilots — same name on the
+  // server (Go reads os.Getenv) and the client (import.meta.env), so a
+  // value like `PUBLIC_GOOGLE_MAPS_API_KEY` is one var, not two.
+  envPrefix: ["VITE_", "PUBLIC_"],
   plugins: [react()],
   resolve: {
     alias: [
