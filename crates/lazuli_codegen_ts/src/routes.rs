@@ -3,7 +3,7 @@ use std::fmt::Write;
 
 use lazuli_ir::{
     AppManifest, AppRoute, Experience, Feature, Platform, PlatformSurface, RequiresLifecycle,
-    ViewGuard,
+    RouteParam, ViewGuard,
 };
 
 use crate::GeneratedFile;
@@ -83,6 +83,12 @@ struct RouteSpec {
     /// synchronous `component` field. Consumer registers a `()
     /// => import('./Foo')` thunk in the `lazyComponents` map.
     lazy: bool,
+    /// Wave §2 — typed path-param declarations from
+    /// `route <name>: <Type>` on the .lzx route block. Empty when
+    /// the route declared no typed params (codegen falls back to
+    /// the untyped `Record<string, string>` shape; consumers can
+    /// still hand-parse if they need to).
+    route_params: Vec<RouteParam>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -174,6 +180,7 @@ pub fn emit_routes_artifacts(
             error_component_key: route.error_view.as_ref().map(|v| lower_camel(v)),
             parent_route_const: route.parent.as_ref().map(|p| route_const_name(p)),
             lazy: route.lazy.unwrap_or(false),
+            route_params: route.route_params.clone(),
         });
     }
 
@@ -301,6 +308,18 @@ fn emit_routes_file(specs: &[RouteSpec]) -> String {
     }
     s.push('\n');
 
+    // Wave §2 — typed param parsers need `parseId` + `type ID`
+    // from the runtime when any route declares an `ID` param.
+    let any_typed_params = specs.iter().any(|s| !s.route_params.is_empty());
+    let any_id_param = specs.iter().any(|s| {
+        s.route_params
+            .iter()
+            .any(|p| classify_route_param_type(&p.type_ref) == TypedParamKind::Id)
+    });
+    if any_id_param {
+        s.push_str("import { parseId, type ID } from \"@lazuli/runtime\";\n");
+    }
+
     s.push_str("export const routeSpecs = [\n");
     for spec in specs {
         writeln!(s, "  {{").ok();
@@ -311,6 +330,19 @@ fn emit_routes_file(specs: &[RouteSpec]) -> String {
         writeln!(s, "  }},").ok();
     }
     s.push_str("] as const;\n\n");
+
+    // Wave §2 — per-route typed param parsers. Replaces
+    // hand-rolled `Number(params.id)` / `as unknown as number` in
+    // route screens (closes the MANUAL-PARAM-COERCION lint).
+    if any_typed_params {
+        for spec in specs {
+            if spec.route_params.is_empty() {
+                continue;
+            }
+            emit_route_params_interface(&mut s, spec);
+            emit_route_params_parser(&mut s, spec);
+        }
+    }
 
     if specs.is_empty() {
         s.push_str("export type ClientComponentKey = never;\n");
@@ -458,14 +490,45 @@ fn emit_nav_helpers(out: &mut String, specs: &[RouteSpec]) {
                 ts_string(&spec.path),
             ));
         } else {
+            // Wave §2 — when the .lzx declared typed
+            // `route <name>: <Type>` params, tighten the nav helper's
+            // arg signature so callers pass `ID` / `number` etc.
+            // instead of stringly-typed values. Path-only segments
+            // (declared in `path "/x/:foo"` but without a
+            // `route foo: ...` line) fall through to `string` (no
+            // typecheck regression for routes that haven't lifted yet).
+            let typed_by_name: BTreeMap<String, &RouteParam> = spec
+                .route_params
+                .iter()
+                .map(|p| (p.name.clone(), p))
+                .collect();
             let arg_fields = params
                 .iter()
-                .map(|p| format!("{p}: string"))
+                .map(|p| {
+                    let ty = typed_by_name
+                        .get(p.as_str())
+                        .map(|rp| nav_arg_ts_type(&rp.type_ref))
+                        .unwrap_or_else(|| "string".to_owned());
+                    format!("{p}: {ty}")
+                })
                 .collect::<Vec<_>>()
                 .join("; ");
+            // TanStack's `params` field expects strings; coerce typed
+            // values to string at the wire boundary. `String(id)`
+            // handles the `ID` (= number) case and is a no-op for
+            // strings.
             let params_field = params
                 .iter()
-                .map(|p| format!("{p}: params.{p}"))
+                .map(|p| {
+                    let needs_coerce = typed_by_name
+                        .get(p.as_str())
+                        .is_some_and(|rp| nav_arg_needs_string_coercion(&rp.type_ref));
+                    if needs_coerce {
+                        format!("{p}: String(params.{p})")
+                    } else {
+                        format!("{p}: params.{p}")
+                    }
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
             out.push_str(&format!(
@@ -478,6 +541,130 @@ fn emit_nav_helpers(out: &mut String, specs: &[RouteSpec]) {
         }
     }
     out.push_str("};\n");
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TypedParamKind {
+    Id,
+    Text,
+    Integer,
+    Decimal,
+    Boolean,
+}
+
+/// Classify a `route <name>: <Type>` type reference. Conservative —
+/// any unrecognised label falls back to `Text` (string), matching
+/// the per-feature view-route emitter's behavior.
+fn classify_route_param_type(raw: &str) -> TypedParamKind {
+    let normalized = raw.trim().to_ascii_lowercase();
+    if normalized == "id" || normalized.ends_with(".id") {
+        return TypedParamKind::Id;
+    }
+    match normalized.as_str() {
+        "integer" | "int" => TypedParamKind::Integer,
+        "decimal" | "float" | "number" => TypedParamKind::Decimal,
+        "boolean" | "bool" => TypedParamKind::Boolean,
+        _ => TypedParamKind::Text,
+    }
+}
+
+fn nav_arg_ts_type(raw: &str) -> String {
+    match classify_route_param_type(raw) {
+        TypedParamKind::Id => "ID".to_owned(),
+        TypedParamKind::Integer | TypedParamKind::Decimal => "number".to_owned(),
+        TypedParamKind::Boolean => "boolean".to_owned(),
+        TypedParamKind::Text => "string".to_owned(),
+    }
+}
+
+fn nav_arg_needs_string_coercion(raw: &str) -> bool {
+    matches!(
+        classify_route_param_type(raw),
+        TypedParamKind::Id | TypedParamKind::Integer | TypedParamKind::Decimal | TypedParamKind::Boolean
+    )
+}
+
+/// Wave §2 — emit the typed `<Route>Params` interface for a route
+/// that declared `route <name>: <Type>` lines. The shape mirrors
+/// the per-feature view-route emitter so consumers can rely on a
+/// consistent name pattern across both surfaces.
+fn emit_route_params_interface(out: &mut String, spec: &RouteSpec) {
+    let pascal = pascal_case(&spec.name);
+    writeln!(out, "export interface {pascal}Params {{").ok();
+    for param in &spec.route_params {
+        let ty = match classify_route_param_type(&param.type_ref) {
+            TypedParamKind::Id => "ID".to_owned(),
+            TypedParamKind::Integer | TypedParamKind::Decimal => "number".to_owned(),
+            TypedParamKind::Boolean => "boolean".to_owned(),
+            TypedParamKind::Text => "string".to_owned(),
+        };
+        writeln!(out, "  {}: {ty};", param.name).ok();
+    }
+    writeln!(out, "}}").ok();
+    writeln!(out).ok();
+}
+
+fn emit_route_params_parser(out: &mut String, spec: &RouteSpec) {
+    let pascal = pascal_case(&spec.name);
+    writeln!(
+        out,
+        "export function parse{pascal}Params(raw: Record<string, string>): {pascal}Params | null {{"
+    )
+    .ok();
+    for param in &spec.route_params {
+        let raw_access = format!("raw.{}", param.name);
+        match classify_route_param_type(&param.type_ref) {
+            TypedParamKind::Id => {
+                writeln!(
+                    out,
+                    "  const {n} = parseId({raw_access}); if ({n} == null) return null;",
+                    n = param.name
+                )
+                .ok();
+            }
+            TypedParamKind::Integer => {
+                writeln!(
+                    out,
+                    "  const {n} = Number.parseInt({raw_access} ?? \"\", 10); if (Number.isNaN({n})) return null;",
+                    n = param.name
+                )
+                .ok();
+            }
+            TypedParamKind::Decimal => {
+                writeln!(
+                    out,
+                    "  const {n} = Number({raw_access}); if (!Number.isFinite({n})) return null;",
+                    n = param.name
+                )
+                .ok();
+            }
+            TypedParamKind::Boolean => {
+                writeln!(
+                    out,
+                    "  const {n} = {raw_access} === \"true\" ? true : {raw_access} === \"false\" ? false : null; if ({n} == null) return null;",
+                    n = param.name
+                )
+                .ok();
+            }
+            TypedParamKind::Text => {
+                writeln!(
+                    out,
+                    "  const {n} = {raw_access}; if (typeof {n} !== \"string\" || {n}.length === 0) return null;",
+                    n = param.name
+                )
+                .ok();
+            }
+        }
+    }
+    let fields = spec
+        .route_params
+        .iter()
+        .map(|p| p.name.clone())
+        .collect::<Vec<_>>()
+        .join(", ");
+    writeln!(out, "  return {{ {fields} }};").ok();
+    writeln!(out, "}}").ok();
+    writeln!(out).ok();
 }
 
 /// Extract the path-param names from a TanStack-formatted path

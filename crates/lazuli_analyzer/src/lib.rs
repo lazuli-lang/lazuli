@@ -451,6 +451,14 @@ fn lower_lzx_route(route: &syntax::LzxRoute) -> ir::AppRoute {
         name: route.name.clone(),
         path: route.path.clone(),
         routes: route.routes.clone(),
+        route_params: route
+            .route_params
+            .iter()
+            .map(|p| ir::RouteParam {
+                name: p.name.clone(),
+                type_ref: p.type_ref.clone(),
+            })
+            .collect(),
         to: route.to.clone(),
         surface: route.surface.clone(),
         audience: route.audience.clone(),

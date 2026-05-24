@@ -212,6 +212,14 @@ pub struct LzxRoute {
     /// router-w8 — `parent <route_name>` declaration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
+    /// Wave §2 (2026-05-24) — typed path-param declarations on the
+    /// route block. Authored as `route <name>: <Type>` (e.g.
+    /// `route id: ID`). Surfaced in `ir::AppRoute.route_params`;
+    /// codegen emits a typed `parse<Route>Params` per app-level
+    /// route, replacing the manual `Number(params.id)` coercion at
+    /// the consumer site.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub route_params: Vec<RouteParamAst>,
     pub span: Span,
 }
 

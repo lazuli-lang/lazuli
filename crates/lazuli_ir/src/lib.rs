@@ -4353,6 +4353,14 @@ pub struct AppRoute {
     pub path: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub routes: Vec<String>,
+    /// Wave §2 (2026-05-24) — typed path-param declarations
+    /// authored as `route <name>: <Type>` on the route block.
+    /// Mirrors `ViewDetail.route_params`. Codegen lowers to a
+    /// `parse<Route>Params(raw)` factory in the generated
+    /// `routes.gen.tsx`, replacing manual `Number(params.id)`
+    /// coercion at consumer sites.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub route_params: Vec<RouteParam>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub to: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

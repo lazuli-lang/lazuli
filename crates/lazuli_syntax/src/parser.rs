@@ -851,6 +851,7 @@ fn parse_lzx_route(
     let mut pending_view: Option<String> = None;
     let mut error_view: Option<String> = None;
     let mut parent: Option<String> = None;
+    let mut route_params: Vec<crate::ast::RouteParamAst> = Vec::new();
     let mut index = start + 1;
 
     while index < lines.len() {
@@ -873,7 +874,30 @@ fn parse_lzx_route(
         if let Some(rest) = trimmed.strip_prefix("path ") {
             path = Some(unquote_lzx_value(rest.trim()).to_owned());
         } else if let Some(rest) = trimmed.strip_prefix("route ") {
-            routes.extend(split_lzx_list(rest));
+            // Wave §2 (2026-05-24) — disambiguate two child shapes:
+            //   `route <name>: <Type>`  →  typed path-param declaration
+            //   `route <name>[, <name>]` → legacy routes-list (still
+            //                              accepted, drops to the
+            //                              vestigial `routes: Vec<String>`
+            //                              field; no live consumer).
+            let rest = rest.trim();
+            if let Some((name_part, type_part)) = rest.split_once(':') {
+                let name = name_part.trim();
+                let type_ref = type_part.trim();
+                if name.is_empty() || type_ref.is_empty() {
+                    return Err(line_error(
+                        line,
+                        "route param declaration uses `route <name>: <Type>` (both name and type must be non-empty)",
+                    ));
+                }
+                route_params.push(crate::ast::RouteParamAst {
+                    name: name.to_owned(),
+                    type_ref: type_ref.to_owned(),
+                    span: Span::new(line.start, line.end),
+                });
+            } else {
+                routes.extend(split_lzx_list(rest));
+            }
         } else if let Some(rest) = trimmed.strip_prefix("to ") {
             to = Some(rest.trim().to_owned());
         } else if let Some(rest) = trimmed.strip_prefix("surface ") {
@@ -959,6 +983,7 @@ fn parse_lzx_route(
             pending_view,
             error_view,
             parent,
+            route_params,
             span: Span::new(header.start, lines[index.saturating_sub(1)].end),
         },
         index,
