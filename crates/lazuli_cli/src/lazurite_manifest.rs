@@ -17,6 +17,89 @@ pub struct Manifest {
     pub migrations: Option<Migrations>,
     pub seeds: Option<Seeds>,
     pub dev: Option<DevOverrides>,
+    /// `[testing]` section consumed by `lazuli test`. Optional; when
+    /// absent the runner falls back to conventional discovery (run
+    /// spec/view always; handler if `_test.go` exists; ts skipped;
+    /// e2e if `e2e/` exists). Schema per
+    /// `docs/proposals/lazuli-test-runner-2026-05-24.md` §3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub testing: Option<Testing>,
+}
+
+/// `[testing]` block in `Lazurite.toml`. Composes per-layer
+/// sub-runner configuration (`[testing.go]`, `[testing.playwright]`,
+/// `[testing.ts]`, `[testing.spec]`). All sub-fields optional.
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
+pub struct Testing {
+    /// Default layers to run when `lazuli test` is invoked with no
+    /// `--layer` flag. When omitted, runner enumerates conventional
+    /// layers (spec/view always; handler/ts/e2e per discovery).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_layers: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub go: Option<TestingGo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub playwright: Option<TestingPlaywright>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ts: Option<TestingTs>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spec: Option<TestingSpec>,
+}
+
+/// `[testing.go]` — Go handler test layer settings. Pass-through;
+/// Lazuli does not reimplement `go test`.
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
+pub struct TestingGo {
+    #[serde(default)]
+    pub flags: Vec<String>,
+    #[serde(default)]
+    pub coverage: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage_out: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package_pattern: Option<String>,
+}
+
+/// `[testing.playwright]` — Playwright e2e layer settings. Pass-through.
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
+pub struct TestingPlaywright {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workers: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discovery_root: Option<String>,
+    #[serde(default)]
+    pub flags: Vec<String>,
+}
+
+/// `[testing.ts]` — TS/JS component test layer settings. Layer only
+/// runs when this section is present. `runner` is the closed catalog
+/// (`vitest` | `jest`); future runners require an explicit enum
+/// extension.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct TestingTs {
+    /// Closed catalog: `vitest` | `jest`. Validated at runtime by
+    /// `runners::ts_test`. No default — explicit opt-in.
+    pub runner: String,
+    #[serde(default)]
+    pub flags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discovery_root: Option<String>,
+    #[serde(default)]
+    pub coverage: bool,
+}
+
+/// `[testing.spec]` — Layer 1-2 spec/view settings. The doctor
+/// pipeline does the actual work; this only overrides the profile.
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
+pub struct TestingSpec {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

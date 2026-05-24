@@ -497,6 +497,7 @@ mod tests {
             migrations: None,
             seeds: None,
             dev: None,
+            testing: None,
         }
     }
 

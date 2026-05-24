@@ -18,6 +18,13 @@ mod cmd_generate_handler;
 mod cmd_generate_playwright;
 mod cmd_mcp;
 mod cmd_new_frontends;
+mod cmd_test;
+mod cmd_test_fail_fast;
+mod cmd_test_ndjson;
+mod cmd_test_output;
+mod cmd_test_types;
+mod cmd_test_watch;
+mod coverage_aggregator;
 mod debug;
 mod dev;
 mod doctor;
@@ -33,6 +40,7 @@ mod plugin_catalog;
 mod plugin_manifest;
 mod plugin_semantic_resolver;
 mod profile;
+mod runners;
 mod seed;
 mod templates;
 mod upgrade;
@@ -350,6 +358,69 @@ enum Commands {
     /// Closed catalog of 8 read-only tools + 4 resource prefixes.
     /// See `docs/proposals/lazuli-mcp-subcommand-2026-05-17.md`.
     Mcp,
+    /// Unified test runner across all layers (spec, view, handler,
+    /// ts, e2e). Wire-thin: shells out to native runners (`go test`,
+    /// Playwright, Vitest/Jest); does not reimplement execution.
+    ///
+    /// See `docs/proposals/lazuli-test-runner-2026-05-24.md`.
+    Test {
+        /// Path to a `.lzi` file or a directory containing one.
+        /// Defaults to the current directory.
+        #[arg(default_value = ".")]
+        input: PathBuf,
+        /// Layer(s) to run. Repeat for multiple (`--layer spec
+        /// --layer handler`). Omit to run conventional discovery.
+        #[arg(long = "layer", value_enum)]
+        layer: Vec<TestLayerFlag>,
+        /// Output format: `text` (default for TTY), `json`, `ndjson`.
+        #[arg(long, default_value = "text")]
+        format: String,
+        /// Emit per-layer coverage report.
+        #[arg(long)]
+        coverage: bool,
+        /// `--fail-on <spec>`. Repeatable. Supports
+        /// `category:<Name>` and `coverage:<metric>=<pct>`.
+        #[arg(long = "fail-on")]
+        fail_on: Vec<String>,
+        /// Watch source files and re-run affected layers on change.
+        #[arg(long)]
+        watch: bool,
+        /// Stop after the first failing layer (skip downstream).
+        #[arg(long = "fail-fast")]
+        fail_fast: bool,
+        /// Aggregate method (`weighted-by-construct-count`,
+        /// `arithmetic-mean`, `min-of-layers`). Required when
+        /// `--fail-on coverage:aggregate=...` is set.
+        #[arg(long = "aggregate-method")]
+        aggregate_method: Option<String>,
+        /// Pass-through args after `--`. Forwarded to the layer's
+        /// native runner (today: handler only).
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        extra_args: Vec<String>,
+    },
+}
+
+/// CLI ValueEnum mirror of `cmd_test_types::Layer` — kept distinct so
+/// the test-runner types stay free of `clap` dependency.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum TestLayerFlag {
+    Spec,
+    View,
+    Handler,
+    Ts,
+    E2e,
+}
+
+impl From<TestLayerFlag> for cmd_test_types::Layer {
+    fn from(flag: TestLayerFlag) -> Self {
+        match flag {
+            TestLayerFlag::Spec => cmd_test_types::Layer::Spec,
+            TestLayerFlag::View => cmd_test_types::Layer::View,
+            TestLayerFlag::Handler => cmd_test_types::Layer::Handler,
+            TestLayerFlag::Ts => cmd_test_types::Layer::Ts,
+            TestLayerFlag::E2e => cmd_test_types::Layer::E2e,
+        }
+    }
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -977,7 +1048,72 @@ fn main() -> Result<()> {
             } => translate_extract_command(&input, &out, locale.as_deref(), check),
         },
         Commands::Mcp => cmd_mcp::run_mcp_server(),
+        Commands::Test {
+            input,
+            layer,
+            format,
+            coverage,
+            fail_on,
+            watch,
+            fail_fast,
+            aggregate_method,
+            extra_args,
+        } => test_command(
+            input,
+            layer,
+            format,
+            coverage,
+            fail_on,
+            watch,
+            fail_fast,
+            aggregate_method,
+            extra_args,
+        ),
     }
+}
+
+fn test_command(
+    input: PathBuf,
+    layer: Vec<TestLayerFlag>,
+    format: String,
+    coverage: bool,
+    fail_on: Vec<String>,
+    watch: bool,
+    fail_fast: bool,
+    aggregate_method: Option<String>,
+    extra_args: Vec<String>,
+) -> Result<()> {
+    let format = cmd_test::OutputFormat::parse(&format).map_err(|e| anyhow::anyhow!(e))?;
+    let mut parsed_fail_on = Vec::new();
+    for raw in &fail_on {
+        let spec = cmd_test_types::FailOnSpec::parse(raw)
+            .map_err(|e| anyhow::anyhow!(e))?;
+        parsed_fail_on.push(spec);
+    }
+    // Gate coverage:aggregate=<N> behind --aggregate-method per
+    // proposal §Coverage.
+    if aggregate_method.is_none()
+        && parsed_fail_on.iter().any(|s| {
+            matches!(s, cmd_test_types::FailOnSpec::Coverage { metric, .. } if metric == "aggregate")
+        })
+    {
+        bail!(
+            "--fail-on coverage:aggregate=<N> requires --aggregate-method to be set explicitly"
+        );
+    }
+
+    let opts = cmd_test::TestOptions {
+        input,
+        layers: layer.into_iter().map(Into::into).collect(),
+        format,
+        coverage,
+        fail_on: parsed_fail_on,
+        watch,
+        fail_fast,
+        aggregate_method,
+        extra_args,
+    };
+    cmd_test::run(opts)
 }
 
 /// OpenAPI / Lazuli Go bucket cycle — emit an artifact derived from
