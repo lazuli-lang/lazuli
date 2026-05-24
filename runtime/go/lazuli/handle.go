@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -19,6 +20,24 @@ import (
 type commandTxRunner func(context.Context, func(pgx.Tx) error) error
 
 var runCommandTx commandTxRunner = withTx
+
+// rateLimitGloballyDisabled reports whether
+// `LAZULI_RATE_LIMIT_DISABLE` is set to a truthy value. Cheap
+// per-request env read — same pattern as `RateLimit.Resolve()`'s
+// `LAZULI_ENV` lookup. Recognised truthy literals: `1`, `true`,
+// `yes`, `on` (case-insensitive). Anything else (incl. unset) is
+// false → limits apply normally.
+//
+// PRODUCTION DEPLOYMENTS MUST NOT SET THIS — the limit is part
+// of the auth / abuse defense. Intended for local dev + e2e test
+// runs only.
+func rateLimitGloballyDisabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("LAZULI_RATE_LIMIT_DISABLE"))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
 
 // Handle executes the command transactionally. The runtime calls this from
 // the HTTP dispatcher (and later from job triggers and webhook callbacks).
@@ -50,7 +69,18 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 	// `ir-rate-limit-env-aware` Cell 2: `c.RateLimit.Resolve()` is a
 	// linear scan over `ByEnv` (at most 5 entries). Empty resolved
 	// limit == no throttle — short-circuit before parsing.
+	//
+	// Operator escape hatch: `LAZULI_RATE_LIMIT_DISABLE=true` skips
+	// enforcement entirely for ALL commands. Intended for local dev +
+	// e2e test runs where the limit is noise (e.g. registerUser hit
+	// 429s after a handful of test users). PRODUCTION DEPLOYMENTS
+	// MUST NOT SET THIS — the limit is part of the auth / abuse
+	// defense. The variable is read per request (no boot caching) so
+	// tests can toggle it mid-suite.
 	resolvedLimit := c.RateLimit.Resolve()
+	if rateLimitGloballyDisabled() {
+		resolvedLimit = ""
+	}
 	if strings.TrimSpace(resolvedLimit) != "" {
 		spec, err := parseRateLimitSpec(resolvedLimit)
 		if err != nil {
