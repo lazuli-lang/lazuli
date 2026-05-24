@@ -1,0 +1,95 @@
+# Release pipeline for {{app_name}} — fires on semver tags.
+#
+# Stub: the convention is to gate every release behind the same
+# `pnpm verify:all` chain CI runs on PRs, then hand off to a deploy
+# step that is intentionally project-specific. Wire the deploy step
+# to your actual target (Fly.io, Render, your own VPS, Kubernetes,
+# etc.) — examples are linked in README.md.
+#
+# Tag conventions assumed:
+#   v1.2.3        → production release
+#   v1.2.3-rc.1   → release candidate (stage)
+#
+# Disable this workflow by deleting the file; the build still works
+# without it. Or restrict triggers to `branches: [production]` if
+# you prefer branch-driven releases.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+concurrency:
+  # Release is serialized — overlapping deploys are almost always a bug.
+  group: release
+  cancel-in-progress: false
+
+env:
+  LAZULI_TEST_DATABASE_URL: postgres://{{app_slug}}:{{app_slug}}@localhost:5432/{{app_slug}}?sslmode=disable
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: {{app_slug}}
+          POSTGRES_PASSWORD: {{app_slug}}
+          POSTGRES_DB: {{app_slug}}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U {{app_slug}}"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Lazuli CLI
+        run: cargo install --git https://github.com/lazuli-lang/lazuli --locked lazuli_cli
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:migrate
+      - name: Strict-profile verify chain
+        run: pnpm verify:all
+
+  deploy:
+    # Wire to your actual deploy target. Examples:
+    #   - fly.io          → uses: superfly/flyctl-actions/setup-flyctl@master
+    #   - Render          → curl POST to deploy hook
+    #   - Kubernetes      → kubectl apply -f k8s/
+    #   - Custom VPS      → ssh into host + restart systemd unit
+    #
+    # Delete this job entirely if you deploy out-of-band.
+    needs: verify
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy (stub — wire to your target)
+        run: |
+          echo "Release ${GITHUB_REF#refs/tags/} verified."
+          echo "Wire this step to your deploy target — see .github/workflows/release.yml comments."
