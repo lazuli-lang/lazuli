@@ -1355,6 +1355,16 @@ impl DoctorPackage {
             self.security_profile,
         ));
 
+        // Wave 3.5 (TDD/BDD-first proposal) — aggregator for the
+        // `TestDiscipline` category. Today it dispatches only
+        // `TEST-VIEW-E2E-MISSING-001`; future cells add the rest of
+        // the Wave 1 / Wave 3 catalog through the same entry point.
+        diagnostics.extend(test_discipline_diagnostics(
+            &self.files,
+            &self.project_root,
+            self.security_profile,
+        ));
+
         diagnostics.sort_by(|left, right| {
             left.code
                 .cmp(&right.code)
@@ -1486,6 +1496,72 @@ fn money_arithmetic_001_diagnostics(
             }
         })
         .collect()
+}
+
+/// Wave 3.5 (TDD/BDD-first proposal) — aggregator for the
+/// `TestDiscipline` rule category. Walks every parsed `.lzx` document
+/// in the package and dispatches one rule per construct kind. Today
+/// the only resident is `TEST-VIEW-E2E-MISSING-001`; subsequent Wave
+/// 1 / Wave 3 rules add to this entry point so call-site fan-out
+/// stays one line per category.
+///
+/// Severity matrix per the proposal:
+///
+/// | profile | severity |
+/// |---|---|
+/// | prototype | info |
+/// | strict | warning |
+/// | production | error |
+///
+/// This rule is **file-pair only**: doctor inspects file existence
+/// under `<project_root>/e2e/<experience>/<view>.spec.ts` and never
+/// invokes Playwright, parses TypeScript, or validates test content.
+/// The wire-thin invariant is preserved.
+fn test_discipline_diagnostics(
+    files: &[DoctorFile],
+    project_root: &Path,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    let severity = test_discipline_severity(security_profile);
+    let mut diagnostics = Vec::new();
+    for file in files {
+        let Some(document) = file.lzx.as_ref() else {
+            continue;
+        };
+        let findings = lazuli_doctor::test_discipline::test_view_e2e_missing_001::check(
+            document,
+            &file.path,
+            &file.source,
+            project_root,
+        );
+        for finding in findings {
+            let message = finding.message();
+            diagnostics.push(DoctorDiagnostic {
+                path: finding.path,
+                line: finding.line,
+                column: finding.column,
+                severity,
+                code: lazuli_doctor::test_discipline::test_view_e2e_missing_001::Finding::CODE
+                    .to_owned(),
+                message,
+            });
+        }
+    }
+    diagnostics
+}
+
+/// Per-profile severity for `RuleCategory::TestDiscipline` rules.
+/// Lifted to its own helper so future rules in the category share the
+/// matrix without re-deriving it. Note that this differs from
+/// `doctor_rule_severity` for the prototype profile: test discipline
+/// is `info` in prototype (visible but not blocking), whereas other
+/// categories are silent in prototype.
+fn test_discipline_severity(security_profile: SecurityProfile) -> DoctorSeverity {
+    match security_profile {
+        SecurityProfile::Prototype => DoctorSeverity::Info,
+        SecurityProfile::Strict => DoctorSeverity::Warning,
+        SecurityProfile::Production => DoctorSeverity::Error,
+    }
 }
 
 fn folder_layout_diagnostics(

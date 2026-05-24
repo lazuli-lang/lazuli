@@ -23,4 +23,5 @@ pub mod error_vocab;
 pub mod lifecycle;
 pub mod poller;
 pub mod report;
+pub mod test_discipline;
 pub mod vocab;
