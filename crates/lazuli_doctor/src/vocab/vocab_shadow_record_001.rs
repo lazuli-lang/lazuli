@@ -260,6 +260,7 @@ mod tests {
             lock: None,
             composite_key: None,
             conventions: Vec::new(),
+            lifecycle_routes: None,
         }
     }
 
@@ -313,6 +314,7 @@ mod tests {
             type_ref: TypeRef::Builtin(ty),
             required: false,
             constraints: FieldConstraints::default(),
+        validate_skip: false,
         }
     }
 

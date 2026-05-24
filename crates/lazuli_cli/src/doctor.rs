@@ -555,6 +555,17 @@ impl DoctorPackage {
                                             &file.path,
                                             &feature,
                                         ));
+                                    // Wave 1 — test-discipline + adjacent
+                                    // runtime/migration lints. Seven rules
+                                    // dispatched per-feature; the rule modules
+                                    // live in `lazuli_doctor::test_discipline`.
+                                    file.local_diagnostics
+                                        .extend(test_discipline_diagnostics(
+                                            &file.path,
+                                            &project_root,
+                                            &feature,
+                                            security_profile,
+                                        ));
                                     // Tier 3 facts harvest — done before
                                     // `feature.agents` is consumed below.
                                     // Migrations bucket cycle Route C —
@@ -1486,6 +1497,122 @@ fn money_arithmetic_001_diagnostics(
             }
         })
         .collect()
+}
+
+/// Wave 1 — test-discipline + adjacent runtime/migration lint dispatcher.
+///
+/// Aggregates the seven `test_discipline` rules into per-feature CLI output:
+///
+/// * `TEST-MISSING-AUTHORED-001` — warning (strict/production)
+/// * `TEST-PREDICATE-UNCOVERED-001` — info (both profiles)
+/// * `TEST-RESTATES-EFFECT-001` — warning
+/// * `TEST-RESTATES-POLICY-001` — warning
+/// * `TEST-FIXTURE-LITERAL-001` — error
+/// * `MIGRATION-DSL-UNIQUE-001` — error
+/// * `RUNTIME-UPDATE-BUILDER-JSONB-001` — warning
+///
+/// Each rule's intrinsic severity is documented inline; the dispatcher does
+/// NOT downgrade or promote based on `security_profile` v0.1. Profile-aware
+/// promotion will land alongside Wave 0.5 `RuleCategory`-aware severity.
+///
+/// Modeled after `money_arithmetic_001_diagnostics` per the Wave 1 spec —
+/// each rule returns a `Finding`, the dispatcher maps to `DoctorDiagnostic`.
+fn test_discipline_diagnostics(
+    path: &Path,
+    project_root: &Path,
+    feature: &lazuli_ir::Feature,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    use lazuli_doctor::test_discipline::{
+        migration_dsl_unique_001, runtime_update_builder_jsonb_001, test_fixture_literal_001,
+        test_missing_authored_001, test_predicate_uncovered_001, test_restates_effect_001,
+        test_restates_policy_001,
+    };
+    if security_profile == SecurityProfile::Prototype {
+        return Vec::new();
+    }
+
+    let mut out: Vec<DoctorDiagnostic> = Vec::new();
+
+    for finding in test_missing_authored_001::check(feature, path) {
+        let message = finding.message();
+        out.push(DoctorDiagnostic {
+            path: finding.path,
+            line: 1,
+            column: 1,
+            severity: DoctorSeverity::Warning,
+            code: test_missing_authored_001::Finding::CODE.to_owned(),
+            message,
+        });
+    }
+    for finding in test_predicate_uncovered_001::check(feature, path) {
+        let message = finding.message();
+        out.push(DoctorDiagnostic {
+            path: finding.path,
+            line: 1,
+            column: 1,
+            severity: DoctorSeverity::Info,
+            code: test_predicate_uncovered_001::Finding::CODE.to_owned(),
+            message,
+        });
+    }
+    for finding in test_restates_effect_001::check(feature, path) {
+        let message = finding.message();
+        out.push(DoctorDiagnostic {
+            path: finding.path,
+            line: 1,
+            column: 1,
+            severity: DoctorSeverity::Warning,
+            code: test_restates_effect_001::Finding::CODE.to_owned(),
+            message,
+        });
+    }
+    for finding in test_restates_policy_001::check(feature, path) {
+        let message = finding.message();
+        out.push(DoctorDiagnostic {
+            path: finding.path,
+            line: 1,
+            column: 1,
+            severity: DoctorSeverity::Warning,
+            code: test_restates_policy_001::Finding::CODE.to_owned(),
+            message,
+        });
+    }
+    for finding in test_fixture_literal_001::check(feature, path) {
+        let message = finding.message();
+        out.push(DoctorDiagnostic {
+            path: finding.path,
+            line: 1,
+            column: 1,
+            severity: DoctorSeverity::Error,
+            code: test_fixture_literal_001::Finding::CODE.to_owned(),
+            message,
+        });
+    }
+    for finding in migration_dsl_unique_001::check(feature, path, project_root) {
+        let message = finding.message();
+        out.push(DoctorDiagnostic {
+            path: finding.path,
+            line: 1,
+            column: 1,
+            severity: DoctorSeverity::Error,
+            code: migration_dsl_unique_001::Finding::CODE.to_owned(),
+            message,
+        });
+    }
+    for finding in runtime_update_builder_jsonb_001::check(feature, path) {
+        let message = finding.message();
+        out.push(DoctorDiagnostic {
+            path: finding.path,
+            line: 1,
+            column: 1,
+            severity: DoctorSeverity::Warning,
+            code: runtime_update_builder_jsonb_001::Finding::CODE.to_owned(),
+            message,
+        });
+    }
+
+    out
 }
 
 fn folder_layout_diagnostics(
