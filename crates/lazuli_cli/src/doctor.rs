@@ -2460,6 +2460,7 @@ fn lazurite_manifest_diagnostics(package: &DoctorPackage) -> Vec<DoctorDiagnosti
     diagnostics.extend(check_semantic_plugin_unresolved(manifest, package));
     diagnostics.extend(check_semantic_plugin_no_validator(manifest, package));
     diagnostics.extend(check_plugin_manifest_missing(manifest, package));
+    diagnostics.extend(check_plugin_manifest_schema_legacy(manifest, package));
     diagnostics.extend(check_plugin_readme_missing(manifest, package));
     diagnostics.extend(check_plugin_catalog_drift(manifest, package));
     diagnostics.extend(check_submodule_drift(manifest, package));
@@ -2504,6 +2505,67 @@ fn check_plugin_manifest_missing(
             message: format!(
                 "plugin `{plugin_ref}` at `{}` is missing `manifest.toml`. Every plugin must declare a `[plugin]` block (name + namespace + go_module + ts_package) so the catalog stays self-describing. Add `manifest.toml` to the plugin root or remove the plugin from Lazurite.toml [plugins].",
                 plugin_root.display(),
+            ),
+        });
+    }
+    diagnostics
+}
+
+/// PLUGIN-MANIFEST-SCHEMA-LEGACY (error) — every plugin
+/// `manifest.toml` MUST declare a `[plugin]` block carrying
+/// `name`/`namespace`/`go_module` (per
+/// `crate::plugin_manifest::PluginManifest`). Some older plugins
+/// (pre-2026-05-12, before the lazuli-ops 85ff076 cutover) used a
+/// flat top-level `name`/`version`/`implements` shape that the
+/// loader accepts silently — codegen falls back to v1 conventions
+/// and the LSP catalog shows the plugin under its DSL ref, but
+/// every downstream feature is degraded.
+///
+/// Wave §A4 hard-cutover (2026-05-23): all 10 known legacy plugins
+/// have been migrated; any remaining legacy manifest is a bug, so
+/// this lint runs at Error severity from day one.
+fn check_plugin_manifest_schema_legacy(
+    manifest: &crate::lazurite_manifest::Manifest,
+    package: &DoctorPackage,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    for plugin_ref in manifest.plugins.keys() {
+        let Some(plugin_root) =
+            crate::plugin_manifest::resolve_plugin_root(manifest, &package.project_root, plugin_ref)
+        else {
+            continue;
+        };
+        let manifest_path = plugin_root.join(crate::plugin_manifest::PLUGIN_MANIFEST_FILENAME);
+        let Ok(text) = std::fs::read_to_string(&manifest_path) else {
+            // PLUGIN-MANIFEST-MISSING already covers absence.
+            continue;
+        };
+        // Parse as raw TOML so we can inspect for a `[plugin]` table.
+        // The PluginManifest deserializer treats `plugin` as optional,
+        // so a `PluginManifest::default()` round-trips a legacy
+        // manifest cleanly — that's exactly the silent path we close
+        // here.
+        let Ok(value) = text.parse::<toml::Value>() else {
+            // TOML syntax error is a separate concern; let the loader
+            // surface it through its own error path.
+            continue;
+        };
+        let table = match value.as_table() {
+            Some(t) => t,
+            None => continue,
+        };
+        if table.contains_key("plugin") {
+            continue; // canonical v1 shape — no diagnostic
+        }
+        diagnostics.push(DoctorDiagnostic {
+            path: manifest_path.clone(),
+            line: 1,
+            column: 1,
+            severity: DoctorSeverity::Error,
+            code: "PLUGIN-MANIFEST-SCHEMA-LEGACY".to_owned(),
+            message: format!(
+                "plugin `{plugin_ref}` at `{}` uses the legacy flat manifest schema (top-level `name`/`version`/`implements`). Migrate to the v1 schema with a `[plugin]` block declaring `namespace`, `name`, `go_module`, and `ts_package` (optional). See `docs/proposals/plugin-manifest-v1-hard-cutover-2026-05-23.md` (wave §A4).",
+                manifest_path.display(),
             ),
         });
     }
