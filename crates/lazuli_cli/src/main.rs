@@ -34,6 +34,7 @@ mod plugin_manifest;
 mod plugin_semantic_resolver;
 mod profile;
 mod seed;
+mod signature_aware_stub;
 mod templates;
 mod upgrade;
 mod version;

@@ -1,0 +1,150 @@
+// Package testsupport carries shared fixtures + helpers used by every
+// handler integration test in `app/features/*/handlers/*_test.go`.
+//
+// Lazuli framework reference scaffold — pilots EXTEND this file with
+// project-specific seed helpers (SeedHost, SeedTraveler, etc.). The
+// shape comes from Hostpoint's `app/testsupport/harness.go`
+// (committed 2026-05-24, commit `d1aae4f`).
+//
+// Design discipline:
+//   - **Real Postgres, no mocks.** Mocked DBs are what let
+//     schema-shape bugs ship (an INSERT missing a column). Tests
+//     must run against the same migration set the production
+//     binary boots from.
+//   - **Skip, do not fail, when DB is unreachable.** Dev boxes
+//     without docker-compose up should not see noisy red — CI is
+//     the place that enforces "DB MUST be reachable".
+//   - **Self-cleanup.** Each helper that allocates fixture rows
+//     returns a cleanup closure the test defers. No test should
+//     leak rows between runs.
+//   - **No order coupling.** Tests use unique slugs/emails seeded
+//     from time.Now() + a random suffix so parallel `go test -p N`
+//     never collides on a unique-constraint.
+//
+// Library stack the framework recommends (pilots may swap):
+//   - github.com/stretchr/testify/require — fatal assertions for
+//     setup steps (a failed Org fixture has no point continuing).
+//   - github.com/stretchr/testify/assert  — non-fatal assertions for
+//     body checks so a single test can surface every divergence at
+//     once.
+//
+// Stack deliberately NOT picked:
+//   - GoMock / mock interfaces — pgx pool is hard to mock faithfully
+//     and the schema-shape bugs that motivated this surface require
+//     real SQL.
+//   - Ginkgo/Gomega BDD — extra DSL surface buys nothing for handler
+//     tests; idiomatic `t *testing.T` keeps stack traces direct.
+package testsupport
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"os"
+	"sync"
+	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"lazuli.dev/runtime/lazuli"
+)
+
+// poolOnce guards pool creation across the test binary so we don't
+// open one connection pool per test (pgxpool is expensive enough that
+// per-test creation triples test runtime).
+var (
+	poolOnce sync.Once
+	poolErr  error
+	pool     *pgxpool.Pool
+)
+
+// DatabaseURL returns the DB URL the test should connect against, or
+// empty when no test DB is reachable. Order:
+//  1. LAZULI_TEST_DATABASE_URL — explicit test override (project-specific name)
+//  2. LAZULI_DB — same env var the dev API consumes
+//  3. docker-compose default — last resort matching the dev .env
+//
+// Pilots customize the LAZULI_TEST_DATABASE_URL name + the default URL to match
+// their docker-compose config.
+func DatabaseURL() string {
+	if url := os.Getenv("LAZULI_TEST_DATABASE_URL"); url != "" {
+		return url
+	}
+	if url := os.Getenv("LAZULI_DB"); url != "" {
+		return url
+	}
+	return "postgres://lazuli:lazuli_dev_password@localhost:5432/{{app_slug}}?sslmode=disable"
+}
+
+// SharedPool returns the process-wide pgx pool, opening it on first
+// call. Returns (nil, err) when the DB is unreachable so the caller
+// can choose Skip vs Fail.
+func SharedPool(ctx context.Context) (*pgxpool.Pool, error) {
+	poolOnce.Do(func() {
+		p, err := lazuli.NewPool(ctx, DatabaseURL())
+		if err != nil {
+			poolErr = err
+			return
+		}
+		if err := p.Ping(ctx); err != nil {
+			poolErr = err
+			return
+		}
+		pool = p
+		// Install the pool globally so handlers under test see the
+		// same connection lazuli.DB() returns at runtime.
+		lazuli.SetDB(p)
+	})
+	return pool, poolErr
+}
+
+// Setup is the canonical entry point for handler tests. Connects to
+// the test DB, skips the test if unreachable, and returns a Ctx
+// pre-seeded with a default actor. Caller defers the returned cleanup
+// closure to free the fixture rows.
+//
+// Usage:
+//
+//	func TestSomething(t *testing.T) {
+//	    ctx, cleanup := testsupport.Setup(t)
+//	    defer cleanup()
+//	    // ctx.User is a default actor with org + complete onboarding.
+//	}
+//
+// Pilots that need role-specific actors layer a SetupAs(t, "host") or
+// equivalent on top — see Hostpoint's `app/testsupport/harness.go`
+// for the role-parametric reference.
+func Setup(t *testing.T) (*lazuli.Ctx, func()) {
+	t.Helper()
+	bg := context.Background()
+	p, err := SharedPool(bg)
+	if err != nil {
+		t.Skipf("test database unavailable (%v); set LAZULI_TEST_DATABASE_URL to run", err)
+		return nil, func() {}
+	}
+	// @TODO authored: replace with real org/user seed logic for the
+	// project. The Hostpoint reference performs:
+	//   1. INSERT INTO "org" (...)
+	//   2. INSERT INTO "user" (...)
+	//   3. Optional role-specific INSERT (host/traveler/operator/...)
+	// Returns a lazuli.Ctx scoped to the seeded actor + a cleanup
+	// closure that DELETEs in dependency order.
+	_ = p
+	return &lazuli.Ctx{
+		Context: bg,
+		User: &lazuli.User{
+			ID:    lazuli.ID(0),
+			OrgID: lazuli.ID(0),
+		},
+	}, func() {}
+}
+
+// RandomToken returns a hex-encoded random suffix suitable for
+// disambiguating test fixture identifiers (emails, slugs, push
+// endpoints) so parallel `go test -p N` doesn't collide on a
+// unique-constraint.
+func RandomToken() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}

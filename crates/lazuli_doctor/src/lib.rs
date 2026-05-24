@@ -20,6 +20,8 @@ pub mod design;
 pub mod domain;
 pub mod encryption;
 pub mod error_vocab;
+pub mod handler_path;
+pub mod handler_walker;
 pub mod lifecycle;
 pub mod poller;
 pub mod report;
