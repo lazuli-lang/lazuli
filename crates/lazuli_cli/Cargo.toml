@@ -18,13 +18,16 @@ smoke = []
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+colored = "2.1"
 include_dir = "0.7"
+is-terminal = "0.4"
 lazuli_analyzer = { path = "../lazuli_analyzer" }
 lazuli_changelog = { path = "../lazuli_changelog" }
 lazuli_codegen_go = { path = "../lazuli_codegen_go" }
 lazuli_codegen_spec = { path = "../lazuli_codegen_spec" }
 lazuli_codegen_ts = { path = "../lazuli_codegen_ts" }
 lazuli_doctor = { path = "../lazuli_doctor" }
+lazuli_fix = { path = "../lazuli_fix" }
 lazuli_ir = { path = "../lazuli_ir" }
 lazuli_lsp = { path = "../lazuli_lsp" }
 lazuli_openapi = { path = "../lazuli_openapi" }
