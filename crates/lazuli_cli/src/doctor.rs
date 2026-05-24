@@ -13,7 +13,8 @@ pub mod schema_rich_001;
 // crate on 2026-05-15 so the LSP can import them. Existing call sites inside
 // this module continue to reference them as `correctness::`, `vocab::`, etc.
 pub use lazuli_doctor::{
-    correctness, design, domain, encryption, lifecycle, poller, report, vocab,
+    RuleCategory, correctness, design, domain, encryption, lifecycle, poller, report,
+    test_discipline, vocab,
 };
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -463,6 +464,11 @@ impl DoctorPackage {
                             code: "WS-001".to_owned(),
                             message: "package should declare at most one workspace contract."
                                 .to_owned(),
+                            category: None,
+                            feature_name: None,
+                            construct: None,
+                            fix: None,
+                            group: None,
                         });
                     }
                 }
@@ -482,6 +488,11 @@ impl DoctorPackage {
                             code: "APP-001".to_owned(),
                             message: "package should declare exactly one app manifest entrypoint."
                                 .to_owned(),
+                            category: None,
+                            feature_name: None,
+                            construct: None,
+                            fix: None,
+                            group: None,
                         });
                     }
                 }
@@ -504,6 +515,11 @@ impl DoctorPackage {
                             code: "REG-001".to_owned(),
                             message: "package should declare at most one registry manifest."
                                 .to_owned(),
+                            category: None,
+                            feature_name: None,
+                            construct: None,
+                            fix: None,
+                            group: None,
                         });
                     }
                 }
@@ -545,16 +561,27 @@ impl DoctorPackage {
                                     // because mixed-currency arithmetic /
                                     // comparison is a structural bug (loses
                                     // money silently), not a style nit.
-                                    file.local_diagnostics
-                                        .extend(money_compare_001_diagnostics(
+                                    file.local_diagnostics.extend(money_compare_001_diagnostics(
+                                        &file.path, &feature,
+                                    ));
+                                    file.local_diagnostics.extend(
+                                        money_arithmetic_001_diagnostics(&file.path, &feature),
+                                    );
+                                    // Wave 0 — wire VOCAB-TESTS-MISSING-001
+                                    // through `DoctorPackage::load`'s
+                                    // per-feature loop. The detector has
+                                    // existed since 2026-05-15 but was
+                                    // never invoked from any dispatcher;
+                                    // see Issue Zero of
+                                    // `docs/proposals/tdd-bdd-first-2026-05-23.md`.
+                                    file.local_diagnostics.extend(
+                                        vocab_tests_missing_001_diagnostics(
                                             &file.path,
                                             &feature,
-                                        ));
-                                    file.local_diagnostics
-                                        .extend(money_arithmetic_001_diagnostics(
-                                            &file.path,
-                                            &feature,
-                                        ));
+                                            header_line,
+                                            security_profile,
+                                        ),
+                                    );
                                     // Tier 3 facts harvest — done before
                                     // `feature.agents` is consumed below.
                                     // Migrations bucket cycle Route C —
@@ -737,7 +764,9 @@ impl DoctorPackage {
                                             let agg_line = agg
                                                 .span_ref
                                                 .as_ref()
-                                                .map(|s| line_col_for_offset(&file.source, s.start).0)
+                                                .map(|s| {
+                                                    line_col_for_offset(&file.source, s.start).0
+                                                })
                                                 .unwrap_or(header_line);
                                             aggregate_lines.insert(agg.name.clone(), agg_line);
                                         }
@@ -870,6 +899,11 @@ impl DoctorPackage {
                                         severity: DoctorSeverity::Error,
                                         code: "agent_lower_failed_diagnostics".to_owned(),
                                         message: format!("agent lowering failed: {error}"),
+                                        category: None,
+                                        feature_name: None,
+                                        construct: None,
+                                        fix: None,
+                                        group: None,
                                     });
                                 }
                             }
@@ -883,6 +917,11 @@ impl DoctorPackage {
                             severity: DoctorSeverity::Error,
                             code: "agent_parse_failed_diagnostics".to_owned(),
                             message: error.to_string(),
+                            category: None,
+                            feature_name: None,
+                            construct: None,
+                            fix: None,
+                            group: None,
                         });
                     }
                 }
@@ -910,6 +949,11 @@ impl DoctorPackage {
                         severity: DoctorSeverity::Error,
                         code: "LZX-PARSE".to_owned(),
                         message: error.to_string(),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     }),
                 }
             }
@@ -931,8 +975,7 @@ impl DoctorPackage {
         // anchor from app.lzi. The output is consumed by the doctor
         // diagnostics pass below and by codegen later.
         let mut plan_blocks_raw: Vec<lazuli_syntax::PlanBlockAst> = Vec::new();
-        let mut feature_gates_raw: Vec<(String, lazuli_syntax::FeatureGatesAst)> =
-            Vec::new();
+        let mut feature_gates_raw: Vec<(String, lazuli_syntax::FeatureGatesAst)> = Vec::new();
         for file in &files {
             if !is_lzi_path(&file.path) {
                 continue;
@@ -945,14 +988,13 @@ impl DoctorPackage {
                     // Derive feature name from the file's first
                     // `feature <name>` header (mirrors the existing
                     // doctor convention).
-                    let feature_name = derive_feature_name(&file.source)
-                        .unwrap_or_else(|| {
-                            file.path
-                                .file_stem()
-                                .and_then(|s| s.to_str())
-                                .unwrap_or("unknown")
-                                .to_owned()
-                        });
+                    let feature_name = derive_feature_name(&file.source).unwrap_or_else(|| {
+                        file.path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("unknown")
+                            .to_owned()
+                    });
                     feature_gates_raw.push((feature_name, fg));
                 }
             }
@@ -960,18 +1002,16 @@ impl DoctorPackage {
         let anchor = app
             .as_ref()
             .and_then(|a| lazuli_analyzer::parse_subscription_anchor(&a.source));
-        let plan_gate_facts = if plan_blocks_raw.is_empty()
-            && feature_gates_raw.is_empty()
-            && anchor.is_none()
-        {
-            None
-        } else {
-            Some(lazuli_analyzer::aggregate_plan_gate_facts(
-                &plan_blocks_raw,
-                &feature_gates_raw,
-                anchor,
-            ))
-        };
+        let plan_gate_facts =
+            if plan_blocks_raw.is_empty() && feature_gates_raw.is_empty() && anchor.is_none() {
+                None
+            } else {
+                Some(lazuli_analyzer::aggregate_plan_gate_facts(
+                    &plan_blocks_raw,
+                    &feature_gates_raw,
+                    anchor,
+                ))
+            };
 
         Ok(Self {
             project_root,
@@ -1026,6 +1066,11 @@ impl DoctorPackage {
                     severity: DoctorSeverity::Error,
                     code: diag.code.as_str().to_owned(),
                     message: diag.message,
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -1037,8 +1082,10 @@ impl DoctorPackage {
             .unwrap_or_default();
         for file in &self.files {
             let after_dedupe = dedupe_env_contract_diagnostics(&file.local_diagnostics);
-            diagnostics
-                .extend(suppress_env_schema_when_declared(&after_dedupe, &declared_env_names));
+            diagnostics.extend(suppress_env_schema_when_declared(
+                &after_dedupe,
+                &declared_env_names,
+            ));
         }
         diagnostics.extend(vocab_grammar_form_diagnostics(
             &self.files,
@@ -1179,8 +1226,12 @@ impl DoctorPackage {
         diagnostics.extend(approval_diagnostics(&self.tier3_facts, &known_roles));
         diagnostics.extend(scope_owner_column_diagnostics(&self.tier3_facts));
         diagnostics.extend(field_derived_from_unresolved_diagnostics(&self.tier3_facts));
-        diagnostics.extend(resource_unique_qualifier_unknown_diagnostics(&self.tier3_facts));
-        diagnostics.extend(resource_validates_path_unknown_diagnostics(&self.tier3_facts));
+        diagnostics.extend(resource_unique_qualifier_unknown_diagnostics(
+            &self.tier3_facts,
+        ));
+        diagnostics.extend(resource_validates_path_unknown_diagnostics(
+            &self.tier3_facts,
+        ));
         diagnostics.extend(approval_missing_children_diagnostics(
             &self.approval_presences,
         ));
@@ -1261,9 +1312,7 @@ impl DoctorPackage {
             &self.tier3_facts,
             self.registry.as_ref().map(|reg| &reg.manifest),
         ));
-        diagnostics.extend(webhook_event_registry_diagnostics(
-            self.registry.as_ref(),
-        ));
+        diagnostics.extend(webhook_event_registry_diagnostics(self.registry.as_ref()));
 
         // Row 34 — `event_group` pattern-prefix rule promoted from LSP
         // to doctor now that `EventGroup` IR exists.
@@ -1309,6 +1358,11 @@ impl DoctorPackage {
                     severity: DoctorSeverity::Error,
                     code: schema_rich_001::Finding::CODE.to_owned(),
                     message: finding.message,
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 }),
         );
         diagnostics.extend(check_pattern_draft_stale_001(&self.project_root));
@@ -1373,10 +1427,9 @@ impl DoctorPackage {
         // See `docs/proposals/semantic-types-plugin-locales.md`
         // §New diagnostics.
         if let Some(manifest) = self.lazurite_manifest.as_ref() {
-            if let Ok(alias_map) = crate::plugin_manifest::build_alias_map(
-                Some(manifest),
-                &self.project_root,
-            ) {
+            if let Ok(alias_map) =
+                crate::plugin_manifest::build_alias_map(Some(manifest), &self.project_root)
+            {
                 if !alias_map.is_empty() {
                     diagnostics.retain(|d| {
                         if d.code != "semantic_type_unknown" {
@@ -1401,11 +1454,89 @@ impl DoctorPackage {
     }
 }
 
-fn doctor_rule_severity(security_profile: SecurityProfile) -> DoctorSeverity {
-    match security_profile {
-        SecurityProfile::Production => DoctorSeverity::Error,
-        SecurityProfile::Prototype | SecurityProfile::Strict => DoctorSeverity::Warning,
+/// Wave 0.5 — category-aware severity resolver.
+///
+/// Replaces the pre-Wave-0.5 global `doctor_rule_severity()` which
+/// applied a single mapping (production → error, everything else →
+/// warning) to every rule. With this function in place the framework
+/// can express category-specific posture, e.g. "test-discipline rules
+/// are info at prototype, warning at strict, error at production"
+/// independently of vocab/correctness defaults.
+///
+/// Resolution order:
+/// 1. Per-rule TOML override (`[doctor.<category>].severity_override.<CODE>`)
+///    wins absolutely.
+/// 2. Category default per profile (see match below).
+/// 3. Fallback to the legacy global mapping for backward compat.
+///
+/// `overrides` is the parsed `Lazurite.toml [doctor]` block; pass an
+/// empty map when no manifest is present.
+fn doctor_severity_for(
+    code: &str,
+    category: RuleCategory,
+    security_profile: SecurityProfile,
+    overrides: &std::collections::BTreeMap<String, DoctorSeverityOverride>,
+) -> DoctorSeverity {
+    // Per-rule override wins absolutely (TOML).
+    if let Some(ov) = overrides.get(code) {
+        if let Some(parsed) = parse_doctor_severity(&ov.severity) {
+            return parsed;
+        }
     }
+    match (category, security_profile) {
+        // Test-discipline rules carry their own per-profile posture so
+        // the framework can promote test-completeness without leaking
+        // the same posture to vocab/correctness.
+        (RuleCategory::TestDiscipline, SecurityProfile::Production) => DoctorSeverity::Error,
+        (RuleCategory::TestDiscipline, SecurityProfile::Strict) => DoctorSeverity::Warning,
+        (RuleCategory::TestDiscipline, SecurityProfile::Prototype) => DoctorSeverity::Info,
+        // Everything else: keep the legacy global mapping so Wave 0.5
+        // is purely additive — no behavior change for existing rules.
+        (_, SecurityProfile::Production) => DoctorSeverity::Error,
+        (_, SecurityProfile::Prototype | SecurityProfile::Strict) => DoctorSeverity::Warning,
+    }
+}
+
+/// Legacy alias — kept as a thin shim so existing call sites compile
+/// unchanged. New rules SHOULD call `doctor_severity_for` directly with
+/// their declared `RuleCategory`. Existing sites get the same behavior
+/// they had before Wave 0.5 because `from_code_prefix` recovers the
+/// category and the non-TestDiscipline branches reproduce the original
+/// mapping verbatim.
+fn doctor_rule_severity(security_profile: SecurityProfile) -> DoctorSeverity {
+    doctor_severity_for(
+        "",
+        RuleCategory::Vocabulary,
+        security_profile,
+        &std::collections::BTreeMap::new(),
+    )
+}
+
+/// Parse a TOML override string (`"warning"`, `"error"`, …) into a
+/// `DoctorSeverity`. Returns `None` for unrecognized strings; callers
+/// fall back to the category default in that case.
+fn parse_doctor_severity(s: &str) -> Option<DoctorSeverity> {
+    match s.to_ascii_lowercase().as_str() {
+        "error" => Some(DoctorSeverity::Error),
+        "warning" | "warn" => Some(DoctorSeverity::Warning),
+        "info" => Some(DoctorSeverity::Info),
+        "hint" => Some(DoctorSeverity::Hint),
+        _ => None,
+    }
+}
+
+/// Per-rule severity override as authored in `Lazurite.toml`.
+///
+/// `[doctor.test_discipline.severity_override]` table entries lift into
+/// this shape. `DOCTOR-OVERRIDE-NEEDS-REASON-001` enforces the
+/// `reason` field is present and non-blank.
+#[derive(Debug, Clone)]
+pub struct DoctorSeverityOverride {
+    /// Author-supplied severity (`warning`, `error`, `info`, `hint`).
+    pub severity: String,
+    /// Optional human justification. Required (non-blank) per
+    /// `DOCTOR-OVERRIDE-NEEDS-REASON-001`.
+    pub reason: Option<String>,
 }
 
 fn vocab_grammar_form_diagnostics(
@@ -1432,6 +1563,11 @@ fn vocab_grammar_form_diagnostics(
                         severity,
                         code: vocab::vocab_grammar_form_001::Finding::CODE.to_owned(),
                         message,
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     }
                 })
         })
@@ -1458,6 +1594,59 @@ fn money_compare_001_diagnostics(
                 severity: DoctorSeverity::Error,
                 code: money_compare_001::Finding::CODE.to_owned(),
                 message,
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            }
+        })
+        .collect()
+}
+
+/// Wave 0 — bridge `lazuli_doctor::vocab::vocab_tests_missing_001`
+/// into the CLI's `DoctorDiagnostic` shape. The detector has shipped
+/// since 2026-05-15 but was never dispatched (see Issue Zero of
+/// `docs/proposals/tdd-bdd-first-2026-05-23.md`); this helper closes
+/// that gap.
+///
+/// Severity follows the legacy global mapping (warning at strict,
+/// error at production). The rule's `RuleCategory` is `Vocabulary`
+/// (matches the module path); Wave 1 will land separate `TEST-*`
+/// rules under `RuleCategory::TestDiscipline`. Prototype profile
+/// suppresses the warning so quick spikes are not blocked by
+/// test-vocabulary discipline.
+fn vocab_tests_missing_001_diagnostics(
+    path: &Path,
+    feature: &lazuli_ir::Feature,
+    feature_header_line: usize,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    if security_profile == SecurityProfile::Prototype {
+        return Vec::new();
+    }
+    let severity = doctor_severity_for(
+        vocab::vocab_tests_missing_001::Finding::CODE,
+        RuleCategory::Vocabulary,
+        security_profile,
+        &std::collections::BTreeMap::new(),
+    );
+    vocab::vocab_tests_missing_001::check(feature, path)
+        .into_iter()
+        .map(|finding| {
+            let message = finding.message();
+            DoctorDiagnostic {
+                path: finding.path,
+                line: feature_header_line.max(1),
+                column: 1,
+                severity,
+                code: vocab::vocab_tests_missing_001::Finding::CODE.to_owned(),
+                message,
+                category: Some(RuleCategory::Vocabulary),
+                feature_name: Some(finding.feature),
+                construct: None,
+                fix: None,
+                group: None,
             }
         })
         .collect()
@@ -1483,6 +1672,11 @@ fn money_arithmetic_001_diagnostics(
                 severity: DoctorSeverity::Error,
                 code: money_arithmetic_001::Finding::CODE.to_owned(),
                 message,
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             }
         })
         .collect()
@@ -1505,6 +1699,11 @@ fn folder_layout_diagnostics(
                 severity,
                 code: folder::feature_orphan::Finding::CODE.to_owned(),
                 message: finding.message,
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             }),
     );
     diagnostics.extend(
@@ -1517,6 +1716,11 @@ fn folder_layout_diagnostics(
                 severity,
                 code: folder::pages_bypass::Finding::CODE.to_owned(),
                 message: finding.message,
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             }),
     );
     diagnostics.extend(
@@ -1529,6 +1733,11 @@ fn folder_layout_diagnostics(
                 severity,
                 code: folder::type_duplicate::Finding::CODE.to_owned(),
                 message: finding.message,
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             }),
     );
     diagnostics.extend(
@@ -1541,6 +1750,11 @@ fn folder_layout_diagnostics(
                 severity,
                 code: folder::cross_feature_import::Finding::CODE.to_owned(),
                 message: finding.message,
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             }),
     );
     // VOCAB-CLIENT-SRC-001: closed-catalog enforcement of the client
@@ -1560,6 +1774,11 @@ fn folder_layout_diagnostics(
                 severity: DoctorSeverity::Error,
                 code: folder::vocab_client_src_001::Finding::CODE.to_owned(),
                 message: finding.message,
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             }),
     );
 
@@ -1589,6 +1808,11 @@ fn design_token_diagnostics(
                     severity,
                     code: design::token_undefined::Finding::CODE.to_owned(),
                     message,
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 }
             }),
     );
@@ -1604,6 +1828,11 @@ fn design_token_diagnostics(
                     severity,
                     code: design::hex_leak::Finding::CODE.to_owned(),
                     message,
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 }
             }),
     );
@@ -1619,6 +1848,11 @@ fn design_token_diagnostics(
                     severity,
                     code: design::px_leak::Finding::CODE.to_owned(),
                     message,
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 }
             }),
     );
@@ -1634,6 +1868,11 @@ fn design_token_diagnostics(
                     severity,
                     code: design::fontfamily_leak::Finding::CODE.to_owned(),
                     message,
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 }
             }),
     );
@@ -1649,6 +1888,11 @@ fn design_token_diagnostics(
                     severity,
                     code: design::shadow_leak::Finding::CODE.to_owned(),
                     message,
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 }
             }),
     );
@@ -1674,6 +1918,11 @@ fn design_token_diagnostics(
                         severity: DoctorSeverity::Error,
                         code: design::custom::DuplicateFinding::CODE.to_owned(),
                         message,
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     }
                 }),
         );
@@ -1689,6 +1938,11 @@ fn design_token_diagnostics(
                         severity: DoctorSeverity::Error,
                         code: design::custom::InvalidValueFinding::CODE.to_owned(),
                         message,
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     }
                 }),
         );
@@ -1704,6 +1958,11 @@ fn design_token_diagnostics(
                         severity: DoctorSeverity::Error,
                         code: design::custom::ReservedNameFinding::CODE.to_owned(),
                         message,
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     }
                 }),
         );
@@ -1794,6 +2053,11 @@ fn check_pattern_draft_stale_001_at(project_root: &Path, now: u64) -> Vec<Doctor
                 "pattern annotation marked `draft` on main for {} days (> 7). Promote to a numbered version (v1, v2, ...) or remove. See docs/proposals/bucket-ai-debug-loop-cycle.md §6.3.",
                 age / (24 * 60 * 60)
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
     }
 
@@ -1869,6 +2133,11 @@ fn collect_issue_session_callsites(
                     message: format!(
                         "direct call to `auth.IssueSession` in a feature with extra session columns; use `auth.Issue{resource_name}` instead so the tenant-pin column is always supplied.",
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -1948,6 +2217,11 @@ fn collect_codegen_wrap_001(
                         message: format!(
                             "typed error `{typed}` constructed in bucket source. The one-wrap boundary requires typed errors only at the codegen-emitted handler boundary. Return a bare sentinel from this bucket; codegen will wrap it. See bucket-ai-debug-loop-cycle.md §7.2."
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                 }
             }
@@ -2248,6 +2522,75 @@ struct DoctorDiagnostic {
     severity: DoctorSeverity,
     code: String,
     message: String,
+    // Wave 0.5 — agent-first JSON parity fields. Additive `Option<>` so
+    // existing construction sites stay compiling; new rules and Wave 1+
+    // migrations populate them explicitly. See
+    // `docs/proposals/tdd-bdd-first-2026-05-23.md` §Wave 0.5.
+    /// Rule taxonomy bucket; resolved via `RuleCategory::from_code_prefix`
+    /// when not set explicitly. `None` means "fall back to prefix
+    /// derivation at consumption time".
+    #[allow(dead_code)]
+    category: Option<RuleCategory>,
+    /// Feature this diagnostic anchors to, when known (`None` for
+    /// project-level / cross-feature / manifest checks).
+    #[allow(dead_code)]
+    feature_name: Option<String>,
+    /// Construct the diagnostic anchors to (`resource Foo`, `command
+    /// bar`, `policy baz`, …). Wave 1+ populates from authoring sites.
+    #[allow(dead_code)]
+    construct: Option<DoctorConstruct>,
+    /// Suggested fix, when one exists.
+    #[allow(dead_code)]
+    fix: Option<DoctorFix>,
+    /// JSON rollup grouping (e.g. per-feature, per-rule). Wave 2 populates.
+    #[allow(dead_code)]
+    group: Option<DoctorGroup>,
+}
+
+/// Wave 0.5 skeleton — populated per-rule in Wave 1+.
+///
+/// Identifies the authoring construct a diagnostic anchors to so the
+/// agent-facing JSON can surface "this fires on `resource Post.title`"
+/// rather than just a line/column.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct DoctorConstruct {
+    /// `resource`, `command`, `policy`, `field`, etc.
+    pub kind: String,
+    /// Construct name (resource name, command name, …).
+    pub name: String,
+}
+
+/// Wave 0.5 skeleton — populated per-rule in Wave 1+.
+///
+/// Carries a CLI-applicable fix preview alongside the diagnostic so
+/// agents can act on output without a second tool roundtrip. See the
+/// "Founding principle: Agent-first CLI parity" section of the
+/// tdd-bdd-first proposal.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct DoctorFix {
+    /// Short fix label (`add tests block`, `rename field`, …).
+    pub action: String,
+    /// Human-readable preview of the change.
+    pub preview: Option<String>,
+    /// `true` if the fix can be applied without human review.
+    pub auto_applicable: bool,
+    /// CLI invocation that would apply the fix.
+    pub cli: Option<String>,
+}
+
+/// Wave 0.5 skeleton — populated per-rule in Wave 1+.
+///
+/// JSON rollup grouping key so the agent-facing output can build
+/// `summary.by_feature`, `summary.by_rule`, `summary.by_category`.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct DoctorGroup {
+    /// Group key (feature name, rule code, category, …).
+    pub key: String,
+    /// What kind of group this is (`feature`, `rule`, `category`).
+    pub kind: String,
 }
 
 impl DoctorDiagnostic {
@@ -2275,6 +2618,11 @@ impl DoctorDiagnostic {
             severity,
             code,
             message: diagnostic.message.clone(),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         }
     }
 
@@ -2383,8 +2731,7 @@ fn dedupe_env_contract_diagnostics(diagnostics: &[DoctorDiagnostic]) -> Vec<Doct
     diagnostics
         .iter()
         .filter(|d| {
-            !(d.code == "app-env-contract"
-                && env_schema_lines.contains(&(d.path.clone(), d.line)))
+            !(d.code == "app-env-contract" && env_schema_lines.contains(&(d.path.clone(), d.line)))
         })
         .cloned()
         .collect()
@@ -2444,7 +2791,13 @@ fn manifest_required_diagnostics(
         column: 1,
         severity: DoctorSeverity::Error,
         code: "MANIFEST-REQUIRED-001".to_owned(),
-        message: "project uses @lazuli/plugin-* references but is missing Lazurite.toml.".to_owned(),
+        message: "project uses @lazuli/plugin-* references but is missing Lazurite.toml."
+            .to_owned(),
+        category: None,
+        feature_name: None,
+        construct: None,
+        fix: None,
+        group: None,
     }]
 }
 
@@ -2472,7 +2825,71 @@ fn lazurite_manifest_diagnostics(package: &DoctorPackage) -> Vec<DoctorDiagnosti
     diagnostics.extend(check_frontend_audience_unknown(manifest, package));
     diagnostics.extend(check_audience_no_frontend(manifest, package));
     diagnostics.extend(check_frontend_out_collision(manifest, package));
+    // Wave 0.5 — `DOCTOR-OVERRIDE-NEEDS-REASON-001`. Fires when any
+    // `[doctor.<category>].severity_override.<RULE-CODE>` entry lacks a
+    // non-blank `reason` justification.
+    diagnostics.extend(check_doctor_override_needs_reason(manifest, package));
     diagnostics
+}
+
+/// Wave 0.5 — `DOCTOR-OVERRIDE-NEEDS-REASON-001` dispatcher.
+///
+/// Lifts the `[doctor.test_discipline].severity_override` table from
+/// the parsed manifest into the rule's portable `OverrideEntry` shape,
+/// invokes the rule, and maps findings to `DoctorDiagnostic`. Anchors
+/// the diagnostic at `Lazurite.toml` line 1 (the rule's structural
+/// payload doesn't yet carry exact TOML line spans; that refinement
+/// lands post-Wave-0.5 once the toml crate exposes spans cleanly).
+fn check_doctor_override_needs_reason(
+    manifest: &Manifest,
+    package: &DoctorPackage,
+) -> Vec<DoctorDiagnostic> {
+    use crate::lazurite_manifest as lzr;
+    use lazuli_doctor::test_discipline::override_needs_reason_001::{self, OverrideEntry};
+
+    let Some(doctor) = manifest.doctor.as_ref() else {
+        return Vec::new();
+    };
+    let mut entries: Vec<OverrideEntry> = Vec::new();
+    if let Some(td) = doctor.test_discipline.as_ref() {
+        for (code, ov) in td.severity_override.iter() {
+            let _: &lzr::SeverityOverride = ov; // keep the type pinned
+            entries.push(OverrideEntry {
+                category: RuleCategory::TestDiscipline.as_str().to_owned(),
+                rule_code: code.clone(),
+                severity: ov.severity.clone(),
+                reason: ov.reason.clone(),
+            });
+        }
+    }
+
+    let manifest_path = package.project_root.join(lzr::MANIFEST_FILENAME);
+    let findings = override_needs_reason_001::check(&entries, &manifest_path);
+    findings
+        .into_iter()
+        .map(|finding| {
+            let message = finding.message();
+            let severity = doctor_severity_for(
+                override_needs_reason_001::Finding::CODE,
+                RuleCategory::TestDiscipline,
+                package.security_profile,
+                &std::collections::BTreeMap::new(),
+            );
+            DoctorDiagnostic {
+                path: finding.path,
+                line: 1,
+                column: 1,
+                severity,
+                code: override_needs_reason_001::Finding::CODE.to_owned(),
+                message,
+                category: Some(RuleCategory::TestDiscipline),
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            }
+        })
+        .collect()
 }
 
 /// CAP-FILE-POLICY-IMPLICIT (warning) — every `@cap.File` field on
@@ -2486,9 +2903,7 @@ fn lazurite_manifest_diagnostics(package: &DoctorPackage) -> Vec<DoctorDiagnosti
 /// pilots can migrate field-by-field; escalating to Error is
 /// gated on every pilot's `@cap.File` sites having explicit
 /// policy declarations.
-fn cap_file_policy_implicit_diagnostics(
-    facts: &[Tier3FeatureFacts],
-) -> Vec<DoctorDiagnostic> {
+fn cap_file_policy_implicit_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
     for feature in facts {
         for resource in &feature.resources {
@@ -2510,6 +2925,11 @@ fn cap_file_policy_implicit_diagnostics(
                         "resource `{}.{}` field `{}` is a `@cap.File(...)` site without an explicit `auto_photo_policy: @policy.<name>`. The analyzer falls back to the resource-singular heuristic (e.g. `host_only`), which silently picks the wrong policy when the feature has multiple matching candidates. Add `auto_photo_policy: @policy.<your_policy>` to the `@cap.File(...)` arglist.",
                         feature.feature, resource.name, field.name,
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -2578,10 +2998,7 @@ fn manual_param_coercion_diagnostics(project_root: &Path) -> Vec<DoctorDiagnosti
             // codegen workaround banners — they MENTION the pattern
             // but aren't violations.
             let trimmed = line.trim_start();
-            if trimmed.starts_with("//")
-                || trimmed.starts_with("*")
-                || trimmed.starts_with("/*")
-            {
+            if trimmed.starts_with("//") || trimmed.starts_with("*") || trimmed.starts_with("/*") {
                 continue;
             }
             let matches_param = ID_PARAMS.iter().any(|p| line.contains(p));
@@ -2604,6 +3021,11 @@ fn manual_param_coercion_diagnostics(project_root: &Path) -> Vec<DoctorDiagnosti
                 message: format!(
                     "manual route-param coercion ({kind}) — wave §2 typed param parsers should land here instead. Use the generated `parse<Route>Params(rawParams)` factory from `dist/ts-<surface>/<audience>/routes.gen.tsx`."
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     });
@@ -2665,6 +3087,11 @@ fn import_deprecated_alias_diagnostics(project_root: &Path) -> Vec<DoctorDiagnos
                     message: format!(
                         "import of deprecated SDK alias `{name}`. The generated `.gen.ts` declares it `@deprecated`; switch to the canonical export before the alias is removed in the next codegen cycle."
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
             if line.contains("from ") {
@@ -2694,7 +3121,9 @@ fn collect_deprecated_exports(dist_root: &Path, out: &mut BTreeMap<String, PathB
                     found_deprecated = true;
                     break;
                 }
-                if p.starts_with("export ") || (!p.starts_with("*") && !p.starts_with("//") && !p.is_empty()) {
+                if p.starts_with("export ")
+                    || (!p.starts_with("*") && !p.starts_with("//") && !p.is_empty())
+                {
                     break;
                 }
             }
@@ -2712,7 +3141,15 @@ fn collect_deprecated_exports(dist_root: &Path, out: &mut BTreeMap<String, PathB
 
 fn parse_export_name(line: &str) -> Option<String> {
     let after_export = line.strip_prefix("export ")?;
-    for keyword in ["const ", "let ", "var ", "function ", "type ", "interface ", "class "] {
+    for keyword in [
+        "const ",
+        "let ",
+        "var ",
+        "function ",
+        "type ",
+        "interface ",
+        "class ",
+    ] {
         if let Some(rest) = after_export.strip_prefix(keyword) {
             let ident: String = rest
                 .chars()
@@ -2747,7 +3184,9 @@ fn is_ident_char(c: char) -> bool {
 }
 
 fn walk_gen_ts_files(root: &Path, visit: &mut dyn FnMut(&Path, &str)) {
-    let Ok(entries) = std::fs::read_dir(root) else { return };
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         let name = match path.file_name().and_then(|s| s.to_str()) {
@@ -2764,7 +3203,9 @@ fn walk_gen_ts_files(root: &Path, visit: &mut dyn FnMut(&Path, &str)) {
         if !name.ends_with(".gen.ts") && !name.ends_with(".gen.tsx") {
             continue;
         }
-        let Ok(contents) = std::fs::read_to_string(&path) else { continue };
+        let Ok(contents) = std::fs::read_to_string(&path) else {
+            continue;
+        };
         visit(&path, &contents);
     }
 }
@@ -2773,11 +3214,10 @@ fn walk_gen_ts_files(root: &Path, visit: &mut dyn FnMut(&Path, &str)) {
 /// `visit(path, contents)` for every matched file. Skips
 /// generated artifacts (`*.gen.ts`, `*.gen.tsx`), tests
 /// (`*.test.*`, `*.spec.*`), and `node_modules`/`dist` subtrees.
-fn walk_frontend_ts_files(
-    clients_root: &Path,
-    visit: &mut dyn FnMut(&Path, &str),
-) {
-    let Ok(entries) = std::fs::read_dir(clients_root) else { return };
+fn walk_frontend_ts_files(clients_root: &Path, visit: &mut dyn FnMut(&Path, &str)) {
+    let Ok(entries) = std::fs::read_dir(clients_root) else {
+        return;
+    };
     for entry in entries.flatten() {
         let client_root = entry.path();
         let src = client_root.join("src");
@@ -2789,7 +3229,9 @@ fn walk_frontend_ts_files(
 }
 
 fn walk_frontend_ts_files_recursive(dir: &Path, visit: &mut dyn FnMut(&Path, &str)) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         let file_name = match path.file_name().and_then(|s| s.to_str()) {
@@ -2812,7 +3254,9 @@ fn walk_frontend_ts_files_recursive(dir: &Path, visit: &mut dyn FnMut(&Path, &st
         {
             continue;
         }
-        let Ok(contents) = std::fs::read_to_string(&path) else { continue };
+        let Ok(contents) = std::fs::read_to_string(&path) else {
+            continue;
+        };
         visit(&path, &contents);
     }
 }
@@ -2869,6 +3313,11 @@ fn schema_rich_gap_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnos
                         "resource `{}.{}` field `{}` is declared as opaque `JSON` but its name suggests a typed array of files/attachments. Consider lifting to `@cap.File[]` (or `@cap.AttachmentRef[]`) so the codegen emits a specific TS type + Zod schema instead of `unknown`/`z.any()`. If the field is genuinely opaque JSON, this hint can be ignored (the future `@opaque` annotation will silence it).",
                         feature.feature, resource.name, field.name,
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -2892,9 +3341,11 @@ fn check_plugin_manifest_missing(
 ) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
     for plugin_ref in manifest.plugins.keys() {
-        let Some(plugin_root) =
-            crate::plugin_manifest::resolve_plugin_root(manifest, &package.project_root, plugin_ref)
-        else {
+        let Some(plugin_root) = crate::plugin_manifest::resolve_plugin_root(
+            manifest,
+            &package.project_root,
+            plugin_ref,
+        ) else {
             continue;
         };
         let manifest_path = plugin_root.join(crate::plugin_manifest::PLUGIN_MANIFEST_FILENAME);
@@ -2911,6 +3362,11 @@ fn check_plugin_manifest_missing(
                 "plugin `{plugin_ref}` at `{}` is missing `manifest.toml`. Every plugin must declare a `[plugin]` block (name + namespace + go_module + ts_package) so the catalog stays self-describing. Add `manifest.toml` to the plugin root or remove the plugin from Lazurite.toml [plugins].",
                 plugin_root.display(),
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
     }
     diagnostics
@@ -2935,9 +3391,11 @@ fn check_plugin_manifest_schema_legacy(
 ) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
     for plugin_ref in manifest.plugins.keys() {
-        let Some(plugin_root) =
-            crate::plugin_manifest::resolve_plugin_root(manifest, &package.project_root, plugin_ref)
-        else {
+        let Some(plugin_root) = crate::plugin_manifest::resolve_plugin_root(
+            manifest,
+            &package.project_root,
+            plugin_ref,
+        ) else {
             continue;
         };
         let manifest_path = plugin_root.join(crate::plugin_manifest::PLUGIN_MANIFEST_FILENAME);
@@ -2972,6 +3430,11 @@ fn check_plugin_manifest_schema_legacy(
                 "plugin `{plugin_ref}` at `{}` uses the legacy flat manifest schema (top-level `name`/`version`/`implements`). Migrate to the v1 schema with a `[plugin]` block declaring `namespace`, `name`, `go_module`, and `ts_package` (optional). See `docs/proposals/plugin-manifest-v1-hard-cutover-2026-05-23.md` (wave §A4).",
                 manifest_path.display(),
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
     }
     diagnostics
@@ -2987,9 +3450,11 @@ fn check_plugin_readme_missing(
 ) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
     for plugin_ref in manifest.plugins.keys() {
-        let Some(plugin_root) =
-            crate::plugin_manifest::resolve_plugin_root(manifest, &package.project_root, plugin_ref)
-        else {
+        let Some(plugin_root) = crate::plugin_manifest::resolve_plugin_root(
+            manifest,
+            &package.project_root,
+            plugin_ref,
+        ) else {
             continue;
         };
         // Skip when the manifest itself is missing — the manifest lint
@@ -3012,6 +3477,11 @@ fn check_plugin_readme_missing(
                 "plugin `{plugin_ref}` at `{}` is missing `README.md`. Plugins should ship a README documenting their surface (Go fns, TS fns, manifest scalars). The catalog page derives from it.",
                 plugin_root.display(),
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
     }
     diagnostics
@@ -3033,7 +3503,10 @@ fn check_plugin_catalog_drift(
     if manifest.plugins.is_empty() {
         return Vec::new();
     }
-    let catalog_path = package.project_root.join("dist").join("plugin-catalog.json");
+    let catalog_path = package
+        .project_root
+        .join("dist")
+        .join("plugin-catalog.json");
     let Ok(catalog_meta) = std::fs::metadata(&catalog_path) else {
         return Vec::new();
     };
@@ -3043,14 +3516,21 @@ fn check_plugin_catalog_drift(
 
     let mut stale_sources: Vec<String> = Vec::new();
     for plugin_ref in manifest.plugins.keys() {
-        let Some(plugin_root) =
-            crate::plugin_manifest::resolve_plugin_root(manifest, &package.project_root, plugin_ref)
-        else {
+        let Some(plugin_root) = crate::plugin_manifest::resolve_plugin_root(
+            manifest,
+            &package.project_root,
+            plugin_ref,
+        ) else {
             continue;
         };
-        for relpath in [crate::plugin_manifest::PLUGIN_MANIFEST_FILENAME, "README.md"] {
+        for relpath in [
+            crate::plugin_manifest::PLUGIN_MANIFEST_FILENAME,
+            "README.md",
+        ] {
             let p = plugin_root.join(relpath);
-            let Ok(meta) = std::fs::metadata(&p) else { continue };
+            let Ok(meta) = std::fs::metadata(&p) else {
+                continue;
+            };
             let Ok(mtime) = meta.modified() else { continue };
             if mtime > catalog_mtime {
                 stale_sources.push(format!("{plugin_ref} ({relpath})"));
@@ -3075,6 +3555,11 @@ fn check_plugin_catalog_drift(
             stale_sources.len(),
             stale_sources.join(", "),
         ),
+        category: None,
+        feature_name: None,
+        construct: None,
+        fix: None,
+        group: None,
     }]
 }
 
@@ -3090,13 +3575,11 @@ fn check_semantic_plugin_no_validator(
     manifest: &crate::lazurite_manifest::Manifest,
     package: &DoctorPackage,
 ) -> Vec<DoctorDiagnostic> {
-    let alias_map = match crate::plugin_manifest::build_alias_map(
-        Some(manifest),
-        &package.project_root,
-    ) {
-        Ok(map) => map,
-        Err(_) => return Vec::new(), // SEMANTIC-PLUGIN-001 already covers this
-    };
+    let alias_map =
+        match crate::plugin_manifest::build_alias_map(Some(manifest), &package.project_root) {
+            Ok(map) => map,
+            Err(_) => return Vec::new(), // SEMANTIC-PLUGIN-001 already covers this
+        };
     let mut diagnostics = Vec::new();
     for file in &package.files {
         if !is_lzi_path(&file.path) {
@@ -3124,6 +3607,11 @@ fn check_semantic_plugin_no_validator(
                     "plugin semantic type `{alias}` from `{}` does not declare a `validator` in its manifest. The type alias is accepted, but no runtime check enforces the value — invalid input is silently stored. Add a `validator` to the plugin's `[[semantic_types]]` entry, or annotate the field with `@validate.skip` to acknowledge the bypass.",
                     resolved.plugin_namespace
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -3166,6 +3654,11 @@ fn check_semantic_plugin_unresolved(
                     "plugin semantic alias map: {}. Fix the affected plugin manifest under [plugins] in Lazurite.toml.",
                     err
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             }];
         }
     };
@@ -3174,13 +3667,7 @@ fn check_semantic_plugin_unresolved(
     // analyzer's `type_ref_from_syntax` match arm. Authors writing one
     // of these never hit the plugin path.
     const BUILT_IN_SEMANTIC: &[&str] = &[
-        "Email",
-        "Phone",
-        "Url",
-        "Uuid",
-        "Currency",
-        "GeoPoint",
-        "Money",
+        "Email", "Phone", "Url", "Uuid", "Currency", "GeoPoint", "Money",
     ];
 
     let mut diagnostics = Vec::new();
@@ -3224,6 +3711,11 @@ fn check_semantic_plugin_unresolved(
                 message: format!(
                     "unknown plugin semantic type `{alias}`. No plugin in Lazurite.toml [plugins] declares this alias. Add the appropriate `@lazuli/plugin-<name>` to [plugins] or replace the field with a built-in `@semantic.*` type.",
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -3254,6 +3746,11 @@ fn lazuli_version_001_diagnostics(
                     "lazuli_version pin missing. Expected: lazuli_version \"{}\". Add this to app.lzi to lock the runtime/IR ABI version.",
                     current_major_minor
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             }]
         }
         Some(pinned) => {
@@ -3276,6 +3773,11 @@ fn lazuli_version_001_diagnostics(
                         pinned_major_minor,
                         current_major_minor
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 }]
             }
         }
@@ -3316,6 +3818,11 @@ fn lazuli_version_002_diagnostics(
             schema,
             recipe_dir.display()
         ),
+        category: None,
+        feature_name: None,
+        construct: None,
+        fix: None,
+        group: None,
     }]
 }
 
@@ -3396,6 +3903,11 @@ fn check_migration_recipe_001(project_root: &Path, lzir_schema: &str) -> Vec<Doc
             "LZIR_SCHEMA changed from {} to {}, but no recipe directory exists under migrations/recipes/{}-to-{}/.",
             previous_schema, lzir_schema, previous_major_minor, current_major_minor
         ),
+        category: None,
+        feature_name: None,
+        construct: None,
+        fix: None,
+        group: None,
     }]
 }
 
@@ -3419,6 +3931,11 @@ fn check_migration_recipe_002(project_root: &Path) -> Vec<DoctorDiagnostic> {
                 severity: DoctorSeverity::Error,
                 code: "MIGRATION-RECIPE-002".to_owned(),
                 message: format!("migration recipe smoke failed: {error}"),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -3472,6 +3989,11 @@ fn check_plugin_not_declared(
                 "`.lzi` references `{}`, but Lazurite.toml does not declare it in `[plugins]`.",
                 reference.reference
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         })
         .collect()
 }
@@ -3495,6 +4017,11 @@ fn check_plugin_unused(manifest: &Manifest, package: &DoctorPackage) -> Vec<Doct
             message: format!(
                 "Lazurite.toml declares `{plugin_ref}`, but no `.lzi` file references it."
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         })
         .collect()
 }
@@ -3507,7 +4034,10 @@ fn check_plugin_namespace_mismatch(
     let declared_short: BTreeSet<String> = manifest
         .plugins
         .keys()
-        .filter_map(|key| key.strip_prefix("@lazuli/plugin-").map(|name| name.to_owned()))
+        .filter_map(|key| {
+            key.strip_prefix("@lazuli/plugin-")
+                .map(|name| name.to_owned())
+        })
         .collect();
 
     for key in manifest.plugins.keys() {
@@ -3521,6 +4051,11 @@ fn check_plugin_namespace_mismatch(
                 message: format!(
                     "manifest plugin key `{key}` does not use the canonical plugin namespace; plugins must be declared as `@lazuli/plugin-<name>`."
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -3548,6 +4083,11 @@ fn check_plugin_namespace_mismatch(
                         "`{}` uses the local adapter namespace, but Lazurite.toml declares `@lazuli/plugin-{}`; use the plugin reference.",
                         reference.reference, reference.name
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             } else if !is_allowed_reference_namespace_for_doctor(&reference.namespace)
                 && declared_short.contains(&reference.name)
@@ -3562,6 +4102,11 @@ fn check_plugin_namespace_mismatch(
                         "`{}` uses unknown namespace `@{}`, but Lazurite.toml declares `@lazuli/plugin-{}`; use the plugin reference.",
                         reference.reference, reference.namespace, reference.name
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -3613,6 +4158,11 @@ fn check_submodule_drift(manifest: &Manifest, package: &DoctorPackage) -> Vec<Do
         message: format!(
             "`dist/go/go.mod` requires lazuli.dev/runtime {dist_version}, but root go.mod requires {root_version}."
         ),
+        category: None,
+        feature_name: None,
+        construct: None,
+        fix: None,
+        group: None,
     }]
 }
 
@@ -3651,6 +4201,11 @@ fn check_migration_strategy_conflict(
         code: "MIGRATION-STRATEGY-CONFLICT-001".to_owned(),
         message: "`[migrations].strategy = \"manual\"` conflicts with `app.lzi deploy migrations before_deploy`."
             .to_owned(),
+        category: None,
+        feature_name: None,
+        construct: None,
+        fix: None,
+        group: None,
     }]
 }
 
@@ -3672,6 +4227,11 @@ fn check_frontend_audience_unknown(
                     message: format!(
                         "`[frontends.{frontend_name}]` ships audience `{audience}`, but no `.lzx` surface declares it."
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -3701,6 +4261,11 @@ fn check_audience_no_frontend(
             message: format!(
                 "`.lzx` declares audience `{audience}`, but no `[frontends.*]` block ships it."
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         })
         .collect()
 }
@@ -3723,6 +4288,11 @@ fn check_frontend_out_collision(
                     "`[frontends.{name}]` and `[frontends.{first}]` both declare output path `{}`.",
                     frontend.out
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -4440,6 +5010,11 @@ fn missing_policy_on_query_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<Docto
                 column: 1,
                 severity: DoctorSeverity::Warning,
                 code: correctness::missing_policy_on_query_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -4468,6 +5043,11 @@ fn duplicate_query_name_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDi
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: correctness::duplicate_query_name::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -4510,6 +5090,11 @@ fn route_id_effect_consistency_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<D
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: correctness::route_id_effect_consistency::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -4562,6 +5147,11 @@ fn mutation_without_readback_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<Doc
                 column: 1,
                 severity: DoctorSeverity::Warning,
                 code: correctness::mutation_without_readback::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -4597,6 +5187,11 @@ fn updates_missing_updated_at_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<Do
                 column: 1,
                 severity: DoctorSeverity::Warning,
                 code: correctness::updates_missing_updated_at::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -4691,6 +5286,11 @@ fn correctness_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: correctness::channel_payload_unresolved_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -4708,6 +5308,11 @@ fn correctness_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: correctness::command_input_shadows_field_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -4720,6 +5325,11 @@ fn correctness_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: correctness::composite_key_contract_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -4737,6 +5347,11 @@ fn correctness_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: correctness::event_group_variant_type_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -4750,6 +5365,11 @@ fn correctness_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: correctness::event_outbox_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -4762,6 +5382,11 @@ fn correctness_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: correctness::full_text_type_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -4774,6 +5399,11 @@ fn correctness_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: correctness::hook_target_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -4786,6 +5416,11 @@ fn correctness_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: correctness::resource_lock_contract_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -4809,6 +5444,11 @@ fn correctness_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: correctness::webhook_emit_predicate_field_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -4824,6 +5464,11 @@ fn correctness_diagnostics(
                     column: 1,
                     severity: DoctorSeverity::Info,
                     code: correctness::record_column_storage::Finding::CODE.to_owned(),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -4843,6 +5488,11 @@ fn correctness_diagnostics(
                     column: 1,
                     severity: DoctorSeverity::Warning,
                     code: correctness::schema_migration_present::Finding::CODE.to_owned(),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -4871,6 +5521,11 @@ fn app_contract_diagnostics(
                         "profile `{}` is declared, but no package app manifest was found.",
                         profile.profile.name
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 })
                 .collect();
         }
@@ -4895,6 +5550,11 @@ fn app_contract_diagnostics(
                     "app manifest does not list local feature `{}` in `uses`; generated app registration may omit it.",
                     feature.name
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -4910,6 +5570,11 @@ fn app_contract_diagnostics(
                 message: format!(
                     "app manifest lists `{used}` in `uses`, but no local feature with that name was found in this package."
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -4947,6 +5612,11 @@ fn app_contract_diagnostics(
                     "environment reference `env.{}` is not declared in `app.lzi` or `registry.lzi` env.",
                     env_ref.name
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -5046,6 +5716,11 @@ fn app_missing_contract_diagnostic(
         severity: DoctorSeverity::Error,
         code: code.to_owned(),
         message: message.to_owned(),
+        category: None,
+        feature_name: None,
+        construct: None,
+        fix: None,
+        group: None,
     }
 }
 
@@ -5090,6 +5765,11 @@ fn app_route_redirect_diagnostics(
                 message: format!(
                     "app `{field}` references route `{target}`, but no top-level `.lzx route {target}` was declared in this package."
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -5116,6 +5796,11 @@ fn error_page_contract_diagnostics(app: &DoctorAppManifest) -> Vec<DoctorDiagnos
                     page.status,
                     error_page_catalog_display()
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
         if !seen.insert(page.status) {
@@ -5129,6 +5814,11 @@ fn error_page_contract_diagnostics(app: &DoctorAppManifest) -> Vec<DoctorDiagnos
                     "`error_page {}` is declared more than once in the app manifest.",
                     page.status
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
         if page.template.trim().is_empty() {
@@ -5148,6 +5838,11 @@ fn error_page_contract_diagnostics(app: &DoctorAppManifest) -> Vec<DoctorDiagnos
                     page.template,
                     app.path.display()
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -5193,6 +5888,11 @@ fn workspace_contract_diagnostics(workspace: Option<&DoctorAppWorkspace>) -> Vec
                     "workspace declares app `{}` more than once; app ids must be unique.",
                     app.name
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -5212,6 +5912,11 @@ fn workspace_contract_diagnostics(workspace: Option<&DoctorAppWorkspace>) -> Vec
                     "workspace local app `{}` should point at an `app.lzi` entrypoint.",
                     app.name
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -5228,6 +5933,11 @@ fn workspace_contract_diagnostics(workspace: Option<&DoctorAppWorkspace>) -> Vec
                     "workspace boundary references unknown app `{}`.",
                     boundary.app
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -5254,6 +5964,11 @@ fn workspace_contract_diagnostics(workspace: Option<&DoctorAppWorkspace>) -> Vec
                     "workspace app `{}` consumes `{}`, but no workspace app publishes a compatible event pattern.",
                     boundary.app, boundary.pattern
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -5271,6 +5986,11 @@ fn workspace_contract_diagnostics(workspace: Option<&DoctorAppWorkspace>) -> Vec
                         "workspace gateway `{}` route `{}` targets `{}`; only `to app <name>` is supported in the language contract.",
                         gateway.name, route.path, route.target_kind
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             } else if !app_names.contains(route.target.as_str()) {
                 diagnostics.push(DoctorDiagnostic {
@@ -5283,6 +6003,11 @@ fn workspace_contract_diagnostics(workspace: Option<&DoctorAppWorkspace>) -> Vec
                         "workspace gateway `{}` route `{}` targets unknown app `{}`.",
                         gateway.name, route.path, route.target
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
 
@@ -5297,6 +6022,11 @@ fn workspace_contract_diagnostics(workspace: Option<&DoctorAppWorkspace>) -> Vec
                         "workspace gateway `{}` route `{}` should declare `auth propagate` so the runtime does not infer auth context.",
                         gateway.name, route.path
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
 
@@ -5311,6 +6041,11 @@ fn workspace_contract_diagnostics(workspace: Option<&DoctorAppWorkspace>) -> Vec
                         "workspace gateway `{}` route `{}` should declare `tenant propagate` so tenant context crosses app boundaries explicitly.",
                         gateway.name, route.path
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -5340,6 +6075,11 @@ fn workspace_contract_diagnostics(workspace: Option<&DoctorAppWorkspace>) -> Vec
                     message: format!(
                         "workspace gateways should propagate `{required}` in the `communication` block."
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -5378,6 +6118,11 @@ fn external_contract_diagnostics(
                     contract.manifest.name,
                     previous.path.display()
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -5395,6 +6140,11 @@ fn external_contract_diagnostics(
                     "contract `{}` declares no imports, operations, or events.",
                     contract.manifest.name
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -5410,6 +6160,11 @@ fn external_contract_diagnostics(
                         "contract `{}` operation `{}` should declare `transport http|rpc|event`.",
                         contract.manifest.name, operation.name
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
 
@@ -5426,6 +6181,11 @@ fn external_contract_diagnostics(
                         "contract `{}` HTTP operation `{}` should declare both `method` and `path`.",
                         contract.manifest.name, operation.name
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
 
@@ -5440,6 +6200,11 @@ fn external_contract_diagnostics(
                         "contract `{}` operation `{}` should declare input and output records.",
                         contract.manifest.name, operation.name
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
 
@@ -5454,6 +6219,11 @@ fn external_contract_diagnostics(
                         "contract `{}` operation `{}` should declare timeout so Go transport bindings do not infer it.",
                         contract.manifest.name, operation.name
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -5470,6 +6240,11 @@ fn external_contract_diagnostics(
                         "contract `{}` event `{}` should declare a topic.",
                         contract.manifest.name, event.name
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -5493,6 +6268,11 @@ fn external_contract_diagnostics(
                         "workspace app `{}` references external contract `{contract_name}`, but no local `contract {contract_name}` block was found in this package.",
                         app.name
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -5534,6 +6314,11 @@ fn app_binding_contract_diagnostics(
                     requirement.feature,
                     requirement.slot
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -5558,6 +6343,11 @@ fn app_binding_contract_diagnostics(
                 message: format!(
                     "enabled pack `{feature}` requires integration slot `{slot}`: `{contract}`, but app manifest does not bind `{feature}.{slot}`.",
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -5580,6 +6370,11 @@ fn app_binding_contract_diagnostics(
                     "app binding `{}.{}` has no matching feature requirement.",
                     binding.target_feature, binding.target_slot
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
             continue;
         };
@@ -5595,6 +6390,11 @@ fn app_binding_contract_diagnostics(
                     "app binding `{}.{}` points to `{}`, but bindings must use `integrations.<name>` or `registry.integrations.<name>`.",
                     binding.target_feature, binding.target_slot, binding.source
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
             continue;
         };
@@ -5610,6 +6410,11 @@ fn app_binding_contract_diagnostics(
                     "app binding `{}.{}` references integration `{integration_name}`, but no app/registry integration with that name exists.",
                     binding.target_feature, binding.target_slot
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
             continue;
         };
@@ -5625,6 +6430,11 @@ fn app_binding_contract_diagnostics(
                     "app binding `{}.{}` expects `{expected_contract}`, but integration `{integration_name}` is `{actual_contract}`.",
                     binding.target_feature, binding.target_slot
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -5652,6 +6462,11 @@ fn external_call_contract_diagnostics(operational: &OperationalFacts) -> Vec<Doc
                     "`{}` calls `{}.{}`, but feature `{}` does not declare `requires integration {}: <Contract>`.",
                     call.subject, call.slot, call.operation, call.feature, call.slot
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -5666,6 +6481,11 @@ fn external_call_contract_diagnostics(operational: &OperationalFacts) -> Vec<Doc
                     "`{}` calls external operation `{}.{}` without an explicit `timeout \"...\"` on the {} block.",
                     call.subject, call.slot, call.operation, call.subject_kind
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -5680,6 +6500,11 @@ fn external_call_contract_diagnostics(operational: &OperationalFacts) -> Vec<Doc
                     "`{}` calls external operation `{}.{}` without a visible `retry <count> backoff <strategy>` policy.",
                     call.subject, call.slot, call.operation
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -5694,6 +6519,11 @@ fn external_call_contract_diagnostics(operational: &OperationalFacts) -> Vec<Doc
                     "`{}` calls external operation `{}.{}` without a visible job `idempotency by ...` key.",
                     call.subject, call.slot, call.operation
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -5806,6 +6636,11 @@ fn tier3_diagnostics(
                         "`registry.webhook_events.{}` is declared but no `webhook ... payload from` references it.",
                         envelope.name
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -5835,6 +6670,11 @@ fn webhook_event_registry_diagnostics(
                         "`webhook_event {}` declares `previous_version {}` greater than current `version {}`.",
                         event.name, previous_version, event.version
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -5850,6 +6690,11 @@ fn webhook_event_registry_diagnostics(
                     "`webhook_event {}` declares no payload fields; outbound event schemas must be explicit.",
                     event.name
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -5864,6 +6709,11 @@ fn webhook_event_registry_diagnostics(
                     "`webhook_event {}` is deprecated but declares no replacement trail; add `previous_version <n>` or document the successor inline.",
                     event.name
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -5898,6 +6748,11 @@ fn tier3_job_diagnostics(
                 "job `{}` declares external `calls` but no `timeout \"...\"` — external operations require an explicit timeout.",
                 job.name
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
     }
 
@@ -5914,6 +6769,11 @@ fn tier3_job_diagnostics(
                     "job `{}` declares `fanout tenants {}` but feature `{}` uses tenancy axis `{}`.",
                     job.name, fanout.axis, feature.feature, axis
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -5934,6 +6794,11 @@ fn tier3_job_diagnostics(
                 "scheduled job `{}` declares `fanout` but no `idempotency by ...` — re-fires may double-execute per tenant.",
                 job.name
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
     }
 }
@@ -5971,6 +6836,11 @@ fn tier3_webhook_diagnostics<'a>(
                 "webhook `{}` does not declare `tenant_from payload.<axis>_id` or explicit `scope global` with a reason — verify it should be globally scoped.",
                 webhook.name
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
     }
 
@@ -5992,6 +6862,11 @@ fn tier3_webhook_diagnostics<'a>(
                         "webhook `{}` references `webhook_events.{}` but no such envelope is declared in `registry.webhook_events`.",
                         webhook.name, reference.name
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
             resolved
@@ -6019,6 +6894,11 @@ fn tier3_webhook_diagnostics<'a>(
                 "webhook `{}` uses `tenant_from payload.{}` but envelope `webhook_events.{}` declares no `{}` field — the runtime will fail at decode time.",
                 webhook.name, axis, envelope.name, axis
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
     }
 
@@ -6037,6 +6917,11 @@ fn tier3_webhook_diagnostics<'a>(
                 "webhook `{}` declares `replay allow` but no `within \"<duration>\"` window — the adapter has no SLA to enforce.",
                 webhook.name
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
     }
 
@@ -6060,6 +6945,11 @@ fn tier3_webhook_diagnostics<'a>(
                 "webhook `{}` declares `replay` but no `idempotency by ...` nor `dedupe by ...` — replay dedupe has no key.",
                 webhook.name
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
     }
 
@@ -6078,6 +6968,11 @@ fn tier3_webhook_diagnostics<'a>(
                 "webhook `{}` `dlq emit {}` references event `{}` that is not declared in feature `{}` (no `emits`, `event_group`, or `event.trace` matches).",
                 webhook.name, event, event, feature.feature
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
     }
 
@@ -6098,6 +6993,11 @@ fn tier3_webhook_diagnostics<'a>(
                 "webhook `{}` declares `dlq drop` without `reason \"...\"` — silent drops on dead-letter must be explicit waivers.",
                 webhook.name
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
     }
 
@@ -6114,6 +7014,11 @@ fn tier3_webhook_diagnostics<'a>(
                 "webhook `{}` declares `retry` but no `dlq` — after exhaustion the runtime falls back to the adapter default (silent drop on River).",
                 webhook.name
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
     }
 }
@@ -6144,6 +7049,11 @@ fn tier3_notification_diagnostics(
                 notification.name,
                 NOTIFICATION_CHANNEL_CATALOG.join(", ")
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
     } else {
         for channel in &notification.channels {
@@ -6160,6 +7070,11 @@ fn tier3_notification_diagnostics(
                         channel,
                         NOTIFICATION_CHANNEL_CATALOG.join(", ")
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -6196,6 +7111,11 @@ fn tier3_notification_diagnostics(
                     "notification `{}` declares `digest every \"{}\"` outside the closed shape `<N> (seconds|minutes|hours|days)`.",
                     notification.name, digest.every
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -6215,6 +7135,11 @@ fn tier3_notification_diagnostics(
                         "notification `{}` declares `digest max_size {}` outside the supported range 1..=10000.",
                         notification.name, max_size
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -6231,6 +7156,11 @@ fn tier3_notification_diagnostics(
                     "notification `{}` declares `digest template_strategy {}` outside the closed catalog (merge, append).",
                     notification.name, strategy
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -6248,6 +7178,11 @@ fn tier3_notification_diagnostics(
                     "notification `{}` declares `throttle` without `per_recipient` or `per_channel`; at least one throttle axis is required.",
                     notification.name
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -6267,6 +7202,11 @@ fn tier3_notification_diagnostics(
                             "notification `{}` declares `throttle burst {}` greater than `max_per \"{}\"`.",
                             notification.name, burst, throttle.max_per
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                 }
             }
@@ -6282,6 +7222,11 @@ fn tier3_notification_diagnostics(
                     "notification `{}` declares `throttle max_per \"{}\"` outside the closed shape `<N> (seconds|minutes|hours|days)`.",
                     notification.name, throttle.max_per
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -6436,6 +7381,11 @@ fn event_group_pattern_prefix_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<Do
                                 "event_group `{}` in feature `{}` is a prefix of `{}` — nest in the more specific group or rename one pattern.",
                                 group.pattern, feature.feature, other.pattern
                             ),
+                            category: None,
+                            feature_name: None,
+                            construct: None,
+                            fix: None,
+                            group: None,
                         });
                     }
                 }
@@ -6478,6 +7428,11 @@ fn event_group_pattern_prefix_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<Do
                                     "event `{}` authored under group `{}` matches group `{}`'s prefix — move it to the matching group or rename.",
                                     event_name, group.pattern, other.pattern
                                 ),
+                                category: None,
+                                feature_name: None,
+                                construct: None,
+                                fix: None,
+                                group: None,
                             });
                         }
                     }
@@ -6593,6 +7548,11 @@ fn previously_diagnostics(feature: &Tier3FeatureFacts, diagnostics: &mut Vec<Doc
                     currents.join(", "),
                     feature.feature
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -6619,6 +7579,11 @@ fn previously_diagnostics(feature: &Tier3FeatureFacts, diagnostics: &mut Vec<Doc
                             "resource rename cycle between `{}` and `{}` in feature `{}` — only one direction may carry `previously migrated`.",
                             fact.current_name, prev, feature.feature
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                 } else {
                     diagnostics.push(DoctorDiagnostic {
@@ -6631,6 +7596,11 @@ fn previously_diagnostics(feature: &Tier3FeatureFacts, diagnostics: &mut Vec<Doc
                             "resource `{}` declares `previously migrated {}` but `{}` is also a current resource — the rename hint will be ignored or misrouted.",
                             fact.current_name, prev, prev
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                 }
             }
@@ -6656,6 +7626,11 @@ fn previously_diagnostics(feature: &Tier3FeatureFacts, diagnostics: &mut Vec<Doc
                         "field `{}.{}` declares `previously migrated {}` but `{}` is also a current field on the same resource.",
                         fact.resource_name, fact.current_name, prev, prev
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -6691,22 +7666,28 @@ fn tenant_migration_diagnostics(
 
         if let Some(operation) = &tm.target.operation {
             let (kind, target_feature, name, index) = match operation {
-                lazuli_ir::TenantMigrationTargetOperation::Query { feature: target_feature, name } => {
-                    (
-                        "query",
-                        target_feature.as_deref().unwrap_or(feature.feature.as_str()),
-                        name.as_str(),
-                        queries_by_feature,
-                    )
-                }
-                lazuli_ir::TenantMigrationTargetOperation::Command { feature: target_feature, name } => {
-                    (
-                        "command",
-                        target_feature.as_deref().unwrap_or(feature.feature.as_str()),
-                        name.as_str(),
-                        commands_by_feature,
-                    )
-                }
+                lazuli_ir::TenantMigrationTargetOperation::Query {
+                    feature: target_feature,
+                    name,
+                } => (
+                    "query",
+                    target_feature
+                        .as_deref()
+                        .unwrap_or(feature.feature.as_str()),
+                    name.as_str(),
+                    queries_by_feature,
+                ),
+                lazuli_ir::TenantMigrationTargetOperation::Command {
+                    feature: target_feature,
+                    name,
+                } => (
+                    "command",
+                    target_feature
+                        .as_deref()
+                        .unwrap_or(feature.feature.as_str()),
+                    name.as_str(),
+                    commands_by_feature,
+                ),
             };
             if !index
                 .get(target_feature)
@@ -6723,6 +7704,11 @@ fn tenant_migration_diagnostics(
                         "tenant_migration `{}` targets unknown {} `{}.{}`.",
                         tm.name, kind, target_feature, name
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -6743,6 +7729,11 @@ fn tenant_migration_diagnostics(
                     "tenant_migration `{}` handler `{}` does not exist on disk.",
                     tm.name, tm.handler.path
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -6759,6 +7750,11 @@ fn tenant_migration_diagnostics(
                         "tenant_migration `{}` declares `axis {}` but feature `{}` uses tenancy axis `{}`.",
                         tm.name, tm.target.axis, feature.feature, axis
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         } else {
@@ -6772,6 +7768,11 @@ fn tenant_migration_diagnostics(
                     "tenant_migration `{}` declares `axis {}` but feature `{}` did not declare a `defaults.tenancy` axis.",
                     tm.name, tm.target.axis, feature.feature
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -6788,6 +7789,11 @@ fn tenant_migration_diagnostics(
                     "tenant_migration `{}` does not declare `idempotency <path>` — tenant migrations are not safely re-runnable without an idempotency key.",
                     tm.name
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -6814,6 +7820,11 @@ fn deploy_strategy_diagnostics(app: &DoctorAppManifest, diagnostics: &mut Vec<Do
                 strategy,
                 DEPLOY_STRATEGY_CATALOG.join(", ")
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
     }
 }
@@ -6843,6 +7854,11 @@ fn deploy_checkpoint_diagnostics(app: &DoctorAppManifest, diagnostics: &mut Vec<
                 "deploy checkpoint `{}` references path `{}` that does not exist relative to app.lzi.",
                 checkpoint.name, checkpoint.path
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
         return;
     }
@@ -6868,6 +7884,11 @@ fn deploy_checkpoint_diagnostics(app: &DoctorAppManifest, diagnostics: &mut Vec<
                         "deploy checkpoint `{}` snapshot `lazuli_version` ({}) lags analyzer ({}); regenerate to silence this warning.",
                         checkpoint.name, snapshot_version, expected
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -6912,6 +7933,11 @@ fn profile_contract_diagnostics(
                     "profile `{}` is not declared in app `environments`.",
                     profile.profile.name
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -6927,6 +7953,11 @@ fn profile_contract_diagnostics(
                         "profile `{}` declares URL target `{}`, but app targets do not expose that target.",
                         profile.profile.name, url.target
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -6943,6 +7974,11 @@ fn profile_contract_diagnostics(
                         "profile `{}` overrides integration `{}`, but no app/registry integration with that name exists.",
                         profile.profile.name, integration.name
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
                 continue;
             };
@@ -6965,6 +8001,11 @@ fn profile_contract_diagnostics(
                         "profile `{}` selects `{}` environment `{environment}`, but `{}` does not list that environment.",
                         profile.profile.name, kind, integration.name
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -6985,6 +8026,11 @@ fn profile_contract_diagnostics(
                         "profile `{}` overrides binding `{}.{}`, but that feature slot has no requirement.",
                         profile.profile.name, binding.target_feature, binding.target_slot
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
                 continue;
             };
@@ -7003,6 +8049,11 @@ fn profile_contract_diagnostics(
                         binding.target_slot,
                         binding.source
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
                 continue;
             };
@@ -7018,6 +8069,11 @@ fn profile_contract_diagnostics(
                         "profile `{}` binding `{}.{}` references integration `{integration_name}`, but no app/registry integration with that name exists.",
                         profile.profile.name, binding.target_feature, binding.target_slot
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
                 continue;
             };
@@ -7033,6 +8089,11 @@ fn profile_contract_diagnostics(
                         "profile `{}` binding `{}.{}` expects `{expected_contract}`, but integration `{integration_name}` is `{actual_contract}`.",
                         profile.profile.name, binding.target_feature, binding.target_slot
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -7076,6 +8137,11 @@ fn app_pack_contract_diagnostics(
                     "app pack `{}` points to `{}`, but packs must use `packs.<name>` or `registry.packs.<name>`.",
                     pack_use.name, pack_use.source
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
             continue;
         };
@@ -7097,6 +8163,11 @@ fn app_pack_contract_diagnostics(
                     "app pack `{}` references registry pack `{pack_name}`, but no such pack exists in `registry.lzi`.",
                     pack_use.name
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
             continue;
         };
@@ -7117,6 +8188,11 @@ fn app_pack_contract_diagnostics(
                         "enabled pack `{}` requires integration `{}`: `{}`, but app/registry declares no integration with that contract.",
                         pack_use.name, requirement.name, requirement.contract
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -7187,6 +8263,11 @@ fn adapter_source_diagnostic(
         message: format!(
             "integration `{integration_name}` uses adapter `{adapter}`, but adapter sources must declare provenance with `@runtime/...`, `@lazuli/plugin-<name>` (or `@lazuli/plugin-<publisher>/<name>`), `@adapter.<local>`, or a local path."
         ),
+        category: None,
+        feature_name: None,
+        construct: None,
+        fix: None,
+        group: None,
     }
 }
 
@@ -7323,6 +8404,11 @@ fn app_service_contract_diagnostics(
                         "service `{}` exposes `{}` from feature `{feature_name}`, but does not own that feature.",
                         service.name, exposure.target
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -7342,6 +8428,11 @@ fn app_service_contract_diagnostics(
                     feature.name,
                     service_names.join(", ")
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             }),
             None => diagnostics.push(DoctorDiagnostic {
                 path: app.path.clone(),
@@ -7353,6 +8444,11 @@ fn app_service_contract_diagnostics(
                     "feature `{}` is not assigned to any app service boundary.",
                     feature.name
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             }),
         }
     }
@@ -7368,6 +8464,11 @@ fn app_service_contract_diagnostics(
                 message: format!(
                     "app service owns `{owned}`, but no local feature with that name was found in this package."
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -7498,6 +8599,11 @@ fn command_reachability_diagnostic(
                 "{source_kind} targets unresolved command `{}.command.{}`; doctor could not prove policy reachability.",
                 target.feature, target.command
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         }];
     };
 
@@ -7522,6 +8628,11 @@ fn command_reachability_diagnostic(
                 policy.atoms.join(", ")
             }
         ),
+        category: None,
+        feature_name: None,
+        construct: None,
+        fix: None,
+        group: None,
     }]
 }
 
@@ -7564,6 +8675,11 @@ fn command_route_binding_diagnostics(
             target.key.command,
             missing.join(", ")
         ),
+        category: None,
+        feature_name: None,
+        construct: None,
+        fix: None,
+        group: None,
     }]
 }
 
@@ -8343,6 +9459,11 @@ fn push_unknown_semantic_type(
             message: format!(
                 "unknown @semantic type \"{name}\"; the closed catalog is {{{SEMANTIC_TYPE_CATALOG}}}."
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
     }
 }
@@ -8365,6 +9486,11 @@ fn push_unknown_semantic_type_text(
             message: format!(
                 "unknown @semantic type \"{name}\"; the closed catalog is {{{SEMANTIC_TYPE_CATALOG}}}."
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
     }
 }
@@ -8650,6 +9776,11 @@ fn push_unresolved_type_ref_diagnostic(
         message: format!(
             "type `{name}` referenced by `{site}` is not declared in any feature. Add a `resource`/`record`/`enum {name}` block, or check for a typo."
         ),
+        category: None,
+        feature_name: None,
+        construct: None,
+        fix: None,
+        group: None,
     });
 }
 
@@ -8817,6 +9948,11 @@ fn feature_uses_missing_diagnostics(
             message: format!(
                 "feature `{feature}` references types declared in feature `{dependency}` but does not declare `uses {dependency}` in its header. Add `uses {dependency}` to make the dependency explicit."
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         })
         .collect()
 }
@@ -8984,6 +10120,11 @@ fn registry_tool_effect_diagnostics(defects: &[RegistryToolDefect]) -> Vec<Docto
                     defect.name
                 ),
             },
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         })
         .collect()
 }
@@ -9086,6 +10227,11 @@ fn agent_tool_diagnostics(
                             tool_label,
                             tool_policy,
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                 }
             }
@@ -9108,6 +10254,11 @@ fn agent_tool_diagnostics(
                     "agent `{}` dispatches a `write` tool with neither `safety @validator.<name>` on the agent nor `approval` on the target command; Cut A requires at least one guard for write-effect tools.",
                     agent.name
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -9124,6 +10275,11 @@ fn agent_tool_diagnostics(
                     "agent `{}` invokes a tool that resolves to a `@pii.*` class but declares no `safety @validator.<name>`; consider adding a scrub validator.",
                     agent.name
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -9314,6 +10470,11 @@ fn agent_discriminator_diagnostics(
                             "agent `{}` declares `output discriminator {}` but no enum named `{}` exists in any reachable feature.",
                             agent.name, enum_name, enum_name,
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                 }
             }
@@ -9342,6 +10503,11 @@ fn agent_discriminator_diagnostics(
                                     "agent `{}` declares `output {}` but no enum or record named `{}` exists in any reachable feature.",
                                     agent.name, name, name,
                                 ),
+                                category: None,
+                                feature_name: None,
+                                construct: None,
+                                fix: None,
+                                group: None,
                             });
                             continue;
                         }
@@ -9418,6 +10584,11 @@ fn check_record_discriminator(
                 "agent `{}` references record `{}` whose discriminator field `{}` has type `{}`, but no enum by that name exists; the marked field must resolve to an enum.",
                 agent.name, record_name, field_name, type_name,
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
     }
 
@@ -9465,6 +10636,11 @@ fn agent_eval_diagnostics(agents: &[AgentFacts]) -> Vec<DoctorDiagnostic> {
                     "agent `{}` declares `evals` but the agent is non-deterministic ({}); cases run as informational results until both `temperature 0` and `seed <int>` are pinned.",
                     agent.name, reason,
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -9492,6 +10668,11 @@ fn agent_eval_diagnostics(agents: &[AgentFacts]) -> Vec<DoctorDiagnostic> {
                                 "agent `{}` eval case `{}` uses an ordered operator but neither operand resolves to a numeric type; ordered comparisons require numeric refs (`<ref>.length`, `<ref>.count`, integer fields).",
                                 agent.name, case.name,
                             ),
+                            category: None,
+                            feature_name: None,
+                            construct: None,
+                            fix: None,
+                            group: None,
                         });
                     }
                 }
@@ -9592,6 +10773,11 @@ fn agent_expose_diagnostics(
                         path = a.path_raw,
                         method = a.method,
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -9616,6 +10802,11 @@ fn agent_expose_diagnostics(
                     "agent `{}` declares `expose http audience {audience}`, but no `.lzx` surface or `app.lzi` audience declares it.",
                     fact.agent.name,
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -9704,6 +10895,11 @@ fn app_urls_missing_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorDi
         severity: DoctorSeverity::Warning,
         code: "app_urls_missing".to_owned(),
         message: APP_URLS_MISSING_MESSAGE.to_owned(),
+        category: None,
+        feature_name: None,
+        construct: None,
+        fix: None,
+        group: None,
     }]
 }
 
@@ -9750,6 +10946,11 @@ fn cors_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorDiagnostic> {
                     rule.environment,
                     environments_summary(&environments),
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -9785,6 +10986,11 @@ fn cors_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorDiagnostic> {
                         "`cors allow_origins {env} \"{origin}\"` does not match any `url <target> {env} ...` declaration. If the origin is a third-party caller, ignore; otherwise update `urls` so the source-of-truth stays consistent.",
                         env = rule.environment,
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -9799,6 +11005,11 @@ fn cors_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorDiagnostic> {
             severity: DoctorSeverity::Error,
             code: "cors_credentials_wildcard_conflict_diagnostics".to_owned(),
             message: "`cors allow_origins ... \"*\"` cannot be combined with `allow_credentials true`. Per CORS spec, browsers reject the response. Either narrow the origin list or set `allow_credentials false`.".to_owned(),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
     }
 
@@ -9891,6 +11102,11 @@ fn app_logging_tracing_diagnostics(
                         "`app.logging.level {level}` is not in the closed catalog. Allowed values: {}.",
                         catalog_list(LOG_LEVEL_CATALOG),
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -9906,6 +11122,11 @@ fn app_logging_tracing_diagnostics(
                         "`app.logging.format {format}` is not in the closed catalog. Allowed values: {}.",
                         catalog_list(LOG_FORMAT_CATALOG),
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -9921,6 +11142,11 @@ fn app_logging_tracing_diagnostics(
                         "`app.logging.redact {redact}` is not in the closed catalog. Allowed values: {}.",
                         catalog_list(LOG_REDACT_CATALOG),
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -9935,6 +11161,11 @@ fn app_logging_tracing_diagnostics(
                     message: format!(
                         "`app.logging.sample_rate {rate}` must be a float in `[0.0, 1.0]`. Use `1.0` for full capture and `0.0` to disable."
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -9952,6 +11183,11 @@ fn app_logging_tracing_diagnostics(
                     message: format!(
                         "`app.tracing.sample_rate {rate}` must be a float in `[0.0, 1.0]`. Use `1.0` for full capture and `0.0` to disable."
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -9978,6 +11214,11 @@ fn app_logging_tracing_diagnostics(
                     message: format!(
                         "`app.tracing.exporter {exporter}` does not resolve to a `registry.capabilities` entry of kind `tracing`. Declare it in `registry.capabilities`, or remove the line to let the runtime pick a default.",
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -10038,6 +11279,11 @@ fn app_cookie_contract_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<Docto
                         catalog_list(COOKIE_SAME_SITE_CATALOG),
                         name = profile.name,
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -10053,6 +11299,11 @@ fn app_cookie_contract_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<Docto
                         "`app.cookie.{name}.max_age \"{raw}\"` is not a parseable duration. Use forms like `\"7d\"`, `\"12h\"`, `\"30m\"`, `\"45s\"`.",
                         name = profile.name,
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -10081,6 +11332,11 @@ fn app_proxy_contract_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<Doctor
                 message: format!(
                     "`app.proxy.trusted \"{cidr}\"` is not a parseable CIDR. Use forms like `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `2001:db8::/32`.",
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -10091,8 +11347,14 @@ fn app_proxy_contract_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<Doctor
     // `real_ip_header` (with no value).
     let header_slots: [(&str, Option<&String>); 3] = [
         ("real_ip_header", proxy.real_ip_header.as_ref()),
-        ("forwarded_proto_header", proxy.forwarded_proto_header.as_ref()),
-        ("forwarded_host_header", proxy.forwarded_host_header.as_ref()),
+        (
+            "forwarded_proto_header",
+            proxy.forwarded_proto_header.as_ref(),
+        ),
+        (
+            "forwarded_host_header",
+            proxy.forwarded_host_header.as_ref(),
+        ),
     ];
     for (slot, value) in header_slots {
         if let Some(name) = value {
@@ -10106,6 +11368,11 @@ fn app_proxy_contract_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<Doctor
                     message: format!(
                         "`app.proxy.{slot}` requires a non-empty header name (e.g. `X-Forwarded-For`). Remove the line to let the runtime fall back to its default.",
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -10140,6 +11407,11 @@ fn app_limits_contract_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<Docto
                     message: format!(
                         "`app.limits.{slot} \"{raw}\"` is not a parseable size. Use forms like `\"512b\"`, `\"16kb\"`, `\"10mb\"`, `\"2gb\"`.",
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -10156,6 +11428,11 @@ fn app_limits_contract_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<Docto
                 message: format!(
                     "`app.limits.timeout \"{raw}\"` is not a parseable duration. Use forms like `\"30s\"`, `\"5m\"`, `\"2h\"`.",
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -10262,12 +11539,8 @@ fn is_parseable_cidr(raw: &str) -> bool {
 /// Required headers under the `production` security profile. Other
 /// profiles emit a warning instead of an error; the catalog itself
 /// stays the same so the message reads consistently across profiles.
-const HEADERS_REQUIRED_IN_PRODUCTION: &[&str] = &[
-    "csp",
-    "hsts",
-    "x_frame_options",
-    "x_content_type_options",
-];
+const HEADERS_REQUIRED_IN_PRODUCTION: &[&str] =
+    &["csp", "hsts", "x_frame_options", "x_content_type_options"];
 
 fn app_headers_diagnostics(
     app: Option<&DoctorAppManifest>,
@@ -10324,6 +11597,11 @@ fn app_headers_diagnostics(
                 "`app.headers` is missing the production-grade slots [{}]. Declare them under `app.lzi headers` so the runtime can emit the headers on every response.",
                 missing.join(", "),
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
     }
 
@@ -10342,6 +11620,11 @@ fn app_headers_diagnostics(
                     message: format!(
                         "`app.headers x_content_type_options {value}` is invalid — the only legal token is `nosniff`.",
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -10356,6 +11639,11 @@ fn app_headers_diagnostics(
                     message: format!(
                         "`app.headers x_frame_options {value}` is invalid — closed catalog is `DENY`, `SAMEORIGIN`, or `ALLOW-FROM <uri>`.",
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -10371,6 +11659,11 @@ fn app_headers_diagnostics(
                         "`app.headers referrer_policy {value}` is invalid — closed catalog is [{}].",
                         ir::AppHeaders::REFERRER_POLICY_CATALOG.join(", "),
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -10383,6 +11676,11 @@ fn app_headers_diagnostics(
                     severity,
                     code: "headers-contract".to_owned(),
                     message: "`app.headers hsts max_age 0` disables HSTS — set a positive seconds value (typically 31536000 or higher) so the runtime can opt the browser into HTTPS-only.".to_owned(),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -10426,6 +11724,11 @@ fn secret_rotation_diagnostics(
                             overlap_lit = rotation.overlap,
                             cadence_lit = rotation.cadence,
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                 }
             }
@@ -10436,12 +11739,7 @@ fn secret_rotation_diagnostics(
     // referencing an undeclared profile.
     if let Some(app_manifest) = app {
         let declared: BTreeSet<&str> = registry
-            .map(|r| {
-                r.secret_rotations
-                    .iter()
-                    .map(|s| s.name.as_str())
-                    .collect()
-            })
+            .map(|r| r.secret_rotations.iter().map(|s| s.name.as_str()).collect())
             .unwrap_or_default();
         for binding in &app_manifest.manifest.encryption_bindings {
             let Some(profile) = binding.rotation_profile.as_deref() else {
@@ -10458,6 +11756,11 @@ fn secret_rotation_diagnostics(
                         "`encryption.key {scope} rotation_profile {profile}` references no `secret_rotation {profile}` entry in `registry.lzi`. Declare the profile or remove the reference.",
                         scope = binding.scope,
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -10510,6 +11813,11 @@ fn check_observability_source_tokens(app: &AppManifest) -> Vec<DoctorDiagnostic>
                 "`app.observability.error_source {token}` is not in the closed catalog. Allowed values: {}.",
                 catalog_list(OBSERVABILITY_ERROR_SOURCE_CATALOG),
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         })
         .collect()
 }
@@ -10538,6 +11846,11 @@ fn check_observability_panic_recover(app: &AppManifest) -> Vec<DoctorDiagnostic>
         severity: DoctorSeverity::Warning,
         code: "OBSERVABILITY-PANIC-001".to_owned(),
         message: "`app.observability.panic_recover false` disables the runtime panic guard outside `dev`. Keep recovery enabled for staging/prod unless this is an explicit debug override.".to_owned(),
+        category: None,
+        feature_name: None,
+        construct: None,
+        fix: None,
+        group: None,
     }]
 }
 
@@ -10686,6 +11999,11 @@ fn approval_missing_children_diagnostics(
                 p.command,
                 p.missing_children.join(", "),
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         })
         .collect()
 }
@@ -10740,6 +12058,11 @@ fn approval_diagnostics(
                             "command `{}.{}` declares `approval timeout {:?}` which is not a recognised duration shape (e.g. `\"24h\"`, `\"30 minutes\"`, `\"7d\"`).",
                             feature.feature, command.name, timeout,
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                 }
             }
@@ -10757,6 +12080,11 @@ fn approval_diagnostics(
                         "command `{}.{}` approval `by {role_ref}` is not a `@role.<name>` reference; approvers are roles, not scopes.",
                         feature.feature, command.name,
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
                 continue;
             };
@@ -10771,6 +12099,11 @@ fn approval_diagnostics(
                         "command `{}.{}` approval `by @role.{suffix}` references a role that no `policies` block or `app.lzi` `policy_for` declares.",
                         feature.feature, command.name,
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -10790,9 +12123,7 @@ fn approval_diagnostics(
 /// Closed-catalog column priorities mirror codegen exactly:
 /// - `@scope.owner` searches `user_id` > `user` > `owner_id` > `owner`.
 /// - `@scope.same_org` searches `org_id` > `org` > `tenant_id` > `tenant`.
-fn scope_owner_column_diagnostics(
-    tier3_facts: &[Tier3FeatureFacts],
-) -> Vec<DoctorDiagnostic> {
+fn scope_owner_column_diagnostics(tier3_facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
     use lazuli_ir::{CommandEffect, PolicyRef};
 
     const OWNER_COLUMNS: &[&str] = &["user_id", "user", "owner_id", "owner"];
@@ -10889,6 +12220,11 @@ fn scope_owner_column_diagnostics(
                         resource.name,
                         priority.join("`, `"),
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
                 // Don't flag the same command twice for the same atom.
                 let _ = axis_label;
@@ -10948,6 +12284,11 @@ fn field_derived_from_unresolved_diagnostics(
                         unresolved.join("`, `"),
                         resource.name,
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -11101,6 +12442,11 @@ fn resource_unique_qualifier_unknown_diagnostics(
                         qualifier,
                         qualifier,
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -11162,13 +12508,21 @@ fn resource_validates_path_unknown_diagnostics(
                                 .collect::<Vec<_>>()
                                 .join(", "),
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                     continue;
                 }
 
                 // Check 2: @validator.<name> resolves through extensions.
                 if let Some(rest) = v.path.path.strip_prefix("@validator.") {
-                    let name = rest.split(|c: char| !c.is_alphanumeric() && c != '_').next().unwrap_or(rest);
+                    let name = rest
+                        .split(|c: char| !c.is_alphanumeric() && c != '_')
+                        .next()
+                        .unwrap_or(rest);
                     if !name.is_empty() && !validator_names.contains(name) {
                         let known: Vec<&str> = validator_names.iter().copied().collect();
                         diagnostics.push(DoctorDiagnostic {
@@ -11185,6 +12539,11 @@ fn resource_validates_path_unknown_diagnostics(
                                 name,
                                 if known.is_empty() { "(none)".to_owned() } else { known.join(", ") },
                             ),
+                            category: None,
+                            feature_name: None,
+                            construct: None,
+                            fix: None,
+                            group: None,
                         });
                     }
                 }
@@ -11334,9 +12693,7 @@ fn collect_package_rbac_catalog(
     Option<lazuli_ir::RbacCatalog>,
     Vec<(PathBuf, lazuli_analyzer::rbac::RbacIssue)>,
 ) {
-    use lazuli_syntax::{
-        PackageSkeleton, PermissionDeclAst, RoleDeclAst, parse_package_skeleton,
-    };
+    use lazuli_syntax::{PackageSkeleton, PermissionDeclAst, RoleDeclAst, parse_package_skeleton};
 
     let mut all_permissions: Vec<PermissionDeclAst> = Vec::new();
     let mut all_roles: Vec<RoleDeclAst> = Vec::new();
@@ -11374,12 +12731,16 @@ fn collect_package_rbac_catalog(
     // For now, attach the first .lzi file with rbac decls to each issue.
     let representative = files
         .iter()
-        .find(|f| is_lzi_path(&f.path) && f.source.contains("\nrole ") || f.source.starts_with("role "))
+        .find(|f| {
+            is_lzi_path(&f.path) && f.source.contains("\nrole ") || f.source.starts_with("role ")
+        })
         .or_else(|| files.iter().find(|f| is_lzi_path(&f.path)))
         .map(|f| f.path.clone())
         .unwrap_or_default();
-    let issues_with_path: Vec<(PathBuf, _)> =
-        issues.into_iter().map(|i| (representative.clone(), i)).collect();
+    let issues_with_path: Vec<(PathBuf, _)> = issues
+        .into_iter()
+        .map(|i| (representative.clone(), i))
+        .collect();
     (catalog, issues_with_path)
 }
 
@@ -11406,6 +12767,11 @@ fn rbac_catalog_diagnostics(
             severity,
             code: issue.code.to_owned(),
             message: issue.message,
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
     }
     (out, catalog)
@@ -11454,6 +12820,11 @@ fn rbac_role_undeclared_diagnostics(
                         "`@role.{}` references a role not declared in the RBAC catalog (declare `role {}` at top level or remove the reference).",
                         role, role
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
                 break;
             }
@@ -11497,6 +12868,11 @@ fn rbac_catalog_missing_diagnostics(
                     "package uses `@role.*` references ({}) but declares no `role` / `permission` catalog. Consider migrating to a top-level RBAC catalog (see docs/proposals/rbac-catalog-vocab.md).",
                     role_names.join(", ")
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             }];
         }
     }
@@ -11551,11 +12927,7 @@ fn rbac_missing_policy_diagnostics(files: &[DoctorFile]) -> Vec<DoctorDiagnostic
                     || trimmed.starts_with("query.view ")
                     || trimmed.starts_with("api "))
             {
-                let name = trimmed
-                    .split_whitespace()
-                    .nth(1)
-                    .unwrap_or("")
-                    .to_owned();
+                let name = trimmed.split_whitespace().nth(1).unwrap_or("").to_owned();
                 // Scan body at indent 4 for a `policy ` line.
                 let mut has_policy = false;
                 let mut j = i + 1;
@@ -11610,6 +12982,11 @@ fn flush_missing_policy(
                 "`{}` declares no explicit `policy` while sibling callables do; add `policy <atoms>` (or `policy @scope.public` to opt out) for visibility.",
                 name
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
     }
 }
@@ -12105,6 +13482,11 @@ fn auth_diagnostics(
                 message: format!(
                     "auth.identity `{identity_resource}.{identity_field}` does not resolve: resource not found in feature `{feature}`.",
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             }),
             Some(resource) => match resource.fields.get(identity_field) {
                 None => diagnostics.push(DoctorDiagnostic {
@@ -12116,6 +13498,11 @@ fn auth_diagnostics(
                     message: format!(
                         "auth.identity `{identity_resource}.{identity_field}` does not resolve: field not found on `{identity_resource}`.",
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 }),
                 Some(field) => {
                     if !is_identity_shaped(field) {
@@ -12128,6 +13515,11 @@ fn auth_diagnostics(
                             message: format!(
                                 "auth.identity `{identity_resource}.{identity_field}` does not resolve: field is not identity-shaped (missing @semantic.Email / @semantic.Phone / unique).",
                             ),
+                            category: None,
+                            feature_name: None,
+                            construct: None,
+                            fix: None,
+                            group: None,
                         });
                     }
                 }
@@ -12147,6 +13539,11 @@ fn auth_diagnostics(
                 message:
                     "auth.password is declared but auth.sessions is missing; login will not issue sessions."
                         .to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -12169,6 +13566,11 @@ fn auth_diagnostics(
                 message:
                     "auth.oauth is declared without auth.password; signin is OAuth-only with no password fallback for break-glass access."
                         .to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -12192,6 +13594,11 @@ fn auth_diagnostics(
                     message: format!(
                         "auth.sessions.resource `{sessions_name}` does not name a resource declared in feature `{feature}`.",
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
 
@@ -12207,6 +13614,11 @@ fn auth_diagnostics(
                     code: "auth_session_ttl_too_short".to_owned(),
                     message: "session TTL <1h forces frequent re-login; ensure intentional."
                         .to_owned(),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
 
@@ -12225,6 +13637,11 @@ fn auth_diagnostics(
                             "session resource `{sessions_name}` extra column `{}` has Go type `{}` but only `lazuli.ID` is allowed; declare the field as a resource reference.",
                             col.field_name, col.go_type,
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                 }
             }
@@ -12244,6 +13661,11 @@ fn auth_diagnostics(
                         "session resource `{sessions_name}` declares {} extra columns; v1 emits them positionally in DSL order — reordering silently changes tenant scope. Reduce to at most 1, or verify caller argument order carefully.",
                         sessions.extra_columns.len(),
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -12288,6 +13710,11 @@ fn auth_diagnostics(
                                         sessions_name = sessions_name,
                                         field_name = field_name,
                                     ),
+                                    category: None,
+                                    feature_name: None,
+                                    construct: None,
+                                    fix: None,
+                                    group: None,
                                 });
                                 break;
                             }
@@ -12327,6 +13754,11 @@ fn auth_diagnostics(
                         adapter_ref = adapter_ref,
                         feature = feature,
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -12435,6 +13867,11 @@ fn agent_run_trace_diagnostics(files: &[DoctorFile]) -> Vec<DoctorDiagnostic> {
                         message: format!(
                             "`event.trace {name}` is reserved by the IR as a built-in trace event; the runtime emits it automatically. Authoring this declaration is rejected — remove the block and subscribe via `job ... trigger event.trace {name}` instead."
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                 }
             }
@@ -12491,6 +13928,11 @@ fn agent_run_trace_diagnostics(files: &[DoctorFile]) -> Vec<DoctorDiagnostic> {
                             format_name_list(&built_in_names),
                             format_name_list(&authored_trace_names),
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                 }
             }
@@ -12675,6 +14117,11 @@ fn audit_event_health_diagnostics(
                         .collect::<Vec<_>>()
                         .join(", "),
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -12767,6 +14214,11 @@ fn audit_event_health_diagnostics(
                                         .collect::<Vec<_>>()
                                         .join(", "),
                                 ),
+                                category: None,
+                                feature_name: None,
+                                construct: None,
+                                fix: None,
+                                group: None,
                             });
                         }
                         audit_pending = None;
@@ -12818,6 +14270,11 @@ fn audit_event_health_diagnostics(
                                     "`event.trace ... level {level}` is not in the closed catalog. Allowed values: {}.",
                                     catalog_list(TRACE_LEVEL_CATALOG),
                                 ),
+                                category: None,
+                                feature_name: None,
+                                construct: None,
+                                fix: None,
+                                group: None,
                             });
                         }
                     } else {
@@ -12828,6 +14285,11 @@ fn audit_event_health_diagnostics(
                             severity: DoctorSeverity::Error,
                             code: "event_trace_level_on_domain_event_diagnostics".to_owned(),
                             message: "`level` is only valid on `event.trace`, not on a domain `event`. Move the slot to a `event.trace` block or remove the `level` line.".to_owned(),
+                            category: None,
+                            feature_name: None,
+                            construct: None,
+                            fix: None,
+                            group: None,
                         });
                     }
                 }
@@ -12858,6 +14320,11 @@ fn audit_event_health_diagnostics(
                             "`app.runtime unit {unit_name} {slot} {path:?}` must be a path starting with `/` and containing no whitespace.",
                             unit_name = unit.name,
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                 }
             }
@@ -12900,6 +14367,11 @@ fn resource_policy_and_command_audit_hints(
                             "command `{}.{}` is write-effect but has no `audit default` declared ÔÇö write actions without audit are invisible to compliance. Add `audit default` on the command or `audit_default` in feature defaults.",
                             feature.feature, command.name
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                 }
 
@@ -12947,6 +14419,11 @@ fn resource_policy_and_command_audit_hints(
                     "feature `{}` declares resource `{}` with no `policies` block ÔÇö every write command implicitly gets the default policy. Add an explicit `policies` block to make access control auditable.",
                     feature.feature, resource
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -13058,6 +14535,11 @@ fn scan_payload_field_drift(
                             "subscriber references `{candidate}` but `agent_run`'s canonical payload does not declare it. Valid fields: {}.",
                             payload_field_list(canonical),
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                     let _ = event_name; // pin for future per-event errors
                 }
@@ -13253,9 +14735,7 @@ fn report_diagnostics(
         let mut feature_for_rules = make_synthetic_feature_for_reports(fact);
 
         // Local-only rules consume the synthesized Feature view.
-        for finding in
-            report::report_columns_empty_001::check(&feature_for_rules, &fact.path)
-        {
+        for finding in report::report_columns_empty_001::check(&feature_for_rules, &fact.path) {
             let line = fact
                 .report_lines
                 .get(&finding.report)
@@ -13268,10 +14748,14 @@ fn report_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: report::report_columns_empty_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
-        for finding in
-            report::report_signed_ttl_missing_001::check(&feature_for_rules, &fact.path)
+        for finding in report::report_signed_ttl_missing_001::check(&feature_for_rules, &fact.path)
         {
             let line = fact
                 .report_lines
@@ -13285,6 +14769,11 @@ fn report_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: report::report_signed_ttl_missing_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
         for finding in
@@ -13302,6 +14791,11 @@ fn report_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: report::report_signed_ttl_forbidden_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
         for finding in
@@ -13319,11 +14813,14 @@ fn report_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: report::report_filename_token_unknown_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
-        for finding in
-            report::report_source_kind_001::check(&feature_for_rules, &fact.path)
-        {
+        for finding in report::report_source_kind_001::check(&feature_for_rules, &fact.path) {
             let line = fact
                 .report_lines
                 .get(&finding.report)
@@ -13336,12 +14833,16 @@ fn report_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: report::report_source_kind_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
-        for finding in report::report_policy_public_no_rate_limit_001::check(
-            &feature_for_rules,
-            &fact.path,
-        ) {
+        for finding in
+            report::report_policy_public_no_rate_limit_001::check(&feature_for_rules, &fact.path)
+        {
             let line = fact
                 .report_lines
                 .get(&finding.report)
@@ -13354,11 +14855,14 @@ fn report_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: report::report_policy_public_no_rate_limit_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
-        for finding in
-            report::report_column_mismatch_001::check(&feature_for_rules, &fact.path)
-        {
+        for finding in report::report_column_mismatch_001::check(&feature_for_rules, &fact.path) {
             let line = fact
                 .report_lines
                 .get(&finding.report)
@@ -13371,11 +14875,14 @@ fn report_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: report::report_column_mismatch_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
-        for finding in
-            report::report_path_collision_001::check(&feature_for_rules, &fact.path)
-        {
+        for finding in report::report_path_collision_001::check(&feature_for_rules, &fact.path) {
             let line = fact
                 .report_lines
                 .get(&finding.report)
@@ -13388,6 +14895,11 @@ fn report_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: report::report_path_collision_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
         for finding in report::report_signed_no_storage_001::check(
@@ -13407,6 +14919,11 @@ fn report_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: report::report_signed_no_storage_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
         for finding in report::report_storage_ambiguous_001::check(
@@ -13426,16 +14943,19 @@ fn report_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: report::report_storage_ambiguous_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
         // AST-based rule (REPORT-FORMAT-UNKNOWN-001) reads the raw
         // ReportDecl text because lowering drops unknown format tokens.
-        for finding in report::report_format_unknown_001::check(
-            &fact.feature,
-            &fact.report_decls,
-            &fact.path,
-        ) {
+        for finding in
+            report::report_format_unknown_001::check(&fact.feature, &fact.report_decls, &fact.path)
+        {
             let line = fact
                 .report_lines
                 .get(&finding.report)
@@ -13448,6 +14968,11 @@ fn report_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: report::report_format_unknown_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -13501,7 +15026,7 @@ fn make_synthetic_feature_for_reports(fact: &Tier3FeatureFacts) -> lazuli_ir::Fe
         reports: fact.reports.clone(),
         pollers: vec![],
         channels: Vec::new(),
-            caches: Vec::new(),
+        caches: Vec::new(),
         aggregates: fact.aggregates.clone(),
         mcp_servers: Vec::new(),
         previous_names: Vec::new(),
@@ -13520,7 +15045,10 @@ fn domain_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
     for fact in facts {
         if fact.aggregates.is_empty()
             && fact.resources.iter().all(|r| r.invariants.is_empty())
-            && fact.resources.iter().all(|r| r.fields.iter().all(|f| !f.slug))
+            && fact
+                .resources
+                .iter()
+                .all(|r| r.fields.iter().all(|f| !f.slug))
         {
             continue;
         }
@@ -13540,6 +15068,11 @@ fn domain_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: domain::aggregate_root_unknown::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
         // AGGREGATE-CONTAINS-UNKNOWN
@@ -13556,6 +15089,11 @@ fn domain_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: domain::aggregate_contains_unknown::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
         // INVARIANT-PREDICATE-INVALID — covers both resource-scoped
@@ -13578,6 +15116,11 @@ fn domain_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: domain::invariant_predicate_invalid::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
         // SLUG-UNIQUENESS-IMPLICIT — warning, not error.
@@ -13589,6 +15132,11 @@ fn domain_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
                 column: 1,
                 severity: DoctorSeverity::Warning,
                 code: domain::slug_uniqueness_implicit::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -13646,6 +15194,11 @@ fn error_vocab_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Warning,
                 code: error_vocab::PoliciesNoWhenDeniedFinding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -13665,6 +15218,11 @@ fn error_vocab_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: error_vocab::KeyUnknownFinding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -13682,6 +15240,11 @@ fn error_vocab_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Warning,
                 code: error_vocab::BuiltinFallbackFinding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -13695,6 +15258,11 @@ fn error_vocab_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: error_vocab::CodeUnknownFinding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -13708,6 +15276,11 @@ fn error_vocab_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: error_vocab::ExposeUnknownFinding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -13717,13 +15290,11 @@ fn error_vocab_diagnostics(
         // lowering, falling back to the feature header.
         for finding in error_vocab::check_when_denied_no_policy(&feature, &fact.path) {
             let line = match &finding.site {
-                error_vocab::WhenDeniedSite::Command(name) => fact
-                    .command_lines
-                    .get(name)
-                    .copied()
-                    .unwrap_or_else(|| {
+                error_vocab::WhenDeniedSite::Command(name) => {
+                    fact.command_lines.get(name).copied().unwrap_or_else(|| {
                         span_line(files, &fact.path, finding.span, fact.feature_line)
-                    }),
+                    })
+                }
                 error_vocab::WhenDeniedSite::Policy(_) => {
                     span_line(files, &fact.path, finding.span, fact.feature_line)
                 }
@@ -13735,6 +15306,11 @@ fn error_vocab_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: error_vocab::WhenDeniedNoPolicyFinding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -13748,6 +15324,11 @@ fn error_vocab_diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: error_vocab::Expose5xxMessageFinding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -13802,7 +15383,7 @@ fn make_synthetic_feature_for_error_vocab(fact: &Tier3FeatureFacts) -> lazuli_ir
         apis: fact.apis.clone(),
         records: Vec::new(),
         queries: Vec::new(),
-            resume_routers: Vec::new(),
+        resume_routers: Vec::new(),
         workflows: Vec::new(),
         jobs: Vec::new(),
         webhooks: Vec::new(),
@@ -13852,6 +15433,11 @@ fn cap_file_storage_diagnostics(operational: &OperationalFacts) -> Vec<DoctorDia
                         _ => "<unknown>",
                     }
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -13869,6 +15455,11 @@ fn cap_file_storage_diagnostics(operational: &OperationalFacts) -> Vec<DoctorDia
                     message:
                         "`@cap.File(visibility:signed)` requires `signed_ttl:<duration>` (e.g. `1h`); signed URLs without a TTL contract leak forever."
                             .to_owned(),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
             (Some(other), Some(_)) if !matches!(other, lazuli_ir::FileVisibility::Signed) => {
@@ -13882,6 +15473,11 @@ fn cap_file_storage_diagnostics(operational: &OperationalFacts) -> Vec<DoctorDia
                         "`@cap.File(visibility:{})` forbids `signed_ttl`; `signed_ttl` only applies when `visibility:signed`.",
                         format_visibility(other),
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
             _ => {}
@@ -13902,6 +15498,11 @@ fn cap_file_storage_diagnostics(operational: &OperationalFacts) -> Vec<DoctorDia
                         mime.family,
                         KNOWN_MIME_FAMILIES.join(", "),
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -13930,6 +15531,11 @@ fn cap_file_storage_diagnostics(operational: &OperationalFacts) -> Vec<DoctorDia
                 message:
                     "`@cap.File(max_size:<literal>)` must use a positive integer with unit `kb`, `mb`, or `gb`; the surrounding `@cap.File(...)` shape did not lower to typed IR."
                         .to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -13974,6 +15580,11 @@ fn cap_file_storage_diagnostics(operational: &OperationalFacts) -> Vec<DoctorDia
                             format_accept_list(&output.capability.accept),
                             format_accept_list(&input.capability.accept),
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                 }
             }
@@ -14119,6 +15730,11 @@ fn openapi_deprecated_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiag
                     "api `{}` is text-pattern; OpenAPI emission falls back to a stub with `x-lazuli-text-pattern-skip: true`. Lift to typed IR via Phase L Tier 4.",
                     name
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -14148,6 +15764,11 @@ fn deprecated_callable_diagnostics(
             message: format!(
                 "{kind} `{name}` is deprecated without a replacement; declare `replacement {kind}.<name>` when a successor exists."
             ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         });
     } else if let Some(replacement) = &dep.replacement {
         match replacement {
@@ -14217,6 +15838,11 @@ fn deprecated_callable_diagnostics(
                         message: format!(
                             "{kind} `{name}`.deprecated.replacement `{url}` does not resolve: url malformed."
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                 }
             }
@@ -14234,6 +15860,11 @@ fn deprecated_callable_diagnostics(
                 message: format!(
                     "{kind} `{name}`.deprecated.sunset `{sunset}` is not a valid ISO-8601 date (`YYYY-MM-DD`)."
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             }),
             Some(date) if date < today_pivot => diagnostics.push(DoctorDiagnostic {
                 path: feature.path.clone(),
@@ -14244,6 +15875,11 @@ fn deprecated_callable_diagnostics(
                 message: format!(
                     "{kind} `{name}`.deprecated.sunset `{sunset}` is in the past; consumers should expect this endpoint to be removed soon."
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             }),
             Some(_) => {}
         }
@@ -14278,6 +15914,11 @@ fn push_unknown_replacement_if_missing(
         message: format!(
             "{kind} `{name}`.deprecated.replacement `{target_feature}.{target_kind}.{target_name}` does not resolve."
         ),
+        category: None,
+        feature_name: None,
+        construct: None,
+        fix: None,
+        group: None,
     });
 }
 
@@ -14405,6 +16046,11 @@ fn cache_diagnostics(
                     severity: DoctorSeverity::Error,
                     code: "cache_capability_undeclared".to_owned(),
                     message: "`cache` block requires a `cache <name>` capability in `registry.lzi` but none is declared. Add `cache <name>` to `registry.capabilities`.".to_owned(),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -14431,6 +16077,11 @@ fn cache_diagnostics(
                         ns,
                         owners_list.join(" and ")
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -14464,6 +16115,11 @@ fn cache_diagnostics(
                             "`cache ttl` on query `{}` is empty. Use a typed duration (`<int>s|m|h|d`) or non-empty quoted prose.",
                             name
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                 }
             }
@@ -14513,6 +16169,11 @@ fn cache_diagnostics(
                             "`invalidates query.{}` in command `{}` does not resolve: query `{}` not found in feature `{}`.",
                             target_name, command.name, target_name, target_feature
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                 }
             }
@@ -14554,6 +16215,11 @@ fn cache_diagnostics(
                     "`cache {profile_name}` on query `{qname}` does not resolve: no feature-level `cache {profile_name}` profile declared in feature `{}`.",
                     feature.feature
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -14579,6 +16245,11 @@ fn cache_diagnostics(
                             "`cache {}` has an empty `ttl`. Use a typed duration (`<int>s|m|h|d`) or non-empty quoted prose.",
                             profile.name
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                 }
             }
@@ -14600,6 +16271,11 @@ fn cache_diagnostics(
                                 "`cache {}` has `stale_while_revalidate` ({swr_secs}s) larger than `ttl` ({ttl_secs}s). SWR must extend the freshness window, not invert it.",
                                 profile.name
                             ),
+                            category: None,
+                            feature_name: None,
+                            construct: None,
+                            fix: None,
+                            group: None,
                         });
                     }
                 }
@@ -14619,6 +16295,11 @@ fn cache_diagnostics(
                         "`cache {}` declares `sliding true` but its `ttl` is not a typed duration literal. Use `<int>s|m|h|d` so the runtime can slide the window deterministically.",
                         profile.name
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -14665,6 +16346,11 @@ fn cache_diagnostics(
                         message: format!(
                             "`cache tags {tag}` on query `{qname}` is the only declarer of `{tag}`. Either declare it on another query/profile or remove it — tags without a second declarer cannot fan out invalidation.",
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                 }
             }
@@ -14720,6 +16406,11 @@ fn query_view_sql_file_diagnostics(
                         "`query.view {}` references SQL source `{}` but the file does not exist.",
                         query.name, query.sql_path
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
                 continue;
             }
@@ -14738,6 +16429,11 @@ fn query_view_sql_file_diagnostics(
                         "`query.view {}` SQL looks like it builds user-influenced text instead of binding parameters: {reason}.",
                         query.name
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -14852,6 +16548,11 @@ fn i18n_diagnostics(
                     "`app.locale.default` `{}` must appear in `supported`.",
                     locale.default
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -14869,6 +16570,11 @@ fn i18n_diagnostics(
                         "fallback `{} -> {}` source `{}` is not in `app.locale.supported`.",
                         fb.from, fb.to, fb.from
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
             if !supported.contains(&fb.to) {
@@ -14882,6 +16588,11 @@ fn i18n_diagnostics(
                         "fallback `{} -> {}` destination `{}` is not in `app.locale.supported`.",
                         fb.from, fb.to, fb.to
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
             graph
@@ -14943,6 +16654,11 @@ fn i18n_diagnostics(
                 severity: DoctorSeverity::Error,
                 code: "app_locale_fallback_cycle".to_owned(),
                 message: format!("fallback chain creates a cycle: `{}`.", cycle),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -14991,6 +16707,11 @@ fn i18n_diagnostics(
                     "translation catalog path `{}` should contain a `<locale>` placeholder so the runtime can load per-locale files.",
                     translation.catalog
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
 
@@ -15012,6 +16733,11 @@ fn i18n_diagnostics(
                             "translation key `{}.{}` declares variant `{}` outside `app.locale.supported`.",
                             feature.feature, key.name, variant.locale
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                 }
             }
@@ -15026,6 +16752,11 @@ fn i18n_diagnostics(
                         "translation key `{}.{}` is missing a variant for default locale `{}`.",
                         feature.feature, key.name, default_locale
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
             for tag in &supported {
@@ -15043,6 +16774,11 @@ fn i18n_diagnostics(
                             "translation key `{}.{}` is missing a variant for supported locale `{}`.",
                             feature.feature, key.name, tag
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                 }
             }
@@ -15058,6 +16794,11 @@ fn i18n_diagnostics(
                             "translation key `{}.{}` plural arm `{}` is not a CLDR category: zero|one|two|few|many|other.",
                             feature.feature, key.name, plural.arm
                         ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
                     });
                 }
             }
@@ -15108,6 +16849,11 @@ fn i18n_diagnostics(
                                         .collect::<Vec<_>>()
                                         .join(", ")
                                 ),
+                                category: None,
+                                feature_name: None,
+                                construct: None,
+                                fix: None,
+                                group: None,
                             });
                         }
                     }
@@ -15126,6 +16872,11 @@ fn i18n_diagnostics(
                         "translation key `{}.{}` is declared but never referenced via `@translation.<key>`.",
                         feature.feature, key.name
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -15157,6 +16908,11 @@ fn i18n_diagnostics(
                         "notification `{}` template path contains `<locale>` but no `locale_negotiate` is mounted in `app.runtime`.",
                         notification.name
                     ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
                 });
             }
         }
@@ -15193,6 +16949,11 @@ fn check_locale_negotiate(
                     source,
                     LOCALE_NEGOTIATE_SOURCES.join(", ")
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -15209,6 +16970,11 @@ fn check_locale_negotiate(
                     strategy,
                     LOCALE_NEGOTIATE_STRATEGIES.join(", ")
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -15224,6 +16990,11 @@ fn check_locale_negotiate(
                     "`locale_negotiate.fallback` `{}` is not in `app.locale.supported`.",
                     fallback
                 ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
@@ -15928,10 +17699,8 @@ feature billing
     /// `Lazurite.toml` even when the target file itself had no plugin refs.
     #[test]
     fn doctor_skips_manifest_required_on_single_file_invocation() {
-        let root = std::env::temp_dir().join(format!(
-            "lazuli-doctor-single-file-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("lazuli-doctor-single-file-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).expect("create temp doctor project");
 
@@ -15992,9 +17761,7 @@ feature greetings
             lazuli_lsp::diagnostics_for_source_with_profile(source, SecurityProfile::Strict);
         let lsp_codes: Vec<String> = lsp_diagnostics
             .iter()
-            .map(|d| {
-                DoctorDiagnostic::from_lsp(PathBuf::from("registry.lzi"), d).code
-            })
+            .map(|d| DoctorDiagnostic::from_lsp(PathBuf::from("registry.lzi"), d).code)
             .collect();
         // The LSP layer is intentionally left noisy; doctor owns the dedupe.
         assert!(
@@ -16024,8 +17791,7 @@ feature greetings
         let env_line_codes: Vec<&str> = diagnostics
             .iter()
             .filter(|d| {
-                d.line == 4
-                    && (d.code == "app-env-contract" || d.code == "env-schema-contract")
+                d.line == 4 && (d.code == "app-env-contract" || d.code == "env-schema-contract")
             })
             .map(|d| d.code.as_str())
             .collect();
@@ -16384,10 +18150,8 @@ surface customer web
         let blocking: Vec<_> = diagnostics
             .iter()
             .filter(|d| {
-                matches!(
-                    d.severity,
-                    DoctorSeverity::Error | DoctorSeverity::Warning
-                ) && !d.code.starts_with("ERR-VOCAB-")
+                matches!(d.severity, DoctorSeverity::Error | DoctorSeverity::Warning)
+                    && !d.code.starts_with("ERR-VOCAB-")
             })
             .collect();
         assert!(
@@ -20559,10 +22323,8 @@ feature customer
 
     #[test]
     fn missing_policy_on_query_happy_fixture_has_zero_diagnostics() {
-        let package = package_from_sources(vec![(
-            "happy.lzi",
-            MISSING_POLICY_ON_QUERY_HAPPY_FIXTURE,
-        )]);
+        let package =
+            package_from_sources(vec![("happy.lzi", MISSING_POLICY_ON_QUERY_HAPPY_FIXTURE)]);
         let diagnostics = package.diagnostics();
         assert!(
             diagnostics.is_empty(),
@@ -22095,12 +23857,9 @@ registry
         include_str!("../tests/fixtures/error-vocab/when_denied_no_policy.lzi");
     const ERR_VOCAB_EXPOSE_5XX_MESSAGE_FIXTURE: &str =
         include_str!("../tests/fixtures/error-vocab/expose_5xx_message.lzi");
-    const ERR_VOCAB_HAPPY_FIXTURE: &str =
-        include_str!("../tests/fixtures/error-vocab/happy.lzi");
-    const ROUTE_GUARD_HAPPY_LZI: &str =
-        include_str!("../tests/fixtures/route-guard/happy.lzi");
-    const ROUTE_GUARD_HAPPY_LZX: &str =
-        include_str!("../tests/fixtures/route-guard/happy.lzx");
+    const ERR_VOCAB_HAPPY_FIXTURE: &str = include_str!("../tests/fixtures/error-vocab/happy.lzi");
+    const ROUTE_GUARD_HAPPY_LZI: &str = include_str!("../tests/fixtures/route-guard/happy.lzi");
+    const ROUTE_GUARD_HAPPY_LZX: &str = include_str!("../tests/fixtures/route-guard/happy.lzx");
     const ROUTE_GUARD_UNGUARDED_LZX: &str =
         include_str!("../tests/fixtures/route-guard/view_unguarded_with_gated_backend.lzx");
     const ROUTE_GUARD_LAXER_LZX: &str =
@@ -22156,9 +23915,7 @@ registry
             .collect()
     }
 
-    fn lifecycle_gate_diags<'a>(
-        diagnostics: &'a [DoctorDiagnostic],
-    ) -> Vec<&'a DoctorDiagnostic> {
+    fn lifecycle_gate_diags<'a>(diagnostics: &'a [DoctorDiagnostic]) -> Vec<&'a DoctorDiagnostic> {
         diagnostics
             .iter()
             .filter(|d| d.code.starts_with("LIFECYCLE-GATE-"))
@@ -22196,10 +23953,8 @@ registry
 
     #[test]
     fn err_vocab_002_fires_for_key_unknown_from_policy_fixture() {
-        let package = package_from_sources(vec![(
-            "app.lzi",
-            ERR_VOCAB_KEY_UNKNOWN_FROM_POLICY_FIXTURE,
-        )]);
+        let package =
+            package_from_sources(vec![("app.lzi", ERR_VOCAB_KEY_UNKNOWN_FROM_POLICY_FIXTURE)]);
         let diagnostics = package.diagnostics();
         assert_eq!(
             count_code(&diagnostics, "ERR-VOCAB-002"),
@@ -22275,8 +24030,7 @@ registry
 
     #[test]
     fn err_vocab_expose_5xx_message_fires_for_expose_5xx_message_fixture() {
-        let package =
-            package_from_sources(vec![("app.lzi", ERR_VOCAB_EXPOSE_5XX_MESSAGE_FIXTURE)]);
+        let package = package_from_sources(vec![("app.lzi", ERR_VOCAB_EXPOSE_5XX_MESSAGE_FIXTURE)]);
         let diagnostics = package.diagnostics();
         assert_eq!(
             count_code(&diagnostics, "ERR-VOCAB-EXPOSE-5XX-MESSAGE"),
@@ -22345,14 +24099,13 @@ feature sales
     policy @policy.create
     creates Lead
 "#;
-        let package = package_from_sources(vec![
-            ("crm.lzi", CRM_FIXTURE),
-            ("sales.lzi", SALES_FIXTURE),
-        ]);
+        let package =
+            package_from_sources(vec![("crm.lzi", CRM_FIXTURE), ("sales.lzi", SALES_FIXTURE)]);
         let diagnostics = package.diagnostics();
         let err_vocab_002 = count_code(&diagnostics, "ERR-VOCAB-002");
         assert_eq!(
-            err_vocab_002, 0,
+            err_vocab_002,
+            0,
             "cross-feature `@translation.shared_key` (declared in `crm`, used by `sales`) must \
              resolve through `uses crm`; got ERR-VOCAB-002 diagnostics: {:?}",
             diagnostics
@@ -22508,10 +24261,7 @@ feature sales
     #[test]
     fn lifecycle_gate_fixtures_emit_exactly_the_documented_code() {
         for (source, expected) in [
-            (
-                LIFECYCLE_GATE_UNKNOWN_RESOURCE_LZX,
-                "LIFECYCLE-GATE-001",
-            ),
+            (LIFECYCLE_GATE_UNKNOWN_RESOURCE_LZX, "LIFECYCLE-GATE-001"),
             (LIFECYCLE_GATE_UNKNOWN_STATE_LZX, "LIFECYCLE-GATE-002"),
             (
                 LIFECYCLE_GATE_MISSING_STATE_COVERAGE_LZX,
@@ -22525,10 +24275,7 @@ feature sales
                 "LIFECYCLE-GATE-007",
             ),
             (LIFECYCLE_GATE_WRONG_QUERY_KIND_LZX, "LIFECYCLE-GATE-008"),
-            (
-                LIFECYCLE_GATE_WITHOUT_ACTOR_GATE_LZX,
-                "LIFECYCLE-GATE-009",
-            ),
+            (LIFECYCLE_GATE_WITHOUT_ACTOR_GATE_LZX, "LIFECYCLE-GATE-009"),
         ] {
             let package = lifecycle_gate_fixture(source);
             let diagnostics = package.diagnostics();
@@ -22616,7 +24363,11 @@ feature sales
             .find(|d| d.code == "AUTH-REFRESH-007")
             .expect("AUTH-REFRESH-007 present");
         assert!(diag.message.contains("refresh_ttl 14d"), "{}", diag.message);
-        assert!(diag.message.contains("rotation_grace 1m"), "{}", diag.message);
+        assert!(
+            diag.message.contains("rotation_grace 1m"),
+            "{}",
+            diag.message
+        );
         assert!(
             diag.message
                 .contains("theft_detection_action revoke_session_family"),

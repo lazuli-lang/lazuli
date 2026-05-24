@@ -35,6 +35,11 @@ impl Finding {
             severity: DoctorSeverity::Warning,
             code: CODE.to_owned(),
             message,
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         }
     }
 }

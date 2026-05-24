@@ -76,6 +76,11 @@ impl Finding {
             severity: self.diagnostic.severity(),
             code: self.diagnostic.code().to_owned(),
             message: self.message,
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
         }
     }
 }
