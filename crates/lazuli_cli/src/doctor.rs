@@ -1061,6 +1061,7 @@ impl DoctorPackage {
             &self.commands,
         ));
         diagnostics.extend(cap_file_policy_implicit_diagnostics(&self.tier3_facts));
+        diagnostics.extend(schema_rich_gap_diagnostics(&self.tier3_facts));
         diagnostics.extend(duplicate_query_name_diagnostics(&self.tier3_facts));
         diagnostics.extend(missing_policy_on_query_diagnostics(&self.tier3_facts));
         diagnostics.extend(mutation_without_readback_diagnostics(&self.tier3_facts));
@@ -2505,6 +2506,65 @@ fn cap_file_policy_implicit_diagnostics(
                     code: "CAP-FILE-POLICY-IMPLICIT".to_owned(),
                     message: format!(
                         "resource `{}.{}` field `{}` is a `@cap.File(...)` site without an explicit `auto_photo_policy: @policy.<name>`. The analyzer falls back to the resource-singular heuristic (e.g. `host_only`), which silently picks the wrong policy when the feature has multiple matching candidates. Add `auto_photo_policy: @policy.<your_policy>` to the `@cap.File(...)` arglist.",
+                        feature.feature, resource.name, field.name,
+                    ),
+                });
+            }
+        }
+    }
+    diagnostics
+}
+
+/// SCHEMA-RICH-GAP (hint) — flags resource fields declared as
+/// opaque `JSON` whose name strongly suggests a richer typed
+/// shape (`*_photos`, `*_files`, `*_attachments`, `*_images`,
+/// `*_documents`, `*_assets`). The codegen emits these as
+/// `unknown` in TS + `any` shape in Zod schemas, which forces
+/// every consumer to cast or re-validate by hand.
+///
+/// Wave §5a (2026-05-23) — the gap count is a metric of compiler
+/// expressiveness. Closing each hit means either (a) authoring
+/// the field as `@cap.File[]` / `@cap.AttachmentRef[]` to lift
+/// the shape, or (b) accepting it as inevitable JSON and
+/// silencing this lint via a future `@opaque` annotation.
+///
+/// Hint severity (informational) — does not fail the doctor
+/// gate. The check is deliberately conservative (name-based
+/// heuristic) so false positives are easy to triage.
+fn schema_rich_gap_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+    const AVOIDABLE_SUFFIXES: &[&str] = &[
+        "_photos",
+        "_files",
+        "_attachments",
+        "_images",
+        "_documents",
+        "_assets",
+    ];
+    let mut diagnostics = Vec::new();
+    for feature in facts {
+        for resource in &feature.resources {
+            for field in &resource.fields {
+                let is_json = matches!(
+                    field.type_ref,
+                    lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::Json)
+                );
+                if !is_json {
+                    continue;
+                }
+                let suggests_files = AVOIDABLE_SUFFIXES
+                    .iter()
+                    .any(|suffix| field.name.ends_with(suffix));
+                if !suggests_files {
+                    continue;
+                }
+                diagnostics.push(DoctorDiagnostic {
+                    path: feature.path.clone(),
+                    line: feature.feature_line,
+                    column: 1,
+                    severity: DoctorSeverity::Hint,
+                    code: "SCHEMA-RICH-GAP".to_owned(),
+                    message: format!(
+                        "resource `{}.{}` field `{}` is declared as opaque `JSON` but its name suggests a typed array of files/attachments. Consider lifting to `@cap.File[]` (or `@cap.AttachmentRef[]`) so the codegen emits a specific TS type + Zod schema instead of `unknown`/`z.any()`. If the field is genuinely opaque JSON, this hint can be ignored (the future `@opaque` annotation will silence it).",
                         feature.feature, resource.name, field.name,
                     ),
                 });
