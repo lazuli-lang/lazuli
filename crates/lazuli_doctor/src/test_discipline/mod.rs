@@ -36,3 +36,4 @@ pub mod test_missing_authored_001;
 pub mod test_predicate_uncovered_001;
 pub mod test_restates_effect_001;
 pub mod test_restates_policy_001;
+pub mod test_stub_001;

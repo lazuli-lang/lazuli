@@ -11,6 +11,21 @@ template = "lazurite-default"
 template_version = "0.1.0"
 app_dir = "app"
 
+# Wave 3 — TDD/BDD-first defaults. Strict profile means doctor blocks
+# on missing/stub tests by default. Override per-rule with a reason
+# (DOCTOR-OVERRIDE-NEEDS-REASON-001 enforces non-empty reasons).
+# See `docs/proposals/tdd-bdd-first-2026-05-23.md`.
+[doctor]
+profile = "strict"
+
+[doctor.test_discipline]
+# All test-discipline rules at default severity for strict profile.
+# To override per-rule (with required `reason`):
+#
+#   [doctor.test_discipline.severity_override.TEST-STUB-001]
+#   severity = "info"
+#   reason   = "in-flight refactor 2026-06"
+
 [generate.go]
 out = "dist/go"
 gofmt = true

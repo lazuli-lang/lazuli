@@ -1,0 +1,52 @@
+name: Lazuli CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lazuli-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Install Lazuli
+        # TODO: pin to a release tag once Lazuli ships installable binaries.
+        # Today the project is consumed from a workspace checkout — adjust
+        # this step to your team's distribution mechanism.
+        run: cargo install --git https://github.com/lazuli-lang/lazuli --locked
+
+      - name: Generate Go (strict)
+        run: lazuli generate go . --strict
+
+      # Wave 3 — TDD/BDD gate. Doctor surfaces TEST-STUB-001 and the
+      # other test-discipline rules. The TestDiscipline category fails
+      # the build only when the doctor reports a finding in that
+      # category. See `docs/proposals/tdd-bdd-first-2026-05-23.md`.
+      - name: Doctor (test-discipline gate)
+        run: lazuli doctor app/
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: doctor-report
+          path: doctor-report.json
+          if-no-files-found: ignore
+
+      - name: Build generated Go
+        run: |
+          if [ -d dist/go ]; then
+            cd dist/go && go build ./...
+          fi
+
+      - name: Test (Go)
+        run: |
+          if [ -d dist/go ]; then
+            cd dist/go && go test ./...
+          fi
