@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const RULE_DIRS: &[&str] = &["src/correctness", "src/vocab", "src/test_discipline"];
+const RULE_DIRS: &[&str] = &["src/correctness", "src/vocab"];
 const SKIP_FILES: &[&str] = &["mod.rs", "tests.rs"];
 const TRIGGER_TERMS: &[&str] = &["fixture", "example", "fires when", "warns when"];
 

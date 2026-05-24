@@ -50,4 +50,5 @@ pub mod test_restates_effect_001;
 pub mod test_restates_policy_001;
 pub mod test_stub_001;
 pub mod test_view_drift_001;
+pub mod test_view_e2e_missing_001;
 pub mod test_view_extensibility_001;
