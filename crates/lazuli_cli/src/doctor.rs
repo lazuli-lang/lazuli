@@ -2541,18 +2541,28 @@ fn manual_param_coercion_diagnostics(project_root: &Path) -> Vec<DoctorDiagnosti
         return diagnostics;
     }
 
-    // Known id-shaped params we care about. Catches the common
-    // `Number(params.id)` / `Number(p.propertyId)` pattern without
-    // requiring a regex dep.
+    // Wave §2 sweep tightening (2026-05-24): only flag coercion of
+    // variables literally named `params` / `rawParams` (the canonical
+    // useParams() return value names). Iteration vars (`p`, `item`,
+    // `entry`) that happen to access `.id` are NOT route params and
+    // were producing false positives.
     const ID_PARAMS: &[&str] = &[
-        ".id",
-        ".propertyId",
-        ".serviceId",
-        ".threadId",
-        ".chatId",
-        ".userId",
-        ".hostId",
-        ".travelerId",
+        "params.id",
+        "params.propertyId",
+        "params.serviceId",
+        "params.threadId",
+        "params.chatId",
+        "params.userId",
+        "params.hostId",
+        "params.travelerId",
+        "rawParams.id",
+        "rawParams.propertyId",
+        "rawParams.serviceId",
+        "rawParams.threadId",
+        "rawParams.chatId",
+        "rawParams.userId",
+        "rawParams.hostId",
+        "rawParams.travelerId",
     ];
 
     walk_frontend_ts_files(&clients_root, &mut |path, contents| {
@@ -2574,11 +2584,12 @@ fn manual_param_coercion_diagnostics(project_root: &Path) -> Vec<DoctorDiagnosti
             {
                 continue;
             }
-            let kind = if has_cast {
-                Some("as unknown as number")
-            } else if has_number && ID_PARAMS.iter().any(|p| line.contains(p)) {
+            let matches_param = ID_PARAMS.iter().any(|p| line.contains(p));
+            let kind = if matches_param && has_cast {
+                Some("as unknown as number on params.X")
+            } else if has_number && matches_param {
                 Some("Number(params.X)")
-            } else if has_string && ID_PARAMS.iter().any(|p| line.contains(p)) {
+            } else if has_string && matches_param {
                 Some("String(params.X)")
             } else {
                 None
@@ -2591,7 +2602,7 @@ fn manual_param_coercion_diagnostics(project_root: &Path) -> Vec<DoctorDiagnosti
                 severity: DoctorSeverity::Warning,
                 code: "MANUAL-PARAM-COERCION".to_owned(),
                 message: format!(
-                    "manual route-param coercion ({kind}) — wave §2 typed param parsers should land here instead. Until codegen exposes typed params on this route, this hit is informational; closing it lands as part of the §3 frontend migration sweep."
+                    "manual route-param coercion ({kind}) — wave §2 typed param parsers should land here instead. Use the generated `parse<Route>Params(rawParams)` factory from `dist/ts-<surface>/<audience>/routes.gen.tsx`."
                 ),
             });
         }
