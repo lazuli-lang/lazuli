@@ -213,6 +213,7 @@ mod tests {
             lock: None,
             composite_key: ck,
             conventions: Vec::new(),
+            lifecycle_routes: None,
         }
     }
 

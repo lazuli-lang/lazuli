@@ -148,6 +148,7 @@ mod tests {
             type_ref,
             required: true,
             constraints: FieldConstraints::default(),
+        validate_skip: false,
         }
     }
 
@@ -190,6 +191,7 @@ mod tests {
 
             composite_key: None,
             conventions: Vec::new(),
+            lifecycle_routes: None,
         }
     }
 

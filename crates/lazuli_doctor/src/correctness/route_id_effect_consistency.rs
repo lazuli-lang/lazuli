@@ -274,6 +274,7 @@ mod tests {
             type_ref: builtin(ty),
             required: true,
             constraints: FieldConstraints::default(),
+        validate_skip: false,
         }
     }
 

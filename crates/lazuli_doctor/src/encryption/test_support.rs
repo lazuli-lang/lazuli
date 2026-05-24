@@ -170,6 +170,7 @@ pub fn resource_with_fields(name: &str, fields: Vec<Field>) -> Resource {
 
         composite_key: None,
         conventions: Vec::new(),
+        lifecycle_routes: None,
     }
 }
 

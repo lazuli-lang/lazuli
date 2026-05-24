@@ -299,6 +299,7 @@ mod tests {
 
             composite_key: None,
             conventions: Vec::new(),
+            lifecycle_routes: None,
         }
     }
 
