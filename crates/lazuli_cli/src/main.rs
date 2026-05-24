@@ -2741,6 +2741,14 @@ fn ts_slot_from_typed(slot: &lazuli_ir::TypedSlot) -> TsSlot {
 /// name (e.g. `my_host` → "host" → Host; `property_detail` → "property"
 /// → Property). Returns None when no resource matches; caller falls
 /// back to `feature.resources.first()`. Closes WAR-VOCAB-HOSTHOME-01.
+///
+/// Wave §A2 (mine_query disambiguation, 2026-05-23): now matches the
+/// plural form of each resource's snake name as well so
+/// `mine_properties` → "property" + "properties" → Property. Without
+/// this, `mine_properties` fell through to `feature.resources.first()`
+/// which in `catalog.lzi` happens to be `UploadedAsset` — emitting
+/// the wrong TS return type. Hostpoint workaround was an explicit
+/// `as unknown as Property[]` cast in HostHome.tsx.
 fn pick_query_resource_ts(feature: &lazuli_ir::Feature, query_name: &str) -> Option<String> {
     let query_lc = query_name.to_ascii_lowercase();
     // Prefer the longest match (so "service_transaction" beats
@@ -2752,14 +2760,68 @@ fn pick_query_resource_ts(feature: &lazuli_ir::Feature, query_name: &str) -> Opt
         if query_lc.contains(&snake) {
             return Some(pascal_case(&resource.name));
         }
+        // Plural-aware match: a `query.list mine_properties` should
+        // bind to the `Property` resource even though the snake form
+        // is the singular `property`.
+        let snake_plural = pluralize_snake(&snake);
+        if !snake_plural.is_empty() && query_lc.contains(&snake_plural) {
+            return Some(pascal_case(&resource.name));
+        }
         // Also try a token-by-token match for compound names like
         // "ServiceTransaction" vs query "transaction_detail".
         let last_token = snake.rsplit('_').next().unwrap_or("");
         if !last_token.is_empty() && last_token.len() > 3 && query_lc.contains(last_token) {
             return Some(pascal_case(&resource.name));
         }
+        // Plural-aware last-token match — same fix one level deeper.
+        let last_token_plural = pluralize_snake(last_token);
+        if !last_token_plural.is_empty()
+            && last_token_plural.len() > 4
+            && query_lc.contains(&last_token_plural)
+        {
+            return Some(pascal_case(&resource.name));
+        }
     }
     None
+}
+
+/// Cheap English-only pluralizer for snake-case identifiers. Handles
+/// the three patterns that actually appear in pilot vocabularies:
+///   - ends in `y` preceded by consonant → drop `y`, append `ies`
+///     (property → properties, story → stories).
+///   - ends in `s`/`x`/`z` or `ch`/`sh`     → append `es`
+///     (process → processes, box → boxes).
+///   - otherwise                          → append `s` (host → hosts).
+///
+/// Returns empty when the input is empty. Not a general-purpose
+/// pluralizer — does not handle irregular forms (man → men, child →
+/// children). Pilots whose vocab uses those should declare an explicit
+/// `returns <Resource>` on the query rather than rely on this
+/// heuristic.
+fn pluralize_snake(word: &str) -> String {
+    if word.is_empty() {
+        return String::new();
+    }
+    let len = word.len();
+    let last = word.as_bytes()[len - 1];
+    if last == b'y' && len >= 2 {
+        let prev = word.as_bytes()[len - 2];
+        let is_consonant = !matches!(prev, b'a' | b'e' | b'i' | b'o' | b'u');
+        if is_consonant {
+            let mut out = word[..len - 1].to_string();
+            out.push_str("ies");
+            return out;
+        }
+    }
+    if word.ends_with('s')
+        || word.ends_with('x')
+        || word.ends_with('z')
+        || word.ends_with("ch")
+        || word.ends_with("sh")
+    {
+        return format!("{word}es");
+    }
+    format!("{word}s")
 }
 
 /// Wave 0 (ir-returns-list-2026-05-22 §2.2): a command is a *pure read*
