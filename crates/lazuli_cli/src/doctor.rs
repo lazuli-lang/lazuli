@@ -124,14 +124,20 @@ pub fn doctor_command_with_options(
     }
 
     if opts.coverage {
-        // Wave 6 — coverage flag is observably wired (parsed + routed to
-        // build_doctor_report) but per-layer data collection requires
-        // DoctorPackage to retain Vec<Feature> + Vec<LzxViewRef> (follow-up
-        // cell). For now, print the placeholder note so users see the
-        // wiring is active and where it'll fill in.
+        // Wave 6 — emit per-layer coverage summary at end of text output.
         let report = build_doctor_report(&diagnostics, true, &package);
         if let Some(cov) = &report.coverage {
-            println!("\nCoverage: {}", cov.note);
+            println!("\nCoverage report (schema_version {}):", cov.schema_version);
+            for (layer, info) in &cov.layers {
+                println!(
+                    "  {:<24} {:>6.1}%  {:<8} ({}/{})",
+                    layer, info.pct, info.verdict, info.covered, info.total
+                );
+            }
+            println!(
+                "  gate: {} (below_block={:?}, below_warn={:?})",
+                cov.gate_result.verdict, cov.gate_result.below_block, cov.gate_result.below_warn
+            );
         }
     }
 
@@ -257,23 +263,11 @@ fn build_doctor_report(
         findings.push(finding.build());
     }
     let result = classify_result(&summary);
-    // Wave 6 — actual coverage computation requires aggregating Features +
-    // LzxViewRefs from DoctorPackage. Stubbed here; per-layer calculators
-    // already exist in lazuli_doctor::coverage. Follow-up cell extends
-    // DoctorPackage with coverage_features + coverage_views and threads
-    // them into build_coverage_report. Until then, --coverage emits an
-    // empty placeholder so the flag is observably wired without lying.
     let coverage = if want_coverage {
-        Some(crate::doctor_report::CoverageReportPlaceholder {
-            note: "coverage data collection scheduled for next cell; build_coverage_report \
-                   exists in lazuli_doctor::coverage but DoctorPackage doesn't yet retain \
-                   Vec<Feature> + Vec<LzxViewRef>"
-                .to_owned(),
-        })
+        Some(package.coverage_report())
     } else {
         None
     };
-    let _ = package;
     DoctorReport {
         schema_version: 1,
         result: result.as_str().to_string(),
@@ -1353,6 +1347,65 @@ impl DoctorPackage {
             tier3_facts,
             plan_gate_facts,
         })
+    }
+
+    /// Wave 6 — extract `(features, lzx_views)` from the loaded package
+    /// for `lazuli_doctor::coverage::build_coverage_report`. Re-parses
+    /// `.lzi` sources (cheap; the existing `parse_feature_skeletons` +
+    /// `lower_feature_skeleton` are already cached at the syntax layer
+    /// for the per-feature loop, so this second pass is mostly metadata
+    /// extraction). Walks `file.lzx` documents directly for view refs.
+    fn coverage_inputs(&self) -> (Vec<lazuli_ir::Feature>, Vec<lazuli_doctor::coverage::LzxViewRef>) {
+        let mut features: Vec<lazuli_ir::Feature> = Vec::new();
+        let mut lzx_views: Vec<lazuli_doctor::coverage::LzxViewRef> = Vec::new();
+        for file in &self.files {
+            if is_lzi_path(&file.path) {
+                if let Ok(skeletons) = parse_feature_skeletons(&file.source) {
+                    for skeleton in &skeletons {
+                        if let Ok(feature) = lower_feature_skeleton(skeleton) {
+                            features.push(feature);
+                        }
+                    }
+                }
+            } else if is_lzx_path(&file.path)
+                && let Some(document) = &file.lzx
+            {
+                for experience in &document.experiences {
+                    for view in &experience.views {
+                        lzx_views.push(lazuli_doctor::coverage::LzxViewRef {
+                            experience: experience.name.clone(),
+                            view: view.name.clone(),
+                        });
+                    }
+                }
+            }
+        }
+        (features, lzx_views)
+    }
+
+    /// Wave 6 — `lazuli doctor --coverage` data path. Builds the per-layer
+    /// coverage report using the active `SecurityProfile` and the
+    /// profile-default thresholds. `[doctor.coverage]` per-layer overrides
+    /// from the manifest land in a follow-up cell once the `CoverageThresholds`
+    /// builder exposes a public setter.
+    pub fn coverage_report(&self) -> lazuli_doctor::coverage::CoverageReport {
+        use lazuli_doctor::coverage::{
+            build_coverage_report, profile_default_thresholds, CoverageProfile,
+        };
+        let (features, lzx_views) = self.coverage_inputs();
+        let profile = match self.security_profile {
+            SecurityProfile::Prototype => CoverageProfile::Prototype,
+            SecurityProfile::Strict => CoverageProfile::Strict,
+            SecurityProfile::Production => CoverageProfile::Production,
+        };
+        let thresholds = profile_default_thresholds(profile);
+        build_coverage_report(
+            &features,
+            &lzx_views,
+            profile,
+            &thresholds,
+            Some(&self.project_root),
+        )
     }
 
     fn diagnostics(&self) -> Vec<DoctorDiagnostic> {

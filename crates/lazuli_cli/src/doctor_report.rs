@@ -143,19 +143,9 @@ pub struct DoctorReport {
     pub summary: DoctorSummary,
     pub findings: Vec<FindingJson>,
     /// Wave 6 — per-layer coverage report when `--coverage` was passed.
-    /// Currently a placeholder; the per-layer calculators are landed in
-    /// `lazuli_doctor::coverage` but `DoctorPackage` needs follow-up
-    /// wiring to retain Vec<Feature> + Vec<LzxViewRef> for the build.
+    /// Uses the canonical `lazuli_doctor::coverage::CoverageReport` shape.
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub coverage: Option<CoverageReportPlaceholder>,
-}
-
-/// Wave 6 transitional placeholder. Real `CoverageReport` lives in
-/// `lazuli_doctor::coverage::CoverageReport`; one follow-up cell wires
-/// it through here and replaces this struct with `CoverageReport`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CoverageReportPlaceholder {
-    pub note: String,
+    pub coverage: Option<lazuli_doctor::coverage::CoverageReport>,
 }
 
 impl DoctorReport {
