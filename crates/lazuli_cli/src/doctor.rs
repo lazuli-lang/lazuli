@@ -1062,6 +1062,7 @@ impl DoctorPackage {
         ));
         diagnostics.extend(cap_file_policy_implicit_diagnostics(&self.tier3_facts));
         diagnostics.extend(schema_rich_gap_diagnostics(&self.tier3_facts));
+        diagnostics.extend(manual_param_coercion_diagnostics(&self.project_root));
         diagnostics.extend(duplicate_query_name_diagnostics(&self.tier3_facts));
         diagnostics.extend(missing_policy_on_query_diagnostics(&self.tier3_facts));
         diagnostics.extend(mutation_without_readback_diagnostics(&self.tier3_facts));
@@ -2513,6 +2514,137 @@ fn cap_file_policy_implicit_diagnostics(
         }
     }
     diagnostics
+}
+
+/// MANUAL-PARAM-COERCION (warning) — flags hand-rolled coercion
+/// of route params (`Number(params.id)`, `as unknown as number`,
+/// `String(params.X)`) in the frontend source tree. Wave §3
+/// codegen-emitted typed param parsers are the contract — every
+/// hit here is a site that should use the generated parser
+/// instead.
+///
+/// Today the codegen only emits typed params for per-feature
+/// view routes; app-level routes (e.g. `app/<frontend>.lzx`)
+/// still expose `params: Record<string, string>`. That's the §2
+/// router-contract gap. This lint surfaces every consumer that
+/// would benefit from closing it.
+///
+/// Scope: walks `app/clients/<frontend>/src/**/*.{ts,tsx}` only.
+/// Skips `*.gen.ts`, `*.test.*`, `node_modules`, `dist`. Severity
+/// is Warning today so the migration sweep can land per-file
+/// without blocking the doctor gate.
+fn manual_param_coercion_diagnostics(project_root: &Path) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let clients_root = project_root.join("app").join("clients");
+    if !clients_root.exists() {
+        return diagnostics;
+    }
+
+    // Known id-shaped params we care about. Catches the common
+    // `Number(params.id)` / `Number(p.propertyId)` pattern without
+    // requiring a regex dep.
+    const ID_PARAMS: &[&str] = &[
+        ".id",
+        ".propertyId",
+        ".serviceId",
+        ".threadId",
+        ".chatId",
+        ".userId",
+        ".hostId",
+        ".travelerId",
+    ];
+
+    walk_frontend_ts_files(&clients_root, &mut |path, contents| {
+        for (lineno, line) in contents.lines().enumerate() {
+            // Cheap pre-filter: skip lines that can't contain any pattern.
+            let has_number = line.contains("Number(");
+            let has_cast = line.contains("as unknown as number");
+            let has_string = line.contains("String(");
+            if !has_number && !has_cast && !has_string {
+                continue;
+            }
+            // Skip the lint's own comment lines and existing
+            // codegen workaround banners — they MENTION the pattern
+            // but aren't violations.
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("//")
+                || trimmed.starts_with("*")
+                || trimmed.starts_with("/*")
+            {
+                continue;
+            }
+            let kind = if has_cast {
+                Some("as unknown as number")
+            } else if has_number && ID_PARAMS.iter().any(|p| line.contains(p)) {
+                Some("Number(params.X)")
+            } else if has_string && ID_PARAMS.iter().any(|p| line.contains(p)) {
+                Some("String(params.X)")
+            } else {
+                None
+            };
+            let Some(kind) = kind else { continue };
+            diagnostics.push(DoctorDiagnostic {
+                path: path.to_path_buf(),
+                line: lineno + 1,
+                column: 1,
+                severity: DoctorSeverity::Warning,
+                code: "MANUAL-PARAM-COERCION".to_owned(),
+                message: format!(
+                    "manual route-param coercion ({kind}) — wave §2 typed param parsers should land here instead. Until codegen exposes typed params on this route, this hit is informational; closing it lands as part of the §3 frontend migration sweep."
+                ),
+            });
+        }
+    });
+
+    diagnostics
+}
+
+/// Walks `app/clients/<frontend>/src/**/*.{ts,tsx}` invoking
+/// `visit(path, contents)` for every matched file. Skips
+/// generated artifacts (`*.gen.ts`, `*.gen.tsx`), tests
+/// (`*.test.*`, `*.spec.*`), and `node_modules`/`dist` subtrees.
+fn walk_frontend_ts_files(
+    clients_root: &Path,
+    visit: &mut dyn FnMut(&Path, &str),
+) {
+    let Ok(entries) = std::fs::read_dir(clients_root) else { return };
+    for entry in entries.flatten() {
+        let client_root = entry.path();
+        let src = client_root.join("src");
+        if !src.is_dir() {
+            continue;
+        }
+        walk_frontend_ts_files_recursive(&src, visit);
+    }
+}
+
+fn walk_frontend_ts_files_recursive(dir: &Path, visit: &mut dyn FnMut(&Path, &str)) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let file_name = match path.file_name().and_then(|s| s.to_str()) {
+            Some(n) => n,
+            None => continue,
+        };
+        if file_name == "node_modules" || file_name == "dist" || file_name == "build" {
+            continue;
+        }
+        if path.is_dir() {
+            walk_frontend_ts_files_recursive(&path, visit);
+            continue;
+        }
+        if !file_name.ends_with(".ts") && !file_name.ends_with(".tsx") {
+            continue;
+        }
+        if file_name.contains(".gen.")
+            || file_name.contains(".test.")
+            || file_name.contains(".spec.")
+        {
+            continue;
+        }
+        let Ok(contents) = std::fs::read_to_string(&path) else { continue };
+        visit(&path, &contents);
+    }
 }
 
 /// SCHEMA-RICH-GAP (hint) — flags resource fields declared as
