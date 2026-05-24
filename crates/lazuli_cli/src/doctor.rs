@@ -591,6 +591,7 @@ impl DoctorPackage {
                                             &file.path,
                                             &project_root,
                                             &feature,
+                                            &file.source,
                                             security_profile,
                                         ));
                                     // Tier 3 facts harvest — done before
@@ -951,6 +952,42 @@ impl DoctorPackage {
                     Ok(document) => {
                         collect_lzx_experience_facts(&document, &mut experiences);
                         collect_lzx_operational_facts(&file, &document, &mut operational);
+                        // Wave 3.5 — TEST-VIEW-E2E-MISSING-001: per-view
+                        // file-pair check at e2e/<experience>/<view>.spec.ts.
+                        // Severity per profile: prototype=info, strict=warning,
+                        // production=error. Doctor does NOT invoke Playwright
+                        // (wire-thin); only Path::exists().
+                        if security_profile != SecurityProfile::Prototype {
+                            let severity = match security_profile {
+                                SecurityProfile::Production => DoctorSeverity::Error,
+                                _ => DoctorSeverity::Warning,
+                            };
+                            for finding in
+                                lazuli_doctor::test_discipline::test_view_e2e_missing_001::check(
+                                    &document,
+                                    &file.path,
+                                    &file.source,
+                                    &project_root,
+                                )
+                            {
+                                let message = finding.message();
+                                file.local_diagnostics.push(DoctorDiagnostic {
+                                    path: finding.path,
+                                    line: finding.line,
+                                    column: finding.column,
+                                    severity,
+                                    code:
+                                        lazuli_doctor::test_discipline::test_view_e2e_missing_001
+                                            ::Finding::CODE.to_owned(),
+                                    message,
+                                    category: None,
+                                    feature_name: None,
+                                    construct: None,
+                                    fix: None,
+                                    group: None,
+                                });
+                            }
+                        }
                         file.lzx = Some(document);
                     }
                     Err(error) => file.local_diagnostics.push(DoctorDiagnostic {
@@ -1715,12 +1752,14 @@ fn test_discipline_diagnostics(
     path: &Path,
     project_root: &Path,
     feature: &lazuli_ir::Feature,
+    source: &str,
     security_profile: SecurityProfile,
 ) -> Vec<DoctorDiagnostic> {
     use lazuli_doctor::test_discipline::{
-        migration_dsl_unique_001, runtime_update_builder_jsonb_001, test_fixture_literal_001,
-        test_missing_authored_001, test_predicate_uncovered_001, test_restates_effect_001,
-        test_restates_policy_001,
+        migration_dsl_unique_001, runtime_update_builder_jsonb_001,
+        test_command_assertion_drift_001, test_fixture_literal_001, test_missing_authored_001,
+        test_predicate_uncovered_001, test_restates_effect_001, test_restates_policy_001,
+        test_stub_001,
     };
     if security_profile == SecurityProfile::Prototype {
         return Vec::new();
@@ -1840,6 +1879,43 @@ fn test_discipline_diagnostics(
             group: None,
         });
     }
+    // Wave 3 — TEST-STUB-001: catches `@TODO authored:` markers in generated scaffolds.
+    for finding in test_stub_001::check(source, path) {
+        let message = finding.message();
+        out.push(DoctorDiagnostic {
+            path: finding.path,
+            line: finding.line,
+            column: finding.column,
+            severity: DoctorSeverity::Warning,
+            code: test_stub_001::Finding::CODE.to_owned(),
+            message,
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
+        });
+    }
+    // Wave 4 + §7.1 — TEST-COMMAND-ASSERTION-DRIFT-001: catches the
+    // leave_host_reply pattern (denies declared in tests block but handler
+    // WHERE clause doesn't enforce it).
+    for finding in test_command_assertion_drift_001::check(feature, path) {
+        let message = finding.message();
+        out.push(DoctorDiagnostic {
+            path: finding.path,
+            line: 1,
+            column: 1,
+            severity: DoctorSeverity::Error,
+            code: test_command_assertion_drift_001::Finding::CODE.to_owned(),
+            message,
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
+        });
+    }
+    let _ = project_root; // reserved for Wave 5 handler-pair wiring (deferred follow-up)
 
     out
 }
