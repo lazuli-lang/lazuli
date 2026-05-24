@@ -66,6 +66,27 @@ impl RuleCategory {
         }
     }
 
+    /// Wave 2.2 — parse a category name from CLI `--fail-on category:<name>`.
+    /// Accepts both `snake_case` (canonical, matches `as_str()`) and
+    /// `PascalCase` (matches the enum variant name) for ergonomics.
+    pub fn parse(input: &str) -> Option<Self> {
+        match input.trim() {
+            "vocabulary" | "Vocabulary" => Some(Self::Vocabulary),
+            "correctness" | "Correctness" => Some(Self::Correctness),
+            "security" | "Security" => Some(Self::Security),
+            "test_discipline" | "TestDiscipline" => Some(Self::TestDiscipline),
+            "design" | "Design" => Some(Self::Design),
+            "encryption" | "Encryption" => Some(Self::Encryption),
+            "lifecycle" | "Lifecycle" => Some(Self::Lifecycle),
+            "domain" | "Domain" => Some(Self::Domain),
+            "cross_feature" | "CrossFeature" => Some(Self::CrossFeature),
+            "error_vocab" | "ErrorVocab" => Some(Self::ErrorVocab),
+            "poller" | "Poller" => Some(Self::Poller),
+            "report" | "Report" => Some(Self::Report),
+            _ => None,
+        }
+    }
+
     /// Stable snake_case identifier for JSON serialization and TOML
     /// override keys.
     pub fn as_str(self) -> &'static str {

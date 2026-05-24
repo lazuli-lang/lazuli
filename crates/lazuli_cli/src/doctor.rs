@@ -42,6 +42,33 @@ pub fn doctor_command(
     check_release: bool,
     allow_version_mismatch: bool,
 ) -> Result<()> {
+    doctor_command_with_options(
+        input,
+        security_profile,
+        check_release,
+        allow_version_mismatch,
+        DoctorRuntimeOptions::default(),
+    )
+}
+
+/// Wave 2 (CLI surface) + Wave 6 (coverage) — agent-first CLI surface
+/// runtime options. `format` selects text vs JSON output; `coverage`
+/// emits the per-layer coverage report; `fail_on` composes the
+/// non-zero exit gate.
+#[derive(Debug, Clone, Default)]
+pub struct DoctorRuntimeOptions {
+    pub format: Option<String>,
+    pub coverage: bool,
+    pub fail_on: Vec<String>,
+}
+
+pub fn doctor_command_with_options(
+    input: &Path,
+    security_profile: SecurityProfile,
+    check_release: bool,
+    allow_version_mismatch: bool,
+    opts: DoctorRuntimeOptions,
+) -> Result<()> {
     if !allow_version_mismatch {
         let project_root = doctor_project_root(input);
         let manifest = lazurite_manifest::load(&project_root).with_context(|| {
@@ -59,6 +86,35 @@ pub fn doctor_command(
 
     let package = DoctorPackage::load(input, security_profile)?;
     let diagnostics = package.diagnostics();
+
+    // Wave 2 — JSON output surface. When `--format json` (or ndjson) is
+    // requested, emit the canonical `DoctorReport` schema instead of the
+    // text rendering and short-circuit. Auto mode falls back to text for
+    // TTY stdout and JSON for non-TTY pipes (per agent-first parity).
+    let format = parse_doctor_format(opts.format.as_deref());
+    let want_json = matches!(
+        format,
+        crate::doctor_report::DoctorFormat::Json | crate::doctor_report::DoctorFormat::Ndjson
+    );
+
+    if want_json {
+        let report = build_doctor_report(&diagnostics, opts.coverage, &package);
+        let payload = serde_json::to_string_pretty(&report)
+            .context("failed to serialize DoctorReport JSON")?;
+        println!("{payload}");
+        // Wave 2.2 — fail-on gate
+        let specs = parse_fail_on_specs(&opts.fail_on)
+            .map_err(|e| anyhow::anyhow!("--fail-on: {e}"))?;
+        if crate::doctor_report::report_fails_gate(&report, &specs)
+            || diagnostics
+                .iter()
+                .any(|d| d.severity == DoctorSeverity::Error)
+        {
+            bail!("{} failed Lazuli doctor checks", input.display());
+        }
+        return Ok(());
+    }
+
     let has_error = diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == DoctorSeverity::Error);
@@ -67,12 +123,164 @@ pub fn doctor_command(
         diagnostic.print();
     }
 
+    if opts.coverage {
+        // Wave 6 — coverage flag is observably wired (parsed + routed to
+        // build_doctor_report) but per-layer data collection requires
+        // DoctorPackage to retain Vec<Feature> + Vec<LzxViewRef> (follow-up
+        // cell). For now, print the placeholder note so users see the
+        // wiring is active and where it'll fill in.
+        let report = build_doctor_report(&diagnostics, true, &package);
+        if let Some(cov) = &report.coverage {
+            println!("\nCoverage: {}", cov.note);
+        }
+    }
+
+    // Wave 2.2 — text-mode fail-on still gates
+    let specs = parse_fail_on_specs(&opts.fail_on)
+        .map_err(|e| anyhow::anyhow!("--fail-on: {e}"))?;
+    if !specs.is_empty() {
+        let report = build_doctor_report(&diagnostics, opts.coverage, &package);
+        if crate::doctor_report::report_fails_gate(&report, &specs) {
+            bail!(
+                "{} failed Lazuli doctor checks (--fail-on gate)",
+                input.display()
+            );
+        }
+    }
+
     if has_error {
         bail!("{} failed Lazuli doctor checks", input.display());
     }
 
     println!("{} passed Lazuli doctor checks", input.display());
     Ok(())
+}
+
+fn parse_doctor_format(input: Option<&str>) -> crate::doctor_report::DoctorFormat {
+    use crate::doctor_report::DoctorFormat;
+    match input.unwrap_or("text").to_ascii_lowercase().as_str() {
+        "text" => DoctorFormat::Text,
+        "json" => DoctorFormat::Json,
+        "ndjson" => DoctorFormat::Ndjson,
+        "auto" => DoctorFormat::Auto,
+        _ => DoctorFormat::Text,
+    }
+}
+
+fn parse_fail_on_specs(
+    inputs: &[String],
+) -> Result<Vec<crate::doctor_report::FailOnSpec>, String> {
+    inputs
+        .iter()
+        .map(|s| crate::doctor_report::FailOnSpec::parse(s))
+        .collect()
+}
+
+/// Build a canonical `DoctorReport` from `DoctorDiagnostic` list +
+/// optional coverage. Wave 2 (JSON schema) + Wave 6 (coverage).
+fn build_doctor_report(
+    diagnostics: &[DoctorDiagnostic],
+    want_coverage: bool,
+    package: &DoctorPackage,
+) -> crate::doctor_report::DoctorReport {
+    use crate::doctor_report::{
+        FindingBuilder, FindingJson, classify_result, DoctorReport, DoctorSummary, SpanJson,
+        Severity as JsonSeverity,
+    };
+    use std::collections::BTreeMap;
+    let mut findings = Vec::with_capacity(diagnostics.len());
+    let mut summary = DoctorSummary {
+        errors: 0,
+        warnings: 0,
+        infos: 0,
+        by_category: BTreeMap::new(),
+        by_feature: BTreeMap::new(),
+        by_rule: BTreeMap::new(),
+    };
+    for d in diagnostics {
+        let sev = match d.severity {
+            DoctorSeverity::Error => {
+                summary.errors += 1;
+                JsonSeverity::Error
+            }
+            DoctorSeverity::Warning => {
+                summary.warnings += 1;
+                JsonSeverity::Warning
+            }
+            DoctorSeverity::Info => {
+                summary.infos += 1;
+                JsonSeverity::Info
+            }
+            DoctorSeverity::Hint => {
+                summary.infos += 1;
+                JsonSeverity::Hint
+            }
+        };
+        let category = d.category.unwrap_or_else(|| {
+            lazuli_doctor::rule_category::RuleCategory::from_code_prefix(&d.code)
+        });
+        *summary
+            .by_category
+            .entry(category.as_str().to_owned())
+            .or_insert(0) += 1;
+        if let Some(fname) = &d.feature_name {
+            *summary.by_feature.entry(fname.clone()).or_insert(0) += 1;
+        }
+        *summary.by_rule.entry(d.code.clone()).or_insert(0) += 1;
+        let construct_json = d
+            .construct
+            .as_ref()
+            .map(|c| crate::doctor_report::ConstructJson {
+                kind: c.kind.clone(),
+                name: c.name.clone(),
+                feature: d.feature_name.clone(),
+                policy: None,
+            });
+        let fix_json = d.fix.as_ref().map(|f| crate::doctor_report::FixJson {
+            action: f.action.clone(),
+            preview: f.preview.clone(),
+            auto_applicable: f.auto_applicable,
+            cli: f.cli.clone(),
+        });
+        let finding = FindingBuilder {
+            rule: d.code.clone(),
+            category,
+            severity: sev,
+            path: d.path.clone(),
+            line: d.line,
+            column: d.column,
+            message: d.message.clone(),
+            construct: construct_json,
+            fix: fix_json,
+            feature_name: d.feature_name.clone(),
+        };
+        findings.push(finding.build());
+    }
+    let result = classify_result(&summary);
+    // Wave 6 — actual coverage computation requires aggregating Features +
+    // LzxViewRefs from DoctorPackage. Stubbed here; per-layer calculators
+    // already exist in lazuli_doctor::coverage. Follow-up cell extends
+    // DoctorPackage with coverage_features + coverage_views and threads
+    // them into build_coverage_report. Until then, --coverage emits an
+    // empty placeholder so the flag is observably wired without lying.
+    let coverage = if want_coverage {
+        Some(crate::doctor_report::CoverageReportPlaceholder {
+            note: "coverage data collection scheduled for next cell; build_coverage_report \
+                   exists in lazuli_doctor::coverage but DoctorPackage doesn't yet retain \
+                   Vec<Feature> + Vec<LzxViewRef>"
+                .to_owned(),
+        })
+    } else {
+        None
+    };
+    let _ = package;
+    DoctorReport {
+        schema_version: 1,
+        result: result.as_str().to_string(),
+        summary,
+        findings,
+        coverage,
+    }
 }
 
 /// MCP read surface — runs the same `DoctorPackage` pipeline as
@@ -586,10 +794,18 @@ impl DoctorPackage {
                                     // runtime/migration lints. Seven rules
                                     // dispatched per-feature; the rule modules
                                     // live in `lazuli_doctor::test_discipline`.
+                                    // Resolve handler app_root from manifest (defaults to project_root
+                                    // when manifest absent or [lazurite].app_dir unset; handler rules
+                                    // gracefully return empty when path doesn't exist).
+                                    let app_root_for_handlers = lazurite_manifest
+                                        .as_ref()
+                                        .map(|m| m.app_root(&project_root))
+                                        .unwrap_or_else(|| project_root.clone());
                                     file.local_diagnostics
                                         .extend(test_discipline_diagnostics(
                                             &file.path,
                                             &project_root,
+                                            &app_root_for_handlers,
                                             &feature,
                                             &file.source,
                                             security_profile,
@@ -952,16 +1168,17 @@ impl DoctorPackage {
                     Ok(document) => {
                         collect_lzx_experience_facts(&document, &mut experiences);
                         collect_lzx_operational_facts(&file, &document, &mut operational);
-                        // Wave 3.5 — TEST-VIEW-E2E-MISSING-001: per-view
-                        // file-pair check at e2e/<experience>/<view>.spec.ts.
+                        // Wave 3.5 + Wave 4 — view test_discipline rules. All
+                        // operate on the LzxDocument or its lowered IR.
                         // Severity per profile: prototype=info, strict=warning,
-                        // production=error. Doctor does NOT invoke Playwright
-                        // (wire-thin); only Path::exists().
+                        // production=error.
                         if security_profile != SecurityProfile::Prototype {
-                            let severity = match security_profile {
+                            let severity_warn = match security_profile {
                                 SecurityProfile::Production => DoctorSeverity::Error,
                                 _ => DoctorSeverity::Warning,
                             };
+                            // Wave 3.5 — TEST-VIEW-E2E-MISSING-001 (file-pair).
+                            // Doctor does NOT invoke Playwright; only Path::exists().
                             for finding in
                                 lazuli_doctor::test_discipline::test_view_e2e_missing_001::check(
                                     &document,
@@ -975,9 +1192,59 @@ impl DoctorPackage {
                                     path: finding.path,
                                     line: finding.line,
                                     column: finding.column,
-                                    severity,
+                                    severity: severity_warn,
                                     code:
                                         lazuli_doctor::test_discipline::test_view_e2e_missing_001
+                                            ::Finding::CODE.to_owned(),
+                                    message,
+                                    category: None,
+                                    feature_name: None,
+                                    construct: None,
+                                    fix: None,
+                                    group: None,
+                                });
+                            }
+                            // Wave 4 — TEST-VIEW-EXTENSIBILITY-001 + TEST-VIEW-DRIFT-001.
+                            // Both walk the lowered ExperienceModule.
+                            let experience_module =
+                                lazuli_analyzer::lower_lzx_document(&document);
+                            for finding in
+                                lazuli_doctor::test_discipline::test_view_extensibility_001::check(
+                                    &experience_module,
+                                    &file.path,
+                                )
+                            {
+                                let message = finding.message();
+                                file.local_diagnostics.push(DoctorDiagnostic {
+                                    path: finding.path,
+                                    line: 1,
+                                    column: 1,
+                                    severity: severity_warn,
+                                    code:
+                                        lazuli_doctor::test_discipline::test_view_extensibility_001
+                                            ::Finding::CODE.to_owned(),
+                                    message,
+                                    category: None,
+                                    feature_name: None,
+                                    construct: None,
+                                    fix: None,
+                                    group: None,
+                                });
+                            }
+                            for finding in
+                                lazuli_doctor::test_discipline::test_view_drift_001::check(
+                                    &experience_module,
+                                    &file.path,
+                                )
+                            {
+                                let message = finding.message();
+                                file.local_diagnostics.push(DoctorDiagnostic {
+                                    path: finding.path,
+                                    line: 1,
+                                    column: 1,
+                                    severity: DoctorSeverity::Error,
+                                    code:
+                                        lazuli_doctor::test_discipline::test_view_drift_001
                                             ::Finding::CODE.to_owned(),
                                     message,
                                     category: None,
@@ -1751,15 +2018,17 @@ fn money_arithmetic_001_diagnostics(
 fn test_discipline_diagnostics(
     path: &Path,
     project_root: &Path,
+    app_root: &Path,
     feature: &lazuli_ir::Feature,
     source: &str,
     security_profile: SecurityProfile,
 ) -> Vec<DoctorDiagnostic> {
+    use lazuli_doctor::correctness::handler_missing_001;
     use lazuli_doctor::test_discipline::{
         migration_dsl_unique_001, runtime_update_builder_jsonb_001,
-        test_command_assertion_drift_001, test_fixture_literal_001, test_missing_authored_001,
-        test_predicate_uncovered_001, test_restates_effect_001, test_restates_policy_001,
-        test_stub_001,
+        test_command_assertion_drift_001, test_fixture_literal_001, test_handler_missing_001,
+        test_missing_authored_001, test_predicate_uncovered_001, test_restates_effect_001,
+        test_restates_policy_001, test_stub_001,
     };
     if security_profile == SecurityProfile::Prototype {
         return Vec::new();
@@ -1915,7 +2184,54 @@ fn test_discipline_diagnostics(
             group: None,
         });
     }
-    let _ = project_root; // reserved for Wave 5 handler-pair wiring (deferred follow-up)
+    let _ = project_root;
+    // Wave 5 — HANDLER-MISSING-001 (correctness category, fulfills CLAUDE.md:105
+    // dormant 'Doctor enforces' promise). Walks @fn HandlerRef sites; errors
+    // when <app_root>/features/<f>/handlers/<n>.go is missing.
+    let production = matches!(security_profile, SecurityProfile::Production);
+    for finding in handler_missing_001::check(feature, path, app_root) {
+        let message = finding.message();
+        out.push(DoctorDiagnostic {
+            path: finding.path,
+            line: 1,
+            column: 1,
+            severity: if production {
+                DoctorSeverity::Error
+            } else {
+                DoctorSeverity::Warning
+            },
+            code: handler_missing_001::Finding::CODE.to_owned(),
+            message,
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
+        });
+    }
+    // Wave 5 — TEST-HANDLER-MISSING-001 (test_discipline category). Twin of
+    // HANDLER-MISSING-001; fires only when .go exists but _test.go is missing
+    // (avoids double-fire). v0.1 narrowed to @fn Command+lifecycle sites.
+    for finding in test_handler_missing_001::check(feature, path, app_root) {
+        let message = finding.message();
+        out.push(DoctorDiagnostic {
+            path: finding.path,
+            line: 1,
+            column: 1,
+            severity: if production {
+                DoctorSeverity::Error
+            } else {
+                DoctorSeverity::Warning
+            },
+            code: test_handler_missing_001::Finding::CODE.to_owned(),
+            message,
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
+        });
+    }
 
     out
 }

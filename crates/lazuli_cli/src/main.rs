@@ -13,9 +13,16 @@ use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 
 mod app_manifest;
 mod cmd_design;
+mod cmd_fix;
+mod cmd_generate_command;
 mod cmd_generate_feature;
 mod cmd_generate_handler;
 mod cmd_generate_playwright;
+mod cmd_generate_rule;
+mod cmd_generate_transition;
+mod cmd_generate_view;
+mod doctor_report;
+mod doctor_watch;
 mod cmd_mcp;
 mod cmd_new_frontends;
 mod cmd_test;
@@ -565,6 +572,15 @@ enum GenerateKind {
     Handler,
     Ts,
     Playwright,
+    // Wave 3 — scaffold authoring kinds. Each appends a new construct
+    // to an existing feature `.lzi` (or `.lzx` for View) with a pre-
+    // populated `tests` block + `@TODO authored:` markers so the
+    // scaffold ships RED (per docs/proposals/tdd-bdd-first-2026-05-23.md
+    // Wave 3 + TEST-STUB-001 sentinel).
+    Command,
+    View,
+    Rule,
+    Transition,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -903,18 +919,19 @@ fn main() -> Result<()> {
             input,
             security_profile,
             check_release,
-            // Wave 6 / Wave 2 flags (--format / --coverage / --fail-on) parsed
-            // but not yet wired through HEAD's doctor.rs (DEFERRED: doctor.rs
-            // deep merge blocked by line-ending+structural conflict). Once the
-            // surgical port lands, these will route to doctor::DoctorCliOptions.
-            format: _,
-            coverage: _,
-            fail_on: _,
-        } => doctor::doctor_command(
+            format,
+            coverage,
+            fail_on,
+        } => doctor::doctor_command_with_options(
             &input,
             security_profile.into(),
             check_release,
             cli.allow_version_mismatch,
+            doctor::DoctorRuntimeOptions {
+                format: Some(format),
+                coverage,
+                fail_on,
+            },
         ),
         Commands::Inspect {
             input,
@@ -1211,6 +1228,42 @@ fn generate_command(
             cmd_generate_playwright::run(input, target)
         }
         GenerateKind::Ts => generate_ts(input, output, check),
+        // Wave 3 — TDD/BDD-first scaffold generators. Each takes a
+        // `<feature>.<name>` ident; the cmd_generate_*::run function
+        // resolves the feature root from the manifest and appends the
+        // construct block with @TODO authored: markers.
+        GenerateKind::Command => {
+            let ident = input
+                .to_str()
+                .context("command ident must be valid UTF-8 in `<feature>.<name>` form")?;
+            let project_root =
+                std::env::current_dir().context("failed to determine current directory")?;
+            cmd_generate_command::run(ident, &project_root)
+        }
+        GenerateKind::View => {
+            let ident = input
+                .to_str()
+                .context("view ident must be valid UTF-8 in `<feature>.<name>` form")?;
+            let project_root =
+                std::env::current_dir().context("failed to determine current directory")?;
+            cmd_generate_view::run(ident, &project_root)
+        }
+        GenerateKind::Rule => {
+            let ident = input
+                .to_str()
+                .context("rule ident must be valid UTF-8 in `<feature>.<name>` form")?;
+            let project_root =
+                std::env::current_dir().context("failed to determine current directory")?;
+            cmd_generate_rule::run(ident, &project_root)
+        }
+        GenerateKind::Transition => {
+            let ident = input
+                .to_str()
+                .context("transition ident must be valid UTF-8 in `<feature>.<workflow>.<name>` form")?;
+            let project_root =
+                std::env::current_dir().context("failed to determine current directory")?;
+            cmd_generate_transition::run(ident, &project_root)
+        }
     }
 }
 

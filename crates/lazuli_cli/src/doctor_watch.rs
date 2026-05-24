@@ -104,13 +104,30 @@ fn run_once(
 ) {
     // Watch never bubbles up an Err — the caller expects a long-running
     // loop. Errors are printed to stderr so the agent sees them.
+    let opts = doctor::DoctorRuntimeOptions {
+        format: Some(match format {
+            DoctorFormat::Auto => "auto",
+            DoctorFormat::Text => "text",
+            DoctorFormat::Json => "json",
+            DoctorFormat::Ndjson => "ndjson",
+        }
+        .to_string()),
+        coverage: false,
+        fail_on: fail_on
+            .iter()
+            .map(|spec| match spec {
+                FailOnSpec::Severity(s) => s.as_str().to_string(),
+                FailOnSpec::Category(c) => format!("category:{}", c.as_str()),
+                FailOnSpec::Rule(r) => format!("rule:{r}"),
+            })
+            .collect(),
+    };
     if let Err(err) = doctor::doctor_command_with_options(
         input,
         security_profile,
         false,
         allow_version_mismatch,
-        format,
-        fail_on.to_vec(),
+        opts,
     ) {
         eprintln!("doctor run failed: {err}");
     }
