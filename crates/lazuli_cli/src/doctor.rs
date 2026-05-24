@@ -13,7 +13,8 @@ pub mod schema_rich_001;
 // crate on 2026-05-15 so the LSP can import them. Existing call sites inside
 // this module continue to reference them as `correctness::`, `vocab::`, etc.
 pub use lazuli_doctor::{
-    correctness, design, domain, encryption, lifecycle, poller, report, vocab,
+    correctness, design, domain, encryption, handler_path, handler_walker, lifecycle, poller,
+    report, test_discipline, vocab,
 };
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -1077,6 +1078,7 @@ impl DoctorPackage {
             &self.tier3_facts,
             self.registry.as_ref().map(|reg| &reg.manifest),
             &self.project_root,
+            self.lazurite_manifest.as_ref(),
             self.security_profile,
             self.single_file_input,
         ));
@@ -4668,6 +4670,7 @@ fn correctness_diagnostics(
     facts: &[Tier3FeatureFacts],
     registry: Option<&lazuli_ir::AppRegistry>,
     project_root: &Path,
+    lazurite_manifest: Option<&Manifest>,
     security_profile: SecurityProfile,
     skip_project_migration_check: bool,
 ) -> Vec<DoctorDiagnostic> {
@@ -4678,6 +4681,14 @@ fn correctness_diagnostics(
     let webhook_events: Vec<lazuli_ir::WebhookEvent> = registry
         .map(|r| r.webhook_events.clone())
         .unwrap_or_default();
+
+    // Wave 5 — canonical handler path lives at
+    // `<app_root>/features/<feature>/handlers/<name>.go` where
+    // `<app_root>` honors the `[lazurite] app_dir` knob. Single source of
+    // truth for both the missing-file rule and the missing-test twin.
+    let app_root = lazurite_manifest
+        .map(|m| m.app_root(project_root))
+        .unwrap_or_else(|| project_root.to_path_buf());
 
     for fact in facts {
         let feature = make_synthetic_feature_for_correctness(fact);
@@ -4843,6 +4854,67 @@ fn correctness_diagnostics(
                     column: 1,
                     severity: DoctorSeverity::Warning,
                     code: correctness::schema_migration_present::Finding::CODE.to_owned(),
+                });
+            }
+        }
+
+        // HANDLER-MISSING-001 — fulfills the CLAUDE.md:105 dormant
+        // promise. Walks every IR site that carries a handler reference
+        // (Command.handler, Resource.validate, Resource.validates,
+        // Resource.lifecycle.invariant_handlers, Job.body) and stats the
+        // canonical handler path. Severity grades by profile per the
+        // proposal: warning at prototype (default), error at strict /
+        // production. Single-file doctor runs skip the stat (no
+        // app_root context).
+        if !skip_project_migration_check {
+            let handler_severity = match security_profile {
+                SecurityProfile::Strict => DoctorSeverity::Error,
+                SecurityProfile::Production => DoctorSeverity::Error,
+                _ => DoctorSeverity::Warning,
+            };
+            for finding in
+                correctness::handler_missing_001::check(&feature, &fact.path, &app_root)
+            {
+                let line = fact
+                    .command_lines
+                    .get(&finding.construct_name)
+                    .copied()
+                    .unwrap_or(fact.feature_line);
+                diagnostics.push(DoctorDiagnostic {
+                    message: finding.message(),
+                    path: finding.path,
+                    line,
+                    column: 1,
+                    severity: handler_severity,
+                    code: correctness::handler_missing_001::Finding::CODE.to_owned(),
+                });
+            }
+
+            // TEST-HANDLER-MISSING-001 — twin rule. Only fires when
+            // `.go` exists but `_test.go` does not (avoids double-fire
+            // with HANDLER-MISSING-001 on a fully missing pair).
+            // Severity is one step softer than the handler rule: info
+            // at prototype, warning at strict, error at production.
+            let test_severity = match security_profile {
+                SecurityProfile::Production => DoctorSeverity::Error,
+                SecurityProfile::Strict => DoctorSeverity::Warning,
+                _ => DoctorSeverity::Info,
+            };
+            for finding in
+                test_discipline::test_handler_missing_001::check(&feature, &fact.path, &app_root)
+            {
+                let line = fact
+                    .command_lines
+                    .get(&finding.construct_name)
+                    .copied()
+                    .unwrap_or(fact.feature_line);
+                diagnostics.push(DoctorDiagnostic {
+                    message: finding.message(),
+                    path: finding.path,
+                    line,
+                    column: 1,
+                    severity: test_severity,
+                    code: test_discipline::test_handler_missing_001::Finding::CODE.to_owned(),
                 });
             }
         }

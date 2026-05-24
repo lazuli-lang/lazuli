@@ -13,6 +13,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
+use lazuli_analyzer::lower_feature_skeleton;
+use lazuli_doctor::handler_path;
+use lazuli_doctor::handler_walker::{HandlerSite, HandlerSiteKind, iter_handler_sites};
+use lazuli_ir::Feature;
+use lazuli_syntax::parse_feature_skeletons;
+
+use crate::signature_aware_stub::{StubContext, render_test_stub};
 
 /// Run `lazuli generate handler <ident>`.
 /// `ident` is `<feature>.<fn_name>`.
@@ -55,7 +62,107 @@ pub fn run(ident: &str, project_root: &Path) -> Result<()> {
 
     let body = render_stub(&feature, &fn_name);
     fs::write(&target, body).with_context(|| format!("writing {}", target.display()))?;
+
+    // Wave 5 — emit the paired `_test.go` alongside the handler. The
+    // pair lands at the same canonical path enforced by
+    // TEST-HANDLER-MISSING-001 so doctor stays silent immediately after
+    // scaffolding. Existing `_test.go` files are left untouched —
+    // matches the .go safe-check above (refuse to overwrite author
+    // content).
+    let test_target = handler_path::resolve_test(
+        &app_root(project_root)?,
+        &feature,
+        &fn_name,
+    );
+    if !test_target.exists() {
+        let ir_feature = parse_ir_feature(&lzi_path, &source).ok();
+        let test_body = render_test_for(&ir_feature, &feature, &fn_name);
+        fs::write(&test_target, test_body)
+            .with_context(|| format!("writing {}", test_target.display()))?;
+    }
     Ok(())
+}
+
+/// Best-effort IR lift for the feature file. Returns `None` when the
+/// `.lzi` parser/analyzer can't lift the source — the generator falls
+/// back to a generic stub in that case so a partially-typed `.lzi`
+/// never blocks `lazuli generate handler`.
+fn parse_ir_feature(lzi_path: &Path, source: &str) -> Result<Feature> {
+    let skeletons = parse_feature_skeletons(source)
+        .map_err(|err| anyhow!("parse {}: {err:?}", lzi_path.display()))?;
+    let skeleton = skeletons
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow!("no feature skeleton in {}", lzi_path.display()))?;
+    lower_feature_skeleton(&skeleton)
+        .map_err(|err| anyhow!("lower {}: {err:?}", lzi_path.display()))
+}
+
+/// Pick the right test stub renderer. When we have a typed IR feature
+/// AND a recognized handler site, use the signature-aware renderer.
+/// Otherwise emit a generic table-driven stub that compiles with stdlib
+/// only — same shape, fewer hints.
+fn render_test_for(
+    ir_feature: &Option<Feature>,
+    feature_name: &str,
+    handler_name: &str,
+) -> String {
+    if let Some(feature) = ir_feature {
+        if let Some(site) = find_handler_site(feature, handler_name) {
+            return render_test_stub(&StubContext {
+                feature,
+                site: &site,
+            });
+        }
+    }
+    render_generic_test_stub(feature_name, handler_name)
+}
+
+fn find_handler_site(feature: &Feature, handler_name: &str) -> Option<HandlerSite> {
+    iter_handler_sites(feature)
+        .into_iter()
+        .find(|s| s.handler_name == handler_name && !matches!(s.kind, HandlerSiteKind::WebhookHandler))
+}
+
+/// Fallback when the IR lift didn't surface the handler — emit a
+/// minimal table-driven stub that still compiles. Authors who care
+/// about boundary enumeration can re-run after fixing the `.lzi`.
+fn render_generic_test_stub(feature: &str, handler_name: &str) -> String {
+    let pkg = format!("{}handlers", feature);
+    let fn_pascal = pascal_case(handler_name);
+    format!(
+        r#"package {pkg}
+
+// Auto-generated test stub for @fn.{handler}.
+// Pair file for {handler}.go. The IR lift could not infer the
+// handler's signature (parser/analyzer fell back), so this stub is
+// the structural minimum. Re-run `lazuli generate handler` after
+// fixing the `.lzi` to get the signature-aware version.
+
+import (
+	"testing"
+)
+
+func Test{fn_pascal}(t *testing.T) {{
+	tests := []struct {{
+		name string
+		// @TODO authored: extend with handler-specific fields (input, want, etc.)
+	}}{{
+		{{name: "golden path"}}, // @TODO authored: exercise the happy branch
+		{{name: "error path"}},  // @TODO authored: exercise at least one error branch
+	}}
+	for _, tt := range tests {{
+		t.Run(tt.name, func(t *testing.T) {{
+			// @TODO authored: invoke {fn_pascal} with tt's fields and assert.
+			_ = tt
+		}})
+	}}
+}}
+"#,
+        pkg = pkg,
+        handler = handler_name,
+        fn_pascal = fn_pascal,
+    )
 }
 
 fn app_root(project_root: &Path) -> Result<PathBuf> {
@@ -188,6 +295,61 @@ app_dir = "app"
         assert!(target.exists());
         let body = fs::read_to_string(target).unwrap();
         assert!(body.contains("func VerifyPassword("));
+    }
+
+    #[test]
+    fn success_emits_paired_test_file() {
+        // Wave 5 — `lazuli generate handler` writes BOTH the handler
+        // and the paired `_test.go` so TEST-HANDLER-MISSING-001 stays
+        // silent right after scaffolding.
+        let project = tempdir();
+        write_lzi(
+            project.path(),
+            "auth",
+            "feature auth\n  command login\n    handler @fn.verify_password\n",
+        );
+
+        run("auth.verify_password", project.path()).unwrap();
+
+        let test_path = project
+            .path()
+            .join("features/auth/handlers/verify_password_test.go");
+        assert!(test_path.exists(), "expected paired _test.go to exist");
+        let body = fs::read_to_string(test_path).unwrap();
+        assert!(body.contains("package authhandlers"));
+        assert!(body.contains("func TestVerifyPassword("));
+        assert!(body.contains("\"testing\""));
+        // Stub depends only on the Go stdlib — pilots may add
+        // testify/etc. later but the seed must compile bare.
+        assert!(!body.contains("github.com/"));
+    }
+
+    #[test]
+    fn preserves_existing_test_file() {
+        // Author may have hand-written the test before running the
+        // generator. The generator MUST NOT overwrite either file —
+        // mirrors the `.go` safe-check.
+        let project = tempdir();
+        write_lzi(
+            project.path(),
+            "auth",
+            "feature auth\n  command login\n    handler @fn.verify_password\n",
+        );
+        let handlers_dir = project.path().join("features/auth/handlers");
+        fs::create_dir_all(&handlers_dir).unwrap();
+        fs::write(
+            handlers_dir.join("verify_password_test.go"),
+            "package authhandlers\n// AUTHOR EDIT\n",
+        )
+        .unwrap();
+
+        run("auth.verify_password", project.path()).unwrap();
+
+        let body = fs::read_to_string(handlers_dir.join("verify_password_test.go")).unwrap();
+        assert!(
+            body.contains("AUTHOR EDIT"),
+            "must preserve author content, got: {body}"
+        );
     }
 
     #[test]

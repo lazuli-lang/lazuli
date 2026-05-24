@@ -15,6 +15,7 @@ pub mod duplicate_query_name;
 pub mod event_group_variant_type_001;
 pub mod event_outbox_001;
 pub mod full_text_type_001;
+pub mod handler_missing_001;
 pub mod hook_target_001;
 pub mod missing_policy_on_query_001;
 pub mod mutation_without_readback;
