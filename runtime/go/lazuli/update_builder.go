@@ -124,6 +124,40 @@ func (b *UpdateBuilder) SetIfNotNilBool(col string, val *bool) *UpdateBuilder {
 	return b
 }
 
+// SetIfNotNilEnum is the generic helper for `*T` where T is a
+// string-newtype (e.g. `*PropertyCategory`). Dereferences and
+// stores as the underlying string so pgx encodes consistently
+// regardless of the named type.
+//
+// Free function (not a method) because Go does not allow generic
+// methods on non-generic types. Usage:
+//
+//	lazuli.SetIfNotNilEnum(b, "category", input.Category)
+//
+// where `input.Category` is `*PropertyCategory` declared as
+// `type PropertyCategory string`.
+func SetIfNotNilEnum[T ~string](b *UpdateBuilder, col string, val *T) *UpdateBuilder {
+	if val == nil {
+		return b
+	}
+	b.sets = append(b.sets, col)
+	b.setArgs = append(b.setArgs, string(*val))
+	return b
+}
+
+// SetIfNotNilSlice is the generic helper for `*[]T` array fields
+// (the common shape for `optional Amenity[]`-class inputs).
+// Dereferences and stores the slice as-is — pgx encodes Go slices
+// to Postgres arrays via its built-in array codec.
+func SetIfNotNilSlice[T any](b *UpdateBuilder, col string, val *[]T) *UpdateBuilder {
+	if val == nil {
+		return b
+	}
+	b.sets = append(b.sets, col)
+	b.setArgs = append(b.setArgs, *val)
+	return b
+}
+
 // Set unconditionally appends `col = $N` with the given value.
 // Use when the caller has already filtered the nil case (e.g.
 // for computed/derived columns like `updated_at = now()`).

@@ -37,6 +37,15 @@ var ErrNotAuthenticated = errors.New(CodeNotAuthenticated)
 // HTTP-wire: 403 with code `policy_denied`.
 var ErrRoleRequired = errors.New("role_required")
 
+// ErrResourceNotFound is the typed sentinel returned by [NotFoundError]
+// for missing-row failures. HTTP-wire: 404 with code `not_found`.
+var ErrResourceNotFound = errors.New("resource_not_found")
+
+// ErrNotOwner is the typed sentinel returned by [NotOwnerError] when
+// the actor doesn't own the targeted resource. HTTP-wire: 403 with
+// code `policy_denied`.
+var ErrNotOwner = errors.New("not_owner")
+
 // RequireActor returns the authenticated user attached to ctx, or
 // [ErrNotAuthenticated] when ctx carries no user. Replaces the
 // boilerplate at the top of every authenticated handler:
@@ -108,6 +117,61 @@ func notAuthenticatedError() *Error {
 			Message: "authentication required",
 			Surface: SurfaceUserDSL,
 			Cause:   ErrNotAuthenticated,
+		},
+	}
+}
+
+// NotFoundError returns a typed 404 envelope for the named
+// resource. Use in handlers after a lookup that returns
+// `pgx.ErrNoRows`:
+//
+//	err := db.QueryRow(...).Scan(...)
+//	if errors.Is(err, pgx.ErrNoRows) {
+//	    return Result{}, lazuli.NotFoundError("property")
+//	}
+//
+// HTTP-wire: 404, code=not_found, message="property not found".
+func NotFoundError(resource string) *Error {
+	msg := resource + " not found"
+	return &Error{
+		Status:     404,
+		Code:       CodeNotFound,
+		Message:    msg,
+		MessageKey: CodeNotFound,
+		Base: ErrorBase{
+			Status:  404,
+			Code:    CodeNotFound,
+			Message: msg,
+			Surface: SurfaceUserDSL,
+			Cause:   ErrResourceNotFound,
+		},
+	}
+}
+
+// NotOwnerError returns a typed 403 envelope for ownership-check
+// failures. Use when an authenticated actor tries to mutate a
+// resource they don't own:
+//
+//	if ownerUserID != ctx.User.ID {
+//	    return Result{}, lazuli.NotOwnerError("property")
+//	}
+//
+// HTTP-wire: 403, code=policy_denied, message="not the property owner".
+// Returns the same code as the policy gate so client-side error
+// banners can treat them identically.
+func NotOwnerError(resource string) *Error {
+	msg := "not the " + resource + " owner"
+	return &Error{
+		Status:     403,
+		Code:       CodePolicyDenied,
+		Message:    msg,
+		MessageKey: CodePolicyDenied,
+		Base: ErrorBase{
+			Status:  403,
+			Code:    CodePolicyDenied,
+			Message: msg,
+			Surface: SurfaceUserDSL,
+			Cause:   ErrNotOwner,
 		},
 	}
 }
