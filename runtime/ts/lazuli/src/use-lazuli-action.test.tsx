@@ -52,28 +52,13 @@ describe("useLazuliAction", () => {
     expect(onSuccess).toHaveBeenCalledWith(okOutput, { name: "Ada" });
   });
 
-  it("calls onError and swallows errors by default", async () => {
+  // Wave §1 (2026-05-23): default is throw-on-error. `onError` observes
+  // but does not silence. The old swallow-by-default behavior hid real
+  // bugs; explicit opt-in to swallow is the safer asymmetry.
+  it("throws errors by default and still calls onError", async () => {
     const onError = vi.fn();
     const { spec, wrapper } = makeHarness({ fail: true });
     const { result } = renderHook(() => useLazuliAction(spec, { onError }), { wrapper });
-    let resolved: Output | undefined;
-
-    await act(async () => {
-      resolved = await result.current.mutateAsync({ name: "bad" });
-    });
-
-    expect(resolved).toBeUndefined();
-    expect(onError).toHaveBeenCalledTimes(1);
-    expect(onError.mock.calls[0]?.[1]).toEqual({ name: "bad" });
-  });
-
-  it("rethrows errors when throwOnError is true", async () => {
-    const onError = vi.fn();
-    const { spec, wrapper } = makeHarness({ fail: true });
-    const { result } = renderHook(
-      () => useLazuliAction(spec, { onError, throwOnError: true }),
-      { wrapper },
-    );
     let thrown: unknown;
 
     await act(async () => {
@@ -86,6 +71,39 @@ describe("useLazuliAction", () => {
 
     expect(thrown).toMatchObject({ status: 400 });
     expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0]?.[1]).toEqual({ name: "bad" });
+  });
+
+  it("swallows errors only when throwOnError: false is explicitly passed", async () => {
+    const onError = vi.fn();
+    const { spec, wrapper } = makeHarness({ fail: true });
+    const { result } = renderHook(
+      () => useLazuliAction(spec, { onError, throwOnError: false }),
+      { wrapper },
+    );
+    let resolved: Output | undefined;
+
+    await act(async () => {
+      resolved = await result.current.mutateAsync({ name: "bad" });
+    });
+
+    expect(resolved).toBeUndefined();
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  // Wave §1 — mutually-exclusive navigation outcomes.
+  it("throws in dev when redirect AND back are both declared", () => {
+    const { spec, wrapper } = makeHarness();
+    expect(() => {
+      renderHook(() => useLazuliAction(spec, { redirect: "/x", back: true }), { wrapper });
+    }).toThrow(/redirect.*back.*mutually exclusive/i);
+  });
+
+  it("throws in dev when replace is declared without redirect", () => {
+    const { spec, wrapper } = makeHarness();
+    expect(() => {
+      renderHook(() => useLazuliAction(spec, { replace: true }), { wrapper });
+    }).toThrow(/replace.*requires.*redirect/i);
   });
 
   it("navigates to the resolved redirect on success", async () => {

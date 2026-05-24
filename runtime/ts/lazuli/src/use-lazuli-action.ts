@@ -37,6 +37,14 @@ export function createUseLazuliAction(useLazuliCommand: UseLazuliCommandHook) {
     spec: CommandSpec<I, O>,
     options: UseLazuliActionOptions<I, O> = {},
   ): UseLazuliActionResult<I, O> {
+    // Wave §1 (2026-05-23): mutually-exclusive navigation outcomes.
+    // `redirect` and `back` are different navigation directions; firing
+    // both is undefined behavior. `replace` only makes sense paired
+    // with `redirect` (it modifies the navigation history mode).
+    // The check runs once per render in dev — production builds strip
+    // it via the NODE_ENV guard.
+    assertNavigationExclusivity(spec.name, options);
+
     const router = useContext(LazuliRouterAdapterContext);
     const flash = useContext(LazuliFlashAdapterContext);
     const extraInvalidates = options.invalidates;
@@ -83,7 +91,13 @@ export function createUseLazuliAction(useLazuliCommand: UseLazuliCommandHook) {
     const command = useLazuliCommand<I, O>(mergedSpec, { onSuccess: actionOnSuccess });
     const mapInput = options.mapInput;
     const onError = options.onError;
-    const throwOnError = options.throwOnError;
+    // Wave §1 (2026-05-23): throw by default. `onError` observes but
+    // does not silence; explicit `throwOnError: false` is the only
+    // way to swallow. The previous default (silently absorb) hid real
+    // bugs — handlers that wanted to fail loudly had to remember to
+    // opt in; handlers that wanted to swallow now have to opt in
+    // explicitly (the safer asymmetry).
+    const throwOnError = options.throwOnError ?? true;
     const mutateAsync = command.mutateAsync;
     const run = useCallback(
       async (input: I): Promise<O> => {
@@ -109,6 +123,38 @@ export function createUseLazuliAction(useLazuliCommand: UseLazuliCommandHook) {
       reset: command.reset,
     };
   };
+}
+
+/**
+ * Wave §1 — fail loudly when the action options declare contradictory
+ * navigation outcomes. `redirect` and `back` are different nav
+ * directions; declaring both is undefined behavior in the current
+ * implementation (both fire, observable order). `replace` is a
+ * modifier for `redirect` only — declaring it without `redirect` is a
+ * no-op that hints at a typo / leftover from a refactor.
+ *
+ * Throws in development so the bug shows up before the action ever
+ * runs. Production builds (NODE_ENV=production) skip the check — by
+ * then any drift has had its chance to be caught by tests + dev
+ * environments.
+ */
+function assertNavigationExclusivity<I, O>(
+  specName: string,
+  options: UseLazuliActionOptions<I, O>,
+): void {
+  if (typeof process !== "undefined" && process.env?.NODE_ENV === "production") {
+    return;
+  }
+  if (options.redirect !== undefined && options.back) {
+    throw new Error(
+      `useLazuliAction(${specName}): \`redirect\` and \`back\` are mutually exclusive; declaring both is undefined behavior. Pick one navigation outcome.`,
+    );
+  }
+  if (options.replace && options.redirect === undefined) {
+    throw new Error(
+      `useLazuliAction(${specName}): \`replace\` requires \`redirect\` (it modifies the navigation history mode). Either add \`redirect\` or drop \`replace\`.`,
+    );
+  }
 }
 
 /**
