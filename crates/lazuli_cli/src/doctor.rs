@@ -1060,6 +1060,7 @@ impl DoctorPackage {
             &self.experiences,
             &self.commands,
         ));
+        diagnostics.extend(cap_file_policy_implicit_diagnostics(&self.tier3_facts));
         diagnostics.extend(duplicate_query_name_diagnostics(&self.tier3_facts));
         diagnostics.extend(missing_policy_on_query_diagnostics(&self.tier3_facts));
         diagnostics.extend(mutation_without_readback_diagnostics(&self.tier3_facts));
@@ -2468,6 +2469,48 @@ fn lazurite_manifest_diagnostics(package: &DoctorPackage) -> Vec<DoctorDiagnosti
     diagnostics.extend(check_frontend_audience_unknown(manifest, package));
     diagnostics.extend(check_audience_no_frontend(manifest, package));
     diagnostics.extend(check_frontend_out_collision(manifest, package));
+    diagnostics
+}
+
+/// CAP-FILE-POLICY-IMPLICIT (warning) — every `@cap.File` field on
+/// a per-user resource should declare an explicit
+/// `auto_photo_policy: @policy.<name>`. The analyzer's heuristic
+/// fallback (resource-singular + `_only`) produces silent surprises
+/// when a feature has multiple matching policies — e.g. both
+/// `host_only` and `host_and_operator` — and the wrong one wins.
+///
+/// Wave §6 (2026-05-23). Severity is Warning today so existing
+/// pilots can migrate field-by-field; escalating to Error is
+/// gated on every pilot's `@cap.File` sites having explicit
+/// policy declarations.
+fn cap_file_policy_implicit_diagnostics(
+    facts: &[Tier3FeatureFacts],
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    for feature in facts {
+        for resource in &feature.resources {
+            for field in &resource.fields {
+                let cap = match &field.type_ref {
+                    lazuli_ir::TypeRef::Capability(lazuli_ir::CapabilityRef::File(spec)) => spec,
+                    _ => continue,
+                };
+                if cap.auto_photo_policy.is_some() {
+                    continue;
+                }
+                diagnostics.push(DoctorDiagnostic {
+                    path: feature.path.clone(),
+                    line: feature.feature_line,
+                    column: 1,
+                    severity: DoctorSeverity::Warning,
+                    code: "CAP-FILE-POLICY-IMPLICIT".to_owned(),
+                    message: format!(
+                        "resource `{}.{}` field `{}` is a `@cap.File(...)` site without an explicit `auto_photo_policy: @policy.<name>`. The analyzer falls back to the resource-singular heuristic (e.g. `host_only`), which silently picks the wrong policy when the feature has multiple matching candidates. Add `auto_photo_policy: @policy.<your_policy>` to the `@cap.File(...)` arglist.",
+                        feature.feature, resource.name, field.name,
+                    ),
+                });
+            }
+        }
+    }
     diagnostics
 }
 

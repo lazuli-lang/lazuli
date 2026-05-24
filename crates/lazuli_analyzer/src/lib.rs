@@ -2199,9 +2199,27 @@ fn synthesize_auto_photo(feature: &mut ir::Feature) {
             let intent_name = format!("{}UploadIntent", pascal_field);
             let display_name = format!("{}DisplayUrl", pascal_field);
 
-            let policy_name = match policy_name_for(&resource.name) {
-                Some(n) => n,
-                None => continue, // no policy => skip whole resource silently
+            // Wave §6 (2026-05-23) — prefer the author's explicit
+            // `auto_photo_policy: @policy.<name>` over the
+            // resource-singular heuristic. The heuristic produces
+            // surprises when the convention name happens to match a
+            // policy with a different audience (e.g. a feature with
+            // both `host_only` and `host_and_operator` policies); the
+            // explicit declaration is the only ground truth.
+            //
+            // Doctor `CAP-FILE-POLICY-IMPLICIT` flags any `@cap.File`
+            // site that didn't declare an explicit policy.
+            let policy_name = if let Some(explicit) = cap_file
+                .auto_photo_policy
+                .as_deref()
+                .and_then(|raw| raw.strip_prefix("@policy.").or(Some(raw)))
+            {
+                explicit.to_owned()
+            } else {
+                match policy_name_for(&resource.name) {
+                    Some(n) => n,
+                    None => continue, // no policy => skip whole resource silently
+                }
             };
 
             // 2 records first (idempotent: skip if author already declared).
