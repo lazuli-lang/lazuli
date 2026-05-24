@@ -35,11 +35,26 @@ use crate::app_manifest::{
 };
 use crate::lazurite_manifest::{self, Manifest, MigrationStrategy};
 
+/// Wave 2.0 / 2.2 / 6.4 — CLI flag bundle threaded through
+/// `doctor_command`. Existing callers (MCP, release-gate, tests)
+/// stay on the legacy API by passing `DoctorCliOptions::default()`.
+#[derive(Debug, Clone, Default)]
+pub struct DoctorCliOptions {
+    /// `text` (default) or `json`. Forward-compat with Wave 2.4
+    /// `ndjson` when watch lands.
+    pub format: String,
+    /// Wave 6.4 — emit per-layer coverage report alongside diagnostics.
+    pub coverage: bool,
+    /// Wave 2.2 + 6.4 — composable gate specs (see [`FailOnSpec`]).
+    pub fail_on: Vec<String>,
+}
+
 pub fn doctor_command(
     input: &Path,
     security_profile: SecurityProfile,
     check_release: bool,
     allow_version_mismatch: bool,
+    options: DoctorCliOptions,
 ) -> Result<()> {
     if !allow_version_mismatch {
         let project_root = doctor_project_root(input);
@@ -62,16 +77,303 @@ pub fn doctor_command(
         .iter()
         .any(|diagnostic| diagnostic.severity == DoctorSeverity::Error);
 
+    let fail_on_specs = parse_fail_on_specs(&options.fail_on)?;
+
+    // Wave 6 — coverage report is computed when --coverage is passed
+    // OR when any --fail-on coverage:X=N spec is supplied (the gate
+    // needs the numbers).
+    let coverage_report = if options.coverage
+        || fail_on_specs
+            .iter()
+            .any(|s| matches!(s, FailOnSpec::Coverage { .. }))
+    {
+        Some(build_coverage_for_package(&package, security_profile, input))
+    } else {
+        None
+    };
+
+    let coverage_gate_triggered = coverage_report
+        .as_ref()
+        .map(|r| coverage_fail_on_triggered(r, &fail_on_specs))
+        .unwrap_or(false);
+
+    if options.format.eq_ignore_ascii_case("json") {
+        let report = build_doctor_report_json(input, &diagnostics, coverage_report.as_ref());
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        if has_error || coverage_gate_triggered {
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
     for diagnostic in &diagnostics {
         diagnostic.print();
+    }
+
+    if let Some(report) = coverage_report.as_ref() {
+        print_coverage_text(report);
     }
 
     if has_error {
         bail!("{} failed Lazuli doctor checks", input.display());
     }
 
+    if coverage_gate_triggered {
+        bail!(
+            "{} failed Lazuli doctor coverage gate",
+            input.display()
+        );
+    }
+
     println!("{} passed Lazuli doctor checks", input.display());
     Ok(())
+}
+
+/// Wave 2.2 + 6.4 — composable fail-on gate specs.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FailOnSpec {
+    /// `--fail-on error` / `warning` / `info` — diagnostic severity gate.
+    Severity(DoctorSeverity),
+    /// `--fail-on category:<C>` — diagnostic category gate. Active
+    /// once Wave 0.5 ships `RuleCategory`; today we accept the spec
+    /// but treat it as a no-op until categories are populated.
+    Category(String),
+    /// `--fail-on rule:<R>` — single-rule gate by code.
+    Rule(String),
+    /// Wave 6.4 — `--fail-on coverage:<layer>=<N>`. Exit non-zero when
+    /// the layer's percentage is **strictly below** `threshold`.
+    Coverage { layer: String, threshold: f64 },
+}
+
+pub fn parse_fail_on_specs(inputs: &[String]) -> Result<Vec<FailOnSpec>> {
+    let mut out = Vec::new();
+    for raw in inputs {
+        let spec = parse_fail_on_one(raw)
+            .with_context(|| format!("invalid --fail-on spec: {raw}"))?;
+        out.push(spec);
+    }
+    Ok(out)
+}
+
+fn parse_fail_on_one(raw: &str) -> Result<FailOnSpec> {
+    if let Some(rest) = raw.strip_prefix("coverage:") {
+        let mut parts = rest.splitn(2, '=');
+        let layer = parts
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("coverage: needs <layer>=<N>"))?
+            .trim()
+            .to_string();
+        let threshold_s = parts
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("coverage: needs =<N>"))?
+            .trim();
+        let threshold: f64 = threshold_s
+            .parse()
+            .map_err(|err| anyhow::anyhow!("coverage threshold not a number: {err}"))?;
+        return Ok(FailOnSpec::Coverage { layer, threshold });
+    }
+    if let Some(rest) = raw.strip_prefix("category:") {
+        return Ok(FailOnSpec::Category(rest.to_string()));
+    }
+    if let Some(rest) = raw.strip_prefix("rule:") {
+        return Ok(FailOnSpec::Rule(rest.to_string()));
+    }
+    match raw {
+        "error" => Ok(FailOnSpec::Severity(DoctorSeverity::Error)),
+        "warning" => Ok(FailOnSpec::Severity(DoctorSeverity::Warning)),
+        "info" => Ok(FailOnSpec::Severity(DoctorSeverity::Info)),
+        other => Err(anyhow::anyhow!("unknown --fail-on spec `{other}`")),
+    }
+}
+
+fn coverage_fail_on_triggered(
+    report: &lazuli_doctor::coverage::CoverageReport,
+    specs: &[FailOnSpec],
+) -> bool {
+    for spec in specs {
+        if let FailOnSpec::Coverage { layer, threshold } = spec {
+            if let Some(l) = report.layers.get(layer) {
+                if l.pct < *threshold {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+fn build_coverage_for_package(
+    package: &DoctorPackage,
+    security_profile: SecurityProfile,
+    input: &Path,
+) -> lazuli_doctor::coverage::CoverageReport {
+    use lazuli_doctor::coverage::{
+        self, CoverageProfile, LayerThreshold, LzxViewRef,
+        build_coverage_report, profile_default_thresholds, view_extensibility,
+    };
+    use lazuli_doctor::coverage::view_extensibility::ViewSnapshot;
+    let profile = match security_profile {
+        SecurityProfile::Prototype => CoverageProfile::Prototype,
+        SecurityProfile::Strict => CoverageProfile::Strict,
+        SecurityProfile::Production => CoverageProfile::Production,
+    };
+    // Build thresholds: manifest override (if any) wins per-layer over
+    // profile defaults.
+    let mut thresholds = profile_default_thresholds(profile);
+    if let Some(manifest) = &package.lazurite_manifest {
+        if let Some(doctor) = &manifest.doctor {
+            if let Some(cov) = &doctor.coverage {
+                for (layer, cfg) in &cov.per_layer {
+                    thresholds.per_layer.insert(
+                        layer.clone(),
+                        LayerThreshold {
+                            block_under: cfg.block_under,
+                            warn_under: cfg.warn_under,
+                        },
+                    );
+                }
+                thresholds.aggregate_method = cov.aggregate_method.clone();
+            }
+        }
+    }
+    let project_root = doctor_project_root(input);
+    let lzx_view_refs: Vec<LzxViewRef> = package
+        .coverage_views
+        .iter()
+        .map(|v| LzxViewRef {
+            experience: v.experience.clone(),
+            view: v.view.clone(),
+        })
+        .collect();
+    let mut report = build_coverage_report(
+        &package.coverage_features,
+        &lzx_view_refs,
+        profile,
+        &thresholds,
+        Some(&project_root),
+    );
+    // `view_extensibility` per Wave 6.2 row 4 measures the `.lzx`
+    // surface (not the lifted IR which is empty in current
+    // pipelines). Recompute via snapshots so the layer carries real
+    // numerator/denominator data.
+    let snapshots: Vec<ViewSnapshot> = package
+        .coverage_views
+        .iter()
+        .map(|v| ViewSnapshot {
+            experience: v.experience.clone(),
+            view: v.view.clone(),
+            extensible: v.extensible,
+            tests: v.tests.clone(),
+        })
+        .collect();
+    let snapshot_layer = view_extensibility::compute_from_snapshots(&snapshots);
+    let mut snapshot_layer = snapshot_layer;
+    snapshot_layer.verdict = "pending".to_string();
+    report
+        .layers
+        .insert("view_extensibility".to_string(), snapshot_layer);
+    coverage::apply_thresholds(&mut report.layers, &thresholds);
+    // Recompute gate after the snapshot patch.
+    report.gate_result = recompute_gate(&report.layers);
+    report
+}
+
+fn recompute_gate(
+    layers: &BTreeMap<String, lazuli_doctor::coverage::LayerCoverage>,
+) -> lazuli_doctor::coverage::GateResult {
+    let mut below_block = Vec::new();
+    let mut below_warn = Vec::new();
+    for (name, layer) in layers {
+        match layer.verdict.as_str() {
+            "block" => below_block.push(name.clone()),
+            "warn" => below_warn.push(name.clone()),
+            _ => {}
+        }
+    }
+    let verdict = if !below_block.is_empty() {
+        "block"
+    } else if !below_warn.is_empty() {
+        "warn"
+    } else {
+        "pass"
+    }
+    .to_string();
+    lazuli_doctor::coverage::GateResult {
+        verdict,
+        below_block,
+        below_warn,
+    }
+}
+
+fn build_doctor_report_json(
+    input: &Path,
+    diagnostics: &[DoctorDiagnostic],
+    coverage: Option<&lazuli_doctor::coverage::CoverageReport>,
+) -> serde_json::Value {
+    let mut errors = 0usize;
+    let mut warnings = 0usize;
+    let mut infos = 0usize;
+    let findings: Vec<serde_json::Value> = diagnostics
+        .iter()
+        .map(|d| {
+            match d.severity {
+                DoctorSeverity::Error => errors += 1,
+                DoctorSeverity::Warning => warnings += 1,
+                DoctorSeverity::Info | DoctorSeverity::Hint => infos += 1,
+            }
+            serde_json::json!({
+                "rule": d.code,
+                "severity": match d.severity {
+                    DoctorSeverity::Error => "error",
+                    DoctorSeverity::Warning => "warning",
+                    DoctorSeverity::Info => "info",
+                    DoctorSeverity::Hint => "hint",
+                },
+                "path": d.path.display().to_string(),
+                "span": { "line": d.line, "column": d.column },
+                "message": d.message,
+            })
+        })
+        .collect();
+    let result = if errors > 0 {
+        "fail"
+    } else if warnings > 0 {
+        "pass_with_warnings"
+    } else {
+        "pass"
+    };
+    let mut report = serde_json::json!({
+        "schema_version": 1,
+        "input": input.display().to_string(),
+        "result": result,
+        "summary": {
+            "errors": errors,
+            "warnings": warnings,
+            "infos": infos,
+        },
+        "findings": findings,
+    });
+    if let Some(cov) = coverage {
+        report["coverage"] =
+            serde_json::to_value(cov).unwrap_or(serde_json::Value::Null);
+    }
+    report
+}
+
+fn print_coverage_text(report: &lazuli_doctor::coverage::CoverageReport) {
+    println!();
+    println!("Coverage (per-layer, gate verdict: {}):", report.gate_result.verdict);
+    for (name, layer) in &report.layers {
+        let badge = match layer.verdict.as_str() {
+            "block" => "[BLOCK]",
+            "warn" => "[WARN] ",
+            _ => "[PASS] ",
+        };
+        println!(
+            "  {} {:<24} {:>6.1}%  ({} / {})",
+            badge, name, layer.pct, layer.covered, layer.total
+        );
+    }
 }
 
 /// MCP read surface — runs the same `DoctorPackage` pipeline as
@@ -194,6 +496,29 @@ struct DoctorPackage {
     /// subscription anchor, per-callable gate directives). `None` when
     /// the package authors no `plan` blocks and no `gate` directives.
     plan_gate_facts: Option<lazuli_analyzer::PlanGateFacts>,
+    /// Wave 6 — full lifted IR features retained for the per-layer
+    /// coverage report. Populated from `lower_feature_skeleton` at
+    /// load time. Empty when the package contains no `.lzi` files or
+    /// none of them produced a successful feature lift.
+    coverage_features: Vec<ir::Feature>,
+    /// Wave 6 — flattened `.lzx` view list for `view_e2e_pair` and
+    /// `view_extensibility` layers. Each entry maps an experience
+    /// view to its `extensible_by` flag and `tests` strings (the
+    /// raw `accepted by` / `rejected by` lines as Wave 4 has not
+    /// landed the typed enum yet).
+    coverage_views: Vec<CoverageViewSnapshot>,
+}
+
+/// Wave 6 — snapshot of one view surfaced from a `.lzx` file. Lives
+/// alongside the lifted IR features in `DoctorPackage` so the
+/// `view_e2e_pair` and `view_extensibility` calculators can run
+/// without re-parsing the `.lzx` documents.
+#[derive(Debug, Clone)]
+struct CoverageViewSnapshot {
+    experience: String,
+    view: String,
+    extensible: bool,
+    tests: Vec<String>,
 }
 
 /// Phase L Tier 3 — lifted job/webhook/notification/event_group bundle
@@ -421,6 +746,12 @@ impl DoctorPackage {
         let mut feature_adapters: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         let mut feature_uses: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         let mut tier3_facts: Vec<Tier3FeatureFacts> = Vec::new();
+        // Wave 6 — retain the full lifted IR feature for the
+        // per-layer coverage report.
+        let mut coverage_features: Vec<ir::Feature> = Vec::new();
+        // Wave 6 — flatten `.lzx` views for the view_e2e_pair and
+        // view_extensibility layers.
+        let mut coverage_views: Vec<CoverageViewSnapshot> = Vec::new();
 
         for path in paths {
             let source = fs::read_to_string(&path)
@@ -522,6 +853,11 @@ impl DoctorPackage {
                         for skeleton in &features {
                             match lower_feature_skeleton(skeleton) {
                                 Ok(feature) => {
+                                    // Wave 6 — keep the full IR shape for the
+                                    // per-layer coverage report. Each calculator
+                                    // walks the slot it needs; cost is one clone
+                                    // per feature.
+                                    coverage_features.push(feature.clone());
                                     let header_line =
                                         line_col_for_offset(&file.source, skeleton.span.start).0;
                                     let semantic_type_diagnostics =
@@ -901,6 +1237,19 @@ impl DoctorPackage {
                     Ok(document) => {
                         collect_lzx_experience_facts(&document, &mut experiences);
                         collect_lzx_operational_facts(&file, &document, &mut operational);
+                        // Wave 6 — flatten the experience views once,
+                        // so `view_e2e_pair` and `view_extensibility`
+                        // calculators don't have to re-parse `.lzx`.
+                        for experience in &document.experiences {
+                            for view in &experience.views {
+                                coverage_views.push(CoverageViewSnapshot {
+                                    experience: experience.name.clone(),
+                                    view: view.name.clone(),
+                                    extensible: !view.extensible_by.is_empty(),
+                                    tests: view.tests.clone(),
+                                });
+                            }
+                        }
                         file.lzx = Some(document);
                     }
                     Err(error) => file.local_diagnostics.push(DoctorDiagnostic {
@@ -997,6 +1346,8 @@ impl DoctorPackage {
             feature_uses,
             tier3_facts,
             plan_gate_facts,
+            coverage_features,
+            coverage_views,
         })
     }
 

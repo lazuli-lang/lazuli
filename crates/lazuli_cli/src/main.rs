@@ -119,6 +119,28 @@ enum Commands {
         /// Run release-gate checks only.
         #[arg(long)]
         check_release: bool,
+        /// Output format. `text` is the default human-readable
+        /// rendering; `json` emits the canonical agent-first
+        /// `DoctorReport` (Wave 2.0 schema, extended with Wave 6
+        /// `coverage`).
+        #[arg(long, default_value = "text")]
+        format: String,
+        /// Wave 6.4 — emit per-layer coverage report alongside
+        /// diagnostics. Pure-IR layers
+        /// (spec_predicate/spec_actor_matrix/spec_transition_state/view_extensibility)
+        /// are always computed; handler_go and view_e2e_pair
+        /// degrade gracefully when external inputs are absent.
+        #[arg(long)]
+        coverage: bool,
+        /// Wave 2.2 + Wave 6.4 — composable threshold gate.
+        /// Accepted forms:
+        ///
+        /// - `error` / `warning` / `info` — severity gate
+        /// - `category:<C>` — rule-category gate (post-Wave 0.5)
+        /// - `rule:<R>` — single-rule gate
+        /// - `coverage:<layer>=<N>` — coverage threshold gate
+        #[arg(long, action = clap::ArgAction::Append)]
+        fail_on: Vec<String>,
     },
     Inspect {
         input: PathBuf,
@@ -809,11 +831,19 @@ fn main() -> Result<()> {
             input,
             security_profile,
             check_release,
+            format,
+            coverage,
+            fail_on,
         } => doctor::doctor_command(
             &input,
             security_profile.into(),
             check_release,
             cli.allow_version_mismatch,
+            doctor::DoctorCliOptions {
+                format,
+                coverage,
+                fail_on,
+            },
         ),
         Commands::Inspect {
             input,
@@ -6768,7 +6798,13 @@ fn inject_lazuli_path_into_lazurite(src: &str, path: &str) -> String {
 }
 
 fn run_doctor_sanity_check(project: &Path) -> Result<()> {
-    doctor::doctor_command(project, SecurityProfile::Strict, false, false)
+    doctor::doctor_command(
+        project,
+        SecurityProfile::Strict,
+        false,
+        false,
+        doctor::DoctorCliOptions::default(),
+    )
 }
 
 fn run_command(project: &Path, program: &str, args: &[&str]) -> Result<()> {

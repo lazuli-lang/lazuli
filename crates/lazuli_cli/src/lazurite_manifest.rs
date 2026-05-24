@@ -17,6 +17,57 @@ pub struct Manifest {
     pub migrations: Option<Migrations>,
     pub seeds: Option<Seeds>,
     pub dev: Option<DevOverrides>,
+    /// Wave 0.5 + Wave 6 — `[doctor]` section. `None` when the project
+    /// did not declare doctor overrides; defaults are derived from the
+    /// `--security-profile` flag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub doctor: Option<Doctor>,
+}
+
+/// Wave 0.5 (forward-compat) + Wave 6 (`coverage`) `[doctor]` section.
+/// Most sub-tables are placeholders Wave 0.5 will hydrate; Wave 6 only
+/// owns `coverage` here.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct Doctor {
+    /// `profile = "strict"` etc. Optional; flag wins when both set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    /// Wave 6 — `[doctor.coverage]` per-layer thresholds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<CoverageSection>,
+}
+
+/// Wave 6.5 — `[doctor.coverage]` schema. Per-layer entries live as
+/// top-level keys (`spec_predicate = { block_under = 50, warn_under
+/// = 80 }`); the `aggregate_method` sibling toggles aggregate
+/// emission. Unknown layer names are ignored (forward-compat: a
+/// future layer added to the catalog will not break old projects).
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct CoverageSection {
+    /// Per-layer overrides keyed by canonical layer name
+    /// (`spec_predicate`, `spec_actor_matrix`,
+    /// `spec_transition_state`, `view_extensibility`,
+    /// `view_e2e_pair`, `handler_go`).
+    #[serde(flatten)]
+    pub per_layer: BTreeMap<String, LayerThresholdConfig>,
+    /// Optional aggregate-method disclosure. When set, doctor emits
+    /// the `aggregate` field on the coverage report. Values:
+    /// `"weighted-by-construct-count"`, `"weighted-by-LOC"`,
+    /// `"unweighted-mean"`. Other strings are accepted and surfaced
+    /// verbatim — Lazuli does not police aggregate methods because
+    /// the gate uses per-layer thresholds only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aggregate_method: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
+pub struct LayerThresholdConfig {
+    /// CI MUST fail when the layer's coverage is strictly below
+    /// `block_under`.
+    pub block_under: u32,
+    /// CI warns when coverage is strictly below `warn_under` but at
+    /// or above `block_under`.
+    pub warn_under: u32,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -521,6 +572,50 @@ audiences = ["host"]
         assert!(
             matches!(err, ManifestError::FrontendOutCollision(name, out) if name == "web" && out == "dist/ts")
         );
+    }
+
+    /// Wave 6 — `[doctor.coverage]` parses per-layer thresholds + the
+    /// optional aggregate-method disclosure. Unknown layer names are
+    /// preserved verbatim so additions to the layer catalog don't
+    /// break old projects.
+    #[test]
+    fn parse_doctor_coverage_section() {
+        let manifest = parse_manifest(
+            r#"
+[project]
+name = "myapp"
+module = "github.com/myorg/myapp"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+
+[doctor.coverage]
+spec_predicate     = { block_under = 50, warn_under = 80 }
+spec_actor_matrix  = { block_under = 70, warn_under = 90 }
+aggregate_method   = "weighted-by-construct-count"
+"#,
+        )
+        .unwrap();
+
+        let doctor = manifest.doctor.expect("doctor section present");
+        let coverage = doctor.coverage.expect("coverage section present");
+        assert_eq!(
+            coverage.aggregate_method.as_deref(),
+            Some("weighted-by-construct-count")
+        );
+        let sp = coverage
+            .per_layer
+            .get("spec_predicate")
+            .expect("spec_predicate entry");
+        assert_eq!(sp.block_under, 50);
+        assert_eq!(sp.warn_under, 80);
+        let sa = coverage
+            .per_layer
+            .get("spec_actor_matrix")
+            .expect("spec_actor_matrix entry");
+        assert_eq!(sa.block_under, 70);
+        assert_eq!(sa.warn_under, 90);
     }
 
     /// Lazurite.toml rename (2026-05-15) — `load()` must accept both
