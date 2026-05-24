@@ -392,7 +392,15 @@ func newRequestCtx(r *http.Request) *Ctx {
 // `useLazuliCommand` on the React side.
 //
 // Keep the prefix list in sync with `READ_VERB_PREFIXES` in
-// `lazuli_cli/src/main.rs`.
+// `lazuli_cli/src/main.rs`. The Go test
+// `TestPureReadClassifierParity` (http_classifier_parity_test.go)
+// reads the Rust source at test time and refuses to compile if the
+// lists diverge — closes wave §A1
+// COMMAND-WIRE-CLASSIFIER-SYNC.
+var pureReadCommandPrefixes = []string{
+	"list_", "get_", "lookup_", "search_", "find_", "count_",
+}
+
 func isPureReadCommand(cmd *commandErased) bool {
 	if cmd == nil {
 		return false
@@ -409,7 +417,7 @@ func isPureReadCommand(cmd *commandErased) bool {
 	if dot := strings.IndexByte(short, '.'); dot >= 0 {
 		short = short[dot+1:]
 	}
-	for _, prefix := range []string{"list_", "get_", "lookup_", "search_", "find_", "count_"} {
+	for _, prefix := range pureReadCommandPrefixes {
 		if strings.HasPrefix(short, prefix) {
 			return true
 		}
