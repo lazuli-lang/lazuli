@@ -5,8 +5,11 @@
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "lazuli:check": "lazuli check .",
-    "lazuli:doctor": "lazuli doctor .",
+    "lazuli:doctor": "lazuli doctor . --security-profile strict --coverage",
+    "lazuli:doctor:gate": "lazuli doctor . --security-profile strict --fail-on category:TestDiscipline",
     "lazuli:generate": "lazuli generate go . --out dist/go && lazuli generate ts .",
+    "lazuli:test": "lazuli test . --layer handler",
+    "lazuli:test:watch": "lazuli test . --layer handler --watch",
     "go:build": "pnpm lazuli:generate && cd dist/go && go build ./...",
     "go:run": "pnpm lazuli:generate && dotenv -e .env -- bash -c \"cd dist/go && go build -o {{app_slug}}-api.exe . && ./{{app_slug}}-api.exe\"",
     "go:watch": "pnpm lazuli:generate && dotenv -e .env -- air",
@@ -19,6 +22,7 @@
     "dev": "concurrently -k -n api,web \"pnpm go:watch\" \"pnpm --filter ./app/web dev\"",
     "build": "pnpm lazuli:generate && pnpm --filter ./app/web build && pnpm go:build",
     "typecheck": "pnpm lazuli:generate && pnpm --filter ./app/web typecheck",
+    "verify:all": "pnpm lazuli:doctor && pnpm lazuli:generate && pnpm go:build && pnpm typecheck && pnpm build && pnpm lazuli:test",
     "lint": "biome check .",
     "format": "biome format --write ."
   },

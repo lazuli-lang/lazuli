@@ -11,11 +11,15 @@ Mirrored verbatim at `AGENTS.md` for tooling that loads `AGENTS.md`.
 Lazuli is declarative. The compiler can catch most mistakes BEFORE they reach runtime — treat the CLI as your typecheck + lint:
 
 ```bash
-lazuli check .            # schema validation (parser + analyzer + invariants)
-lazuli doctor .           # full audit (vocab rules + structural + cross-feature)
+pnpm lazuli:check         # schema validation (parser + analyzer + invariants)
+pnpm lazuli:doctor        # strict-profile audit + per-layer coverage report
+pnpm lazuli:test          # wire-thin handler test runner (`go test`)
+pnpm verify:all           # full pre-merge gate (doctor + codegen + build + typecheck + tests)
 ```
 
-Both **MUST pass clean** before commit. Warnings should drop to zero or be explicitly suppressed with `# doctor:allow <RULE-CODE> — reason "..."` on the offending line (where the rule supports inline allow).
+The scaffolded `Lazurite.toml` ships with `[doctor] profile = "strict"` and per-layer `[doctor.coverage]` thresholds — `handler_go` is enforced strictly (block_under = 90), other layers start lenient and tighten as you author specs and view E2Es.
+
+All four gates **MUST pass clean** before commit. Warnings should drop to zero or be explicitly suppressed with `# doctor:allow <RULE-CODE> — reason "..."` on the offending line (where the rule supports inline allow). To carry a baseline finding under `[doctor.test_discipline.severity_override."<RULE>"]`, the `reason` field is mandatory (DOCTOR-OVERRIDE-NEEDS-REASON-001).
 
 When you can't immediately fix a doctor finding, track it (your own backlog, NOT this file) and continue — but flag it explicitly in the commit message.
 

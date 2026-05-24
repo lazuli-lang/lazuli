@@ -11,11 +11,15 @@ Mirrored verbatim at `AGENTS.md` for tooling that loads `AGENTS.md`.
 Lazuli is declarative. The compiler can catch most mistakes BEFORE they reach runtime — treat the CLI as your typecheck + lint:
 
 ```bash
-lazuli check .            # schema validation (parser + analyzer + invariants)
-lazuli doctor .           # full audit (vocab rules + structural + cross-feature)
+pnpm lazuli:check         # schema validation (parser + analyzer + invariants)
+pnpm lazuli:doctor        # strict-profile audit + per-layer coverage report
+pnpm lazuli:test          # wire-thin handler test runner (`go test`)
+pnpm verify:all           # full pre-merge gate (doctor + codegen + build + typecheck + tests)
 ```
 
-Both **MUST pass clean** before commit. Warnings should drop to zero or be explicitly suppressed with `# doctor:allow <RULE-CODE> — reason "..."` on the offending line (where the rule supports inline allow).
+The scaffolded `Lazurite.toml` ships with `[doctor] profile = "strict"` and per-layer `[doctor.coverage]` thresholds — `handler_go` is enforced strictly (block_under = 90), other layers start lenient and tighten as you author specs and view E2Es.
+
+All four gates **MUST pass clean** before commit. Warnings should drop to zero or be explicitly suppressed with `# doctor:allow <RULE-CODE> — reason "..."` on the offending line (where the rule supports inline allow). To carry a baseline finding under `[doctor.test_discipline.severity_override."<RULE>"]`, the `reason` field is mandatory (DOCTOR-OVERRIDE-NEEDS-REASON-001).
 
 When you can't immediately fix a doctor finding, track it (your own backlog, NOT this file) and continue — but flag it explicitly in the commit message.
 
@@ -81,7 +85,7 @@ empty strings; don't remove them.
 1. **Author** `features/<name>/<name>.lzi` per [Lazuli grammar](https://github.com/lazuli-lang/lazuli/blob/main/docs/grammar.lzi.md).
 2. **Surfaces** (if user-facing): `features/<name>/<name>.lzx` (abstract) + `<name>.web.lzx` / `<name>.mobile.lzx` (per audience).
 3. **Gate**: `lazuli check . && lazuli doctor .` — MUST be clean before continuing.
-4. **Handlers** (if needed): `app/features/<name>/handlers/<fn>.go` — `package <name>handlers`; filename matches `@fn.<fn>` reference exactly. Self-register at init via `lazuli.RegisterFn("<feature>.<fn>", <FnName>)` (auto-emitted in scaffolded stubs). The `handlers/` sub-folder keeps the feature directory focused on DSL surface; the cycle that motivated an earlier flat layout is resolved by the runtime registry.
+4. **Handlers** (if needed): `app/features/<name>/handlers/<fn>.go` — `package <name>handlers`; filename matches `@fn.<fn>` reference exactly. Self-register at init via `lazuli.RegisterFn("<feature>.<fn>", <FnName>)` (auto-emitted in scaffolded stubs). The `handlers/` sub-folder keeps the feature directory focused on DSL surface; the cycle that motivated an earlier flat layout is resolved by the runtime registry. **Use `lazuli generate handler <feature>.<fn>` to scaffold** — it writes both the `.go` and paired `_test.go` (signature-aware table-driven stub) so `HANDLER-MISSING-001` / `TEST-HANDLER-MISSING-001` stay silent immediately.
 5. **Verify codegen**: `lazuli generate go && go build ./...`.
 6. **Re-gate**: `lazuli check . && lazuli doctor .`.
 
@@ -102,6 +106,28 @@ If step 3 or 6 fails: read the diagnostic, fix the `.lzi` (not the workaround). 
 **Lazuli's runtime layer is wire, not reimplementation.** When writing `handlers/<x>.go` or other authored Go, do NOT reimplement primitives that exist in Go stdlib or mature libraries. Each adapter / helper should be ~10-50 LOC of `import + call`, not 200-800 LOC of homegrown logic.
 
 Concrete test: open the file you just created, count external imports (`github.com/...`, `golang.org/x/...`). If LOC > 100 and external imports == 0 and the feature exists in any well-known library, you're violating this principle — rewrite as wire, or delete and use the library directly.
+
+## Testing handlers — TDD pair discipline
+
+Every handler ships with its paired `_test.go` in the same `app/features/<name>/handlers/` directory. The pair is enforced by two twin doctor rules:
+
+- `HANDLER-MISSING-001` — fires when a `@fn`/`@validator`/lifecycle handler is referenced in `.lzi` but the matching `<name>.go` is missing. Catches typo / unscaffolded handlers at `lazuli doctor` time instead of `go build` time.
+- `TEST-HANDLER-MISSING-001` — fires when `<name>.go` exists but `<name>_test.go` does not. Twin discipline: every executable surface gets at least one test. No double-fire — only fires when the handler itself is present.
+
+`lazuli generate handler <feature>.<fn>` writes both files at once. The test stub is **signature-aware** — the generator reads the IR contract (`requires` vs `effect`, return type, field constraints, lifecycle invariant boundaries) and seeds table-driven cases with `@TODO authored:` markers per branch. Fresh-clone safe: stub depends only on Go stdlib (`testing`); pilots layer `testify`/`go-cmp`/etc. on top.
+
+### `app/testsupport/` — shared harness
+
+Cross-handler fixtures (DB pool, org/user seed, role-specific actors) live in `app/testsupport/`. The framework ships a starter `harness.go` mirroring Hostpoint's reference (`app/testsupport/harness.go`, committed 2026-05-24). Pilots extend it with project-specific seed helpers (e.g. `SeedHostProperty`, `SeedTransaction`) — never re-invent fixture seeding inside each handler test.
+
+Discipline rules baked into the harness:
+
+- **Real Postgres, no mocks.** Schema-shape bugs (missing column on INSERT, type-drift after migration) only surface when tests run against the same migration set as production. Mocking pgx hides exactly the bugs handler tests should catch.
+- **Skip, don't fail, when DB is unreachable.** Local `go test` without docker-compose stays green; CI enforces "DB MUST be reachable". Env var `LAZULI_TEST_DATABASE_URL` overrides; falls back to `LAZULI_DB` then the docker-compose default.
+- **Self-cleanup.** Each `Seed*` helper either rolls up under an org-level cascade or returns a cleanup closure the test defers. No row leakage between runs.
+- **Unique fixture identifiers.** Names/slugs/emails carry `RandomToken()` suffixes so parallel `go test -p N` never collides on a unique-constraint.
+
+Reference: Hostpoint's `app/testsupport/harness.go` is the canonical extension target; the scaffolded version is the structural minimum.
 
 ## Namespace policy
 

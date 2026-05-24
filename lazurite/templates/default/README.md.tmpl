@@ -56,7 +56,11 @@ Check out everything as siblings under one parent. `pnpm dev` and `lazuli genera
 | `pnpm build` | production build (Go binary + Vite bundle) |
 | `pnpm typecheck` | TypeScript check (auto-runs codegen first) |
 | `pnpm lazuli:generate` | regenerate `dist/go` + `dist/ts-web` from `.lzi`/`.lzx` |
-| `pnpm lazuli:doctor` | run all Lazuli lints |
+| `pnpm lazuli:doctor` | strict-profile doctor + per-layer coverage report |
+| `pnpm lazuli:doctor:gate` | narrower CI gate (fails only on TestDiscipline errors) |
+| `pnpm lazuli:test` | wire-thin test runner — `go test` over every handler |
+| `pnpm lazuli:test:watch` | same, watching the file tree |
+| `pnpm verify:all` | full pre-merge gate (doctor + codegen + build + typecheck + tests) |
 | `pnpm go:watch` | api only with hot reload |
 | `pnpm stack:up` | db up + codegen + migrate + build (no run) |
 | `pnpm db:migrate` | apply generated SQL migrations |
