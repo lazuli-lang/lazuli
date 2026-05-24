@@ -1063,6 +1063,7 @@ impl DoctorPackage {
         diagnostics.extend(cap_file_policy_implicit_diagnostics(&self.tier3_facts));
         diagnostics.extend(schema_rich_gap_diagnostics(&self.tier3_facts));
         diagnostics.extend(manual_param_coercion_diagnostics(&self.project_root));
+        diagnostics.extend(import_deprecated_alias_diagnostics(&self.project_root));
         diagnostics.extend(duplicate_query_name_diagnostics(&self.tier3_facts));
         diagnostics.extend(missing_policy_on_query_diagnostics(&self.tier3_facts));
         diagnostics.extend(mutation_without_readback_diagnostics(&self.tier3_facts));
@@ -2597,6 +2598,164 @@ fn manual_param_coercion_diagnostics(project_root: &Path) -> Vec<DoctorDiagnosti
     });
 
     diagnostics
+}
+
+/// IMPORT-DEPRECATED-ALIAS (warning) — flags consumer imports of
+/// SDK exports marked `@deprecated` in the generated TS code.
+/// Codegen emits backward-compat aliases for every rename
+/// (`listMinePropertiesCatalogs` → `listMineProperties`,
+/// `listMinePropertiesUploadedAssets` → `listMineProperties`); the
+/// alias lives for one cycle to give consumers time to migrate,
+/// then gets removed. This lint catches the consumer half so the
+/// removal lands without dangling references.
+///
+/// Wave §3 (2026-05-23). Severity is Warning — informational; the
+/// alias still resolves at runtime. Escalation to Error happens
+/// when each removal is planned (consumer fixes its import +
+/// runtime drops the alias in the same release).
+fn import_deprecated_alias_diagnostics(project_root: &Path) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let dist_root = project_root.join("dist");
+    let clients_root = project_root.join("app").join("clients");
+    if !dist_root.exists() || !clients_root.exists() {
+        return diagnostics;
+    }
+
+    let mut deprecated_exports: BTreeMap<String, PathBuf> = BTreeMap::new();
+    collect_deprecated_exports(&dist_root, &mut deprecated_exports);
+    if deprecated_exports.is_empty() {
+        return diagnostics;
+    }
+
+    walk_frontend_ts_files(&clients_root, &mut |path, contents| {
+        // Cheap pre-filter: only inspect lines inside an import statement.
+        let mut in_import = false;
+        for (lineno, line) in contents.lines().enumerate() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("import ") || trimmed.starts_with("import{") {
+                in_import = true;
+            }
+            if !in_import {
+                continue;
+            }
+            for name in deprecated_exports.keys() {
+                // Word-boundary match — guard against substring false positives
+                // (e.g. `listMinePropertiesV2` would otherwise fire on the
+                // shorter `listMineProperties`).
+                if !matches_word(line, name) {
+                    continue;
+                }
+                diagnostics.push(DoctorDiagnostic {
+                    path: path.to_path_buf(),
+                    line: lineno + 1,
+                    column: 1,
+                    severity: DoctorSeverity::Warning,
+                    code: "IMPORT-DEPRECATED-ALIAS".to_owned(),
+                    message: format!(
+                        "import of deprecated SDK alias `{name}`. The generated `.gen.ts` declares it `@deprecated`; switch to the canonical export before the alias is removed in the next codegen cycle."
+                    ),
+                });
+            }
+            if line.contains("from ") {
+                in_import = false;
+            }
+        }
+    });
+
+    diagnostics
+}
+
+/// Walks `dist/ts-{web,mobile}/**/*.gen.ts` collecting export names
+/// preceded by a `/** @deprecated ... */` jsdoc block.
+fn collect_deprecated_exports(dist_root: &Path, out: &mut BTreeMap<String, PathBuf>) {
+    walk_gen_ts_files(dist_root, &mut |path, contents| {
+        let lines: Vec<&str> = contents.lines().collect();
+        for (idx, line) in lines.iter().enumerate() {
+            let trimmed = line.trim_start();
+            if !trimmed.starts_with("export ") {
+                continue;
+            }
+            // Look at the previous 1-3 lines for a @deprecated marker.
+            let mut found_deprecated = false;
+            for prev in (idx.saturating_sub(3)..idx).rev() {
+                let p = lines.get(prev).map(|s| s.trim()).unwrap_or("");
+                if p.contains("@deprecated") {
+                    found_deprecated = true;
+                    break;
+                }
+                if p.starts_with("export ") || (!p.starts_with("*") && !p.starts_with("//") && !p.is_empty()) {
+                    break;
+                }
+            }
+            if !found_deprecated {
+                continue;
+            }
+            // Extract the export name. Handles `export const X =`,
+            // `export function X(`, `export type X =`, `export interface X {`.
+            if let Some(name) = parse_export_name(trimmed) {
+                out.insert(name, path.to_path_buf());
+            }
+        }
+    });
+}
+
+fn parse_export_name(line: &str) -> Option<String> {
+    let after_export = line.strip_prefix("export ")?;
+    for keyword in ["const ", "let ", "var ", "function ", "type ", "interface ", "class "] {
+        if let Some(rest) = after_export.strip_prefix(keyword) {
+            let ident: String = rest
+                .chars()
+                .take_while(|ch| ch.is_ascii_alphanumeric() || *ch == '_' || *ch == '$')
+                .collect();
+            if ident.is_empty() {
+                return None;
+            }
+            return Some(ident);
+        }
+    }
+    None
+}
+
+fn matches_word(haystack: &str, needle: &str) -> bool {
+    let mut start = 0usize;
+    while let Some(pos) = haystack[start..].find(needle) {
+        let abs = start + pos;
+        let end = abs + needle.len();
+        let before_ok = abs == 0 || !is_ident_char(haystack.as_bytes()[abs - 1] as char);
+        let after_ok = end >= haystack.len() || !is_ident_char(haystack.as_bytes()[end] as char);
+        if before_ok && after_ok {
+            return true;
+        }
+        start = abs + 1;
+    }
+    false
+}
+
+fn is_ident_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_' || c == '$'
+}
+
+fn walk_gen_ts_files(root: &Path, visit: &mut dyn FnMut(&Path, &str)) {
+    let Ok(entries) = std::fs::read_dir(root) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = match path.file_name().and_then(|s| s.to_str()) {
+            Some(n) => n,
+            None => continue,
+        };
+        if name == "node_modules" || name == "go" {
+            continue;
+        }
+        if path.is_dir() {
+            walk_gen_ts_files(&path, visit);
+            continue;
+        }
+        if !name.ends_with(".gen.ts") && !name.ends_with(".gen.tsx") {
+            continue;
+        }
+        let Ok(contents) = std::fs::read_to_string(&path) else { continue };
+        visit(&path, &contents);
+    }
 }
 
 /// Walks `app/clients/<frontend>/src/**/*.{ts,tsx}` invoking
