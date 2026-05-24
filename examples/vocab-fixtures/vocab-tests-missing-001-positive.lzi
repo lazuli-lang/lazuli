@@ -1,0 +1,20 @@
+# VOCAB-TESTS-MISSING-001 — positive fixture.
+# The rule SHOULD fire because the feature declares a resource and a
+# command but no inline `test` blocks. This is the canonical "code
+# without tests" shape that Issue Zero of the tdd-bdd-first proposal
+# wires the doctor to surface.
+
+feature post
+  domain
+    resource Post
+      title: Text required
+
+  policies
+    public: @scope.public
+
+  command create_post
+    input
+      title: Text required
+    policy @policy.public
+    creates Post
+      title = input.title

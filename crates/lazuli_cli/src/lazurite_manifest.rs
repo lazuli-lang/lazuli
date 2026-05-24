@@ -17,6 +17,53 @@ pub struct Manifest {
     pub migrations: Option<Migrations>,
     pub seeds: Option<Seeds>,
     pub dev: Option<DevOverrides>,
+    /// Wave 0.5 — optional `[doctor]` block carrying severity overrides
+    /// per category. Absent on most projects today; when present the
+    /// override table is enforced by `DOCTOR-OVERRIDE-NEEDS-REASON-001`
+    /// to require a `reason = "..."` on every entry. See
+    /// `docs/proposals/tdd-bdd-first-2026-05-23.md` §Wave 0.5.
+    pub doctor: Option<Doctor>,
+}
+
+/// Wave 0.5 — `[doctor]` block in `Lazurite.toml`.
+///
+/// Initial schema carries only `[doctor.test_discipline]`; subsequent
+/// waves will add `[doctor.vocabulary]`, `[doctor.security]`, etc. The
+/// nested table form keeps each category's overrides scoped, which
+/// matches how `RuleCategory` partitions rules.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct Doctor {
+    /// Optional per-category profile pin (`prototype`, `strict`,
+    /// `production`). When unset, the CLI default applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    /// `[doctor.test_discipline]` — overrides for `TEST-*` and
+    /// `DOCTOR-*` rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test_discipline: Option<TestDisciplineDoctor>,
+}
+
+/// Wave 0.5 — `[doctor.test_discipline]` block.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct TestDisciplineDoctor {
+    /// Rule-code → override entry. Authors keyed by canonical rule code
+    /// (e.g. `TEST-MISSING-AUTHORED-001`). Each entry must carry a
+    /// non-blank `reason` per `DOCTOR-OVERRIDE-NEEDS-REASON-001`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub severity_override: BTreeMap<String, SeverityOverride>,
+}
+
+/// Wave 0.5 — `[doctor.<category>].severity_override.<RULE-CODE>` entry.
+///
+/// `severity` is the override target (`"warning"`, `"error"`, …).
+/// `reason` is the audit trail that explains why the framework default
+/// is being suppressed; `DOCTOR-OVERRIDE-NEEDS-REASON-001` fires when
+/// it is missing or blank.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct SeverityOverride {
+    pub severity: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -521,6 +568,76 @@ audiences = ["host"]
         assert!(
             matches!(err, ManifestError::FrontendOutCollision(name, out) if name == "web" && out == "dist/ts")
         );
+    }
+
+    /// Wave 0.5 — `[doctor.test_discipline]` parses with no
+    /// per-rule overrides authored. Most projects will start here.
+    #[test]
+    fn parse_empty_doctor_block() {
+        let manifest = parse_manifest(
+            r#"
+[project]
+name = "myapp"
+module = "github.com/myorg/myapp"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+
+[doctor]
+profile = "strict"
+
+[doctor.test_discipline]
+"#,
+        )
+        .unwrap();
+
+        let doctor = manifest.doctor.expect("doctor block parsed");
+        assert_eq!(doctor.profile.as_deref(), Some("strict"));
+        let td = doctor
+            .test_discipline
+            .expect("test_discipline block parsed");
+        assert!(td.severity_override.is_empty());
+    }
+
+    /// Wave 0.5 — per-rule severity overrides with `reason` lift
+    /// cleanly. Whether the `reason` is blank or missing is a
+    /// `DOCTOR-OVERRIDE-NEEDS-REASON-001` concern, not a parse error.
+    #[test]
+    fn parse_doctor_severity_override_with_reason() {
+        let manifest = parse_manifest(
+            r#"
+[project]
+name = "myapp"
+module = "github.com/myorg/myapp"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+
+[doctor.test_discipline.severity_override.TEST-MISSING-AUTHORED-001]
+severity = "warning"
+reason = "legacy billing feature; refactor scheduled Q3"
+
+[doctor.test_discipline.severity_override.TEST-PREDICATE-UNCOVERED-001]
+severity = "info"
+"#,
+        )
+        .unwrap();
+
+        let td = manifest
+            .doctor
+            .and_then(|d| d.test_discipline)
+            .expect("test_discipline parsed");
+        let with_reason = &td.severity_override["TEST-MISSING-AUTHORED-001"];
+        assert_eq!(with_reason.severity, "warning");
+        assert_eq!(
+            with_reason.reason.as_deref(),
+            Some("legacy billing feature; refactor scheduled Q3")
+        );
+        let without_reason = &td.severity_override["TEST-PREDICATE-UNCOVERED-001"];
+        assert_eq!(without_reason.severity, "info");
+        assert!(without_reason.reason.is_none());
     }
 
     /// Lazurite.toml rename (2026-05-15) — `load()` must accept both

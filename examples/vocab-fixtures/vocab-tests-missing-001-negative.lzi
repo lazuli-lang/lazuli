@@ -1,0 +1,34 @@
+# VOCAB-TESTS-MISSING-001 — negative fixture.
+# Same domain shape as the positive fixture, but the Post resource
+# carries a lifecycle block with a transition whose `tests` block
+# satisfies the feature-level lint. The lint is per-feature, so a
+# single test block anywhere in the feature suppresses it — including
+# tests attached to lifecycle transitions (which the analyzer lowers
+# into `Command.tests`).
+
+feature post
+  domain
+    resource Post
+      title: Text required
+
+      lifecycle status
+        state draft initial
+        state published terminal
+
+        transition publish
+          from draft
+          to published
+          policy @policy.public
+          tests
+            allows from draft
+            denies from published
+
+  policies
+    public: @scope.public
+
+  command create_post
+    input
+      title: Text required
+    policy @policy.public
+    creates Post
+      title = input.title

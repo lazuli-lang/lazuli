@@ -48,6 +48,11 @@ pub(super) fn diagnostics(
                 },
                 code: finding.code.to_owned(),
                 message: finding.message,
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
             });
         }
     }
