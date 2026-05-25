@@ -123,12 +123,10 @@ pub(crate) fn lower_invalidates_query_ref(current_feature: &str, text: &str) -> 
             feature: Some(current_feature.to_owned()),
             name: (*name).to_owned(),
         },
-        [feature, "query", name] if !feature.is_empty() && !name.is_empty() => {
-            ir::QualifiedName {
-                feature: Some((*feature).to_owned()),
-                name: (*name).to_owned(),
-            }
-        }
+        [feature, "query", name] if !feature.is_empty() && !name.is_empty() => ir::QualifiedName {
+            feature: Some((*feature).to_owned()),
+            name: (*name).to_owned(),
+        },
         [name] if !name.is_empty() => ir::QualifiedName {
             feature: Some(current_feature.to_owned()),
             name: (*name).to_owned(),

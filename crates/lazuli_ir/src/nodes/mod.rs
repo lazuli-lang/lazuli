@@ -35,20 +35,25 @@
 
 pub mod aggregate;
 pub mod ai_primitives;
+pub mod app_manifest;
 pub mod async_work;
 pub mod auth;
 pub mod capability;
+pub mod command;
 pub mod design;
 pub mod error_vocab;
 pub mod event;
+pub mod experience;
 pub mod feature_defaults;
 pub mod lifecycle;
 pub mod mcp;
 pub mod migrations;
 pub mod plan_and_gate;
 pub mod poller;
+pub mod query;
 pub mod rbac;
 pub mod realtime;
 pub mod report;
+pub mod resource;
 pub mod surface;
 pub mod test_and_policy;

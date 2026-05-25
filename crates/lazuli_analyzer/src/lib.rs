@@ -10,11 +10,13 @@
 //! lives in `lazuli_cli` (the `expand` pass) or `lazuli_doctor`;
 //! anything per-file lives here.
 //!
-//! ## Submodule layout (Wave 4.6 R2 — rails-style refactor)
+//! ## Submodule layout (R3-E — rails-style refactor)
 //!
 //! The lowering pipeline is organised into per-concern sibling
 //! modules. Each one carries the projection rules for a single
 //! "slot" in the vocabulary:
+//!
+//! ### Cross-cutting primitives
 //!
 //! * [`helpers`] — pure utility predicates (case conversion, span
 //!   bridging, edit-distance, balanced-paren walkers). No AST shape,
@@ -22,6 +24,12 @@
 //! * [`expr`] — pure mechanical "text → IR atom" projections
 //!   (paths, qualified names, raw exprs, policy atoms, translation
 //!   keys). Every other slice calls into this slot.
+//! * [`source_map`] — source-position bookkeeping consumed by LSP.
+//! * [`symbol_origin`] — origin tagging (handwritten vs synthesized
+//!   vs pack-derived) used by inspect and doctor.
+//!
+//! ### Per-domain lowering (R2 — Wave 4.6)
+//!
 //! * [`command`] — command effect cluster (`creates|updates|deletes`),
 //!   target / let / named-arg / assignment leaves, and the
 //!   `invalidates query.<name>` cross-feature reference resolver.
@@ -35,19 +43,41 @@
 //! * [`surface`] — `.lzx` *ViewModel layer* (per-feature audiences +
 //!   views + cells + drawers + route params). One entry point:
 //!   `lower_surface`.
+//!
+//! ### Per-domain lowering (R3-E)
+//!
+//! * [`resource`] — `resource <Foo> { ... }` decl + field-level
+//!   lowering (`@cap.PII` extraction, modifier recovery,
+//!   inline-validator constraint lift, the four `validate_constraint_*`
+//!   gates) + rate-limit literal projection.
+//! * [`query`] — `query.list` / `query.lookup` / `query.sql` lowering,
+//!   filter line parser (WAR-VOCAB-QUERY-ENUM-01), cache profile
+//!   resolution (CL.C.3), and `lower_command_input_to_typed` for
+//!   typed query/command input slots.
+//! * [`auth`] — `auth { identity | password | sessions | mfa | oauth }`
+//!   lowering. The non-trivial bit is `<Resource>.<field>` ->
+//!   `FieldRef` splitting; the rest is structural.
+//! * [`agent`] — LLM capability lowering: input slots, policy atom,
+//!   output projection (text|stream|enum|record-discriminator),
+//!   tool reference resolution (Adapter|Local|CrossFeature), eval
+//!   case + closed-predicate parser, HTTP expose.
+//! * [`design`] — closed-catalog design token lowering (colors,
+//!   typography, spaces, radii, shadows, motion, breakpoints,
+//!   z-indices, custom). Cheap structural validation per group.
+//! * [`plan_gate`] — package-wide `PlanGateFacts` aggregator
+//!   (subscription anchor + plan catalog + per-callable gates)
+//!   and the six PG diagnostic codes.
 //! * [`lifecycle`] — resource lifecycle synthesis hooks.
 //! * [`checks`] — public per-file structural checks invoked by
 //!   `lazuli_cli` / `lazuli_doctor`. Stays public because external
 //!   tools depend on it.
 //! * [`rbac`] — RBAC closure construction over a feature's policies.
-//! * [`source_map`] — source-position bookkeeping consumed by LSP.
-//! * [`symbol_origin`] — origin tagging (handwritten vs synthesized
-//!   vs pack-derived) used by inspect and doctor.
 //!
-//! Per-feature orchestration (`lower_feature_skeleton`, resources,
-//! queries, jobs, agents, auth, design tokens, reports, plan + gate
-//! synthesis, conventions / CRUD synthesis) lives in this file. The
-//! per-domain leaves above are called from there.
+//! Per-feature orchestration (`lower_feature_skeleton`, jobs / pollers
+//! / webhooks / notifications / channels / event groups orchestration,
+//! reports, conventions / CRUD synthesis, auto-photo synthesis) still
+//! lives in this file. The per-domain leaves above are called from
+//! there.
 //!
 //! ## Vocabulary cross-reference
 //!
@@ -63,29 +93,49 @@
 //! remain reachable at the same path. Internal helpers used across
 //! sibling modules are `pub(crate)`.
 
+mod agent;
+mod auth;
 pub mod checks;
 mod command;
+mod design;
 mod expr;
 mod helpers;
 mod lifecycle;
 mod lzx;
+mod plan_gate;
+mod query;
 pub mod rbac;
+mod resource;
 pub mod source_map;
 mod surface;
 pub mod symbol_origin;
 mod workflow;
 
+pub use agent::lower_agent;
+pub use auth::lower_auth;
+pub use design::lower_design;
 pub use lzx::lower_lzx_document;
+pub use plan_gate::{
+    PlanGateCode, PlanGateDiagnostic, PlanGateFacts, aggregate_plan_gate_facts,
+    diagnose_plan_gate_facts, parse_subscription_anchor,
+};
 pub use surface::lower_surface;
 pub use symbol_origin::build_symbol_origin_index;
 
+use agent::parse_closed_predicate;
 use command::{
     lower_command_effect, lower_invalidates_query_ref, lower_let_binding, lower_named_arg,
     lower_target_expr,
 };
 use expr::{
-    expr_from_text, lower_path_string, lower_policy_atom, lower_policy_expr, lower_qualified_name,
+    lower_path_string, lower_policy_atom, lower_policy_expr, lower_qualified_name,
     lower_translation_key_ref,
+};
+use query::{lower_cache_profile_decl, lower_query_decl, strip_validate_skip};
+use resource::{
+    lift_field_constraints, lower_rate_limit_spec, lower_resource_decl, lower_resource_field,
+    validate_constraint_combinations, validate_constraint_pattern_compile,
+    validate_constraint_range_invariant, validate_constraint_type_compatibility,
 };
 use workflow::{
     lower_emit_predicate, lower_event_variant_field, lower_external_call, lower_fanout,
@@ -95,9 +145,8 @@ use workflow::{
 };
 
 use helpers::{
-    conventions_levenshtein, find_balanced_decorator_end, find_keyword_line_offset,
-    find_top_level_operator, first_paren_balanced_token, has_top_level_comma, is_valid_design_hex,
-    levenshtein, pascal_to_snake, quoted_ident, quoted_table, snake_to_pascal, span_of,
+    conventions_levenshtein, first_paren_balanced_token, levenshtein, pascal_to_snake,
+    quoted_ident, quoted_table, snake_to_pascal, span_of,
 };
 
 use lazuli_ir as ir;
@@ -667,7 +716,7 @@ fn parse_cap_file_type(ty: &str) -> Option<ir::FileCapability> {
 /// IR-VOCAB-REST — `@cap.PII(class:<X>,retention:<dur>,
 /// log_redact:<bool>)`. `class` is required; retention and log_redact
 /// are optional passive slots for follow-up doctor/runtime cells.
-fn parse_cap_pii_type(ty: &str) -> Option<ir::PiiCapability> {
+pub(crate) fn parse_cap_pii_type(ty: &str) -> Option<ir::PiiCapability> {
     let ty = first_paren_balanced_token(ty);
     let inner = ty.strip_prefix("@cap.PII(")?.strip_suffix(')')?;
     let args = parse_capability_args(inner);
@@ -776,7 +825,7 @@ fn parse_file_visibility(raw: &str) -> Option<ir::FileVisibility> {
     }
 }
 
-fn parse_default(raw: &str) -> ir::DefaultValue {
+pub(crate) fn parse_default(raw: &str) -> ir::DefaultValue {
     if raw == "true" {
         return ir::DefaultValue::Boolean(true);
     }
@@ -824,499 +873,6 @@ fn parse_default(raw: &str) -> ir::DefaultValue {
 // See docs/proposals/ai-primitives-v0-implementation.md §4.
 // =============================================================================
 
-// =============================================================================
-// PG.B — plan-and-gate facts aggregator.
-// -----------------------------------------------------------------------------
-// `PlanGateFacts` is the analyzer-side projection of the package-wide
-// plan catalog (`plan ...` blocks lifted from app.lzi / registry.lzi)
-// + the subscription anchor + the per-callable gate directives lifted
-// from each feature's `command/job/webhook/api/query.*` bodies.
-//
-// Codegen (PG.C), doctor (PG.B), and LSP (PG.B) all consume this struct
-// as a side-table to the existing `Module`. It deliberately stays out
-// of the per-callable IR shapes so the existing ~150 struct-literal
-// fixtures keep building without modification.
-// =============================================================================
-
-/// Plan/gate facts derived from a single package's `.lzi` sources.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct PlanGateFacts {
-    /// Closed plan catalog. `None` when no `plan ...` blocks are
-    /// authored (the package has no subscription model).
-    pub catalog: Option<ir::PlanCatalog>,
-    /// `app.lzi subscription resource <feature>.<field>`. Required if
-    /// any callable carries a gate; doctor `PLAN-NO-SUBSCRIPTION-001`
-    /// fires when missing.
-    pub subscription_anchor: Option<ir::SubscriptionAnchor>,
-    /// Per-callable gate directives keyed by
-    /// `<feature>/<callable_kind>:<callable_name>`. The qualified key
-    /// matches what `parse_feature_gates` produces (with the feature
-    /// prefix added in this layer because gates are aggregated across
-    /// every feature in the package).
-    pub gates: std::collections::BTreeMap<String, Vec<ir::Gate>>,
-}
-
-/// PG.A — scan an `app.lzi` source for the
-/// `subscription resource <feature>.<field>` directive. Returns
-/// `None` when not declared. `tenancy_axis` is filled in `None`
-/// here; richer resolution requires the doctor's resource-tenancy
-/// table and lives downstream.
-pub fn parse_subscription_anchor(app_lzi_source: &str) -> Option<ir::SubscriptionAnchor> {
-    let mut in_app = false;
-    let mut offset = 0usize;
-    for line in app_lzi_source.lines() {
-        let line_len = line.len();
-        let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            offset += line_len + 1;
-            continue;
-        }
-        let indent = line.len() - trimmed.len();
-        if indent == 0 {
-            in_app = trimmed.starts_with("app ");
-            offset += line_len + 1;
-            continue;
-        }
-        if !in_app {
-            offset += line_len + 1;
-            continue;
-        }
-        if indent != 2 {
-            offset += line_len + 1;
-            continue;
-        }
-        if let Some(rest) = trimmed.strip_prefix("subscription resource ") {
-            let body = rest.trim();
-            if let Some((feature, field)) = body.split_once('.') {
-                let feature = feature.trim().to_owned();
-                let field = field.trim().to_owned();
-                if !feature.is_empty() && !field.is_empty() {
-                    return Some(ir::SubscriptionAnchor {
-                        feature,
-                        field,
-                        tenancy_axis: None,
-                        span_ref: Some(ir::SpanRef {
-                            start: offset,
-                            end: offset + line_len,
-                        }),
-                    });
-                }
-            }
-        }
-        offset += line_len + 1;
-    }
-    None
-}
-
-/// Build a `PlanGateFacts` from raw inputs. The caller is responsible
-/// for parsing the per-file plan blocks and gate side-channels first;
-/// this aggregator just merges and expands cross-plan references.
-///
-/// - `plan_blocks` is the union of `parse_plan_blocks(app_lzi)` plus
-///   `parse_plan_blocks(registry_lzi)` plus every other top-level
-///   source carrying `plan` blocks. Doctor enforces single declaration
-///   per plan name upstream.
-/// - `feature_gates` is one entry per feature, name + the
-///   `FeatureGatesAst` produced by `parse_feature_gates(source)`.
-/// - `anchor` is the `SubscriptionAnchor` resolved from
-///   `app.lzi subscription resource ...`.
-pub fn aggregate_plan_gate_facts(
-    plan_blocks: &[syntax::PlanBlockAst],
-    feature_gates: &[(String, syntax::FeatureGatesAst)],
-    anchor: Option<ir::SubscriptionAnchor>,
-) -> PlanGateFacts {
-    let catalog = if plan_blocks.is_empty() {
-        None
-    } else {
-        Some(build_plan_catalog(plan_blocks))
-    };
-
-    let mut gates: std::collections::BTreeMap<String, Vec<ir::Gate>> =
-        std::collections::BTreeMap::new();
-    for (feature, fg) in feature_gates {
-        for (callable_key, directives) in &fg.callables {
-            let qualified = format!("{}/{}", feature, callable_key);
-            let mut out = Vec::with_capacity(directives.len());
-            for directive in directives {
-                out.push(match directive {
-                    syntax::GateDirectiveAst::Behind { feature, .. } => ir::Gate::Behind {
-                        feature: feature.clone(),
-                    },
-                    syntax::GateDirectiveAst::Quota { limit, .. } => ir::Gate::Quota {
-                        limit: limit.clone(),
-                    },
-                });
-            }
-            gates.insert(qualified, out);
-        }
-    }
-
-    PlanGateFacts {
-        catalog,
-        subscription_anchor: anchor,
-        gates,
-    }
-}
-
-fn build_plan_catalog(plan_blocks: &[syntax::PlanBlockAst]) -> ir::PlanCatalog {
-    use std::collections::{BTreeMap, BTreeSet};
-
-    // Pass 1: gather declared features/limits per plan, deferring
-    // cross-plan reuse references until pass 2 (the referenced plan
-    // might be authored later in source order).
-    struct Staging {
-        direct_features: Vec<String>,
-        feature_refs: Vec<String>,
-        direct_limits: BTreeMap<String, ir::PlanLimitValue>,
-        limit_refs: Vec<String>,
-        trial: Option<ir::TrialPolicy>,
-        span_ref: Option<ir::SpanRef>,
-    }
-
-    let mut staging: BTreeMap<String, Staging> = BTreeMap::new();
-    for plan in plan_blocks {
-        let mut direct_features = Vec::new();
-        let mut feature_refs = Vec::new();
-        for feat in &plan.features {
-            match feat {
-                syntax::PlanFeatureRefAst::Ident(s) => direct_features.push(s.clone()),
-                syntax::PlanFeatureRefAst::CrossPlan(other) => feature_refs.push(other.clone()),
-            }
-        }
-        let mut direct_limits: BTreeMap<String, ir::PlanLimitValue> = BTreeMap::new();
-        let mut limit_refs = Vec::new();
-        for lim in &plan.limits {
-            match lim {
-                syntax::PlanLimitRefAst::Integer { name, value } => {
-                    direct_limits.insert(name.clone(), ir::PlanLimitValue::Integer(*value));
-                }
-                syntax::PlanLimitRefAst::Unlimited { name } => {
-                    direct_limits.insert(name.clone(), ir::PlanLimitValue::Unlimited);
-                }
-                syntax::PlanLimitRefAst::CrossPlan(other) => limit_refs.push(other.clone()),
-            }
-        }
-        let trial = plan.trial.as_ref().map(|t| ir::TrialPolicy {
-            duration: t.duration.clone(),
-            then_plan: t.then_plan.clone(),
-        });
-        let span_ref = Some(ir::SpanRef {
-            start: plan.span.start,
-            end: plan.span.end,
-        });
-        staging.insert(
-            plan.name.clone(),
-            Staging {
-                direct_features,
-                feature_refs,
-                direct_limits,
-                limit_refs,
-                trial,
-                span_ref,
-            },
-        );
-    }
-
-    // Pass 2: expand cross-plan references. We snapshot direct sets
-    // before mutation so reference chains see the original direct
-    // declarations (single-level expansion; deeper chains require the
-    // referenced plan to also resolve, enforced by doctor).
-    let direct_features_snapshot: BTreeMap<String, Vec<String>> = staging
-        .iter()
-        .map(|(k, v)| (k.clone(), v.direct_features.clone()))
-        .collect();
-    let direct_limits_snapshot: BTreeMap<String, BTreeMap<String, ir::PlanLimitValue>> = staging
-        .iter()
-        .map(|(k, v)| (k.clone(), v.direct_limits.clone()))
-        .collect();
-
-    let mut plans: Vec<ir::Plan> = Vec::with_capacity(staging.len());
-    let mut feature_union: BTreeSet<String> = BTreeSet::new();
-    let mut limit_union: BTreeSet<String> = BTreeSet::new();
-
-    for (name, s) in &staging {
-        let mut feature_set: BTreeSet<String> = s.direct_features.iter().cloned().collect();
-        for other in &s.feature_refs {
-            if let Some(other_features) = direct_features_snapshot.get(other) {
-                for f in other_features {
-                    feature_set.insert(f.clone());
-                }
-            }
-        }
-        let mut limit_map = s.direct_limits.clone();
-        for other in &s.limit_refs {
-            if let Some(other_limits) = direct_limits_snapshot.get(other) {
-                for (k, v) in other_limits {
-                    limit_map.entry(k.clone()).or_insert(*v);
-                }
-            }
-        }
-        let mut features: Vec<String> = feature_set.into_iter().collect();
-        features.sort();
-        let mut limits: Vec<ir::PlanLimit> = limit_map
-            .into_iter()
-            .map(|(name, value)| ir::PlanLimit { name, value })
-            .collect();
-        limits.sort_by(|a, b| a.name.cmp(&b.name));
-        for f in &features {
-            feature_union.insert(f.clone());
-        }
-        for l in &limits {
-            limit_union.insert(l.name.clone());
-        }
-        plans.push(ir::Plan {
-            name: name.clone(),
-            features,
-            limits,
-            trial: s.trial.clone(),
-            span_ref: s.span_ref,
-        });
-    }
-    plans.sort_by(|a, b| a.name.cmp(&b.name));
-
-    ir::PlanCatalog {
-        plans,
-        feature_catalog: feature_union.into_iter().collect(),
-        limit_catalog: limit_union.into_iter().collect(),
-    }
-}
-
-/// PG.B — closed catalog of plan-and-gate doctor diagnostic codes.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PlanGateDiagnostic {
-    pub code: PlanGateCode,
-    pub message: String,
-    /// Best-effort source-byte range of the offending construct. The
-    /// `0..0` span indicates a package-wide issue (catalog absent,
-    /// anchor missing for the whole app).
-    pub span: syntax::Span,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlanGateCode {
-    /// `PLAN-FEATURE-UNDECLARED-001` — `gate behind plan.feature: <X>`
-    /// references a feature not in the catalog's feature union.
-    FeatureUndeclared,
-    /// `PLAN-QUOTA-MISSING-001` — `gate quota plan.limit: <X>`
-    /// references a limit that is not declared by every plan; the
-    /// closed-grammar rule requires explicit `unlimited` opt-outs.
-    QuotaMissing,
-    /// `PLAN-NO-SUBSCRIPTION-001` — any gate exists in the package but
-    /// `app.lzi` did not declare `subscription resource ...`.
-    NoSubscription,
-    /// `PLAN-TRIAL-WITHOUT-FALLBACK-001` — trial revert plan does not
-    /// cover the trial plan's feature set, or its `then` target is
-    /// missing entirely.
-    TrialWithoutFallback,
-    /// `PLAN-SUBSCRIPTION-TENANCY-001` — multi-tenant app's anchor
-    /// resource lacks a `tenancy` axis matching `app.defaults.tenancy`.
-    SubscriptionTenancy,
-    /// `GATE-EVAL-ORDER-001` — a `gate` directive appears after
-    /// `policy` in source order; the closed evaluation order requires
-    /// gates to be authored before policies.
-    GateEvalOrder,
-}
-
-impl PlanGateCode {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            PlanGateCode::FeatureUndeclared => "PLAN-FEATURE-UNDECLARED-001",
-            PlanGateCode::QuotaMissing => "PLAN-QUOTA-MISSING-001",
-            PlanGateCode::NoSubscription => "PLAN-NO-SUBSCRIPTION-001",
-            PlanGateCode::TrialWithoutFallback => "PLAN-TRIAL-WITHOUT-FALLBACK-001",
-            PlanGateCode::SubscriptionTenancy => "PLAN-SUBSCRIPTION-TENANCY-001",
-            PlanGateCode::GateEvalOrder => "GATE-EVAL-ORDER-001",
-        }
-    }
-}
-
-/// Diagnose the plan/gate cross-feature invariants. Returns one entry
-/// per detected issue; an empty vec means the package passes.
-///
-/// `sources_with_eval_order` is a list of `(callable_key, body_text)`
-/// where `body_text` is the source range covering the callable's
-/// children. The function scans for `gate ... ` lines appearing after
-/// the first `policy ` line to flag GATE-EVAL-ORDER-001. Callers that
-/// don't need eval-order checking can pass an empty slice.
-pub fn diagnose_plan_gate_facts(
-    facts: &PlanGateFacts,
-    sources_with_eval_order: &[(String, String, syntax::Span)],
-) -> Vec<PlanGateDiagnostic> {
-    use std::collections::BTreeSet;
-    let mut out: Vec<PlanGateDiagnostic> = Vec::new();
-
-    // PLAN-NO-SUBSCRIPTION-001 — any gate without an anchor.
-    if !facts.gates.is_empty() && facts.subscription_anchor.is_none() {
-        let example = facts.gates.keys().next().cloned().unwrap_or_default();
-        out.push(PlanGateDiagnostic {
-            code: PlanGateCode::NoSubscription,
-            message: format!(
-                "callable `{}` declares a `gate` but `app.lzi` does not declare `subscription resource <feature>.<field>`; the runtime has no anchor to resolve the active plan",
-                example
-            ),
-            span: syntax::Span::new(0, 0),
-        });
-    }
-
-    if let Some(catalog) = &facts.catalog {
-        let feature_set: BTreeSet<&str> =
-            catalog.feature_catalog.iter().map(String::as_str).collect();
-        let limit_set: BTreeSet<&str> = catalog.limit_catalog.iter().map(String::as_str).collect();
-
-        // Build per-limit set of plans that declare it (for QUOTA-MISSING).
-        let mut limit_to_plans: std::collections::BTreeMap<&str, BTreeSet<&str>> =
-            std::collections::BTreeMap::new();
-        for plan in &catalog.plans {
-            for lim in &plan.limits {
-                limit_to_plans
-                    .entry(lim.name.as_str())
-                    .or_default()
-                    .insert(plan.name.as_str());
-            }
-        }
-        let all_plans: BTreeSet<&str> = catalog.plans.iter().map(|p| p.name.as_str()).collect();
-
-        // PLAN-FEATURE-UNDECLARED-001 + PLAN-QUOTA-MISSING-001.
-        for (callable_key, gates) in &facts.gates {
-            for gate in gates {
-                match gate {
-                    ir::Gate::Behind { feature } => {
-                        if !feature_set.contains(feature.as_str()) {
-                            out.push(PlanGateDiagnostic {
-                                code: PlanGateCode::FeatureUndeclared,
-                                message: format!(
-                                    "gate `behind plan.feature: {}` on `{}` references a feature not declared by any plan; the feature catalog is the union of every plan's `features` list",
-                                    feature, callable_key
-                                ),
-                                span: syntax::Span::new(0, 0),
-                            });
-                        }
-                    }
-                    ir::Gate::Quota { limit } => {
-                        if !limit_set.contains(limit.as_str()) {
-                            out.push(PlanGateDiagnostic {
-                                code: PlanGateCode::QuotaMissing,
-                                message: format!(
-                                    "gate `quota plan.limit: {}` on `{}` references a limit not declared by any plan",
-                                    limit, callable_key
-                                ),
-                                span: syntax::Span::new(0, 0),
-                            });
-                        } else if let Some(declaring) = limit_to_plans.get(limit.as_str()) {
-                            if declaring != &all_plans {
-                                let missing: Vec<&str> =
-                                    all_plans.difference(declaring).copied().collect::<Vec<_>>();
-                                out.push(PlanGateDiagnostic {
-                                    code: PlanGateCode::QuotaMissing,
-                                    message: format!(
-                                        "gate `quota plan.limit: {}` on `{}` is not declared by plan(s) {}; quota gates must be honored by every tier (set `<X> unlimited` to opt out)",
-                                        limit, callable_key, missing.join(", ")
-                                    ),
-                                    span: syntax::Span::new(0, 0),
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // PLAN-TRIAL-WITHOUT-FALLBACK-001 — trial revert plan must
-        // exist and cover the trial plan's feature set.
-        for plan in &catalog.plans {
-            if let Some(trial) = &plan.trial {
-                let then_plan = catalog.plans.iter().find(|p| p.name == trial.then_plan);
-                match then_plan {
-                    None => out.push(PlanGateDiagnostic {
-                        code: PlanGateCode::TrialWithoutFallback,
-                        message: format!(
-                            "plan `{}` declares `trial then {}` but `{}` is not a declared plan",
-                            plan.name, trial.then_plan, trial.then_plan
-                        ),
-                        span: plan
-                            .span_ref
-                            .map(|s| syntax::Span::new(s.start, s.end))
-                            .unwrap_or(syntax::Span::new(0, 0)),
-                    }),
-                    Some(then) => {
-                        let then_features: BTreeSet<&str> =
-                            then.features.iter().map(String::as_str).collect();
-                        let missing: Vec<&str> = plan
-                            .features
-                            .iter()
-                            .filter(|f| !then_features.contains(f.as_str()))
-                            .map(String::as_str)
-                            .collect();
-                        if !missing.is_empty() {
-                            out.push(PlanGateDiagnostic {
-                                code: PlanGateCode::TrialWithoutFallback,
-                                message: format!(
-                                    "plan `{}` declares `trial then {}` but `{}`'s feature set is missing {} — trial revert would lose features the caller had during trial (declare `unlimited` on the fallback or move features out of the trial plan)",
-                                    plan.name,
-                                    trial.then_plan,
-                                    trial.then_plan,
-                                    missing.join(", ")
-                                ),
-                                span: plan
-                                    .span_ref
-                                    .map(|s| syntax::Span::new(s.start, s.end))
-                                    .unwrap_or(syntax::Span::new(0, 0)),
-                            });
-                        }
-                    }
-                }
-            }
-        }
-    } else if !facts.gates.is_empty() {
-        // Gates exist but no catalog declared at all: every gate
-        // references something undeclared.
-        for callable_key in facts.gates.keys() {
-            out.push(PlanGateDiagnostic {
-                code: PlanGateCode::FeatureUndeclared,
-                message: format!(
-                    "callable `{}` declares a `gate` but no `plan` blocks are authored; declare at least one plan with `features` / `limits`",
-                    callable_key
-                ),
-                span: syntax::Span::new(0, 0),
-            });
-        }
-    }
-
-    // PLAN-SUBSCRIPTION-TENANCY-001 — anchor exists but tenancy axis
-    // is absent. This is a structural check; richer cross-feature
-    // tenancy resolution lives in the doctor pass that knows about
-    // resource tenancy axes.
-    if let Some(anchor) = &facts.subscription_anchor {
-        if anchor.tenancy_axis.is_none() {
-            // Only warn when there is actually a gate in play, otherwise
-            // single-tenant apps would fire on every anchor.
-            // The richer multi-tenancy parity check lives in the
-            // higher-level doctor pass.
-            let _ = anchor;
-        }
-    }
-
-    // GATE-EVAL-ORDER-001 — gate after policy in source order.
-    for (callable_key, body, span) in sources_with_eval_order {
-        if let Some(policy_pos) = find_keyword_line_offset(body, "policy ") {
-            if let Some(gate_pos) = find_keyword_line_offset(body, "gate ") {
-                if gate_pos > policy_pos {
-                    out.push(PlanGateDiagnostic {
-                        code: PlanGateCode::GateEvalOrder,
-                        message: format!(
-                            "callable `{}` declares `gate` after `policy`; gates evaluate before policy and must be authored in that order",
-                            callable_key
-                        ),
-                        span: *span,
-                    });
-                }
-            }
-        }
-    }
-
-    out
-}
-
 /// FR-3a — for each resource with a `user: User required unique`
 /// field carrying an optional `@cap.File(...)` typed field, append
 /// the 4 auto-photo commands + 2 records to the feature.
@@ -1328,7 +884,7 @@ pub fn diagnose_plan_gate_facts(
 ///      synthesized name for that field's command role (request,
 ///      confirm, clear, get_url) — name collision skips THAT one
 ///      role and emits the other 3.
-fn synthesize_auto_photo(feature: &mut ir::Feature) {
+pub(crate) fn synthesize_auto_photo(feature: &mut ir::Feature) {
     let mut to_add_commands: Vec<ir::Command> = Vec::new();
     let mut to_add_records: Vec<ir::Record> = Vec::new();
 
@@ -1492,7 +1048,7 @@ fn auto_photo_display_record(name: &str) -> ir::Record {
     }
 }
 
-fn build_auto_photo_command(
+pub(crate) fn build_auto_photo_command(
     name: String,
     resource: &str,
     field: &str,
@@ -1735,10 +1291,7 @@ pub enum ConventionSynthDiagnostic {
     /// `@owner_axis(through: <col>)` on another field. The two scopes
     /// would compose redundantly; the unique-user mode already
     /// provides ownership. See §7.4 + §11.1.
-    OwnerAxisCollidesWithUniqueUser {
-        resource: String,
-        field: String,
-    },
+    OwnerAxisCollidesWithUniqueUser { resource: String, field: String },
 }
 
 /// Legacy alias preserved during the M2 rename. Downstream code should
@@ -1833,253 +1386,244 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
         // against the resource. Diagnostics (§11.1) are pushed
         // regardless of which bundles are active (they're a property
         // of the resource shape, not of the bundle).
-        let owner_scope =
-            resolve_owner_scope(feature, resource, &mut diagnostics);
+        let owner_scope = resolve_owner_scope(feature, resource, &mut diagnostics);
 
         // ===== `crud` bundle (§5) — gated; runs only when declared. =====
         if has_crud {
-
-        // §5.8 — guard: policy `authenticated` must exist.
-        if !has_authenticated {
-            diagnostics.push(CrudSynthDiagnostic::PolicyNotFound {
-                resource: resource.name.clone(),
-            });
-            // We still synthesize with `PolicyRef::Local("authenticated")`
-            // even though it's unresolved — Cell C4 will surface the
-            // diagnostic; the IR shape stays uniform. This mirrors the
-            // FR-3a auto-photo precedent (which returns silently when
-            // no policy is found; here we surface a typed diagnostic
-            // instead).
-        }
-
-        let categorised = categorize_fields(resource);
-
-        // §11 `crud_synth_no_required_fields` — `create.input` would be
-        // empty if every required-on-resource field is Tenant or Auto.
-        // Detect by looking at the create-input list.
-        let create_input_fields = categorised.create_input_fields();
-        if create_input_fields.is_empty() {
-            diagnostics.push(CrudSynthDiagnostic::NoRequiredFields {
-                resource: resource.name.clone(),
-            });
-        }
-
-        let resource_snake = pascal_to_snake(&resource.name);
-
-        // §5.1 — the 5 synth names, in canonical order.
-        let create_name = format!("create_{}", resource_snake);
-        let update_name = format!("update_{}", resource_snake);
-        let delete_name = format!("delete_{}", resource_snake);
-        let lookup_name = format!("lookup_{}", resource_snake);
-        let list_name = format!("list_{}s", resource_snake);
-
-        // §6 — per-name override. If the author wrote the same name we
-        // skip *just that name* with no warning, unless the author's
-        // signature diverges from the canonical shape — that lands the
-        // `crud_synth_author_signature_mismatch` diagnostic (§11 / §9).
-        //
-        // The `if existing_*.contains(...)` checks below are
-        // authoring-time controls (which synth to add), NOT lowering
-        // control flow over the emitted IR — RULE-VOCAB-03 (§7) is
-        // preserved.
-
-        // 1) create_<resource>
-        if existing_command_names.contains(&create_name) {
-            if let Some(reason) = check_command_signature_mismatch(
-                feature,
-                &create_name,
-                &create_input_fields,
-                CanonicalReturn::CreatesResource(&resource.name),
-            ) {
-                diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
+            // §5.8 — guard: policy `authenticated` must exist.
+            if !has_authenticated {
+                diagnostics.push(CrudSynthDiagnostic::PolicyNotFound {
                     resource: resource.name.clone(),
-                    synth_name: create_name.clone(),
-                    reason,
+                });
+                // We still synthesize with `PolicyRef::Local("authenticated")`
+                // even though it's unresolved — Cell C4 will surface the
+                // diagnostic; the IR shape stays uniform. This mirrors the
+                // FR-3a auto-photo precedent (which returns silently when
+                // no policy is found; here we surface a typed diagnostic
+                // instead).
+            }
+
+            let categorised = categorize_fields(resource);
+
+            // §11 `crud_synth_no_required_fields` — `create.input` would be
+            // empty if every required-on-resource field is Tenant or Auto.
+            // Detect by looking at the create-input list.
+            let create_input_fields = categorised.create_input_fields();
+            if create_input_fields.is_empty() {
+                diagnostics.push(CrudSynthDiagnostic::NoRequiredFields {
+                    resource: resource.name.clone(),
                 });
             }
-            synth_origins_inserts.push((
-                create_name.clone(),
-                ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
-            ));
-        } else {
-            let mut cmd = build_create_command(
-                &create_name,
-                &resource.name,
-                &create_input_fields,
-            );
-            // §8.5.A — owner-scope create-side CTE-INSERT. The CREATE
-            // synth carries the *full* OwnerScopeSql (cte_owner_check
-            // populated) so codegen can paste the CTE prefix in front
-            // of the INSERT. Tenant-only resources keep
-            // `owner_scope_sql: None` and emit the same shape as
-            // before this cell.
+
+            let resource_snake = pascal_to_snake(&resource.name);
+
+            // §5.1 — the 5 synth names, in canonical order.
+            let create_name = format!("create_{}", resource_snake);
+            let update_name = format!("update_{}", resource_snake);
+            let delete_name = format!("delete_{}", resource_snake);
+            let lookup_name = format!("lookup_{}", resource_snake);
+            let list_name = format!("list_{}s", resource_snake);
+
+            // §6 — per-name override. If the author wrote the same name we
+            // skip *just that name* with no warning, unless the author's
+            // signature diverges from the canonical shape — that lands the
+            // `crud_synth_author_signature_mismatch` diagnostic (§11 / §9).
+            //
+            // The `if existing_*.contains(...)` checks below are
+            // authoring-time controls (which synth to add), NOT lowering
+            // control flow over the emitted IR — RULE-VOCAB-03 (§7) is
+            // preserved.
+
+            // 1) create_<resource>
+            if existing_command_names.contains(&create_name) {
+                if let Some(reason) = check_command_signature_mismatch(
+                    feature,
+                    &create_name,
+                    &create_input_fields,
+                    CanonicalReturn::CreatesResource(&resource.name),
+                ) {
+                    diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
+                        resource: resource.name.clone(),
+                        synth_name: create_name.clone(),
+                        reason,
+                    });
+                }
+                synth_origins_inserts.push((
+                    create_name.clone(),
+                    ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
+                ));
+            } else {
+                let mut cmd =
+                    build_create_command(&create_name, &resource.name, &create_input_fields);
+                // §8.5.A — owner-scope create-side CTE-INSERT. The CREATE
+                // synth carries the *full* OwnerScopeSql (cte_owner_check
+                // populated) so codegen can paste the CTE prefix in front
+                // of the INSERT. Tenant-only resources keep
+                // `owner_scope_sql: None` and emit the same shape as
+                // before this cell.
+                if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
+                    cmd.owner_scope_sql = Some(scope.clone());
+                }
+                cmd.invalidates =
+                    synth_crud_invalidates(&lookup_name, &list_name, has_me, &resource_snake);
+                to_add_commands.push(cmd);
+                synth_origins_inserts.push((
+                    create_name.clone(),
+                    ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
+                ));
+            }
+
+            // 2) update_<resource>
+            if existing_command_names.contains(&update_name) {
+                let canonical_update_inputs = categorised.update_input_fields();
+                if let Some(reason) = check_command_signature_mismatch(
+                    feature,
+                    &update_name,
+                    &canonical_update_inputs,
+                    CanonicalReturn::UpdatesResource(&resource.name),
+                ) {
+                    diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
+                        resource: resource.name.clone(),
+                        synth_name: update_name.clone(),
+                        reason,
+                    });
+                }
+                synth_origins_inserts.push((
+                    update_name.clone(),
+                    ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
+                ));
+            } else {
+                let mut cmd = build_update_command(
+                    &update_name,
+                    &resource.name,
+                    &categorised.update_input_fields(),
+                );
+                // §8.2 — owner-scope WHERE on UPDATE. The carrier carries
+                // ONLY the `where_predicate`; codegen drops the
+                // `cte_owner_check` (None here, since UPDATE doesn't need
+                // the CTE wrapper). We share the resolution by cloning;
+                // codegen reads only what it needs per shape.
+                if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
+                    cmd.owner_scope_sql = Some(ir::OwnerScopeSql {
+                        cte_owner_check: None,
+                        ..scope.clone()
+                    });
+                }
+                cmd.invalidates =
+                    synth_crud_invalidates(&lookup_name, &list_name, has_me, &resource_snake);
+                to_add_commands.push(cmd);
+                synth_origins_inserts.push((
+                    update_name.clone(),
+                    ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
+                ));
+            }
+
+            // 3) delete_<resource>
+            if existing_command_names.contains(&delete_name) {
+                if let Some(reason) = check_command_signature_mismatch(
+                    feature,
+                    &delete_name,
+                    &[],
+                    CanonicalReturn::DeletesResource(&resource.name),
+                ) {
+                    diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
+                        resource: resource.name.clone(),
+                        synth_name: delete_name.clone(),
+                        reason,
+                    });
+                }
+                synth_origins_inserts.push((
+                    delete_name.clone(),
+                    ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
+                ));
+            } else {
+                let mut cmd = build_delete_command(&delete_name, &resource.name);
+                // §8.1 — owner-scope WHERE on DELETE. Same shape as the
+                // pre-absorption hand-rolled handler in §1.1 trigger
+                // evidence. CTE not used on DELETE; only the predicate.
+                if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
+                    cmd.owner_scope_sql = Some(ir::OwnerScopeSql {
+                        cte_owner_check: None,
+                        ..scope.clone()
+                    });
+                }
+                cmd.invalidates =
+                    synth_crud_invalidates(&lookup_name, &list_name, has_me, &resource_snake);
+                to_add_commands.push(cmd);
+                synth_origins_inserts.push((
+                    delete_name.clone(),
+                    ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
+                ));
+            }
+
+            // 4) lookup_<resource>
+            let mut canonical_lookup = build_lookup_query(&lookup_name, &resource.name);
+            // §8.3 — owner-scope WHERE on LOOKUP. The Lookup query's
+            // canonical keys (id = $1) get extended with the chain
+            // predicate emitted by codegen via `owner_scope_sql`.
             if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
-                cmd.owner_scope_sql = Some(scope.clone());
+                if let ir::Query::Lookup(lq) = &mut canonical_lookup {
+                    lq.owner_scope_sql = Some(ir::OwnerScopeSql {
+                        cte_owner_check: None,
+                        ..scope.clone()
+                    });
+                }
             }
-            cmd.invalidates =
-                synth_crud_invalidates(&lookup_name, &list_name, has_me, &resource_snake);
-            to_add_commands.push(cmd);
-            synth_origins_inserts.push((
-                create_name.clone(),
-                ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
-            ));
-        }
+            if existing_query_names.contains(&lookup_name) {
+                if let Some(reason) =
+                    check_query_signature_mismatch(feature, &lookup_name, &canonical_lookup)
+                {
+                    diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
+                        resource: resource.name.clone(),
+                        synth_name: lookup_name.clone(),
+                        reason,
+                    });
+                }
+                synth_origins_inserts.push((
+                    lookup_name.clone(),
+                    ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
+                ));
+            } else {
+                to_add_queries.push(canonical_lookup);
+                synth_origins_inserts.push((
+                    lookup_name.clone(),
+                    ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
+                ));
+            }
 
-        // 2) update_<resource>
-        if existing_command_names.contains(&update_name) {
-            let canonical_update_inputs = categorised.update_input_fields();
-            if let Some(reason) = check_command_signature_mismatch(
-                feature,
-                &update_name,
-                &canonical_update_inputs,
-                CanonicalReturn::UpdatesResource(&resource.name),
-            ) {
-                diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
-                    resource: resource.name.clone(),
-                    synth_name: update_name.clone(),
-                    reason,
-                });
-            }
-            synth_origins_inserts.push((
-                update_name.clone(),
-                ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
-            ));
-        } else {
-            let mut cmd = build_update_command(
-                &update_name,
-                &resource.name,
-                &categorised.update_input_fields(),
-            );
-            // §8.2 — owner-scope WHERE on UPDATE. The carrier carries
-            // ONLY the `where_predicate`; codegen drops the
-            // `cte_owner_check` (None here, since UPDATE doesn't need
-            // the CTE wrapper). We share the resolution by cloning;
-            // codegen reads only what it needs per shape.
+            // 5) list_<resource>s
+            let mut canonical_list = build_list_query(&list_name, &resource.name);
+            // §8.4 — owner-scope WHERE on LIST. Same predicate; the
+            // synth's pagination shape is unaffected.
             if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
-                cmd.owner_scope_sql = Some(ir::OwnerScopeSql {
-                    cte_owner_check: None,
-                    ..scope.clone()
-                });
+                if let ir::Query::List(lq) = &mut canonical_list {
+                    lq.owner_scope_sql = Some(ir::OwnerScopeSql {
+                        cte_owner_check: None,
+                        ..scope.clone()
+                    });
+                }
             }
-            cmd.invalidates =
-                synth_crud_invalidates(&lookup_name, &list_name, has_me, &resource_snake);
-            to_add_commands.push(cmd);
-            synth_origins_inserts.push((
-                update_name.clone(),
-                ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
-            ));
-        }
-
-        // 3) delete_<resource>
-        if existing_command_names.contains(&delete_name) {
-            if let Some(reason) = check_command_signature_mismatch(
-                feature,
-                &delete_name,
-                &[],
-                CanonicalReturn::DeletesResource(&resource.name),
-            ) {
-                diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
-                    resource: resource.name.clone(),
-                    synth_name: delete_name.clone(),
-                    reason,
-                });
+            if existing_query_names.contains(&list_name) {
+                if let Some(reason) =
+                    check_query_signature_mismatch(feature, &list_name, &canonical_list)
+                {
+                    diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
+                        resource: resource.name.clone(),
+                        synth_name: list_name.clone(),
+                        reason,
+                    });
+                }
+                synth_origins_inserts.push((
+                    list_name.clone(),
+                    ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
+                ));
+            } else {
+                to_add_queries.push(canonical_list);
+                synth_origins_inserts.push((
+                    list_name.clone(),
+                    ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
+                ));
             }
-            synth_origins_inserts.push((
-                delete_name.clone(),
-                ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
-            ));
-        } else {
-            let mut cmd = build_delete_command(&delete_name, &resource.name);
-            // §8.1 — owner-scope WHERE on DELETE. Same shape as the
-            // pre-absorption hand-rolled handler in §1.1 trigger
-            // evidence. CTE not used on DELETE; only the predicate.
-            if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
-                cmd.owner_scope_sql = Some(ir::OwnerScopeSql {
-                    cte_owner_check: None,
-                    ..scope.clone()
-                });
-            }
-            cmd.invalidates =
-                synth_crud_invalidates(&lookup_name, &list_name, has_me, &resource_snake);
-            to_add_commands.push(cmd);
-            synth_origins_inserts.push((
-                delete_name.clone(),
-                ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
-            ));
-        }
-
-        // 4) lookup_<resource>
-        let mut canonical_lookup = build_lookup_query(&lookup_name, &resource.name);
-        // §8.3 — owner-scope WHERE on LOOKUP. The Lookup query's
-        // canonical keys (id = $1) get extended with the chain
-        // predicate emitted by codegen via `owner_scope_sql`.
-        if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
-            if let ir::Query::Lookup(lq) = &mut canonical_lookup {
-                lq.owner_scope_sql = Some(ir::OwnerScopeSql {
-                    cte_owner_check: None,
-                    ..scope.clone()
-                });
-            }
-        }
-        if existing_query_names.contains(&lookup_name) {
-            if let Some(reason) = check_query_signature_mismatch(
-                feature,
-                &lookup_name,
-                &canonical_lookup,
-            ) {
-                diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
-                    resource: resource.name.clone(),
-                    synth_name: lookup_name.clone(),
-                    reason,
-                });
-            }
-            synth_origins_inserts.push((
-                lookup_name.clone(),
-                ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
-            ));
-        } else {
-            to_add_queries.push(canonical_lookup);
-            synth_origins_inserts.push((
-                lookup_name.clone(),
-                ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
-            ));
-        }
-
-        // 5) list_<resource>s
-        let mut canonical_list = build_list_query(&list_name, &resource.name);
-        // §8.4 — owner-scope WHERE on LIST. Same predicate; the
-        // synth's pagination shape is unaffected.
-        if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
-            if let ir::Query::List(lq) = &mut canonical_list {
-                lq.owner_scope_sql = Some(ir::OwnerScopeSql {
-                    cte_owner_check: None,
-                    ..scope.clone()
-                });
-            }
-        }
-        if existing_query_names.contains(&list_name) {
-            if let Some(reason) = check_query_signature_mismatch(
-                feature,
-                &list_name,
-                &canonical_list,
-            ) {
-                diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
-                    resource: resource.name.clone(),
-                    synth_name: list_name.clone(),
-                    reason,
-                });
-            }
-            synth_origins_inserts.push((
-                list_name.clone(),
-                ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
-            ));
-        } else {
-            to_add_queries.push(canonical_list);
-            synth_origins_inserts.push((
-                list_name.clone(),
-                ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
-            ));
-        }
         } // ===== end `crud` bundle =====
 
         // ===== `me` bundle (me §5) — singleton-per-actor lookup. =====
@@ -2134,24 +1678,18 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
                             &lookup_my_name,
                             &resource.name,
                         ) {
-                            diagnostics.push(
-                                ConventionSynthDiagnostic::MeSignatureMismatch {
-                                    resource: resource.name.clone(),
-                                    synth_name: lookup_my_name.clone(),
-                                    reason,
-                                },
-                            );
+                            diagnostics.push(ConventionSynthDiagnostic::MeSignatureMismatch {
+                                resource: resource.name.clone(),
+                                synth_name: lookup_my_name.clone(),
+                                reason,
+                            });
                         }
                         synth_origins_inserts.push((
                             lookup_my_name.clone(),
                             ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Me),
                         ));
                     } else {
-                        let mut q = build_lookup_my_query(
-                            &lookup_my_name,
-                            &resource.name,
-                            m,
-                        );
+                        let mut q = build_lookup_my_query(&lookup_my_name, &resource.name, m);
                         // §6.1 composition — `[crud, me]` + `@owner_axis`
                         // composes uniformly: the `me` synth also reads
                         // the resource-level annotation and appends the
@@ -2251,8 +1789,7 @@ fn classify_me_mode(resource: &ir::Resource) -> Option<MeMode> {
             && matches!(&f.type_ref, ir::TypeRef::UserDefined(q) if q.name == "User")
     });
     let has_org_field = resource.fields.iter().any(|f| {
-        f.name == "org"
-            && matches!(&f.type_ref, ir::TypeRef::UserDefined(q) if q.name == "Org")
+        f.name == "org" && matches!(&f.type_ref, ir::TypeRef::UserDefined(q) if q.name == "Org")
     });
 
     // me §5.3 rows 1 and 2 — `user_keyed` variants.
@@ -2287,7 +1824,7 @@ fn classify_me_mode(resource: &ir::Resource) -> Option<MeMode> {
 /// `query.lookup ... filters` blocks (e.g.,
 /// `traveler.lzi:79-83` references `ctx.actor.user_id`; the IR-level
 /// `KeyClause.equals` carries an `Expr::Path` per `Path::from_segments`).
-fn build_lookup_my_query(name: &str, resource: &str, mode: MeMode) -> ir::Query {
+pub(crate) fn build_lookup_my_query(name: &str, resource: &str, mode: MeMode) -> ir::Query {
     let _ = resource; // reserved for future signature-mismatch detail
     // Runtime `readCtx` (runtime/go/lazuli/handle.go:893) accepts only
     // canonical snake-case ctx paths: `actor.user_id` / `actor.org_id`.
@@ -2560,12 +2097,10 @@ fn resolve_owner_scope(
         // collide (rare; the spec describes "the resource has BOTH").
         if has_user_unique {
             if !emitted_collision_diag {
-                diagnostics_out.push(
-                    ConventionSynthDiagnostic::OwnerAxisCollidesWithUniqueUser {
-                        resource: resource.name.clone(),
-                        field: field.name.clone(),
-                    },
-                );
+                diagnostics_out.push(ConventionSynthDiagnostic::OwnerAxisCollidesWithUniqueUser {
+                    resource: resource.name.clone(),
+                    field: field.name.clone(),
+                });
                 emitted_collision_diag = true;
             }
             continue;
@@ -2601,10 +2136,7 @@ fn resolve_owner_scope(
         // `fk_target` (name) and `axis.through_column` (column name)
         // verbatim from the annotation; it does NOT need fk_resource
         // to exist locally.
-        let fk_resource = feature
-            .resources
-            .iter()
-            .find(|r| r.name == fk_target);
+        let fk_resource = feature.resources.iter().find(|r| r.name == fk_target);
 
         if let Some(fk_resource) = fk_resource {
             let through_field = fk_resource
@@ -2910,7 +2442,7 @@ fn check_query_signature_mismatch(
 }
 
 /// §5.2 — build `create_<resource>` command IR.
-fn build_create_command(
+pub(crate) fn build_create_command(
     name: &str,
     resource: &str,
     input_fields: &[(&ir::Field, bool)],
@@ -2943,7 +2475,7 @@ fn build_create_command(
 }
 
 /// §5.3 — build `update_<resource>` command IR.
-fn build_update_command(
+pub(crate) fn build_update_command(
     name: &str,
     resource: &str,
     input_fields: &[(&ir::Field, bool)],
@@ -3044,7 +2576,7 @@ fn input_field_assignments(input_fields: &[(&ir::Field, bool)]) -> Vec<ir::Assig
 }
 
 /// §5.4 — build `delete_<resource>` command IR.
-fn build_delete_command(name: &str, resource: &str) -> ir::Command {
+pub(crate) fn build_delete_command(name: &str, resource: &str) -> ir::Command {
     ir::Command {
         name: name.to_owned(),
         public_contract: None,
@@ -3069,7 +2601,7 @@ fn build_delete_command(name: &str, resource: &str) -> ir::Command {
 }
 
 /// §5.5 — build `lookup_<resource>` query IR.
-fn build_lookup_query(name: &str, resource: &str) -> ir::Query {
+pub(crate) fn build_lookup_query(name: &str, resource: &str) -> ir::Query {
     let _ = resource;
     ir::Query::Lookup(ir::LookupQuery {
         name: name.to_owned(),
@@ -3092,7 +2624,7 @@ fn build_lookup_query(name: &str, resource: &str) -> ir::Query {
 }
 
 /// §5.6 — build `list_<resource>s` query IR.
-fn build_list_query(name: &str, resource: &str) -> ir::Query {
+pub(crate) fn build_list_query(name: &str, resource: &str) -> ir::Query {
     let _ = resource;
     ir::Query::List(ir::ListQuery {
         name: name.to_owned(),
@@ -3399,7 +2931,7 @@ pub fn lower_feature_skeleton(
 /// `ir::Aggregate`. Resource references stay unqualified `QualifiedName`
 /// (feature `None`); doctor resolves them against the surrounding
 /// feature's resource list.
-fn lower_aggregate_decl(decl: &syntax::AggregateDecl) -> ir::Aggregate {
+pub(crate) fn lower_aggregate_decl(decl: &syntax::AggregateDecl) -> ir::Aggregate {
     ir::Aggregate {
         name: decl.name.clone(),
         root: ir::QualifiedName {
@@ -3425,7 +2957,7 @@ fn lower_aggregate_decl(decl: &syntax::AggregateDecl) -> ir::Aggregate {
 /// (`parse_closed_predicate`); when the shape isn't recognized the
 /// `EvalPredicate::Unparsed(text)` variant carries the verbatim source
 /// so doctor can echo it on failure.
-fn lower_invariant_decl(decl: &syntax::InvariantDecl) -> ir::Invariant {
+pub(crate) fn lower_invariant_decl(decl: &syntax::InvariantDecl) -> ir::Invariant {
     ir::Invariant {
         name: decl.name.clone(),
         when: parse_closed_predicate(&decl.when),
@@ -3434,399 +2966,9 @@ fn lower_invariant_decl(decl: &syntax::InvariantDecl) -> ir::Invariant {
     }
 }
 
-/// Phase L Tier 4d — lower a canonical-indent query declaration into
-/// `ir::Query`. The three shapes (`query.list`, `query.lookup`,
-/// `query.sql` / `query.view`) project onto the existing IR variants.
-///
-/// Cache (CL.C.3): if the query authors `cache <profile_name>`, the
-/// inline `cache` field is populated by resolving the profile against
-/// `caches`. When the profile is unknown, lowering preserves the
-/// reference (so doctor can fire `cache-profile-unknown`) without
-/// inventing a body.
-fn lower_query_decl(
-    feature_name: &str,
-    q: &syntax::QueryDecl,
-    caches: &[syntax::CacheProfileDecl],
-) -> Result<ir::Query, AnalyzeError> {
-    match q {
-        syntax::QueryDecl::List(list) => Ok(ir::Query::List(ir::ListQuery {
-            name: list.name.clone(),
-            public_contract: lower_public_contract(&list.public_contract),
-            params: list
-                .params
-                .iter()
-                .map(lower_command_input_to_typed)
-                .collect::<Result<Vec<_>, _>>()?,
-            scope: Vec::new(),
-            scope_override: list.scope_override,
-            filters: lower_query_filter_lines(&list.filters),
-            order: Vec::new(),
-            paginate: list.paginate,
-            modifier: list.modifier.clone(),
-            cache: lower_query_cache_with_profile(
-                &list.cache,
-                list.cache_profile_ref.as_deref(),
-                caches,
-            ),
-            // QUERY-POLICY-001 — route the parsed `policy @policy.<X>`
-            // atom into IR so codegen can emit a non-empty
-            // `lazuli.Policy{...}` literal. Mirrors `lower_command_decl`.
-            policy: list
-                .policy
-                .as_deref()
-                .map(lower_policy_atom)
-                .unwrap_or(ir::PolicyRef::None),
-            policy_expr: list.policy_expr.as_ref().map(lower_policy_expr),
-            policy_when_denied: None,
-            previous_names: Vec::new(),
-            span_ref: Some(span_of(list.span)),
-            // owner-scope §7.3 — author-written queries default to
-            // tenant-only. Synth pass mutates the slot for
-            // convention-emitted queries.
-            owner_scope_sql: None,
-        })),
-        syntax::QueryDecl::Lookup(lookup) => Ok(ir::Query::Lookup(ir::LookupQuery {
-            name: lookup.name.clone(),
-            public_contract: lower_public_contract(&lookup.public_contract),
-            params: Vec::new(),
-            keys: lookup
-                .keys
-                .iter()
-                .map(|k| ir::KeyClause {
-                    path: ir::Path::from_segments([k.name.clone()]),
-                    equals: ir::Expr::Path(ir::Path::from_segments([k.name.clone()])),
-                })
-                .collect(),
-            scope: Vec::new(),
-            scope_override: false,
-            filters: lower_query_filter_lines(&lookup.filters),
-            // QUERY-POLICY-001 — same lowering as `query.list`.
-            policy: lookup
-                .policy
-                .as_deref()
-                .map(lower_policy_atom)
-                .unwrap_or(ir::PolicyRef::None),
-            policy_expr: lookup.policy_expr.as_ref().map(lower_policy_expr),
-            policy_when_denied: None,
-            previous_names: Vec::new(),
-            span_ref: Some(span_of(lookup.span)),
-            // owner-scope §7.3 — author-written `query.lookup` defaults
-            // to tenant-only. Synth pass mutates for `lookup_<r>` /
-            // `lookup_my_<r>` when the resource carries `@owner_axis`.
-            owner_scope_sql: None,
-        })),
-        syntax::QueryDecl::Sql(sql) => Ok(ir::Query::Sql(ir::SqlQuery {
-            name: sql.name.clone(),
-            sql_kind: match sql.kind {
-                syntax::SqlQueryKind::Sql => ir::SqlQueryKind::Sql,
-                syntax::SqlQueryKind::View => ir::SqlQueryKind::View,
-            },
-            public_contract: lower_public_contract(&sql.public_contract),
-            params: sql
-                .params
-                .iter()
-                .map(lower_command_input_to_typed)
-                .collect::<Result<Vec<_>, _>>()?,
-            scope: Vec::new(),
-            scope_override: false,
-            returns: type_ref_from_text(&sql.returns),
-            sql_path: lower_sql_file_ref(feature_name, &sql.sql_path),
-            cache: None,
-            // QUERY-POLICY-001 — same lowering as `query.list`.
-            policy: sql
-                .policy
-                .as_deref()
-                .map(lower_policy_atom)
-                .unwrap_or(ir::PolicyRef::None),
-            policy_expr: sql.policy_expr.as_ref().map(lower_policy_expr),
-            policy_when_denied: None,
-            previous_names: Vec::new(),
-            span_ref: Some(span_of(sql.span)),
-        })),
-    }
-}
-
-fn lower_sql_file_ref(feature_name: &str, source: &str) -> String {
-    let trimmed = source.trim();
-    let Some(rest) = trimmed.strip_prefix("@file.") else {
-        return trimmed.to_owned();
-    };
-    if rest.ends_with(".sql")
-        && !rest.contains('/')
-        && !rest.contains('\\')
-        && rest
-            .trim_end_matches(".sql")
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_')
-    {
-        return format!("app/features/{feature_name}/queries/{rest}");
-    }
-    trimmed.to_owned()
-}
-
-/// WAR-VOCAB-QUERY-ENUM-01 closure — lower the verbatim
-/// `query.list filters` lines (parsed by the syntax as `Vec<String>`)
-/// into typed `ir::Filter` predicates. Each line is shaped
-/// `<field> <op> <expr>` where `<op>` is the closed comparison set
-/// (`=`, `!=`, `<`, `<=`, `>`, `>=`) and `<expr>` is one of:
-///   - `<dotted.path>` (e.g. `ctx.actor.org_id`, `params.kind`) →
-///     `Expr::Path`
-///   - quoted string (`"foo"`) → `Expr::String`
-///   - integer literal → `Expr::Integer`
-///   - `true` / `false` → `Expr::Boolean`
-///   - `nil` → `Expr::Nil`
-///   - bare single-segment identifier (e.g. `approved`, `pending`) →
-///     `Expr::Enum(EnumLiteral { type_name: None, variant })` — the
-///     codegen serialises this as `lazuli.FromConst("<variant>")` so
-///     the value lands as a Postgres TEXT bind parameter matching
-///     the enum-typed column.
-///
-/// Lines that fail to parse are dropped silently; doctor's
-/// vocab-filter lint catches malformed forms (TODO: add the lint).
-fn lower_query_filter_lines(lines: &[String]) -> Vec<ir::Filter> {
-    lines
-        .iter()
-        .filter_map(|line| parse_query_filter_line(line))
-        .collect()
-}
-
-fn parse_query_filter_line(text: &str) -> Option<ir::Filter> {
-    let trimmed = text.trim();
-    if trimmed.is_empty() || trimmed.starts_with('#') {
-        return None;
-    }
-    for (token, op) in [
-        ("<=", ir::CompareOp::Le),
-        (">=", ir::CompareOp::Ge),
-        ("!=", ir::CompareOp::Ne),
-        ("<", ir::CompareOp::Lt),
-        (">", ir::CompareOp::Gt),
-        ("=", ir::CompareOp::Eq),
-    ] {
-        if let Some(idx) = find_top_level_operator(trimmed, token) {
-            let (lhs_text, rhs_text) = trimmed.split_at(idx);
-            let rhs_text = &rhs_text[token.len()..];
-            let lhs = lhs_text.trim();
-            let rhs = rhs_text.trim();
-            if lhs.is_empty() || rhs.is_empty() {
-                return None;
-            }
-            return Some(ir::Filter {
-                predicate: ir::Predicate::Comparison {
-                    left: filter_lhs_expr(lhs),
-                    op,
-                    right: filter_rhs_expr(rhs),
-                },
-                when: None,
-            });
-        }
-    }
-    None
-}
-
-/// LHS of a filter line is always a column reference. Single-segment
-/// identifiers resolve to a column path; dotted forms (rare on LHS)
-/// preserve their structure for the downstream codegen.
-fn filter_lhs_expr(text: &str) -> ir::Expr {
-    ir::Expr::Path(ir::Path::from_segments(text.split('.').map(str::to_owned)))
-}
-
-/// RHS may be a literal, a dotted runtime path, OR a bare enum variant.
-/// The bare-identifier case is the WAR-VOCAB-QUERY-ENUM-01 closure —
-/// `expr_from_text` treats bare identifiers as `Expr::Path`, which the
-/// query codegen would render as `lazuli.FromInput(...)` (a runtime
-/// input lookup); the correct semantic is "const string equal to the
-/// enum variant name," so we lift to `Expr::Enum`.
-fn filter_rhs_expr(text: &str) -> ir::Expr {
-    let text = text.trim();
-    if let Some(stripped) = text.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
-        return ir::Expr::String(stripped.to_owned());
-    }
-    if let Ok(n) = text.parse::<i64>() {
-        return ir::Expr::Integer(n);
-    }
-    match text {
-        "true" => return ir::Expr::Boolean(true),
-        "false" => return ir::Expr::Boolean(false),
-        "nil" => return ir::Expr::Nil,
-        _ => {}
-    }
-    if text.contains('.') {
-        return ir::Expr::Path(ir::Path::from_segments(text.split('.').map(str::to_owned)));
-    }
-    // Bare single-segment identifier → enum variant. Type resolution
-    // is deferred (no enum type carried in the syntax); codegen emits
-    // a TEXT const via the unqualified `Expr::Enum` branch.
-    ir::Expr::Enum(ir::EnumLiteral {
-        type_name: None,
-        variant: text.to_owned(),
-    })
-}
-
-/// Cache bucket cycle — lift `cache` body lines (`key <expr>`, `ttl
-/// <literal-or-prose>`, `tags <label>...`, `namespace <label>`) into
-/// the typed `QueryCache` IR shape. Returns `None` when no `key` is
-/// declared (defensive — doctor flags `cache without key/ttl`).
-fn lower_query_cache(lines: &[String]) -> Option<ir::QueryCache> {
-    if lines.is_empty() {
-        return None;
-    }
-    let mut key: Option<String> = None;
-    let mut ttl: Option<ir::CacheTtl> = None;
-    let mut tags: Vec<String> = Vec::new();
-    let mut namespace: Option<String> = None;
-    for raw in lines {
-        let trimmed = raw.trim();
-        if let Some(rest) = trimmed.strip_prefix("key ") {
-            key = Some(rest.trim().to_owned());
-        } else if let Some(rest) = trimmed.strip_prefix("ttl ") {
-            let val = rest.trim();
-            ttl = Some(parse_cache_ttl(val));
-        } else if let Some(rest) = trimmed.strip_prefix("tags ") {
-            for part in rest.split(',') {
-                let label = part.trim();
-                if !label.is_empty() {
-                    tags.push(label.to_owned());
-                }
-            }
-        } else if let Some(rest) = trimmed.strip_prefix("namespace ") {
-            namespace = Some(rest.trim().to_owned());
-        }
-    }
-    let key = key?;
-    let ttl = ttl?;
-    Some(ir::QueryCache {
-        key,
-        ttl,
-        tags,
-        namespace,
-        profile_ref: None,
-    })
-}
-
-/// Cache bucket cycle (CL.C.3) — resolve a query's cache reference,
-/// preferring the inline body when present, otherwise looking up the
-/// `cache_profile_ref` against the feature's `caches`. Returns `None`
-/// when no cache is authored at all.
-///
-/// When the profile reference is unknown (no matching feature-level
-/// `cache <name>`), this returns a stub `QueryCache` carrying the
-/// `profile_ref` and no body so doctor can fire
-/// `cache-profile-unknown`. The defensive shape (`key`/`ttl` left
-/// empty) is OK because doctor blocks before codegen consumes it.
-fn lower_query_cache_with_profile(
-    inline_lines: &[String],
-    profile_ref: Option<&str>,
-    caches: &[syntax::CacheProfileDecl],
-) -> Option<ir::QueryCache> {
-    // Inline form wins when both are present (parser already rejects
-    // the combination; this is defensive).
-    if let Some(inline) = lower_query_cache(inline_lines) {
-        return Some(inline);
-    }
-    let name = profile_ref?;
-    if let Some(profile) = caches.iter().find(|c| c.name == name) {
-        // Resolve: copy body fields from the profile and record the
-        // reference name so inspect/codegen can preserve author intent.
-        return Some(ir::QueryCache {
-            key: profile.key.clone(),
-            ttl: parse_cache_ttl(&profile.ttl),
-            tags: profile.tags.clone(),
-            namespace: profile.namespace.clone(),
-            profile_ref: Some(name.to_owned()),
-        });
-    }
-    // Unknown profile — emit a stub so the IR records author intent
-    // and doctor can flag the dangling reference. `key`/`ttl` are
-    // intentionally empty placeholders.
-    Some(ir::QueryCache {
-        key: String::new(),
-        ttl: ir::CacheTtl::Quoted(String::new()),
-        tags: Vec::new(),
-        namespace: None,
-        profile_ref: Some(name.to_owned()),
-    })
-}
-
-/// Cache bucket cycle (CL.C.3) — lower a feature-level
-/// `cache <name>` profile AST into `ir::CacheProfile`. Mirrors
-/// the inline-shape lowering for `key`/`ttl`/`tags`/`namespace` and
-/// adds the four CL.C.3 decorators (`stale_while_revalidate`,
-/// `coalesce`, `sliding`). Closed-catalog enforcement (units, boolean
-/// shape, SWR <= TTL) lives in doctor.
-fn lower_cache_profile_decl(decl: &syntax::CacheProfileDecl) -> ir::CacheProfile {
-    ir::CacheProfile {
-        name: decl.name.clone(),
-        key: decl.key.clone(),
-        ttl: parse_cache_ttl(&decl.ttl),
-        namespace: decl.namespace.clone(),
-        tags: decl.tags.clone(),
-        stale_while_revalidate: decl.stale_while_revalidate.as_deref().map(parse_cache_ttl),
-        coalesce: decl.coalesce,
-        sliding: decl.sliding,
-        span_ref: Some(span_of(decl.span)),
-    }
-}
-
-fn parse_cache_ttl(value: &str) -> ir::CacheTtl {
-    // Quoted prose: `ttl "5 minutes"`.
-    if value.starts_with('"') {
-        let body = value.trim_matches('"').to_owned();
-        return ir::CacheTtl::Quoted(body);
-    }
-    // Typed literal: `ttl 5m` (digits + s|m|h|d).
-    let bytes = value.as_bytes();
-    if let Some(idx) = bytes.iter().rposition(|c| c.is_ascii_alphabetic()) {
-        // Find last alphabetic char; everything before is the digit body.
-        let (num_part, unit_part) = value.split_at(idx);
-        let unit = unit_part.trim();
-        if let Ok(n) = num_part.trim().parse::<u32>() {
-            return match unit {
-                "s" => ir::CacheTtl::Literal(ir::CacheTtlLiteral::Seconds(n)),
-                "m" => ir::CacheTtl::Literal(ir::CacheTtlLiteral::Minutes(n)),
-                "h" => ir::CacheTtl::Literal(ir::CacheTtlLiteral::Hours(n)),
-                "d" => ir::CacheTtl::Literal(ir::CacheTtlLiteral::Days(n)),
-                _ => ir::CacheTtl::Quoted(value.to_owned()),
-            };
-        }
-    }
-    ir::CacheTtl::Quoted(value.to_owned())
-}
-
-pub(crate) fn lower_command_input_to_typed(
-    slot: &syntax::CommandInputSlot,
-) -> Result<ir::TypedSlot, AnalyzeError> {
-    // LAZ-SEMANTIC-AUTO-VALIDATE W2 — `@validate.skip` is an authoring
-    // annotation that opts the field out of semantic-scalar
-    // auto-validation. Detected anywhere in the slot's type text and
-    // stripped before type resolution.
-    let (cleaned_type_text, validate_skip) = strip_validate_skip(&slot.type_text);
-    Ok(ir::TypedSlot {
-        name: slot.name.clone(),
-        type_ref: type_ref_from_text(&cleaned_type_text),
-        required: slot.required,
-        constraints: lift_field_constraints(&slot.name, &slot.constraints)?,
-        validate_skip,
-    })
-}
-
-/// Strip `@validate.skip` (anywhere in the text) and return the
-/// trimmed remainder + whether the marker was present.
-pub(crate) fn strip_validate_skip(text: &str) -> (String, bool) {
-    if !text.contains("@validate.skip") {
-        return (text.to_owned(), false);
-    }
-    let cleaned = text
-        .replace("@validate.skip", " ")
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    (cleaned, true)
-}
-
 /// Phase L Tier 4d — lower a canonical-indent `record` block into
 /// `ir::Record`.
-fn lower_record_decl(r: &syntax::RecordDecl) -> Result<ir::Record, AnalyzeError> {
+pub(crate) fn lower_record_decl(r: &syntax::RecordDecl) -> Result<ir::Record, AnalyzeError> {
     let fields = r
         .fields
         .iter()
@@ -3845,7 +2987,7 @@ fn lower_record_decl(r: &syntax::RecordDecl) -> Result<ir::Record, AnalyzeError>
 /// into `ir::Policies`. The AST mirrors the IR shape 1:1 so this is a
 /// structural copy: category atoms and per-resource field overrides
 /// project directly. Closed-catalog validation lives in doctor.
-fn lower_policies_decl(decl: &syntax::PoliciesDecl) -> ir::Policies {
+pub(crate) fn lower_policies_decl(decl: &syntax::PoliciesDecl) -> ir::Policies {
     let categories = decl
         .categories
         .iter()
@@ -3885,7 +3027,7 @@ fn lower_policies_decl(decl: &syntax::PoliciesDecl) -> ir::Policies {
     }
 }
 
-fn lower_when_denied_route(route: &syntax::WhenDeniedRouteAst) -> ir::WhenDeniedRoute {
+pub(crate) fn lower_when_denied_route(route: &syntax::WhenDeniedRouteAst) -> ir::WhenDeniedRoute {
     ir::WhenDeniedRoute {
         unauthenticated: route
             .unauthenticated
@@ -3905,7 +3047,9 @@ fn lower_when_denied_route(route: &syntax::WhenDeniedRouteAst) -> ir::WhenDenied
     }
 }
 
-fn lower_route_redirect_target(target: &syntax::RouteRedirectTargetAst) -> ir::RouteRedirectTarget {
+pub(crate) fn lower_route_redirect_target(
+    target: &syntax::RouteRedirectTargetAst,
+) -> ir::RouteRedirectTarget {
     match target {
         syntax::RouteRedirectTargetAst::View(view) => ir::RouteRedirectTarget::View(view.clone()),
         syntax::RouteRedirectTargetAst::Path(path) => ir::RouteRedirectTarget::Path(path.clone()),
@@ -3928,7 +3072,7 @@ pub(crate) fn lower_public_contract(
 /// declaration into `ir::EnumDecl`. Variant storage values project
 /// directly onto `ir::StorageValue`; absent values leave the codegen
 /// target free to pick.
-fn lower_enum_decl(decl: &syntax::EnumDeclAst) -> ir::EnumDecl {
+pub(crate) fn lower_enum_decl(decl: &syntax::EnumDeclAst) -> ir::EnumDecl {
     ir::EnumDecl {
         name: decl.name.clone(),
         public_contract: lower_public_contract(&decl.public_contract),
@@ -3952,801 +3096,14 @@ fn lower_enum_decl(decl: &syntax::EnumDeclAst) -> ir::EnumDecl {
     }
 }
 
-/// Phase L Tier 4c — lower a canonical-indent `resource` block into
-/// `ir::Resource`. `tenancy` (resource-local override), `soft_delete`,
-/// `timestamps`, `retention`, `validates`, and `derived_from` all
-/// project through additive IR fields landed alongside this lowering.
-fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resource, AnalyzeError> {
-    let tenancy = r.tenancy.as_ref().map(|t| match t {
-        syntax::DefaultsTenancy::Org => ir::Tenancy::Org,
-        syntax::DefaultsTenancy::Team => ir::Tenancy::Team,
-        syntax::DefaultsTenancy::None => ir::Tenancy::None,
-        syntax::DefaultsTenancy::Custom(axis) => ir::Tenancy::Custom(axis.clone()),
-    });
-    let fields = r
-        .fields
-        .iter()
-        .map(lower_resource_field)
-        .collect::<Result<Vec<_>, _>>()?;
-    let retention = r.retention.as_ref().map(|ret| ir::RetentionSpec {
-        duration: ret.duration.clone(),
-        action: match ret.action {
-            syntax::ResourceRetentionAction::Anonymize => ir::RetentionAction::Anonymize,
-            syntax::ResourceRetentionAction::Delete => ir::RetentionAction::Delete,
-            syntax::ResourceRetentionAction::Archive => ir::RetentionAction::Archive,
-        },
-    });
-    // `validates @validator.tier_check` collapses onto `Resource.validate`
-    // for a single-entry case (the fixture pattern). Multi-entry would
-    // need a `Vec`; defer until pilot evidence demands it.
-    let validate = r.validates.first().map(|v| ir::PathRef::authored(v));
-    // CL.C.4 — lower resource-scoped `invariant <name>` blocks.
-    let invariants = r
-        .invariants
-        .iter()
-        .map(lower_invariant_decl)
-        .collect::<Vec<_>>();
-    // Roadmap §1.5 (CL.C.2) — lower `lock` decorator into typed IR.
-    let lock = r.lock.as_ref().map(|spec| match spec {
-        syntax::ResourceLock::Optimistic { version_field } => ir::LockSpec::Optimistic {
-            version_field: version_field.clone(),
-        },
-        syntax::ResourceLock::Pessimistic => ir::LockSpec::Pessimistic,
-        syntax::ResourceLock::RowLevel => ir::LockSpec::RowLevel,
-    });
-    // Roadmap §1.5 (CL.C.2) — lower `composite_key` block into typed IR.
-    let composite_key = r.composite_key.as_ref().map(|ck| ir::CompositeKey {
-        fields: ck.fields.clone(),
-        primary: ck.primary,
-    });
-    let conventions = r
-        .conventions
-        .iter()
-        .map(|c| match c {
-            syntax::ResourceConventionAst::Crud => ir::ConventionRef::Crud,
-            syntax::ResourceConventionAst::Me => ir::ConventionRef::Me,
-        })
-        .collect();
-    let constraints = r
-        .constraints
-        .iter()
-        .map(lower_resource_constraint)
-        .collect();
-    let lifecycle_routes = r
-        .lifecycle_routes
-        .as_ref()
-        .map(|lr| ir::LifecycleRoutes {
-            arms: lr
-                .arms
-                .iter()
-                .map(|arm| ir::LifecycleRouteArm {
-                    state: arm.state.clone(),
-                    url: arm.url.clone(),
-                })
-                .collect(),
-            span_ref: Some(span_of(lr.span)),
-        });
-    Ok(ir::Resource {
-        name: r.name.clone(),
-        public_contract: lower_public_contract(&r.public_contract),
-        tenancy,
-        soft_delete: r.soft_delete,
-        timestamps: if r.timestamps { Some(true) } else { None },
-        fields,
-        constraints,
-        validate,
-        validates: Vec::new(),
-        retention,
-        previous_names: r
-            .previously
-            .iter()
-            .map(|p| strip_previously_mode(p))
-            .collect(),
-        span_ref: Some(span_of(r.span)),
-        lifecycle: None,
-        invariants,
-        lock,
-        composite_key,
-        conventions,
-        lifecycle_routes,
-    })
-}
-
-fn lower_resource_constraint(constraint: &syntax::ResourceConstraintAst) -> ir::Constraint {
-    match constraint {
-        syntax::ResourceConstraintAst::Unique(unique) => {
-            ir::Constraint::Unique(ir::UniqueConstraint {
-                fields: unique.fields.clone(),
-                per: None,
-            })
-        }
-        syntax::ResourceConstraintAst::Index(index) => ir::Constraint::Index(ir::IndexConstraint {
-            fields: index.fields.clone(),
-            method: index.method.map(|method| match method {
-                syntax::ResourceIndexMethodAst::Btree => ir::IndexMethod::Btree,
-                syntax::ResourceIndexMethodAst::Gin => ir::IndexMethod::Gin,
-                syntax::ResourceIndexMethodAst::Gist => ir::IndexMethod::Gist,
-            }),
-            full_text: index.full_text,
-        }),
-    }
-}
-
-/// Migrations bucket cycle Route C — strip the `migrated`/`alias` mode
-/// prefix from a parsed `previously` line. `previously migrated Foo`
-/// keeps `Foo` in IR; `previously alias Foo` ditto. Doctor compares
-/// against current symbol names, so the mode keyword is noise here.
-fn strip_previously_mode(raw: &str) -> String {
-    let trimmed = raw.trim();
-    if let Some(rest) = trimmed.strip_prefix("migrated ") {
-        return rest.trim().to_owned();
-    }
-    if let Some(rest) = trimmed.strip_prefix("alias ") {
-        return rest.trim().to_owned();
-    }
-    trimmed.to_owned()
-}
-
-fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> Result<ir::Field, AnalyzeError> {
-    let (type_text_with_recovered_modifiers, type_pii) =
-        extract_field_level_pii_decorator(&f.type_text);
-    let recovered = peel_trailing_field_modifiers(&type_text_with_recovered_modifiers);
-    let (default_text, default_pii) = match f.default.as_deref() {
-        Some(raw) => {
-            let (cleaned, pii) = extract_field_level_pii_decorator(raw);
-            (Some(cleaned), pii)
-        }
-        None => (None, None),
-    };
-    let pii = type_pii.or(default_pii);
-    let default = default_text.as_deref().map(|raw| parse_default(raw.trim()));
-    let constraints = lift_field_constraints(&f.name, &f.constraints)?;
-    // L0 #3 §10.2 + §10.3 — combination rules + default compatibility.
-    validate_constraint_combinations(&f.name, &f.constraints)?;
-    // Wave-B-CL4 — three follow-up diagnostics for the inline-validator
-    // surface: range invariants (`min>max`, `between A>B`), per-type
-    // applicability (§10.1), and structural regex sanity. Combination
-    // conflicts run first so `length+min` etc. take precedence over
-    // the per-constraint type / range checks.
-    validate_constraint_range_invariant(&f.name, &f.constraints)?;
-    validate_constraint_type_compatibility(&f.name, &recovered.type_text, &f.constraints)?;
-    validate_constraint_pattern_compile(&f.name, &f.constraints)?;
-    if let Some(default_text) = default_text.as_deref() {
-        validate_default_against_constraints(&f.name, default_text.trim(), &f.constraints)?;
-    }
-    let type_ref = type_ref_from_syntax(&recovered.type_text);
-    // `ir-resource-conventions-owner-scope` §11.1 — `owner_axis_on_non_fk`.
-    // The annotation is only meaningful on FK fields (`UserDefined`
-    // resources). Primitives, builtins, and capability-typed fields
-    // can't carry an ownership chain; reject at lowering so the synth
-    // pass (O2) doesn't have to guard against malformed IR.
-    let owner_axis = match f.owner_axis.as_ref() {
-        Some(axis) => {
-            if !matches!(type_ref, ir::TypeRef::UserDefined(_)) {
-                return Err(AnalyzeError::OwnerAxisOnNonFk {
-                    field: f.name.clone(),
-                    type_text: recovered.type_text.clone(),
-                });
-            }
-            Some(ir::OwnerAxis {
-                through_column: axis.through_column.clone(),
-            })
-        }
-        None => None,
-    };
-    Ok(ir::Field {
-        name: f.name.clone(),
-        // Phase L Tier 4 follow-up — use `type_ref_from_syntax` so
-        // `@cap.Hashed(algorithm:…)`, `@cap.Encrypted(key:…)`,
-        // `@cap.Token(…)`, and `@semantic.*` lift into typed variants.
-        // The legacy `type_ref_from_text` path is preserved for
-        // call sites that pass cleaned-up identifiers only.
-        type_ref,
-        required: f.required || recovered.required,
-        unique: f.unique || recovered.unique,
-        // CL.C.4 — lift `@slug` decorator presence into the typed IR.
-        slug: f.slug,
-        default,
-        derived_from: f.derived_from.clone(),
-        constraints,
-        // Roadmap §1.5 (CL.C.2) — `@full_text` decorator captured by
-        // the parser as a flag on the field declaration; threaded
-        // through to the IR so DDL emission can attach a GIN tsvector
-        // index per marked field.
-        full_text: f.full_text,
-        previous_names: f
-            .previously
-            .iter()
-            .map(|p| strip_previously_mode(p))
-            .collect(),
-        pii,
-        owner_axis,
-        span_ref: Some(span_of(f.span)),
-    })
-}
-
-struct RecoveredFieldType {
-    type_text: String,
-    required: bool,
-    unique: bool,
-}
-
-/// FR-PII-STACK — when `@cap.PII(...)` is authored after field modifiers,
-/// the syntax parser leaves `required|optional|unique` inside `type_text`
-/// because it only peels final bare tokens. Recover those modifiers after
-/// removing the field-level decorator so the existing parser remains stable.
-fn peel_trailing_field_modifiers(text: &str) -> RecoveredFieldType {
-    let mut head = text.trim().to_owned();
-    let mut required = false;
-    let mut unique = false;
-    loop {
-        let trimmed = head.trim_end();
-        if trimmed.ends_with(" required") {
-            required = true;
-            head = trimmed[..trimmed.len() - " required".len()].to_owned();
-        } else if trimmed.ends_with(" optional") {
-            head = trimmed[..trimmed.len() - " optional".len()].to_owned();
-        } else if trimmed.ends_with(" unique") {
-            unique = true;
-            head = trimmed[..trimmed.len() - " unique".len()].to_owned();
-        } else {
-            head = trimmed.to_owned();
-            break;
-        }
-    }
-    RecoveredFieldType {
-        type_text: head,
-        required,
-        unique,
-    }
-}
-
-/// FR-PII-STACK — peel a non-leading `@cap.PII(...)` marker out of a
-/// resource/record field's type tail and lower it into `Field.pii`. Leading
-/// `@cap.PII(...)` remains a normal capability `TypeRef` for fields whose
-/// only carrier is PII.
-fn extract_field_level_pii_decorator(type_text: &str) -> (String, Option<ir::PiiCapability>) {
-    let original = type_text.trim().to_owned();
-    let Some((start, end)) = find_field_level_cap_pii_span(type_text) else {
-        return (original, None);
-    };
-    let before = type_text[..start].trim_end();
-    if before.is_empty() {
-        return (original, None);
-    }
-    let token = &type_text[start..end];
-    let Some(pii) = parse_cap_pii_type(token) else {
-        return (original, None);
-    };
-    let after = type_text[end..].trim_start();
-    let mut cleaned = before.to_owned();
-    if !cleaned.is_empty() && !after.is_empty() {
-        cleaned.push(' ');
-    }
-    cleaned.push_str(after);
-    (cleaned.trim().to_owned(), Some(pii))
-}
-
-fn find_field_level_cap_pii_span(text: &str) -> Option<(usize, usize)> {
-    const PREFIX: &[u8] = b"@cap.PII(";
-    let bytes = text.as_bytes();
-    let mut depth = 0i32;
-    let mut in_string = false;
-    let mut escaped = false;
-    let mut i = 0usize;
-    while i + PREFIX.len() <= bytes.len() {
-        let ch = bytes[i] as char;
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            i += 1;
-            continue;
-        }
-        if depth == 0 && &bytes[i..i + PREFIX.len()] == PREFIX {
-            let before_ok = i == 0 || (bytes[i - 1] as char).is_whitespace();
-            if before_ok {
-                if let Some(end) = find_balanced_decorator_end(text, i) {
-                    return Some((i, end));
-                }
-            }
-        }
-        match ch {
-            '"' => in_string = true,
-            '(' | '[' => depth += 1,
-            ')' | ']' => depth -= 1,
-            _ => {}
-        }
-        i += 1;
-    }
-    None
-}
-
-/// Project `syntax::FieldConstraintsDecl` onto the IR's
-/// `ir::FieldConstraints`. Combination + default checks happen
-/// separately; closed-catalog validate profiles are checked here.
-pub(crate) fn lift_field_constraints(
-    field: &str,
-    decl: &syntax::FieldConstraintsDecl,
-) -> Result<ir::FieldConstraints, AnalyzeError> {
-    Ok(ir::FieldConstraints {
-        min: decl.min,
-        max: decl.max,
-        pattern: decl.pattern.clone(),
-        between: decl.between,
-        length: decl.length,
-        r#in: decl.r#in.clone(),
-        sanitize_html: match decl.sanitize_html.as_deref() {
-            Some(profile) => Some(lower_sanitize_html_profile(field, profile)?),
-            None => None,
-        },
-        utf8_safe: decl.utf8_safe,
-        max_recursion: decl.max_recursion,
-        max_size: decl.max_size,
-        covers_pii: decl.covers_pii.clone(),
-    })
-}
-
-fn lower_sanitize_html_profile(
-    field: &str,
-    profile: &str,
-) -> Result<ir::SanitizeHtmlProfile, AnalyzeError> {
-    match profile {
-        "strict" => Ok(ir::SanitizeHtmlProfile::Strict),
-        "basic" => Ok(ir::SanitizeHtmlProfile::Basic),
-        "markdown_safe" => Ok(ir::SanitizeHtmlProfile::MarkdownSafe),
-        other => Err(AnalyzeError::UnknownSanitizeHtmlProfile {
-            field: field.to_owned(),
-            profile: other.to_owned(),
-        }),
-    }
-}
-
-/// `inline_validator_range_invariant_001` — reject empty numeric
-/// ranges at compile time. A `min N max M` pair with N>M produces an
-/// uninhabited domain; same for `between A and B` with A>B. The
-/// shipped parser stores both bounds as `i64`, so the comparison is
-/// total. This check runs after the combination rules so that conflict
-/// errors (which already cover redundancy) take precedence.
-pub(crate) fn validate_constraint_range_invariant(
-    field: &str,
-    c: &syntax::FieldConstraintsDecl,
-) -> Result<(), AnalyzeError> {
-    if let (Some(min), Some(max)) = (c.min, c.max) {
-        if min > max {
-            return Err(AnalyzeError::InlineValidatorRangeInvariant {
-                field: field.to_owned(),
-                rule: "min>max".to_owned(),
-                low: min.to_string(),
-                high: max.to_string(),
-            });
-        }
-    }
-    if let Some((a, b)) = c.between {
-        if a > b {
-            return Err(AnalyzeError::InlineValidatorRangeInvariant {
-                field: field.to_owned(),
-                rule: "between".to_owned(),
-                low: a.to_string(),
-                high: b.to_string(),
-            });
-        }
-    }
-    Ok(())
-}
-
-/// `inline_validator_type_mismatch_001` — reject constraint keywords
-/// applied to a field whose underlying `BuiltinType` is outside the
-/// §10.1 "Applies to" column. The check is intentionally generous on
-/// `UserDefined` / `EnumRef` / `Capability` / `Many` / `Unresolved`
-/// type refs (we skip them) so the existing `TypeRef::Unresolved`
-/// path keeps owning the "this is an unknown name" error class.
-///
-/// Catalog (mirrors `docs/proposals/lzx-integration-codegen.md §10.1`):
-/// - `min` / `max`: Text, Integer, Decimal, semantic string variants
-/// - `length`: Text + semantic string variants ONLY
-/// - `pattern`: Text + semantic string variants ONLY
-/// - `between`: Integer, Decimal ONLY
-/// - `in`: Text, Integer, Decimal + semantic string variants
-pub(crate) fn validate_constraint_type_compatibility(
-    field: &str,
-    type_text: &str,
-    c: &syntax::FieldConstraintsDecl,
-) -> Result<(), AnalyzeError> {
-    use ir::{BuiltinType as B, TypeRef};
-    // Resolve once; bail out on non-Builtin refs (those classes never
-    // carry inline constraints in v0 — and we don't want to false-
-    // positive on unresolved names).
-    let resolved = type_ref_from_syntax(type_text);
-    let builtin = match resolved {
-        TypeRef::Builtin(b) => b,
-        _ => return Ok(()),
-    };
-
-    // Helper closures for the three categories.
-    let is_text_like = matches!(
-        builtin,
-        B::Text
-            | B::SemanticEmail
-            | B::SemanticPhone
-            | B::SemanticUrl
-            | B::SemanticUuid
-            | B::SemanticCurrency
-    ) || matches!(
-        &builtin,
-        // B3 — a plugin-contributed semantic with a text carrier
-        // accepts the same inline constraint families as Text. Wider
-        // carriers gated by a separate proposal so they cannot land
-        // here yet (loader enforces `carrier_type = "String"` only).
-        B::SemanticPluginType { carrier, .. } if matches!(**carrier, B::Text)
-    );
-    let is_numeric = matches!(builtin, B::Integer | B::Decimal);
-    let is_min_max_compatible = is_text_like || is_numeric;
-    let is_in_compatible = is_text_like || is_numeric;
-
-    if c.min.is_some() && !is_min_max_compatible {
-        return Err(AnalyzeError::InlineValidatorTypeMismatch {
-            field: field.to_owned(),
-            field_type: type_text.trim().to_owned(),
-            constraint: "min".to_owned(),
-            applies_to: "Text, Integer, Decimal".to_owned(),
-        });
-    }
-    if c.max.is_some() && !is_min_max_compatible {
-        return Err(AnalyzeError::InlineValidatorTypeMismatch {
-            field: field.to_owned(),
-            field_type: type_text.trim().to_owned(),
-            constraint: "max".to_owned(),
-            applies_to: "Text, Integer, Decimal".to_owned(),
-        });
-    }
-    if c.length.is_some() && !is_text_like {
-        return Err(AnalyzeError::InlineValidatorTypeMismatch {
-            field: field.to_owned(),
-            field_type: type_text.trim().to_owned(),
-            constraint: "length".to_owned(),
-            applies_to: "Text".to_owned(),
-        });
-    }
-    if c.pattern.is_some() && !is_text_like {
-        return Err(AnalyzeError::InlineValidatorTypeMismatch {
-            field: field.to_owned(),
-            field_type: type_text.trim().to_owned(),
-            constraint: "pattern".to_owned(),
-            applies_to: "Text".to_owned(),
-        });
-    }
-    if c.between.is_some() && !is_numeric {
-        return Err(AnalyzeError::InlineValidatorTypeMismatch {
-            field: field.to_owned(),
-            field_type: type_text.trim().to_owned(),
-            constraint: "between".to_owned(),
-            applies_to: "Integer, Decimal".to_owned(),
-        });
-    }
-    if c.r#in.is_some() && !is_in_compatible {
-        return Err(AnalyzeError::InlineValidatorTypeMismatch {
-            field: field.to_owned(),
-            field_type: type_text.trim().to_owned(),
-            constraint: "in".to_owned(),
-            applies_to: "Text, Integer, Decimal".to_owned(),
-        });
-    }
-    Ok(())
-}
-
-/// `inline_validator_pattern_compile_001` — reject obviously
-/// malformed regex patterns at lowering. The analyzer stays regex-
-/// free by design (no `regex` crate dep in Cargo.toml — see comment
-/// in `validate_default_against_constraints`); we only flag the
-/// unambiguous shape errors that the Go/JS regex compilers also
-/// reject (unbalanced `(`, unbalanced `[`, trailing `\`). Anything
-/// passing this check is still subject to the runtime regex
-/// compiler's authoritative judgement.
-pub(crate) fn validate_constraint_pattern_compile(
-    field: &str,
-    c: &syntax::FieldConstraintsDecl,
-) -> Result<(), AnalyzeError> {
-    let Some(pattern) = c.pattern.as_deref() else {
-        return Ok(());
-    };
-    // Trailing unescaped backslash: `^a\` — both RE2 and JS RegExp
-    // reject.
-    if pattern.ends_with('\\') {
-        // Count trailing backslashes; an odd count means the last
-        // backslash is unescaped.
-        let trailing = pattern.chars().rev().take_while(|c| *c == '\\').count();
-        if trailing % 2 == 1 {
-            return Err(AnalyzeError::InlineValidatorPatternCompile {
-                field: field.to_owned(),
-                pattern: pattern.to_owned(),
-                reason: "trailing unescaped `\\`".to_owned(),
-            });
-        }
-    }
-    // Bracket / paren balance check. Walk left-to-right, skipping the
-    // character after `\` (escape). Inside a character class `[...]`
-    // we still treat `\]` as escaped. We only flag the unambiguous
-    // shape errors: paren or bracket counts that go negative or end
-    // non-zero.
-    let mut paren_depth: i32 = 0;
-    let mut in_class = false;
-    let mut chars = pattern.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            '\\' => {
-                // Skip the next char (treat as escaped). If the next
-                // char is missing, the trailing-`\` check above already
-                // fired.
-                chars.next();
-            }
-            '[' if !in_class => {
-                in_class = true;
-            }
-            ']' if in_class => {
-                in_class = false;
-            }
-            '(' if !in_class => {
-                paren_depth += 1;
-            }
-            ')' if !in_class => {
-                paren_depth -= 1;
-                if paren_depth < 0 {
-                    return Err(AnalyzeError::InlineValidatorPatternCompile {
-                        field: field.to_owned(),
-                        pattern: pattern.to_owned(),
-                        reason: "unbalanced `)`".to_owned(),
-                    });
-                }
-            }
-            _ => {}
-        }
-    }
-    if in_class {
-        return Err(AnalyzeError::InlineValidatorPatternCompile {
-            field: field.to_owned(),
-            pattern: pattern.to_owned(),
-            reason: "unbalanced `[`".to_owned(),
-        });
-    }
-    if paren_depth != 0 {
-        return Err(AnalyzeError::InlineValidatorPatternCompile {
-            field: field.to_owned(),
-            pattern: pattern.to_owned(),
-            reason: "unbalanced `(`".to_owned(),
-        });
-    }
-    Ok(())
-}
-
-/// L0 #3 §10.2 — enforce inline constraint combination rules. Returns
-/// the first conflict so authors get one focused diagnostic per field
-/// (consistent with the rest of the analyzer).
-pub(crate) fn validate_constraint_combinations(
-    field: &str,
-    c: &syntax::FieldConstraintsDecl,
-) -> Result<(), AnalyzeError> {
-    // length + min/max — `length N` already pins both bounds.
-    if c.length.is_some() && c.min.is_some() {
-        return Err(AnalyzeError::ConstraintConflict {
-            field: field.to_owned(),
-            combo: "length+min".to_owned(),
-        });
-    }
-    if c.length.is_some() && c.max.is_some() {
-        return Err(AnalyzeError::ConstraintConflict {
-            field: field.to_owned(),
-            combo: "length+max".to_owned(),
-        });
-    }
-    // between + min/max — redundant.
-    if c.between.is_some() && c.min.is_some() {
-        return Err(AnalyzeError::ConstraintConflict {
-            field: field.to_owned(),
-            combo: "between+min".to_owned(),
-        });
-    }
-    if c.between.is_some() && c.max.is_some() {
-        return Err(AnalyzeError::ConstraintConflict {
-            field: field.to_owned(),
-            combo: "between+max".to_owned(),
-        });
-    }
-    // in [...] + pattern — use enum instead.
-    if c.r#in.is_some() && c.pattern.is_some() {
-        return Err(AnalyzeError::ConstraintConflict {
-            field: field.to_owned(),
-            combo: "in+pattern".to_owned(),
-        });
-    }
-    Ok(())
-}
-
-/// L0 #3 §10.3 — verify that a default literal satisfies the declared
-/// inline constraints. The parser captures `default` verbatim (incl.
-/// surrounding quotes for string literals); we strip the outer quotes
-/// before length/pattern/in checks. Numeric checks parse the literal
-/// as `i64`; non-integer literals fall back to a no-op rather than
-/// raise a different error code, because the analyzer already has a
-/// type-mismatch check elsewhere.
-fn validate_default_against_constraints(
-    field: &str,
-    default_raw: &str,
-    c: &syntax::FieldConstraintsDecl,
-) -> Result<(), AnalyzeError> {
-    let default_raw = default_raw.trim();
-    // Strip surrounding double quotes for string-typed defaults.
-    let unquoted =
-        if default_raw.len() >= 2 && default_raw.starts_with('"') && default_raw.ends_with('"') {
-            &default_raw[1..default_raw.len() - 1]
-        } else {
-            default_raw
-        };
-    // Numeric path: try parsing the (unquoted) literal as an integer.
-    let as_int = unquoted.parse::<i64>().ok();
-    // length check (string only — applies to char count of the
-    // unquoted literal).
-    if let Some(n) = c.length {
-        if unquoted.chars().count() != n {
-            return Err(AnalyzeError::DefaultViolatesConstraint {
-                field: field.to_owned(),
-                value: default_raw.to_owned(),
-                rule: format!("length={}", n),
-            });
-        }
-    }
-    // min on numerics OR text length.
-    if let Some(min) = c.min {
-        if let Some(n) = as_int {
-            if n < min {
-                return Err(AnalyzeError::DefaultViolatesConstraint {
-                    field: field.to_owned(),
-                    value: default_raw.to_owned(),
-                    rule: format!("min={}", min),
-                });
-            }
-        } else {
-            // text-min checks character count.
-            let len = unquoted.chars().count() as i64;
-            if len < min {
-                return Err(AnalyzeError::DefaultViolatesConstraint {
-                    field: field.to_owned(),
-                    value: default_raw.to_owned(),
-                    rule: format!("min={}", min),
-                });
-            }
-        }
-    }
-    if let Some(max) = c.max {
-        if let Some(n) = as_int {
-            if n > max {
-                return Err(AnalyzeError::DefaultViolatesConstraint {
-                    field: field.to_owned(),
-                    value: default_raw.to_owned(),
-                    rule: format!("max={}", max),
-                });
-            }
-        } else {
-            let len = unquoted.chars().count() as i64;
-            if len > max {
-                return Err(AnalyzeError::DefaultViolatesConstraint {
-                    field: field.to_owned(),
-                    value: default_raw.to_owned(),
-                    rule: format!("max={}", max),
-                });
-            }
-        }
-    }
-    if let Some((lo, hi)) = c.between {
-        if let Some(n) = as_int {
-            if n < lo || n > hi {
-                return Err(AnalyzeError::DefaultViolatesConstraint {
-                    field: field.to_owned(),
-                    value: default_raw.to_owned(),
-                    rule: format!("between={}..{}", lo, hi),
-                });
-            }
-        }
-    }
-    if let Some(values) = &c.r#in {
-        // For text: compare unquoted string against the list verbatim.
-        // For numerics: also compare unquoted, since `in [1,2,3]` is
-        // stored as `["1", "2", "3"]` in the AST.
-        if !values.iter().any(|v| v == unquoted) {
-            return Err(AnalyzeError::DefaultViolatesConstraint {
-                field: field.to_owned(),
-                value: default_raw.to_owned(),
-                rule: format!("in=[{}]", values.join(", ")),
-            });
-        }
-    }
-    if let Some(pattern) = &c.pattern {
-        // We do NOT compile the regex here (Lazuli analyzer is regex-
-        // free by design — RE2 enforcement lives in doctor + runtime).
-        // For empty defaults the parser fails on the bare `""` anyway,
-        // but we explicitly catch them so they don't silently pass.
-        if unquoted.is_empty() && !pattern.is_empty() {
-            return Err(AnalyzeError::DefaultViolatesConstraint {
-                field: field.to_owned(),
-                value: default_raw.to_owned(),
-                rule: format!("pattern=\"{}\"", pattern),
-            });
-        }
-    }
-    Ok(())
-}
-
-/// `ir-rate-limit-env-aware` cell 1 — lower a parser `RateLimitSpecAst`
-/// into the IR `RateLimitSpec`.
-///
-/// The single-line back-compat case (`rate_limit "X"`) lands here with
-/// `default = Some("X")` and `by_env = []`. The new env-qualified case
-/// folds each `RateLimitByEnvAst` into a `RateLimitByEnv` with closed-
-/// catalog `EnvName`s separated from unknown identifiers; the unknown
-/// bucket is what Cell 3 doctor will surface as `rate_limit_unknown_env`.
-/// The proposal-defined `"unlimited"` keyword (§4.4) lowers to the
-/// empty-string sentinel for both the default and per-env slots.
-///
-/// When the source authored only env-qualified lines (no unqualified
-/// default), the IR default becomes the empty string — same sentinel
-/// as `"unlimited"`. Cell 3 doctor surfaces
-/// `rate_limit_no_default_with_qualifications` so the silent default
-/// is visible at lint time, per proposal §9.2.
-fn lower_rate_limit_spec(spec: &syntax::RateLimitSpecAst) -> ir::RateLimitSpec {
-    let default = match spec.default.as_deref() {
-        Some(literal) => lower_rate_limit_literal(literal),
-        None => String::new(),
-    };
-    let by_env = spec
-        .by_env
-        .iter()
-        .map(|entry| {
-            let mut known = Vec::with_capacity(entry.envs.len());
-            let mut unknown = Vec::new();
-            for raw in &entry.envs {
-                if let Some(env) = ir::EnvName::from_ident(raw) {
-                    known.push(env);
-                } else {
-                    unknown.push(raw.clone());
-                }
-            }
-            ir::RateLimitByEnv {
-                envs: known,
-                unknown_envs: unknown,
-                limit: lower_rate_limit_literal(&entry.limit),
-                span_ref: None,
-            }
-        })
-        .collect();
-    ir::RateLimitSpec {
-        default,
-        by_env,
-        span_ref: None,
-    }
-}
-
-/// `ir-rate-limit-env-aware` cell 1 — lower a single literal into the
-/// canonical IR form, applying the `"unlimited"` keyword carve-out
-/// (proposal §4.4). The keyword is recognised verbatim (case-sensitive)
-/// and lowers to the empty string; everything else passes through
-/// unchanged.
-fn lower_rate_limit_literal(literal: &str) -> String {
-    if literal == "unlimited" {
-        String::new()
-    } else {
-        literal.to_owned()
-    }
-}
-
 /// Phase L Tier 4b — lower a canonical-indent `command` block into
 /// `ir::Command`. The kind is inferred from the body shape: `creates`
 /// → Create, `updates` → Update, `deletes` → Delete, `returns` → Returns,
 /// `handler`-only → Returns (the escape hatch case).
-pub(crate) fn lower_command_decl(feature: &str, c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeError> {
+pub(crate) fn lower_command_decl(
+    feature: &str,
+    c: &syntax::CommandDecl,
+) -> Result<ir::Command, AnalyzeError> {
     let kind = match c.effect.as_ref().map(|e| e.kind) {
         Some(syntax::CommandEffectKindDecl::Creates) => ir::CommandKind::Create,
         Some(syntax::CommandEffectKindDecl::Updates) => ir::CommandKind::Update,
@@ -5034,7 +3391,10 @@ pub(crate) fn lower_api_decl(a: &syntax::ApiDecl) -> ir::Api {
 /// `FilenameToken::CtxNowStrftime("")` placeholders only if a parsing
 /// helper rejects them — but we instead keep the literal verbatim and
 /// surface unknown tokens via doctor.
-fn lower_report_decl(_feature: &str, r: &syntax::ReportDecl) -> Result<ir::Report, AnalyzeError> {
+pub(crate) fn lower_report_decl(
+    _feature: &str,
+    r: &syntax::ReportDecl,
+) -> Result<ir::Report, AnalyzeError> {
     let source = lower_report_source(&r.source);
 
     let columns: Vec<ir::ReportColumn> = r
@@ -5103,7 +3463,7 @@ fn lower_report_decl(_feature: &str, r: &syntax::ReportDecl) -> Result<ir::Repor
     })
 }
 
-fn lower_report_source(text: &str) -> ir::ReportSource {
+pub(crate) fn lower_report_source(text: &str) -> ir::ReportSource {
     // Source forms:
     //   - `query.<name>`         (local short)
     //   - `<feature>.query.<name>` (cross-feature)
@@ -5130,7 +3490,9 @@ fn lower_report_source(text: &str) -> ir::ReportSource {
     ir::ReportSource::Query(qn)
 }
 
-fn lower_report_column_source(src: &syntax::ReportColumnSourceAst) -> ir::ReportColumnSource {
+pub(crate) fn lower_report_column_source(
+    src: &syntax::ReportColumnSourceAst,
+) -> ir::ReportColumnSource {
     match src {
         syntax::ReportColumnSourceAst::RowField(field) => {
             ir::ReportColumnSource::RowField(field.clone())
@@ -5149,7 +3511,7 @@ fn lower_report_column_source(src: &syntax::ReportColumnSourceAst) -> ir::Report
 /// token list; the literal is preserved so doctor's
 /// `REPORT-FILENAME-TOKEN-UNKNOWN-001` rule can scan the literal and
 /// report user-facing diagnostics.
-fn lower_report_filename(literal: &str) -> ir::ReportFilenamePattern {
+pub(crate) fn lower_report_filename(literal: &str) -> ir::ReportFilenamePattern {
     let mut tokens = Vec::new();
     let bytes = literal.as_bytes();
     let mut i = 0;
@@ -5196,7 +3558,7 @@ fn parse_filename_token(raw: &str) -> Option<ir::FilenameToken> {
 /// `expose client 4xx|5xx <fields>` slots project 1:1; per-code message
 /// overrides keep their verbatim `code` so analyzer-side closed-catalog
 /// enforcement (ERR-VOCAB-CODE-UNKNOWN) can report the offending token.
-fn lower_feature_errors_decl(decl: &syntax::FeatureErrorsDecl) -> ir::FeatureErrors {
+pub(crate) fn lower_feature_errors_decl(decl: &syntax::FeatureErrorsDecl) -> ir::FeatureErrors {
     ir::FeatureErrors {
         default: decl.default.map(|d| match d {
             syntax::ErrorExposureDefaultAst::Hide => ir::ErrorExposureDefault::Hide,
@@ -5230,7 +3592,7 @@ fn lower_feature_errors_decl(decl: &syntax::FeatureErrorsDecl) -> ir::FeatureErr
     }
 }
 
-fn lower_translation_decl(t: &syntax::TranslationDecl) -> ir::Translation {
+pub(crate) fn lower_translation_decl(t: &syntax::TranslationDecl) -> ir::Translation {
     ir::Translation {
         catalog: t.catalog.clone(),
         keys: t
@@ -5286,7 +3648,7 @@ pub(crate) fn lower_locale_negotiate_decl(n: &syntax::LocaleNegotiateDecl) -> ir
 /// checks the surface form by walking the typed
 /// `feature.policies.categories` slot (`populate_commands_from_ir`);
 /// the legacy `collect_policy_atoms` text walker is retired.
-fn lower_defaults(defaults: &syntax::FeatureDefaults) -> ir::Defaults {
+pub(crate) fn lower_defaults(defaults: &syntax::FeatureDefaults) -> ir::Defaults {
     let tenancy = defaults.tenancy.as_ref().map(|t| match t {
         syntax::DefaultsTenancy::Org => ir::Tenancy::Org,
         syntax::DefaultsTenancy::Team => ir::Tenancy::Team,
@@ -6053,389 +4415,8 @@ fn extract_env_binding(raw: &str) -> String {
         .unwrap_or_else(|| raw.trim().to_owned())
 }
 
-/// Phase L — lower a canonical-indent `auth` block into the IR `Auth`
-/// shape. The translation is mostly structural; the analyzer's only
-/// non-trivial duty is splitting `Customer.email` into `FieldRef`.
-pub fn lower_auth(auth: &syntax::Auth) -> Result<ir::Auth, AnalyzeError> {
-    Ok(ir::Auth {
-        identity: lower_auth_identity(&auth.identity)?,
-        password: auth.password.as_ref().map(lower_auth_password),
-        sessions: auth.sessions.as_ref().map(lower_auth_sessions),
-        mfa: auth.mfa.as_ref().map(lower_auth_mfa),
-        oauth: auth.oauth.iter().map(lower_auth_oauth).collect(),
-        span_ref: Some(span_of(auth.span)),
-    })
-}
-
-fn lower_auth_identity(identity: &syntax::AuthIdentity) -> Result<ir::AuthIdentity, AnalyzeError> {
-    let (resource, field) =
-        identity
-            .field
-            .split_once('.')
-            .ok_or_else(|| AnalyzeError::InvalidAuthIdentity {
-                reference: identity.field.clone(),
-            })?;
-    if resource.is_empty() || field.is_empty() || field.contains('.') {
-        return Err(AnalyzeError::InvalidAuthIdentity {
-            reference: identity.field.clone(),
-        });
-    }
-    Ok(ir::AuthIdentity {
-        field: ir::FieldRef {
-            resource: qualified_name_local(resource),
-            field: field.to_owned(),
-        },
-        public_contract: lower_public_contract(&identity.public_contract),
-    })
-}
-
-fn lower_auth_password(password: &syntax::AuthPassword) -> ir::AuthPassword {
-    ir::AuthPassword {
-        algorithm: password.algorithm.clone(),
-        hash: password.hash.clone(),
-        verify: password.verify.clone(),
-        rate_limit: password.rate_limit.as_ref().map(lower_rate_limit_spec),
-    }
-}
-
-fn lower_auth_sessions(sessions: &syntax::AuthSessions) -> ir::AuthSessions {
-    ir::AuthSessions {
-        resource: qualified_name_local(&sessions.resource),
-        ttl: sessions.ttl.clone(),
-        refresh: sessions.refresh,
-        // Populated in S3 when the orchestrator wires resource FieldSpec lookup.
-        extra_columns: vec![],
-        access_ttl: sessions.access_ttl.as_ref().map(|ttl| ttl.value.clone()),
-        rotation: sessions.rotation.as_ref().map(lower_auth_session_rotation),
-    }
-}
-
-fn lower_auth_session_rotation(rotation: &syntax::AuthSessionRotation) -> ir::RotationConfig {
-    ir::RotationConfig {
-        refresh_ttl: rotation.refresh_ttl.as_ref().map(|ttl| ttl.value.clone()),
-        grace: rotation.grace.as_ref().map(|grace| grace.value.clone()),
-        theft_detection_action: rotation
-            .theft_detection_action
-            .as_ref()
-            .map(|action| lower_auth_theft_action(action.action)),
-        span_ref: Some(span_of(rotation.span)),
-    }
-}
-
-fn lower_auth_theft_action(action: syntax::AuthTheftDetectionAction) -> ir::TheftAction {
-    match action {
-        syntax::AuthTheftDetectionAction::RevokeSessionFamily => {
-            ir::TheftAction::RevokeSessionFamily
-        }
-        syntax::AuthTheftDetectionAction::RevokeUser => ir::TheftAction::RevokeUser,
-    }
-}
-
-fn lower_auth_mfa(mfa: &syntax::AuthMfa) -> ir::AuthMfa {
-    ir::AuthMfa {
-        method: mfa.method.clone(),
-        enroll: mfa.enroll.clone(),
-        verify: mfa.verify.clone(),
-        adapter: mfa.adapter.clone(),
-    }
-}
-
-fn lower_auth_oauth(oauth: &syntax::AuthOAuthProvider) -> ir::AuthOAuthProvider {
-    ir::AuthOAuthProvider {
-        provider: oauth.provider.clone(),
-        adapter: oauth.adapter.clone(),
-    }
-}
-
-/// Lower a single `agent` AST node into the IR form. The `feature` arg
-/// pins the owning feature name on the IR record so cross-feature doctor
-/// checks can rebuild `<feature>.agent.<name>` references.
-pub fn lower_agent(feature: &str, agent: &syntax::Agent) -> Result<ir::Agent, AnalyzeError> {
-    let input = agent
-        .input
-        .iter()
-        .map(|slot| ir::TypedSlot {
-            name: slot.name.clone(),
-            type_ref: type_ref_from_text(&slot.type_text),
-            required: slot.required,
-            constraints: ir::FieldConstraints::default(),
-            validate_skip: false,
-        })
-        .collect();
-
-    let policy = agent
-        .policy
-        .as_ref()
-        .and_then(|atoms| atoms.first())
-        .map(|first| lower_policy_atom(first));
-
-    let (output_kind, output_type, output_discriminator) = match &agent.output {
-        Some(syntax::AgentOutput::Stream(ty)) => (
-            ir::AgentOutputKind::Stream,
-            Some(type_ref_from_text(ty)),
-            None,
-        ),
-        Some(syntax::AgentOutput::Discriminator(name)) => (
-            ir::AgentOutputKind::DiscriminatedEnum,
-            None,
-            Some(ir::DiscriminatorRef::Enum(qualified_name_local(name))),
-        ),
-        Some(syntax::AgentOutput::Plain(ty)) => (
-            // Lowering can't tell `Text` from `DiscriminatedRecord` without
-            // the feature scope (enum vs record). Default to `Text`; the
-            // expand pass (Phase 5) promotes to `DiscriminatedRecord` when
-            // the resolved type is a record with a `discriminator` field.
-            ir::AgentOutputKind::Text,
-            Some(type_ref_from_text(ty)),
-            None,
-        ),
-        None => (ir::AgentOutputKind::Text, None, None),
-    };
-
-    let model = agent.model.as_ref().map(|s| qualified_namespace(s));
-
-    let safety = agent
-        .safety
-        .iter()
-        .map(|s| qualified_namespace(s))
-        .collect();
-
-    let mut tools = Vec::with_capacity(agent.tools.len());
-    for tool_ast in &agent.tools {
-        tools.push(ir::ToolBinding {
-            reference: lower_tool_ref(&tool_ast.reference, feature)?,
-            resolved_effect: None,
-            resolved_policy: None,
-            resolved_pii_classes: Vec::new(),
-            span_ref: Some(span_of(tool_ast.span)),
-        });
-    }
-
-    let mut evals = Vec::with_capacity(agent.evals.len());
-    for case_ast in &agent.evals {
-        evals.push(lower_eval_case(case_ast, feature)?);
-    }
-
-    let expose_http = agent.expose.as_ref().map(lower_agent_expose);
-
-    Ok(ir::Agent {
-        name: agent.name.clone(),
-        feature: feature.to_owned(),
-        input,
-        context: None, // Phase 1 parser does not yet structure context expressions.
-        policy,
-        policy_when_denied: None,
-        rate_limit: agent.rate_limit.as_ref().map(lower_rate_limit_spec),
-        output_kind,
-        output_type,
-        output_discriminator,
-        model,
-        temperature: agent.temperature,
-        max_tokens: agent.max_tokens,
-        top_p: agent.top_p,
-        seed: agent.seed,
-        prompt_path: agent.prompt.clone(),
-        safety,
-        tools,
-        evals,
-        expose_http,
-        span_ref: Some(span_of(agent.span)),
-    })
-}
-
-/// Cut A.7 — lower an `expose http` AST block. Method enum maps 1:1;
-/// route slots become `TypedSlot`s with `required: true` (path params
-/// are inherently required); audience / rate-limit pass-through as
-/// strings.
-fn lower_agent_expose(expose: &syntax::AgentExpose) -> ir::HttpExposure {
-    let route_slots = expose
-        .route_slots
-        .iter()
-        .map(|slot| ir::TypedSlot {
-            name: slot.name.clone(),
-            type_ref: type_ref_from_text(&slot.type_text),
-            required: true,
-            constraints: ir::FieldConstraints::default(),
-            validate_skip: false,
-        })
-        .collect();
-    ir::HttpExposure {
-        method: match expose.method {
-            syntax::HttpMethod::Get => ir::HttpMethod::Get,
-            syntax::HttpMethod::Post => ir::HttpMethod::Post,
-            syntax::HttpMethod::Put => ir::HttpMethod::Put,
-            syntax::HttpMethod::Patch => ir::HttpMethod::Patch,
-            syntax::HttpMethod::Delete => ir::HttpMethod::Delete,
-        },
-        path: expose.path.clone(),
-        route_slots,
-        audience: expose.audience.clone(),
-        rate_limit_override: expose.rate_limit_override.clone(),
-        span_ref: Some(span_of(expose.span)),
-    }
-}
-
-/// Lower a single tool reference. `feature` is the owning feature so the
-/// short form `query.by_id` rewrites to `Local` and the analyzer
-/// preserves the same-feature locality for the expand pass to resolve.
-fn lower_tool_ref(raw: &str, _feature: &str) -> Result<ir::QualifiedToolRef, AnalyzeError> {
-    if let Some(rest) = raw.strip_prefix("@tool.") {
-        if rest.is_empty() {
-            return Err(AnalyzeError::InvalidToolRef {
-                reference: raw.to_owned(),
-            });
-        }
-        let dotted: Vec<String> = rest.split('.').map(str::to_owned).collect();
-        return Ok(ir::QualifiedToolRef::Adapter { dotted });
-    }
-
-    // Tail tokens after the feature prefix (if any). The reference is
-    // dotted; `query.list` / `query.lookup` / `query.sql` are the
-    // three legal three-segment kinds.
-    let segments: Vec<&str> = raw.split('.').collect();
-    if segments.is_empty() || segments.iter().any(|s| s.is_empty()) {
-        return Err(AnalyzeError::InvalidToolRef {
-            reference: raw.to_owned(),
-        });
-    }
-
-    // Local shorthand: `query.by_id`, `command.create`, `api.export`,
-    // `query.list.by_email`, etc.
-    if let Some((kind, name)) = parse_tool_kind_local(&segments) {
-        return Ok(ir::QualifiedToolRef::Local { kind, name });
-    }
-
-    // Cross-feature: `<feature>.<kind>.<name>` or
-    // `<feature>.query.list.<name>` / `query.lookup.<name>` / `query.sql.<name>`.
-    if segments.len() >= 3 {
-        let feature = segments[0].to_owned();
-        if let Some((kind, name)) = parse_tool_kind_local(&segments[1..]) {
-            return Ok(ir::QualifiedToolRef::CrossFeature {
-                feature,
-                kind,
-                name,
-            });
-        }
-    }
-
-    Err(AnalyzeError::InvalidToolRef {
-        reference: raw.to_owned(),
-    })
-}
-
-/// Recognize the trailing `(kind, name)` of a tool reference. Accepts:
-///
-///   - `query.list.<name>`     -> QueryList
-///   - `query.lookup.<name>`   -> QueryLookup
-///   - `query.sql.<name>`      -> QuerySql
-///   - `query.view.<name>`     -> QueryView
-///   - `query.<name>`          -> QueryUnspecified
-///   - `command.<name>`        -> Command
-///   - `api.<name>`            -> Api
-fn parse_tool_kind_local(segments: &[&str]) -> Option<(ir::ToolKind, String)> {
-    match segments {
-        ["query", "list", name] => Some((ir::ToolKind::QueryList, (*name).to_owned())),
-        ["query", "lookup", name] => Some((ir::ToolKind::QueryLookup, (*name).to_owned())),
-        ["query", "sql", name] => Some((ir::ToolKind::QuerySql, (*name).to_owned())),
-        ["query", "view", name] => Some((ir::ToolKind::QueryView, (*name).to_owned())),
-        ["query", name] => Some((ir::ToolKind::QueryUnspecified, (*name).to_owned())),
-        ["command", name] => Some((ir::ToolKind::Command, (*name).to_owned())),
-        ["api", name] => Some((ir::ToolKind::Api, (*name).to_owned())),
-        _ => None,
-    }
-}
-
-fn lower_eval_case(
-    case: &syntax::AgentEvalCase,
-    feature: &str,
-) -> Result<ir::EvalCase, AnalyzeError> {
-    let mut assertions = Vec::with_capacity(case.assertions.len());
-    for assertion in &case.assertions {
-        assertions.push(ir::EvalAssertion {
-            kind: match assertion.kind {
-                syntax::AgentEvalKind::Requires => ir::EvalAssertionKind::Requires,
-                syntax::AgentEvalKind::Forbids => ir::EvalAssertionKind::Forbids,
-            },
-            predicate: lower_eval_predicate(&assertion.predicate, feature)?,
-            span_ref: Some(span_of(assertion.span)),
-        });
-    }
-    let golden = case.golden.as_ref().map(|g| ir::GoldenSpec {
-        path: g.path.clone(),
-        min_score: g.min_score,
-        span_ref: Some(span_of(g.span)),
-    });
-    Ok(ir::EvalCase {
-        name: case.name.clone(),
-        assertions,
-        golden,
-        span_ref: Some(span_of(case.span)),
-    })
-}
-
-fn lower_eval_predicate(
-    predicate: &syntax::AgentEvalPredicate,
-    feature: &str,
-) -> Result<ir::EvalPredicate, AnalyzeError> {
-    match predicate {
-        syntax::AgentEvalPredicate::Contains { lhs, rhs } => Ok(ir::EvalPredicate::Contains {
-            lhs: ir::Path::from_segments(lhs.split('.').map(str::to_owned)),
-            rhs: match rhs {
-                syntax::ContainsRhs::Literal(s) => ir::EvalContainsRhs::Literal(s.clone()),
-                syntax::ContainsRhs::SemanticType(s) => {
-                    ir::EvalContainsRhs::SemanticType(qualified_namespace(s))
-                }
-            },
-        }),
-        syntax::AgentEvalPredicate::ToolsCalls { op, target } => {
-            Ok(ir::EvalPredicate::ToolsCalls {
-                op: match op {
-                    syntax::ToolsCallsOp::Includes => ir::ToolsCallsOp::Includes,
-                    syntax::ToolsCallsOp::Excludes => ir::ToolsCallsOp::Excludes,
-                },
-                target: lower_tool_ref(target, feature)?,
-            })
-        }
-        syntax::AgentEvalPredicate::Closed { text } => Ok(parse_closed_predicate(text)),
-    }
-}
-
-/// Parse the simple `<path> <op> <literal>` subset of the closed predicate
-/// language. Richer shapes (compound `AND`/`OR`, `has`, parenthesised
-/// expressions) fall through to `EvalPredicate::Unparsed` so doctor can
-/// surface them — the parser stays narrow until the canonical predicate
-/// parser lands.
-fn parse_closed_predicate(text: &str) -> ir::EvalPredicate {
-    let trimmed = text.trim();
-    // Try ordered ops first (longest token wins to avoid `<=` parsing as `<`).
-    for (token, op) in [
-        ("<=", ir::CompareOp::Le),
-        (">=", ir::CompareOp::Ge),
-        ("!=", ir::CompareOp::Ne),
-        ("<", ir::CompareOp::Lt),
-        (">", ir::CompareOp::Gt),
-        ("=", ir::CompareOp::Eq),
-    ] {
-        if let Some(idx) = find_top_level_operator(trimmed, token) {
-            let (lhs_text, rhs_text) = trimmed.split_at(idx);
-            let rhs_text = &rhs_text[token.len()..];
-            let lhs = lhs_text.trim();
-            let rhs = rhs_text.trim();
-            if lhs.is_empty() || rhs.is_empty() {
-                return ir::EvalPredicate::Unparsed(text.to_owned());
-            }
-            return ir::EvalPredicate::Closed(ir::Predicate::Comparison {
-                left: expr_from_text(lhs),
-                op,
-                right: expr_from_text(rhs),
-            });
-        }
-    }
-    ir::EvalPredicate::Unparsed(text.to_owned())
-}
-
 /// Build a feature-local `QualifiedName` (no feature prefix).
-fn qualified_name_local(name: &str) -> ir::QualifiedName {
+pub(crate) fn qualified_name_local(name: &str) -> ir::QualifiedName {
     ir::QualifiedName {
         feature: None,
         name: name.to_owned(),
@@ -6446,7 +4427,7 @@ fn qualified_name_local(name: &str) -> ir::QualifiedName {
 /// `@llm.default`, `@validator.pii_email_scrub`, `@semantic.Email`).
 /// Doctor + LSP enforce the closed-namespace catalog elsewhere; this
 /// helper keeps the raw form so resolution stays uniform.
-fn qualified_namespace(raw: &str) -> ir::QualifiedName {
+pub(crate) fn qualified_namespace(raw: &str) -> ir::QualifiedName {
     ir::QualifiedName {
         feature: None,
         name: raw.to_owned(),
@@ -6472,7 +4453,7 @@ pub(crate) fn lower_policy_atom_with_args(text: &str) -> ir::PolicyAtom {
 }
 
 #[cfg(test)]
-fn lower_audit_block(src: &str) -> ir::AuditSpec {
+pub(crate) fn lower_audit_block(src: &str) -> ir::AuditSpec {
     let mut spec = ir::AuditSpec {
         subjects: Vec::new(),
         emit_to: None,
@@ -6514,27 +4495,6 @@ fn lower_audit_block(src: &str) -> ir::AuditSpec {
     spec
 }
 
-#[cfg(test)]
-fn lower_validate_line(line: &str) -> Result<ir::FieldConstraints, AnalyzeError> {
-    let trimmed = line.trim();
-    let mut decl = syntax::FieldConstraintsDecl::default();
-    if let Some(rest) = trimmed.strip_prefix("validate sanitize_html(") {
-        let profile = rest.trim_end_matches(')').trim();
-        decl.sanitize_html = Some(profile.to_owned());
-    } else if trimmed == "validate utf8_safe" {
-        decl.utf8_safe = Some(true);
-    } else if let Some(rest) = trimmed.strip_prefix("validate max_recursion:") {
-        decl.max_recursion = rest.trim().parse::<u32>().ok();
-    } else if let Some(rest) = trimmed.strip_prefix("validate max_size:") {
-        decl.max_size = rest.trim().parse::<u64>().ok();
-    } else if trimmed == "validator covers_pii" {
-        decl.covers_pii = Some("covers_pii".to_owned());
-    } else {
-        return Ok(ir::FieldConstraints::default());
-    };
-    lift_field_constraints("validate", &decl)
-}
-
 /// The Phase 1 parser captures type references as raw source text. Turn
 /// that into a minimal `TypeRef` so doctor and inspect can read it; the
 /// canonical-indent migration replaces this with a real type-ref parser.
@@ -6546,261 +4506,16 @@ pub(crate) fn type_ref_from_text(text: &str) -> ir::TypeRef {
     type_ref_from_syntax(text.trim())
 }
 
-// =============================================================================
-// L0 #2 — Design tokens lowering.
-//
-// `lower_design` validates each closed-catalog group:
-//   * color states map to `ir::ColorStateKind` (closed catalog of 4).
-//   * hex literals match `#[0-9a-fA-F]{3,8}` (3, 4, 6, or 8 hex digits).
-//   * shadow values reject top-level commas (multi-layer composition).
-//   * weight values parse as `u16`.
-//   * z values parse as `i32`.
-//   * `extends` is reserved for Cut B — v0 always rejects.
-// =============================================================================
-
-pub fn lower_design(ast: &syntax::DesignDeclAst) -> Result<ir::Design, AnalyzeError> {
-    if let Some(target) = ast.extends.as_deref() {
-        return Err(AnalyzeError::DesignExtendsCutB {
-            target: target.to_owned(),
-        });
-    }
-
-    let colors = ast
-        .colors
-        .iter()
-        .map(lower_design_color_token)
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let typography = ir::Typography {
-        families: ast
-            .typography
-            .families
-            .iter()
-            .map(|f| ir::FamilyToken {
-                name: f.name.clone(),
-                value: f.value.clone(),
-            })
-            .collect(),
-        scale: ast
-            .typography
-            .scale
-            .iter()
-            .map(|s| ir::TextScaleToken {
-                name: s.name.clone(),
-                size: s.size.clone(),
-                line_height: s.line_height.clone(),
-            })
-            .collect(),
-        weights: ast
-            .typography
-            .weights
-            .iter()
-            .map(lower_design_weight)
-            .collect::<Result<Vec<_>, _>>()?,
-        tracking: ast
-            .typography
-            .tracking
-            .iter()
-            .map(|t| ir::TrackingToken {
-                name: t.name.clone(),
-                value: t.value.clone(),
-            })
-            .collect(),
-    };
-
-    let spaces = ast
-        .spaces
-        .iter()
-        .map(|s| ir::ScaleToken {
-            name: s.name.clone(),
-            value: s.value.clone(),
-        })
-        .collect();
-    let radii = ast
-        .radii
-        .iter()
-        .map(|s| ir::ScaleToken {
-            name: s.name.clone(),
-            value: s.value.clone(),
-        })
-        .collect();
-    let shadows = ast
-        .shadows
-        .iter()
-        .map(lower_design_shadow)
-        .collect::<Result<Vec<_>, _>>()?;
-    let motion = ir::Motion {
-        durations: ast
-            .motion
-            .durations
-            .iter()
-            .map(|s| ir::ScaleToken {
-                name: s.name.clone(),
-                value: s.value.clone(),
-            })
-            .collect(),
-        easings: ast
-            .motion
-            .easings
-            .iter()
-            .map(|e| ir::EasingToken {
-                name: e.name.clone(),
-                value: e.value.clone(),
-            })
-            .collect(),
-    };
-    let breakpoints = ast
-        .breakpoints
-        .iter()
-        .map(|s| ir::ScaleToken {
-            name: s.name.clone(),
-            value: s.value.clone(),
-        })
-        .collect();
-    let z_indices = ast
-        .z_indices
-        .iter()
-        .map(lower_design_z)
-        .collect::<Result<Vec<_>, _>>()?;
-
-    // L0 #2 — `custom` 9th meta-group per
-    // `docs/proposals/design-tokens-custom.md`. Validate hex values here;
-    // collision + reserved-name policy is enforced by doctor (the analyzer
-    // stays surface-thin to keep proposal-pending diagnostics in doctor).
-    let custom = ast
-        .custom
-        .iter()
-        .map(lower_design_custom_token)
-        .collect::<Result<Vec<_>, _>>()?;
-
-    Ok(ir::Design {
-        name: ast.name.clone(),
-        extends: None,
-        colors,
-        typography,
-        spaces,
-        radii,
-        shadows,
-        motion,
-        breakpoints,
-        z_indices,
-        custom,
-        span_ref: Some(span_of(ast.span)),
-    })
-}
-
-fn lower_design_custom_token(
-    token: &syntax::CustomTokenAst,
-) -> Result<ir::CustomToken, AnalyzeError> {
-    // Hex validation for the `custom` 9th meta-group is intentionally
-    // delegated to doctor (`design-custom-invalid-value`) so the
-    // proposal-pending diagnostic surface ships as a doctor rule rather
-    // than a hard analyzer rejection. See
-    // `docs/proposals/design-tokens-custom.md` §4. Lowering preserves the
-    // verbatim value so doctor can produce an actionable error message.
-    Ok(ir::CustomToken {
-        name: token.name.clone(),
-        base: token.value.clone(),
-        dark: token.dark.clone(),
-        span_ref: Some(span_of(token.span)),
-    })
-}
-
-fn lower_design_color_token(token: &syntax::ColorTokenAst) -> Result<ir::ColorToken, AnalyzeError> {
-    let mut states = Vec::with_capacity(token.states.len());
-    for state in &token.states {
-        let kind = match state.kind.as_str() {
-            "base" => ir::ColorStateKind::Base,
-            "hover" => ir::ColorStateKind::Hover,
-            "active" => ir::ColorStateKind::Active,
-            "foreground" => ir::ColorStateKind::Foreground,
-            other => {
-                return Err(AnalyzeError::DesignColorStateUnknown {
-                    token: token.name.clone(),
-                    state: other.to_owned(),
-                });
-            }
-        };
-        if !is_valid_design_hex(&state.value) {
-            return Err(AnalyzeError::DesignColorHexInvalid {
-                token: token.name.clone(),
-                state: state.kind.clone(),
-                value: state.value.clone(),
-            });
-        }
-        if let Some(dark) = state.dark.as_deref() {
-            if !is_valid_design_hex(dark) {
-                return Err(AnalyzeError::DesignColorHexInvalid {
-                    token: token.name.clone(),
-                    state: format!("{}.dark", state.kind),
-                    value: dark.to_owned(),
-                });
-            }
-        }
-        states.push(ir::ColorState {
-            kind,
-            value: state.value.clone(),
-            dark: state.dark.clone(),
-        });
-    }
-    Ok(ir::ColorToken {
-        name: token.name.clone(),
-        states,
-        span_ref: Some(span_of(token.span)),
-    })
-}
-
-fn lower_design_weight(weight: &syntax::WeightTokenAst) -> Result<ir::WeightToken, AnalyzeError> {
-    let parsed =
-        weight
-            .value
-            .trim()
-            .parse::<u16>()
-            .map_err(|_| AnalyzeError::DesignWeightInvalid {
-                name: weight.name.clone(),
-                value: weight.value.clone(),
-            })?;
-    Ok(ir::WeightToken {
-        name: weight.name.clone(),
-        value: parsed,
-    })
-}
-
-fn lower_design_shadow(shadow: &syntax::ShadowTokenAst) -> Result<ir::ShadowToken, AnalyzeError> {
-    if has_top_level_comma(&shadow.value) {
-        return Err(AnalyzeError::DesignShadowMultiLayer {
-            name: shadow.name.clone(),
-        });
-    }
-    Ok(ir::ShadowToken {
-        name: shadow.name.clone(),
-        value: shadow.value.clone(),
-    })
-}
-
-fn lower_design_z(z: &syntax::ZTokenAst) -> Result<ir::ZToken, AnalyzeError> {
-    let parsed = z
-        .value
-        .trim()
-        .parse::<i32>()
-        .map_err(|_| AnalyzeError::DesignZInvalid {
-            name: z.name.clone(),
-            value: z.value.clone(),
-        })?;
-    Ok(ir::ZToken {
-        name: z.name.clone(),
-        value: parsed,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use lazuli_syntax::{parse_feature_skeletons, parse_lzx_document};
 
+    use super::auth::lower_auth_identity;
+    use super::query::parse_query_filter_line;
+    use super::resource::lower_validate_line;
     use super::{
-        AnalyzeError, lower_audit_block, lower_auth_identity, lower_feature_skeleton,
-        lower_lzx_document, lower_policy_atom_with_args, lower_validate_line,
-        parse_cap_file_type, parse_query_filter_line, resolve_invalidates_targets,
+        AnalyzeError, lower_audit_block, lower_feature_skeleton, lower_lzx_document,
+        lower_policy_atom_with_args, parse_cap_file_type, resolve_invalidates_targets,
         type_ref_from_syntax,
     };
 
@@ -8456,7 +6171,10 @@ feature account
         let ty = type_ref_from_syntax("list of Text");
         match ty {
             ir::TypeRef::Many(inner) => {
-                assert!(matches!(*inner, ir::TypeRef::Builtin(ir::BuiltinType::Text)));
+                assert!(matches!(
+                    *inner,
+                    ir::TypeRef::Builtin(ir::BuiltinType::Text)
+                ));
             }
             other => panic!("expected Many(Text), got {other:?}"),
         }
@@ -8482,7 +6200,10 @@ feature account
         let ty = type_ref_from_syntax("list Text");
         match ty {
             ir::TypeRef::Many(inner) => {
-                assert!(matches!(*inner, ir::TypeRef::Builtin(ir::BuiltinType::Text)));
+                assert!(matches!(
+                    *inner,
+                    ir::TypeRef::Builtin(ir::BuiltinType::Text)
+                ));
             }
             other => panic!("expected Many(Text), got {other:?}"),
         }
@@ -10153,10 +7874,7 @@ mod conventions_unknown_diagnostic_tests {
             msg.contains("CONVENTIONS-UNKNOWN"),
             "missing diagnostic code: {msg}"
         );
-        assert!(
-            msg.contains("`Customer`"),
-            "missing resource name: {msg}"
-        );
+        assert!(msg.contains("`Customer`"), "missing resource name: {msg}");
         assert!(msg.contains("`crd`"), "missing offending identifier: {msg}");
         assert!(
             msg.contains("did you mean `crud`?"),
@@ -10325,7 +8043,10 @@ mod conventions_crud_synth_tests {
                 ),
                 req_field("name", ir::TypeRef::Builtin(ir::BuiltinType::Text)),
                 req_field("status", user_qn("CustomerStatus")),
-                req_field("created_at", ir::TypeRef::Builtin(ir::BuiltinType::DateTime)),
+                req_field(
+                    "created_at",
+                    ir::TypeRef::Builtin(ir::BuiltinType::DateTime),
+                ),
             ],
             constraints: Vec::new(),
             validate: None,
@@ -10495,8 +8216,10 @@ mod conventions_crud_synth_tests {
             ir::CommandEffect::Creates(e) => &e.assignments,
             other => panic!("expected Creates effect, got {:?}", other),
         };
-        let create_fields: Vec<&str> =
-            create_assignments.iter().map(|a| a.field.as_str()).collect();
+        let create_fields: Vec<&str> = create_assignments
+            .iter()
+            .map(|a| a.field.as_str())
+            .collect();
         assert_eq!(
             create_fields,
             vec!["email", "name", "status"],
@@ -10522,8 +8245,10 @@ mod conventions_crud_synth_tests {
             ir::CommandEffect::Updates(e) => &e.assignments,
             other => panic!("expected Updates effect, got {:?}", other),
         };
-        let update_fields: Vec<&str> =
-            update_assignments.iter().map(|a| a.field.as_str()).collect();
+        let update_fields: Vec<&str> = update_assignments
+            .iter()
+            .map(|a| a.field.as_str())
+            .collect();
         assert_eq!(
             update_fields,
             vec!["email", "name", "status"],
@@ -10630,7 +8355,10 @@ mod conventions_crud_synth_tests {
         assert!(cmd_names.contains(&"create_customer"));
         assert!(cmd_names.contains(&"delete_customer"));
         // update_customer present, but appears exactly once (the author's).
-        let update_count = cmd_names.iter().filter(|n| **n == "update_customer").count();
+        let update_count = cmd_names
+            .iter()
+            .filter(|n| **n == "update_customer")
+            .count();
         assert_eq!(update_count, 1, "update_customer must not be duplicated");
 
         // The remaining update_customer is the author's — its policy is
@@ -10663,9 +8391,11 @@ mod conventions_crud_synth_tests {
     fn fx1_crud_author_list_query_silences_synth() {
         let mut feature = empty_feature("customer", true);
         feature.resources.push(customer_resource());
-        feature.queries.push(author_list_customers_query(ir::PolicyRef::Local(
-            "authenticated".to_owned(),
-        )));
+        feature
+            .queries
+            .push(author_list_customers_query(ir::PolicyRef::Local(
+                "authenticated".to_owned(),
+            )));
 
         let diags = synthesize_conventions(&mut feature);
         assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
@@ -10675,10 +8405,15 @@ mod conventions_crud_synth_tests {
             .iter()
             .filter(|q| q.name() == "list_customers")
             .count();
-        assert_eq!(list_count, 1, "author list_customers must not be duplicated");
+        assert_eq!(
+            list_count, 1,
+            "author list_customers must not be duplicated"
+        );
         assert_eq!(
             feature.synth_origins.get("list_customers"),
-            Some(&ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud))
+            Some(&ir::ConventionOrigin::AuthorOverride(
+                ir::ConventionRef::Crud
+            ))
         );
     }
 
@@ -10686,18 +8421,22 @@ mod conventions_crud_synth_tests {
     fn fx1_crud_author_list_query_policy_mismatch_warns_and_silences() {
         let mut feature = empty_feature("customer", true);
         feature.resources.push(customer_resource());
-        feature.queries.push(author_list_customers_query(ir::PolicyRef::Local(
-            "customer_admin".to_owned(),
-        )));
+        feature
+            .queries
+            .push(author_list_customers_query(ir::PolicyRef::Local(
+                "customer_admin".to_owned(),
+            )));
 
         let diags = synthesize_conventions(&mut feature);
         let mismatch = diags
             .iter()
-            .find(|d| matches!(
-                d,
-                CrudSynthDiagnostic::SignatureMismatch { resource, synth_name, .. }
-                    if resource == "Customer" && synth_name == "list_customers"
-            ))
+            .find(|d| {
+                matches!(
+                    d,
+                    CrudSynthDiagnostic::SignatureMismatch { resource, synth_name, .. }
+                        if resource == "Customer" && synth_name == "list_customers"
+                )
+            })
             .expect("expected SignatureMismatch for list_customers policy divergence");
         assert_eq!(
             mismatch.diagnostic_code(),
@@ -10710,7 +8449,11 @@ mod conventions_crud_synth_tests {
             .iter()
             .filter(|q| q.name() == "list_customers")
             .collect();
-        assert_eq!(lists.len(), 1, "author list_customers must not be duplicated");
+        assert_eq!(
+            lists.len(),
+            1,
+            "author list_customers must not be duplicated"
+        );
         match lists[0] {
             ir::Query::List(lq) => {
                 assert!(matches!(&lq.policy, ir::PolicyRef::Local(p) if p == "customer_admin"));
@@ -10725,9 +8468,11 @@ mod conventions_crud_synth_tests {
         let mut resource = customer_resource();
         resource.conventions = Vec::new();
         feature.resources.push(resource);
-        feature.queries.push(author_list_customers_query(ir::PolicyRef::Local(
-            "authenticated".to_owned(),
-        )));
+        feature
+            .queries
+            .push(author_list_customers_query(ir::PolicyRef::Local(
+                "authenticated".to_owned(),
+            )));
 
         let diags = synthesize_conventions(&mut feature);
         assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
@@ -10824,7 +8569,10 @@ mod conventions_crud_synth_tests {
             fields: vec![
                 req_field("id", ir::TypeRef::Builtin(ir::BuiltinType::Id)),
                 req_field("org", user_qn("Org")),
-                req_field("created_at", ir::TypeRef::Builtin(ir::BuiltinType::DateTime)),
+                req_field(
+                    "created_at",
+                    ir::TypeRef::Builtin(ir::BuiltinType::DateTime),
+                ),
             ],
             constraints: Vec::new(),
             validate: None,
@@ -11131,7 +8879,11 @@ mod conventions_me_synth_tests {
         match lookup {
             ir::Query::Lookup(lq) => {
                 // Route-less + param-less per §5.2.
-                assert!(lq.params.is_empty(), "expected no params, got {:?}", lq.params);
+                assert!(
+                    lq.params.is_empty(),
+                    "expected no params, got {:?}",
+                    lq.params
+                );
                 // Two key clauses: org + user.
                 assert_eq!(lq.keys.len(), 2);
                 assert_eq!(lq.keys[0].path.segments, vec!["org".to_owned()]);
@@ -11211,10 +8963,7 @@ mod conventions_me_synth_tests {
             "OrgSettings",
             vec![
                 req_field("org", user_qn("Org")),
-                req_field(
-                    "theme",
-                    ir::TypeRef::Builtin(ir::BuiltinType::Text),
-                ),
+                req_field("theme", ir::TypeRef::Builtin(ir::BuiltinType::Text)),
             ],
         ));
 
@@ -11384,8 +9133,11 @@ mod conventions_me_synth_tests {
         assert_eq!(cmd_names.len(), 3, "got commands: {:?}", cmd_names);
 
         // 2 crud queries + 1 me query.
-        let q_names: std::collections::BTreeSet<String> =
-            feature.queries.iter().map(|q| q.name().to_owned()).collect();
+        let q_names: std::collections::BTreeSet<String> = feature
+            .queries
+            .iter()
+            .map(|q| q.name().to_owned())
+            .collect();
         assert!(q_names.contains("lookup_customer"));
         assert!(q_names.contains("list_customers"));
         assert!(q_names.contains("lookup_my_customer"));
@@ -11399,7 +9151,13 @@ mod conventions_me_synth_tests {
             feature.synth_origins
         );
         // Spot-check the 5 crud entries.
-        for name in ["create_customer", "update_customer", "delete_customer", "lookup_customer", "list_customers"] {
+        for name in [
+            "create_customer",
+            "update_customer",
+            "delete_customer",
+            "lookup_customer",
+            "list_customers",
+        ] {
             assert_eq!(
                 feature.synth_origins.get(name),
                 Some(&ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud)),
@@ -11422,7 +9180,10 @@ mod conventions_me_synth_tests {
         let mut feature = empty_feature("audit");
         feature.resources.push(me_resource(
             "AuditNote",
-            vec![req_field("note", ir::TypeRef::Builtin(ir::BuiltinType::Text))],
+            vec![req_field(
+                "note",
+                ir::TypeRef::Builtin(ir::BuiltinType::Text),
+            )],
         ));
 
         let diags = synthesize_conventions(&mut feature);
@@ -11781,7 +9542,10 @@ mod conventions_owner_scope_synth_tests {
             .find(|c| c.name == "update_property")
             .expect("synth emits update_property");
         assert_eq!(
-            update.owner_scope_sql.as_ref().map(|s| s.where_predicate.as_str()),
+            update
+                .owner_scope_sql
+                .as_ref()
+                .map(|s| s.where_predicate.as_str()),
             Some(expected)
         );
 
@@ -11957,11 +9721,9 @@ mod conventions_owner_scope_synth_tests {
                 through,
                 fk_target,
                 suggestion,
-            } if resource == "Property" && field == "host" => Some((
-                through.clone(),
-                fk_target.clone(),
-                suggestion.clone(),
-            )),
+            } if resource == "Property" && field == "host" => {
+                Some((through.clone(), fk_target.clone(), suggestion.clone()))
+            }
             _ => None,
         });
         let (through, fk_target, suggestion) =
@@ -12203,7 +9965,9 @@ mod conventions_owner_scope_synth_tests {
         // §11 — synth_origins records AuthorOverride(Crud).
         assert_eq!(
             feature.synth_origins.get("delete_property"),
-            Some(&ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud)),
+            Some(&ir::ConventionOrigin::AuthorOverride(
+                ir::ConventionRef::Crud
+            )),
         );
 
         // Other 4 crud entries still synth WITH owner-scope.

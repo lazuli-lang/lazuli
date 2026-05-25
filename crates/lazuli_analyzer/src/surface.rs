@@ -70,10 +70,10 @@
 use lazuli_ir as ir;
 use lazuli_syntax as syntax;
 
+use crate::AnalyzeError;
 use crate::command::{lower_invalidates_query_ref, lower_named_arg};
 use crate::expr::lower_translation_key_ref;
 use crate::helpers::span_of;
-use crate::AnalyzeError;
 
 /// Lower a `SurfaceAst` (parser output) into the canonical `ir::Surface`
 /// per `docs/proposals/lzx-integration-codegen.md` §5 + §5.2.

@@ -116,10 +116,7 @@ pub fn analyze_rbac_catalog(pkg: &PackageSkeleton) -> (Option<ir::RbacCatalog>, 
             if !role_names_for_inherit.contains(parent) {
                 issues.push(RbacIssue {
                     code: "RBAC-ROLE-INHERIT-UNKNOWN-001",
-                    message: format!(
-                        "role `{}` inherits from unknown role `{}`",
-                        r.name, parent
-                    ),
+                    message: format!("role `{}` inherits from unknown role `{}`", r.name, parent),
                     span: Some((r.span.start, r.span.end)),
                 });
             }
@@ -217,10 +214,7 @@ pub fn analyze_rbac_catalog(pkg: &PackageSkeleton) -> (Option<ir::RbacCatalog>, 
             if !used.contains(&p.name) {
                 issues.push(RbacIssue {
                     code: "RBAC-PERM-UNUSED-001",
-                    message: format!(
-                        "permission `{}` is declared but no role grants it",
-                        p.name
-                    ),
+                    message: format!("permission `{}` is declared but no role grants it", p.name),
                     span: p.span_ref.map(|s| (s.start, s.end)),
                 });
             }
@@ -250,7 +244,7 @@ pub fn role_grants_permission(catalog: &ir::RbacCatalog, role: &str, perm: &str)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lazuli_syntax::{parse_package_skeleton};
+    use lazuli_syntax::parse_package_skeleton;
 
     fn analyze(src: &str) -> (ir::RbacCatalog, Vec<RbacIssue>) {
         let pkg = parse_package_skeleton(src).expect("parses");
@@ -327,9 +321,7 @@ role viewer
 "#,
         );
         assert!(
-            issues
-                .iter()
-                .any(|i| i.code == "RBAC-PERM-UNKNOWN-001"),
+            issues.iter().any(|i| i.code == "RBAC-PERM-UNKNOWN-001"),
             "{:?}",
             issues
         );

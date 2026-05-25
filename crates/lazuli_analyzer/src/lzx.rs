@@ -313,15 +313,14 @@ fn lower_view_guard(guard: &syntax::LzxViewGuard) -> ir::ViewGuard {
         policy: guard.policy.clone(),
         on_unauthenticated: guard.on_unauthenticated.clone(),
         on_unauthorized: guard.on_unauthorized.clone(),
-        requires_lifecycle: guard
-            .requires_lifecycle
-            .as_ref()
-            .map(|requires| ir::RequiresLifecycle {
+        requires_lifecycle: guard.requires_lifecycle.as_ref().map(|requires| {
+            ir::RequiresLifecycle {
                 resource: requires.resource.clone(),
                 state: requires.state.clone(),
                 substep: requires.substep.clone(),
                 span_ref: Some(span_of(requires.span)),
-            }),
+            }
+        }),
         on_lifecycle_pending: guard.on_lifecycle_pending.clone(),
         forbid_when: guard
             .forbid_when
