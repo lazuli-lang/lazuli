@@ -65,6 +65,7 @@
 
 pub mod checks;
 mod command;
+mod design;
 mod expr;
 mod helpers;
 mod lifecycle;
@@ -78,6 +79,7 @@ mod surface;
 pub mod symbol_origin;
 mod workflow;
 
+pub use design::lower_design;
 pub use lzx::lower_lzx_document;
 pub use plan_gate::{
     PlanGateCode, PlanGateDiagnostic, PlanGateFacts, aggregate_plan_gate_facts,
@@ -108,9 +110,8 @@ use workflow::{
 };
 
 use helpers::{
-    conventions_levenshtein, find_top_level_operator, first_paren_balanced_token,
-    has_top_level_comma, is_valid_design_hex, levenshtein, pascal_to_snake, quoted_ident,
-    quoted_table, snake_to_pascal, span_of,
+    conventions_levenshtein, find_top_level_operator, first_paren_balanced_token, levenshtein,
+    pascal_to_snake, quoted_ident, quoted_table, snake_to_pascal, span_of,
 };
 
 use lazuli_ir as ir;
@@ -4864,253 +4865,6 @@ pub(crate) fn type_ref_from_text(text: &str) -> ir::TypeRef {
     // matched `"Json"` only, lost `"JSON"`; always lowered `@semantic.*`
     // to `SemanticEmail`). Delegating fixes both at the source.
     type_ref_from_syntax(text.trim())
-}
-
-// =============================================================================
-// L0 #2 — Design tokens lowering.
-//
-// `lower_design` validates each closed-catalog group:
-//   * color states map to `ir::ColorStateKind` (closed catalog of 4).
-//   * hex literals match `#[0-9a-fA-F]{3,8}` (3, 4, 6, or 8 hex digits).
-//   * shadow values reject top-level commas (multi-layer composition).
-//   * weight values parse as `u16`.
-//   * z values parse as `i32`.
-//   * `extends` is reserved for Cut B — v0 always rejects.
-// =============================================================================
-
-pub fn lower_design(ast: &syntax::DesignDeclAst) -> Result<ir::Design, AnalyzeError> {
-    if let Some(target) = ast.extends.as_deref() {
-        return Err(AnalyzeError::DesignExtendsCutB {
-            target: target.to_owned(),
-        });
-    }
-
-    let colors = ast
-        .colors
-        .iter()
-        .map(lower_design_color_token)
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let typography = ir::Typography {
-        families: ast
-            .typography
-            .families
-            .iter()
-            .map(|f| ir::FamilyToken {
-                name: f.name.clone(),
-                value: f.value.clone(),
-            })
-            .collect(),
-        scale: ast
-            .typography
-            .scale
-            .iter()
-            .map(|s| ir::TextScaleToken {
-                name: s.name.clone(),
-                size: s.size.clone(),
-                line_height: s.line_height.clone(),
-            })
-            .collect(),
-        weights: ast
-            .typography
-            .weights
-            .iter()
-            .map(lower_design_weight)
-            .collect::<Result<Vec<_>, _>>()?,
-        tracking: ast
-            .typography
-            .tracking
-            .iter()
-            .map(|t| ir::TrackingToken {
-                name: t.name.clone(),
-                value: t.value.clone(),
-            })
-            .collect(),
-    };
-
-    let spaces = ast
-        .spaces
-        .iter()
-        .map(|s| ir::ScaleToken {
-            name: s.name.clone(),
-            value: s.value.clone(),
-        })
-        .collect();
-    let radii = ast
-        .radii
-        .iter()
-        .map(|s| ir::ScaleToken {
-            name: s.name.clone(),
-            value: s.value.clone(),
-        })
-        .collect();
-    let shadows = ast
-        .shadows
-        .iter()
-        .map(lower_design_shadow)
-        .collect::<Result<Vec<_>, _>>()?;
-    let motion = ir::Motion {
-        durations: ast
-            .motion
-            .durations
-            .iter()
-            .map(|s| ir::ScaleToken {
-                name: s.name.clone(),
-                value: s.value.clone(),
-            })
-            .collect(),
-        easings: ast
-            .motion
-            .easings
-            .iter()
-            .map(|e| ir::EasingToken {
-                name: e.name.clone(),
-                value: e.value.clone(),
-            })
-            .collect(),
-    };
-    let breakpoints = ast
-        .breakpoints
-        .iter()
-        .map(|s| ir::ScaleToken {
-            name: s.name.clone(),
-            value: s.value.clone(),
-        })
-        .collect();
-    let z_indices = ast
-        .z_indices
-        .iter()
-        .map(lower_design_z)
-        .collect::<Result<Vec<_>, _>>()?;
-
-    // L0 #2 — `custom` 9th meta-group per
-    // `docs/proposals/design-tokens-custom.md`. Validate hex values here;
-    // collision + reserved-name policy is enforced by doctor (the analyzer
-    // stays surface-thin to keep proposal-pending diagnostics in doctor).
-    let custom = ast
-        .custom
-        .iter()
-        .map(lower_design_custom_token)
-        .collect::<Result<Vec<_>, _>>()?;
-
-    Ok(ir::Design {
-        name: ast.name.clone(),
-        extends: None,
-        colors,
-        typography,
-        spaces,
-        radii,
-        shadows,
-        motion,
-        breakpoints,
-        z_indices,
-        custom,
-        span_ref: Some(span_of(ast.span)),
-    })
-}
-
-pub(crate) fn lower_design_custom_token(
-    token: &syntax::CustomTokenAst,
-) -> Result<ir::CustomToken, AnalyzeError> {
-    // Hex validation for the `custom` 9th meta-group is intentionally
-    // delegated to doctor (`design-custom-invalid-value`) so the
-    // proposal-pending diagnostic surface ships as a doctor rule rather
-    // than a hard analyzer rejection. See
-    // `docs/proposals/design-tokens-custom.md` §4. Lowering preserves the
-    // verbatim value so doctor can produce an actionable error message.
-    Ok(ir::CustomToken {
-        name: token.name.clone(),
-        base: token.value.clone(),
-        dark: token.dark.clone(),
-        span_ref: Some(span_of(token.span)),
-    })
-}
-
-pub(crate) fn lower_design_color_token(token: &syntax::ColorTokenAst) -> Result<ir::ColorToken, AnalyzeError> {
-    let mut states = Vec::with_capacity(token.states.len());
-    for state in &token.states {
-        let kind = match state.kind.as_str() {
-            "base" => ir::ColorStateKind::Base,
-            "hover" => ir::ColorStateKind::Hover,
-            "active" => ir::ColorStateKind::Active,
-            "foreground" => ir::ColorStateKind::Foreground,
-            other => {
-                return Err(AnalyzeError::DesignColorStateUnknown {
-                    token: token.name.clone(),
-                    state: other.to_owned(),
-                });
-            }
-        };
-        if !is_valid_design_hex(&state.value) {
-            return Err(AnalyzeError::DesignColorHexInvalid {
-                token: token.name.clone(),
-                state: state.kind.clone(),
-                value: state.value.clone(),
-            });
-        }
-        if let Some(dark) = state.dark.as_deref() {
-            if !is_valid_design_hex(dark) {
-                return Err(AnalyzeError::DesignColorHexInvalid {
-                    token: token.name.clone(),
-                    state: format!("{}.dark", state.kind),
-                    value: dark.to_owned(),
-                });
-            }
-        }
-        states.push(ir::ColorState {
-            kind,
-            value: state.value.clone(),
-            dark: state.dark.clone(),
-        });
-    }
-    Ok(ir::ColorToken {
-        name: token.name.clone(),
-        states,
-        span_ref: Some(span_of(token.span)),
-    })
-}
-
-pub(crate) fn lower_design_weight(weight: &syntax::WeightTokenAst) -> Result<ir::WeightToken, AnalyzeError> {
-    let parsed =
-        weight
-            .value
-            .trim()
-            .parse::<u16>()
-            .map_err(|_| AnalyzeError::DesignWeightInvalid {
-                name: weight.name.clone(),
-                value: weight.value.clone(),
-            })?;
-    Ok(ir::WeightToken {
-        name: weight.name.clone(),
-        value: parsed,
-    })
-}
-
-pub(crate) fn lower_design_shadow(shadow: &syntax::ShadowTokenAst) -> Result<ir::ShadowToken, AnalyzeError> {
-    if has_top_level_comma(&shadow.value) {
-        return Err(AnalyzeError::DesignShadowMultiLayer {
-            name: shadow.name.clone(),
-        });
-    }
-    Ok(ir::ShadowToken {
-        name: shadow.name.clone(),
-        value: shadow.value.clone(),
-    })
-}
-
-pub(crate) fn lower_design_z(z: &syntax::ZTokenAst) -> Result<ir::ZToken, AnalyzeError> {
-    let parsed = z
-        .value
-        .trim()
-        .parse::<i32>()
-        .map_err(|_| AnalyzeError::DesignZInvalid {
-            name: z.name.clone(),
-            value: z.value.clone(),
-        })?;
-    Ok(ir::ZToken {
-        name: z.name.clone(),
-        value: parsed,
-    })
 }
 
 #[cfg(test)]
