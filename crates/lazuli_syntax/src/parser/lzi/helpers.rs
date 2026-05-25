@@ -204,3 +204,85 @@ pub(crate) fn parse_invariant_form(
         ),
     ))
 }
+
+// =============================================================================
+// `parse_invariant_form` helper tests.
+// =============================================================================
+#[cfg(test)]
+mod invariant_form_helper_tests {
+    use super::super::super::common::SourceLine;
+    use super::{InvariantForm, parse_invariant_form};
+
+    fn make_invariant_line() -> SourceLine<'static> {
+        SourceLine {
+            text: "  invariant test",
+            indent: 2,
+            start: 0,
+            end: 16,
+        }
+    }
+
+    #[test]
+    fn parses_terminal_immutable() {
+        let line = make_invariant_line();
+        assert_eq!(
+            parse_invariant_form(&line, "terminal_immutable").unwrap(),
+            InvariantForm::TerminalImmutable
+        );
+    }
+
+    #[test]
+    fn parses_no_jump_more_than_one() {
+        let line = make_invariant_line();
+        assert_eq!(
+            parse_invariant_form(&line, "no_jump_more_than_one").unwrap(),
+            InvariantForm::NoJumpMoreThanOne
+        );
+    }
+
+    #[test]
+    fn parses_single_state_per_scope() {
+        let line = make_invariant_line();
+        let form = parse_invariant_form(&line, "single gold per item_id").unwrap();
+
+        match form {
+            InvariantForm::SingleStatePerScope { state, scope_field } => {
+                assert_eq!(state, "gold");
+                assert_eq!(scope_field, "item_id");
+            }
+            _ => panic!("expected SingleStatePerScope"),
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_form() {
+        let line = make_invariant_line();
+        let err = parse_invariant_form(&line, "my_custom_thing").unwrap_err();
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("closed catalog"));
+    }
+
+    #[test]
+    fn rejects_single_with_missing_tokens() {
+        let line = make_invariant_line();
+        let err = parse_invariant_form(&line, "single gold per").unwrap_err();
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("closed catalog") || msg.contains("requires"));
+    }
+
+    #[test]
+    fn rejects_single_with_wrong_separator() {
+        let line = make_invariant_line();
+        let err = parse_invariant_form(&line, "single gold by item_id").unwrap_err();
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("closed catalog"));
+    }
+
+    #[test]
+    fn rejects_predicate_style() {
+        let line = make_invariant_line();
+        let err = parse_invariant_form(&line, "single gold where item_id = parent.id").unwrap_err();
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("closed catalog"));
+    }
+}
