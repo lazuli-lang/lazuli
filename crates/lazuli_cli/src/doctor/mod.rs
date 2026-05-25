@@ -1853,7 +1853,7 @@ impl DoctorPackage {
 
         // Cut A.11 — `cors` block cross-checks against the app's
         // declared environments + urls.
-        diagnostics.extend(cors_diagnostics(self.app.as_ref()));
+        diagnostics.extend(aggregators::cors::diagnostics(self.app.as_ref()));
 
         // Roadmap §1.2 — HTTP hygiene contracts: cookie / proxy /
         // limits. Each block's typed lift is doctor-validated against
@@ -10587,117 +10587,6 @@ fn app_urls_missing_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorDi
 }
 
 const APP_URLS_MISSING_MESSAGE: &str = "app declares no `urls` block — auth callbacks, CORS allowlist, and frontend redirect targets cannot be configured. Add a `urls` block to app.lzi with at least one environment URL (e.g., `urls\n  dev: \"http://localhost:3000\"`).";
-
-// -----------------------------------------------------------------------------
-// Cut A.11 — `cors` block cross-feature checks
-//
-// CORS lives in `app.lzi` (language-light tier) alongside `urls`.
-// Doctor validates origins against the declared environments + urls
-// and catches the CORS-spec violation of `allow_origins "*"` with
-// `allow_credentials true`.
-// -----------------------------------------------------------------------------
-
-fn cors_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorDiagnostic> {
-    let mut diagnostics = Vec::new();
-    let Some(app_manifest) = app else {
-        return diagnostics;
-    };
-    let Some(cors) = app_manifest.manifest.cors.as_ref() else {
-        return diagnostics;
-    };
-
-    let environments: BTreeSet<&str> = app_manifest
-        .manifest
-        .environments
-        .iter()
-        .map(String::as_str)
-        .collect();
-    let declared_urls: Vec<&lazuli_ir::AppUrl> = app_manifest.manifest.urls.iter().collect();
-
-    let mut has_wildcard = false;
-    for rule in &cors.allow_origins {
-        // Environment must be declared in `app.environments`.
-        if !environments.contains(rule.environment.as_str()) {
-            diagnostics.push(DoctorDiagnostic {
-                path: app_manifest.path.clone(),
-                line: 1,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: "cors_unknown_environment_diagnostics".to_owned(),
-                message: format!(
-                    "`cors allow_origins {} ...` references an environment that is not in `app.environments` ({}).",
-                    rule.environment,
-                    environments_summary(&environments),
-                ),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-
-        for origin in &rule.origins {
-            if origin == "*" {
-                has_wildcard = true;
-                continue;
-            }
-            // Wildcards in subdomain (`https://*.example.com`) skip
-            // url-match — they're intentionally broader than any
-            // single URL declaration.
-            if origin.contains("*") {
-                continue;
-            }
-            // Compare against declared urls in the same environment.
-            // The match is prefix-based: a declared URL
-            // `https://app.example.com` allows the origin
-            // `https://app.example.com` (exact) — query string and
-            // path differences are tolerated by the CORS layer, so
-            // we compare scheme+host.
-            let documented = declared_urls
-                .iter()
-                .filter(|u| u.environment == rule.environment)
-                .any(|u| same_origin(&u.url, origin));
-            if !documented {
-                diagnostics.push(DoctorDiagnostic {
-                    path: app_manifest.path.clone(),
-                    line: 1,
-                    column: 1,
-                    severity: DoctorSeverity::Warning,
-                    code: "cors_origin_undocumented_diagnostics".to_owned(),
-                    message: format!(
-                        "`cors allow_origins {env} \"{origin}\"` does not match any `url <target> {env} ...` declaration. If the origin is a third-party caller, ignore; otherwise update `urls` so the source-of-truth stays consistent.",
-                        env = rule.environment,
-                    ),
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                });
-            }
-        }
-    }
-
-    // CORS spec forbids `allow_origins "*"` with `allow_credentials true`.
-    if has_wildcard && cors.allow_credentials {
-        diagnostics.push(DoctorDiagnostic {
-            path: app_manifest.path.clone(),
-            line: 1,
-            column: 1,
-            severity: DoctorSeverity::Error,
-            code: "cors_credentials_wildcard_conflict_diagnostics".to_owned(),
-            message: "`cors allow_origins ... \"*\"` cannot be combined with `allow_credentials true`. Per CORS spec, browsers reject the response. Either narrow the origin list or set `allow_credentials false`.".to_owned(),
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-
-    diagnostics
-}
 
 // =============================================================================
 // Observability bucket cycle row 36 — `app.logging` + `app.tracing`
