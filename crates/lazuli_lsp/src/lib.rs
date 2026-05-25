@@ -94,7 +94,9 @@ pub(crate) use completion::error_vocab::{
     in_feature_errors_block, lookup_feature_error_key, lookup_translation_first_variant,
 };
 pub use completion::input_field::input_field_completions;
-pub(crate) use completion::input_field::{collect_command_input_and_route_params, input_dot_trigger};
+pub(crate) use completion::input_field::{
+    collect_command_input_and_route_params, input_dot_trigger,
+};
 pub(crate) use completion::namespace::{collect_namespace_names, namespace_prefix_completions};
 pub(crate) use completion_items::{completion_items_for_uri, make_symbol, merge_completion_items};
 pub use conventions::conventions_list_completions;
@@ -2129,7 +2131,6 @@ pub(crate) fn owner_axis_through_completions(
     )
 }
 
-
 pub(crate) fn simple_edit_action(
     uri: &Url,
     title: &str,
@@ -2154,7 +2155,6 @@ pub(crate) fn simple_edit_action(
         data: None,
     }
 }
-
 
 // Catalog detail-lookup functions (`resource_lock_strategy_detail`,
 // `error_page_status_detail`, `auth_catalog_detail`,
