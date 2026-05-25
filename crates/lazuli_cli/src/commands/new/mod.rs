@@ -179,10 +179,7 @@ fn new_in_place_command(
     for frontend in parse_frontends(frontends)? {
         match frontend {
             FrontendScaffold::Web => {
-                let package_json = project_root
-                    .join("app")
-                    .join("web")
-                    .join("package.json");
+                let package_json = project_root.join("app").join("web").join("package.json");
                 let package_json_exists = package_json
                     .try_exists()
                     .with_context(|| format!("failed to inspect {}", package_json.display()))?;

@@ -163,7 +163,10 @@ fn format_resource_conventions(conventions: &[ConventionRef], owner_scope: bool)
     if conventions.is_empty() {
         return String::new();
     }
-    let mut names: Vec<String> = conventions.iter().map(|c| convention_name(c).to_owned()).collect();
+    let mut names: Vec<String> = conventions
+        .iter()
+        .map(|c| convention_name(c).to_owned())
+        .collect();
     if owner_scope {
         names.push("owner-scope".to_owned());
     }
@@ -429,12 +432,15 @@ mod tests {
     #[test]
     fn renders_section_8_customer_synth_output() {
         let mut feature = empty_feature("customer");
-        feature.resources.push(customer_resource(vec![ConventionRef::Crud]));
+        feature
+            .resources
+            .push(customer_resource(vec![ConventionRef::Crud]));
         for n in ["create_customer", "update_customer", "delete_customer"] {
             feature.commands.push(minimal_command(n));
-            feature
-                .synth_origins
-                .insert(n.to_owned(), ConventionOrigin::Synthesized(ConventionRef::Crud));
+            feature.synth_origins.insert(
+                n.to_owned(),
+                ConventionOrigin::Synthesized(ConventionRef::Crud),
+            );
         }
         feature.queries.push(lookup_query("lookup_customer"));
         feature.queries.push(list_query("list_customers"));
@@ -470,7 +476,9 @@ feature customer
     #[test]
     fn renders_section_9_worked_override() {
         let mut feature = empty_feature("customer");
-        feature.resources.push(customer_resource(vec![ConventionRef::Crud]));
+        feature
+            .resources
+            .push(customer_resource(vec![ConventionRef::Crud]));
 
         // create / delete are synthesized; update_customer is author-written.
         feature.commands.push(minimal_command("create_customer"));
@@ -593,10 +601,7 @@ feature customer
   queries:
     lookup_my_customer    [conv:me]
 ";
-        assert_eq!(
-            out, expected,
-            "§8 customer-me summary diverged from spec"
-        );
+        assert_eq!(out, expected, "§8 customer-me summary diverged from spec");
     }
 
     /// §6.1 worked composition: `conventions [crud, me]` yields 6
@@ -835,10 +840,12 @@ feature customer
     #[test]
     fn renders_composed_crud_me_owner_scope() {
         let mut feature = empty_feature("catalog");
-        feature.resources.push(property_resource_with_owner_axis(vec![
-            ConventionRef::Crud,
-            ConventionRef::Me,
-        ]));
+        feature
+            .resources
+            .push(property_resource_with_owner_axis(vec![
+                ConventionRef::Crud,
+                ConventionRef::Me,
+            ]));
         for n in ["create_property", "update_property", "delete_property"] {
             feature.commands.push(minimal_command(n));
             feature.synth_origins.insert(
@@ -936,8 +943,7 @@ feature customer
         };
         let out = super::format_rate_limit_suffix(Some(&spec));
         assert_eq!(
-            out,
-            "rate_limit: 5 per 10 minutes per ip (default) | unlimited in dev,staging,test",
+            out, "rate_limit: 5 per 10 minutes per ip (default) | unlimited in dev,staging,test",
             "env-qualified shape should match §11.2 verbatim line"
         );
     }

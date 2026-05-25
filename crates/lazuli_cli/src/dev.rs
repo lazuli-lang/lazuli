@@ -1,9 +1,9 @@
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::mpsc::{channel, RecvTimeoutError};
+use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use notify::{Event, EventKind, RecursiveMode, Watcher};
 
 pub struct DevOptions {

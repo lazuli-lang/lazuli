@@ -89,9 +89,7 @@ pub fn doctor_watch_command(
 fn event_touches_lazuli_source(event: &Event) -> bool {
     event.paths.iter().any(|p| {
         let s = p.to_string_lossy();
-        s.ends_with(".lzi")
-            || s.ends_with(".lzx")
-            || s.ends_with("Lazurite.toml")
+        s.ends_with(".lzi") || s.ends_with(".lzx") || s.ends_with("Lazurite.toml")
     })
 }
 
@@ -105,13 +103,15 @@ fn run_once(
     // Watch never bubbles up an Err — the caller expects a long-running
     // loop. Errors are printed to stderr so the agent sees them.
     let opts = doctor::DoctorRuntimeOptions {
-        format: Some(match format {
-            DoctorFormat::Auto => "auto",
-            DoctorFormat::Text => "text",
-            DoctorFormat::Json => "json",
-            DoctorFormat::Ndjson => "ndjson",
-        }
-        .to_string()),
+        format: Some(
+            match format {
+                DoctorFormat::Auto => "auto",
+                DoctorFormat::Text => "text",
+                DoctorFormat::Json => "json",
+                DoctorFormat::Ndjson => "ndjson",
+            }
+            .to_string(),
+        ),
         coverage: false,
         fail_on: fail_on
             .iter()

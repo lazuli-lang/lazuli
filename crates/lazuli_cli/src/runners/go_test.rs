@@ -76,17 +76,12 @@ pub fn run(
 
     let coverage = opts.coverage_override.unwrap_or(go_cfg.coverage);
     let coverage_out = if coverage {
-        Some(
-            go_cfg
-                .coverage_out
-                .clone()
-                .unwrap_or_else(|| {
-                    project_root
-                        .join("dist/coverage/handler.cov.out")
-                        .to_string_lossy()
-                        .into_owned()
-                }),
-        )
+        Some(go_cfg.coverage_out.clone().unwrap_or_else(|| {
+            project_root
+                .join("dist/coverage/handler.cov.out")
+                .to_string_lossy()
+                .into_owned()
+        }))
     } else {
         None
     };
@@ -280,7 +275,10 @@ fn parse_file_line(s: &str) -> (Option<String>, Option<u32>) {
         None => return (None, None),
     };
     let line_str = rest.split(':').next().unwrap_or("");
-    let line = line_str.trim_end_matches(|c: char| !c.is_ascii_digit()).parse::<u32>().ok();
+    let line = line_str
+        .trim_end_matches(|c: char| !c.is_ascii_digit())
+        .parse::<u32>()
+        .ok();
     (Some(file), line)
 }
 

@@ -81,7 +81,14 @@ impl<W: Write> NdjsonEmitter<W> {
         }));
     }
 
-    pub fn finding(&mut self, layer: Layer, rule: &str, path: &str, line: Option<u32>, message: &str) {
+    pub fn finding(
+        &mut self,
+        layer: Layer,
+        rule: &str,
+        path: &str,
+        line: Option<u32>,
+        message: &str,
+    ) {
         let mut obj = serde_json::json!({
             "event": "finding",
             "layer": layer.as_str(),

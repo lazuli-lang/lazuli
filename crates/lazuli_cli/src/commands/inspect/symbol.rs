@@ -195,11 +195,13 @@ fn inspect_symbol_lookup(
             // need an analyzer pass; out of scope for the bare lookup).
             let key = format!("{}.{}", feature_or_alias, name);
             if index.symbols.contains_key(&key) {
-                vec![index
-                    .symbols
-                    .get_key_value(&key)
-                    .map(|(k, _)| k.as_str())
-                    .unwrap()]
+                vec![
+                    index
+                        .symbols
+                        .get_key_value(&key)
+                        .map(|(k, _)| k.as_str())
+                        .unwrap(),
+                ]
             } else {
                 Vec::new()
             }
@@ -248,7 +250,13 @@ fn inspect_symbol_lookup(
     // Step 5: branch on candidate count.
     match candidates.len() {
         0 => inspect_symbol_not_found(&qualifier, &name, module, index),
-        1 => inspect_symbol_found(&candidates[0], &qualifier, &name, index, imported_via.as_ref()),
+        1 => inspect_symbol_found(
+            &candidates[0],
+            &qualifier,
+            &name,
+            index,
+            imported_via.as_ref(),
+        ),
         _ => inspect_symbol_ambiguous(
             &name,
             &candidates.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
@@ -337,7 +345,10 @@ fn inspect_symbol_not_found(
             "no declaration named `{}` in feature `{}` or any imported feature",
             name, q
         ),
-        None => format!("no declaration named `{}` in any feature of this project", name),
+        None => format!(
+            "no declaration named `{}` in any feature of this project",
+            name
+        ),
     };
     serde_json::json!({
         "error": {

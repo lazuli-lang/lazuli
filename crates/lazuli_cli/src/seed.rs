@@ -168,10 +168,12 @@ auto = false
         }
 
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("refusing to seed in production env"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("refusing to seed in production env")
+        );
 
         let _ = fs::remove_dir_all(root);
     }

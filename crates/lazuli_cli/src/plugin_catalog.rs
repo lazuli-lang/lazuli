@@ -17,11 +17,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::lazurite_manifest::Manifest;
 use crate::plugin_manifest::{
-    self, PluginManifest, PluginSemanticTypeDecl, PLUGIN_MANIFEST_FILENAME,
+    self, PLUGIN_MANIFEST_FILENAME, PluginManifest, PluginSemanticTypeDecl,
 };
 
 const CATALOG_SCHEMA_VERSION: u32 = 1;
@@ -80,7 +80,11 @@ fn build_entry(
         .join(PLUGIN_MANIFEST_FILENAME)
         .strip_prefix(project_root)
         .map(|p| p.to_string_lossy().replace('\\', "/"))
-        .unwrap_or_else(|_| root.join(PLUGIN_MANIFEST_FILENAME).to_string_lossy().replace('\\', "/"));
+        .unwrap_or_else(|_| {
+            root.join(PLUGIN_MANIFEST_FILENAME)
+                .to_string_lossy()
+                .replace('\\', "/")
+        });
 
     let readme_excerpt = read_readme_excerpt(root);
     let description = identity
@@ -116,7 +120,10 @@ fn render_semantic_type(decl: &PluginSemanticTypeDecl) -> Value {
     let mut obj = serde_json::Map::new();
     obj.insert("name".into(), Value::String(decl.name.clone()));
     obj.insert("alias".into(), Value::String(decl.alias.clone()));
-    obj.insert("carrier_type".into(), Value::String(decl.carrier_type.clone()));
+    obj.insert(
+        "carrier_type".into(),
+        Value::String(decl.carrier_type.clone()),
+    );
     obj.insert("validator".into(), Value::String(decl.validator.clone()));
     if let Some(fmt) = &decl.formatter {
         obj.insert("formatter".into(), Value::String(fmt.clone()));
@@ -204,7 +211,9 @@ fn extract_go_exports(root: &Path) -> Vec<String> {
         {
             return;
         }
-        let Ok(src) = fs::read_to_string(path) else { return };
+        let Ok(src) = fs::read_to_string(path) else {
+            return;
+        };
         for line in src.lines() {
             if let Some(name) = parse_go_export(line) {
                 exports.push(name);
@@ -248,14 +257,18 @@ fn extract_ts_exports(root: &Path) -> Vec<String> {
         return Vec::new();
     }
     walk_dir(&src_dir, &mut |path| {
-        let Some(name) = path.file_name().and_then(|n| n.to_str()) else { return };
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            return;
+        };
         if !(name.ends_with(".ts") || name.ends_with(".tsx")) {
             return;
         }
         if name.ends_with(".test.ts") || name.ends_with(".test.tsx") {
             return;
         }
-        let Ok(src) = fs::read_to_string(path) else { return };
+        let Ok(src) = fs::read_to_string(path) else {
+            return;
+        };
         for name in parse_ts_exports(&src) {
             exports.push(name);
         }
@@ -267,7 +280,9 @@ fn parse_ts_exports(src: &str) -> Vec<String> {
     let mut out = Vec::new();
     for line in src.lines() {
         let trimmed = line.trim_start();
-        let Some(rest) = trimmed.strip_prefix("export ") else { continue };
+        let Some(rest) = trimmed.strip_prefix("export ") else {
+            continue;
+        };
         // `export type { Foo }` / `export { Foo }` re-export forms
         // — extract the names between braces.
         let after_optional = rest
@@ -291,7 +306,14 @@ fn parse_ts_exports(src: &str) -> Vec<String> {
         }
         // `export (function|const|class|interface|type|enum) <name>`
         for kw in [
-            "function ", "const ", "let ", "var ", "class ", "interface ", "type ", "enum ",
+            "function ",
+            "const ",
+            "let ",
+            "var ",
+            "class ",
+            "interface ",
+            "type ",
+            "enum ",
         ] {
             if let Some(after) = after_optional.strip_prefix(kw) {
                 let name = after

@@ -25,8 +25,7 @@ pub fn run(input: &Path, layer: Layer) -> Result<LayerResult> {
     let started = Instant::now();
     // SecurityProfile::Strict mirrors the default `lazuli doctor` /
     // `lazuli check` choice.
-    let diagnostics_value =
-        crate::doctor::doctor_diagnostics_json(input, SecurityProfile::Strict);
+    let diagnostics_value = crate::doctor::doctor_diagnostics_json(input, SecurityProfile::Strict);
     let elapsed_ms = started.elapsed().as_millis() as u64;
 
     let diagnostics = match diagnostics_value {

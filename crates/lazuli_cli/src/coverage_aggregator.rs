@@ -212,13 +212,8 @@ fn aggregate_for(method: &str, metrics: &[CoverageMetric]) -> CoverageAggregate 
                 (covered as f64 / total as f64) * 100.0
             }
         }
-        "arithmetic-mean" => {
-            metrics.iter().map(|m| m.pct).sum::<f64>() / metrics.len() as f64
-        }
-        "min-of-layers" => metrics
-            .iter()
-            .map(|m| m.pct)
-            .fold(f64::INFINITY, f64::min),
+        "arithmetic-mean" => metrics.iter().map(|m| m.pct).sum::<f64>() / metrics.len() as f64,
+        "min-of-layers" => metrics.iter().map(|m| m.pct).fold(f64::INFINITY, f64::min),
         _ => 0.0,
     };
     CoverageAggregate {

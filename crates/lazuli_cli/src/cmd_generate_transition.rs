@@ -27,8 +27,8 @@ pub fn run(ident: &str, project_root: &Path) -> Result<()> {
         ));
     }
 
-    let existing = fs::read_to_string(&lzi_path)
-        .with_context(|| format!("reading {}", lzi_path.display()))?;
+    let existing =
+        fs::read_to_string(&lzi_path).with_context(|| format!("reading {}", lzi_path.display()))?;
     let workflow_header = format!("  workflow {}\n", workflow);
     let transition_needle = format!("    transition {}\n", name);
     if existing.contains(&workflow_header) && existing.contains(&transition_needle) {
@@ -120,11 +120,7 @@ fn parse_ident(ident: &str) -> Result<(String, String, String)> {
     let feature = parts.next().unwrap_or_default();
     let workflow = parts.next().unwrap_or_default();
     let name = parts.next().unwrap_or_default();
-    if feature.is_empty()
-        || workflow.is_empty()
-        || name.is_empty()
-        || parts.next().is_some()
-    {
+    if feature.is_empty() || workflow.is_empty() || name.is_empty() || parts.next().is_some() {
         return Err(anyhow!(
             "transition ident must be <feature>.<workflow>.<name>; got {ident}"
         ));

@@ -20,7 +20,6 @@ use crate::seed;
 
 /// Handler for the `Commands::Seed` clap arm.
 pub fn seed_command(only: Option<&str>, force: bool) -> Result<()> {
-    let project_root =
-        std::env::current_dir().context("failed to determine current directory")?;
+    let project_root = std::env::current_dir().context("failed to determine current directory")?;
     seed::run_seed(&project_root, only, force).map_err(|err| anyhow::anyhow!("{err}"))
 }

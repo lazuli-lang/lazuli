@@ -254,9 +254,9 @@ impl FailOnSpec {
             if metric.is_empty() {
                 return Err(format!("--fail-on {raw}: metric id is required"));
             }
-            let pct: f64 = threshold.parse().map_err(|_| {
-                format!("--fail-on {raw}: threshold `{threshold}` is not a number")
-            })?;
+            let pct: f64 = threshold
+                .parse()
+                .map_err(|_| format!("--fail-on {raw}: threshold `{threshold}` is not a number"))?;
             if !(0.0..=100.0).contains(&pct) {
                 return Err(format!("--fail-on {raw}: threshold must be in 0..=100"));
             }

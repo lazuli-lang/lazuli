@@ -21,7 +21,8 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 
 use crate::{
-    GITIGNORE_TEMPLATE, REGISTRY_TEMPLATE, casing::{pascal_case, to_kebab_case, to_snake_case},
+    GITIGNORE_TEMPLATE, REGISTRY_TEMPLATE,
+    casing::{pascal_case, to_kebab_case, to_snake_case},
 };
 
 /// Write the minimal four-file project layout. No Go scaffolding, no

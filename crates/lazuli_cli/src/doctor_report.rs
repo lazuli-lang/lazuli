@@ -322,7 +322,12 @@ mod tests {
             category: RuleCategory::Vocabulary.as_str().into(),
             severity: "warning".into(),
             path: "p".into(),
-            span: SpanJson { line: 1, column: 1, end_line: None, end_column: None },
+            span: SpanJson {
+                line: 1,
+                column: 1,
+                end_line: None,
+                end_column: None,
+            },
             construct: None,
             message: "m".into(),
             fix: None,

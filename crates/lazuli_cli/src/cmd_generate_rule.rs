@@ -25,8 +25,8 @@ pub fn run(ident: &str, project_root: &Path) -> Result<()> {
         ));
     }
 
-    let existing = fs::read_to_string(&lzi_path)
-        .with_context(|| format!("reading {}", lzi_path.display()))?;
+    let existing =
+        fs::read_to_string(&lzi_path).with_context(|| format!("reading {}", lzi_path.display()))?;
     let needle = format!("\n  rule {}\n", name);
     if existing.contains(&needle) {
         return Err(anyhow!(

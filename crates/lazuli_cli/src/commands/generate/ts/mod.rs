@@ -192,8 +192,8 @@ pub(crate) fn generate_ts(input: &Path, output: Option<&Path>, check: bool) -> R
     // Replaced by the `@lazuli/vite` runtime package, which reads
     // Lazurite.toml at vite-config-load time on the actual host.
     if let Some(m) = manifest.as_ref() {
-        let project_root_abs = std::fs::canonicalize(&project_root)
-            .unwrap_or_else(|_| project_root.clone());
+        let project_root_abs =
+            std::fs::canonicalize(&project_root).unwrap_or_else(|_| project_root.clone());
         if let Some(contents) = crate::plugin_catalog::emit_plugin_catalog(m, &project_root_abs) {
             files.push(lazuli_codegen_ts::GeneratedFile {
                 path: "dist/plugin-catalog.json".to_owned(),
@@ -319,9 +319,11 @@ fn emit_feature_ts_artifacts(
         }
     }
     for target_prefix in &target_prefixes {
-        if let Some(contents) =
-            lazuli_codegen_ts::lzx_route_params::emit_route_params_ts(feature, module, target_prefix)
-        {
+        if let Some(contents) = lazuli_codegen_ts::lzx_route_params::emit_route_params_ts(
+            feature,
+            module,
+            target_prefix,
+        ) {
             out.push(lazuli_codegen_ts::GeneratedFile {
                 path: format!(
                     "dist/{}/{}/{}.routes.gen.ts",
@@ -498,23 +500,24 @@ fn collect_cross_feature_refs(
     module: &lazuli_ir::Module,
     out: &mut std::collections::BTreeMap<String, BTreeSet<String>>,
 ) {
-    let walk_type = |type_ref: &lazuli_ir::TypeRef,
-                     out: &mut std::collections::BTreeMap<String, BTreeSet<String>>| {
-        let mut stack: Vec<&lazuli_ir::TypeRef> = vec![type_ref];
-        while let Some(t) = stack.pop() {
-            match t {
-                lazuli_ir::TypeRef::Many(inner) => stack.push(inner),
-                lazuli_ir::TypeRef::EnumRef(qn) | lazuli_ir::TypeRef::UserDefined(qn) => {
-                    if let Some(owner) = owner_feature_for_type(qn, module, feature) {
-                        out.entry(owner)
-                            .or_insert_with(BTreeSet::new)
-                            .insert(qn.name.clone());
+    let walk_type =
+        |type_ref: &lazuli_ir::TypeRef,
+         out: &mut std::collections::BTreeMap<String, BTreeSet<String>>| {
+            let mut stack: Vec<&lazuli_ir::TypeRef> = vec![type_ref];
+            while let Some(t) = stack.pop() {
+                match t {
+                    lazuli_ir::TypeRef::Many(inner) => stack.push(inner),
+                    lazuli_ir::TypeRef::EnumRef(qn) | lazuli_ir::TypeRef::UserDefined(qn) => {
+                        if let Some(owner) = owner_feature_for_type(qn, module, feature) {
+                            out.entry(owner)
+                                .or_insert_with(BTreeSet::new)
+                                .insert(qn.name.clone());
+                        }
                     }
+                    _ => {}
                 }
-                _ => {}
             }
-        }
-    };
+        };
     for record in &feature.records {
         for field in &record.fields {
             walk_type(&field.type_ref, out);
@@ -648,7 +651,9 @@ fn collect_plugin_semantic_aliases_in_type(
     out: &mut BTreeSet<String>,
 ) {
     match type_ref {
-        lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticPluginType { name, .. }) => {
+        lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticPluginType {
+            name, ..
+        }) => {
             out.insert(name.clone());
         }
         lazuli_ir::TypeRef::Many(inner) => {
@@ -1012,7 +1017,10 @@ fn ts_slot_from_typed(slot: &lazuli_ir::TypedSlot) -> TsSlot {
 /// which in `catalog.lzi` happens to be `UploadedAsset` — emitting
 /// the wrong TS return type. Hostpoint workaround was an explicit
 /// `as unknown as Property[]` cast in HostHome.tsx.
-pub(super) fn pick_query_resource_ts(feature: &lazuli_ir::Feature, query_name: &str) -> Option<String> {
+pub(super) fn pick_query_resource_ts(
+    feature: &lazuli_ir::Feature,
+    query_name: &str,
+) -> Option<String> {
     let query_lc = query_name.to_ascii_lowercase();
     // Prefer the longest match (so "service_transaction" beats
     // "service" + "transaction" tie). Sort by length desc.
@@ -1135,9 +1143,7 @@ pub(super) fn command_is_pure_read(command: &lazuli_ir::Command) -> bool {
     {
         return false;
     }
-    const READ_VERB_PREFIXES: &[&str] = &[
-        "list_", "get_", "lookup_", "search_", "find_", "count_",
-    ];
+    const READ_VERB_PREFIXES: &[&str] = &["list_", "get_", "lookup_", "search_", "find_", "count_"];
     READ_VERB_PREFIXES
         .iter()
         .any(|prefix| command.name.starts_with(prefix))
@@ -1230,7 +1236,10 @@ fn resource_ts_name(name: &lazuli_ir::QualifiedName, module: &lazuli_ir::Module)
         .unwrap_or_else(|| pascal_case(&name.name))
 }
 
-pub(super) fn resource_field_ts_name(field: &lazuli_ir::Field, module: &lazuli_ir::Module) -> String {
+pub(super) fn resource_field_ts_name(
+    field: &lazuli_ir::Field,
+    module: &lazuli_ir::Module,
+) -> String {
     if is_resource_ref(&field.type_ref, module) && !field.name.ends_with("_id") {
         format!("{}_id", field.name)
     } else {
@@ -1238,7 +1247,10 @@ pub(super) fn resource_field_ts_name(field: &lazuli_ir::Field, module: &lazuli_i
     }
 }
 
-pub(super) fn resource_field_ts_type(field: &lazuli_ir::Field, module: &lazuli_ir::Module) -> String {
+pub(super) fn resource_field_ts_type(
+    field: &lazuli_ir::Field,
+    module: &lazuli_ir::Module,
+) -> String {
     if is_resource_ref(&field.type_ref, module) {
         "ID".to_owned()
     } else {
@@ -1257,7 +1269,10 @@ fn is_resource_ref(type_ref: &lazuli_ir::TypeRef, module: &lazuli_ir::Module) ->
     }
 }
 
-pub(super) fn ts_type_for_type_ref(type_ref: &lazuli_ir::TypeRef, module: &lazuli_ir::Module) -> String {
+pub(super) fn ts_type_for_type_ref(
+    type_ref: &lazuli_ir::TypeRef,
+    module: &lazuli_ir::Module,
+) -> String {
     match type_ref {
         lazuli_ir::TypeRef::Builtin(builtin) => match builtin {
             lazuli_ir::BuiltinType::Id => "ID".to_owned(),
@@ -1275,8 +1290,9 @@ pub(super) fn ts_type_for_type_ref(type_ref: &lazuli_ir::TypeRef, module: &lazul
             // every consuming interface picks up the alias.
             lazuli_ir::BuiltinType::SemanticPluginType { name, .. } => pascal_case(name),
             lazuli_ir::BuiltinType::Boolean => "boolean".to_owned(),
-            lazuli_ir::BuiltinType::Integer
-            | lazuli_ir::BuiltinType::Decimal => "number".to_owned(),
+            lazuli_ir::BuiltinType::Integer | lazuli_ir::BuiltinType::Decimal => {
+                "number".to_owned()
+            }
             // Per `semantic-types-money-brazilian.md` v0.3 — Money is
             // the rich struct on the TS side too. `Money` interface
             // lives in `@lazuli/runtime`; downstream consumers get the
@@ -1374,7 +1390,10 @@ pub(super) fn ts_type_for_type_ref(type_ref: &lazuli_ir::TypeRef, module: &lazul
 /// `PolicySpec` shape exported by `@lazuli/runtime/spec`. Returns `None`
 /// when the policy is omitted or explicitly `None` so the caller can
 /// elide the `policy: ...` line entirely (review bug #7).
-pub(super) fn format_policy_ts(policy: &lazuli_ir::PolicyRef, feature: &lazuli_ir::Feature) -> Option<String> {
+pub(super) fn format_policy_ts(
+    policy: &lazuli_ir::PolicyRef,
+    feature: &lazuli_ir::Feature,
+) -> Option<String> {
     // Re-prepend `@` when the parser dropped it. PolicyRef::Local
     // carries either the bare category name (`"update"`) or the
     // partial-qualified form (`"policy.update"`); PolicyRef::Atom can
@@ -1428,12 +1447,10 @@ pub(super) fn format_policy_ts(policy: &lazuli_ir::PolicyRef, feature: &lazuli_i
             };
             (qualified, resolved_atoms)
         }
-        lazuli_ir::PolicyRef::External { feature, name } => {
-            (
-                format!("{}.{}", feature, ensure_at_prefix(name)),
-                Vec::new(),
-            )
-        }
+        lazuli_ir::PolicyRef::External { feature, name } => (
+            format!("{}.{}", feature, ensure_at_prefix(name)),
+            Vec::new(),
+        ),
         lazuli_ir::PolicyRef::Unresolved(raw) => (raw.clone(), Vec::new()),
     };
     let atoms_lit = if atoms.is_empty() {
@@ -1740,7 +1757,11 @@ pub(super) fn query_ident(
     }
 }
 
-pub(super) fn legacy_query_ident(feature: &str, kind: lazuli_ir::QueryKind, query_name: &str) -> String {
+pub(super) fn legacy_query_ident(
+    feature: &str,
+    kind: lazuli_ir::QueryKind,
+    query_name: &str,
+) -> String {
     let resource_pascal = pascal_case(feature);
     match kind {
         lazuli_ir::QueryKind::List | lazuli_ir::QueryKind::Sql | lazuli_ir::QueryKind::View => {
@@ -1773,11 +1794,7 @@ fn list_prefixed_ident(rest: &str, resource_pascal: &str, resource_plural: &str)
     )
 }
 
-fn list_subject_pascal(
-    short_pascal: &str,
-    resource_pascal: &str,
-    resource_plural: &str,
-) -> String {
+fn list_subject_pascal(short_pascal: &str, resource_pascal: &str, resource_plural: &str) -> String {
     let legacy_plural = format!("{resource_pascal}s");
     if short_pascal == resource_plural || short_pascal.ends_with(resource_plural) {
         short_pascal.to_owned()

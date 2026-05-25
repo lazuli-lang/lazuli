@@ -137,8 +137,7 @@ fn multifrontend_sdk_files_are_byte_identical_across_targets() {
         let (first_target, first_bytes) = &entries[0];
         for (other_target, other_bytes) in &entries[1..] {
             assert_eq!(
-                first_bytes,
-                other_bytes,
+                first_bytes, other_bytes,
                 "MOBILE-SDK-PARITY violation for `{feature}/{file}`: \
                  `dist/{first_target}/{feature}/{file}` differs from \
                  `dist/{other_target}/{feature}/{file}`",

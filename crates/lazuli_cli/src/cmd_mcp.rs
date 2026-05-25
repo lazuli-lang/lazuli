@@ -49,7 +49,14 @@ const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Closed-catalog of MCP tool names. Length-pinned by
 /// `closed_tool_catalog_is_exactly_8` test.
 const TOOLS: &[&str] = &[
-    "inspect", "doctor", "features", "resources", "commands", "queries", "grammar", "docs",
+    "inspect",
+    "doctor",
+    "features",
+    "resources",
+    "commands",
+    "queries",
+    "grammar",
+    "docs",
 ];
 
 /// Closed-catalog of MCP resource URI prefixes. Length-pinned by
@@ -77,20 +84,13 @@ pub fn run_mcp_server() -> Result<()> {
         let request: Value = match serde_json::from_str(trimmed) {
             Ok(value) => value,
             Err(err) => {
-                let response = error_response(
-                    Value::Null,
-                    -32700,
-                    format!("parse error: {err}"),
-                );
+                let response = error_response(Value::Null, -32700, format!("parse error: {err}"));
                 write_response(&mut out, &response)?;
                 continue;
             }
         };
 
-        let method = request
-            .get("method")
-            .and_then(|m| m.as_str())
-            .unwrap_or("");
+        let method = request.get("method").and_then(|m| m.as_str()).unwrap_or("");
         let id = request.get("id").cloned().unwrap_or(Value::Null);
         let params = request.get("params").cloned().unwrap_or(Value::Null);
 
@@ -118,8 +118,8 @@ fn write_response(out: &mut impl Write, response: &Value) -> Result<()> {
 fn dispatch(method: &str, id: Value, params: Value) -> Value {
     // Notifications (id = null AND well-known notification methods)
     // collapse to a null response that `run_mcp_server` skips.
-    let is_notification = id.is_null()
-        && (method == "notifications/initialized" || method == "initialized");
+    let is_notification =
+        id.is_null() && (method == "notifications/initialized" || method == "initialized");
     if is_notification {
         return Value::Null;
     }
@@ -269,10 +269,7 @@ fn tool_descriptor(name: &str) -> Value {
 // --- tools/call ------------------------------------------------------
 
 fn tools_call_dispatch(id: Value, params: Value) -> Value {
-    let name = params
-        .get("name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
     let args = params
         .get("arguments")
         .cloned()
@@ -509,10 +506,7 @@ fn project_per_feature(report: &Value, key: &str) -> Value {
 }
 
 fn tool_grammar(args: &Value) -> std::result::Result<Value, McpError> {
-    let kind = args
-        .get("kind")
-        .and_then(|v| v.as_str())
-        .unwrap_or("lzi");
+    let kind = args.get("kind").and_then(|v| v.as_str()).unwrap_or("lzi");
     let allowed = ["lzi", "lzx", "app", "registry", "contract", "workspace"];
     if !allowed.contains(&kind) {
         return Err(McpError::user(format!(
@@ -542,10 +536,7 @@ fn tool_docs(args: &Value) -> std::result::Result<Value, McpError> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| McpError::user("`query` is required".to_owned()))?
         .to_lowercase();
-    let limit = args
-        .get("limit")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(10) as usize;
+    let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
     let docs_dir = lazuli_docs_dir().ok_or_else(|| {
         McpError::user(
             "could not locate Lazuli docs directory (set LAZULI_DOCS_DIR or run from a Lazuli checkout)".to_owned(),
@@ -641,9 +632,8 @@ fn resources_read_dispatch(id: Value, params: Value) -> Value {
 
 fn read_resource(uri: &str) -> std::result::Result<Value, McpError> {
     if uri == "lazuli://grammar" {
-        let docs_dir = lazuli_docs_dir().ok_or_else(|| {
-            McpError::user("could not locate Lazuli docs directory".to_owned())
-        })?;
+        let docs_dir = lazuli_docs_dir()
+            .ok_or_else(|| McpError::user("could not locate Lazuli docs directory".to_owned()))?;
         let path = docs_dir.join("grammar.lzi.md");
         let text = fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))
@@ -651,9 +641,8 @@ fn read_resource(uri: &str) -> std::result::Result<Value, McpError> {
         return Ok(resource_text_content(uri, "text/markdown", &text));
     }
     if let Some(name) = uri.strip_prefix("lazuli://docs/") {
-        let docs_dir = lazuli_docs_dir().ok_or_else(|| {
-            McpError::user("could not locate Lazuli docs directory".to_owned())
-        })?;
+        let docs_dir = lazuli_docs_dir()
+            .ok_or_else(|| McpError::user("could not locate Lazuli docs directory".to_owned()))?;
         let path = docs_dir.join(format!("{name}.md"));
         let text = fs::read_to_string(&path)
             .map_err(|err| McpError::user(format!("doc `{name}` not found ({err})")))?;
@@ -672,7 +661,8 @@ fn read_resource(uri: &str) -> std::result::Result<Value, McpError> {
 }
 
 fn read_feature_bundle(uri: &str, name: &str) -> std::result::Result<Value, McpError> {
-    let cwd = std::env::current_dir().map_err(|err| McpError::internal(anyhow::anyhow!("{err}")))?;
+    let cwd =
+        std::env::current_dir().map_err(|err| McpError::internal(anyhow::anyhow!("{err}")))?;
     // Walk the cwd for `features/<name>/<name>.lzi` and sibling .lzx.
     let candidates = [
         cwd.join("features").join(name).join(format!("{name}.lzi")),
@@ -724,7 +714,8 @@ fn read_feature_bundle(uri: &str, name: &str) -> std::result::Result<Value, McpE
 }
 
 fn read_schema(uri: &str, resource_name: &str) -> std::result::Result<Value, McpError> {
-    let cwd = std::env::current_dir().map_err(|err| McpError::internal(anyhow::anyhow!("{err}")))?;
+    let cwd =
+        std::env::current_dir().map_err(|err| McpError::internal(anyhow::anyhow!("{err}")))?;
     let mut expansions = ExpandSet::default();
     expansions.resources = true;
     let report = inspect_value(&cwd, expansions).map_err(McpError::internal)?;

@@ -14,13 +14,13 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 use crate::cmd_test_fail_fast::FailFastCoordinator;
 use crate::cmd_test_ndjson::NdjsonEmitter;
 use crate::cmd_test_output::{render_json, render_text};
 use crate::cmd_test_types::{FailOnSpec, Layer, LayerResult, LayerVerdict, RunAccumulator};
-use crate::cmd_test_watch::{spawn_watcher, watch_channel, DebounceBuffer, WatchDispatcher};
+use crate::cmd_test_watch::{DebounceBuffer, WatchDispatcher, spawn_watcher, watch_channel};
 use crate::coverage_aggregator::{self, SpecTotals};
 use crate::lazurite_manifest::{self, Manifest};
 use crate::runners;

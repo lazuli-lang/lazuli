@@ -73,10 +73,7 @@ fn positive_fixture_fires_for_every_view_without_spec() {
     assert_eq!(first.experience, "customer");
     assert!(first.message().contains("file-pair only"));
     assert!(
-        first
-            .expected_spec
-            .strip_prefix(project_root)
-            .is_ok(),
+        first.expected_spec.strip_prefix(project_root).is_ok(),
         "expected_spec resolves under project_root: {}",
         first.expected_spec.display()
     );
@@ -130,11 +127,7 @@ fn rule_fires_only_for_missing_specs_when_some_exist() {
 
 #[test]
 fn expected_spec_path_uses_canonical_layout() {
-    let p = test_view_e2e_missing_001::expected_spec_path(
-        Path::new("/proj"),
-        "customer",
-        "detail",
-    );
+    let p = test_view_e2e_missing_001::expected_spec_path(Path::new("/proj"), "customer", "detail");
     let expected: PathBuf = PathBuf::from("/proj")
         .join("e2e")
         .join("customer")

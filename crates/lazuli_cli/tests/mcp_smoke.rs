@@ -83,7 +83,11 @@ fn mcp_lists_8_tools() {
         json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {} }),
     ];
     let responses = run_mcp_session(&requests, 2);
-    assert_eq!(responses.len(), 2, "expected initialize + tools/list responses");
+    assert_eq!(
+        responses.len(),
+        2,
+        "expected initialize + tools/list responses"
+    );
 
     let tools_list = &responses[1];
     let tools = tools_list["result"]["tools"]
@@ -96,7 +100,14 @@ fn mcp_lists_8_tools() {
         .map(|t| t["name"].as_str().unwrap_or(""))
         .collect();
     for expected in &[
-        "inspect", "doctor", "features", "resources", "commands", "queries", "grammar", "docs",
+        "inspect",
+        "doctor",
+        "features",
+        "resources",
+        "commands",
+        "queries",
+        "grammar",
+        "docs",
     ] {
         assert!(
             names.contains(expected),
@@ -131,8 +142,7 @@ fn mcp_inspect_call_returns_ir_projection() {
     assert_eq!(content.len(), 1, "single text content block");
     let text = content[0]["text"].as_str().expect("text content");
     // The inspect projection is JSON serialised as a string; parse it.
-    let inner: Value =
-        serde_json::from_str(text).expect("inspect text payload parses as JSON");
+    let inner: Value = serde_json::from_str(text).expect("inspect text payload parses as JSON");
     // Either `{ir: {...}, manifest: {...}}` (when a manifest is
     // present) or the raw IR projection (no manifest). full-capsule
     // ships a manifest, but we accept either shape so the test does
@@ -168,8 +178,7 @@ fn mcp_doctor_call_returns_diagnostics() {
         .as_array()
         .expect("result.content is an array");
     let text = content[0]["text"].as_str().expect("text content");
-    let inner: Value =
-        serde_json::from_str(text).expect("doctor text payload parses as JSON");
+    let inner: Value = serde_json::from_str(text).expect("doctor text payload parses as JSON");
     assert!(
         inner.is_array(),
         "doctor result must be a JSON array of diagnostics: {inner}"

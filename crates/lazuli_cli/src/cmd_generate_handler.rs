@@ -69,11 +69,7 @@ pub fn run(ident: &str, project_root: &Path) -> Result<()> {
     // scaffolding. Existing `_test.go` files are left untouched —
     // matches the .go safe-check above (refuse to overwrite author
     // content).
-    let test_target = handler_path::resolve_test(
-        &app_root(project_root)?,
-        &feature,
-        &fn_name,
-    );
+    let test_target = handler_path::resolve_test(&app_root(project_root)?, &feature, &fn_name);
     if !test_target.exists() {
         let ir_feature = parse_ir_feature(&lzi_path, &source).ok();
         let test_body = render_test_for(&ir_feature, &feature, &fn_name);
@@ -102,11 +98,7 @@ fn parse_ir_feature(lzi_path: &Path, source: &str) -> Result<Feature> {
 /// AND a recognized handler site, use the signature-aware renderer.
 /// Otherwise emit a generic table-driven stub that compiles with stdlib
 /// only — same shape, fewer hints.
-fn render_test_for(
-    ir_feature: &Option<Feature>,
-    feature_name: &str,
-    handler_name: &str,
-) -> String {
+fn render_test_for(ir_feature: &Option<Feature>, feature_name: &str, handler_name: &str) -> String {
     if let Some(feature) = ir_feature {
         if let Some(site) = find_handler_site(feature, handler_name) {
             return render_test_stub(&StubContext {
@@ -119,9 +111,9 @@ fn render_test_for(
 }
 
 fn find_handler_site(feature: &Feature, handler_name: &str) -> Option<HandlerSite> {
-    iter_handler_sites(feature)
-        .into_iter()
-        .find(|s| s.handler_name == handler_name && !matches!(s.kind, HandlerSiteKind::WebhookHandler))
+    iter_handler_sites(feature).into_iter().find(|s| {
+        s.handler_name == handler_name && !matches!(s.kind, HandlerSiteKind::WebhookHandler)
+    })
 }
 
 /// Fallback when the IR lift didn't surface the handler — emit a
@@ -291,7 +283,9 @@ app_dir = "app"
 
         run("auth.verify_password", project.path()).unwrap();
 
-        let target = project.path().join("features/auth/handlers/verify_password.go");
+        let target = project
+            .path()
+            .join("features/auth/handlers/verify_password.go");
         assert!(target.exists());
         let body = fs::read_to_string(target).unwrap();
         assert!(body.contains("func VerifyPassword("));
@@ -382,7 +376,11 @@ app_dir = "app"
         let feat_dir = project.path().join("features/auth");
         let handlers_dir = feat_dir.join("handlers");
         fs::create_dir_all(&handlers_dir).unwrap();
-        fs::write(handlers_dir.join("verify_password.go"), "package authhandlers\n").unwrap();
+        fs::write(
+            handlers_dir.join("verify_password.go"),
+            "package authhandlers\n",
+        )
+        .unwrap();
 
         let err = run("auth.verify_password", project.path()).unwrap_err();
 

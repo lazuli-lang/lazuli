@@ -100,8 +100,8 @@ pub fn generate_command(
             cmd_generate_handler::run(ident, &project_root)
         }
         GenerateKind::Playwright => {
-            let target =
-                playwright_target.context("--playwright-target is required when kind=playwright")?;
+            let target = playwright_target
+                .context("--playwright-target is required when kind=playwright")?;
             cmd_generate_playwright::run(input, target)
         }
         GenerateKind::Ts => ts::generate_ts(input, output, check),
@@ -134,9 +134,9 @@ pub fn generate_command(
             cmd_generate_rule::run(ident, &project_root)
         }
         GenerateKind::Transition => {
-            let ident = input
-                .to_str()
-                .context("transition ident must be valid UTF-8 in `<feature>.<workflow>.<name>` form")?;
+            let ident = input.to_str().context(
+                "transition ident must be valid UTF-8 in `<feature>.<workflow>.<name>` form",
+            )?;
             let project_root =
                 std::env::current_dir().context("failed to determine current directory")?;
             cmd_generate_transition::run(ident, &project_root)

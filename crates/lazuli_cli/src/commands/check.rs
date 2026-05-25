@@ -51,8 +51,8 @@ pub fn check_command(
     let mut has_error = false;
 
     for path in &inputs {
-        let source =
-            fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+        let source = fs::read_to_string(path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
         let diagnostics =
             lazuli_lsp::diagnostics_for_source_with_profile(&source, security_profile);
         has_error |= diagnostics
@@ -87,8 +87,8 @@ fn check_inputs(input: &Path) -> Result<Vec<PathBuf>> {
     let mut paths = Vec::new();
     let mut stack = vec![input.to_path_buf()];
     while let Some(path) = stack.pop() {
-        for entry in fs::read_dir(&path)
-            .with_context(|| format!("failed to read {}", path.display()))?
+        for entry in
+            fs::read_dir(&path).with_context(|| format!("failed to read {}", path.display()))?
         {
             let path = entry
                 .with_context(|| format!("failed to read entry under {}", path.display()))?

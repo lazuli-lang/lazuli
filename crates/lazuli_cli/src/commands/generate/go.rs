@@ -64,8 +64,7 @@ pub fn generate_go(
     // and append the returned (up, down) pair to `files`. Until A10 is
     // in tree, `--allow-drops` is accepted on the CLI but has no
     // observable effect because no diff is computed.
-    let alter_options =
-        lazuli_codegen_go::emitter::migration_ddl::AlterEmitOptions { allow_drops };
+    let alter_options = lazuli_codegen_go::emitter::migration_ddl::AlterEmitOptions { allow_drops };
     // `_ = alter_options;` suppresses dead_code while A10 is in flight;
     // delete this discard when A10's caller wires `emit_alter_migration_file`.
     let _ = alter_options;
@@ -108,11 +107,21 @@ pub fn generate_go(
     let issues = lazuli_codegen_go::emitter::check::run_checks(&module_ir);
     let errors: Vec<_> = issues
         .iter()
-        .filter(|i| matches!(i.severity, lazuli_codegen_go::emitter::check::Severity::Error))
+        .filter(|i| {
+            matches!(
+                i.severity,
+                lazuli_codegen_go::emitter::check::Severity::Error
+            )
+        })
         .collect();
     let warnings: Vec<_> = issues
         .iter()
-        .filter(|i| !matches!(i.severity, lazuli_codegen_go::emitter::check::Severity::Error))
+        .filter(|i| {
+            !matches!(
+                i.severity,
+                lazuli_codegen_go::emitter::check::Severity::Error
+            )
+        })
         .collect();
     for w in &warnings {
         eprintln!(
