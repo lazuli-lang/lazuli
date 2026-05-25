@@ -34,3 +34,4 @@
 //!   submodule; uses the same pattern this module generalizes)
 
 pub mod auth;
+pub mod report;
