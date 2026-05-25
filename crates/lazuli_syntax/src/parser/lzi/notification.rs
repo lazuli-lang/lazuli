@@ -27,9 +27,7 @@
 //! - `docs/canonical-semantics.md` — `channel` + `notification` grammar.
 //! - `lazuli_ir::nodes::notification` — typed lowering target.
 
-use super::super::common::{
-    SourceLine, is_trivia, line_error, split_lzx_list, unquote_lzx_value,
-};
+use super::super::common::{SourceLine, is_trivia, line_error, split_lzx_list, unquote_lzx_value};
 use super::super::error::ParseError;
 use super::super::lzx::try_parse_policy_expr;
 use super::{AGENT_INDENT_AGENT_CHILD, AGENT_INDENT_FEATURE_CHILD, AGENT_INDENT_GRANDCHILD};
