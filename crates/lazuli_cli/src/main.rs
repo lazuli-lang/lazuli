@@ -33,6 +33,7 @@ mod doctor;
 mod doctor_report;
 mod doctor_watch;
 mod examples_bundle;
+mod go_work_io;
 mod inspect {
     pub mod expand_auth;
     pub mod expand_http;
@@ -43,6 +44,7 @@ mod lazurite_manifest;
 mod migrate;
 mod module_loader;
 mod path_utils;
+mod playwright_fixture;
 mod plugin_catalog;
 mod plugin_manifest;
 mod plugin_semantic_resolver;
@@ -162,6 +164,12 @@ pub(crate) use module_loader::{
     collect_lzx_experience_module, collect_package_lzi_files, collect_package_lzx_files,
     collect_plan_gate_facts_for_generate, project_root_for_input, read_package_lzi_source,
 };
+// `commands::generate::ts` reaches for `crate::playwright_fixture_config`;
+// canonical home is `playwright_fixture`.
+pub(crate) use playwright_fixture::playwright_fixture_config;
+// `commands::generate::ts`, `commands::generate::go`, `crate::tests`
+// reach for these by short name; canonical home is `go_work_io`.
+pub(crate) use go_work_io::{write_generated_file, write_go_work_preserving_entries};
 
 
 fn main() -> Result<()> {
@@ -347,124 +355,6 @@ fn main() -> Result<()> {
 
 /// OpenAPI bucket cycle — emit a changelog markdown from two inspect
 /// JSON payloads.
-fn playwright_fixture_config(
-    project_root: &Path,
-    manifest: Option<&lazurite_manifest::Manifest>,
-) -> lazuli_codegen_ts::playwright::PlaywrightFixtureConfig {
-    let Some(frontend) = manifest
-        .and_then(|manifest| {
-            manifest.frontends.values().find(|frontend| {
-                matches!(
-                    frontend.target,
-                    lazurite_manifest::FrontendTarget::TanstackVite
-                )
-            })
-        })
-        .and_then(|frontend| frontend.source.as_deref())
-    else {
-        return lazuli_codegen_ts::playwright::PlaywrightFixtureConfig::without_helpers();
-    };
-
-    let helper_dir = project_root.join(frontend).join("e2e").join("helpers");
-    let api = helper_dir.join("api.ts");
-    let session = helper_dir.join("session.ts");
-    if !api.is_file() || !session.is_file() {
-        return lazuli_codegen_ts::playwright::PlaywrightFixtureConfig::without_helpers();
-    }
-
-    let from_dir = project_root.join("dist").join("ts-web").join("tests");
-    let Some(api_import) = relative_ts_import(&from_dir, &api) else {
-        return lazuli_codegen_ts::playwright::PlaywrightFixtureConfig::without_helpers();
-    };
-    let Some(session_import) = relative_ts_import(&from_dir, &session) else {
-        return lazuli_codegen_ts::playwright::PlaywrightFixtureConfig::without_helpers();
-    };
-
-    let onboarding = helper_dir.join("onboarding-progress.ts");
-    let (lifecycle_import, lifecycle_seeders) = if onboarding.is_file() {
-        let contents = fs::read_to_string(&onboarding).unwrap_or_default();
-        let import = relative_ts_import(&from_dir, &onboarding);
-        let seeders = ["host", "traveler", "operator"]
-            .into_iter()
-            .filter_map(|role| {
-                let function_name = format!("progress{}To", playwright_fixture_pascal_case(role));
-                if contents.contains(&format!("function {function_name}"))
-                    || contents.contains(&format!("function* {function_name}"))
-                {
-                    Some(lazuli_codegen_ts::playwright::LifecycleSeeder {
-                        role: role.to_owned(),
-                        function_name,
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect();
-        (import, seeders)
-    } else {
-        (None, Vec::new())
-    };
-
-    lazuli_codegen_ts::playwright::PlaywrightFixtureConfig {
-        helpers: Some(
-            lazuli_codegen_ts::playwright::PlaywrightFixtureHelperImports {
-                api_import,
-                session_import,
-                lifecycle_import,
-                lifecycle_seeders,
-            },
-        ),
-    }
-}
-
-fn relative_ts_import(from_dir: &Path, target_file: &Path) -> Option<String> {
-    let from = normalized_components(from_dir);
-    let target = normalized_components(target_file);
-    let mut common = 0usize;
-    while common < from.len() && common < target.len() && from[common] == target[common] {
-        common += 1;
-    }
-    if common == 0 {
-        return None;
-    }
-
-    let mut parts = Vec::new();
-    for _ in common..from.len() {
-        parts.push("..".to_owned());
-    }
-    parts.extend(target[common..].iter().cloned());
-    let mut import = parts.join("/");
-    if let Some(stripped) = import.strip_suffix(".ts") {
-        import = stripped.to_owned();
-    } else if let Some(stripped) = import.strip_suffix(".tsx") {
-        import = stripped.to_owned();
-    }
-    if !import.starts_with('.') {
-        import = format!("./{import}");
-    }
-    Some(import)
-}
-
-fn normalized_components(path: &Path) -> Vec<String> {
-    path.components()
-        .map(|component| component.as_os_str().to_string_lossy().replace('\\', "/"))
-        .collect()
-}
-
-fn playwright_fixture_pascal_case(value: &str) -> String {
-    let mut out = String::new();
-    for word in value.split(|ch: char| ch == '_' || ch == '-' || ch == ' ') {
-        if word.is_empty() {
-            continue;
-        }
-        let mut chars = word.chars();
-        if let Some(first) = chars.next() {
-            out.extend(first.to_uppercase());
-            out.push_str(&chars.as_str().to_ascii_lowercase());
-        }
-    }
-    out
-}
 
 
 /// Back-compat shim for callers that pre-date the W4.5 R2 split of
@@ -495,140 +385,6 @@ pub(crate) fn generate_go(
     )
 }
 
-pub(crate) fn write_generated_file(root: &Path, relative: &str, contents: &str) -> Result<()> {
-    let path = root.join(relative);
-
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create directory {}", parent.display()))?;
-    }
-
-    fs::write(&path, contents).with_context(|| format!("failed to write {}", path.display()))?;
-    Ok(())
-}
-
-pub(crate) fn write_go_work_preserving_entries(
-    project_root: &Path,
-    generated_contents: &str,
-) -> Result<()> {
-    let path = project_root.join("go.work");
-    let required_entries = extract_go_work_use_entries(generated_contents);
-
-    if !path.exists() {
-        write_generated_file(project_root, "go.work", generated_contents)?;
-        return Ok(());
-    }
-
-    let original =
-        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
-    let updated = add_missing_go_work_use_entries(&original, &required_entries);
-    fs::write(&path, updated).with_context(|| format!("failed to write {}", path.display()))?;
-    Ok(())
-}
-
-fn add_missing_go_work_use_entries(original: &str, required_entries: &[String]) -> String {
-    let existing_entries = extract_go_work_use_entries(original);
-    let missing_entries: Vec<&str> = required_entries
-        .iter()
-        .map(String::as_str)
-        .filter(|entry| !existing_entries.iter().any(|existing| existing == entry))
-        .collect();
-
-    if missing_entries.is_empty() {
-        return original.to_owned();
-    }
-
-    if let Some((close_idx, entry_indent)) = find_go_work_use_block_close(original) {
-        let inserted = missing_entries
-            .iter()
-            .map(|entry| format!("{entry_indent}{entry}\n"))
-            .collect::<String>();
-        let (head, tail) = original.split_at(close_idx);
-        return format!("{head}{inserted}{tail}");
-    }
-
-    let mut updated = original.trim_end().to_owned();
-    updated.push_str("\n\nuse (\n");
-    for entry in missing_entries {
-        updated.push('\t');
-        updated.push_str(entry);
-        updated.push('\n');
-    }
-    updated.push_str(")\n");
-    updated
-}
-
-fn extract_go_work_use_entries(contents: &str) -> Vec<String> {
-    let mut entries = Vec::new();
-    let mut in_use_block = false;
-
-    for line in contents.lines() {
-        let trimmed = line.trim();
-        if in_use_block {
-            if trimmed == ")" {
-                in_use_block = false;
-                continue;
-            }
-            if let Some(entry) = go_work_entry_from_line(trimmed) {
-                entries.push(entry);
-            }
-            continue;
-        }
-
-        if trimmed == "use (" {
-            in_use_block = true;
-            continue;
-        }
-
-        if let Some(entry) = trimmed.strip_prefix("use ") {
-            if entry.trim() != "(" {
-                if let Some(entry) = go_work_entry_from_line(entry.trim()) {
-                    entries.push(entry);
-                }
-            }
-        }
-    }
-
-    entries
-}
-
-fn find_go_work_use_block_close(contents: &str) -> Option<(usize, String)> {
-    let mut in_use_block = false;
-    let mut entry_indent: Option<String> = None;
-    let mut offset = 0;
-
-    for line in contents.split_inclusive('\n') {
-        let raw = line.trim_end_matches(['\r', '\n']);
-        let trimmed = raw.trim();
-
-        if in_use_block {
-            if trimmed == ")" {
-                return Some((offset, entry_indent.unwrap_or_else(|| "\t".to_owned())));
-            }
-            if entry_indent.is_none() && go_work_entry_from_line(trimmed).is_some() {
-                entry_indent = Some(raw.chars().take_while(|c| c.is_whitespace()).collect());
-            }
-        } else if trimmed == "use (" {
-            in_use_block = true;
-        }
-
-        offset += line.len();
-    }
-
-    None
-}
-
-fn go_work_entry_from_line(line: &str) -> Option<String> {
-    let entry = line
-        .split_once("//")
-        .map_or(line, |(entry, _)| entry)
-        .trim();
-    if entry.is_empty() || entry.starts_with("//") {
-        None
-    } else {
-        Some(entry.to_owned())
-    }
-}
 
 #[cfg(test)]
 mod tests;
