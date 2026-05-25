@@ -2874,7 +2874,7 @@ These are intentionally not solved by the simple canonical syntax yet:
 
 ## Coverage Presets
 
-Lazuli ships three orthogonal opinions about coverage gating, declared as
+Lazuli ships four orthogonal opinions about coverage gating, declared as
 `[doctor.coverage] preset = "<name>"` in `Lazurite.toml`. Presets are
 independent of the security profile (`[doctor] profile`): a project can
 run `profile = "strict"` for the security matrix while opting into the
@@ -2890,6 +2890,12 @@ noise-cutting `tdd-strict` coverage shape, or vice versa.
   stance: handler tests AND spec predicates AND actor matrices AND
   transition coverage AND view-extensibility assertions AND view E2E
   pairs are all required.
+- `tdd-iron-hand` — blocks every layer at `90 / 95`. The no-mercy bar:
+  the same `handler_go` strictness `tdd-strict` enforces, applied
+  universally. Pilots selecting this preset are declaring "every IR
+  construct ships with paired tests; if doctor says we're below 90%,
+  we don't ship". Suitable for shipping production code where a
+  missing spec or unpaired view IS a release-blocker.
 - `off` — zeros across the board. The report still renders but no
   layer ever fails CI. Useful for prototypes that want the visibility
   without the gate.

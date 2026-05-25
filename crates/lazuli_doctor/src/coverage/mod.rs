@@ -170,6 +170,13 @@ pub enum CoveragePreset {
     /// actor-matrix / transition / view-extensibility / e2e
     /// authorship. The "mature TDD shop" stance.
     TddMature,
+    /// Block every layer at 90/95 — the no-mercy bar. For shipping
+    /// production code where a missing spec or unpaired view IS a
+    /// release-blocker. Same threshold `tdd-strict` applies to
+    /// handler_go, applied universally. Pilots that select this
+    /// preset are declaring "every IR construct ships with paired
+    /// tests; if doctor says we're below 90%, we don't ship".
+    TddIronHand,
     /// All zeros across the board; report only, never gate. Useful
     /// for prototypes that still want the coverage report rendered
     /// but don't want any layer to fail CI.
@@ -185,6 +192,7 @@ impl CoveragePreset {
         match input.trim() {
             "tdd-strict" => Some(Self::TddStrict),
             "tdd-mature" => Some(Self::TddMature),
+            "tdd-iron-hand" => Some(Self::TddIronHand),
             "off" => Some(Self::Off),
             _ => None,
         }
@@ -194,6 +202,7 @@ impl CoveragePreset {
         match self {
             Self::TddStrict => "tdd-strict",
             Self::TddMature => "tdd-mature",
+            Self::TddIronHand => "tdd-iron-hand",
             Self::Off => "off",
         }
     }
@@ -218,6 +227,14 @@ pub fn preset_thresholds(preset: CoveragePreset) -> CoverageThresholds {
             ("spec_transition_state", 70, 85),
             ("view_e2e_pair", 70, 85),
             ("view_extensibility", 70, 85),
+        ],
+        CoveragePreset::TddIronHand => &[
+            ("handler_go", 90, 95),
+            ("spec_predicate", 90, 95),
+            ("spec_actor_matrix", 90, 95),
+            ("spec_transition_state", 90, 95),
+            ("view_e2e_pair", 90, 95),
+            ("view_extensibility", 90, 95),
         ],
         CoveragePreset::Off => &[
             ("handler_go", 0, 0),
@@ -509,12 +526,37 @@ mod tests {
             CoveragePreset::parse("tdd-mature"),
             Some(CoveragePreset::TddMature)
         );
+        assert_eq!(
+            CoveragePreset::parse("tdd-iron-hand"),
+            Some(CoveragePreset::TddIronHand)
+        );
         assert_eq!(CoveragePreset::parse("off"), Some(CoveragePreset::Off));
         // Surrounding whitespace tolerated.
         assert_eq!(
             CoveragePreset::parse("  tdd-strict  "),
             Some(CoveragePreset::TddStrict)
         );
+    }
+
+    #[test]
+    fn preset_tdd_iron_hand_blocks_every_layer_at_ninety() {
+        let t = preset_thresholds(CoveragePreset::TddIronHand);
+        assert_eq!(t.per_layer.len(), 6, "must cover the same 6 layers");
+        for (name, lt) in t.per_layer.iter() {
+            assert_eq!(lt.block_under, 90, "{name} should block at 90");
+            assert_eq!(lt.warn_under, 95, "{name} should warn at 95");
+        }
+        // Spot-check every expected layer is present.
+        for layer in [
+            "handler_go",
+            "spec_predicate",
+            "spec_actor_matrix",
+            "spec_transition_state",
+            "view_e2e_pair",
+            "view_extensibility",
+        ] {
+            assert!(t.get(layer).is_some(), "{layer} missing from iron-hand");
+        }
     }
 
     #[test]
