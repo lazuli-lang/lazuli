@@ -6401,7 +6401,7 @@ pub(crate) fn lower_mcp_tool(tool: &syntax::McpTool) -> ir::MCPTool {
     }
 }
 
-fn lower_mcp_resource(resource: &syntax::McpResource) -> ir::MCPResource {
+pub(crate) fn lower_mcp_resource(resource: &syntax::McpResource) -> ir::MCPResource {
     ir::MCPResource {
         name: resource.name.clone(),
         uri_template: resource.uri_template.clone(),
@@ -6412,7 +6412,7 @@ fn lower_mcp_resource(resource: &syntax::McpResource) -> ir::MCPResource {
     }
 }
 
-fn lower_mcp_prompt(prompt: &syntax::McpPrompt) -> ir::MCPPrompt {
+pub(crate) fn lower_mcp_prompt(prompt: &syntax::McpPrompt) -> ir::MCPPrompt {
     let params = prompt.params.iter().map(lower_mcp_param).collect();
     ir::MCPPrompt {
         name: prompt.name.clone(),
@@ -6423,7 +6423,7 @@ fn lower_mcp_prompt(prompt: &syntax::McpPrompt) -> ir::MCPPrompt {
     }
 }
 
-fn lower_mcp_param(param: &syntax::McpParam) -> ir::MCPParam {
+pub(crate) fn lower_mcp_param(param: &syntax::McpParam) -> ir::MCPParam {
     ir::MCPParam {
         name: param.name.clone(),
         ty_literal: param.ty.clone(),
@@ -6436,7 +6436,7 @@ fn lower_mcp_param(param: &syntax::McpParam) -> ir::MCPParam {
 /// `append` into the closed-catalog enum; unknown values are preserved
 /// in `invalid_template_strategy` so doctor can report
 /// `NOTIF-DIGEST-003` without widening the enum.
-fn lower_notification_digest(digest: &syntax::NotificationDigest) -> ir::NotificationDigest {
+pub(crate) fn lower_notification_digest(digest: &syntax::NotificationDigest) -> ir::NotificationDigest {
     let (template_strategy, invalid_template_strategy) = match digest.template_strategy.as_deref() {
         Some("merge") => (Some(ir::DigestStrategy::Merge), None),
         Some("append") => (Some(ir::DigestStrategy::Append), None),
@@ -6456,7 +6456,7 @@ fn lower_notification_digest(digest: &syntax::NotificationDigest) -> ir::Notific
 /// `NotificationThrottle` into the typed IR. Pure field-for-field
 /// projection; no validation here (doctor `NOTIF-THROTTLE-*` covers
 /// the closed-catalog and combinatorial rules).
-fn lower_notification_throttle(
+pub(crate) fn lower_notification_throttle(
     throttle: &syntax::NotificationThrottle,
 ) -> ir::NotificationThrottle {
     ir::NotificationThrottle {
@@ -6563,7 +6563,7 @@ pub fn lower_event_group(group: &syntax::EventGroup) -> ir::EventGroup {
 /// resource fields use. `optional` falls back to `!required` when
 /// neither modifier was authored — matches the resource-field
 /// convention.
-fn lower_event_variant_field(decl: &syntax::EventVariantFieldDecl) -> ir::EventField {
+pub(crate) fn lower_event_variant_field(decl: &syntax::EventVariantFieldDecl) -> ir::EventField {
     let optional = if decl.required {
         false
     } else {
@@ -6612,7 +6612,7 @@ pub fn lower_tenant_migration(
     })
 }
 
-fn lower_tenant_migration_target(raw: &str) -> ir::TenantMigrationTargetOperation {
+pub(crate) fn lower_tenant_migration_target(raw: &str) -> ir::TenantMigrationTargetOperation {
     let parts: Vec<&str> = raw.split('.').collect();
     match parts.as_slice() {
         ["query", name] => ir::TenantMigrationTargetOperation::Query {
@@ -6638,7 +6638,7 @@ fn lower_tenant_migration_target(raw: &str) -> ir::TenantMigrationTargetOperatio
     }
 }
 
-fn lower_job_trigger(feature: &str, trigger: &syntax::JobTrigger) -> ir::JobTrigger {
+pub(crate) fn lower_job_trigger(feature: &str, trigger: &syntax::JobTrigger) -> ir::JobTrigger {
     match trigger {
         syntax::JobTrigger::Event(name) => ir::JobTrigger::Event {
             event: qualified_event_name(feature, name),
@@ -6661,7 +6661,7 @@ fn qualified_event_name(feature: &str, name: &str) -> ir::QualifiedName {
     }
 }
 
-fn lower_retry(retry: &syntax::JobRetry) -> ir::RetryPolicy {
+pub(crate) fn lower_retry(retry: &syntax::JobRetry) -> ir::RetryPolicy {
     ir::RetryPolicy {
         count: retry.count,
         backoff: match retry.backoff.as_str() {
@@ -6671,14 +6671,14 @@ fn lower_retry(retry: &syntax::JobRetry) -> ir::RetryPolicy {
     }
 }
 
-fn lower_fanout(fanout: &syntax::JobFanout) -> ir::FanoutSpec {
+pub(crate) fn lower_fanout(fanout: &syntax::JobFanout) -> ir::FanoutSpec {
     ir::FanoutSpec {
         scope: ir::FanoutScope::Tenants,
         axis: fanout.axis.clone(),
     }
 }
 
-fn lower_external_call(call: &syntax::JobExternalCall) -> ir::ExternalCallRef {
+pub(crate) fn lower_external_call(call: &syntax::JobExternalCall) -> ir::ExternalCallRef {
     ir::ExternalCallRef {
         slot: call.slot.clone(),
         op: call.op.clone(),
@@ -6694,7 +6694,7 @@ fn lower_external_call(call: &syntax::JobExternalCall) -> ir::ExternalCallRef {
     }
 }
 
-fn lower_job_body(body: &syntax::JobBody) -> ir::JobBody {
+pub(crate) fn lower_job_body(body: &syntax::JobBody) -> ir::JobBody {
     match body {
         syntax::JobBody::Handler(h) => ir::JobBody::Handler(ir::JobHandler {
             path: ir::PathRef::authored(&h.path),
@@ -6720,35 +6720,35 @@ fn lower_job_body(body: &syntax::JobBody) -> ir::JobBody {
 /// Phase L Tier 4b — shared lowering for `target query.<name>(args)`.
 /// Reused by `lower_job_body` (Tier 3) and `lower_command_skeleton`
 /// (Tier 4b) — closes the Tier 3 raw-spine carve-out.
-fn lower_target_expr(t: &syntax::TargetExprDecl) -> ir::TargetExpr {
+pub(crate) fn lower_target_expr(t: &syntax::TargetExprDecl) -> ir::TargetExpr {
     ir::TargetExpr {
         query: lower_qualified_name(&t.query),
         args: t.args.iter().map(lower_named_arg).collect(),
     }
 }
 
-fn lower_let_binding(l: &syntax::LetBindingDecl) -> ir::LetBinding {
+pub(crate) fn lower_let_binding(l: &syntax::LetBindingDecl) -> ir::LetBinding {
     ir::LetBinding {
         name: l.name.clone(),
         value: lower_raw_expr(&l.value),
     }
 }
 
-fn lower_named_arg(arg: &syntax::TargetArgDecl) -> ir::NamedArg {
+pub(crate) fn lower_named_arg(arg: &syntax::TargetArgDecl) -> ir::NamedArg {
     ir::NamedArg {
         name: arg.name.clone(),
         value: lower_raw_expr(&arg.value),
     }
 }
 
-fn lower_assignment(a: &syntax::AssignmentDecl) -> ir::Assignment {
+pub(crate) fn lower_assignment(a: &syntax::AssignmentDecl) -> ir::Assignment {
     ir::Assignment {
         field: a.field.clone(),
         value: lower_raw_expr(&a.value),
     }
 }
 
-fn lower_command_effect(effect: &syntax::CommandEffectDecl) -> ir::CommandEffect {
+pub(crate) fn lower_command_effect(effect: &syntax::CommandEffectDecl) -> ir::CommandEffect {
     let resource = lower_qualified_name(&effect.resource);
     let assignments: Vec<ir::Assignment> =
         effect.assignments.iter().map(lower_assignment).collect();
@@ -6768,7 +6768,7 @@ fn lower_command_effect(effect: &syntax::CommandEffectDecl) -> ir::CommandEffect
     }
 }
 
-fn lower_qualified_name(text: &str) -> ir::QualifiedName {
+pub(crate) fn lower_qualified_name(text: &str) -> ir::QualifiedName {
     let trimmed = text.trim();
     if let Some((feature, name)) = trimmed.split_once('.') {
         ir::QualifiedName {
@@ -6788,7 +6788,7 @@ fn lower_qualified_name(text: &str) -> ir::QualifiedName {
 ///
 /// - `query.foo` -> `<current_feature>.foo`
 /// - `bar.query.baz` -> `bar.baz`
-fn lower_invalidates_query_ref(current_feature: &str, text: &str) -> ir::QualifiedName {
+pub(crate) fn lower_invalidates_query_ref(current_feature: &str, text: &str) -> ir::QualifiedName {
     let trimmed = text.trim();
     let parts: Vec<&str> = trimmed.split('.').collect();
     match parts.as_slice() {
@@ -6898,7 +6898,7 @@ impl InvalidatesQueryIndex {
 /// handles five literal shapes (string / integer / bool / nil / enum
 /// or path) plus the v1 `@fn.<name>(<arg>...)` invocation form (closes
 /// WAR-VOCAB-CREATES-FN-CALL-01).
-fn lower_raw_expr(text: &str) -> ir::Expr {
+pub(crate) fn lower_raw_expr(text: &str) -> ir::Expr {
     let trimmed = text.trim();
     if let Some(unquoted) = trimmed
         .strip_prefix('"')
@@ -6990,7 +6990,7 @@ fn split_fn_call_args(input: &str) -> Vec<String> {
     out
 }
 
-fn lower_path_string(text: &str) -> ir::Path {
+pub(crate) fn lower_path_string(text: &str) -> ir::Path {
     ir::Path {
         segments: text
             .split(',')
@@ -7397,7 +7397,7 @@ fn parse_closed_predicate(text: &str) -> ir::EvalPredicate {
 /// `Boolean`; bare identifiers / dotted paths become `Path`; bare
 /// identifiers that look like enum literals (no dots) also surface as
 /// `Path` — the analyzer narrows once symbols resolve in expand.
-fn expr_from_text(text: &str) -> ir::Expr {
+pub(crate) fn expr_from_text(text: &str) -> ir::Expr {
     let text = text.trim();
     if let Some(stripped) = text.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
         return ir::Expr::String(stripped.to_owned());
@@ -7433,7 +7433,7 @@ fn qualified_namespace(raw: &str) -> ir::QualifiedName {
     }
 }
 
-fn lower_policy_atom(atom: &str) -> ir::PolicyRef {
+pub(crate) fn lower_policy_atom(atom: &str) -> ir::PolicyRef {
     if let Some(rest) = atom.strip_prefix('@') {
         ir::PolicyRef::Atom(rest.to_owned())
     } else {
@@ -7442,7 +7442,7 @@ fn lower_policy_atom(atom: &str) -> ir::PolicyRef {
 }
 
 #[cfg(test)]
-fn lower_policy_atom_with_args(text: &str) -> ir::PolicyAtom {
+pub(crate) fn lower_policy_atom_with_args(text: &str) -> ir::PolicyAtom {
     let raw = text.trim().strip_prefix('@').unwrap_or(text.trim());
     let (ns_name, args) = match raw.split_once('(') {
         Some((head, tail)) => (head.trim(), Some(tail.trim_end_matches(')').to_owned())),
@@ -7528,7 +7528,7 @@ fn lower_validate_line(line: &str) -> Result<ir::FieldConstraints, AnalyzeError>
 /// The lowering is purely structural; catalog cross-checks (role/perm
 /// existence) live in doctor (`RBAC-ROLE-UNDECLARED-001` /
 /// `RBAC-PERM-UNDECLARED-001`).
-fn lower_policy_expr(expr: &syntax::PolicyExprAst) -> ir::PolicyExpr {
+pub(crate) fn lower_policy_expr(expr: &syntax::PolicyExprAst) -> ir::PolicyExpr {
     match expr {
         syntax::PolicyExprAst::Authenticated => ir::PolicyExpr::Authenticated,
         syntax::PolicyExprAst::HasRole(name) => ir::PolicyExpr::HasRole(name.clone()),
