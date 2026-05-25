@@ -56,6 +56,7 @@ pub(crate) mod event;
 pub(crate) mod external;
 pub(crate) mod field;
 pub(crate) mod http_headers;
+pub(crate) mod lifecycle;
 pub(crate) mod lzx;
 pub(crate) mod notification;
 pub(crate) mod policy;
