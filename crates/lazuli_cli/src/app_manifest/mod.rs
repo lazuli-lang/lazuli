@@ -1,3 +1,23 @@
+//! Operational manifest parsers for `app.lzi`, `registry.lzi`, `workspace.lzi`,
+//! `contracts/*.lzi`, and `profiles.lzi`.
+//!
+//! Rails parity: each entry point (`parse_app_manifest`, `parse_app_registry`,
+//! `parse_app_workspace`, `parse_app_contracts`, `parse_app_profiles`) lives in
+//! its own sub-file. Shared low-level line/identifier helpers live in
+//! `parsers.rs`. Side-channel doctor-visible defect types live in `types.rs`.
+//!
+//! All parsers are deliberately line-oriented and lenient: they preserve
+//! enough source signal to feed doctor without ever erroring out on a
+//! malformed block. Validation is doctor's job; the parser only refuses to
+//! emit IR for shapes that cannot be represented at all.
+//!
+//! See: `lazuli_ir::nodes::app_manifest`,
+//!      `lazuli_syntax::ast::feature::PackageSkeleton`.
+
+mod types;
+
+pub use types::{RegistryParseOutput, RegistryToolDefectReason, RegistryToolEntryDefect};
+
 use lazuli_ir::{
     AppArchitecture, AppBinding, AppCapability, AppCommunication, AppContract, AppCookie, AppCors,
     AppCorsOriginRule, AppDeploy, AppEnvVar, AppHeaders, AppHsts, AppIntegration,
@@ -12,33 +32,6 @@ use lazuli_ir::{
     WebhookEvent, WebhookEventField, WorkspaceApp, WorkspaceBoundary, WorkspaceCommunication,
     WorkspaceGateway, WorkspaceGatewayRoute,
 };
-
-/// Side-channel captured during registry parsing for entries that exist
-/// syntactically but lack `effect`. The IR's `RegistryToolEntry` carries
-/// `effect` as a required field, so we cannot encode a missing-effect
-/// entry there. Doctor consumes this list to emit
-/// `tool_registry_effect_required_diagnostics`.
-#[derive(Debug, Clone)]
-pub struct RegistryToolEntryDefect {
-    /// 1-based line where the offending `tool <name>` header appears.
-    pub line: usize,
-    pub name: String,
-    pub reason: RegistryToolDefectReason,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RegistryToolDefectReason {
-    EffectMissing,
-    EffectInvalid,
-}
-
-/// Output of `parse_app_registry`. Splits the well-formed registry IR
-/// from the defect list so doctor can surface both.
-#[derive(Debug, Clone, Default)]
-pub struct RegistryParseOutput {
-    pub registry: Option<AppRegistry>,
-    pub tool_defects: Vec<RegistryToolEntryDefect>,
-}
 
 pub fn parse_app_contracts(source: &str) -> Vec<AppContract> {
     let lines: Vec<_> = source.lines().collect();
