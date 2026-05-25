@@ -97,3 +97,27 @@ pub(super) fn parse_record_decl(
         i,
     ))
 }
+
+#[cfg(test)]
+mod record_parser_tests {
+    use super::super::parse_feature_skeletons;
+
+    #[test]
+    fn record_block_parses() {
+        let source = r#"
+feature customer
+  domain
+    record CustomerLtv
+      customer_id: ID
+      amount: @semantic.Money
+      currency: Text
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        assert_eq!(features[0].records.len(), 1);
+        let r = &features[0].records[0];
+        assert_eq!(r.name, "CustomerLtv");
+        assert_eq!(r.fields.len(), 3);
+        assert_eq!(r.fields[1].name, "amount");
+        assert_eq!(r.fields[1].type_text, "@semantic.Money");
+    }
+}
