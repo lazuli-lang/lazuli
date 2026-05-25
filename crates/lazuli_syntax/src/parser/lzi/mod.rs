@@ -83,11 +83,13 @@ use crate::ast::{
 pub mod design;
 pub mod package;
 pub mod plan;
+pub mod translation;
 pub mod types;
 
 pub use design::parse_design_document;
 pub use package::parse_package_skeleton;
 pub use plan::{parse_feature_gates, parse_plan_blocks};
+pub(super) use translation::parse_translation_key_token;
 pub use types::{
     LifecycleBlockAst, LifecycleInvariantAst, LifecycleStateAst, LifecycleTransitionAst,
     PollerBlockAst, PollerCursorAst, PollerRetryAst, PollerRetryQuirkAst, PollerStateAst,
@@ -111,10 +113,10 @@ pub use types::{
 // See docs/proposals/ai-primitives-v0-implementation.md §3.3.
 // =============================================================================
 
-const AGENT_INDENT_FEATURE_CHILD: usize = 2;
-const AGENT_INDENT_AGENT_CHILD: usize = 4;
-const AGENT_INDENT_GRANDCHILD: usize = 6;
-const AGENT_INDENT_GREAT_GRANDCHILD: usize = 8;
+pub(super) const AGENT_INDENT_FEATURE_CHILD: usize = 2;
+pub(super) const AGENT_INDENT_AGENT_CHILD: usize = 4;
+pub(super) const AGENT_INDENT_GRANDCHILD: usize = 6;
+pub(super) const AGENT_INDENT_GREAT_GRANDCHILD: usize = 8;
 
 /// Parse every `feature <name>` block in a `.lzi` source, returning a
 /// skeleton that lists only the agents inside each feature. Other feature
@@ -745,7 +747,7 @@ fn parse_feature_skeleton(
                     "feature may declare at most one `translation` block",
                 ));
             }
-            let (parsed, next) = parse_translation_decl(lines, i)?;
+            let (parsed, next) = translation::parse_translation_decl(lines, i)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
             translation = Some(parsed);
             i = next;
@@ -10598,192 +10600,6 @@ fn parse_mcp_params(
     Ok((out, i))
 }
 
-/// i18n bucket cycle — parse a `translation` block. Header is the
-/// bare keyword (no name). Children at indent 4: `catalog "<path>"`
-/// (required, exactly one) and `key <name>` (repeatable). Inside a
-/// `key <name>`, indent 6 carries BCP-47 variants (`pt-BR "..."`) and
-/// optional `plural <arm>` blocks; inside `plural <arm>`, indent 8
-/// carries another set of BCP-47 variants.
-fn parse_translation_decl(
-    lines: &[SourceLine<'_>],
-    start: usize,
-) -> Result<(TranslationDecl, usize), ParseError> {
-    let header = &lines[start];
-    let mut catalog: Option<String> = None;
-    let mut keys: Vec<TranslationKeyDecl> = Vec::new();
-    let mut last_end = header.end;
-    let mut i = start + 1;
-
-    while i < lines.len() {
-        let line = &lines[i];
-        let trimmed = line.text.trim_start();
-
-        if is_trivia(trimmed) {
-            i += 1;
-            continue;
-        }
-        if line.indent <= AGENT_INDENT_FEATURE_CHILD {
-            break;
-        }
-        if line.indent != AGENT_INDENT_AGENT_CHILD {
-            return Err(line_error(
-                line,
-                "translation body children use four-space indentation",
-            ));
-        }
-
-        if let Some(rest) = trimmed.strip_prefix("catalog ") {
-            if catalog.is_some() {
-                return Err(line_error(
-                    line,
-                    "`translation` may declare at most one `catalog` line",
-                ));
-            }
-            catalog = Some(unquote_lzx_value(rest.trim()).to_owned());
-            last_end = line.end;
-            i += 1;
-        } else if let Some(rest) = trimmed.strip_prefix("key ") {
-            let name = rest.trim().to_owned();
-            if name.is_empty() {
-                return Err(line_error(line, "`key` requires a name"));
-            }
-            let (key, next) = parse_translation_key(lines, i, name)?;
-            last_end = lines[next.saturating_sub(1).max(i)].end;
-            keys.push(key);
-            i = next;
-        } else {
-            return Err(line_error(
-                line,
-                "translation children are `catalog \"<path>\"` and `key <name>`",
-            ));
-        }
-    }
-
-    let catalog = catalog.ok_or_else(|| {
-        line_error(
-            header,
-            "`translation` requires a `catalog \"<path>\"` declaration",
-        )
-    })?;
-
-    Ok((
-        TranslationDecl {
-            catalog,
-            keys,
-            span: Span::new(header.start, last_end),
-        },
-        i,
-    ))
-}
-
-fn parse_translation_key(
-    lines: &[SourceLine<'_>],
-    start: usize,
-    name: String,
-) -> Result<(TranslationKeyDecl, usize), ParseError> {
-    let header = &lines[start];
-    let mut variants: Vec<TranslationVariantDecl> = Vec::new();
-    let mut plurals: Vec<TranslationPluralArmDecl> = Vec::new();
-    let mut last_end = header.end;
-    let mut i = start + 1;
-
-    while i < lines.len() {
-        let line = &lines[i];
-        let trimmed = line.text.trim_start();
-
-        if is_trivia(trimmed) {
-            i += 1;
-            continue;
-        }
-        if line.indent <= AGENT_INDENT_AGENT_CHILD {
-            break;
-        }
-        if line.indent != AGENT_INDENT_GRANDCHILD {
-            return Err(line_error(
-                line,
-                "translation key children use six-space indentation",
-            ));
-        }
-
-        if let Some(rest) = trimmed.strip_prefix("plural ") {
-            let arm = rest.trim().to_owned();
-            if arm.is_empty() {
-                return Err(line_error(line, "`plural` requires an arm name"));
-            }
-            let (plural, next) = parse_translation_plural(lines, i, arm)?;
-            last_end = lines[next.saturating_sub(1).max(i)].end;
-            plurals.push(plural);
-            i = next;
-        } else if let Some((locale, rest)) = trimmed.split_once(' ') {
-            let text = unquote_lzx_value(rest.trim()).to_owned();
-            variants.push(TranslationVariantDecl {
-                locale: locale.to_owned(),
-                text,
-            });
-            last_end = line.end;
-            i += 1;
-        } else {
-            return Err(line_error(
-                line,
-                "translation key body lines are `<bcp47-tag> \"<text>\"` or `plural <arm>`",
-            ));
-        }
-    }
-
-    Ok((
-        TranslationKeyDecl {
-            name,
-            variants,
-            plurals,
-            span: Span::new(header.start, last_end),
-        },
-        i,
-    ))
-}
-
-fn parse_translation_plural(
-    lines: &[SourceLine<'_>],
-    start: usize,
-    arm: String,
-) -> Result<(TranslationPluralArmDecl, usize), ParseError> {
-    let header = &lines[start];
-    let mut variants: Vec<TranslationVariantDecl> = Vec::new();
-    let mut i = start + 1;
-
-    while i < lines.len() {
-        let line = &lines[i];
-        let trimmed = line.text.trim_start();
-
-        if is_trivia(trimmed) {
-            i += 1;
-            continue;
-        }
-        if line.indent <= AGENT_INDENT_GRANDCHILD {
-            break;
-        }
-        if line.indent != AGENT_INDENT_GREAT_GRANDCHILD {
-            return Err(line_error(
-                line,
-                "plural arm body uses eight-space indentation",
-            ));
-        }
-        if let Some((locale, rest)) = trimmed.split_once(' ') {
-            let text = unquote_lzx_value(rest.trim()).to_owned();
-            variants.push(TranslationVariantDecl {
-                locale: locale.to_owned(),
-                text,
-            });
-            i += 1;
-        } else {
-            return Err(line_error(
-                line,
-                "plural arm body lines are `<bcp47-tag> \"<text>\"`",
-            ));
-        }
-    }
-
-    Ok((TranslationPluralArmDecl { arm, variants }, i))
-}
 
 fn parse_event_group(
     lines: &[SourceLine<'_>],
@@ -11774,47 +11590,6 @@ fn fold_rate_limit_line(
     Ok(())
 }
 
-/// IR Error-Vocab (Cell PARSE-1) — extract the bare key from a literal
-/// `@translation.<key>` token. Trailing whitespace and trailing tokens
-/// past the first whitespace are rejected; the surface intentionally
-/// keeps the form single-token to stay inside the existing
-/// `Rule.message @translation.<key>` precedent.
-pub(super) fn parse_translation_key_token(
-    line: &SourceLine<'_>,
-    rest: &str,
-) -> Result<TranslationKeyRefAst, ParseError> {
-    let trimmed = rest.trim();
-    if trimmed.is_empty() {
-        return Err(line_error(
-            line,
-            "`@translation.<key>` reference requires a key",
-        ));
-    }
-    let mut parts = trimmed.split_whitespace();
-    let first = parts.next().unwrap_or("");
-    if parts.next().is_some() {
-        return Err(line_error(
-            line,
-            "`@translation.<key>` reference must be a single token",
-        ));
-    }
-    let key = first.strip_prefix("@translation.").ok_or_else(|| {
-        line_error(
-            line,
-            "expected `@translation.<key>` reference (must start with `@translation.`)",
-        )
-    })?;
-    if key.is_empty() {
-        return Err(line_error(
-            line,
-            "`@translation.` reference requires a non-empty key after the dot",
-        ));
-    }
-    Ok(TranslationKeyRefAst {
-        key: key.to_owned(),
-        span: Span::new(line.start, line.end),
-    })
-}
 
 
 
