@@ -487,7 +487,6 @@ pub(crate) fn doctor_diagnostics_json(
     Ok(serde_json::Value::Array(payload))
 }
 
-
 impl DoctorPackage {
     /// Iron-hand meta-bundle — dispatch the three `VOCAB-CONTEXT-*`
     /// rules across every `.lzi` feature in the package and resolve
@@ -704,9 +703,6 @@ impl DoctorPackage {
         )
     }
 }
-
-
-
 
 pub(super) fn collect_package_paths(input: &Path) -> Result<Vec<PathBuf>> {
     if input.is_dir() {

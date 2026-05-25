@@ -55,13 +55,14 @@ mod go_mod;
 mod helpers;
 
 pub use context::{EmitContext, GoSourceContext};
-use go_mod::{collect_transitive_deps, emit_go_mod, emit_go_work, resolve_module_name, resolve_source_label};
+use go_mod::{
+    collect_transitive_deps, emit_go_mod, emit_go_work, resolve_module_name, resolve_source_label,
+};
 use helpers::{emit_feature_stub, to_kebab};
 
 /// Default Go module path used when the caller did not supply one and
 /// the IR exposes no `app.name`. Matches proposal §1.1's "fallback
 /// `lazuli/app`" rule.
-
 
 /// Walk the IR module and produce every `.gen.go` plus the root
 /// `go.mod`. Per cell E1 this only emits the file skeleton; kinds
@@ -606,9 +607,6 @@ pub fn emit_module(
 
     files
 }
-
-
-
 
 #[cfg(test)]
 mod tests {

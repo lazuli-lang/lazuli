@@ -168,7 +168,10 @@ pub(super) fn emit_go_mod(
     p.finish()
 }
 
-pub(super) fn emit_go_work(dev_runtime_path: Option<&str>, manifest: Option<&LazuriteManifest>) -> String {
+pub(super) fn emit_go_work(
+    dev_runtime_path: Option<&str>,
+    manifest: Option<&LazuriteManifest>,
+) -> String {
     let mut p = GoPrinter::new();
     p.line(DEFAULT_GO_TOOLCHAIN);
     p.blank();
@@ -222,4 +225,3 @@ pub(super) fn type_ref_contains_geopoint(type_ref: &TypeRef) -> bool {
         _ => false,
     }
 }
-

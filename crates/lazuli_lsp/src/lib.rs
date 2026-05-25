@@ -152,7 +152,6 @@ pub fn diagnostics_for_source_with_profile(
     diagnostics_for_with_profile_inner(source, security_profile, false)
 }
 
-
 pub(crate) fn diagnostics_for_uri(uri: &Url, source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = diagnostics_for(source);
 
@@ -479,7 +478,6 @@ pub(crate) fn anchor_whitelist_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-
 pub(crate) fn apply_security_profile(
     mut diagnostics: Vec<Diagnostic>,
     security_profile: SecurityProfile,
@@ -542,7 +540,6 @@ pub(crate) fn is_security_enforcement_code(code: &str) -> bool {
 pub(crate) fn is_security_opt_out_code(code: &str) -> bool {
     matches!(code, "security-opt-out")
 }
-
 
 #[cfg(test)]
 #[path = "lib_tests.rs"]

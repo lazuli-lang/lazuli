@@ -31,7 +31,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use lazuli_ir::{self as ir, Agent, AppContract, AppManifest, AppProfile, AppRegistry, AppWorkspace};
+use lazuli_ir::{
+    self as ir, Agent, AppContract, AppManifest, AppProfile, AppRegistry, AppWorkspace,
+};
 use lazuli_syntax::LzxDocument;
 
 use crate::app_manifest::RegistryToolDefectReason;

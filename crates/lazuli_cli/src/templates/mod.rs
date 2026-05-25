@@ -35,7 +35,6 @@ pub static DEFAULT_TEMPLATE: include_dir::Dir<'static> =
 // scaffold output is guaranteed to produce ZERO diagnostics.
 // ---------------------------------------------------------------
 
-
 // Wave R7-3 extract — frontend scaffold templates moved into per-stack
 // sibling modules. The static `DEFAULT_TEMPLATE` directory embed stays
 // here; the FRONTEND_* constants are re-exported below so every
