@@ -50,6 +50,7 @@ pub(crate) use diagnostics::doctor_local::*;
 pub(crate) use diagnostics::env::*;
 pub(crate) use diagnostics::error::*;
 pub(crate) use diagnostics::external::*;
+pub(crate) use diagnostics::field::*;
 pub(crate) use diagnostics::http_headers::*;
 pub(crate) use diagnostics::lzx::*;
 pub(crate) use diagnostics::notification::*;
@@ -61,14 +62,14 @@ pub(crate) use diagnostics::webhook::*;
 pub(crate) use diagnostics::workspace::*;
 
 pub use catalogs::*;
-pub(crate) use completion_items::{completion_items_for_uri, make_symbol, merge_completion_items};
-pub(crate) use keywords::{DESIGN_KEYWORDS, KEYWORDS};
 pub use code_actions::auth_refresh::auth_refresh_code_actions;
 pub use code_actions::error_vocab::error_vocab_code_actions;
 pub use code_actions::lifecycle_gate::lifecycle_gate_code_actions;
 pub use code_actions::route_guard::route_guard_code_actions;
+pub(crate) use completion_items::{completion_items_for_uri, make_symbol, merge_completion_items};
 pub use conventions::conventions_list_completions;
 pub use hover::*;
+pub(crate) use keywords::{DESIGN_KEYWORDS, KEYWORDS};
 pub use rate_limit::rate_limit_env_completions;
 pub use source_scan::*;
 pub use types::SecurityProfile;
@@ -322,7 +323,6 @@ impl LanguageServer for Backend {
     }
 }
 
-
 impl Backend {
     async fn publish_diagnostics(&self, uri: Url, source: String) {
         let diagnostics = diagnostics_for_uri(&uri, &source);
@@ -354,7 +354,6 @@ pub(crate) fn diagnostics_for_with_profile(
 ) -> Vec<Diagnostic> {
     diagnostics_for_with_profile_inner(source, security_profile, true)
 }
-
 
 pub(crate) fn is_canonical_source(source: &str) -> bool {
     if has_lzx_top_level_contract(source) {
@@ -439,7 +438,6 @@ pub(crate) fn has_lzx_top_level_contract(source: &str) -> bool {
             )
     })
 }
-
 
 pub(crate) fn is_identifier(source: &str) -> bool {
     let mut chars = source.chars();
@@ -664,7 +662,6 @@ pub(crate) fn is_allowed_reference_namespace(namespace: &str) -> bool {
     )
 }
 
-
 pub(crate) fn file_capability_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
@@ -851,279 +848,11 @@ pub(crate) fn is_key_scope(value: &str) -> bool {
         .is_some_and(|scope| is_identifier(scope))
 }
 
-pub(crate) fn type_namespace_diagnostics(source: &str) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-    let mut in_env = false;
-    let mut in_app = false;
-    let mut in_registry = false;
-    let mut app_child: Option<&str> = None;
-    let mut registry_child: Option<&str> = None;
-
-    for (line_index, line) in source.lines().enumerate() {
-        let trimmed = line.trim_start();
-
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-
-        if leading_spaces(line) == 0 {
-            in_env = trimmed == "env";
-            in_app = trimmed.starts_with("app ");
-            in_registry = trimmed
-                .split_whitespace()
-                .next()
-                .is_some_and(|keyword| keyword == "registry");
-            app_child = None;
-            registry_child = None;
-            continue;
-        }
-
-        if in_env {
-            continue;
-        }
-
-        if in_app {
-            if leading_spaces(line) == 2 {
-                app_child = trimmed.split_whitespace().next();
-            }
-            if app_child == Some("env") {
-                continue;
-            }
-        }
-
-        if in_registry {
-            if leading_spaces(line) == 2 {
-                registry_child = trimmed.split_whitespace().next();
-            }
-            if registry_child == Some("env") {
-                continue;
-            }
-        }
-
-        let Some(ty) = typed_line_type(trimmed) else {
-            continue;
-        };
-
-        if matches!(ty, "Email" | "Money") {
-            diagnostics.push(simple_canonical_diagnostic(
-                line_index,
-                line,
-                DiagnosticSeverity::WARNING,
-                "type-namespace",
-                "semantic types should use the `@semantic.*` namespace, e.g. `@semantic.Email` or `@semantic.Money`.",
-            ));
-        } else if matches!(ty, "File" | "Secret") {
-            diagnostics.push(simple_canonical_diagnostic(
-                line_index,
-                line,
-                DiagnosticSeverity::WARNING,
-                "type-namespace",
-                "capability types should use the `@cap.*` namespace, e.g. `@cap.File`, `@cap.Hashed(...)`, `@cap.Encrypted(...)`, or `@cap.Token(...)`.",
-            ));
-        }
-    }
-
-    diagnostics
-}
-
-pub(crate) fn sql_return_type_diagnostics(source: &str) -> Vec<Diagnostic> {
-    let declared_types = collect_declared_type_names_by_feature(source);
-    let mut diagnostics = Vec::new();
-    let mut current_feature: Option<String> = None;
-    let mut in_sql_query = false;
-
-    for (line_index, line) in source.lines().enumerate() {
-        let trimmed = line.trim_start();
-
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-
-        match leading_spaces(line) {
-            0 if trimmed.starts_with("feature ") => {
-                current_feature = Some(feature_name(trimmed));
-                in_sql_query = false;
-            }
-            2 => {
-                in_sql_query = false;
-            }
-            4 => {
-                in_sql_query = trimmed.starts_with("query.sql ") || trimmed.starts_with("query.view ");
-            }
-            6 if in_sql_query && trimmed.starts_with("returns ") => {
-                let Some(feature) = current_feature.as_deref() else {
-                    continue;
-                };
-                let Some(return_type) = trimmed
-                    .trim_start_matches("returns ")
-                    .split_whitespace()
-                    .next()
-                    .map(canonical_return_type_name)
-                else {
-                    continue;
-                };
-
-                if is_builtin_return_type(return_type) {
-                    continue;
-                }
-
-                if !declared_types
-                    .get(feature)
-                    .is_some_and(|types| types.contains(return_type))
-                {
-                    diagnostics.push(simple_canonical_diagnostic(
-                        line_index,
-                        line,
-                        DiagnosticSeverity::WARNING,
-                        "sql-return-type",
-                        &format!(
-                            "`query.sql`/`query.view` return type `{return_type}` should resolve to a local `record` or `resource`; SQL result shapes are not inferred from the SQL file."
-                        ),
-                    ));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    diagnostics
-}
-
-pub(crate) fn collect_declared_type_names_by_feature(source: &str) -> HashMap<String, HashSet<String>> {
-    let mut types = HashMap::new();
-    let mut current_feature: Option<String> = None;
-    let mut current_top: Option<&str> = None;
-
-    for line in source.lines() {
-        let trimmed = line.trim_start();
-
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-
-        match leading_spaces(line) {
-            0 if trimmed.starts_with("feature ") => {
-                let feature = feature_name(trimmed);
-                types.entry(feature.clone()).or_insert_with(HashSet::new);
-                current_feature = Some(feature);
-                current_top = None;
-            }
-            2 => {
-                current_top = trimmed.split_whitespace().next();
-            }
-            4 if current_top == Some("domain") => {
-                let Some(feature) = current_feature.as_deref() else {
-                    continue;
-                };
-                let first = trimmed.split_whitespace().next();
-                if matches!(first, Some("resource" | "record" | "enum"))
-                    && let Some(name) = trimmed.split_whitespace().nth(1)
-                {
-                    types
-                        .entry(feature.to_owned())
-                        .or_insert_with(HashSet::new)
-                        .insert(name.to_owned());
-                }
-            }
-            _ => {}
-        }
-    }
-
-    types
-}
-
-pub(crate) fn canonical_return_type_name(return_type: &str) -> &str {
-    return_type
-        .strip_suffix("[]")
-        .unwrap_or(return_type)
-        .trim_end_matches('?')
-}
-
-pub(crate) fn is_builtin_return_type(return_type: &str) -> bool {
-    matches!(
-        return_type,
-        "Text" | "Integer" | "Decimal" | "Boolean" | "ID" | "DateTime" | "JSON"
-    ) || return_type.starts_with("@semantic.")
-        || return_type.starts_with("@cap.")
-}
-
-pub(crate) fn typed_line_type(trimmed_line: &str) -> Option<&str> {
-    let (_, rhs) = trimmed_line.split_once(':')?;
-    let ty = rhs.trim().split_whitespace().next()?;
-
-    if ty.starts_with('"') || ty.is_empty() {
-        None
-    } else {
-        Some(ty)
-    }
-}
-
 pub(crate) fn is_float_in_range(value: &str, min: f64, max: f64) -> bool {
     value
         .parse::<f64>()
         .map(|v| v >= min && v <= max)
         .unwrap_or(false)
-}
-
-pub(crate) fn derived_field_diagnostics(source: &str) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-
-    for (line_index, line) in source.lines().enumerate() {
-        let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-
-        let Some(rest) = field_typed_rhs(trimmed) else {
-            continue;
-        };
-
-        let (before_derived, after_derived) = match split_derived_from(rest) {
-            Some(parts) => parts,
-            None => continue,
-        };
-
-        if after_derived.trim().is_empty() {
-            diagnostics.push(simple_canonical_diagnostic(
-                line_index,
-                line,
-                DiagnosticSeverity::ERROR,
-                "derived-field-contract",
-                "`derived from` requires an expression: `<name>: <Type> derived from <expression>`.",
-            ));
-            continue;
-        }
-
-        let mut emitted_requiredness = false;
-        for forbidden in ["required", "optional"] {
-            if before_derived
-                .split_whitespace()
-                .any(|token| token == forbidden)
-            {
-                diagnostics.push(simple_canonical_diagnostic(
-                    line_index,
-                    line,
-                    DiagnosticSeverity::ERROR,
-                    "derived-field-contract",
-                    "`derived from` fields are computed at read time and must not declare `required` or `optional`.",
-                ));
-                emitted_requiredness = true;
-                break;
-            }
-        }
-
-        if !emitted_requiredness && contains_top_level_eq(after_derived) {
-            diagnostics.push(simple_canonical_diagnostic(
-                line_index,
-                line,
-                DiagnosticSeverity::ERROR,
-                "derived-field-contract",
-                "`derived from` fields are computed at read time and must not declare `default` (no trailing `= <value>`).",
-            ));
-        }
-    }
-
-    diagnostics
 }
 
 /// Cut A.9 — file-local checks on `approval` blocks declared inside
@@ -1332,290 +1061,6 @@ pub(crate) fn emits_derived_diagnostics(source: &str) -> Vec<Diagnostic> {
     }
 
     diagnostics
-}
-
-pub(crate) fn has_many_diagnostics(source: &str) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-
-    for (line_index, line) in source.lines().enumerate() {
-        let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        let Some(rest) = trimmed.strip_prefix("has_many ") else {
-            continue;
-        };
-
-        let Some((name_part, type_part)) = rest.split_once(':') else {
-            diagnostics.push(simple_canonical_diagnostic(
-                line_index,
-                line,
-                DiagnosticSeverity::ERROR,
-                "has-many-contract",
-                "`has_many` collections use `has_many <name>: <Type> [inverse <field>]`.",
-            ));
-            continue;
-        };
-
-        let name = name_part.trim();
-        if name.is_empty() || name.contains(' ') {
-            diagnostics.push(simple_canonical_diagnostic(
-                line_index,
-                line,
-                DiagnosticSeverity::ERROR,
-                "has-many-contract",
-                "`has_many` requires a single identifier before `:`.",
-            ));
-            continue;
-        }
-
-        let mut tokens = type_part.split_whitespace();
-        let Some(_type_token) = tokens.next() else {
-            diagnostics.push(simple_canonical_diagnostic(
-                line_index,
-                line,
-                DiagnosticSeverity::ERROR,
-                "has-many-contract",
-                "`has_many` requires a target type after `:`.",
-            ));
-            continue;
-        };
-
-        match tokens.next() {
-            None => {}
-            Some("inverse") => {
-                if tokens.next().is_none() {
-                    diagnostics.push(simple_canonical_diagnostic(
-                        line_index,
-                        line,
-                        DiagnosticSeverity::ERROR,
-                        "has-many-contract",
-                        "`inverse` requires a field name on the target resource.",
-                    ));
-                }
-            }
-            Some(unexpected) => {
-                diagnostics.push(simple_canonical_diagnostic(
-                    line_index,
-                    line,
-                    DiagnosticSeverity::ERROR,
-                    "has-many-contract",
-                    &format!(
-                        "unexpected `{unexpected}` after `has_many <name>: <Type>`. Only `inverse <field>` is allowed.",
-                    ),
-                ));
-            }
-        }
-    }
-
-    diagnostics
-}
-
-pub(crate) fn split_derived_from(rhs: &str) -> Option<(&str, &str)> {
-    if let Some(pos) = rhs.find(" derived from ") {
-        return Some((&rhs[..pos], &rhs[pos + " derived from ".len()..]));
-    }
-    if let Some(stripped) = rhs.strip_suffix(" derived from") {
-        return Some((stripped, ""));
-    }
-    None
-}
-
-pub(crate) fn contains_top_level_eq(expr: &str) -> bool {
-    let mut depth_paren: i32 = 0;
-    let mut in_string = false;
-    let mut prev = ' ';
-    for ch in expr.chars() {
-        match ch {
-            '"' if prev != '\\' => in_string = !in_string,
-            '(' if !in_string => depth_paren += 1,
-            ')' if !in_string => depth_paren -= 1,
-            '=' if !in_string && depth_paren == 0 && prev == ' ' => return true,
-            _ => {}
-        }
-        prev = ch;
-    }
-    false
-}
-
-pub(crate) fn field_typed_rhs(trimmed: &str) -> Option<&str> {
-    let (lhs, rhs) = trimmed.split_once(':')?;
-    if lhs.contains(' ') || lhs.is_empty() {
-        return None;
-    }
-    let rhs = rhs.trim_start();
-    if rhs.is_empty() || rhs.starts_with('"') {
-        return None;
-    }
-    Some(rhs)
-}
-
-pub(crate) fn validation_syntax_diagnostics(source: &str) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-
-    for (line_index, line) in source.lines().enumerate() {
-        let trimmed = line.trim_start();
-
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-
-        if trimmed.starts_with("validate ") && !trimmed.starts_with("validate @validator.") {
-            diagnostics.push(simple_canonical_diagnostic(
-                line_index,
-                line,
-                DiagnosticSeverity::WARNING,
-                "validation-syntax",
-                "validators are referenced through `validates @validator.<name>`; the scope (field or resource) is declared by the validator's `Validator[<scope>]` type in `extensions`.",
-            ));
-            continue;
-        }
-
-        let Some(rest) = trimmed.strip_prefix("validates ") else {
-            continue;
-        };
-
-        let argument = rest.trim();
-
-        // Canonical: `validates @validator.<name>`
-        if argument.starts_with("@validator.") {
-            continue;
-        }
-
-        // Legacy with explicit scope: `validates field <name> @validator.<name>`
-        // or `validates resource @validator.<name>`. Both forms still parse but
-        // warn — the validator's `Validator[<scope>]` type already carries the
-        // scope, so repeating it at the call site is redundant.
-        let (legacy_form, target) = if let Some(field_rest) = argument.strip_prefix("field ") {
-            let target = field_rest.split_whitespace().skip(1).next().unwrap_or("");
-            ("legacy-scoped-field", target)
-        } else if let Some(resource_rest) = argument.strip_prefix("resource") {
-            ("legacy-scoped-resource", resource_rest.trim())
-        } else {
-            diagnostics.push(simple_canonical_diagnostic(
-                line_index,
-                line,
-                DiagnosticSeverity::WARNING,
-                "validation-syntax",
-                "validators are referenced through `validates @validator.<name>`; the scope (field or resource) is declared by the validator's `Validator[<scope>]` type in `extensions`.",
-            ));
-            continue;
-        };
-
-        if target.starts_with('"') {
-            diagnostics.push(simple_canonical_diagnostic(
-                line_index,
-                line,
-                DiagnosticSeverity::WARNING,
-                "validation-syntax",
-                "inline `\"./path.go\"` validator references are legacy. Declare the validator under `extensions.validator <name>: Validator[<scope>] at \"./path.go\"` and reference it as `validates @validator.<name>`.",
-            ));
-        } else if target.starts_with("@validator.") {
-            // Legacy scope keyword present but otherwise canonical — warn that
-            // the scope is redundant.
-            let hint = match legacy_form {
-                "legacy-scoped-field" => {
-                    "drop the `field <name>` prefix; the validator's `Validator[<scope>]` type already names the field."
-                }
-                _ => {
-                    "drop the `resource` prefix; the validator's `Validator[<scope>]` type already targets the resource."
-                }
-            };
-            diagnostics.push(simple_canonical_diagnostic(
-                line_index,
-                line,
-                DiagnosticSeverity::WARNING,
-                "validation-syntax",
-                &format!("`validates @validator.<name>` is the canonical form: {hint}"),
-            ));
-        } else if !target.is_empty() {
-            diagnostics.push(simple_canonical_diagnostic(
-                line_index,
-                line,
-                DiagnosticSeverity::WARNING,
-                "validation-syntax",
-                "validator references should use the `@validator.<name>` namespace. Declare the validator under `extensions.validator <name>` first.",
-            ));
-        }
-    }
-
-    diagnostics
-}
-
-pub(crate) fn extension_declaration_diagnostics(source: &str) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-    let mut current_top: Option<&str> = None;
-
-    for (line_index, line) in source.lines().enumerate() {
-        let trimmed = line.trim_start();
-
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-
-        if leading_spaces(line) == 2 {
-            current_top = trimmed.split_whitespace().next();
-            continue;
-        }
-
-        if current_top != Some("extensions") || leading_spaces(line) != 4 {
-            continue;
-        }
-
-        let Some((keyword, contract)) = extension_declaration(trimmed) else {
-            continue;
-        };
-        let expected = expected_extension_keyword(contract);
-
-        if keyword == "server" {
-            diagnostics.push(simple_canonical_diagnostic(
-                line_index,
-                line,
-                DiagnosticSeverity::WARNING,
-                "extension-declaration-namespace",
-                "extension declarations should use the same namespace keyword as their call site, e.g. `fn`, `hook`, `validator`, `adapter`, `query_modifier`, or `client`, not `server`.",
-            ));
-        } else if let Some(expected) = expected {
-            if keyword != expected {
-                diagnostics.push(simple_canonical_diagnostic(
-                    line_index,
-                    line,
-                    DiagnosticSeverity::WARNING,
-                    "extension-declaration-namespace",
-                    "extension declaration keyword should match the contract namespace used at call sites.",
-                ));
-            }
-        }
-    }
-
-    diagnostics
-}
-
-pub(crate) fn extension_declaration(trimmed_line: &str) -> Option<(&str, &str)> {
-    let mut parts = trimmed_line.split_whitespace();
-    let keyword = parts.next()?;
-    if !matches!(
-        keyword,
-        "client" | "server" | "fn" | "hook" | "validator" | "adapter" | "query_modifier"
-    ) {
-        return None;
-    }
-
-    let after_colon = trimmed_line.split_once(':')?.1.trim();
-    let contract = after_colon.split(['[', ' ']).next()?;
-    Some((keyword, contract))
-}
-
-pub(crate) fn expected_extension_keyword(contract: &str) -> Option<&'static str> {
-    match contract {
-        "CellRenderer" | "ViewBlock" | "FormField" => Some("client"),
-        "Function" => Some("fn"),
-        "Hook" => Some("hook"),
-        "Validator" => Some("validator"),
-        "IntegrationAdapter" => Some("adapter"),
-        "QueryModifier" => Some("query_modifier"),
-        _ => None,
-    }
 }
 
 pub(crate) fn event_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
@@ -1876,9 +1321,6 @@ pub(crate) fn required_field_nil_rule_diagnostics(source: &str) -> Vec<Diagnosti
 
     diagnostics
 }
-
-
-
 
 pub(crate) fn collect_required_resource_fields(source: &str) -> HashSet<(String, String, String)> {
     let mut fields = HashSet::new();
@@ -2194,28 +1636,6 @@ pub(crate) fn extensible_by_features(trimmed_line: &str) -> Vec<String> {
         .collect()
 }
 
-pub(crate) fn extension_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-
-    for (line_index, line) in source.lines().enumerate() {
-        if line.trim_start().starts_with('#') {
-            continue;
-        }
-
-        if line.contains("ext.") {
-            diagnostics.push(simple_canonical_diagnostic(
-                line_index,
-                line,
-                DiagnosticSeverity::WARNING,
-                "extension-namespace",
-                "extension references should use capability namespaces such as `@client.name`, `@fn.name`, `@hook.name`, `@validator.name`, or `@adapter.name` instead of `ext.*`.",
-            ));
-        }
-    }
-
-    diagnostics
-}
-
 #[derive(Debug)]
 pub(crate) struct SensitiveFieldFacts {
     feature: String,
@@ -2367,7 +1787,10 @@ pub(crate) struct RetentionFacts {
     resources: HashSet<(String, String)>,
 }
 
-pub(crate) fn collect_retention_facts(source: &str, diagnostics: &mut Vec<Diagnostic>) -> RetentionFacts {
+pub(crate) fn collect_retention_facts(
+    source: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> RetentionFacts {
     let mut facts = RetentionFacts::default();
     let mut current_feature: Option<String> = None;
     let mut current_top: Option<&str> = None;
@@ -2570,9 +1993,9 @@ pub(crate) fn write_window_contract_diagnostics(source: &str) -> Vec<Diagnostic>
     diagnostics
 }
 
-
-
-pub(crate) fn collect_field_policy_facts(source: &str) -> HashMap<(String, String, String), FieldPolicyFacts> {
+pub(crate) fn collect_field_policy_facts(
+    source: &str,
+) -> HashMap<(String, String, String), FieldPolicyFacts> {
     let mut policies = HashMap::new();
     let mut current_feature: Option<String> = None;
     let mut current_top: Option<&str> = None;
@@ -2633,8 +2056,6 @@ pub(crate) fn collect_field_policy_facts(source: &str) -> HashMap<(String, Strin
 
     policies
 }
-
-
 
 pub(crate) fn apply_security_profile(
     mut diagnostics: Vec<Diagnostic>,
@@ -3429,7 +2850,9 @@ pub(crate) fn event_consumer_payload_diagnostic(
     )
 }
 
-pub(crate) fn collect_canonical_feature_facts(source: &str) -> HashMap<String, CanonicalFeatureFacts> {
+pub(crate) fn collect_canonical_feature_facts(
+    source: &str,
+) -> HashMap<String, CanonicalFeatureFacts> {
     let mut features = HashMap::new();
     let mut current_feature: Option<String> = None;
     let mut current_top: Option<&str> = None;
@@ -3640,7 +3063,6 @@ pub(crate) fn event_payload_reference_diagnostic(
         data: None,
     }
 }
-
 
 pub(crate) fn format_canonical_source(source: &str) -> Option<String> {
     if !is_canonical_source(source) {
@@ -3924,7 +3346,6 @@ pub(crate) fn is_lzx_uri(uri: &Url) -> bool {
     uri.path().ends_with(".lzx")
 }
 
-
 /// Row 30 — context-aware closed-catalog completions for the four
 /// `@cap.File(...)` argument values. Returns `None` outside of
 /// `@cap.File(...)`; when inside, looks at the most recent keyword
@@ -3934,7 +3355,10 @@ pub(crate) fn is_lzx_uri(uri: &Url) -> bool {
 /// - `max_size:<int>` → `kb`, `mb`, `gb`
 /// - `signed_ttl:<int>` → `s`, `m`, `h`, `d`
 /// - `accept:` → the seven IANA-top families (`text`, `image`, …, `*`)
-pub(crate) fn cap_file_value_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
+pub(crate) fn cap_file_value_completions(
+    source: &str,
+    position: Position,
+) -> Option<Vec<CompletionItem>> {
     let line = source.lines().nth(position.line as usize)?;
     let cursor = (position.character as usize).min(line.len());
     let before = &line[..cursor];
@@ -4029,7 +3453,10 @@ pub(crate) fn cap_file_value_completions(source: &str, position: Position) -> Op
 /// no FK fields are visible on the surrounding resource, returns
 /// `Some(vec![])` (the LSP suppresses the global keyword list in
 /// favour of the empty context-specific list rather than offering noise).
-pub(crate) fn owner_axis_through_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
+pub(crate) fn owner_axis_through_completions(
+    source: &str,
+    position: Position,
+) -> Option<Vec<CompletionItem>> {
     let line = source.lines().nth(position.line as usize)?;
     let cursor = (position.character as usize).min(line.len());
     let before = &line[..cursor];
@@ -4329,9 +3756,7 @@ pub(crate) fn collect_command_input_and_route_params(
             if let Some((name, _)) = trimmed.split_once(':') {
                 let name = name.trim();
                 if !name.is_empty()
-                    && name
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                    && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
                     && input_fields.iter().all(|n| n != name)
                 {
                     input_fields.push(name.to_owned());
@@ -4417,7 +3842,6 @@ pub(crate) fn design_keyword_description(keyword: &str) -> Option<&'static str> 
         _ => None,
     }
 }
-
 
 /// Children offered as completion when the cursor sits on an indented
 /// blank line inside a known kind block. The first slice element is
@@ -4629,7 +4053,10 @@ pub(crate) fn block_kind_at(source: &str, position: Position) -> Option<&'static
 ///    `ENUM_MEMBER` so editors render them distinctly.
 /// 3. Inside a `rate_limit "..."` value after the second `per ` —
 ///    offers the closed axis catalog (`ip`/`user`/`org`/`tenant`).
-pub(crate) fn context_aware_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
+pub(crate) fn context_aware_completions(
+    source: &str,
+    position: Position,
+) -> Option<Vec<CompletionItem>> {
     let line = source.lines().nth(position.line as usize)?;
     let before = line_prefix_at_position(line, position.character);
 
@@ -4738,8 +4165,11 @@ pub(crate) fn context_aware_completions(source: &str, position: Position) -> Opt
     Some(items)
 }
 
-
-pub(crate) fn convention_bundle_hover(source: &str, position: Position, word: &str) -> Option<String> {
+pub(crate) fn convention_bundle_hover(
+    source: &str,
+    position: Position,
+    word: &str,
+) -> Option<String> {
     let bundle = match word {
         "crud" | "me" => word,
         _ => return None,
@@ -4936,7 +4366,10 @@ pub(crate) fn auth_refresh_rotation_clause_completion_items() -> Vec<CompletionI
     .collect()
 }
 
-pub(crate) fn enclosing_auth_sessions_block(source: &str, position: Position) -> Option<AuthSessionsBlock> {
+pub(crate) fn enclosing_auth_sessions_block(
+    source: &str,
+    position: Position,
+) -> Option<AuthSessionsBlock> {
     let lines: Vec<&str> = source.lines().collect();
     if lines.is_empty() {
         return None;
@@ -4966,7 +4399,10 @@ pub(crate) fn enclosing_auth_sessions_block(source: &str, position: Position) ->
     None
 }
 
-pub(crate) fn enclosing_auth_rotation_block(source: &str, position: Position) -> Option<AuthRotationBlock> {
+pub(crate) fn enclosing_auth_rotation_block(
+    source: &str,
+    position: Position,
+) -> Option<AuthRotationBlock> {
     let lines: Vec<&str> = source.lines().collect();
     if lines.is_empty() {
         return None;
@@ -5039,7 +4475,11 @@ pub(crate) fn block_end_line(lines: &[&str], start_idx: usize, block_indent: usi
     lines.len()
 }
 
-pub(crate) fn auth_sessions_has_child(source: &str, block: AuthSessionsBlock, keyword: &str) -> bool {
+pub(crate) fn auth_sessions_has_child(
+    source: &str,
+    block: AuthSessionsBlock,
+    keyword: &str,
+) -> bool {
     let lines: Vec<&str> = source.lines().collect();
     for idx in (block.line_idx + 1)..block.end_line.min(lines.len()) {
         let line = lines[idx];
@@ -5128,7 +4568,10 @@ pub(crate) fn error_page_value_completions(
 ///   tokens used anywhere in the policies block (declared catalogs
 ///   live in `app.lzi` policy blocks; the LSP file-locally surfaces
 ///   what appears in this document).
-pub(crate) fn namespace_prefix_completions(source: &str, before_cursor: &str) -> Option<Vec<CompletionItem>> {
+pub(crate) fn namespace_prefix_completions(
+    source: &str,
+    before_cursor: &str,
+) -> Option<Vec<CompletionItem>> {
     // The token under construction is the run of word chars at the
     // end of `before_cursor`; everything before it should end with
     // `@<ns>.`.
@@ -5576,7 +5019,11 @@ pub fn route_guard_hover(source: &str, position: Position, word: &str) -> Option
     }
 }
 
-pub(crate) fn route_guard_policy_ref_hover(source: &str, position: Position, word: &str) -> Option<String> {
+pub(crate) fn route_guard_policy_ref_hover(
+    source: &str,
+    position: Position,
+    word: &str,
+) -> Option<String> {
     let line = source.lines().nth(position.line as usize).unwrap_or("");
     let policy_ref = format!("@{word}");
     if !line.contains(&policy_ref) || !in_view_or_audience_guard_context(source, position) {
@@ -5614,7 +5061,6 @@ pub(crate) fn route_guard_policy_ref_hover(source: &str, position: Position, wor
     )
 }
 
-
 pub(crate) fn collect_route_paths(source: &str) -> Vec<String> {
     let mut paths = Vec::new();
     let mut seen = HashSet::new();
@@ -5631,8 +5077,6 @@ pub(crate) fn collect_route_paths(source: &str) -> Vec<String> {
     }
     paths
 }
-
-
 
 pub(crate) fn first_quoted_value(value: &str) -> Option<String> {
     let open = value.find('"')?;
@@ -5691,7 +5135,10 @@ pub(crate) fn at_app_child_completion_line(source: &str, position: Position) -> 
     leading_spaces(line) == 2 && in_app_body_context(source, position)
 }
 
-pub(crate) fn in_app_route_guard_block(source: &str, position: Position) -> Option<RouteGuardBlock> {
+pub(crate) fn in_app_route_guard_block(
+    source: &str,
+    position: Position,
+) -> Option<RouteGuardBlock> {
     let block = app_route_guard_block(source)?;
     let line_idx = position.line as usize;
     let line = source.lines().nth(line_idx).unwrap_or("");
@@ -5758,11 +5205,17 @@ pub(crate) fn in_guard_policy_child_context(source: &str, position: Position) ->
     false
 }
 
-pub(crate) fn enclosing_view_block(source: &str, position: Position) -> Option<RouteGuardViewBlock> {
+pub(crate) fn enclosing_view_block(
+    source: &str,
+    position: Position,
+) -> Option<RouteGuardViewBlock> {
     enclosing_named_block(source, position, "view")
 }
 
-pub(crate) fn enclosing_audience_block(source: &str, position: Position) -> Option<RouteGuardViewBlock> {
+pub(crate) fn enclosing_audience_block(
+    source: &str,
+    position: Position,
+) -> Option<RouteGuardViewBlock> {
     enclosing_named_block(source, position, "audience")
 }
 
@@ -5889,7 +5342,11 @@ pub(crate) fn resolve_policy_atoms(
     None
 }
 
-pub(crate) fn route_guard_backend_alignment(source: &str, position: Position, policy_ref: &str) -> String {
+pub(crate) fn route_guard_backend_alignment(
+    source: &str,
+    position: Position,
+    policy_ref: &str,
+) -> String {
     let Some(view) = enclosing_view_block(source, position) else {
         return "No enclosing view found.".to_owned();
     };
@@ -5918,7 +5375,10 @@ pub(crate) fn route_guard_backend_alignment(source: &str, position: Position, po
     }
 }
 
-pub(crate) fn hosted_backend_refs_for_view(source: &str, view: &RouteGuardViewBlock) -> Vec<String> {
+pub(crate) fn hosted_backend_refs_for_view(
+    source: &str,
+    view: &RouteGuardViewBlock,
+) -> Vec<String> {
     let lines: Vec<&str> = source.lines().collect();
     let mut refs = Vec::new();
     for line in lines.iter().take(view.end_line).skip(view.header_line + 1) {
@@ -6148,7 +5608,11 @@ pub fn lifecycle_gate_completions(source: &str, position: Position) -> Option<Ve
     None
 }
 
-pub(crate) fn lifecycle_keyword_completion(label: &str, insert_text: &str, detail: &str) -> CompletionItem {
+pub(crate) fn lifecycle_keyword_completion(
+    label: &str,
+    insert_text: &str,
+    detail: &str,
+) -> CompletionItem {
     CompletionItem {
         label: label.to_owned(),
         kind: Some(CompletionItemKind::KEYWORD),
@@ -6359,7 +5823,10 @@ pub(crate) fn resume_arm_start_trigger(
                 .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '*'))
 }
 
-pub(crate) fn resume_arm_view_keyword_trigger(trimmed_before: &str, resume: &LifecycleResumeBlock) -> bool {
+pub(crate) fn resume_arm_view_keyword_trigger(
+    trimmed_before: &str,
+    resume: &LifecycleResumeBlock,
+) -> bool {
     let state = trimmed_before.split_whitespace().next().unwrap_or("");
     if !lifecycle_resume_arm_state_known(state, resume) {
         return false;
@@ -6502,7 +5969,11 @@ pub(crate) fn lifecycle_hover_is_arrow(line: &str, position: Position) -> bool {
         || after.starts_with('→')
 }
 
-pub(crate) fn lifecycle_resolved_gate_hover(source: &str, position: Position, word: &str) -> Option<String> {
+pub(crate) fn lifecycle_resolved_gate_hover(
+    source: &str,
+    position: Position,
+    word: &str,
+) -> Option<String> {
     let line = source.lines().nth(position.line as usize)?;
     let trimmed = line.trim_start();
     let rest = trimmed.strip_prefix("requires_lifecycle ")?;
@@ -6523,14 +5994,16 @@ pub(crate) fn lifecycle_resolved_gate_hover(source: &str, position: Position, wo
     ))
 }
 
-
 #[derive(Debug, Clone)]
 pub(crate) struct LifecycleGateCandidate {
     pub(crate) resource: String,
     pub(crate) state: String,
 }
 
-pub(crate) fn lifecycle_missing_resume_states(source: &str, resume: &LifecycleResumeBlock) -> Vec<String> {
+pub(crate) fn lifecycle_missing_resume_states(
+    source: &str,
+    resume: &LifecycleResumeBlock,
+) -> Vec<String> {
     if resume.arms.iter().any(|arm| arm.state == "*") {
         return Vec::new();
     }
@@ -6586,7 +6059,10 @@ pub(crate) fn lifecycle_gate_candidate_for_view(
     None
 }
 
-pub(crate) fn lifecycle_resources_hosted_by_view(source: &str, view: &RouteGuardViewBlock) -> Vec<String> {
+pub(crate) fn lifecycle_resources_hosted_by_view(
+    source: &str,
+    view: &RouteGuardViewBlock,
+) -> Vec<String> {
     let lines: Vec<&str> = source.lines().collect();
     let mut resources = Vec::new();
     let mut seen = HashSet::new();
@@ -6738,7 +6214,10 @@ pub(crate) fn view_has_requires_lifecycle(source: &str, view: &RouteGuardViewBlo
         })
 }
 
-pub(crate) fn lifecycle_pending_resume_for_view(source: &str, view: &RouteGuardViewBlock) -> Option<String> {
+pub(crate) fn lifecycle_pending_resume_for_view(
+    source: &str,
+    view: &RouteGuardViewBlock,
+) -> Option<String> {
     let lines: Vec<&str> = source.lines().collect();
     for line in lines.iter().take(view.end_line).skip(view.header_line + 1) {
         if leading_spaces(line) != view.header_indent + 2 {
@@ -7116,7 +6595,10 @@ pub(crate) fn collect_lifecycle_lookup_queries(source: &str) -> Vec<LifecycleLoo
     queries
 }
 
-pub(crate) fn collect_lifecycle_view_names(source: &str, feature_hint: Option<&str>) -> Vec<String> {
+pub(crate) fn collect_lifecycle_view_names(
+    source: &str,
+    feature_hint: Option<&str>,
+) -> Vec<String> {
     let mut names = Vec::new();
     let mut seen = HashSet::new();
     let lines: Vec<&str> = source.lines().collect();
@@ -7253,7 +6735,6 @@ pub(crate) fn snake_case(token: &str) -> String {
     out
 }
 
-
 /// Inside a `rate_limit "<N> per <window> per "` value, offer the
 /// closed axis catalog. Returns `None` outside that context.
 pub(crate) fn rate_limit_axis_completions(before_cursor: &str) -> Option<Vec<CompletionItem>> {
@@ -7299,7 +6780,6 @@ pub(crate) fn rate_limit_axis_completions(before_cursor: &str) -> Option<Vec<Com
     )
 }
 
-
 // Catalog detail-lookup functions (`resource_lock_strategy_detail`,
 // `error_page_status_detail`, `auth_catalog_detail`,
 // `auth_refresh_theft_action_detail`, `observability_catalog_detail`,
@@ -7344,7 +6824,11 @@ pub fn error_vocab_resolved_text(source: &str, feature_name: &str, code: &str) -
 /// @translation.<key>` and return the key. Indent-based: looks for the
 /// matching feature header at indent 0, then the `errors` block at indent 2,
 /// then lines at indent 4 of the form `<code> message @translation.<key>`.
-pub(crate) fn lookup_feature_error_key(source: &str, feature_name: &str, code: &str) -> Option<String> {
+pub(crate) fn lookup_feature_error_key(
+    source: &str,
+    feature_name: &str,
+    code: &str,
+) -> Option<String> {
     let mut in_feature = false;
     let mut in_errors = false;
     for line in source.lines() {
@@ -7391,7 +6875,11 @@ pub(crate) fn lookup_feature_error_key(source: &str, feature_name: &str, code: &
 /// `translation` block and return the **first locale variant's text** as a
 /// resolved hover string. Best-effort indent-walk parsing — matches the
 /// canonical four-space indent layout the rest of the LSP assumes.
-pub(crate) fn lookup_translation_first_variant(source: &str, feature_name: &str, key: &str) -> Option<String> {
+pub(crate) fn lookup_translation_first_variant(
+    source: &str,
+    feature_name: &str,
+    key: &str,
+) -> Option<String> {
     let mut in_feature = false;
     let mut in_translation = false;
     let mut in_key = false;
@@ -7656,7 +7144,6 @@ pub fn error_vocab_completions(source: &str, position: Position) -> Option<Vec<C
 // Auth-refresh rotation code actions live in `code_actions/auth_refresh.rs`
 // and are re-exported above as `pub use code_actions::auth_refresh::auth_refresh_code_actions;`.
 
-
 /// Position at the start of `line_idx` (character 0). Used as both the
 /// start and end of an inserting `TextEdit` (zero-width range).
 pub(crate) fn position_at_line_start(line_idx: usize) -> Position {
@@ -7749,7 +7236,6 @@ pub(crate) fn in_feature_errors_block(source: &str, position: Position) -> bool 
     }
     false
 }
-
 
 #[cfg(test)]
 #[path = "lib_tests.rs"]
