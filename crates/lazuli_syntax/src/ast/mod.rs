@@ -1,13 +1,17 @@
 use serde::{Deserialize, Serialize};
 
 mod design;
+mod event;
 mod mcp;
 mod plan;
 mod report;
+mod tenant_migration;
 pub use design::*;
+pub use event::*;
 pub use mcp::*;
 pub use plan::*;
 pub use report::*;
+pub use tenant_migration::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Span {
@@ -2728,98 +2732,4 @@ pub struct NotificationThrottle {
     pub span: Span,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EventGroup {
-    /// `customer_*` glob pattern.
-    pub pattern: String,
-    /// `on Customer` — owning resource type.
-    pub on_resource: Option<String>,
-    /// `payload` child lines captured verbatim.
-    pub payload: Vec<String>,
-    /// `audit ...` line captured verbatim.
-    pub audit: Option<String>,
-    /// Concrete `event <name>` headers under this group, recorded as
-    /// name strings. The full event bodies stay in the legacy lowering
-    /// pipeline; this slot drives doctor's pattern-prefix rule.
-    pub events: Vec<String>,
-    /// EVENT-OUTBOX §3.3 — parallel to `events`: `true` at index `i`
-    /// when the corresponding `event <name>` block authored
-    /// `outbox guaranteed`. Length always matches `events.len()`.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub events_outbox_guaranteed: Vec<bool>,
-    /// B5 framework gap 1 — per-event typed payload field bodies.
-    /// Parallel to `events`: `event_variants[i]` holds the typed-field
-    /// rows authored under `events[i]`. Each entry is an
-    /// `EventVariantFieldDecl` (name + type-literal + required/optional).
-    /// When an event was authored without a field body, the inner Vec
-    /// is empty (preserves back-compat with the `event foo` shorthand).
-    /// Lifted into typed `EventVariant` records by the analyzer; see
-    /// `docs/proposals/event-group-per-variant-payload.md`.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub event_variants: Vec<Vec<EventVariantFieldDecl>>,
-    /// B5 framework gap 1 — parallel to `events`: closed catalog of
-    /// the keyword authored on the event header. Distinguishes
-    /// `event <name>` (Committed) from `event.trace <name>` (Trace) so
-    /// the analyzer can lower into the correct `EventKind`.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub event_variant_kinds: Vec<EventVariantKindAst>,
-    pub span: Span,
-}
-
-/// B5 framework gap 1 — per-event variant kind on the AST surface.
-/// Mirrors the `ir::EventKind` catalog so the parser stays decoupled
-/// from the IR while the analyzer can lift losslessly.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum EventVariantKindAst {
-    /// Authored as `event <name>` — committed bus variant.
-    Committed,
-    /// Authored as `event.trace <name>` — trace-only variant.
-    Trace,
-}
-
-/// B5 framework gap 1 — a single typed field row inside an
-/// `event_group`'s `event <name>` body. Mirrors the surface shape of
-/// `ResourceFieldDecl` but keeps the slot count minimal because event
-/// payloads are projection-only (no defaults, no constraints, no
-/// `unique`/`slug`/`@full_text`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EventVariantFieldDecl {
-    /// Field name as authored.
-    pub name: String,
-    /// Type literal verbatim (`Text`, `@semantic.Money`, `ID`, ...).
-    /// Lifted to `ir::TypeRef` via `type_ref_from_syntax` on lowering.
-    pub type_text: String,
-    /// `required` modifier authored.
-    pub required: bool,
-    /// `optional` modifier authored.
-    pub optional: bool,
-    pub span: Span,
-}
-
-/// Migrations bucket cycle Route C — `tenant_migration <name>` AST
-/// surface. Mirrors `Job`'s spine subset (no body styles, no `emits`,
-/// no `policy`): a tenant migration is by design pure schema work.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TenantMigration {
-    pub name: String,
-    /// `target query.<name>` / `target command.<name>` — required by the
-    /// current surface. The legacy `target tenants <axis>` form leaves this
-    /// unset and stores the axis below.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub target_ref: Option<String>,
-    /// `axis <name>` or legacy `target tenants <axis>` — required.
-    pub target_axis: String,
-    /// `idempotency <path>` / legacy `idempotency by <path>` — mandatory; stored
-    /// as `Option<String>` so the parser surfaces the absence as an
-    /// IR-level diagnostic rather than a parse error (matches `Job`).
-    pub idempotency_by: Option<String>,
-    /// `retry <count> backoff <strategy>` — optional.
-    pub retry: Option<JobRetry>,
-    /// `timeout "<duration>"` — optional adapter-parsed literal.
-    pub timeout: Option<String>,
-    /// `handler "<path>"` — required path to the Go handler.
-    pub handler: String,
-    pub span: Span,
-}
 
