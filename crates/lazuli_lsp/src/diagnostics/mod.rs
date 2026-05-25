@@ -52,6 +52,7 @@ pub(crate) mod crypto;
 pub(crate) mod doctor_local;
 pub(crate) mod env;
 pub(crate) mod error;
+pub(crate) mod event;
 pub(crate) mod external;
 pub(crate) mod field;
 pub(crate) mod http_headers;
