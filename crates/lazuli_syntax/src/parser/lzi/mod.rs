@@ -39,9 +39,8 @@
 //! the spec. `docs/canonical-semantics.md` is the prose reference.
 
 use super::common::{
-    SourceLine, find_token, find_top_level_token, is_kebab_or_snake_ident, is_lzx_bare_ident,
-    is_lzx_resume_ref, is_trivia, line_error, line_error_owned, parse_lzx_bool, source_lines,
-    split_lzx_arrow, split_lzx_list, strip_inline_comment, unquote_lzx_value,
+    SourceLine, is_kebab_or_snake_ident, is_trivia, line_error, line_error_owned, source_lines,
+    strip_inline_comment, unquote_lzx_value,
 };
 use super::error::ParseError;
 // `try_parse_policy_expr` is consumed by sibling parsers (command.rs,
@@ -49,35 +48,16 @@ use super::error::ParseError;
 // needs the direct import since the agent / auth / job parsers each
 // took their own copy when they moved out.
 
-use crate::ast::OwnerAxisAst;
 use crate::ast::{
     Agent, AgentEvalAssertion, AgentEvalCase, AgentEvalGolden, AgentEvalKind, AgentEvalPredicate,
     AgentExpose, AgentExposeRouteSlot, AgentInputSlot, AgentOutput, AgentTool, AggregateDecl,
-    ApiDecl, ApprovalThenDecl, AssignmentDecl, Auth, CacheProfileDecl, Channel, ColorStateAst,
-    ColorTokenAst, CommandApproval, CommandAudit, CommandDecl, CommandDeprecatedDecl,
-    CommandEffectDecl, CommandEffectKindDecl, CommandEmit, CommandInputDecl, CommandInputSlot,
-    CommandRouteSlot, CommandRouteSlotKind, CommandWriteWindow, ContainsRhs, CustomTokenAst,
-    DefaultsPolicyFor, DefaultsTenancy, DesignDeclAst, EasingTokenAst, EnumDeclAst,
-    EnumStorageValueDecl, EnumVariantDecl, ErrorExposureDefaultAst, EventGroup,
-    EventVariantFieldDecl, EventVariantKindAst, FamilyTokenAst, FeatureDefaults,
-    FeatureErrorExposeRuleDecl, FeatureErrorMessageDecl, FeatureErrorsDecl, FeatureGatesAst,
-    FeatureSkeleton, FieldConstraintsDecl, FieldPoliciesDecl, FieldPolicyDecl, GateDirectiveAst,
-    HttpMethod, InvalidatesDecl, InvariantDecl, Job, JobBody, JobDeclarativeTyped, JobExternalCall,
-    JobExternalCallArg, JobFanout, JobHandler, JobRetry, JobTrigger, LetBindingDecl, ListQueryDecl,
-    LocaleNegotiateDecl, LookupKey, LookupQueryDecl, MotionAst, Notification, NotificationDigest,
-    NotificationThrottle, PackageSkeleton, PermissionDeclAst, PlanBlockAst, PlanFeatureRefAst,
-    PlanLimitRefAst, PlanTrialAst, PoliciesDecl, PolicyCategoryDecl, PolicyExprAst,
-    PublicContractDeclAst, QueryDecl, QuerySearch, RateLimitByEnvAst, RateLimitSpecAst, RecordDecl,
-    ReportColumnAst, ReportColumnSourceAst, ReportDecl, ResourceCompositeKey,
-    ResourceConstraintAst, ResourceConventionAst, ResourceDecl, ResourceFieldDecl, ResourceHasMany,
-    ResourceIndexAst, ResourceIndexMethodAst, ResourceLock, ResourceRetention,
-    ResourceRetentionAction, ResourceUniqueAst, RoleDeclAst, RoleGrantsAst, RoleMismatchArmAst,
-    RouteRedirectTargetAst, ScaleTokenAst, ShadowTokenAst, Span, SqlQueryDecl, SqlQueryKind,
-    TargetArgDecl, TargetExprDecl, TenantMigration, TextScaleTokenAst, ToolsCallsOp,
-    TrackingTokenAst, TranslationDecl, TranslationKeyDecl, TranslationKeyRefAst,
-    TranslationPluralArmDecl, TranslationVariantDecl, TypographyAst, UsesClauseAst, Webhook,
-    WebhookDlq, WebhookHandler, WebhookReplay, WebhookVerify, WeightTokenAst, WhenDeniedRouteAst,
-    ZTokenAst,
+    ApiDecl, Auth, CacheProfileDecl, Channel, CommandDecl, ContainsRhs, DefaultsPolicyFor,
+    DefaultsTenancy, EnumDeclAst, EnumStorageValueDecl, EnumVariantDecl, ErrorExposureDefaultAst,
+    EventGroup, FeatureDefaults, FeatureErrorExposeRuleDecl, FeatureErrorMessageDecl,
+    FeatureErrorsDecl, FeatureSkeleton, HttpMethod, Job, Notification, PoliciesDecl,
+    PublicContractDeclAst, QueryDecl, RateLimitSpecAst, RecordDecl, ReportDecl, ResourceDecl, Span,
+    SqlQueryKind, TargetArgDecl, TenantMigration, ToolsCallsOp, TranslationDecl, UsesClauseAst,
+    Webhook,
 };
 
 mod api;
@@ -116,9 +96,7 @@ use numerics::{
 // because the only outside caller is `lzi/record.rs`, which reaches it
 // via `super::parse_resource_field_decl` — i.e., from inside `lzi`,
 // where private items are already visible.
-use resource::{
-    parse_aggregate_decl, parse_invariant_decl, parse_resource_decl, parse_resource_field_decl,
-};
+use resource::{parse_aggregate_decl, parse_resource_decl, parse_resource_field_decl};
 use webhook::parse_webhook;
 
 pub use design::parse_design_document;
@@ -5482,17 +5460,17 @@ feature account
 
         assert_eq!(
             route.unauthenticated,
-            Some(super::RouteRedirectTargetAst::View("sign_in".to_string()))
+            Some(crate::ast::RouteRedirectTargetAst::View("sign_in".to_string()))
         );
         assert_eq!(route.role_mismatch.len(), 2);
         assert_eq!(route.role_mismatch[0].role, "traveler");
         assert_eq!(
             route.role_mismatch[0].target,
-            super::RouteRedirectTargetAst::View("explore".to_string())
+            crate::ast::RouteRedirectTargetAst::View("explore".to_string())
         );
         assert_eq!(
             route.default,
-            Some(super::RouteRedirectTargetAst::Path("/welcome".to_string()))
+            Some(crate::ast::RouteRedirectTargetAst::Path("/welcome".to_string()))
         );
     }
 

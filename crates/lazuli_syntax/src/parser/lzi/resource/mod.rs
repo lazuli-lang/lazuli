@@ -30,13 +30,17 @@ mod index;
 mod lifecycle_routes;
 mod retention;
 
-// `parse_aggregate_decl`, `parse_invariant_decl`, and
-// `parse_resource_field_decl` re-export to `lzi`'s namespace so the
-// parent `lzi/mod.rs` (and sibling `lzi/record.rs`) can `use
-// super::parse_resource_field_decl` without reaching into the
-// resource sub-tree directly.
-pub(super) use aggregate_invariant::{parse_aggregate_decl, parse_invariant_decl};
+// `parse_aggregate_decl` + `parse_resource_field_decl` re-export to
+// `lzi`'s namespace so the parent `lzi/mod.rs` (which calls
+// `parse_aggregate_decl` from the feature-skeleton walker) and the
+// sibling `lzi/record.rs` (which calls
+// `super::parse_resource_field_decl`) reach them without diving into
+// the resource sub-tree. `parse_invariant_decl` stays internal — it's
+// only called from inside this sub-tree.
+pub(super) use aggregate_invariant::parse_aggregate_decl;
 pub(super) use field::parse_resource_field_decl;
+
+use aggregate_invariant::parse_invariant_decl;
 
 use composite_key_lock::{parse_resource_composite_key, parse_resource_lock};
 use conventions::parse_resource_conventions_list;
