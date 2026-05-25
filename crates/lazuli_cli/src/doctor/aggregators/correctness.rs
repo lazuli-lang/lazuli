@@ -292,7 +292,9 @@ pub(crate) fn diagnostics(
 /// `updates_missing_updated_at_diagnostics` dispatcher (still in
 /// `doctor/mod.rs`) can build the same shape until its row gets its
 /// own aggregator slot.
-pub(crate) fn make_synthetic_feature_for_correctness(fact: &Tier3FeatureFacts) -> lazuli_ir::Feature {
+pub(crate) fn make_synthetic_feature_for_correctness(
+    fact: &Tier3FeatureFacts,
+) -> lazuli_ir::Feature {
     lazuli_ir::Feature {
         name: fact.feature.clone(),
         purpose: None,

@@ -135,7 +135,6 @@ pub(crate) fn tier3_diagnostics(
     diagnostics
 }
 
-
 pub(crate) fn tier3_job_diagnostics(
     feature: &Tier3FeatureFacts,
     job: &lazuli_ir::Job,
@@ -661,7 +660,9 @@ pub(crate) fn tier3_notification_diagnostics(
 /// `raw_payload` lines that apply to the event via the group's glob
 /// pattern. Built once per doctor run so `NOTIF-DIGEST-001` is
 /// constant-time per notification.
-pub(crate) fn build_event_payload_index(facts: &[Tier3FeatureFacts]) -> BTreeMap<String, BTreeSet<String>> {
+pub(crate) fn build_event_payload_index(
+    facts: &[Tier3FeatureFacts],
+) -> BTreeMap<String, BTreeSet<String>> {
     let mut index: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
     for feature in facts {

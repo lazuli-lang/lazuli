@@ -148,7 +148,6 @@ pub(super) fn doctor_project_root(input: &Path) -> PathBuf {
 /// `true` when the resolved project root carries a `Lazurite.toml`.
 /// Used by manifest-aware diagnostics to short-circuit on single-file
 /// or scratch-directory invocations that have no manifest to honor.
-pub(super) fn project_has_lazurite_manifest(project_root: &Path) -> bool {
+pub(crate) fn project_has_lazurite_manifest(project_root: &Path) -> bool {
     project_root.join("Lazurite.toml").is_file()
 }
-

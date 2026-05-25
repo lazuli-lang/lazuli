@@ -12,8 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::doctor::parsers::auth_session_ttl_seconds;
 use crate::doctor::{
-    AuthFacts, DoctorAppRegistry, DoctorDiagnostic, DoctorSeverity, ResourceFact,
-    ResourceFieldFact,
+    AuthFacts, DoctorAppRegistry, DoctorDiagnostic, DoctorSeverity, ResourceFact, ResourceFieldFact,
 };
 
 /// Public entrypoint called by the doctor dispatcher.
@@ -24,7 +23,13 @@ pub(crate) fn diagnostics(
     feature_uses: &BTreeMap<String, BTreeSet<String>>,
     registry: Option<&DoctorAppRegistry>,
 ) -> Vec<DoctorDiagnostic> {
-    auth_diagnostics(auth_facts, feature_resources, feature_adapters, feature_uses, registry)
+    auth_diagnostics(
+        auth_facts,
+        feature_resources,
+        feature_adapters,
+        feature_uses,
+        registry,
+    )
 }
 
 /// Phase L Tier 4 follow-up — read the `algorithm:<X>` axis out of a

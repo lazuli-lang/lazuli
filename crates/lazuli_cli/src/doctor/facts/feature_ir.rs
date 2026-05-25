@@ -324,8 +324,9 @@ pub(crate) fn collect_file_capability_facts(
                 if rest.starts_with("@cap.File(") {
                     if let Some(close) = rest.find(')') {
                         let cap_text = &rest[..=close];
-                        if let lazuli_ir::TypeRef::Capability(lazuli_ir::CapabilityRef::File(file_cap)) =
-                            lazuli_analyzer::type_ref_from_syntax_public(cap_text)
+                        if let lazuli_ir::TypeRef::Capability(lazuli_ir::CapabilityRef::File(
+                            file_cap,
+                        )) = lazuli_analyzer::type_ref_from_syntax_public(cap_text)
                         {
                             operational.file_capability_facts.push(FileCapabilityFact {
                                 path: file.path.clone(),

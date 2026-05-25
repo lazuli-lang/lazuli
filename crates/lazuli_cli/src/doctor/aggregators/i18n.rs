@@ -35,7 +35,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use crate::doctor::{DoctorAppManifest, DoctorDiagnostic, DoctorFile, DoctorSeverity, Tier3FeatureFacts};
+use crate::doctor::{
+    DoctorAppManifest, DoctorDiagnostic, DoctorFile, DoctorSeverity, Tier3FeatureFacts,
+};
 
 const LOCALE_NEGOTIATE_SOURCES: &[&str] = &[
     "accept_language",

@@ -22,9 +22,7 @@ use std::path::Path;
 use lazuli_lsp::SecurityProfile;
 
 use crate::doctor::folder;
-use crate::doctor::{
-    DoctorDiagnostic, DoctorSeverity, doctor_rule_path, doctor_rule_severity,
-};
+use crate::doctor::{DoctorDiagnostic, DoctorSeverity, doctor_rule_path, doctor_rule_severity};
 
 /// Aggregate every folder-layout finding into the canonical
 /// `DoctorDiagnostic` envelope. Returns an empty vec when the project

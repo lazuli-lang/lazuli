@@ -24,8 +24,7 @@ use std::collections::BTreeMap;
 use lazuli_syntax::{LzxDocument, LzxPlatform};
 
 use crate::doctor::{
-    DoctorFile, ExperienceFacts, OperationalFacts, SourceFact, line_col_for_offset,
-    route_slot_name,
+    DoctorFile, ExperienceFacts, OperationalFacts, SourceFact, line_col_for_offset, route_slot_name,
 };
 
 pub(crate) fn collect_lzx_experience_facts(

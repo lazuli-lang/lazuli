@@ -243,7 +243,9 @@ fn visible_keys_for_message(
 /// and `route_guard` sibling modules can keep building the same
 /// Feature shape until their dispatch slots move into the aggregators
 /// directory.
-pub(crate) fn make_synthetic_feature_for_error_vocab(fact: &Tier3FeatureFacts) -> lazuli_ir::Feature {
+pub(crate) fn make_synthetic_feature_for_error_vocab(
+    fact: &Tier3FeatureFacts,
+) -> lazuli_ir::Feature {
     lazuli_ir::Feature {
         name: fact.feature.clone(),
         purpose: None,
