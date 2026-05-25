@@ -59,6 +59,10 @@ use crate::{
     lazurite_manifest, playwright_fixture_config, project_root_for_input,
 };
 
+mod mobile_views;
+
+use mobile_views::scaffold_mobile_view_files;
+
 /// L0 #3 — emit TypeScript user-code for a Lazuli/Lazurite project.
 /// Walks the package, runs every TS-side emitter (design tokens, per-feature
 /// SDK, .lzx view hooks, slot interfaces, Zod schemas), and writes to
@@ -227,66 +231,6 @@ pub(crate) fn generate_ts(input: &Path, output: Option<&Path>, check: bool) -> R
         if scaffold_count == 1 { "" } else { "s" }
     );
     Ok(())
-}
-
-/// Walk every mobile surface and write a per-view scaffold under
-/// `app/clients/mobile/app/<audience>/<expo-route>.tsx`. Returns the count
-/// of files actually written (excludes already-present files left
-/// untouched by the `write_if_absent` guard).
-fn scaffold_mobile_view_files(
-    module: &lazuli_ir::Module,
-    out_dir: &Path,
-) -> Result<usize> {
-    let mut written = 0usize;
-
-    for feature in &module.features {
-        for surface in &feature.surfaces {
-            if !matches!(surface.target, lazuli_ir::SurfaceTarget::Mobile) {
-                continue;
-            }
-            for audience in &surface.audiences {
-                for view in &audience.views {
-                    let route = view_route_string(view);
-                    let path = lazuli_codegen_ts::mobile_view_scaffold::expo_app_file_path(
-                        &audience.name,
-                        &route,
-                    );
-                    let abs_path = out_dir.join(&path);
-                    if abs_path.exists() {
-                        continue;
-                    }
-                    let body = lazuli_codegen_ts::mobile_view_scaffold::scaffold_body_for_view(
-                        &surface.feature,
-                        &audience.name,
-                        view,
-                    );
-                    if let Some(parent) = abs_path.parent() {
-                        fs::create_dir_all(parent).with_context(|| {
-                            format!("creating {} for mobile scaffold", parent.display())
-                        })?;
-                    }
-                    fs::write(&abs_path, body).with_context(|| {
-                        format!("writing mobile scaffold {}", abs_path.display())
-                    })?;
-                    written += 1;
-                }
-            }
-        }
-    }
-
-    Ok(written)
-}
-
-/// Extract the `at "<path>"` string from a view declaration. Stored as
-/// `route: Option<String>` on each view kind in the IR. Falls back to
-/// `/` for views that omit the clause entirely (rare — Expo Router's
-/// `app/<audience>/index.tsx` is the natural landing target).
-fn view_route_string(view: &lazuli_ir::View) -> String {
-    match view {
-        lazuli_ir::View::List(v) => v.route.clone().unwrap_or_else(|| "/".to_owned()),
-        lazuli_ir::View::Detail(v) => v.route.clone().unwrap_or_else(|| "/".to_owned()),
-        lazuli_ir::View::Create(v) => v.route.clone().unwrap_or_else(|| "/".to_owned()),
-    }
 }
 
 /// Stub design emission walker. Wires the 6 design emitters from L0 #2
