@@ -970,7 +970,7 @@ fn parse_uses_line(
 /// `Some(decl)` when the line matches; `None` when the line is something
 /// else; `Err` when the line begins with `public contract identity` but is
 /// malformed (e.g. missing `as v<N>`).
-fn parse_auth_identity_contract_line(
+pub(super) fn parse_auth_identity_contract_line(
     line: &SourceLine<'_>,
 ) -> Result<Option<PublicContractDeclAst>, ParseError> {
     let trimmed = line.text.trim_start();
@@ -2739,7 +2739,7 @@ fn parse_command_write_window(
 /// Parse `deprecated [since "<X>"] [replacement <ref>] [sunset "<Y>"]` —
 /// inline single-line shape. Keys may appear in any order; each at most
 /// once.
-fn parse_command_deprecated(
+pub(super) fn parse_command_deprecated(
     line: &SourceLine<'_>,
     rest: &str,
 ) -> Result<CommandDeprecatedDecl, ParseError> {
@@ -2778,7 +2778,7 @@ fn parse_command_deprecated(
     })
 }
 
-fn parse_deprecated_block(
+pub(super) fn parse_deprecated_block(
     lines: &[SourceLine<'_>],
     start: usize,
 ) -> Result<(CommandDeprecatedDecl, usize), ParseError> {
@@ -2855,7 +2855,7 @@ fn take_quoted_or_word(s: &str) -> Option<(String, &str)> {
     }
 }
 
-fn parse_command_route_slot(
+pub(super) fn parse_command_route_slot(
     line: &SourceLine<'_>,
     rest: &str,
 ) -> Result<CommandRouteSlot, ParseError> {
@@ -2913,7 +2913,7 @@ fn parse_command_route_slot(
     })
 }
 
-fn parse_command_input_block(
+pub(super) fn parse_command_input_block(
     lines: &[SourceLine<'_>],
     start: usize,
 ) -> Result<(CommandInputDecl, usize), ParseError> {
@@ -3207,7 +3207,10 @@ fn parse_command_approval(
 /// inside the parens. The parser keeps the dotted query reference
 /// verbatim so the analyzer's namespace resolver decides between
 /// local/cross-feature.
-fn parse_target_expr(line: &SourceLine<'_>, rest: &str) -> Result<TargetExprDecl, ParseError> {
+pub(super) fn parse_target_expr(
+    line: &SourceLine<'_>,
+    rest: &str,
+) -> Result<TargetExprDecl, ParseError> {
     let rest = rest.trim();
     let (query_part, args_part) = split_call_signature(line, rest)?;
     let args = parse_named_args(line, args_part)?;
@@ -3218,7 +3221,10 @@ fn parse_target_expr(line: &SourceLine<'_>, rest: &str) -> Result<TargetExprDecl
     })
 }
 
-fn parse_let_binding(line: &SourceLine<'_>, rest: &str) -> Result<LetBindingDecl, ParseError> {
+pub(super) fn parse_let_binding(
+    line: &SourceLine<'_>,
+    rest: &str,
+) -> Result<LetBindingDecl, ParseError> {
     let rest = rest.trim();
     let (name, value) = rest.split_once('=').ok_or_else(|| {
         line_error(
@@ -3241,7 +3247,7 @@ fn parse_let_binding(line: &SourceLine<'_>, rest: &str) -> Result<LetBindingDecl
 /// AGENT_INDENT_GRANDCHILD (6) are `<field> = <expr>` assignments. The
 /// `from input` shorthand collapses into `from_input: true` with no
 /// assignment block.
-fn parse_command_effect(
+pub(super) fn parse_command_effect(
     lines: &[SourceLine<'_>],
     start: usize,
     kind: CommandEffectKindDecl,
@@ -3311,7 +3317,7 @@ fn parse_command_effect(
 /// `emits <event>` line. Recognises trailing ` from creates` /
 /// ` from updates` / ` from deletes`. Optional child block uses six-
 /// space indent with `<key> = <expr>` lines.
-fn parse_command_emit(
+pub(super) fn parse_command_emit(
     lines: &[SourceLine<'_>],
     start: usize,
     rest: &str,
@@ -3737,7 +3743,7 @@ pub(super) fn take_quoted_string<'a>(
 /// parsed by `app_manifest.rs` separately). Children at indent 6
 /// (six-space): `source <axis>`, `strategy <name>`, `fallback <tag>`.
 /// All slots optional.
-fn parse_locale_negotiate_decl(
+pub(super) fn parse_locale_negotiate_decl(
     lines: &[SourceLine<'_>],
     start: usize,
 ) -> Result<(LocaleNegotiateDecl, usize), ParseError> {
@@ -8443,7 +8449,7 @@ pub(super) fn parse_job_retry(line: &SourceLine<'_>, rest: &str) -> Result<JobRe
     })
 }
 
-fn parse_handler_line(rest: &str) -> JobHandler {
+pub(super) fn parse_handler_line(rest: &str) -> JobHandler {
     let rest = rest.trim();
     // `"./path.go" returns Type` — split before the unquoted `returns`.
     let (path_part, returns_part) = if let Some(idx) = rest.find("\" returns ") {
