@@ -10,7 +10,7 @@
 //! lives in `lazuli_cli` (the `expand` pass) or `lazuli_doctor`;
 //! anything per-file lives here.
 //!
-//! ## Submodule layout (Wave 4.6 — rails-style refactor)
+//! ## Submodule layout (Wave 4.6 R2 — rails-style refactor)
 //!
 //! The lowering pipeline is organised into per-concern sibling
 //! modules. Each one carries the projection rules for a single
@@ -19,6 +19,23 @@
 //! * [`helpers`] — pure utility predicates (case conversion, span
 //!   bridging, edit-distance, balanced-paren walkers). No AST shape,
 //!   no IR shape larger than `SpanRef`. Shared by every slice.
+//! * [`expr`] — pure mechanical "text → IR atom" projections
+//!   (paths, qualified names, raw exprs, policy atoms, translation
+//!   keys). Every other slice calls into this slot.
+//! * [`command`] — command effect cluster (`creates|updates|deletes`),
+//!   target / let / named-arg / assignment leaves, and the
+//!   `invalidates query.<name>` cross-feature reference resolver.
+//! * [`workflow`] — async-work leaf lowerings shared by `job`,
+//!   `poller`, `webhook`, `tenant_migration`, `channel`,
+//!   `notification`, `mcp_server`, `event_group`: retry, fanout,
+//!   external-call refs, emit predicates, MCP leaves, digest /
+//!   throttle, event-variant fields, job body / trigger.
+//! * [`lzx`] — `.lzx` *app layer* (routes, experiences, platform
+//!   surfaces). One entry point: `lower_lzx_document`.
+//! * [`surface`] — `.lzx` *ViewModel layer* (per-feature audiences +
+//!   views + cells + drawers + route params). One entry point:
+//!   `lower_surface`.
+//! * [`lifecycle`] — resource lifecycle synthesis hooks.
 //! * [`checks`] — public per-file structural checks invoked by
 //!   `lazuli_cli` / `lazuli_doctor`. Stays public because external
 //!   tools depend on it.
@@ -26,6 +43,11 @@
 //! * [`source_map`] — source-position bookkeeping consumed by LSP.
 //! * [`symbol_origin`] — origin tagging (handwritten vs synthesized
 //!   vs pack-derived) used by inspect and doctor.
+//!
+//! Per-feature orchestration (`lower_feature_skeleton`, resources,
+//! queries, jobs, agents, auth, design tokens, reports, plan + gate
+//! synthesis, conventions / CRUD synthesis) lives in this file. The
+//! per-domain leaves above are called from there.
 //!
 //! ## Vocabulary cross-reference
 //!
