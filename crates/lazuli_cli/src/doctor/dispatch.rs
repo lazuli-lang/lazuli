@@ -21,7 +21,7 @@ use super::{
     DoctorDiagnostic, DoctorSeverity, LZIR_SCHEMA, agent_discriminator_diagnostics,
     agent_eval_diagnostics, agent_expose_diagnostics, agent_run_trace_diagnostics,
     agent_tool_diagnostics, app_contract_diagnostics, app_urls_missing_diagnostics,
-    approval_diagnostics, approval_missing_children_diagnostics, audit_event_health_diagnostics,
+    approval_diagnostics, approval_missing_children_diagnostics,
     cap_file_policy_implicit_diagnostics, cap_file_storage_diagnostics,
     check_auth_session_callsite_001, check_codegen_wrap_001, check_pattern_draft_stale_001,
     collect_callable_bodies_for_eval_order, collect_known_audiences, collect_known_roles,
@@ -34,7 +34,7 @@ use super::{
     operational_env_names, policy_reachability_diagnostics, query_view_sql_file_diagnostics,
     rbac_catalog_diagnostics, rbac_catalog_missing_diagnostics, rbac_missing_policy_diagnostics,
     rbac_role_undeclared_diagnostics, registry_tool_effect_diagnostics, report_diagnostics,
-    resource_policy_and_command_audit_hints, resource_unique_qualifier_unknown_diagnostics,
+    resource_unique_qualifier_unknown_diagnostics,
     resource_validates_path_unknown_diagnostics, route_id_effect_consistency_diagnostics,
     schema_rich_gap_diagnostics, scope_owner_column_diagnostics, suppress_env_schema_when_declared,
     tier3_diagnostics, updates_missing_updated_at_diagnostics, vocab_grammar_form_diagnostics,
@@ -196,12 +196,12 @@ impl DoctorPackage {
         // probe path shape. Phase L Tier 4b — `audit emit_to` for
         // commands is now IR-driven via `tier3_facts`; the text walker
         // is narrowed to skip command bodies.
-        diagnostics.extend(audit_event_health_diagnostics(
+        diagnostics.extend(aggregators::audit::diagnostics(
             &self.files,
             self.app.as_ref(),
             &self.tier3_facts,
         ));
-        diagnostics.extend(resource_policy_and_command_audit_hints(
+        diagnostics.extend(aggregators::audit::resource_policy_hints(
             &self.tier3_facts,
             &self.feature_resources,
         ));
