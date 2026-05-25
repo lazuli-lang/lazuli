@@ -53,6 +53,7 @@ pub(crate) mod doctor_local;
 pub(crate) mod error;
 pub(crate) mod external;
 pub(crate) mod http_headers;
+pub(crate) mod lzx;
 pub(crate) mod notification;
 pub(crate) mod policy;
 pub(crate) mod profile;
