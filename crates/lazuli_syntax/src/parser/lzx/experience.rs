@@ -23,10 +23,9 @@
 //! `attach_lzx_*`) come from the sibling `app` module via `use super::app::...`.
 
 use crate::ast::{
-    LzxAction, LzxAudience, LzxExperience, LzxExperienceView, LzxExtensionOrder,
-    LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRequiresLifecycle, LzxResumeArm,
-    LzxResumeArmKind, LzxResumeRouter, LzxSurface, LzxViewExtension, LzxViewTestAssertion,
-    Span,
+    LzxAction, LzxAudience, LzxExperience, LzxExperienceView, LzxExtensionOrder, LzxExtensionSlot,
+    LzxPlatform, LzxPlatformView, LzxRequiresLifecycle, LzxResumeArm, LzxResumeArmKind,
+    LzxResumeRouter, LzxSurface, LzxViewExtension, LzxViewTestAssertion, Span,
 };
 
 use super::super::common::{
@@ -36,9 +35,8 @@ use super::super::common::{
 use super::super::error::ParseError;
 
 use super::app::{
-    attach_lzx_on_lifecycle_pending, attach_lzx_requires_lifecycle,
-    parse_lzx_on_lifecycle_pending, parse_lzx_optional_substep_tail,
-    parse_lzx_requires_lifecycle, parse_lzx_view_guard,
+    attach_lzx_on_lifecycle_pending, attach_lzx_requires_lifecycle, parse_lzx_on_lifecycle_pending,
+    parse_lzx_optional_substep_tail, parse_lzx_requires_lifecycle, parse_lzx_view_guard,
 };
 
 pub(super) fn parse_lzx_experience(

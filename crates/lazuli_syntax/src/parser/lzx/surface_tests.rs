@@ -9,9 +9,9 @@
 
 use super::parse_surface_document;
 use crate::{
-    BindingRefAst, DrawerBindingSourceAst, DrawerTriggerAst, FilterCardinalityAst,
-    SearchModeAst, SelectionModeAst, SettingPersistenceAst, SettingValueSpaceAst, SortDirAst,
-    SurfaceTargetAst, ViewAst,
+    BindingRefAst, DrawerBindingSourceAst, DrawerTriggerAst, FilterCardinalityAst, SearchModeAst,
+    SelectionModeAst, SettingPersistenceAst, SettingValueSpaceAst, SortDirAst, SurfaceTargetAst,
+    ViewAst,
 };
 
 #[test]
@@ -502,8 +502,7 @@ fn view_list_no_longer_requires_columns_if_cells_slot_present() {
 
 #[test]
 fn view_list_empty_grid_and_no_columns_does_not_error_at_parse_time() {
-    let source =
-        "surface item web\n  audience admin\n    view list foo\n      source f.query.q\n";
+    let source = "surface item web\n  audience admin\n    view list foo\n      source f.query.q\n";
     let surface = parse_surface_document(source).expect("parses without render declaration");
     let view = match &surface.audiences[0].views[0] {
         ViewAst::List(v) => v,

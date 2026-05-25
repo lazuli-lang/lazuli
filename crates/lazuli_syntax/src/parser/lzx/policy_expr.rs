@@ -430,8 +430,8 @@ fn is_valid_permission_ref(s: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{looks_like_policy_expr, try_parse_policy_expr};
     use super::super::super::common::SourceLine;
+    use super::{looks_like_policy_expr, try_parse_policy_expr};
     use crate::ast::PolicyExprAst;
 
     fn line(text: &'static str) -> SourceLine<'static> {
