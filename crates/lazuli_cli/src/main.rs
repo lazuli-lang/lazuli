@@ -1106,7 +1106,7 @@ fn main() -> Result<()> {
                 check,
             } => translate_extract_command(&input, &out, locale.as_deref(), check),
         },
-        Commands::Mcp => cmd_mcp::run_mcp_server(),
+        Commands::Mcp => commands::mcp::mcp_command(),
         Commands::Test {
             input,
             layer,

@@ -33,3 +33,4 @@
 
 pub mod init;
 pub mod lsp;
+pub mod mcp;
