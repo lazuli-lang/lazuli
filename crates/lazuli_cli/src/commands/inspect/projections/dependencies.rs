@@ -22,7 +22,9 @@ use super::super::text_walkers::{
     named_top_block_name, qualify_event_ref, query_reference_dependencies, top_level_blocks,
 };
 
-pub(in crate::commands::inspect) fn inspect_dependencies(lines: &[String]) -> Vec<InspectDependency> {
+pub(in crate::commands::inspect) fn inspect_dependencies(
+    lines: &[String],
+) -> Vec<InspectDependency> {
     let feature = lines
         .first()
         .and_then(|line| line.split_whitespace().nth(1))
@@ -32,7 +34,9 @@ pub(in crate::commands::inspect) fn inspect_dependencies(lines: &[String]) -> Ve
     for line in lines {
         let trimmed = line.trim_start();
         if leading_spaces(line) == 2 && trimmed.starts_with("uses ") {
-            for target in super::super::expand::parse_ident_list(trimmed.trim_start_matches("uses ")) {
+            for target in
+                super::super::expand::parse_ident_list(trimmed.trim_start_matches("uses "))
+            {
                 dependencies.push(inspect_dependency("uses", feature, target, "uses"));
             }
         } else if leading_spaces(line) == 2 && trimmed.starts_with("extends @anchor.") {

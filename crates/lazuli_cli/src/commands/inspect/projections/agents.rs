@@ -16,12 +16,12 @@
 //! structural facts visible from the file alone, with a derived
 //! effect (`read` / `write` / `unknown`) following the kind heuristic.
 
-use super::super::{
-    InspectAgent, InspectAgentExpose, InspectAgentToolBinding, InspectAgentToolsEntry,
-};
 use super::super::expand::leading_spaces;
 use super::super::text_walkers::{
     command_input_names, direct_child_value, named_top_block_name, strip_quotes, top_level_blocks,
+};
+use super::super::{
+    InspectAgent, InspectAgentExpose, InspectAgentToolBinding, InspectAgentToolsEntry,
 };
 
 pub(in crate::commands::inspect) fn inspect_agents(lines: &[String]) -> Vec<InspectAgent> {

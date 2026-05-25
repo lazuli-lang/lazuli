@@ -10,11 +10,11 @@
 //! framework's hard-coded trace event catalogue from `lazuli_ir` so
 //! consumers see the same shapes the runtime emits.
 
+use super::super::expand::{collect_event_decls, collect_event_groups};
+use super::super::formatters::format_type_ref;
 use super::super::{
     InspectBuiltInTraceEvent, InspectBuiltInTraceField, InspectEvent, InspectPayloadField,
 };
-use super::super::expand::{collect_event_decls, collect_event_groups};
-use super::super::formatters::format_type_ref;
 
 pub(in crate::commands::inspect) fn inspect_events(lines: &[String]) -> Vec<InspectEvent> {
     let event_groups = collect_event_groups(lines);
@@ -47,7 +47,8 @@ pub(in crate::commands::inspect) fn inspect_events(lines: &[String]) -> Vec<Insp
         .collect()
 }
 
-pub(in crate::commands::inspect) fn inspect_built_in_trace_events() -> Vec<InspectBuiltInTraceEvent> {
+pub(in crate::commands::inspect) fn inspect_built_in_trace_events() -> Vec<InspectBuiltInTraceEvent>
+{
     lazuli_ir::built_in_trace_events()
         .into_iter()
         .map(|event| InspectBuiltInTraceEvent {

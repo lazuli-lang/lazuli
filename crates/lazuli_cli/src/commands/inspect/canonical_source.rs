@@ -35,12 +35,9 @@ use super::projections::{
     inspect_agent_tools_projection, inspect_agents, inspect_built_in_trace_events,
     inspect_defaults, inspect_dependencies, inspect_events, inspect_expose_projection,
     inspect_external_calls, inspect_locators, inspect_notifications, inspect_policies,
-    inspect_requirements, inspect_storage_projection, inspect_targets, inspect_tests,
-    project_auth,
+    inspect_requirements, inspect_storage_projection, inspect_targets, inspect_tests, project_auth,
 };
-use super::projectors::{
-    project_aggregate, project_event_group, project_job, project_webhook,
-};
+use super::projectors::{project_aggregate, project_event_group, project_job, project_webhook};
 use super::security::inspect_security;
 use super::text_walkers::{
     collect_command_names, collect_declared_ref_groups, collect_event_names,
@@ -48,9 +45,7 @@ use super::text_walkers::{
     collect_query_names, collect_record_names, collect_resource_names, collect_surface_names,
     collect_used_namespaces, collect_view_anchors, collect_workflow_summaries,
 };
-use super::{
-    InspectFeature, InspectProvides, InspectRefs, InspectReport, InspectSummary,
-};
+use super::{InspectFeature, InspectProvides, InspectRefs, InspectReport, InspectSummary};
 
 // -----------------------------------------------------------------------------
 // Public entry points.
@@ -612,4 +607,3 @@ fn inspect_summary(lines: &[String]) -> InspectSummary {
         extended_by: collect_extensible_by_features(lines),
     }
 }
-

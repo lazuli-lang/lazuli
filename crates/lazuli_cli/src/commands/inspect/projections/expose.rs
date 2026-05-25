@@ -11,11 +11,11 @@
 //! contract is incomplete from a routing perspective and surfaces via
 //! doctor; inspect remains a read-only projection.
 
-use super::super::{InspectAgent, InspectExposeEntry};
 use super::super::expand::leading_spaces;
 use super::super::text_walkers::{
     direct_child_value, named_top_block_name, strip_quotes, top_level_blocks,
 };
+use super::super::{InspectAgent, InspectExposeEntry};
 
 pub(in crate::commands::inspect) fn inspect_expose_projection(
     feature_name: &str,

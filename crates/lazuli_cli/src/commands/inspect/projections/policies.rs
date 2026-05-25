@@ -18,14 +18,12 @@
 
 use std::collections::BTreeMap;
 
-use super::super::{
-    InspectPolicy, InspectPolicyRequirement, Tier3FeatureSlice,
-};
 use super::super::expand::leading_spaces;
 use super::super::text_walkers::{
     command_blocks, command_name, direct_child_value, is_transition_line, query_blocks, query_name,
     resolve_policy_atoms, transition_name, transition_requires,
 };
+use super::super::{InspectPolicy, InspectPolicyRequirement, Tier3FeatureSlice};
 
 pub(in crate::commands::inspect) fn inspect_policies(
     lines: &[String],

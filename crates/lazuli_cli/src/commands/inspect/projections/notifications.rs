@@ -10,12 +10,11 @@
 //! the legacy scalar form survive while the structured sub-blocks
 //! surface typed.
 
-use super::super::{
-    InspectNotification, InspectNotificationDigest, InspectNotificationThrottle,
-    Tier3FeatureSlice,
-};
 use super::super::text_walkers::{
     direct_child_value, named_top_block_name, strip_quotes, top_level_blocks,
+};
+use super::super::{
+    InspectNotification, InspectNotificationDigest, InspectNotificationThrottle, Tier3FeatureSlice,
 };
 
 pub(in crate::commands::inspect) fn inspect_notifications(

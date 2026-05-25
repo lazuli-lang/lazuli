@@ -41,9 +41,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::expand::{
     collect_event_decls, is_identifier, leading_spaces, namespace_references, parse_ident_list,
 };
-use super::{
-    InspectAudit, InspectBinding, InspectDependency, InspectWorkflowSummary,
-};
+use super::{InspectAudit, InspectBinding, InspectDependency, InspectWorkflowSummary};
 
 // -----------------------------------------------------------------------------
 // Block partitioners

@@ -14,12 +14,12 @@
 
 use std::collections::BTreeMap;
 
-use super::super::{InspectTestAssertion, InspectTests};
 use super::super::expand::leading_spaces;
 use super::super::text_walkers::{
     command_blocks, command_name, direct_child_value, inspect_subject, resolve_policy_atoms,
     test_group,
 };
+use super::super::{InspectTestAssertion, InspectTests};
 
 pub(in crate::commands::inspect) fn inspect_tests(
     lines: &[String],

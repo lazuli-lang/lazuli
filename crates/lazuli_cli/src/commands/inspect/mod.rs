@@ -165,9 +165,8 @@ fn render_lazuli_features_summary(source: &str) -> String {
 /// via `<feature>.<Type>`.
 mod symbol;
 
-use symbol::{inspect_symbol_arg, inspect_symbol_command};
 pub(crate) use symbol::render_inspect_symbol_lazuli;
-
+use symbol::{inspect_symbol_arg, inspect_symbol_command};
 
 pub(crate) fn inspect_source_path(input: &Path) -> PathBuf {
     if input.is_dir() {
@@ -221,12 +220,9 @@ pub(crate) fn inspect_json_value(
     let alias_map = lazurite_manifest::load(&project_root)
         .ok()
         .flatten()
-        .and_then(|manifest| {
-            plugin_manifest::build_alias_map(Some(&manifest), &project_root).ok()
-        })
+        .and_then(|manifest| plugin_manifest::build_alias_map(Some(&manifest), &project_root).ok())
         .unwrap_or_default();
-    let report =
-        inspect_canonical_source_with_aliases(source, input, expansions, &alias_map);
+    let report = inspect_canonical_source_with_aliases(source, input, expansions, &alias_map);
     let manifest = lazurite_manifest::load(&project_root).with_context(|| {
         format!(
             "failed to read {}",
@@ -241,8 +237,7 @@ pub(crate) fn inspect_json_value(
         // discover which aliases are active and where each resolves.
         // The per-alias entry carries the proposal-mandated keys:
         // `kind`, `plugin`, `name`, `alias`, `carrier`, `origin`.
-        let plugin_semantic_types =
-            inspect_plugin_semantic_types(&manifest, &project_root);
+        let plugin_semantic_types = inspect_plugin_semantic_types(&manifest, &project_root);
         return Ok(serde_json::json!({
             "ir": report,
             "manifest": manifest.inspect_view(),
@@ -301,7 +296,7 @@ mod report_types;
 // can `use super::InspectJob;` etc. The structs are `pub(super)` inside
 // report_types — their effective visibility stays at inspect-internal scope.
 pub(in crate::commands::inspect) use report_types::*;
-pub(crate) use report_types::{InspectReport, InspectFeature};
+pub(crate) use report_types::{InspectFeature, InspectReport};
 
 mod canonical_source;
 
@@ -315,7 +310,6 @@ pub(crate) use canonical_source::inspect_canonical_source;
 pub(in crate::commands::inspect) use canonical_source::{
     Tier3FeatureSlice, inspect_canonical_source_with_aliases,
 };
-
 
 // -----------------------------------------------------------------------------
 // Inspect-internal sibling modules.
@@ -351,4 +345,3 @@ use expand::expand_canonical_source_with;
 #[cfg(test)]
 #[allow(unused_imports)]
 pub(crate) use expand::expand_canonical_source;
-

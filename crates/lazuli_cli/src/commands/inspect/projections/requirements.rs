@@ -11,7 +11,9 @@
 use super::super::InspectRequirement;
 use super::super::expand::{is_identifier, is_type_name, leading_spaces};
 
-pub(in crate::commands::inspect) fn inspect_requirements(lines: &[String]) -> Vec<InspectRequirement> {
+pub(in crate::commands::inspect) fn inspect_requirements(
+    lines: &[String],
+) -> Vec<InspectRequirement> {
     let mut requirements = Vec::new();
     let mut in_requires_block = false;
 

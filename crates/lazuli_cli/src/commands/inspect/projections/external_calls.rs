@@ -15,7 +15,10 @@ use super::super::text_walkers::{
     block_has_exact_line, block_prefixed_value, block_scalar_value, named_block_name, strip_quotes,
 };
 
-pub(in crate::commands::inspect) fn inspect_external_calls(feature: &str, lines: &[String]) -> Vec<InspectExternalCall> {
+pub(in crate::commands::inspect) fn inspect_external_calls(
+    feature: &str,
+    lines: &[String],
+) -> Vec<InspectExternalCall> {
     let mut calls = Vec::new();
     let mut index = 0;
 

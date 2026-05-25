@@ -21,13 +21,13 @@
 //! sessions, mfa, oauth) carries the per-feature origin computed from
 //! the auth block's `span_ref`.
 
+use super::super::expand::leading_spaces;
+use super::super::formatters::{format_file_size_literal, format_file_visibility};
 use super::super::{
     InspectAuth, InspectAuthIdentity, InspectAuthMfa, InspectAuthOAuthProvider,
     InspectAuthPassword, InspectAuthSessions, InspectFileCapability, InspectFileSize,
     InspectMimeType, InspectOrigin, InspectStorage, InspectStorageApiOutput, InspectStorageField,
 };
-use super::super::expand::leading_spaces;
-use super::super::formatters::{format_file_size_literal, format_file_visibility};
 
 pub(in crate::commands::inspect) fn inspect_storage_projection(lines: &[String]) -> InspectStorage {
     let mut fields: Vec<InspectStorageField> = Vec::new();
@@ -152,7 +152,10 @@ fn project_file_capability(file: &lazuli_ir::FileCapability) -> InspectFileCapab
 /// `InspectAuth`. Mirrors the IR structure 1:1; the only translation is
 /// joining `FieldRef` back into a `<Resource>.<field>` string so the
 /// json projection reads exactly like the source surface.
-pub(in crate::commands::inspect) fn project_auth(feature_name: &str, auth: &lazuli_ir::Auth) -> InspectAuth {
+pub(in crate::commands::inspect) fn project_auth(
+    feature_name: &str,
+    auth: &lazuli_ir::Auth,
+) -> InspectAuth {
     let origin = inspect_origin(feature_name, auth.span_ref);
     InspectAuth {
         origin: origin.clone(),
