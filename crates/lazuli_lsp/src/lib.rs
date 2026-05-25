@@ -19,6 +19,7 @@ use tower_lsp::{Client, LanguageServer, LspService, Server, async_trait};
 
 mod catalogs;
 mod code_actions;
+mod completion_items;
 mod conventions;
 mod hover;
 mod keywords;
@@ -28,6 +29,7 @@ mod source_scan;
 mod types;
 
 pub use catalogs::*;
+pub(crate) use completion_items::{completion_items_for_uri, make_symbol, merge_completion_items};
 pub(crate) use keywords::{DESIGN_KEYWORDS, KEYWORDS};
 pub use code_actions::auth_refresh::auth_refresh_code_actions;
 pub use code_actions::error_vocab::error_vocab_code_actions;
@@ -425,105 +427,6 @@ impl LanguageServer for Backend {
     }
 }
 
-pub(crate) fn completion_items_for_uri(uri: &Url) -> Vec<CompletionItem> {
-    if is_design_lzi_uri(uri) {
-        return design_keyword_completion_items();
-    }
-
-    lazuli_keyword_completion_items()
-}
-
-pub(crate) fn merge_completion_items(
-    primary: Option<Vec<CompletionItem>>,
-    secondary: Option<Vec<CompletionItem>>,
-) -> Vec<CompletionItem> {
-    let mut items = primary.unwrap_or_default();
-    let mut labels: HashSet<String> = items.iter().map(|item| item.label.clone()).collect();
-    for item in secondary.unwrap_or_default() {
-        if labels.insert(item.label.clone()) {
-            items.push(item);
-        }
-    }
-    items
-}
-
-pub(crate) fn lazuli_keyword_completion_items() -> Vec<CompletionItem> {
-    let mut items: Vec<CompletionItem> = KEYWORDS
-        .iter()
-        .map(|keyword| CompletionItem {
-            label: (*keyword).to_owned(),
-            kind: Some(CompletionItemKind::KEYWORD),
-            detail: keyword_description(keyword).map(str::to_owned),
-            ..CompletionItem::default()
-        })
-        .collect();
-    items.extend(AUTH_CATALOG_VALUES.iter().map(|value| CompletionItem {
-        label: (*value).to_owned(),
-        kind: Some(CompletionItemKind::VALUE),
-        detail: auth_catalog_detail(value).map(str::to_owned),
-        ..CompletionItem::default()
-    }));
-    // Migrations bucket cycle Route C — closed `deploy.strategy`
-    // catalog. Hovers/completions surface the three rollout patterns.
-    items.extend(DEPLOY_STRATEGY_VALUES.iter().map(|value| CompletionItem {
-        label: (*value).to_owned(),
-        kind: Some(CompletionItemKind::VALUE),
-        detail: deploy_strategy_detail(value).map(str::to_owned),
-        ..CompletionItem::default()
-    }));
-    // Notifications expanded bucket cycle — closed
-    // `notification.digest.template_strategy` catalog. Two
-    // strategies; LSP completion narrows authoring before doctor
-    // surfaces an unknown value.
-    items.extend(
-        NOTIFICATION_DIGEST_TEMPLATE_STRATEGY_VALUES
-            .iter()
-            .map(|value| CompletionItem {
-                label: (*value).to_owned(),
-                kind: Some(CompletionItemKind::VALUE),
-                detail: notification_digest_template_strategy_detail(value).map(str::to_owned),
-                ..CompletionItem::default()
-            }),
-    );
-    items.extend(ERROR_PAGE_STATUS_VALUES.iter().map(|value| CompletionItem {
-        label: (*value).to_owned(),
-        kind: Some(CompletionItemKind::ENUM_MEMBER),
-        detail: error_page_status_detail(value).map(str::to_owned),
-        ..CompletionItem::default()
-    }));
-    // Roadmap §1.5 (CL.C.2) — closed `lock` strategy catalog.
-    items.extend(
-        RESOURCE_LOCK_STRATEGY_VALUES
-            .iter()
-            .map(|value| CompletionItem {
-                label: (*value).to_owned(),
-                kind: Some(CompletionItemKind::VALUE),
-                detail: resource_lock_strategy_detail(value).map(str::to_owned),
-                ..CompletionItem::default()
-            }),
-    );
-    items
-}
-
-#[allow(deprecated)]
-pub(crate) fn make_symbol(
-    name: String,
-    detail: Option<String>,
-    kind: SymbolKind,
-    range: Range,
-    children: Option<Vec<DocumentSymbol>>,
-) -> DocumentSymbol {
-    DocumentSymbol {
-        name,
-        detail,
-        kind,
-        tags: None,
-        deprecated: None,
-        range,
-        selection_range: range,
-        children,
-    }
-}
 
 impl Backend {
     async fn publish_diagnostics(&self, uri: Url, source: String) {
@@ -13060,25 +12963,6 @@ pub(crate) fn is_lzx_uri(uri: &Url) -> bool {
     uri.path().ends_with(".lzx")
 }
 
-pub(crate) fn design_keyword_completion_items() -> Vec<CompletionItem> {
-    DESIGN_KEYWORDS
-        .iter()
-        .map(|keyword| CompletionItem {
-            label: (*keyword).to_owned(),
-            kind: Some(CompletionItemKind::KEYWORD),
-            detail: design_keyword_description(keyword).map(str::to_owned),
-            documentation: design_keyword_description(keyword).map(|description| {
-                Documentation::MarkupContent(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: format!(
-                        "`{keyword}`\n\n{description}\n\nSee [design tokens](docs/proposals/design-tokens.md)."
-                    ),
-                })
-            }),
-            ..CompletionItem::default()
-        })
-        .collect()
-}
 
 /// Row 30 — context-aware closed-catalog completions for the four
 /// `@cap.File(...)` argument values. Returns `None` outside of
