@@ -42,6 +42,7 @@
 //! sibling modules are `pub(crate)`.
 
 pub mod checks;
+mod command;
 mod expr;
 mod helpers;
 mod lifecycle;
@@ -53,6 +54,10 @@ pub mod symbol_origin;
 pub use lzx::lower_lzx_document;
 pub use symbol_origin::build_symbol_origin_index;
 
+use command::{
+    lower_command_effect, lower_invalidates_query_ref, lower_let_binding, lower_named_arg,
+    lower_target_expr,
+};
 use expr::{
     expr_from_text, lower_path_string, lower_policy_atom, lower_policy_expr, lower_qualified_name,
     lower_raw_expr, lower_translation_key_ref,
@@ -6706,84 +6711,6 @@ pub(crate) fn lower_job_body(body: &syntax::JobBody) -> ir::JobBody {
             lets: Vec::new(),
             effect: ir::CommandEffect::None,
         }),
-    }
-}
-
-/// Phase L Tier 4b — shared lowering for `target query.<name>(args)`.
-/// Reused by `lower_job_body` (Tier 3) and `lower_command_skeleton`
-/// (Tier 4b) — closes the Tier 3 raw-spine carve-out.
-pub(crate) fn lower_target_expr(t: &syntax::TargetExprDecl) -> ir::TargetExpr {
-    ir::TargetExpr {
-        query: lower_qualified_name(&t.query),
-        args: t.args.iter().map(lower_named_arg).collect(),
-    }
-}
-
-pub(crate) fn lower_let_binding(l: &syntax::LetBindingDecl) -> ir::LetBinding {
-    ir::LetBinding {
-        name: l.name.clone(),
-        value: lower_raw_expr(&l.value),
-    }
-}
-
-pub(crate) fn lower_named_arg(arg: &syntax::TargetArgDecl) -> ir::NamedArg {
-    ir::NamedArg {
-        name: arg.name.clone(),
-        value: lower_raw_expr(&arg.value),
-    }
-}
-
-pub(crate) fn lower_assignment(a: &syntax::AssignmentDecl) -> ir::Assignment {
-    ir::Assignment {
-        field: a.field.clone(),
-        value: lower_raw_expr(&a.value),
-    }
-}
-
-pub(crate) fn lower_command_effect(effect: &syntax::CommandEffectDecl) -> ir::CommandEffect {
-    let resource = lower_qualified_name(&effect.resource);
-    let assignments: Vec<ir::Assignment> =
-        effect.assignments.iter().map(lower_assignment).collect();
-    match effect.kind {
-        syntax::CommandEffectKindDecl::Creates => ir::CommandEffect::Creates(ir::CreateEffect {
-            resource,
-            from_input: effect.from_input,
-            assignments,
-        }),
-        syntax::CommandEffectKindDecl::Updates => ir::CommandEffect::Updates(ir::UpdateEffect {
-            resource,
-            assignments,
-        }),
-        syntax::CommandEffectKindDecl::Deletes => {
-            ir::CommandEffect::Deletes(ir::DeleteEffect { resource })
-        }
-    }
-}
-
-/// Lower `invalidates` query refs into the cache-invalidation IR shape.
-/// The authored namespace marker (`query.`) is syntax only:
-///
-/// - `query.foo` -> `<current_feature>.foo`
-/// - `bar.query.baz` -> `bar.baz`
-pub(crate) fn lower_invalidates_query_ref(current_feature: &str, text: &str) -> ir::QualifiedName {
-    let trimmed = text.trim();
-    let parts: Vec<&str> = trimmed.split('.').collect();
-    match parts.as_slice() {
-        ["query", name] if !name.is_empty() => ir::QualifiedName {
-            feature: Some(current_feature.to_owned()),
-            name: (*name).to_owned(),
-        },
-        [feature, "query", name] if !feature.is_empty() && !name.is_empty() => {
-            ir::QualifiedName {
-                feature: Some((*feature).to_owned()),
-                name: (*name).to_owned(),
-            }
-        }
-        [name] if !name.is_empty() => ir::QualifiedName {
-            feature: Some(current_feature.to_owned()),
-            name: (*name).to_owned(),
-        },
-        _ => lower_qualified_name(trimmed),
     }
 }
 
