@@ -25,6 +25,10 @@ pub use nodes::auth::{
     Auth, AuthIdentity, AuthMfa, AuthOAuthProvider, AuthPassword, AuthSessions, RotationConfig,
     SessionExtraColumn, TheftAction,
 };
+pub use nodes::error_vocab::{
+    ErrorExposeRule, ErrorExposureDefault, FeatureErrorMessage, FeatureErrors, FeatureFieldError,
+    TranslationKeyRef,
+};
 pub use nodes::plan_and_gate::{
     AutoPhotoCommandRole, Gate, Plan, PlanCatalog, PlanLimit, PlanLimitValue, SubscriptionAnchor,
     SynthesizedFromCapFile, TrialPolicy,
@@ -3765,140 +3769,13 @@ pub struct TranslationPluralArm {
 }
 
 // =============================================================================
-// IR Error-Vocab — typed translation key references + feature-level errors
-// block lowering. See `docs/proposals/ir-error-messages-vocab.md` §3.
-//
-// Additive: every new shape lives behind `Option`/`Vec` slots wired with
-// `#[serde(default, skip_serializing_if = "...")]` so pre-vocab fixtures
-// deserialize unchanged. Complements the legacy `Rule.message_ref:
-// Option<String>` — that string-form stays untouched for back-compat.
+// IR Error-Vocab — typed translation key references + feature-level errors.
+// Family (TranslationKeyRef, ErrorExposureDefault, FeatureErrors,
+// ErrorExposeRule, FeatureErrorMessage, FeatureFieldError) lives in
+// `nodes::error_vocab` after the W4.1 rails-style split. Re-exported at the
+// crate root above to preserve the ABI surface. See
+// `docs/proposals/ir-error-messages-vocab.md` §3 for design.
 // =============================================================================
-
-/// A `@translation.<key>` reference used by feature-level errors blocks,
-/// per-command/per-policy `when_denied` overrides, and (post-pilot) per-
-/// field validator errors. The key resolves against the surrounding
-/// feature's `Translation.keys[]` at analyze time; doctor cross-checks
-/// the key against the resolved feature's catalog
-/// (`translation_key_unknown` + ERR-VOCAB-002).
-///
-/// Complements the legacy `Rule.message_ref: Option<String>` — the
-/// string form stays for back-compat in v1; v2 migrates rules onto this
-/// struct.
-///
-/// See `docs/proposals/ir-error-messages-vocab.md` §3.1.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TranslationKeyRef {
-    /// The key name, e.g. `must_be_signed_in`.
-    pub key: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// Closed catalog of feature-level `errors default ...` resolutions.
-/// `Hide` means error envelope fields default to suppressed unless an
-/// `expose client 4xx/5xx ...` line opts them in; `Expose` flips the
-/// default. Mirrors the pre-existing LSP validator at
-/// `valid_error_exposure_line`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ErrorExposureDefault {
-    Hide,
-    Expose,
-}
-
-/// Feature-level error contract lowered from the `errors` block.
-/// Subsumes both the pre-existing LSP-validated `default hide / expose
-/// client 4xx ...` exposure surface (now lowered into IR) and the new
-/// typed per-code message overrides introduced by the error-vocab
-/// proposal.
-///
-/// Resolution-chain step 3 (see proposal §2.E): when neither the
-/// per-command `policy_when_denied` nor the per-policy `when_denied`
-/// resolves, the runtime falls through to `messages[].message` for the
-/// matching closed-catalog `code`.
-///
-/// See `docs/proposals/ir-error-messages-vocab.md` §3.4.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FeatureErrors {
-    /// `default hide` | `default expose`. `None` defers to the runtime
-    /// default (currently `Hide`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default: Option<ErrorExposureDefault>,
-    /// 4xx envelope-field exposure. Closed catalog: `message`, `code`,
-    /// `data`, `message_key`.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub exposure_4xx: Vec<String>,
-    /// 5xx envelope-field exposure. Closed catalog: `code`, `data`.
-    /// (`message` deliberately not allowed for 5xx — see proposal §2.C.)
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub exposure_5xx: Vec<String>,
-    /// Audience-scoped exposure rules from `expose to @audience <name>
-    /// <fields>`. Runtime/codegen enforcement lands in a follow-up.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub audience_exposure: Vec<ErrorExposeRule>,
-    /// `error_redact <pattern>` lines — regex patterns to mask from
-    /// emitted error bodies before client-side delivery.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub redact_patterns: Vec<String>,
-    /// Per-code message overrides; one entry per `<code> message
-    /// @translation.<key>` line. Resolution-chain step 3.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub messages: Vec<FeatureErrorMessage>,
-    /// Reserved for v2 — per-field validator error references
-    /// (`validates field <Field>.<code> message @translation.<key>`).
-    /// v1 parser leaves this empty; codegen ignores. The slot lives in
-    /// IR so v2 promotion is purely additive.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub field_messages: Vec<FeatureFieldError>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ErrorExposeRule {
-    /// Optional audience target. `None` is the legacy client-wide
-    /// exposure shape; `Some("operator")` comes from
-    /// `expose to @audience operator ...`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub audience: Option<String>,
-    /// Envelope fields exposed by this rule.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub fields: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// One `<code> message @translation.<key>` row inside a feature's
-/// `errors` block. `code` is constrained to the closed catalog of
-/// overridable error families (`policy_denied`, `validation_failed`,
-/// `tenant_mismatch`, `not_found`, `rate_limited`, `bad_request`,
-/// `method_not_allowed`, `integration_error`) — doctor diagnostic
-/// `ERR-VOCAB-CODE-UNKNOWN` rejects unknown codes.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FeatureErrorMessage {
-    pub code: String,
-    pub message: TranslationKeyRef,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// Reserved-for-v2 per-field validator error reference. v1 parser leaves
-/// this slot empty; the IR shape exists so v2 lowering and codegen
-/// promotion can land additively without an IR-ABI churn.
-///
-/// `resource` + `field` identify the target (e.g. `Customer.email`);
-/// `code` is the per-field validator error code (`format_invalid`,
-/// `required_missing`, ...); `message` is the typed key reference into
-/// the surrounding feature's `Translation.keys[]`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FeatureFieldError {
-    pub resource: String,
-    pub field: String,
-    pub code: String,
-    pub message: TranslationKeyRef,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppBinding {
