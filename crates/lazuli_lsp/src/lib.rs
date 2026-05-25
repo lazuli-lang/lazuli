@@ -21,6 +21,7 @@ mod catalogs;
 mod code_actions;
 mod completion_items;
 mod conventions;
+mod handlers;
 mod hover;
 mod keywords;
 mod lzx_completion;
@@ -293,85 +294,9 @@ impl LanguageServer for Backend {
         let Some(source) = documents.get(&params.text_document.uri) else {
             return Ok(None);
         };
-        let Ok(features) = parse_feature_skeletons(source) else {
+        let Some(symbols) = handlers::document_symbols_for_source(source) else {
             return Ok(None);
         };
-
-        let symbols = features
-            .iter()
-            .map(|feature| {
-                let resource_symbols = feature.resources.iter().map(|resource| {
-                    make_symbol(
-                        resource.name.clone(),
-                        Some("resource".to_owned()),
-                        SymbolKind::STRUCT,
-                        range_from_span(source, resource.span),
-                        Some(
-                            resource
-                                .fields
-                                .iter()
-                                .map(|field| {
-                                    make_symbol(
-                                        field.name.clone(),
-                                        Some(field.type_text.clone()),
-                                        SymbolKind::PROPERTY,
-                                        range_from_span(source, field.span),
-                                        None,
-                                    )
-                                })
-                                .collect(),
-                        ),
-                    )
-                });
-                let command_symbols = feature.commands.iter().map(|command| {
-                    make_symbol(
-                        command.name.clone(),
-                        Some("command".to_owned()),
-                        SymbolKind::METHOD,
-                        range_from_span(source, command.span),
-                        None,
-                    )
-                });
-                let query_symbols = feature.queries.iter().map(|query| {
-                    let (name, span) = match query {
-                        lazuli_syntax::QueryDecl::List(query) => (&query.name, query.span),
-                        lazuli_syntax::QueryDecl::Lookup(query) => (&query.name, query.span),
-                        lazuli_syntax::QueryDecl::Sql(query) => (&query.name, query.span),
-                    };
-                    make_symbol(
-                        name.clone(),
-                        Some("query".to_owned()),
-                        SymbolKind::FUNCTION,
-                        range_from_span(source, span),
-                        None,
-                    )
-                });
-                let aggregate_symbols = feature.aggregates.iter().map(|aggregate| {
-                    make_symbol(
-                        aggregate.name.clone(),
-                        Some("aggregate".to_owned()),
-                        SymbolKind::STRUCT,
-                        range_from_span(source, aggregate.span),
-                        None,
-                    )
-                });
-
-                make_symbol(
-                    feature.name.clone(),
-                    Some("feature".to_owned()),
-                    SymbolKind::MODULE,
-                    range_from_span(source, feature.span),
-                    Some(
-                        resource_symbols
-                            .chain(command_symbols)
-                            .chain(query_symbols)
-                            .chain(aggregate_symbols)
-                            .collect(),
-                    ),
-                )
-            })
-            .collect();
-
         Ok(Some(DocumentSymbolResponse::Nested(symbols)))
     }
 
