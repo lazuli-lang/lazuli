@@ -86,6 +86,7 @@ pub mod mcp;
 pub mod notification;
 pub mod package;
 pub mod plan;
+pub mod record;
 pub mod report;
 pub mod translation;
 pub mod types;
@@ -688,7 +689,7 @@ fn parse_feature_skeleton(
 
         // Phase L Tier 4d — `record <Name>` block.
         if trimmed.starts_with("record ") {
-            let (mut parsed, next) = parse_record_decl(lines, i)?;
+            let (mut parsed, next) = record::parse_record_decl(lines, i)?;
             parsed.public_contract =
                 take_matching_public_contract(line, &mut pending_contract, "record", &parsed.name)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
@@ -5696,7 +5697,7 @@ fn parse_resource_index_method(
     Ok(Some(parsed))
 }
 
-fn parse_resource_field_decl(
+pub(super) fn parse_resource_field_decl(
     lines: &[SourceLine<'_>],
     start: usize,
     grandchild_indent: usize,
@@ -7551,71 +7552,6 @@ fn parse_query_search(
     ))
 }
 
-fn parse_record_decl(
-    lines: &[SourceLine<'_>],
-    start: usize,
-) -> Result<(RecordDecl, usize), ParseError> {
-    let header = &lines[start];
-    let trimmed = header.text.trim_start();
-    let name = trimmed
-        .strip_prefix("record ")
-        .map(|rest| rest.split_whitespace().next().unwrap_or("").to_owned())
-        .ok_or_else(|| line_error(header, "record header must be `record <Name>`"))?;
-    if name.is_empty() {
-        return Err(line_error(header, "record header requires a name"));
-    }
-    let header_indent = header.indent;
-    let child_indent = header_indent + 2;
-    let grandchild_indent = header_indent + 4;
-
-    let mut fields: Vec<ResourceFieldDecl> = Vec::new();
-    let mut discriminator_field: Option<String> = None;
-    let mut last_end = header.end;
-    let mut i = start + 1;
-
-    while i < lines.len() {
-        let line = &lines[i];
-        let trimmed = line.text.trim_start();
-        if is_trivia(trimmed) {
-            i += 1;
-            continue;
-        }
-        if line.indent <= header_indent {
-            break;
-        }
-        if line.indent != child_indent {
-            return Err(line_error(
-                line,
-                "`record` body children use one indentation level deeper than the header",
-            ));
-        }
-        if trimmed.contains(':') {
-            let (field, next) = parse_resource_field_decl(lines, i, grandchild_indent)?;
-            if field.type_text.contains("discriminator") {
-                discriminator_field = Some(field.name.clone());
-            }
-            fields.push(field);
-            last_end = lines[next.saturating_sub(1).max(i)].end;
-            i = next;
-        } else {
-            return Err(line_error(
-                line,
-                "`record` children are `<field>: <Type>` lines only",
-            ));
-        }
-    }
-
-    Ok((
-        RecordDecl {
-            name,
-            public_contract: None,
-            fields,
-            discriminator_field,
-            span: Span::new(header.start, last_end),
-        },
-        i,
-    ))
-}
 
 // -----------------------------------------------------------------------------
 // Phase L — `auth` block parser
