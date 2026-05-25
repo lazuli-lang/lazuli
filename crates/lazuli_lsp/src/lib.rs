@@ -20,10 +20,12 @@ use tower_lsp::{Client, LanguageServer, LspService, Server, async_trait};
 mod catalogs;
 mod hover;
 mod lzx_completion;
+mod source_scan;
 mod types;
 
 pub use catalogs::*;
 pub use hover::*;
+pub use source_scan::*;
 pub use types::SecurityProfile;
 
 pub fn server_name() -> &'static str {
@@ -12926,7 +12928,7 @@ fn is_trivia_line(line: &str) -> bool {
     trimmed.is_empty() || trimmed.starts_with('#')
 }
 
-fn leading_spaces(line: &str) -> usize {
+pub(crate) fn leading_spaces(line: &str) -> usize {
     line.bytes().take_while(|byte| *byte == b' ').count()
 }
 
@@ -14860,98 +14862,7 @@ fn collect_route_paths(source: &str) -> Vec<String> {
     paths
 }
 
-pub fn collect_query_refs(source: &str) -> Vec<String> {
-    let mut refs = Vec::new();
-    let mut seen = HashSet::new();
-    let mut current_feature: Option<String> = None;
-    for line in source.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        let indent = leading_spaces(line);
-        if indent == 0 {
-            current_feature = trimmed
-                .strip_prefix("feature ")
-                .map(|rest| rest.split_whitespace().next().unwrap_or("").to_owned());
-            continue;
-        }
-        if indent != 2 {
-            continue;
-        }
-        let Some(feature) = current_feature.as_deref() else {
-            continue;
-        };
-        for prefix in ["query.list ", "query.lookup ", "query.sql ", "query.view "] {
-            if let Some(rest) = trimmed.strip_prefix(prefix) {
-                let name = rest.split_whitespace().next().unwrap_or("");
-                if !name.is_empty() {
-                    let query_ref = format!("{feature}.query.{name}");
-                    if seen.insert(query_ref.clone()) {
-                        refs.push(query_ref);
-                    }
-                }
-            }
-        }
-    }
-    refs
-}
 
-pub fn collect_policy_categories_for_feature(
-    source: &str,
-    feature_hint: Option<&str>,
-) -> Vec<String> {
-    let mut names = Vec::new();
-    let mut seen = HashSet::new();
-    let mut current_feature: Option<String> = None;
-    let mut in_policies = false;
-    let mut policies_indent = 0;
-
-    for line in source.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        let indent = leading_spaces(line);
-        if indent == 0 {
-            current_feature = trimmed
-                .strip_prefix("feature ")
-                .map(|rest| rest.split_whitespace().next().unwrap_or("").to_owned());
-            in_policies = false;
-            continue;
-        }
-        let feature_matches = match (feature_hint, current_feature.as_deref()) {
-            (Some(expected), Some(current)) => expected == current,
-            (Some(_), None) => false,
-            (None, Some(_)) => true,
-            (None, None) => false,
-        };
-        if !feature_matches {
-            continue;
-        }
-        if trimmed == "policies" || trimmed.starts_with("policies ") {
-            in_policies = true;
-            policies_indent = indent;
-            continue;
-        }
-        if in_policies {
-            if indent <= policies_indent {
-                in_policies = false;
-                continue;
-            }
-            if let Some(colon) = trimmed.find(':') {
-                let name = trimmed[..colon].trim();
-                if !name.is_empty()
-                    && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-                    && seen.insert(name.to_owned())
-                {
-                    names.push(name.to_owned());
-                }
-            }
-        }
-    }
-    names
-}
 
 fn first_quoted_value(value: &str) -> Option<String> {
     let open = value.find('"')?;
@@ -17579,69 +17490,10 @@ fn lookup_translation_first_variant(source: &str, feature_name: &str, key: &str)
 /// cursor is at the top level / inside `app` / `registry`. Best-effort
 /// indent-walk: scans backwards from `position.line` for a `feature <name>`
 /// header at indent 0.
-pub fn enclosing_feature_name(source: &str, position: Position) -> Option<String> {
-    let lines: Vec<&str> = source.lines().collect();
-    let cursor_line_idx = (position.line as usize).min(lines.len().saturating_sub(1));
-    for idx in (0..=cursor_line_idx).rev() {
-        let line = lines.get(idx).copied().unwrap_or("");
-        let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        if leading_spaces(line) == 0 {
-            if let Some(rest) = trimmed.strip_prefix("feature ") {
-                let name = rest.split_whitespace().next().unwrap_or("");
-                if !name.is_empty() {
-                    return Some(name.to_owned());
-                }
-                return None;
-            }
-            return None;
-        }
-    }
-    None
-}
 
 /// Collect declared `key <name>` entries from inside the named feature's
 /// `translation` block. Used by `@translation.<TAB>` completion (proposal
 /// §7.1).
-pub fn collect_translation_keys_for_feature(source: &str, feature_name: &str) -> Vec<String> {
-    let mut keys: Vec<String> = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut in_feature = false;
-    let mut in_translation = false;
-    for line in source.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        let indent = leading_spaces(line);
-        if indent == 0 {
-            in_feature = trimmed
-                .strip_prefix("feature ")
-                .map(|rest| rest.split_whitespace().next().unwrap_or("") == feature_name)
-                .unwrap_or(false);
-            in_translation = false;
-            continue;
-        }
-        if !in_feature {
-            continue;
-        }
-        if indent == 2 {
-            in_translation = trimmed == "translation" || trimmed.starts_with("translation ");
-            continue;
-        }
-        if in_translation && indent == 4 {
-            if let Some(rest) = trimmed.strip_prefix("key ") {
-                let name = rest.split_whitespace().next().unwrap_or("");
-                if !name.is_empty() && seen.insert(name.to_owned()) {
-                    keys.push(name.to_owned());
-                }
-            }
-        }
-    }
-    keys
-}
 
 /// Compute a completion list for the IR Error-Vocab trigger positions
 /// (proposal §7.1). Returns `None` when the cursor is outside any of the 6
