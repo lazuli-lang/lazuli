@@ -25,6 +25,7 @@
 
 pub(crate) mod agent;
 pub(crate) mod app_manifest;
+pub(crate) mod approval;
 pub(crate) mod audit;
 pub(crate) mod auth;
 pub(crate) mod cache;
