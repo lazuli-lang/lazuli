@@ -21,6 +21,7 @@ mod catalogs;
 mod code_actions;
 mod completion_items;
 mod conventions;
+mod dispatch;
 mod handlers;
 mod hover;
 mod keywords;
@@ -28,6 +29,8 @@ mod lzx_completion;
 mod rate_limit;
 mod source_scan;
 mod types;
+
+pub(crate) use dispatch::diagnostics_for_with_profile_inner;
 
 pub use catalogs::*;
 pub(crate) use completion_items::{completion_items_for_uri, make_symbol, merge_completion_items};
@@ -324,143 +327,6 @@ pub(crate) fn diagnostics_for_with_profile(
     diagnostics_for_with_profile_inner(source, security_profile, true)
 }
 
-pub(crate) fn diagnostics_for_with_profile_inner(
-    source: &str,
-    security_profile: SecurityProfile,
-    include_doctor: bool,
-) -> Vec<Diagnostic> {
-    if is_canonical_source(source) {
-        let mut diagnostics = canonical_order_diagnostics(source);
-        diagnostics.extend(feature_unknown_kind_diagnostics(source));
-        // 2026-05-15 typo-detection sweep — six sibling contexts where
-        // a typo silently drops the block. See `closest_kind`.
-        diagnostics.extend(app_unknown_kind_diagnostics(source));
-        diagnostics.extend(registry_unknown_kind_diagnostics(source));
-        diagnostics.extend(view_unknown_kind_diagnostics(source));
-        diagnostics.extend(surface_unknown_kind_diagnostics(source));
-        diagnostics.extend(command_statement_unknown_diagnostics(source));
-        diagnostics.extend(query_statement_unknown_diagnostics(source));
-        diagnostics.extend(audience_unknown_kind_diagnostics(source));
-        diagnostics.extend(query_mode_diagnostics(source));
-        diagnostics.extend(previously_mode_diagnostics(source));
-        diagnostics.extend(app_operational_contract_diagnostics(source));
-        diagnostics.extend(registry_contract_diagnostics(source));
-        diagnostics.extend(profile_contract_diagnostics(source));
-        diagnostics.extend(workspace_contract_diagnostics(source));
-        diagnostics.extend(external_contract_diagnostics(source));
-        diagnostics.extend(feature_requirements_contract_diagnostics(source));
-        diagnostics.extend(external_call_contract_diagnostics(source));
-        diagnostics.extend(generated_summary_diagnostics(source));
-        diagnostics.extend(non_goals_shape_diagnostics(source));
-        diagnostics.extend(defaults_policy_syntax_diagnostics(source));
-        diagnostics.extend(lookup_shorthand_diagnostics(source));
-        diagnostics.extend(namespace_reference_diagnostics(source));
-        diagnostics.extend(refs_block_diagnostics(source));
-        diagnostics.extend(policy_namespace_diagnostics(source));
-        diagnostics.extend(scope_override_policy_diagnostics(source));
-        diagnostics.extend(query_order_default_diagnostics(source));
-        diagnostics.extend(query_pagination_diagnostics(source));
-        diagnostics.extend(query_filter_index_diagnostics(source));
-        diagnostics.extend(query_search_syntax_diagnostics(source));
-        diagnostics.extend(active_session_query_diagnostics(source));
-        diagnostics.extend(command_rate_limit_contract_diagnostics(source));
-        diagnostics.extend(event_job_tenant_from_diagnostics(source));
-        diagnostics.extend(scheduled_job_tenancy_diagnostics(source));
-        diagnostics.extend(crypto_contract_diagnostics(source));
-        diagnostics.extend(file_capability_contract_diagnostics(source));
-        diagnostics.extend(sql_return_type_diagnostics(source));
-        diagnostics.extend(type_namespace_diagnostics(source));
-        diagnostics.extend(validation_syntax_diagnostics(source));
-        diagnostics.extend(derived_field_diagnostics(source));
-        diagnostics.extend(has_many_diagnostics(source));
-        diagnostics.extend(agent_contract_diagnostics(source));
-        diagnostics.extend(agent_tools_diagnostics(source));
-        diagnostics.extend(agent_evals_diagnostics(source));
-        diagnostics.extend(agent_discriminator_diagnostics(source));
-        diagnostics.extend(agent_expose_diagnostics(source));
-        diagnostics.extend(reserved_trace_event_diagnostics(source));
-        diagnostics.extend(approval_contract_diagnostics(source));
-        diagnostics.extend(cors_contract_diagnostics(source));
-        diagnostics.extend(headers_contract_diagnostics(source));
-        diagnostics.extend(secret_rotation_contract_diagnostics(source));
-        diagnostics.extend(notification_contract_diagnostics(source));
-        diagnostics.extend(emits_derived_diagnostics(source));
-        diagnostics.extend(extension_declaration_diagnostics(source));
-        diagnostics.extend(event_payload_reference_diagnostics(source));
-        diagnostics.extend(event_kind_diagnostics(source));
-        diagnostics.extend(event_trace_trigger_diagnostics(source));
-        diagnostics.extend(event_consumer_payload_diagnostics(source));
-        diagnostics.extend(event_locator_diagnostics(source));
-        diagnostics.extend(target_binding_diagnostics(source));
-        diagnostics.extend(rule_self_diagnostics(source));
-        diagnostics.extend(required_field_nil_rule_diagnostics(source));
-        diagnostics.extend(command_validator_diagnostics(source));
-        diagnostics.extend(error_contract_diagnostics(source));
-        diagnostics.extend(cache_contract_diagnostics(source));
-        diagnostics.extend(api_contract_diagnostics(source));
-        diagnostics.extend(anchor_whitelist_diagnostics(source));
-        diagnostics.extend(test_block_diagnostics(source));
-        diagnostics.extend(command_contract_diagnostics(source));
-        diagnostics.extend(field_security_policy_diagnostics(source));
-        diagnostics.extend(retention_contract_diagnostics(source));
-        diagnostics.extend(write_window_contract_diagnostics(source));
-        diagnostics.extend(env_schema_diagnostics(source));
-        diagnostics.extend(env_top_level_legacy_diagnostics(source));
-        diagnostics.extend(webhook_security_diagnostics(source));
-        diagnostics.extend(webhook_tenant_from_diagnostics(source));
-        diagnostics.extend(escape_route_security_diagnostics(source));
-        diagnostics.extend(auth_security_diagnostics(source));
-        diagnostics.extend(extension_reference_diagnostics(source));
-        diagnostics.extend(idempotency_key_diagnostics(source));
-        if include_doctor {
-            diagnostics.extend(doctor_file_local_diagnostics(source));
-        }
-        return apply_security_profile(diagnostics, security_profile);
-    }
-
-    if is_lzx_source(source) {
-        let mut diagnostics = lzx_contract_diagnostics(source);
-        diagnostics.extend(lzx_route_contract_diagnostics(source));
-        diagnostics.extend(namespace_reference_diagnostics(source));
-        diagnostics.extend(extension_reference_diagnostics(source));
-        return diagnostics;
-    }
-
-    let features = match parse_feature_skeletons(source) {
-        Ok(features) => features,
-        Err(error) => {
-            return vec![Diagnostic {
-                range: range_from_span(source, error.span()),
-                severity: Some(DiagnosticSeverity::ERROR),
-                code: None,
-                code_description: None,
-                source: Some("lazuli-syntax".to_owned()),
-                message: error.to_string(),
-                related_information: None,
-                tags: None,
-                data: None,
-            }];
-        }
-    };
-
-    for feature in &features {
-        if let Err(error) = lazuli_analyzer::lower_feature_skeleton(feature) {
-            return vec![Diagnostic {
-                range: first_line_range(source),
-                severity: Some(DiagnosticSeverity::ERROR),
-                code: None,
-                code_description: None,
-                source: Some("lazuli-analyzer".to_owned()),
-                message: error.to_string(),
-                related_information: None,
-                tags: None,
-                data: None,
-            }];
-        }
-    }
-
-    Vec::new()
-}
 
 pub(crate) fn is_canonical_source(source: &str) -> bool {
     if has_lzx_top_level_contract(source) {
