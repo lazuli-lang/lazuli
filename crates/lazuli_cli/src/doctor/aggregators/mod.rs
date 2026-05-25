@@ -35,5 +35,6 @@ pub(crate) mod folder;
 pub(crate) mod headers_secrets;
 pub(crate) mod http_hygiene;
 pub(crate) mod i18n;
+pub(crate) mod migrations;
 pub(crate) mod observability;
 pub(crate) mod test_discipline;
