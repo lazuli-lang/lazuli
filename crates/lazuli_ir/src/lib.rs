@@ -56,6 +56,10 @@ pub use nodes::report::{
     FilenameToken, FnInvocation, Report, ReportColumn, ReportColumnSource, ReportFilenamePattern,
     ReportFormat, ReportSource,
 };
+pub use nodes::test_and_policy::{
+    FieldPolicies, FieldPolicy, Policies, PolicyCategory, RoleMismatchArm, RouteRedirectTarget,
+    TestAssertion, TestBlock, WhenDeniedRoute,
+};
 
 /// LZIR_SCHEMA — version of the IR JSON ABI. Bumped to 0.16.0 by
 /// `ir-rate-limit-env-aware` cell 1 (proposal §4.1 + §8): the
@@ -5105,132 +5109,13 @@ pub enum ToolsCallsOp {
 }
 
 // =============================================================================
-// Phase 1f — inline tests + policy registry with field-level policies
+// Phase 1f — inline tests + policy registry with field-level policies.
+// Family (TestBlock, TestAssertion, Policies, PolicyCategory, WhenDeniedRoute,
+// RoleMismatchArm, RouteRedirectTarget, FieldPolicies, FieldPolicy) lives in
+// nodes::test_and_policy after the W4.1 rails-style split. Re-exported at the
+// crate root above to preserve the ABI surface.
 // =============================================================================
 
-/// Inline declarative assertions about IR shape. A `TestBlock` is the last
-/// child of a command, workflow transition, rule, or extensible view. See
-/// `docs/canonical-semantics.md` "Tests" for the verb catalogue.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TestBlock {
-    pub assertions: Vec<TestAssertion>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// Closed catalog of test verbs. The analyzer rejects assertions that do not
-/// belong to the parent construct (e.g. `accepted by` on a command).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "verb", content = "value")]
-pub enum TestAssertion {
-    /// Generated command policy matrix row: `permits @role.admin, @role.sales`.
-    PolicyAllow { actors: Vec<String> },
-    /// Generated command policy matrix row: `forbids @role.viewer`.
-    PolicyDeny { actors: Vec<String> },
-    /// Command/rule predicate: `allows when target.status = active` or
-    /// `allows when self.status = active`, depending on the parent construct.
-    AllowsWhen { predicate: Predicate },
-    /// Command/rule predicate: `denies when target.deleted_at != nil` or
-    /// `denies when self.deleted_at != nil`, depending on the parent construct.
-    DeniesWhen { predicate: Predicate },
-    /// Workflow transition state edge: `allows from active`.
-    AllowsFrom { state: String },
-    /// Workflow transition state edge: `denies from paused`.
-    DeniesFrom { state: String },
-    /// Workflow transition policy: `allows as @role.admin`.
-    AllowsAs { actor: String },
-    /// Workflow transition policy: `denies as @role.viewer`.
-    DeniesAs { actor: String },
-    /// Combined transition: `allows from active as @role.admin`.
-    AllowsFromAs { state: String, actor: String },
-    /// Combined transition: `denies from active as @role.sales`.
-    DeniesFromAs { state: String, actor: String },
-    /// Extensible view whitelist: `accepted by customer_tags`.
-    AcceptedBy { feature: String },
-    /// Extensible view whitelist: `rejected by billing`.
-    RejectedBy { feature: String },
-}
-
-/// Feature-level `policies` block. Categories are named atom lists; field
-/// policies are per-resource read/write rules.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Policies {
-    pub categories: Vec<PolicyCategory>,
-    pub fields: Vec<FieldPolicies>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// Named feature-local policy: `create: @role.admin, @role.sales`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PolicyCategory {
-    pub name: String,
-    /// Atom names like `@role.admin`, `@scope.same_org`, `@actor.system`. The
-    /// analyzer validates that each atom resolves through the registry.
-    pub atoms: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub previous_names: Vec<String>,
-    /// IR Error-Vocab — per-policy default error message. When `Some`,
-    /// every command/query using this policy emits `policy_denied` with
-    /// the resolved `TranslationKeyRef` unless the operation declares
-    /// its own `policy_when_denied`. Resolution-chain step 2
-    /// (proposal §2.E step 2). See
-    /// `docs/proposals/ir-error-messages-vocab.md` §3.2.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub when_denied: Option<TranslationKeyRef>,
-    /// Route-only denial redirect targets. Command/query/api codegen ignores
-    /// this slot; route guard codegen consumes it when a view guard references
-    /// this policy.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub when_denied_route: Option<WhenDeniedRoute>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WhenDeniedRoute {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub unauthenticated: Option<RouteRedirectTarget>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub role_mismatch: Vec<RoleMismatchArm>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default: Option<RouteRedirectTarget>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RoleMismatchArm {
-    pub role: String,
-    pub target: RouteRedirectTarget,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
-pub enum RouteRedirectTarget {
-    View(String),
-    Path(String),
-}
-
-/// Per-resource field policies: `fields Customer\n  email\n    read: ...`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FieldPolicies {
-    pub resource: QualifiedName,
-    pub fields: Vec<FieldPolicy>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FieldPolicy {
-    pub field: String,
-    /// Atom list governing reads. `None` = inherit feature-level read policy.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub read: Option<Vec<String>>,
-    /// Atom list governing writes. `None` = inherit feature-level write policy.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub write: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub previous_names: Vec<String>,
-}
 
 // =============================================================================
 // L0 #2 — Design Tokens

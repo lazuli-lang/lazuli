@@ -42,3 +42,4 @@ pub mod mcp;
 pub mod plan_and_gate;
 pub mod rbac;
 pub mod report;
+pub mod test_and_policy;
