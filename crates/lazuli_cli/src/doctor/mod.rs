@@ -4,6 +4,7 @@ pub mod folder;
 mod helpers;
 pub mod lifecycle_gate;
 pub mod lzx;
+mod parsers;
 pub mod rbac;
 mod returns_list_001;
 mod returns_list_002;
@@ -17,6 +18,12 @@ use helpers::{
     doctor_project_root, parse_doctor_format, parse_doctor_severity, parse_fail_on_specs,
     project_has_lazurite_manifest, resolve_internal_hygiene_severity,
     resolve_test_discipline_severity,
+};
+use parsers::{
+    catalog_list, environments_summary, format_accept_list, format_visibility, http_method_word,
+    is_lzi_path, is_lzx_path, is_one_dot_zero_plus, is_parseable_cidr, is_parseable_duration,
+    is_parseable_size, major_minor, normalise_path, openapi_today_pivot, parse_iso_date,
+    same_origin, tool_kind_word,
 };
 
 // Re-export file-local diagnostic sub-modules extracted to the `lazuli_doctor`
@@ -4992,25 +4999,6 @@ fn lazuli_version_002_diagnostics(
     }]
 }
 
-fn major_minor(version: &str) -> String {
-    let mut parts = version.split('.');
-    let Some(major) = parts.next() else {
-        return version.to_owned();
-    };
-    let Some(minor) = parts.next() else {
-        return version.to_owned();
-    };
-    format!("{major}.{minor}")
-}
-
-fn is_one_dot_zero_plus(version: &str) -> bool {
-    version
-        .split('.')
-        .next()
-        .and_then(|major| major.parse::<u64>().ok())
-        .is_some_and(|major| major >= 1)
-}
-
 fn lazuli_version_line(source: &str) -> Option<usize> {
     source
         .lines()
@@ -5486,14 +5474,6 @@ fn package_stem(path: &Path) -> Option<String> {
 
     let stem = file_name.strip_suffix(".lzx")?;
     Some(stem.split('.').next().unwrap_or(stem).to_owned())
-}
-
-fn is_lzi_path(path: &Path) -> bool {
-    path.extension().and_then(|ext| ext.to_str()) == Some("lzi")
-}
-
-fn is_lzx_path(path: &Path) -> bool {
-    path.extension().and_then(|ext| ext.to_str()) == Some("lzx")
 }
 
 /// PG.B — read the first `feature <name>` header from a `.lzi` source.
@@ -11552,18 +11532,6 @@ fn resolve_tool(
     }
 }
 
-fn tool_kind_word(kind: ir::ToolKind) -> &'static str {
-    match kind {
-        ir::ToolKind::QueryList => "query.list",
-        ir::ToolKind::QueryLookup => "query.lookup",
-        ir::ToolKind::QuerySql => "query.sql",
-        ir::ToolKind::QueryView => "query.view",
-        ir::ToolKind::QueryUnspecified => "query",
-        ir::ToolKind::Command => "command",
-        ir::ToolKind::Api => "api",
-    }
-}
-
 fn format_agent_policy(agent: &Agent) -> String {
     match agent.policy.as_ref() {
         Some(ir::PolicyRef::Atom(name)) => format!("@{name}"),
@@ -11994,37 +11962,6 @@ struct ExposePathFact {
 /// placeholder. Two paths with the same shape but different slot
 /// names collide at the gateway, so the check should treat them as
 /// equal.
-fn normalise_path(path: &str) -> String {
-    let mut out = String::with_capacity(path.len());
-    for segment in path.split('/') {
-        if !out.is_empty() {
-            out.push('/');
-        } else if path.starts_with('/') {
-            // preserve leading `/`
-        }
-        if let Some(_name) = segment.strip_prefix(':') {
-            out.push_str(":_");
-        } else {
-            out.push_str(segment);
-        }
-    }
-    if path.starts_with('/') && !out.starts_with('/') {
-        format!("/{out}")
-    } else {
-        out
-    }
-}
-
-fn http_method_word(method: ir::HttpMethod) -> &'static str {
-    match method {
-        ir::HttpMethod::Get => "GET",
-        ir::HttpMethod::Post => "POST",
-        ir::HttpMethod::Put => "PUT",
-        ir::HttpMethod::Patch => "PATCH",
-        ir::HttpMethod::Delete => "DELETE",
-    }
-}
-
 /// Collect every audience that's a first-class declaration in the
 /// workspace. Today, surfaces in `.lzx` files are the canonical source
 /// (`surface customer web` ... `audience admin`). A future cut may
@@ -12180,39 +12117,6 @@ fn cors_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorDiagnostic> {
     }
 
     diagnostics
-}
-
-fn environments_summary(environments: &BTreeSet<&str>) -> String {
-    if environments.is_empty() {
-        "none declared".to_owned()
-    } else {
-        environments
-            .iter()
-            .map(|e| format!("`{e}`"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    }
-}
-
-/// Compare two URLs by scheme + host (ignoring path, query, port
-/// where absent). A declared `url` is the canonical reference; the
-/// origin must match its scheme + authority for the CORS layer to
-/// recognise it as the same browser origin.
-fn same_origin(declared_url: &str, origin: &str) -> bool {
-    let canon = |raw: &str| {
-        let raw = raw.trim();
-        // Strip path / query — keep scheme + authority only.
-        let cut = raw
-            .find("://")
-            .and_then(|idx| {
-                let after = &raw[idx + 3..];
-                let tail_start = after.find('/').map(|p| idx + 3 + p);
-                tail_start.map(|p| raw[..p].to_owned())
-            })
-            .unwrap_or_else(|| raw.to_owned());
-        cut.trim_end_matches('/').to_owned()
-    };
-    canon(declared_url) == canon(origin)
 }
 
 // =============================================================================
@@ -12391,14 +12295,6 @@ fn app_logging_tracing_diagnostics(
     }
 
     diagnostics
-}
-
-fn catalog_list(items: &[&str]) -> String {
-    items
-        .iter()
-        .map(|i| format!("`{i}`"))
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 // =============================================================================
@@ -12612,76 +12508,6 @@ fn app_limits_contract_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<Docto
 /// positive integer; the suffix is one of `ms | s | m | h | d`. This
 /// stays in sync with the runtime parser at
 /// `runtime/go/lazuli/http.go`.
-fn is_parseable_duration(raw: &str) -> bool {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return false;
-    }
-    let suffixes = ["ms", "s", "m", "h", "d"];
-    for suffix in suffixes {
-        if let Some(head) = trimmed.strip_suffix(suffix) {
-            if !head.is_empty() && head.chars().all(|c| c.is_ascii_digit()) {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-/// Liberal size parser. Matches the common Go idiom (`512b`, `16kb`,
-/// `10mb`, `2gb`). The numeric prefix must be a positive integer; the
-/// suffix is one of `b | kb | mb | gb | tb`.
-fn is_parseable_size(raw: &str) -> bool {
-    let trimmed = raw.trim().to_ascii_lowercase();
-    if trimmed.is_empty() {
-        return false;
-    }
-    let suffixes = ["tb", "gb", "mb", "kb", "b"];
-    for suffix in suffixes {
-        if let Some(head) = trimmed.strip_suffix(suffix) {
-            if !head.is_empty() && head.chars().all(|c| c.is_ascii_digit()) {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-/// Liberal CIDR parser. Accepts IPv4 (`a.b.c.d/n`, `0 ≤ n ≤ 32`) and
-/// IPv6 (`prefix::/n`, `0 ≤ n ≤ 128`). We don't need full RFC 4632
-/// canonicalization at this layer — the Go runtime parses via
-/// `netip.ParsePrefix` at wire time and surfaces real errors there.
-/// This check just catches the obvious typo (missing slash, garbage
-/// prefix length).
-fn is_parseable_cidr(raw: &str) -> bool {
-    let Some((addr, mask)) = raw.split_once('/') else {
-        return false;
-    };
-    if addr.is_empty() || mask.is_empty() {
-        return false;
-    }
-    let Ok(prefix_len) = mask.parse::<u32>() else {
-        return false;
-    };
-    if addr.contains(':') {
-        prefix_len <= 128
-    } else {
-        let octets: Vec<&str> = addr.split('.').collect();
-        if octets.len() != 4 {
-            return false;
-        }
-        for octet in &octets {
-            let Ok(value) = octet.parse::<u32>() else {
-                return false;
-            };
-            if value > 255 {
-                return false;
-            }
-        }
-        prefix_len <= 32
-    }
-}
-
 // -----------------------------------------------------------------------------
 // Roadmap §1.10 — `app.headers` + `secret_rotation` diagnostics
 //
@@ -16777,21 +16603,6 @@ fn mime_matches(left: &lazuli_ir::MimeType, right: &lazuli_ir::MimeType) -> bool
     family_ok && subtype_ok
 }
 
-fn format_visibility(v: lazuli_ir::FileVisibility) -> &'static str {
-    match v {
-        lazuli_ir::FileVisibility::Public => "public",
-        lazuli_ir::FileVisibility::Private => "private",
-        lazuli_ir::FileVisibility::Signed => "signed",
-    }
-}
-
-fn format_accept_list(accept: &[lazuli_ir::MimeType]) -> String {
-    accept
-        .iter()
-        .map(|m| format!("{}/{}", m.family, m.subtype))
-        .collect::<Vec<_>>()
-        .join("|")
-}
 
 // =============================================================================
 // OpenAPI bucket cycle (row 48) — `deprecated_*` diagnostics.
@@ -17086,38 +16897,6 @@ fn push_unknown_replacement_if_missing(
         fix: None,
         group: None,
     });
-}
-
-/// Parse `YYYY-MM-DD` into a `(year, month, day)` triple. Returns `None`
-/// if the format is wrong or numbers are out of plausible range. Doctor
-/// uses this for `deprecated_sunset_*` checks; the comparison against
-/// `today_pivot` is lexical (the tuple sorts as if it were a real date
-/// because each component is fixed-width).
-fn parse_iso_date(s: &str) -> Option<(u16, u8, u8)> {
-    let trimmed = s.trim();
-    let bytes = trimmed.as_bytes();
-    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
-        return None;
-    }
-    let year: u16 = trimmed[0..4].parse().ok()?;
-    let month: u8 = trimmed[5..7].parse().ok()?;
-    let day: u8 = trimmed[8..10].parse().ok()?;
-    if !(1..=12).contains(&month) {
-        return None;
-    }
-    if !(1..=31).contains(&day) {
-        return None;
-    }
-    Some((year, month, day))
-}
-
-/// Calendar pivot the OpenAPI `sunset_in_past` rule compares against.
-/// The runtime context exposes no `chrono` dependency; we anchor the
-/// pivot at the current Lazuli development date so the diagnostic is
-/// deterministic across runs. Bump alongside the canonical fixture
-/// each cycle; in practice the day-of-month precision is sufficient.
-fn openapi_today_pivot() -> (u16, u8, u8) {
-    (2026, 5, 11)
 }
 
 // =============================================================================
