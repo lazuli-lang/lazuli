@@ -3375,7 +3375,7 @@ enum FileCapabilityBinding {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DoctorSeverity {
+pub(crate) enum DoctorSeverity {
     Error,
     Warning,
     Info,
@@ -3602,14 +3602,37 @@ fn doctor_self_command(input: &Path, opts: &DoctorRuntimeOptions) -> Result<()> 
     Ok(())
 }
 
+/// Rails-style canonical envelope for every doctor finding.
+///
+/// One row in `lazuli doctor`'s output — the **and only the** shape a
+/// diagnostic ever takes once it crosses out of an aggregator's per-rule
+/// crate (`lazuli_doctor::correctness`, `lazuli_doctor::vocab`, …) and
+/// into the CLI's dispatch pipeline. Every doctor rule, no matter where
+/// it lives (this crate, `lazuli_doctor`, `lazuli_lsp`'s LSP bridge,
+/// per-rule sibling files under `doctor/auth/`, `doctor/folder/`, …)
+/// converts its native finding into this struct so the rest of the
+/// system — JSON rendering (`build_doctor_report`), text printing
+/// (`print()`), coverage rollup, `--fail-on` gate, dedup — has exactly
+/// one type to walk.
+///
+/// Field-level visibility (Wave 4.3 R2): every field is `pub(crate)`
+/// so sibling submodules under `doctor/` (`aggregators/*`,
+/// `auth/*`, `route_guard/*`, `lzx/*`, …) can construct the envelope
+/// directly. The Wave 0.5 agent-first fields (`category`, `feature_name`,
+/// `construct`, `fix`, `group`) stay `Option<>` so every existing call
+/// site keeps compiling. New rules populate them when they have the
+/// information.
+///
+/// See `docs/proposals/tdd-bdd-first-2026-05-23.md` §Wave 0.5 for the
+/// agent-first envelope contract.
 #[derive(Debug, Clone)]
-struct DoctorDiagnostic {
-    path: PathBuf,
-    line: usize,
-    column: usize,
-    severity: DoctorSeverity,
-    code: String,
-    message: String,
+pub(crate) struct DoctorDiagnostic {
+    pub(crate) path: PathBuf,
+    pub(crate) line: usize,
+    pub(crate) column: usize,
+    pub(crate) severity: DoctorSeverity,
+    pub(crate) code: String,
+    pub(crate) message: String,
     // Wave 0.5 — agent-first JSON parity fields. Additive `Option<>` so
     // existing construction sites stay compiling; new rules and Wave 1+
     // migrations populate them explicitly. See
@@ -3618,21 +3641,21 @@ struct DoctorDiagnostic {
     /// when not set explicitly. `None` means "fall back to prefix
     /// derivation at consumption time".
     #[allow(dead_code)]
-    category: Option<RuleCategory>,
+    pub(crate) category: Option<RuleCategory>,
     /// Feature this diagnostic anchors to, when known (`None` for
     /// project-level / cross-feature / manifest checks).
     #[allow(dead_code)]
-    feature_name: Option<String>,
+    pub(crate) feature_name: Option<String>,
     /// Construct the diagnostic anchors to (`resource Foo`, `command
     /// bar`, `policy baz`, …). Wave 1+ populates from authoring sites.
     #[allow(dead_code)]
-    construct: Option<DoctorConstruct>,
+    pub(crate) construct: Option<DoctorConstruct>,
     /// Suggested fix, when one exists.
     #[allow(dead_code)]
-    fix: Option<DoctorFix>,
+    pub(crate) fix: Option<DoctorFix>,
     /// JSON rollup grouping (e.g. per-feature, per-rule). Wave 2 populates.
     #[allow(dead_code)]
-    group: Option<DoctorGroup>,
+    pub(crate) group: Option<DoctorGroup>,
 }
 
 /// Wave 0.5 skeleton — populated per-rule in Wave 1+.

@@ -928,7 +928,7 @@ pub fn type_ref_from_syntax_public(ty: &str) -> ir::TypeRef {
     type_ref_from_syntax(ty)
 }
 
-fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
+pub(crate) fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
     let raw = ty.trim();
     // Canonical authoring allows `list of <Type>` (legacy) and `list <Type>`
     // (Wave 0 canonical, per ir-returns-list-2026-05-22). Both lift to the
@@ -4280,7 +4280,7 @@ fn parse_cache_ttl(value: &str) -> ir::CacheTtl {
     ir::CacheTtl::Quoted(value.to_owned())
 }
 
-fn lower_command_input_to_typed(
+pub(crate) fn lower_command_input_to_typed(
     slot: &syntax::CommandInputSlot,
 ) -> Result<ir::TypedSlot, AnalyzeError> {
     // LAZ-SEMANTIC-AUTO-VALIDATE W2 — `@validate.skip` is an authoring
@@ -4402,7 +4402,7 @@ fn lower_route_redirect_target(target: &syntax::RouteRedirectTargetAst) -> ir::R
 /// Cross-feature contracts — lower the optional `public contract <X> as v<N>`
 /// AST clause into the IR `PublicContract` per
 /// `docs/proposals/cross-feature-contracts.md` §5.1.
-fn lower_public_contract(
+pub(crate) fn lower_public_contract(
     decl: &Option<syntax::PublicContractDeclAst>,
 ) -> Option<ir::PublicContract> {
     decl.as_ref().map(|d| ir::PublicContract {
@@ -4756,7 +4756,7 @@ fn find_field_level_cap_pii_span(text: &str) -> Option<(usize, usize)> {
 /// Project `syntax::FieldConstraintsDecl` onto the IR's
 /// `ir::FieldConstraints`. Combination + default checks happen
 /// separately; closed-catalog validate profiles are checked here.
-fn lift_field_constraints(
+pub(crate) fn lift_field_constraints(
     field: &str,
     decl: &syntax::FieldConstraintsDecl,
 ) -> Result<ir::FieldConstraints, AnalyzeError> {
@@ -4799,7 +4799,7 @@ fn lower_sanitize_html_profile(
 /// shipped parser stores both bounds as `i64`, so the comparison is
 /// total. This check runs after the combination rules so that conflict
 /// errors (which already cover redundancy) take precedence.
-fn validate_constraint_range_invariant(
+pub(crate) fn validate_constraint_range_invariant(
     field: &str,
     c: &syntax::FieldConstraintsDecl,
 ) -> Result<(), AnalyzeError> {
@@ -4839,7 +4839,7 @@ fn validate_constraint_range_invariant(
 /// - `pattern`: Text + semantic string variants ONLY
 /// - `between`: Integer, Decimal ONLY
 /// - `in`: Text, Integer, Decimal + semantic string variants
-fn validate_constraint_type_compatibility(
+pub(crate) fn validate_constraint_type_compatibility(
     field: &str,
     type_text: &str,
     c: &syntax::FieldConstraintsDecl,
@@ -4934,7 +4934,7 @@ fn validate_constraint_type_compatibility(
 /// reject (unbalanced `(`, unbalanced `[`, trailing `\`). Anything
 /// passing this check is still subject to the runtime regex
 /// compiler's authoritative judgement.
-fn validate_constraint_pattern_compile(
+pub(crate) fn validate_constraint_pattern_compile(
     field: &str,
     c: &syntax::FieldConstraintsDecl,
 ) -> Result<(), AnalyzeError> {
@@ -5013,7 +5013,7 @@ fn validate_constraint_pattern_compile(
 /// L0 #3 §10.2 — enforce inline constraint combination rules. Returns
 /// the first conflict so authors get one focused diagnostic per field
 /// (consistent with the rest of the analyzer).
-fn validate_constraint_combinations(
+pub(crate) fn validate_constraint_combinations(
     field: &str,
     c: &syntax::FieldConstraintsDecl,
 ) -> Result<(), AnalyzeError> {
@@ -5233,7 +5233,7 @@ fn lower_rate_limit_literal(literal: &str) -> String {
 /// `ir::Command`. The kind is inferred from the body shape: `creates`
 /// → Create, `updates` → Update, `deletes` → Delete, `returns` → Returns,
 /// `handler`-only → Returns (the escape hatch case).
-fn lower_command_decl(feature: &str, c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeError> {
+pub(crate) fn lower_command_decl(feature: &str, c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeError> {
     let kind = match c.effect.as_ref().map(|e| e.kind) {
         Some(syntax::CommandEffectKindDecl::Creates) => ir::CommandKind::Create,
         Some(syntax::CommandEffectKindDecl::Updates) => ir::CommandKind::Update,
