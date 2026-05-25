@@ -19,43 +19,96 @@
 //!   resources, runtime units have a serves/runs verb and a
 //!   healthcheck/readiness probe, etc.).
 //!
-//! ## Shared helpers
+//! ## Sub-modules
 //!
-//! Sub-helpers (`validate_app_*`, `parse_app_*`, `is_app_scalar_child`,
-//! `has_public_token`, `valid_env_declaration_parts`,
-//! `parse_env_group_name`, `adapter_source_provenance`,
-//! `valid_plugin_tail`, `valid_pathish_tail`, `valid_path_segment`,
-//! `validate_registry_pack_header`, `validate_registry_pack_child`) stay
-//! pub(crate) and are re-exported at the crate root via
-//! `pub(crate) use diagnostics::app::*;` so `diagnostics/registry.rs`
-//! and `diagnostics/profile.rs` continue resolving them via `crate::*`.
+//! Concern-shaped helpers live next door:
+//!
+//! * [`child`] — block-header recognition + scalar children
+//! * [`target`] — `targets` / `urls` / `bindings` / `packs`
+//! * [`env`] — `env` lines + `PUBLIC`/`EXPO_PUBLIC_` exposure rules
+//! * [`integration`] — `integrations` + adapter-source provenance
+//! * [`capability`] — `capabilities` line catalog
+//! * [`architecture`] — `architecture` + `communication`
+//! * [`service`] — `services` block + per-service facts
+//! * [`runtime`] — `runtime unit` block + per-unit facts
+//! * [`deploy`] — `deploy` block (mutates the parent facts)
+//!
+//! Everything is `pub(crate)` and re-exported from this module so the
+//! crate-root `pub(crate) use diagnostics::app::*;` in `lib.rs`
+//! continues to satisfy `crate::*` resolution in
+//! `diagnostics/registry.rs` and `diagnostics/profile.rs`.
 
-use std::collections::HashSet;
+mod architecture;
+mod capability;
+mod child;
+mod deploy;
+mod env;
+mod integration;
+mod runtime;
+mod service;
+mod target;
+
+// ABI: every `pub(crate)` helper from the sub-modules is re-exported
+// here so the crate-root `pub(crate) use diagnostics::app::*;` in
+// `lib.rs` keeps satisfying `crate::*` resolution from
+// `diagnostics/registry.rs`, `diagnostics/profile.rs`, and any future
+// consumer. The `#[allow(unused_imports)]` covers helpers that are
+// currently only consumed via the lib-root glob (not from inside
+// `app/mod.rs` itself).
+#[allow(unused_imports)]
+pub(crate) use architecture::{validate_app_architecture_line, validate_app_communication_line};
+#[allow(unused_imports)]
+pub(crate) use capability::validate_app_capability_line;
+#[allow(unused_imports)]
+pub(crate) use child::{
+    app_child_block, command_name_if, is_app_scalar_child, named_block_name,
+    validate_app_child_header, validate_app_scalar_child,
+};
+#[allow(unused_imports)]
+pub(crate) use deploy::validate_app_deploy_line;
+#[allow(unused_imports)]
+pub(crate) use env::{
+    has_public_token, parse_env_group_name, valid_env_declaration_parts, validate_app_env_line,
+};
+#[allow(unused_imports)]
+pub(crate) use integration::{
+    adapter_source_provenance, parse_app_integration_header, valid_path_segment,
+    valid_pathish_tail, valid_plugin_tail, validate_app_integration_child,
+    validate_app_integration_credential_line, validate_app_integration_header,
+};
+#[allow(unused_imports)]
+pub(crate) use runtime::{validate_app_runtime_unit_child, AppRuntimeUnitFacts};
+#[allow(unused_imports)]
+pub(crate) use service::{
+    validate_app_service_child, validate_app_service_exposure_line, AppServiceFacts,
+};
+#[allow(unused_imports)]
+pub(crate) use target::{
+    parse_app_binding_line, validate_app_binding_line, validate_app_pack_use_line,
+    validate_app_target_line, validate_app_url_line, validate_registry_pack_child,
+    validate_registry_pack_header,
+};
 
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 
-use crate::{
-    is_identifier, is_quoted_lzx_literal, is_type_name, leading_spaces,
-    parse_feature_integration_requirement, simple_canonical_diagnostic, split_items,
-    unquote_lzx_literal,
-};
+use crate::{is_identifier, leading_spaces, simple_canonical_diagnostic};
 
 #[derive(Debug)]
 pub(crate) struct AppOperationalFacts {
-    line_index: usize,
-    line: String,
-    has_uses: bool,
-    has_targets: bool,
-    has_environments: bool,
-    has_runtime: bool,
-    has_deploy: bool,
-    has_architecture: bool,
-    has_services: bool,
-    has_communication: bool,
-    deploy_has_migrations: bool,
-    deploy_has_rollback: bool,
-    runtime_units: Vec<AppRuntimeUnitFacts>,
-    services: Vec<AppServiceFacts>,
+    pub(crate) line_index: usize,
+    pub(crate) line: String,
+    pub(crate) has_uses: bool,
+    pub(crate) has_targets: bool,
+    pub(crate) has_environments: bool,
+    pub(crate) has_runtime: bool,
+    pub(crate) has_deploy: bool,
+    pub(crate) has_architecture: bool,
+    pub(crate) has_services: bool,
+    pub(crate) has_communication: bool,
+    pub(crate) deploy_has_migrations: bool,
+    pub(crate) deploy_has_rollback: bool,
+    pub(crate) runtime_units: Vec<AppRuntimeUnitFacts>,
+    pub(crate) services: Vec<AppServiceFacts>,
 }
 
 impl AppOperationalFacts {
@@ -80,46 +133,6 @@ impl AppOperationalFacts {
 }
 
 #[derive(Debug)]
-pub(crate) struct AppRuntimeUnitFacts {
-    line_index: usize,
-    line: String,
-    name: String,
-    has_serves_or_runs: bool,
-    has_healthcheck_or_readiness: bool,
-}
-
-impl AppRuntimeUnitFacts {
-    fn new(line_index: usize, line: &str, name: &str) -> Self {
-        Self {
-            line_index,
-            line: line.to_owned(),
-            name: name.to_owned(),
-            has_serves_or_runs: false,
-            has_healthcheck_or_readiness: false,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct AppServiceFacts {
-    line_index: usize,
-    line: String,
-    name: String,
-    has_owns: bool,
-}
-
-impl AppServiceFacts {
-    fn new(line_index: usize, line: &str, name: &str) -> Self {
-        Self {
-            line_index,
-            line: line.to_owned(),
-            name: name.to_owned(),
-            has_owns: false,
-        }
-    }
-}
-
-#[derive(Debug)]
 pub(crate) struct AppIntegrationFacts;
 
 impl AppIntegrationFacts {
@@ -127,8 +140,6 @@ impl AppIntegrationFacts {
         Self
     }
 }
-
-
 
 pub(crate) fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
@@ -491,785 +502,6 @@ pub(crate) fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnost
     }
 
     diagnostics
-}
-
-pub(crate) fn app_child_block(trimmed: &str) -> Option<&'static str> {
-    let first = trimmed.split_whitespace().next()?;
-    match first {
-        "uses" => Some("uses"),
-        "packs" => Some("packs"),
-        "bindings" => Some("bindings"),
-        "targets" => Some("targets"),
-        "environments" => Some("environments"),
-        "urls" => Some("urls"),
-        "cors" => Some("cors"),
-        // Roadmap §1.10 — `headers` block. Body validated by
-        // `headers_contract_diagnostics`; the LSP only needs to
-        // recognize the header so warnings don't fire on the
-        // children.
-        "headers" => Some("headers"),
-        // Roadmap §1.2 — HTTP hygiene blocks. Bodies are validated
-        // by doctor's app_(cookie|proxy|limits)_contract_diagnostics
-        // (closed catalog, parseable size/duration). LSP only needs
-        // to recognize the header so warnings don't fire on the
-        // children.
-        "cookie" => Some("cookie"),
-        "proxy" => Some("proxy"),
-        "limits" => Some("limits"),
-        "env" => Some("env"),
-        "integrations" => Some("integrations"),
-        "capabilities" => Some("capabilities"),
-        "architecture" => Some("architecture"),
-        "services" => Some("services"),
-        "communication" => Some("communication"),
-        "runtime" => Some("runtime"),
-        "deploy" => Some("deploy"),
-        "route_guard" => Some("route_guard"),
-        // Observability bucket cycle row 36 — `app.logging` /
-        // `app.tracing` are first-class app blocks. Child slots
-        // (`level`/`format`/`redact`/`sample_rate` for logging;
-        // `propagate`/`sample_rate`/`exporter` for tracing) are
-        // closed-catalog-checked by doctor.
-        "logging" => Some("logging"),
-        "tracing" => Some("tracing"),
-        // i18n bucket cycle — `app.locale` block (default / supported /
-        // fallback). Supersedes bare `default_locale` scalar.
-        "locale" => Some("locale"),
-        // Encryption bucket cycle — `app.encryption` block carries one
-        // `key @key.<scope>` per scope referenced by
-        // `@cap.Encrypted` / `@cap.E2ee` field sites. Body grammar
-        // (`source` / `algorithm` / `rotation`) is doctor-validated;
-        // the LSP only needs to recognize the header so warnings
-        // don't fire on the children.
-        "encryption" => Some("encryption"),
-        _ => None,
-    }
-}
-
-
-
-
-pub(crate) fn command_name_if(trimmed: &str) -> Option<String> {
-    named_block_name(trimmed, "command").map(str::to_owned)
-}
-
-pub(crate) fn named_block_name<'a>(trimmed: &'a str, keyword: &str) -> Option<&'a str> {
-    let rest = trimmed.strip_prefix(keyword)?;
-    if !rest.starts_with(char::is_whitespace) {
-        return None;
-    }
-    let rest = rest.trim_start();
-    let name = rest.split_whitespace().next()?;
-    is_identifier(name).then_some(name)
-}
-
-pub(crate) fn is_app_scalar_child(trimmed: &str) -> bool {
-    matches!(
-        trimmed.split_whitespace().next(),
-        Some(
-            "title"
-                | "version"
-                // ABI pin enforced by doctor LAZULI-VERSION-001;
-                // accept here so the LSP doesn't redundantly warn
-                // that `lazuli_version "0.15"` isn't a recognized
-                // app block.
-                | "lazuli_version"
-                | "default_locale"
-                | "default_timezone"
-                | "auth_failed_redirect"
-                | "actor_query"
-                | "not_found"
-        )
-    )
-}
-
-pub(crate) fn validate_app_child_header(
-    diagnostics: &mut Vec<Diagnostic>,
-    line_index: usize,
-    line: &str,
-    trimmed: &str,
-) {
-    let first = trimmed.split_whitespace().next().unwrap_or_default();
-    if matches!(
-        first,
-        "targets"
-            | "bindings"
-            | "packs"
-            | "environments"
-            | "urls"
-            | "env"
-            | "integrations"
-            | "capabilities"
-            | "architecture"
-            | "services"
-            | "communication"
-            | "runtime"
-            | "route_guard"
-            | "deploy"
-    ) && trimmed != first
-    {
-        diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            line,
-            DiagnosticSeverity::WARNING,
-            "app-operational-contract",
-            "multi-line app manifest blocks use a bare block header, with entries nested below it.",
-        ));
-    }
-}
-
-pub(crate) fn validate_app_scalar_child(
-    diagnostics: &mut Vec<Diagnostic>,
-    line_index: usize,
-    line: &str,
-    trimmed: &str,
-) {
-    let parts: Vec<_> = trimmed.split_whitespace().collect();
-    if parts.len() < 2 {
-        diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            line,
-            DiagnosticSeverity::WARNING,
-            "app-operational-contract",
-            "app scalar declarations need a value.",
-        ));
-    }
-}
-
-pub(crate) fn validate_app_architecture_line(
-    diagnostics: &mut Vec<Diagnostic>,
-    line_index: usize,
-    line: &str,
-    trimmed: &str,
-) {
-    let parts: Vec<_> = trimmed.split_whitespace().collect();
-    match parts.as_slice() {
-        ["mode", value]
-            if matches!(*value, "monolith" | "modular_monolith" | "microservices") => {}
-        ["service_ready", value] | ["enforce_service_boundaries", value]
-            if matches!(*value, "true" | "false") => {}
-        _ => diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            line,
-            DiagnosticSeverity::WARNING,
-            "app-architecture-contract",
-            "architecture lines use `mode monolith|modular_monolith|microservices`, `service_ready true|false`, or `enforce_service_boundaries true|false`.",
-        )),
-    }
-}
-
-pub(crate) fn validate_app_communication_line(
-    diagnostics: &mut Vec<Diagnostic>,
-    line_index: usize,
-    line: &str,
-    trimmed: &str,
-) {
-    let parts: Vec<_> = trimmed.split_whitespace().collect();
-    match parts.as_slice() {
-        ["internal", "sync", value] if matches!(*value, "rpc" | "http" | "in_process") => {}
-        ["external", value] if matches!(*value, "http") => {}
-        ["async", value] if matches!(*value, "event_bus" | "in_process") => {}
-        ["propagate", rest @ ..]
-            if !rest.is_empty()
-                && split_items(&rest.join(" ")).iter().all(|item| {
-                    matches!(
-                        item.as_str(),
-                        "actor" | "tenant" | "trace_id" | "request_id" | "locale"
-                    )
-                }) => {}
-        ["timeout", "default", value] if is_quoted_lzx_literal(value) => {}
-        ["retry", "default", count, "backoff", strategy]
-            if count.parse::<u32>().is_ok() && matches!(*strategy, "fixed" | "exponential") => {}
-        _ => diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            line,
-            DiagnosticSeverity::WARNING,
-            "app-communication-contract",
-            "communication lines use `internal sync rpc|http|in_process`, `external http`, `async event_bus|in_process`, `propagate ...`, `timeout default \"...\"`, or `retry default <n> backoff fixed|exponential`.",
-        )),
-    }
-}
-
-pub(crate) fn validate_app_service_child(
-    diagnostics: &mut Vec<Diagnostic>,
-    service: &mut AppServiceFacts,
-    current_service_child: &mut Option<&'static str>,
-    line_index: usize,
-    line: &str,
-    trimmed: &str,
-) {
-    if let Some(rest) = trimmed.strip_prefix("owns ") {
-        service.has_owns = true;
-        *current_service_child = None;
-        if split_items(rest).is_empty() {
-            diagnostics.push(simple_canonical_diagnostic(
-                line_index,
-                line,
-                DiagnosticSeverity::WARNING,
-                "app-service-contract",
-                "service ownership uses `owns feature_a, feature_b`.",
-            ));
-        }
-        return;
-    }
-
-    if trimmed == "exposes" {
-        *current_service_child = Some("exposes");
-        return;
-    }
-
-    if let Some(rest) = trimmed
-        .strip_prefix("publishes ")
-        .or_else(|| trimmed.strip_prefix("consumes "))
-    {
-        *current_service_child = None;
-        if split_items(rest).is_empty() {
-            diagnostics.push(simple_canonical_diagnostic(
-                line_index,
-                line,
-                DiagnosticSeverity::WARNING,
-                "app-service-contract",
-                "service event edges use `publishes event.*` or `consumes feature.event_name`.",
-            ));
-        }
-        return;
-    }
-
-    diagnostics.push(simple_canonical_diagnostic(
-        line_index,
-        line,
-        DiagnosticSeverity::WARNING,
-        "app-service-contract",
-        "service children use `owns ...`, `exposes`, `publishes ...`, or `consumes ...`.",
-    ));
-}
-
-pub(crate) fn validate_app_service_exposure_line(
-    diagnostics: &mut Vec<Diagnostic>,
-    line_index: usize,
-    line: &str,
-    trimmed: &str,
-) {
-    let parts: Vec<_> = trimmed.split_whitespace().collect();
-    if parts.len() != 2
-        || !matches!(
-            parts[0],
-            "query" | "command" | "api" | "workflow" | "report"
-        )
-    {
-        diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            line,
-            DiagnosticSeverity::WARNING,
-            "app-service-contract",
-            "service exposures use `query|command|api|workflow|report <feature>.<kind>.<name>`.",
-        ));
-    }
-}
-
-pub(crate) fn validate_app_target_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
-    let trimmed = line.trim_start();
-    let parts: Vec<_> = trimmed.split_whitespace().collect();
-    if parts.len() != 2 || !matches!(parts[0], "backend" | "web" | "mobile") {
-        diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            line,
-            DiagnosticSeverity::ERROR,
-            "app-target-contract",
-            "app targets use `backend <runtime>`, `web <runtime>`, or `mobile <runtime>`.",
-        ));
-    }
-}
-
-pub(crate) fn validate_app_url_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
-    let trimmed = line.trim_start();
-    let parts: Vec<_> = trimmed.split_whitespace().collect();
-    if parts.len() != 3 || !matches!(parts[0], "web" | "api" | "mobile") {
-        diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            line,
-            DiagnosticSeverity::WARNING,
-            "app-url-contract",
-            "app URLs use `<web|api|mobile> <environment> \"https://...\"`.",
-        ));
-        return;
-    }
-
-    let url = unquote_lzx_literal(parts[2]);
-    if !(url.starts_with("http://") || url.starts_with("https://")) {
-        diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            line,
-            DiagnosticSeverity::WARNING,
-            "app-url-contract",
-            "app URLs should be absolute HTTP(S) URLs so generated clients, CORS, emails, and callbacks agree.",
-        ));
-    }
-
-    if parts[1] != "local" && url.starts_with("http://") {
-        diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            line,
-            DiagnosticSeverity::WARNING,
-            "app-url-contract",
-            "non-local app URLs should use HTTPS.",
-        ));
-    }
-}
-
-pub(crate) fn validate_app_binding_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
-    let trimmed = line.trim_start();
-    if parse_app_binding_line(trimmed).is_none() {
-        diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            line,
-            DiagnosticSeverity::WARNING,
-            "app-binding-contract",
-            "app bindings use `<feature>.<slot> = integrations.<name>` or `<feature>.<slot> = registry.integrations.<name>`.",
-        ));
-    }
-}
-
-pub(crate) fn validate_app_pack_use_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
-    let trimmed = line.trim_start();
-    let Some((name, source)) = trimmed.split_once(" from ") else {
-        diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            line,
-            DiagnosticSeverity::WARNING,
-            "app-pack-contract",
-            "app pack entries use `<alias> from registry.packs.<name>` or `<alias> from packs.<name>`.",
-        ));
-        return;
-    };
-
-    let source_name = source
-        .trim()
-        .strip_prefix("packs.")
-        .or_else(|| source.trim().strip_prefix("registry.packs."));
-    if !is_identifier(name.trim()) || !source_name.is_some_and(is_identifier) {
-        diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            line,
-            DiagnosticSeverity::WARNING,
-            "app-pack-contract",
-            "app pack entries use identifier aliases and `packs.<name>` or `registry.packs.<name>` sources.",
-        ));
-    }
-}
-
-pub(crate) fn validate_registry_pack_header(
-    diagnostics: &mut Vec<Diagnostic>,
-    line_index: usize,
-    line: &str,
-    trimmed: &str,
-) {
-    let Some((name, source)) = trimmed.split_once(" from ") else {
-        diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            line,
-            DiagnosticSeverity::WARNING,
-            "registry-pack-contract",
-            "registry packs use `<name> from @scope/package` or a local path.",
-        ));
-        return;
-    };
-
-    let source = source.trim();
-    let valid_source = source.starts_with('@')
-        || source.starts_with("./")
-        || source.starts_with("../")
-        || source.starts_with("http://")
-        || source.starts_with("https://")
-        || is_quoted_lzx_literal(source);
-
-    if !is_identifier(name.trim()) || !valid_source {
-        diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            line,
-            DiagnosticSeverity::WARNING,
-            "registry-pack-contract",
-            "registry pack entries use identifier names and package/path sources such as `payments from @runtime/payments`.",
-        ));
-    }
-}
-
-pub(crate) fn validate_registry_pack_child(
-    diagnostics: &mut Vec<Diagnostic>,
-    line_index: usize,
-    line: &str,
-    trimmed: &str,
-) {
-    if let Some(version) = trimmed.strip_prefix("version ") {
-        if is_quoted_lzx_literal(version.trim()) {
-            return;
-        }
-    }
-
-    let parts: Vec<_> = trimmed.split_whitespace().collect();
-    if matches!(parts.as_slice(), ["provides", kind, name] if is_identifier(kind) && is_identifier(name))
-    {
-        return;
-    }
-
-    if let Some(requirement) = trimmed.strip_prefix("requires ")
-        && parse_feature_integration_requirement(requirement).is_some()
-    {
-        return;
-    }
-
-    diagnostics.push(simple_canonical_diagnostic(
-        line_index,
-        line,
-        DiagnosticSeverity::WARNING,
-        "registry-pack-contract",
-        "pack children use `version \"...\"`, `provides feature <name>`, or `requires integration <slot>: <CapabilityType>`.",
-    ));
-}
-
-pub(crate) fn parse_app_binding_line(trimmed: &str) -> Option<(&str, &str, &str)> {
-    let (target, source) = trimmed.split_once('=')?;
-    let target = target.trim();
-    let source = source.trim();
-    let (feature, slot) = target.split_once('.')?;
-    let source_name = source
-        .strip_prefix("integrations.")
-        .or_else(|| source.strip_prefix("registry.integrations."))?;
-
-    if is_identifier(feature) && is_identifier(slot) && is_identifier(source_name) {
-        Some((feature, slot, source_name))
-    } else {
-        None
-    }
-}
-
-pub(crate) fn validate_app_env_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
-    let trimmed = line.trim_start();
-    let parts: Vec<_> = trimmed.split_whitespace().collect();
-    if !valid_env_declaration_parts(&parts) {
-        diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            line,
-            DiagnosticSeverity::ERROR,
-            "app-env-contract",
-            "app env declarations use `server|client|mobile NAME: Secret|Text|Url|Boolean|Integer required|optional [in environment]`.",
-        ));
-        return;
-    }
-
-    let name = parts[1].trim_end_matches(':');
-    if parts[0] == "client" && !has_public_token(name) {
-        diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            line,
-            DiagnosticSeverity::WARNING,
-            "env-client-exposure",
-            "client env names should contain a `PUBLIC` token (e.g. `PUBLIC_MERCADOPAGO_KEY` or vendor-style `MERCADOPAGO_PUBLIC_KEY`) so secret/server-only values are not accidentally bundled.",
-        ));
-    }
-
-    if parts[0] == "mobile" && !name.starts_with("EXPO_PUBLIC_") {
-        diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            line,
-            DiagnosticSeverity::WARNING,
-            "env-mobile-exposure",
-            "mobile env names should use an `EXPO_PUBLIC_` prefix so Expo-visible values are explicit.",
-        ));
-    }
-}
-
-/// Closes WAR-DOCTOR-ENV-01 false-positive. `PUBLIC` may appear as
-/// the leading token (`PUBLIC_API_KEY`) OR as a mid-name token
-/// (`MERCADOPAGO_PUBLIC_KEY`, `STRIPE_PUBLIC_KEY`). Vendor SDKs
-/// frequently impose the latter shape because their key names are
-/// fixed by the upstream service. As long as `PUBLIC` shows up as a
-/// `_`-delimited token, the author has signalled intent to expose.
-pub(crate) fn has_public_token(name: &str) -> bool {
-    name.split('_').any(|token| token == "PUBLIC")
-}
-
-pub(crate) fn valid_env_declaration_parts(parts: &[&str]) -> bool {
-    let has_environment_scope = parts.len() >= 6
-        && parts[4] == "in"
-        && split_items(&parts[5..].join(" "))
-            .iter()
-            .all(|environment| is_identifier(environment));
-
-    (parts.len() == 4 || has_environment_scope)
-        && matches!(parts[0], "server" | "client" | "mobile")
-        && parts[1].ends_with(':')
-        && matches!(parts[2], "Secret" | "Text" | "Url" | "Boolean" | "Integer")
-        && matches!(parts[3], "required" | "optional")
-}
-
-pub(crate) fn parse_env_group_name(trimmed: &str) -> Option<&str> {
-    let parts: Vec<_> = trimmed.split_whitespace().collect();
-    if parts.len() == 2 && parts[0] == "group" && is_identifier(parts[1]) {
-        Some(parts[1])
-    } else {
-        None
-    }
-}
-
-pub(crate) fn validate_app_integration_header(
-    diagnostics: &mut Vec<Diagnostic>,
-    line_index: usize,
-    line: &str,
-    trimmed: &str,
-) {
-    if parse_app_integration_header(trimmed).is_none() {
-        diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            line,
-            DiagnosticSeverity::WARNING,
-            "app-integration-contract",
-            "integrations use `<name>: <CapabilityType>` such as `crm: CRMProvider`; provider details stay in adapters.",
-        ));
-    }
-}
-
-pub(crate) fn parse_app_integration_header(trimmed: &str) -> Option<(&str, &str)> {
-    let (name, kind) = trimmed.split_once(':')?;
-    let name = name.trim();
-    let kind = kind.trim();
-    if is_identifier(name) && is_type_name(kind) {
-        Some((name, kind))
-    } else {
-        None
-    }
-}
-
-pub(crate) fn validate_app_integration_child(
-    diagnostics: &mut Vec<Diagnostic>,
-    current_integration_child: &mut Option<&'static str>,
-    line_index: usize,
-    line: &str,
-    trimmed: &str,
-) {
-    let parts: Vec<_> = trimmed.split_whitespace().collect();
-    match parts.as_slice() {
-        ["adapter", adapter] if adapter_source_provenance(adapter).is_some() => {
-            *current_integration_child = None;
-        }
-        ["environments", rest @ ..]
-            if !rest.is_empty()
-                && split_items(&rest.join(" "))
-                    .iter()
-                    .all(|environment| is_identifier(environment)) =>
-        {
-            *current_integration_child = None;
-        }
-        ["credentials", scope] if matches!(*scope, "platform" | "tenant" | "actor") => {
-            *current_integration_child = Some("credentials");
-        }
-        ["data_classification", classification] if classification.starts_with("@pii.") => {
-            *current_integration_child = None;
-        }
-        // B1 (W3-blockers) — `bindings` registry sugar accepted at the
-        // same indent-6 site as the canonical integration children.
-        // `endpoint <source>` lowers to a single credential binding;
-        // `auth keys <id-source> <secret-source>` lowers to the two
-        // positional S3-style credential bindings. Both lines reuse
-        // the existing `parse_credential_binding`-shaped source grammar
-        // (env.X / secrets.X / literal).
-        ["endpoint", source] if !source.is_empty() => {
-            *current_integration_child = None;
-        }
-        ["auth", "keys", id_source, secret_source]
-            if !id_source.is_empty() && !secret_source.is_empty() =>
-        {
-            *current_integration_child = None;
-        }
-        _ => diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            line,
-            DiagnosticSeverity::WARNING,
-            "app-integration-contract",
-            "integration children use `adapter @runtime/...`, `adapter @lazuli/plugin-publisher/name`, `adapter @adapter.<local>`, local adapter paths, `environments ...`, `credentials platform|tenant|actor`, `endpoint env.<NAME>`, `auth keys env.<ID> env.<SECRET>`, or `data_classification @pii.<class>`.",
-        )),
-    }
-}
-
-pub(crate) fn adapter_source_provenance(source: &str) -> Option<&'static str> {
-    if source
-        .strip_prefix("@runtime/")
-        .is_some_and(valid_pathish_tail)
-    {
-        Some("runtime")
-    } else if source
-        .strip_prefix("@lazuli/plugin-")
-        .is_some_and(valid_plugin_tail)
-    {
-        Some("plugin")
-    } else if source.strip_prefix("@adapter.").is_some_and(is_identifier)
-        || source.starts_with("./")
-        || source.starts_with("../")
-        || is_quoted_lzx_literal(source)
-    {
-        Some("local")
-    } else {
-        None
-    }
-}
-
-pub(crate) fn valid_plugin_tail(value: &str) -> bool {
-    // Mirror `app_manifest::valid_plugin_tail` — accept single-segment
-    // (`@lazuli/plugin-<name>`) as well as multi-segment (`@lazuli/plugin-<publisher>/<name>`).
-    // All currently-shipped Lazuli plugins use the single-segment convention.
-    let segments: Vec<&str> = value.split('/').filter(|p| !p.is_empty()).collect();
-    !segments.is_empty() && segments.iter().all(|s| valid_path_segment(s))
-}
-
-pub(crate) fn valid_pathish_tail(value: &str) -> bool {
-    !value.is_empty() && value.split('/').all(valid_path_segment)
-}
-
-pub(crate) fn valid_path_segment(value: &str) -> bool {
-    !value.is_empty()
-        && value
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'))
-}
-
-pub(crate) fn validate_app_integration_credential_line(
-    diagnostics: &mut Vec<Diagnostic>,
-    line_index: usize,
-    line: &str,
-    trimmed: &str,
-) {
-    let mut parts = trimmed.split_whitespace();
-    let Some(name) = parts.next() else {
-        return;
-    };
-    let source = parts.collect::<Vec<_>>().join(" ");
-    if !is_identifier(name) || source.is_empty() {
-        diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            line,
-            DiagnosticSeverity::WARNING,
-            "app-integration-contract",
-            "integration credentials use `<credential_name> <source>`, for example `access_token env.MERCADOPAGO_ACCESS_TOKEN`.",
-        ));
-    }
-}
-
-pub(crate) fn validate_app_capability_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
-    let trimmed = line.trim_start();
-    let parts: Vec<_> = trimmed.split_whitespace().collect();
-    if parts.len() != 2
-        || !matches!(
-            parts[0],
-            "database"
-                | "queue"
-                | "object_storage"
-                | "mailer"
-                | "event_bus"
-                | "tracing"
-                | "search"
-                | "cache"
-                | "storage"
-                | "secret_provider"
-                | "integration"
-                | "secret_provider"
-                | "payment_gateway"
-                | "credit_bureau"
-        )
-    {
-        diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            line,
-            DiagnosticSeverity::WARNING,
-            "app-capability-contract",
-            "app capabilities declare intent such as `database postgres`, `queue background_jobs`, `object_storage files`, or `integration crm`; providers stay in adapters under `@runtime/<name>`.",
-        ));
-    }
-}
-
-pub(crate) fn validate_app_deploy_line(
-    diagnostics: &mut Vec<Diagnostic>,
-    app: &mut AppOperationalFacts,
-    line_index: usize,
-    line: &str,
-    trimmed: &str,
-) {
-    let parts: Vec<_> = trimmed.split_whitespace().collect();
-    match parts.as_slice() {
-        ["migrations", value] if matches!(*value, "before_deploy" | "manual" | "disabled") => {
-            app.deploy_has_migrations = true;
-        }
-        ["migration_lock", value] if matches!(*value, "required" | "optional") => {}
-        ["destructive_migrations", value]
-            if matches!(*value, "require_approval" | "forbidden" | "manual") => {}
-        ["rollback", value]
-            if matches!(*value, "on_failed_healthcheck" | "manual" | "disabled") =>
-        {
-            app.deploy_has_rollback = true;
-        }
-        // Migrations bucket cycle Route C — five new deploy children.
-        // `strategy` catalog enforced downstream by `DEPLOY-STRATEGY-001`.
-        ["strategy", value]
-            if matches!(*value, "rolling" | "blue_green" | "canary") => {}
-        ["lock_timeout", _value] => {}
-        ["pre_migration_hook", _value] => {}
-        ["post_migration_hook", _value] => {}
-        ["checkpoint", _name, _path] => {}
-        _ => diagnostics.push(simple_canonical_diagnostic(
-            line_index,
-            line,
-            DiagnosticSeverity::WARNING,
-            "app-deploy-contract",
-            "deploy contracts use `migrations before_deploy|manual|disabled`, `migration_lock required|optional`, `destructive_migrations require_approval|forbidden`, `rollback on_failed_healthcheck|manual|disabled`, `strategy rolling|blue_green|canary`, `lock_timeout \"<duration>\"`, `pre_migration_hook \"<path>\"`, `post_migration_hook \"<path>\"`, and `checkpoint <name> \"<path>\"`.",
-        )),
-    }
-}
-
-pub(crate) fn validate_app_runtime_unit_child(
-    diagnostics: &mut Vec<Diagnostic>,
-    unit: &mut AppRuntimeUnitFacts,
-    line_index: usize,
-    line: &str,
-    trimmed: &str,
-) {
-    if trimmed.starts_with("serves ") || trimmed.starts_with("runs ") {
-        unit.has_serves_or_runs = true;
-        return;
-    }
-
-    if let Some(path) = trimmed
-        .strip_prefix("healthcheck ")
-        .or_else(|| trimmed.strip_prefix("readiness "))
-    {
-        unit.has_healthcheck_or_readiness = true;
-        let path = unquote_lzx_literal(path.trim());
-        if !path.starts_with('/') {
-            diagnostics.push(simple_canonical_diagnostic(
-                line_index,
-                line,
-                DiagnosticSeverity::WARNING,
-                "app-runtime-contract",
-                "runtime healthcheck/readiness paths should be absolute paths such as `\"/healthz\"`.",
-            ));
-        }
-        return;
-    }
-
-    // i18n bucket cycle — `locale_negotiate` opens a child block whose
-    // entries land at indent 8. The LSP file-local rule accepts the
-    // header; doctor validates the body via the IR
-    // (`locale_negotiate_source_invalid`, `_strategy_invalid`,
-    // `app_locale_fallback_unknown_dest`).
-    if trimmed == "locale_negotiate" {
-        return;
-    }
-
-    diagnostics.push(simple_canonical_diagnostic(
-        line_index,
-        line,
-        DiagnosticSeverity::WARNING,
-        "app-runtime-contract",
-        "runtime unit children use `serves ...`, `runs ...`, `healthcheck \"...\"`, `readiness \"...\"`, or `locale_negotiate`.",
-    ));
 }
 
 pub(crate) fn app_operational_block_diagnostics(app: AppOperationalFacts) -> Vec<Diagnostic> {
