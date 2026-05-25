@@ -39,6 +39,10 @@ pub use nodes::error_vocab::{
     ErrorExposeRule, ErrorExposureDefault, FeatureErrorMessage, FeatureErrors, FeatureFieldError,
     TranslationKeyRef,
 };
+pub use nodes::mcp::{
+    MCPAuth, MCPParam, MCPPrompt, MCPResource, MCPServerMetadata, MCPServerSpec, MCPTool,
+    MCPTransport,
+};
 pub use nodes::plan_and_gate::{
     AutoPhotoCommandRole, Gate, Plan, PlanCatalog, PlanLimit, PlanLimitValue, SubscriptionAnchor,
     SynthesizedFromCapFile, TrialPolicy,
@@ -4681,127 +4685,14 @@ pub struct EscapeRoute {
 
 
 /// Phase L Tier 3 — `event_group <pattern> on <Resource>` declaration.
-// ============================================================================
-// MCP bucket cycle — IR mirroring of feature-scoped `mcp_server <name>`
-// blocks. See `docs/proposals/bucket-mcp-cycle.md` §L1.
-// ============================================================================
+// =============================================================================
+// MCP bucket cycle — feature-scoped `mcp_server <name>` IR.
+// MCP family (MCPServerSpec, MCPTransport, MCPAuth, MCPServerMetadata,
+// MCPTool, MCPResource, MCPPrompt, MCPParam) lives in nodes::mcp after the
+// W4.1 rails-style split. Re-exported at the crate root above to preserve
+// the ABI surface. See docs/proposals/bucket-mcp-cycle.md §L1.
+// =============================================================================
 
-/// MCP server endpoint declaration. Codegen emits one
-/// `<feature>_mcp_<name>.mcp.gen.go` per entry, wiring the runtime helper
-/// against the upstream Go SDK.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MCPServerSpec {
-    pub name: String,
-    /// Closed catalog: `stdio` | `http_sse` | `http_streamable`.
-    pub transport: MCPTransport,
-    /// `scope feature.<name>` — captures which feature surface this
-    /// server projects. None for top-level mcp_server (future).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scope_feature: Option<String>,
-    /// `auth bearer env.<NAME>` — optional. Stored verbatim
-    /// (the env var name lives in `MCPAuth::BearerEnvVar`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub auth: Option<MCPAuth>,
-    pub metadata: MCPServerMetadata,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tools: Vec<MCPTool>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub resources: Vec<MCPResource>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub prompts: Vec<MCPPrompt>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// Closed catalog of MCP wire transports. Doctor `MCP-TRANSPORT-001`
-/// enforces.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MCPTransport {
-    Stdio,
-    HttpSse,
-    HttpStreamable,
-}
-
-/// MCP auth shape. v0 only supports bearer-via-env; future expansions
-/// (OAuth, mTLS) widen the enum without breaking the bearer form.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value")]
-pub enum MCPAuth {
-    BearerEnvVar { env: String },
-}
-
-/// Server metadata projected over the MCP `initialize` response.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MCPServerMetadata {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub version: Option<String>,
-}
-
-/// A single MCP tool declaration. `handler` is an `@fn.<name>` ref
-/// resolved by codegen against the feature's `handlers/<name>.go`
-/// (or, when scope is cross-feature, the resolution is done by the
-/// analyzer ahead of codegen).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MCPTool {
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub params: Vec<MCPParam>,
-    /// `returns <KindRef>` — optional verbatim type reference. Doctor
-    /// `MCP-TOOL-RETURNS-001` validates it resolves to a known kind.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub returns_kind: Option<String>,
-    /// `handler @fn.<name>` — required.
-    pub handler_fn: String,
-    /// `policy @policy.<name>` — optional.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// A single MCP resource declaration.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MCPResource {
-    pub name: String,
-    pub uri_template: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mime: Option<String>,
-    pub handler_fn: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// A single MCP prompt declaration.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MCPPrompt {
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub params: Vec<MCPParam>,
-    pub template_path: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// One parameter row inside an `MCPTool` or `MCPPrompt`. `ty_literal`
-/// is the verbatim author-side type token (`string`, `int`,
-/// `enum [a, b]`, etc.); codegen renders it to JSON Schema.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MCPParam {
-    pub name: String,
-    pub ty_literal: String,
-    pub required: bool,
-}
 
 ///
 /// The pattern is a glob (`customer_*`) the doctor uses to bind

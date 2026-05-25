@@ -37,5 +37,6 @@ pub mod async_work;
 pub mod auth;
 pub mod capability;
 pub mod error_vocab;
+pub mod mcp;
 pub mod plan_and_gate;
 pub mod report;

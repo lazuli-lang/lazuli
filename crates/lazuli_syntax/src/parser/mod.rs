@@ -1,4 +1,30 @@
-use thiserror::Error;
+//! .lzi + .lzx source-text parser.
+//!
+//! Wave 4.4 of the rails-style refactor split the original 23k-LOC
+//! `parser.rs` into this directory. The goal is per-source-kind
+//! modules so future contributors don't bisect a single megafile when
+//! tracking down a parse rule. The split is staged — until every slice
+//! lands, `mod.rs` still hosts the bulk of the code; the small leaves
+//! (`error.rs`, eventually `common.rs`, `lzi.rs`, `lzx.rs`) carve it
+//! down one bounded chunk at a time.
+//!
+//! ## What lives where
+//!
+//! - `error.rs` — the `ParseError` envelope returned by every entry
+//!   point. Spans for Pest-flavour errors are authored-side; analyzer
+//!   diagnostics upgrade those into coded findings downstream.
+//! - `mod.rs` (transient) — everything else, pending extraction.
+//!
+//! ## See also
+//!
+//! - `docs/canonical-semantics.md` — the source-of-truth grammar
+//!   reference these parsers implement.
+//! - `lazuli_ir::nodes` — the typed IR shapes the analyzer lowers
+//!   parser AST into.
+
+mod error;
+
+pub use error::ParseError;
 
 use crate::ast::OwnerAxisAst;
 use crate::ast::{
@@ -151,24 +177,6 @@ pub struct PollerRetryQuirkAst {
     pub mutate_field: String,
     pub mutate_transform: String,
     pub span: Span,
-}
-
-#[derive(Debug, Error)]
-pub enum ParseError {
-    #[error("{message}")]
-    Pest { message: String, span: Span },
-
-    #[error("internal parser error: expected {expected}")]
-    Expected { expected: &'static str },
-}
-
-impl ParseError {
-    pub fn span(&self) -> Span {
-        match self {
-            Self::Pest { span, .. } => *span,
-            Self::Expected { .. } => Span::new(0, 1),
-        }
-    }
 }
 
 pub fn parse_lzx_document(source: &str) -> Result<LzxDocument, ParseError> {
@@ -17535,7 +17543,7 @@ mod tests {
     #[test]
     fn full_capsule_view_tests_round_trip() {
         let document =
-            parse_lzx_document(include_str!("../../../examples/full-capsule/full-capsule.lzx"))
+            parse_lzx_document(include_str!("../../../../examples/full-capsule/full-capsule.lzx"))
                 .unwrap();
         let detail_view = document
             .experiences
@@ -17568,7 +17576,7 @@ mod tests {
     #[test]
     fn parses_lzx_experience_and_platform_surface() {
         let experience =
-            parse_lzx_document(include_str!("../../../examples/customer-capsule.lzx")).unwrap();
+            parse_lzx_document(include_str!("../../../../examples/customer-capsule.lzx")).unwrap();
         assert_eq!(experience.experiences.len(), 1);
         assert_eq!(experience.experiences[0].name, "customer");
         assert_eq!(experience.experiences[0].imports, vec!["customer"]);
@@ -17580,7 +17588,7 @@ mod tests {
         assert_eq!(experience.experiences[0].views[1].anchor.as_deref(), None);
 
         let surface =
-            parse_lzx_document(include_str!("../../../examples/customer-capsule.web.lzx")).unwrap();
+            parse_lzx_document(include_str!("../../../../examples/customer-capsule.web.lzx")).unwrap();
         assert_eq!(surface.surfaces.len(), 1);
         assert_eq!(surface.surfaces[0].experience, "customer");
         assert_eq!(surface.surfaces[0].platform, LzxPlatform::Web);
@@ -18346,7 +18354,7 @@ feature customer
         // line-walker tolerates the actual indent pattern (2/4/6/8 spaces),
         // the comments and blank lines scattered through the file, and
         // every non-agent feature child it should skip.
-        let source = include_str!("../../../examples/full-capsule/full-capsule.lzi");
+        let source = include_str!("../../../../examples/full-capsule/full-capsule.lzi");
         let features = parse_feature_skeletons(source).expect("parses");
 
         // The fixture declares five features; the slice surfaces them all
@@ -20412,7 +20420,7 @@ feature account
         // Smoke check that the canonical fixture (extended in Cell
         // PARSE-1) still parses end-to-end and the new IR slots are
         // populated for the `customer` feature.
-        let source = include_str!("../../../examples/full-capsule/full-capsule.lzi");
+        let source = include_str!("../../../../examples/full-capsule/full-capsule.lzi");
         let features = parse_feature_skeletons(source).expect("parses");
         let customer = features
             .iter()
