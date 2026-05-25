@@ -1,0 +1,99 @@
+//! `[doctor]` block schema — Wave 0.5 (severity overrides), Wave 1.5
+//! (test_discipline preset), Wave 3 (internal_hygiene), Wave 6
+//! (coverage thresholds + Frente 1 preset shortcut).
+//!
+//! Each sub-block stays optional so most pilots author only the
+//! sections relevant to their CI posture. The `DOCTOR-OVERRIDE-NEEDS-
+//! REASON-001` analyzer enforces `reason = "..."` on every entry.
+
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+/// Wave 0.5 + Wave 6 + Wave 3 (rails-style) — `[doctor]` block in `Lazurite.toml`.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct Doctor {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test_discipline: Option<TestDisciplineDoctor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<CoverageSection>,
+    /// W3 (rails-style-refactor) — `[doctor.internal_hygiene]` block.
+    /// Governs `INTERNAL-*` rules that audit the framework's own Rust
+    /// source under `lazuli doctor --self`. Mirrors test_discipline shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub internal_hygiene: Option<InternalHygieneDoctor>,
+}
+
+/// W3 — `[doctor.internal_hygiene]` block.
+///
+/// Configures the four `INTERNAL-*` rules that audit the framework's
+/// Rust source. Under `preset = "tdd-iron-hand"`, every rule fires at
+/// `Error` regardless of profile — editorial veto for the framework's
+/// own CI. Per-rule overrides via `severity_override` must carry
+/// `reason` per `DOCTOR-OVERRIDE-NEEDS-REASON-001`.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct InternalHygieneDoctor {
+    /// Preset name. Parsed by
+    /// `lazuli_doctor::internal_hygiene::preset::InternalHygienePreset::parse`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
+    /// Per-rule severity overrides keyed by canonical code.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub severity_override: BTreeMap<String, SeverityOverride>,
+}
+
+/// Wave 0.5 + Wave 1.5 — `[doctor.test_discipline]` block.
+///
+/// Wave 1.5 (rails-style-refactor) adds the optional `preset` shortcut.
+/// Mirrors `[doctor.coverage].preset` mechanism: a single line sets the
+/// severity posture for every TEST-* / DOCTOR-* / MIGRATION-* / RUNTIME-*
+/// rule. Values: `tdd-iron-hand` (all error), `tdd-strict` (all warning),
+/// `tdd-mature` (per-rule defaults), `off` (all info). Per-rule overrides
+/// in `severity_override` still win — preset is the baseline.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct TestDisciplineDoctor {
+    /// Wave 1.5 — preset name. Parsed by
+    /// `lazuli_doctor::test_discipline::preset::TestDisciplinePreset::parse`.
+    /// `None` means "no preset; defer to profile-derived defaults +
+    /// per-rule overrides only".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub severity_override: BTreeMap<String, SeverityOverride>,
+}
+
+/// Wave 0.5 — `[doctor.<category>].severity_override.<RULE-CODE>` entry.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct SeverityOverride {
+    pub severity: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// Wave 6 — `[doctor.coverage]` schema.
+///
+/// Frente 1 (2026-05-24) adds the optional `preset` shortcut so
+/// pilots can opt into the `tdd-strict` / `tdd-mature` / `off`
+/// opinionated layer-threshold sets without authoring all six
+/// `[doctor.coverage.<layer>]` sub-blocks. Per-layer sub-blocks
+/// still override the preset; see
+/// `docs/canonical-semantics.md#coverage-presets`.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct CoverageSection {
+    /// Coverage preset name. One of `tdd-strict`, `tdd-mature`,
+    /// `off`. Unknown values surface as a doctor error so unknown
+    /// presets don't silently degrade into vacuous-pass behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
+    #[serde(flatten)]
+    pub per_layer: BTreeMap<String, LayerThresholdConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aggregate_method: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
+pub struct LayerThresholdConfig {
+    pub block_under: u32,
+    pub warn_under: u32,
+}

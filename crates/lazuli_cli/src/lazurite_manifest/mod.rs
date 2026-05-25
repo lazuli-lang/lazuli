@@ -1,6 +1,47 @@
+//! `Lazurite.toml` parsing + the resolver helpers that apply the
+//! canonical layout defaults so most pilots can omit boilerplate.
+//!
+//! ## Module layout
+//!
+//! - `project.rs` — `[project]`, `[lazuli]`, `[lazurite]`, and
+//!   `[plugins]` schema.
+//! - `generate.rs` — `[generate]` / `[generate.go]` schema.
+//! - `frontends.rs` — `[frontends.<name>]` schema.
+//! - `migrations.rs` — `[migrations]`, `[seeds]`, `[dev]` schema.
+//! - `doctor.rs` — `[doctor.*]` schema (severity overrides, presets,
+//!   coverage thresholds).
+//! - `testing.rs` — `[testing.*]` schema.
+//! - `inspect.rs` — borrow-friendly `lazuli inspect` projection.
+//! - `error.rs` — `ManifestError` envelope + `From` impls.
+//!
+//! The top-level `Manifest` struct lives here so the impl block
+//! (`load`, `validate`, `app_root`, `testing_*_resolved`,
+//! `detect_frontend_layout`, `inspect_view`) keeps its access to
+//! every sub-section without re-exporting helper traits.
+
+mod doctor;
+mod error;
+mod frontends;
+mod generate;
+mod inspect;
+mod migrations;
+mod project;
+mod testing;
+
+pub use doctor::{
+    CoverageSection, Doctor, InternalHygieneDoctor, LayerThresholdConfig, SeverityOverride,
+    TestDisciplineDoctor,
+};
+pub use error::ManifestError;
+pub use frontends::{Frontend, FrontendTarget};
+pub use generate::{Generate, GenerateGo};
+pub use inspect::{InspectFrontend, InspectManifest, InspectPlugin};
+pub use migrations::{DevOverrides, MigrationStrategy, Migrations, Seeds};
+pub use project::{Lazurite, LazuliPin, Plugin, Project};
+pub use testing::{Testing, TestingGo, TestingPlaywright, TestingSpec, TestingTs};
+
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
-use std::fmt;
 use std::path::Path;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -31,364 +72,6 @@ pub struct Manifest {
     /// `docs/proposals/lazuli-test-runner-2026-05-24.md` §3.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub testing: Option<Testing>,
-}
-
-/// Wave 0.5 + Wave 6 + Wave 3 (rails-style) — `[doctor]` block in `Lazurite.toml`.
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
-pub struct Doctor {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub profile: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub test_discipline: Option<TestDisciplineDoctor>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub coverage: Option<CoverageSection>,
-    /// W3 (rails-style-refactor) — `[doctor.internal_hygiene]` block.
-    /// Governs `INTERNAL-*` rules that audit the framework's own Rust
-    /// source under `lazuli doctor --self`. Mirrors test_discipline shape.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub internal_hygiene: Option<InternalHygieneDoctor>,
-}
-
-/// W3 — `[doctor.internal_hygiene]` block.
-///
-/// Configures the four `INTERNAL-*` rules that audit the framework's
-/// Rust source. Under `preset = "tdd-iron-hand"`, every rule fires at
-/// `Error` regardless of profile — editorial veto for the framework's
-/// own CI. Per-rule overrides via `severity_override` must carry
-/// `reason` per `DOCTOR-OVERRIDE-NEEDS-REASON-001`.
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
-pub struct InternalHygieneDoctor {
-    /// Preset name. Parsed by
-    /// `lazuli_doctor::internal_hygiene::preset::InternalHygienePreset::parse`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub preset: Option<String>,
-    /// Per-rule severity overrides keyed by canonical code.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub severity_override: BTreeMap<String, SeverityOverride>,
-}
-
-/// Wave 0.5 + Wave 1.5 — `[doctor.test_discipline]` block.
-///
-/// Wave 1.5 (rails-style-refactor) adds the optional `preset` shortcut.
-/// Mirrors `[doctor.coverage].preset` mechanism: a single line sets the
-/// severity posture for every TEST-* / DOCTOR-* / MIGRATION-* / RUNTIME-*
-/// rule. Values: `tdd-iron-hand` (all error), `tdd-strict` (all warning),
-/// `tdd-mature` (per-rule defaults), `off` (all info). Per-rule overrides
-/// in `severity_override` still win — preset is the baseline.
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
-pub struct TestDisciplineDoctor {
-    /// Wave 1.5 — preset name. Parsed by
-    /// `lazuli_doctor::test_discipline::preset::TestDisciplinePreset::parse`.
-    /// `None` means "no preset; defer to profile-derived defaults +
-    /// per-rule overrides only".
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub preset: Option<String>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub severity_override: BTreeMap<String, SeverityOverride>,
-}
-
-/// Wave 0.5 — `[doctor.<category>].severity_override.<RULE-CODE>` entry.
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct SeverityOverride {
-    pub severity: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
-}
-
-/// Wave 6 — `[doctor.coverage]` schema.
-///
-/// Frente 1 (2026-05-24) adds the optional `preset` shortcut so
-/// pilots can opt into the `tdd-strict` / `tdd-mature` / `off`
-/// opinionated layer-threshold sets without authoring all six
-/// `[doctor.coverage.<layer>]` sub-blocks. Per-layer sub-blocks
-/// still override the preset; see
-/// `docs/canonical-semantics.md#coverage-presets`.
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
-pub struct CoverageSection {
-    /// Coverage preset name. One of `tdd-strict`, `tdd-mature`,
-    /// `off`. Unknown values surface as a doctor error so unknown
-    /// presets don't silently degrade into vacuous-pass behavior.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub preset: Option<String>,
-    #[serde(flatten)]
-    pub per_layer: BTreeMap<String, LayerThresholdConfig>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub aggregate_method: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
-pub struct LayerThresholdConfig {
-    pub block_under: u32,
-    pub warn_under: u32,
-}
-
-/// Sibling T0-T5 — `[testing]` block consumed by `lazuli test`.
-#[derive(Debug, Default, Deserialize, Serialize, Clone)]
-pub struct Testing {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default_layers: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub go: Option<TestingGo>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub playwright: Option<TestingPlaywright>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ts: Option<TestingTs>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub spec: Option<TestingSpec>,
-}
-
-#[derive(Debug, Default, Deserialize, Serialize, Clone)]
-pub struct TestingGo {
-    #[serde(default)]
-    pub flags: Vec<String>,
-    #[serde(default)]
-    pub coverage: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub coverage_out: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub package_pattern: Option<String>,
-}
-
-#[derive(Debug, Default, Deserialize, Serialize, Clone)]
-pub struct TestingPlaywright {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub config: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workers: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub project: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub discovery_root: Option<String>,
-    #[serde(default)]
-    pub flags: Vec<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct TestingTs {
-    /// Frente 1 — defaults to `"vitest"` when omitted. Pilots that
-    /// follow the canonical scaffold need only `[testing.ts]` to opt
-    /// in without restating the runner choice. Use `runner = "jest"`
-    /// to switch.
-    #[serde(default = "default_ts_runner")]
-    pub runner: String,
-    #[serde(default)]
-    pub flags: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub config: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub discovery_root: Option<String>,
-    #[serde(default)]
-    pub coverage: bool,
-}
-
-#[derive(Debug, Default, Deserialize, Serialize, Clone)]
-pub struct TestingSpec {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub profile: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct Project {
-    pub name: String,
-    pub module: String,
-    pub schema: u32,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct LazuliPin {
-    pub runtime: String,
-    /// Optional path to the Lazuli source checkout, used by codegen
-    /// to emit portable `dist/lazurite.vite.mjs` aliases (and other
-    /// dev-time runtime path resolution). Absolute or relative to
-    /// the project root. When `None`, codegen assumes
-    /// `@lazuli/runtime` is installed as an npm package (no alias
-    /// needed); when `Some`, codegen emits aliases pointing at the
-    /// source tree via `import.meta.url`-relative paths so the
-    /// generated file works regardless of where the project is
-    /// checked out.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub path: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct Lazurite {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub template: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub template_version: Option<String>,
-    /// Optional subdir (relative to project root) holding `app.lzi`,
-    /// `design.lzi`, and `registry.lzi`. Defaults to the project root.
-    /// Set to `"app"` to group Lazuli sources under an `app/` subdir
-    /// alongside the shell/UI code already conventional there.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub app_dir: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(untagged)]
-pub enum Plugin {
-    Remote { module: String, version: String },
-    Local { path: String },
-}
-
-#[derive(Debug, Default, Deserialize, Serialize, Clone)]
-pub struct Generate {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub go: Option<GenerateGo>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct GenerateGo {
-    #[serde(default = "default_go_out")]
-    pub out: String,
-    #[serde(default = "default_true")]
-    pub gofmt: bool,
-    #[serde(default = "default_true")]
-    pub strict: bool,
-    #[serde(default = "default_true")]
-    pub emit_main: bool,
-    #[serde(default = "default_true")]
-    pub submodule: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dev_replace: Option<String>,
-}
-
-/// Frente 1 — canonical defaults for `[generate.go]`. Applied
-/// transparently when the block is absent from `Lazurite.toml`, so
-/// pilots can omit boilerplate that matches the canonical layout.
-impl Default for GenerateGo {
-    fn default() -> Self {
-        Self {
-            out: default_go_out(),
-            gofmt: true,
-            strict: true,
-            emit_main: true,
-            submodule: true,
-            dev_replace: None,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct Frontend {
-    pub target: FrontendTarget,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>,
-    pub out: String,
-    pub audiences: Vec<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(rename_all = "kebab-case")]
-pub enum FrontendTarget {
-    Expo,
-    TanstackVite,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct Migrations {
-    #[serde(default = "default_migrations_generated")]
-    pub generated: String,
-    #[serde(default = "default_migrations_manual")]
-    pub manual: String,
-    #[serde(default)]
-    pub strategy: MigrationStrategy,
-}
-
-/// Frente 1 — canonical defaults for `[migrations]`. Applied
-/// transparently when the block is absent.
-impl Default for Migrations {
-    fn default() -> Self {
-        Self {
-            generated: default_migrations_generated(),
-            manual: default_migrations_manual(),
-            strategy: MigrationStrategy::default(),
-        }
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
-#[serde(rename_all = "kebab-case")]
-pub enum MigrationStrategy {
-    #[default]
-    Auto,
-    Manual,
-    CheckOnly,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct Seeds {
-    #[serde(default = "default_seeds_dir")]
-    pub dir: String,
-    #[serde(default)]
-    pub auto: bool,
-}
-
-/// Frente 1 — canonical defaults for `[seeds]`. Applied transparently
-/// when the block is absent.
-impl Default for Seeds {
-    fn default() -> Self {
-        Self {
-            dir: default_seeds_dir(),
-            auto: false,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct DevOverrides {
-    #[serde(default)]
-    pub plugin_paths: BTreeMap<String, String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct InspectManifest<'a> {
-    pub origin: &'static str,
-    pub project: &'a Project,
-    pub lazuli: &'a LazuliPin,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub lazurite: Option<&'a Lazurite>,
-    pub plugins: Vec<InspectPlugin<'a>>,
-    pub generate: &'a Generate,
-    pub frontends: Vec<InspectFrontend<'a>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub migrations: Option<&'a Migrations>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub seeds: Option<&'a Seeds>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dev: Option<&'a DevOverrides>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct InspectPlugin<'a> {
-    #[serde(rename = "ref")]
-    pub plugin_ref: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub module: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub path: Option<&'a str>,
-    pub source: &'static str,
-}
-
-#[derive(Debug, Serialize)]
-pub struct InspectFrontend<'a> {
-    pub name: &'a str,
-    pub target: &'a FrontendTarget,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<&'a str>,
-    pub out: &'a str,
-    pub audiences: &'a [String],
-}
-
-#[derive(Debug)]
-pub enum ManifestError {
-    Io(std::io::Error),
-    Toml(toml::de::Error),
-    UnsupportedSchema(u32),
-    InvalidPluginNamespace(String),
-    FrontendOutCollision(String, String),
 }
 
 /// Canonical manifest filename. Capitalized following the Cargo
@@ -505,7 +188,7 @@ impl Manifest {
                 Some(cfg)
             }
             (None, Some(l)) => Some(TestingTs {
-                runner: default_ts_runner(),
+                runner: "vitest".to_string(),
                 flags: Vec::new(),
                 config: Some(format!("{l}/vite.config.ts")),
                 discovery_root: Some(format!("{l}/src")),
@@ -662,73 +345,6 @@ impl Manifest {
             dev: self.dev.as_ref(),
         }
     }
-}
-
-impl fmt::Display for ManifestError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ManifestError::Io(err) => write!(f, "{err}"),
-            ManifestError::Toml(err) => write!(f, "{err}"),
-            ManifestError::UnsupportedSchema(schema) => {
-                write!(f, "unsupported Lazurite.toml schema version {schema}")
-            }
-            ManifestError::InvalidPluginNamespace(key) => {
-                write!(f, "plugin key `{key}` must start with `@lazuli/plugin-`")
-            }
-            ManifestError::FrontendOutCollision(name, out) => {
-                write!(f, "frontend `{name}` reuses generated output path `{out}`")
-            }
-        }
-    }
-}
-
-impl std::error::Error for ManifestError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            ManifestError::Io(err) => Some(err),
-            ManifestError::Toml(err) => Some(err),
-            _ => None,
-        }
-    }
-}
-
-impl From<std::io::Error> for ManifestError {
-    fn from(value: std::io::Error) -> Self {
-        Self::Io(value)
-    }
-}
-
-impl From<toml::de::Error> for ManifestError {
-    fn from(value: toml::de::Error) -> Self {
-        Self::Toml(value)
-    }
-}
-
-fn default_true() -> bool {
-    true
-}
-
-fn default_go_out() -> String {
-    "dist/go".to_string()
-}
-
-fn default_migrations_generated() -> String {
-    "dist/go/migrations".to_string()
-}
-
-fn default_migrations_manual() -> String {
-    "migrations".to_string()
-}
-
-fn default_seeds_dir() -> String {
-    "seeds".to_string()
-}
-
-/// Frente 1 — `[testing.ts] runner` defaults to `"vitest"` since
-/// that's the canonical scaffold choice. Pilots opting into Jest
-/// must set `runner = "jest"` explicitly.
-fn default_ts_runner() -> String {
-    "vitest".to_string()
 }
 
 #[cfg(test)]
