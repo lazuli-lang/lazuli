@@ -1028,41 +1028,17 @@ fn main() -> Result<()> {
             no_run,
             debounce,
         } => commands::dev::dev_command(path, out, no_run, debounce),
-        Commands::Migrate { sub } => {
-            let project_root = std::env::current_dir().context("reading current directory")?;
-            match sub {
-                MigrateCommand::Up { target, yes } => {
-                    migrate::run_migrate(&project_root, migrate::MigrateAction::Up { target, yes })
-                        .map_err(|err| anyhow::anyhow!("{err}"))
-                }
-                MigrateCommand::Down { steps, yes } => {
-                    migrate::run_migrate(&project_root, migrate::MigrateAction::Down { steps, yes })
-                        .map_err(|err| anyhow::anyhow!("{err}"))
-                }
-                MigrateCommand::Status => {
-                    migrate::run_migrate(&project_root, migrate::MigrateAction::Status)
-                        .map_err(|err| anyhow::anyhow!("{err}"))
-                }
-                MigrateCommand::Dsl {
-                    from,
-                    to,
-                    dry_run,
-                    path,
-                } => {
-                    let root = path.unwrap_or(project_root);
-                    let report = migrate::dsl::run_migrate_dsl(&root, &from, &to, dry_run)
-                        .map_err(|err| anyhow::anyhow!("{err}"))?;
-                    print!("{}", migrate::dsl::render_report(&report, dry_run));
-                    if !report.rolled_back.is_empty() {
-                        bail!(
-                            "lazuli migrate dsl rolled back {} file(s); fix the recipe and re-run",
-                            report.rolled_back.len()
-                        );
-                    }
-                    Ok(())
-                }
-            }
-        }
+        Commands::Migrate { sub } => match sub {
+            MigrateCommand::Up { target, yes } => commands::migrate::up_command(target, yes),
+            MigrateCommand::Down { steps, yes } => commands::migrate::down_command(steps, yes),
+            MigrateCommand::Status => commands::migrate::status_command(),
+            MigrateCommand::Dsl {
+                from,
+                to,
+                dry_run,
+                path,
+            } => commands::migrate::dsl_command(&from, &to, dry_run, path),
+        },
         Commands::Design { sub } => match sub {
             DesignCommand::Import {
                 from,

@@ -40,6 +40,7 @@ pub mod examples;
 pub mod init;
 pub mod lsp;
 pub mod mcp;
+pub mod migrate;
 pub mod parse;
 pub mod plan;
 pub mod profile;
