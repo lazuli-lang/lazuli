@@ -21,6 +21,7 @@ pub use encryption::{
     E2eeCapability, EncryptionAlgorithm, EncryptionBinding, EncryptionKeyScope, EncryptionRotation,
     EncryptionSource, EncryptionTemplate, EncryptionTemplateAxis,
 };
+pub use nodes::aggregate::{Aggregate, Invariant};
 pub use nodes::async_work::{
     BackoffStrategy, DigestStrategy, DlqSpec, ExternalCallRef, FanoutScope, FanoutSpec,
     IdempotencyKey, Job, JobBody, JobDeclarative, JobHandler, JobOperationalKind, JobTrigger,
@@ -2490,63 +2491,10 @@ pub enum OperationKind {
 
 // =============================================================================
 // CL.C.4 — `aggregate <Name>` + standalone `invariant <name>` vocabulary.
-//
-// `Invariant` is the shared shape used by `Resource.invariants` and
-// `Aggregate.invariants`. The predicate language stays closed-catalog —
-// authored `when <expr>` lowers to `EvalPredicate::Closed(...)` or
-// `EvalPredicate::Unparsed(text)` when the analyzer cannot project it.
-// No escape hatch into Go: callers must rephrase as closed-catalog
-// comparisons or move the rule into a `rule` block which already carries
-// its own typed predicate slot.
-//
-// `Aggregate` declares a DDD consistency boundary: one `root` resource,
-// zero-or-more `contains` members, and zero-or-more invariants whose
-// predicates span the cluster. Doctor enforces that `root` + every
-// `contains` entry resolves to a declared resource in the same feature,
-// and that each invariant predicate references only fields the analyzer
-// can resolve (`aggregate-root-unknown`, `aggregate-contains-unknown`,
-// `invariant-predicate-invalid`).
+// Aggregate family (Aggregate, Invariant) lives in `nodes::aggregate` after
+// the W4.1 rails-style split. Re-exported at the crate root above to
+// preserve the ABI surface.
 // =============================================================================
-
-/// CL.C.4 — `Invariant` deliberately drops `Eq` because `EvalPredicate`
-/// carries an `Expr` chain that isn't `Eq` (mirrors the IR's existing
-/// `Feature` derive note). Consumers needing equality use `PartialEq`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Invariant {
-    /// Snake-case identifier authored as `invariant <name>`.
-    pub name: String,
-    /// Closed-catalog predicate text from `when <expr>`. The analyzer
-    /// lifts this through the same closed-predicate parser the agent
-    /// `evals` block uses, so the shape mirrors `EvalPredicate`.
-    pub when: EvalPredicate,
-    /// Authored `message "<text>"`. Empty string when no message body
-    /// was written (doctor surfaces a follow-up suggestion).
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub message: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// CL.C.4 — `Aggregate` drops `Eq` to keep parity with `Invariant`
-/// (transitively `EvalPredicate`-bearing). Consumers needing equality
-/// use `PartialEq`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Aggregate {
-    /// `aggregate <Name>` — PascalCase declaration name.
-    pub name: String,
-    /// `root <Resource>` — the consistency-boundary root.
-    pub root: QualifiedName,
-    /// `contains <Resource>, <Resource>, ...` — closed cluster.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub contains: Vec<QualifiedName>,
-    /// `invariants` block (zero or more) — predicates spanning the
-    /// cluster. Shape mirrors `Resource.invariants` so doctor and
-    /// codegen share one predicate-resolution path.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub invariants: Vec<Invariant>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Workflow {

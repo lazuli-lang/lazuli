@@ -33,6 +33,7 @@
 //! - [`crate::encryption`] — encryption capability vocabulary (pre-existing
 //!   submodule; uses the same pattern this module generalizes)
 
+pub mod aggregate;
 pub mod async_work;
 pub mod auth;
 pub mod capability;
