@@ -324,66 +324,66 @@ pub(crate) fn doctor_diagnostics_json(
 }
 
 #[derive(Debug)]
-struct DoctorPackage {
-    project_root: PathBuf,
-    security_profile: SecurityProfile,
+pub(super) struct DoctorPackage {
+    pub(super) project_root: PathBuf,
+    pub(super) security_profile: SecurityProfile,
     /// `true` when `lazuli doctor` was invoked on a single `.lzi`/`.lzx`
     /// file rather than a project directory. Single-file mode skips
     /// project-level checks (e.g. `MANIFEST-REQUIRED-001`) that depend
     /// on having a real project root with `app.lzi` + `Lazurite.toml`.
-    single_file_input: bool,
-    lazurite_manifest: Option<Manifest>,
-    files: Vec<DoctorFile>,
-    workspace: Option<DoctorAppWorkspace>,
-    contracts: Vec<DoctorAppContract>,
-    app: Option<DoctorAppManifest>,
-    registry: Option<DoctorAppRegistry>,
-    profiles: Vec<DoctorAppProfile>,
-    commands: BTreeMap<CommandKey, CommandPolicy>,
-    experiences: BTreeMap<String, ExperienceFacts>,
-    operational: OperationalFacts,
+    pub(super) single_file_input: bool,
+    pub(super) lazurite_manifest: Option<Manifest>,
+    pub(super) files: Vec<DoctorFile>,
+    pub(super) workspace: Option<DoctorAppWorkspace>,
+    pub(super) contracts: Vec<DoctorAppContract>,
+    pub(super) app: Option<DoctorAppManifest>,
+    pub(super) registry: Option<DoctorAppRegistry>,
+    pub(super) profiles: Vec<DoctorAppProfile>,
+    pub(super) commands: BTreeMap<CommandKey, CommandPolicy>,
+    pub(super) experiences: BTreeMap<String, ExperienceFacts>,
+    pub(super) operational: OperationalFacts,
     /// Cut A: agent IR per feature, loaded through
     /// `lazuli_syntax::parse_feature_skeletons` +
     /// `lazuli_analyzer::lower_feature_skeleton`.
-    agents: Vec<AgentFacts>,
+    pub(super) agents: Vec<AgentFacts>,
     /// Cut A: per-feature enum/record/query/command symbol tables used
     /// for discriminator + tool-policy cross-resolution.
-    feature_symbols: BTreeMap<String, FeatureSymbols>,
+    pub(super) feature_symbols: BTreeMap<String, FeatureSymbols>,
     /// Cut A: registry `tool <name>` headers that lacked `effect`.
-    registry_tool_defects: Vec<RegistryToolDefect>,
+    pub(super) registry_tool_defects: Vec<RegistryToolDefect>,
     /// Phase L Tier 4b — minimal text-pattern walk of `approval` blocks
     /// inside command bodies. Only used for the `missing children`
     /// variant of `approval_contract_diagnostics`; every other approval
     /// check reads `Command.approval` from `Tier3FeatureFacts` (IR).
     /// The walker exists because parse-error approval blocks never
     /// reach the IR — they short-circuit the feature lift.
-    approval_presences: Vec<ApprovalBlockPresence>,
+    pub(super) approval_presences: Vec<ApprovalBlockPresence>,
     /// Phase L: lowered `auth` block per feature, paired with source
     /// line anchors for subblock-precise diagnostics.
-    auth_facts: Vec<AuthFacts>,
+    pub(super) auth_facts: Vec<AuthFacts>,
     /// Phase L: per-feature resource declarations + field type text.
     /// Used to resolve `auth identity Customer.email` and
     /// `auth sessions resource CustomerSession` and to read
     /// `@cap.Hashed(algorithm:…)` axes off session resource fields.
-    feature_resources: BTreeMap<String, BTreeMap<String, ResourceFact>>,
+    pub(super) feature_resources: BTreeMap<String, BTreeMap<String, ResourceFact>>,
     /// Phase L: per-feature `extensions adapter <local>` declarations
     /// for the `auth_oauth_adapter_unbound` adapter resolution scope.
-    feature_adapters: BTreeMap<String, BTreeSet<String>>,
+    pub(super) feature_adapters: BTreeMap<String, BTreeSet<String>>,
     /// Phase L: per-feature `uses <other_feature>, ...` references so
     /// `auth identity Customer.email` in `feature customer_auth` can
     /// resolve `Customer` in `feature customer` when `uses customer` is
     /// declared.
-    feature_uses: BTreeMap<String, BTreeSet<String>>,
+    pub(super) feature_uses: BTreeMap<String, BTreeSet<String>>,
     /// Phase L Tier 3: lifted `Job` / `Webhook` / `Notification` /
     /// `EventGroup` per feature, paired with source line anchors so the
     /// six new diagnostics (`JOB-*`, `WEBHOOK-SCOPE-*`,
     /// `NOTIF-CHANNEL-*`, `EVENTGROUP-NESTING-*`) attach to the right
     /// authoring site.
-    tier3_facts: Vec<Tier3FeatureFacts>,
+    pub(super) tier3_facts: Vec<Tier3FeatureFacts>,
     /// PG.B — package-wide plan-and-gate facts (closed plan catalog,
     /// subscription anchor, per-callable gate directives). `None` when
     /// the package authors no `plan` blocks and no `gate` directives.
-    plan_gate_facts: Option<lazuli_analyzer::PlanGateFacts>,
+    pub(super) plan_gate_facts: Option<lazuli_analyzer::PlanGateFacts>,
 }
 
 /// Phase L Tier 3 — lifted job/webhook/notification/event_group bundle
@@ -579,7 +579,7 @@ struct FieldPreviousFact {
 }
 
 impl DoctorPackage {
-    fn load(input: &Path, security_profile: SecurityProfile) -> Result<Self> {
+    pub(super) fn load(input: &Path, security_profile: SecurityProfile) -> Result<Self> {
         let paths = collect_package_paths(input)?;
         if paths.is_empty() {
             bail!("no .lzi or .lzx files found for {}", input.display());
@@ -1384,7 +1384,7 @@ impl DoctorPackage {
     /// `lower_feature_skeleton` are already cached at the syntax layer
     /// for the per-feature loop, so this second pass is mostly metadata
     /// extraction). Walks `file.lzx` documents directly for view refs.
-    fn coverage_inputs(&self) -> (Vec<lazuli_ir::Feature>, Vec<lazuli_doctor::coverage::LzxViewRef>) {
+    pub(super) fn coverage_inputs(&self) -> (Vec<lazuli_ir::Feature>, Vec<lazuli_doctor::coverage::LzxViewRef>) {
         let mut features: Vec<lazuli_ir::Feature> = Vec::new();
         let mut lzx_views: Vec<lazuli_doctor::coverage::LzxViewRef> = Vec::new();
         for file in &self.files {
@@ -1417,7 +1417,7 @@ impl DoctorPackage {
     /// / no preset / unknown preset name. Drives both the coverage
     /// thresholds and the rule-severity escalation map applied by
     /// dispatchers (see `context_vocab_diagnostics`).
-    fn coverage_preset(&self) -> Option<lazuli_doctor::coverage::CoveragePreset> {
+    pub(super) fn coverage_preset(&self) -> Option<lazuli_doctor::coverage::CoveragePreset> {
         use lazuli_doctor::coverage::CoveragePreset;
         self.lazurite_manifest
             .as_ref()
@@ -1444,7 +1444,7 @@ impl DoctorPackage {
     ///
     /// The `off` preset suppresses the rules entirely (consistent with
     /// the coverage layers it zeroes out).
-    fn context_vocab_diagnostics(&self) -> Vec<DoctorDiagnostic> {
+    pub(super) fn context_vocab_diagnostics(&self) -> Vec<DoctorDiagnostic> {
         use lazuli_doctor::coverage::{CoveragePreset, preset_severity_overrides};
         use lazuli_doctor::vocab::{
             vocab_context_ctxmd_001, vocab_context_nongoals_001, vocab_context_purpose_001,
@@ -1647,7 +1647,7 @@ impl DoctorPackage {
         )
     }
 
-    fn diagnostics(&self) -> Vec<DoctorDiagnostic> {
+    pub(super) fn diagnostics(&self) -> Vec<DoctorDiagnostic> {
         let mut diagnostics = Vec::new();
 
         diagnostics.extend(manifest_required_diagnostics(
@@ -2155,7 +2155,7 @@ pub struct DoctorSeverityOverride {
     pub reason: Option<String>,
 }
 
-fn vocab_grammar_form_diagnostics(
+pub(super) fn vocab_grammar_form_diagnostics(
     files: &[DoctorFile],
     security_profile: SecurityProfile,
 ) -> Vec<DoctorDiagnostic> {
@@ -2194,7 +2194,7 @@ fn vocab_grammar_form_diagnostics(
 /// CLI's `DoctorDiagnostic` shape. Fixed `Error` severity per the proposal:
 /// mixed-currency comparisons silently lose money, which is a bug
 /// regardless of `prototype`/`strict`/`production` posture.
-fn money_compare_001_diagnostics(
+pub(super) fn money_compare_001_diagnostics(
     path: &Path,
     feature: &lazuli_ir::Feature,
 ) -> Vec<DoctorDiagnostic> {
@@ -2232,7 +2232,7 @@ fn money_compare_001_diagnostics(
 /// rules under `RuleCategory::TestDiscipline`. Prototype profile
 /// suppresses the warning so quick spikes are not blocked by
 /// test-vocabulary discipline.
-fn vocab_tests_missing_001_diagnostics(
+pub(super) fn vocab_tests_missing_001_diagnostics(
     path: &Path,
     feature: &lazuli_ir::Feature,
     feature_header_line: usize,
@@ -2272,7 +2272,7 @@ fn vocab_tests_missing_001_diagnostics(
 /// the CLI's `DoctorDiagnostic` shape. Same fixed-`Error` policy as the
 /// comparison check: cross-currency or Money-times-Money arithmetic is a
 /// structural bug.
-fn money_arithmetic_001_diagnostics(
+pub(super) fn money_arithmetic_001_diagnostics(
     path: &Path,
     feature: &lazuli_ir::Feature,
 ) -> Vec<DoctorDiagnostic> {
@@ -3058,7 +3058,7 @@ fn project_uses_plugin_refs(project_root: &Path) -> bool {
 /// `env-schema-contract` is the more specific registry-scoped rule and
 /// owns the registry env shape; drop the broader `app-env-contract`
 /// diagnostic when the same `(path, line)` already carries it.
-fn dedupe_env_contract_diagnostics(diagnostics: &[DoctorDiagnostic]) -> Vec<DoctorDiagnostic> {
+pub(super) fn dedupe_env_contract_diagnostics(diagnostics: &[DoctorDiagnostic]) -> Vec<DoctorDiagnostic> {
     let env_schema_lines: BTreeSet<(PathBuf, usize)> = diagnostics
         .iter()
         .filter(|d| d.code == "env-schema-contract")
@@ -3105,7 +3105,7 @@ fn suppress_env_schema_when_declared(
         .collect()
 }
 
-fn manifest_required_diagnostics(
+pub(super) fn manifest_required_diagnostics(
     project_root: &Path,
     single_file_input: bool,
 ) -> Vec<DoctorDiagnostic> {
@@ -3138,7 +3138,7 @@ fn manifest_required_diagnostics(
     }]
 }
 
-fn lazurite_manifest_diagnostics(package: &DoctorPackage) -> Vec<DoctorDiagnostic> {
+pub(super) fn lazurite_manifest_diagnostics(package: &DoctorPackage) -> Vec<DoctorDiagnostic> {
     if !project_has_lazurite_manifest(&package.project_root) {
         return Vec::new();
     }
@@ -3354,7 +3354,7 @@ fn check_config_noise(package: &DoctorPackage) -> Vec<DoctorDiagnostic> {
 /// pilots can migrate field-by-field; escalating to Error is
 /// gated on every pilot's `@cap.File` sites having explicit
 /// policy declarations.
-fn cap_file_policy_implicit_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+pub(super) fn cap_file_policy_implicit_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
     for feature in facts {
         for resource in &feature.resources {
@@ -3405,7 +3405,7 @@ fn cap_file_policy_implicit_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<Doct
 /// Skips `*.gen.ts`, `*.test.*`, `node_modules`, `dist`. Severity
 /// is Warning today so the migration sweep can land per-file
 /// without blocking the doctor gate.
-fn manual_param_coercion_diagnostics(project_root: &Path) -> Vec<DoctorDiagnostic> {
+pub(super) fn manual_param_coercion_diagnostics(project_root: &Path) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
     let clients_root = project_root.join("app").join("clients");
     if !clients_root.exists() {
@@ -3497,7 +3497,7 @@ fn manual_param_coercion_diagnostics(project_root: &Path) -> Vec<DoctorDiagnosti
 /// alias still resolves at runtime. Escalation to Error happens
 /// when each removal is planned (consumer fixes its import +
 /// runtime drops the alias in the same release).
-fn import_deprecated_alias_diagnostics(project_root: &Path) -> Vec<DoctorDiagnostic> {
+pub(super) fn import_deprecated_alias_diagnostics(project_root: &Path) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
     let dist_root = project_root.join("dist");
     let clients_root = project_root.join("app").join("clients");
@@ -3570,7 +3570,7 @@ fn import_deprecated_alias_diagnostics(project_root: &Path) -> Vec<DoctorDiagnos
 /// Hint severity (informational) — does not fail the doctor
 /// gate. The check is deliberately conservative (name-based
 /// heuristic) so false positives are easy to triage.
-fn schema_rich_gap_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+pub(super) fn schema_rich_gap_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
     const AVOIDABLE_SUFFIXES: &[&str] = &[
         "_photos",
         "_files",
@@ -4015,7 +4015,7 @@ fn check_semantic_plugin_unresolved(
     diagnostics
 }
 
-fn lazuli_version_001_diagnostics(
+pub(super) fn lazuli_version_001_diagnostics(
     app: Option<&DoctorAppManifest>,
     schema: &str,
 ) -> Vec<DoctorDiagnostic> {
@@ -4077,7 +4077,7 @@ fn lazuli_version_001_diagnostics(
     }
 }
 
-fn lazuli_version_002_diagnostics(
+pub(super) fn lazuli_version_002_diagnostics(
     app: Option<&DoctorAppManifest>,
     schema: &str,
     project_root: &Path,
@@ -5010,7 +5010,7 @@ fn lzx_route_surface_platform(surface: Option<&str>) -> Option<LzxPlatform> {
     }
 }
 
-fn policy_reachability_diagnostics(
+pub(super) fn policy_reachability_diagnostics(
     files: &[DoctorFile],
     experiences: &BTreeMap<String, ExperienceFacts>,
     commands: &BTreeMap<CommandKey, CommandPolicy>,
@@ -5087,7 +5087,7 @@ fn policy_reachability_diagnostics(
     diagnostics
 }
 
-fn missing_policy_on_query_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+pub(super) fn missing_policy_on_query_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
     let mut seen = BTreeSet::new();
 
@@ -5130,7 +5130,7 @@ fn missing_policy_on_query_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<Docto
     diagnostics
 }
 
-fn duplicate_query_name_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+pub(super) fn duplicate_query_name_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
 
     for fact in facts {
@@ -5168,7 +5168,7 @@ fn duplicate_query_name_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDi
 /// `route <name>: <Type>` slot on an `updates` / `deletes` effect has
 /// no matching input slot to back the codegen's `FromInput(...)`
 /// binding. Anchored at the command header via `command_lines`.
-fn route_id_effect_consistency_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+pub(super) fn route_id_effect_consistency_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
     let mut seen = BTreeSet::new();
 
@@ -5216,7 +5216,7 @@ fn route_id_effect_consistency_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<D
 /// across ALL features (cross-feature read queries count, per cycle
 /// decision). Anchored at the command header line; falls back to the
 /// feature header when the command line is unknown.
-fn mutation_without_readback_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+pub(super) fn mutation_without_readback_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
     let mut seen = BTreeSet::new();
 
@@ -5272,7 +5272,7 @@ fn mutation_without_readback_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<Doc
 /// effective timestamps enabled. Anchored at the feature header because the
 /// finding is resource-scoped and the current fact row does not carry
 /// resource-header line anchors.
-fn updates_missing_updated_at_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+pub(super) fn updates_missing_updated_at_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
     let mut seen = BTreeSet::new();
 
@@ -5308,7 +5308,7 @@ fn updates_missing_updated_at_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<Do
 }
 
 
-fn app_contract_diagnostics(
+pub(super) fn app_contract_diagnostics(
     app: Option<&DoctorAppManifest>,
     registry: Option<&DoctorAppRegistry>,
     profiles: &[DoctorAppProfile],
@@ -5531,7 +5531,7 @@ fn app_missing_contract_diagnostic(
     }
 }
 
-fn app_route_redirect_diagnostics(
+pub(super) fn app_route_redirect_diagnostics(
     app: &DoctorAppManifest,
     operational: &OperationalFacts,
 ) -> Vec<DoctorDiagnostic> {
@@ -5584,7 +5584,7 @@ fn app_route_redirect_diagnostics(
     diagnostics
 }
 
-fn error_page_contract_diagnostics(app: &DoctorAppManifest) -> Vec<DoctorDiagnostic> {
+pub(super) fn error_page_contract_diagnostics(app: &DoctorAppManifest) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
     let mut seen = BTreeSet::new();
     let app_dir = app.path.parent().unwrap_or_else(|| Path::new("."));
@@ -5666,7 +5666,7 @@ fn error_page_line(app: &DoctorAppManifest, status: u16) -> usize {
         .unwrap_or(1)
 }
 
-fn workspace_contract_diagnostics(workspace: Option<&DoctorAppWorkspace>) -> Vec<DoctorDiagnostic> {
+pub(super) fn workspace_contract_diagnostics(workspace: Option<&DoctorAppWorkspace>) -> Vec<DoctorDiagnostic> {
     let Some(workspace) = workspace else {
         return Vec::new();
     };
@@ -5897,7 +5897,7 @@ fn event_pattern_covers(published: &str, consumed: &str) -> bool {
         .is_some_and(|prefix| consumed.starts_with(prefix))
 }
 
-fn external_contract_diagnostics(
+pub(super) fn external_contract_diagnostics(
     contracts: &[DoctorAppContract],
     workspace: Option<&DoctorAppWorkspace>,
 ) -> Vec<DoctorDiagnostic> {
@@ -6080,7 +6080,7 @@ fn external_contract_diagnostics(
     diagnostics
 }
 
-fn app_binding_contract_diagnostics(
+pub(super) fn app_binding_contract_diagnostics(
     app: &DoctorAppManifest,
     registry: Option<&DoctorAppRegistry>,
     operational: &OperationalFacts,
@@ -6241,7 +6241,7 @@ fn app_binding_contract_diagnostics(
     diagnostics
 }
 
-fn external_call_contract_diagnostics(operational: &OperationalFacts) -> Vec<DoctorDiagnostic> {
+pub(super) fn external_call_contract_diagnostics(operational: &OperationalFacts) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
     let declared_slots: BTreeSet<_> = operational
         .integration_requirements
@@ -6339,7 +6339,7 @@ fn external_call_contract_diagnostics(operational: &OperationalFacts) -> Vec<Doc
 /// gate on adapter binding evidence; the catalog stays narrow today.
 const NOTIFICATION_CHANNEL_CATALOG: &[&str] = &["email", "in_app", "slack", "discord", "webhook"];
 
-fn tier3_diagnostics(
+pub(super) fn tier3_diagnostics(
     facts: &[Tier3FeatureFacts],
     registry: Option<&lazuli_ir::AppRegistry>,
 ) -> Vec<DoctorDiagnostic> {
@@ -6449,7 +6449,7 @@ fn tier3_diagnostics(
 }
 
 
-fn tier3_job_diagnostics(
+pub(super) fn tier3_job_diagnostics(
     feature: &Tier3FeatureFacts,
     job: &lazuli_ir::Job,
     diagnostics: &mut Vec<DoctorDiagnostic>,
@@ -6751,7 +6751,7 @@ fn tier3_webhook_diagnostics<'a>(
     }
 }
 
-fn tier3_notification_diagnostics(
+pub(super) fn tier3_notification_diagnostics(
     feature: &Tier3FeatureFacts,
     notification: &lazuli_ir::Notification,
     _event_payload_index: &BTreeMap<String, BTreeSet<String>>,
@@ -7050,7 +7050,7 @@ fn leading_assignment_lhs(line: &str) -> Option<&str> {
 ///   short_event_declarations` rule.
 
 
-fn profile_contract_diagnostics(
+pub(super) fn profile_contract_diagnostics(
     app: &DoctorAppManifest,
     registry: Option<&DoctorAppRegistry>,
     profiles: &[DoctorAppProfile],
@@ -7273,7 +7273,7 @@ fn operational_integrations<'a>(
     integrations
 }
 
-fn app_pack_contract_diagnostics(
+pub(super) fn app_pack_contract_diagnostics(
     app: &DoctorAppManifest,
     registry: Option<&DoctorAppRegistry>,
 ) -> Vec<DoctorDiagnostic> {
@@ -7356,7 +7356,7 @@ fn app_pack_contract_diagnostics(
     diagnostics
 }
 
-fn adapter_provenance_diagnostics(
+pub(super) fn adapter_provenance_diagnostics(
     app: &DoctorAppManifest,
     registry: Option<&DoctorAppRegistry>,
     profiles: &[DoctorAppProfile],
@@ -7529,7 +7529,7 @@ fn integration_environment_allowed(
         })
 }
 
-fn app_service_contract_diagnostics(
+pub(super) fn app_service_contract_diagnostics(
     app: &DoctorAppManifest,
     operational: &OperationalFacts,
     pack_features: &BTreeSet<&str>,
@@ -7791,7 +7791,7 @@ fn command_reachability_diagnostic(
     }]
 }
 
-fn command_route_binding_diagnostics(
+pub(super) fn command_route_binding_diagnostics(
     file: &DoctorFile,
     view: &LzxPlatformView,
     view_routes: Option<&BTreeSet<String>>,
@@ -8782,7 +8782,7 @@ fn policy_ref_surface_text(p: &ir::PolicyRef) -> Option<String> {
 // Diagnostic id: cross_feature_type_unresolved
 // -----------------------------------------------------------------------------
 
-fn cross_feature_type_unresolved_diagnostics(
+pub(super) fn cross_feature_type_unresolved_diagnostics(
     files: &[DoctorFile],
     tier3_facts: &[Tier3FeatureFacts],
     feature_resources: &BTreeMap<String, BTreeMap<String, ResourceFact>>,
@@ -8965,7 +8965,7 @@ pub(crate) fn span_line(
 // Diagnostic id: feature_uses_missing
 // -----------------------------------------------------------------------------
 
-fn feature_uses_missing_diagnostics(
+pub(super) fn feature_uses_missing_diagnostics(
     files: &[DoctorFile],
     tier3_facts: &[Tier3FeatureFacts],
     feature_resources: &BTreeMap<String, BTreeMap<String, ResourceFact>>,
@@ -9241,7 +9241,7 @@ impl DoctorCrossFeatureTypeIndex {
 // Diagnostic id: tool_registry_effect_required_diagnostics
 // -----------------------------------------------------------------------------
 
-fn registry_tool_effect_diagnostics(defects: &[RegistryToolDefect]) -> Vec<DoctorDiagnostic> {
+pub(super) fn registry_tool_effect_diagnostics(defects: &[RegistryToolDefect]) -> Vec<DoctorDiagnostic> {
     defects
         .iter()
         .map(|defect| DoctorDiagnostic {
@@ -9273,7 +9273,7 @@ fn registry_tool_effect_diagnostics(defects: &[RegistryToolDefect]) -> Vec<Docto
 // Diagnostic ids: agent_tool_policy / write_unguarded / pii_unsafetied
 // -----------------------------------------------------------------------------
 
-fn agent_tool_diagnostics(
+pub(super) fn agent_tool_diagnostics(
     agents: &[AgentFacts],
     feature_symbols: &BTreeMap<String, FeatureSymbols>,
     registry: Option<&DoctorAppRegistry>,
@@ -9556,7 +9556,7 @@ fn policy_atoms_more_restrictive(tool_policy: &str, agent_policy: &str) -> bool 
 /// `Tier3FeatureFacts.records` (typed `ir::Record` lift); enums read
 /// from `Tier3FeatureFacts.enums` (typed `ir::EnumDecl` lift). The
 /// retired `FeatureSymbols.enums` text walker is gone.
-fn agent_discriminator_diagnostics(
+pub(super) fn agent_discriminator_diagnostics(
     agents: &[AgentFacts],
     tier3_facts: &[Tier3FeatureFacts],
 ) -> Vec<DoctorDiagnostic> {
@@ -9724,7 +9724,7 @@ fn check_record_discriminator(
 // Diagnostic ids: eval_ordered_op_invalid / eval_nondeterministic_warning
 // -----------------------------------------------------------------------------
 
-fn agent_eval_diagnostics(agents: &[AgentFacts]) -> Vec<DoctorDiagnostic> {
+pub(super) fn agent_eval_diagnostics(agents: &[AgentFacts]) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
 
     for fact in agents {
@@ -9817,7 +9817,7 @@ fn operand_resolves_numeric(expr: &ir::Expr) -> bool {
 /// declared in source. Reject cross-feature collisions on (normalised
 /// path, method) and `audience` references that don't resolve to any
 /// known `.lzx` surface or `app.lzi` audience declaration.
-fn agent_expose_diagnostics(
+pub(super) fn agent_expose_diagnostics(
     agents: &[AgentFacts],
     tier3_facts: &[Tier3FeatureFacts],
     known_audiences: &BTreeSet<String>,
@@ -9959,7 +9959,7 @@ fn collect_known_audiences(files: &[DoctorFile]) -> BTreeSet<String> {
     audiences
 }
 
-fn app_urls_missing_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorDiagnostic> {
+pub(super) fn app_urls_missing_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorDiagnostic> {
     let Some(app_manifest) = app else {
         return Vec::new();
     };
@@ -10116,7 +10116,7 @@ fn collect_approval_block_presence(file: &DoctorFile, out: &mut Vec<ApprovalBloc
 /// `approval_contract_diagnostics` (missing-children variant) — emitted
 /// from the text-pattern walker above because parse-error approval
 /// blocks never reach the IR.
-fn approval_missing_children_diagnostics(
+pub(super) fn approval_missing_children_diagnostics(
     presences: &[ApprovalBlockPresence],
 ) -> Vec<DoctorDiagnostic> {
     presences
@@ -10162,7 +10162,7 @@ fn approval_missing_children_diagnostics(
 ///    for `then`. The parser already enforces `deny | allow | escalate`
 ///    at parse time, lowering to `ApprovalThen` (enum-fechado). The
 ///    redundant doctor-side catalog check retired.
-fn approval_diagnostics(
+pub(super) fn approval_diagnostics(
     tier3_facts: &[Tier3FeatureFacts],
     known_roles: &BTreeSet<String>,
 ) -> Vec<DoctorDiagnostic> {
@@ -10257,7 +10257,7 @@ fn approval_diagnostics(
 /// Closed-catalog column priorities mirror codegen exactly:
 /// - `@scope.owner` searches `user_id` > `user` > `owner_id` > `owner`.
 /// - `@scope.same_org` searches `org_id` > `org` > `tenant_id` > `tenant`.
-fn scope_owner_column_diagnostics(tier3_facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+pub(super) fn scope_owner_column_diagnostics(tier3_facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
     use lazuli_ir::{CommandEffect, PolicyRef};
 
     const OWNER_COLUMNS: &[&str] = &["user_id", "user", "owner_id", "owner"];
@@ -10383,7 +10383,7 @@ fn scope_owner_column_diagnostics(tier3_facts: &[Tier3FeatureFacts]) -> Vec<Doct
 /// or a built-in (`ctx`, `now`, `true`, `false`, `nil`). Severity is
 /// Warning — the runtime panics on resolution failure, but a Warning
 /// at design time surfaces the typo before deploy.
-fn field_derived_from_unresolved_diagnostics(
+pub(super) fn field_derived_from_unresolved_diagnostics(
     tier3_facts: &[Tier3FeatureFacts],
 ) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
@@ -10531,7 +10531,7 @@ fn collect_unresolved_field_refs(expr: &str, siblings: &BTreeSet<&str>) -> Vec<S
 /// that is not a field on the same resource. The runtime ignores
 /// unknown qualifiers silently; the lint surfaces the gap at design
 /// time so SQL composes the intended composite unique index.
-fn resource_unique_qualifier_unknown_diagnostics(
+pub(super) fn resource_unique_qualifier_unknown_diagnostics(
     tier3_facts: &[Tier3FeatureFacts],
 ) -> Vec<DoctorDiagnostic> {
     use lazuli_ir::Constraint;
@@ -10599,7 +10599,7 @@ fn resource_unique_qualifier_unknown_diagnostics(
 ///
 /// The LSP proxy `validation-syntax` (`lazuli_lsp/src/lib.rs:5987`)
 /// only catches malformed syntax; this lint is the cross-reference.
-fn resource_validates_path_unknown_diagnostics(
+pub(super) fn resource_validates_path_unknown_diagnostics(
     tier3_facts: &[Tier3FeatureFacts],
 ) -> Vec<DoctorDiagnostic> {
     use lazuli_ir::ExtensionContract;
@@ -10879,7 +10879,7 @@ fn collect_package_rbac_catalog(
 }
 
 /// Convert analyzer-emitted RBAC issues into doctor diagnostics.
-fn rbac_catalog_diagnostics(
+pub(super) fn rbac_catalog_diagnostics(
     files: &[DoctorFile],
 ) -> (Vec<DoctorDiagnostic>, Option<lazuli_ir::RbacCatalog>) {
     let (catalog, issues) = collect_package_rbac_catalog(files);
@@ -10928,7 +10928,7 @@ fn line_col_for_offset_from_files(
 /// RBAC-ROLE-UNDECLARED-001 — when a catalog IS declared, every
 /// `@role.X` mention in `policies` / `policy_for` must resolve to a
 /// catalog role. Returns one diagnostic per orphan reference (deduped).
-fn rbac_role_undeclared_diagnostics(
+pub(super) fn rbac_role_undeclared_diagnostics(
     files: &[DoctorFile],
     catalog: &lazuli_ir::RbacCatalog,
 ) -> Vec<DoctorDiagnostic> {
@@ -10971,7 +10971,7 @@ fn rbac_role_undeclared_diagnostics(
 /// implicit-role-set has entries but no `role` / `permission` blocks
 /// were authored at top level. Migration hint per
 /// `docs/proposals/rbac-catalog-vocab.md` §Backwards compatibility.
-fn rbac_catalog_missing_diagnostics(
+pub(super) fn rbac_catalog_missing_diagnostics(
     files: &[DoctorFile],
     catalog_present: bool,
 ) -> Vec<DoctorDiagnostic> {
@@ -11018,7 +11018,7 @@ fn rbac_catalog_missing_diagnostics(
 /// opts out. Warning level. Per-feature; scans for indent-2 `command`/
 /// `query.*` blocks and checks if their indent-4 children include a
 /// `policy ` line.
-fn rbac_missing_policy_diagnostics(files: &[DoctorFile]) -> Vec<DoctorDiagnostic> {
+pub(super) fn rbac_missing_policy_diagnostics(files: &[DoctorFile]) -> Vec<DoctorDiagnostic> {
     let mut out = Vec::new();
     for file in files {
         if !is_lzi_path(&file.path) {
@@ -11574,7 +11574,7 @@ fn resolve_resource_for_feature<'a>(
 /// Emit the four `auth_*` cross-feature diagnostics. Each diagnostic
 /// is anchored at the offending subblock line; the `auth` header is
 /// only used as a fallback.
-fn auth_diagnostics(
+pub(super) fn auth_diagnostics(
     auth_facts: &[AuthFacts],
     feature_resources: &BTreeMap<String, BTreeMap<String, ResourceFact>>,
     feature_adapters: &BTreeMap<String, BTreeSet<String>>,
@@ -11913,7 +11913,7 @@ fn auth_diagnostics(
 // See `docs/proposals/ai-primitives-cut-a-8.md`.
 // -----------------------------------------------------------------------------
 
-fn agent_run_trace_diagnostics(files: &[DoctorFile]) -> Vec<DoctorDiagnostic> {
+pub(super) fn agent_run_trace_diagnostics(files: &[DoctorFile]) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
 
     let canonical_payload: BTreeSet<String> = ir::built_in_trace_events()
@@ -12125,7 +12125,7 @@ fn locate_emit_to_line(
     None
 }
 
-fn audit_event_health_diagnostics(
+pub(super) fn audit_event_health_diagnostics(
     files: &[DoctorFile],
     app: Option<&DoctorAppManifest>,
     tier3_facts: &[Tier3FeatureFacts],
@@ -12812,7 +12812,7 @@ fn extract_cap_file_field_line(trimmed: &str) -> Option<(String, String)> {
 /// Run the 10 `REPORT-*` doctor rules per
 /// `docs/proposals/report-vocab.md` v0.2 §Doctor / LSP, aggregating
 /// findings into typed `DoctorDiagnostic` rows.
-fn report_diagnostics(
+pub(super) fn report_diagnostics(
     facts: &[Tier3FeatureFacts],
     app: Option<&AppManifest>,
     registry: Option<&DoctorAppRegistry>,
@@ -13129,7 +13129,7 @@ pub(crate) fn make_synthetic_feature_for_reports(fact: &Tier3FeatureFacts) -> la
 
 
 
-fn cap_file_storage_diagnostics(operational: &OperationalFacts) -> Vec<DoctorDiagnostic> {
+pub(super) fn cap_file_storage_diagnostics(operational: &OperationalFacts) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
 
     // (1) cap_file_visibility_undeclared — api output without `visibility:`.
@@ -13323,7 +13323,7 @@ fn cap_file_storage_diagnostics(operational: &OperationalFacts) -> Vec<DoctorDia
 /// The analyzer lowers `source @file.<name>.sql` into the canonical
 /// project-relative file path; doctor owns the filesystem and best-effort
 /// unsafe-SQL checks.
-fn query_view_sql_file_diagnostics(
+pub(super) fn query_view_sql_file_diagnostics(
     facts: &[Tier3FeatureFacts],
     project_root: &Path,
 ) -> Vec<DoctorDiagnostic> {
