@@ -3494,7 +3494,7 @@ mod conventions_crud_synth_tests {
     }
 
     fn author_list_customers_query(policy: ir::PolicyRef) -> ir::Query {
-        let mut query = crate::build_list_query("list_customers", "Customer");
+        let mut query = crate::conventions::build_list_query("list_customers", "Customer");
         match &mut query {
             ir::Query::List(lq) => {
                 lq.policy = policy;
