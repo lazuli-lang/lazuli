@@ -26,5 +26,6 @@
 pub(crate) mod correctness;
 pub(crate) mod design;
 pub(crate) mod domain;
+pub(crate) mod error_vocab;
 pub(crate) mod folder;
 pub(crate) mod test_discipline;
