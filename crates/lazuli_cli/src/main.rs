@@ -1104,7 +1104,7 @@ fn main() -> Result<()> {
                 .map_err(|err| anyhow::anyhow!("{err}"))
         }
         Commands::Changelog { from, to, output } => {
-            changelog_command(&from, &to, output.as_deref())
+            commands::changelog::changelog_command(&from, &to, output.as_deref())
         }
         Commands::Translate { sub } => match sub {
             TranslateCommand::Extract {
@@ -4859,34 +4859,6 @@ fn json_escape(s: &str) -> String {
 
 /// OpenAPI bucket cycle — emit a changelog markdown from two inspect
 /// JSON payloads.
-fn changelog_command(from: &Path, to: &Path, output: Option<&Path>) -> Result<()> {
-    let old_text =
-        fs::read_to_string(from).with_context(|| format!("reading {}", from.display()))?;
-    let new_text = fs::read_to_string(to).with_context(|| format!("reading {}", to.display()))?;
-    let old_module: lazuli_ir::Module = serde_json::from_str(&old_text)
-        .with_context(|| format!("parsing {} as IR JSON", from.display()))?;
-    let new_module: lazuli_ir::Module = serde_json::from_str(&new_text)
-        .with_context(|| format!("parsing {} as IR JSON", to.display()))?;
-    let report = lazuli_changelog::diff(&old_module, &new_module);
-    let md = lazuli_changelog::render_markdown(&report);
-    match output {
-        Some(path) => {
-            if let Some(parent) = path.parent() {
-                if !parent.as_os_str().is_empty() {
-                    fs::create_dir_all(parent).with_context(|| {
-                        format!("creating output directory {}", parent.display())
-                    })?;
-                }
-            }
-            fs::write(path, &md)
-                .with_context(|| format!("writing changelog to {}", path.display()))?;
-            println!("wrote {}", path.display());
-        }
-        None => print!("{}", md),
-    }
-    Ok(())
-}
-
 /// Recursively collect every `.lzi` file under a package root, skipping
 /// well-known noise directories (build output, vcs metadata, vendored
 /// deps). Honors the Lazurite convention (`features/<name>/<name>.lzi`)
