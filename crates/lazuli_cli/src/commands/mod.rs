@@ -44,6 +44,7 @@ pub mod migrate;
 pub mod parse;
 pub mod plan;
 pub mod profile;
+pub mod seed;
 pub mod spike_generate;
 pub mod test;
 pub mod translate;

@@ -1056,12 +1056,7 @@ fn main() -> Result<()> {
             target,
             dry_run,
         } => commands::upgrade::upgrade_command(&from, &to, &target, dry_run),
-        Commands::Seed { only, force } => {
-            let project_root =
-                std::env::current_dir().context("failed to determine current directory")?;
-            seed::run_seed(&project_root, only.as_deref(), force)
-                .map_err(|err| anyhow::anyhow!("{err}"))
-        }
+        Commands::Seed { only, force } => commands::seed::seed_command(only.as_deref(), force),
         Commands::Changelog { from, to, output } => {
             commands::changelog::changelog_command(&from, &to, output.as_deref())
         }
