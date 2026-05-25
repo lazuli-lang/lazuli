@@ -18,6 +18,7 @@ use tower_lsp::lsp_types::{
 use tower_lsp::{Client, LanguageServer, LspService, Server, async_trait};
 
 mod catalogs;
+mod conventions;
 mod hover;
 mod lzx_completion;
 mod rate_limit;
@@ -25,6 +26,7 @@ mod source_scan;
 mod types;
 
 pub use catalogs::*;
+pub use conventions::conventions_list_completions;
 pub use hover::*;
 pub use rate_limit::rate_limit_env_completions;
 pub use source_scan::*;
@@ -13884,52 +13886,6 @@ fn context_aware_completions(source: &str, position: Position) -> Option<Vec<Com
     Some(items)
 }
 
-/// Closed-catalog completion inside `conventions [..]`. Fires when the
-/// line prefix matches `<indent>conventions [<partial-or-empty>` with
-/// no closing `]` before the cursor. Returns the closed catalog
-/// (`crud`, `me`) plus future entries as they land. Returns `None`
-/// outside the bracket-list so falls through to the generic dispatcher.
-///
-/// `docs/proposals/ir-resource-conventions-crud.md` §4.4 + §12 row C4
-/// and `docs/proposals/ir-resource-conventions-me.md` §4.4 + §12 row M3.
-pub fn conventions_list_completions(before: &str) -> Option<Vec<CompletionItem>> {
-    // Locate the most recent unclosed `[` after a `conventions` keyword
-    // on the same line. The slot is single-line per the parser spec
-    // (§4.1); multi-line `conventions` would not register here, and
-    // that's the intended behavior — multi-line is not a supported
-    // authoring shape.
-    let conv_idx = before.rfind("conventions")?;
-    let after_kw = &before[conv_idx + "conventions".len()..];
-    let open_idx = after_kw.find('[')?;
-    let inside = &after_kw[open_idx + 1..];
-    if inside.contains(']') {
-        // Cursor sits past the closing bracket — not inside the list.
-        return None;
-    }
-
-    let catalog: &[(&str, &str)] = &[
-        (
-            "crud",
-            "Auto-synthesizes 5 CRUD entries (`create_<r>`, `update_<r>`, `delete_<r>`, `lookup_<r>`, `list_<r>s`). See `docs/proposals/ir-resource-conventions-crud.md` §5.",
-        ),
-        (
-            "me",
-            "Auto-synthesizes one `lookup_my_<r>` query keyed by the active actor (`ctx.User.ID` / `ctx.User.OrgID`). See `docs/proposals/ir-resource-conventions-me.md` §5.",
-        ),
-    ];
-
-    Some(
-        catalog
-            .iter()
-            .map(|(label, detail)| CompletionItem {
-                label: (*label).to_owned(),
-                kind: Some(CompletionItemKind::ENUM_MEMBER),
-                detail: Some((*detail).to_owned()),
-                ..CompletionItem::default()
-            })
-            .collect(),
-    )
-}
 
 fn convention_bundle_hover(source: &str, position: Position, word: &str) -> Option<String> {
     let bundle = match word {
