@@ -1,4 +1,9 @@
-# Strict-by-default CI gate for {{app_name}}.
+# Strict-by-default GitHub Actions CI gate for {{app_name}}.
+#
+# To activate: move this directory to the repo root so Actions picks
+# it up (workflows MUST live at `.github/workflows/`):
+#
+#   mkdir -p .github && mv scripts/ci/github .github/workflows
 #
 # Mirrors the local `pnpm verify:all` chain exactly so green-locally =>
 # green-on-CI. Order matters — each gate gates the next so failures

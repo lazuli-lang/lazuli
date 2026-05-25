@@ -1,0 +1,79 @@
+# CI / CD — opt-in by provider
+
+Lazurite does not activate CI/CD by default — silent activation on first push (consuming minutes, sending failure notifications, blocking PRs you didn't expect) violates the principle of least surprise. Pick your provider below and run the one-line activation command.
+
+All three provider configs run **the same strict gate** as the local `pnpm verify:all` chain:
+
+1. `lazuli check` — schema fast-fail (~5s)
+2. `lazuli doctor --security-profile strict --coverage` — strict + per-layer coverage (~20s)
+3. `lazuli generate` + `go build` — emitted Go compiles (~30s)
+4. `pnpm typecheck` — emitted TS typechecks (~20s)
+5. `db migrate` — schema matches production
+6. `lazuli test --layer handler` — handler tests vs real Postgres (variable)
+
+Green locally ⇒ green on CI.
+
+## GitHub Actions
+
+```bash
+mkdir -p .github && mv scripts/ci/github .github/workflows
+git add .github/workflows && git commit -m "ci: activate strict gate"
+```
+
+Activates two workflows:
+- **`lazuli.yml`** — runs on every push and PR
+- **`release.yml`** — runs on `v*.*.*` tags (deploy step is a stub — wire it to your target)
+
+## GitLab CI
+
+```bash
+mv scripts/ci/gitlab/.gitlab-ci.yml ./.gitlab-ci.yml
+git add .gitlab-ci.yml && git commit -m "ci: activate strict gate"
+```
+
+Single pipeline runs on every push and MR. Uses GitLab's built-in cache for pnpm/cargo/go.
+
+## Bitbucket Pipelines
+
+```bash
+mv scripts/ci/bitbucket/bitbucket-pipelines.yml ./bitbucket-pipelines.yml
+git add bitbucket-pipelines.yml && git commit -m "ci: activate strict gate"
+```
+
+Single pipeline runs on every push and PR. Heads-up: Bitbucket bills per build minute — see the file header for free-tier scoping hints.
+
+## Other CI providers (Jenkins, CircleCI, Drone, Buildkite, …)
+
+The gate boils down to four steps. Wire them in your provider's syntax:
+
+```sh
+# 1. Install Lazuli CLI (until a release binary ships, install from source)
+cargo install --git https://github.com/lazuli-lang/lazuli --locked lazuli_cli
+
+# 2. Install JS deps
+pnpm install --frozen-lockfile
+
+# 3. Run migrations against a real Postgres
+LAZULI_TEST_DATABASE_URL=postgres://USER:PASS@HOST:5432/DB?sslmode=disable \
+  pnpm db:migrate
+
+# 4. Run the full strict gate
+LAZULI_TEST_DATABASE_URL=postgres://USER:PASS@HOST:5432/DB?sslmode=disable \
+  pnpm verify:all
+```
+
+Cache: `~/.cargo/bin/lazuli`, `~/.pnpm-store`, `~/.cache/go-build`, and your Cargo registry — these dominate cold-start time.
+
+Provide a Postgres 16 instance via service container, sidecar, or external — the URL the gate reads is `LAZULI_TEST_DATABASE_URL`.
+
+## How to soften a gate
+
+**Never edit the CI files.** Author a `[doctor.test_discipline.severity_override."<RULE-CODE>"]` entry in `Lazurite.toml` with a mandatory `reason` (enforced by `DOCTOR-OVERRIDE-NEEDS-REASON-001`). That way the override is reviewable per PR/MR — anyone reading the diff sees both the override and the reason at the same time.
+
+Example:
+
+```toml
+[doctor.test_discipline.severity_override."TEST-STUB-001"]
+severity = "warning"
+reason   = "tracked refactor 2026-06; restoring strict after #142 lands"
+```

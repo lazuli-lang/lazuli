@@ -47,14 +47,28 @@ For DSL changes (`.lzi`, `.lzx`), run `pnpm lazuli:generate` manually — codege
 
 Check out everything as siblings under one parent. `pnpm dev` and `lazuli generate` resolve paths relative to this layout.
 
-## CI / CD (strict-by-default)
+## CI / CD (opt-in by provider)
 
-Two GitHub Actions workflows ship in `.github/workflows/`:
+CI is **opt-in** — Lazurite parks ready-to-activate configs for the three major providers under [`scripts/ci/`](./scripts/ci/) instead of auto-activating GitHub Actions on first push (which would silently consume minutes and send failure notifications you didn't ask for).
 
-- **`lazuli.yml`** runs on every push and PR. Mirrors `pnpm verify:all` exactly: `check` → `doctor --security-profile strict --coverage` → `generate` + `go build` + `tsc` → `lazuli test --layer handler`. A Postgres service container provides the real DB the handler tests run against (no mocks — per CLAUDE.md). Uploads the doctor coverage report as a build artifact.
-- **`release.yml`** fires on `v*.*.*` tags. Re-runs the verify chain, then hands off to a `deploy` step intentionally left as a stub — wire it to your target (Fly.io, Render, k8s, VPS, etc.).
+Pick your provider and activate with one command:
 
-To **soften any individual gate** while migrating off a baseline, do NOT edit the workflows — author a `[doctor.test_discipline.severity_override.<RULE>]` entry in `Lazurite.toml` with a `reason` (DOCTOR-OVERRIDE-NEEDS-REASON-001 enforces). That way the override is reviewable per-PR.
+```bash
+# GitHub Actions
+mkdir -p .github && mv scripts/ci/github .github/workflows
+
+# GitLab CI
+mv scripts/ci/gitlab/.gitlab-ci.yml ./.gitlab-ci.yml
+
+# Bitbucket Pipelines
+mv scripts/ci/bitbucket/bitbucket-pipelines.yml ./bitbucket-pipelines.yml
+```
+
+All three configs run **the same strict gate** as the local `pnpm verify:all` chain: `check` → `doctor --security-profile strict --coverage` → `generate` + `go build` + `tsc` → `db migrate` → `lazuli test --layer handler`. A real Postgres 16 service backs the handler tests (no mocks — per CLAUDE.md).
+
+For any other CI (Jenkins, CircleCI, Drone, Buildkite, …), see [`scripts/ci/README.md`](./scripts/ci/README.md) — the gate is four shell steps regardless of provider.
+
+To **soften any gate** while migrating off a baseline, do NOT edit the CI files — author a `[doctor.test_discipline.severity_override."<RULE>"]` entry in `Lazurite.toml` with a `reason` (DOCTOR-OVERRIDE-NEEDS-REASON-001 enforces). That way the override is reviewable per-PR.
 
 To **mirror CI locally** before pushing:
 

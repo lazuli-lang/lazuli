@@ -1,5 +1,8 @@
 # Release pipeline for {{app_name}} — fires on semver tags.
 #
+# Activated alongside lazuli.yml when you move scripts/ci/github/
+# to .github/workflows/ (see lazuli.yml header for the move command).
+#
 # Stub: the convention is to gate every release behind the same
 # `pnpm verify:all` chain CI runs on PRs, then hand off to a deploy
 # step that is intentionally project-specific. Wire the deploy step
