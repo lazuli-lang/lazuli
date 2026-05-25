@@ -24,6 +24,7 @@
 //! envelope contract every aggregator pushes onto the diagnostic vec.
 
 pub(crate) mod agent;
+pub(crate) mod app_contract;
 pub(crate) mod app_manifest;
 pub(crate) mod approval;
 pub(crate) mod audit;

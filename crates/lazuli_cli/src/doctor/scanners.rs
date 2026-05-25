@@ -315,7 +315,7 @@ pub(crate) fn leading_spaces(line: &str) -> usize {
 /// Lazuli identifier predicate: `[A-Za-z_][A-Za-z0-9_]*`. Distinct
 /// from `is_ident_char` (which is the JS/TS vocabulary used by the
 /// deprecated-alias scanner).
-pub(super) fn is_identifier(source: &str) -> bool {
+pub(crate) fn is_identifier(source: &str) -> bool {
     let mut chars = source.chars();
     matches!(chars.next(), Some(first) if first == '_' || first.is_ascii_alphabetic())
         && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
@@ -324,7 +324,7 @@ pub(super) fn is_identifier(source: &str) -> bool {
 /// Lazuli type-name predicate: `[A-Z][A-Za-z0-9_]*`. Constrains the
 /// initial character to uppercase so the doctor can distinguish
 /// `Customer` (type) from `customer` (identifier).
-pub(super) fn is_type_name(source: &str) -> bool {
+pub(crate) fn is_type_name(source: &str) -> bool {
     let mut chars = source.chars();
     matches!(chars.next(), Some(first) if first.is_ascii_uppercase())
         && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
