@@ -44,6 +44,7 @@ pub mod lifecycle;
 pub mod mcp;
 pub mod migrations;
 pub mod plan_and_gate;
+pub mod poller;
 pub mod rbac;
 pub mod realtime;
 pub mod report;

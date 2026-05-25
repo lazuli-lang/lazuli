@@ -63,6 +63,10 @@ pub use nodes::plan_and_gate::{
     AutoPhotoCommandRole, Gate, Plan, PlanCatalog, PlanLimit, PlanLimitValue, SubscriptionAnchor,
     SynthesizedFromCapFile, TrialPolicy,
 };
+pub use nodes::poller::{
+    Poller, PollerBackoff, PollerCursor, PollerRetry, PollerRetryQuirk, PollerState,
+    PollerStateKind, PollerTick,
+};
 pub use nodes::rbac::{PermissionEntry, RbacCatalog, RoleEntry, RoleGrants};
 pub use nodes::realtime::Channel;
 pub use nodes::report::{
@@ -2502,114 +2506,11 @@ pub enum OperationKind {
 
 // =============================================================================
 // L0 #8 — `poller` vocabulary (docs/proposals/poller-vocab.md §4).
-// Additive IR types; closed-catalog backoff / state-kind / quirk enums.
+// Poller family (Poller, PollerCursor, PollerRetry, PollerBackoff, PollerState,
+// PollerStateKind, PollerTick, PollerRetryQuirk) lives in `nodes::poller`
+// after the W4.1 rails-style split. Re-exported at the crate root above to
+// preserve the ABI surface.
 // =============================================================================
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Poller {
-    pub name: String,
-    /// Same-feature resource holding the pending rows.
-    pub source: String,
-    /// Cursor field bindings.
-    pub cursor: PollerCursor,
-    /// Bounded retry policy.
-    pub retry: PollerRetry,
-    /// Declared state space; ≥2 entries; ≥1 terminal (doctor enforces).
-    pub states: Vec<PollerState>,
-    /// Resolution handler reference (`@fn.<name>`).
-    pub resolve_handler: HandlerRef,
-    /// Optional same-resource field receiving the terminal status.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub terminal_status_field: Option<String>,
-    /// Optional same-resource field receiving the terminal result (JSON).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub terminal_result_field: Option<String>,
-    /// Tick cadence. Defaults applied at lowering when omitted.
-    pub tick: PollerTick,
-    /// Tenant axis derivation (`row.<axis>_id`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tenant_from: Option<TenantFromSpec>,
-    /// Idempotency key — canonical `row.id, row.attempts`.
-    pub idempotency: IdempotencyKey,
-    /// Audit subjects; defaults to `AuditSpec::Default` semantics when None.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub audit: Option<AuditSpec>,
-    /// Reactive events published after a row commits a state change.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub emits: Vec<String>,
-    /// Retry quirks — closed catalog.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub retry_quirks: Vec<PollerRetryQuirk>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PollerCursor {
-    pub next_at_field: String,
-    pub resolved_at_field: String,
-    pub attempts_field: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PollerRetry {
-    pub max_attempts: u32,
-    pub backoff: PollerBackoff,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// Closed-catalog backoff strategy. `serde(tag = "strategy")` keeps the
-/// JSON projection self-describing for inspect consumers.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "strategy", rename_all = "snake_case")]
-pub enum PollerBackoff {
-    Fixed { base: Option<String> },
-    Linear { base: String, cap: Option<String> },
-    Exponential { base: String, cap: Option<String> },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PollerState {
-    pub name: String,
-    pub kind: PollerStateKind,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PollerStateKind {
-    Initial,
-    Intermediate,
-    Terminal,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PollerTick {
-    /// Verbatim duration literal (`15s`, `1m`); runtime parses.
-    pub every: String,
-    pub batch: u32,
-}
-
-/// Closed-catalog retry quirks (poller-vocab.md §3.13). v0.1 ships ONE
-/// form (`gender_flip_once`). New forms require ≥2 products needing
-/// them, doctor enforceability, and explicit L0 review.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
-pub enum PollerRetryQuirk {
-    /// Flip the row's `gender_field` once when `when` matches and
-    /// `counter_field < 1`; re-call handler immediately.
-    GenderFlipOnce {
-        /// Raw predicate text from `when <predicate>` — closed predicate
-        /// language enforced by doctor.
-        when: String,
-        counter_field: String,
-        gender_field: String,
-    },
-}
 
 // =============================================================================
 // Lzx ViewModel surface IR — L0 #3 (lzx-integration-codegen)
