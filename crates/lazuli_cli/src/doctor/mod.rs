@@ -25,10 +25,13 @@ use helpers::{
     resolve_test_discipline_severity,
 };
 use parsers::{
-    catalog_list, environments_summary, format_accept_list, format_visibility, http_method_word,
-    is_lzi_path, is_lzx_path, is_one_dot_zero_plus, is_parseable_cidr, is_parseable_duration,
-    is_parseable_size, major_minor, normalise_path, openapi_today_pivot, parse_iso_date,
-    same_origin, tool_kind_word,
+    auth_session_ttl_seconds, cache_ttl_as_seconds, catalog_list, environments_summary,
+    error_page_catalog_display, format_accept_list, format_agent_policy, format_name_list,
+    format_visibility, http_method_word, is_lzi_path, is_lzx_path, is_one_dot_zero_plus,
+    is_parseable_cidr, is_parseable_duration, is_parseable_size, is_valid_notification_duration,
+    major_minor, mime_matches, mime_sets_intersect, normalise_path, openapi_today_pivot,
+    parse_iso_date, parse_notification_duration_seconds, payload_field_list, same_origin,
+    tool_kind_word, type_ref_name,
 };
 use scanners::{
     collect_deprecated_exports, collect_lazuli_paths_recursive, collect_recipe_dirs,
@@ -6787,14 +6790,6 @@ fn error_page_line(app: &DoctorAppManifest, status: u16) -> usize {
         .unwrap_or(1)
 }
 
-fn error_page_catalog_display() -> String {
-    ir::ERROR_PAGE_STATUS_CATALOG
-        .iter()
-        .map(u16::to_string)
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
 fn workspace_contract_diagnostics(workspace: Option<&DoctorAppWorkspace>) -> Vec<DoctorDiagnostic> {
     let Some(workspace) = workspace else {
         return Vec::new();
@@ -8167,33 +8162,6 @@ fn tier3_notification_diagnostics(
 /// The runtime resolves the final string via Go's `time.ParseDuration`;
 /// doctor's job is to reject obviously wrong literals at design
 /// time so the adapter never sees `"1 month"` or `"forever"`.
-fn is_valid_notification_duration(raw: &str) -> bool {
-    parse_notification_duration_seconds(raw).is_some()
-}
-
-fn parse_notification_duration_seconds(raw: &str) -> Option<u64> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let (num_part, unit_part) = trimmed
-        .find(|c: char| !c.is_ascii_digit())
-        .map(|idx| trimmed.split_at(idx))
-        .unwrap_or(("", ""));
-    if num_part.is_empty() {
-        return None;
-    }
-    let n = num_part.parse::<u64>().ok()?;
-    let unit = unit_part.trim().to_ascii_lowercase();
-    let multiplier = match unit.as_str() {
-        "s" | "sec" | "secs" | "second" | "seconds" => 1,
-        "m" | "min" | "mins" | "minute" | "minutes" => 60,
-        "h" | "hr" | "hrs" | "hour" | "hours" => 60 * 60,
-        "d" | "day" | "days" => 24 * 60 * 60,
-        _ => return None,
-    };
-    n.checked_mul(multiplier)
-}
 
 /// Notifications expanded bucket cycle — cross-feature event-payload
 /// index keyed on `<feature>.<event-name>`. Each entry stores the
@@ -11299,15 +11267,6 @@ fn resolve_tool(
     }
 }
 
-fn format_agent_policy(agent: &Agent) -> String {
-    match agent.policy.as_ref() {
-        Some(ir::PolicyRef::Atom(name)) => format!("@{name}"),
-        Some(ir::PolicyRef::Local(name)) => format!("@policy.{name}"),
-        Some(ir::PolicyRef::External { feature, name }) => format!("{feature}.{name}"),
-        Some(ir::PolicyRef::Unresolved(text)) => text.clone(),
-        Some(ir::PolicyRef::None) | None => "<none>".to_owned(),
-    }
-}
 
 /// Conservative `more restrictive than` check: a policy is considered
 /// stricter than the agent's when both texts parse as `@policy.<x>` and
@@ -11501,15 +11460,6 @@ fn check_record_discriminator(
 /// `check_record_discriminator` to find the matching enum). Many
 /// variants don't yield a usable name; callers fall back to the empty
 /// string and the enum lookup fails as expected.
-fn type_ref_name(t: &lazuli_ir::TypeRef) -> String {
-    use lazuli_ir::TypeRef;
-    match t {
-        TypeRef::UserDefined(qn) | TypeRef::EnumRef(qn) => qn.name.clone(),
-        TypeRef::Unresolved(name) => name.clone(),
-        TypeRef::Many(inner) => type_ref_name(inner),
-        _ => String::new(),
-    }
-}
 
 // -----------------------------------------------------------------------------
 // Diagnostic ids: eval_ordered_op_invalid / eval_nondeterministic_warning
@@ -14525,28 +14475,6 @@ fn auth_diagnostics(
     diagnostics
 }
 
-fn auth_session_ttl_seconds(raw: &str) -> Option<u64> {
-    let trimmed = raw.trim().trim_matches('"').trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let digit_end = trimmed
-        .find(|c: char| !c.is_ascii_digit())
-        .unwrap_or(trimmed.len());
-    if digit_end == 0 {
-        return None;
-    }
-    let value = trimmed[..digit_end].parse::<u64>().ok()?;
-    let unit = trimmed[digit_end..].trim().to_ascii_lowercase();
-    let multiplier = match unit.as_str() {
-        "s" | "sec" | "secs" | "second" | "seconds" => 1,
-        "m" | "min" | "mins" | "minute" | "minutes" => 60,
-        "h" | "hr" | "hrs" | "hour" | "hours" => 60 * 60,
-        "d" | "day" | "days" => 24 * 60 * 60,
-        _ => return None,
-    };
-    value.checked_mul(multiplier)
-}
 
 // -----------------------------------------------------------------------------
 // Cut A.8 — built-in trace event diagnostics
@@ -15208,19 +15136,6 @@ fn write_effect_resource(command: &lazuli_ir::Command) -> Option<&lazuli_ir::Qua
     }
 }
 
-/// Render a `{name1, name2, ...}`-style list for diagnostic messages.
-/// Empty sets render as `<none>` so the message stays unambiguous.
-fn format_name_list(names: &BTreeSet<String>) -> String {
-    if names.is_empty() {
-        "<none>".to_owned()
-    } else {
-        names
-            .iter()
-            .map(|n| format!("`{n}`"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    }
-}
 
 fn canonical_payload_event(name: &str, canonical: &BTreeSet<String>) -> bool {
     !canonical.is_empty() && ir::is_reserved_trace_event_name(name)
@@ -15309,15 +15224,6 @@ fn scan_payload_field_drift(
     diagnostics
 }
 
-fn payload_field_list(canonical: &BTreeSet<String>) -> String {
-    let mut fields: Vec<&String> = canonical.iter().collect();
-    fields.sort();
-    fields
-        .iter()
-        .map(|f| format!("`{f}`"))
-        .collect::<Vec<_>>()
-        .join(", ")
-}
 
 // ============================================================================
 // Row 30 — Storage bucket cycle diagnostics
@@ -16353,22 +16259,6 @@ fn cap_file_storage_diagnostics(operational: &OperationalFacts) -> Vec<DoctorDia
     diagnostics
 }
 
-fn mime_sets_intersect(left: &[lazuli_ir::MimeType], right: &[lazuli_ir::MimeType]) -> bool {
-    for l in left {
-        for r in right {
-            if mime_matches(l, r) {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-fn mime_matches(left: &lazuli_ir::MimeType, right: &lazuli_ir::MimeType) -> bool {
-    let family_ok = left.family == right.family || left.family == "*" || right.family == "*";
-    let subtype_ok = left.subtype == right.subtype || left.subtype == "*" || right.subtype == "*";
-    family_ok && subtype_ok
-}
 
 
 // =============================================================================
@@ -17196,20 +17086,6 @@ fn plus_near_dollar_placeholder(line: &str) -> bool {
     false
 }
 
-/// CL.C.3 — convert a `CacheTtl` to seconds for ordering comparisons
-/// (`stale_while_revalidate` <= `ttl`). Returns `None` for quoted prose
-/// (adapter-parsed; we don't second-guess the runtime there).
-fn cache_ttl_as_seconds(ttl: &lazuli_ir::CacheTtl) -> Option<u64> {
-    match ttl {
-        lazuli_ir::CacheTtl::Literal(lit) => Some(match lit {
-            lazuli_ir::CacheTtlLiteral::Seconds(n) => *n as u64,
-            lazuli_ir::CacheTtlLiteral::Minutes(n) => *n as u64 * 60,
-            lazuli_ir::CacheTtlLiteral::Hours(n) => *n as u64 * 60 * 60,
-            lazuli_ir::CacheTtlLiteral::Days(n) => *n as u64 * 60 * 60 * 24,
-        }),
-        lazuli_ir::CacheTtl::Quoted(_) => None,
-    }
-}
 
 // =============================================================================
 // i18n bucket cycle (row 54) — 15 locale/translation diagnostics.

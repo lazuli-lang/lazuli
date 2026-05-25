@@ -300,3 +300,168 @@ pub(super) fn same_origin(declared_url: &str, origin: &str) -> bool {
     };
     canon(declared_url) == canon(origin)
 }
+
+/// Render a `{name1, name2, ...}`-style list for diagnostic messages.
+/// Empty sets render as `<none>` so the message stays unambiguous.
+pub(super) fn format_name_list(names: &BTreeSet<String>) -> String {
+    if names.is_empty() {
+        "<none>".to_owned()
+    } else {
+        names
+            .iter()
+            .map(|n| format!("`{n}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
+/// Render an event-payload field set as the backtick-wrapped list used
+/// by `NOTIF-DIGEST-001` and the payload-drift diagnostics. Sorted
+/// deterministically so messages are stable across runs.
+pub(super) fn payload_field_list(canonical: &BTreeSet<String>) -> String {
+    let mut fields: Vec<&String> = canonical.iter().collect();
+    fields.sort();
+    fields
+        .iter()
+        .map(|f| format!("`{f}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Render the closed `ir::ERROR_PAGE_STATUS_CATALOG` as a comma-joined
+/// list of HTTP status codes for the `error_page` diagnostic message.
+pub(super) fn error_page_catalog_display() -> String {
+    ir::ERROR_PAGE_STATUS_CATALOG
+        .iter()
+        .map(u16::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Stringify an `Agent`'s policy reference for diagnostic messages.
+/// Mirrors the LSP rendering so doctor and LSP agree on the wire word
+/// (`@atom`, `@policy.local`, `feature.external`, `<none>`).
+pub(super) fn format_agent_policy(agent: &lazuli_ir::Agent) -> String {
+    match agent.policy.as_ref() {
+        Some(ir::PolicyRef::Atom(name)) => format!("@{name}"),
+        Some(ir::PolicyRef::Local(name)) => format!("@policy.{name}"),
+        Some(ir::PolicyRef::External { feature, name }) => format!("{feature}.{name}"),
+        Some(ir::PolicyRef::Unresolved(text)) => text.clone(),
+        Some(ir::PolicyRef::None) | None => "<none>".to_owned(),
+    }
+}
+
+/// Extract the canonical user-facing name from a `TypeRef`. Handles
+/// the `Many<Inner>` recursion. Returns the empty string for builtin
+/// / unknown variants — callers fall back and the enum lookup fails
+/// as expected.
+pub(super) fn type_ref_name(t: &lazuli_ir::TypeRef) -> String {
+    use lazuli_ir::TypeRef;
+    match t {
+        TypeRef::UserDefined(qn) | TypeRef::EnumRef(qn) => qn.name.clone(),
+        TypeRef::Unresolved(name) => name.clone(),
+        TypeRef::Many(inner) => type_ref_name(inner),
+        _ => String::new(),
+    }
+}
+
+/// `true` when any pair of MIME types in the two lists matches (under
+/// `mime_matches`). Used by `cap_file_accept_input_output_mismatch` to
+/// check that an input/output overlap exists.
+pub(super) fn mime_sets_intersect(
+    left: &[lazuli_ir::MimeType],
+    right: &[lazuli_ir::MimeType],
+) -> bool {
+    for l in left {
+        for r in right {
+            if mime_matches(l, r) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// `true` when two MIME types match exactly or via a wildcard
+/// (`image/*` matches `image/png`).
+pub(super) fn mime_matches(left: &lazuli_ir::MimeType, right: &lazuli_ir::MimeType) -> bool {
+    let family_ok = left.family == right.family || left.family == "*" || right.family == "*";
+    let subtype_ok = left.subtype == right.subtype || left.subtype == "*" || right.subtype == "*";
+    family_ok && subtype_ok
+}
+
+/// `true` when the notification duration string parses as a value the
+/// adapter can honor. Delegates to `parse_notification_duration_seconds`
+/// — the doctor's job is to reject obviously wrong literals at design
+/// time so the adapter never sees `"1 month"` or `"forever"`.
+pub(super) fn is_valid_notification_duration(raw: &str) -> bool {
+    parse_notification_duration_seconds(raw).is_some()
+}
+
+/// Parse a notification-duration literal (`5m`, `1h`, `2d`, …) into
+/// seconds. Returns `None` for unknown units or arithmetic overflow.
+pub(super) fn parse_notification_duration_seconds(raw: &str) -> Option<u64> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let (num_part, unit_part) = trimmed
+        .find(|c: char| !c.is_ascii_digit())
+        .map(|idx| trimmed.split_at(idx))
+        .unwrap_or(("", ""));
+    if num_part.is_empty() {
+        return None;
+    }
+    let n = num_part.parse::<u64>().ok()?;
+    let unit = unit_part.trim().to_ascii_lowercase();
+    let multiplier = match unit.as_str() {
+        "s" | "sec" | "secs" | "second" | "seconds" => 1,
+        "m" | "min" | "mins" | "minute" | "minutes" => 60,
+        "h" | "hr" | "hrs" | "hour" | "hours" => 60 * 60,
+        "d" | "day" | "days" => 24 * 60 * 60,
+        _ => return None,
+    };
+    n.checked_mul(multiplier)
+}
+
+/// Parse an auth-session TTL literal (handles quoted variants) into
+/// seconds. Mirrors `parse_notification_duration_seconds` with the
+/// added quote-stripping pass — auth TTLs are authored as quoted
+/// strings in registry blocks.
+pub(super) fn auth_session_ttl_seconds(raw: &str) -> Option<u64> {
+    let trimmed = raw.trim().trim_matches('"').trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let digit_end = trimmed
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(trimmed.len());
+    if digit_end == 0 {
+        return None;
+    }
+    let value = trimmed[..digit_end].parse::<u64>().ok()?;
+    let unit = trimmed[digit_end..].trim().to_ascii_lowercase();
+    let multiplier = match unit.as_str() {
+        "s" | "sec" | "secs" | "second" | "seconds" => 1,
+        "m" | "min" | "mins" | "minute" | "minutes" => 60,
+        "h" | "hr" | "hrs" | "hour" | "hours" => 60 * 60,
+        "d" | "day" | "days" => 24 * 60 * 60,
+        _ => return None,
+    };
+    value.checked_mul(multiplier)
+}
+
+/// CL.C.3 — convert a `CacheTtl` to seconds for ordering comparisons
+/// (`stale_while_revalidate` <= `ttl`). Returns `None` for quoted prose
+/// (adapter-parsed; we don't second-guess the runtime there).
+pub(super) fn cache_ttl_as_seconds(ttl: &lazuli_ir::CacheTtl) -> Option<u64> {
+    match ttl {
+        lazuli_ir::CacheTtl::Literal(lit) => Some(match lit {
+            lazuli_ir::CacheTtlLiteral::Seconds(n) => *n as u64,
+            lazuli_ir::CacheTtlLiteral::Minutes(n) => *n as u64 * 60,
+            lazuli_ir::CacheTtlLiteral::Hours(n) => *n as u64 * 60 * 60,
+            lazuli_ir::CacheTtlLiteral::Days(n) => *n as u64 * 60 * 60 * 24,
+        }),
+        lazuli_ir::CacheTtl::Quoted(_) => None,
+    }
+}
