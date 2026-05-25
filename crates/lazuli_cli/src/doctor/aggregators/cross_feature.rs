@@ -71,7 +71,7 @@ pub(crate) fn app_urls_missing_diagnostics(
     }]
 }
 
-const APP_URLS_MISSING_MESSAGE: &str = "app declares no `urls` block — auth callbacks, CORS allowlist, and frontend redirect targets cannot be configured. Add a `urls` block to app.lzi with at least one environment URL (e.g., `urls\n  dev: \"http://localhost:3000\"`).";
+pub(crate) const APP_URLS_MISSING_MESSAGE: &str = "app declares no `urls` block — auth callbacks, CORS allowlist, and frontend redirect targets cannot be configured. Add a `urls` block to app.lzi with at least one environment URL (e.g., `urls\n  dev: \"http://localhost:3000\"`).";
 
 /// `SCOPE-OWNER-COLUMN-001` — warn when a command's policy includes
 /// `@scope.owner` or `@scope.same_org` but the targeted resource has
