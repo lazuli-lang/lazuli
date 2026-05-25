@@ -16,10 +16,12 @@
 
 mod contracts;
 mod parsers;
+mod profiles;
 mod types;
 mod workspace;
 
 pub use contracts::parse_app_contracts;
+pub use profiles::parse_app_profiles;
 pub use types::{RegistryParseOutput, RegistryToolDefectReason, RegistryToolEntryDefect};
 pub use workspace::parse_app_workspace;
 
@@ -29,17 +31,16 @@ use parsers::{
     parse_bindings_sugar_line, parse_bool, parse_cors_allow_origins, parse_credential_binding,
     parse_env_group_name, parse_hsts_inline, parse_integration_header, parse_pack_header,
     parse_pack_provide, parse_pack_requirement, parse_route_guard_redirect,
-    parse_webhook_event_field, profile_child, registry_child, split_items, unquote,
-    used_feature_name, webhook_event_name,
+    parse_webhook_event_field, registry_child, split_items, unquote, used_feature_name,
+    webhook_event_name,
 };
 
 use lazuli_ir::{
     AppArchitecture, AppCapability, AppCommunication, AppCookie, AppCors, AppDeploy, AppHeaders,
     AppHsts, AppIntegration, AppIntegrationCredentialBinding, AppIntegrationCredentials,
-    AppLimits, AppLocale, AppLogging, AppManifest, AppObservability, AppPack, AppProfile,
-    AppProfileDeploy, AppProfileIntegration, AppProfileUrl, AppProxy, AppRegistry,
-    AppRuntimeUnit, AppService, AppServiceExposure, AppTracing, AppUrl, CookieProfile,
-    DeployCheckpoint, EncryptionAlgorithm, EncryptionBinding, EncryptionRotation,
+    AppLimits, AppLocale, AppLogging, AppManifest, AppObservability, AppPack, AppProxy,
+    AppRegistry, AppRuntimeUnit, AppService, AppServiceExposure, AppTracing, AppUrl,
+    CookieProfile, DeployCheckpoint, EncryptionAlgorithm, EncryptionBinding, EncryptionRotation,
     EncryptionSource, EncryptionTemplate, ErrorPage, LocaleFallback, LocaleNegotiate,
     QualifiedName, RegistryToolEntry, RouteGuardDefaults, SecretRotation, ToolEffect,
     WebhookEvent,
@@ -1266,145 +1267,6 @@ fn pii_class_name(raw: &str) -> String {
         format!("@pii.{trimmed}")
     }
 }
-
-pub fn parse_app_profiles(source: &str) -> Vec<AppProfile> {
-    let lines: Vec<_> = source.lines().collect();
-    let mut profiles = Vec::new();
-    let mut index = 0;
-
-    while index < lines.len() {
-        let trimmed = lines[index].trim_start();
-        if leading_spaces(lines[index]) != 0 || !trimmed.starts_with("profile ") {
-            index += 1;
-            continue;
-        }
-
-        let Some(name) = trimmed.split_whitespace().nth(1) else {
-            index += 1;
-            continue;
-        };
-        if !is_identifier(name) {
-            index += 1;
-            continue;
-        }
-
-        let start = index;
-        index += 1;
-        while index < lines.len() {
-            let next_trimmed = lines[index].trim_start();
-            if leading_spaces(lines[index]) == 0
-                && !next_trimmed.is_empty()
-                && !next_trimmed.starts_with('#')
-            {
-                break;
-            }
-            index += 1;
-        }
-
-        profiles.push(parse_app_profile_block(name, &lines[start + 1..index]));
-    }
-
-    profiles
-}
-
-fn parse_app_profile_block(name: &str, lines: &[&str]) -> AppProfile {
-    let mut profile = AppProfile {
-        name: name.to_owned(),
-        urls: Vec::new(),
-        bindings: Vec::new(),
-        integrations: Vec::new(),
-        deploy: None,
-    };
-    let mut current_child: Option<&str> = None;
-
-    for line in lines {
-        let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-
-        match leading_spaces(line) {
-            2 => current_child = profile_child(trimmed),
-            4 => match current_child {
-                Some("urls") => {
-                    let parts: Vec<_> = trimmed.split_whitespace().collect();
-                    if parts.len() == 2 && is_identifier(parts[0]) {
-                        profile.urls.push(AppProfileUrl {
-                            target: parts[0].to_owned(),
-                            url: unquote(parts[1]).to_owned(),
-                        });
-                    }
-                }
-                Some("bindings") => {
-                    if let Some(binding) = parse_app_binding(trimmed) {
-                        profile.bindings.push(binding);
-                    }
-                }
-                Some("integrations") => {
-                    let parts: Vec<_> = trimmed.split_whitespace().collect();
-                    match parts.as_slice() {
-                        [name, "environment", environment]
-                            if is_identifier(name) && is_identifier(environment) =>
-                        {
-                            upsert_profile_integration(&mut profile, name).environment =
-                                Some((*environment).to_owned());
-                        }
-                        [name, "adapter", adapter] if is_identifier(name) => {
-                            let integration = upsert_profile_integration(&mut profile, name);
-                            integration.adapter = Some((*adapter).to_owned());
-                            integration.adapter_provenance =
-                                adapter_source_provenance(adapter).map(str::to_owned);
-                        }
-                        _ => {}
-                    }
-                }
-                Some("deploy") => {
-                    let deploy = profile.deploy.get_or_insert_with(AppProfileDeploy::default);
-                    let parts: Vec<_> = trimmed.split_whitespace().collect();
-                    match parts.as_slice() {
-                        ["topology", value] => deploy.topology = Some((*value).to_owned()),
-                        ["migrations", value] => deploy.migrations = Some((*value).to_owned()),
-                        ["migration_lock", value] => {
-                            deploy.migration_lock = Some((*value).to_owned());
-                        }
-                        ["destructive_migrations", value] => {
-                            deploy.destructive_migrations = Some((*value).to_owned());
-                        }
-                        ["rollback", value] => deploy.rollback = Some((*value).to_owned()),
-                        _ => {}
-                    }
-                }
-                _ => {}
-            },
-            _ => {}
-        }
-    }
-
-    profile
-}
-
-fn upsert_profile_integration<'a>(
-    profile: &'a mut AppProfile,
-    name: &str,
-) -> &'a mut AppProfileIntegration {
-    if let Some(index) = profile
-        .integrations
-        .iter()
-        .position(|integration| integration.name == name)
-    {
-        return &mut profile.integrations[index];
-    }
-
-    profile.integrations.push(AppProfileIntegration {
-        name: name.to_owned(),
-        environment: None,
-        adapter: None,
-        adapter_provenance: None,
-    });
-    let index = profile.integrations.len() - 1;
-    &mut profile.integrations[index]
-}
-
 
 #[cfg(test)]
 mod tests {
