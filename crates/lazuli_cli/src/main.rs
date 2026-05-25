@@ -13,6 +13,7 @@ use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 
 mod app_manifest;
 mod cmd_design;
+mod commands;
 mod cmd_fix;
 mod cmd_generate_command;
 mod cmd_generate_feature;
@@ -975,7 +976,7 @@ fn main() -> Result<()> {
             }
             .map_err(|err| anyhow::anyhow!("{err}"))
         }
-        Commands::Init { path } => init_command(&path),
+        Commands::Init { path } => commands::init::init_command(&path, DEFAULT_TEMPLATE),
         Commands::New {
             project_name,
             template,
@@ -6439,20 +6440,6 @@ fn collect_plan_gate_facts_for_generate(
         subscription_anchor: facts.subscription_anchor,
         gates: facts.gates,
     })
-}
-
-fn init_command(path: &Path) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create directory {}", parent.display()))?;
-        }
-    }
-
-    fs::write(path, DEFAULT_TEMPLATE)
-        .with_context(|| format!("failed to write {}", path.display()))?;
-    println!("created {}", path.display());
-    Ok(())
 }
 
 fn new_command(
