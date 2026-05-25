@@ -22,7 +22,7 @@ use super::super::super::common::{
 };
 use super::super::super::error::ParseError;
 
-pub(super) fn parse_view_sort_block(
+pub(crate) fn parse_view_sort_block(
     lines: &[SourceLine<'_>],
     start: usize,
     body_indent: usize,

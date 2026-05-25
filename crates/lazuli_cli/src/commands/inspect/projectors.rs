@@ -21,8 +21,10 @@ use super::{
     InspectWebhookPayloadFrom, InspectWebhookReplay, InspectWebhookRetry, InspectWebhookVerify,
 };
 use super::formatters::{
-    compare_op_to_string, format_qname, inspect_command_effect_to_string, op_as_str,
-    path_to_string, policy_ref_to_string, predicate_to_string, tool_ref_to_string,
+    compare_op_to_string, format_qname, inspect_command_effect_to_string,
+    inspect_let_binding_to_string, inspect_target_expr_to_string, op_as_str, path_to_string,
+    policy_ref_to_string, predicate_to_string, tool_ref_to_string,
+    type_ref_to_string,
 };
 
 pub(super) fn project_job(job: &lazuli_ir::Job) -> InspectJob {

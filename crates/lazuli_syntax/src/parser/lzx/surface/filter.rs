@@ -29,7 +29,7 @@ use super::super::super::common::{
 use super::super::super::error::ParseError;
 use super::ViewBodyState;
 
-pub(super) fn parse_filters_block(
+pub(crate) fn parse_filters_block(
     lines: &[SourceLine<'_>],
     start: usize,
     body_indent: usize,

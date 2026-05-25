@@ -27,7 +27,7 @@ use super::super::super::common::{SourceLine, is_trivia, line_error, strip_inlin
 use super::super::super::error::ParseError;
 use super::super::super::lzi::{parse_invalidates_entry, parse_translation_key_token};
 
-pub(super) fn parse_on_success_block(
+pub(crate) fn parse_on_success_block(
     lines: &[SourceLine<'_>],
     start: usize,
     parent_indent: usize,

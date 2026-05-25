@@ -13,6 +13,7 @@
 //! Extracted from `doctor/mod.rs` in rails-style R4-C Stage 4.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 
 use crate::doctor::parsers::{
     catalog_list, format_name_list, is_parseable_duration, is_parseable_size,

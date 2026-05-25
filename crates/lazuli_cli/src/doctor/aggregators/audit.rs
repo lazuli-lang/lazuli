@@ -5,6 +5,7 @@
 //!
 //! Extracted from `doctor/mod.rs` in rails-style R4-C Stage 4.
 
+use std::path::PathBuf;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 

@@ -59,7 +59,7 @@ pub(super) fn is_identity_shaped(field: &ResourceFieldFact) -> bool {
 /// Resolve `<Resource>` for a feature by searching its own resources
 /// first, then falling back to resources declared in features it
 /// `uses`. Returns the first hit.
-pub(super) fn resolve_resource_for_feature<'a>(
+pub(crate) fn resolve_resource_for_feature<'a>(
     feature: &str,
     resource_name: &str,
     feature_resources: &'a BTreeMap<String, BTreeMap<String, ResourceFact>>,

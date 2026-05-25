@@ -19,7 +19,7 @@ use lazuli_ir::{self as ir, Agent};
 use crate::app_manifest::RegistryToolDefectReason;
 use crate::doctor::parsers::{
     format_agent_policy, format_name_list, http_method_word, is_lzi_path, normalise_path,
-    payload_field_list,
+    payload_field_list, tool_kind_word, type_ref_name,
 };
 use crate::doctor::scanners::leading_spaces;
 use crate::doctor::{

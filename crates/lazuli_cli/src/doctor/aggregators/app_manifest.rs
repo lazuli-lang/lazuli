@@ -22,7 +22,11 @@ use crate::doctor::parsers::{
 };
 use crate::doctor::{
     DoctorAppContract, DoctorAppManifest, DoctorAppProfile, DoctorAppRegistry, DoctorAppWorkspace,
-    DoctorDiagnostic, DoctorSeverity, OperationalFacts, aggregators,
+    DoctorDiagnostic, DoctorSeverity, OperationalFacts, adapter_provenance_diagnostics,
+    aggregators, app_binding_contract_diagnostics, app_has_any_capability, app_has_target,
+    app_has_url, app_pack_contract_diagnostics, app_runtime_runs, app_runtime_serves,
+    app_service_contract_diagnostics, enabled_pack_provided_features, operational_env_names,
+    profile_contract_diagnostics,
 };
 
 pub(crate) fn app_contract_diagnostics(

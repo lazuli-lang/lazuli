@@ -28,7 +28,7 @@ use super::super::super::common::{
 };
 use super::super::super::error::ParseError;
 
-pub(super) fn parse_view_search_decl(
+pub(crate) fn parse_view_search_decl(
     lines: &[SourceLine<'_>],
     start: usize,
     rest: &str,

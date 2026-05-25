@@ -36,7 +36,7 @@ use super::{
     parse_view_source_line,
 };
 
-pub(super) fn parse_drawer_block(
+pub(crate) fn parse_drawer_block(
     lines: &[SourceLine<'_>],
     start: usize,
     drawer_indent: usize,

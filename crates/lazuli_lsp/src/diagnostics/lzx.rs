@@ -24,6 +24,8 @@
 //! `pub(crate) use diagnostics::lzx::*;` re-export so every existing
 //! `crate::*` import keeps resolving.
 
+use std::collections::HashSet;
+
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Url};
 
 use crate::{is_identifier, leading_spaces, simple_canonical_diagnostic};

@@ -43,7 +43,7 @@ use super::super::super::common::{
 };
 use super::super::super::error::ParseError;
 
-pub(super) fn parse_lzx_route_guard_defaults(
+pub(crate) fn parse_lzx_route_guard_defaults(
     lines: &[SourceLine<'_>],
     start: usize,
     guard_indent: usize,
@@ -133,7 +133,7 @@ pub(super) fn parse_lzx_route_guard_defaults(
     ))
 }
 
-pub(super) fn parse_lzx_view_guard(
+pub(crate) fn parse_lzx_view_guard(
     lines: &[SourceLine<'_>],
     start: usize,
     policy_indent: usize,
@@ -334,7 +334,7 @@ fn parse_lzx_redirect_clause(line: &SourceLine<'_>, value: &str) -> Result<Strin
     Ok(unquote_lzx_value(target).to_owned())
 }
 
-pub(super) fn parse_lzx_requires_lifecycle(
+pub(crate) fn parse_lzx_requires_lifecycle(
     line: &SourceLine<'_>,
     rest: &str,
 ) -> Result<LzxRequiresLifecycle, ParseError> {
@@ -373,7 +373,7 @@ pub(super) fn parse_lzx_requires_lifecycle(
     })
 }
 
-pub(super) fn parse_lzx_optional_substep_tail<'a>(
+pub(crate) fn parse_lzx_optional_substep_tail<'a>(
     line: &SourceLine<'_>,
     value: &'a str,
     context: &str,
@@ -397,7 +397,7 @@ pub(super) fn parse_lzx_optional_substep_tail<'a>(
     }
 }
 
-pub(super) fn parse_lzx_on_lifecycle_pending(
+pub(crate) fn parse_lzx_on_lifecycle_pending(
     line: &SourceLine<'_>,
     rest: &str,
 ) -> Result<String, ParseError> {
@@ -420,7 +420,7 @@ pub(super) fn parse_lzx_on_lifecycle_pending(
     Ok(target.to_owned())
 }
 
-pub(super) fn attach_lzx_requires_lifecycle(
+pub(crate) fn attach_lzx_requires_lifecycle(
     line: &SourceLine<'_>,
     guard: &mut LzxViewGuard,
     parsed: LzxRequiresLifecycle,
@@ -436,7 +436,7 @@ pub(super) fn attach_lzx_requires_lifecycle(
     Ok(())
 }
 
-pub(super) fn attach_lzx_on_lifecycle_pending(
+pub(crate) fn attach_lzx_on_lifecycle_pending(
     line: &SourceLine<'_>,
     guard: &mut LzxViewGuard,
     parsed: String,
