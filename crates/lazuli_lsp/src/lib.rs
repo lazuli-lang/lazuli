@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use lazuli_syntax::Span;
 use tower_lsp::lsp_types::{
-    CodeAction, CodeActionKind, Diagnostic, DiagnosticSeverity, Position, Range, TextEdit, Url,
-    WorkspaceEdit,
+    CodeAction, CodeActionKind, CompletionItemKind, Diagnostic, DiagnosticSeverity, Position,
+    Range, TextEdit, Url, WorkspaceEdit,
 };
 
 mod backend;
