@@ -15,15 +15,14 @@
 
 use crate::ast::{
     AudienceAst, CellBindingAst, DrawerBindingSourceAst, DrawerRouteBindingAst, DrawerSubViewAst,
-    DrawerTriggerAst, FilterCardinalityAst, FilterDeclAst, OnSuccessSpecAst, PolicyAtomAst,
-    RouteParamAst, SearchDeclAst, SelectionDeclAst, SelectionModeAst, SettingDeclAst, SortDeclAst,
-    Span, SurfaceAst, SurfaceTargetAst, ViewAst, ViewCreateAst, ViewDetailAst, ViewListAst,
+    DrawerTriggerAst, FilterDeclAst, OnSuccessSpecAst, PolicyAtomAst, RouteParamAst, SearchDeclAst,
+    SelectionDeclAst, SelectionModeAst, SettingDeclAst, SortDeclAst, Span, SurfaceAst,
+    SurfaceTargetAst, ViewAst, ViewCreateAst, ViewDetailAst, ViewListAst,
 };
 
 use super::super::common::{
-    SourceLine, find_top_level_token, is_kebab_or_snake_ident, is_lzx_bare_ident, is_trivia,
-    line_error, line_error_owned, source_lines, split_lzx_list, strip_inline_comment,
-    unquote_lzx_value,
+    SourceLine, find_top_level_token, is_kebab_or_snake_ident, is_trivia, line_error,
+    line_error_owned, source_lines, split_lzx_list, strip_inline_comment, unquote_lzx_value,
 };
 use super::super::error::ParseError;
 
@@ -40,6 +39,9 @@ use settings::parse_view_settings_block;
 
 mod search;
 use search::parse_view_search_decl;
+
+mod filter;
+use filter::parse_filters_block;
 
 /// Parse a full `.lzx` ViewModel file. Expects exactly one
 /// `surface <feature> web|mobile` declaration at indent 0.
@@ -827,122 +829,6 @@ fn parse_drawer_route_binding(
     Ok(DrawerRouteBindingAst {
         target: target.to_owned(),
         source: DrawerBindingSourceAst::Selection,
-    })
-}
-
-fn parse_filters_block(
-    lines: &[SourceLine<'_>],
-    start: usize,
-    body_indent: usize,
-    state: &mut ViewBodyState,
-) -> Result<(usize, usize), ParseError> {
-    let header = &lines[start];
-    if state.has_filters_block {
-        return Err(line_error(
-            header,
-            "view list declares `filters` at most once",
-        ));
-    }
-    state.has_filters_block = true;
-
-    let child_indent = body_indent + 2;
-    let mut block_filters = Vec::new();
-    let mut last_end = header.end;
-    let mut i = start + 1;
-
-    while i < lines.len() {
-        let line = &lines[i];
-        let raw = line.text.trim_start();
-        if is_trivia(raw) {
-            i += 1;
-            continue;
-        }
-        if line.indent <= body_indent {
-            break;
-        }
-        if line.indent != child_indent {
-            return Err(line_error(
-                line,
-                "filters declarations use one indentation level deeper than the `filters` header",
-            ));
-        }
-
-        let trimmed = strip_inline_comment(raw).trim_end();
-        let filter = parse_filter_decl(line, trimmed)?;
-        if block_filters
-            .iter()
-            .any(|existing: &FilterDeclAst| existing.name == filter.name)
-        {
-            return Err(line_error_owned(
-                line,
-                format!("duplicate filter `{}` in `filters` block", filter.name),
-            ));
-        }
-        last_end = line.end;
-        block_filters.push(filter);
-        i += 1;
-    }
-
-    if block_filters.is_empty() {
-        return Err(line_error(
-            header,
-            "filters block requires at least one filter declaration",
-        ));
-    }
-
-    state.filters.extend(block_filters);
-    Ok((i, last_end))
-}
-
-fn parse_filter_decl(line: &SourceLine<'_>, value: &str) -> Result<FilterDeclAst, ParseError> {
-    let (name_raw, type_raw) = value.split_once(':').ok_or_else(|| {
-        line_error(
-            line,
-            "filter declaration must be `<name>: [list of] <Type> [from query]`",
-        )
-    })?;
-    let name = name_raw.trim().to_owned();
-    if !is_lzx_bare_ident(&name) {
-        return Err(line_error_owned(
-            line,
-            format!(
-                "filter name `{}` must start with a letter and contain only letters, digits, or `_`",
-                name
-            ),
-        ));
-    }
-
-    let mut rest = type_raw.trim();
-    let mut url_sync = false;
-    if let Some((head, source)) = rest.rsplit_once(" from ") {
-        if source.trim() != "query" {
-            return Err(line_error(line, "filter URL source must be `from query`"));
-        }
-        rest = head.trim();
-        url_sync = true;
-    }
-
-    let (cardinality, type_ref) = if let Some(type_ref) = rest.strip_prefix("list of ") {
-        (FilterCardinalityAst::Multi, type_ref.trim())
-    } else {
-        (FilterCardinalityAst::Single, rest)
-    };
-    if type_ref.is_empty() {
-        return Err(line_error(line, "filter declaration requires a type"));
-    }
-    if !is_lzx_bare_ident(type_ref) {
-        return Err(line_error_owned(
-            line,
-            format!("filter type `{}` must be a bare identifier", type_ref),
-        ));
-    }
-
-    Ok(FilterDeclAst {
-        name,
-        type_ref: type_ref.to_owned(),
-        cardinality,
-        url_sync,
-        span: Span::new(line.start, line.end),
     })
 }
 
