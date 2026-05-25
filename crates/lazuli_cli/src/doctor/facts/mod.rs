@@ -24,4 +24,6 @@
 //! Extracted from `doctor/mod.rs` in rails-style R5-retry-9.
 
 pub(crate) mod canonical;
+pub(crate) mod feature_ir;
+pub(crate) mod lines;
 pub(crate) mod lzx;
