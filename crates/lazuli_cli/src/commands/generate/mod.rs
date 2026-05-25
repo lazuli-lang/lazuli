@@ -28,6 +28,7 @@
 
 pub mod go;
 pub mod openapi;
+pub mod ts;
 
 use std::path::Path;
 
@@ -103,7 +104,7 @@ pub fn generate_command(
                 playwright_target.context("--playwright-target is required when kind=playwright")?;
             cmd_generate_playwright::run(input, target)
         }
-        GenerateKind::Ts => crate::generate_ts(input, output, check),
+        GenerateKind::Ts => ts::generate_ts(input, output, check),
         // Wave 3 — TDD/BDD-first scaffold generators. Each takes a
         // `<feature>.<name>` ident; the cmd_generate_*::run function
         // resolves the feature root from the manifest and appends the
