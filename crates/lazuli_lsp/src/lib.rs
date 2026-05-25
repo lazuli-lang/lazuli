@@ -21,6 +21,7 @@ mod catalogs;
 mod code_actions;
 mod completion_items;
 mod conventions;
+mod diagnostics;
 mod dispatch;
 mod handlers;
 mod hover;
