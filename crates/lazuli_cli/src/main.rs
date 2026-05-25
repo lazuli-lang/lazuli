@@ -4303,6 +4303,55 @@ pub(crate) fn generate_go(
     fs::create_dir_all(out_dir)
         .with_context(|| format!("creating output directory {}", out_dir.display()))?;
 
+    // Hostpoint deploy 2026-05-25 surfaced this: previous codegen runs
+    // emitted resource X at sequence 001; a later run with new
+    // dependency edges moved X to sequence 005. The new file landed
+    // (005_*.sql), but the stale 001_*.sql kept sitting on disk — the
+    // codegen only OVERWRITES, never DELETES. Pilots that just iterate
+    // `dist/go/migrations/*.sql` (which is the documented migrate
+    // pattern) ended up applying both the stale and the current
+    // version of the same resource, in the wrong topological order,
+    // and the stale one's FK to a not-yet-created table blew up
+    // production deploys.
+    //
+    // Semantics now: `<out_dir>/migrations/` is FULLY OWNED by codegen.
+    // Before writing the new generation, we nuke every existing
+    // `.sql` and `.down.sql` file in that directory. The
+    // gitignore on `dist/go/migrations/` (canonical in every Lazurite
+    // scaffold) is the contract — users don't author files there,
+    // they author in `app/migrations/` for hand-rolled SQL or via
+    // a future `lazuli generate migration` command.
+    //
+    // If the run emits ZERO migration files (e.g. a feature-less
+    // module), we still clean — the dir SHOULD be empty in that
+    // case, and a leftover from a prior run would be just as wrong.
+    let migrations_dir = out_dir.join("migrations");
+    if migrations_dir.exists() {
+        let entries = fs::read_dir(&migrations_dir).with_context(|| {
+            format!(
+                "reading migrations dir {} to clean stale files before regen",
+                migrations_dir.display()
+            )
+        })?;
+        for entry in entries {
+            let entry = entry?;
+            let path = entry.path();
+            let is_sql = path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext.eq_ignore_ascii_case("sql"))
+                .unwrap_or(false);
+            if is_sql {
+                fs::remove_file(&path).with_context(|| {
+                    format!(
+                        "removing stale migration file {} before regen",
+                        path.display()
+                    )
+                })?;
+            }
+        }
+    }
+
     let mut handler_stubs_written = 0usize;
     let mut handler_stubs_skipped = 0usize;
     for file in &files {
