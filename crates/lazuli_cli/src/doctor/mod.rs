@@ -66,13 +66,24 @@ pub(crate) use aggregators::approval::{
 };
 
 // Re-export the `command_routing` aggregator's public surface so the
-// `facts/canonical.rs` + `facts/lzx.rs` collectors and the in-tree
-// LZX/api LSP cross-checks keep their `crate::doctor::*` call paths
-// after the R6-2 extract.
+// `facts/canonical.rs` + `facts/lzx.rs` collectors, `dispatch.rs`, and
+// the in-tree LSP cross-checks keep their `crate::doctor::*` call
+// paths after the R6-2 extract.
 pub(crate) use aggregators::command_routing::{
     command_reachability_diagnostic, command_route_binding_diagnostics,
-    parse_integration_requirement, resolve_command_target, resolve_platform_action_target,
-    route_slot_name,
+    parse_integration_requirement, policy_reachability_diagnostics, resolve_command_target,
+    resolve_platform_action_target, route_slot_name,
+};
+
+// Re-export the `correctness` aggregator's tier3-fact dispatchers so
+// `doctor/dispatch.rs` keeps the `super::*` import block it ships
+// today. Each dispatcher walks the lifted `Tier3FeatureFacts` slice
+// and emits one diagnostic per finding (deduped where the underlying
+// rule allows two findings to collide on the same anchor).
+pub(crate) use aggregators::correctness::{
+    duplicate_query_name_diagnostics, missing_policy_on_query_diagnostics,
+    mutation_without_readback_diagnostics, route_id_effect_consistency_diagnostics,
+    updates_missing_updated_at_diagnostics,
 };
 
 // Re-export the `refs` reference-scanner surface so the
@@ -1503,9 +1514,9 @@ pub(crate) struct ResolvedCommandTarget {
 }
 
 #[derive(Debug, Clone, Default)]
-struct ExperienceFacts {
-    view_actions: BTreeMap<String, BTreeMap<String, String>>,
-    view_routes: BTreeMap<String, BTreeSet<String>>,
+pub(crate) struct ExperienceFacts {
+    pub(crate) view_actions: BTreeMap<String, BTreeMap<String, String>>,
+    pub(crate) view_routes: BTreeMap<String, BTreeSet<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -2272,313 +2283,6 @@ pub(super) fn lazuli_version_002_diagnostics(
         fix: None,
         group: None,
     }]
-}
-
-pub(super) fn policy_reachability_diagnostics(
-    files: &[DoctorFile],
-    experiences: &BTreeMap<String, ExperienceFacts>,
-    commands: &BTreeMap<CommandKey, CommandPolicy>,
-) -> Vec<DoctorDiagnostic> {
-    let mut diagnostics = Vec::new();
-
-    for file in files {
-        let Some(document) = file.lzx.as_ref() else {
-            continue;
-        };
-
-        for surface in &document.surfaces {
-            let experience_name = surface
-                .uses_experience
-                .as_deref()
-                .unwrap_or(surface.experience.as_str());
-            let experience = experiences.get(experience_name);
-
-            for audience in &surface.audiences {
-                for view in &audience.views {
-                    if let Some(submit) = view.submit.as_deref() {
-                        if let Some(target) = resolve_command_target(submit, &surface.experience) {
-                            diagnostics.extend(command_reachability_diagnostic(
-                                file,
-                                view,
-                                &audience.name,
-                                &audience.qualifiers,
-                                "submit",
-                                &target.key,
-                                commands,
-                            ));
-                            diagnostics.extend(command_route_binding_diagnostics(
-                                file,
-                                view,
-                                experience.and_then(|facts| facts.view_routes.get(&view.name)),
-                                "submit",
-                                &target,
-                                commands,
-                            ));
-                        }
-                    }
-
-                    for action in &view.actions {
-                        let target = resolve_platform_action_target(
-                            action,
-                            &surface.experience,
-                            experience.and_then(|facts| facts.view_actions.get(&view.name)),
-                        );
-                        if let Some(target) = target {
-                            diagnostics.extend(command_reachability_diagnostic(
-                                file,
-                                view,
-                                &audience.name,
-                                &audience.qualifiers,
-                                "action",
-                                &target.key,
-                                commands,
-                            ));
-                            diagnostics.extend(command_route_binding_diagnostics(
-                                file,
-                                view,
-                                experience.and_then(|facts| facts.view_routes.get(&view.name)),
-                                "action",
-                                &target,
-                                commands,
-                            ));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    diagnostics
-}
-
-pub(super) fn missing_policy_on_query_diagnostics(
-    facts: &[Tier3FeatureFacts],
-) -> Vec<DoctorDiagnostic> {
-    let mut diagnostics = Vec::new();
-    let mut seen = BTreeSet::new();
-
-    for fact in facts {
-        for finding in correctness::missing_policy_on_query_001::check_queries(
-            &fact.feature,
-            fact.defaults_policy.as_ref(),
-            &fact.queries,
-            &fact.path,
-        ) {
-            let line = fact
-                .query_lines
-                .get(&finding.query_name)
-                .copied()
-                .unwrap_or(fact.feature_line);
-            if !seen.insert((
-                finding.path.clone(),
-                finding.feature.clone(),
-                finding.query_kind,
-                finding.query_name.clone(),
-            )) {
-                continue;
-            }
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line,
-                column: 1,
-                severity: DoctorSeverity::Warning,
-                code: correctness::missing_policy_on_query_001::Finding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-    }
-
-    diagnostics
-}
-
-pub(super) fn duplicate_query_name_diagnostics(
-    facts: &[Tier3FeatureFacts],
-) -> Vec<DoctorDiagnostic> {
-    let mut diagnostics = Vec::new();
-
-    for fact in facts {
-        for finding in correctness::duplicate_query_name::check_queries(
-            &fact.feature,
-            &fact.queries,
-            &fact.path,
-        ) {
-            let line = fact
-                .query_lines
-                .get(&finding.query_name)
-                .copied()
-                .unwrap_or(fact.feature_line);
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: correctness::duplicate_query_name::Finding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-    }
-
-    diagnostics
-}
-
-/// ROUTE-ID-UNUSED-IN-EFFECT-001 — pair to the LAZ-route-id-codegen-go
-/// guard. Walks each feature's lifted commands and fires when a
-/// `route <name>: <Type>` slot on an `updates` / `deletes` effect has
-/// no matching input slot to back the codegen's `FromInput(...)`
-/// binding. Anchored at the command header via `command_lines`.
-pub(super) fn route_id_effect_consistency_diagnostics(
-    facts: &[Tier3FeatureFacts],
-) -> Vec<DoctorDiagnostic> {
-    let mut diagnostics = Vec::new();
-    let mut seen = BTreeSet::new();
-
-    for fact in facts {
-        for finding in correctness::route_id_effect_consistency::check_commands(
-            &fact.feature,
-            &fact.commands,
-            &fact.path,
-        ) {
-            let line = fact
-                .command_lines
-                .get(&finding.command)
-                .copied()
-                .unwrap_or(fact.feature_line);
-            if !seen.insert((
-                finding.path.clone(),
-                finding.feature.clone(),
-                finding.command.clone(),
-                finding.param_name.clone(),
-            )) {
-                continue;
-            }
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: correctness::route_id_effect_consistency::Finding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-    }
-
-    diagnostics
-}
-
-/// MUTATION-WITHOUT-READBACK-001 dispatch — codegen-correctness cycle
-/// 2026-05-21 cell A6. Pairs each mutating command (`creates` / `updates`
-/// / `deletes`) with the set of `query.lookup` / `query.list` shapes
-/// across ALL features (cross-feature read queries count, per cycle
-/// decision). Anchored at the command header line; falls back to the
-/// feature header when the command line is unknown.
-pub(super) fn mutation_without_readback_diagnostics(
-    facts: &[Tier3FeatureFacts],
-) -> Vec<DoctorDiagnostic> {
-    let mut diagnostics = Vec::new();
-    let mut seen = BTreeSet::new();
-
-    // Pre-build the cross-feature read-query index once. Each fact's
-    // own queries get re-included via `check_from_facts`, which dedupes
-    // against the current feature name to avoid double-counting.
-    let neighbor_queries: Vec<(String, &[lazuli_ir::Query])> = facts
-        .iter()
-        .map(|fact| (fact.feature.clone(), fact.queries.as_slice()))
-        .collect();
-
-    for fact in facts {
-        for finding in correctness::mutation_without_readback::check_from_facts(
-            &fact.feature,
-            &fact.commands,
-            &fact.queries,
-            &neighbor_queries,
-            &fact.path,
-        ) {
-            let line = fact
-                .command_lines
-                .get(&finding.command)
-                .copied()
-                .unwrap_or(fact.feature_line);
-            if !seen.insert((
-                finding.path.clone(),
-                finding.feature.clone(),
-                finding.command.clone(),
-            )) {
-                continue;
-            }
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line,
-                column: 1,
-                severity: DoctorSeverity::Warning,
-                code: correctness::mutation_without_readback::Finding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-    }
-
-    diagnostics
-}
-
-/// UPDATES-MISSING-UPDATED-AT-001 dispatch — any local resource touched by
-/// an `updates` effect must either declare `updated_at: DateTime` or have
-/// effective timestamps enabled. Anchored at the feature header because the
-/// finding is resource-scoped and the current fact row does not carry
-/// resource-header line anchors.
-pub(super) fn updates_missing_updated_at_diagnostics(
-    facts: &[Tier3FeatureFacts],
-) -> Vec<DoctorDiagnostic> {
-    let mut diagnostics = Vec::new();
-    let mut seen = BTreeSet::new();
-
-    for fact in facts {
-        let mut feature = aggregators::correctness::make_synthetic_feature_for_correctness(fact);
-        feature.defaults.timestamps = fact.defaults_timestamps;
-
-        for finding in correctness::updates_missing_updated_at::check(&feature, &fact.path) {
-            if !seen.insert((
-                finding.path.clone(),
-                finding.feature.clone(),
-                finding.resource.clone(),
-            )) {
-                continue;
-            }
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line: fact.feature_line,
-                column: 1,
-                severity: DoctorSeverity::Warning,
-                code: correctness::updates_missing_updated_at::Finding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-    }
-
-    diagnostics
 }
 
 // =============================================================================

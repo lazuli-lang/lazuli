@@ -31,8 +31,93 @@ use lazuli_syntax::LzxPlatformView;
 use crate::doctor::helpers::line_col_for_offset;
 use crate::doctor::scanners::{is_identifier, is_type_name};
 use crate::doctor::{
-    CommandKey, CommandPolicy, DoctorDiagnostic, DoctorFile, DoctorSeverity, ResolvedCommandTarget,
+    CommandKey, CommandPolicy, DoctorDiagnostic, DoctorFile, DoctorSeverity, ExperienceFacts,
+    ResolvedCommandTarget,
 };
+
+/// LZX policy-reachability dispatcher (LZX-POL-001 + LZX-ROUTE-001
+/// fan-out). Walks each `.lzx` surface, resolves its view actions /
+/// submit targets to typed `ResolvedCommandTarget`s, and asks per-view
+/// reachability for every audience. The actual emit logic lives in
+/// `command_reachability_diagnostic` + `command_route_binding_diagnostics`
+/// below; this entry-point is just the dispatcher that the package
+/// dispatcher calls once per cycle.
+pub(crate) fn policy_reachability_diagnostics(
+    files: &[DoctorFile],
+    experiences: &BTreeMap<String, ExperienceFacts>,
+    commands: &BTreeMap<CommandKey, CommandPolicy>,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for file in files {
+        let Some(document) = file.lzx.as_ref() else {
+            continue;
+        };
+
+        for surface in &document.surfaces {
+            let experience_name = surface
+                .uses_experience
+                .as_deref()
+                .unwrap_or(surface.experience.as_str());
+            let experience = experiences.get(experience_name);
+
+            for audience in &surface.audiences {
+                for view in &audience.views {
+                    if let Some(submit) = view.submit.as_deref()
+                        && let Some(target) = resolve_command_target(submit, &surface.experience)
+                    {
+                        diagnostics.extend(command_reachability_diagnostic(
+                            file,
+                            view,
+                            &audience.name,
+                            &audience.qualifiers,
+                            "submit",
+                            &target.key,
+                            commands,
+                        ));
+                        diagnostics.extend(command_route_binding_diagnostics(
+                            file,
+                            view,
+                            experience.and_then(|facts| facts.view_routes.get(&view.name)),
+                            "submit",
+                            &target,
+                            commands,
+                        ));
+                    }
+
+                    for action in &view.actions {
+                        let target = resolve_platform_action_target(
+                            action,
+                            &surface.experience,
+                            experience.and_then(|facts| facts.view_actions.get(&view.name)),
+                        );
+                        if let Some(target) = target {
+                            diagnostics.extend(command_reachability_diagnostic(
+                                file,
+                                view,
+                                &audience.name,
+                                &audience.qualifiers,
+                                "action",
+                                &target.key,
+                                commands,
+                            ));
+                            diagnostics.extend(command_route_binding_diagnostics(
+                                file,
+                                view,
+                                experience.and_then(|facts| facts.view_routes.get(&view.name)),
+                                "action",
+                                &target,
+                                commands,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    diagnostics
+}
 
 pub(crate) fn command_reachability_diagnostic(
     file: &DoctorFile,
