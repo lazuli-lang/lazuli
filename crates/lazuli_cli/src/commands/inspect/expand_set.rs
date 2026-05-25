@@ -138,7 +138,7 @@ pub(crate) struct ExpandSet {
 }
 
 impl ExpandSet {
-    pub(super) fn all() -> Self {
+    pub(in crate::commands::inspect) fn all() -> Self {
         Self {
             refs: true,
             summary: true,
