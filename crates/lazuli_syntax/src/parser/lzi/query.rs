@@ -31,7 +31,7 @@ use super::super::common::{SourceLine, is_trivia, line_error, unquote_lzx_value}
 use super::super::error::ParseError;
 use super::super::lzx::try_parse_policy_expr;
 use super::command::split_command_input_modifiers;
-use super::extract_field_constraints;
+use super::field_constraints::extract_field_constraints;
 
 use crate::ast::{
     CommandInputSlot, ListQueryDecl, LookupKey, LookupQueryDecl, PolicyExprAst, QueryDecl,

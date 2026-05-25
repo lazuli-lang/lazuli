@@ -45,11 +45,12 @@ use super::super::common::{
 };
 use super::super::error::ParseError;
 use super::super::lzx::try_parse_policy_expr;
+use super::field_constraints::extract_field_constraints;
 use super::job::{parse_external_call, parse_handler_line, parse_job_retry};
 use super::numerics::{fold_rate_limit_line, parse_rate_limit_line_body};
 use super::{
     AGENT_INDENT_AGENT_CHILD, AGENT_INDENT_FEATURE_CHILD, AGENT_INDENT_GRANDCHILD,
-    extract_field_constraints, parse_named_args, parse_translation_key_token, split_call_signature,
+    parse_named_args, parse_translation_key_token, split_call_signature,
 };
 
 use crate::ast::{
