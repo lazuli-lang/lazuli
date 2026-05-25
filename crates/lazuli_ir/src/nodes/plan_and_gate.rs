@@ -147,7 +147,7 @@ mod tests {
     #[test]
     fn plan_limit_value_integer_serializes_with_kind_value_envelope() {
         let json = serde_json::to_string(&PlanLimitValue::Integer(42)).unwrap();
-        assert!(json.contains("\"kind\":\"integer\""));
+        assert!(json.contains("\"kind\":\"Integer\""), "got: {json}");
         assert!(json.contains("\"value\":42"));
     }
 
@@ -157,7 +157,7 @@ mod tests {
         let json = serde_json::to_string(&v).unwrap();
         let back: PlanLimitValue = serde_json::from_str(&json).unwrap();
         assert_eq!(v, back);
-        assert!(json.contains("\"kind\":\"unlimited\""));
+        assert!(json.contains("\"kind\":\"Unlimited\""), "got: {json}");
     }
 
     #[test]
@@ -168,7 +168,7 @@ mod tests {
         let json = serde_json::to_string(&g).unwrap();
         let back: Gate = serde_json::from_str(&json).unwrap();
         assert_eq!(g, back);
-        assert!(json.contains("\"kind\":\"behind\""));
+        assert!(json.contains("\"kind\":\"Behind\""), "got: {json}");
     }
 
     #[test]
@@ -179,7 +179,7 @@ mod tests {
         let json = serde_json::to_string(&g).unwrap();
         let back: Gate = serde_json::from_str(&json).unwrap();
         assert_eq!(g, back);
-        assert!(json.contains("\"kind\":\"quota\""));
+        assert!(json.contains("\"kind\":\"Quota\""), "got: {json}");
     }
 
     #[test]

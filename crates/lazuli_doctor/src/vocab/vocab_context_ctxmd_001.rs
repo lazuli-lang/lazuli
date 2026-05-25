@@ -1,6 +1,6 @@
 //! VOCAB-CONTEXT-CTXMD-001 — feature missing or stub `attach_ctx` sidecar.
 //!
-//! Fires in any of three conditions:
+//! Fires when any of three conditions holds:
 //!   1. `attach_ctx` is absent (no path declared).
 //!   2. The referenced file does not exist on disk relative to the
 //!      `.lzi` source file's directory (or the project root, as a

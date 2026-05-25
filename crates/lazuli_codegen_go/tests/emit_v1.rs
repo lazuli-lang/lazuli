@@ -1237,9 +1237,16 @@ fn emit_go_mod_with_dev_replace_requires_runtime_zero_in_workspace_mode() {
         "workspace mode must require `lazuli.dev/runtime v0.0.0` in dist/go/go.mod:\n{}",
         go_mod.contents
     );
+    // module.rs:876-890 — `replace lazuli.dev/runtime => <path>` is now
+    // emitted unconditionally whenever `dev_replace_runtime` is set,
+    // including workspace mode. Empirically the go.work `use` line is
+    // not enough by itself; freshly-scaffolded projects fail with
+    // `lazuli.dev/runtime@v0.0.0: unrecognized import path` until the
+    // replace lands in go.mod too. Both forms point at the same path,
+    // so the duplication is harmless.
     assert!(
-        !go_mod.contents.contains("replace lazuli.dev/runtime"),
-        "workspace mode keeps runtime replacement in go.work, not dist/go/go.mod:\n{}",
+        go_mod.contents.contains("replace lazuli.dev/runtime"),
+        "dev_replace must surface as `replace lazuli.dev/runtime` in dist/go/go.mod even under workspace mode:\n{}",
         go_mod.contents
     );
 }

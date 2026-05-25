@@ -549,7 +549,7 @@ mod tests {
         let json = serde_json::to_string(&trig).unwrap();
         let back: JobTrigger = serde_json::from_str(&json).unwrap();
         assert_eq!(trig, back);
-        assert!(json.contains("\"kind\":\"event\""));
+        assert!(json.contains("\"kind\":\"Event\""), "got: {json}");
     }
 
     #[test]
@@ -560,7 +560,7 @@ mod tests {
         let json = serde_json::to_string(&trig).unwrap();
         let back: JobTrigger = serde_json::from_str(&json).unwrap();
         assert_eq!(trig, back);
-        assert!(json.contains("\"kind\":\"schedule\""));
+        assert!(json.contains("\"kind\":\"Schedule\""), "got: {json}");
     }
 
     #[test]

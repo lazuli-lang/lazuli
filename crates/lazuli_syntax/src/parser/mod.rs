@@ -15832,7 +15832,11 @@ route customer_detail
         assert_eq!(app.uses, vec!["customer", "customer_auth"]);
         assert_eq!(document.routes.len(), 1);
         assert_eq!(document.routes[0].path.as_deref(), Some("/customers/:id"));
-        assert_eq!(document.routes[0].routes, vec!["id: Customer.ID"]);
+        // ir+codegen(ts) §2.1 typed route_params landed (commit fe4d3a1c):
+        // `route id: Customer.ID` now lifts to `route_params`, not `routes`.
+        assert_eq!(document.routes[0].routes, Vec::<String>::new());
+        assert_eq!(document.routes[0].route_params.len(), 1);
+        assert_eq!(document.routes[0].route_params[0].name, "id");
         assert_eq!(
             document.routes[0].to.as_deref(),
             Some("customer.view.detail(id: route.id)")
