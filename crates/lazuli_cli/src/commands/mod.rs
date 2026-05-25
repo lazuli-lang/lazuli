@@ -33,11 +33,20 @@
 
 pub mod changelog;
 pub mod check;
+pub mod debug;
+pub mod design;
+pub mod dev;
+pub mod examples;
+pub mod generate;
 pub mod init;
 pub mod lsp;
 pub mod mcp;
+pub mod migrate;
 pub mod parse;
 pub mod plan;
 pub mod profile;
+pub mod seed;
 pub mod spike_generate;
 pub mod test;
+pub mod translate;
+pub mod upgrade;

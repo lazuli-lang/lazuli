@@ -10,7 +10,7 @@
 //! lives in `lazuli_cli` (the `expand` pass) or `lazuli_doctor`;
 //! anything per-file lives here.
 //!
-//! ## Submodule layout (Wave 4.6 — rails-style refactor)
+//! ## Submodule layout (Wave 4.6 R2 — rails-style refactor)
 //!
 //! The lowering pipeline is organised into per-concern sibling
 //! modules. Each one carries the projection rules for a single
@@ -19,6 +19,23 @@
 //! * [`helpers`] — pure utility predicates (case conversion, span
 //!   bridging, edit-distance, balanced-paren walkers). No AST shape,
 //!   no IR shape larger than `SpanRef`. Shared by every slice.
+//! * [`expr`] — pure mechanical "text → IR atom" projections
+//!   (paths, qualified names, raw exprs, policy atoms, translation
+//!   keys). Every other slice calls into this slot.
+//! * [`command`] — command effect cluster (`creates|updates|deletes`),
+//!   target / let / named-arg / assignment leaves, and the
+//!   `invalidates query.<name>` cross-feature reference resolver.
+//! * [`workflow`] — async-work leaf lowerings shared by `job`,
+//!   `poller`, `webhook`, `tenant_migration`, `channel`,
+//!   `notification`, `mcp_server`, `event_group`: retry, fanout,
+//!   external-call refs, emit predicates, MCP leaves, digest /
+//!   throttle, event-variant fields, job body / trigger.
+//! * [`lzx`] — `.lzx` *app layer* (routes, experiences, platform
+//!   surfaces). One entry point: `lower_lzx_document`.
+//! * [`surface`] — `.lzx` *ViewModel layer* (per-feature audiences +
+//!   views + cells + drawers + route params). One entry point:
+//!   `lower_surface`.
+//! * [`lifecycle`] — resource lifecycle synthesis hooks.
 //! * [`checks`] — public per-file structural checks invoked by
 //!   `lazuli_cli` / `lazuli_doctor`. Stays public because external
 //!   tools depend on it.
@@ -26,6 +43,11 @@
 //! * [`source_map`] — source-position bookkeeping consumed by LSP.
 //! * [`symbol_origin`] — origin tagging (handwritten vs synthesized
 //!   vs pack-derived) used by inspect and doctor.
+//!
+//! Per-feature orchestration (`lower_feature_skeleton`, resources,
+//! queries, jobs, agents, auth, design tokens, reports, plan + gate
+//! synthesis, conventions / CRUD synthesis) lives in this file. The
+//! per-domain leaves above are called from there.
 //!
 //! ## Vocabulary cross-reference
 //!
@@ -42,21 +64,40 @@
 //! sibling modules are `pub(crate)`.
 
 pub mod checks;
+mod command;
+mod expr;
 mod helpers;
 mod lifecycle;
 mod lzx;
 pub mod rbac;
 pub mod source_map;
+mod surface;
 pub mod symbol_origin;
+mod workflow;
 
 pub use lzx::lower_lzx_document;
+pub use surface::lower_surface;
 pub use symbol_origin::build_symbol_origin_index;
+
+use command::{
+    lower_command_effect, lower_invalidates_query_ref, lower_let_binding, lower_named_arg,
+    lower_target_expr,
+};
+use expr::{
+    expr_from_text, lower_path_string, lower_policy_atom, lower_policy_expr, lower_qualified_name,
+    lower_translation_key_ref,
+};
+use workflow::{
+    lower_emit_predicate, lower_event_variant_field, lower_external_call, lower_fanout,
+    lower_job_body, lower_job_trigger, lower_mcp_prompt, lower_mcp_resource, lower_mcp_tool,
+    lower_notification_digest, lower_notification_throttle, lower_retry,
+    lower_tenant_migration_target,
+};
 
 use helpers::{
     conventions_levenshtein, find_balanced_decorator_end, find_keyword_line_offset,
-    find_top_level_operator, find_word, first_paren_balanced_token, has_top_level_comma,
-    is_valid_design_hex, levenshtein, pascal_to_snake, quoted_ident, quoted_table, snake_to_pascal,
-    span_of, strip_quotes,
+    find_top_level_operator, first_paren_balanced_token, has_top_level_comma, is_valid_design_hex,
+    levenshtein, pascal_to_snake, quoted_ident, quoted_table, snake_to_pascal, span_of,
 };
 
 use lazuli_ir as ir;
@@ -388,537 +429,9 @@ pub fn conventions_unknown_suggestion(identifier: &str) -> Option<&'static str> 
     best.map(|(name, _)| name)
 }
 
-// `lower_lzx_document` and the `LzxDocument` → `ExperienceModule`
-// family moved to `lzx.rs`.
-
-// =============================================================================
-// L0 #3 — lzx ViewModel surface lowering.
-// -----------------------------------------------------------------------------
-// `lower_surface` takes a parsed `SurfaceAst` (from
-// `lazuli_syntax::parse_surface_document`) and yields an `ir::Surface`.
-// Validations performed at lowering time:
-//   - source/submit references are well-formed (`<feature>.query.<kind>.<name>`
-//     and `<feature>.command.<name>` respectively, OR the short
-//     bare-name form for actions inside the same surface).
-//   - cell slot + field identifiers are valid kebab/snake idents (parser
-//     already enforces; we re-check to defend against direct AST
-//     construction).
-//   - When both `at "<path>"` and `route <name>: Type from path` are
-//     declared, every `:<name>` placeholder in the path has a matching
-//     `route_params` entry and vice versa (`lzx-route-param-*`).
-// Deeper validations (`source` resource exists, `actions` reaches the
-// audience's scope, etc.) defer to the doctor cells per the proposal.
-// =============================================================================
-
-/// Lower a `SurfaceAst` (parser output) into the canonical `ir::Surface`
-/// per `docs/proposals/lzx-integration-codegen.md` §5 + §5.2.
-pub fn lower_surface(ast: &syntax::SurfaceAst) -> Result<ir::Surface, AnalyzeError> {
-    let target = match ast.target {
-        syntax::SurfaceTargetAst::Web => ir::SurfaceTarget::Web,
-        syntax::SurfaceTargetAst::Mobile => ir::SurfaceTarget::Mobile,
-    };
-    let owning_feature = ast
-        .uses_feature
-        .clone()
-        .unwrap_or_else(|| ast.feature.clone());
-
-    let mut audiences = Vec::with_capacity(ast.audiences.len());
-    for audience in &ast.audiences {
-        audiences.push(lower_audience_ast(audience, &owning_feature)?);
-    }
-
-    Ok(ir::Surface {
-        feature: owning_feature,
-        target,
-        audiences,
-        span_ref: Some(span_of(ast.span)),
-    })
-}
-
-fn lower_audience_ast(
-    ast: &syntax::AudienceAst,
-    owning_feature: &str,
-) -> Result<ir::Audience, AnalyzeError> {
-    let requires = ast
-        .requires
-        .iter()
-        .map(|atom| ir::PolicyAtom {
-            namespace: atom.namespace.clone(),
-            name: atom.name.clone(),
-            args: atom.args.clone(),
-        })
-        .collect();
-
-    let mut views = Vec::with_capacity(ast.views.len());
-    for view in &ast.views {
-        views.push(lower_view_ast(view, owning_feature)?);
-    }
-    Ok(ir::Audience {
-        name: ast.name.clone(),
-        requires,
-        views,
-        span_ref: Some(span_of(ast.span)),
-    })
-}
-
-fn lower_view_ast(ast: &syntax::ViewAst, owning_feature: &str) -> Result<ir::View, AnalyzeError> {
-    match ast {
-        syntax::ViewAst::List(v) => {
-            let source =
-                parse_query_ref(&v.source).ok_or_else(|| AnalyzeError::LzxBadQueryRef {
-                    view: v.name.clone(),
-                    value: v.source.clone(),
-                })?;
-            let render = lower_list_render(v);
-            let render_columns = match &render {
-                ir::ListRender::Table { columns } => columns.as_slice(),
-                ir::ListRender::Cells { .. } => &[],
-            };
-            validate_cells(&v.cells, render_columns, &v.name)?;
-            let actions = v
-                .actions
-                .iter()
-                .map(|s| parse_command_ref(s, owning_feature))
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(ir::View::List(ir::ViewList {
-                name: v.name.clone(),
-                route: v.route.clone(),
-                source,
-                render,
-                search: v.search.as_ref().map(lower_search_decl),
-                filter: lower_filter_decls(v),
-                cells: v
-                    .cells
-                    .iter()
-                    .map(|c| ir::CellBinding {
-                        field: c.field.clone(),
-                        slot: c.slot.clone(),
-                    })
-                    .collect(),
-                actions,
-                drawer: v
-                    .drawer
-                    .as_ref()
-                    .map(|drawer| lower_drawer(drawer, owning_feature))
-                    .transpose()?,
-                sort: v.sort.as_ref().map(lower_sort_decl),
-                selection: v
-                    .selection
-                    .as_ref()
-                    .map(|selection| lower_selection_decl(selection, owning_feature))
-                    .transpose()?,
-                settings: v.settings.iter().map(lower_setting_decl).collect(),
-                redacted_fields: v.redacted_fields.clone(),
-                span_ref: Some(span_of(v.span)),
-            }))
-        }
-        syntax::ViewAst::Detail(v) => {
-            let source =
-                parse_query_ref(&v.source).ok_or_else(|| AnalyzeError::LzxBadQueryRef {
-                    view: v.name.clone(),
-                    value: v.source.clone(),
-                })?;
-            // Detail views bind cells against fields on the source resource,
-            // not against the `sections` enumeration. The source-resource
-            // cross-check happens at doctor time (`lzx-source-resource-mismatch`).
-            // We only validate cell slot identifier shape here.
-            validate_cells_slot_only(&v.cells, &v.name)?;
-            // Route param ↔ placeholder cross-check (`lzx-route-param-*`).
-            if let Some(path) = v.route.as_ref() {
-                let placeholders = path_placeholders(path);
-                for placeholder in &placeholders {
-                    if !v.route_params.iter().any(|p| &p.name == placeholder) {
-                        return Err(AnalyzeError::LzxRouteParamMissingBinding {
-                            view: v.name.clone(),
-                            placeholder: placeholder.clone(),
-                        });
-                    }
-                }
-                for param in &v.route_params {
-                    if !placeholders.iter().any(|p| p == &param.name) {
-                        return Err(AnalyzeError::LzxRouteParamOrphan {
-                            view: v.name.clone(),
-                            param: param.name.clone(),
-                        });
-                    }
-                }
-            }
-            let actions = v
-                .actions
-                .iter()
-                .map(|s| parse_command_ref(s, owning_feature))
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(ir::View::Detail(ir::ViewDetail {
-                name: v.name.clone(),
-                route: v.route.clone(),
-                source,
-                route_params: v
-                    .route_params
-                    .iter()
-                    .map(|p| ir::RouteParam {
-                        name: p.name.clone(),
-                        type_ref: p.type_ref.clone(),
-                    })
-                    .collect(),
-                sections: v.sections.clone(),
-                cells: v
-                    .cells
-                    .iter()
-                    .map(|c| ir::CellBinding {
-                        field: c.field.clone(),
-                        slot: c.slot.clone(),
-                    })
-                    .collect(),
-                actions,
-                redacted_fields: v.redacted_fields.clone(),
-                span_ref: Some(span_of(v.span)),
-            }))
-        }
-        syntax::ViewAst::Create(v) => {
-            let submit = parse_command_ref(&v.submit, owning_feature)?;
-            validate_cells(&v.cells, &v.fields, &v.name)?;
-            Ok(ir::View::Create(ir::ViewCreate {
-                name: v.name.clone(),
-                route: v.route.clone(),
-                submit,
-                on_success: v
-                    .on_success
-                    .as_ref()
-                    .map(|spec| lower_on_success_spec(owning_feature, spec)),
-                fields: v.fields.clone(),
-                cells: v
-                    .cells
-                    .iter()
-                    .map(|c| ir::CellBinding {
-                        field: c.field.clone(),
-                        slot: c.slot.clone(),
-                    })
-                    .collect(),
-                redacted_fields: v.redacted_fields.clone(),
-                span_ref: Some(span_of(v.span)),
-            }))
-        }
-    }
-}
-
-fn lower_on_success_spec(
-    feature: &str,
-    spec: &syntax::OnSuccessSpecAst,
-) -> ir::OnSuccessSpec {
-    ir::OnSuccessSpec {
-        back: spec.back,
-        redirect: spec.redirect.clone(),
-        flash: spec.flash.as_ref().map(|flash| ir::FlashSpec {
-            kind: flash.kind.clone(),
-            message_key: lower_translation_key_ref(&flash.message_key),
-        }),
-        invalidates: spec
-            .invalidates
-            .iter()
-            .map(|inv| ir::InvalidatesSpec {
-                query: lower_invalidates_query_ref(feature, &inv.query),
-                args: inv.args.iter().map(lower_named_arg).collect(),
-            })
-            .collect(),
-        replace: spec.replace,
-    }
-}
-
-fn lower_list_render(ast: &syntax::ViewListAst) -> ir::ListRender {
-    match (ast.columns.is_empty(), ast.cells_slot.as_ref()) {
-        (false, None) => ir::ListRender::Table {
-            columns: ast.columns.clone(),
-        },
-        (true, Some(slot)) => ir::ListRender::Cells { slot: slot.clone() },
-        (false, Some(_)) | (true, None) => ir::ListRender::Table {
-            columns: ast.columns.clone(),
-        },
-    }
-}
-
-fn lower_filter_decls(ast: &syntax::ViewListAst) -> Vec<ir::FilterDecl> {
-    let mut filters: Vec<ir::FilterDecl> = ast.filters.iter().map(lower_filter_decl).collect();
-    filters.extend(ast.filter.iter().map(|name| ir::FilterDecl {
-        name: name.clone(),
-        type_ref: String::new(),
-        cardinality: ir::FilterCardinality::Single,
-        url_sync: false,
-        span_ref: None,
-    }));
-    filters
-}
-
-fn lower_filter_decl(ast: &syntax::FilterDeclAst) -> ir::FilterDecl {
-    ir::FilterDecl {
-        name: ast.name.clone(),
-        type_ref: ast.type_ref.clone(),
-        cardinality: match ast.cardinality {
-            syntax::FilterCardinalityAst::Single => ir::FilterCardinality::Single,
-            syntax::FilterCardinalityAst::Multi => ir::FilterCardinality::Multi,
-        },
-        url_sync: ast.url_sync,
-        span_ref: Some(span_of(ast.span)),
-    }
-}
-
-fn lower_search_decl(ast: &syntax::SearchDeclAst) -> ir::SearchDecl {
-    ir::SearchDecl {
-        mode: match &ast.mode {
-            syntax::SearchModeAst::Columns(columns) => ir::SearchMode::Columns {
-                columns: columns.clone(),
-            },
-            syntax::SearchModeAst::Segmented => ir::SearchMode::Segmented,
-        },
-        fields: ast.fields.iter().map(lower_search_field).collect(),
-        free_text_target: ast.free_text_target.as_ref().map(lower_binding_ref),
-        span_ref: Some(span_of(ast.span)),
-    }
-}
-
-fn lower_search_field(ast: &syntax::SearchFieldAst) -> ir::SearchField {
-    ir::SearchField {
-        key: ast.key.clone(),
-        binds_to: lower_binding_ref(&ast.binds_to),
-        span_ref: Some(span_of(ast.span)),
-    }
-}
-
-fn lower_binding_ref(ast: &syntax::BindingRefAst) -> ir::BindingRef {
-    match ast {
-        syntax::BindingRefAst::Filter { name } => ir::BindingRef::Filter { name: name.clone() },
-        syntax::BindingRefAst::SourceInput { name } => {
-            ir::BindingRef::SourceInput { name: name.clone() }
-        }
-        syntax::BindingRefAst::SelectionScalar => ir::BindingRef::SelectionScalar,
-    }
-}
-
-fn lower_drawer(
-    ast: &syntax::DrawerSubViewAst,
-    owning_feature: &str,
-) -> Result<ir::DrawerSubView, AnalyzeError> {
-    let source = parse_query_ref(&ast.source).ok_or_else(|| AnalyzeError::LzxBadQueryRef {
-        view: ast.name.clone(),
-        value: ast.source.clone(),
-    })?;
-    validate_cells_slot_only(&ast.cells, &ast.name)?;
-    let actions = ast
-        .actions
-        .iter()
-        .map(|s| parse_command_ref(s, owning_feature))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(ir::DrawerSubView {
-        name: ast.name.clone(),
-        trigger: match ast.trigger {
-            syntax::DrawerTriggerAst::Select => ir::DrawerTrigger::Select,
-            syntax::DrawerTriggerAst::ManualOpen => ir::DrawerTrigger::ManualOpen,
-        },
-        source,
-        route_binding: ast.route_binding.as_ref().map(lower_drawer_route_binding),
-        sections: ast.sections.clone(),
-        cells: ast
-            .cells
-            .iter()
-            .map(|c| ir::CellBinding {
-                field: c.field.clone(),
-                slot: c.slot.clone(),
-            })
-            .collect(),
-        actions,
-        span_ref: Some(span_of(ast.span)),
-    })
-}
-
-fn lower_drawer_route_binding(ast: &syntax::DrawerRouteBindingAst) -> ir::DrawerRouteBinding {
-    ir::DrawerRouteBinding {
-        target: ast.target.clone(),
-        source: match ast.source {
-            syntax::DrawerBindingSourceAst::Selection => ir::DrawerBindingSource::Selection,
-        },
-    }
-}
-
-fn lower_sort_decl(ast: &syntax::SortDeclAst) -> ir::SortDecl {
-    ir::SortDecl {
-        allowed: ast.allowed.clone(),
-        default_field: ast.default_field.clone(),
-        default_dir: match ast.default_dir {
-            syntax::SortDirAst::Asc => ir::SortDir::Asc,
-            syntax::SortDirAst::Desc => ir::SortDir::Desc,
-        },
-        span_ref: Some(span_of(ast.span)),
-    }
-}
-
-fn lower_selection_decl(
-    ast: &syntax::SelectionDeclAst,
-    owning_feature: &str,
-) -> Result<ir::SelectionDecl, AnalyzeError> {
-    let bulk_actions = ast
-        .bulk_actions
-        .iter()
-        .map(|s| parse_command_ref(s, owning_feature))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(ir::SelectionDecl {
-        mode: match ast.mode {
-            syntax::SelectionModeAst::None => ir::SelectionMode::None,
-            syntax::SelectionModeAst::Single => ir::SelectionMode::Single,
-            syntax::SelectionModeAst::Multi => ir::SelectionMode::Multi,
-        },
-        bulk_actions,
-        span_ref: Some(span_of(ast.span)),
-    })
-}
-
-fn lower_setting_decl(ast: &syntax::SettingDeclAst) -> ir::SettingDecl {
-    ir::SettingDecl {
-        name: ast.name.clone(),
-        value_space: match &ast.value_space {
-            syntax::SettingValueSpaceAst::Enum(values) => ir::SettingValueSpace::Enum {
-                values: values.clone(),
-            },
-            syntax::SettingValueSpaceAst::Bool => ir::SettingValueSpace::Bool,
-            syntax::SettingValueSpaceAst::Int { min, max } => ir::SettingValueSpace::Int {
-                min: min.unwrap_or(i64::MIN),
-                max: max.unwrap_or(i64::MAX),
-            },
-        },
-        default: ast.default.clone(),
-        persistence: match ast.persistence {
-            syntax::SettingPersistenceAst::None => ir::SettingPersistence::None,
-            syntax::SettingPersistenceAst::Local => ir::SettingPersistence::Local,
-            syntax::SettingPersistenceAst::Workspace => ir::SettingPersistence::Workspace,
-        },
-        span_ref: Some(span_of(ast.span)),
-    }
-}
-
-/// Validate that every cell `field` shows up in the view's column /
-/// fields list (proposal §5.2 + doctor rule `lzx-cell-slot-orphan`).
-/// Slot names are restricted to kebab/snake identifiers (defensive —
-/// parser already enforces).
-fn validate_cells(
-    cells: &[syntax::CellBindingAst],
-    field_universe: &[String],
-    view_name: &str,
-) -> Result<(), AnalyzeError> {
-    for cell in cells {
-        validate_cell_slot_shape(&cell.slot, view_name)?;
-        if !field_universe.is_empty() && !field_universe.contains(&cell.field) {
-            return Err(AnalyzeError::LzxCellSlotOrphan {
-                view: view_name.to_owned(),
-                field: cell.field.clone(),
-            });
-        }
-    }
-    Ok(())
-}
-
-/// Cell-slot identifier validation only (skip the field-universe
-/// orphan check). Used for `view detail` where cells bind against
-/// fields on the source resource, not against the section enum.
-fn validate_cells_slot_only(
-    cells: &[syntax::CellBindingAst],
-    view_name: &str,
-) -> Result<(), AnalyzeError> {
-    for cell in cells {
-        validate_cell_slot_shape(&cell.slot, view_name)?;
-    }
-    Ok(())
-}
-
-fn validate_cell_slot_shape(slot: &str, view_name: &str) -> Result<(), AnalyzeError> {
-    if slot.is_empty()
-        || !slot
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
-    {
-        return Err(AnalyzeError::LzxCellSlotInvalid {
-            view: view_name.to_owned(),
-            slot: slot.to_owned(),
-        });
-    }
-    Ok(())
-}
-
-/// Extract `:name` placeholders from a route path like `/slugs/:key`.
-fn path_placeholders(path: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    for segment in path.split('/') {
-        if let Some(rest) = segment.strip_prefix(':') {
-            // Trim any non-ident tail (the segment could theoretically
-            // carry a suffix; v0 keeps it strict so anything after the
-            // name is a parse-time error already).
-            let name: String = rest
-                .chars()
-                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
-                .collect();
-            if !name.is_empty() {
-                out.push(name);
-            }
-        }
-    }
-    out
-}
-
-/// Parse `<feature>.query.<short>` into a `QueryRef`. The middle token
-/// disambiguates list / lookup / sql when the source pre-qualifies it
-/// (`feat.query.list.mine` / `feat.query.lookup.by_key` /
-/// `feat.query.sql.raw` / `feat.query.view.home`).
-/// The shorter form `<feat>.query.<short>` defaults to `List`.
-fn parse_query_ref(text: &str) -> Option<ir::QueryRef> {
-    let parts: Vec<&str> = text.split('.').collect();
-    match parts.as_slice() {
-        [feature, "query", name] => Some(ir::QueryRef {
-            feature: (*feature).to_owned(),
-            kind: ir::QueryKind::List,
-            name: (*name).to_owned(),
-        }),
-        [feature, "query", "list", name] => Some(ir::QueryRef {
-            feature: (*feature).to_owned(),
-            kind: ir::QueryKind::List,
-            name: (*name).to_owned(),
-        }),
-        [feature, "query", "lookup", name] => Some(ir::QueryRef {
-            feature: (*feature).to_owned(),
-            kind: ir::QueryKind::Lookup,
-            name: (*name).to_owned(),
-        }),
-        [feature, "query", "sql", name] => Some(ir::QueryRef {
-            feature: (*feature).to_owned(),
-            kind: ir::QueryKind::Sql,
-            name: (*name).to_owned(),
-        }),
-        [feature, "query", "view", name] => Some(ir::QueryRef {
-            feature: (*feature).to_owned(),
-            kind: ir::QueryKind::View,
-            name: (*name).to_owned(),
-        }),
-        _ => None,
-    }
-}
-
-/// Parse a command reference from a `submit ` line or an `actions`
-/// list entry. Accepts both the qualified form (`feat.command.name`)
-/// and the bare local form (`name`) — the latter assumes the owning
-/// feature.
-fn parse_command_ref(text: &str, owning_feature: &str) -> Result<ir::CommandRef, AnalyzeError> {
-    let trimmed = text.trim();
-    let parts: Vec<&str> = trimmed.split('.').collect();
-    match parts.as_slice() {
-        [feature, "command", name] => Ok(ir::CommandRef {
-            feature: (*feature).to_owned(),
-            name: (*name).to_owned(),
-        }),
-        [name] if !name.is_empty() => Ok(ir::CommandRef {
-            feature: owning_feature.to_owned(),
-            name: (*name).to_owned(),
-        }),
-        _ => Err(AnalyzeError::LzxBadCommandRef {
-            value: trimmed.to_owned(),
-        }),
-    }
-}
+// `lower_lzx_document` + `lower_surface` and the entire `.lzx`
+// surface family moved to `lzx.rs` (app layer) and `surface.rs`
+// (ViewModel layer).
 
 /// Public wrapper around `type_ref_from_syntax` so the inspect CLI can
 /// reuse the analyzer's `@cap.File(...)` typing pass without re-implementing
@@ -928,7 +441,7 @@ pub fn type_ref_from_syntax_public(ty: &str) -> ir::TypeRef {
     type_ref_from_syntax(ty)
 }
 
-fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
+pub(crate) fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
     let raw = ty.trim();
     // Canonical authoring allows `list of <Type>` (legacy) and `list <Type>`
     // (Wave 0 canonical, per ir-returns-list-2026-05-22). Both lift to the
@@ -4280,7 +3793,7 @@ fn parse_cache_ttl(value: &str) -> ir::CacheTtl {
     ir::CacheTtl::Quoted(value.to_owned())
 }
 
-fn lower_command_input_to_typed(
+pub(crate) fn lower_command_input_to_typed(
     slot: &syntax::CommandInputSlot,
 ) -> Result<ir::TypedSlot, AnalyzeError> {
     // LAZ-SEMANTIC-AUTO-VALIDATE W2 — `@validate.skip` is an authoring
@@ -4299,7 +3812,7 @@ fn lower_command_input_to_typed(
 
 /// Strip `@validate.skip` (anywhere in the text) and return the
 /// trimmed remainder + whether the marker was present.
-fn strip_validate_skip(text: &str) -> (String, bool) {
+pub(crate) fn strip_validate_skip(text: &str) -> (String, bool) {
     if !text.contains("@validate.skip") {
         return (text.to_owned(), false);
     }
@@ -4402,7 +3915,7 @@ fn lower_route_redirect_target(target: &syntax::RouteRedirectTargetAst) -> ir::R
 /// Cross-feature contracts — lower the optional `public contract <X> as v<N>`
 /// AST clause into the IR `PublicContract` per
 /// `docs/proposals/cross-feature-contracts.md` §5.1.
-fn lower_public_contract(
+pub(crate) fn lower_public_contract(
     decl: &Option<syntax::PublicContractDeclAst>,
 ) -> Option<ir::PublicContract> {
     decl.as_ref().map(|d| ir::PublicContract {
@@ -4756,7 +4269,7 @@ fn find_field_level_cap_pii_span(text: &str) -> Option<(usize, usize)> {
 /// Project `syntax::FieldConstraintsDecl` onto the IR's
 /// `ir::FieldConstraints`. Combination + default checks happen
 /// separately; closed-catalog validate profiles are checked here.
-fn lift_field_constraints(
+pub(crate) fn lift_field_constraints(
     field: &str,
     decl: &syntax::FieldConstraintsDecl,
 ) -> Result<ir::FieldConstraints, AnalyzeError> {
@@ -4799,7 +4312,7 @@ fn lower_sanitize_html_profile(
 /// shipped parser stores both bounds as `i64`, so the comparison is
 /// total. This check runs after the combination rules so that conflict
 /// errors (which already cover redundancy) take precedence.
-fn validate_constraint_range_invariant(
+pub(crate) fn validate_constraint_range_invariant(
     field: &str,
     c: &syntax::FieldConstraintsDecl,
 ) -> Result<(), AnalyzeError> {
@@ -4839,7 +4352,7 @@ fn validate_constraint_range_invariant(
 /// - `pattern`: Text + semantic string variants ONLY
 /// - `between`: Integer, Decimal ONLY
 /// - `in`: Text, Integer, Decimal + semantic string variants
-fn validate_constraint_type_compatibility(
+pub(crate) fn validate_constraint_type_compatibility(
     field: &str,
     type_text: &str,
     c: &syntax::FieldConstraintsDecl,
@@ -4934,7 +4447,7 @@ fn validate_constraint_type_compatibility(
 /// reject (unbalanced `(`, unbalanced `[`, trailing `\`). Anything
 /// passing this check is still subject to the runtime regex
 /// compiler's authoritative judgement.
-fn validate_constraint_pattern_compile(
+pub(crate) fn validate_constraint_pattern_compile(
     field: &str,
     c: &syntax::FieldConstraintsDecl,
 ) -> Result<(), AnalyzeError> {
@@ -5013,7 +4526,7 @@ fn validate_constraint_pattern_compile(
 /// L0 #3 §10.2 — enforce inline constraint combination rules. Returns
 /// the first conflict so authors get one focused diagnostic per field
 /// (consistent with the rest of the analyzer).
-fn validate_constraint_combinations(
+pub(crate) fn validate_constraint_combinations(
     field: &str,
     c: &syntax::FieldConstraintsDecl,
 ) -> Result<(), AnalyzeError> {
@@ -5233,7 +4746,7 @@ fn lower_rate_limit_literal(literal: &str) -> String {
 /// `ir::Command`. The kind is inferred from the body shape: `creates`
 /// → Create, `updates` → Update, `deletes` → Delete, `returns` → Returns,
 /// `handler`-only → Returns (the escape hatch case).
-fn lower_command_decl(feature: &str, c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeError> {
+pub(crate) fn lower_command_decl(feature: &str, c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeError> {
     let kind = match c.effect.as_ref().map(|e| e.kind) {
         Some(syntax::CommandEffectKindDecl::Creates) => ir::CommandKind::Create,
         Some(syntax::CommandEffectKindDecl::Updates) => ir::CommandKind::Update,
@@ -5413,7 +4926,7 @@ enum DeprecationTarget {
 /// the typed IR shape. `replacement` is classified by syntactic shape:
 /// `https?://` → Url, `[<feature>.]command.<name>` / `[<feature>.]api.<name>`
 /// → typed callable ref, otherwise → same-kind local ref.
-fn lower_deprecated(
+pub(crate) fn lower_deprecated(
     decl: &syntax::CommandDeprecatedDecl,
     target: DeprecationTarget,
 ) -> ir::Deprecation {
@@ -5460,7 +4973,7 @@ fn lower_deprecated(
     }
 }
 
-fn lower_route_slot_kind(kind: syntax::CommandRouteSlotKind) -> ir::RouteSlotKind {
+pub(crate) fn lower_route_slot_kind(kind: syntax::CommandRouteSlotKind) -> ir::RouteSlotKind {
     match kind {
         syntax::CommandRouteSlotKind::Plain => ir::RouteSlotKind::Plain,
         syntax::CommandRouteSlotKind::OpaqueToken => ir::RouteSlotKind::OpaqueToken,
@@ -5469,7 +4982,7 @@ fn lower_route_slot_kind(kind: syntax::CommandRouteSlotKind) -> ir::RouteSlotKin
 }
 
 /// Phase L Tier 4b — lower a canonical-indent `api` block into `ir::Api`.
-fn lower_api_decl(a: &syntax::ApiDecl) -> ir::Api {
+pub(crate) fn lower_api_decl(a: &syntax::ApiDecl) -> ir::Api {
     let method = match a.method {
         syntax::HttpMethod::Get => ir::HttpMethod::Get,
         syntax::HttpMethod::Post => ir::HttpMethod::Post,
@@ -5678,20 +5191,6 @@ fn parse_filename_token(raw: &str) -> Option<ir::FilenameToken> {
 /// verbatim; doctor validates them against `app.locale.supported` and
 /// the CLDR plural catalog.
 ///
-/// IR Error-Vocab (Cell PARSE-1) — lower a surface
-/// `TranslationKeyRefAst` (parsed from `@translation.<key>`) onto the
-/// typed IR `TranslationKeyRef`. The `span_ref` is preserved so doctor
-/// can quote the offending line on `translation_key_unknown` /
-/// ERR-VOCAB-002 emission. Same-feature scope; v1 does not lower the
-/// cross-feature `<feature>.@translation.<key>` form (cf. proposal
-/// §3.1 — the surface token form keeps the parser single-shape).
-fn lower_translation_key_ref(decl: &syntax::TranslationKeyRefAst) -> ir::TranslationKeyRef {
-    ir::TranslationKeyRef {
-        key: decl.key.clone(),
-        span_ref: Some(span_of(decl.span)),
-    }
-}
-
 /// IR Error-Vocab (Cell PARSE-1) — lower a surface `FeatureErrorsDecl`
 /// onto `ir::FeatureErrors`. The `default hide` / `default expose` and
 /// `expose client 4xx|5xx <fields>` slots project 1:1; per-code message
@@ -5771,7 +5270,7 @@ fn lower_translation_decl(t: &syntax::TranslationDecl) -> ir::Translation {
 /// `ir::LocaleNegotiate`. The runtime-unit form is parsed elsewhere
 /// (`crates/lazuli_cli/src/app_manifest.rs`) since it lives on the
 /// `app.lzi` side rather than feature side.
-fn lower_locale_negotiate_decl(n: &syntax::LocaleNegotiateDecl) -> ir::LocaleNegotiate {
+pub(crate) fn lower_locale_negotiate_decl(n: &syntax::LocaleNegotiateDecl) -> ir::LocaleNegotiate {
     ir::LocaleNegotiate {
         source: n.source.clone(),
         strategy: n.strategy.clone(),
@@ -6210,55 +5709,6 @@ pub fn lower_webhook(webhook: &syntax::Webhook) -> Result<ir::Webhook, AnalyzeEr
 /// The lift is intentionally conservative: shapes that don't match
 /// the typed catalog are preserved verbatim so codegen can emit a
 /// runtime-evaluated stub without losing authoring intent.
-fn lower_emit_predicate(raw: &str) -> ir::EmitPredicate {
-    let trimmed = raw.trim();
-    let kind = parse_emit_predicate_kind(trimmed).unwrap_or_else(|| ir::EmitPredicateKind::Other {
-        raw: trimmed.to_owned(),
-    });
-    ir::EmitPredicate {
-        raw: trimmed.to_owned(),
-        kind,
-        span_ref: None,
-    }
-}
-
-fn parse_emit_predicate_kind(text: &str) -> Option<ir::EmitPredicateKind> {
-    // `path = "literal"` — split on the first `=` not followed by `=`
-    // (avoid `==` if a future surface accepts it). The current closed
-    // surface only authors a single `=`.
-    if let Some((lhs, rhs)) = text.split_once('=') {
-        let path = lhs.trim();
-        let literal_raw = rhs.trim();
-        if !path.is_empty() && !path.contains(' ') {
-            if let Some(literal) = strip_quotes(literal_raw) {
-                return Some(ir::EmitPredicateKind::Equals {
-                    path: path.to_owned(),
-                    literal: literal.to_owned(),
-                });
-            }
-        }
-    }
-    // `path in ("a", "b", ...)`
-    if let Some(in_pos) = find_word(text, "in") {
-        let path = text[..in_pos].trim();
-        let rhs = text[in_pos + 2..].trim();
-        if !path.is_empty() && !path.contains(' ') && rhs.starts_with('(') && rhs.ends_with(')') {
-            let inner = &rhs[1..rhs.len() - 1];
-            let literals: Vec<String> = inner
-                .split(',')
-                .filter_map(|raw| strip_quotes(raw.trim()).map(str::to_owned))
-                .collect();
-            if !literals.is_empty() {
-                return Some(ir::EmitPredicateKind::In {
-                    path: path.to_owned(),
-                    literals,
-                });
-            }
-        }
-    }
-    None
-}
-
 /// Realtime bucket cycle MVP — lower a canonical-indent `channel`
 /// block into `ir::Channel`. Mechanical projection: the parser
 /// already enforces presence of all three required children, so the
@@ -6388,85 +5838,6 @@ fn parse_mcp_auth(raw: &str) -> Option<ir::MCPAuth> {
     None
 }
 
-fn lower_mcp_tool(tool: &syntax::McpTool) -> ir::MCPTool {
-    let params = tool.params.iter().map(lower_mcp_param).collect();
-    ir::MCPTool {
-        name: tool.name.clone(),
-        description: tool.description.clone(),
-        params,
-        returns_kind: tool.returns.clone(),
-        handler_fn: tool.handler.clone(),
-        policy: tool.policy.clone(),
-        span_ref: Some(span_of(tool.span)),
-    }
-}
-
-fn lower_mcp_resource(resource: &syntax::McpResource) -> ir::MCPResource {
-    ir::MCPResource {
-        name: resource.name.clone(),
-        uri_template: resource.uri_template.clone(),
-        mime: resource.mime.clone(),
-        handler_fn: resource.handler.clone(),
-        policy: resource.policy.clone(),
-        span_ref: Some(span_of(resource.span)),
-    }
-}
-
-fn lower_mcp_prompt(prompt: &syntax::McpPrompt) -> ir::MCPPrompt {
-    let params = prompt.params.iter().map(lower_mcp_param).collect();
-    ir::MCPPrompt {
-        name: prompt.name.clone(),
-        description: prompt.description.clone(),
-        params,
-        template_path: prompt.template.clone(),
-        span_ref: Some(span_of(prompt.span)),
-    }
-}
-
-fn lower_mcp_param(param: &syntax::McpParam) -> ir::MCPParam {
-    ir::MCPParam {
-        name: param.name.clone(),
-        ty_literal: param.ty.clone(),
-        required: param.required,
-    }
-}
-
-/// Notifications expanded bucket cycle — lower AST `NotificationDigest`
-/// into the typed IR. `template_strategy` falls through `merge` /
-/// `append` into the closed-catalog enum; unknown values are preserved
-/// in `invalid_template_strategy` so doctor can report
-/// `NOTIF-DIGEST-003` without widening the enum.
-fn lower_notification_digest(digest: &syntax::NotificationDigest) -> ir::NotificationDigest {
-    let (template_strategy, invalid_template_strategy) = match digest.template_strategy.as_deref() {
-        Some("merge") => (Some(ir::DigestStrategy::Merge), None),
-        Some("append") => (Some(ir::DigestStrategy::Append), None),
-        Some(raw) => (None, Some(raw.to_owned())),
-        None => (None, None),
-    };
-    ir::NotificationDigest {
-        every: digest.every.clone(),
-        group_by: digest.group_by.clone(),
-        max_size: digest.max_size,
-        template_strategy,
-        invalid_template_strategy,
-    }
-}
-
-/// Notifications expanded bucket cycle — lower AST
-/// `NotificationThrottle` into the typed IR. Pure field-for-field
-/// projection; no validation here (doctor `NOTIF-THROTTLE-*` covers
-/// the closed-catalog and combinatorial rules).
-fn lower_notification_throttle(
-    throttle: &syntax::NotificationThrottle,
-) -> ir::NotificationThrottle {
-    ir::NotificationThrottle {
-        max_per: throttle.max_per.clone(),
-        per_recipient: throttle.per_recipient,
-        per_channel: throttle.per_channel,
-        burst: throttle.burst,
-    }
-}
-
 /// Phase L Tier 3 — lower a canonical-indent `event_group` into
 /// `ir::EventGroup`. The payload bag and authored events stay as raw
 /// strings; B5 framework gap 1 lifts the per-event typed payload
@@ -6557,28 +5928,6 @@ pub fn lower_event_group(group: &syntax::EventGroup) -> ir::EventGroup {
     }
 }
 
-/// B5 framework gap 1 — lift one typed event-variant field row into
-/// `ir::EventField`. Reuses `type_ref_from_syntax` so `@semantic.X`,
-/// `@cap.X`, and built-in scalars all flow through the same lifter
-/// resource fields use. `optional` falls back to `!required` when
-/// neither modifier was authored — matches the resource-field
-/// convention.
-fn lower_event_variant_field(decl: &syntax::EventVariantFieldDecl) -> ir::EventField {
-    let optional = if decl.required {
-        false
-    } else {
-        // Treat unmarked event-variant fields as required by default
-        // (events are projection contracts; missing values are a
-        // codegen-time bug). Authors opt into optionality explicitly.
-        decl.optional
-    };
-    ir::EventField {
-        name: decl.name.clone(),
-        type_ref: type_ref_from_syntax(&decl.type_text),
-        optional,
-    }
-}
-
 /// Migrations bucket cycle Route C — lower a canonical-indent
 /// `tenant_migration` block into `ir::TenantMigration`. Mirrors
 /// `lower_job` for the shared spine (idempotency / retry / timeout /
@@ -6610,204 +5959,6 @@ pub fn lower_tenant_migration(
         previous_names: Vec::new(),
         span_ref: Some(span_of(tm.span)),
     })
-}
-
-fn lower_tenant_migration_target(raw: &str) -> ir::TenantMigrationTargetOperation {
-    let parts: Vec<&str> = raw.split('.').collect();
-    match parts.as_slice() {
-        ["query", name] => ir::TenantMigrationTargetOperation::Query {
-            feature: None,
-            name: (*name).to_owned(),
-        },
-        [feature, "query", name] => ir::TenantMigrationTargetOperation::Query {
-            feature: Some((*feature).to_owned()),
-            name: (*name).to_owned(),
-        },
-        ["command", name] => ir::TenantMigrationTargetOperation::Command {
-            feature: None,
-            name: (*name).to_owned(),
-        },
-        [feature, "command", name] => ir::TenantMigrationTargetOperation::Command {
-            feature: Some((*feature).to_owned()),
-            name: (*name).to_owned(),
-        },
-        _ => ir::TenantMigrationTargetOperation::Query {
-            feature: None,
-            name: raw.to_owned(),
-        },
-    }
-}
-
-fn lower_job_trigger(feature: &str, trigger: &syntax::JobTrigger) -> ir::JobTrigger {
-    match trigger {
-        syntax::JobTrigger::Event(name) => ir::JobTrigger::Event {
-            event: qualified_event_name(feature, name),
-        },
-        syntax::JobTrigger::Schedule(cron) => ir::JobTrigger::Schedule { cron: cron.clone() },
-    }
-}
-
-fn qualified_event_name(feature: &str, name: &str) -> ir::QualifiedName {
-    if let Some((ns, ev)) = name.split_once('.') {
-        ir::QualifiedName {
-            feature: Some(ns.to_owned()),
-            name: ev.to_owned(),
-        }
-    } else {
-        ir::QualifiedName {
-            feature: Some(feature.to_owned()),
-            name: name.to_owned(),
-        }
-    }
-}
-
-fn lower_retry(retry: &syntax::JobRetry) -> ir::RetryPolicy {
-    ir::RetryPolicy {
-        count: retry.count,
-        backoff: match retry.backoff.as_str() {
-            "exponential" => ir::BackoffStrategy::Exponential,
-            _ => ir::BackoffStrategy::Fixed,
-        },
-    }
-}
-
-fn lower_fanout(fanout: &syntax::JobFanout) -> ir::FanoutSpec {
-    ir::FanoutSpec {
-        scope: ir::FanoutScope::Tenants,
-        axis: fanout.axis.clone(),
-    }
-}
-
-fn lower_external_call(call: &syntax::JobExternalCall) -> ir::ExternalCallRef {
-    ir::ExternalCallRef {
-        slot: call.slot.clone(),
-        op: call.op.clone(),
-        args: call
-            .args
-            .iter()
-            .map(|arg| ir::NamedArg {
-                name: arg.name.clone(),
-                value: lower_raw_expr(&arg.value),
-            })
-            .collect(),
-        span_ref: Some(span_of(call.span)),
-    }
-}
-
-fn lower_job_body(body: &syntax::JobBody) -> ir::JobBody {
-    match body {
-        syntax::JobBody::Handler(h) => ir::JobBody::Handler(ir::JobHandler {
-            path: ir::PathRef::authored(&h.path),
-            returns: h.returns.as_deref().map(|t| type_ref_from_text(t)),
-        }),
-        syntax::JobBody::Declarative(d) => ir::JobBody::Declarative(ir::JobDeclarative {
-            target: d.target.as_ref().map(lower_target_expr),
-            lets: d.lets.iter().map(lower_let_binding).collect(),
-            effect: d
-                .effect
-                .as_ref()
-                .map(lower_command_effect)
-                .unwrap_or(ir::CommandEffect::None),
-        }),
-        syntax::JobBody::None => ir::JobBody::Declarative(ir::JobDeclarative {
-            target: None,
-            lets: Vec::new(),
-            effect: ir::CommandEffect::None,
-        }),
-    }
-}
-
-/// Phase L Tier 4b — shared lowering for `target query.<name>(args)`.
-/// Reused by `lower_job_body` (Tier 3) and `lower_command_skeleton`
-/// (Tier 4b) — closes the Tier 3 raw-spine carve-out.
-fn lower_target_expr(t: &syntax::TargetExprDecl) -> ir::TargetExpr {
-    ir::TargetExpr {
-        query: lower_qualified_name(&t.query),
-        args: t.args.iter().map(lower_named_arg).collect(),
-    }
-}
-
-fn lower_let_binding(l: &syntax::LetBindingDecl) -> ir::LetBinding {
-    ir::LetBinding {
-        name: l.name.clone(),
-        value: lower_raw_expr(&l.value),
-    }
-}
-
-fn lower_named_arg(arg: &syntax::TargetArgDecl) -> ir::NamedArg {
-    ir::NamedArg {
-        name: arg.name.clone(),
-        value: lower_raw_expr(&arg.value),
-    }
-}
-
-fn lower_assignment(a: &syntax::AssignmentDecl) -> ir::Assignment {
-    ir::Assignment {
-        field: a.field.clone(),
-        value: lower_raw_expr(&a.value),
-    }
-}
-
-fn lower_command_effect(effect: &syntax::CommandEffectDecl) -> ir::CommandEffect {
-    let resource = lower_qualified_name(&effect.resource);
-    let assignments: Vec<ir::Assignment> =
-        effect.assignments.iter().map(lower_assignment).collect();
-    match effect.kind {
-        syntax::CommandEffectKindDecl::Creates => ir::CommandEffect::Creates(ir::CreateEffect {
-            resource,
-            from_input: effect.from_input,
-            assignments,
-        }),
-        syntax::CommandEffectKindDecl::Updates => ir::CommandEffect::Updates(ir::UpdateEffect {
-            resource,
-            assignments,
-        }),
-        syntax::CommandEffectKindDecl::Deletes => {
-            ir::CommandEffect::Deletes(ir::DeleteEffect { resource })
-        }
-    }
-}
-
-fn lower_qualified_name(text: &str) -> ir::QualifiedName {
-    let trimmed = text.trim();
-    if let Some((feature, name)) = trimmed.split_once('.') {
-        ir::QualifiedName {
-            feature: Some(feature.to_owned()),
-            name: name.to_owned(),
-        }
-    } else {
-        ir::QualifiedName {
-            feature: None,
-            name: trimmed.to_owned(),
-        }
-    }
-}
-
-/// Lower `invalidates` query refs into the cache-invalidation IR shape.
-/// The authored namespace marker (`query.`) is syntax only:
-///
-/// - `query.foo` -> `<current_feature>.foo`
-/// - `bar.query.baz` -> `bar.baz`
-fn lower_invalidates_query_ref(current_feature: &str, text: &str) -> ir::QualifiedName {
-    let trimmed = text.trim();
-    let parts: Vec<&str> = trimmed.split('.').collect();
-    match parts.as_slice() {
-        ["query", name] if !name.is_empty() => ir::QualifiedName {
-            feature: Some(current_feature.to_owned()),
-            name: (*name).to_owned(),
-        },
-        [feature, "query", name] if !feature.is_empty() && !name.is_empty() => {
-            ir::QualifiedName {
-                feature: Some((*feature).to_owned()),
-                name: (*name).to_owned(),
-            }
-        }
-        [name] if !name.is_empty() => ir::QualifiedName {
-            feature: Some(current_feature.to_owned()),
-            name: (*name).to_owned(),
-        },
-        _ => lower_qualified_name(trimmed),
-    }
 }
 
 /// Analyzer-level resolution for `Command.invalidates`. This pass is
@@ -6891,115 +6042,6 @@ impl InvalidatesQueryIndex {
         self.queries_by_feature
             .get(feature)
             .is_some_and(|queries| queries.contains(query))
-    }
-}
-
-/// Capture a freeform expression as a typed `ir::Expr`. Today this
-/// handles five literal shapes (string / integer / bool / nil / enum
-/// or path) plus the v1 `@fn.<name>(<arg>...)` invocation form (closes
-/// WAR-VOCAB-CREATES-FN-CALL-01).
-fn lower_raw_expr(text: &str) -> ir::Expr {
-    let trimmed = text.trim();
-    if let Some(unquoted) = trimmed
-        .strip_prefix('"')
-        .and_then(|rest| rest.strip_suffix('"'))
-    {
-        return ir::Expr::String(unquoted.to_owned());
-    }
-    if let Ok(n) = trimmed.parse::<i64>() {
-        return ir::Expr::Integer(n);
-    }
-    match trimmed {
-        "true" => return ir::Expr::Boolean(true),
-        "false" => return ir::Expr::Boolean(false),
-        "nil" => return ir::Expr::Nil,
-        _ => {}
-    }
-    // `@fn.<name>(<arg>, ...)` — extension-fn invocation. The args
-    // are recursively lowered as expressions; nested fn calls are
-    // permitted at the IR level (codegen guards against unsupported
-    // nesting today by emitting a TODO comment).
-    if let Some(fn_call) = parse_fn_call_expr(trimmed) {
-        return ir::Expr::FnCall(fn_call);
-    }
-    let segments = trimmed.split('.').map(|s| s.trim().to_owned()).collect();
-    ir::Expr::Path(ir::Path { segments })
-}
-
-fn parse_fn_call_expr(text: &str) -> Option<ir::FnCallExpr> {
-    let rest = text.strip_prefix("@fn.")?;
-    let paren_idx = rest.find('(')?;
-    if !rest.ends_with(')') {
-        return None;
-    }
-    let (name_text, after) = rest.split_at(paren_idx);
-    let inside = &after[1..after.len() - 1];
-    let name = name_text.trim();
-    if name.is_empty() {
-        return None;
-    }
-    let args = if inside.trim().is_empty() {
-        Vec::new()
-    } else {
-        split_fn_call_args(inside)
-            .into_iter()
-            .map(|arg| lower_raw_expr(&arg))
-            .collect()
-    };
-    Some(ir::FnCallExpr {
-        name: ir::QualifiedName {
-            feature: None,
-            name: name.to_owned(),
-        },
-        args,
-    })
-}
-
-fn split_fn_call_args(input: &str) -> Vec<String> {
-    // Splits on commas that live at paren-depth 0 outside double-quoted
-    // strings. Nested fn-call args therefore stay grouped.
-    let mut out = Vec::new();
-    let mut depth: usize = 0;
-    let mut in_quote = false;
-    let mut start = 0usize;
-    let bytes = input.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if b == b'"' {
-            in_quote = !in_quote;
-        } else if !in_quote {
-            if b == b'(' {
-                depth += 1;
-            } else if b == b')' {
-                depth = depth.saturating_sub(1);
-            } else if b == b',' && depth == 0 {
-                let part = input[start..i].trim();
-                if !part.is_empty() {
-                    out.push(part.to_owned());
-                }
-                start = i + 1;
-            }
-        }
-        i += 1;
-    }
-    let tail = input[start..].trim();
-    if !tail.is_empty() {
-        out.push(tail.to_owned());
-    }
-    out
-}
-
-fn lower_path_string(text: &str) -> ir::Path {
-    ir::Path {
-        segments: text
-            .split(',')
-            .next()
-            .unwrap_or(text)
-            .split('.')
-            .map(|s| s.trim().to_owned())
-            .filter(|s| !s.is_empty())
-            .collect(),
     }
 }
 
@@ -7392,28 +6434,6 @@ fn parse_closed_predicate(text: &str) -> ir::EvalPredicate {
     ir::EvalPredicate::Unparsed(text.to_owned())
 }
 
-/// Promote a token to the smallest expression kind that fits. Strings
-/// must be double-quoted; integers parse as `Integer`; `true`/`false` as
-/// `Boolean`; bare identifiers / dotted paths become `Path`; bare
-/// identifiers that look like enum literals (no dots) also surface as
-/// `Path` — the analyzer narrows once symbols resolve in expand.
-fn expr_from_text(text: &str) -> ir::Expr {
-    let text = text.trim();
-    if let Some(stripped) = text.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
-        return ir::Expr::String(stripped.to_owned());
-    }
-    if let Ok(n) = text.parse::<i64>() {
-        return ir::Expr::Integer(n);
-    }
-    match text {
-        "true" => return ir::Expr::Boolean(true),
-        "false" => return ir::Expr::Boolean(false),
-        "nil" => return ir::Expr::Nil,
-        _ => {}
-    }
-    ir::Expr::Path(ir::Path::from_segments(text.split('.').map(str::to_owned)))
-}
-
 /// Build a feature-local `QualifiedName` (no feature prefix).
 fn qualified_name_local(name: &str) -> ir::QualifiedName {
     ir::QualifiedName {
@@ -7433,16 +6453,8 @@ fn qualified_namespace(raw: &str) -> ir::QualifiedName {
     }
 }
 
-fn lower_policy_atom(atom: &str) -> ir::PolicyRef {
-    if let Some(rest) = atom.strip_prefix('@') {
-        ir::PolicyRef::Atom(rest.to_owned())
-    } else {
-        ir::PolicyRef::Local(atom.to_owned())
-    }
-}
-
 #[cfg(test)]
-fn lower_policy_atom_with_args(text: &str) -> ir::PolicyAtom {
+pub(crate) fn lower_policy_atom_with_args(text: &str) -> ir::PolicyAtom {
     let raw = text.trim().strip_prefix('@').unwrap_or(text.trim());
     let (ns_name, args) = match raw.split_once('(') {
         Some((head, tail)) => (head.trim(), Some(tail.trim_end_matches(')').to_owned())),
@@ -7523,37 +6535,10 @@ fn lower_validate_line(line: &str) -> Result<ir::FieldConstraints, AnalyzeError>
     lift_field_constraints("validate", &decl)
 }
 
-/// RB.S6 — lower the structured AST policy expression (parser
-/// already validated permission-ref shape + closed keyword catalog).
-/// The lowering is purely structural; catalog cross-checks (role/perm
-/// existence) live in doctor (`RBAC-ROLE-UNDECLARED-001` /
-/// `RBAC-PERM-UNDECLARED-001`).
-fn lower_policy_expr(expr: &syntax::PolicyExprAst) -> ir::PolicyExpr {
-    match expr {
-        syntax::PolicyExprAst::Authenticated => ir::PolicyExpr::Authenticated,
-        syntax::PolicyExprAst::HasRole(name) => ir::PolicyExpr::HasRole(name.clone()),
-        syntax::PolicyExprAst::HasPermission(perm) => ir::PolicyExpr::HasPermission(perm.clone()),
-        syntax::PolicyExprAst::Atom(atom) => ir::PolicyExpr::Atom(ir::PolicyAtom {
-            namespace: atom.namespace.clone(),
-            name: atom.name.clone(),
-            args: atom.args.clone(),
-        }),
-        syntax::PolicyExprAst::And(terms) => {
-            ir::PolicyExpr::And(terms.iter().map(lower_policy_expr).collect())
-        }
-        syntax::PolicyExprAst::Or(terms) => {
-            ir::PolicyExpr::Or(terms.iter().map(lower_policy_expr).collect())
-        }
-        syntax::PolicyExprAst::Not(inner) => {
-            ir::PolicyExpr::Not(Box::new(lower_policy_expr(inner)))
-        }
-    }
-}
-
 /// The Phase 1 parser captures type references as raw source text. Turn
 /// that into a minimal `TypeRef` so doctor and inspect can read it; the
 /// canonical-indent migration replaces this with a real type-ref parser.
-fn type_ref_from_text(text: &str) -> ir::TypeRef {
+pub(crate) fn type_ref_from_text(text: &str) -> ir::TypeRef {
     // Single canonical lifter for type tokens. Previously a slimmer
     // duplicate of `type_ref_from_syntax` with drift bugs (notably:
     // matched `"Json"` only, lost `"JSON"`; always lowered `@semantic.*`

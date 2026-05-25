@@ -179,7 +179,7 @@ pub(super) fn catalog_list(items: &[&str]) -> String {
 ///
 /// `today_pivot` is lexical (the tuple sorts as if it were a real date
 /// because each component is fixed-width).
-pub(super) fn parse_iso_date(s: &str) -> Option<(u16, u8, u8)> {
+pub(crate) fn parse_iso_date(s: &str) -> Option<(u16, u8, u8)> {
     let trimmed = s.trim();
     let bytes = trimmed.as_bytes();
     if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
@@ -202,7 +202,7 @@ pub(super) fn parse_iso_date(s: &str) -> Option<(u16, u8, u8)> {
 /// pivot at the current Lazuli development date so the diagnostic is
 /// deterministic across runs. Bump alongside the canonical fixture
 /// each cycle; in practice the day-of-month precision is sufficient.
-pub(super) fn openapi_today_pivot() -> (u16, u8, u8) {
+pub(crate) fn openapi_today_pivot() -> (u16, u8, u8) {
     (2026, 5, 11)
 }
 
@@ -454,7 +454,7 @@ pub(super) fn auth_session_ttl_seconds(raw: &str) -> Option<u64> {
 /// CL.C.3 — convert a `CacheTtl` to seconds for ordering comparisons
 /// (`stale_while_revalidate` <= `ttl`). Returns `None` for quoted prose
 /// (adapter-parsed; we don't second-guess the runtime there).
-pub(super) fn cache_ttl_as_seconds(ttl: &lazuli_ir::CacheTtl) -> Option<u64> {
+pub(crate) fn cache_ttl_as_seconds(ttl: &lazuli_ir::CacheTtl) -> Option<u64> {
     match ttl {
         lazuli_ir::CacheTtl::Literal(lit) => Some(match lit {
             lazuli_ir::CacheTtlLiteral::Seconds(n) => *n as u64,

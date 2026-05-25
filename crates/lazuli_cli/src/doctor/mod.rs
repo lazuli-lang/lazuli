@@ -1,10 +1,11 @@
+mod aggregators;
 pub mod auth;
 pub mod auth_refresh;
 pub mod folder;
 mod helpers;
 pub mod lifecycle_gate;
 pub mod lzx;
-mod parsers;
+pub(crate) mod parsers;
 pub mod rbac;
 mod returns_list_001;
 mod returns_list_002;
@@ -408,104 +409,110 @@ struct DoctorPackage {
 
 /// Phase L Tier 3 — lifted job/webhook/notification/event_group bundle
 /// for one feature, with source line anchors for diagnostic placement.
+///
+/// Field-level visibility (Wave 4.3 R2): every field is `pub(crate)` so
+/// the per-category aggregators under `doctor/aggregators/*` can read
+/// the lifted Tier 3 IR without re-deriving it from source. Construction
+/// stays inside `DoctorPackage::load` — these structs are read-only
+/// once the package is loaded.
 #[derive(Debug, Clone)]
-struct Tier3FeatureFacts {
-    feature: String,
-    path: PathBuf,
-    feature_line: usize,
+pub(crate) struct Tier3FeatureFacts {
+    pub(crate) feature: String,
+    pub(crate) path: PathBuf,
+    pub(crate) feature_line: usize,
     /// Resolved tenancy axis (`org`, `team`, custom, none) inferred
     /// from the feature's `defaults` block. `None` if the source did
     /// not declare a default. Doctor's tenant_from / fanout checks
     /// use this to cross-check axis references.
-    tenancy_axis: Option<String>,
+    pub(crate) tenancy_axis: Option<String>,
     /// Feature-level default policy from `defaults.policy`. Queries
     /// with no per-query policy inherit this; absent defaults imply the
     /// runtime's public fallback.
-    defaults_policy: Option<lazuli_ir::PolicyRef>,
+    pub(crate) defaults_policy: Option<lazuli_ir::PolicyRef>,
     /// Feature-level `defaults.timestamps`. Most correctness dispatchers
     /// only need commands/resources, but audit timestamp checks must know
     /// whether `updated_at` is framework-managed.
-    defaults_timestamps: bool,
-    jobs: Vec<lazuli_ir::Job>,
-    webhooks: Vec<lazuli_ir::Webhook>,
-    notifications: Vec<lazuli_ir::Notification>,
-    event_groups: Vec<lazuli_ir::EventGroup>,
+    pub(crate) defaults_timestamps: bool,
+    pub(crate) jobs: Vec<lazuli_ir::Job>,
+    pub(crate) webhooks: Vec<lazuli_ir::Webhook>,
+    pub(crate) notifications: Vec<lazuli_ir::Notification>,
+    pub(crate) event_groups: Vec<lazuli_ir::EventGroup>,
     /// Migrations bucket cycle Route C — lifted `TenantMigration`
     /// declarations for this feature, paired with `tenant_migration_lines`
     /// for `TM-*` diagnostic line anchoring.
-    tenant_migrations: Vec<lazuli_ir::TenantMigration>,
+    pub(crate) tenant_migrations: Vec<lazuli_ir::TenantMigration>,
     /// Migrations bucket cycle Route C — `Resource.previous_names`
     /// captures plus current resource names per feature, for
     /// `PREVIOUSLY-*` cross-checks.
-    resource_previous_names: Vec<ResourcePreviousFact>,
+    pub(crate) resource_previous_names: Vec<ResourcePreviousFact>,
     /// Migrations bucket cycle Route C — `Field.previous_names`
     /// captures (resource + field + previous names + line).
-    field_previous_names: Vec<FieldPreviousFact>,
+    pub(crate) field_previous_names: Vec<FieldPreviousFact>,
     /// Migrations bucket cycle Route C — every current resource name
     /// in this feature (including resources without any `previously`
     /// declaration) so `PREVIOUSLY-FWD-001` can detect stale rename
     /// targets pointing at live symbols.
-    all_resource_names_in_feature: BTreeSet<String>,
+    pub(crate) all_resource_names_in_feature: BTreeSet<String>,
     /// Migrations bucket cycle Route C — `resource_name -> {field_names}`
     /// per feature for `PREVIOUSLY-FWD-001` on field-level rename hints.
-    all_field_names_in_feature: BTreeMap<String, BTreeSet<String>>,
+    pub(crate) all_field_names_in_feature: BTreeMap<String, BTreeSet<String>>,
     /// `job_name -> source line` lookup.
-    job_lines: BTreeMap<String, usize>,
-    webhook_lines: BTreeMap<String, usize>,
-    notification_lines: BTreeMap<String, usize>,
-    tenant_migration_lines: BTreeMap<String, usize>,
+    pub(crate) job_lines: BTreeMap<String, usize>,
+    pub(crate) webhook_lines: BTreeMap<String, usize>,
+    pub(crate) notification_lines: BTreeMap<String, usize>,
+    pub(crate) tenant_migration_lines: BTreeMap<String, usize>,
     /// `event_group_pattern -> source line` lookup.
-    event_group_lines: BTreeMap<String, usize>,
+    pub(crate) event_group_lines: BTreeMap<String, usize>,
     /// OpenAPI/Cache bucket cycles — lifted `command` IR per feature.
     /// Doctor reads `Command.deprecated` and `Command.invalidates` from
     /// here for the openapi/cache cross-checks.
-    commands: Vec<lazuli_ir::Command>,
+    pub(crate) commands: Vec<lazuli_ir::Command>,
     /// `command_name -> source line` lookup. Anchors `deprecated_*` and
     /// `cache_invalidates_*` diagnostics at the command header.
-    command_lines: BTreeMap<String, usize>,
+    pub(crate) command_lines: BTreeMap<String, usize>,
     /// Cache bucket cycle — lifted `query` IR per feature. Doctor reads
     /// `Query.cache` (when populated) for the cache cross-checks.
-    queries: Vec<lazuli_ir::Query>,
+    pub(crate) queries: Vec<lazuli_ir::Query>,
     /// `query_name -> source line` lookup. Anchors `cache_*` diagnostics
     /// at the query header.
-    query_lines: BTreeMap<String, usize>,
+    pub(crate) query_lines: BTreeMap<String, usize>,
     /// Cache bucket cycle (CL.C.3) — feature-level `cache <name>`
     /// profile declarations lifted from the canonical-indent slice.
     /// Doctor uses this to (1) resolve query `cache <profile>`
     /// references for `cache-profile-unknown`, (2) build the package-
     /// wide tag index for `cache-tag-unknown`, and (3) cross-check TTL
     /// shape invariants for `cache-ttl-contract`.
-    caches: Vec<lazuli_ir::CacheProfile>,
+    pub(crate) caches: Vec<lazuli_ir::CacheProfile>,
     /// `cache_profile_name -> source line` lookup. Anchors CL.C.3
     /// diagnostics at the profile header.
-    cache_lines: BTreeMap<String, usize>,
+    pub(crate) cache_lines: BTreeMap<String, usize>,
     /// OpenAPI bucket cycle — every `api <name>` declaration in this
     /// feature (text-pattern era, before Tier 4 lift). Doctor uses this
     /// to surface `openapi_text_pattern_api_block`.
-    api_names_text_pattern: Vec<String>,
+    pub(crate) api_names_text_pattern: Vec<String>,
     /// i18n bucket cycle — lifted typed `api` blocks (post Tier 4).
     /// Doctor reads `Api.locale_negotiate` from here for per-endpoint
     /// override validation.
-    apis: Vec<lazuli_ir::Api>,
+    pub(crate) apis: Vec<lazuli_ir::Api>,
     /// Phase L Tier 4b — `api_name -> source line` lookup for the lifted
     /// `apis` slot. Anchors `agent_expose_*` cross-checks at each api
     /// header.
-    api_lines: BTreeMap<String, usize>,
+    pub(crate) api_lines: BTreeMap<String, usize>,
     /// Cut A.7 — lifted agents for report auto-mount route conflict checks.
-    agents: Vec<lazuli_ir::Agent>,
+    pub(crate) agents: Vec<lazuli_ir::Agent>,
     /// i18n bucket cycle — lifted `translation` block (when authored).
-    translation: Option<lazuli_ir::Translation>,
-    translation_line: usize,
+    pub(crate) translation: Option<lazuli_ir::Translation>,
+    pub(crate) translation_line: usize,
     /// Phase L Tier 4 follow-up — lifted `record <Name>` declarations
     /// per feature. Replaces the text-scanned `FeatureSymbols.records`
     /// for the agent discriminator cross-checks.
-    records: Vec<lazuli_ir::Record>,
+    pub(crate) records: Vec<lazuli_ir::Record>,
     /// Phase L Tier 4 follow-up — lifted `enum <Name>` declarations per
     /// feature. Closes out the canonical-indent slice for `domain`:
     /// `agent_discriminator_target_invalid` and
     /// `check_record_discriminator` both read from here. The retired
     /// `FeatureSymbols.enums` text walker is gone.
-    enums: Vec<lazuli_ir::EnumDecl>,
+    pub(crate) enums: Vec<lazuli_ir::EnumDecl>,
     /// Notifications expanded bucket cycle — lifted `event` /
     /// `event.trace` declarations for this feature. `NOTIF-DIGEST-001`
     /// resolves `notification.digest.group_by` against the trigger
@@ -513,62 +520,62 @@ struct Tier3FeatureFacts {
     /// keyed by `<feature>.<event>`. Tracking the full payload at the
     /// fact level keeps the diagnostic shape-aware without adding a
     /// new fact family.
-    events: Vec<lazuli_ir::Event>,
+    pub(crate) events: Vec<lazuli_ir::Event>,
     /// Whether the feature authored a top-level `policies` block.
     /// `Feature.policies` has a default value, so doctor reads the
     /// lowered `span_ref` to distinguish "absent" from "declared".
-    policies_declared: bool,
+    pub(crate) policies_declared: bool,
     /// Phase L Tier 4 follow-up — full lifted `policies` block. Used
     /// by `SCOPE-OWNER-COLUMN-001` and other lints that need to walk
     /// a command's policy atom list (resolving `PolicyRef::Local`
     /// through `categories`) without re-deriving the lookup from
     /// text. Empty `Policies::default()` when the feature did not
     /// author a block.
-    policies: lazuli_ir::Policies,
+    pub(crate) policies: lazuli_ir::Policies,
     /// Wave 10 — feature-level `extensions` block lifted. Used by
     /// `resource_validates_path_unknown` to resolve
     /// `validates field <f> @validator.<name>` references against
     /// declared `extensions.validator`. Empty when the feature has
     /// no extensions block.
-    extensions: Vec<lazuli_ir::Extension>,
+    pub(crate) extensions: Vec<lazuli_ir::Extension>,
     /// Report vocab — lifted `report` declarations per feature. See
     /// `docs/proposals/report-vocab.md`.
-    reports: Vec<lazuli_ir::Report>,
+    pub(crate) reports: Vec<lazuli_ir::Report>,
     /// `report_name -> source line` lookup. Anchors `REPORT-*`
     /// diagnostics at the report header.
-    report_lines: BTreeMap<String, usize>,
+    pub(crate) report_lines: BTreeMap<String, usize>,
     /// Resources captured (full `Resource`) per feature — used by
     /// `REPORT-COLUMN-MISMATCH-001` to resolve `row.<field>` against
     /// the source query's projection.
-    resources: Vec<lazuli_ir::Resource>,
+    pub(crate) resources: Vec<lazuli_ir::Resource>,
     /// Raw `ReportDecl` AST per feature — used by rules that need the
     /// original (pre-lowering) form (e.g. `REPORT-FORMAT-UNKNOWN-001`
     /// scans the AST formats list since lowering drops unknown tokens).
-    report_decls: Vec<lazuli_syntax::ReportDecl>,
+    pub(crate) report_decls: Vec<lazuli_syntax::ReportDecl>,
     /// CL.C.4 — lifted `aggregate <Name>` declarations per feature.
     /// Powers the four domain-model diagnostics:
     /// `AGGREGATE-ROOT-UNKNOWN`, `AGGREGATE-CONTAINS-UNKNOWN`,
     /// `INVARIANT-PREDICATE-INVALID`, `SLUG-UNIQUENESS-IMPLICIT`.
     /// Empty vec when the feature authored no aggregate blocks.
-    aggregates: Vec<lazuli_ir::Aggregate>,
+    pub(crate) aggregates: Vec<lazuli_ir::Aggregate>,
     /// CL.C.4 — `aggregate_name -> source line` lookup. Anchors the
     /// `AGGREGATE-*` and aggregate-scoped `INVARIANT-*` diagnostics
     /// at the aggregate header.
-    aggregate_lines: BTreeMap<String, usize>,
+    pub(crate) aggregate_lines: BTreeMap<String, usize>,
     /// IR Error-Vocab (Cell ANALYZE-1) — lifted `errors` block. `None`
     /// when the feature did not author one. Used by the 7 `ERR-VOCAB-*`
     /// checks for `default hide/expose`, `expose client 4xx/5xx`, and
     /// per-code `<code> message @translation.<key>` rows.
-    errors: Option<lazuli_ir::FeatureErrors>,
+    pub(crate) errors: Option<lazuli_ir::FeatureErrors>,
     /// IR Error-Vocab (Cell ANALYZE-1) — cloned `Feature.uses` so the
     /// `ERR-VOCAB-002` cross-feature key resolver can walk imported
     /// features without re-deriving the import set from `feature_uses`.
-    uses: Vec<String>,
+    pub(crate) uses: Vec<String>,
     /// Realtime bucket cycle — lifted `channel <name>` declarations per
     /// feature. Used by `CHANNEL-PAYLOAD-001` to resolve each channel's
     /// `payload <Type>` against the feature's `records` / `resources`.
     /// Empty when the feature declares no realtime channels.
-    channels: Vec<lazuli_ir::Channel>,
+    pub(crate) channels: Vec<lazuli_ir::Channel>,
 }
 
 /// Migrations bucket cycle Route C — `Resource` rename fact captured
@@ -815,7 +822,7 @@ impl DoctorPackage {
                                             lazuli_doctor::test_discipline::preset::TestDisciplinePreset::parse,
                                         );
                                     file.local_diagnostics
-                                        .extend(test_discipline_diagnostics(
+                                        .extend(aggregators::test_discipline::diagnostics(
                                             &file.path,
                                             &project_root,
                                             &app_root_for_handlers,
@@ -1747,7 +1754,7 @@ impl DoctorPackage {
         // into the doctor dispatch so `lazuli doctor` reaches every
         // diagnostic the crate carries (the 11 sibling rules that until
         // now only fired in their `#[cfg(test)] mod tests`).
-        diagnostics.extend(correctness_diagnostics(
+        diagnostics.extend(aggregators::correctness::diagnostics(
             &self.tier3_facts,
             self.registry.as_ref().map(|reg| &reg.manifest),
             &self.project_root,
@@ -1954,11 +1961,11 @@ impl DoctorPackage {
         // Row 48 — OpenAPI bucket cycle: five `deprecated_*` + text-pattern
         // api detection. See `docs/proposals/bucket-openapi-cycle.md`
         // §Doctor/LSP.
-        diagnostics.extend(openapi_deprecated_diagnostics(&self.tier3_facts));
+        diagnostics.extend(aggregators::deprecated::diagnostics(&self.tier3_facts));
 
         // Row 51 — Cache bucket cycle: five `cache_*` diagnostics. See
         // `docs/proposals/bucket-cache-cycle.md` §Doctor/LSP.
-        diagnostics.extend(cache_diagnostics(
+        diagnostics.extend(aggregators::cache::diagnostics(
             &self.tier3_facts,
             self.registry.as_ref().map(|reg| &reg.manifest),
         ));
@@ -1969,7 +1976,7 @@ impl DoctorPackage {
 
         // Row 54 — i18n bucket cycle: 15 locale/translation diagnostics.
         // See `docs/proposals/bucket-i18n-cycle.md` §Doctor/LSP.
-        diagnostics.extend(i18n_diagnostics(
+        diagnostics.extend(aggregators::i18n::diagnostics(
             &self.tier3_facts,
             self.app.as_ref(),
             &self.files,
@@ -2008,14 +2015,17 @@ impl DoctorPackage {
         // CL.C.4 — domain-model diagnostics (roadmap §1.7). Four codes:
         // `AGGREGATE-ROOT-UNKNOWN`, `AGGREGATE-CONTAINS-UNKNOWN`,
         // `INVARIANT-PREDICATE-INVALID`, `SLUG-UNIQUENESS-IMPLICIT`.
-        diagnostics.extend(domain_diagnostics(&self.tier3_facts));
+        diagnostics.extend(aggregators::domain::diagnostics(&self.tier3_facts));
 
         // IR Error-Vocab (Cell ANALYZE-1) — 7 typed `ERR-VOCAB-*` codes
         // per `docs/proposals/ir-error-messages-vocab.md` §6. Operates
         // on the lowered IR carried in `tier3_facts`; `files` is passed
         // for `SpanRef -> line` resolution so each diagnostic anchors at
         // the offending construct.
-        diagnostics.extend(error_vocab_diagnostics(&self.tier3_facts, &self.files));
+        diagnostics.extend(aggregators::error_vocab::diagnostics(
+            &self.tier3_facts,
+            &self.files,
+        ));
         diagnostics.extend(route_guard::diagnostics(
             &self.files,
             self.app.as_ref(),
@@ -2027,11 +2037,11 @@ impl DoctorPackage {
             &self.tier3_facts,
         ));
 
-        diagnostics.extend(folder_layout_diagnostics(
+        diagnostics.extend(aggregators::folder::diagnostics(
             &self.project_root,
             self.security_profile,
         ));
-        diagnostics.extend(design_token_diagnostics(
+        diagnostics.extend(aggregators::design::diagnostics(
             &self.project_root,
             self.security_profile,
         ));
@@ -2130,7 +2140,7 @@ fn doctor_severity_for(
 /// they had before Wave 0.5 because `from_code_prefix` recovers the
 /// category and the non-TestDiscipline branches reproduce the original
 /// mapping verbatim.
-fn doctor_rule_severity(security_profile: SecurityProfile) -> DoctorSeverity {
+pub(crate) fn doctor_rule_severity(security_profile: SecurityProfile) -> DoctorSeverity {
     doctor_severity_for(
         "",
         RuleCategory::Vocabulary,
@@ -2296,562 +2306,20 @@ fn money_arithmetic_001_diagnostics(
         .collect()
 }
 
-/// Wave 1 — test-discipline + adjacent runtime/migration lint dispatcher.
-///
-/// Aggregates the seven `test_discipline` rules into per-feature CLI output:
-///
-/// * `TEST-MISSING-AUTHORED-001` — warning (strict/production)
-/// * `TEST-PREDICATE-UNCOVERED-001` — info (both profiles)
-/// * `TEST-RESTATES-EFFECT-001` — warning
-/// * `TEST-RESTATES-POLICY-001` — warning
-/// * `TEST-FIXTURE-LITERAL-001` — error
-/// * `MIGRATION-DSL-UNIQUE-001` — error
-/// * `RUNTIME-UPDATE-BUILDER-JSONB-001` — warning
-///
-/// Each rule's intrinsic severity is documented inline; the dispatcher does
-/// NOT downgrade or promote based on `security_profile` v0.1. Profile-aware
-/// promotion will land alongside Wave 0.5 `RuleCategory`-aware severity.
-///
-/// Modeled after `money_arithmetic_001_diagnostics` per the Wave 1 spec —
-/// each rule returns a `Finding`, the dispatcher maps to `DoctorDiagnostic`.
-fn test_discipline_diagnostics(
-    path: &Path,
-    project_root: &Path,
-    app_root: &Path,
-    feature: &lazuli_ir::Feature,
-    source: &str,
-    security_profile: SecurityProfile,
-    preset: Option<lazuli_doctor::test_discipline::preset::TestDisciplinePreset>,
-) -> Vec<DoctorDiagnostic> {
-    use lazuli_doctor::correctness::handler_missing_001;
-    use lazuli_doctor::test_discipline::preset::preset_rule_severity;
-    use lazuli_doctor::test_discipline::{
-        migration_dsl_unique_001, runtime_update_builder_jsonb_001,
-        test_command_assertion_drift_001, test_fixture_literal_001, test_handler_missing_001,
-        test_missing_authored_001, test_predicate_uncovered_001, test_restates_effect_001,
-        test_restates_policy_001, test_stub_001,
-    };
-    if security_profile == SecurityProfile::Prototype {
-        return Vec::new();
-    }
-
-    // W1.5 — resolve effective severity per rule: preset wins over the
-    // per-rule default when it has an opinion. `tdd-iron-hand` returns
-    // `Error` for every TEST-* / DOCTOR-* / MIGRATION-* / RUNTIME-* code;
-    // other presets either uniform-override or defer (None).
-    let resolve_severity = |default: DoctorSeverity, code: &str| -> DoctorSeverity {
-        if let Some(preset) = preset {
-            if let Some(override_sev) = preset_rule_severity(preset, code) {
-                return override_sev.into();
-            }
-        }
-        default
-    };
-
-    let mut out: Vec<DoctorDiagnostic> = Vec::new();
-
-    for finding in test_missing_authored_001::check(feature, path) {
-        let message = finding.message();
-        out.push(DoctorDiagnostic {
-            path: finding.path,
-            line: 1,
-            column: 1,
-            severity: resolve_severity(DoctorSeverity::Warning, test_missing_authored_001::Finding::CODE),
-            code: test_missing_authored_001::Finding::CODE.to_owned(),
-            message,
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-    for finding in test_predicate_uncovered_001::check(feature, path) {
-        let message = finding.message();
-        out.push(DoctorDiagnostic {
-            path: finding.path,
-            line: 1,
-            column: 1,
-            severity: resolve_severity(DoctorSeverity::Info, test_predicate_uncovered_001::Finding::CODE),
-            code: test_predicate_uncovered_001::Finding::CODE.to_owned(),
-            message,
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-    for finding in test_restates_effect_001::check(feature, path) {
-        let message = finding.message();
-        out.push(DoctorDiagnostic {
-            path: finding.path,
-            line: 1,
-            column: 1,
-            severity: resolve_severity(DoctorSeverity::Warning, test_restates_effect_001::Finding::CODE),
-            code: test_restates_effect_001::Finding::CODE.to_owned(),
-            message,
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-    for finding in test_restates_policy_001::check(feature, path) {
-        let message = finding.message();
-        out.push(DoctorDiagnostic {
-            path: finding.path,
-            line: 1,
-            column: 1,
-            severity: resolve_severity(DoctorSeverity::Warning, test_restates_policy_001::Finding::CODE),
-            code: test_restates_policy_001::Finding::CODE.to_owned(),
-            message,
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-    for finding in test_fixture_literal_001::check(feature, path) {
-        let message = finding.message();
-        out.push(DoctorDiagnostic {
-            path: finding.path,
-            line: 1,
-            column: 1,
-            severity: resolve_severity(DoctorSeverity::Error, test_fixture_literal_001::Finding::CODE),
-            code: test_fixture_literal_001::Finding::CODE.to_owned(),
-            message,
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-    for finding in migration_dsl_unique_001::check(feature, path, project_root) {
-        let message = finding.message();
-        out.push(DoctorDiagnostic {
-            path: finding.path,
-            line: 1,
-            column: 1,
-            severity: resolve_severity(DoctorSeverity::Error, migration_dsl_unique_001::Finding::CODE),
-            code: migration_dsl_unique_001::Finding::CODE.to_owned(),
-            message,
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-    for finding in runtime_update_builder_jsonb_001::check(feature, path) {
-        let message = finding.message();
-        out.push(DoctorDiagnostic {
-            path: finding.path,
-            line: 1,
-            column: 1,
-            severity: resolve_severity(DoctorSeverity::Warning, runtime_update_builder_jsonb_001::Finding::CODE),
-            code: runtime_update_builder_jsonb_001::Finding::CODE.to_owned(),
-            message,
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-    // Wave 3 — TEST-STUB-001: catches `@TODO authored:` markers in generated scaffolds.
-    for finding in test_stub_001::check(source, path) {
-        let message = finding.message();
-        out.push(DoctorDiagnostic {
-            path: finding.path,
-            line: finding.line,
-            column: finding.column,
-            severity: resolve_severity(DoctorSeverity::Warning, test_stub_001::Finding::CODE),
-            code: test_stub_001::Finding::CODE.to_owned(),
-            message,
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-    // Wave 4 + §7.1 — TEST-COMMAND-ASSERTION-DRIFT-001: catches the
-    // leave_host_reply pattern (denies declared in tests block but handler
-    // WHERE clause doesn't enforce it).
-    for finding in test_command_assertion_drift_001::check(feature, path) {
-        let message = finding.message();
-        out.push(DoctorDiagnostic {
-            path: finding.path,
-            line: 1,
-            column: 1,
-            severity: resolve_severity(DoctorSeverity::Error, test_command_assertion_drift_001::Finding::CODE),
-            code: test_command_assertion_drift_001::Finding::CODE.to_owned(),
-            message,
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-    let _ = project_root;
-    // Wave 5 — HANDLER-MISSING-001 (correctness category, fulfills CLAUDE.md:105
-    // dormant 'Doctor enforces' promise). Walks @fn HandlerRef sites; errors
-    // when <app_root>/features/<f>/handlers/<n>.go is missing.
-    let production = matches!(security_profile, SecurityProfile::Production);
-    for finding in handler_missing_001::check(feature, path, app_root) {
-        let message = finding.message();
-        out.push(DoctorDiagnostic {
-            path: finding.path,
-            line: 1,
-            column: 1,
-            severity: if production {
-                DoctorSeverity::Error
-            } else {
-                DoctorSeverity::Warning
-            },
-            code: handler_missing_001::Finding::CODE.to_owned(),
-            message,
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-    // Wave 5 — TEST-HANDLER-MISSING-001 (test_discipline category). Twin of
-    // HANDLER-MISSING-001; fires only when .go exists but _test.go is missing
-    // (avoids double-fire). v0.1 narrowed to @fn Command+lifecycle sites.
-    for finding in test_handler_missing_001::check(feature, path, app_root) {
-        let message = finding.message();
-        out.push(DoctorDiagnostic {
-            path: finding.path,
-            line: 1,
-            column: 1,
-            severity: if production {
-                DoctorSeverity::Error
-            } else {
-                DoctorSeverity::Warning
-            },
-            code: test_handler_missing_001::Finding::CODE.to_owned(),
-            message,
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-
-    out
-}
-
-fn folder_layout_diagnostics(
-    project_root: &Path,
-    security_profile: SecurityProfile,
-) -> Vec<DoctorDiagnostic> {
-    let severity = doctor_rule_severity(security_profile);
-    let mut diagnostics = Vec::new();
-
-    diagnostics.extend(
-        folder::feature_orphan::check(project_root)
-            .into_iter()
-            .map(|finding| DoctorDiagnostic {
-                path: doctor_rule_path(project_root, finding.path),
-                line: 1,
-                column: 1,
-                severity,
-                code: folder::feature_orphan::Finding::CODE.to_owned(),
-                message: finding.message,
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            }),
-    );
-    diagnostics.extend(
-        folder::pages_bypass::check(project_root)
-            .into_iter()
-            .map(|finding| DoctorDiagnostic {
-                path: doctor_rule_path(project_root, finding.path),
-                line: 1,
-                column: 1,
-                severity,
-                code: folder::pages_bypass::Finding::CODE.to_owned(),
-                message: finding.message,
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            }),
-    );
-    diagnostics.extend(
-        folder::type_duplicate::check(project_root)
-            .into_iter()
-            .map(|finding| DoctorDiagnostic {
-                path: doctor_rule_path(project_root, finding.user_file),
-                line: 1,
-                column: 1,
-                severity,
-                code: folder::type_duplicate::Finding::CODE.to_owned(),
-                message: finding.message,
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            }),
-    );
-    diagnostics.extend(
-        folder::cross_feature_import::check(project_root)
-            .into_iter()
-            .map(|finding| DoctorDiagnostic {
-                path: doctor_rule_path(project_root, finding.source_file),
-                line: 1,
-                column: 1,
-                severity,
-                code: folder::cross_feature_import::Finding::CODE.to_owned(),
-                message: finding.message,
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            }),
-    );
-    // VOCAB-CLIENT-SRC-001: closed-catalog enforcement of the client
-    // `src/` layout per
-    // `docs/decisions/client_src_canonical_architecture_2026-05-17.md`.
-    // Severity is hard-coded to Error regardless of security profile —
-    // the anti-pattern is structural (folder vocabulary that the
-    // framework's MVVM shape rejects), so a Warning would let AI-authors
-    // ignore it.
-    diagnostics.extend(
-        folder::vocab_client_src_001::check(project_root)
-            .into_iter()
-            .map(|finding| DoctorDiagnostic {
-                path: doctor_rule_path(project_root, finding.path),
-                line: 1,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: folder::vocab_client_src_001::Finding::CODE.to_owned(),
-                message: finding.message,
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            }),
-    );
-
-    diagnostics
-}
-
-fn design_token_diagnostics(
-    project_root: &Path,
-    security_profile: SecurityProfile,
-) -> Vec<DoctorDiagnostic> {
-    let Some(allowlist) = design::read_allowlist(project_root) else {
-        return Vec::new();
-    };
-
-    let severity = doctor_rule_severity(security_profile);
-    let mut diagnostics = Vec::new();
-
-    diagnostics.extend(
-        design::token_undefined::check(project_root, &allowlist)
-            .into_iter()
-            .map(|finding| {
-                let message = finding.message();
-                DoctorDiagnostic {
-                    path: doctor_rule_path(project_root, finding.path),
-                    line: finding.line,
-                    column: 1,
-                    severity,
-                    code: design::token_undefined::Finding::CODE.to_owned(),
-                    message,
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                }
-            }),
-    );
-    diagnostics.extend(
-        design::hex_leak::check(project_root)
-            .into_iter()
-            .map(|finding| {
-                let message = finding.message();
-                DoctorDiagnostic {
-                    path: doctor_rule_path(project_root, finding.path),
-                    line: finding.line,
-                    column: 1,
-                    severity,
-                    code: design::hex_leak::Finding::CODE.to_owned(),
-                    message,
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                }
-            }),
-    );
-    diagnostics.extend(
-        design::px_leak::check(project_root)
-            .into_iter()
-            .map(|finding| {
-                let message = finding.message();
-                DoctorDiagnostic {
-                    path: doctor_rule_path(project_root, finding.path),
-                    line: finding.line,
-                    column: 1,
-                    severity,
-                    code: design::px_leak::Finding::CODE.to_owned(),
-                    message,
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                }
-            }),
-    );
-    diagnostics.extend(
-        design::fontfamily_leak::check(project_root, &allowlist)
-            .into_iter()
-            .map(|finding| {
-                let message = finding.message();
-                DoctorDiagnostic {
-                    path: doctor_rule_path(project_root, finding.path),
-                    line: finding.line,
-                    column: 1,
-                    severity,
-                    code: design::fontfamily_leak::Finding::CODE.to_owned(),
-                    message,
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                }
-            }),
-    );
-    diagnostics.extend(
-        design::shadow_leak::check(project_root)
-            .into_iter()
-            .map(|finding| {
-                let message = finding.message();
-                DoctorDiagnostic {
-                    path: doctor_rule_path(project_root, finding.path),
-                    line: finding.line,
-                    column: 1,
-                    severity,
-                    code: design::shadow_leak::Finding::CODE.to_owned(),
-                    message,
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                }
-            }),
-    );
-
-    // L0 #2 — `custom` 9th meta-group lints per
-    // `docs/proposals/design-tokens-custom.md` §4. Three Error-severity
-    // rules over the lowered `Design` IR. Severity is hard-coded to Error
-    // regardless of security_profile — these are structural collisions
-    // (reserved-name reuse, duplicate names, malformed values) that always
-    // produce wrong code if ignored.
-    if let Some(design) = read_design_ir(project_root) {
-        let design_path = project_root.join("design.lzi");
-        let display_path = doctor_rule_path(project_root, design_path);
-        diagnostics.extend(
-            design::custom::check_duplicate(&design)
-                .into_iter()
-                .map(|finding| {
-                    let message = finding.message();
-                    DoctorDiagnostic {
-                        path: display_path.clone(),
-                        line: 1,
-                        column: 1,
-                        severity: DoctorSeverity::Error,
-                        code: design::custom::DuplicateFinding::CODE.to_owned(),
-                        message,
-                        category: None,
-                        feature_name: None,
-                        construct: None,
-                        fix: None,
-                        group: None,
-                    }
-                }),
-        );
-        diagnostics.extend(
-            design::custom::check_invalid_value(&design)
-                .into_iter()
-                .map(|finding| {
-                    let message = finding.message();
-                    DoctorDiagnostic {
-                        path: display_path.clone(),
-                        line: 1,
-                        column: 1,
-                        severity: DoctorSeverity::Error,
-                        code: design::custom::InvalidValueFinding::CODE.to_owned(),
-                        message,
-                        category: None,
-                        feature_name: None,
-                        construct: None,
-                        fix: None,
-                        group: None,
-                    }
-                }),
-        );
-        diagnostics.extend(
-            design::custom::check_reserved_name(&design)
-                .into_iter()
-                .map(|finding| {
-                    let message = finding.message();
-                    DoctorDiagnostic {
-                        path: display_path.clone(),
-                        line: 1,
-                        column: 1,
-                        severity: DoctorSeverity::Error,
-                        code: design::custom::ReservedNameFinding::CODE.to_owned(),
-                        message,
-                        category: None,
-                        feature_name: None,
-                        construct: None,
-                        fix: None,
-                        group: None,
-                    }
-                }),
-        );
-    }
-
-    diagnostics
-}
 
 /// Parse `design.lzi` at the project root into the lowered IR. Returns
 /// `None` when the file is missing OR parse/lower fails — doctor's
 /// `design-custom-*` rules then suppress (no false positives when the
 /// file isn't authored yet). Mirrors the parse-then-lower pipeline used
 /// by `lazuli build`.
-fn read_design_ir(project_root: &Path) -> Option<lazuli_ir::Design> {
+pub(crate) fn read_design_ir(project_root: &Path) -> Option<lazuli_ir::Design> {
     let path = project_root.join("design.lzi");
     let source = std::fs::read_to_string(&path).ok()?;
     let ast = lazuli_syntax::parse_design_document(&source).ok()?;
     lazuli_analyzer::lower_design(&ast).ok()
 }
 
-fn doctor_rule_path(project_root: &Path, path: PathBuf) -> PathBuf {
+pub(crate) fn doctor_rule_path(project_root: &Path, path: PathBuf) -> PathBuf {
     path.strip_prefix(project_root)
         .unwrap_or(&path)
         .to_path_buf()
@@ -3128,30 +2596,30 @@ struct DoctorAppContract {
 }
 
 #[derive(Debug)]
-struct DoctorAppManifest {
-    path: PathBuf,
-    source: String,
-    manifest: AppManifest,
+pub(crate) struct DoctorAppManifest {
+    pub(crate) path: PathBuf,
+    pub(crate) source: String,
+    pub(crate) manifest: AppManifest,
 }
 
 #[derive(Debug)]
-struct DoctorAppRegistry {
-    path: PathBuf,
-    manifest: AppRegistry,
+pub(crate) struct DoctorAppRegistry {
+    pub(crate) path: PathBuf,
+    pub(crate) manifest: AppRegistry,
 }
 
 #[derive(Debug)]
-struct DoctorAppProfile {
-    path: PathBuf,
-    profile: AppProfile,
+pub(crate) struct DoctorAppProfile {
+    pub(crate) path: PathBuf,
+    pub(crate) profile: AppProfile,
 }
 
 #[derive(Debug)]
-struct DoctorFile {
-    path: PathBuf,
-    source: String,
-    local_diagnostics: Vec<DoctorDiagnostic>,
-    lzx: Option<LzxDocument>,
+pub(crate) struct DoctorFile {
+    pub(crate) path: PathBuf,
+    pub(crate) source: String,
+    pub(crate) local_diagnostics: Vec<DoctorDiagnostic>,
+    pub(crate) lzx: Option<LzxDocument>,
 }
 
 // Cut A — typed agent + symbol facts gathered for cross-feature checks.
@@ -3375,7 +2843,7 @@ enum FileCapabilityBinding {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DoctorSeverity {
+pub(crate) enum DoctorSeverity {
     Error,
     Warning,
     Info,
@@ -3602,14 +3070,37 @@ fn doctor_self_command(input: &Path, opts: &DoctorRuntimeOptions) -> Result<()> 
     Ok(())
 }
 
+/// Rails-style canonical envelope for every doctor finding.
+///
+/// One row in `lazuli doctor`'s output — the **and only the** shape a
+/// diagnostic ever takes once it crosses out of an aggregator's per-rule
+/// crate (`lazuli_doctor::correctness`, `lazuli_doctor::vocab`, …) and
+/// into the CLI's dispatch pipeline. Every doctor rule, no matter where
+/// it lives (this crate, `lazuli_doctor`, `lazuli_lsp`'s LSP bridge,
+/// per-rule sibling files under `doctor/auth/`, `doctor/folder/`, …)
+/// converts its native finding into this struct so the rest of the
+/// system — JSON rendering (`build_doctor_report`), text printing
+/// (`print()`), coverage rollup, `--fail-on` gate, dedup — has exactly
+/// one type to walk.
+///
+/// Field-level visibility (Wave 4.3 R2): every field is `pub(crate)`
+/// so sibling submodules under `doctor/` (`aggregators/*`,
+/// `auth/*`, `route_guard/*`, `lzx/*`, …) can construct the envelope
+/// directly. The Wave 0.5 agent-first fields (`category`, `feature_name`,
+/// `construct`, `fix`, `group`) stay `Option<>` so every existing call
+/// site keeps compiling. New rules populate them when they have the
+/// information.
+///
+/// See `docs/proposals/tdd-bdd-first-2026-05-23.md` §Wave 0.5 for the
+/// agent-first envelope contract.
 #[derive(Debug, Clone)]
-struct DoctorDiagnostic {
-    path: PathBuf,
-    line: usize,
-    column: usize,
-    severity: DoctorSeverity,
-    code: String,
-    message: String,
+pub(crate) struct DoctorDiagnostic {
+    pub(crate) path: PathBuf,
+    pub(crate) line: usize,
+    pub(crate) column: usize,
+    pub(crate) severity: DoctorSeverity,
+    pub(crate) code: String,
+    pub(crate) message: String,
     // Wave 0.5 — agent-first JSON parity fields. Additive `Option<>` so
     // existing construction sites stay compiling; new rules and Wave 1+
     // migrations populate them explicitly. See
@@ -3618,21 +3109,21 @@ struct DoctorDiagnostic {
     /// when not set explicitly. `None` means "fall back to prefix
     /// derivation at consumption time".
     #[allow(dead_code)]
-    category: Option<RuleCategory>,
+    pub(crate) category: Option<RuleCategory>,
     /// Feature this diagnostic anchors to, when known (`None` for
     /// project-level / cross-feature / manifest checks).
     #[allow(dead_code)]
-    feature_name: Option<String>,
+    pub(crate) feature_name: Option<String>,
     /// Construct the diagnostic anchors to (`resource Foo`, `command
     /// bar`, `policy baz`, …). Wave 1+ populates from authoring sites.
     #[allow(dead_code)]
-    construct: Option<DoctorConstruct>,
+    pub(crate) construct: Option<DoctorConstruct>,
     /// Suggested fix, when one exists.
     #[allow(dead_code)]
-    fix: Option<DoctorFix>,
+    pub(crate) fix: Option<DoctorFix>,
     /// JSON rollup grouping (e.g. per-feature, per-rule). Wave 2 populates.
     #[allow(dead_code)]
-    group: Option<DoctorGroup>,
+    pub(crate) group: Option<DoctorGroup>,
 }
 
 /// Wave 0.5 skeleton — populated per-rule in Wave 1+.
@@ -6100,7 +5591,7 @@ fn updates_missing_updated_at_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<Do
     let mut seen = BTreeSet::new();
 
     for fact in facts {
-        let mut feature = make_synthetic_feature_for_correctness(fact);
+        let mut feature = aggregators::correctness::make_synthetic_feature_for_correctness(fact);
         feature.defaults.timestamps = fact.defaults_timestamps;
 
         for finding in correctness::updates_missing_updated_at::check(&feature, &fact.path) {
@@ -6130,307 +5621,6 @@ fn updates_missing_updated_at_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<Do
     diagnostics
 }
 
-/// Build a synthetic `Feature` from a `Tier3FeatureFacts` row populated
-/// with every slot the `correctness/*` rules read. Distinct from
-/// `make_synthetic_feature_for_reports` (which intentionally zeroes the
-/// report-irrelevant slots) so adding a new correctness rule does not
-/// silently lose data from the reports path.
-fn make_synthetic_feature_for_correctness(fact: &Tier3FeatureFacts) -> lazuli_ir::Feature {
-    lazuli_ir::Feature {
-        name: fact.feature.clone(),
-        purpose: None,
-        non_goals: Vec::new(),
-        context_path: None,
-        defaults: lazuli_ir::Defaults::default(),
-        uses: Vec::new(),
-        uses_spans: Vec::new(),
-        uses_versions: Vec::new(),
-        requirements: Vec::new(),
-        enums: fact.enums.clone(),
-        resources: fact.resources.clone(),
-        events: fact.events.clone(),
-        rules: Vec::new(),
-        policies: fact.policies.clone(),
-        errors: fact.errors.clone(),
-        commands: fact.commands.clone(),
-        apis: fact.apis.clone(),
-        records: fact.records.clone(),
-        queries: fact.queries.clone(),
-        resume_routers: Vec::new(),
-        workflows: Vec::new(),
-        jobs: fact.jobs.clone(),
-        webhooks: fact.webhooks.clone(),
-        notifications: fact.notifications.clone(),
-        event_groups: fact.event_groups.clone(),
-        tenant_migrations: fact.tenant_migrations.clone(),
-        translation: fact.translation.clone(),
-        auth: None,
-        surfaces: Vec::new(),
-        extensions: fact.extensions.clone(),
-        escape_routes: Vec::new(),
-        agents: fact.agents.clone(),
-        reports: fact.reports.clone(),
-        pollers: Vec::new(),
-        channels: fact.channels.clone(),
-        caches: fact.caches.clone(),
-        aggregates: fact.aggregates.clone(),
-        mcp_servers: Vec::new(),
-        previous_names: Vec::new(),
-        synth_origins: std::collections::BTreeMap::new(),
-        span_ref: None,
-    }
-}
-
-/// Dispatch the `correctness/*` rule modules that consume a `&Feature`
-/// view. Cycle-2 cell DC1: every `pub mod` in
-/// `crates/lazuli_doctor/src/correctness/mod.rs` is wired here so
-/// `lazuli doctor` reaches every diagnostic the crate carries.
-///
-/// Per-rule severity mirrors the module-level `Severity:` docstring on
-/// each correctness file. The `record_column_storage` info diagnostic
-/// is gated behind the security profile (strict-only) so noisy info
-/// lines do not flood the production profile.
-fn correctness_diagnostics(
-    facts: &[Tier3FeatureFacts],
-    registry: Option<&lazuli_ir::AppRegistry>,
-    project_root: &Path,
-    security_profile: SecurityProfile,
-    skip_project_migration_check: bool,
-) -> Vec<DoctorDiagnostic> {
-    let mut diagnostics = Vec::new();
-
-    // Webhook envelope catalog (registry side) — `WEBHOOK-EMIT-PREDICATE-FIELD-001`
-    // resolves predicate paths against the webhook's typed payload contract.
-    let webhook_events: Vec<lazuli_ir::WebhookEvent> = registry
-        .map(|r| r.webhook_events.clone())
-        .unwrap_or_default();
-
-    for fact in facts {
-        let feature = make_synthetic_feature_for_correctness(fact);
-
-        // CHANNEL-PAYLOAD-001 — error.
-        for finding in correctness::channel_payload_unresolved_001::check(&feature, &fact.path) {
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line: fact.feature_line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: correctness::channel_payload_unresolved_001::Finding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-
-        // COMMAND-INPUT-SHADOWS-FIELD-001 — error.
-        for finding in correctness::command_input_shadows_field_001::check(&feature, &fact.path) {
-            let line = fact
-                .command_lines
-                .get(&finding.command)
-                .copied()
-                .unwrap_or(fact.feature_line);
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: correctness::command_input_shadows_field_001::Finding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-
-        // COMPOSITE-KEY-CONTRACT-001 — error.
-        for finding in correctness::composite_key_contract_001::check(&feature, &fact.path) {
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line: fact.feature_line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: correctness::composite_key_contract_001::Finding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-
-        // EVENT-GROUP-VARIANT-TYPE-001 — error.
-        for finding in correctness::event_group_variant_type_001::check(&feature, &fact.path) {
-            let line = fact
-                .event_group_lines
-                .get(&finding.group_pattern)
-                .copied()
-                .unwrap_or(fact.feature_line);
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: correctness::event_group_variant_type_001::Finding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-
-        // EVENT-OUTBOX-001 — error (payments-class only; the rule
-        // self-gates on feature name).
-        for finding in correctness::event_outbox_001::check(&feature, &fact.path) {
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line: fact.feature_line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: correctness::event_outbox_001::Finding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-
-        // FULL-TEXT-TYPE-001 — error.
-        for finding in correctness::full_text_type_001::check(&feature, &fact.path) {
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line: fact.feature_line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: correctness::full_text_type_001::Finding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-
-        // HOOK-TARGET-001 — error.
-        for finding in correctness::hook_target_001::check(&feature, &fact.path) {
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line: fact.feature_line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: correctness::hook_target_001::Finding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-
-        // RESOURCE-LOCK-CONTRACT-001 — error.
-        for finding in correctness::resource_lock_contract_001::check(&feature, &fact.path) {
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line: fact.feature_line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: correctness::resource_lock_contract_001::Finding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-
-        // WEBHOOK-EMIT-PREDICATE-FIELD-001 — error. Needs the
-        // registry-side `webhook_events` catalog to resolve typed
-        // payload paths.
-        for finding in correctness::webhook_emit_predicate_field_001::check(
-            &feature,
-            &webhook_events,
-            &fact.path,
-        ) {
-            let line = fact
-                .webhook_lines
-                .get(&finding.webhook)
-                .copied()
-                .unwrap_or(fact.feature_line);
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: correctness::webhook_emit_predicate_field_001::Finding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-
-        // @info.record_column_jsonb — informational; only surfaced
-        // under the strict profile so production profile output stays
-        // signal-dense.
-        if matches!(security_profile, SecurityProfile::Strict) {
-            for finding in correctness::record_column_storage::check(&feature, &fact.path) {
-                diagnostics.push(DoctorDiagnostic {
-                    message: finding.message(),
-                    path: finding.path,
-                    line: fact.feature_line,
-                    column: 1,
-                    severity: DoctorSeverity::Info,
-                    code: correctness::record_column_storage::Finding::CODE.to_owned(),
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                });
-            }
-        }
-
-        // @correctness.migration_out_of_sync — warning. Needs the
-        // project root to locate `dist/go/migrations/`; single-file
-        // doctor invocations and synthetic test packages have no
-        // project migration tree to compare against.
-        if !skip_project_migration_check {
-            for finding in
-                correctness::schema_migration_present::check(&feature, &fact.path, project_root)
-            {
-                diagnostics.push(DoctorDiagnostic {
-                    message: finding.message(),
-                    path: finding.path,
-                    line: fact.feature_line,
-                    column: 1,
-                    severity: DoctorSeverity::Warning,
-                    code: correctness::schema_migration_present::Finding::CODE.to_owned(),
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                });
-            }
-        }
-    }
-
-    diagnostics
-}
 
 fn app_contract_diagnostics(
     app: Option<&DoctorAppManifest>,
@@ -10686,7 +9876,7 @@ fn is_trivial_type_ref_name(name: &str) -> bool {
     trimmed.len() <= 1 || trimmed.starts_with('@')
 }
 
-fn span_line(
+pub(crate) fn span_line(
     files: &[DoctorFile],
     path: &Path,
     span_ref: Option<lazuli_ir::SpanRef>,
@@ -15654,7 +14844,7 @@ fn report_diagnostics(
 /// the report rule modules (which take `&Feature`) can be invoked
 /// without re-lowering. Only the slots the rule modules read are
 /// populated; everything else stays at default.
-fn make_synthetic_feature_for_reports(fact: &Tier3FeatureFacts) -> lazuli_ir::Feature {
+pub(crate) fn make_synthetic_feature_for_reports(fact: &Tier3FeatureFacts) -> lazuli_ir::Feature {
     lazuli_ir::Feature {
         name: fact.feature.clone(),
         purpose: None,
@@ -15700,378 +14890,7 @@ fn make_synthetic_feature_for_reports(fact: &Tier3FeatureFacts) -> lazuli_ir::Fe
     }
 }
 
-/// CL.C.4 — dispatch the four domain-model diagnostics over every
-/// feature fact. Each rule consumes a synthesized `Feature` view (the
-/// rules take `&Feature` to stay independent of the doctor scaffolding).
-/// Line anchoring uses `aggregate_lines` for aggregate-scoped findings
-/// and `feature_line` otherwise.
-fn domain_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
-    let mut diagnostics = Vec::new();
-    for fact in facts {
-        if fact.aggregates.is_empty()
-            && fact.resources.iter().all(|r| r.invariants.is_empty())
-            && fact
-                .resources
-                .iter()
-                .all(|r| r.fields.iter().all(|f| !f.slug))
-        {
-            continue;
-        }
-        let feature = make_synthetic_feature_for_reports(fact);
 
-        // AGGREGATE-ROOT-UNKNOWN
-        for finding in domain::aggregate_root_unknown::check(&feature, &fact.path) {
-            let line = fact
-                .aggregate_lines
-                .get(&finding.aggregate)
-                .copied()
-                .unwrap_or(fact.feature_line);
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: domain::aggregate_root_unknown::Finding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-        // AGGREGATE-CONTAINS-UNKNOWN
-        for finding in domain::aggregate_contains_unknown::check(&feature, &fact.path) {
-            let line = fact
-                .aggregate_lines
-                .get(&finding.aggregate)
-                .copied()
-                .unwrap_or(fact.feature_line);
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: domain::aggregate_contains_unknown::Finding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-        // INVARIANT-PREDICATE-INVALID — covers both resource-scoped
-        // and aggregate-scoped invariants.
-        for finding in domain::invariant_predicate_invalid::check(&feature, &fact.path) {
-            let line = match &finding.scope {
-                domain::invariant_predicate_invalid::InvariantScope::Aggregate(a) => fact
-                    .aggregate_lines
-                    .get(a)
-                    .copied()
-                    .unwrap_or(fact.feature_line),
-                domain::invariant_predicate_invalid::InvariantScope::Resource(_) => {
-                    fact.feature_line
-                }
-            };
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: domain::invariant_predicate_invalid::Finding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-        // SLUG-UNIQUENESS-IMPLICIT — warning, not error.
-        for finding in domain::slug_uniqueness_implicit::check(&feature, &fact.path) {
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line: fact.feature_line,
-                column: 1,
-                severity: DoctorSeverity::Warning,
-                code: domain::slug_uniqueness_implicit::Finding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-    }
-    diagnostics
-}
-
-/// IR Error-Vocab (Cell ANALYZE-1) — dispatch the 7 `ERR-VOCAB-*` rules
-/// over every feature fact. Operates on the lowered IR carried in
-/// `tier3_facts`; `files` is passed so each finding's `SpanRef` resolves
-/// to a 1-based source line. Per the proposal §6.8:
-///
-/// * `ERR-VOCAB-001`                    — warning
-/// * `ERR-VOCAB-002`                    — error
-/// * `ERR-VOCAB-003`                    — warning
-/// * `ERR-VOCAB-CODE-UNKNOWN`           — error
-/// * `ERR-VOCAB-EXPOSE-UNKNOWN`         — error
-/// * `ERR-VOCAB-WHEN-DENIED-NO-POLICY`  — error
-/// * `ERR-VOCAB-EXPOSE-5XX-MESSAGE`     — error
-///
-/// `ERR-VOCAB-002` cross-feature resolution walks `Feature.uses`; the
-/// declared-key index is built once per dispatch from `fact.translation`.
-fn error_vocab_diagnostics(
-    facts: &[Tier3FeatureFacts],
-    files: &[DoctorFile],
-) -> Vec<DoctorDiagnostic> {
-    use lazuli_doctor::error_vocab::error_vocab;
-
-    // Build the cross-feature translation-key index once. Maps each
-    // feature name to the set of `@translation.<key>` it declares.
-    let mut keys_by_feature: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for fact in facts {
-        let mut declared = BTreeSet::new();
-        if let Some(translation) = &fact.translation {
-            for key in &translation.keys {
-                declared.insert(key.name.clone());
-            }
-        }
-        keys_by_feature
-            .entry(fact.feature.clone())
-            .or_default()
-            .extend(declared);
-    }
-
-    let mut diagnostics = Vec::new();
-    for fact in facts {
-        let feature = make_synthetic_feature_for_error_vocab(fact);
-
-        // ERR-VOCAB-001 — warning
-        for finding in error_vocab::check_policies_no_when_denied(&feature, &fact.path) {
-            let line = span_line(files, &fact.path, finding.policies_span, fact.feature_line);
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line,
-                column: 1,
-                severity: DoctorSeverity::Warning,
-                code: error_vocab::PoliciesNoWhenDeniedFinding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-
-        // ERR-VOCAB-002 — error
-        for finding in
-            error_vocab::check_translation_key_unknown(&feature, &fact.path, &keys_by_feature)
-        {
-            let line = span_line(files, &fact.path, finding.span, fact.feature_line);
-            // Render the declared-keys list using the visible set
-            // (same-feature + cross-feature `uses`).
-            let declared: Vec<String> = visible_keys_for_message(&feature, &keys_by_feature);
-            let declared_refs: Vec<&str> = declared.iter().map(String::as_str).collect();
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(&declared_refs),
-                path: finding.path,
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: error_vocab::KeyUnknownFinding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-
-        // ERR-VOCAB-003 — warning
-        for finding in error_vocab::check_builtin_fallback(&feature, &fact.path) {
-            let line = fact
-                .command_lines
-                .get(&finding.command)
-                .copied()
-                .unwrap_or_else(|| span_line(files, &fact.path, finding.span, fact.feature_line));
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line,
-                column: 1,
-                severity: DoctorSeverity::Warning,
-                code: error_vocab::BuiltinFallbackFinding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-
-        // ERR-VOCAB-CODE-UNKNOWN — error
-        for finding in error_vocab::check_code_unknown(&feature, &fact.path) {
-            let line = span_line(files, &fact.path, finding.span, fact.feature_line);
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: error_vocab::CodeUnknownFinding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-
-        // ERR-VOCAB-EXPOSE-UNKNOWN — error
-        for finding in error_vocab::check_expose_unknown(&feature, &fact.path) {
-            let line = span_line(files, &fact.path, finding.span, fact.feature_line);
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: error_vocab::ExposeUnknownFinding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-
-        // ERR-VOCAB-WHEN-DENIED-NO-POLICY — error. Per-command findings
-        // anchor at the command header (via `command_lines` lookup);
-        // per-policy findings anchor at the policy span captured during
-        // lowering, falling back to the feature header.
-        for finding in error_vocab::check_when_denied_no_policy(&feature, &fact.path) {
-            let line = match &finding.site {
-                error_vocab::WhenDeniedSite::Command(name) => {
-                    fact.command_lines.get(name).copied().unwrap_or_else(|| {
-                        span_line(files, &fact.path, finding.span, fact.feature_line)
-                    })
-                }
-                error_vocab::WhenDeniedSite::Policy(_) => {
-                    span_line(files, &fact.path, finding.span, fact.feature_line)
-                }
-            };
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: error_vocab::WhenDeniedNoPolicyFinding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-
-        // ERR-VOCAB-EXPOSE-5XX-MESSAGE — error
-        for finding in error_vocab::check_expose_5xx_message(&feature, &fact.path) {
-            let line = span_line(files, &fact.path, finding.span, fact.feature_line);
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: error_vocab::Expose5xxMessageFinding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-    }
-    diagnostics
-}
-
-/// IR Error-Vocab — render the visible-keys list (same-feature first,
-/// then cross-feature via `uses`) for an `ERR-VOCAB-002` message body.
-fn visible_keys_for_message(
-    feature: &lazuli_ir::Feature,
-    keys_by_feature: &BTreeMap<String, BTreeSet<String>>,
-) -> Vec<String> {
-    let mut keys: BTreeSet<String> = BTreeSet::new();
-    if let Some(translation) = &feature.translation {
-        for key in &translation.keys {
-            keys.insert(key.name.clone());
-        }
-    }
-    for used in &feature.uses {
-        if let Some(declared) = keys_by_feature.get(used) {
-            for key in declared {
-                keys.insert(key.clone());
-            }
-        }
-    }
-    keys.into_iter().collect()
-}
-
-/// IR Error-Vocab — synthesize a minimal `Feature` view from a
-/// `Tier3FeatureFacts` so the typed `error_vocab::check_*` functions can
-/// run without needing the doctor scaffolding. Only the slots the rules
-/// read are populated; everything else stays default. Mirrors the
-/// `make_synthetic_feature_for_reports` pattern.
-fn make_synthetic_feature_for_error_vocab(fact: &Tier3FeatureFacts) -> lazuli_ir::Feature {
-    lazuli_ir::Feature {
-        name: fact.feature.clone(),
-        purpose: None,
-        non_goals: Vec::new(),
-        context_path: None,
-        defaults: lazuli_ir::Defaults::default(),
-        uses: fact.uses.clone(),
-        uses_spans: Vec::new(),
-        uses_versions: Vec::new(),
-        requirements: Vec::new(),
-        enums: Vec::new(),
-        resources: Vec::new(),
-        events: Vec::new(),
-        rules: Vec::new(),
-        policies: fact.policies.clone(),
-        errors: fact.errors.clone(),
-        commands: fact.commands.clone(),
-        apis: fact.apis.clone(),
-        records: Vec::new(),
-        queries: Vec::new(),
-        resume_routers: Vec::new(),
-        workflows: Vec::new(),
-        jobs: Vec::new(),
-        webhooks: Vec::new(),
-        notifications: Vec::new(),
-        event_groups: Vec::new(),
-        tenant_migrations: Vec::new(),
-        translation: fact.translation.clone(),
-        auth: None,
-        surfaces: Vec::new(),
-        extensions: Vec::new(),
-        escape_routes: Vec::new(),
-        agents: Vec::new(),
-        reports: Vec::new(),
-        pollers: Vec::new(),
-        channels: Vec::new(),
-        caches: Vec::new(),
-        aggregates: Vec::new(),
-        mcp_servers: Vec::new(),
-        previous_names: Vec::new(),
-        synth_origins: std::collections::BTreeMap::new(),
-        span_ref: None,
-    }
-}
 
 fn cap_file_storage_diagnostics(operational: &OperationalFacts) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
@@ -16261,716 +15080,7 @@ fn cap_file_storage_diagnostics(operational: &OperationalFacts) -> Vec<DoctorDia
 
 
 
-// =============================================================================
-// OpenAPI bucket cycle (row 48) — `deprecated_*` diagnostics.
-// =============================================================================
 
-/// Row 48 — emits OpenAPI-related diagnostics:
-/// `deprecated-replacement-unknown`, `deprecated_sunset_date_invalid`,
-/// `deprecated-sunset-past`, `deprecated-no-replacement`,
-/// `openapi_text_pattern_api_block`,
-/// `api_changelog_breaking_change` (the last only when invoked from the
-/// changelog pipeline; doctor surfaces a guard noop). See
-/// `docs/proposals/bucket-openapi-cycle.md` §Doctor/LSP.
-fn openapi_deprecated_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
-    let mut diagnostics = Vec::new();
-
-    let mut commands_by_feature: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
-    let mut apis_by_feature: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
-    for feature in facts {
-        let command_set = commands_by_feature
-            .entry(feature.feature.as_str())
-            .or_default();
-        for c in &feature.commands {
-            command_set.insert(c.name.as_str());
-        }
-        let api_set = apis_by_feature.entry(feature.feature.as_str()).or_default();
-        for api in &feature.apis {
-            api_set.insert(api.name.as_str());
-        }
-    }
-
-    let today_pivot = openapi_today_pivot();
-
-    for feature in facts {
-        for command in &feature.commands {
-            let Some(dep) = &command.deprecated else {
-                continue;
-            };
-            let line = feature
-                .command_lines
-                .get(&command.name)
-                .copied()
-                .unwrap_or(feature.feature_line);
-            deprecated_callable_diagnostics(
-                &mut diagnostics,
-                feature,
-                "command",
-                &command.name,
-                line,
-                dep,
-                &commands_by_feature,
-                &apis_by_feature,
-                today_pivot,
-            );
-        }
-        for api in &feature.apis {
-            let Some(dep) = &api.deprecated else {
-                continue;
-            };
-            let line = feature
-                .api_lines
-                .get(&api.name)
-                .copied()
-                .unwrap_or(feature.feature_line);
-            deprecated_callable_diagnostics(
-                &mut diagnostics,
-                feature,
-                "api",
-                &api.name,
-                line,
-                dep,
-                &commands_by_feature,
-                &apis_by_feature,
-                today_pivot,
-            );
-        }
-    }
-
-    // 4) `openapi_text_pattern_api_block` — surface once per unique
-    // text-pattern api name across the package. The IR-lifted `Api`s
-    // shadow text-pattern entries; subtract them so the warning only
-    // fires for genuinely un-lifted authoring sites.
-    let typed_api_names: BTreeSet<&str> = facts
-        .iter()
-        .flat_map(|f| f.apis.iter().map(|a| a.name.as_str()))
-        .collect();
-    let mut surfaced: BTreeSet<String> = BTreeSet::new();
-    for feature in facts {
-        for name in &feature.api_names_text_pattern {
-            if typed_api_names.contains(name.as_str()) {
-                continue;
-            }
-            if !surfaced.insert(name.clone()) {
-                continue;
-            }
-            diagnostics.push(DoctorDiagnostic {
-                path: feature.path.clone(),
-                line: feature.feature_line,
-                column: 1,
-                severity: DoctorSeverity::Warning,
-                code: "openapi_text_pattern_api_block".to_owned(),
-                message: format!(
-                    "api `{}` is text-pattern; OpenAPI emission falls back to a stub with `x-lazuli-text-pattern-skip: true`. Lift to typed IR via Phase L Tier 4.",
-                    name
-                ),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-    }
-
-    diagnostics
-}
-
-#[allow(clippy::too_many_arguments)]
-fn deprecated_callable_diagnostics(
-    diagnostics: &mut Vec<DoctorDiagnostic>,
-    feature: &Tier3FeatureFacts,
-    kind: &str,
-    name: &str,
-    line: usize,
-    dep: &lazuli_ir::Deprecation,
-    commands_by_feature: &BTreeMap<&str, BTreeSet<&str>>,
-    apis_by_feature: &BTreeMap<&str, BTreeSet<&str>>,
-    today_pivot: (u16, u8, u8),
-) {
-    if dep.replacement.is_none() {
-        diagnostics.push(DoctorDiagnostic {
-            path: feature.path.clone(),
-            line,
-            column: 1,
-            severity: DoctorSeverity::Warning,
-            code: "deprecated-no-replacement".to_owned(),
-            message: format!(
-                "{kind} `{name}` is deprecated without a replacement; declare `replacement {kind}.<name>` when a successor exists."
-            ),
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    } else if let Some(replacement) = &dep.replacement {
-        match replacement {
-            lazuli_ir::DeprecationReplacement::LocalCommand(target) => {
-                push_unknown_replacement_if_missing(
-                    diagnostics,
-                    feature,
-                    kind,
-                    name,
-                    line,
-                    "command",
-                    feature.feature.as_str(),
-                    target,
-                    commands_by_feature,
-                );
-            }
-            lazuli_ir::DeprecationReplacement::LocalApi(target) => {
-                push_unknown_replacement_if_missing(
-                    diagnostics,
-                    feature,
-                    kind,
-                    name,
-                    line,
-                    "api",
-                    feature.feature.as_str(),
-                    target,
-                    apis_by_feature,
-                );
-            }
-            lazuli_ir::DeprecationReplacement::Qualified(q) => {
-                push_unknown_replacement_if_missing(
-                    diagnostics,
-                    feature,
-                    kind,
-                    name,
-                    line,
-                    "command",
-                    q.feature.as_deref().unwrap_or(feature.feature.as_str()),
-                    &q.name,
-                    commands_by_feature,
-                );
-            }
-            lazuli_ir::DeprecationReplacement::QualifiedApi(q) => {
-                push_unknown_replacement_if_missing(
-                    diagnostics,
-                    feature,
-                    kind,
-                    name,
-                    line,
-                    "api",
-                    q.feature.as_deref().unwrap_or(feature.feature.as_str()),
-                    &q.name,
-                    apis_by_feature,
-                );
-            }
-            lazuli_ir::DeprecationReplacement::Url(url) => {
-                let cleaned = url.trim();
-                if !(cleaned.starts_with("http://") || cleaned.starts_with("https://"))
-                    || cleaned.len() < "https://x".len()
-                {
-                    diagnostics.push(DoctorDiagnostic {
-                        path: feature.path.clone(),
-                        line,
-                        column: 1,
-                        severity: DoctorSeverity::Error,
-                        code: "deprecated-replacement-unknown".to_owned(),
-                        message: format!(
-                            "{kind} `{name}`.deprecated.replacement `{url}` does not resolve: url malformed."
-                        ),
-                        category: None,
-                        feature_name: None,
-                        construct: None,
-                        fix: None,
-                        group: None,
-                    });
-                }
-            }
-        }
-    }
-
-    if let Some(sunset) = &dep.sunset {
-        match parse_iso_date(sunset) {
-            None => diagnostics.push(DoctorDiagnostic {
-                path: feature.path.clone(),
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: "deprecated_sunset_date_invalid".to_owned(),
-                message: format!(
-                    "{kind} `{name}`.deprecated.sunset `{sunset}` is not a valid ISO-8601 date (`YYYY-MM-DD`)."
-                ),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            }),
-            Some(date) if date < today_pivot => diagnostics.push(DoctorDiagnostic {
-                path: feature.path.clone(),
-                line,
-                column: 1,
-                severity: DoctorSeverity::Info,
-                code: "deprecated-sunset-past".to_owned(),
-                message: format!(
-                    "{kind} `{name}`.deprecated.sunset `{sunset}` is in the past; consumers should expect this endpoint to be removed soon."
-                ),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            }),
-            Some(_) => {}
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn push_unknown_replacement_if_missing(
-    diagnostics: &mut Vec<DoctorDiagnostic>,
-    feature: &Tier3FeatureFacts,
-    kind: &str,
-    name: &str,
-    line: usize,
-    target_kind: &str,
-    target_feature: &str,
-    target_name: &str,
-    index: &BTreeMap<&str, BTreeSet<&str>>,
-) {
-    let resolves = index
-        .get(target_feature)
-        .map(|set| set.contains(target_name))
-        .unwrap_or(false);
-    if resolves {
-        return;
-    }
-    diagnostics.push(DoctorDiagnostic {
-        path: feature.path.clone(),
-        line,
-        column: 1,
-        severity: DoctorSeverity::Error,
-        code: "deprecated-replacement-unknown".to_owned(),
-        message: format!(
-            "{kind} `{name}`.deprecated.replacement `{target_feature}.{target_kind}.{target_name}` does not resolve."
-        ),
-        category: None,
-        feature_name: None,
-        construct: None,
-        fix: None,
-        group: None,
-    });
-}
-
-// =============================================================================
-// Cache bucket cycle (row 51 + CL.C.3) — `cache_*` diagnostics.
-// =============================================================================
-
-/// Row 51 + CL.C.3 — emits Cache-related diagnostics:
-/// `cache_ttl_unit_invalid`, `cache_invalidates_target_unresolved`,
-/// `cache_tags_referenced_but_undeclared`, `cache_namespace_collision`,
-/// `cache_capability_undeclared` (legacy bucket cycle), plus the
-/// CL.C.3 trio:
-///  * `cache-profile-unknown` — query authored `cache <name>` where no
-///    matching `cache <name>` profile exists in the feature.
-///  * `cache-tag-unknown` — an `invalidates tag:<label>` references a
-///    tag not declared by any cache (inline or profile) anywhere.
-///  * `cache-ttl-contract` — invalid TTL literal, `stale_while_revalidate`
-///    larger than `ttl`, or `sliding true` without `ttl`.
-///
-/// See `docs/proposals/bucket-cache-cycle.md` §Doctor/LSP +
-/// `docs/proposals/bucket-cache-scope.md` (CL.C.3 row).
-fn cache_diagnostics(
-    facts: &[Tier3FeatureFacts],
-    registry: Option<&lazuli_ir::AppRegistry>,
-) -> Vec<DoctorDiagnostic> {
-    let mut diagnostics = Vec::new();
-
-    // Build cross-feature indices.
-    let mut queries_by_feature: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
-    let mut all_tags: BTreeSet<String> = BTreeSet::new();
-    let mut namespace_owners: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    let mut any_query_has_cache = false;
-    for feature in facts {
-        let set = queries_by_feature
-            .entry(feature.feature.as_str())
-            .or_default();
-        for q in &feature.queries {
-            let (name, cache) = query_name_and_cache(q);
-            set.insert(name);
-            if let Some(cache) = cache {
-                any_query_has_cache = true;
-                for tag in &cache.tags {
-                    all_tags.insert(tag.clone());
-                }
-                if let Some(ns) = &cache.namespace {
-                    namespace_owners
-                        .entry(ns.clone())
-                        .or_default()
-                        .insert(feature.feature.clone());
-                }
-            }
-        }
-        // CL.C.3 — feature-level cache profiles also contribute to the
-        // tag and namespace indexes. A profile referenced by a query is
-        // a cached query; queue the capability check too.
-        for profile in &feature.caches {
-            for tag in &profile.tags {
-                all_tags.insert(tag.clone());
-            }
-            if let Some(ns) = &profile.namespace {
-                namespace_owners
-                    .entry(ns.clone())
-                    .or_default()
-                    .insert(feature.feature.clone());
-            }
-        }
-    }
-
-    // `cache_capability_undeclared`: if any query carries `cache` but
-    // the registry has no `cache <name>` capability, surface once at
-    // the registry file (or, if no registry parsed, at the first
-    // offending query).
-    if any_query_has_cache {
-        let has_cache_cap = registry
-            .map(|r| {
-                r.capabilities
-                    .iter()
-                    .any(|cap| cap.name.eq_ignore_ascii_case("cache"))
-            })
-            .unwrap_or(false);
-        if !has_cache_cap {
-            // Anchor at the first feature with a cache; the LSP rule on
-            // `registry.lzi` is the file-local surface.
-            if let Some(feature) = facts.iter().find(|f| {
-                f.queries
-                    .iter()
-                    .any(|q| query_name_and_cache(q).1.is_some())
-            }) {
-                diagnostics.push(DoctorDiagnostic {
-                    path: feature.path.clone(),
-                    line: feature.feature_line,
-                    column: 1,
-                    severity: DoctorSeverity::Error,
-                    code: "cache_capability_undeclared".to_owned(),
-                    message: "`cache` block requires a `cache <name>` capability in `registry.lzi` but none is declared. Add `cache <name>` to `registry.capabilities`.".to_owned(),
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                });
-            }
-        }
-    }
-
-    // `cache_namespace_collision`: a namespace label declared by two
-    // distinct features. One feature owning the namespace is fine.
-    for (ns, owners) in &namespace_owners {
-        if owners.len() >= 2 {
-            // Emit one warning per owning feature.
-            let owners_list: Vec<&str> = owners.iter().map(String::as_str).collect();
-            for feature in facts {
-                if !owners.contains(&feature.feature) {
-                    continue;
-                }
-                diagnostics.push(DoctorDiagnostic {
-                    path: feature.path.clone(),
-                    line: feature.feature_line,
-                    column: 1,
-                    severity: DoctorSeverity::Warning,
-                    code: "cache_namespace_collision".to_owned(),
-                    message: format!(
-                        "`cache namespace {}` is declared by queries in {}. Cross-feature namespace aliasing is unusual; rename one to avoid accidental cache-key collisions.",
-                        ns,
-                        owners_list.join(" and ")
-                    ),
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                });
-            }
-        }
-    }
-
-    for feature in facts {
-        // `cache_ttl_unit_invalid` is a typed promotion: when the parser
-        // produced `CacheTtl::Quoted` with a payload that does *not* look
-        // like a typed duration (closed catalog: `s|m|h|d`), emit. Empty
-        // payload is also rejected. The literal form is type-safe by
-        // construction so it never trips.
-        for query in &feature.queries {
-            let (name, cache) = query_name_and_cache(query);
-            let Some(cache) = cache else { continue };
-            let line = feature
-                .query_lines
-                .get(name)
-                .copied()
-                .unwrap_or(feature.feature_line);
-
-            if let lazuli_ir::CacheTtl::Quoted(prose) = &cache.ttl {
-                let cleaned = prose.trim();
-                if cleaned.is_empty() {
-                    diagnostics.push(DoctorDiagnostic {
-                        path: feature.path.clone(),
-                        line,
-                        column: 1,
-                        severity: DoctorSeverity::Error,
-                        code: "cache_ttl_unit_invalid".to_owned(),
-                        message: format!(
-                            "`cache ttl` on query `{}` is empty. Use a typed duration (`<int>s|m|h|d`) or non-empty quoted prose.",
-                            name
-                        ),
-                        category: None,
-                        feature_name: None,
-                        construct: None,
-                        fix: None,
-                        group: None,
-                    });
-                }
-            }
-
-            // `cache_invalidates_target_unresolved` — defer to command
-            // walk below.
-
-            // Tag-side `cache_tags_*` is handled at the invalidates
-            // walk below.
-        }
-
-        for command in &feature.commands {
-            for invalidate in &command.invalidates {
-                let line = feature
-                    .command_lines
-                    .get(&command.name)
-                    .copied()
-                    .unwrap_or(feature.feature_line);
-
-                // The parser captures `invalidates query.<name>` as a
-                // qualified pair where the literal prefix `query` lands
-                // in `query.feature`. That's a shorthand for "same
-                // feature, kind=query, name=<X>". When the qualifier is
-                // literally `query`, resolve `<name>` against the
-                // current feature's queries. Any other qualifier is a
-                // genuine cross-feature reference (`<feature>.<query>`).
-                let raw_feature = invalidate.query.feature.as_deref();
-                let raw_name = invalidate.query.name.as_str();
-                let (target_feature, target_name) = match raw_feature {
-                    Some("query") => (feature.feature.as_str(), raw_name),
-                    Some(other) => (other, raw_name),
-                    None => (feature.feature.as_str(), raw_name),
-                };
-
-                let resolves = queries_by_feature
-                    .get(target_feature)
-                    .map(|set| set.contains(target_name))
-                    .unwrap_or(false);
-                if !resolves {
-                    diagnostics.push(DoctorDiagnostic {
-                        path: feature.path.clone(),
-                        line,
-                        column: 1,
-                        severity: DoctorSeverity::Error,
-                        code: "cache_invalidates_target_unresolved".to_owned(),
-                        message: format!(
-                            "`invalidates query.{}` in command `{}` does not resolve: query `{}` not found in feature `{}`.",
-                            target_name, command.name, target_name, target_feature
-                        ),
-                        category: None,
-                        feature_name: None,
-                        construct: None,
-                        fix: None,
-                        group: None,
-                    });
-                }
-            }
-        }
-
-        // `cache_tags_referenced_but_undeclared` — placeholder: today
-        // the parser does not lift `invalidates tag:<label>` into a
-        // typed `InvalidationTarget::Tag` variant (it captures only
-        // `query.<name>(...)`). When the parser surfaces tag targets,
-        // this branch tests `all_tags.contains(label)`. The rule stays
-        // wired so the LSP fallback continues to cover the surface.
-
-        // CL.C.3 — `cache-profile-unknown`: a query referenced
-        // `cache <name>` but no feature-level `cache <name>` profile
-        // matches.
-        let profile_names: BTreeSet<&str> =
-            feature.caches.iter().map(|c| c.name.as_str()).collect();
-        for query in &feature.queries {
-            let (qname, cache) = query_name_and_cache(query);
-            let Some(cache) = cache else { continue };
-            let Some(profile_name) = cache.profile_ref.as_deref() else {
-                continue;
-            };
-            if profile_names.contains(profile_name) {
-                continue;
-            }
-            let line = feature
-                .query_lines
-                .get(qname)
-                .copied()
-                .unwrap_or(feature.feature_line);
-            diagnostics.push(DoctorDiagnostic {
-                path: feature.path.clone(),
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: "cache-profile-unknown".to_owned(),
-                message: format!(
-                    "`cache {profile_name}` on query `{qname}` does not resolve: no feature-level `cache {profile_name}` profile declared in feature `{}`.",
-                    feature.feature
-                ),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-
-        // CL.C.3 — `cache-ttl-contract`: closed-catalog TTL shape
-        // invariants on feature-level profiles.
-        for profile in &feature.caches {
-            let line = feature
-                .cache_lines
-                .get(&profile.name)
-                .copied()
-                .unwrap_or(feature.feature_line);
-
-            // (1) Empty quoted prose TTL.
-            if let lazuli_ir::CacheTtl::Quoted(prose) = &profile.ttl {
-                if prose.trim().is_empty() {
-                    diagnostics.push(DoctorDiagnostic {
-                        path: feature.path.clone(),
-                        line,
-                        column: 1,
-                        severity: DoctorSeverity::Error,
-                        code: "cache-ttl-contract".to_owned(),
-                        message: format!(
-                            "`cache {}` has an empty `ttl`. Use a typed duration (`<int>s|m|h|d`) or non-empty quoted prose.",
-                            profile.name
-                        ),
-                        category: None,
-                        feature_name: None,
-                        construct: None,
-                        fix: None,
-                        group: None,
-                    });
-                }
-            }
-
-            // (2) SWR > TTL.
-            if let Some(swr) = &profile.stale_while_revalidate {
-                if let (Some(ttl_secs), Some(swr_secs)) = (
-                    cache_ttl_as_seconds(&profile.ttl),
-                    cache_ttl_as_seconds(swr),
-                ) {
-                    if swr_secs > ttl_secs {
-                        diagnostics.push(DoctorDiagnostic {
-                            path: feature.path.clone(),
-                            line,
-                            column: 1,
-                            severity: DoctorSeverity::Error,
-                            code: "cache-ttl-contract".to_owned(),
-                            message: format!(
-                                "`cache {}` has `stale_while_revalidate` ({swr_secs}s) larger than `ttl` ({ttl_secs}s). SWR must extend the freshness window, not invert it.",
-                                profile.name
-                            ),
-                            category: None,
-                            feature_name: None,
-                            construct: None,
-                            fix: None,
-                            group: None,
-                        });
-                    }
-                }
-            }
-
-            // (3) `sliding true` without a typed TTL literal.
-            if profile.sliding == Some(true)
-                && !matches!(profile.ttl, lazuli_ir::CacheTtl::Literal(_))
-            {
-                diagnostics.push(DoctorDiagnostic {
-                    path: feature.path.clone(),
-                    line,
-                    column: 1,
-                    severity: DoctorSeverity::Error,
-                    code: "cache-ttl-contract".to_owned(),
-                    message: format!(
-                        "`cache {}` declares `sliding true` but its `ttl` is not a typed duration literal. Use `<int>s|m|h|d` so the runtime can slide the window deterministically.",
-                        profile.name
-                    ),
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                });
-            }
-        }
-
-        // CL.C.3 — `cache-tag-unknown`: a query carrying inline tags
-        // names a tag that no other site declares.
-        for query in &feature.queries {
-            let (qname, cache) = query_name_and_cache(query);
-            let Some(cache) = cache else { continue };
-            if cache.tags.is_empty() {
-                continue;
-            }
-            let line = feature
-                .query_lines
-                .get(qname)
-                .copied()
-                .unwrap_or(feature.feature_line);
-            for tag in &cache.tags {
-                let declarers = facts.iter().fold(0usize, |acc, f| {
-                    let from_queries = f
-                        .queries
-                        .iter()
-                        .filter(|q| {
-                            query_name_and_cache(q)
-                                .1
-                                .map(|c| c.tags.iter().any(|t| t == tag))
-                                .unwrap_or(false)
-                        })
-                        .count();
-                    let from_profiles = f
-                        .caches
-                        .iter()
-                        .filter(|p| p.tags.iter().any(|t| t == tag))
-                        .count();
-                    acc + from_queries + from_profiles
-                });
-                if declarers <= 1 {
-                    diagnostics.push(DoctorDiagnostic {
-                        path: feature.path.clone(),
-                        line,
-                        column: 1,
-                        severity: DoctorSeverity::Warning,
-                        code: "cache-tag-unknown".to_owned(),
-                        message: format!(
-                            "`cache tags {tag}` on query `{qname}` is the only declarer of `{tag}`. Either declare it on another query/profile or remove it — tags without a second declarer cannot fan out invalidation.",
-                        ),
-                        category: None,
-                        feature_name: None,
-                        construct: None,
-                        fix: None,
-                        group: None,
-                    });
-                }
-            }
-        }
-    }
-
-    diagnostics
-}
-
-/// Helper — destructure an `ir::Query` into `(name, Option<&QueryCache>)`.
-/// Both `ListQuery` and `SqlQuery` carry `cache`; `LookupQuery` does not.
-fn query_name_and_cache(q: &lazuli_ir::Query) -> (&str, Option<&lazuli_ir::QueryCache>) {
-    match q {
-        lazuli_ir::Query::List(l) => (l.name.as_str(), l.cache.as_ref()),
-        lazuli_ir::Query::Lookup(l) => (l.name.as_str(), None),
-        lazuli_ir::Query::Sql(s) => (s.name.as_str(), s.cache.as_ref()),
-    }
-}
 
 /// Wave B.4 — `query.view` is a typed SQL-backed screen-read primitive.
 /// The analyzer lowers `source @file.<name>.sql` into the canonical
@@ -17087,506 +15197,6 @@ fn plus_near_dollar_placeholder(line: &str) -> bool {
 }
 
 
-// =============================================================================
-// i18n bucket cycle (row 54) — 15 locale/translation diagnostics.
-// =============================================================================
-
-const LOCALE_NEGOTIATE_SOURCES: &[&str] = &[
-    "accept_language",
-    "query_param",
-    "cookie",
-    "user_profile",
-    "subdomain",
-];
-
-const LOCALE_NEGOTIATE_STRATEGIES: &[&str] = &["best_match", "prefix_match", "exact_match"];
-
-const CLDR_PLURAL_ARMS: &[&str] = &["zero", "one", "two", "few", "many", "other"];
-
-/// Row 54 — emits up to 15 i18n diagnostics. See
-/// `docs/proposals/bucket-i18n-cycle.md` §Doctor/LSP.
-fn i18n_diagnostics(
-    facts: &[Tier3FeatureFacts],
-    app: Option<&DoctorAppManifest>,
-    files: &[DoctorFile],
-) -> Vec<DoctorDiagnostic> {
-    let mut diagnostics = Vec::new();
-
-    let Some(app_facts) = app else {
-        return diagnostics;
-    };
-    let app_locale = app_facts.manifest.locale.as_ref();
-    let supported: BTreeSet<String> = app_locale
-        .map(|l| l.supported.iter().cloned().collect())
-        .unwrap_or_default();
-    let default_locale = app_locale.map(|l| l.default.as_str()).unwrap_or("");
-    let app_path = app_facts.path.clone();
-
-    // ---- App-level: locale default / supported / fallback ----
-    if let Some(locale) = app_locale {
-        // `app_locale_default_unsupported`.
-        if !locale.default.is_empty() && !supported.contains(&locale.default) {
-            diagnostics.push(DoctorDiagnostic {
-                path: app_path.clone(),
-                line: 1,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: "app_locale_default_unsupported".to_owned(),
-                message: format!(
-                    "`app.locale.default` `{}` must appear in `supported`.",
-                    locale.default
-                ),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-
-        // Build adjacency for cycle + unknown-tag checks.
-        let mut graph: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        for fb in &locale.fallbacks {
-            if !supported.contains(&fb.from) {
-                diagnostics.push(DoctorDiagnostic {
-                    path: app_path.clone(),
-                    line: 1,
-                    column: 1,
-                    severity: DoctorSeverity::Error,
-                    code: "app_locale_fallback_unknown_source".to_owned(),
-                    message: format!(
-                        "fallback `{} -> {}` source `{}` is not in `app.locale.supported`.",
-                        fb.from, fb.to, fb.from
-                    ),
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                });
-            }
-            if !supported.contains(&fb.to) {
-                diagnostics.push(DoctorDiagnostic {
-                    path: app_path.clone(),
-                    line: 1,
-                    column: 1,
-                    severity: DoctorSeverity::Error,
-                    code: "app_locale_fallback_unknown_dest".to_owned(),
-                    message: format!(
-                        "fallback `{} -> {}` destination `{}` is not in `app.locale.supported`.",
-                        fb.from, fb.to, fb.to
-                    ),
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                });
-            }
-            graph
-                .entry(fb.from.clone())
-                .or_default()
-                .push(fb.to.clone());
-        }
-
-        // Cycle detection via DFS.
-        let mut visited: BTreeSet<String> = BTreeSet::new();
-        let mut on_stack: BTreeSet<String> = BTreeSet::new();
-        let mut found_cycle: Option<String> = None;
-        let nodes: Vec<String> = graph.keys().cloned().collect();
-        for start in nodes {
-            if found_cycle.is_some() {
-                break;
-            }
-            if visited.contains(&start) {
-                continue;
-            }
-            // Iterative DFS with path stack.
-            let mut stack: Vec<(String, usize)> = vec![(start.clone(), 0)];
-            on_stack.insert(start.clone());
-            visited.insert(start.clone());
-            while let Some((node, idx)) = stack.last().cloned() {
-                let nbrs = graph.get(&node).cloned().unwrap_or_default();
-                if idx >= nbrs.len() {
-                    on_stack.remove(&node);
-                    stack.pop();
-                    continue;
-                }
-                stack.last_mut().unwrap().1 = idx + 1;
-                let next = nbrs[idx].clone();
-                if on_stack.contains(&next) {
-                    found_cycle = Some(format!(
-                        "{} -> {} -> ... -> {}",
-                        stack
-                            .iter()
-                            .map(|(n, _)| n.as_str())
-                            .collect::<Vec<_>>()
-                            .join(" -> "),
-                        next,
-                        next
-                    ));
-                    break;
-                }
-                if !visited.contains(&next) {
-                    visited.insert(next.clone());
-                    on_stack.insert(next.clone());
-                    stack.push((next, 0));
-                }
-            }
-        }
-        if let Some(cycle) = found_cycle {
-            diagnostics.push(DoctorDiagnostic {
-                path: app_path.clone(),
-                line: 1,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: "app_locale_fallback_cycle".to_owned(),
-                message: format!("fallback chain creates a cycle: `{}`.", cycle),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-    }
-
-    // ---- Per-runtime-unit / per-api `locale_negotiate` ----
-    for unit in &app_facts.manifest.runtime {
-        if let Some(ln) = &unit.locale_negotiate {
-            check_locale_negotiate(ln, &supported, &app_path, 1, &mut diagnostics);
-        }
-    }
-
-    // ---- Per-feature translation ----
-    for feature in facts {
-        if let Some(api) = feature.apis.first() {
-            // No-op placeholder: api-level locale_negotiate doctor rules
-            // would attach here once the api facts surface line maps.
-            // Today the rules use the api block itself; we walk
-            // `feature.apis` instead.
-            let _ = api;
-        }
-        for api in &feature.apis {
-            if let Some(ln) = &api.locale_negotiate {
-                check_locale_negotiate(
-                    ln,
-                    &supported,
-                    &feature.path,
-                    feature.feature_line,
-                    &mut diagnostics,
-                );
-            }
-        }
-
-        let Some(translation) = &feature.translation else {
-            continue;
-        };
-        let tline = feature.translation_line;
-
-        if !translation.catalog.contains("<locale>") {
-            diagnostics.push(DoctorDiagnostic {
-                path: feature.path.clone(),
-                line: tline,
-                column: 1,
-                severity: DoctorSeverity::Warning,
-                code: "translation_catalog_path_missing".to_owned(),
-                message: format!(
-                    "translation catalog path `{}` should contain a `<locale>` placeholder so the runtime can load per-locale files.",
-                    translation.catalog
-                ),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-
-        // Build set of declared key names + referenced key set is below.
-        let declared: BTreeSet<&str> = translation.keys.iter().map(|k| k.name.as_str()).collect();
-
-        for key in &translation.keys {
-            let mut variant_locales: BTreeSet<&str> = BTreeSet::new();
-            for variant in &key.variants {
-                variant_locales.insert(variant.locale.as_str());
-                if !supported.contains(&variant.locale) && !supported.is_empty() {
-                    diagnostics.push(DoctorDiagnostic {
-                        path: feature.path.clone(),
-                        line: tline,
-                        column: 1,
-                        severity: DoctorSeverity::Error,
-                        code: "translation_locale_unsupported".to_owned(),
-                        message: format!(
-                            "translation key `{}.{}` declares variant `{}` outside `app.locale.supported`.",
-                            feature.feature, key.name, variant.locale
-                        ),
-                        category: None,
-                        feature_name: None,
-                        construct: None,
-                        fix: None,
-                        group: None,
-                    });
-                }
-            }
-            if !default_locale.is_empty() && !variant_locales.contains(default_locale) {
-                diagnostics.push(DoctorDiagnostic {
-                    path: feature.path.clone(),
-                    line: tline,
-                    column: 1,
-                    severity: DoctorSeverity::Error,
-                    code: "translation_locale_missing_for_default".to_owned(),
-                    message: format!(
-                        "translation key `{}.{}` is missing a variant for default locale `{}`.",
-                        feature.feature, key.name, default_locale
-                    ),
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                });
-            }
-            for tag in &supported {
-                if tag == default_locale {
-                    continue;
-                }
-                if !variant_locales.contains(tag.as_str()) {
-                    diagnostics.push(DoctorDiagnostic {
-                        path: feature.path.clone(),
-                        line: tline,
-                        column: 1,
-                        severity: DoctorSeverity::Warning,
-                        code: "translation_locale_missing_for_supported".to_owned(),
-                        message: format!(
-                            "translation key `{}.{}` is missing a variant for supported locale `{}`.",
-                            feature.feature, key.name, tag
-                        ),
-                        category: None,
-                        feature_name: None,
-                        construct: None,
-                        fix: None,
-                        group: None,
-                    });
-                }
-            }
-            for plural in &key.plurals {
-                if !CLDR_PLURAL_ARMS.contains(&plural.arm.as_str()) {
-                    diagnostics.push(DoctorDiagnostic {
-                        path: feature.path.clone(),
-                        line: tline,
-                        column: 1,
-                        severity: DoctorSeverity::Error,
-                        code: "cldr_plural_arm_invalid".to_owned(),
-                        message: format!(
-                            "translation key `{}.{}` plural arm `{}` is not a CLDR category: zero|one|two|few|many|other.",
-                            feature.feature, key.name, plural.arm
-                        ),
-                        category: None,
-                        feature_name: None,
-                        construct: None,
-                        fix: None,
-                        group: None,
-                    });
-                }
-            }
-        }
-
-        // `translation_key_unresolved`: any `@translation.<key>` in a
-        // rule message that does not resolve to a declared key.
-        // `translation_key_unused`: any declared key never referenced
-        // anywhere in the feature.
-        let mut referenced: BTreeSet<String> = BTreeSet::new();
-        for command in &feature.commands {
-            // commands today carry no rule-message slot; skip.
-            let _ = command;
-        }
-        // Walk file source for `message @translation.<key>` references
-        // since `Rule.message_ref` is exposed via the analyzer's lifted
-        // Tier 4d resource rules; the legacy rule walker still owns the
-        // file-local lift. Doctor uses text-pattern here to bridge the
-        // gap until the rule lift lands. We read from the in-memory
-        // package files first (so tests work without filesystem
-        // round-trips) and fall back to the filesystem.
-        let source = files
-            .iter()
-            .find(|f| f.path == feature.path)
-            .map(|f| f.source.clone())
-            .or_else(|| std::fs::read_to_string(&feature.path).ok());
-        if let Some(text) = source {
-            for line in text.lines() {
-                let trimmed = line.trim_start();
-                if let Some(rest) = trimmed.strip_prefix("message @translation.") {
-                    let key = rest.split_whitespace().next().unwrap_or("");
-                    if !key.is_empty() {
-                        referenced.insert(key.to_owned());
-                        if !declared.contains(key) {
-                            diagnostics.push(DoctorDiagnostic {
-                                path: feature.path.clone(),
-                                line: tline,
-                                column: 1,
-                                severity: DoctorSeverity::Error,
-                                code: "rule_message_ref_unresolved".to_owned(),
-                                message: format!(
-                                    "`@translation.{}` in feature `{}` does not resolve. Declared keys: {}.",
-                                    key,
-                                    feature.feature,
-                                    declared
-                                        .iter()
-                                        .copied()
-                                        .collect::<Vec<_>>()
-                                        .join(", ")
-                                ),
-                                category: None,
-                                feature_name: None,
-                                construct: None,
-                                fix: None,
-                                group: None,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-        for key in &translation.keys {
-            if !referenced.contains(&key.name) {
-                diagnostics.push(DoctorDiagnostic {
-                    path: feature.path.clone(),
-                    line: tline,
-                    column: 1,
-                    severity: DoctorSeverity::Warning,
-                    code: "translation_key_unused".to_owned(),
-                    message: format!(
-                        "translation key `{}.{}` is declared but never referenced via `@translation.<key>`.",
-                        feature.feature, key.name
-                    ),
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                });
-            }
-        }
-
-        // `notification_template_placeholder_unknown`: a notification
-        // template path containing `<locale>` requires a mounted
-        // `locale_negotiate`. The fixture authors templates via
-        // `notification template "./outreach/...mjml"` in the IR
-        // notifications slot; doctor checks each.
-        let mount_count = app_facts
-            .manifest
-            .runtime
-            .iter()
-            .filter(|u| u.locale_negotiate.is_some())
-            .count();
-        for notification in &feature.notifications {
-            if notification.template.contains("<locale>") && mount_count == 0 {
-                diagnostics.push(DoctorDiagnostic {
-                    path: feature.path.clone(),
-                    line: feature
-                        .notification_lines
-                        .get(&notification.name)
-                        .copied()
-                        .unwrap_or(feature.feature_line),
-                    column: 1,
-                    severity: DoctorSeverity::Error,
-                    code: "notification_template_placeholder_unknown".to_owned(),
-                    message: format!(
-                        "notification `{}` template path contains `<locale>` but no `locale_negotiate` is mounted in `app.runtime`.",
-                        notification.name
-                    ),
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                });
-            }
-        }
-
-        // `translation_catalog_path_missing` (filesystem check) is
-        // deferred to `lazuli translate extract --check`. Doctor does
-        // not touch the filesystem.
-    }
-
-    diagnostics
-}
-
-/// i18n bucket cycle helper — validate a `LocaleNegotiate` block.
-/// Emits `locale_negotiate_source_invalid`,
-/// `locale_negotiate_strategy_invalid`, and reuses
-/// `app_locale_fallback_unknown_dest` when the fallback tag is missing.
-fn check_locale_negotiate(
-    ln: &lazuli_ir::LocaleNegotiate,
-    supported: &BTreeSet<String>,
-    path: &Path,
-    line: usize,
-    diagnostics: &mut Vec<DoctorDiagnostic>,
-) {
-    if let Some(source) = &ln.source {
-        if !LOCALE_NEGOTIATE_SOURCES.contains(&source.as_str()) {
-            diagnostics.push(DoctorDiagnostic {
-                path: path.to_path_buf(),
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: "locale_negotiate_source_invalid".to_owned(),
-                message: format!(
-                    "`locale_negotiate.source` `{}` must be one of: {}.",
-                    source,
-                    LOCALE_NEGOTIATE_SOURCES.join(", ")
-                ),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-    }
-    if let Some(strategy) = &ln.strategy {
-        if !LOCALE_NEGOTIATE_STRATEGIES.contains(&strategy.as_str()) {
-            diagnostics.push(DoctorDiagnostic {
-                path: path.to_path_buf(),
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: "locale_negotiate_strategy_invalid".to_owned(),
-                message: format!(
-                    "`locale_negotiate.strategy` `{}` must be one of: {}.",
-                    strategy,
-                    LOCALE_NEGOTIATE_STRATEGIES.join(", ")
-                ),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-    }
-    if let Some(fallback) = &ln.fallback {
-        if !supported.is_empty() && !supported.contains(fallback) {
-            diagnostics.push(DoctorDiagnostic {
-                path: path.to_path_buf(),
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: "app_locale_fallback_unknown_dest".to_owned(),
-                message: format!(
-                    "`locale_negotiate.fallback` `{}` is not in `app.locale.supported`.",
-                    fallback
-                ),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

@@ -16,7 +16,8 @@ pub(super) fn diagnostics(
     let features: Vec<lazuli_ir::Feature> = facts
         .iter()
         .map(|fact| {
-            let mut feature = super::make_synthetic_feature_for_error_vocab(fact);
+            let mut feature =
+                super::aggregators::error_vocab::make_synthetic_feature_for_error_vocab(fact);
             feature.queries = fact.queries.clone();
             feature.resources = fact.resources.clone();
             feature
