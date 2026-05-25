@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 mod design;
 mod event;
+mod job;
 mod mcp;
 mod notification;
 mod plan;
@@ -10,6 +11,7 @@ mod tenant_migration;
 mod webhook;
 pub use design::*;
 pub use event::*;
+pub use job::*;
 pub use mcp::*;
 pub use notification::*;
 pub use plan::*;
@@ -2381,125 +2383,6 @@ pub enum ToolsCallsOp {
     Excludes,
 }
 
-// =============================================================================
-// Phase L Tier 3 — job / webhook / notification / event_group skeletons.
-//
-// All four constructs are feature children authored at
-// AGENT_INDENT_FEATURE_CHILD (2 spaces). Their grandchildren mirror the IR
-// shapes (`ir::Job`, `ir::Webhook`, `ir::Notification`, `ir::EventGroup`)
-// so lowering is structural.
-//
-// Route C (`docs/proposals/phase-l-tier-3-job-effect-scope.md:292-348`):
-// declarative-body grammar (`target query.by_id(...)`, `let new_score = ...`,
-// `updates Customer ... emits ...`) is captured as raw strings until Tier 4
-// lifts the shared declarative spine alongside `parse_command`. Handler-backed
-// bodies (`handler "./..."`) lower fully.
-// =============================================================================
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Job {
-    pub name: String,
-    pub trigger: JobTrigger,
-    /// `queue customer_imports` — execution lane for queued workers.
-    pub queue: Option<String>,
-    /// `tenant_from payload.<axis>_id` — path captured verbatim.
-    pub tenant_from: Option<String>,
-    /// `fanout tenants <axis>` — scheduled-job fanout directive.
-    pub fanout: Option<JobFanout>,
-    /// `idempotency by <path>` — path captured verbatim.
-    pub idempotency_by: Option<String>,
-    /// `retry <count> backoff <strategy>` — pair captured directly.
-    pub retry: Option<JobRetry>,
-    /// `policy @policy.<...>` — captured verbatim for lowering.
-    pub policy: Option<String>,
-    /// RB.S6 — structured policy expression form.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy_expr: Option<PolicyExprAst>,
-    /// `timeout "30s"` — adapter-parsed duration literal.
-    pub timeout: Option<String>,
-    /// `calls <slot>.<op>` blocks lifted as `ExternalCallRef` shapes.
-    pub external_calls: Vec<JobExternalCall>,
-    /// Body of the job. Handler-backed bodies fully lower; declarative
-    /// bodies stay as raw lines until Tier 4.
-    pub body: JobBody,
-    /// `emits <event>` lines. Each is one event name (qualified or not).
-    pub emits: Vec<String>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value")]
-pub enum JobTrigger {
-    /// `trigger event customer.activated`.
-    Event(String),
-    /// `trigger schedule "0 2 * * *"`.
-    Schedule(String),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct JobFanout {
-    /// `tenants` — closed scope catalog today.
-    pub scope: String,
-    pub axis: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct JobRetry {
-    pub count: u32,
-    /// `fixed` or `exponential` — closed strategy catalog today.
-    pub backoff: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct JobExternalCall {
-    pub slot: String,
-    pub op: String,
-    /// `arg_name = path.expr` pairs captured verbatim. Tier 4 lifts
-    /// the right-hand-side expressions.
-    pub args: Vec<JobExternalCallArg>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct JobExternalCallArg {
-    pub name: String,
-    /// Right-hand side captured verbatim until Tier 4.
-    pub value: String,
-    pub span: Span,
-}
-
-/// Body of a job. `Handler` is a path reference; `Declarative` is the
-/// typed spine (Phase L Tier 4b lifted; previously a raw-line carve-out
-/// in `JobDeclarativeRaw`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value")]
-pub enum JobBody {
-    Handler(JobHandler),
-    Declarative(JobDeclarativeTyped),
-    /// No `handler` and no `target` / `updates` / `creates` / `deletes`
-    /// authored. Some fixture jobs ship only `emits` (event reactors
-    /// with no declarative body); analyzer treats this as a parse error
-    /// only when neither effect nor emits is declared.
-    None,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct JobHandler {
-    /// `"./jobs/process_import.go"` — quotes stripped.
-    pub path: String,
-    /// Optional `returns <Type>` suffix.
-    pub returns: Option<String>,
-}
-
-/// Phase L Tier 4b — declarative job body using the typed spine helpers
-/// (`TargetExprDecl`, `LetBindingDecl`, `CommandEffectDecl`). Replaces
-/// the Tier 3 `JobDeclarativeRaw` carve-out.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct JobDeclarativeTyped {
-    pub target: Option<TargetExprDecl>,
-    pub lets: Vec<LetBindingDecl>,
-    pub effect: Option<CommandEffectDecl>,
-}
 
 
 
