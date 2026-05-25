@@ -42,3 +42,4 @@ pub mod plan;
 pub mod profile;
 pub mod spike_generate;
 pub mod test;
+pub mod translate;
