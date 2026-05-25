@@ -47,6 +47,7 @@ pub(crate) mod app;
 pub(crate) mod auth;
 pub(crate) mod cache;
 pub(crate) mod canonical_kinds;
+pub(crate) mod capability;
 pub(crate) mod command;
 pub(crate) mod crypto;
 pub(crate) mod doctor_local;
