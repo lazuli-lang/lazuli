@@ -13,6 +13,10 @@
 //! - `error.rs` — the `ParseError` envelope returned by every entry
 //!   point. Spans for Pest-flavour errors are authored-side; analyzer
 //!   diagnostics upgrade those into coded findings downstream.
+//! - `common.rs` — shared leaf mechanics: `SourceLine`, `source_lines`,
+//!   trivia / inline-comment skippers, depth- and quote-aware token
+//!   scanners, the `line_error` constructors. Every parser walks the
+//!   same line-stream contract, so these helpers stay crate-private.
 //! - `mod.rs` (transient) — everything else, pending extraction.
 //!
 //! ## See also
@@ -22,9 +26,15 @@
 //! - `lazuli_ir::nodes` — the typed IR shapes the analyzer lowers
 //!   parser AST into.
 
+mod common;
 mod error;
 
 pub use error::ParseError;
+
+use common::{
+    SourceLine, find_token, find_top_level_token, is_trivia, line_error, line_error_owned,
+    parse_lzx_bool, source_lines, strip_inline_comment,
+};
 
 use crate::ast::OwnerAxisAst;
 use crate::ast::{
@@ -11121,26 +11131,6 @@ fn split_type_and_modifiers(text: &str) -> (String, String) {
     (head, modifiers.join(" "))
 }
 
-fn find_token(text: &str, needle: &str) -> Option<usize> {
-    // Find `needle` at depth 0 (not inside parens / brackets).
-    let bytes = text.as_bytes();
-    let needle_bytes = needle.as_bytes();
-    let mut depth = 0i32;
-    let mut i = 0;
-    while i + needle_bytes.len() <= bytes.len() {
-        let ch = bytes[i] as char;
-        match ch {
-            '(' | '[' => depth += 1,
-            ')' | ']' => depth -= 1,
-            _ => {}
-        }
-        if depth == 0 && &bytes[i..i + needle_bytes.len()] == needle_bytes {
-            return Some(i);
-        }
-        i += 1;
-    }
-    None
-}
 
 /// Find ` = ` outside of parens/brackets. The default literal may itself
 /// contain `=` (rare), but the fixture's default literals are simple
@@ -16319,59 +16309,6 @@ fn strip_design_quotes(text: &str) -> &str {
     }
 }
 
-/// Find `needle` outside of quoted strings and outside parenthesized
-/// regions. Mirrors the depth/quote-aware logic in `find_token` but also
-/// suppresses matches inside `"..."` literals — design values often carry
-/// `"#hex"` and `"cubic-bezier(...)"` strings that we never want to scan
-/// into.
-fn find_top_level_token(text: &str, needle: &str) -> Option<usize> {
-    let bytes = text.as_bytes();
-    let needle_bytes = needle.as_bytes();
-    let mut depth = 0i32;
-    let mut in_quote = false;
-    let mut i = 0;
-    while i + needle_bytes.len() <= bytes.len() {
-        let b = bytes[i];
-        match b {
-            b'"' => in_quote = !in_quote,
-            b'(' | b'[' if !in_quote => depth += 1,
-            b')' | b']' if !in_quote => depth -= 1,
-            _ => {}
-        }
-        if !in_quote && depth == 0 && &bytes[i..i + needle_bytes.len()] == needle_bytes {
-            return Some(i);
-        }
-        i += 1;
-    }
-    None
-}
-
-#[derive(Debug)]
-pub(crate) struct SourceLine<'a> {
-    text: &'a str,
-    indent: usize,
-    start: usize,
-    end: usize,
-}
-
-fn source_lines(source: &str) -> Vec<SourceLine<'_>> {
-    let mut offset = 0;
-    let mut lines = Vec::new();
-
-    for text in source.lines() {
-        let start = offset;
-        let end = start + text.len();
-        lines.push(SourceLine {
-            text,
-            indent: text.bytes().take_while(|byte| *byte == b' ').count(),
-            start,
-            end,
-        });
-        offset = end + 1;
-    }
-
-    lines
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(dead_code)]
@@ -16419,32 +16356,6 @@ pub(crate) fn parse_invariant_form(
     ))
 }
 
-fn is_trivia(trimmed: &str) -> bool {
-    trimmed.is_empty() || trimmed.starts_with('#')
-}
-
-/// Strip a `# ...` inline comment from the tail of a source line,
-/// honoring `"..."` and `'...'` quoted strings (a `#` inside a quoted
-/// literal stays put). Returns the input unchanged when the line carries
-/// no comment.
-fn strip_inline_comment(line: &str) -> &str {
-    let bytes = line.as_bytes();
-    let mut in_quote: Option<u8> = None;
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
-        match in_quote {
-            Some(q) if b == q => in_quote = None,
-            Some(_) if b == b'\\' && i + 1 < bytes.len() => i += 1,
-            Some(_) => {}
-            None if b == b'"' || b == b'\'' => in_quote = Some(b),
-            None if b == b'#' => return line[..i].trim_end(),
-            None => {}
-        }
-        i += 1;
-    }
-    line
-}
 
 fn split_lzx_list(value: &str) -> Vec<String> {
     value
@@ -16644,29 +16555,6 @@ fn parse_translation_key_token(
     })
 }
 
-fn parse_lzx_bool(value: &str) -> Option<bool> {
-    match value {
-        "true" => Some(true),
-        "false" => Some(false),
-        _ => None,
-    }
-}
-
-fn line_error(line: &SourceLine<'_>, message: &'static str) -> ParseError {
-    ParseError::Pest {
-        message: message.to_owned(),
-        span: Span::new(line.start, line.end.max(line.start + 1)),
-    }
-}
-
-/// Owned-message variant of `line_error`. Used by parsers that need to
-/// interpolate user-supplied tokens into the diagnostic.
-fn line_error_owned(line: &SourceLine<'_>, message: String) -> ParseError {
-    ParseError::Pest {
-        message,
-        span: Span::new(line.start, line.end.max(line.start + 1)),
-    }
-}
 
 // =============================================================================
 // PG.A — top-level plan-catalog parser + side-channel gate scanner.
