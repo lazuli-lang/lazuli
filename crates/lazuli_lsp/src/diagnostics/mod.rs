@@ -45,6 +45,7 @@ pub(crate) mod agent;
 pub(crate) mod api;
 pub(crate) mod auth;
 pub(crate) mod cache;
+pub(crate) mod canonical_kinds;
 pub(crate) mod crypto;
 pub(crate) mod error;
 pub(crate) mod http_headers;

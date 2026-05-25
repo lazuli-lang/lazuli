@@ -39,6 +39,7 @@ pub mod dev;
 pub mod examples;
 pub mod generate;
 pub mod init;
+pub mod inspect;
 pub mod lsp;
 pub mod mcp;
 pub mod migrate;
