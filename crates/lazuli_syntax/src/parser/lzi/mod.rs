@@ -46,11 +46,10 @@ use super::error::ParseError;
 // took their own copy when they moved out.
 
 use crate::ast::{
-    AggregateDecl, ApiDecl, Auth, CacheProfileDecl, Channel, CommandDecl, DefaultsPolicyFor,
-    DefaultsTenancy, EnumDeclAst, EventGroup, FeatureDefaults, FeatureErrorsDecl, FeatureSkeleton,
-    Job, Notification, PoliciesDecl, PublicContractDeclAst, QueryDecl, RecordDecl, ReportDecl,
-    ResourceDecl, Span, SqlQueryKind, TargetArgDecl, TenantMigration, TranslationDecl,
-    UsesClauseAst, Webhook,
+    AggregateDecl, ApiDecl, Auth, CacheProfileDecl, Channel, CommandDecl, EnumDeclAst, EventGroup,
+    FeatureDefaults, FeatureErrorsDecl, FeatureSkeleton, Job, Notification, PoliciesDecl,
+    PublicContractDeclAst, QueryDecl, RecordDecl, ReportDecl, ResourceDecl, Span, SqlQueryKind,
+    TargetArgDecl, TenantMigration, TranslationDecl, UsesClauseAst, Webhook,
 };
 
 mod agent;
@@ -58,6 +57,7 @@ mod api;
 mod auth;
 pub mod cache;
 mod command;
+mod defaults;
 pub mod design;
 mod enums;
 pub mod event;
@@ -85,6 +85,8 @@ use agent::parse_agent;
 use api::parse_api_decl;
 use auth::parse_auth;
 pub(super) use command::parse_invalidates_entry;
+use defaults::parse_defaults;
+pub(super) use defaults::parse_defaults_tenancy;
 use enums::parse_enum_decl;
 use feature_errors::parse_feature_errors_decl;
 use job::{parse_job, parse_tenant_migration};
@@ -1028,146 +1030,6 @@ pub(super) fn is_policy_identifier(text: &str) -> bool {
         return false;
     }
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-}
-
-// -----------------------------------------------------------------------------
-// Phase L Tier 4a — `defaults` block parser.
-//
-// The `defaults` header sits at AGENT_INDENT_FEATURE_CHILD (2 spaces).
-// Children live at AGENT_INDENT_AGENT_CHILD (4 spaces):
-//
-//   defaults
-//     tenancy org
-//     timestamps
-//     policy_for jobs, webhooks: @actor.system
-//
-// Unknown children are a parse error so an LLM cannot author silent
-// typos like `timestapms` or `policy-for`.
-// -----------------------------------------------------------------------------
-
-fn parse_defaults(
-    lines: &[SourceLine<'_>],
-    start: usize,
-) -> Result<(FeatureDefaults, usize), ParseError> {
-    let header = &lines[start];
-    let mut tenancy: Option<DefaultsTenancy> = None;
-    let mut timestamps = false;
-    let mut policy_for: Vec<DefaultsPolicyFor> = Vec::new();
-    let mut last_end = header.end;
-    let mut i = start + 1;
-
-    while i < lines.len() {
-        let line = &lines[i];
-        let trimmed = line.text.trim_start();
-
-        if is_trivia(trimmed) {
-            i += 1;
-            continue;
-        }
-
-        if line.indent <= AGENT_INDENT_FEATURE_CHILD {
-            break;
-        }
-
-        if line.indent != AGENT_INDENT_AGENT_CHILD {
-            return Err(line_error(
-                line,
-                "`defaults` body children use four-space indentation",
-            ));
-        }
-
-        if let Some(rest) = trimmed.strip_prefix("tenancy ") {
-            if tenancy.is_some() {
-                return Err(line_error(
-                    line,
-                    "`defaults tenancy` may be declared at most once",
-                ));
-            }
-            let axis = rest.trim();
-            if axis.is_empty() {
-                return Err(line_error(
-                    line,
-                    "`defaults tenancy` requires an axis (`org`, `team`, `none`, or a custom name)",
-                ));
-            }
-            tenancy = Some(parse_defaults_tenancy(axis));
-            last_end = line.end;
-            i += 1;
-        } else if trimmed == "timestamps" {
-            if timestamps {
-                return Err(line_error(
-                    line,
-                    "`defaults timestamps` may be declared at most once",
-                ));
-            }
-            timestamps = true;
-            last_end = line.end;
-            i += 1;
-        } else if let Some(rest) = trimmed.strip_prefix("policy_for ") {
-            policy_for.push(parse_defaults_policy_for(line, rest)?);
-            last_end = line.end;
-            i += 1;
-        } else {
-            return Err(line_error(
-                line,
-                "`defaults` children are `tenancy`, `timestamps`, or `policy_for <kinds>: <atom>`",
-            ));
-        }
-    }
-
-    Ok((
-        FeatureDefaults {
-            tenancy,
-            timestamps,
-            policy_for,
-            span: Span::new(header.start, last_end),
-        },
-        i,
-    ))
-}
-
-pub(super) fn parse_defaults_tenancy(axis: &str) -> DefaultsTenancy {
-    match axis.trim() {
-        "org" => DefaultsTenancy::Org,
-        "team" => DefaultsTenancy::Team,
-        "none" => DefaultsTenancy::None,
-        other => DefaultsTenancy::Custom(other.to_owned()),
-    }
-}
-
-fn parse_defaults_policy_for(
-    line: &SourceLine<'_>,
-    rest: &str,
-) -> Result<DefaultsPolicyFor, ParseError> {
-    let (kinds_part, atom_part) = rest.split_once(':').ok_or_else(|| {
-        line_error(
-            line,
-            "`policy_for` requires `<kinds>: <atom>` (e.g. `policy_for jobs, webhooks: @actor.system`)",
-        )
-    })?;
-    let kinds: Vec<String> = kinds_part
-        .split(',')
-        .map(|k| k.trim().to_owned())
-        .filter(|k| !k.is_empty())
-        .collect();
-    if kinds.is_empty() {
-        return Err(line_error(
-            line,
-            "`policy_for` requires at least one construct kind before the `:`",
-        ));
-    }
-    let atom = atom_part.trim().to_owned();
-    if atom.is_empty() {
-        return Err(line_error(
-            line,
-            "`policy_for` requires a policy atom after the `:` (e.g. `@actor.system`)",
-        ));
-    }
-    Ok(DefaultsPolicyFor {
-        kinds,
-        atom,
-        span: Span::new(line.start, line.end),
-    })
 }
 
 /// Split `foo.bar(arg: expr, ...)` into `("foo.bar", "arg: expr, ...")`.
