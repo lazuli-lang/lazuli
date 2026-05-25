@@ -1749,7 +1749,7 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
 /// determines the `KeyClause` vector emitted into the synthesized
 /// `Query::Lookup` (me §7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MeMode {
+pub(crate) enum MeMode {
     /// Resource has `user: User required` (with or without `unique`)
     /// AND an `org`-bearing field. `WHERE org_id = ctx.User.OrgID AND
     /// "user" = ctx.User.ID`.
@@ -1774,7 +1774,7 @@ enum MeMode {
 /// statements pick which IR shape the *synth pass* emits; the emitted
 /// IR contains exactly one fixed `Query::Lookup` per call site, with
 /// no branches in the runtime lowering path.
-fn classify_me_mode(resource: &ir::Resource) -> Option<MeMode> {
+pub(crate) fn classify_me_mode(resource: &ir::Resource) -> Option<MeMode> {
     // me §5.3 row 4 — `self_keyed`: the resource IS the User table.
     // Checked first because a resource literally named `User` could in
     // principle declare its own `user` self-reference field; the
@@ -1941,7 +1941,7 @@ fn check_me_lookup_signature_mismatch(
 /// exactly one group; `create_input_fields` and `update_input_fields`
 /// project the Required + Optional groups into the canonical input lists
 /// per §5.2 / §5.3.
-struct CategorisedFields<'a> {
+pub(crate) struct CategorisedFields<'a> {
     required: Vec<&'a ir::Field>,
     optional: Vec<&'a ir::Field>,
 }
@@ -1978,7 +1978,7 @@ impl<'a> CategorisedFields<'a> {
 /// §5.7 — split a resource's fields into Tenant / Auto / Required /
 /// Optional groups. Only Required + Optional are returned (Tenant and
 /// Auto have no presence in the synth input lists).
-fn categorize_fields(resource: &ir::Resource) -> CategorisedFields<'_> {
+pub(crate) fn categorize_fields(resource: &ir::Resource) -> CategorisedFields<'_> {
     // Detect the `user: User required unique` shape per §5.7.
     let has_user_unique = resource.fields.iter().any(|f| {
         f.name == "user"
@@ -2046,7 +2046,7 @@ fn categorize_fields(resource: &ir::Resource) -> CategorisedFields<'_> {
 ///   owner-scope emission for the offending field. Other fields on
 ///   the same resource may still resolve.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum OwnerScopeResolution {
+pub(crate) enum OwnerScopeResolution {
     Scoped(ir::OwnerScopeSql),
     Tenant,
 }
@@ -2065,7 +2065,7 @@ enum OwnerScopeResolution {
 /// return value indicates whether the synth should still emit
 /// owner-scope IR (yes for `Scoped`, no for `Tenant` — which also
 /// covers "diagnostic emitted, fell back to tenant-only").
-fn resolve_owner_scope(
+pub(crate) fn resolve_owner_scope(
     feature: &ir::Feature,
     resource: &ir::Resource,
     diagnostics_out: &mut Vec<ConventionSynthDiagnostic>,
@@ -2302,7 +2302,7 @@ enum CanonicalReturn<'a> {
 /// when the input field list OR the effect/return type diverges.
 /// Returns `None` when the signatures match (no diagnostic). Cell C4
 /// formats `reason` into the user-facing message.
-fn check_command_signature_mismatch(
+pub(crate) fn check_command_signature_mismatch(
     feature: &ir::Feature,
     name: &str,
     canonical_inputs: &[(&ir::Field, bool)],
@@ -2354,7 +2354,7 @@ fn check_command_signature_mismatch(
 /// §11 `crud_synth_author_signature_mismatch` trigger for queries. Returns a
 /// reason string when the author-written query diverges from the exact
 /// canonical query shape the `crud` bundle would have emitted.
-fn check_query_signature_mismatch(
+pub(crate) fn check_query_signature_mismatch(
     feature: &ir::Feature,
     name: &str,
     canonical_query: &ir::Query,
@@ -2522,7 +2522,7 @@ pub(crate) fn build_update_command(
 /// When the resource also declares `conventions [me]`, the `me`
 /// bundle's `lookup_my_<R>` query is appended too — it shares the
 /// same row set, just keyed off the actor instead of the route id.
-fn synth_crud_invalidates(
+pub(crate) fn synth_crud_invalidates(
     lookup_name: &str,
     list_name: &str,
     has_me: bool,
@@ -2562,7 +2562,7 @@ fn synth_crud_invalidates(
 /// `TypedSlot.required` on the command's input to pick between
 /// `FromInput` (required slot) and `FromInputOptional` (optional slot,
 /// skip-on-nil at runtime).
-fn input_field_assignments(input_fields: &[(&ir::Field, bool)]) -> Vec<ir::Assignment> {
+pub(crate) fn input_field_assignments(input_fields: &[(&ir::Field, bool)]) -> Vec<ir::Assignment> {
     input_fields
         .iter()
         .map(|(f, _required)| ir::Assignment {
@@ -2663,7 +2663,7 @@ pub(crate) fn build_list_query(name: &str, resource: &str) -> ir::Query {
 }
 
 /// Project a `(field, required)` list into a typed `CommandInput`.
-fn input_to_command_input(fields: &[(&ir::Field, bool)]) -> ir::CommandInput {
+pub(crate) fn input_to_command_input(fields: &[(&ir::Field, bool)]) -> ir::CommandInput {
     if fields.is_empty() {
         return ir::CommandInput::Empty;
     }
@@ -2683,7 +2683,7 @@ fn input_to_command_input(fields: &[(&ir::Field, bool)]) -> ir::CommandInput {
 /// Common command-shape defaults applied to every synthesized CRUD
 /// command. `policy authenticated`, `audit default`, `rate_limit` set
 /// by the caller (write vs read uses different limits per §5.9).
-fn default_synth_command(rate_limit: &str) -> ir::Command {
+pub(crate) fn default_synth_command(rate_limit: &str) -> ir::Command {
     ir::Command {
         name: String::new(),
         public_contract: None,
@@ -2729,7 +2729,7 @@ fn default_synth_command(rate_limit: &str) -> ir::Command {
 }
 
 /// §5.9 — create / update / delete share `rate_limit "100 per 10 minutes per ip"`.
-fn crud_write_rate_limit() -> &'static str {
+pub(crate) fn crud_write_rate_limit() -> &'static str {
     "100 per 10 minutes per ip"
 }
 
