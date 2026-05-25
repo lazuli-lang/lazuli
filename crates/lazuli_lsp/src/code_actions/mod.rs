@@ -16,10 +16,8 @@
 //! * `route_guard` — view-level policy scaffolds + `app.route_guard`
 //!   defaults / `actor_query` stubs (proposal
 //!   `docs/proposals/route-guards-and-redirects.md`).
-//!
-//! Pending extraction (still in `lib.rs`):
-//!
-//! * Lifecycle gate (`lifecycle_gate_code_actions` + helpers)
+//! * `lifecycle_gate` — view-level `requires_lifecycle` scaffolds + resume
+//!   block fixes (proposal `docs/proposals/ir-lifecycle-route-gates.md`).
 //!
 //! ## See also
 //! * `lib.rs::Backend::code_action` — dispatch table; appends per-family
@@ -29,4 +27,5 @@
 
 pub mod auth_refresh;
 pub mod error_vocab;
+pub mod lifecycle_gate;
 pub mod route_guard;

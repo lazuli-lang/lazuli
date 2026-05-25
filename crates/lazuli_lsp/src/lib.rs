@@ -29,6 +29,7 @@ mod types;
 pub use catalogs::*;
 pub use code_actions::auth_refresh::auth_refresh_code_actions;
 pub use code_actions::error_vocab::error_vocab_code_actions;
+pub use code_actions::lifecycle_gate::lifecycle_gate_code_actions;
 pub use code_actions::route_guard::route_guard_code_actions;
 pub use conventions::conventions_list_completions;
 pub use hover::*;
@@ -15195,19 +15196,19 @@ pub(crate) struct LifecycleLookupQueryInfo {
 
 #[derive(Debug, Clone)]
 pub(crate) struct LifecycleResumeBlock {
-    name: String,
-    feature_hint: Option<String>,
-    header_line: usize,
-    header_indent: usize,
-    end_line: usize,
-    source_query: Option<String>,
-    arms: Vec<LifecycleResumeArm>,
+    pub(crate) name: String,
+    pub(crate) feature_hint: Option<String>,
+    pub(crate) header_line: usize,
+    pub(crate) header_indent: usize,
+    pub(crate) end_line: usize,
+    pub(crate) source_query: Option<String>,
+    pub(crate) arms: Vec<LifecycleResumeArm>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct LifecycleResumeArm {
-    state: String,
-    line: usize,
+    pub(crate) state: String,
+    pub(crate) line: usize,
 }
 
 pub fn lifecycle_gate_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
@@ -15675,163 +15676,11 @@ pub(crate) fn lifecycle_resolved_gate_hover(source: &str, position: Position, wo
     ))
 }
 
-pub fn lifecycle_gate_code_actions(
-    source: &str,
-    uri: &Url,
-    position: Position,
-) -> Vec<CodeActionOrCommand> {
-    let mut actions = Vec::new();
-    let lines: Vec<&str> = source.lines().collect();
-    let line_idx = (position.line as usize).min(lines.len().saturating_sub(1));
-    let line = lines.get(line_idx).copied().unwrap_or("");
-    let trimmed = line.trim_start();
-
-    if trimmed.starts_with("view ") {
-        if let Some(action) = build_add_lifecycle_gate_action(source, uri, line_idx) {
-            actions.push(action.into());
-        }
-    }
-
-    if let Some(resume) = enclosing_lifecycle_resume_block(source, position) {
-        if let Some(action) =
-            build_remove_stale_lifecycle_arm_action(source, uri, line_idx, &resume)
-        {
-            actions.push(action.into());
-        }
-        let missing = lifecycle_missing_resume_states(source, &resume);
-        if !missing.is_empty() {
-            if let Some(action) = build_add_missing_lifecycle_arms_action(uri, &resume, &missing) {
-                actions.push(action.into());
-            }
-            if missing.len() >= 2 {
-                if let Some(action) = build_convert_lifecycle_arms_to_wildcard_action(uri, &resume)
-                {
-                    actions.push(action.into());
-                }
-            }
-        }
-    }
-
-    actions
-}
-
-pub(crate) fn build_add_missing_lifecycle_arms_action(
-    uri: &Url,
-    resume: &LifecycleResumeBlock,
-    missing: &[String],
-) -> Option<CodeAction> {
-    let indent = " ".repeat(resume.header_indent + 2);
-    let new_text = missing
-        .iter()
-        .map(|state| format!("{indent}{state} → view <TODO>\n"))
-        .collect::<String>();
-    if new_text.is_empty() {
-        return None;
-    }
-    Some(simple_edit_action(
-        uri,
-        "Add missing state arms",
-        CodeActionKind::QUICKFIX,
-        vec![TextEdit {
-            range: Range {
-                start: position_at_line_start(lifecycle_resume_arm_insertion_line(resume)),
-                end: position_at_line_start(lifecycle_resume_arm_insertion_line(resume)),
-            },
-            new_text,
-        }],
-        true,
-    ))
-}
-
-pub(crate) fn build_convert_lifecycle_arms_to_wildcard_action(
-    uri: &Url,
-    resume: &LifecycleResumeBlock,
-) -> Option<CodeAction> {
-    if resume.arms.iter().any(|arm| arm.state == "*") {
-        return None;
-    }
-    let indent = " ".repeat(resume.header_indent + 2);
-    Some(simple_edit_action(
-        uri,
-        "Convert to wildcard",
-        CodeActionKind::REFACTOR_REWRITE,
-        vec![TextEdit {
-            range: Range {
-                start: position_at_line_start(lifecycle_resume_arm_insertion_line(resume)),
-                end: position_at_line_start(lifecycle_resume_arm_insertion_line(resume)),
-            },
-            new_text: format!("{indent}* → view <fallback>\n"),
-        }],
-        false,
-    ))
-}
-
-pub(crate) fn build_remove_stale_lifecycle_arm_action(
-    source: &str,
-    uri: &Url,
-    line_idx: usize,
-    resume: &LifecycleResumeBlock,
-) -> Option<CodeAction> {
-    let stale = lifecycle_stale_resume_arm_on_line(source, resume, line_idx)?;
-    Some(simple_edit_action(
-        uri,
-        "Remove stale arm",
-        CodeActionKind::QUICKFIX,
-        vec![TextEdit {
-            range: Range {
-                start: position_at_line_start(stale.line),
-                end: position_at_line_start(stale.line + 1),
-            },
-            new_text: String::new(),
-        }],
-        true,
-    ))
-}
-
-pub(crate) fn build_add_lifecycle_gate_action(
-    source: &str,
-    uri: &Url,
-    view_line_idx: usize,
-) -> Option<CodeAction> {
-    let view = enclosing_view_block(
-        source,
-        Position {
-            line: view_line_idx as u32,
-            character: 0,
-        },
-    )?;
-    if view_has_requires_lifecycle(source, &view) {
-        return None;
-    }
-    let candidate = lifecycle_gate_candidate_for_view(source, &view)?;
-    let child_indent = " ".repeat(view.header_indent + 2);
-    let resume =
-        lifecycle_resume_for_resource(source, view.feature_hint.as_deref(), &candidate.resource)
-            .unwrap_or_else(|| format!("{}_lifecycle", snake_case(&candidate.resource)));
-    let new_text = format!(
-        "{child_indent}requires_lifecycle {} = {}\n{child_indent}on_lifecycle_pending @resume {resume}\n",
-        candidate.resource, candidate.state
-    );
-    let insertion_line = lifecycle_gate_insertion_line(source, &view);
-    Some(simple_edit_action(
-        uri,
-        "Add lifecycle gate",
-        CodeActionKind::QUICKFIX,
-        vec![TextEdit {
-            range: Range {
-                start: position_at_line_start(insertion_line),
-                end: position_at_line_start(insertion_line),
-            },
-            new_text,
-        }],
-        true,
-    ))
-}
 
 #[derive(Debug, Clone)]
 pub(crate) struct LifecycleGateCandidate {
-    resource: String,
-    state: String,
+    pub(crate) resource: String,
+    pub(crate) state: String,
 }
 
 pub(crate) fn lifecycle_missing_resume_states(source: &str, resume: &LifecycleResumeBlock) -> Vec<String> {
