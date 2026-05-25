@@ -38,5 +38,6 @@ pub mod lsp;
 pub mod mcp;
 pub mod parse;
 pub mod plan;
+pub mod profile;
 pub mod spike_generate;
 pub mod test;

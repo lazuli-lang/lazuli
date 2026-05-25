@@ -966,7 +966,7 @@ fn main() -> Result<()> {
             top,
             by,
             format,
-        } => profile_command(&profile, top, &by, &format),
+        } => commands::profile::profile_command(&profile, top, &by, &format),
         Commands::Examples { sub } => {
             let project_root =
                 std::env::current_dir().context("failed to determine current directory")?;
@@ -4078,32 +4078,6 @@ impl From<DesignExportTarget> for cmd_design::ExportTarget {
             DesignExportTarget::Figma => cmd_design::ExportTarget::Figma,
             DesignExportTarget::StyleDictionary => cmd_design::ExportTarget::StyleDictionary,
         }
-    }
-}
-
-fn profile_command(profile_path: &Path, top: usize, by: &str, format: &str) -> Result<()> {
-    let axis = match by {
-        "cpu" => profile::ProfileAxis::Cpu,
-        "alloc" => profile::ProfileAxis::Alloc,
-        "block" => profile::ProfileAxis::Block,
-        other => bail!("unknown profile axis `{other}`; expected cpu, alloc, or block"),
-    };
-    let report = profile::run_profile(profile_path, top, axis)
-        .map_err(|err| anyhow::anyhow!("failed to read profile: {err}"))?;
-    match format {
-        "text" => {
-            print!("{}", profile::format_report(&report));
-            Ok(())
-        }
-        "json" => {
-            let payload = serde_json::json!({
-                "top_ops": report.top_ops,
-                "top_patterns": report.top_patterns,
-            });
-            println!("{}", serde_json::to_string_pretty(&payload)?);
-            Ok(())
-        }
-        other => bail!("unknown profile format `{other}`; expected text or json"),
     }
 }
 
