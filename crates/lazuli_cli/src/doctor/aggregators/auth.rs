@@ -87,7 +87,7 @@ pub(crate) fn resolve_resource_for_feature<'a>(
 /// Emit the four `auth_*` cross-feature diagnostics. Each diagnostic
 /// is anchored at the offending subblock line; the `auth` header is
 /// only used as a fallback.
-pub(super) fn auth_diagnostics(
+pub(crate) fn auth_diagnostics(
     auth_facts: &[AuthFacts],
     feature_resources: &BTreeMap<String, BTreeMap<String, ResourceFact>>,
     feature_adapters: &BTreeMap<String, BTreeSet<String>>,
