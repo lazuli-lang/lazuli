@@ -1009,7 +1009,7 @@ fn main() -> Result<()> {
             with_source,
             allow_drops,
             playwright_target,
-        } => generate_command(
+        } => commands::generate::generate_command(
             kind,
             &input,
             output.as_deref(),
@@ -1098,115 +1098,11 @@ fn main() -> Result<()> {
     }
 }
 
-/// OpenAPI / Lazuli Go bucket cycle — emit an artifact derived from
-/// the typed IR. Dispatch by closed-catalog `GenerateKind`.
-fn generate_command(
-    kind: GenerateKind,
-    input: &Path,
-    output: Option<&Path>,
-    api_version: Option<&str>,
-    module: Option<&str>,
-    lazuli_go_version: Option<&str>,
-    check: bool,
-    with_source: bool,
-    allow_drops: bool,
-    allow_version_mismatch: bool,
-    playwright_target: Option<PlaywrightTarget>,
-) -> Result<()> {
-    if !allow_version_mismatch {
-        let project_root = project_root_for_input(input);
-        let manifest = lazurite_manifest::load(&project_root).with_context(|| {
-            format!(
-                "failed to read {}",
-                project_root.join("Lazurite.toml").display()
-            )
-        })?;
-        version::enforce_manifest_pin(manifest.as_ref())?;
-    }
-
-    match kind {
-        GenerateKind::Openapi => generate_openapi(input, output, api_version),
-        GenerateKind::Go => generate_go(
-            input,
-            output,
-            module,
-            lazuli_go_version,
-            check,
-            with_source,
-            allow_drops,
-        ),
-        GenerateKind::Feature => {
-            reject_generate_feature_options(
-                output,
-                api_version,
-                module,
-                lazuli_go_version,
-                check,
-                with_source,
-            )?;
-            let name = input.to_str().context("feature name must be valid UTF-8")?;
-            let project_root =
-                std::env::current_dir().context("failed to determine current directory")?;
-            cmd_generate_feature::run(name, &project_root)
-        }
-        GenerateKind::Handler => {
-            let ident = input
-                .to_str()
-                .context("handler ident must be valid UTF-8")?;
-            let project_root =
-                std::env::current_dir().context("failed to determine current directory")?;
-            cmd_generate_handler::run(ident, &project_root)
-        }
-        GenerateKind::Playwright => {
-            let target =
-                playwright_target.context("--playwright-target is required when kind=playwright")?;
-            cmd_generate_playwright::run(input, target)
-        }
-        GenerateKind::Ts => generate_ts(input, output, check),
-        // Wave 3 — TDD/BDD-first scaffold generators. Each takes a
-        // `<feature>.<name>` ident; the cmd_generate_*::run function
-        // resolves the feature root from the manifest and appends the
-        // construct block with @TODO authored: markers.
-        GenerateKind::Command => {
-            let ident = input
-                .to_str()
-                .context("command ident must be valid UTF-8 in `<feature>.<name>` form")?;
-            let project_root =
-                std::env::current_dir().context("failed to determine current directory")?;
-            cmd_generate_command::run(ident, &project_root)
-        }
-        GenerateKind::View => {
-            let ident = input
-                .to_str()
-                .context("view ident must be valid UTF-8 in `<feature>.<name>` form")?;
-            let project_root =
-                std::env::current_dir().context("failed to determine current directory")?;
-            cmd_generate_view::run(ident, &project_root)
-        }
-        GenerateKind::Rule => {
-            let ident = input
-                .to_str()
-                .context("rule ident must be valid UTF-8 in `<feature>.<name>` form")?;
-            let project_root =
-                std::env::current_dir().context("failed to determine current directory")?;
-            cmd_generate_rule::run(ident, &project_root)
-        }
-        GenerateKind::Transition => {
-            let ident = input
-                .to_str()
-                .context("transition ident must be valid UTF-8 in `<feature>.<workflow>.<name>` form")?;
-            let project_root =
-                std::env::current_dir().context("failed to determine current directory")?;
-            cmd_generate_transition::run(ident, &project_root)
-        }
-    }
-}
-
 /// L0 #3 — emit TypeScript user-code for a Lazuli/Lazurite project.
 /// Walks the package, runs every TS-side emitter (design tokens, per-feature
 /// SDK, .lzx view hooks, slot interfaces, Zod schemas), and writes to
 /// `dist/ts-<frontend>/`. Honors `Lazurite.toml [frontends.<name>]`.
-fn generate_ts(input: &Path, output: Option<&Path>, check: bool) -> Result<()> {
+pub(crate) fn generate_ts(input: &Path, output: Option<&Path>, check: bool) -> Result<()> {
     let project_root = project_root_for_input(input);
     let manifest = lazurite_manifest::load(&project_root).with_context(|| {
         format!(
@@ -3974,28 +3870,6 @@ fn lower_camel(s: &str) -> String {
     out
 }
 
-fn reject_generate_feature_options(
-    output: Option<&Path>,
-    api_version: Option<&str>,
-    module: Option<&str>,
-    lazuli_go_version: Option<&str>,
-    check: bool,
-    with_source: bool,
-) -> Result<()> {
-    if output.is_some()
-        || api_version.is_some()
-        || module.is_some()
-        || lazuli_go_version.is_some()
-        || check
-        || with_source
-    {
-        bail!(
-            "`lazuli generate feature <name>` does not accept codegen flags like --out, --api-version, --module, --check, or --with-source"
-        );
-    }
-    Ok(())
-}
-
 impl From<DesignImportFormat> for cmd_design::ImportFormat {
     fn from(format: DesignImportFormat) -> Self {
         match format {
@@ -4566,7 +4440,11 @@ fn to_kebab_case(value: &str) -> String {
     out
 }
 
-fn generate_openapi(input: &Path, output: Option<&Path>, api_version: Option<&str>) -> Result<()> {
+pub(crate) fn generate_openapi(
+    input: &Path,
+    output: Option<&Path>,
+    api_version: Option<&str>,
+) -> Result<()> {
     let module = build_module_from_path(input)?;
     let opts = lazuli_openapi::EmitOptions {
         api_version: api_version.map(|s| s.to_owned()),

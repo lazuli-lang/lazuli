@@ -37,6 +37,7 @@ pub mod debug;
 pub mod design;
 pub mod dev;
 pub mod examples;
+pub mod generate;
 pub mod init;
 pub mod lsp;
 pub mod mcp;
