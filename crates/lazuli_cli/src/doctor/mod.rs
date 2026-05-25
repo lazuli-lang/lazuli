@@ -10,6 +10,7 @@ pub mod lzx;
 mod package;
 pub(crate) mod parsers;
 pub mod rbac;
+mod refs;
 mod release;
 mod returns_list_001;
 mod returns_list_002;
@@ -72,6 +73,18 @@ pub(crate) use aggregators::command_routing::{
     command_reachability_diagnostic, command_route_binding_diagnostics,
     parse_integration_requirement, resolve_command_target, resolve_platform_action_target,
     route_slot_name,
+};
+
+// Re-export the `refs` reference-scanner surface so the
+// `aggregators::lazurite_manifest` cluster + `facts/canonical.rs`
+// collector keep their `crate::doctor::*` call paths after the R6-2
+// extract. Items not consumed across the module tree
+// (`PluginReferenceFact`, `AtReferenceFact`, `plugin_reference_name_len`,
+// `reference_name_len`, `reference_namespace`) stay private to `refs`.
+pub(crate) use refs::{
+    collect_at_references_in_source, collect_package_plugin_references,
+    collect_plugin_references_in_source, go_mod_lazuli_runtime_version,
+    is_allowed_reference_namespace_for_doctor, path_references,
 };
 
 // Re-export the `lazurite_manifest` aggregator's dispatcher so
@@ -2566,223 +2579,6 @@ pub(super) fn updates_missing_updated_at_diagnostics(
     }
 
     diagnostics
-}
-
-pub(super) fn path_references<'a>(source: &'a str, prefix: &str) -> Vec<&'a str> {
-    let mut references = Vec::new();
-    let mut rest = source;
-
-    while let Some(start) = rest.find(prefix) {
-        let after_prefix = &rest[start + prefix.len()..];
-        // Walk the reference char-by-char so embedded `{axis}` segments
-        // (e.g. `env.CRYPT_KEY_TENANT_{tenant_id}` from the encryption
-        // bucket cycle) are captured as part of the canonical reference
-        // name. Outside braces, only `_` / alphanumerics belong to a
-        // reference; inside braces, every character up to `}` is
-        // captured verbatim.
-        let bytes = after_prefix.as_bytes();
-        let mut end = 0;
-        let mut in_brace = false;
-        while end < bytes.len() {
-            let ch = bytes[end] as char;
-            if in_brace {
-                if ch == '}' {
-                    in_brace = false;
-                    end += 1;
-                    continue;
-                }
-                end += 1;
-                continue;
-            }
-            if ch == '{' {
-                in_brace = true;
-                end += 1;
-                continue;
-            }
-            if ch == '_' || ch.is_ascii_alphanumeric() {
-                end += 1;
-                continue;
-            }
-            break;
-        }
-        if end > 0 {
-            references.push(&after_prefix[..end]);
-        }
-        rest = &after_prefix[end..];
-    }
-
-    references
-}
-
-#[derive(Debug, Clone)]
-struct PluginReferenceFact {
-    path: PathBuf,
-    line: usize,
-    column: usize,
-    reference: String,
-}
-
-#[derive(Debug, Clone)]
-struct AtReferenceFact {
-    path: PathBuf,
-    line: usize,
-    column: usize,
-    reference: String,
-    namespace: String,
-    name: String,
-}
-
-pub(super) fn collect_package_plugin_references(
-    package: &DoctorPackage,
-) -> Vec<PluginReferenceFact> {
-    package
-        .files
-        .iter()
-        .filter(|file| is_lzi_path(&file.path))
-        .flat_map(|file| collect_plugin_references_in_source(&file.path, &file.source))
-        .collect()
-}
-
-pub(super) fn collect_plugin_references_in_source(
-    path: &Path,
-    source: &str,
-) -> Vec<PluginReferenceFact> {
-    let mut references = Vec::new();
-    let mut offset = 0;
-    while let Some(relative_start) = source[offset..].find("@lazuli/plugin-") {
-        let start = offset + relative_start;
-        let after_prefix = &source[start + "@lazuli/plugin-".len()..];
-        let name_len = plugin_reference_name_len(after_prefix);
-        if name_len > 0 {
-            let (line, column) = line_col_for_offset(source, start);
-            references.push(PluginReferenceFact {
-                path: path.to_path_buf(),
-                line,
-                column,
-                reference: source[start..start + "@lazuli/plugin-".len() + name_len].to_owned(),
-            });
-        }
-        offset = start + "@lazuli/plugin-".len() + name_len.max(1);
-    }
-    references
-}
-
-pub(super) fn collect_at_references_in_source(path: &Path, source: &str) -> Vec<AtReferenceFact> {
-    let mut references = Vec::new();
-    let bytes = source.as_bytes();
-    let mut offset = 0;
-
-    while let Some(relative_start) = source[offset..].find('@') {
-        let start = offset + relative_start;
-        if start > 0 {
-            let previous = bytes[start - 1];
-            if previous.is_ascii_alphanumeric() || previous == b'_' {
-                offset = start + 1;
-                continue;
-            }
-        }
-
-        let after_at = &source[start + 1..];
-        let namespace_len = after_at
-            .bytes()
-            .take_while(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
-            .count();
-        if namespace_len == 0 {
-            offset = start + 1;
-            continue;
-        }
-
-        let namespace = &after_at[..namespace_len];
-        let separator = after_at.as_bytes().get(namespace_len).copied();
-        if separator != Some(b'.') && separator != Some(b'/') {
-            offset = start + 1 + namespace_len;
-            continue;
-        }
-
-        let name_start = start + 1 + namespace_len + 1;
-        let name_len = reference_name_len(&source[name_start..]);
-        if name_len == 0 {
-            offset = name_start;
-            continue;
-        }
-
-        let (line, column) = line_col_for_offset(source, start);
-        references.push(AtReferenceFact {
-            path: path.to_path_buf(),
-            line,
-            column,
-            reference: source[start..name_start + name_len].to_owned(),
-            namespace: namespace.to_owned(),
-            name: source[name_start..name_start + name_len].to_owned(),
-        });
-        offset = name_start + name_len;
-    }
-
-    references
-}
-
-pub(super) fn plugin_reference_name_len(source: &str) -> usize {
-    source
-        .bytes()
-        .take_while(|byte| {
-            byte.is_ascii_alphanumeric() || matches!(*byte, b'_' | b'-' | b'.' | b'/')
-        })
-        .count()
-}
-
-pub(super) fn reference_name_len(source: &str) -> usize {
-    source
-        .bytes()
-        .take_while(|byte| byte.is_ascii_alphanumeric() || matches!(*byte, b'_' | b'-' | b'/'))
-        .count()
-}
-
-pub(super) fn reference_namespace(reference: &str) -> Option<&str> {
-    let after_at = reference.strip_prefix('@')?;
-    let end = after_at.find(['.', '/']).unwrap_or(after_at.len());
-    (end > 0).then_some(&after_at[..end])
-}
-
-pub(super) fn is_allowed_reference_namespace_for_doctor(namespace: &str) -> bool {
-    matches!(
-        namespace,
-        "role"
-            | "scope"
-            | "actor"
-            | "policy"
-            | "semantic"
-            | "cap"
-            | "pii"
-            | "key"
-            | "fn"
-            | "hook"
-            | "validator"
-            | "adapter"
-            | "client"
-            | "query_modifier"
-            | "anchor"
-            | "llm"
-            | "tool"
-            | "trace"
-    )
-}
-
-pub(super) fn go_mod_lazuli_runtime_version(source: &str) -> Option<String> {
-    for line in source.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("//") || !trimmed.contains("lazuli.dev/runtime") {
-            continue;
-        }
-        let mut parts = trimmed.split_whitespace();
-        while let Some(part) = parts.next() {
-            if part == "lazuli.dev/runtime" {
-                return parts
-                    .next()
-                    .map(|version| version.trim_matches('"').to_owned());
-            }
-        }
-    }
-    None
 }
 
 // =============================================================================
