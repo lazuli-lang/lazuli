@@ -32,8 +32,9 @@ mod error;
 pub use error::ParseError;
 
 use common::{
-    SourceLine, find_token, find_top_level_token, is_trivia, line_error, line_error_owned,
-    parse_lzx_bool, source_lines, strip_inline_comment,
+    SourceLine, find_token, find_top_level_token, is_kebab_or_snake_ident, is_lzx_bare_ident,
+    is_lzx_resume_ref, is_trivia, line_error, line_error_owned, parse_lzx_bool, source_lines,
+    strip_inline_comment,
 };
 
 use crate::ast::OwnerAxisAst;
@@ -4028,44 +4029,6 @@ fn is_valid_permission_ref(s: &str) -> bool {
     true
 }
 
-/// Identifier check used across audience / view / cell / route names:
-/// kebab-case (`workspace-admin`) and snake_case (`workspace_admin`)
-/// both pass; anything else (PascalCase, spaces, leading digit, etc.)
-/// rejects.
-fn is_kebab_or_snake_ident(s: &str) -> bool {
-    if s.is_empty() {
-        return false;
-    }
-    let mut chars = s.chars();
-    let first = chars.next().unwrap();
-    if !first.is_ascii_lowercase() {
-        return false;
-    }
-    for c in chars {
-        if !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-') {
-            return false;
-        }
-    }
-    true
-}
-
-fn is_lzx_bare_ident(s: &str) -> bool {
-    if s.is_empty() {
-        return false;
-    }
-    let mut chars = s.chars();
-    let first = chars.next().unwrap();
-    if !first.is_ascii_alphabetic() {
-        return false;
-    }
-    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-}
-
-fn is_lzx_resume_ref(s: &str) -> bool {
-    let parts: Vec<_> = s.split('.').collect();
-    matches!(parts.as_slice(), [name] if is_lzx_bare_ident(name))
-        || matches!(parts.as_slice(), [feature, name] if is_lzx_bare_ident(feature) && is_lzx_bare_ident(name))
-}
 
 // =============================================================================
 // Cut A — feature skeleton + agent slice
