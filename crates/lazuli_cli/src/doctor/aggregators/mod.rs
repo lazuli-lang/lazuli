@@ -30,6 +30,7 @@ pub(crate) mod approval;
 pub(crate) mod audit;
 pub(crate) mod auth;
 pub(crate) mod cache;
+pub(crate) mod command_routing;
 pub(crate) mod correctness;
 pub(crate) mod cors;
 pub(crate) mod deprecated;

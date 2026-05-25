@@ -64,6 +64,16 @@ pub(crate) use aggregators::approval::{
     collect_approval_block_presence,
 };
 
+// Re-export the `command_routing` aggregator's public surface so the
+// `facts/canonical.rs` + `facts/lzx.rs` collectors and the in-tree
+// LZX/api LSP cross-checks keep their `crate::doctor::*` call paths
+// after the R6-2 extract.
+pub(crate) use aggregators::command_routing::{
+    command_reachability_diagnostic, command_route_binding_diagnostics,
+    parse_integration_requirement, resolve_command_target, resolve_platform_action_target,
+    route_slot_name,
+};
+
 // Re-export the `lazurite_manifest` aggregator's dispatcher so
 // `doctor/dispatch.rs` keeps its `super::lazurite_manifest_diagnostics`
 // call path after the extraction.
@@ -101,6 +111,11 @@ use helpers::{
     doctor_project_root, parse_doctor_format, parse_doctor_severity, parse_fail_on_specs,
     project_has_lazurite_manifest, resolve_test_discipline_severity,
 };
+// Re-export the shared offset → (line, column) helpers so the
+// `facts/*` collectors (`canonical`, `lzx`) keep their existing
+// `crate::doctor::line_col_for_offset` call paths after the R6-2
+// extract moved both helpers out of `mod.rs` into `helpers.rs`.
+pub(crate) use helpers::{line_col_for_offset, line_col_for_offset_in_file};
 use parsers::{
     auth_session_ttl_seconds, cache_ttl_as_seconds, catalog_list, environments_summary,
     error_page_catalog_display, format_accept_list, format_agent_policy, format_name_list,
@@ -1451,27 +1466,27 @@ impl Default for SymbolFact {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-struct CommandKey {
-    feature: String,
-    command: String,
+pub(crate) struct CommandKey {
+    pub(crate) feature: String,
+    pub(crate) command: String,
 }
 
 #[derive(Debug, Clone)]
-struct CommandPolicy {
-    reference: String,
-    atoms: Vec<String>,
-    routes: BTreeMap<String, CommandRouteSlot>,
+pub(crate) struct CommandPolicy {
+    pub(crate) reference: String,
+    pub(crate) atoms: Vec<String>,
+    pub(crate) routes: BTreeMap<String, CommandRouteSlot>,
 }
 
 #[derive(Debug, Clone)]
-struct CommandRouteSlot {
-    bound_from_context: bool,
+pub(crate) struct CommandRouteSlot {
+    pub(crate) bound_from_context: bool,
 }
 
 #[derive(Debug, Clone)]
-struct ResolvedCommandTarget {
-    key: CommandKey,
-    args: BTreeSet<String>,
+pub(crate) struct ResolvedCommandTarget {
+    pub(crate) key: CommandKey,
+    pub(crate) args: BTreeSet<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -2553,256 +2568,6 @@ pub(super) fn updates_missing_updated_at_diagnostics(
     diagnostics
 }
 
-pub(super) fn command_reachability_diagnostic(
-    file: &DoctorFile,
-    view: &LzxPlatformView,
-    audience: &str,
-    qualifiers: &[String],
-    source_kind: &str,
-    target: &CommandKey,
-    commands: &BTreeMap<CommandKey, CommandPolicy>,
-) -> Vec<DoctorDiagnostic> {
-    let (line, column) = line_col_for_offset(&file.source, view.span.start);
-    let Some(policy) = commands.get(target) else {
-        return vec![DoctorDiagnostic {
-            path: file.path.clone(),
-            line,
-            column,
-            severity: DoctorSeverity::Warning,
-            code: "LZX-POL-002".to_owned(),
-            message: format!(
-                "{source_kind} targets unresolved command `{}.command.{}`; doctor could not prove policy reachability.",
-                target.feature, target.command
-            ),
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        }];
-    };
-
-    if audience_can_reach_policy(audience, qualifiers, &policy.atoms) {
-        return Vec::new();
-    }
-
-    vec![DoctorDiagnostic {
-        path: file.path.clone(),
-        line,
-        column,
-        severity: DoctorSeverity::Error,
-        code: "LZX-POL-001".to_owned(),
-        message: format!(
-            "audience `{audience}` {source_kind} reaches `{}.command.{}`, but its policy `{}` resolves to {}; change the surface target or expose a command policy reachable by this audience.",
-            target.feature,
-            target.command,
-            policy.reference,
-            if policy.atoms.is_empty() {
-                "no known atoms".to_owned()
-            } else {
-                policy.atoms.join(", ")
-            }
-        ),
-        category: None,
-        feature_name: None,
-        construct: None,
-        fix: None,
-        group: None,
-    }]
-}
-
-pub(super) fn command_route_binding_diagnostics(
-    file: &DoctorFile,
-    view: &LzxPlatformView,
-    view_routes: Option<&BTreeSet<String>>,
-    source_kind: &str,
-    target: &ResolvedCommandTarget,
-    commands: &BTreeMap<CommandKey, CommandPolicy>,
-) -> Vec<DoctorDiagnostic> {
-    let Some(command) = commands.get(&target.key) else {
-        return Vec::new();
-    };
-    let missing: Vec<_> = command
-        .routes
-        .iter()
-        .filter(|(name, slot)| {
-            !slot.bound_from_context
-                && !target.args.contains(*name)
-                && !view_routes.is_some_and(|routes| routes.contains(*name))
-        })
-        .map(|(name, _)| name.clone())
-        .collect();
-
-    if missing.is_empty() {
-        return Vec::new();
-    }
-
-    let (line, column) = line_col_for_offset(&file.source, view.span.start);
-    vec![DoctorDiagnostic {
-        path: file.path.clone(),
-        line,
-        column,
-        severity: DoctorSeverity::Error,
-        code: "LZX-ROUTE-001".to_owned(),
-        message: format!(
-            "{source_kind} reaches `{}.command.{}` but does not bind required command route slot(s) {}; pass them in the target call or bind the command route from context.",
-            target.key.feature,
-            target.key.command,
-            missing.join(", ")
-        ),
-        category: None,
-        feature_name: None,
-        construct: None,
-        fix: None,
-        group: None,
-    }]
-}
-
-pub(super) fn resolve_platform_action_target(
-    action: &str,
-    default_feature: &str,
-    abstract_actions: Option<&BTreeMap<String, String>>,
-) -> Option<ResolvedCommandTarget> {
-    if let Some((_, target)) = action.split_once("->") {
-        return resolve_command_target(target.trim(), default_feature);
-    }
-    if let Some(target) = resolve_command_target(action, default_feature) {
-        return Some(target);
-    }
-    let target = abstract_actions?.get(action)?;
-    resolve_command_target(target, default_feature)
-}
-
-pub(super) fn resolve_command_target(
-    target: &str,
-    default_feature: &str,
-) -> Option<ResolvedCommandTarget> {
-    let target = target.trim();
-    let (callee, args) = split_target_call(target);
-
-    if let Some(command) = callee.strip_prefix("command.") {
-        return Some(ResolvedCommandTarget {
-            key: CommandKey {
-                feature: default_feature.to_owned(),
-                command: command.to_owned(),
-            },
-            args,
-        });
-    }
-
-    let parts: Vec<_> = callee.split('.').collect();
-    match parts.as_slice() {
-        [feature, "command", command] => Some(ResolvedCommandTarget {
-            key: CommandKey {
-                feature: (*feature).to_owned(),
-                command: (*command).to_owned(),
-            },
-            args,
-        }),
-        _ => None,
-    }
-}
-
-pub(super) fn split_target_call(target: &str) -> (&str, BTreeSet<String>) {
-    let Some((callee, rest)) = target.split_once('(') else {
-        return (target, BTreeSet::new());
-    };
-    let args = rest
-        .trim_end_matches(')')
-        .split(',')
-        .filter_map(|arg| {
-            arg.split_once(':')
-                .or_else(|| arg.split_once('='))
-                .map(|(name, _)| name.trim())
-        })
-        .filter(|name| is_identifier(name))
-        .map(str::to_owned)
-        .collect();
-    (callee.trim(), args)
-}
-
-pub(super) fn parse_integration_requirement(trimmed: &str) -> Option<(&str, &str)> {
-    let rest = trimmed.trim().strip_prefix("integration ")?;
-    let (slot, contract) = rest.split_once(':')?;
-    let slot = slot.trim();
-    let contract = contract.trim();
-
-    if is_identifier(slot) && is_type_name(contract) {
-        Some((slot, contract))
-    } else {
-        None
-    }
-}
-
-pub(super) fn route_slot_name(route: &str) -> Option<&str> {
-    route
-        .split_once(':')
-        .map(|(name, _)| name.trim())
-        .or_else(|| route.split_whitespace().next())
-        .filter(|name| is_identifier(name))
-}
-
-pub(super) fn audience_can_reach_policy(
-    audience: &str,
-    qualifiers: &[String],
-    atoms: &[String],
-) -> bool {
-    if atoms.iter().any(|atom| atom == "@scope.public") {
-        return true;
-    }
-
-    if audience == "public" {
-        return false;
-    }
-
-    let allowed_roles = audience_roles(audience, qualifiers);
-    if atoms.iter().any(|atom| allowed_roles.contains(atom)) {
-        return true;
-    }
-
-    audience == "account"
-        && atoms
-            .iter()
-            .any(|atom| atom == "@scope.same_org" || atom == "@scope.current_customer")
-}
-
-pub(super) fn audience_roles(audience: &str, qualifiers: &[String]) -> BTreeSet<String> {
-    let mut roles = BTreeSet::new();
-    roles.insert(format!("@role.{audience}"));
-
-    for qualifier in qualifiers {
-        if qualifier == "role" || qualifier == "roles" {
-            continue;
-        }
-        if let Some(role) = qualifier.strip_prefix("@role.") {
-            roles.insert(format!("@role.{role}"));
-        } else {
-            roles.insert(format!("@role.{qualifier}"));
-        }
-    }
-
-    roles
-}
-
-pub(super) fn line_col_for_offset(source: &str, offset: usize) -> (usize, usize) {
-    let mut line = 1;
-    let mut column = 1;
-
-    for (index, ch) in source.char_indices() {
-        if index >= offset {
-            break;
-        }
-        if ch == '\n' {
-            line += 1;
-            column = 1;
-        } else {
-            column += 1;
-        }
-    }
-
-    (line, column)
-}
-
 pub(super) fn path_references<'a>(source: &'a str, prefix: &str) -> Vec<&'a str> {
     let mut references = Vec::new();
     let mut rest = source;
@@ -3280,15 +3045,6 @@ pub(super) fn field_derived_from_unresolved_diagnostics(
     diagnostics
 }
 
-/// Best-effort source-offset → line resolver for derived-from spans.
-/// Falls back to line 1 when the path can't be read (test fixtures
-/// often produce in-memory facts without disk-backing).
-pub(super) fn line_col_for_offset_in_file(path: &Path, offset: usize) -> (usize, usize) {
-    let Ok(source) = std::fs::read_to_string(path) else {
-        return (1, 1);
-    };
-    line_col_for_offset(&source, offset)
-}
 
 /// Tokenise a `derived from` expression, drop operators / numerics /
 /// string literals / dotted paths / keywords, and return identifiers
