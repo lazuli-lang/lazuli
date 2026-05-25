@@ -994,7 +994,7 @@ fn main() -> Result<()> {
             frontends,
             in_place,
         ),
-        Commands::Lsp { stdio: _ } => lsp_command(),
+        Commands::Lsp { stdio: _ } => commands::lsp::lsp_command(),
         Commands::SpikeGenerate { root, spec } => spike_generate_command(&root, spec.as_deref()),
         Commands::Plan { input, check } => plan_command(&input, check.as_deref()),
         Commands::Generate {
@@ -7070,15 +7070,6 @@ fn pascal_case(value: &str) -> String {
     }
 
     out
-}
-
-fn lsp_command() -> Result<()> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("failed to start Lazuli LSP runtime")?;
-    runtime.block_on(lazuli_lsp::serve_stdio());
-    Ok(())
 }
 
 fn compile_to_ir(input: &Path) -> Result<lazuli_ir::Module> {
