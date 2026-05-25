@@ -157,6 +157,15 @@ enum Commands {
         /// - `coverage:<layer>=<N>` — coverage threshold gate
         #[arg(long, action = clap::ArgAction::Append)]
         fail_on: Vec<String>,
+        /// W3 (rails-style-refactor) — audit the framework's own Rust
+        /// source instead of (or in addition to) `.lzi`/`.lzx` IR.
+        /// Walks `crates/lazuli_*/src/` and emits `INTERNAL-*` findings
+        /// (file size, missing rustdoc, absent `## Examples`, unpaired
+        /// tests). Pairs with workspace-root
+        /// `[doctor.internal_hygiene].preset = "tdd-iron-hand"` for
+        /// the framework's CI editorial veto.
+        #[arg(long = "self")]
+        self_audit: bool,
     },
     Inspect {
         input: PathBuf,
@@ -922,6 +931,7 @@ fn main() -> Result<()> {
             format,
             coverage,
             fail_on,
+            self_audit,
         } => doctor::doctor_command_with_options(
             &input,
             security_profile.into(),
@@ -931,6 +941,7 @@ fn main() -> Result<()> {
                 format: Some(format),
                 coverage,
                 fail_on,
+                self_audit,
             },
         ),
         Commands::Inspect {

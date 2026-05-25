@@ -33,7 +33,7 @@ pub struct Manifest {
     pub testing: Option<Testing>,
 }
 
-/// Wave 0.5 + Wave 6 — `[doctor]` block in `Lazurite.toml`.
+/// Wave 0.5 + Wave 6 + Wave 3 (rails-style) — `[doctor]` block in `Lazurite.toml`.
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct Doctor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -42,6 +42,29 @@ pub struct Doctor {
     pub test_discipline: Option<TestDisciplineDoctor>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coverage: Option<CoverageSection>,
+    /// W3 (rails-style-refactor) — `[doctor.internal_hygiene]` block.
+    /// Governs `INTERNAL-*` rules that audit the framework's own Rust
+    /// source under `lazuli doctor --self`. Mirrors test_discipline shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub internal_hygiene: Option<InternalHygieneDoctor>,
+}
+
+/// W3 — `[doctor.internal_hygiene]` block.
+///
+/// Configures the four `INTERNAL-*` rules that audit the framework's
+/// Rust source. Under `preset = "tdd-iron-hand"`, every rule fires at
+/// `Error` regardless of profile — editorial veto for the framework's
+/// own CI. Per-rule overrides via `severity_override` must carry
+/// `reason` per `DOCTOR-OVERRIDE-NEEDS-REASON-001`.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct InternalHygieneDoctor {
+    /// Preset name. Parsed by
+    /// `lazuli_doctor::internal_hygiene::preset::InternalHygienePreset::parse`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
+    /// Per-rule severity overrides keyed by canonical code.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub severity_override: BTreeMap<String, SeverityOverride>,
 }
 
 /// Wave 0.5 + Wave 1.5 — `[doctor.test_discipline]` block.

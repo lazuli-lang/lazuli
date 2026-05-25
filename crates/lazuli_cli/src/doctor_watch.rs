@@ -121,6 +121,9 @@ fn run_once(
                 FailOnSpec::Rule(r) => format!("rule:{r}"),
             })
             .collect(),
+        // Watch mode never self-audits; --watch + --self combo would
+        // re-walk crates/ on every keystroke, pointless overhead.
+        self_audit: false,
     };
     if let Err(err) = doctor::doctor_command_with_options(
         input,
