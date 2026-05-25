@@ -999,8 +999,12 @@ fn main() -> Result<()> {
             in_place,
         ),
         Commands::Lsp { stdio: _ } => commands::lsp::lsp_command(),
-        Commands::SpikeGenerate { root, spec } => spike_generate_command(&root, spec.as_deref()),
-        Commands::Plan { input, check } => plan_command(&input, check.as_deref()),
+        Commands::SpikeGenerate { root, spec } => {
+            commands::spike_generate::spike_generate_command(&root, spec.as_deref())
+        }
+        Commands::Plan { input, check } => {
+            commands::plan::plan_command(&input, check.as_deref())
+        }
         Commands::Generate {
             kind,
             input,
@@ -5497,119 +5501,6 @@ fn build_module_with_source_from_path(
 ///
 /// Typed field-level diff (`Rename Customer.status -> Customer.lifecycle_status`)
 /// is out of scope for Route C; lands in the Tier-4 follow-up cycle.
-fn plan_command(input: &Path, check: Option<&str>) -> Result<()> {
-    let Some(check_name) = check else {
-        bail!("`lazuli plan` currently requires `--check <snapshot_name>`");
-    };
-
-    // Locate `app.lzi` — accept either a direct path or a directory.
-    let app_path = if input.is_dir() {
-        lazurite_manifest::resolve_in_app_dir(input, "app.lzi")
-    } else {
-        input.to_path_buf()
-    };
-    if !app_path.exists() {
-        bail!("app manifest not found at {}", app_path.display());
-    }
-
-    let source = fs::read_to_string(&app_path)
-        .with_context(|| format!("failed to read {}", app_path.display()))?;
-
-    let manifest = app_manifest::parse_app_manifest(&source)
-        .ok_or_else(|| anyhow::anyhow!("{} does not declare an `app` block", app_path.display()))?;
-
-    let Some(deploy) = manifest.deploy.as_ref() else {
-        bail!(
-            "app `{}` declares no `deploy` block — nothing to plan",
-            manifest.name
-        );
-    };
-    let Some(checkpoint) = deploy.checkpoint.as_ref() else {
-        bail!(
-            "app `{}` declares no `deploy.checkpoint` — add `checkpoint <name> \"<path>\"` first",
-            manifest.name
-        );
-    };
-    if checkpoint.name != check_name {
-        bail!(
-            "checkpoint `{}` not declared in app `{}` (found `{}`)",
-            check_name,
-            manifest.name,
-            checkpoint.name
-        );
-    }
-
-    // Resolve checkpoint path relative to app.lzi's directory.
-    let app_dir = app_path.parent().unwrap_or_else(|| Path::new("."));
-    let snapshot_path = app_dir.join(&checkpoint.path);
-    if !snapshot_path.exists() {
-        bail!(
-            "checkpoint `{}` references path `{}` that does not exist relative to {}",
-            check_name,
-            checkpoint.path,
-            app_path.display()
-        );
-    }
-
-    let text = fs::read_to_string(&snapshot_path)
-        .with_context(|| format!("failed to read snapshot {}", snapshot_path.display()))?;
-    let value: serde_json::Value = serde_json::from_str(&text)
-        .with_context(|| format!("snapshot {} is not valid JSON", snapshot_path.display()))?;
-
-    let expected_version = env!("CARGO_PKG_VERSION");
-    let snapshot_version = value
-        .get("lazuli_version")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    if snapshot_version.is_empty() {
-        println!(
-            "checkpoint {}: ok (snapshot missing `lazuli_version`; regenerate to enable version drift detection)",
-            check_name
-        );
-        return Ok(());
-    }
-    if snapshot_version != expected_version {
-        println!(
-            "checkpoint {}: ok (snapshot lazuli_version {} lags analyzer {}; consider regenerating)",
-            check_name, snapshot_version, expected_version
-        );
-        return Ok(());
-    }
-    println!("checkpoint {}: ok", check_name);
-    Ok(())
-}
-
-fn spike_generate_command(root: &Path, spec: Option<&Path>) -> Result<()> {
-    let feature = match spec {
-        Some(path) => {
-            let text =
-                fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
-            serde_json::from_str(&text)
-                .with_context(|| format!("parse runtime spec JSON {}", path.display()))?
-        }
-        None => lazuli_codegen_spec::customer_spike(),
-    };
-    let go_path = root.join("dist/go/customer/customer.gen.go");
-    let ts_path = root.join("dist/web/customer/src/customer.gen.ts");
-
-    let go_source = lazuli_codegen_go::emit_feature_go(&feature);
-    let ts_source = lazuli_codegen_ts::emit_feature_ts(&feature);
-
-    if let Some(parent) = go_path.parent() {
-        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
-    }
-    if let Some(parent) = ts_path.parent() {
-        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
-    }
-
-    fs::write(&go_path, go_source).with_context(|| format!("write {}", go_path.display()))?;
-    fs::write(&ts_path, ts_source).with_context(|| format!("write {}", ts_path.display()))?;
-
-    println!("wrote {}", go_path.display());
-    println!("wrote {}", ts_path.display());
-    Ok(())
-}
-
 fn inspect_command(
     input: &Path,
     expand: &str,

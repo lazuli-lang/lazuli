@@ -36,4 +36,6 @@ pub mod init;
 pub mod lsp;
 pub mod mcp;
 pub mod parse;
+pub mod plan;
+pub mod spike_generate;
 pub mod test;
