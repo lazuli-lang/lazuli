@@ -21,14 +21,19 @@
 
 use std::fmt::Write;
 
-use lazuli_ir::{
-    BuiltinType, CapabilityRef, Feature, Field, Record, Resource, RetentionAction, Tenancy, TypeRef,
-};
+use lazuli_ir::{CapabilityRef, Feature, Field, Record, Resource, Tenancy, TypeRef};
 
 use super::cross_feature::CrossFeatureIndex;
 use super::imports::ImportSet;
 use super::printer::GoPrinter;
 use super::types::{self, TypeCtx};
+
+mod attributes;
+
+use attributes::{
+    db_col_for, effective_tenancy, is_secret_capability, plugin_semantic_validate_tag,
+    register_imports_for_type, retention_action_const, tenancy_const, uses_timestamps,
+};
 
 /// Emit `<feature>/resource.gen.go` for a feature, or `None` when the
 /// feature declares no resources or records (so `module.rs` skips the
@@ -803,125 +808,6 @@ fn build_tag(
     }
 }
 
-/// Resolve effective tenancy by combining feature defaults with the
-/// resource-level override. Resource override wins; if both unset we
-/// default to `Tenancy::None` because the registered Lazuli Go lib
-/// only recognises `TenancyOrg`/`TenancyNone` today.
-fn effective_tenancy(feature: &Feature, resource: &Resource) -> Tenancy {
-    if let Some(t) = resource.tenancy.clone() {
-        return t;
-    }
-    if let Some(t) = feature.defaults.tenancy.clone() {
-        return t;
-    }
-    Tenancy::None
-}
-
-/// Resolve effective timestamps flag — `Resource.timestamps` overrides
-/// `Defaults.timestamps`. `Some(false)` is the explicit opt-out.
-fn uses_timestamps(feature: &Feature, resource: &Resource) -> bool {
-    resource.timestamps.unwrap_or(feature.defaults.timestamps)
-}
-
-/// Lift a `Tenancy` IR variant onto the `lazuli.Tenancy*` constant
-/// name. The Lazuli Go lib carries `TenancyNone`/`TenancyOrg`/
-/// `TenancyTeam`/`TenancyCustom` (the last is a structural marker
-/// — the per-resource custom axis name is not yet threaded through
-/// `Resource[T]`; the runtime widens this when a pilot product
-/// needs per-row custom-axis scoping).
-fn tenancy_const(tenancy: Tenancy) -> &'static str {
-    match tenancy {
-        Tenancy::Org => "lazuli.TenancyOrg",
-        Tenancy::Team => "lazuli.TenancyTeam",
-        Tenancy::Custom(_) => "lazuli.TenancyCustom",
-        Tenancy::None => "lazuli.TenancyNone",
-    }
-}
-
-fn retention_action_const(action: RetentionAction) -> &'static str {
-    match action {
-        RetentionAction::Anonymize => "lazuli.Anonymize",
-        RetentionAction::Delete => "lazuli.Delete",
-        RetentionAction::Archive => "lazuli.Archive",
-    }
-}
-
-/// Compute the per-field `db:"<col>"` value. For `@semantic.GeoPoint`
-/// columns the proposal §3.1/§9.1 require the PostGIS type modifier
-/// to land in the tag so pgx scans + DDL roundtrip stay aligned. All
-/// other types reuse the field name verbatim (lower-snake by
-/// convention).
-fn db_col_for(field: &lazuli_ir::Field, type_ref: &TypeRef) -> String {
-    if is_geo_point(type_ref) {
-        return format!("{},type:geography(point,4326)", field.name);
-    }
-    field.name.clone()
-}
-
-/// B3 — derive the `validate:"<plugin-short>.<validator>"` clause for
-/// plugin-contributed `@semantic.<Name>` fields. The IR carries the
-/// plugin namespace verbatim (`@lazuli/plugin-scalars-br`) — strip the
-/// `@lazuli/plugin-` prefix to recover the short name — plus the `validator`
-/// function name lifted directly from the plugin's manifest. The
-/// runtime dispatcher maps `<plugin-short>.<validator>` to the
-/// registered Go function via the anonymous-import contract
-/// described at `docs/plugin-authoring.md:227`.
-///
-/// See `docs/proposals/semantic-types-plugin-locales.md` §Codegen.
-fn plugin_semantic_validate_tag(type_ref: &TypeRef) -> Option<String> {
-    let TypeRef::Builtin(BuiltinType::SemanticPluginType {
-        plugin, validator, ..
-    }) = type_ref
-    else {
-        return None;
-    };
-    let short = plugin
-        .strip_prefix("@lazuli/plugin-")
-        .unwrap_or(plugin.as_str());
-    Some(format!("{}.{}", short, validator))
-}
-
-fn is_geo_point(type_ref: &TypeRef) -> bool {
-    matches!(type_ref, TypeRef::Builtin(BuiltinType::SemanticGeoPoint))
-}
-
-/// True for capability-typed fields whose value the wire must never
-/// carry: password hashes, encrypted/E2EE blobs, tokens, and the legacy
-/// `@cap.Secret` builtin. Drives the `json:"-"` carve-out so a generic
-/// `json.Marshal(resource)` cannot leak credentials.
-///
-/// `CapabilityRef::File` is intentionally NOT included — file refs are
-/// public handles to storage, not secrets.
-fn is_secret_capability(type_ref: &TypeRef) -> bool {
-    match type_ref {
-        TypeRef::Builtin(BuiltinType::CapSecret) => true,
-        TypeRef::Capability(cap) => matches!(
-            cap,
-            CapabilityRef::Hashed(_)
-                | CapabilityRef::Encrypted(_)
-                | CapabilityRef::E2ee(_)
-                | CapabilityRef::Token(_)
-        ),
-        _ => false,
-    }
-}
-
-/// Register every import surfaced by a `TypeRef` onto the file-level
-/// `ImportSet`. Recurses into `Many<T>` so wrapping a typed `T`
-/// carries its import through. Cross-feature refs surface here as
-/// `<module>/<feature>` paths and route through `ImportSet::add`'s
-/// "third-party" bucket (the classifier doesn't know the difference,
-/// but the `import` block still compiles — Go doesn't care which
-/// group a local module sits in).
-fn register_imports_for_type(type_ref: &TypeRef, ctx: &TypeCtx<'_>, imports: &mut ImportSet) {
-    let (_go, import) = types::go_type_for(type_ref, ctx);
-    if let Some(path) = import {
-        imports.add(&path);
-    }
-    if let TypeRef::Many(inner) = type_ref {
-        register_imports_for_type(inner, ctx, imports);
-    }
-}
 
 fn write_section_banner(p: &mut GoPrinter, lines: &[String]) {
     let rule = "-".repeat(76);
@@ -945,8 +831,8 @@ use super::casing::{lower_camel, pascal_case};
 mod tests {
     use super::*;
     use lazuli_ir::{
-        AppManifest, CapabilityRef, Defaults, EncryptedCapability, Feature, Field, Module,
-        Policies, Record, Resource, RetentionAction, RetentionSpec, Tenancy, TypeRef,
+        AppManifest, BuiltinType, CapabilityRef, Defaults, EncryptedCapability, Feature, Field,
+        Module, Policies, Record, Resource, RetentionAction, RetentionSpec, Tenancy, TypeRef,
     };
 
     /// Test helper: build a single-feature module around `feature`,
@@ -1889,7 +1775,7 @@ mod tests {
 #[cfg(test)]
 mod feature_emit_tests {
     use super::*;
-    use lazuli_ir::{AppManifest, Defaults, Field, Module, Policies, Resource};
+    use lazuli_ir::{AppManifest, BuiltinType, Defaults, Field, Module, Policies, Resource};
 
     fn synthetic_feature_with_resource() -> Feature {
         Feature {
