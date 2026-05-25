@@ -16,8 +16,9 @@
 //! - `policy <expr>` — single source of truth for read authorization.
 //! - `params <name>: <Type>` — inputs the caller supplies; share the
 //!   inline-constraint catalog (min/max/in/pattern) with command
-//!   inputs and resource fields via `extract_field_constraints` /
-//!   `split_command_input_modifiers` (both `pub(super)` in `mod.rs`).
+//!   inputs and resource fields via `extract_field_constraints`
+//!   (`pub(super)` in `mod.rs`) and `split_command_input_modifiers`
+//!   (`pub(super)` in `command.rs`).
 //! - `scope` / `scope override` — tenant boundary; override is opt-in
 //!   and demands a `reason "..."` clause.
 //! - `filters`, `order`, `paginate`, `cache`, `search` — list-only
@@ -29,7 +30,8 @@
 use super::super::common::{SourceLine, is_trivia, line_error, unquote_lzx_value};
 use super::super::error::ParseError;
 use super::super::lzx::try_parse_policy_expr;
-use super::{extract_field_constraints, split_command_input_modifiers};
+use super::command::split_command_input_modifiers;
+use super::extract_field_constraints;
 
 use crate::ast::{
     CommandInputSlot, ListQueryDecl, LookupKey, LookupQueryDecl, PolicyExprAst, QueryDecl,

@@ -30,12 +30,13 @@
 use super::super::common::{SourceLine, is_trivia, line_error, unquote_lzx_value};
 use super::super::error::ParseError;
 use super::super::lzx::try_parse_policy_expr;
+use super::command::{
+    parse_command_deprecated, parse_command_input_block, parse_command_route_slot,
+    parse_deprecated_block,
+};
 use super::locale::parse_locale_negotiate_decl;
 use super::numerics::{fold_rate_limit_line, parse_rate_limit_line_body};
-use super::{
-    AGENT_INDENT_AGENT_CHILD, AGENT_INDENT_FEATURE_CHILD, parse_command_deprecated,
-    parse_command_input_block, parse_command_route_slot, parse_deprecated_block,
-};
+use super::{AGENT_INDENT_AGENT_CHILD, AGENT_INDENT_FEATURE_CHILD};
 use crate::ast::{
     ApiDecl, CommandDeprecatedDecl, CommandInputDecl, CommandRouteSlot, HttpMethod,
     LocaleNegotiateDecl, PolicyExprAst, RateLimitSpecAst, Span,

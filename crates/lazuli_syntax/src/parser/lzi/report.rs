@@ -49,10 +49,10 @@ use super::super::common::{
 };
 use super::super::error::ParseError;
 use super::super::lzx::try_parse_policy_expr;
+use super::command::parse_command_audit;
 use super::{
     AGENT_INDENT_AGENT_CHILD, AGENT_INDENT_FEATURE_CHILD, fold_rate_limit_line,
-    parse_command_audit, parse_rate_limit_line_body, split_first_token, take_identifier,
-    take_quoted_string,
+    parse_rate_limit_line_body, split_first_token, take_identifier, take_quoted_string,
 };
 
 use crate::ast::{
