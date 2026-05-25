@@ -20,6 +20,10 @@ use lazuli_ir::{
     Module, Policies, PolicyRef, QualifiedName, Resource, TypeRef, TypedSlot,
 };
 
+use super::super::cross_feature::CrossFeatureIndex;
+use super::super::module::EmitContext;
+use super::file_emit::emit_command_file;
+
 pub(super) fn base_feature(name: &str) -> Feature {
     Feature {
         name: name.to_owned(),
@@ -168,6 +172,31 @@ pub(super) fn local_qname(name: &str) -> QualifiedName {
         feature: None,
         name: name.to_owned(),
     }
+}
+
+/// Emit `command.gen.go` for the given feature. Ensures a `Customer`
+/// resource exists somewhere in the module so command effects resolve
+/// at codegen time. This mirrors the `emit` helper that used to live
+/// inline in the `command/file_emit.rs` `mod tests` block.
+pub(super) fn emit_with_customer_fallback(feature: &Feature) -> Option<String> {
+    let mut features = vec![feature.clone()];
+    if !feature
+        .commands
+        .iter()
+        .all(|c| matches!(c.effect, CommandEffect::None))
+    {
+        features[0].resources.push(simple_resource("Customer"));
+    }
+    let module = module_with_features(features);
+    let index = CrossFeatureIndex::build(&module);
+    let emit_ctx = EmitContext::no_source("customer/command.gen.go");
+    emit_command_file(
+        "examples/x.lzi",
+        &module.features[0],
+        "lazuli/test",
+        &index,
+        &emit_ctx,
+    )
 }
 
 pub(super) fn base_command(name: &str) -> Command {

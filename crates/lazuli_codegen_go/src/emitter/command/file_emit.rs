@@ -214,7 +214,8 @@ mod feature_emit_tests {
 #[cfg(test)]
 mod tests {
     use super::super::test_support::{
-        base_command, base_feature, local_qname, module_with_features, simple_resource, typed_slot,
+        base_command, base_feature, emit_with_customer_fallback as emit, local_qname,
+        module_with_features, simple_resource, typed_slot,
     };
     use super::*;
     use lazuli_ir::{
@@ -266,30 +267,6 @@ mod tests {
             span_ref: None,
         });
         resource
-    }
-
-    /// Helper: emit `command.gen.go` for the given feature.
-    fn emit(feature: &Feature) -> Option<String> {
-        let mut features = vec![feature.clone()];
-        // Ensure the resource targeted by command effects exists somewhere
-        // in the module so the cross-feature index can resolve it.
-        if !feature
-            .commands
-            .iter()
-            .all(|c| matches!(c.effect, CommandEffect::None))
-        {
-            features[0].resources.push(simple_resource("Customer"));
-        }
-        let module = module_with_features(features);
-        let index = CrossFeatureIndex::build(&module);
-        let emit_ctx = EmitContext::no_source("customer/command.gen.go");
-        emit_command_file(
-            "examples/x.lzi",
-            &module.features[0],
-            "lazuli/test",
-            &index,
-            &emit_ctx,
-        )
     }
 
     #[test]
