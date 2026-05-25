@@ -165,3 +165,118 @@ pub const ERROR_VOCAB_EXPOSE_5XX_FIELDS: &[&str] = &["code", "data"];
 
 /// Closed catalog of `errors default` values.
 pub const ERROR_VOCAB_DEFAULT_VALUES: &[&str] = &["hide", "expose"];
+
+// ── Catalog detail lookups ─────────────────────────────────────────────────
+//
+// Pure `match` lookups that pair each catalog value with its
+// one-line hover/completion description. Kept beside the catalogs
+// themselves because they share the same closed-set discipline:
+// adding a new value here without growing the catalog is incorrect.
+
+pub fn resource_lock_strategy_detail(value: &str) -> Option<&'static str> {
+    match value {
+        "optimistic" => Some(
+            "`lock optimistic version_field: <field>` - compare-and-set on a monotonic integer version column.",
+        ),
+        "pessimistic" => Some(
+            "`lock pessimistic` - runtime acquires a transaction-wide row lock (`SELECT ... FOR UPDATE`).",
+        ),
+        "row_level" => {
+            Some("`lock row_level` - runtime applies `FOR UPDATE` per row at read time.")
+        }
+        _ => None,
+    }
+}
+
+pub fn error_page_status_detail(value: &str) -> Option<&'static str> {
+    match value {
+        "400" => Some("Bad Request custom error page."),
+        "401" => Some("Unauthorized custom error page."),
+        "403" => Some("Forbidden custom error page."),
+        "404" => Some("Not Found custom error page."),
+        "405" => Some("Method Not Allowed custom error page."),
+        "410" => Some("Gone custom error page."),
+        "422" => Some("Unprocessable Content custom error page."),
+        "429" => Some("Too Many Requests custom error page."),
+        "500" => Some("Internal Server Error custom error page."),
+        "502" => Some("Bad Gateway custom error page."),
+        "503" => Some("Service Unavailable / maintenance custom error page."),
+        "504" => Some("Gateway Timeout custom error page."),
+        _ => None,
+    }
+}
+
+/// Hover/completion description for a closed-catalog value.
+pub fn auth_catalog_detail(value: &str) -> Option<&'static str> {
+    match value {
+        "argon2id" => Some("Password hash algorithm — recommended for v0."),
+        "bcrypt" => Some("Password hash algorithm — legacy migration only."),
+        "google" => Some("OAuth provider — `google`."),
+        "github" => Some("OAuth provider — `github`."),
+        "microsoft" => Some("OAuth provider — `microsoft`."),
+        "apple" => Some("OAuth provider — `apple`."),
+        "totp" => Some("MFA method — Time-based One-Time Password."),
+        "true" => Some("Boolean — `true`."),
+        "false" => Some("Boolean — `false`."),
+        _ => None,
+    }
+}
+
+pub fn auth_refresh_theft_action_detail(value: &str) -> Option<&'static str> {
+    match value {
+        "revoke_session_family" => Some(
+            "Default theft response: revoke the parent_session_id family for this device chain; other devices stay signed in.",
+        ),
+        "revoke_user" => Some(
+            "Aggressive theft response: revoke every session for the user; use for high-stakes apps.",
+        ),
+        _ => None,
+    }
+}
+
+/// Hover/completion description for the observability closed-catalog
+/// values. Mirrors `auth_catalog_detail` shape.
+pub fn observability_catalog_detail(value: &str) -> Option<&'static str> {
+    match value {
+        "debug" => Some("Log level — verbose tracing for local development."),
+        "info" => Some("Log level — production default."),
+        "warn" => Some("Log level — recoverable errors and degraded conditions."),
+        "error" => Some("Log level — request failures and exceptions."),
+        "json" => Some("Log format — machine-parseable single-line JSON."),
+        "text" => Some("Log format — human-readable for local development."),
+        "pii" => Some("Redaction — auto-strip fields tagged with `@pii.*`."),
+        "none" => Some("Redaction — disabled; adapter may still redact."),
+        _ => None,
+    }
+}
+
+/// Notifications expanded bucket cycle — hover/completion description
+/// for `notification.digest.template_strategy` closed-catalog values.
+pub fn notification_digest_template_strategy_detail(value: &str) -> Option<&'static str> {
+    match value {
+        "merge" => Some(
+            "Merge — collapse per-trigger payloads into a single object (last-write-wins per key). Default when omitted.",
+        ),
+        "append" => {
+            Some("Append — emit a list of per-trigger payloads the digest template iterates over.")
+        }
+        _ => None,
+    }
+}
+
+/// Hover/completion description for the deploy.strategy closed-catalog
+/// values. Mirrors `observability_catalog_detail` shape.
+pub fn deploy_strategy_detail(value: &str) -> Option<&'static str> {
+    match value {
+        "rolling" => Some(
+            "Rolling rollout — replace instances one window at a time. Lowest risk; longest cutover.",
+        ),
+        "blue_green" => Some(
+            "Blue/green rollout — provision parallel stack, flip traffic atomically. Fast rollback; doubles infra during cutover.",
+        ),
+        "canary" => Some(
+            "Canary rollout — shift traffic incrementally to a fresh cohort. Best for unproven changes; requires per-version observability.",
+        ),
+        _ => None,
+    }
+}
