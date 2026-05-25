@@ -1,0 +1,14 @@
+# Full-capsule canonical example manifest.
+#
+# Scopes `lazuli inspect`, `lazuli check`, and `lazuli doctor` walks to this
+# directory only — without this marker the binary walks up to the workspace
+# root and trips over intentionally-malformed `crates/lazuli_cli/tests/fixtures/`
+# entries that exist to exercise specific doctor rules.
+
+[project]
+name = "full-capsule"
+module = "github.com/lazuli-lang/example-full-capsule"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"

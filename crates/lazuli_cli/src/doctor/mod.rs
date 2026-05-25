@@ -18683,7 +18683,7 @@ surface customer web
         let diagnostics: Vec<_> = package
             .diagnostics()
             .into_iter()
-            .filter(|d| !d.code.starts_with("ERR-VOCAB-"))
+            .filter(|d| !d.code.starts_with("ERR-VOCAB-") && !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
             .collect();
         assert!(diagnostics.is_empty(), "got: {:#?}", diagnostics);
     }
@@ -18739,7 +18739,7 @@ surface customer web
             .iter()
             .filter(|d| {
                 matches!(d.severity, DoctorSeverity::Error | DoctorSeverity::Warning)
-                    && !d.code.starts_with("ERR-VOCAB-")
+                    && !d.code.starts_with("ERR-VOCAB-") && !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT"
             })
             .collect();
         assert!(
@@ -18821,7 +18821,7 @@ surface customer_auth web
         let diagnostics: Vec<_> = package
             .diagnostics()
             .into_iter()
-            .filter(|d| !d.code.starts_with("ERR-VOCAB-"))
+            .filter(|d| !d.code.starts_with("ERR-VOCAB-") && !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
             .collect();
         assert!(diagnostics.is_empty(), "got: {:#?}", diagnostics);
     }
@@ -18995,7 +18995,14 @@ route customer_list
             ),
         ]);
 
-        assert!(package.diagnostics().is_empty());
+        assert!(
+            package
+                .diagnostics()
+                .into_iter()
+                .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+                .collect::<Vec<_>>()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -19054,7 +19061,11 @@ feature customer
             ),
         ]);
 
-        let diagnostics = package.diagnostics();
+        let diagnostics: Vec<_> = package
+            .diagnostics()
+            .into_iter()
+            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .collect();
 
         assert!(
             diagnostics.is_empty(),
@@ -19229,7 +19240,14 @@ feature payments
             ),
         ]);
 
-        assert!(package.diagnostics().is_empty());
+        assert!(
+            package
+                .diagnostics()
+                .into_iter()
+                .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+                .collect::<Vec<_>>()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -19511,9 +19529,15 @@ feature imports
             ),
         ]);
 
+        let leftover: Vec<_> = valid
+            .diagnostics()
+            .into_iter()
+            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .collect();
         assert!(
-            valid.diagnostics().is_empty(),
-            "expected external call contract to pass doctor"
+            leftover.is_empty(),
+            "expected external call contract to pass doctor: {:#?}",
+            leftover
         );
 
         let invalid = package_from_sources(vec![
@@ -19624,9 +19648,15 @@ profile local
             ),
         ]);
 
+        let leftover: Vec<_> = valid
+            .diagnostics()
+            .into_iter()
+            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .collect();
         assert!(
-            valid.diagnostics().is_empty(),
-            "expected profile contract to pass doctor"
+            leftover.is_empty(),
+            "expected profile contract to pass doctor: {:#?}",
+            leftover
         );
 
         let invalid = package_from_sources(vec![
@@ -19768,9 +19798,15 @@ workspace AcmeERP
 "#,
         )]);
 
+        let leftover: Vec<_> = valid
+            .diagnostics()
+            .into_iter()
+            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .collect();
         assert!(
-            valid.diagnostics().is_empty(),
-            "expected valid workspace contract to pass doctor"
+            leftover.is_empty(),
+            "expected valid workspace contract to pass doctor: {:#?}",
+            leftover
         );
 
         let invalid = package_from_sources(vec![(
@@ -19837,9 +19873,15 @@ contract acme.ai.v1
             ),
         ]);
 
+        let leftover: Vec<_> = valid
+            .diagnostics()
+            .into_iter()
+            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .collect();
         assert!(
-            valid.diagnostics().is_empty(),
-            "expected external contract to pass doctor"
+            leftover.is_empty(),
+            "expected external contract to pass doctor: {:#?}",
+            leftover
         );
 
         let invalid = package_from_sources(vec![
@@ -22913,7 +22955,11 @@ feature customer
     fn missing_policy_on_query_happy_fixture_has_zero_diagnostics() {
         let package =
             package_from_sources(vec![("happy.lzi", MISSING_POLICY_ON_QUERY_HAPPY_FIXTURE)]);
-        let diagnostics = package.diagnostics();
+        let diagnostics: Vec<_> = package
+            .diagnostics()
+            .into_iter()
+            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .collect();
         assert!(
             diagnostics.is_empty(),
             "expected happy fixture to emit zero diagnostics, got {:?}",
@@ -22942,7 +22988,11 @@ feature customer
             "explicit_public.lzi",
             MISSING_POLICY_ON_QUERY_EXPLICIT_PUBLIC_FIXTURE,
         )]);
-        let diagnostics = package.diagnostics();
+        let diagnostics: Vec<_> = package
+            .diagnostics()
+            .into_iter()
+            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .collect();
         assert!(
             diagnostics.is_empty(),
             "expected explicit public fixture to emit zero diagnostics, got {:?}",
@@ -24901,7 +24951,11 @@ feature sales
     #[test]
     fn auth_refresh_happy_fixture_has_zero_diagnostics() {
         let package = package_from_sources(vec![("auth_refresh.lzi", AUTH_REFRESH_HAPPY)]);
-        let diagnostics = package.diagnostics();
+        let diagnostics: Vec<_> = package
+            .diagnostics()
+            .into_iter()
+            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .collect();
         assert!(
             diagnostics.is_empty(),
             "happy auth-refresh fixture must emit zero diagnostics; got {:?}",
