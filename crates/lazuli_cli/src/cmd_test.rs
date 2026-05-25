@@ -14,17 +14,13 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 
 use crate::cmd_test_fail_fast::FailFastCoordinator;
 use crate::cmd_test_ndjson::NdjsonEmitter;
 use crate::cmd_test_output::{render_json, render_text};
-use crate::cmd_test_types::{
-    FailOnSpec, Layer, LayerResult, LayerVerdict, RunAccumulator,
-};
-use crate::cmd_test_watch::{
-    DebounceBuffer, WatchDispatcher, spawn_watcher, watch_channel,
-};
+use crate::cmd_test_types::{FailOnSpec, Layer, LayerResult, LayerVerdict, RunAccumulator};
+use crate::cmd_test_watch::{spawn_watcher, watch_channel, DebounceBuffer, WatchDispatcher};
 use crate::coverage_aggregator::{self, SpecTotals};
 use crate::lazurite_manifest::{self, Manifest};
 use crate::runners;
@@ -88,19 +84,16 @@ pub fn run(opts: TestOptions) -> Result<()> {
 /// proposal §Exit code matrix.
 pub fn run_once(opts: &TestOptions) -> Result<i32> {
     let project_root = project_root_for(&opts.input);
-    let manifest = lazurite_manifest::load(&project_root)
-        .with_context(|| {
-            format!(
-                "failed to load {}",
-                project_root.join("Lazurite.toml").display()
-            )
-        })?;
+    let manifest = lazurite_manifest::load(&project_root).with_context(|| {
+        format!(
+            "failed to load {}",
+            project_root.join("Lazurite.toml").display()
+        )
+    })?;
 
     let plan = resolve_plan(opts, manifest.as_ref(), &project_root);
     if plan.is_empty() {
-        bail!(
-            "lazuli test: no layers selected (use --layer spec|view|handler|ts|e2e)"
-        );
+        bail!("lazuli test: no layers selected (use --layer spec|view|handler|ts|e2e)");
     }
 
     let started = Instant::now();
@@ -303,26 +296,30 @@ fn project_root_for(input: &Path) -> PathBuf {
     }
 }
 
-fn resolve_plan(opts: &TestOptions, manifest: Option<&Manifest>, project_root: &Path) -> Vec<Layer> {
+fn resolve_plan(
+    opts: &TestOptions,
+    manifest: Option<&Manifest>,
+    project_root: &Path,
+) -> Vec<Layer> {
     if !opts.layers.is_empty() {
         return opts.layers.clone();
     }
-    // Honor [testing].default_layers when present.
-    if let Some(layers) = manifest
-        .and_then(|m| m.testing.as_ref())
-        .and_then(|t| t.default_layers.as_ref())
-    {
-        return layers
-            .iter()
-            .filter_map(|s| Layer::parse(s))
-            .collect();
+    // Frente 1 — honor `[testing] default_layers` when present, or
+    // fall back to the canonical default
+    // `["handler_go", "view_extensibility"]` via the manifest
+    // accessor so pilots can omit the field entirely.
+    if let Some(m) = manifest {
+        let layers = m.testing_default_layers();
+        if !layers.is_empty() {
+            return layers.iter().filter_map(|s| Layer::parse(s)).collect();
+        }
     }
     // Conventional discovery — spec always; handler when manifest
     // declares [testing.go] or feature dir exists; ts when [testing.ts]
     // set; e2e when [testing.playwright] set OR `e2e/` exists.
     let mut plan = vec![Layer::Spec, Layer::View];
-    let has_features_dir = project_root.join("app/features").is_dir()
-        || project_root.join("features").is_dir();
+    let has_features_dir =
+        project_root.join("app/features").is_dir() || project_root.join("features").is_dir();
     if has_features_dir
         || manifest
             .and_then(|m| m.testing.as_ref())
@@ -430,10 +427,8 @@ mod tests {
     /// the watch module; smoke for the watch hook wiring.
     #[test]
     fn watch_classifier_reachable() {
-        let layers = crate::cmd_test_watch::layers_for_path(
-            Path::new("/proj/app.lzi"),
-            Path::new("/proj"),
-        );
+        let layers =
+            crate::cmd_test_watch::layers_for_path(Path::new("/proj/app.lzi"), Path::new("/proj"));
         assert!(layers.contains(&Layer::Spec));
     }
 }

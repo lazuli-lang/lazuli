@@ -21,12 +21,9 @@ pub fn run_seed(project_root: &Path, only: Option<&str>, force: bool) -> SeedRes
         .into());
     }
 
-    let seed_dir = manifest
-        .seeds
-        .as_ref()
-        .map(|seeds| seeds.dir.as_str())
-        .unwrap_or("seeds");
-    let dir = project_root.join(seed_dir);
+    // Frente 1 — `[seeds]` defaults transparently when absent.
+    let seeds = manifest.seeds_or_default();
+    let dir = project_root.join(&seeds.dir);
     let files = discover_seed_files(&dir, only)?;
 
     for file in files {
@@ -171,12 +168,10 @@ auto = false
         }
 
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("refusing to seed in production env")
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("refusing to seed in production env"));
 
         let _ = fs::remove_dir_all(root);
     }

@@ -2871,3 +2871,68 @@ These are intentionally not solved by the simple canonical syntax yet:
 - Cross-feature event re-emission is intentionally not modeled in v0. Use a new event in the consumer feature; do not re-emit the producer's event from a different feature.
 - Schedule jobs currently require an effective `@actor.system` policy through feature defaults or an inline `policy`; making schedule jobs system-only by construction is reserved for a later decision.
 - Non-exact rule matching such as matching both `reassign` and `bulk_reassign`.
+
+## Coverage Presets
+
+Lazuli ships three orthogonal opinions about coverage gating, declared as
+`[doctor.coverage] preset = "<name>"` in `Lazurite.toml`. Presets are
+independent of the security profile (`[doctor] profile`): a project can
+run `profile = "strict"` for the security matrix while opting into the
+noise-cutting `tdd-strict` coverage shape, or vice versa.
+
+### Preset catalog
+
+- `tdd-strict` — blocks `handler_go` at `90 / 95` (the non-negotiable
+  TDD pair) and leaves every other layer warn-only at sensible
+  thresholds. The scaffold default for new projects. Pilots that have
+  not yet authored full specs or view-extensibility tests can ship.
+- `tdd-mature` — blocks every layer at `70 / 85`. The mature TDD-shop
+  stance: handler tests AND spec predicates AND actor matrices AND
+  transition coverage AND view-extensibility assertions AND view E2E
+  pairs are all required.
+- `off` — zeros across the board. The report still renders but no
+  layer ever fails CI. Useful for prototypes that want the visibility
+  without the gate.
+
+Unknown preset names surface as `COVERAGE-PRESET-UNKNOWN-001` (error)
+at doctor time so typos do not silently degrade into vacuous-pass.
+
+### Resolution precedence
+
+When `lazuli doctor --coverage` computes the effective per-layer
+thresholds, it walks three levels (highest wins):
+
+1. per-layer `[doctor.coverage.<layer>]` block in `Lazurite.toml`
+2. `[doctor.coverage] preset = "<name>"` (this section)
+3. profile-default thresholds derived from `[doctor] profile`
+
+This means a project can pick a preset for the common case and then
+over-tighten a single layer when it earns it.
+
+## Config Hygiene
+
+The `Lazurite.toml` shipped by `lazuli new` is intentionally minimal
+(under 20 lines). Every block omitted from the manifest applies the
+canonical defaults baked into the framework:
+
+- `[generate.go]` → `out = "dist/go"`, `gofmt = true`, `strict = true`,
+  `emit_main = true`, `submodule = true`
+- `[migrations]` → `generated = "dist/go/migrations"`,
+  `manual = "migrations"`, `strategy = "auto"`
+- `[seeds]` → `dir = "seeds"`, `auto = false`
+- `[testing] default_layers` → `["handler_go", "view_extensibility"]`
+- `[testing.ts]` → `runner = "vitest"`,
+  `config = "<layout>/vite.config.ts"`,
+  `discovery_root = "<layout>/src"` (when layout detection resolves
+  `app/web/` or a sole `app/clients/<name>/`)
+- `[testing.playwright]` → `config = "<layout>/playwright.config.ts"`,
+  `discovery_root = "<layout>/e2e"`, `workers = 4`
+
+Author a block (or a single field inside a block) only when the
+project genuinely diverges from the canonical shape.
+
+`CONFIG-NOISE-001` (warning) fires when a `Lazurite.toml` has more
+comment lines than semantic lines. The signal: the framework is
+leaking intent into the user file. The fix: push the explanation
+back into framework defaults (or into this document), not into every
+project `Lazurite.toml`. The rule is informational and never gates.

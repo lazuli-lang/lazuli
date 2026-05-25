@@ -1384,21 +1384,65 @@ impl DoctorPackage {
     }
 
     /// Wave 6 — `lazuli doctor --coverage` data path. Builds the per-layer
-    /// coverage report using the active `SecurityProfile` and the
-    /// profile-default thresholds. `[doctor.coverage]` per-layer overrides
-    /// from the manifest land in a follow-up cell once the `CoverageThresholds`
-    /// builder exposes a public setter.
+    /// coverage report using the active `SecurityProfile`, the optional
+    /// `[doctor.coverage] preset = "<name>"` opt-in (Frente 1), and any
+    /// per-layer `[doctor.coverage.<layer>]` overrides authored in
+    /// `Lazurite.toml`.
+    ///
+    /// Resolution precedence (highest wins):
+    ///   1. per-layer `[doctor.coverage.<layer>]` block
+    ///   2. `[doctor.coverage] preset = "<name>"` (Frente 1)
+    ///   3. profile-default thresholds (`profile_default_thresholds`)
+    ///
+    /// Unknown preset names are silently ignored at this layer (a doctor
+    /// diagnostic flags them via `check_coverage_preset_unknown`).
     pub fn coverage_report(&self) -> lazuli_doctor::coverage::CoverageReport {
         use lazuli_doctor::coverage::{
-            build_coverage_report, profile_default_thresholds, CoverageProfile,
+            build_coverage_report, resolve_coverage_thresholds, CoveragePreset, CoverageProfile,
+            LayerThreshold,
         };
+        use std::collections::BTreeMap;
+
         let (features, lzx_views) = self.coverage_inputs();
         let profile = match self.security_profile {
             SecurityProfile::Prototype => CoverageProfile::Prototype,
             SecurityProfile::Strict => CoverageProfile::Strict,
             SecurityProfile::Production => CoverageProfile::Production,
         };
-        let thresholds = profile_default_thresholds(profile);
+
+        // Lift `[doctor.coverage]` from the manifest into the resolver
+        // inputs. Absent manifest / absent section → empty maps, which
+        // makes resolution fall back to the profile defaults verbatim
+        // (backwards compatible).
+        let (preset, per_layer_overrides, aggregate_method) = self
+            .lazurite_manifest
+            .as_ref()
+            .and_then(|m| m.doctor.as_ref())
+            .and_then(|d| d.coverage.as_ref())
+            .map(|cov| {
+                let preset = cov
+                    .preset
+                    .as_deref()
+                    .and_then(CoveragePreset::parse);
+                let per_layer: BTreeMap<String, LayerThreshold> = cov
+                    .per_layer
+                    .iter()
+                    .map(|(name, cfg)| {
+                        (
+                            name.clone(),
+                            LayerThreshold {
+                                block_under: cfg.block_under,
+                                warn_under: cfg.warn_under,
+                            },
+                        )
+                    })
+                    .collect();
+                (preset, per_layer, cov.aggregate_method.clone())
+            })
+            .unwrap_or_default();
+
+        let thresholds =
+            resolve_coverage_thresholds(profile, preset, per_layer_overrides, aggregate_method);
         build_coverage_report(
             &features,
             &lzx_views,
@@ -3436,6 +3480,15 @@ fn lazurite_manifest_diagnostics(package: &DoctorPackage) -> Vec<DoctorDiagnosti
     // `[doctor.<category>].severity_override.<RULE-CODE>` entry lacks a
     // non-blank `reason` justification.
     diagnostics.extend(check_doctor_override_needs_reason(manifest, package));
+    // Frente 1 — `COVERAGE-PRESET-UNKNOWN-001`. Fires when
+    // `[doctor.coverage] preset = "<name>"` names a preset that does
+    // not exist in `CoveragePreset::parse`. Surfacing this as an error
+    // avoids silent "vacuous pass" behavior on a typo.
+    diagnostics.extend(check_coverage_preset_unknown(manifest, package));
+    // Frente 1 — `CONFIG-NOISE-001`. Warning when a config file's
+    // comment ratio is dominated by commentary (more comment lines than
+    // semantic lines). Anchors at `Lazurite.toml` and `Lazuli.toml`.
+    diagnostics.extend(check_config_noise(package));
     diagnostics
 }
 
@@ -3497,6 +3550,111 @@ fn check_doctor_override_needs_reason(
             }
         })
         .collect()
+}
+
+/// Frente 1 — `COVERAGE-PRESET-UNKNOWN-001`. Fires when
+/// `[doctor.coverage] preset = "<name>"` names a preset that
+/// `CoveragePreset::parse` does not recognize. Listing the recognized
+/// preset names in the message keeps the diagnostic self-explanatory
+/// to an LLM authoring `Lazurite.toml` cold.
+fn check_coverage_preset_unknown(
+    manifest: &Manifest,
+    package: &DoctorPackage,
+) -> Vec<DoctorDiagnostic> {
+    use lazuli_doctor::coverage::CoveragePreset;
+
+    let Some(preset_name) = manifest
+        .doctor
+        .as_ref()
+        .and_then(|d| d.coverage.as_ref())
+        .and_then(|c| c.preset.as_deref())
+    else {
+        return Vec::new();
+    };
+    if CoveragePreset::parse(preset_name).is_some() {
+        return Vec::new();
+    }
+    vec![DoctorDiagnostic {
+        path: package
+            .project_root
+            .join(crate::lazurite_manifest::MANIFEST_FILENAME),
+        line: 1,
+        column: 1,
+        severity: DoctorSeverity::Error,
+        code: "COVERAGE-PRESET-UNKNOWN-001".to_owned(),
+        message: format!(
+            "[doctor.coverage] preset = \"{preset_name}\" is not a recognized preset. \
+             Allowed values: tdd-strict, tdd-mature, off. \
+             Omit the field to fall back to the security-profile defaults."
+        ),
+        category: Some(RuleCategory::Vocabulary),
+        feature_name: None,
+        construct: None,
+        fix: None,
+        group: None,
+    }]
+}
+
+/// Frente 1 — `CONFIG-NOISE-001`. Warns when the comment ratio of a
+/// top-level config file exceeds 1:1 (more comment lines than semantic
+/// lines). The signal: when the user's config file is mostly inline
+/// commentary, the framework is hiding intent behind explanation. The
+/// fix: push the explanation into framework defaults / canonical docs.
+///
+/// Severity is Warning by design — the rule is informational and
+/// never gates. Scope: `Lazurite.toml` (and the legacy lowercase
+/// `lazurite.toml`). `.lzi` / `.lzx` follow in a future cycle once
+/// the comment-vs-statement counter understands Lazuli syntax.
+///
+/// Heuristic logic + 6 unit tests live in
+/// `lazuli_doctor::config_noise`; this function only stitches the
+/// metrics to a `DoctorDiagnostic`.
+fn check_config_noise(package: &DoctorPackage) -> Vec<DoctorDiagnostic> {
+    use lazuli_doctor::config_noise::config_noise_metrics;
+    let mut diagnostics = Vec::new();
+    // Prefer the canonical capitalized name; fall back to legacy only
+    // if canonical is absent (mirrors `lazurite_manifest::load`). On
+    // case-insensitive filesystems both `exists()` calls would
+    // otherwise report the same file twice and double-fire.
+    let canonical = package
+        .project_root
+        .join(crate::lazurite_manifest::MANIFEST_FILENAME);
+    let legacy = package
+        .project_root
+        .join(crate::lazurite_manifest::LEGACY_MANIFEST_FILENAME);
+    let (path, filename) = if canonical.exists() {
+        (canonical, crate::lazurite_manifest::MANIFEST_FILENAME)
+    } else if legacy.exists() {
+        (legacy, crate::lazurite_manifest::LEGACY_MANIFEST_FILENAME)
+    } else {
+        return diagnostics;
+    };
+    let Ok(contents) = std::fs::read_to_string(&path) else {
+        return diagnostics;
+    };
+    let metrics = config_noise_metrics(&contents);
+    if metrics.fires() {
+        diagnostics.push(DoctorDiagnostic {
+            path,
+            line: 1,
+            column: 1,
+            severity: DoctorSeverity::Warning,
+            code: "CONFIG-NOISE-001".to_owned(),
+            message: format!(
+                "{filename} has {} comment line(s) vs {} semantic line(s) (ratio {:.2}:1). \
+                 When commentary exceeds config, the framework is leaking \
+                 intent into the user's file — push the knowledge into framework \
+                 defaults or canonical docs. See docs/canonical-semantics.md#config-hygiene.",
+                metrics.comment_lines, metrics.semantic_lines, metrics.ratio()
+            ),
+            category: Some(RuleCategory::Vocabulary),
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
+        });
+    }
+    diagnostics
 }
 
 /// CAP-FILE-POLICY-IMPLICIT (warning) — every `@cap.File` field on

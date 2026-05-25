@@ -30,10 +30,12 @@ pub fn probe() -> Option<String> {
 
 pub fn run(manifest: Option<&Manifest>, project_root: &Path) -> Result<LayerResult> {
     let started = Instant::now();
+    // Frente 1 — resolve effective `[testing.playwright]` honoring
+    // authored overrides + canonical layout-derived defaults
+    // (`app/web/playwright.config.ts` or
+    // `app/clients/<name>/playwright.config.ts`).
     let cfg: TestingPlaywright = manifest
-        .and_then(|m| m.testing.as_ref())
-        .and_then(|t| t.playwright.as_ref())
-        .cloned()
+        .and_then(|m| m.testing_playwright_resolved(project_root))
         .unwrap_or_default();
 
     // If neither manifest nor convention has e2e content, skip the

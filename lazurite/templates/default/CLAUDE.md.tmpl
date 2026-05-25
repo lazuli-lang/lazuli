@@ -17,7 +17,7 @@ pnpm lazuli:test          # wire-thin handler test runner (`go test`)
 pnpm verify:all           # full pre-merge gate (doctor + codegen + build + typecheck + tests)
 ```
 
-The scaffolded `Lazurite.toml` ships with `[doctor] profile = "strict"` and per-layer `[doctor.coverage]` thresholds — `handler_go` is enforced strictly (block_under = 90), other layers start lenient and tighten as you author specs and view E2Es.
+The scaffolded `Lazurite.toml` ships with `[doctor] profile = "strict"` and `[doctor.coverage] preset = "tdd-strict"` — `handler_go` is enforced strictly (block_under = 90), other layers stay warn-only until you opt up to `preset = "tdd-mature"`. Per-layer `[doctor.coverage.<layer>]` sub-blocks override the preset when needed.
 
 All four gates **MUST pass clean** before commit. Warnings should drop to zero or be explicitly suppressed with `# doctor:allow <RULE-CODE> — reason "..."` on the offending line (where the rule supports inline allow). To carry a baseline finding under `[doctor.test_discipline.severity_override."<RULE>"]`, the `reason` field is mandatory (DOCTOR-OVERRIDE-NEEDS-REASON-001).
 

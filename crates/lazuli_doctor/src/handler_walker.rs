@@ -406,6 +406,7 @@ mod tests {
             policy_expr: None,
             policy_when_denied: None,
             handler: PathRef::authored("./webhooks/handle_invoice_paid.go".to_owned()),
+            returns: None,
             emits: vec![],
             emit_predicates: vec![],
             payload_from: None,
