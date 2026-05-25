@@ -192,7 +192,7 @@ pub fn doctor_command_with_options(
 
 /// Build a canonical `DoctorReport` from `DoctorDiagnostic` list +
 /// optional coverage. Wave 2 (JSON schema) + Wave 6 (coverage).
-fn build_doctor_report(
+pub(super) fn build_doctor_report(
     diagnostics: &[DoctorDiagnostic],
     want_coverage: bool,
     package: &DoctorPackage,
@@ -2100,7 +2100,7 @@ impl DoctorPackage {
 ///
 /// `overrides` is the parsed `Lazurite.toml [doctor]` block; pass an
 /// empty map when no manifest is present.
-fn doctor_severity_for(
+pub(super) fn doctor_severity_for(
     code: &str,
     category: RuleCategory,
     security_profile: SecurityProfile,
@@ -2323,7 +2323,7 @@ pub(crate) fn doctor_rule_path(project_root: &Path, path: PathBuf) -> PathBuf {
 /// requires that *lazuli.FieldError, *lazuli.PolicyError, etc. struct values
 /// are constructed ONLY in codegen-emitted handlers (the .gen.go boundary),
 /// never in hand-written bucket source under runtime/go/lazuli/<bucket>/.
-fn check_codegen_wrap_001(project_root: &Path) -> Vec<DoctorDiagnostic> {
+pub(super) fn check_codegen_wrap_001(project_root: &Path) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
     let bucket_root = project_root.join("runtime/go/lazuli");
     if !bucket_root.exists() {
@@ -2341,7 +2341,7 @@ fn check_codegen_wrap_001(project_root: &Path) -> Vec<DoctorDiagnostic> {
 /// patterns. It focuses on the Rust-side pattern catalog because
 /// generated `dist/` output is regen-only and often absent in source
 /// checkouts. If git/blame data is unavailable, the check is a no-op.
-fn check_pattern_draft_stale_001(project_root: &Path) -> Vec<DoctorDiagnostic> {
+pub(super) fn check_pattern_draft_stale_001(project_root: &Path) -> Vec<DoctorDiagnostic> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs())
@@ -2349,7 +2349,7 @@ fn check_pattern_draft_stale_001(project_root: &Path) -> Vec<DoctorDiagnostic> {
     check_pattern_draft_stale_001_at(project_root, now)
 }
 
-fn check_pattern_draft_stale_001_at(project_root: &Path, now: u64) -> Vec<DoctorDiagnostic> {
+pub(super) fn check_pattern_draft_stale_001_at(project_root: &Path, now: u64) -> Vec<DoctorDiagnostic> {
     let pattern_file = project_root.join("crates/lazuli_codegen_go/src/emitter/patterns.rs");
     let Ok(source) = fs::read_to_string(&pattern_file) else {
         return Vec::new();
@@ -2399,7 +2399,7 @@ fn check_pattern_draft_stale_001_at(project_root: &Path, now: u64) -> Vec<Doctor
 /// the tenant-pin columns automatically; callers must use that wrapper, not
 /// the base `auth.IssueSession` function, so the extra columns are always
 /// supplied.
-fn check_auth_session_callsite_001(
+pub(super) fn check_auth_session_callsite_001(
     auth_facts: &[AuthFacts],
     project_root: &Path,
 ) -> Vec<DoctorDiagnostic> {
@@ -2423,7 +2423,7 @@ fn check_auth_session_callsite_001(
     diagnostics
 }
 
-fn collect_issue_session_callsites(
+pub(super) fn collect_issue_session_callsites(
     dir: &Path,
     resource_name: &str,
     diagnostics: &mut Vec<DoctorDiagnostic>,
@@ -2472,14 +2472,14 @@ fn collect_issue_session_callsites(
     }
 }
 
-fn is_pattern_draft_line(line: &str) -> bool {
+pub(super) fn is_pattern_draft_line(line: &str) -> bool {
     if !line.contains("draft") {
         return false;
     }
     (line.contains("PATTERN_") && line.contains("\"draft\"")) || line.contains("//lazuli:pattern")
 }
 
-fn git_blame_author_time(project_root: &Path, path: &Path, line: usize) -> Option<u64> {
+pub(super) fn git_blame_author_time(project_root: &Path, path: &Path, line: usize) -> Option<u64> {
     let blame_path = path.strip_prefix(project_root).unwrap_or(path);
     let output = std::process::Command::new("git")
         .args([
@@ -2504,7 +2504,7 @@ fn git_blame_author_time(project_root: &Path, path: &Path, line: usize) -> Optio
     })
 }
 
-fn collect_codegen_wrap_001(
+pub(super) fn collect_codegen_wrap_001(
     bucket_root: &Path,
     current: &Path,
     diagnostics: &mut Vec<DoctorDiagnostic>,
@@ -2557,7 +2557,7 @@ fn collect_codegen_wrap_001(
     }
 }
 
-fn is_bucket_go_source(bucket_root: &Path, path: &Path) -> bool {
+pub(super) fn is_bucket_go_source(bucket_root: &Path, path: &Path) -> bool {
     if path.parent() == Some(bucket_root) {
         return false;
     }
@@ -2996,7 +2996,7 @@ impl DoctorDiagnostic {
     }
 }
 
-fn collect_package_paths(input: &Path) -> Result<Vec<PathBuf>> {
+pub(super) fn collect_package_paths(input: &Path) -> Result<Vec<PathBuf>> {
     if input.is_dir() {
         let mut paths = Vec::new();
         collect_lazuli_paths_recursive(input, &mut paths)?;
@@ -3032,7 +3032,7 @@ fn collect_package_paths(input: &Path) -> Result<Vec<PathBuf>> {
     Ok(paths)
 }
 
-fn project_uses_plugin_refs(project_root: &Path) -> bool {
+pub(super) fn project_uses_plugin_refs(project_root: &Path) -> bool {
     let mut paths = Vec::new();
     if collect_lazuli_paths_recursive(project_root, &mut paths).is_err() {
         return false;
@@ -3082,7 +3082,7 @@ pub(super) fn dedupe_env_contract_diagnostics(diagnostics: &[DoctorDiagnostic]) 
 /// declared in `registry.env` but the LSP warning was inherited verbatim.
 ///
 /// Message shape: ``"environment reference `env.<NAME>` should be declared..."``
-fn suppress_env_schema_when_declared(
+pub(super) fn suppress_env_schema_when_declared(
     diagnostics: &[DoctorDiagnostic],
     declared_env_names: &BTreeSet<&str>,
 ) -> Vec<DoctorDiagnostic> {
@@ -3186,7 +3186,7 @@ pub(super) fn lazurite_manifest_diagnostics(package: &DoctorPackage) -> Vec<Doct
 /// the diagnostic at `Lazurite.toml` line 1 (the rule's structural
 /// payload doesn't yet carry exact TOML line spans; that refinement
 /// lands post-Wave-0.5 once the toml crate exposes spans cleanly).
-fn check_doctor_override_needs_reason(
+pub(super) fn check_doctor_override_needs_reason(
     manifest: &Manifest,
     package: &DoctorPackage,
 ) -> Vec<DoctorDiagnostic> {
@@ -3243,7 +3243,7 @@ fn check_doctor_override_needs_reason(
 /// `CoveragePreset::parse` does not recognize. Listing the recognized
 /// preset names in the message keeps the diagnostic self-explanatory
 /// to an LLM authoring `Lazurite.toml` cold.
-fn check_coverage_preset_unknown(
+pub(super) fn check_coverage_preset_unknown(
     manifest: &Manifest,
     package: &DoctorPackage,
 ) -> Vec<DoctorDiagnostic> {
@@ -3295,7 +3295,7 @@ fn check_coverage_preset_unknown(
 /// Heuristic logic + 6 unit tests live in
 /// `lazuli_doctor::config_noise`; this function only stitches the
 /// metrics to a `DoctorDiagnostic`.
-fn check_config_noise(package: &DoctorPackage) -> Vec<DoctorDiagnostic> {
+pub(super) fn check_config_noise(package: &DoctorPackage) -> Vec<DoctorDiagnostic> {
     use lazuli_doctor::config_noise::config_noise_metrics;
     let mut diagnostics = Vec::new();
     // Prefer the canonical capitalized name; fall back to legacy only
@@ -3628,7 +3628,7 @@ pub(super) fn schema_rich_gap_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<Do
 /// Remote plugins without a `dev.plugin_paths` override skip the
 /// check (the manifest isn't on the local filesystem at all — a
 /// different diagnostic class).
-fn check_plugin_manifest_missing(
+pub(super) fn check_plugin_manifest_missing(
     manifest: &crate::lazurite_manifest::Manifest,
     package: &DoctorPackage,
 ) -> Vec<DoctorDiagnostic> {
@@ -3678,7 +3678,7 @@ fn check_plugin_manifest_missing(
 /// Wave §A4 hard-cutover (2026-05-23): all 10 known legacy plugins
 /// have been migrated; any remaining legacy manifest is a bug, so
 /// this lint runs at Error severity from day one.
-fn check_plugin_manifest_schema_legacy(
+pub(super) fn check_plugin_manifest_schema_legacy(
     manifest: &crate::lazurite_manifest::Manifest,
     package: &DoctorPackage,
 ) -> Vec<DoctorDiagnostic> {
@@ -3737,7 +3737,7 @@ fn check_plugin_manifest_schema_legacy(
 /// local path should ship a `README.md`. Authors of new pilots (and
 /// new plugin contributors) rely on the README to understand the
 /// surface; missing READMEs silently degrade the catalog quality.
-fn check_plugin_readme_missing(
+pub(super) fn check_plugin_readme_missing(
     manifest: &crate::lazurite_manifest::Manifest,
     package: &DoctorPackage,
 ) -> Vec<DoctorDiagnostic> {
@@ -3789,7 +3789,7 @@ fn check_plugin_readme_missing(
 /// Quietly skips when the catalog file doesn't exist yet (the next
 /// `lazuli generate ts` will produce it) and when no plugins are
 /// declared. Spec: `docs/proposals/plugin-catalog-file-2026-05-23.md`.
-fn check_plugin_catalog_drift(
+pub(super) fn check_plugin_catalog_drift(
     manifest: &crate::lazurite_manifest::Manifest,
     package: &DoctorPackage,
 ) -> Vec<DoctorDiagnostic> {
@@ -3864,7 +3864,7 @@ fn check_plugin_catalog_drift(
 ///
 /// Source-of-truth: `docs/proposals/ir-semantic-auto-validate-2026-05-22.md`
 /// (W2 §"Doctor B4").
-fn check_semantic_plugin_no_validator(
+pub(super) fn check_semantic_plugin_no_validator(
     manifest: &crate::lazurite_manifest::Manifest,
     package: &DoctorPackage,
 ) -> Vec<DoctorDiagnostic> {
@@ -3924,7 +3924,7 @@ fn check_semantic_plugin_no_validator(
 ///
 /// The shared error code is intentional — every failure has the same
 /// resolution path (declare the right plugin, fix the manifest).
-fn check_semantic_plugin_unresolved(
+pub(super) fn check_semantic_plugin_unresolved(
     manifest: &crate::lazurite_manifest::Manifest,
     package: &DoctorPackage,
 ) -> Vec<DoctorDiagnostic> {
@@ -4122,7 +4122,7 @@ pub(super) fn lazuli_version_002_diagnostics(
 
 
 
-fn check_plugin_not_declared(
+pub(super) fn check_plugin_not_declared(
     manifest: &Manifest,
     package: &DoctorPackage,
 ) -> Vec<DoctorDiagnostic> {
@@ -4149,7 +4149,7 @@ fn check_plugin_not_declared(
         .collect()
 }
 
-fn check_plugin_unused(manifest: &Manifest, package: &DoctorPackage) -> Vec<DoctorDiagnostic> {
+pub(super) fn check_plugin_unused(manifest: &Manifest, package: &DoctorPackage) -> Vec<DoctorDiagnostic> {
     let used: BTreeSet<String> = collect_package_plugin_references(package)
         .into_iter()
         .map(|reference| reference.reference)
@@ -4177,7 +4177,7 @@ fn check_plugin_unused(manifest: &Manifest, package: &DoctorPackage) -> Vec<Doct
         .collect()
 }
 
-fn check_plugin_namespace_mismatch(
+pub(super) fn check_plugin_namespace_mismatch(
     manifest: &Manifest,
     package: &DoctorPackage,
 ) -> Vec<DoctorDiagnostic> {
@@ -4266,7 +4266,7 @@ fn check_plugin_namespace_mismatch(
     diagnostics
 }
 
-fn check_submodule_drift(manifest: &Manifest, package: &DoctorPackage) -> Vec<DoctorDiagnostic> {
+pub(super) fn check_submodule_drift(manifest: &Manifest, package: &DoctorPackage) -> Vec<DoctorDiagnostic> {
     if !manifest
         .generate
         .go
@@ -4317,7 +4317,7 @@ fn check_submodule_drift(manifest: &Manifest, package: &DoctorPackage) -> Vec<Do
     }]
 }
 
-fn check_migration_strategy_conflict(
+pub(super) fn check_migration_strategy_conflict(
     manifest: &Manifest,
     package: &DoctorPackage,
 ) -> Vec<DoctorDiagnostic> {
@@ -4360,7 +4360,7 @@ fn check_migration_strategy_conflict(
     }]
 }
 
-fn check_frontend_audience_unknown(
+pub(super) fn check_frontend_audience_unknown(
     manifest: &Manifest,
     package: &DoctorPackage,
 ) -> Vec<DoctorDiagnostic> {
@@ -4390,7 +4390,7 @@ fn check_frontend_audience_unknown(
     diagnostics
 }
 
-fn check_audience_no_frontend(
+pub(super) fn check_audience_no_frontend(
     manifest: &Manifest,
     package: &DoctorPackage,
 ) -> Vec<DoctorDiagnostic> {
@@ -4421,7 +4421,7 @@ fn check_audience_no_frontend(
         .collect()
 }
 
-fn check_frontend_out_collision(
+pub(super) fn check_frontend_out_collision(
     manifest: &Manifest,
     package: &DoctorPackage,
 ) -> Vec<DoctorDiagnostic> {
@@ -4456,7 +4456,7 @@ fn check_frontend_out_collision(
 /// `diagnose_plan_gate_facts` can run the `GATE-EVAL-ORDER-001`
 /// per-body scan. Body text is the indented region under the callable
 /// header.
-fn collect_callable_bodies_for_eval_order(
+pub(super) fn collect_callable_bodies_for_eval_order(
     files: &[DoctorFile],
 ) -> Vec<(String, String, lazuli_syntax::Span)> {
     let mut out = Vec::new();
@@ -4514,7 +4514,7 @@ fn collect_callable_bodies_for_eval_order(
     out
 }
 
-fn callable_header_key_from_trimmed(trimmed: &str) -> Option<String> {
+pub(super) fn callable_header_key_from_trimmed(trimmed: &str) -> Option<String> {
     let prefixes: &[(&str, &str)] = &[
         ("command ", "command"),
         ("job ", "job"),
@@ -4536,7 +4536,7 @@ fn callable_header_key_from_trimmed(trimmed: &str) -> Option<String> {
     None
 }
 
-fn collect_canonical_facts(file: &DoctorFile, operational: &mut OperationalFacts) {
+pub(super) fn collect_canonical_facts(file: &DoctorFile, operational: &mut OperationalFacts) {
     let lines: Vec<_> = file.source.lines().collect();
     collect_operational_lzi_facts(file, &lines, operational);
     collect_file_capability_facts(file, &lines, operational);
@@ -4579,7 +4579,7 @@ fn collect_canonical_facts(file: &DoctorFile, operational: &mut OperationalFacts
     }
 }
 
-fn collect_feature_integration_requirements(
+pub(super) fn collect_feature_integration_requirements(
     file: &DoctorFile,
     feature: &str,
     feature_start: usize,
@@ -4644,7 +4644,7 @@ fn collect_feature_integration_requirements(
 /// `ExternalCallFact` carrying the typed `has_timeout` / `has_retry` /
 /// `has_idempotency` axes lifted from the `Job` IR. The job branch of
 /// the legacy text walker is gone.
-fn populate_job_external_calls_from_ir(
+pub(super) fn populate_job_external_calls_from_ir(
     file: &DoctorFile,
     feature: &lazuli_ir::Feature,
     operational: &mut OperationalFacts,
@@ -4699,7 +4699,7 @@ fn populate_job_external_calls_from_ir(
 /// `Command` IR. The line lookup is keyed on the verbatim `calls
 /// <slot>.<op>` substring inside the command body's source range, so
 /// the diagnostic anchors stay precise.
-fn populate_command_external_calls_from_ir(
+pub(super) fn populate_command_external_calls_from_ir(
     file: &DoctorFile,
     feature: &lazuli_ir::Feature,
     operational: &mut OperationalFacts,
@@ -4759,7 +4759,7 @@ fn populate_command_external_calls_from_ir(
     }
 }
 
-fn collect_operational_lzi_facts(
+pub(super) fn collect_operational_lzi_facts(
     file: &DoctorFile,
     lines: &[&str],
     operational: &mut OperationalFacts,
@@ -4843,12 +4843,12 @@ fn collect_operational_lzi_facts(
     }
 }
 
-fn named_block_name<'a>(trimmed: &'a str, keyword: &str) -> Option<&'a str> {
+pub(super) fn named_block_name<'a>(trimmed: &'a str, keyword: &str) -> Option<&'a str> {
     let rest = trimmed.strip_prefix(keyword)?.trim_start();
     rest.split_whitespace().next()
 }
 
-fn job_block_has_schedule(lines: &[&str], start: usize) -> bool {
+pub(super) fn job_block_has_schedule(lines: &[&str], start: usize) -> bool {
     let mut index = start + 1;
     while index < lines.len() {
         let line = lines[index];
@@ -4879,7 +4879,7 @@ fn job_block_has_schedule(lines: &[&str], start: usize) -> bool {
 /// The retired `collect_policy_atoms` text-walker that previously
 /// resolved these names is gone. Route slot binding-from-context reads
 /// typed `RouteSlot.from`.
-fn populate_commands_from_ir(
+pub(super) fn populate_commands_from_ir(
     feature: &lazuli_ir::Feature,
     commands: &mut BTreeMap<CommandKey, CommandPolicy>,
 ) {
@@ -4941,7 +4941,7 @@ fn populate_commands_from_ir(
     }
 }
 
-fn collect_lzx_experience_facts(
+pub(super) fn collect_lzx_experience_facts(
     document: &LzxDocument,
     experiences: &mut BTreeMap<String, ExperienceFacts>,
 ) {
@@ -4963,7 +4963,7 @@ fn collect_lzx_experience_facts(
     }
 }
 
-fn collect_lzx_operational_facts(
+pub(super) fn collect_lzx_operational_facts(
     file: &DoctorFile,
     document: &LzxDocument,
     operational: &mut OperationalFacts,
@@ -5002,7 +5002,7 @@ fn collect_lzx_operational_facts(
     }
 }
 
-fn lzx_route_surface_platform(surface: Option<&str>) -> Option<LzxPlatform> {
+pub(super) fn lzx_route_surface_platform(surface: Option<&str>) -> Option<LzxPlatform> {
     match surface?.split_whitespace().last()? {
         "web" => Some(LzxPlatform::Web),
         "mobile" => Some(LzxPlatform::Mobile),
@@ -5511,7 +5511,7 @@ pub(super) fn app_contract_diagnostics(
     diagnostics
 }
 
-fn app_missing_contract_diagnostic(
+pub(super) fn app_missing_contract_diagnostic(
     app: &DoctorAppManifest,
     code: &str,
     message: &str,
@@ -5657,7 +5657,7 @@ pub(super) fn error_page_contract_diagnostics(app: &DoctorAppManifest) -> Vec<Do
     diagnostics
 }
 
-fn error_page_line(app: &DoctorAppManifest, status: u16) -> usize {
+pub(super) fn error_page_line(app: &DoctorAppManifest, status: u16) -> usize {
     let needle = format!("error_page {status}");
     app.source
         .lines()
@@ -5887,7 +5887,7 @@ pub(super) fn workspace_contract_diagnostics(workspace: Option<&DoctorAppWorkspa
     diagnostics
 }
 
-fn event_pattern_covers(published: &str, consumed: &str) -> bool {
+pub(super) fn event_pattern_covers(published: &str, consumed: &str) -> bool {
     if published == consumed {
         return true;
     }
@@ -6531,7 +6531,7 @@ pub(super) fn tier3_job_diagnostics(
     }
 }
 
-fn tier3_webhook_diagnostics<'a>(
+pub(super) fn tier3_webhook_diagnostics<'a>(
     feature: &Tier3FeatureFacts,
     webhook: &'a lazuli_ir::Webhook,
     webhook_events: &BTreeMap<&'a str, &'a lazuli_ir::WebhookEvent>,
@@ -6974,7 +6974,7 @@ pub(super) fn tier3_notification_diagnostics(
 /// `raw_payload` lines that apply to the event via the group's glob
 /// pattern. Built once per doctor run so `NOTIF-DIGEST-001` is
 /// constant-time per notification.
-fn build_event_payload_index(facts: &[Tier3FeatureFacts]) -> BTreeMap<String, BTreeSet<String>> {
+pub(super) fn build_event_payload_index(facts: &[Tier3FeatureFacts]) -> BTreeMap<String, BTreeSet<String>> {
     let mut index: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
     for feature in facts {
@@ -7028,7 +7028,7 @@ fn build_event_payload_index(facts: &[Tier3FeatureFacts]) -> BTreeMap<String, BT
 /// `<name> = <expr>` assignment captured in `event_group.raw_payload`.
 /// Returns the bare field name or `None` if the line is not an
 /// assignment (e.g. a deeper `audit ...` or comment leftover).
-fn leading_assignment_lhs(line: &str) -> Option<&str> {
+pub(super) fn leading_assignment_lhs(line: &str) -> Option<&str> {
     let trimmed = line.trim();
     let (lhs, _rest) = trimmed.split_once('=')?;
     let lhs = lhs.trim();
@@ -7257,7 +7257,7 @@ pub(super) fn profile_contract_diagnostics(
     diagnostics
 }
 
-fn operational_integrations<'a>(
+pub(super) fn operational_integrations<'a>(
     app: &'a AppManifest,
     registry: Option<&'a DoctorAppRegistry>,
 ) -> BTreeMap<&'a str, &'a str> {
@@ -7403,7 +7403,7 @@ pub(super) fn adapter_provenance_diagnostics(
     diagnostics
 }
 
-fn adapter_source_diagnostic(
+pub(super) fn adapter_source_diagnostic(
     path: PathBuf,
     code: &str,
     integration_name: &str,
@@ -7426,7 +7426,7 @@ fn adapter_source_diagnostic(
     }
 }
 
-fn enabled_pack_provided_features<'a>(
+pub(super) fn enabled_pack_provided_features<'a>(
     app: &'a AppManifest,
     registry: Option<&'a DoctorAppRegistry>,
 ) -> BTreeSet<&'a str> {
@@ -7458,7 +7458,7 @@ fn enabled_pack_provided_features<'a>(
     features
 }
 
-fn enabled_pack_integration_requirements<'a>(
+pub(super) fn enabled_pack_integration_requirements<'a>(
     app: &'a AppManifest,
     registry: Option<&'a DoctorAppRegistry>,
 ) -> Vec<(&'a str, &'a str, &'a str)> {
@@ -7494,19 +7494,19 @@ fn enabled_pack_integration_requirements<'a>(
     requirements
 }
 
-fn integration_source_name(source: &str) -> Option<&str> {
+pub(super) fn integration_source_name(source: &str) -> Option<&str> {
     source
         .strip_prefix("integrations.")
         .or_else(|| source.strip_prefix("registry.integrations."))
 }
 
-fn pack_source_name(source: &str) -> Option<&str> {
+pub(super) fn pack_source_name(source: &str) -> Option<&str> {
     source
         .strip_prefix("packs.")
         .or_else(|| source.strip_prefix("registry.packs."))
 }
 
-fn integration_environment_allowed(
+pub(super) fn integration_environment_allowed(
     app: &AppManifest,
     registry: Option<&DoctorAppRegistry>,
     name: &str,
@@ -7631,17 +7631,17 @@ pub(super) fn app_service_contract_diagnostics(
     diagnostics
 }
 
-fn app_has_target(app: &AppManifest, target: &str) -> bool {
+pub(super) fn app_has_target(app: &AppManifest, target: &str) -> bool {
     app.targets
         .iter()
         .any(|entry| entry.split_whitespace().next() == Some(target))
 }
 
-fn profile_url_target_valid(app: &AppManifest, target: &str) -> bool {
+pub(super) fn profile_url_target_valid(app: &AppManifest, target: &str) -> bool {
     target == "api" && app_has_target(app, "backend") || app_has_target(app, target)
 }
 
-fn app_has_url(app: &AppManifest, profiles: &[DoctorAppProfile], target: &str) -> bool {
+pub(super) fn app_has_url(app: &AppManifest, profiles: &[DoctorAppProfile], target: &str) -> bool {
     app.urls.iter().any(|url| url.target == target)
         || profiles
             .iter()
@@ -7649,7 +7649,7 @@ fn app_has_url(app: &AppManifest, profiles: &[DoctorAppProfile], target: &str) -
             .any(|url| url.target == target)
 }
 
-fn operational_env_names<'a>(
+pub(super) fn operational_env_names<'a>(
     app: &'a AppManifest,
     registry: Option<&'a DoctorAppRegistry>,
 ) -> BTreeSet<&'a str> {
@@ -7669,7 +7669,7 @@ fn operational_env_names<'a>(
 /// (`REPORT-SIGNED-NO-STORAGE-001` / `REPORT-STORAGE-AMBIGUOUS-001`)
 /// to resolve implicit `storage` bindings and reject signed reports
 /// in packages without any object-storage capability.
-fn collect_object_storage_caps(
+pub(super) fn collect_object_storage_caps(
     app: Option<&AppManifest>,
     registry: Option<&DoctorAppRegistry>,
 ) -> Vec<String> {
@@ -7693,7 +7693,7 @@ fn collect_object_storage_caps(
     names
 }
 
-fn app_has_any_capability(
+pub(super) fn app_has_any_capability(
     app: &AppManifest,
     registry: Option<&DoctorAppRegistry>,
     names: &[&str],
@@ -7710,21 +7710,21 @@ fn app_has_any_capability(
         })
 }
 
-fn app_runtime_serves(app: &AppManifest, service: &str) -> bool {
+pub(super) fn app_runtime_serves(app: &AppManifest, service: &str) -> bool {
     app.runtime
         .iter()
         .flat_map(|unit| unit.serves.iter())
         .any(|item| runtime_item_matches(item, service))
 }
 
-fn app_runtime_runs(app: &AppManifest, service: &str) -> bool {
+pub(super) fn app_runtime_runs(app: &AppManifest, service: &str) -> bool {
     app.runtime
         .iter()
         .flat_map(|unit| unit.runs.iter())
         .any(|item| runtime_item_matches(item, service))
 }
 
-fn runtime_item_matches(item: &str, service: &str) -> bool {
+pub(super) fn runtime_item_matches(item: &str, service: &str) -> bool {
     item == "*"
         || item == service
         || item
@@ -7733,7 +7733,7 @@ fn runtime_item_matches(item: &str, service: &str) -> bool {
             .is_some_and(|first| first == service)
 }
 
-fn command_reachability_diagnostic(
+pub(super) fn command_reachability_diagnostic(
     file: &DoctorFile,
     view: &LzxPlatformView,
     audience: &str,
@@ -7838,7 +7838,7 @@ pub(super) fn command_route_binding_diagnostics(
     }]
 }
 
-fn resolve_platform_action_target(
+pub(super) fn resolve_platform_action_target(
     action: &str,
     default_feature: &str,
     abstract_actions: Option<&BTreeMap<String, String>>,
@@ -7853,7 +7853,7 @@ fn resolve_platform_action_target(
     resolve_command_target(target, default_feature)
 }
 
-fn resolve_command_target(target: &str, default_feature: &str) -> Option<ResolvedCommandTarget> {
+pub(super) fn resolve_command_target(target: &str, default_feature: &str) -> Option<ResolvedCommandTarget> {
     let target = target.trim();
     let (callee, args) = split_target_call(target);
 
@@ -7880,7 +7880,7 @@ fn resolve_command_target(target: &str, default_feature: &str) -> Option<Resolve
     }
 }
 
-fn split_target_call(target: &str) -> (&str, BTreeSet<String>) {
+pub(super) fn split_target_call(target: &str) -> (&str, BTreeSet<String>) {
     let Some((callee, rest)) = target.split_once('(') else {
         return (target, BTreeSet::new());
     };
@@ -7898,7 +7898,7 @@ fn split_target_call(target: &str) -> (&str, BTreeSet<String>) {
     (callee.trim(), args)
 }
 
-fn parse_integration_requirement(trimmed: &str) -> Option<(&str, &str)> {
+pub(super) fn parse_integration_requirement(trimmed: &str) -> Option<(&str, &str)> {
     let rest = trimmed.trim().strip_prefix("integration ")?;
     let (slot, contract) = rest.split_once(':')?;
     let slot = slot.trim();
@@ -7911,7 +7911,7 @@ fn parse_integration_requirement(trimmed: &str) -> Option<(&str, &str)> {
     }
 }
 
-fn route_slot_name(route: &str) -> Option<&str> {
+pub(super) fn route_slot_name(route: &str) -> Option<&str> {
     route
         .split_once(':')
         .map(|(name, _)| name.trim())
@@ -7919,7 +7919,7 @@ fn route_slot_name(route: &str) -> Option<&str> {
         .filter(|name| is_identifier(name))
 }
 
-fn audience_can_reach_policy(audience: &str, qualifiers: &[String], atoms: &[String]) -> bool {
+pub(super) fn audience_can_reach_policy(audience: &str, qualifiers: &[String], atoms: &[String]) -> bool {
     if atoms.iter().any(|atom| atom == "@scope.public") {
         return true;
     }
@@ -7939,7 +7939,7 @@ fn audience_can_reach_policy(audience: &str, qualifiers: &[String], atoms: &[Str
             .any(|atom| atom == "@scope.same_org" || atom == "@scope.current_customer")
 }
 
-fn audience_roles(audience: &str, qualifiers: &[String]) -> BTreeSet<String> {
+pub(super) fn audience_roles(audience: &str, qualifiers: &[String]) -> BTreeSet<String> {
     let mut roles = BTreeSet::new();
     roles.insert(format!("@role.{audience}"));
 
@@ -7957,7 +7957,7 @@ fn audience_roles(audience: &str, qualifiers: &[String]) -> BTreeSet<String> {
     roles
 }
 
-fn line_col_for_offset(source: &str, offset: usize) -> (usize, usize) {
+pub(super) fn line_col_for_offset(source: &str, offset: usize) -> (usize, usize) {
     let mut line = 1;
     let mut column = 1;
 
@@ -7977,7 +7977,7 @@ fn line_col_for_offset(source: &str, offset: usize) -> (usize, usize) {
 }
 
 
-fn path_references<'a>(source: &'a str, prefix: &str) -> Vec<&'a str> {
+pub(super) fn path_references<'a>(source: &'a str, prefix: &str) -> Vec<&'a str> {
     let mut references = Vec::new();
     let mut rest = source;
 
@@ -8041,7 +8041,7 @@ struct AtReferenceFact {
     name: String,
 }
 
-fn collect_package_plugin_references(package: &DoctorPackage) -> Vec<PluginReferenceFact> {
+pub(super) fn collect_package_plugin_references(package: &DoctorPackage) -> Vec<PluginReferenceFact> {
     package
         .files
         .iter()
@@ -8050,7 +8050,7 @@ fn collect_package_plugin_references(package: &DoctorPackage) -> Vec<PluginRefer
         .collect()
 }
 
-fn collect_plugin_references_in_source(path: &Path, source: &str) -> Vec<PluginReferenceFact> {
+pub(super) fn collect_plugin_references_in_source(path: &Path, source: &str) -> Vec<PluginReferenceFact> {
     let mut references = Vec::new();
     let mut offset = 0;
     while let Some(relative_start) = source[offset..].find("@lazuli/plugin-") {
@@ -8071,7 +8071,7 @@ fn collect_plugin_references_in_source(path: &Path, source: &str) -> Vec<PluginR
     references
 }
 
-fn collect_at_references_in_source(path: &Path, source: &str) -> Vec<AtReferenceFact> {
+pub(super) fn collect_at_references_in_source(path: &Path, source: &str) -> Vec<AtReferenceFact> {
     let mut references = Vec::new();
     let bytes = source.as_bytes();
     let mut offset = 0;
@@ -8125,7 +8125,7 @@ fn collect_at_references_in_source(path: &Path, source: &str) -> Vec<AtReference
     references
 }
 
-fn plugin_reference_name_len(source: &str) -> usize {
+pub(super) fn plugin_reference_name_len(source: &str) -> usize {
     source
         .bytes()
         .take_while(|byte| {
@@ -8134,20 +8134,20 @@ fn plugin_reference_name_len(source: &str) -> usize {
         .count()
 }
 
-fn reference_name_len(source: &str) -> usize {
+pub(super) fn reference_name_len(source: &str) -> usize {
     source
         .bytes()
         .take_while(|byte| byte.is_ascii_alphanumeric() || matches!(*byte, b'_' | b'-' | b'/'))
         .count()
 }
 
-fn reference_namespace(reference: &str) -> Option<&str> {
+pub(super) fn reference_namespace(reference: &str) -> Option<&str> {
     let after_at = reference.strip_prefix('@')?;
     let end = after_at.find(['.', '/']).unwrap_or(after_at.len());
     (end > 0).then_some(&after_at[..end])
 }
 
-fn is_allowed_reference_namespace_for_doctor(namespace: &str) -> bool {
+pub(super) fn is_allowed_reference_namespace_for_doctor(namespace: &str) -> bool {
     matches!(
         namespace,
         "role"
@@ -8171,7 +8171,7 @@ fn is_allowed_reference_namespace_for_doctor(namespace: &str) -> bool {
     )
 }
 
-fn go_mod_lazuli_runtime_version(source: &str) -> Option<String> {
+pub(super) fn go_mod_lazuli_runtime_version(source: &str) -> Option<String> {
     for line in source.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("//") || !trimmed.contains("lazuli.dev/runtime") {
@@ -8193,7 +8193,7 @@ const SEMANTIC_TYPE_UNKNOWN_CODE: &str = "semantic_type_unknown";
 const SEMANTIC_TYPE_CATALOG: &str =
     "EMAIL, PHONE, URL, UUID, DATE, CURRENCY, MONEY, JSON, GEOPOINT";
 
-fn semantic_type_unknown_diagnostics_for_syntax_feature(
+pub(super) fn semantic_type_unknown_diagnostics_for_syntax_feature(
     path: &Path,
     source: &str,
     feature: &lazuli_syntax::FeatureSkeleton,
@@ -8371,7 +8371,7 @@ fn semantic_type_unknown_diagnostics_for_syntax_feature(
     diagnostics
 }
 
-fn semantic_type_unknown_diagnostics_for_feature(
+pub(super) fn semantic_type_unknown_diagnostics_for_feature(
     path: &Path,
     source: &str,
     feature: &lazuli_ir::Feature,
@@ -8535,7 +8535,7 @@ fn semantic_type_unknown_diagnostics_for_feature(
     diagnostics
 }
 
-fn check_typed_slots_for_unknown_semantics(
+pub(super) fn check_typed_slots_for_unknown_semantics(
     path: &Path,
     source: &str,
     slots: &[lazuli_ir::TypedSlot],
@@ -8549,7 +8549,7 @@ fn check_typed_slots_for_unknown_semantics(
     }
 }
 
-fn check_command_effect_for_unknown_semantics(
+pub(super) fn check_command_effect_for_unknown_semantics(
     path: &Path,
     effect: &lazuli_ir::CommandEffect,
     loc: (usize, usize),
@@ -8560,7 +8560,7 @@ fn check_command_effect_for_unknown_semantics(
     }
 }
 
-fn check_extension_contract_for_unknown_semantics(
+pub(super) fn check_extension_contract_for_unknown_semantics(
     path: &Path,
     contract: &lazuli_ir::ExtensionContract,
     loc: (usize, usize),
@@ -8583,7 +8583,7 @@ fn check_extension_contract_for_unknown_semantics(
     }
 }
 
-fn push_unknown_semantic_type(
+pub(super) fn push_unknown_semantic_type(
     path: &Path,
     type_ref: &lazuli_ir::TypeRef,
     loc: (usize, usize),
@@ -8608,7 +8608,7 @@ fn push_unknown_semantic_type(
     }
 }
 
-fn push_unknown_semantic_type_text(
+pub(super) fn push_unknown_semantic_type_text(
     path: &Path,
     source: &str,
     type_text: &str,
@@ -8635,7 +8635,7 @@ fn push_unknown_semantic_type_text(
     }
 }
 
-fn unknown_semantic_type_name(type_ref: &lazuli_ir::TypeRef) -> Option<&str> {
+pub(super) fn unknown_semantic_type_name(type_ref: &lazuli_ir::TypeRef) -> Option<&str> {
     match type_ref {
         lazuli_ir::TypeRef::UserDefined(qname)
             if qname.name.starts_with("@semantic.")
@@ -8648,14 +8648,14 @@ fn unknown_semantic_type_name(type_ref: &lazuli_ir::TypeRef) -> Option<&str> {
     }
 }
 
-fn unknown_semantic_type_names_in_text(type_text: &str) -> Vec<&str> {
+pub(super) fn unknown_semantic_type_names_in_text(type_text: &str) -> Vec<&str> {
     type_text
         .split(|ch: char| !(ch == '@' || ch == '.' || ch == '_' || ch.is_ascii_alphanumeric()))
         .filter(|token| token.starts_with("@semantic.") && !is_known_semantic_type_name(token))
         .collect()
 }
 
-fn is_known_semantic_type_name(name: &str) -> bool {
+pub(super) fn is_known_semantic_type_name(name: &str) -> bool {
     let Some(short) = name.strip_prefix("@semantic.") else {
         return false;
     };
@@ -8676,11 +8676,11 @@ fn is_known_semantic_type_name(name: &str) -> bool {
     )
 }
 
-fn span_line_col(source: &str, span: Option<&lazuli_ir::SpanRef>) -> Option<(usize, usize)> {
+pub(super) fn span_line_col(source: &str, span: Option<&lazuli_ir::SpanRef>) -> Option<(usize, usize)> {
     span.map(|span| line_col_for_offset(source, span.start))
 }
 
-fn query_line_col(source: &str, query: &lazuli_ir::Query) -> Option<(usize, usize)> {
+pub(super) fn query_line_col(source: &str, query: &lazuli_ir::Query) -> Option<(usize, usize)> {
     match query {
         lazuli_ir::Query::List(query) => span_line_col(source, query.span_ref.as_ref()),
         lazuli_ir::Query::Lookup(query) => span_line_col(source, query.span_ref.as_ref()),
@@ -8688,7 +8688,7 @@ fn query_line_col(source: &str, query: &lazuli_ir::Query) -> Option<(usize, usiz
     }
 }
 
-fn find_nested_type_site_line(
+pub(super) fn find_nested_type_site_line(
     source: &str,
     parent_line: usize,
     site_name: &str,
@@ -8745,7 +8745,7 @@ fn find_nested_type_site_line(
 /// local, `@<atom>` for atom, `<feature>.<name>` for external,
 /// `Unresolved` text verbatim — so `policy_atoms_more_restrictive`
 /// substring matching stays a one-to-one swap.
-fn populate_feature_symbols_from_ir(
+pub(super) fn populate_feature_symbols_from_ir(
     tier3_facts: &[Tier3FeatureFacts],
     feature_symbols: &mut BTreeMap<String, FeatureSymbols>,
 ) {
@@ -8768,7 +8768,7 @@ fn populate_feature_symbols_from_ir(
 /// child lines. `PolicyRef::None` returns `None` so the IR-driven
 /// populator skips empty entries the way the walker skipped missing
 /// `policy` clauses.
-fn policy_ref_surface_text(p: &ir::PolicyRef) -> Option<String> {
+pub(super) fn policy_ref_surface_text(p: &ir::PolicyRef) -> Option<String> {
     match p {
         ir::PolicyRef::Local(name) => Some(format!("@policy.{name}")),
         ir::PolicyRef::Atom(atom) => Some(atom.clone()),
@@ -8874,7 +8874,7 @@ pub(super) fn cross_feature_type_unresolved_diagnostics(
     diagnostics
 }
 
-fn build_cross_feature_declared_type_index(
+pub(super) fn build_cross_feature_declared_type_index(
     tier3_facts: &[Tier3FeatureFacts],
     feature_resources: &BTreeMap<String, BTreeMap<String, ResourceFact>>,
 ) -> BTreeSet<String> {
@@ -8891,7 +8891,7 @@ fn build_cross_feature_declared_type_index(
     declared
 }
 
-fn push_unresolved_type_ref_diagnostic(
+pub(super) fn push_unresolved_type_ref_diagnostic(
     diagnostics: &mut Vec<DoctorDiagnostic>,
     reported: &mut BTreeSet<(PathBuf, String, String)>,
     declared_types: &BTreeSet<String>,
@@ -8924,7 +8924,7 @@ fn push_unresolved_type_ref_diagnostic(
     });
 }
 
-fn unresolved_bare_user_type_name<'a>(
+pub(super) fn unresolved_bare_user_type_name<'a>(
     type_ref: &'a ir::TypeRef,
     declared_types: &BTreeSet<String>,
 ) -> Option<&'a str> {
@@ -8940,7 +8940,7 @@ fn unresolved_bare_user_type_name<'a>(
     }
 }
 
-fn is_trivial_type_ref_name(name: &str) -> bool {
+pub(super) fn is_trivial_type_ref_name(name: &str) -> bool {
     let trimmed = name.trim();
     trimmed.len() <= 1 || trimmed.starts_with('@')
 }
@@ -9103,7 +9103,7 @@ struct MissingUsesRef {
     line: usize,
 }
 
-fn record_missing_uses_ref(
+pub(super) fn record_missing_uses_ref(
     missing: &mut BTreeMap<(String, String), MissingUsesRef>,
     type_owners: &DoctorCrossFeatureTypeIndex,
     feature: &str,
@@ -9123,7 +9123,7 @@ fn record_missing_uses_ref(
     }
 }
 
-fn collect_cross_feature_type_ref_owners(
+pub(super) fn collect_cross_feature_type_ref_owners(
     owners: &mut BTreeSet<String>,
     type_owners: &DoctorCrossFeatureTypeIndex,
     feature: &str,
@@ -9164,7 +9164,7 @@ fn collect_cross_feature_type_ref_owners(
     }
 }
 
-fn query_params(query: &ir::Query) -> &[ir::TypedSlot] {
+pub(super) fn query_params(query: &ir::Query) -> &[ir::TypedSlot] {
     match query {
         ir::Query::List(query) => &query.params,
         ir::Query::Lookup(query) => &query.params,
@@ -9172,7 +9172,7 @@ fn query_params(query: &ir::Query) -> &[ir::TypedSlot] {
     }
 }
 
-fn query_span_ref(query: &ir::Query) -> Option<ir::SpanRef> {
+pub(super) fn query_span_ref(query: &ir::Query) -> Option<ir::SpanRef> {
     match query {
         ir::Query::List(query) => query.span_ref,
         ir::Query::Lookup(query) => query.span_ref,
@@ -9440,7 +9440,7 @@ struct ResolvedTool {
     pii_classes: Vec<String>,
 }
 
-fn resolve_tool(
+pub(super) fn resolve_tool(
     fact: &AgentFacts,
     reference: &ir::QualifiedToolRef,
     feature_symbols: &BTreeMap<String, FeatureSymbols>,
@@ -9536,7 +9536,7 @@ fn resolve_tool(
 /// Plan §5.4 punts the full lattice migration to a later cut; this stub
 /// keeps the diagnostic firing for the obvious cases without false
 /// positives.
-fn policy_atoms_more_restrictive(tool_policy: &str, agent_policy: &str) -> bool {
+pub(super) fn policy_atoms_more_restrictive(tool_policy: &str, agent_policy: &str) -> bool {
     let order = |text: &str| match text {
         s if s.contains("delete") => 3,
         s if s.contains("update") => 2,
@@ -9662,7 +9662,7 @@ pub(super) fn agent_discriminator_diagnostics(
 /// typed field list. The enum lookup walks `Tier3FeatureFacts.enums`
 /// (typed `ir::EnumDecl` lift); the legacy `FeatureSymbols.enums`
 /// text walker is gone.
-fn check_record_discriminator(
+pub(super) fn check_record_discriminator(
     fact: &AgentFacts,
     agent: &Agent,
     record_name: &str,
@@ -9798,7 +9798,7 @@ pub(super) fn agent_eval_diagnostics(agents: &[AgentFacts]) -> Vec<DoctorDiagnos
 /// (`<x>.length`, `<x>.count`) and integer literals. Everything else is
 /// rejected as non-numeric — authors who hit a false positive can split
 /// the case until type resolution arrives.
-fn operand_resolves_numeric(expr: &ir::Expr) -> bool {
+pub(super) fn operand_resolves_numeric(expr: &ir::Expr) -> bool {
     match expr {
         ir::Expr::Integer(_) => true,
         ir::Expr::Path(path) => {
@@ -9945,7 +9945,7 @@ struct ExposePathFact {
 /// `.lzi` text scans are intentionally avoided — counting `audience X`
 /// references inside e.g. `expose http audience X` would defeat the
 /// `agent_expose_audience_unknown_diagnostics` check by self-resolving.
-fn collect_known_audiences(files: &[DoctorFile]) -> BTreeSet<String> {
+pub(super) fn collect_known_audiences(files: &[DoctorFile]) -> BTreeSet<String> {
     let mut audiences = BTreeSet::new();
     for file in files {
         if let Some(document) = file.lzx.as_ref() {
@@ -10015,7 +10015,7 @@ struct ApprovalBlockPresence {
     missing_children: Vec<&'static str>,
 }
 
-fn collect_approval_block_presence(file: &DoctorFile, out: &mut Vec<ApprovalBlockPresence>) {
+pub(super) fn collect_approval_block_presence(file: &DoctorFile, out: &mut Vec<ApprovalBlockPresence>) {
     let lines: Vec<&str> = file.source.lines().collect();
     let mut feature: Option<String> = None;
     let mut i = 0;
@@ -10433,7 +10433,7 @@ pub(super) fn field_derived_from_unresolved_diagnostics(
 /// Best-effort source-offset → line resolver for derived-from spans.
 /// Falls back to line 1 when the path can't be read (test fixtures
 /// often produce in-memory facts without disk-backing).
-fn line_col_for_offset_in_file(path: &Path, offset: usize) -> (usize, usize) {
+pub(super) fn line_col_for_offset_in_file(path: &Path, offset: usize) -> (usize, usize) {
     let Ok(source) = std::fs::read_to_string(path) else {
         return (1, 1);
     };
@@ -10447,7 +10447,7 @@ fn line_col_for_offset_in_file(path: &Path, offset: usize) -> (usize, usize) {
 /// runtime would have accepted is a Warning, not an Error, so a
 /// false positive nudges the author to rename / annotate rather than
 /// blocking the commit.
-fn collect_unresolved_field_refs(expr: &str, siblings: &BTreeSet<&str>) -> Vec<String> {
+pub(super) fn collect_unresolved_field_refs(expr: &str, siblings: &BTreeSet<&str>) -> Vec<String> {
     // Strip string literals (single + double quoted) first so their
     // contents don't masquerade as identifiers.
     let mut buf = String::with_capacity(expr.len());
@@ -10691,7 +10691,7 @@ pub(super) fn resource_validates_path_unknown_diagnostics(
 /// `<digits><unit>` where unit ∈ s, m, h, d, w, second(s),
 /// minute(s), hour(s), day(s), week(s). The runtime adapter parses
 /// the canonical form; this layer rejects obviously malformed input.
-fn approval_timeout_well_formed(text: &str) -> bool {
+pub(super) fn approval_timeout_well_formed(text: &str) -> bool {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return false;
@@ -10738,7 +10738,7 @@ fn approval_timeout_well_formed(text: &str) -> bool {
 /// Intentionally scoped: scanning every `@role.X` reference in the
 /// file would self-resolve the very `by @role.X` line we're trying
 /// to validate. Only first-class declarations count.
-fn collect_known_roles(files: &[DoctorFile]) -> BTreeSet<String> {
+pub(super) fn collect_known_roles(files: &[DoctorFile]) -> BTreeSet<String> {
     let mut roles = BTreeSet::new();
     for file in files {
         if !is_lzi_path(&file.path) {
@@ -10789,7 +10789,7 @@ fn collect_known_roles(files: &[DoctorFile]) -> BTreeSet<String> {
     roles
 }
 
-fn extract_role_atoms(refs: &str, roles: &mut BTreeSet<String>) {
+pub(super) fn extract_role_atoms(refs: &str, roles: &mut BTreeSet<String>) {
     for token in refs.split(',') {
         let token = token.trim();
         if let Some(name) = token.strip_prefix("@role.") {
@@ -10821,7 +10821,7 @@ fn extract_role_atoms(refs: &str, roles: &mut BTreeSet<String>) {
 /// Aggregate the package-level RBAC catalog by re-parsing each `.lzi`
 /// file and concatenating `permission` / `role` decls. Cross-file
 /// duplicates are caught by the analyzer's per-package pass.
-fn collect_package_rbac_catalog(
+pub(super) fn collect_package_rbac_catalog(
     files: &[DoctorFile],
 ) -> (
     Option<lazuli_ir::RbacCatalog>,
@@ -10912,7 +10912,7 @@ pub(super) fn rbac_catalog_diagnostics(
 }
 
 /// Resolve a byte offset within a given file path to (line, column).
-fn line_col_for_offset_from_files(
+pub(super) fn line_col_for_offset_from_files(
     files: &[DoctorFile],
     path: &Path,
     offset: usize,
@@ -11096,7 +11096,7 @@ pub(super) fn rbac_missing_policy_diagnostics(files: &[DoctorFile]) -> Vec<Docto
     out
 }
 
-fn flush_missing_policy(
+pub(super) fn flush_missing_policy(
     out: &mut Vec<DoctorDiagnostic>,
     path: &Path,
     policied: &[String],
@@ -11157,7 +11157,7 @@ struct AuthAnchors {
 /// Walk the source under the `auth` block (starting at `auth_line`) and
 /// map each subblock onto its 1-based source line. Used to anchor
 /// diagnostics at the offending keyword rather than the `auth` header.
-fn collect_auth_anchors(source: &str, auth_line: usize) -> AuthAnchors {
+pub(super) fn collect_auth_anchors(source: &str, auth_line: usize) -> AuthAnchors {
     let mut anchors = AuthAnchors {
         identity_line: auth_line,
         ..Default::default()
@@ -11235,7 +11235,7 @@ fn collect_auth_anchors(source: &str, auth_line: usize) -> AuthAnchors {
 /// `notification` headers inside a feature. Walks the file looking for
 /// lines whose trimmed text starts with `<prefix><name>` (e.g.
 /// `job process_import`). Returns a `name -> 1-based line` map.
-fn collect_construct_lines(
+pub(super) fn collect_construct_lines(
     source: &str,
     prefix: &str,
     names: BTreeSet<&str>,
@@ -11260,7 +11260,7 @@ fn collect_construct_lines(
 /// OpenAPI/Cache bucket cycles — line lookup for `query.list`,
 /// `query.lookup`, `query.sql`, `query.view` headers. Mirrors `collect_construct_lines`
 /// but the parser folds the kind into the header keyword.
-fn collect_query_lines(source: &str, queries: &[lazuli_ir::Query]) -> BTreeMap<String, usize> {
+pub(super) fn collect_query_lines(source: &str, queries: &[lazuli_ir::Query]) -> BTreeMap<String, usize> {
     let mut out = BTreeMap::new();
     if queries.is_empty() {
         return out;
@@ -11296,7 +11296,7 @@ fn collect_query_lines(source: &str, queries: &[lazuli_ir::Query]) -> BTreeMap<S
 /// names that were lifted to `feature.apis` IR to know which entries
 /// are still text-pattern (i.e. the OpenAPI emitter falls back to a
 /// stub for them).
-fn collect_text_pattern_api_names(source: &str) -> Vec<String> {
+pub(super) fn collect_text_pattern_api_names(source: &str) -> Vec<String> {
     let mut out = Vec::new();
     for line in source.lines() {
         let trimmed = line.trim_start();
@@ -11312,7 +11312,7 @@ fn collect_text_pattern_api_names(source: &str) -> Vec<String> {
 
 /// i18n bucket cycle — find the first line containing the bare keyword
 /// (preceded only by whitespace). Used for `translation` line anchoring.
-fn find_keyword_line(source: &str, keyword: &str) -> Option<usize> {
+pub(super) fn find_keyword_line(source: &str, keyword: &str) -> Option<usize> {
     for (idx, line) in source.lines().enumerate() {
         if line.trim() == keyword {
             return Some(idx + 1);
@@ -11323,7 +11323,7 @@ fn find_keyword_line(source: &str, keyword: &str) -> Option<usize> {
 
 /// Phase L Tier 3 — line lookup for `event_group <pattern>` headers.
 /// Same as `collect_construct_lines` but matches the pattern token.
-fn collect_event_group_lines(source: &str, patterns: BTreeSet<&str>) -> BTreeMap<String, usize> {
+pub(super) fn collect_event_group_lines(source: &str, patterns: BTreeSet<&str>) -> BTreeMap<String, usize> {
     let mut out = BTreeMap::new();
     if patterns.is_empty() {
         return out;
@@ -11349,7 +11349,7 @@ fn collect_event_group_lines(source: &str, patterns: BTreeSet<&str>) -> BTreeMap
 /// `defaults.tenancy`; this is a typed read of
 /// `feature.defaults.tenancy`. The legacy "axis unknown → only check
 /// presence" fallback that tier 3 diagnostics rode on is retired.
-fn tenancy_axis_for(feature: &lazuli_ir::Feature) -> Option<String> {
+pub(super) fn tenancy_axis_for(feature: &lazuli_ir::Feature) -> Option<String> {
     match feature.defaults.tenancy.as_ref()? {
         lazuli_ir::Tenancy::Org => Some("org".to_owned()),
         lazuli_ir::Tenancy::Team => Some("team".to_owned()),
@@ -11367,7 +11367,7 @@ fn tenancy_axis_for(feature: &lazuli_ir::Feature) -> Option<String> {
 /// resource line anchor comes from `collect_construct_lines` on the
 /// file source so cross-feature anchored diagnostics still point at the
 /// `resource <Name>` header.
-fn populate_feature_resources_from_ir(
+pub(super) fn populate_feature_resources_from_ir(
     file_path: &Path,
     file_source: &str,
     feature: &lazuli_ir::Feature,
@@ -11413,7 +11413,7 @@ fn populate_feature_resources_from_ir(
 /// Harvest each feature's `extensions adapter <name>: <Type> at "..."`
 /// declarations. Only the local name is stored; the type contract is
 /// checked elsewhere.
-fn collect_feature_adapters(file: &DoctorFile, out: &mut BTreeMap<String, BTreeSet<String>>) {
+pub(super) fn collect_feature_adapters(file: &DoctorFile, out: &mut BTreeMap<String, BTreeSet<String>>) {
     if !is_lzi_path(&file.path) {
         return;
     }
@@ -11468,7 +11468,7 @@ fn collect_feature_adapters(file: &DoctorFile, out: &mut BTreeMap<String, BTreeS
 /// Harvest each feature's `uses <feature>, <feature>, ...` declarations.
 /// Cross-feature resource resolution (e.g. `auth identity Customer.email`
 /// in `customer_auth uses customer`) reads this map.
-fn collect_feature_uses(file: &DoctorFile, out: &mut BTreeMap<String, BTreeSet<String>>) {
+pub(super) fn collect_feature_uses(file: &DoctorFile, out: &mut BTreeMap<String, BTreeSet<String>>) {
     if !is_lzi_path(&file.path) {
         return;
     }
@@ -11518,7 +11518,7 @@ fn collect_feature_uses(file: &DoctorFile, out: &mut BTreeMap<String, BTreeSet<S
 /// typed `CapabilityRef::Hashed(...)`. Returns `None` when the field is
 /// not a `@cap.Hashed` decorator. Replaces the text-walking version
 /// that re-parsed `@cap.Hashed(algorithm:…)` from `type_text`.
-fn cap_hashed_algorithm(type_ref: &lazuli_ir::TypeRef) -> Option<&'static str> {
+pub(super) fn cap_hashed_algorithm(type_ref: &lazuli_ir::TypeRef) -> Option<&'static str> {
     match type_ref {
         lazuli_ir::TypeRef::Capability(lazuli_ir::CapabilityRef::Hashed(h)) => {
             Some(match h.algorithm {
@@ -11534,7 +11534,7 @@ fn cap_hashed_algorithm(type_ref: &lazuli_ir::TypeRef) -> Option<&'static str> {
 /// fields are either tagged `@semantic.Email` / `@semantic.Phone`,
 /// declared as `ID`, or carry the typed `unique` axis. Rejects free-
 /// form `Text` fields used as login identities.
-fn is_identity_shaped(field: &ResourceFieldFact) -> bool {
+pub(super) fn is_identity_shaped(field: &ResourceFieldFact) -> bool {
     use lazuli_ir::{BuiltinType, TypeRef};
     match &field.type_ref {
         TypeRef::Builtin(BuiltinType::SemanticEmail | BuiltinType::SemanticPhone) => true,
@@ -11546,7 +11546,7 @@ fn is_identity_shaped(field: &ResourceFieldFact) -> bool {
 /// Resolve `<Resource>` for a feature by searching its own resources
 /// first, then falling back to resources declared in features it
 /// `uses`. Returns the first hit.
-fn resolve_resource_for_feature<'a>(
+pub(super) fn resolve_resource_for_feature<'a>(
     feature: &str,
     resource_name: &str,
     feature_resources: &'a BTreeMap<String, BTreeMap<String, ResourceFact>>,
@@ -12095,7 +12095,7 @@ const RESERVED_AUDIT_STREAMS: &[&str] = &["audit_log", "audit_stream"];
 /// `(line_1_indexed, column_1_indexed)`. Used by the IR-driven
 /// `audit emit_to` walker to anchor diagnostics at the exact source
 /// location even when the IR side only carries the construct header.
-fn locate_emit_to_line(
+pub(super) fn locate_emit_to_line(
     path: &Path,
     files: &[DoctorFile],
     header_line: usize,
@@ -12448,7 +12448,7 @@ pub(super) fn audit_event_health_diagnostics(
     diagnostics
 }
 
-fn resource_policy_and_command_audit_hints(
+pub(super) fn resource_policy_and_command_audit_hints(
     facts: &[Tier3FeatureFacts],
     feature_resources: &BTreeMap<String, BTreeMap<String, ResourceFact>>,
 ) -> Vec<DoctorDiagnostic> {
@@ -12545,7 +12545,7 @@ fn resource_policy_and_command_audit_hints(
     diagnostics
 }
 
-fn is_write_effect_command(command: &lazuli_ir::Command) -> bool {
+pub(super) fn is_write_effect_command(command: &lazuli_ir::Command) -> bool {
     matches!(
         command.kind,
         lazuli_ir::CommandKind::Create
@@ -12554,7 +12554,7 @@ fn is_write_effect_command(command: &lazuli_ir::Command) -> bool {
     )
 }
 
-fn write_effect_resource(command: &lazuli_ir::Command) -> Option<&lazuli_ir::QualifiedName> {
+pub(super) fn write_effect_resource(command: &lazuli_ir::Command) -> Option<&lazuli_ir::QualifiedName> {
     match &command.effect {
         lazuli_ir::CommandEffect::Creates(effect) => Some(&effect.resource),
         lazuli_ir::CommandEffect::Updates(effect) => Some(&effect.resource),
@@ -12564,7 +12564,7 @@ fn write_effect_resource(command: &lazuli_ir::Command) -> Option<&lazuli_ir::Qua
 }
 
 
-fn canonical_payload_event(name: &str, canonical: &BTreeSet<String>) -> bool {
+pub(super) fn canonical_payload_event(name: &str, canonical: &BTreeSet<String>) -> bool {
     !canonical.is_empty() && ir::is_reserved_trace_event_name(name)
 }
 
@@ -12573,7 +12573,7 @@ fn canonical_payload_event(name: &str, canonical: &BTreeSet<String>) -> bool {
 /// where `<field>` is not part of the canonical payload. The check is
 /// scoped to the job block that owns the trigger — we stop at the
 /// next sibling at the same or shallower indent.
-fn scan_payload_field_drift(
+pub(super) fn scan_payload_field_drift(
     file: &DoctorFile,
     lines: &[&str],
     trigger_line: usize,
@@ -12680,7 +12680,7 @@ const KNOWN_MIME_FAMILIES: &[&str] = &[
     "*",
 ];
 
-fn collect_file_capability_facts(
+pub(super) fn collect_file_capability_facts(
     file: &DoctorFile,
     lines: &[&str],
     operational: &mut OperationalFacts,
@@ -12795,7 +12795,7 @@ fn collect_file_capability_facts(
 /// Mirrors `crates/lazuli_cli/src/main.rs:extract_cap_file_field` but is
 /// re-implemented here to keep the doctor crate's dependency surface
 /// unchanged (no new pub item needed).
-fn extract_cap_file_field_line(trimmed: &str) -> Option<(String, String)> {
+pub(super) fn extract_cap_file_field_line(trimmed: &str) -> Option<(String, String)> {
     let (name_part, type_part) = trimmed.split_once(':')?;
     let name = name_part.trim();
     if name.is_empty() || name.contains(char::is_whitespace) {
@@ -13391,7 +13391,7 @@ pub(super) fn query_view_sql_file_diagnostics(
     diagnostics
 }
 
-fn resolve_query_view_sql_path(project_root: &Path, sql_path: &str) -> PathBuf {
+pub(super) fn resolve_query_view_sql_path(project_root: &Path, sql_path: &str) -> PathBuf {
     let path = Path::new(sql_path);
     if path.is_absolute() {
         path.to_path_buf()
@@ -13400,7 +13400,7 @@ fn resolve_query_view_sql_path(project_root: &Path, sql_path: &str) -> PathBuf {
     }
 }
 
-fn query_view_unsafe_sql_line(sql: &str) -> Option<(usize, &'static str)> {
+pub(super) fn query_view_unsafe_sql_line(sql: &str) -> Option<(usize, &'static str)> {
     for (idx, line) in sql.lines().enumerate() {
         if line.contains("'%s'") || line.contains("\"%s\"") || line.contains("%s") {
             return Some((idx + 1, "`%s` formatting marker"));
@@ -13412,7 +13412,7 @@ fn query_view_unsafe_sql_line(sql: &str) -> Option<(usize, &'static str)> {
     None
 }
 
-fn plus_near_dollar_placeholder(line: &str) -> bool {
+pub(super) fn plus_near_dollar_placeholder(line: &str) -> bool {
     let bytes = line.as_bytes();
     for (idx, byte) in bytes.iter().enumerate() {
         if *byte != b'$'
