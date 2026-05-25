@@ -47,6 +47,7 @@ pub use nodes::plan_and_gate::{
     AutoPhotoCommandRole, Gate, Plan, PlanCatalog, PlanLimit, PlanLimitValue, SubscriptionAnchor,
     SynthesizedFromCapFile, TrialPolicy,
 };
+pub use nodes::rbac::{PermissionEntry, RbacCatalog, RoleEntry, RoleGrants};
 pub use nodes::report::{
     FilenameToken, FnInvocation, Report, ReportColumn, ReportColumnSource, ReportFilenamePattern,
     ReportFormat, ReportSource,
@@ -338,57 +339,15 @@ pub struct Module {
     pub features: Vec<Feature>,
 }
 
-// -----------------------------------------------------------------------------
-// RBAC catalog IR — produced by `lazuli_analyzer::analyze_rbac_catalog`
-// from the surface AST (`PackageSkeleton.permissions` / `.roles`).
-// Closure is analyzer-derived, baked into the IR for downstream
-// consumers (codegen, doctor, inspect) so they never recompute.
-// -----------------------------------------------------------------------------
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RbacCatalog {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub permissions: Vec<PermissionEntry>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub roles: Vec<RoleEntry>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PermissionEntry {
-    /// Full identifier (`users:read`).
-    pub name: String,
-    /// Colon-split segments.
-    pub segments: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RoleEntry {
-    pub name: String,
-    /// Single-parent inheritance ref (v0.1). `None` for root roles.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub inherits: Option<String>,
-    pub grants: RoleGrants,
-    /// Analyzer-computed flat permission list (closure of own grants
-    /// plus transitively inherited grants). Sorted for determinism.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub closure: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value")]
-pub enum RoleGrants {
-    /// Explicit `grants` block — direct permission refs (closure also
-    /// folds in inherited).
-    Explicit(Vec<String>),
-    /// `grants_all` shorthand. Closure = every declared permission.
-    All,
-    /// No `grants*` block. Closure = inherited only.
-    InheritedOnly,
-}
+// =============================================================================
+// RBAC catalog IR.
+// RBAC family (RbacCatalog, PermissionEntry, RoleEntry, RoleGrants) lives in
+// nodes::rbac after the W4.1 rails-style split. Re-exported at the crate root
+// above to preserve the ABI surface. Produced by
+// `lazuli_analyzer::analyze_rbac_catalog`; closure is analyzer-derived and
+// baked into the IR so downstream consumers (codegen, doctor, inspect) never
+// recompute.
+// =============================================================================
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppContract {

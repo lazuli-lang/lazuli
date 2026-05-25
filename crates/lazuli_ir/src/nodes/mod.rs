@@ -39,4 +39,5 @@ pub mod capability;
 pub mod error_vocab;
 pub mod mcp;
 pub mod plan_and_gate;
+pub mod rbac;
 pub mod report;
