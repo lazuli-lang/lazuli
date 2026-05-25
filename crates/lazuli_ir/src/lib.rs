@@ -15,10 +15,15 @@
 use serde::{Deserialize, Serialize};
 
 pub mod encryption;
+pub mod nodes;
 pub mod security_duration;
 pub use encryption::{
     E2eeCapability, EncryptionAlgorithm, EncryptionBinding, EncryptionKeyScope, EncryptionRotation,
     EncryptionSource, EncryptionTemplate, EncryptionTemplateAxis,
+};
+pub use nodes::auth::{
+    Auth, AuthIdentity, AuthMfa, AuthOAuthProvider, AuthPassword, AuthSessions, RotationConfig,
+    SessionExtraColumn, TheftAction,
 };
 
 /// LZIR_SCHEMA — version of the IR JSON ABI. Bumped to 0.16.0 by
@@ -5767,236 +5772,11 @@ pub enum TenantMigrationTargetOperation {
 
 // =============================================================================
 // Phase 1e — auth block
+// Auth family (Auth, AuthIdentity, AuthPassword, AuthSessions, AuthMfa,
+// AuthOAuthProvider, RotationConfig, SessionExtraColumn, TheftAction) lives
+// in `nodes::auth` after the W4.1 rails-style split. Re-exported at the
+// crate root above to preserve the ABI surface.
 // =============================================================================
-
-/// Authentication is a family of related subcontracts. Modeling them in one
-/// optional block keeps identity, password, sessions, MFA, and OAuth visible
-/// together. A feature should not declare more than one identity domain.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Auth {
-    pub identity: AuthIdentity,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub password: Option<AuthPassword>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sessions: Option<AuthSessions>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mfa: Option<AuthMfa>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub oauth: Vec<AuthOAuthProvider>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// `auth identity Customer.email` — one identity field on one resource.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AuthIdentity {
-    pub field: FieldRef,
-    /// Cross-feature contract per `docs/proposals/cross-feature-contracts.md`
-    /// §3.5 + §5.3. Populated when the source declares `public contract
-    /// identity as v<N>` adjacent to the `auth identity` line. `None`
-    /// when no contract is declared (the policy `actor.*` references
-    /// cannot cross feature boundaries under `architecture mode
-    /// microservices` without doctor erroring).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub public_contract: Option<PublicContract>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AuthPassword {
-    /// `algorithm argon2id` — required by Phase L. The runtime adapter
-    /// pins the KDF; the language records the author's choice verbatim
-    /// so doctor can spot legacy/banned algorithms (`md5`, `sha1`, etc.).
-    /// Existing JSON payloads that omit this field default to the empty
-    /// string for backward compatibility; doctor warns once the slot is
-    /// known to be empty.
-    #[serde(default)]
-    pub algorithm: String,
-    /// `hash @fn.hash_customer_password` — extension fn reference.
-    pub hash: String,
-    pub verify: String,
-    /// `rate_limit "5 per 10 minutes"` — declarative throttle parsed by
-    /// the auth adapter. Per `ir-rate-limit-env-aware` (cell 1) the slot
-    /// accepts the env-qualified `RateLimitSpec` shape; single-line
-    /// fixtures lower via `RateLimitSpec::from_default`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rate_limit: Option<RateLimitSpec>,
-}
-
-/// `theft_detection_action <verb>` — what the runtime does when a revoked
-/// refresh token is used after the grace window has expired AND the
-/// session family has a grandchild (i.e. the token has provably been
-/// rotated past).
-///
-/// Closed catalog — adding a new action requires a proposal.
-///
-/// See `docs/proposals/ir-auth-refresh-rotation.md` §3.1, §2.H.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TheftAction {
-    /// Walk the family chain (parents + descendants) of the offending
-    /// session; revoke every row. The user stays logged in on other
-    /// devices (other session families are untouched). Recommended default.
-    RevokeSessionFamily,
-    /// Revoke ALL sessions for the user. The user is logged out on every
-    /// device. Stronger blast radius — reserve for high-stakes apps.
-    RevokeUser,
-}
-
-impl Default for TheftAction {
-    fn default() -> Self {
-        TheftAction::RevokeSessionFamily
-    }
-}
-
-/// Rotation policy for refresh tokens. Present iff the author declared a
-/// `rotation` block under `auth.sessions`. Each inner slot is independently
-/// optional — framework defaults kick in when absent (post-§2.B
-/// auto-promotion).
-///
-/// See `docs/proposals/ir-auth-refresh-rotation.md` §2.A (authoring shape),
-/// §3.2 (lowering shape).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RotationConfig {
-    /// Long-lived refresh token TTL. When `None`, framework reads
-    /// `"30 days"`. See proposal §2.A.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub refresh_ttl: Option<String>,
-    /// Grace window for legitimate two-tab refresh races. When `None`,
-    /// framework reads `"30 seconds"`. See proposal §2.G.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub grace: Option<String>,
-    /// What to do when theft is detected (revoked refresh used past
-    /// grace with a successor). When `None`, framework reads
-    /// `RevokeSessionFamily`. See proposal §2.H.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub theft_detection_action: Option<TheftAction>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AuthSessions {
-    /// `resource CustomerSession`
-    pub resource: QualifiedName,
-    /// `ttl "7 days"` — legacy single-token duration. PRESERVED for
-    /// back-compat. When `access_ttl` is `None` AND `rotation` is `None`,
-    /// the runtime uses this as the session lifetime (current single-token
-    /// behavior).
-    pub ttl: String,
-    /// `refresh false` — legacy bool. Originally a placeholder for the
-    /// rotation work landed in proposal `ir-auth-refresh-rotation`.
-    /// PRESERVED for back-compat. When `rotation` is `Some(...)`, this
-    /// field is silent (the new rotation slot takes over). Doctor warns
-    /// on `refresh = true` && `rotation` absent
-    /// (AUTH-REFRESH-LEGACY-REFRESH-BOOL).
-    pub refresh: bool,
-    /// Extra session-table columns beyond the v0 baseline
-    /// (`id`, `user`, `token_hash`, `expires_at`, `created_at`).
-    /// Empty for single-tenant resources — back-compat guaranteed.
-    #[serde(default)]
-    pub extra_columns: Vec<SessionExtraColumn>,
-    /// IR Auth Refresh — short-lived access token TTL. When rotation is
-    /// enabled and this is `None`, the framework reads `"15 minutes"`.
-    /// See proposal §2.A, §2.L.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub access_ttl: Option<String>,
-    /// IR Auth Refresh — rotation discipline. Presence = enabled; inner
-    /// slots each optional with framework defaults. When `None`, the
-    /// runtime uses the single-token path (preserves legacy behavior).
-    /// See proposal §2.A.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rotation: Option<RotationConfig>,
-}
-
-impl AuthSessions {
-    /// Returns `true` when the resolved configuration uses two-token
-    /// rotation. Used by codegen + runtime to branch.
-    pub fn is_rotation_enabled(&self) -> bool {
-        self.rotation.is_some()
-    }
-
-    /// Resolved access TTL. Reads `access_ttl` if present; else the
-    /// framework default when rotation is on (`"15 minutes"`); else
-    /// `ttl` (legacy single-token).
-    pub fn resolved_access_ttl(&self) -> &str {
-        if let Some(t) = self.access_ttl.as_deref() {
-            return t;
-        }
-        if self.is_rotation_enabled() {
-            return "15 minutes";
-        }
-        self.ttl.as_str()
-    }
-
-    /// Resolved refresh TTL. Reads `rotation.refresh_ttl` if present;
-    /// else the framework default when rotation is on (`"30 days"`);
-    /// else `None` (no refresh — single-token mode).
-    pub fn resolved_refresh_ttl(&self) -> Option<&str> {
-        self.rotation
-            .as_ref()
-            .map(|r| r.refresh_ttl.as_deref().unwrap_or("30 days"))
-    }
-
-    /// Resolved rotation grace. Reads `rotation.grace` if present; else
-    /// the framework default when rotation is on (`"30 seconds"`); else
-    /// `None`.
-    pub fn resolved_rotation_grace(&self) -> Option<&str> {
-        self.rotation
-            .as_ref()
-            .map(|r| r.grace.as_deref().unwrap_or("30 seconds"))
-    }
-
-    /// Resolved theft action. Reads explicit value if present; else
-    /// framework default when rotation is on (`RevokeSessionFamily`);
-    /// else `None`.
-    pub fn resolved_theft_action(&self) -> Option<TheftAction> {
-        self.rotation
-            .as_ref()
-            .map(|r| r.theft_detection_action.unwrap_or_default())
-    }
-}
-
-/// One non-baseline column on a session resource (e.g. `org: Org required`).
-/// Populated by the lowering pass from the resource's `FieldSpec` list;
-/// consumed by the `auth_session` codegen emitter for typed shim emission.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SessionExtraColumn {
-    /// DSL field name as declared (`"org"`).
-    pub field_name: String,
-    /// SQL column name derived from the field (`"org_id"`).
-    pub column_name: String,
-    /// Go type string for the emitted parameter (`"lazuli.ID"`).
-    pub go_type: String,
-    /// Referenced resource name if the field is a resource ref (`"Org"`).
-    pub references: Option<String>,
-    /// Whether the column carries a `required` constraint.
-    pub required: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AuthMfa {
-    /// MFA method id: `totp`, `sms`, `webauthn`. Adapter-specific beyond this.
-    pub method: String,
-    /// `enroll @fn.<name>` — enrollment extension fn reference. Required
-    /// by Phase L; legacy payloads default to the empty string.
-    #[serde(default)]
-    pub enroll: String,
-    /// `verify @validator.<name>` or `@fn.<name>` — verification reference.
-    /// Required by Phase L; legacy payloads default to the empty string.
-    #[serde(default)]
-    pub verify: String,
-    /// Optional adapter reference, e.g. `@adapter.totp_provider`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub adapter: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AuthOAuthProvider {
-    /// Provider id: `google`, `github`, `microsoft`, etc.
-    pub provider: String,
-    /// `@adapter.<provider>_oauth` reference.
-    pub adapter: String,
-}
 
 // =============================================================================
 // Cut A — AI primitives: agent + tools + evals + discriminated output.
