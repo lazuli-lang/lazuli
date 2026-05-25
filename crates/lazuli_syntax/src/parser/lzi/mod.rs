@@ -79,6 +79,7 @@ use crate::ast::{
     ZTokenAst,
 };
 
+pub mod cache;
 pub mod design;
 pub mod event;
 pub mod mcp;
@@ -527,7 +528,7 @@ fn parse_feature_skeleton(
         // stays for one-off ttl/key pairs.
         // See `docs/proposals/bucket-cache-cycle.md` + roadmap §1.15.
         if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("cache ") {
-            let (parsed, next) = parse_cache_profile(lines, i)?;
+            let (parsed, next) = cache::parse_cache_profile(lines, i)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
             caches.push(parsed);
             i = next;
@@ -9601,162 +9602,6 @@ fn parse_webhook_verify(
     ))
 }
 
-/// Realtime bucket cycle MVP — parse a `channel <name>` feature-level
-/// block. Closed three-child body:
-///
-/// ```ignore
-/// channel customer_activity
-///   tenant_from org
-///   policy @policy.read
-///   payload CustomerActivityEvent
-/// ```
-///
-/// All three children are required. Missing any one yields a parse
-/// error citing the missing key. Unknown child keys are rejected so
-/// the catalog stays closed; new realtime grammar (audit, rate_limit,
-/// presence, broadcast wiring) must enter through a new cycle with
-/// pilot evidence per `docs/scope-discipline.md`.
-///
-/// Doctor `CHANNEL-PAYLOAD-001` runs against the IR-lifted form; this
-/// parser is purely syntactic.
-///
-/// Cache bucket cycle (CL.C.3) — parse a feature-level `cache <name>`
-/// profile block.
-///
-/// Header: `cache <profile_name>` at feature-child indent (2 spaces).
-/// Required body children at agent-child indent (4 spaces): `key
-/// <expr>`, `ttl <literal>`.
-/// Optional body children: `namespace <label>`, `tags <l1>[, <l2>...]`,
-/// `stale_while_revalidate <literal>`, `coalesce <bool>`,
-/// `sliding <bool>`.
-fn parse_cache_profile(
-    lines: &[SourceLine<'_>],
-    start: usize,
-) -> Result<(CacheProfileDecl, usize), ParseError> {
-    let header = &lines[start];
-    let header_trimmed = header.text.trim_start();
-    let name = header_trimmed
-        .strip_prefix("cache ")
-        .map(|rest| rest.trim().to_owned())
-        .ok_or_else(|| line_error(header, "cache profile header must be `cache <name>`"))?;
-    if name.is_empty() {
-        return Err(line_error(
-            header,
-            "feature-level `cache` header requires a profile name",
-        ));
-    }
-
-    let mut key: Option<String> = None;
-    let mut ttl: Option<String> = None;
-    let mut namespace: Option<String> = None;
-    let mut tags: Vec<String> = Vec::new();
-    let mut stale_while_revalidate: Option<String> = None;
-    let mut coalesce: Option<bool> = None;
-    let mut sliding: Option<bool> = None;
-    let mut last_end = header.end;
-    let mut i = start + 1;
-
-    while i < lines.len() {
-        let line = &lines[i];
-        let trimmed = line.text.trim_start();
-
-        if is_trivia(trimmed) {
-            i += 1;
-            continue;
-        }
-
-        if line.indent <= AGENT_INDENT_FEATURE_CHILD {
-            break;
-        }
-
-        if line.indent != AGENT_INDENT_AGENT_CHILD {
-            return Err(line_error(
-                line,
-                "`cache <name>` body children use four-space indentation",
-            ));
-        }
-
-        if let Some(rest) = trimmed.strip_prefix("key ") {
-            key = Some(rest.trim().to_owned());
-            last_end = line.end;
-            i += 1;
-        } else if let Some(rest) = trimmed.strip_prefix("ttl ") {
-            ttl = Some(rest.trim().to_owned());
-            last_end = line.end;
-            i += 1;
-        } else if let Some(rest) = trimmed.strip_prefix("namespace ") {
-            namespace = Some(rest.trim().to_owned());
-            last_end = line.end;
-            i += 1;
-        } else if let Some(rest) = trimmed.strip_prefix("tags ") {
-            for part in rest.split(',') {
-                let label = part.trim();
-                if !label.is_empty() {
-                    tags.push(label.to_owned());
-                }
-            }
-            last_end = line.end;
-            i += 1;
-        } else if let Some(rest) = trimmed.strip_prefix("stale_while_revalidate ") {
-            stale_while_revalidate = Some(rest.trim().to_owned());
-            last_end = line.end;
-            i += 1;
-        } else if let Some(rest) = trimmed.strip_prefix("coalesce ") {
-            coalesce = Some(parse_cache_bool(line, rest.trim())?);
-            last_end = line.end;
-            i += 1;
-        } else if let Some(rest) = trimmed.strip_prefix("sliding ") {
-            sliding = Some(parse_cache_bool(line, rest.trim())?);
-            last_end = line.end;
-            i += 1;
-        } else {
-            return Err(line_error(
-                line,
-                "`cache <name>` children are `key <expr>`, `ttl <literal>`, \
-                 `namespace <label>`, `tags <l1>[, <l2>...]`, \
-                 `stale_while_revalidate <literal>`, `coalesce <bool>`, \
-                 or `sliding <bool>`",
-            ));
-        }
-    }
-
-    let key = key
-        .ok_or_else(|| line_error(header, "`cache <name>` requires a `key <expr>` declaration"))?;
-    let ttl = ttl.ok_or_else(|| {
-        line_error(
-            header,
-            "`cache <name>` requires a `ttl <literal>` declaration",
-        )
-    })?;
-
-    Ok((
-        CacheProfileDecl {
-            name,
-            key,
-            ttl,
-            namespace,
-            tags,
-            stale_while_revalidate,
-            coalesce,
-            sliding,
-            span: Span::new(header.start, last_end),
-        },
-        i,
-    ))
-}
-
-fn parse_cache_bool(line: &SourceLine<'_>, value: &str) -> Result<bool, ParseError> {
-    match value {
-        "true" => Ok(true),
-        "false" => Ok(false),
-        other => Err(line_error_owned(
-            line,
-            format!(
-                "`cache` boolean decorators (`coalesce`, `sliding`) accept `true` or `false`, found `{other}`"
-            ),
-        )),
-    }
-}
 
 fn parse_agent_expose(
     lines: &[SourceLine<'_>],
