@@ -164,9 +164,14 @@ pub fn emit_main_go(
     // signature opens shared runtime state, but does not itself mount
     // the HTTP registry. When the runtime team grows the
     // `lazuli.AppContract` umbrella the call changes to
-    // `Boot(ctx, lazuliApp)`; until then we read the DB URL from
-    // `LAZULI_DB` and fall back to a local Postgres default to keep the
-    // smoke-test workflow ergonomic.
+    // `Boot(ctx, lazuliApp)`; until then we read the DB URL with the
+    // priority chain DATABASE_URL > LAZULI_DB > local Postgres default.
+    //
+    // DATABASE_URL is the universal convention (Heroku / Fly / Railway /
+    // Render / Supabase / Neon / RDS — every Postgres provider managed
+    // or self-hosted auto-injects this name). LAZULI_DB stays as a
+    // legacy fallback so existing projects keep booting; the local
+    // dev default lands when both are unset.
     emit_pattern_header(&mut p, PATTERN_MAIN_ENTRYPOINT);
     p.line("func main() {");
     p.indent();
@@ -194,7 +199,12 @@ pub fn emit_main_go(
     ));
     p.line("slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))");
     p.blank();
-    p.line("dbURL := os.Getenv(\"LAZULI_DB\")");
+    p.line("dbURL := os.Getenv(\"DATABASE_URL\")");
+    p.line("if dbURL == \"\" {");
+    p.indent();
+    p.line("dbURL = os.Getenv(\"LAZULI_DB\")");
+    p.dedent();
+    p.line("}");
     p.line("if dbURL == \"\" {");
     p.indent();
     p.line("dbURL = \"postgres://lazuli:lazuli@localhost:5432/lazuli?sslmode=disable\"");
@@ -949,6 +959,36 @@ mod tests {
         assert!(!out.contains("http.ListenAndServe(addr, lazuli.Mux())"));
         // No feature side-effect imports when the module has no features.
         assert!(!out.contains("_ \"lazuli/"));
+    }
+
+    /// DB URL resolution must follow priority chain
+    /// `DATABASE_URL` (universal convention) > `LAZULI_DB` (legacy) >
+    /// local Postgres default. Regression net for the boot-time
+    /// portability fix that lets Lazuli apps deploy unchanged on Fly,
+    /// Railway, Render, Heroku, etc. — all of which auto-inject
+    /// `DATABASE_URL` via their Postgres add-ons.
+    #[test]
+    fn main_go_db_url_prefers_database_url_then_lazuli_db_then_default() {
+        let module = module_with(Vec::new(), Some(manifest("test_app")));
+        let out = emit_main_go(&module, "lazuli/test-app", "test_app", None);
+        // Both env-var names appear (priority pair).
+        assert!(
+            out.contains("os.Getenv(\"DATABASE_URL\")"),
+            "main.go must read DATABASE_URL (universal convention)"
+        );
+        assert!(
+            out.contains("os.Getenv(\"LAZULI_DB\")"),
+            "main.go must keep LAZULI_DB as legacy fallback"
+        );
+        // Order: DATABASE_URL appears BEFORE LAZULI_DB (lookup priority).
+        let database_url_idx = out.find("os.Getenv(\"DATABASE_URL\")").unwrap();
+        let lazuli_db_idx = out.find("os.Getenv(\"LAZULI_DB\")").unwrap();
+        assert!(
+            database_url_idx < lazuli_db_idx,
+            "DATABASE_URL lookup must come before LAZULI_DB fallback"
+        );
+        // Local-dev default still emitted as last-resort.
+        assert!(out.contains("postgres://lazuli:lazuli@localhost:5432/lazuli"));
     }
 
     #[test]
