@@ -77,10 +77,10 @@ pub(crate) use integration::{
     validate_app_integration_credential_line, validate_app_integration_header,
 };
 #[allow(unused_imports)]
-pub(crate) use runtime::{validate_app_runtime_unit_child, AppRuntimeUnitFacts};
+pub(crate) use runtime::{AppRuntimeUnitFacts, validate_app_runtime_unit_child};
 #[allow(unused_imports)]
 pub(crate) use service::{
-    validate_app_service_child, validate_app_service_exposure_line, AppServiceFacts,
+    AppServiceFacts, validate_app_service_child, validate_app_service_exposure_line,
 };
 #[allow(unused_imports)]
 pub(crate) use target::{

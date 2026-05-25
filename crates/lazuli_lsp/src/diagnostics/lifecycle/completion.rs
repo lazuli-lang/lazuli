@@ -27,8 +27,8 @@ use super::gate::{lifecycle_feature_is_reachable, lifecycle_resource_for_name};
 use super::lookup::collect_lifecycle_lookup_queries;
 use super::parse::{lifecycle_ident, lifecycle_top_level_named_header};
 use super::resume::{
-    collect_lifecycle_resume_blocks, enclosing_lifecycle_resume_block,
-    lifecycle_resource_for_resume, LifecycleResumeBlock,
+    LifecycleResumeBlock, collect_lifecycle_resume_blocks, enclosing_lifecycle_resume_block,
+    lifecycle_resource_for_resume,
 };
 use super::state::collect_lifecycle_resources;
 
@@ -368,10 +368,7 @@ pub(crate) fn collect_lifecycle_view_names(
 /// completions when the cursor sits inside `requires_lifecycle ...`,
 /// `on_lifecycle_pending @resume ...`, a `resume <name>` block body,
 /// or a view slot that hasn't yet declared a lifecycle gate.
-pub fn lifecycle_gate_completions(
-    source: &str,
-    position: Position,
-) -> Option<Vec<CompletionItem>> {
+pub fn lifecycle_gate_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
     let line = source.lines().nth(position.line as usize)?;
     let before = crate::line_prefix_at_position(line, position.character);
     let trimmed_before = before.trim_start();

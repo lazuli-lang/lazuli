@@ -100,7 +100,9 @@ pub(crate) fn command_validator_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-pub(crate) fn command_validator_facts_diagnostics(command: CommandValidatorFacts) -> Vec<Diagnostic> {
+pub(crate) fn command_validator_facts_diagnostics(
+    command: CommandValidatorFacts,
+) -> Vec<Diagnostic> {
     if command.has_blocking_validate {
         return Vec::new();
     }
@@ -532,7 +534,11 @@ pub(crate) fn input_references(line: &str) -> Vec<String> {
     references
 }
 
-pub(crate) fn command_policy_diagnostic(line_index: usize, line: &str, command_name: &str) -> Diagnostic {
+pub(crate) fn command_policy_diagnostic(
+    line_index: usize,
+    line: &str,
+    command_name: &str,
+) -> Diagnostic {
     Diagnostic {
         range: Range {
             start: Position {

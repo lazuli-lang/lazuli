@@ -20,8 +20,8 @@
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 
 use crate::{
-    is_identifier, is_quoted_lzx_literal, is_type_name, leading_spaces, simple_canonical_diagnostic,
-    split_items,
+    is_identifier, is_quoted_lzx_literal, is_type_name, leading_spaces,
+    simple_canonical_diagnostic, split_items,
 };
 
 pub(crate) fn workspace_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
@@ -159,7 +159,11 @@ pub(crate) fn workspace_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-pub(crate) fn validate_workspace_app_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+pub(crate) fn validate_workspace_app_line(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+) {
     let trimmed = line.trim_start();
     let parts: Vec<_> = trimmed.split_whitespace().collect();
     let valid = matches!(

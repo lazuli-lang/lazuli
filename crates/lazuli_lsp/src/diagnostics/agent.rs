@@ -20,9 +20,7 @@
 
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 
-use crate::{
-    is_float_in_range, is_lower_ident, leading_spaces, simple_canonical_diagnostic,
-};
+use crate::{is_float_in_range, is_lower_ident, leading_spaces, simple_canonical_diagnostic};
 
 pub(crate) fn agent_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();

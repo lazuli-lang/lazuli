@@ -23,7 +23,11 @@ use crate::{
     simple_canonical_diagnostic, unquote_lzx_literal,
 };
 
-pub(crate) fn validate_app_target_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+pub(crate) fn validate_app_target_line(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+) {
     let trimmed = line.trim_start();
     let parts: Vec<_> = trimmed.split_whitespace().collect();
     if parts.len() != 2 || !matches!(parts[0], "backend" | "web" | "mobile") {
@@ -37,7 +41,11 @@ pub(crate) fn validate_app_target_line(diagnostics: &mut Vec<Diagnostic>, line_i
     }
 }
 
-pub(crate) fn validate_app_url_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+pub(crate) fn validate_app_url_line(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+) {
     let trimmed = line.trim_start();
     let parts: Vec<_> = trimmed.split_whitespace().collect();
     if parts.len() != 3 || !matches!(parts[0], "web" | "api" | "mobile") {
@@ -73,7 +81,11 @@ pub(crate) fn validate_app_url_line(diagnostics: &mut Vec<Diagnostic>, line_inde
     }
 }
 
-pub(crate) fn validate_app_binding_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+pub(crate) fn validate_app_binding_line(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+) {
     let trimmed = line.trim_start();
     if parse_app_binding_line(trimmed).is_none() {
         diagnostics.push(simple_canonical_diagnostic(
@@ -86,7 +98,11 @@ pub(crate) fn validate_app_binding_line(diagnostics: &mut Vec<Diagnostic>, line_
     }
 }
 
-pub(crate) fn validate_app_pack_use_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+pub(crate) fn validate_app_pack_use_line(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+) {
     let trimmed = line.trim_start();
     let Some((name, source)) = trimmed.split_once(" from ") else {
         diagnostics.push(simple_canonical_diagnostic(

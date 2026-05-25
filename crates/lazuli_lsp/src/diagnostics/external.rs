@@ -304,7 +304,11 @@ pub(crate) fn is_contract_operation_error(parts: &[&str]) -> bool {
     true
 }
 
-pub(crate) fn validate_contract_field_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+pub(crate) fn validate_contract_field_line(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+) {
     let trimmed = line.trim_start();
     let Some((name, rest)) = trimmed.split_once(':') else {
         diagnostics.push(simple_canonical_diagnostic(

@@ -29,8 +29,7 @@
 /// Mirrors `lazuli_ir::EnvName` (5-entry closed set per
 /// `docs/proposals/ir-rate-limit-env-aware.md` §4.3). Adding a name
 /// here without the matching IR variant + proposal is incorrect.
-pub const RATE_LIMIT_ENV_CATALOG: &[&str] =
-    &["production", "staging", "test", "dev", "local"];
+pub const RATE_LIMIT_ENV_CATALOG: &[&str] = &["production", "staging", "test", "dev", "local"];
 
 /// Roadmap §1.5 (CL.C.2) — closed-catalog values for the `lock`
 /// strategy keyword. Surfaced as `VALUE` completions so authors and

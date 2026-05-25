@@ -172,7 +172,7 @@ pub(crate) fn keyword_description(keyword: &str) -> Option<&'static str> {
             "Inside a view route guard, redirect target for signed-in users who fail the guard policy.",
         ),
         "rate_limit" => Some(
-            "`rate_limit \"N per UNIT per scope\" [in <env>, <env>...]`. Default rate limit applies in any env not matched by an `in`-qualified line. Closed env catalog: `production`, `staging`, `test`, `dev`, `local`. Multiple `rate_limit` lines per command are allowed when at most one is unqualified (the default)."
+            "`rate_limit \"N per UNIT per scope\" [in <env>, <env>...]`. Default rate limit applies in any env not matched by an `in`-qualified line. Closed env catalog: `production`, `staging`, `test`, `dev`, `local`. Multiple `rate_limit` lines per command are allowed when at most one is unqualified (the default).",
         ),
         "calls" => Some(
             "Declares that a command or job calls an abstract integration/service operation; the runtime wires this to Go transport bindings.",

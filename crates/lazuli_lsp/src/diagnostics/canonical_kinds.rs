@@ -371,7 +371,11 @@ pub(crate) fn closest_feature_body_kind(word: &str, max_distance: usize) -> Opti
 /// query-statement/audience) to the same closed-catalog treatment as
 /// `feature_unknown_kind_diagnostics`. Reuse this — do NOT copy-paste the
 /// O(n*m) loop into each new diagnostic.
-pub(crate) fn closest_kind(word: &str, catalog: &[&'static str], max_distance: usize) -> Option<&'static str> {
+pub(crate) fn closest_kind(
+    word: &str,
+    catalog: &[&'static str],
+    max_distance: usize,
+) -> Option<&'static str> {
     let mut best: Option<(&'static str, usize)> = None;
     for &candidate in catalog {
         let d = levenshtein(word, candidate);
