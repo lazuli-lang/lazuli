@@ -31,6 +31,7 @@
 //! and with the pre-split function name. Cross-refs:
 //! `docs/proposals/rails-style-refactor-2026-05-24.md` §W4.5.
 
+pub mod check;
 pub mod init;
 pub mod lsp;
 pub mod mcp;

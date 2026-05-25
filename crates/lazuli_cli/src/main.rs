@@ -924,7 +924,11 @@ fn main() -> Result<()> {
         Commands::Check {
             input,
             security_profile,
-        } => check_command(&input, security_profile, cli.allow_version_mismatch),
+        } => commands::check::check_command(
+            &input,
+            security_profile.into(),
+            cli.allow_version_mismatch,
+        ),
         Commands::Doctor {
             input,
             security_profile,
@@ -5606,108 +5610,6 @@ fn spike_generate_command(root: &Path, spec: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
-fn check_command(
-    input: &Path,
-    security_profile: CheckSecurityProfile,
-    allow_version_mismatch: bool,
-) -> Result<()> {
-    if !allow_version_mismatch {
-        let project_root = project_root_for_input(input);
-        let manifest = lazurite_manifest::load(&project_root).with_context(|| {
-            format!(
-                "failed to read {}",
-                project_root.join("Lazurite.toml").display()
-            )
-        })?;
-        version::enforce_manifest_pin(manifest.as_ref())?;
-    }
-
-    let inputs = check_inputs(input)?;
-    let mut has_error = false;
-
-    for path in &inputs {
-        let source =
-            fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
-        let diagnostics =
-            lazuli_lsp::diagnostics_for_source_with_profile(&source, security_profile.into());
-        has_error |= diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.severity == Some(DiagnosticSeverity::ERROR));
-
-        for diagnostic in &diagnostics {
-            print_diagnostic(path, diagnostic);
-        }
-    }
-
-    if has_error {
-        bail!(
-            "{} failed Lazuli checks under {:?} security profile",
-            input.display(),
-            security_profile
-        );
-    }
-
-    println!("{} passed Lazuli checks", input.display());
-    Ok(())
-}
-
-fn check_inputs(input: &Path) -> Result<Vec<PathBuf>> {
-    if !input.is_dir() {
-        return Ok(vec![input.to_path_buf()]);
-    }
-
-    let mut paths = Vec::new();
-    let mut stack = vec![input.to_path_buf()];
-    while let Some(path) = stack.pop() {
-        for entry in fs::read_dir(&path)
-            .with_context(|| format!("failed to read {}", path.display()))?
-        {
-            let path = entry
-                .with_context(|| format!("failed to read entry under {}", path.display()))?
-                .path();
-            if path.is_dir() {
-                stack.push(path);
-            } else if matches!(
-                path.extension().and_then(|extension| extension.to_str()),
-                Some("lzi" | "lzx")
-            ) {
-                paths.push(path);
-            }
-        }
-    }
-
-    paths.sort();
-    if paths.is_empty() {
-        bail!("no .lzi or .lzx files found under {}", input.display());
-    }
-    Ok(paths)
-}
-
-fn print_diagnostic(input: &Path, diagnostic: &Diagnostic) {
-    let severity = match diagnostic.severity {
-        Some(DiagnosticSeverity::ERROR) => "error",
-        Some(DiagnosticSeverity::WARNING) => "warning",
-        Some(DiagnosticSeverity::INFORMATION) => "info",
-        Some(DiagnosticSeverity::HINT) => "hint",
-        _ => "diagnostic",
-    };
-    let code = diagnostic
-        .code
-        .as_ref()
-        .map(|code| match code {
-            tower_lsp::lsp_types::NumberOrString::String(value) => format!(" [{value}]"),
-            tower_lsp::lsp_types::NumberOrString::Number(value) => format!(" [{value}]"),
-        })
-        .unwrap_or_default();
-    println!(
-        "{}:{}:{}: {severity}{code}: {}",
-        input.display(),
-        diagnostic.range.start.line + 1,
-        diagnostic.range.start.character + 1,
-        diagnostic.message
-    );
-}
-
 fn parse_command(input: &Path) -> Result<()> {
     let app = compile_to_ir(input)?;
     println!("{}", serde_json::to_string_pretty(&app)?);
@@ -6317,7 +6219,7 @@ fn inspect_plugin_semantic_types(
     serde_json::Value::Array(entries)
 }
 
-fn project_root_for_input(input: &Path) -> PathBuf {
+pub(crate) fn project_root_for_input(input: &Path) -> PathBuf {
     if input.is_dir() {
         return input.to_path_buf();
     }
