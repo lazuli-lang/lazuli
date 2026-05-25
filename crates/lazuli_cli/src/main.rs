@@ -1027,12 +1027,7 @@ fn main() -> Result<()> {
             out,
             no_run,
             debounce,
-        } => dev::run_dev(dev::DevOptions {
-            source_root: path,
-            out,
-            no_run,
-            debounce: std::time::Duration::from_millis(debounce),
-        }),
+        } => commands::dev::dev_command(path, out, no_run, debounce),
         Commands::Migrate { sub } => {
             let project_root = std::env::current_dir().context("reading current directory")?;
             match sub {
