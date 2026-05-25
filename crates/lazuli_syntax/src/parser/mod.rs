@@ -1970,7 +1970,10 @@ fn parse_setting_persistence(
 /// Parse a `@<namespace>.<name>` policy atom, with an optional raw
 /// parenthesized argument suffix for step-up atoms such as
 /// `@mfa.required(within:15m)`.
-fn parse_policy_atom(line: &SourceLine<'_>, value: &str) -> Result<PolicyAtomAst, ParseError> {
+pub(super) fn parse_policy_atom(
+    line: &SourceLine<'_>,
+    value: &str,
+) -> Result<PolicyAtomAst, ParseError> {
     let atom = value.trim();
     let body = atom.strip_prefix('@').ok_or_else(|| {
         line_error(
@@ -2038,7 +2041,7 @@ fn parse_policy_atom(line: &SourceLine<'_>, value: &str) -> Result<PolicyAtomAst
 ///   caller keeps the raw string and skips the expression form.
 /// - `Err(_)` when the payload looks expression-shaped but is
 ///   malformed (unknown predicate, bad permission ref, etc.).
-fn try_parse_policy_expr(
+pub(super) fn try_parse_policy_expr(
     line: &SourceLine<'_>,
     payload: &str,
 ) -> Result<Option<PolicyExprAst>, ParseError> {
@@ -2069,7 +2072,7 @@ fn try_parse_policy_expr(
 
 /// Cheap surface heuristic: does the payload contain any of the closed
 /// expression keywords or grouping punctuation?
-fn looks_like_policy_expr(payload: &str) -> bool {
+pub(super) fn looks_like_policy_expr(payload: &str) -> bool {
     if payload.contains('(') || payload.contains(')') {
         return true;
     }
@@ -5659,7 +5662,7 @@ fn parse_invalidates_block(
     Ok((out, i))
 }
 
-fn parse_invalidates_entry(
+pub(super) fn parse_invalidates_entry(
     line: &SourceLine<'_>,
     rest: &str,
 ) -> Result<InvalidatesDecl, ParseError> {
@@ -14805,7 +14808,7 @@ fn fold_rate_limit_line(
 /// past the first whitespace are rejected; the surface intentionally
 /// keeps the form single-token to stay inside the existing
 /// `Rule.message @translation.<key>` precedent.
-fn parse_translation_key_token(
+pub(super) fn parse_translation_key_token(
     line: &SourceLine<'_>,
     rest: &str,
 ) -> Result<TranslationKeyRefAst, ParseError> {
