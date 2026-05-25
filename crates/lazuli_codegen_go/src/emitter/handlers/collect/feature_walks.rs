@@ -9,9 +9,7 @@
 
 use std::collections::BTreeMap;
 
-use lazuli_ir::{
-    EvalContainsRhs, EvalPredicate, ExtensionContract, Feature, JobBody,
-};
+use lazuli_ir::{EvalContainsRhs, EvalPredicate, ExtensionContract, Feature, JobBody};
 
 use super::super::{HandlerNamespace, HandlerStub, SignatureMap, StubKey};
 use super::commands::collect_command_effect_refs;

@@ -249,4 +249,3 @@ fn collect_feature_handler_refs(
     feature_walks::walk_extensions(feature, signatures, stubs);
     feature_walks::walk_agents(feature, signatures, stubs);
 }
-

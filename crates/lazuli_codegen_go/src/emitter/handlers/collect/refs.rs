@@ -22,9 +22,7 @@ use std::collections::BTreeMap;
 use lazuli_ir::{Expr, Predicate, TestAssertion, TestBlock, TypeRef};
 
 use super::super::paths::path_name_for;
-use super::super::{
-    HandlerNamespace, HandlerSignature, HandlerStub, SignatureMap, StubKey,
-};
+use super::super::{HandlerNamespace, HandlerSignature, HandlerStub, SignatureMap, StubKey};
 
 pub(super) fn collect_type_ref(
     type_ref: &TypeRef,

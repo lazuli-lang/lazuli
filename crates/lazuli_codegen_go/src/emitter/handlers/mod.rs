@@ -31,9 +31,9 @@ mod emit;
 mod paths;
 mod types;
 
+use collect::collect_handler_stubs;
 #[cfg(test)]
 use collect::{HandlerRef, extract_handler_refs};
-use collect::collect_handler_stubs;
 use emit::emit_stub_contents;
 #[allow(unused_imports)]
 pub(crate) use paths::APP_FEATURES_PREFIX;
