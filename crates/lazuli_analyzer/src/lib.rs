@@ -1,12 +1,61 @@
 //! Lowering from `lazuli_syntax` canonical AST slices into `lazuli_ir`.
+//!
+//! ## Role in the compile pipeline
+//!
+//! `lazuli_analyzer` sits between `lazuli_syntax` (canonical AST) and
+//! `lazuli_ir` (typed lowered shape). Its job is **mechanical
+//! projection plus structural validation**: lift the parser's verbatim
+//! AST onto the IR shape that downstream consumers (codegen, doctor,
+//! LSP, inspect) read. Anything that needs cross-module reasoning
+//! lives in `lazuli_cli` (the `expand` pass) or `lazuli_doctor`;
+//! anything per-file lives here.
+//!
+//! ## Submodule layout (Wave 4.6 — rails-style refactor)
+//!
+//! The lowering pipeline is organised into per-concern sibling
+//! modules. Each one carries the projection rules for a single
+//! "slot" in the vocabulary:
+//!
+//! * [`helpers`] — pure utility predicates (case conversion, span
+//!   bridging, edit-distance, balanced-paren walkers). No AST shape,
+//!   no IR shape larger than `SpanRef`. Shared by every slice.
+//! * [`checks`] — public per-file structural checks invoked by
+//!   `lazuli_cli` / `lazuli_doctor`. Stays public because external
+//!   tools depend on it.
+//! * [`rbac`] — RBAC closure construction over a feature's policies.
+//! * [`source_map`] — source-position bookkeeping consumed by LSP.
+//! * [`symbol_origin`] — origin tagging (handwritten vs synthesized
+//!   vs pack-derived) used by inspect and doctor.
+//!
+//! ## Vocabulary cross-reference
+//!
+//! Source AST shapes are defined in `lazuli_syntax::ast` (Wave 4.4).
+//! Destination IR shapes are defined in `lazuli_ir` (Wave 4.1). When
+//! a lowering function feels like it's "thinking" rather than just
+//! "translating", the design pressure belongs upstream (parser
+//! enforcement, IR shape change) — not here.
+//!
+//! ## ABI guarantee
+//!
+//! Public items historically reachable at `lazuli_analyzer::Foo`
+//! remain reachable at the same path. Internal helpers used across
+//! sibling modules are `pub(crate)`.
 
 pub mod checks;
+mod helpers;
 mod lifecycle;
 pub mod rbac;
 pub mod source_map;
 pub mod symbol_origin;
 
 pub use symbol_origin::build_symbol_origin_index;
+
+use helpers::{
+    conventions_levenshtein, find_balanced_decorator_end, find_keyword_line_offset,
+    find_top_level_operator, find_word, first_paren_balanced_token, has_top_level_comma,
+    is_valid_design_hex, levenshtein, pascal_to_snake, quoted_ident, quoted_table, snake_to_pascal,
+    span_of, strip_quotes,
+};
 
 use lazuli_ir as ir;
 use lazuli_syntax as syntax;
@@ -335,36 +384,6 @@ pub fn conventions_unknown_suggestion(identifier: &str) -> Option<&'static str> 
         }
     }
     best.map(|(name, _)| name)
-}
-
-/// Plain Levenshtein edit distance (O(n*m) DP). Used only for short
-/// catalog identifiers so the cost is negligible. Kept local to the
-/// analyzer crate because the LSP's identical helper is `pub(crate)`
-/// there; promoting either to a shared util would couple the two
-/// crates needlessly. The duplication is intentional and stable —
-/// neither identifier is hot-path code.
-fn conventions_levenshtein(a: &str, b: &str) -> usize {
-    let a: Vec<char> = a.chars().collect();
-    let b: Vec<char> = b.chars().collect();
-    let n = a.len();
-    let m = b.len();
-    if n == 0 {
-        return m;
-    }
-    if m == 0 {
-        return n;
-    }
-    let mut prev: Vec<usize> = (0..=m).collect();
-    let mut curr: Vec<usize> = vec![0; m + 1];
-    for i in 1..=n {
-        curr[0] = i;
-        for j in 1..=m {
-            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
-            curr[j] = (curr[j - 1] + 1).min(prev[j] + 1).min(prev[j - 1] + cost);
-        }
-        std::mem::swap(&mut prev, &mut curr);
-    }
-    prev[m]
 }
 
 pub fn lower_lzx_document(document: &syntax::LzxDocument) -> ir::ExperienceModule {
@@ -1370,25 +1389,6 @@ fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
     }
 }
 
-/// Phase L Tier 4 follow-up — return the first whitespace-delimited
-/// token from `text`, respecting paren-balanced segments. The
-/// canonical-indent parser captures decorator markers (`@pii.contact`,
-/// `@cap.Hashed(algorithm:argon2id)`) and trailing markers after the
-/// real type in `type_text`; this helper picks the leading type.
-fn first_paren_balanced_token(text: &str) -> &str {
-    let text = text.trim();
-    let mut depth = 0i32;
-    for (idx, ch) in text.char_indices() {
-        match ch {
-            '(' | '[' => depth += 1,
-            ')' | ']' => depth -= 1,
-            c if c.is_whitespace() && depth == 0 => return text[..idx].trim_end(),
-            _ => {}
-        }
-    }
-    text
-}
-
 /// Phase L Tier 4 follow-up — `@cap.Hashed(algorithm:<X>)`. Closed
 /// catalog `{argon2id, bcrypt}`. Returns `None` if the algorithm is
 /// missing or unrecognised so callers fall through to `UserDefined`
@@ -1623,13 +1623,6 @@ fn parse_default(raw: &str) -> ir::DefaultValue {
     }
 
     ir::DefaultValue::String(raw.to_owned())
-}
-
-fn span_of(span: syntax::Span) -> ir::SpanRef {
-    ir::SpanRef {
-        start: span.start,
-        end: span.end,
-    }
 }
 
 // =============================================================================
@@ -2141,20 +2134,6 @@ pub fn diagnose_plan_gate_facts(
     }
 
     out
-}
-
-/// Find the byte offset of the first line starting with `<indent>`
-/// (any amount) + `keyword` in `body`. Returns `None` if not present.
-fn find_keyword_line_offset(body: &str, keyword: &str) -> Option<usize> {
-    let mut offset = 0usize;
-    for line in body.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with(keyword) {
-            return Some(offset);
-        }
-        offset += line.len() + 1;
-    }
-    None
 }
 
 /// FR-3a — for each resource with a `user: User required unique`
@@ -3354,22 +3333,6 @@ enum OwnerScopeResolution {
     Tenant,
 }
 
-/// §7.3 — table-name from PascalCase resource name. The convention
-/// existing crud / me synths follow (snake_case identifier, quoted
-/// per Postgres convention to dodge keyword collisions like `"user"`).
-fn quoted_table(resource_name: &str) -> String {
-    format!("\"{}\"", pascal_to_snake(resource_name))
-}
-
-/// §7.3 — quote an identifier when codegen will paste it inside an
-/// SQL fragment. Postgres treats `"user"` and `user` differently
-/// (the latter is a reserved keyword in many positions); the
-/// hand-rolled handlers in the trigger pilot (`hostpoint/.../delete_service.go`
-/// §1.1) quote both sides. We match that shape.
-fn quoted_ident(ident: &str) -> String {
-    format!("\"{}\"", ident)
-}
-
 /// §7.3 — resolve a resource's `@owner_axis` annotations into an
 /// emittable `OwnerScopeSql` carrier, OR emit diagnostics for the 3
 /// new doctor codes (§11.1) when the annotation can't resolve.
@@ -3567,31 +3530,6 @@ fn nearest_field_name(target: &str, fields: &[ir::Field]) -> Option<String> {
     } else {
         None
     }
-}
-
-/// Minimal Levenshtein for the nearest-name suggestion. Small (~12
-/// LOC) so we don't pull a dependency for a one-off use. Copying the
-/// pattern from elsewhere in the analyzer keeps the suggestion
-/// quality consistent.
-fn levenshtein(a: &str, b: &str) -> usize {
-    let a: Vec<char> = a.chars().collect();
-    let b: Vec<char> = b.chars().collect();
-    let mut dp = vec![vec![0usize; b.len() + 1]; a.len() + 1];
-    for i in 0..=a.len() {
-        dp[i][0] = i;
-    }
-    for j in 0..=b.len() {
-        dp[0][j] = j;
-    }
-    for i in 1..=a.len() {
-        for j in 1..=b.len() {
-            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
-            dp[i][j] = (dp[i - 1][j] + 1)
-                .min(dp[i][j - 1] + 1)
-                .min(dp[i - 1][j - 1] + cost);
-        }
-    }
-    dp[a.len()][b.len()]
 }
 
 /// `pub` re-export of the §7.3 WHERE-clause builder for direct test
@@ -4080,55 +4018,6 @@ fn default_synth_command(rate_limit: &str) -> ir::Command {
 /// §5.9 — create / update / delete share `rate_limit "100 per 10 minutes per ip"`.
 fn crud_write_rate_limit() -> &'static str {
     "100 per 10 minutes per ip"
-}
-
-fn pascal_to_snake(s: &str) -> String {
-    let mut out = String::new();
-    let mut prev: Option<char> = None;
-    let mut iter = s.chars().peekable();
-
-    while let Some(ch) = iter.next() {
-        if ch.is_ascii_uppercase() {
-            let next_is_lower = iter
-                .peek()
-                .copied()
-                .is_some_and(|next| next.is_ascii_lowercase());
-            let prev_needs_sep = prev.is_some_and(|p| {
-                p.is_ascii_lowercase()
-                    || p.is_ascii_digit()
-                    || (p.is_ascii_uppercase() && next_is_lower)
-            });
-            if !out.is_empty() && prev_needs_sep {
-                out.push('_');
-            }
-            out.push(ch.to_ascii_lowercase());
-        } else {
-            out.push(ch);
-        }
-        prev = Some(ch);
-    }
-
-    out
-}
-
-fn snake_to_pascal(s: &str) -> String {
-    let mut out = String::new();
-    let mut capitalize_next = true;
-
-    for ch in s.chars() {
-        if ch == '_' {
-            capitalize_next = true;
-            continue;
-        }
-        if capitalize_next {
-            out.push(ch.to_ascii_uppercase());
-            capitalize_next = false;
-        } else {
-            out.push(ch);
-        }
-    }
-
-    out
 }
 
 /// Lower a canonical-indent feature skeleton into an `ir::Feature`.
@@ -5192,36 +5081,6 @@ fn find_field_level_cap_pii_span(text: &str) -> Option<(usize, usize)> {
             _ => {}
         }
         i += 1;
-    }
-    None
-}
-
-fn find_balanced_decorator_end(text: &str, start: usize) -> Option<usize> {
-    let mut depth = 0i32;
-    let mut in_string = false;
-    let mut escaped = false;
-    for (offset, ch) in text[start..].char_indices() {
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-        match ch {
-            '"' => in_string = true,
-            '(' | '[' => depth += 1,
-            ')' | ']' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(start + offset + ch.len_utf8());
-                }
-            }
-            _ => {}
-        }
     }
     None
 }
@@ -6732,36 +6591,6 @@ fn parse_emit_predicate_kind(text: &str) -> Option<ir::EmitPredicateKind> {
     None
 }
 
-fn strip_quotes(raw: &str) -> Option<&str> {
-    let trimmed = raw.trim();
-    if (trimmed.starts_with('"') && trimmed.ends_with('"') && trimmed.len() >= 2)
-        || (trimmed.starts_with('\'') && trimmed.ends_with('\'') && trimmed.len() >= 2)
-    {
-        Some(&trimmed[1..trimmed.len() - 1])
-    } else {
-        None
-    }
-}
-
-/// Find a whole-word token (`word`) in `text`, returning its byte
-/// offset. Returns `None` when the substring only appears as part of
-/// a longer identifier (e.g. `withdrawn`).
-fn find_word(text: &str, word: &str) -> Option<usize> {
-    let bytes = text.as_bytes();
-    let mut from = 0usize;
-    while let Some(rel) = text[from..].find(word) {
-        let abs = from + rel;
-        let before_ok = abs == 0 || bytes[abs - 1].is_ascii_whitespace();
-        let after_pos = abs + word.len();
-        let after_ok = after_pos >= bytes.len() || bytes[after_pos].is_ascii_whitespace();
-        if before_ok && after_ok {
-            return Some(abs);
-        }
-        from = abs + word.len();
-    }
-    None
-}
-
 /// Realtime bucket cycle MVP — lower a canonical-indent `channel`
 /// block into `ir::Channel`. Mechanical projection: the parser
 /// already enforces presence of all three required children, so the
@@ -7895,27 +7724,6 @@ fn parse_closed_predicate(text: &str) -> ir::EvalPredicate {
     ir::EvalPredicate::Unparsed(text.to_owned())
 }
 
-/// Locate `op` outside of any double-quoted span. Returns the byte index
-/// in `text` where the operator begins, or `None` if no top-level match.
-fn find_top_level_operator(text: &str, op: &str) -> Option<usize> {
-    let bytes = text.as_bytes();
-    let mut in_quote = false;
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if b == b'"' {
-            in_quote = !in_quote;
-            i += 1;
-            continue;
-        }
-        if !in_quote && text[i..].starts_with(op) {
-            return Some(i);
-        }
-        i += 1;
-    }
-    None
-}
-
 /// Promote a token to the smallest expression kind that fits. Strings
 /// must be double-quoted; integers parse as `Integer`; `true`/`false` as
 /// `Boolean`; bare identifiers / dotted paths become `Path`; bare
@@ -8330,45 +8138,6 @@ fn lower_design_z(z: &syntax::ZTokenAst) -> Result<ir::ZToken, AnalyzeError> {
         name: z.name.clone(),
         value: parsed,
     })
-}
-
-/// Match `^#[0-9a-fA-F]{3,8}$` without pulling in a regex dependency.
-/// 3-digit (`#fff`), 4-digit (`#ffff` rgba shorthand), 6-digit (`#ffffff`),
-/// and 8-digit (`#ffffffff` rgba) are all valid CSS hex notations.
-fn is_valid_design_hex(text: &str) -> bool {
-    let trimmed = text.trim();
-    if !trimmed.starts_with('#') {
-        return false;
-    }
-    let rest = &trimmed[1..];
-    let len = rest.len();
-    if !(len == 3 || len == 4 || len == 6 || len == 8) {
-        return false;
-    }
-    rest.bytes().all(|b| b.is_ascii_hexdigit())
-}
-
-/// Detect a top-level comma in a CSS box-shadow value, signaling
-/// multi-layer composition. Commas inside `(...)` or `[...]` (e.g.
-/// `rgb(0, 0, 0)`) do NOT count. Strings inside quoted regions also
-/// don't count (a hypothetical `content: ","` would not trigger).
-fn has_top_level_comma(text: &str) -> bool {
-    let bytes = text.as_bytes();
-    let mut depth = 0i32;
-    let mut in_quote = false;
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
-        match b {
-            b'"' | b'\'' => in_quote = !in_quote,
-            b'(' | b'[' if !in_quote => depth += 1,
-            b')' | b']' if !in_quote => depth -= 1,
-            b',' if !in_quote && depth == 0 => return true,
-            _ => {}
-        }
-        i += 1;
-    }
-    false
 }
 
 #[cfg(test)]
