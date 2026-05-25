@@ -13,29 +13,38 @@
 //! for SQL predicates / order clauses.
 
 use lazuli_ir::{
-    BuiltinType, CompareOp, Expr, Feature, Filter, Gate, KeyClause, ListQuery, LookupQuery,
-    OrderDir, PolicyRef, Predicate, Query, Resource, SqlQuery, Tenancy, TypeRef, TypedSlot,
+    BuiltinType, CompareOp, Expr, Feature, Filter, KeyClause, ListQuery, LookupQuery, OrderDir,
+    Predicate, Query, Resource, Tenancy, TypeRef, TypedSlot,
 };
 
 use super::cross_feature::CrossFeatureIndex;
-use super::error_resolver::{emit_operation_error_keys, policy_denied_key_for_policy};
+use super::error_resolver::emit_operation_error_keys;
 use super::imports::ImportSet;
 use super::module::EmitContext;
 use super::patterns::{
-    PATTERN_QUERY_PGX_LIST, PATTERN_QUERY_PGX_LOOKUP, PATTERN_QUERY_PGX_SQL, emit_pattern_header,
+    PATTERN_QUERY_PGX_LIST, PATTERN_QUERY_PGX_LOOKUP, emit_pattern_header,
 };
 use super::printer::GoPrinter;
-use super::types::{self, TypeCtx};
+use super::types::TypeCtx;
 
 mod util;
 use util::{
     escape_string, lower_camel, pascal_case, pascal_to_snake, plural_pascal, query_kind_rank,
-    return_name, write_section_banner,
+    write_section_banner,
 };
 pub(super) use util::resource_for_query;
 
 mod args;
 use args::{emit_args_struct, emit_cache, query_error_keys_var, register_imports_for_query};
+
+mod sql;
+use sql::emit_sql_query;
+
+mod header;
+use header::{
+    emit_gate_annotations, emit_query_header, emit_scope_gaps, query_callable_kind,
+    query_policy_denied_key, query_policy_denied_key_for_parts,
+};
 
 /// Emit `<feature>/query.gen.go` for a feature, or `None` when the
 /// feature declares no queries.
@@ -419,217 +428,6 @@ fn is_actor_keyed_lookup(query: &LookupQuery) -> bool {
             .unwrap_or(false),
         _ => false,
     })
-}
-
-fn emit_sql_query(
-    p: &mut GoPrinter,
-    feature: &Feature,
-    query: &SqlQuery,
-    ctx: &TypeCtx<'_>,
-    emit_ctx: &EmitContext<'_>,
-) {
-    // Wire registry key: `<feature>.<query_name>`. See list_query for rationale.
-    let qualified_name = format!("{}.{}", feature.name, query.name);
-    let args_struct = format!("{}Args", pascal_case(&query.name));
-    let var_name = lower_camel(&query.name);
-    let error_keys_var = query_error_keys_var(&var_name);
-    let return_ref = sql_query_row_type(query);
-    let (return_type, _import) = types::go_type_for(return_ref, ctx);
-    let returns_name = return_name(&query.returns, ctx);
-    let query_kind = sql_query_callable_kind(query);
-
-    write_section_banner(
-        p,
-        &[
-            format!("Query: {qualified_name}"),
-            format!("  {query_kind} {}", query.name),
-        ],
-    );
-
-    emit_args_struct(p, &args_struct, &query.params, ctx);
-    p.blank();
-
-    if let Some(key_ref) = query_policy_denied_key_for_parts(
-        feature,
-        &query.policy,
-        query.policy_expr.as_ref(),
-        query.policy_when_denied.as_ref(),
-    ) {
-        emit_operation_error_keys(p, &error_keys_var, &qualified_name, &feature.name, key_ref);
-        p.blank();
-    }
-
-    emit_pattern_header(p, PATTERN_QUERY_PGX_SQL);
-    let line_directive_emitted = emit_ctx.emit_line_directive(p, query.span_ref);
-    p.line(&format!(
-        "var {var_name} = lazuli.Query[{args_struct}, {return_type}]{{"
-    ));
-    p.indent();
-    emit_query_header(
-        p,
-        feature,
-        &qualified_name,
-        None,
-        if query.sql_kind == lazuli_ir::SqlQueryKind::View {
-            "lazuli.QueryView"
-        } else {
-            "lazuli.QuerySQL"
-        },
-        emit_ctx,
-        &query.name,
-        query.span_ref,
-        &query.policy,
-        query.policy_expr.as_ref(),
-        query.policy_when_denied.as_ref(),
-        &error_keys_var,
-    );
-    emit_gate_annotations(p, emit_ctx.gates_for(query_kind, &query.name));
-    emit_scope_gaps(p, &query.scope, query.scope_override);
-    p.line(&format!("SQL:     \"{}\",", escape_string(&query.sql_path)));
-    p.line(&format!("Returns: \"{}\",", escape_string(&returns_name)));
-    if query.sql_kind == lazuli_ir::SqlQueryKind::View {
-        p.line(&format!("SQLMany: {},", sql_query_returns_many(query)));
-        emit_sql_args_fn(p, &args_struct, &query.params);
-    }
-    if let Some(cache) = &query.cache {
-        emit_cache(p, cache);
-    }
-    p.dedent();
-    p.line("}");
-    emit_ctx.reset_line_directive(p, line_directive_emitted);
-}
-
-fn emit_query_header(
-    p: &mut GoPrinter,
-    feature: &Feature,
-    qualified_name: &str,
-    resource: Option<&Resource>,
-    kind_const: &str,
-    emit_ctx: &EmitContext<'_>,
-    op: &str,
-    span: Option<lazuli_ir::SpanRef>,
-    query_policy: &PolicyRef,
-    query_policy_expr: Option<&lazuli_ir::PolicyExpr>,
-    query_policy_when_denied: Option<&lazuli_ir::TranslationKeyRef>,
-    error_keys_var: &str,
-) {
-    let mut kv_rows: Vec<(String, String)> = Vec::new();
-    kv_rows.push(("Name:".to_owned(), format!("\"{qualified_name}\",")));
-    if let Some(resource) = resource {
-        kv_rows.push((
-            "Resource:".to_owned(),
-            format!("&{}Resource,", lower_camel(&resource.name)),
-        ));
-    } else {
-        kv_rows.push(("Resource:".to_owned(), "nil,".to_owned()));
-    }
-    kv_rows.push(("Kind:".to_owned(), format!("{kind_const},")));
-    // QUERY-POLICY-001 — precedence mirrors `Command`: per-query
-    // authored `policy @policy.<X>` (carried on the IR field) wins;
-    // `PolicyRef::None` (the default) means "no override authored on
-    // this query" and falls back to the feature-level default. Without
-    // this branch, every authored `policy @policy.X` line on a query
-    // was lost between parse and emit, and the runtime refused to run
-    // the query with a `command/query registered with empty policy`
-    // panic.
-    let policy = if !query_policy.is_none() || query_policy_expr.is_some() {
-        super::command::format_policy_with_expr_public(
-            query_policy,
-            query_policy_expr,
-            Some(&feature.policies),
-        )
-    } else {
-        match &feature.defaults.policy {
-            Some(policy) => super::command::format_policy_with_expr_public(
-                policy,
-                None,
-                Some(&feature.policies),
-            ),
-            None => super::command::format_policy_with_expr_public(
-                &PolicyRef::None,
-                None,
-                Some(&feature.policies),
-            ),
-        }
-    };
-    kv_rows.push(("Policy:".to_owned(), policy));
-    if query_policy_denied_key_for_parts(
-        feature,
-        query_policy,
-        query_policy_expr,
-        query_policy_when_denied,
-    )
-    .is_some()
-    {
-        kv_rows.push(("ErrorKeys:".to_owned(), format!("&{error_keys_var},")));
-    }
-
-    let key_width = kv_rows.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
-    for (key, value) in &kv_rows {
-        let pad = key_width.saturating_sub(key.len());
-        p.line(&format!("{}{} {}", key, " ".repeat(pad), value));
-    }
-    emit_ctx.emit_with_source_field(p, "query", op, span);
-}
-
-fn query_policy_denied_key<'a>(
-    feature: &'a Feature,
-    query: &'a Query,
-) -> Option<&'a lazuli_ir::TranslationKeyRef> {
-    match query {
-        Query::List(q) => query_policy_denied_key_for_parts(
-            feature,
-            &q.policy,
-            q.policy_expr.as_ref(),
-            q.policy_when_denied.as_ref(),
-        ),
-        Query::Lookup(q) => query_policy_denied_key_for_parts(
-            feature,
-            &q.policy,
-            q.policy_expr.as_ref(),
-            q.policy_when_denied.as_ref(),
-        ),
-        Query::Sql(q) => query_policy_denied_key_for_parts(
-            feature,
-            &q.policy,
-            q.policy_expr.as_ref(),
-            q.policy_when_denied.as_ref(),
-        ),
-    }
-}
-
-fn query_policy_denied_key_for_parts<'a>(
-    feature: &'a Feature,
-    query_policy: &'a PolicyRef,
-    query_policy_expr: Option<&'a lazuli_ir::PolicyExpr>,
-    query_policy_when_denied: Option<&'a lazuli_ir::TranslationKeyRef>,
-) -> Option<&'a lazuli_ir::TranslationKeyRef> {
-    let effective_policy = effective_query_policy(feature, query_policy, query_policy_expr);
-    policy_denied_key_for_policy(
-        query_policy_when_denied,
-        effective_policy,
-        Some(&feature.policies),
-    )
-}
-
-fn effective_query_policy<'a>(
-    feature: &'a Feature,
-    query_policy: &'a PolicyRef,
-    query_policy_expr: Option<&'a lazuli_ir::PolicyExpr>,
-) -> &'a PolicyRef {
-    if !query_policy.is_none() || query_policy_expr.is_some() {
-        return query_policy;
-    }
-    feature.defaults.policy.as_ref().unwrap_or(query_policy)
-}
-
-fn emit_scope_gaps(p: &mut GoPrinter, scope: &[Predicate], scope_override: bool) {
-    if !scope.is_empty() {
-        p.line("// TODO(runtime): Query.scope is not yet in Lazuli Go lib.");
-    }
-    if scope_override {
-        p.line("// TODO(runtime): Query.scope_override is not yet in Lazuli Go lib.");
-    }
 }
 
 fn emit_filters(
@@ -1101,44 +899,6 @@ fn infer_lookup_type(key: &KeyClause, resource: Option<&Resource>) -> TypeRef {
     TypeRef::Builtin(BuiltinType::Text)
 }
 
-fn sql_query_callable_kind(query: &SqlQuery) -> &'static str {
-    match query.sql_kind {
-        lazuli_ir::SqlQueryKind::Sql => "query.sql",
-        lazuli_ir::SqlQueryKind::View => "query.view",
-    }
-}
-
-fn sql_query_returns_many(query: &SqlQuery) -> bool {
-    matches!(query.returns, TypeRef::Many(_))
-}
-
-fn sql_query_row_type(query: &SqlQuery) -> &TypeRef {
-    if query.sql_kind == lazuli_ir::SqlQueryKind::View {
-        if let TypeRef::Many(inner) = &query.returns {
-            return inner;
-        }
-    }
-    &query.returns
-}
-
-fn emit_sql_args_fn(p: &mut GoPrinter, args_struct: &str, params: &[TypedSlot]) {
-    p.line(&format!("SQLArgs: func(args {args_struct}) []any {{"));
-    p.indent();
-    if params.is_empty() {
-        p.line("return nil");
-    } else {
-        p.line("return []any{");
-        p.indent();
-        for param in params {
-            p.line(&format!("args.{},", pascal_case(&param.name)));
-        }
-        p.dedent();
-        p.line("}");
-    }
-    p.dedent();
-    p.line("},");
-}
-
 fn list_args_struct_name(query_name: &str, resource_pascal: &str) -> String {
     if query_name == "list" {
         format!("List{}Args", plural_pascal(resource_pascal))
@@ -1175,53 +935,12 @@ pub(super) fn lookup_var_name(query_name: &str, resource_pascal: &str) -> String
     }
 }
 
-/// PG.C.2 — emit the `Prelude: []billing.GateRef{...}` field on a
-/// `lazuli.Query[A, R]` value. The runtime dispatcher (`RunList` /
-/// `RunLookup`) consults the slice via `lazuli.RunPrelude` before
-/// invoking the handler and via `lazuli.RunIncrement` after a
-/// successful return. Empty slice is the no-gate fast path — we
-/// skip emission entirely so back-compat call sites stay
-/// byte-equivalent.
-fn emit_gate_annotations(p: &mut GoPrinter, gates: &[Gate]) {
-    if gates.is_empty() {
-        return;
-    }
-    p.line("Prelude: []billing.GateRef{");
-    p.indent();
-    for gate in gates {
-        match gate {
-            Gate::Behind { feature } => {
-                p.line(&format!(
-                    "{{Kind: billing.GateBehind, Name: {:?}}},",
-                    feature
-                ));
-            }
-            Gate::Quota { limit } => {
-                p.line(&format!("{{Kind: billing.GateQuota, Name: {:?}}},", limit));
-            }
-        }
-    }
-    p.dedent();
-    p.line("},");
-}
-
-/// PG.C.2 — translate a `Query` IR variant back to the canonical
-/// `<callable_kind>` string used as a key in the emit-time gate
-/// map (`<feature>/query.list:<name>`, etc.).
-fn query_callable_kind(query: &Query) -> &'static str {
-    match query {
-        Query::List(_) => "query.list",
-        Query::Lookup(_) => "query.lookup",
-        Query::Sql(q) => sql_query_callable_kind(q),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use lazuli_ir::{
-        AppManifest, CacheTtl, CacheTtlLiteral, Defaults, Field, Module, Policies, QualifiedName,
-        QueryCache, Record,
+        AppManifest, CacheTtl, CacheTtlLiteral, Defaults, Field, Gate, Module, Policies,
+        PolicyRef, QualifiedName, QueryCache, Record, SqlQuery,
     };
 
     fn emit(feature: &Feature) -> Option<String> {
@@ -2415,7 +2134,7 @@ mod tests {
 #[cfg(test)]
 mod feature_emit {
     use super::*;
-    use lazuli_ir::{AppManifest, Defaults, Field, Module, Policies};
+    use lazuli_ir::{AppManifest, Defaults, Field, Module, Policies, PolicyRef};
 
     fn emit(feature: &Feature) -> Option<String> {
         let module = Module {
