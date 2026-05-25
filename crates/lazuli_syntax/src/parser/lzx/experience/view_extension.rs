@@ -23,9 +23,7 @@
 
 use crate::ast::{LzxExtensionOrder, LzxExtensionSlot, LzxViewExtension, Span};
 
-use super::super::super::common::{
-    SourceLine, is_trivia, line_error, split_lzx_list,
-};
+use super::super::super::common::{SourceLine, is_trivia, line_error, split_lzx_list};
 use super::super::super::error::ParseError;
 
 pub(super) fn parse_lzx_view_extension(

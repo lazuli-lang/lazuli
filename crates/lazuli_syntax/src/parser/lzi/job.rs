@@ -296,10 +296,7 @@ fn parse_job_fanout(line: &SourceLine<'_>, rest: &str) -> Result<JobFanout, Pars
     })
 }
 
-pub(super) fn parse_job_retry(
-    line: &SourceLine<'_>,
-    rest: &str,
-) -> Result<JobRetry, ParseError> {
+pub(super) fn parse_job_retry(line: &SourceLine<'_>, rest: &str) -> Result<JobRetry, ParseError> {
     let rest = rest.trim();
     let (count_str, tail) = rest.split_once(' ').ok_or_else(|| {
         line_error(

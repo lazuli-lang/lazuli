@@ -44,7 +44,9 @@
 //! - `docs/proposals/report-vocab.md` v0.2 §Linguagem.
 //! - `lazuli_ir::nodes::report` — typed lowering target.
 
-use super::super::common::{SourceLine, is_trivia, line_error, strip_inline_comment, unquote_lzx_value};
+use super::super::common::{
+    SourceLine, is_trivia, line_error, strip_inline_comment, unquote_lzx_value,
+};
 use super::super::error::ParseError;
 use super::super::lzx::try_parse_policy_expr;
 use super::{

@@ -49,7 +49,7 @@
 //! the view dispatcher.
 
 use crate::ast::{
-    Span, ViewAst, ViewCreateAst, ViewDetailAst, ViewListAst, SelectionDeclAst, SelectionModeAst,
+    SelectionDeclAst, SelectionModeAst, Span, ViewAst, ViewCreateAst, ViewDetailAst, ViewListAst,
 };
 
 use super::super::super::common::{

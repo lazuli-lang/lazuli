@@ -25,8 +25,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     Agent, AggregateDecl, ApiDecl, Auth, CacheProfileDecl, Channel, CommandDecl, EventGroup, Job,
-    McpServer, Notification, QueryDecl, RecordDecl, ReportDecl, ResourceDecl, Span, TenantMigration,
-    Webhook,
+    McpServer, Notification, QueryDecl, RecordDecl, ReportDecl, ResourceDecl, Span,
+    TenantMigration, Webhook,
 };
 
 /// `@<namespace>.<name>` — currently always `@scope.<x>` inside an

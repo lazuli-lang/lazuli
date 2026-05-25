@@ -51,16 +51,15 @@ use crate::ast::{
     Agent, AgentEvalAssertion, AgentEvalCase, AgentEvalGolden, AgentEvalKind, AgentEvalPredicate,
     AgentExpose, AgentExposeRouteSlot, AgentInputSlot, AgentOutput, AgentTool, AggregateDecl,
     ApiDecl, ApprovalThenDecl, AssignmentDecl, Auth, CacheProfileDecl, Channel, ColorStateAst,
-    ColorTokenAst,
-    CommandApproval, CommandAudit, CommandDecl, CommandDeprecatedDecl, CommandEffectDecl,
-    CommandEffectKindDecl, CommandEmit, CommandInputDecl, CommandInputSlot, CommandRouteSlot,
-    CommandRouteSlotKind, CommandWriteWindow, ContainsRhs, CustomTokenAst, DefaultsPolicyFor,
-    DefaultsTenancy, DesignDeclAst, EasingTokenAst, EnumDeclAst, EnumStorageValueDecl,
-    EnumVariantDecl, ErrorExposureDefaultAst, EventGroup, EventVariantFieldDecl,
-    EventVariantKindAst, FamilyTokenAst, FeatureDefaults, FeatureErrorExposeRuleDecl,
-    FeatureErrorMessageDecl, FeatureErrorsDecl, FeatureGatesAst, FeatureSkeleton,
-    FieldConstraintsDecl, FieldPoliciesDecl, FieldPolicyDecl, GateDirectiveAst, HttpMethod,
-    InvalidatesDecl, InvariantDecl, Job, JobBody, JobDeclarativeTyped, JobExternalCall,
+    ColorTokenAst, CommandApproval, CommandAudit, CommandDecl, CommandDeprecatedDecl,
+    CommandEffectDecl, CommandEffectKindDecl, CommandEmit, CommandInputDecl, CommandInputSlot,
+    CommandRouteSlot, CommandRouteSlotKind, CommandWriteWindow, ContainsRhs, CustomTokenAst,
+    DefaultsPolicyFor, DefaultsTenancy, DesignDeclAst, EasingTokenAst, EnumDeclAst,
+    EnumStorageValueDecl, EnumVariantDecl, ErrorExposureDefaultAst, EventGroup,
+    EventVariantFieldDecl, EventVariantKindAst, FamilyTokenAst, FeatureDefaults,
+    FeatureErrorExposeRuleDecl, FeatureErrorMessageDecl, FeatureErrorsDecl, FeatureGatesAst,
+    FeatureSkeleton, FieldConstraintsDecl, FieldPoliciesDecl, FieldPolicyDecl, GateDirectiveAst,
+    HttpMethod, InvalidatesDecl, InvariantDecl, Job, JobBody, JobDeclarativeTyped, JobExternalCall,
     JobExternalCallArg, JobFanout, JobHandler, JobRetry, JobTrigger, LetBindingDecl, ListQueryDecl,
     LocaleNegotiateDecl, LookupKey, LookupQueryDecl, MotionAst, Notification, NotificationDigest,
     NotificationThrottle, PackageSkeleton, PermissionDeclAst, PlanBlockAst, PlanFeatureRefAst,
@@ -972,7 +971,6 @@ fn parse_uses_line(
     }
     Ok(clauses)
 }
-
 
 fn is_public_contract_symbol(symbol: &str) -> bool {
     !symbol.is_empty()
@@ -7307,7 +7305,6 @@ fn parse_query_search(
     ))
 }
 
-
 // `auth` block parser moved to `lzi/auth.rs`.
 // -----------------------------------------------------------------------------
 // Phase L Tier 3 — job / webhook / notification / event_group parsers.
@@ -8102,7 +8099,8 @@ mod tests {
     #[test]
     fn parses_lzx_experience_and_platform_surface() {
         let experience =
-            parse_lzx_document(include_str!("../../../../../examples/customer-capsule.lzx")).unwrap();
+            parse_lzx_document(include_str!("../../../../../examples/customer-capsule.lzx"))
+                .unwrap();
         assert_eq!(experience.experiences.len(), 1);
         assert_eq!(experience.experiences[0].name, "customer");
         assert_eq!(experience.experiences[0].imports, vec!["customer"]);

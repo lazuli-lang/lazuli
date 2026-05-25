@@ -42,8 +42,10 @@ use super::super::common::{
 };
 use super::super::error::ParseError;
 use super::numerics::{fold_rate_limit_line, parse_rate_limit_line_body};
-use super::{AGENT_INDENT_AGENT_CHILD, AGENT_INDENT_FEATURE_CHILD, AGENT_INDENT_GRANDCHILD,
-    AGENT_INDENT_GREAT_GRANDCHILD};
+use super::{
+    AGENT_INDENT_AGENT_CHILD, AGENT_INDENT_FEATURE_CHILD, AGENT_INDENT_GRANDCHILD,
+    AGENT_INDENT_GREAT_GRANDCHILD,
+};
 use crate::ast::{
     Auth, AuthDurationClause, AuthIdentity, AuthMfa, AuthOAuthProvider, AuthPassword,
     AuthSessionRotation, AuthSessions, AuthTheftDetectionAction, AuthTheftDetectionActionClause,

@@ -24,9 +24,7 @@
 
 use crate::ast::{LzxApp, LzxDocument, Span};
 
-use super::super::common::{
-    SourceLine, is_trivia, line_error, split_lzx_list, unquote_lzx_value,
-};
+use super::super::common::{SourceLine, is_trivia, line_error, split_lzx_list, unquote_lzx_value};
 use super::super::error::ParseError;
 
 use super::{parse_lzx_experience, parse_lzx_route, parse_lzx_surface};
@@ -34,8 +32,8 @@ use super::{parse_lzx_experience, parse_lzx_route, parse_lzx_surface};
 mod view_guard;
 pub(super) use view_guard::{
     attach_lzx_on_lifecycle_pending, attach_lzx_requires_lifecycle, parse_lzx_on_lifecycle_pending,
-    parse_lzx_optional_substep_tail, parse_lzx_requires_lifecycle,
-    parse_lzx_route_guard_defaults, parse_lzx_view_guard,
+    parse_lzx_optional_substep_tail, parse_lzx_requires_lifecycle, parse_lzx_route_guard_defaults,
+    parse_lzx_view_guard,
 };
 
 mod error_page;
@@ -228,4 +226,3 @@ fn parse_lzx_app(lines: &[SourceLine<'_>], start: usize) -> Result<(LzxApp, usiz
         index,
     ))
 }
-

@@ -862,7 +862,10 @@ surface slug web
     fn rejects_blank_document() {
         let source = "\n\n# comment only\n";
         let err = parse_surface_document(source).unwrap_err();
-        assert!(matches!(err, super::super::super::super::error::ParseError::Expected { .. }));
+        assert!(matches!(
+            err,
+            super::super::super::super::error::ParseError::Expected { .. }
+        ));
     }
 
     #[test]

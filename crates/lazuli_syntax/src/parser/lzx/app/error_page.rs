@@ -19,9 +19,7 @@
 
 use crate::ast::{LzxErrorPage, Span};
 
-use super::super::super::common::{
-    SourceLine, is_trivia, line_error, unquote_lzx_value,
-};
+use super::super::super::common::{SourceLine, is_trivia, line_error, unquote_lzx_value};
 use super::super::super::error::ParseError;
 
 pub(super) fn parse_lzx_error_page(

@@ -33,9 +33,7 @@
 //! experience-view parsers that build the guard incrementally — they
 //! enforce "declared at most once" and merge spans.
 
-use crate::ast::{
-    LzxForbidWhen, LzxRequiresLifecycle, LzxRouteGuardDefaults, LzxViewGuard, Span,
-};
+use crate::ast::{LzxForbidWhen, LzxRequiresLifecycle, LzxRouteGuardDefaults, LzxViewGuard, Span};
 
 use super::super::super::common::{
     SourceLine, is_lzx_bare_ident, is_lzx_resume_ref, is_trivia, line_error, line_error_owned,
@@ -243,10 +241,7 @@ pub(crate) fn parse_lzx_view_guard(
 }
 
 /// router-w3 Tier 3 — parse `forbid_when <atom> dispatch_to "<url>"`.
-fn parse_lzx_forbid_when(
-    line: &SourceLine<'_>,
-    text: &str,
-) -> Result<LzxForbidWhen, ParseError> {
+fn parse_lzx_forbid_when(line: &SourceLine<'_>, text: &str) -> Result<LzxForbidWhen, ParseError> {
     let (atom_part, url_part) = text.split_once("dispatch_to").ok_or_else(|| {
         line_error(
             line,

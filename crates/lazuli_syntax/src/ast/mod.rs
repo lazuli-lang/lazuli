@@ -1,3 +1,46 @@
+//! Surface AST for every Lazuli source artifact.
+//!
+//! The AST is the **typed bridge** between the indentation-based parser
+//! and the analyzer that lowers into `lazuli_ir`. Each per-domain
+//! sub-file mirrors one slice of the source language:
+//!
+//! - `agent` — LLM agent declarations (`agent <name>`, including evals
+//!   and `expose http`).
+//! - `api` — explicit HTTP endpoints (`api <name>`).
+//! - `auth` — feature-scoped identity contract (`auth` block).
+//! - `command` — the full Phase L Tier 4b command surface + the
+//!   declarative spine (`target` / `let` / `creates|updates|deletes` /
+//!   `emits` / `invalidates`) reused by Job.
+//! - `design` — `design.lzi` token surface.
+//! - `event` — pattern-grouped event declarations (`event_group`) and
+//!   per-event-variant payload arrays.
+//! - `feature` — `FeatureSkeleton` container + every feature-scoped
+//!   cross-cutting block (`policies`, `errors`, `defaults`,
+//!   `translation`, `enum`, RBAC catalog, iron-hand context vocab,
+//!   cross-feature `uses` clauses, `PolicyAtomAst` / `PolicyExprAst`).
+//! - `job` — declarative + handler-backed jobs.
+//! - `lzx` — `.lzx` UI shell tree (app, routes, experiences, surfaces).
+//! - `mcp` — Model Context Protocol server block.
+//! - `notification` — outbound notifications + realtime channels +
+//!   cache profiles.
+//! - `plan` — plan/gate vocabulary (PG.A side-channel map).
+//! - `query` — query.list / query.lookup / query.sql + records.
+//! - `report` — declarative tabular export (`report <name>`).
+//! - `resource` — `resource <Name>` + invariants + lifecycle + lock +
+//!   composite_key + conventions + field constraints.
+//! - `surface` — modern hand-written ViewModel AST for the per-target
+//!   lzx files (`features/<feat>/<feat>.{web,mobile}.lzx`).
+//! - `tenant_migration` — tenant-axis schema migrations.
+//! - `webhook` — inbound webhook surface (verify, replay, dlq, scope
+//!   global, branch-dispatch emits).
+//!
+//! Everything in this file is the shared core: `Span`,
+//! `RateLimitSpecAst` (used by command/query/api/agent/auth.password/
+//! notification/report), the legacy brace-MVP `Document` /
+//! `Aggregate` / `Field` / `FieldModifier` / `Command` / `Query` /
+//! `Surface` types kept for back-compat with the pre-canonical-indent
+//! parser.
+
 use serde::{Deserialize, Serialize};
 
 mod agent;
@@ -144,14 +187,3 @@ pub struct Surface {
     pub detail_fields: Vec<String>,
     pub span: Span,
 }
-
-
-
-
-
-
-
-
-
-
-
