@@ -20,12 +20,19 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use lazuli_ir::{Event, EventField, EventGroup, EventVariant, Feature, Resource, TypeRef};
+use lazuli_ir::{Event, EventGroup, EventVariant, Feature, Resource, TypeRef};
 
 use super::cross_feature::CrossFeatureIndex;
 use super::imports::ImportSet;
 use super::printer::GoPrinter;
 use super::types::{self, TypeCtx};
+
+mod infer;
+mod payload;
+
+use payload::{
+    PayloadStruct, group_payload_fields, typed_event_fields, typed_payload_field,
+};
 
 /// Emit `<feature>/events.gen.go` for a feature, or `None` when the
 /// feature declares no event groups and no standalone typed events.
@@ -257,230 +264,7 @@ fn emit_kv_rows(p: &mut GoPrinter, rows: &[(String, String)]) {
     }
 }
 
-#[derive(Clone)]
-struct PayloadField {
-    name: String,
-    go_type: String,
-    tag: String,
-    json_name: String,
-}
-
-struct PayloadStruct {
-    event_name: String,
-    name: String,
-    fields: Vec<PayloadField>,
-    comments: Vec<String>,
-    seen_json: BTreeSet<String>,
-    seen_comments: BTreeSet<String>,
-}
-
-impl PayloadStruct {
-    fn new(event_name: &str) -> Self {
-        Self {
-            event_name: event_name.to_owned(),
-            name: payload_struct_name(event_name),
-            fields: Vec::new(),
-            comments: Vec::new(),
-            seen_json: BTreeSet::new(),
-            seen_comments: BTreeSet::new(),
-        }
-    }
-
-    fn push_field(&mut self, field: PayloadField) {
-        if self.seen_json.insert(field.json_name.clone()) {
-            self.fields.push(field);
-        }
-    }
-
-    fn push_comment(&mut self, comment: String) {
-        if self.seen_comments.insert(comment.clone()) {
-            self.comments.push(comment);
-        }
-    }
-}
-
-fn group_payload_fields(
-    group: &EventGroup,
-    feature: &Feature,
-    ctx: &TypeCtx<'_>,
-    imports: &mut ImportSet,
-) -> Vec<PayloadField> {
-    let resource = group
-        .on_resource
-        .as_deref()
-        .and_then(|name| find_resource(feature, name));
-
-    let mut fields = Vec::new();
-    for raw in &group.raw_payload {
-        let Some(parsed) = parse_raw_payload_line(raw) else {
-            continue;
-        };
-        let mut inferred = infer_group_payload_type(&parsed, resource, ctx, imports);
-        if parsed.optional {
-            inferred.go_type = pointer_type(&inferred.go_type);
-        }
-        fields.push(payload_field(
-            &parsed.name,
-            &inferred.go_type,
-            parsed.optional,
-        ));
-    }
-    fields
-}
-
-fn typed_event_fields(
-    event: &Event,
-    ctx: &TypeCtx<'_>,
-    imports: &mut ImportSet,
-) -> Vec<PayloadField> {
-    event
-        .payload
-        .iter()
-        .map(|field| typed_payload_field(field, ctx, imports))
-        .collect()
-}
-
-fn typed_payload_field(
-    field: &EventField,
-    ctx: &TypeCtx<'_>,
-    imports: &mut ImportSet,
-) -> PayloadField {
-    register_imports_for_type(&field.type_ref, ctx, imports);
-    let (go_type, _import) = types::go_type_for(&field.type_ref, ctx);
-    let final_type = if field.optional {
-        pointer_type(&go_type)
-    } else {
-        go_type
-    };
-    payload_field(&field.name, &final_type, field.optional)
-}
-
-fn payload_field(name: &str, go_type: &str, optional: bool) -> PayloadField {
-    let json_suffix = if optional {
-        format!("{name},omitempty")
-    } else {
-        name.to_owned()
-    };
-    PayloadField {
-        name: pascal_case(name),
-        go_type: go_type.to_owned(),
-        tag: format!("`json:\"{}\"`", json_suffix),
-        json_name: name.to_owned(),
-    }
-}
-
-struct RawPayloadLine {
-    name: String,
-    expr: Option<String>,
-    optional: bool,
-}
-
-fn parse_raw_payload_line(line: &str) -> Option<RawPayloadLine> {
-    let trimmed = line.trim();
-    if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("//") {
-        return None;
-    }
-
-    if let Some((lhs, rhs)) = trimmed.split_once('=') {
-        let name = lhs.trim();
-        if !is_payload_name(name) {
-            return None;
-        }
-        let (expr, optional) = split_when(rhs.trim());
-        return Some(RawPayloadLine {
-            name: name.to_owned(),
-            expr: Some(expr.to_owned()),
-            optional,
-        });
-    }
-
-    if let Some((lhs, _rhs)) = trimmed.split_once(':') {
-        let name = lhs.trim();
-        if !is_payload_name(name) {
-            return None;
-        }
-        return Some(RawPayloadLine {
-            name: name.to_owned(),
-            expr: None,
-            optional: false,
-        });
-    }
-
-    let name = trimmed.split_whitespace().next().unwrap_or("");
-    if !is_payload_name(name) {
-        return None;
-    }
-    Some(RawPayloadLine {
-        name: name.to_owned(),
-        expr: None,
-        optional: false,
-    })
-}
-
-fn split_when(raw: &str) -> (&str, bool) {
-    if let Some((expr, _when)) = raw.split_once(" when ") {
-        (expr.trim(), true)
-    } else {
-        (raw.trim(), false)
-    }
-}
-
-struct InferredType {
-    go_type: String,
-}
-
-fn infer_group_payload_type(
-    parsed: &RawPayloadLine,
-    resource: Option<&Resource>,
-    ctx: &TypeCtx<'_>,
-    imports: &mut ImportSet,
-) -> InferredType {
-    let Some(expr) = parsed.expr.as_deref() else {
-        return infer_by_name(&parsed.name, imports);
-    };
-    let expr = expr.trim();
-    if expr == "id" || expr.ends_with(".id") || parsed.name.ends_with("_id") {
-        imports.add("lazuli.dev/runtime/lazuli");
-        return InferredType {
-            go_type: "lazuli.ID".to_owned(),
-        };
-    }
-    if expr == "ctx.now" || parsed.name.ends_with("_at") {
-        imports.add("lazuli.dev/runtime/lazuli");
-        return InferredType {
-            go_type: "lazuli.Time".to_owned(),
-        };
-    }
-    if let Some(resource) = resource {
-        let head = expr.split('.').next().unwrap_or(expr);
-        if let Some(field) = resource.fields.iter().find(|field| field.name == head) {
-            register_imports_for_type(&field.type_ref, ctx, imports);
-            let (go_type, _import) = types::go_type_for(&field.type_ref, ctx);
-            return InferredType { go_type };
-        }
-    }
-    infer_by_name(&parsed.name, imports)
-}
-
-fn infer_by_name(name: &str, imports: &mut ImportSet) -> InferredType {
-    if name.ends_with("_id") || name == "id" {
-        imports.add("lazuli.dev/runtime/lazuli");
-        return InferredType {
-            go_type: "lazuli.ID".to_owned(),
-        };
-    }
-    if name.ends_with("_at") {
-        imports.add("lazuli.dev/runtime/lazuli");
-        return InferredType {
-            go_type: "lazuli.Time".to_owned(),
-        };
-    }
-    InferredType {
-        go_type: "any".to_owned(),
-    }
-}
-
-fn find_resource<'a>(feature: &'a Feature, name: &str) -> Option<&'a Resource> {
+pub(super) fn find_resource<'a>(feature: &'a Feature, name: &str) -> Option<&'a Resource> {
     feature
         .resources
         .iter()
@@ -533,7 +317,11 @@ fn event_runtime_gap_comments(event: &Event) -> Vec<String> {
     comments
 }
 
-fn register_imports_for_type(type_ref: &TypeRef, ctx: &TypeCtx<'_>, imports: &mut ImportSet) {
+pub(super) fn register_imports_for_type(
+    type_ref: &TypeRef,
+    ctx: &TypeCtx<'_>,
+    imports: &mut ImportSet,
+) {
     let (_go, import) = types::go_type_for(type_ref, ctx);
     if let Some(path) = import {
         imports.add(&path);
@@ -543,7 +331,7 @@ fn register_imports_for_type(type_ref: &TypeRef, ctx: &TypeCtx<'_>, imports: &mu
     }
 }
 
-fn pointer_type(go_type: &str) -> String {
+pub(super) fn pointer_type(go_type: &str) -> String {
     if go_type.starts_with('*') {
         go_type.to_owned()
     } else {
@@ -577,11 +365,11 @@ fn pattern_identifier_part(pattern: &str) -> String {
     out.trim_matches('_').to_owned()
 }
 
-fn payload_struct_name(event_name: &str) -> String {
+pub(super) fn payload_struct_name(event_name: &str) -> String {
     format!("{}Payload", pascal_case(event_name))
 }
 
-fn is_payload_name(name: &str) -> bool {
+pub(super) fn is_payload_name(name: &str) -> bool {
     !name.is_empty()
         && !name.contains(char::is_whitespace)
         && name
@@ -631,8 +419,8 @@ fn lower_camel(s: &str) -> String {
 mod tests {
     use super::*;
     use lazuli_ir::{
-        AppManifest, BuiltinType, Defaults, EventKind, Field, Module, OutboxMode, Policies,
-        Resource, TypeRef,
+        AppManifest, BuiltinType, Defaults, EventField, EventKind, Field, Module, OutboxMode,
+        Policies, Resource, TypeRef,
     };
 
     fn base_feature(name: &str) -> Feature {
