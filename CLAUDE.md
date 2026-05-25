@@ -153,6 +153,30 @@ When you spot a violation: reject in line. Do not merge into a checklist for "la
 
 ---
 
+## Rustdoc conventions — Rails ActiveRecord style
+
+The framework's own Rust source follows Rails-style documentation rather than Spring/.NET template ceremony. This is enforced by `INTERNAL-UNDOC-PUB-001` and `INTERNAL-NO-EXAMPLE-001` rules under the `tdd-iron-hand` preset (workspace-root `Lazurite.toml`).
+
+Three conventions:
+
+1. **PROSE-HEAVY, not template.** Lead with WHY, not WHAT. Sub-headers emerge from content (`## Severity`, `## See also`, `## Custom Types`) — not from a fixed template. Skip `## Arguments` / `## Returns` / `## Errors` unless the signature doesn't carry the info (in Rust it usually does). Restating the signature in prose is bloat.
+
+2. **`## Examples` MANDATORY** for pub items with non-trivial use. Show progressive complexity (simple → realistic → edge). Must compile via `cargo test --doc` — enforced by `INTERNAL-NO-EXAMPLE-001` once a crate reaches W5 sweep completion. Use `# use lazuli_ir::*;` lines to hide setup; show only the meaningful invocation.
+
+3. **Cross-ref liberally** via `` [`Type`] `` / `` [`module::fn`] ``. rust-analyzer renders these as clickable hover. Point to: related fns in the same module, design proposals (`docs/proposals/...`), invariants in `docs/invariants.md`. Cross-references turn each hover into a mini-page.
+
+**Canonical model**: [`crates/lazuli_doctor/src/test_discipline/mod.rs:1-40`](crates/lazuli_doctor/src/test_discipline/mod.rs) already exemplifies the style — prose paragraph, variant bullet list, cross-refs. Treat it as the template when writing module-level docs.
+
+**Anti-patterns** (reject in line):
+- Spring-template restating Args/Returns when the signature carries it (`pub fn foo(x: u32) -> bool` followed by `# Arguments\n* x — the input number\n# Returns\n* bool — whether it worked` is pure ceremony; delete)
+- Docstrings shorter than 1 sentence on pub items (rule will fire — at minimum a single-line summary in imperative voice)
+- Example blocks marked `` ``` `` without a language (won't compile via `cargo test --doc` — must be `` ```rust `` or `` ```no_run `` with annotated reasoning)
+- LLM-generated bulk that restates the function name in prose ("validates the validate_x input by validating x")
+
+**Why Rails-style and not Spring**: Rust's type signature carries the bulk of "what the function does" — duplicating it in `# Arguments` blocks creates noise. Rails (Ruby is dynamic) needed the explicit `[+name+]` brackets because the signature was opaque; Rust does not. Lazuli is the AI-native Rails; the docs follow the same philosophy.
+
+---
+
 ## When you're unsure
 
 Ask: "could a Lazuli project still function if the Lazuli Go runtime was replaced by a hypothetical second runtime targeting Rust + Yew + Flutter?" If the answer is no because the language is leaking Go-specific or React-specific assumptions, the proposal is at the wrong layer.

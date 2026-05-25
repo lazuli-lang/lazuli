@@ -1,0 +1,55 @@
+# Lazuli framework workspace-root manifest.
+#
+# This is NOT a Lazuli app — it's the framework's own self-application of
+# the doctor. The `tdd-iron-hand` preset across all three doctor blocks
+# (coverage, test_discipline, internal_hygiene) is the editorial veto
+# mechanism: a single config-line escalates rules to `error` workspace-wide,
+# analogous to Rails' .rubocop.yml + .rspec consolidated config.
+#
+# Sem escape exceto via `severity_override` com `reason` documentado
+# (enforced by DOCTOR-OVERRIDE-NEEDS-REASON-001).
+#
+# Refs:
+#   - docs/proposals/tdd-bdd-first-2026-05-23.md (Wave 0.5 + Wave 6)
+#   - C:/Users/lucas/.claude/plans/investiga-lazuli-e-bora-hashed-bengio.md
+#   - Hostpoint = Lazuli's Basecamp (canonical app shape)
+
+[project]
+name = "lazuli"
+module = "github.com/lazuli-lang/lazuli"
+schema = 1
+
+[lazuli]
+# Reserved value — framework does not pin its own runtime version.
+runtime = "self"
+
+[doctor]
+profile = "production"
+
+# Wave 6 — already-existing preset. Locks all coverage layers (handler_go,
+# spec_predicate, spec_actor_matrix, spec_transition_state, view_extensibility,
+# view_e2e_pair) to 90/95 warn/block thresholds.
+[doctor.coverage]
+preset = "tdd-iron-hand"
+
+# W1.5 — extends preset mechanism to test_discipline category. Under
+# `tdd-iron-hand`, every TEST-* + DOCTOR-* rule fires at `error` severity
+# regardless of profile.
+[doctor.test_discipline]
+preset = "tdd-iron-hand"
+
+# W3 — extends preset mechanism to internal_hygiene category. Under
+# `tdd-iron-hand`, every INTERNAL-* rule (file-size, undoc-pub, no-example,
+# test-pairing) fires at `error` severity.
+#
+# TEMPORARY overrides during W5 docstring sweep — each must carry `reason`
+# and be removed in W6 once the corresponding crate reaches sweep completion.
+[doctor.internal_hygiene]
+preset = "tdd-iron-hand"
+
+# Example override structure for W5 transitional period (commented out;
+# uncomment per-crate as sweep starts):
+#
+# [doctor.internal_hygiene.severity_override.INTERNAL-NO-EXAMPLE-001]
+# severity = "info"
+# reason = "W5 docstring sweep in progress for lazuli_ir; restore to preset-default after sweep completes (target: rails-style-refactor branch)"

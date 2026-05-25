@@ -1,0 +1,29 @@
+# Lazuli framework workspace-level clippy config.
+#
+# Aligned with the `tdd-iron-hand` posture from workspace Lazurite.toml:
+# strict thresholds, no escape via lint suppressions without justification.
+#
+# CI invokes: cargo clippy --workspace --all-targets -- -D warnings
+# (per .github/workflows/ci.yml W1 wave)
+
+# Block files / functions that grow too large. Mirrors the
+# INTERNAL-FILE-SIZE-001 doctor rule (W3) at the clippy layer so violations
+# fire during `cargo clippy` BEFORE `lazuli doctor --self` even runs.
+too-many-lines-threshold = 500
+
+# Functions with cognitive complexity > 25 are usually candidates for
+# extraction. Mirrors the Rails ActiveRecord style of "small focused
+# methods composed via inheritance/concerns".
+cognitive-complexity-threshold = 25
+
+# Avoid `unwrap`/`expect` proliferation in non-test code. Test code can
+# unwrap freely (clippy's default carve-out applies).
+disallowed-methods = [
+    # Hot-path Result/Option escapes: prefer ?-operator or context().
+    { path = "std::option::Option::unwrap", reason = "use ? operator, .ok_or(), or context() — INTERNAL-NO-UNWRAP candidate" },
+    { path = "std::result::Result::unwrap", reason = "use ? operator or context() — INTERNAL-NO-UNWRAP candidate" },
+]
+
+# Allow longer docstring example blocks (Rails-style docs have multi-step
+# `## Examples` that compile via `cargo test --doc`).
+doc-valid-idents = ["Lazuli", "Lazurite", "Hostpoint", "Rails", "Basecamp", "ActiveRecord", "rustdoc", "rust-analyzer", "RDoc"]

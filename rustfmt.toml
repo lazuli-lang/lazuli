@@ -1,0 +1,26 @@
+# Lazuli framework workspace-level rustfmt config.
+#
+# Conventions chosen for Rails-style readability: imports grouped by
+# origin (std, then external crates, then local), 100-char lines (Rails'
+# rdoc renders 80-col but Rust idiom is 100 — splitting the difference).
+#
+# CI invokes: cargo fmt --all --check
+# (per .github/workflows/ci.yml W1 wave)
+
+edition = "2024"
+max_width = 100
+imports_granularity = "Module"
+group_imports = "StdExternalCrate"
+
+# Match Rails' explicit-imports preference over wildcard re-exports.
+# Wildcards (`use foo::*;`) are an anti-pattern that hides which symbols
+# are consumed — `cargo public-api --diff` becomes harder to reason about.
+reorder_imports = true
+reorder_modules = true
+
+# Doc-comment formatting: Rails-style docs have multi-paragraph prose +
+# example blocks. rustfmt should preserve linebreaks in `///` comments
+# rather than reflowing them.
+format_code_in_doc_comments = true
+doc_comment_code_block_width = 80
+wrap_comments = false

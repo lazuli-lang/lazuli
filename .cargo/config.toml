@@ -1,0 +1,11 @@
+# Lazuli framework cargo config — convenience aliases for self-application.
+
+[alias]
+# Run doctor against the framework's own source.
+self-check = "run --bin lazuli -- doctor --self --security-profile strict"
+
+# Run doctor self-check with JSON output (matches CI gate).
+self-check-json = "run --bin lazuli -- doctor --self --security-profile strict --format json"
+
+# Format + clippy + test + doc — local pre-commit equivalent of CI gates.
+ci-local = "test --workspace --all-targets"
