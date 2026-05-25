@@ -10,6 +10,7 @@
 //! files anchored to one construct each.
 
 pub(crate) mod auth_refresh;
+pub(crate) mod context;
 pub(crate) mod error_page;
 pub(crate) mod error_vocab;
 pub(crate) mod input_field;
