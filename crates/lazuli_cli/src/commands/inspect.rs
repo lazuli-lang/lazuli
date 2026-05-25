@@ -1027,11 +1027,11 @@ pub(crate) struct InspectReport {
     /// `None` when the flag is off or when no block is populated.
     #[serde(skip_serializing_if = "Option::is_none")]
     http: Option<serde_json::Value>,
-    features: Vec<InspectFeature>,
+    pub(crate) features: Vec<InspectFeature>,
 }
 
 #[derive(Debug, Serialize)]
-struct InspectFeature {
+pub(crate) struct InspectFeature {
     name: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     requirements: Vec<InspectRequirement>,
@@ -1109,7 +1109,7 @@ struct InspectFeature {
     /// `--expand=migrations` is set. Every lifted
     /// `ir::TenantMigration` on the feature.
     #[serde(skip_serializing_if = "Option::is_none")]
-    tenant_migrations: Option<Vec<lazuli_ir::TenantMigration>>,
+    pub(crate) tenant_migrations: Option<Vec<lazuli_ir::TenantMigration>>,
     /// Cache bucket cycle (CL.C.3) — populated only when
     /// `--expand=caches` is set. Every lifted feature-level
     /// `cache <name>` profile (`ir::CacheProfile`) on the feature.

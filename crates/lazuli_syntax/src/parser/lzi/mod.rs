@@ -10136,7 +10136,7 @@ mod tests {
     #[test]
     fn full_capsule_view_tests_round_trip() {
         let document = parse_lzx_document(include_str!(
-            "../../../../examples/full-capsule/full-capsule.lzx"
+            "../../../../../examples/full-capsule/full-capsule.lzx"
         ))
         .unwrap();
         let detail_view = document
@@ -10170,7 +10170,7 @@ mod tests {
     #[test]
     fn parses_lzx_experience_and_platform_surface() {
         let experience =
-            parse_lzx_document(include_str!("../../../../examples/customer-capsule.lzx")).unwrap();
+            parse_lzx_document(include_str!("../../../../../examples/customer-capsule.lzx")).unwrap();
         assert_eq!(experience.experiences.len(), 1);
         assert_eq!(experience.experiences[0].name, "customer");
         assert_eq!(experience.experiences[0].imports, vec!["customer"]);
@@ -10182,7 +10182,7 @@ mod tests {
         assert_eq!(experience.experiences[0].views[1].anchor.as_deref(), None);
 
         let surface = parse_lzx_document(include_str!(
-            "../../../../examples/customer-capsule.web.lzx"
+            "../../../../../examples/customer-capsule.web.lzx"
         ))
         .unwrap();
         assert_eq!(surface.surfaces.len(), 1);
@@ -10954,7 +10954,7 @@ feature customer
         // line-walker tolerates the actual indent pattern (2/4/6/8 spaces),
         // the comments and blank lines scattered through the file, and
         // every non-agent feature child it should skip.
-        let source = include_str!("../../../../examples/full-capsule/full-capsule.lzi");
+        let source = include_str!("../../../../../examples/full-capsule/full-capsule.lzi");
         let features = parse_feature_skeletons(source).expect("parses");
 
         // The fixture declares five features; the slice surfaces them all
@@ -13020,7 +13020,7 @@ feature account
         // Smoke check that the canonical fixture (extended in Cell
         // PARSE-1) still parses end-to-end and the new IR slots are
         // populated for the `customer` feature.
-        let source = include_str!("../../../../examples/full-capsule/full-capsule.lzi");
+        let source = include_str!("../../../../../examples/full-capsule/full-capsule.lzi");
         let features = parse_feature_skeletons(source).expect("parses");
         let customer = features
             .iter()
