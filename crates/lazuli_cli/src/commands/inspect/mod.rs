@@ -49,18 +49,14 @@
 //!   `parse_expand_set`, `render_inspect_symbol_lazuli`, all
 //!   re-exported through main.rs.
 
-use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
-use serde::Serialize;
+use anyhow::{Context, Result};
 
-use crate::casing::pascal_case;
 use crate::{
-    InspectFormat, InspectInclude, app_manifest, build_module_from_path,
-    build_module_with_source_from_path, lazurite_manifest, plugin_manifest, plugin_semantic_resolver,
-    project_root_for_input, read_package_lzi_source,
+    InspectFormat, InspectInclude, lazurite_manifest, plugin_manifest, project_root_for_input,
+    read_package_lzi_source,
 };
 
 mod expand_set;
