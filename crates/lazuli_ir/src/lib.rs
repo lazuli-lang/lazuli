@@ -25,6 +25,10 @@ pub use nodes::auth::{
     Auth, AuthIdentity, AuthMfa, AuthOAuthProvider, AuthPassword, AuthSessions, RotationConfig,
     SessionExtraColumn, TheftAction,
 };
+pub use nodes::capability::{
+    CapabilityRef, EncryptedCapability, FileCapability, FileSize, FileSizeLiteral, FileVisibility,
+    HashAlgorithm, HashedCapability, MimeType, PiiCapability, TokenCapability, TokenStore,
+};
 pub use nodes::error_vocab::{
     ErrorExposeRule, ErrorExposureDefault, FeatureErrorMessage, FeatureErrors, FeatureFieldError,
     TranslationKeyRef,
@@ -1325,173 +1329,12 @@ impl CurrencyCode {
 }
 
 // =============================================================================
-// Phase L Tier 2 — typed `@cap.File` capability
-//
-// `@cap.File(max_size:<size>,accept:<mime>,visibility:<mode>,signed_ttl:<dur>)`
-// becomes a `TypeRef::Capability(CapabilityRef::File(FileCapability { ... }))`.
-//
-// Surface → IR mapping lives in `lazuli_analyzer::type_ref_from_syntax`.
-// Doctor cross-checks against `object_storage` capability + input/output
-// symmetry remain in the existing text-pattern doctor pipeline until the
-// storage bucket cycle migrates them.
+// Phase L Tier 2 — typed `@cap.*` capabilities.
+// Family (CapabilityRef + File/PII/Hashed/Encrypted/Token sub-shapes,
+// FileSize, FileSizeLiteral, MimeType, FileVisibility, HashAlgorithm,
+// TokenStore) lives in `nodes::capability` after the W4.1 rails-style
+// split. Re-exported at the crate root above to preserve the ABI surface.
 // =============================================================================
-
-/// Discriminated union for typed capability decorators. New variants land
-/// as the bucket cycles type each `@cap.*` family.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value")]
-pub enum CapabilityRef {
-    File(FileCapability),
-    /// `@cap.PII(class:<X>, retention:<dur>, log_redact:<bool>)` —
-    /// marks fields as regulated personal data. Drives audit
-    /// data_subject inference + auto-redaction at log emission.
-    PII(PiiCapability),
-    /// Phase L Tier 4 follow-up — `@cap.Hashed(algorithm:<X>)`.
-    /// Closed catalog: `argon2id` canonical, `bcrypt` for legacy
-    /// migration only.
-    Hashed(HashedCapability),
-    /// Phase L Tier 4 follow-up — `@cap.Encrypted(key:@key.<scope>)`.
-    Encrypted(EncryptedCapability),
-    /// Encryption bucket cycle — `@cap.E2ee(key:@key.<scope>)`.
-    /// Sibling of `Encrypted`: the server stores ciphertext but
-    /// never reads it. See `docs/proposals/encryption-vocab.md`.
-    E2ee(E2eeCapability),
-    /// Phase L Tier 4 follow-up — `@cap.Token(ttl:<duration>,
-    /// single_use:<bool>,store:<storage>)`. `store` is `hashed` in v0.
-    Token(TokenCapability),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PiiCapability {
-    /// Free-form class name (`identity`, `contact`, `financial`,
-    /// `medical`, `biometric`). Adapters/doctor cross-check against a
-    /// registry-level catalog if declared.
-    pub class: String,
-    /// Optional retention period (duration literal, e.g. `"90d"`,
-    /// `"7y"`). When set, doctor flags resources without a
-    /// retention-cleanup job.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub retention: Option<String>,
-    /// When true, observability redaction must mask this field's
-    /// values in log output. Default true.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub log_redact: Option<bool>,
-}
-
-/// Phase L Tier 4 follow-up — typed `@cap.Hashed(algorithm:<X>)`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HashedCapability {
-    pub algorithm: HashAlgorithm,
-}
-
-/// Phase L Tier 4 follow-up — closed catalog of `@cap.Hashed` algorithms.
-/// `Argon2id` is canonical; `Bcrypt` is kept only for legacy migration
-/// (doctor warns on new uses).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum HashAlgorithm {
-    Argon2id,
-    Bcrypt,
-}
-
-/// Phase L Tier 4 follow-up — typed `@cap.Encrypted(key:@key.<scope>)`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EncryptedCapability {
-    /// `@key.<scope>` reference, stored verbatim with the `@key.`
-    /// prefix preserved so cold-readers see the namespace.
-    pub key: String,
-}
-
-/// Phase L Tier 4 follow-up — typed `@cap.Token(...)`. All three
-/// dimensions (ttl/single_use/store) are mandatory in canonical v0.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TokenCapability {
-    /// `ttl:<integer><s|m|h|d>` — duration literal preserved verbatim
-    /// (adapter parses).
-    pub ttl: String,
-    /// `single_use:true|false`.
-    pub single_use: bool,
-    /// `store:hashed` — closed catalog `{Hashed}` in v0.
-    pub store: TokenStore,
-}
-
-/// Phase L Tier 4 follow-up — closed catalog of token storage modes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TokenStore {
-    Hashed,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FileCapability {
-    pub max_size: FileSize,
-    /// At least one MIME entry. The `|`-separated source form is
-    /// normalised into a flat vector; a `*/*` wildcard authoring is
-    /// represented as `family: "*", subtype: "*"`.
-    pub accept: Vec<MimeType>,
-    /// `None` is the parse-time default (`private` on a resource
-    /// field, **required** on an api output — doctor warns on
-    /// omission). The bucket-storage cycle proposal carries the
-    /// closed catalog `{public, private, signed}`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub visibility: Option<FileVisibility>,
-    /// `Some` only when `visibility == Signed`. Mutually exclusive
-    /// with `visibility == Private` (doctor enforces); language
-    /// records what the author wrote.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub signed_ttl: Option<String>,
-    /// `auto_photo_policy: @policy.<name>` — explicit policy attached
-    /// to the 4 commands synthesized from this `@cap.File` site
-    /// (FR-3a). `None` defers to the analyzer's heuristic
-    /// (resource_singular + "_only").
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub auto_photo_policy: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FileSize {
-    pub bytes: u64,
-    /// Source-text literal preserved for inspect round-trip.
-    pub literal: FileSizeLiteral,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "unit", content = "amount")]
-pub enum FileSizeLiteral {
-    Kb(u32),
-    Mb(u32),
-    Gb(u32),
-}
-
-impl FileSizeLiteral {
-    /// Convert the literal into a byte count. `kb` = 1024, `mb` = 1024*1024,
-    /// `gb` = 1024*1024*1024 (binary prefixes, matching the LSP literal
-    /// catalog `is_file_size_literal`).
-    pub fn bytes(self) -> u64 {
-        match self {
-            Self::Kb(n) => n as u64 * 1024,
-            Self::Mb(n) => n as u64 * 1024 * 1024,
-            Self::Gb(n) => n as u64 * 1024 * 1024 * 1024,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MimeType {
-    /// IANA top-level family (`text`, `image`, `application`, `audio`,
-    /// `video`, `font`) or wildcard `*`.
-    pub family: String,
-    /// Subtype, e.g. `csv`, `vnd.ms-excel`, `*`.
-    pub subtype: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum FileVisibility {
-    Public,
-    Private,
-    Signed,
-}
 
 /// Qualified name for a feature-scoped or local symbol. `feature` is `None`
 /// for local references; cross-feature references carry the feature id.

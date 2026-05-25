@@ -34,6 +34,7 @@
 //!   submodule; uses the same pattern this module generalizes)
 
 pub mod auth;
+pub mod capability;
 pub mod error_vocab;
 pub mod plan_and_gate;
 pub mod report;
