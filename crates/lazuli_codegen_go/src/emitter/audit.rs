@@ -30,10 +30,10 @@ CREATE TABLE IF NOT EXISTS audit_log (
     correlation_id TEXT
 );
 
-CREATE INDEX audit_log_command_idx ON audit_log (command_name);
-CREATE INDEX audit_log_target_idx ON audit_log (target_resource, target_id);
-CREATE INDEX audit_log_actor_idx ON audit_log (actor_id);
-CREATE INDEX audit_log_org_time_idx ON audit_log (org_id, happened_at DESC);
+CREATE INDEX IF NOT EXISTS audit_log_command_idx ON audit_log (command_name);
+CREATE INDEX IF NOT EXISTS audit_log_target_idx ON audit_log (target_resource, target_id);
+CREATE INDEX IF NOT EXISTS audit_log_actor_idx ON audit_log (actor_id);
+CREATE INDEX IF NOT EXISTS audit_log_org_time_idx ON audit_log (org_id, happened_at DESC);
 ";
 
 /// Emit a single `dist/go/migrations/audit_log.sql` table DDL referenced by
@@ -334,17 +334,17 @@ mod tests {
         assert!(file.contents.contains("correlation_id TEXT"));
         assert!(
             file.contents
-                .contains("CREATE INDEX audit_log_command_idx ON audit_log (command_name);")
+                .contains("CREATE INDEX IF NOT EXISTS audit_log_command_idx ON audit_log (command_name);")
         );
         assert!(file.contents.contains(
-            "CREATE INDEX audit_log_target_idx ON audit_log (target_resource, target_id);"
+            "CREATE INDEX IF NOT EXISTS audit_log_target_idx ON audit_log (target_resource, target_id);"
         ));
         assert!(
             file.contents
-                .contains("CREATE INDEX audit_log_actor_idx ON audit_log (actor_id);")
+                .contains("CREATE INDEX IF NOT EXISTS audit_log_actor_idx ON audit_log (actor_id);")
         );
         assert!(file.contents.contains(
-            "CREATE INDEX audit_log_org_time_idx ON audit_log (org_id, happened_at DESC);"
+            "CREATE INDEX IF NOT EXISTS audit_log_org_time_idx ON audit_log (org_id, happened_at DESC);"
         ));
     }
 
