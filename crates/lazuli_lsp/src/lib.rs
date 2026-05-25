@@ -165,48 +165,9 @@ impl LanguageServer for Backend {
         let Some(source) = documents.get(&uri) else {
             return Ok(None);
         };
-        let word = word_at_position(source, position);
-        // IR Error-Vocab — when the cursor sits on one of the 8 closed
-        // error codes inside a feature's `errors` block, show the
-        // **resolved** translation text (per proposal §7.2). Falls back to
-        // the built-in English string when the feature has no override.
-        // This path runs before `rich_keyword_hover` so the resolved-text
-        // surface wins when the cursor is unambiguously inside `errors`.
-        let hover_markdown = if !is_design_lzi_uri(&uri) {
-            if let Some(markdown) = lifecycle_gate_hover(source, position, word.as_deref()) {
-                Some(markdown)
-            } else if let Some(markdown) = word
-                .as_deref()
-                .and_then(|word| route_guard_hover(source, position, word))
-            {
-                Some(markdown)
-            } else if let Some(markdown) = word
-                .as_deref()
-                .and_then(|word| error_vocab_code_resolved_hover(source, position, word))
-            {
-                Some(markdown)
-            } else if let Some(markdown) = word
-                .as_deref()
-                .and_then(|word| convention_bundle_hover(source, position, word))
-            {
-                Some(markdown)
-            } else if let Some(markdown) = word.as_deref().and_then(rich_keyword_hover) {
-                Some(markdown)
-            } else {
-                word.as_deref()
-                    .and_then(|word| keyword_description(word).map(|d| format!("`{word}`\n\n{d}")))
-            }
-        } else {
-            word.as_deref().and_then(|word| {
-                design_keyword_description(word)
-                    .or_else(|| keyword_description(word))
-                    .map(|d| format!("`{word}`\n\n{d}"))
-            })
-        };
-        let Some(value) = hover_markdown else {
+        let Some(value) = handlers::hover_markdown_for_position(source, &uri, position) else {
             return Ok(None);
         };
-
         Ok(Some(Hover {
             contents: HoverContents::Markup(MarkupContent {
                 kind: MarkupKind::Markdown,
@@ -326,29 +287,7 @@ impl LanguageServer for Backend {
         let Some(source) = documents.get(&uri) else {
             return Ok(None);
         };
-        // IR Error-Vocab and Auth Refresh return whatever actions match
-        // the cursor position; the client filters by `only` /
-        // `trigger_kind`.
-        let mut actions = error_vocab_code_actions(source, &uri, position);
-        actions.extend(auth_refresh_code_actions(source, &uri, position));
-        actions.extend(route_guard_code_actions(source, &uri, position));
-        actions.extend(lifecycle_gate_code_actions(source, &uri, position));
-        if actions.is_empty() {
-            return Ok(None);
-        }
-        // Push under `quickfix` kind by default so they show up in the
-        // editor's lightbulb regardless of the requesting `only` filter
-        // (editors that filter narrowly already pre-fetched the kind list
-        // from the capabilities — we kept that list open via
-        // `CodeActionProviderCapability::Simple(true)`).
-        for action in &mut actions {
-            if let CodeActionOrCommand::CodeAction(ca) = action {
-                if ca.kind.is_none() {
-                    ca.kind = Some(CodeActionKind::QUICKFIX);
-                }
-            }
-        }
-        Ok(Some(actions))
+        Ok(handlers::code_actions_for_position(source, &uri, position))
     }
 }
 
