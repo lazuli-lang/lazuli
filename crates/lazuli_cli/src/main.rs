@@ -4440,34 +4440,6 @@ fn to_kebab_case(value: &str) -> String {
     out
 }
 
-pub(crate) fn generate_openapi(
-    input: &Path,
-    output: Option<&Path>,
-    api_version: Option<&str>,
-) -> Result<()> {
-    let module = build_module_from_path(input)?;
-    let opts = lazuli_openapi::EmitOptions {
-        api_version: api_version.map(|s| s.to_owned()),
-        strict_typed_only: false,
-    };
-    let yaml = lazuli_openapi::emit(&module, opts);
-    match output {
-        Some(path) => {
-            if let Some(parent) = path.parent() {
-                if !parent.as_os_str().is_empty() {
-                    fs::create_dir_all(parent).with_context(|| {
-                        format!("creating output directory {}", parent.display())
-                    })?;
-                }
-            }
-            fs::write(path, &yaml)
-                .with_context(|| format!("writing OpenAPI spec to {}", path.display()))?;
-            println!("wrote {}", path.display());
-        }
-        None => print!("{}", yaml),
-    }
-    Ok(())
-}
 
 
 /// OpenAPI bucket cycle — emit a changelog markdown from two inspect

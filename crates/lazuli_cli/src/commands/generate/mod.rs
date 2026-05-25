@@ -24,7 +24,9 @@
 //! - `crate::version::enforce_manifest_pin` — the pin gate.
 //! - `crate::GenerateKind` — the closed catalog of emit kinds.
 //! - `commands/generate/go.rs` (TBD), `commands/generate/ts.rs`
-//!   (TBD), `commands/generate/openapi.rs` (TBD).
+//!   (TBD), `commands/generate/openapi.rs`.
+
+pub mod openapi;
 
 use std::path::Path;
 
@@ -63,7 +65,7 @@ pub fn generate_command(
     }
 
     match kind {
-        GenerateKind::Openapi => crate::generate_openapi(input, output, api_version),
+        GenerateKind::Openapi => openapi::generate_openapi(input, output, api_version),
         GenerateKind::Go => crate::generate_go(
             input,
             output,
