@@ -31,12 +31,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 
+use crate::doctor::aggregators::cross_feature::collect_known_audiences;
 use crate::doctor::helpers::project_has_lazurite_manifest;
 use crate::doctor::parsers::is_lzi_path;
 use crate::doctor::{
     DoctorDiagnostic, DoctorPackage, DoctorSeverity, RuleCategory, collect_at_references_in_source,
-    collect_known_audiences, collect_package_plugin_references, doctor_severity_for,
-    go_mod_lazuli_runtime_version, is_allowed_reference_namespace_for_doctor,
+    collect_package_plugin_references, doctor_severity_for, go_mod_lazuli_runtime_version,
+    is_allowed_reference_namespace_for_doctor,
 };
 use crate::lazurite_manifest::{Manifest, MigrationStrategy};
 

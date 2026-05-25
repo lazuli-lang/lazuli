@@ -10,6 +10,9 @@
 use std::collections::BTreeSet;
 
 use super::aggregators;
+use super::aggregators::cross_feature::{
+    app_urls_missing_diagnostics, collect_known_audiences, scope_owner_column_diagnostics,
+};
 use super::aggregators::env_manifest::{
     cap_file_policy_implicit_diagnostics, dedupe_env_contract_diagnostics,
     manifest_required_diagnostics, suppress_env_schema_when_declared,
@@ -32,18 +35,17 @@ use super::returns_list_002;
 use super::route_guard;
 use super::schema_rich_001;
 use super::{
-    DoctorDiagnostic, DoctorSeverity, LZIR_SCHEMA, app_urls_missing_diagnostics,
-    approval_diagnostics, approval_missing_children_diagnostics, cap_file_storage_diagnostics,
+    DoctorDiagnostic, DoctorSeverity, LZIR_SCHEMA, approval_diagnostics,
+    approval_missing_children_diagnostics, cap_file_storage_diagnostics,
     check_auth_session_callsite_001, check_codegen_wrap_001, check_pattern_draft_stale_001,
-    collect_callable_bodies_for_eval_order, collect_known_audiences, collect_known_roles,
+    collect_callable_bodies_for_eval_order, collect_known_roles,
     cross_feature_type_unresolved_diagnostics, doctor_rule_path, duplicate_query_name_diagnostics,
     feature_uses_missing_diagnostics, lazurite_manifest_diagnostics,
     missing_policy_on_query_diagnostics, mutation_without_readback_diagnostics,
     operational_env_names, policy_reachability_diagnostics, query_view_sql_file_diagnostics,
     rbac_catalog_diagnostics, rbac_catalog_missing_diagnostics, rbac_missing_policy_diagnostics,
     rbac_role_undeclared_diagnostics, report_diagnostics, route_id_effect_consistency_diagnostics,
-    scope_owner_column_diagnostics, updates_missing_updated_at_diagnostics,
-    vocab_grammar_form_diagnostics,
+    updates_missing_updated_at_diagnostics, vocab_grammar_form_diagnostics,
 };
 
 impl DoctorPackage {

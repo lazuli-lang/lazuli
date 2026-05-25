@@ -33,6 +33,7 @@ pub(crate) mod cache;
 pub(crate) mod command_routing;
 pub(crate) mod correctness;
 pub(crate) mod cors;
+pub(crate) mod cross_feature;
 pub(crate) mod deprecated;
 pub(crate) mod design;
 pub(crate) mod domain;
