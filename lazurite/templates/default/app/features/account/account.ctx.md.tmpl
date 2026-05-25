@@ -1,0 +1,8 @@
+# Account feature context
+
+This feature owns end-user identity, password authentication, and
+session lifecycle. New sign-ups land in `User`; login mints a
+`UserSession` whose TTL is configured under `auth.sessions`.
+
+When the product grows past username + password (OAuth, MFA, passkeys),
+split into sibling features rather than widening this one.

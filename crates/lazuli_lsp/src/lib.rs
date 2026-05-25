@@ -1572,6 +1572,7 @@ const FEATURE_BODY_KINDS: &[&str] = &[
     "agent",
     "aggregate",
     "api",
+    "attach_ctx",
     "auth",
     "cache",
     "channel",
@@ -2989,13 +2990,24 @@ fn non_goals_shape_diagnostics(source: &str) -> Vec<Diagnostic> {
             if matches!(trimmed, "delegated_to" | "out_of_scope") {
                 continue;
             }
+            // Iron-hand context vocabulary — the flat quoted-string
+            // form is the preferred canonical shape for new features
+            // (see `docs/canonical-semantics.md#feature-context-vocabulary`).
+            // Partitioned `delegated_to` / `out_of_scope` blocks stay
+            // valid for the existing fixture but are no longer the only
+            // shape worth surfacing. Only flag bareword `key: value`
+            // entries that match neither the flat shape nor the
+            // partitioned shape.
+            if trimmed.starts_with('"') {
+                continue;
+            }
 
             diagnostics.push(simple_canonical_diagnostic(
                 line_index,
                 line,
                 DiagnosticSeverity::WARNING,
                 "non-goals-shape",
-                "`non_goals` should group entries under `delegated_to` or `out_of_scope`; direct keys and `anti_pattern.*` are legacy.",
+                "`non_goals` entries must be either bare quoted strings (flat shape) or grouped under `delegated_to` / `out_of_scope` (partitioned shape). See docs/canonical-semantics.md#feature-context-vocabulary.",
             ));
         }
     }
@@ -23727,6 +23739,10 @@ surface customer web
 
     #[test]
     fn canonical_warns_for_legacy_non_goals_shape() {
+        // Iron-hand context vocabulary added the flat quoted-string
+        // shape as a first-class authoring option, so the rule now
+        // only flags `key: value` direct-keys (legacy partitioned
+        // bareword entries that escaped the canonical groups).
         let source = r#"
 feature customer
   purpose "Customers"
@@ -23741,8 +23757,33 @@ feature customer
         assert!(diagnostics.iter().any(|diagnostic| {
             diagnostic
                 .message
-                .contains("should group entries under `delegated_to` or `out_of_scope`")
+                .contains("either bare quoted strings (flat shape) or grouped under")
         }));
+    }
+
+    #[test]
+    fn canonical_accepts_flat_non_goals_shape() {
+        // Iron-hand canonical form: bare quoted strings at indent 4.
+        // The legacy `non-goals-shape` warning must NOT fire here.
+        let source = r#"
+feature customer
+  purpose "Customers"
+
+  non_goals
+    "Full marketplace listing optimization"
+    "Real-time chat (use messaging feature)"
+"#;
+
+        let diagnostics = diagnostics_for(source);
+
+        assert!(
+            !diagnostics.iter().any(|diagnostic| {
+                diagnostic
+                    .message
+                    .contains("non_goals` entries must be either bare quoted strings")
+            }),
+            "flat quoted-string form must not trip `non-goals-shape`"
+        );
     }
 
     #[test]

@@ -1383,6 +1383,161 @@ impl DoctorPackage {
         (features, lzx_views)
     }
 
+    /// Iron-hand meta-bundle — return the active `[doctor.coverage]
+    /// preset` parsed into `CoveragePreset`, or `None` when no manifest
+    /// / no preset / unknown preset name. Drives both the coverage
+    /// thresholds and the rule-severity escalation map applied by
+    /// dispatchers (see `context_vocab_diagnostics`).
+    fn coverage_preset(&self) -> Option<lazuli_doctor::coverage::CoveragePreset> {
+        use lazuli_doctor::coverage::CoveragePreset;
+        self.lazurite_manifest
+            .as_ref()
+            .and_then(|m| m.doctor.as_ref())
+            .and_then(|d| d.coverage.as_ref())
+            .and_then(|cov| cov.preset.as_deref())
+            .and_then(CoveragePreset::parse)
+    }
+
+    /// Iron-hand meta-bundle — dispatch the three `VOCAB-CONTEXT-*`
+    /// rules across every `.lzi` feature in the package and resolve
+    /// each finding's severity through the layered precedence:
+    ///
+    ///   1. Manifest user override
+    ///      (`[doctor.test_discipline.severity_override."<CODE>"]`)
+    ///      wins absolutely. Authors can downgrade an iron-hand error
+    ///      back to a warning with a documented `reason`.
+    ///   2. Active coverage preset escalation
+    ///      (`preset_severity_overrides`): under `tdd-iron-hand` the
+    ///      three rules become `error`.
+    ///   3. Category default (`doctor_severity_for` →
+    ///      `RuleCategory::Vocabulary` → warning at strict, error at
+    ///      production).
+    ///
+    /// The `off` preset suppresses the rules entirely (consistent with
+    /// the coverage layers it zeroes out).
+    fn context_vocab_diagnostics(&self) -> Vec<DoctorDiagnostic> {
+        use lazuli_doctor::coverage::{CoveragePreset, preset_severity_overrides};
+        use lazuli_doctor::vocab::{
+            vocab_context_ctxmd_001, vocab_context_nongoals_001, vocab_context_purpose_001,
+        };
+
+        let preset = self.coverage_preset();
+        // `off` preset opts out entirely — mirrors how the coverage
+        // layers all zero out under `off`.
+        if matches!(preset, Some(CoveragePreset::Off)) {
+            return Vec::new();
+        }
+
+        let manifest_overrides = self
+            .lazurite_manifest
+            .as_ref()
+            .and_then(|m| m.doctor.as_ref())
+            .and_then(|d| d.test_discipline.as_ref())
+            .map(|td| &td.severity_override);
+
+        let preset_overrides = preset.map(preset_severity_overrides).unwrap_or_default();
+
+        // Resolver: manifest > preset > category default.
+        let resolve = |code: &str| -> DoctorSeverity {
+            if let Some(map) = manifest_overrides
+                && let Some(ov) = map.get(code)
+                && let Some(parsed) = parse_doctor_severity(&ov.severity)
+            {
+                return parsed;
+            }
+            if let Some(severity_str) = preset_overrides.get(code)
+                && let Some(parsed) = parse_doctor_severity(severity_str)
+            {
+                return parsed;
+            }
+            doctor_severity_for(
+                code,
+                RuleCategory::Vocabulary,
+                self.security_profile,
+                &std::collections::BTreeMap::new(),
+            )
+        };
+
+        let mut out: Vec<DoctorDiagnostic> = Vec::new();
+        for file in &self.files {
+            if !is_lzi_path(&file.path) {
+                continue;
+            }
+            let Ok(skeletons) = parse_feature_skeletons(&file.source) else {
+                continue;
+            };
+            for skeleton in &skeletons {
+                let Ok(feature) = lower_feature_skeleton(skeleton) else {
+                    continue;
+                };
+
+                // VOCAB-CONTEXT-PURPOSE-001
+                let sev = resolve(vocab_context_purpose_001::Finding::CODE);
+                for finding in vocab_context_purpose_001::check(&feature, &file.path) {
+                    let message = finding.message();
+                    out.push(DoctorDiagnostic {
+                        path: finding.path,
+                        line: 1,
+                        column: 1,
+                        severity: sev,
+                        code: vocab_context_purpose_001::Finding::CODE.to_owned(),
+                        message,
+                        category: Some(RuleCategory::Vocabulary),
+                        feature_name: Some(finding.feature),
+                        construct: None,
+                        fix: None,
+                        group: None,
+                    });
+                }
+
+                // VOCAB-CONTEXT-NONGOALS-001
+                let sev = resolve(vocab_context_nongoals_001::Finding::CODE);
+                for finding in vocab_context_nongoals_001::check(&feature, &file.path) {
+                    let message = finding.message();
+                    out.push(DoctorDiagnostic {
+                        path: finding.path,
+                        line: 1,
+                        column: 1,
+                        severity: sev,
+                        code: vocab_context_nongoals_001::Finding::CODE.to_owned(),
+                        message,
+                        category: Some(RuleCategory::Vocabulary),
+                        feature_name: Some(finding.feature),
+                        construct: None,
+                        fix: None,
+                        group: None,
+                    });
+                }
+
+                // VOCAB-CONTEXT-CTXMD-001 — passes project_root so
+                // sidecar paths resolve relative to the feature `.lzi`
+                // first, then to the project root as a fallback.
+                let sev = resolve(vocab_context_ctxmd_001::Finding::CODE);
+                for finding in vocab_context_ctxmd_001::check(
+                    &feature,
+                    &file.path,
+                    Some(&self.project_root),
+                ) {
+                    let message = finding.message();
+                    out.push(DoctorDiagnostic {
+                        path: finding.path,
+                        line: 1,
+                        column: 1,
+                        severity: sev,
+                        code: vocab_context_ctxmd_001::Finding::CODE.to_owned(),
+                        message,
+                        category: Some(RuleCategory::Vocabulary),
+                        feature_name: Some(finding.feature),
+                        construct: None,
+                        fix: None,
+                        group: None,
+                    });
+                }
+            }
+        }
+        out
+    }
+
     /// Wave 6 — `lazuli doctor --coverage` data path. Builds the per-layer
     /// coverage report using the active `SecurityProfile`, the optional
     /// `[doctor.coverage] preset = "<name>"` opt-in (Frente 1), and any
@@ -1460,6 +1615,12 @@ impl DoctorPackage {
             self.single_file_input,
         ));
         diagnostics.extend(lazurite_manifest_diagnostics(self));
+
+        // Iron-hand context-vocabulary lints (VOCAB-CONTEXT-PURPOSE-001,
+        // VOCAB-CONTEXT-NONGOALS-001, VOCAB-CONTEXT-CTXMD-001). Severity
+        // resolves through: manifest override > preset escalation
+        // (iron-hand promotes to error) > category default.
+        diagnostics.extend(self.context_vocab_diagnostics());
 
         // PG.B — plan-and-gate cross-feature checks.
         if let Some(facts) = &self.plan_gate_facts {

@@ -823,6 +823,51 @@ pub struct FeatureSkeleton {
     /// Lowered into `ir::MCPServerSpec` via the analyzer.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mcp_servers: Vec<McpServer>,
+    /// Iron-hand context-vocabulary — `purpose "<sentence>"` line.
+    /// Single optional string anchoring the feature's intent. Surfaced
+    /// by `VOCAB-CONTEXT-PURPOSE-001`. The `tdd-iron-hand` preset
+    /// promotes the lint from warn to error. See
+    /// `docs/canonical-semantics.md#feature-context-vocabulary`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<LziFeaturePurpose>,
+    /// Iron-hand context-vocabulary — `non_goals` block with one string
+    /// per indented line. Empty list surfaces
+    /// `VOCAB-CONTEXT-NONGOALS-001`. See
+    /// `docs/canonical-semantics.md#feature-context-vocabulary`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub non_goals: Option<LziFeatureNonGoals>,
+    /// Iron-hand context-vocabulary — `attach_ctx "<relative-path>"`
+    /// pointing at a markdown sidecar (e.g. `./ctx.md`). Missing,
+    /// unreadable, or <100-char content surfaces
+    /// `VOCAB-CONTEXT-CTXMD-001`. See
+    /// `docs/canonical-semantics.md#feature-context-vocabulary`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attach_ctx: Option<LziFeatureAttachCtx>,
+    pub span: Span,
+}
+
+/// Iron-hand `purpose "<sentence>"` line. The string is whatever the
+/// author wrote between the quotes; empty / whitespace-only is allowed
+/// at parse time so the lint can fire a precise diagnostic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LziFeaturePurpose {
+    pub text: String,
+    pub span: Span,
+}
+
+/// Iron-hand `non_goals` block. Children are one-quoted-string-per-line
+/// entries (mirrors how `uses` lists work for the wire-thin slice).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LziFeatureNonGoals {
+    pub entries: Vec<String>,
+    pub span: Span,
+}
+
+/// Iron-hand `attach_ctx "<relative-path>"` line. Path is verbatim;
+/// resolution against the project root happens in the doctor lint.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LziFeatureAttachCtx {
+    pub path: String,
     pub span: Span,
 }
 

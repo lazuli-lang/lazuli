@@ -509,9 +509,25 @@ source that only fails later.
 
 ## Metadata
 
-- `non_goals` entries are grouped under `delegated_to` or `out_of_scope`.
+- `non_goals` entries are either flat quoted strings (preferred for new
+  features) or grouped under `delegated_to` / `out_of_scope`. Both
+  surface forms lower to the same flat IR list — see
+  `docs/canonical-semantics.md#feature-context-vocabulary`.
 - `delegated_to` entries may reference feature ids but do not count as `uses`.
 - `out_of_scope` entries are product/design boundaries, not dependencies.
+- `purpose "<sentence>"` is a single quoted-string line at feature-child
+  indent; at most one per feature. `VOCAB-CONTEXT-PURPOSE-001` fires on
+  missing / empty strings.
+- `attach_ctx "<relative-path>"` is a single quoted-string line pointing
+  at a markdown sidecar; at most one per feature. The doctor resolves
+  the path against the `.lzi` directory first, then the project root.
+  `VOCAB-CONTEXT-CTXMD-001` fires on missing, absent, or stub content
+  (< 100 non-whitespace characters).
+- The `tdd-iron-hand` coverage preset is a meta-bundle: it raises the
+  numerical coverage bar (six layers blocked at 90/95) AND escalates
+  the three `VOCAB-CONTEXT-*` rules from `warning` to `error` under
+  one knob. Manifest `[doctor.test_discipline.severity_override]`
+  entries win over the preset escalation.
 
 ## Validation
 

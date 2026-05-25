@@ -2890,12 +2890,22 @@ noise-cutting `tdd-strict` coverage shape, or vice versa.
   stance: handler tests AND spec predicates AND actor matrices AND
   transition coverage AND view-extensibility assertions AND view E2E
   pairs are all required.
-- `tdd-iron-hand` — blocks every layer at `90 / 95`. The no-mercy bar:
-  the same `handler_go` strictness `tdd-strict` enforces, applied
-  universally. Pilots selecting this preset are declaring "every IR
-  construct ships with paired tests; if doctor says we're below 90%,
-  we don't ship". Suitable for shipping production code where a
-  missing spec or unpaired view IS a release-blocker.
+- `tdd-iron-hand` — the **meta-bundle** ship-bar preset. Combines two
+  orthogonal stances under one knob:
+  - **Numerical coverage** — blocks every layer at `90 / 95` (same
+    `handler_go` strictness as `tdd-strict`, applied universally).
+  - **Structural feature documentation** — escalates the three
+    `VOCAB-CONTEXT-*` rules from `warning` to `error` so every feature
+    must carry a `purpose` line, a non-empty `non_goals` block, and an
+    `attach_ctx` sidecar with at least 100 characters of real prose.
+    See [`#feature-context-vocabulary`](#feature-context-vocabulary).
+
+  Pilots selecting this preset declare: "every IR construct ships with
+  paired tests AND every feature ships with a context header readable
+  by cold humans and LLMs". Manifest-level
+  `[doctor.test_discipline.severity_override."VOCAB-CONTEXT-*"]` entries
+  win over the preset escalation, so a flight in transition can opt one
+  rule back down to `warning` with a documented `reason`.
 - `off` — zeros across the board. The report still renders but no
   layer ever fails CI. Useful for prototypes that want the visibility
   without the gate.
@@ -2914,6 +2924,93 @@ thresholds, it walks three levels (highest wins):
 
 This means a project can pick a preset for the common case and then
 over-tighten a single layer when it earns it.
+
+## Feature Context Vocabulary
+
+Three feature-scope keywords give cold readers — humans skimming the
+codebase and LLMs ingesting source — an immediate, structural answer
+to "what is this feature for, what is it explicitly NOT for, and where
+do I read more?". They sit at feature-child indent (two spaces), each
+at most once per feature.
+
+```
+feature catalog
+  purpose "Discover and book lodging via host properties + services"
+  non_goals
+    "Full marketplace listing optimization"
+    "Real-time chat (use messaging feature)"
+  attach_ctx "./ctx.md"
+  defaults
+    timestamps
+  resource Property
+    name: Text required
+```
+
+### `purpose "<sentence>"`
+
+A single quoted-string statement of intent. One sentence; no markdown,
+no multi-line strings. The compiler does not enforce a length but
+`VOCAB-CONTEXT-PURPOSE-001` fires when the line is missing OR the
+string trims to empty.
+
+### `non_goals`
+
+A block of boundary statements. Two surface forms are accepted; both
+lower to the same flat IR list.
+
+Simple form (preferred for new features):
+
+```
+non_goals
+  "Full marketplace listing optimization"
+  "Real-time chat (use messaging feature)"
+```
+
+Partitioned form (used by the canonical `examples/full-capsule`
+fixture; retained for back-compat):
+
+```
+non_goals
+  delegated_to
+    customer_auth: "customer login and MFA"
+    customer_tags: "tag management"
+  out_of_scope
+    "Invoicing"
+```
+
+`VOCAB-CONTEXT-NONGOALS-001` fires when the block has zero entries.
+
+### `attach_ctx "<relative-path>"`
+
+A relative path to a markdown sidecar (e.g. `./ctx.md` next to the
+`.lzi`, or `docs/customer/customer.ctx.md` from the project root). The
+doctor resolves the path against the `.lzi` directory first, then the
+project root as fallback.
+
+`VOCAB-CONTEXT-CTXMD-001` fires when:
+
+1. `attach_ctx` is absent.
+2. The referenced file does not exist on disk.
+3. The file exists but contains fewer than `100` non-whitespace
+   characters (stub heuristic — empty / whitespace-only files do not
+   count as documentation).
+
+### Preset behavior
+
+| Preset          | VOCAB-CONTEXT-* severity            |
+|-----------------|-------------------------------------|
+| `off`           | suppressed (no diagnostic emitted)  |
+| `tdd-strict`    | warning                             |
+| `tdd-mature`    | warning                             |
+| `tdd-iron-hand` | **error** (gates CI)                |
+
+The escalation is a meta-bundle effect: `[doctor.coverage] preset = "tdd-iron-hand"` raises both the numerical coverage bar (all six
+layers at 90/95) and the structural documentation bar (three
+`VOCAB-CONTEXT-*` rules become errors) under one knob.
+
+`[doctor.test_discipline.severity_override."VOCAB-CONTEXT-PURPOSE-001"]`
+(with `severity = "warning"` and a non-blank `reason`) opts a single
+rule back down, in case a project needs a transition window.
 
 ## Config Hygiene
 

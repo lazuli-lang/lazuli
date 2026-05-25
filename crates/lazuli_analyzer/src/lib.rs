@@ -4233,11 +4233,37 @@ pub fn lower_feature_skeleton(
         .collect();
     let uses_versions: Vec<Option<u16>> = skeleton.uses_clauses.iter().map(|c| c.version).collect();
 
+    // Iron-hand context vocabulary — lower the surface AST into IR
+    // shapes. `purpose` is stored as the raw quoted-string text (empty
+    // strings preserved so the lint can fire). `non_goals` are flat
+    // strings on the surface; we map each into `NonGoal { key,
+    // description }` with `key = ""` (the IR carries a richer shape for
+    // future delegated_to / out_of_scope partitioning, but the
+    // wire-thin grammar only authors descriptions today). `attach_ctx`
+    // becomes the verbatim path; resolution + content-length check
+    // happens in `VOCAB-CONTEXT-CTXMD-001`.
+    let purpose = skeleton.purpose.as_ref().map(|p| p.text.clone());
+    let non_goals = skeleton
+        .non_goals
+        .as_ref()
+        .map(|block| {
+            block
+                .entries
+                .iter()
+                .map(|description| ir::NonGoal {
+                    key: String::new(),
+                    description: description.clone(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let context_path = skeleton.attach_ctx.as_ref().map(|c| c.path.clone());
+
     let mut feature = ir::Feature {
         name: skeleton.name.clone(),
-        purpose: None,
-        non_goals: Vec::new(),
-        context_path: None,
+        purpose,
+        non_goals,
+        context_path,
         defaults,
         uses,
         uses_spans,
