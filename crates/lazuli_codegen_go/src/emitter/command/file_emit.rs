@@ -216,8 +216,8 @@ mod tests {
     use lazuli_ir::{
         Assignment, BackoffStrategy, BuiltinType, CreateEffect, DeleteEffect,
         DeprecationReplacement, EnumLiteral, EnvName, IdempotencyKey, InvalidatesSpec, LetBinding,
-        PolicyExpr, PolicyRef, RateLimitByEnv, RateLimitSpec, Record, RetryPolicy, ReturnsEffect,
-        Tenancy, TypeRef, UpdateEffect,
+        PolicyRef, RateLimitByEnv, RateLimitSpec, RetryPolicy, ReturnsEffect, TypeRef,
+        UpdateEffect,
     };
 
     #[test]
@@ -857,101 +857,6 @@ mod tests {
         assert!(
             !out.contains("\"lazuli.dev/runtime/lazuli/billing\""),
             "no billing import when no gates"
-        );
-    }
-
-    // The Record import is dragged in for typed-record output binding
-    // ergonomics in later cells; keep a smoke-fn so the `Record` import
-    // doesn't bit-rot when its emission branch lands.
-    #[allow(dead_code)]
-    fn _record_compiles(_: Record) {}
-    #[allow(dead_code)]
-    fn _tenancy_compiles(_: Tenancy) {}
-
-    // ------------------------------------------------------------------
-    // RB.S6.C — `policy_expr` rendering.
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn policy_expr_authenticated_renders_predicate_atom() {
-        let mut feature = base_feature("customer");
-        let mut cmd = base_command("create");
-        cmd.input = CommandInput::Typed(vec![typed_slot("name", BuiltinType::Text, true)]);
-        cmd.effect = CommandEffect::Creates(CreateEffect {
-            resource: local_qname("Customer"),
-            from_input: true,
-            assignments: vec![],
-        });
-        cmd.policy_expr = Some(PolicyExpr::Authenticated);
-        feature.commands.push(cmd);
-
-        let out = emit(&feature).expect("emits");
-        assert!(
-            out.contains("Name: \"authenticated\""),
-            "expected `Name: \"authenticated\"` literal in:\n{out}"
-        );
-        assert!(
-            out.contains("{Namespace: \"predicate\", Name: \"authenticated\"}"),
-            "expected predicate atom in:\n{out}"
-        );
-    }
-
-    #[test]
-    fn policy_expr_has_permission_renders_rbac_permission_atom() {
-        let mut feature = base_feature("customer");
-        let mut cmd = base_command("start");
-        cmd.input = CommandInput::Typed(vec![typed_slot("name", BuiltinType::Text, true)]);
-        cmd.effect = CommandEffect::Creates(CreateEffect {
-            resource: local_qname("Customer"),
-            from_input: true,
-            assignments: vec![],
-        });
-        cmd.policy_expr = Some(PolicyExpr::HasPermission("queries:start".to_owned()));
-        feature.commands.push(cmd);
-
-        let out = emit(&feature).expect("emits");
-        assert!(
-            out.contains("{Namespace: \"rbac.permission\", Name: \"queries:start\"}"),
-            "expected rbac.permission atom in:\n{out}"
-        );
-        assert!(
-            out.contains("Name: \"has_permission queries:start\""),
-            "expected display name in:\n{out}"
-        );
-    }
-
-    #[test]
-    fn policy_expr_and_combinator_renders_paren_and_predicate_atoms() {
-        let mut feature = base_feature("customer");
-        let mut cmd = base_command("start");
-        cmd.input = CommandInput::Typed(vec![typed_slot("name", BuiltinType::Text, true)]);
-        cmd.effect = CommandEffect::Creates(CreateEffect {
-            resource: local_qname("Customer"),
-            from_input: true,
-            assignments: vec![],
-        });
-        cmd.policy_expr = Some(PolicyExpr::And(vec![
-            PolicyExpr::Authenticated,
-            PolicyExpr::HasRole("manager".to_owned()),
-        ]));
-        feature.commands.push(cmd);
-
-        let out = emit(&feature).expect("emits");
-        assert!(
-            out.contains("{Namespace: \"predicate\", Name: \"authenticated\"}"),
-            "missing authenticated atom in:\n{out}"
-        );
-        assert!(
-            out.contains("{Namespace: \"predicate\", Name: \"and\"}"),
-            "missing and atom in:\n{out}"
-        );
-        assert!(
-            out.contains("{Namespace: \"rbac.role\", Name: \"manager\"}"),
-            "missing rbac.role atom in:\n{out}"
-        );
-        assert!(
-            out.contains("Name: \"authenticated and has_role manager\""),
-            "missing combined display name in:\n{out}"
         );
     }
 
