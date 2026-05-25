@@ -36,7 +36,7 @@ use super::{
     resource_unique_qualifier_unknown_diagnostics,
     resource_validates_path_unknown_diagnostics, route_id_effect_consistency_diagnostics,
     schema_rich_gap_diagnostics, scope_owner_column_diagnostics, suppress_env_schema_when_declared,
-    tier3_diagnostics, updates_missing_updated_at_diagnostics, vocab_grammar_form_diagnostics,
+    updates_missing_updated_at_diagnostics, vocab_grammar_form_diagnostics,
     workspace_contract_diagnostics,
 };
 
@@ -323,7 +323,7 @@ impl DoctorPackage {
         // `WEBHOOK-EVENT-001`). Threaded through the same
         // `tier3_diagnostics` entry-point so the iteration over
         // feature webhooks stays single-pathed.
-        diagnostics.extend(tier3_diagnostics(
+        diagnostics.extend(aggregators::tier3::tier3_diagnostics(
             &self.tier3_facts,
             self.registry.as_ref().map(|reg| &reg.manifest),
         ));

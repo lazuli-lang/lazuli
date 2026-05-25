@@ -163,7 +163,7 @@ pub(super) fn environments_summary(environments: &BTreeSet<&str>) -> String {
 /// Format a closed catalog (`["a", "b", "c"]`) as the inline
 /// backtick-wrapped list used by diagnostic messages
 /// (`expected one of \`a\`, \`b\`, \`c\``).
-pub(super) fn catalog_list(items: &[&str]) -> String {
+pub(crate) fn catalog_list(items: &[&str]) -> String {
     items
         .iter()
         .map(|i| format!("`{i}`"))
@@ -210,7 +210,7 @@ pub(crate) fn openapi_today_pivot() -> (u16, u8, u8) {
 /// one of `ms | s | m | h | d`. The Go runtime re-parses with
 /// `time.ParseDuration` at wire time; this check just catches the
 /// obvious typo (empty, no suffix, garbage prefix).
-pub(super) fn is_parseable_duration(raw: &str) -> bool {
+pub(crate) fn is_parseable_duration(raw: &str) -> bool {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return false;
@@ -229,7 +229,7 @@ pub(super) fn is_parseable_duration(raw: &str) -> bool {
 /// Liberal size parser. Matches the common Go idiom (`512b`, `16kb`,
 /// `10mb`, `2gb`). The numeric prefix must be a positive integer; the
 /// suffix is one of `b | kb | mb | gb | tb`.
-pub(super) fn is_parseable_size(raw: &str) -> bool {
+pub(crate) fn is_parseable_size(raw: &str) -> bool {
     let trimmed = raw.trim().to_ascii_lowercase();
     if trimmed.is_empty() {
         return false;
@@ -394,13 +394,13 @@ pub(super) fn mime_matches(left: &lazuli_ir::MimeType, right: &lazuli_ir::MimeTy
 /// adapter can honor. Delegates to `parse_notification_duration_seconds`
 /// — the doctor's job is to reject obviously wrong literals at design
 /// time so the adapter never sees `"1 month"` or `"forever"`.
-pub(super) fn is_valid_notification_duration(raw: &str) -> bool {
+pub(crate) fn is_valid_notification_duration(raw: &str) -> bool {
     parse_notification_duration_seconds(raw).is_some()
 }
 
 /// Parse a notification-duration literal (`5m`, `1h`, `2d`, …) into
 /// seconds. Returns `None` for unknown units or arithmetic overflow.
-pub(super) fn parse_notification_duration_seconds(raw: &str) -> Option<u64> {
+pub(crate) fn parse_notification_duration_seconds(raw: &str) -> Option<u64> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return None;
