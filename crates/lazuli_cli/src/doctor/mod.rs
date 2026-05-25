@@ -71,8 +71,9 @@ pub(crate) use aggregators::rbac_catalog::{
 // `route_guard`) keep their `super::*` / `crate::doctor::*` call
 // paths.
 pub(crate) use aggregators::semantic_type::{
-    cross_feature_type_unresolved_diagnostics, feature_uses_missing_diagnostics,
-    policy_ref_surface_text, semantic_type_unknown_diagnostics_for_feature,
+    SEMANTIC_TYPE_UNKNOWN_CODE, cross_feature_type_unresolved_diagnostics,
+    feature_uses_missing_diagnostics, policy_ref_surface_text,
+    semantic_type_unknown_diagnostics_for_feature,
     semantic_type_unknown_diagnostics_for_syntax_feature, span_line,
 };
 

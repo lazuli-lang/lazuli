@@ -54,7 +54,7 @@ struct MissingUsesRef {
     line: usize,
 }
 
-const SEMANTIC_TYPE_UNKNOWN_CODE: &str = "semantic_type_unknown";
+pub(crate) const SEMANTIC_TYPE_UNKNOWN_CODE: &str = "semantic_type_unknown";
 
 const SEMANTIC_TYPE_CATALOG: &str =
     "EMAIL, PHONE, URL, UUID, DATE, CURRENCY, MONEY, JSON, GEOPOINT";
