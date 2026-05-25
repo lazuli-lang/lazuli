@@ -79,8 +79,8 @@ use crate::ast::{
     ZTokenAst,
 };
 
-
 pub mod design;
+pub mod event;
 pub mod mcp;
 pub mod notification;
 pub mod package;
@@ -552,7 +552,7 @@ fn parse_feature_skeleton(
         // we accept any indent > feature-child (the construct keyword is
         // unambiguous).
         if trimmed.starts_with("event_group ") {
-            let (parsed, next) = parse_event_group(lines, i)?;
+            let (parsed, next) = event::parse_event_group(lines, i)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
             event_groups.push(parsed);
             i = next;
@@ -8738,7 +8738,10 @@ fn parse_job(lines: &[SourceLine<'_>], start: usize) -> Result<(Job, usize), Par
     ))
 }
 
-pub(super) fn parse_job_trigger(line: &SourceLine<'_>, rest: &str) -> Result<JobTrigger, ParseError> {
+pub(super) fn parse_job_trigger(
+    line: &SourceLine<'_>,
+    rest: &str,
+) -> Result<JobTrigger, ParseError> {
     let rest = rest.trim();
     if let Some(ev) = rest.strip_prefix("event ") {
         let ev = ev.trim();
@@ -9755,242 +9758,6 @@ fn parse_cache_bool(line: &SourceLine<'_>, value: &str) -> Result<bool, ParseErr
     }
 }
 
-
-
-
-fn parse_event_group(
-    lines: &[SourceLine<'_>],
-    start: usize,
-) -> Result<(EventGroup, usize), ParseError> {
-    let header = &lines[start];
-    let header_trimmed = header.text.trim_start();
-    let rest = header_trimmed
-        .strip_prefix("event_group ")
-        .ok_or_else(|| line_error(header, "event_group header must be `event_group <pattern>`"))?
-        .trim();
-    if rest.is_empty() {
-        return Err(line_error(header, "event_group header requires a pattern"));
-    }
-    let (pattern, on_resource) = if let Some(idx) = rest.find(" on ") {
-        let (lhs, rhs) = rest.split_at(idx);
-        let resource = rhs[" on ".len()..].trim().to_owned();
-        if resource.is_empty() {
-            return Err(line_error(
-                header,
-                "`event_group ... on <Resource>` requires a resource name",
-            ));
-        }
-        (lhs.trim().to_owned(), Some(resource))
-    } else {
-        (rest.to_owned(), None)
-    };
-
-    // event_group sits inside `domain`, so its children typically live
-    // at `header.indent + 2`. We track that floor here rather than the
-    // global agent indent because the group can appear at any depth
-    // depending on whether `domain` is nested.
-    let header_indent = header.indent;
-    let child_indent = header_indent + 2;
-    let grandchild_indent = header_indent + 4;
-
-    let mut payload: Vec<String> = Vec::new();
-    let mut audit: Option<String> = None;
-    let mut events: Vec<String> = Vec::new();
-    let mut events_outbox_guaranteed: Vec<bool> = Vec::new();
-    let mut event_variants: Vec<Vec<EventVariantFieldDecl>> = Vec::new();
-    let mut event_variant_kinds: Vec<EventVariantKindAst> = Vec::new();
-    let mut in_payload = false;
-    // EVENT-OUTBOX §3.3 — when set, grandchild `outbox guaranteed` lines
-    // toggle the most recently authored event's outbox flag.
-    let mut current_event_idx: Option<usize> = None;
-    let mut last_end = header.end;
-    let mut i = start + 1;
-
-    while i < lines.len() {
-        let line = &lines[i];
-        let trimmed = line.text.trim_start();
-
-        if is_trivia(trimmed) {
-            i += 1;
-            continue;
-        }
-
-        if line.indent <= header_indent {
-            break;
-        }
-
-        if line.indent == child_indent {
-            in_payload = false;
-            current_event_idx = None;
-            if trimmed == "payload" {
-                in_payload = true;
-            } else if let Some(rest) = trimmed.strip_prefix("audit ") {
-                audit = Some(rest.trim().to_owned());
-            } else if let Some(rest) = trimmed.strip_prefix("event ") {
-                let name = rest.split_whitespace().next().unwrap_or("").to_owned();
-                if !name.is_empty() {
-                    events.push(name);
-                    events_outbox_guaranteed.push(false);
-                    event_variants.push(Vec::new());
-                    event_variant_kinds.push(EventVariantKindAst::Committed);
-                    current_event_idx = Some(events.len() - 1);
-                }
-            } else if let Some(rest) = trimmed.strip_prefix("event.trace ") {
-                let name = rest.split_whitespace().next().unwrap_or("").to_owned();
-                if !name.is_empty() {
-                    events.push(name);
-                    events_outbox_guaranteed.push(false);
-                    event_variants.push(Vec::new());
-                    event_variant_kinds.push(EventVariantKindAst::Trace);
-                    // Trace events cannot carry an outbox guarantee;
-                    // grandchild `outbox` lines are rejected below, but
-                    // typed field rows are still collected.
-                    current_event_idx = Some(events.len() - 1);
-                }
-            } else {
-                // Unknown child — Tier 4 may extend this; skip silently
-                // to match Phase L's existing fall-through behaviour.
-            }
-        } else if line.indent >= grandchild_indent && in_payload {
-            payload.push(trimmed.to_owned());
-        } else if line.indent >= grandchild_indent
-            && let Some(idx) = current_event_idx
-            && let Some(rest) = trimmed.strip_prefix("outbox ")
-        {
-            if matches!(event_variant_kinds[idx], EventVariantKindAst::Trace) {
-                return Err(line_error(
-                    line,
-                    "`event.trace` cannot carry an `outbox` guarantee; trace events bypass the outbox",
-                ));
-            }
-            // EVENT-OUTBOX §3.3 — accept `outbox guaranteed` under
-            // `event <name>`. Closed catalog: only `guaranteed` is
-            // authored; `outbox none` is implicit (the default).
-            match rest.trim() {
-                "guaranteed" => events_outbox_guaranteed[idx] = true,
-                "none" => events_outbox_guaranteed[idx] = false,
-                other => {
-                    return Err(line_error_owned(
-                        line,
-                        format!(
-                            "`outbox` only accepts `guaranteed` (or `none`); got `{}`",
-                            other
-                        ),
-                    ));
-                }
-            }
-        } else if line.indent >= grandchild_indent
-            && let Some(idx) = current_event_idx
-            && trimmed.contains(':')
-            && !trimmed.starts_with('#')
-        {
-            // B5 framework gap 1 — typed payload field row under an
-            // event variant. Surface shape mirrors resource fields:
-            // `<name>: <Type> [required|optional]`. The type literal
-            // is kept verbatim; the analyzer lifts to `ir::TypeRef`.
-            let field = parse_event_variant_field(line, trimmed)?;
-            event_variants[idx].push(field);
-        } else {
-            // Continuation of a non-payload child (anything else falls
-            // through here; legacy fallthrough kept for fixtures that
-            // author lines we haven't taught the parser to lift yet).
-        }
-
-        last_end = line.end;
-        i += 1;
-    }
-
-    Ok((
-        EventGroup {
-            pattern,
-            on_resource,
-            payload,
-            audit,
-            events,
-            events_outbox_guaranteed,
-            event_variants,
-            event_variant_kinds,
-            span: Span::new(header.start, last_end),
-        },
-        i,
-    ))
-}
-
-/// B5 framework gap 1 — parse a single `<name>: <Type> [required|optional]`
-/// row inside an `event_group`'s `event <name>` body. Mirrors the
-/// minimum slot count of `ResourceFieldDecl` but rejects modifiers
-/// outside the closed `required` / `optional` pair (no defaults, no
-/// constraints, no `unique`/`slug`/`@full_text` because event payloads
-/// are projection-only).
-fn parse_event_variant_field(
-    line: &SourceLine<'_>,
-    trimmed: &str,
-) -> Result<EventVariantFieldDecl, ParseError> {
-    let raw = strip_inline_comment(trimmed).trim_end();
-    let (name_part, after) = raw.split_once(':').ok_or_else(|| {
-        line_error(
-            line,
-            "event variant field must be `<name>: <Type> [required|optional]`",
-        )
-    })?;
-    let name = name_part.trim();
-    if name.is_empty() {
-        return Err(line_error(
-            line,
-            "event variant field requires a name before `:`",
-        ));
-    }
-    let after = after.trim();
-    if after.is_empty() {
-        return Err(line_error(
-            line,
-            "event variant field requires a type after `:`",
-        ));
-    }
-    // Strip trailing modifiers (`required` / `optional`) from the type
-    // literal so the analyzer's `type_ref_from_syntax` sees the bare
-    // type token. Keep the split conservative: only the last
-    // whitespace-separated token is considered a modifier candidate,
-    // matching the resource-field convention.
-    let mut required = false;
-    let mut optional = false;
-    let mut type_text = after.to_owned();
-    loop {
-        let trimmed_type = type_text.trim_end();
-        // Last whitespace-separated token without scanning forward.
-        let tail = match trimmed_type.rfind(|c: char| c.is_whitespace()) {
-            Some(idx) => &trimmed_type[idx + 1..],
-            None => trimmed_type,
-        };
-        match tail {
-            "required" => {
-                required = true;
-                let cut = trimmed_type.len() - tail.len();
-                type_text = trimmed_type[..cut].trim_end().to_owned();
-            }
-            "optional" => {
-                optional = true;
-                let cut = trimmed_type.len() - tail.len();
-                type_text = trimmed_type[..cut].trim_end().to_owned();
-            }
-            _ => break,
-        }
-    }
-    if type_text.is_empty() {
-        return Err(line_error(
-            line,
-            "event variant field requires a type literal before the modifier",
-        ));
-    }
-    Ok(EventVariantFieldDecl {
-        name: name.to_owned(),
-        type_text,
-        required,
-        optional,
-        span: Span::new(line.start, line.end),
-    })
-}
-
 fn parse_agent_expose(
     lines: &[SourceLine<'_>],
     start: usize,
@@ -10560,7 +10327,6 @@ fn parse_int64(line: &SourceLine<'_>, rest: &str) -> Result<i64, ParseError> {
         .map_err(|_| line_error(line, "expected a signed integer"))
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(dead_code)]
 pub(crate) enum InvariantForm {
@@ -10746,9 +10512,6 @@ fn fold_rate_limit_line(
 
     Ok(())
 }
-
-
-
 
 #[cfg(test)]
 mod tests {
@@ -13927,7 +13690,6 @@ feature catalog
         );
     }
 }
-
 
 // =============================================================================
 // Report vocab — `report <name>` parser tests.
