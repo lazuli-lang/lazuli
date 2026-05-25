@@ -423,10 +423,7 @@ mod tests {
             root.join("app/web/index.html").exists(),
             "index.html missing"
         );
-        assert!(
-            root.join("app/web/main.tsx").exists(),
-            "main.tsx missing"
-        );
+        assert!(root.join("app/web/main.tsx").exists(), "main.tsx missing");
         assert!(
             root.join("app/web/shell/root.tsx").exists(),
             "root.tsx missing"
@@ -556,14 +553,8 @@ mod tests {
             pkg.contains("\"@playwright/test\""),
             "W6 Playwright missing"
         );
-        assert!(
-            pkg.contains("\"@testing-library/react\""),
-            "W6 RTL missing"
-        );
-        assert!(
-            pkg.contains("\"@biomejs/biome\""),
-            "W7 Biome missing"
-        );
+        assert!(pkg.contains("\"@testing-library/react\""), "W6 RTL missing");
+        assert!(pkg.contains("\"@biomejs/biome\""), "W7 Biome missing");
 
         // W7 — `shadcn-ui` is a SCAFFOLD SEED (copy-paste recipes), not a dep.
         assert!(
@@ -654,7 +645,10 @@ mod tests {
             "mobile shell/client.ts missing"
         );
         // Expo project plumbing.
-        assert!(root.join("app/clients/mobile/app.json").exists(), "app.json missing");
+        assert!(
+            root.join("app/clients/mobile/app.json").exists(),
+            "app.json missing"
+        );
         assert!(
             root.join("app/clients/mobile/babel.config.js").exists(),
             "babel.config.js missing"
@@ -690,10 +684,7 @@ mod tests {
         assert!(pkg.contains("\"@lazuli/runtime\""));
 
         // Wave G — M2-M6 mobile Tier-2 picks present.
-        assert!(
-            pkg.contains("\"expo-secure-store\""),
-            "M3-secrets missing"
-        );
+        assert!(pkg.contains("\"expo-secure-store\""), "M3-secrets missing");
         assert!(
             pkg.contains("\"react-native-reanimated\""),
             "M4 Reanimated missing"
@@ -706,7 +697,10 @@ mod tests {
             pkg.contains("\"lucide-react-native\""),
             "M2 lucide-react-native missing"
         );
-        assert!(pkg.contains("\"zustand\""), "M6 Zustand (inherits W1) missing");
+        assert!(
+            pkg.contains("\"zustand\""),
+            "M6 Zustand (inherits W1) missing"
+        );
 
         // .gitignore covers Expo-specific paths.
         let gitignore = fs::read_to_string(root.join(".gitignore")).unwrap();
@@ -714,8 +708,7 @@ mod tests {
 
         // babel.config.js must list `react-native-reanimated/plugin` LAST
         // (M4 pairing rule: Reanimated requires its plugin to be last).
-        let babel =
-            fs::read_to_string(root.join("app/clients/mobile/babel.config.js")).unwrap();
+        let babel = fs::read_to_string(root.join("app/clients/mobile/babel.config.js")).unwrap();
         assert!(
             babel.contains("react-native-reanimated/plugin"),
             "babel.config.js must include reanimated plugin"

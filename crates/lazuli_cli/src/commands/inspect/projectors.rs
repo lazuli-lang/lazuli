@@ -14,17 +14,16 @@
 //! aggregating projector outputs rather than expressing the
 //! per-construct field mapping.
 
+use super::formatters::{
+    compare_op_to_string, format_qname, inspect_command_effect_to_string,
+    inspect_let_binding_to_string, inspect_target_expr_to_string, op_as_str, path_to_string,
+    policy_ref_to_string, predicate_to_string, tool_ref_to_string, type_ref_to_string,
+};
 use super::{
     InspectAggregate, InspectEventGroup, InspectInvariant, InspectJob, InspectJobBody,
     InspectJobDeclarative, InspectJobExternalCall, InspectJobFanout, InspectJobHandler,
     InspectJobRetry, InspectJobTrigger, InspectWebhook, InspectWebhookDlq,
     InspectWebhookPayloadFrom, InspectWebhookReplay, InspectWebhookRetry, InspectWebhookVerify,
-};
-use super::formatters::{
-    compare_op_to_string, format_qname, inspect_command_effect_to_string,
-    inspect_let_binding_to_string, inspect_target_expr_to_string, op_as_str, path_to_string,
-    policy_ref_to_string, predicate_to_string, tool_ref_to_string,
-    type_ref_to_string,
 };
 
 pub(super) fn project_job(job: &lazuli_ir::Job) -> InspectJob {
@@ -195,9 +194,7 @@ pub(super) fn project_aggregate(agg: &lazuli_ir::Aggregate) -> InspectAggregate 
 
 pub(super) fn project_invariant(inv: &lazuli_ir::Invariant) -> InspectInvariant {
     let (when, when_kind): (String, &'static str) = match &inv.when {
-        lazuli_ir::EvalPredicate::Closed(pred) => {
-            (predicate_to_string(pred), "closed")
-        }
+        lazuli_ir::EvalPredicate::Closed(pred) => (predicate_to_string(pred), "closed"),
         lazuli_ir::EvalPredicate::Contains { lhs, rhs } => {
             let rhs_str = match rhs {
                 lazuli_ir::EvalContainsRhs::Literal(t) => format!("\"{t}\""),
@@ -209,7 +206,11 @@ pub(super) fn project_invariant(inv: &lazuli_ir::Invariant) -> InspectInvariant 
             )
         }
         lazuli_ir::EvalPredicate::ToolsCalls { op, target } => (
-            format!("tools.calls {} {}", op_as_str(op), tool_ref_to_string(target)),
+            format!(
+                "tools.calls {} {}",
+                op_as_str(op),
+                tool_ref_to_string(target)
+            ),
             "tools_calls",
         ),
         lazuli_ir::EvalPredicate::Unparsed(text) => (text.clone(), "unparsed"),

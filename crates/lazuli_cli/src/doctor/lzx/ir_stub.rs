@@ -129,7 +129,9 @@ pub enum CommandInput {
 }
 
 impl Default for CommandInput {
-    fn default() -> Self { CommandInput::Empty }
+    fn default() -> Self {
+        CommandInput::Empty
+    }
 }
 
 /// Closed type catalog the bulk-action input rule walks.
@@ -140,7 +142,6 @@ pub enum TypeRef {
     List(Box<TypeRef>),
     Other(String),
 }
-
 
 // =============================================================================
 // Surface / Audience / View
@@ -242,7 +243,10 @@ pub struct SortDecl {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SortDir { Asc, Desc }
+pub enum SortDir {
+    Asc,
+    Desc,
+}
 
 /// `view list` render discriminator.
 #[derive(Debug, Clone, PartialEq, Eq)]

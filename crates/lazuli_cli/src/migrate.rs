@@ -383,9 +383,10 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
 
         let err = run_migrate(&root, MigrateAction::Status).unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("lazuli migrate requires Lazurite.toml"));
+        assert!(
+            err.to_string()
+                .contains("lazuli migrate requires Lazurite.toml")
+        );
 
         let _ = fs::remove_dir_all(root);
     }

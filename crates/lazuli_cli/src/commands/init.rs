@@ -31,8 +31,7 @@ pub fn init_command(path: &Path, template: &str) -> Result<()> {
         }
     }
 
-    fs::write(path, template)
-        .with_context(|| format!("failed to write {}", path.display()))?;
+    fs::write(path, template).with_context(|| format!("failed to write {}", path.display()))?;
     println!("created {}", path.display());
     Ok(())
 }

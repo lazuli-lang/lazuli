@@ -40,8 +40,7 @@ pub fn test_command(
     let format = cmd_test::OutputFormat::parse(&format).map_err(|e| anyhow::anyhow!(e))?;
     let mut parsed_fail_on = Vec::new();
     for raw in &fail_on {
-        let spec = cmd_test_types::FailOnSpec::parse(raw)
-            .map_err(|e| anyhow::anyhow!(e))?;
+        let spec = cmd_test_types::FailOnSpec::parse(raw).map_err(|e| anyhow::anyhow!(e))?;
         parsed_fail_on.push(spec);
     }
     // Gate coverage:aggregate=<N> behind --aggregate-method per

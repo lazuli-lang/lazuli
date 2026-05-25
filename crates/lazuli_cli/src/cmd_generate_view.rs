@@ -22,8 +22,8 @@ pub fn run(ident: &str, project_root: &Path) -> Result<()> {
     let feat_root = app_root(project_root)?.join("features").join(&feature);
     let lzx_path = pick_lzx_target(&feat_root, &feature)?;
 
-    let existing = fs::read_to_string(&lzx_path)
-        .with_context(|| format!("reading {}", lzx_path.display()))?;
+    let existing =
+        fs::read_to_string(&lzx_path).with_context(|| format!("reading {}", lzx_path.display()))?;
     let needle = format!("\n  view list {}\n", name);
     let alt_needle = format!("\n  view {}\n", name);
     if existing.contains(&needle) || existing.contains(&alt_needle) {
@@ -136,7 +136,11 @@ mod tests {
     fn write_lzx(root: &Path, feature: &str, suffix: &str, content: &str) {
         let feature_root = root.join("features").join(feature);
         fs::create_dir_all(&feature_root).unwrap();
-        fs::write(feature_root.join(format!("{feature}.{suffix}.lzx")), content).unwrap();
+        fs::write(
+            feature_root.join(format!("{feature}.{suffix}.lzx")),
+            content,
+        )
+        .unwrap();
     }
 
     #[test]
@@ -151,8 +155,7 @@ mod tests {
 
         run("post.recent", project.path()).unwrap();
 
-        let lzx =
-            fs::read_to_string(project.path().join("features/post/post.web.lzx")).unwrap();
+        let lzx = fs::read_to_string(project.path().join("features/post/post.web.lzx")).unwrap();
         assert!(lzx.contains("view list recent"));
         assert!(lzx.contains("tests"));
         assert!(lzx.contains("accepted by"));

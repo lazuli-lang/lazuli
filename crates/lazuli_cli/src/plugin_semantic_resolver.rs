@@ -296,8 +296,10 @@ mod tests {
         });
         let mut module = empty_module();
         let mut feat = empty_feature("host");
-        feat.resources
-            .push(make_resource("Host", vec![make_field("cpf", user_defined.clone())]));
+        feat.resources.push(make_resource(
+            "Host",
+            vec![make_field("cpf", user_defined.clone())],
+        ));
         module.features.push(feat);
 
         apply_plugin_semantic_resolution(&mut module, &BTreeMap::new());

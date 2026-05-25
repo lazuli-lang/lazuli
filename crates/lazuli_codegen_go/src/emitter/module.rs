@@ -18,10 +18,10 @@ use super::auth_refresh::emit_auth_refresh_file;
 use super::auto_photo::emit_auto_photo_file;
 use super::command::emit_command_file;
 use super::cross_feature::CrossFeatureIndex;
-use super::deps::{TransitiveDep, GO_POSTGIS_DEP};
+use super::deps::{GO_POSTGIS_DEP, TransitiveDep};
 use super::enums::emit_enum_file;
 use super::error_resolver::{
-    emit_app_error_resolution, emit_feature_errors_file, APP_ERROR_RESOLUTION_PATH,
+    APP_ERROR_RESOLUTION_PATH, emit_app_error_resolution, emit_feature_errors_file,
 };
 use super::events::emit_events_file;
 use super::handlers::emit_handler_stubs;
@@ -37,11 +37,11 @@ use super::printer::GoPrinter;
 use super::query::emit_query_file;
 use super::report::emit_reports_file;
 use super::resource::emit_resource_file;
-use super::root::{emit_lazuli_app_gen, emit_main_go, LAZULI_APP_PATH, MAIN_GO_PATH};
+use super::root::{LAZULI_APP_PATH, MAIN_GO_PATH, emit_lazuli_app_gen, emit_main_go};
 use super::storage::emit_storage_file;
 use super::translation::emit_translation_files;
 use super::webhook::emit_webhook_file;
-use crate::{GeneratedFile, GoEmitOptions, LazuriteManifest, LAZULI_GO_VERSION};
+use crate::{GeneratedFile, GoEmitOptions, LAZULI_GO_VERSION, LazuriteManifest};
 use lazuli_ir::{BuiltinType, TypeRef};
 
 /// Default Go module path used when the caller did not supply one and
@@ -911,10 +911,7 @@ fn emit_go_mod(
     p.finish()
 }
 
-fn emit_go_work(
-    dev_runtime_path: Option<&str>,
-    manifest: Option<&LazuriteManifest>,
-) -> String {
+fn emit_go_work(dev_runtime_path: Option<&str>, manifest: Option<&LazuriteManifest>) -> String {
     let mut p = GoPrinter::new();
     p.line(DEFAULT_GO_TOOLCHAIN);
     p.blank();

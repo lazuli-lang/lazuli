@@ -164,7 +164,8 @@ mod tests {
             agents: vec![],
             reports: vec![],
             previous_names: vec![],
-            synth_origins: std::collections::BTreeMap::new(),            span_ref: None,
+            synth_origins: std::collections::BTreeMap::new(),
+            span_ref: None,
         }
     }
 
@@ -234,7 +235,10 @@ mod tests {
         // `ir-rate-limit-env-aware` cell 1 — the wire shape of
         // `AuthPassword.rate_limit` is `{ "default": "X" }` for a
         // default-only spec (proposal §8 IR JSON shape).
-        assert_eq!(auth["password"]["rate_limit"]["default"], "5 per 10 minutes");
+        assert_eq!(
+            auth["password"]["rate_limit"]["default"],
+            "5 per 10 minutes"
+        );
         assert_eq!(auth["sessions"]["resource"]["name"], "CustomerSession");
         assert_eq!(auth["sessions"]["refresh"], false);
         assert_eq!(auth["mfa"]["method"], "totp");

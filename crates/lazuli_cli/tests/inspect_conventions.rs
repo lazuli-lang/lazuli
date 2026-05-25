@@ -80,7 +80,9 @@ fn inspect_format_lazuli_renders_crud_conventions_annotation() {
     // §11). A regression to the legacy `print!("{source}")` path-mode
     // behaviour would skip these section labels.
     assert!(
-        stdout.contains("resources:") && stdout.contains("commands:") && stdout.contains("queries:"),
+        stdout.contains("resources:")
+            && stdout.contains("commands:")
+            && stdout.contains("queries:"),
         "expected features-summary section headers (`resources:` / `commands:` / `queries:`); got:\n{stdout}"
     );
 }

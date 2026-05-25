@@ -6,8 +6,8 @@
 //! tooling and parse output into the unified schema; they do not
 //! re-implement test execution.
 
-pub mod spec;
 pub mod go_test;
-pub mod playwright;
-pub mod ts_test;
 pub mod handler_coverage;
+pub mod playwright;
+pub mod spec;
+pub mod ts_test;

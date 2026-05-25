@@ -12,7 +12,6 @@ use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 mod app_manifest;
 mod casing;
 mod cmd_design;
-mod commands;
 mod cmd_fix;
 mod cmd_generate_command;
 mod cmd_generate_feature;
@@ -21,8 +20,6 @@ mod cmd_generate_playwright;
 mod cmd_generate_rule;
 mod cmd_generate_transition;
 mod cmd_generate_view;
-mod doctor_report;
-mod doctor_watch;
 mod cmd_mcp;
 mod cmd_new_frontends;
 mod cmd_test;
@@ -31,10 +28,13 @@ mod cmd_test_ndjson;
 mod cmd_test_output;
 mod cmd_test_types;
 mod cmd_test_watch;
+mod commands;
 mod coverage_aggregator;
 mod debug;
 mod dev;
 mod doctor;
+mod doctor_report;
+mod doctor_watch;
 mod examples_bundle;
 mod inspect {
     pub mod expand_auth;
@@ -77,23 +77,22 @@ pub(crate) use commands::new::{
 // where it is without per-call-site path imports.
 #[allow(unused_imports)]
 pub(crate) use commands::generate::ts::{
-    command_schema_ident, command_zod_slots, emit_feature_barrel_ts,
-    emit_feature_react_hooks_ts, emit_feature_sdk_ts, emit_feature_zod_ts, find_enum_decl,
-    generate_ts, zod_base_for_type_ref,
+    command_schema_ident, command_zod_slots, emit_feature_barrel_ts, emit_feature_react_hooks_ts,
+    emit_feature_sdk_ts, emit_feature_zod_ts, find_enum_decl, generate_ts, zod_base_for_type_ref,
 };
 // `cmd_mcp` reaches for `crate::ExpandSet`, `crate::parse_expand_set`,
 // `crate::inspect_json_value`; `tests.rs` reaches for these plus
 // `crate::inspect_canonical_source`, `crate::expand_canonical_source`
 // (test-only), `crate::render_inspect_symbol_lazuli`. Canonical home is
 // `commands::inspect`.
-#[allow(unused_imports)]
-pub(crate) use commands::inspect::{
-    ExpandSet, inspect_canonical_source, inspect_json_value, inspect_source_path,
-    parse_expand_set, render_inspect_symbol_lazuli,
-};
 #[cfg(test)]
 #[allow(unused_imports)]
 pub(crate) use commands::inspect::expand_canonical_source;
+#[allow(unused_imports)]
+pub(crate) use commands::inspect::{
+    ExpandSet, inspect_canonical_source, inspect_json_value, inspect_source_path, parse_expand_set,
+    render_inspect_symbol_lazuli,
+};
 
 const DEFAULT_TEMPLATE: &str = include_str!("../../../examples/crm.lzi");
 const REGISTRY_TEMPLATE: &str =
@@ -673,7 +672,6 @@ impl From<CheckSecurityProfile> for SecurityProfile {
     }
 }
 
-
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -753,9 +751,7 @@ fn main() -> Result<()> {
         Commands::SpikeGenerate { root, spec } => {
             commands::spike_generate::spike_generate_command(&root, spec.as_deref())
         }
-        Commands::Plan { input, check } => {
-            commands::plan::plan_command(&input, check.as_deref())
-        }
+        Commands::Plan { input, check } => commands::plan::plan_command(&input, check.as_deref()),
         Commands::Generate {
             kind,
             input,
@@ -856,7 +852,6 @@ fn main() -> Result<()> {
     }
 }
 
-
 impl From<DesignImportFormat> for cmd_design::ImportFormat {
     fn from(format: DesignImportFormat) -> Self {
         match format {
@@ -874,7 +869,6 @@ impl From<DesignExportTarget> for cmd_design::ExportTarget {
         }
     }
 }
-
 
 fn codegen_lazurite_manifest(
     manifest: &lazurite_manifest::Manifest,
@@ -1145,7 +1139,11 @@ fn collect_lzx_experience_module(input: &Path) -> lazuli_ir::ExperienceModule {
         let parsed = match lazuli_syntax::parse_lzx_document(&source) {
             Ok(parsed) => parsed,
             Err(err) => {
-                eprintln!("lazuli: skipping {}: lzx parse failed: {:?}", path.display(), err);
+                eprintln!(
+                    "lazuli: skipping {}: lzx parse failed: {:?}",
+                    path.display(),
+                    err
+                );
                 continue;
             }
         };
@@ -1298,11 +1296,10 @@ pub(crate) fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> 
     if input.is_dir() {
         let project_root = project_root_for_input(input);
         if let Ok(manifest) = lazurite_manifest::load(&project_root) {
-            if let Ok(alias_map) = plugin_manifest::build_alias_map(manifest.as_ref(), &project_root) {
-                plugin_semantic_resolver::apply_plugin_semantic_resolution(
-                    &mut module,
-                    &alias_map,
-                );
+            if let Ok(alias_map) =
+                plugin_manifest::build_alias_map(manifest.as_ref(), &project_root)
+            {
+                plugin_semantic_resolver::apply_plugin_semantic_resolution(&mut module, &alias_map);
             }
         }
     }
@@ -1398,7 +1395,11 @@ fn collect_lzx_bundle(input: &Path) -> LzxBundle {
         let source = match fs::read_to_string(&path) {
             Ok(source) => source,
             Err(err) => {
-                eprintln!("lazuli: skipping {}: read failed: {:?}", path.display(), err);
+                eprintln!(
+                    "lazuli: skipping {}: read failed: {:?}",
+                    path.display(),
+                    err
+                );
                 continue;
             }
         };
@@ -1486,12 +1487,14 @@ fn playwright_fixture_config(
     };
 
     lazuli_codegen_ts::playwright::PlaywrightFixtureConfig {
-        helpers: Some(lazuli_codegen_ts::playwright::PlaywrightFixtureHelperImports {
-            api_import,
-            session_import,
-            lifecycle_import,
-            lifecycle_seeders,
-        }),
+        helpers: Some(
+            lazuli_codegen_ts::playwright::PlaywrightFixtureHelperImports {
+                api_import,
+                session_import,
+                lifecycle_import,
+                lifecycle_seeders,
+            },
+        ),
     }
 }
 
@@ -1654,7 +1657,6 @@ fn build_module_with_source_from_path(
     Ok((module, source_map, feature_file_ids))
 }
 
-
 /// Back-compat shim for callers that pre-date the W4.5 R2 split of
 /// `lazuli generate go` into `commands/generate/go.rs`. `dev::regen`
 /// and a handful of integration tests still spell the call as
@@ -1763,7 +1765,6 @@ fn collect_plan_gate_facts_for_generate(
         gates: facts.gates,
     })
 }
-
 
 pub(crate) fn write_generated_file(root: &Path, relative: &str, contents: &str) -> Result<()> {
     let path = root.join(relative);
@@ -1889,14 +1890,16 @@ fn find_go_work_use_block_close(contents: &str) -> Option<(usize, String)> {
 }
 
 fn go_work_entry_from_line(line: &str) -> Option<String> {
-    let entry = line.split_once("//").map_or(line, |(entry, _)| entry).trim();
+    let entry = line
+        .split_once("//")
+        .map_or(line, |(entry, _)| entry)
+        .trim();
     if entry.is_empty() || entry.starts_with("//") {
         None
     } else {
         Some(entry.to_owned())
     }
 }
-
 
 #[cfg(test)]
 mod tests;

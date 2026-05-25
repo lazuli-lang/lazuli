@@ -31,7 +31,9 @@ use crate::doctor::{
 // Diagnostic id: tool_registry_effect_required_diagnostics
 // -----------------------------------------------------------------------------
 
-pub(crate) fn registry_tool_effect_diagnostics(defects: &[RegistryToolDefect]) -> Vec<DoctorDiagnostic> {
+pub(crate) fn registry_tool_effect_diagnostics(
+    defects: &[RegistryToolDefect],
+) -> Vec<DoctorDiagnostic> {
     defects
         .iter()
         .map(|defect| DoctorDiagnostic {
@@ -315,7 +317,6 @@ pub(crate) fn resolve_tool(
         }
     }
 }
-
 
 /// Conservative `more restrictive than` check: a policy is considered
 /// stricter than the agent's when both texts parse as `@policy.<x>` and
@@ -907,9 +908,6 @@ pub(crate) fn agent_run_trace_diagnostics(files: &[DoctorFile]) -> Vec<DoctorDia
 //
 // See `docs/proposals/bucket-observability-cycle.md` §3.3 §3.4 §Runtime.
 // =============================================================================
-
-
-
 
 pub(crate) fn canonical_payload_event(name: &str, canonical: &BTreeSet<String>) -> bool {
     !canonical.is_empty() && ir::is_reserved_trace_event_name(name)

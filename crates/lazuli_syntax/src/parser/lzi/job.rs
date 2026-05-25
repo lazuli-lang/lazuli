@@ -37,10 +37,8 @@
 use super::super::common::{SourceLine, is_trivia, line_error, unquote_lzx_value};
 use super::super::error::ParseError;
 use super::super::lzx::try_parse_policy_expr;
-use super::{
-    AGENT_INDENT_AGENT_CHILD, AGENT_INDENT_FEATURE_CHILD, AGENT_INDENT_GRANDCHILD,
-    parse_command_effect, parse_let_binding, parse_target_expr,
-};
+use super::command::{parse_command_effect, parse_let_binding, parse_target_expr};
+use super::{AGENT_INDENT_AGENT_CHILD, AGENT_INDENT_FEATURE_CHILD, AGENT_INDENT_GRANDCHILD};
 use crate::ast::{
     CommandEffectDecl, CommandEffectKindDecl, Job, JobBody, JobDeclarativeTyped, JobExternalCall,
     JobExternalCallArg, JobFanout, JobHandler, JobRetry, JobTrigger, LetBindingDecl, PolicyExprAst,
@@ -296,10 +294,7 @@ fn parse_job_fanout(line: &SourceLine<'_>, rest: &str) -> Result<JobFanout, Pars
     })
 }
 
-pub(super) fn parse_job_retry(
-    line: &SourceLine<'_>,
-    rest: &str,
-) -> Result<JobRetry, ParseError> {
+pub(super) fn parse_job_retry(line: &SourceLine<'_>, rest: &str) -> Result<JobRetry, ParseError> {
     let rest = rest.trim();
     let (count_str, tail) = rest.split_once(' ').ok_or_else(|| {
         line_error(

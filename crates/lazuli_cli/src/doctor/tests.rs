@@ -5,8 +5,8 @@
 //! wrapper preserves string-literal indentation for the existing tests.
 
 mod tests {
-    use crate::doctor::*;
     use crate::doctor::aggregators::auth::auth_diagnostics;
+    use crate::doctor::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_project_root(name: &str) -> PathBuf {
@@ -1099,7 +1099,11 @@ surface customer web
         let diagnostics: Vec<_> = package
             .diagnostics()
             .into_iter()
-            .filter(|d| !d.code.starts_with("ERR-VOCAB-") && !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .filter(|d| {
+                !d.code.starts_with("ERR-VOCAB-")
+                    && !d.code.starts_with("VOCAB-CONTEXT-")
+                    && d.code != "CAP-FILE-POLICY-IMPLICIT"
+            })
             .collect();
         assert!(diagnostics.is_empty(), "got: {:#?}", diagnostics);
     }
@@ -1155,7 +1159,9 @@ surface customer web
             .iter()
             .filter(|d| {
                 matches!(d.severity, DoctorSeverity::Error | DoctorSeverity::Warning)
-                    && !d.code.starts_with("ERR-VOCAB-") && !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT"
+                    && !d.code.starts_with("ERR-VOCAB-")
+                    && !d.code.starts_with("VOCAB-CONTEXT-")
+                    && d.code != "CAP-FILE-POLICY-IMPLICIT"
             })
             .collect();
         assert!(
@@ -1237,7 +1243,11 @@ surface customer_auth web
         let diagnostics: Vec<_> = package
             .diagnostics()
             .into_iter()
-            .filter(|d| !d.code.starts_with("ERR-VOCAB-") && !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .filter(|d| {
+                !d.code.starts_with("ERR-VOCAB-")
+                    && !d.code.starts_with("VOCAB-CONTEXT-")
+                    && d.code != "CAP-FILE-POLICY-IMPLICIT"
+            })
             .collect();
         assert!(diagnostics.is_empty(), "got: {:#?}", diagnostics);
     }
@@ -1415,7 +1425,8 @@ route customer_list
             package
                 .diagnostics()
                 .into_iter()
-                .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+                .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-")
+                    && d.code != "CAP-FILE-POLICY-IMPLICIT")
                 .collect::<Vec<_>>()
                 .is_empty()
         );
@@ -1480,7 +1491,9 @@ feature customer
         let diagnostics: Vec<_> = package
             .diagnostics()
             .into_iter()
-            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .filter(|d| {
+                !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT"
+            })
             .collect();
 
         assert!(
@@ -1660,7 +1673,8 @@ feature payments
             package
                 .diagnostics()
                 .into_iter()
-                .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+                .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-")
+                    && d.code != "CAP-FILE-POLICY-IMPLICIT")
                 .collect::<Vec<_>>()
                 .is_empty()
         );
@@ -1948,7 +1962,9 @@ feature imports
         let leftover: Vec<_> = valid
             .diagnostics()
             .into_iter()
-            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .filter(|d| {
+                !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT"
+            })
             .collect();
         assert!(
             leftover.is_empty(),
@@ -2067,7 +2083,9 @@ profile local
         let leftover: Vec<_> = valid
             .diagnostics()
             .into_iter()
-            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .filter(|d| {
+                !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT"
+            })
             .collect();
         assert!(
             leftover.is_empty(),
@@ -2217,7 +2235,9 @@ workspace AcmeERP
         let leftover: Vec<_> = valid
             .diagnostics()
             .into_iter()
-            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .filter(|d| {
+                !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT"
+            })
             .collect();
         assert!(
             leftover.is_empty(),
@@ -2292,7 +2312,9 @@ contract acme.ai.v1
         let leftover: Vec<_> = valid
             .diagnostics()
             .into_iter()
-            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .filter(|d| {
+                !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT"
+            })
             .collect();
         assert!(
             leftover.is_empty(),
@@ -2645,7 +2667,8 @@ feature host
 
     const APP_URLS_MISSING_FIXTURE: &str = "app MyApp\n";
 
-    const SEMANTIC_UNKNOWN_FIXTURE: &str = include_str!("../../tests/fixtures/semantic_unknown.lzi");
+    const SEMANTIC_UNKNOWN_FIXTURE: &str =
+        include_str!("../../tests/fixtures/semantic_unknown.lzi");
 
     const DOCTOR_HINTS_WRITE_WITHOUT_GUARDS_FIXTURE: &str = r#"
 feature customer
@@ -5374,7 +5397,9 @@ feature customer
         let diagnostics: Vec<_> = package
             .diagnostics()
             .into_iter()
-            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .filter(|d| {
+                !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT"
+            })
             .collect();
         assert!(
             diagnostics.is_empty(),
@@ -5407,7 +5432,9 @@ feature customer
         let diagnostics: Vec<_> = package
             .diagnostics()
             .into_iter()
-            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .filter(|d| {
+                !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT"
+            })
             .collect();
         assert!(
             diagnostics.is_empty(),
@@ -5461,7 +5488,8 @@ feature catalog
     // CL.C.3 — feature-level `cache <name>` profile diagnostics.
     const CACHE_PROFILE_UNKNOWN_FIXTURE: &str =
         include_str!("../../tests/fixtures/cache/profile_unknown.lzi");
-    const CACHE_TAG_UNKNOWN_FIXTURE: &str = include_str!("../../tests/fixtures/cache/tag_unknown.lzi");
+    const CACHE_TAG_UNKNOWN_FIXTURE: &str =
+        include_str!("../../tests/fixtures/cache/tag_unknown.lzi");
     const CACHE_TTL_CONTRACT_SWR_FIXTURE: &str =
         include_str!("../../tests/fixtures/cache/ttl_contract_swr_exceeds.lzi");
 
@@ -6911,7 +6939,8 @@ registry
         include_str!("../../tests/fixtures/error-vocab/when_denied_no_policy.lzi");
     const ERR_VOCAB_EXPOSE_5XX_MESSAGE_FIXTURE: &str =
         include_str!("../../tests/fixtures/error-vocab/expose_5xx_message.lzi");
-    const ERR_VOCAB_HAPPY_FIXTURE: &str = include_str!("../../tests/fixtures/error-vocab/happy.lzi");
+    const ERR_VOCAB_HAPPY_FIXTURE: &str =
+        include_str!("../../tests/fixtures/error-vocab/happy.lzi");
     const ROUTE_GUARD_HAPPY_LZI: &str = include_str!("../../tests/fixtures/route-guard/happy.lzi");
     const ROUTE_GUARD_HAPPY_LZX: &str = include_str!("../../tests/fixtures/route-guard/happy.lzx");
     const ROUTE_GUARD_UNGUARDED_LZX: &str =
@@ -7370,7 +7399,9 @@ feature sales
         let diagnostics: Vec<_> = package
             .diagnostics()
             .into_iter()
-            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .filter(|d| {
+                !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT"
+            })
             .collect();
         assert!(
             diagnostics.is_empty(),

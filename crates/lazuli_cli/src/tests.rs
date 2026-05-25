@@ -17,10 +17,10 @@ mod tests {
 
     use crate::{
         Cli, Commands, DesignCommand, DesignExportTarget, DesignImportFormat, ExpandSet,
-        GenerateKind, MigrateCommand, REGISTRY_TEMPLATE, app_template, default_module_name,
-        add_missing_go_work_use_entries, emit_feature_barrel_ts, emit_feature_react_hooks_ts,
-        emit_feature_sdk_ts, expand_canonical_source, inspect_canonical_source,
-        inspect_json_value, new_command, parse_expand_set, pascal_case, pascal_case_project_name,
+        GenerateKind, MigrateCommand, REGISTRY_TEMPLATE, add_missing_go_work_use_entries,
+        app_template, default_module_name, emit_feature_barrel_ts, emit_feature_react_hooks_ts,
+        emit_feature_sdk_ts, expand_canonical_source, inspect_canonical_source, inspect_json_value,
+        new_command, parse_expand_set, pascal_case, pascal_case_project_name,
         render_inspect_symbol_lazuli, scaffold_bare, scaffold_from_template, templates,
         write_go_work_preserving_entries,
     };
@@ -177,7 +177,6 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
-
     #[test]
     fn positive_enum_emits_const_and_type_alias() {
         let (feature, module) = enum_sdk_fixture(false, false);
@@ -205,14 +204,17 @@ mod tests {
 
         let output = emit_feature_sdk_ts(&feature, &module);
 
-        assert!(output.contains("export const ITEM_TYPE_VALUES = [\"doc\", \"decision\"] as const;"));
+        assert!(
+            output.contains("export const ITEM_TYPE_VALUES = [\"doc\", \"decision\"] as const;")
+        );
         assert!(output.contains("export type ItemType = typeof ITEM_TYPE_VALUES[number];"));
         assert!(output.contains(
             "export const ITEM_TYPE_OPTIONS: ReadonlyArray<{\n  value: ItemType;\n  labelKey: string;\n  hintKey?: string;\n  iconKey?: string;\n}> = ["
         ));
-        assert!(output.contains(
-            "  { value: \"doc\", labelKey: \"item_doc\", iconKey: \"file-text\" },"
-        ));
+        assert!(
+            output
+                .contains("  { value: \"doc\", labelKey: \"item_doc\", iconKey: \"file-text\" },")
+        );
         assert!(output.contains(
             "  { value: \"decision\", labelKey: \"item_decision\", hintKey: \"item_decision_hint\" },"
         ));
@@ -267,22 +269,13 @@ mod tests {
     fn rich_zod_base_emits_core_semantic_validators() {
         let (_feature, module) = enum_sdk_fixture(false, false);
         let cases = [
-            (
-                lazuli_ir::BuiltinType::SemanticEmail,
-                "z.string().email()",
-            ),
+            (lazuli_ir::BuiltinType::SemanticEmail, "z.string().email()"),
             (
                 lazuli_ir::BuiltinType::SemanticPhone,
                 "/* TODO(@semantic.Phone): replace with pluggable locale-aware validator */ z.string().min(10).max(15)",
             ),
-            (
-                lazuli_ir::BuiltinType::SemanticUuid,
-                "z.string().uuid()",
-            ),
-            (
-                lazuli_ir::BuiltinType::SemanticUrl,
-                "z.string().url()",
-            ),
+            (lazuli_ir::BuiltinType::SemanticUuid, "z.string().uuid()"),
+            (lazuli_ir::BuiltinType::SemanticUrl, "z.string().url()"),
         ];
 
         for (builtin, expected) in cases {
@@ -553,9 +546,18 @@ mod tests {
 
         let output = emit_feature_sdk_ts(&feature, &module);
 
-        assert!(!output.contains("policy:"), "expected no policy line; got:\n{output}");
-        assert!(!output.contains("rateLimit:"), "expected no rateLimit line; got:\n{output}");
-        assert!(!output.contains("audit:"), "expected no audit line; got:\n{output}");
+        assert!(
+            !output.contains("policy:"),
+            "expected no policy line; got:\n{output}"
+        );
+        assert!(
+            !output.contains("rateLimit:"),
+            "expected no rateLimit line; got:\n{output}"
+        );
+        assert!(
+            !output.contains("audit:"),
+            "expected no audit line; got:\n{output}"
+        );
         // invalidates is always emitted even when empty — that's the
         // existing contract that this test does not change.
         assert!(output.contains("invalidates: []"));
@@ -585,8 +587,7 @@ mod tests {
       profile_photo: @cap.File(max_size:5mb,accept:image/jpeg,visibility:signed,signed_ttl:1h) optional
 "#;
         let parsed = lazuli_syntax::parse_feature_skeletons(source).expect("feature parses");
-        let feature =
-            lazuli_analyzer::lower_feature_skeleton(&parsed[0]).expect("feature lowers");
+        let feature = lazuli_analyzer::lower_feature_skeleton(&parsed[0]).expect("feature lowers");
         let module = lazuli_ir::Module {
             workspace: None,
             contracts: vec![],
@@ -877,30 +878,32 @@ mod tests {
             discriminator_field: None,
             span_ref: None,
         });
-        feature.queries.push(lazuli_ir::Query::Sql(lazuli_ir::SqlQuery {
-            name: "host_home_view".to_owned(),
-            sql_kind: lazuli_ir::SqlQueryKind::View,
-            public_contract: None,
-            params: vec![lazuli_ir::TypedSlot {
-                name: "user_id".to_owned(),
-                type_ref: lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::Id),
-                required: true,
-                constraints: lazuli_ir::FieldConstraints::default(),
-                validate_skip: false,
-            }],
-            scope: Vec::new(),
-            scope_override: false,
-            returns: lazuli_ir::TypeRef::Many(Box::new(lazuli_ir::TypeRef::UserDefined(
-                local_qn("HostHomeRow"),
-            ))),
-            sql_path: "app/features/host/queries/host_home_view.sql".to_owned(),
-            cache: None,
-            policy: lazuli_ir::PolicyRef::None,
-            policy_expr: None,
-            policy_when_denied: None,
-            previous_names: Vec::new(),
-            span_ref: None,
-        }));
+        feature
+            .queries
+            .push(lazuli_ir::Query::Sql(lazuli_ir::SqlQuery {
+                name: "host_home_view".to_owned(),
+                sql_kind: lazuli_ir::SqlQueryKind::View,
+                public_contract: None,
+                params: vec![lazuli_ir::TypedSlot {
+                    name: "user_id".to_owned(),
+                    type_ref: lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::Id),
+                    required: true,
+                    constraints: lazuli_ir::FieldConstraints::default(),
+                    validate_skip: false,
+                }],
+                scope: Vec::new(),
+                scope_override: false,
+                returns: lazuli_ir::TypeRef::Many(Box::new(lazuli_ir::TypeRef::UserDefined(
+                    local_qn("HostHomeRow"),
+                ))),
+                sql_path: "app/features/host/queries/host_home_view.sql".to_owned(),
+                cache: None,
+                policy: lazuli_ir::PolicyRef::None,
+                policy_expr: None,
+                policy_when_denied: None,
+                previous_names: Vec::new(),
+                span_ref: None,
+            }));
         module.features = vec![feature.clone()];
 
         let output = emit_feature_sdk_ts(&feature, &module);
@@ -1584,10 +1587,7 @@ mod tests {
         assert!(root.join("app/web/main.tsx").is_file());
         assert!(root.join("app/web/shell/root.tsx").is_file());
         assert!(root.join("app/web/shell/layout.tsx").is_file());
-        assert!(
-            root.join("app/web/theme/theme_provider.tsx")
-                .is_file()
-        );
+        assert!(root.join("app/web/theme/theme_provider.tsx").is_file());
         assert!(root.join("app/web/theme/globals.css").is_file());
         assert!(root.join("app/web/tailwind.config.ts").is_file());
         assert!(root.join("app/web/tsconfig.json").is_file());
@@ -1656,10 +1656,9 @@ mod tests {
         )
         .unwrap();
 
-        let package_json: serde_json::Value = serde_json::from_str(
-            &fs::read_to_string(root.join("app/web/package.json")).unwrap(),
-        )
-        .unwrap();
+        let package_json: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(root.join("app/web/package.json")).unwrap())
+                .unwrap();
         assert_eq!(package_json["name"], "custom-app");
         assert_eq!(package_json["dependencies"]["left-pad"], "1.3.0");
         assert_eq!(package_json["dependencies"]["react"], "18.0.0");
@@ -1847,14 +1846,13 @@ mod tests {
             bootstrap.contains(":-my_app"),
             "bootstrap-storage.sh should embed app_slug as a default: {bootstrap}"
         );
-        let env_example = fs::read_to_string(root.join(".env.example"))
-            .expect("read .env.example");
+        let env_example = fs::read_to_string(root.join(".env.example")).expect("read .env.example");
         assert!(
             env_example.contains("S3_ENDPOINT="),
             ".env.example should declare S3_ENDPOINT"
         );
-        let compose = fs::read_to_string(root.join("docker-compose.yml"))
-            .expect("read docker-compose.yml");
+        let compose =
+            fs::read_to_string(root.join("docker-compose.yml")).expect("read docker-compose.yml");
         assert!(
             compose.contains("MINIO_ROOT_USER_FILE: \"\""),
             "docker-compose.yml should clear MinIO _FILE defaults"

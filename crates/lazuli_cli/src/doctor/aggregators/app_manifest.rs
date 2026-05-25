@@ -118,7 +118,9 @@ pub(crate) fn app_contract_diagnostics(
     diagnostics.extend(adapter_provenance_diagnostics(app, registry, profiles));
     diagnostics.extend(app_pack_contract_diagnostics(app, registry));
     diagnostics.extend(app_binding_contract_diagnostics(app, registry, operational));
-    diagnostics.extend(aggregators::external::external_call_contract_diagnostics(operational));
+    diagnostics.extend(aggregators::external::external_call_contract_diagnostics(
+        operational,
+    ));
     diagnostics.extend(app_route_redirect_diagnostics(app, operational));
     diagnostics.extend(error_page_contract_diagnostics(app));
     diagnostics.extend(profile_contract_diagnostics(
@@ -387,7 +389,9 @@ pub(crate) fn error_page_line(app: &DoctorAppManifest, status: u16) -> usize {
         .unwrap_or(1)
 }
 
-pub(crate) fn workspace_contract_diagnostics(workspace: Option<&DoctorAppWorkspace>) -> Vec<DoctorDiagnostic> {
+pub(crate) fn workspace_contract_diagnostics(
+    workspace: Option<&DoctorAppWorkspace>,
+) -> Vec<DoctorDiagnostic> {
     let Some(workspace) = workspace else {
         return Vec::new();
     };

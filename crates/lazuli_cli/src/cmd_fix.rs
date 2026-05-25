@@ -7,13 +7,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 
-pub fn run_fix(
-    rule: &str,
-    path: &Path,
-    line: usize,
-    column: usize,
-    apply: bool,
-) -> Result<()> {
+pub fn run_fix(rule: &str, path: &Path, line: usize, column: usize, apply: bool) -> Result<()> {
     let request = lazuli_fix::FixRequest {
         rule: rule.to_string(),
         path: path.to_path_buf(),

@@ -34,7 +34,9 @@
 //! - `docs/canonical-semantics.md` — `event_group` grammar.
 //! - `lazuli_ir::nodes::event` — typed lowering target.
 
-use super::super::common::{SourceLine, is_trivia, line_error, line_error_owned, strip_inline_comment};
+use super::super::common::{
+    SourceLine, is_trivia, line_error, line_error_owned, strip_inline_comment,
+};
 use super::super::error::ParseError;
 
 use crate::ast::{EventGroup, EventVariantFieldDecl, EventVariantKindAst, Span};

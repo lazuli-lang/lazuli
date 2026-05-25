@@ -307,13 +307,7 @@ fn is_barrel_file(file: &str) -> bool {
 fn is_client_src_wrapper_file(file: &str) -> bool {
     matches!(
         file,
-        "main.tsx"
-            | "main.ts"
-            | "index.ts"
-            | "index.tsx"
-            | "App.tsx"
-            | "App.ts"
-            | "vite-env.d.ts"
+        "main.tsx" | "main.ts" | "index.ts" | "index.tsx" | "App.tsx" | "App.ts" | "vite-env.d.ts"
     )
 }
 
@@ -533,7 +527,10 @@ mod tests {
 
         assert_eq!(findings.len(), 2, "found: {:?}", findings);
         assert_eq!(findings[0].path, PathBuf::from("app/shared/ui/Bad.tsx"));
-        assert_eq!(findings[1].path, PathBuf::from("frontends/web/junk/Bad.tsx"));
+        assert_eq!(
+            findings[1].path,
+            PathBuf::from("frontends/web/junk/Bad.tsx")
+        );
     }
 
     #[test]
@@ -672,10 +669,7 @@ mod tests {
         // Canonical neighbour.
         touch(tmp.path(), "app/clients/web-app/src/ui/forms/Button.tsx");
         // Orphan: `components/` is NOT in the closed catalog at any depth.
-        touch(
-            tmp.path(),
-            "app/clients/web-app/src/components/Sidebar.tsx",
-        );
+        touch(tmp.path(), "app/clients/web-app/src/components/Sidebar.tsx");
         // Orphan: `lib/` catch-all at the client-src top level.
         touch(tmp.path(), "app/clients/web-app/src/lib/format.ts");
         // Orphan: `ui/cards/` — `cards` is not in the 6-sub-bucket catalog.
@@ -793,8 +787,14 @@ mod tests {
     fn external_clients_subtree_is_invisible() {
         let tmp = tempfile::TempDir::new().unwrap();
         // Astro-shape sub-app under app/clients/external/website/.
-        touch(tmp.path(), "app/clients/external/website/src/content/copy.ts");
-        touch(tmp.path(), "app/clients/external/website/src/pages/index.astro");
+        touch(
+            tmp.path(),
+            "app/clients/external/website/src/content/copy.ts",
+        );
+        touch(
+            tmp.path(),
+            "app/clients/external/website/src/pages/index.astro",
+        );
         touch(
             tmp.path(),
             "app/clients/external/website/src/components/Hero.tsx",
@@ -802,10 +802,7 @@ mod tests {
         // Sibling Lazuli-native client stays in scope.
         touch(tmp.path(), "app/clients/web-app/src/shell/App.tsx");
         // Orphan in the Lazuli-native client still fires.
-        touch(
-            tmp.path(),
-            "app/clients/web-app/src/components/Sidebar.tsx",
-        );
+        touch(tmp.path(), "app/clients/web-app/src/components/Sidebar.tsx");
 
         let findings = check(tmp.path());
 

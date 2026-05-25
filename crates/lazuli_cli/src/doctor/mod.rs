@@ -2,6 +2,7 @@ mod aggregators;
 pub mod auth;
 pub mod auth_refresh;
 mod dispatch;
+mod facts;
 pub mod folder;
 mod helpers;
 pub mod lifecycle_gate;
@@ -17,6 +18,64 @@ mod runtime_options;
 mod scanners;
 pub mod schema_rich_001;
 mod self_audit;
+
+// Re-export canonical / lzx fact collectors so the in-tree
+// consumers (`doctor/package.rs`, `doctor/tests.rs`) keep their
+// `super::collect_*` / `super::populate_*` call paths after the
+// `facts/` extraction.
+pub(crate) use facts::canonical::{
+    callable_header_key_from_trimmed, collect_callable_bodies_for_eval_order,
+    collect_canonical_facts, collect_feature_integration_requirements,
+    collect_operational_lzi_facts, job_block_has_schedule, named_block_name,
+    populate_command_external_calls_from_ir, populate_commands_from_ir,
+    populate_job_external_calls_from_ir,
+};
+pub(crate) use facts::feature_ir::{
+    collect_feature_adapters, collect_feature_uses, collect_file_capability_facts,
+    extract_cap_file_field_line, populate_feature_resources_from_ir,
+    populate_feature_symbols_from_ir,
+};
+pub(crate) use facts::lines::{
+    collect_construct_lines, collect_event_group_lines, collect_query_lines,
+    collect_text_pattern_api_names, find_keyword_line, tenancy_axis_for,
+};
+pub(crate) use facts::lzx::{
+    collect_lzx_experience_facts, collect_lzx_operational_facts, lzx_route_surface_platform,
+};
+
+// Re-export the `approval` aggregator's public surface so
+// `doctor/package.rs`, `doctor/tests.rs`, and `doctor/dispatch.rs`
+// keep their `super::*` call paths.
+pub(crate) use aggregators::approval::{
+    ApprovalBlockPresence, approval_diagnostics, approval_missing_children_diagnostics,
+    collect_approval_block_presence,
+};
+
+// Re-export the `lazurite_manifest` aggregator's dispatcher so
+// `doctor/dispatch.rs` keeps its `super::lazurite_manifest_diagnostics`
+// call path after the extraction.
+pub(crate) use aggregators::lazurite_manifest::lazurite_manifest_diagnostics;
+
+// Re-export the `rbac_catalog` aggregator's public surface so
+// `doctor/dispatch.rs` keeps its `super::collect_known_roles` /
+// `super::rbac_*_diagnostics` call paths.
+pub(crate) use aggregators::rbac_catalog::{
+    collect_known_roles, collect_package_rbac_catalog, rbac_catalog_diagnostics,
+    rbac_catalog_missing_diagnostics, rbac_missing_policy_diagnostics,
+    rbac_role_undeclared_diagnostics,
+};
+
+// Re-export the `semantic_type` aggregator's public surface so
+// `doctor/package.rs`, `doctor/tests.rs`, `doctor/dispatch.rs`, and
+// the sibling aggregators (`error_vocab`, `lifecycle_gate`,
+// `route_guard`) keep their `super::*` / `crate::doctor::*` call
+// paths.
+pub(crate) use aggregators::semantic_type::{
+    SEMANTIC_TYPE_UNKNOWN_CODE, cross_feature_type_unresolved_diagnostics,
+    feature_uses_missing_diagnostics, policy_ref_surface_text,
+    semantic_type_unknown_diagnostics_for_feature,
+    semantic_type_unknown_diagnostics_for_syntax_feature, span_line,
+};
 
 pub(crate) use package::DoctorPackage;
 pub use runtime_options::DoctorRuntimeOptions;
@@ -39,8 +98,8 @@ use parsers::{
     tool_kind_word, type_ref_name,
 };
 use scanners::{
-    collect_deprecated_exports, collect_lazuli_paths_recursive, derive_feature_name,
-    is_ident_char, is_identifier, is_type_name, lazuli_version_line, matches_word, package_stem,
+    collect_deprecated_exports, collect_lazuli_paths_recursive, derive_feature_name, is_ident_char,
+    is_identifier, is_type_name, lazuli_version_line, matches_word, package_stem,
     parse_export_name, walk_frontend_ts_files, walk_gen_ts_files,
 };
 
@@ -134,8 +193,8 @@ pub fn doctor_command_with_options(
             .context("failed to serialize DoctorReport JSON")?;
         println!("{payload}");
         // Wave 2.2 — fail-on gate
-        let specs = parse_fail_on_specs(&opts.fail_on)
-            .map_err(|e| anyhow::anyhow!("--fail-on: {e}"))?;
+        let specs =
+            parse_fail_on_specs(&opts.fail_on).map_err(|e| anyhow::anyhow!("--fail-on: {e}"))?;
         if crate::doctor_report::report_fails_gate(&report, &specs)
             || diagnostics
                 .iter()
@@ -173,8 +232,8 @@ pub fn doctor_command_with_options(
     }
 
     // Wave 2.2 — text-mode fail-on still gates
-    let specs = parse_fail_on_specs(&opts.fail_on)
-        .map_err(|e| anyhow::anyhow!("--fail-on: {e}"))?;
+    let specs =
+        parse_fail_on_specs(&opts.fail_on).map_err(|e| anyhow::anyhow!("--fail-on: {e}"))?;
     if !specs.is_empty() {
         let report = build_doctor_report(&diagnostics, opts.coverage, &package);
         if crate::doctor_report::report_fails_gate(&report, &specs) {
@@ -201,8 +260,8 @@ pub(super) fn build_doctor_report(
     package: &DoctorPackage,
 ) -> crate::doctor_report::DoctorReport {
     use crate::doctor_report::{
-        FindingBuilder, FindingJson, classify_result, DoctorReport, DoctorSummary, SpanJson,
-        Severity as JsonSeverity,
+        DoctorReport, DoctorSummary, FindingBuilder, FindingJson, Severity as JsonSeverity,
+        SpanJson, classify_result,
     };
     use std::collections::BTreeMap;
     let mut findings = Vec::with_capacity(diagnostics.len());
@@ -325,7 +384,6 @@ pub(crate) fn doctor_diagnostics_json(
         .collect();
     Ok(serde_json::Value::Array(payload))
 }
-
 
 /// Phase L Tier 3 — lifted job/webhook/notification/event_group bundle
 /// for one feature, with source line anchors for diagnostic placement.
@@ -635,11 +693,9 @@ impl DoctorPackage {
                 // sidecar paths resolve relative to the feature `.lzi`
                 // first, then to the project root as a fallback.
                 let sev = resolve(vocab_context_ctxmd_001::Finding::CODE);
-                for finding in vocab_context_ctxmd_001::check(
-                    &feature,
-                    &file.path,
-                    Some(&self.project_root),
-                ) {
+                for finding in
+                    vocab_context_ctxmd_001::check(&feature, &file.path, Some(&self.project_root))
+                {
                     let message = finding.message();
                     out.push(DoctorDiagnostic {
                         path: finding.path,
@@ -675,8 +731,8 @@ impl DoctorPackage {
     /// diagnostic flags them via `check_coverage_preset_unknown`).
     pub fn coverage_report(&self) -> lazuli_doctor::coverage::CoverageReport {
         use lazuli_doctor::coverage::{
-            build_coverage_report_with_e2e_root, resolve_coverage_thresholds, CoveragePreset,
-            CoverageProfile, LayerThreshold,
+            CoveragePreset, CoverageProfile, LayerThreshold, build_coverage_report_with_e2e_root,
+            resolve_coverage_thresholds,
         };
         use std::collections::BTreeMap;
         use std::path::PathBuf;
@@ -698,10 +754,7 @@ impl DoctorPackage {
             .and_then(|m| m.doctor.as_ref())
             .and_then(|d| d.coverage.as_ref())
             .map(|cov| {
-                let preset = cov
-                    .preset
-                    .as_deref()
-                    .and_then(CoveragePreset::parse);
+                let preset = cov.preset.as_deref().and_then(CoveragePreset::parse);
                 let per_layer: BTreeMap<String, LayerThreshold> = cov
                     .per_layer
                     .iter()
@@ -956,7 +1009,6 @@ pub(super) fn money_arithmetic_001_diagnostics(
         .collect()
 }
 
-
 /// Parse `design.lzi` at the project root into the lowered IR. Returns
 /// `None` when the file is missing OR parse/lower fails — doctor's
 /// `design-custom-*` rules then suppress (no false positives when the
@@ -1007,7 +1059,10 @@ pub(super) fn check_pattern_draft_stale_001(project_root: &Path) -> Vec<DoctorDi
     check_pattern_draft_stale_001_at(project_root, now)
 }
 
-pub(super) fn check_pattern_draft_stale_001_at(project_root: &Path, now: u64) -> Vec<DoctorDiagnostic> {
+pub(super) fn check_pattern_draft_stale_001_at(
+    project_root: &Path,
+    now: u64,
+) -> Vec<DoctorDiagnostic> {
     let pattern_file = project_root.join("crates/lazuli_codegen_go/src/emitter/patterns.rs");
     let Ok(source) = fs::read_to_string(&pattern_file) else {
         return Vec::new();
@@ -1500,7 +1555,6 @@ pub(crate) enum DoctorSeverity {
     Hint,
 }
 
-
 /// Rails-style canonical envelope for every doctor finding.
 ///
 /// One row in `lazuli doctor`'s output — the **and only the** shape a
@@ -1716,7 +1770,9 @@ pub(super) fn project_uses_plugin_refs(project_root: &Path) -> bool {
 /// `env-schema-contract` is the more specific registry-scoped rule and
 /// owns the registry env shape; drop the broader `app-env-contract`
 /// diagnostic when the same `(path, line)` already carries it.
-pub(super) fn dedupe_env_contract_diagnostics(diagnostics: &[DoctorDiagnostic]) -> Vec<DoctorDiagnostic> {
+pub(super) fn dedupe_env_contract_diagnostics(
+    diagnostics: &[DoctorDiagnostic],
+) -> Vec<DoctorDiagnostic> {
     let env_schema_lines: BTreeSet<(PathBuf, usize)> = diagnostics
         .iter()
         .filter(|d| d.code == "env-schema-contract")
@@ -1796,211 +1852,6 @@ pub(super) fn manifest_required_diagnostics(
     }]
 }
 
-pub(super) fn lazurite_manifest_diagnostics(package: &DoctorPackage) -> Vec<DoctorDiagnostic> {
-    if !project_has_lazurite_manifest(&package.project_root) {
-        return Vec::new();
-    }
-
-    let Some(manifest) = package.lazurite_manifest.as_ref() else {
-        return Vec::new();
-    };
-
-    let mut diagnostics = Vec::new();
-    diagnostics.extend(check_plugin_not_declared(manifest, package));
-    diagnostics.extend(check_plugin_unused(manifest, package));
-    diagnostics.extend(check_plugin_namespace_mismatch(manifest, package));
-    diagnostics.extend(check_semantic_plugin_unresolved(manifest, package));
-    diagnostics.extend(check_semantic_plugin_no_validator(manifest, package));
-    diagnostics.extend(check_plugin_manifest_missing(manifest, package));
-    diagnostics.extend(check_plugin_manifest_schema_legacy(manifest, package));
-    diagnostics.extend(check_plugin_readme_missing(manifest, package));
-    diagnostics.extend(check_plugin_catalog_drift(manifest, package));
-    diagnostics.extend(check_submodule_drift(manifest, package));
-    diagnostics.extend(check_migration_strategy_conflict(manifest, package));
-    diagnostics.extend(check_frontend_audience_unknown(manifest, package));
-    diagnostics.extend(check_audience_no_frontend(manifest, package));
-    diagnostics.extend(check_frontend_out_collision(manifest, package));
-    // Wave 0.5 — `DOCTOR-OVERRIDE-NEEDS-REASON-001`. Fires when any
-    // `[doctor.<category>].severity_override.<RULE-CODE>` entry lacks a
-    // non-blank `reason` justification.
-    diagnostics.extend(check_doctor_override_needs_reason(manifest, package));
-    // Frente 1 — `COVERAGE-PRESET-UNKNOWN-001`. Fires when
-    // `[doctor.coverage] preset = "<name>"` names a preset that does
-    // not exist in `CoveragePreset::parse`. Surfacing this as an error
-    // avoids silent "vacuous pass" behavior on a typo.
-    diagnostics.extend(check_coverage_preset_unknown(manifest, package));
-    // Frente 1 — `CONFIG-NOISE-001`. Warning when a config file's
-    // comment ratio is dominated by commentary (more comment lines than
-    // semantic lines). Anchors at `Lazurite.toml` and `Lazuli.toml`.
-    diagnostics.extend(check_config_noise(package));
-    diagnostics
-}
-
-/// Wave 0.5 — `DOCTOR-OVERRIDE-NEEDS-REASON-001` dispatcher.
-///
-/// Lifts the `[doctor.test_discipline].severity_override` table from
-/// the parsed manifest into the rule's portable `OverrideEntry` shape,
-/// invokes the rule, and maps findings to `DoctorDiagnostic`. Anchors
-/// the diagnostic at `Lazurite.toml` line 1 (the rule's structural
-/// payload doesn't yet carry exact TOML line spans; that refinement
-/// lands post-Wave-0.5 once the toml crate exposes spans cleanly).
-pub(super) fn check_doctor_override_needs_reason(
-    manifest: &Manifest,
-    package: &DoctorPackage,
-) -> Vec<DoctorDiagnostic> {
-    use crate::lazurite_manifest as lzr;
-    use lazuli_doctor::test_discipline::override_needs_reason_001::{self, OverrideEntry};
-
-    let Some(doctor) = manifest.doctor.as_ref() else {
-        return Vec::new();
-    };
-    let mut entries: Vec<OverrideEntry> = Vec::new();
-    if let Some(td) = doctor.test_discipline.as_ref() {
-        for (code, ov) in td.severity_override.iter() {
-            let _: &lzr::SeverityOverride = ov; // keep the type pinned
-            entries.push(OverrideEntry {
-                category: RuleCategory::TestDiscipline.as_str().to_owned(),
-                rule_code: code.clone(),
-                severity: ov.severity.clone(),
-                reason: ov.reason.clone(),
-            });
-        }
-    }
-
-    let manifest_path = package.project_root.join(lzr::MANIFEST_FILENAME);
-    let findings = override_needs_reason_001::check(&entries, &manifest_path);
-    findings
-        .into_iter()
-        .map(|finding| {
-            let message = finding.message();
-            let severity = doctor_severity_for(
-                override_needs_reason_001::Finding::CODE,
-                RuleCategory::TestDiscipline,
-                package.security_profile,
-                &std::collections::BTreeMap::new(),
-            );
-            DoctorDiagnostic {
-                path: finding.path,
-                line: 1,
-                column: 1,
-                severity,
-                code: override_needs_reason_001::Finding::CODE.to_owned(),
-                message,
-                category: Some(RuleCategory::TestDiscipline),
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            }
-        })
-        .collect()
-}
-
-/// Frente 1 — `COVERAGE-PRESET-UNKNOWN-001`. Fires when
-/// `[doctor.coverage] preset = "<name>"` names a preset that
-/// `CoveragePreset::parse` does not recognize. Listing the recognized
-/// preset names in the message keeps the diagnostic self-explanatory
-/// to an LLM authoring `Lazurite.toml` cold.
-pub(super) fn check_coverage_preset_unknown(
-    manifest: &Manifest,
-    package: &DoctorPackage,
-) -> Vec<DoctorDiagnostic> {
-    use lazuli_doctor::coverage::CoveragePreset;
-
-    let Some(preset_name) = manifest
-        .doctor
-        .as_ref()
-        .and_then(|d| d.coverage.as_ref())
-        .and_then(|c| c.preset.as_deref())
-    else {
-        return Vec::new();
-    };
-    if CoveragePreset::parse(preset_name).is_some() {
-        return Vec::new();
-    }
-    vec![DoctorDiagnostic {
-        path: package
-            .project_root
-            .join(crate::lazurite_manifest::MANIFEST_FILENAME),
-        line: 1,
-        column: 1,
-        severity: DoctorSeverity::Error,
-        code: "COVERAGE-PRESET-UNKNOWN-001".to_owned(),
-        message: format!(
-            "[doctor.coverage] preset = \"{preset_name}\" is not a recognized preset. \
-             Allowed values: tdd-strict, tdd-mature, off. \
-             Omit the field to fall back to the security-profile defaults."
-        ),
-        category: Some(RuleCategory::Vocabulary),
-        feature_name: None,
-        construct: None,
-        fix: None,
-        group: None,
-    }]
-}
-
-/// Frente 1 — `CONFIG-NOISE-001`. Warns when the comment ratio of a
-/// top-level config file exceeds 1:1 (more comment lines than semantic
-/// lines). The signal: when the user's config file is mostly inline
-/// commentary, the framework is hiding intent behind explanation. The
-/// fix: push the explanation into framework defaults / canonical docs.
-///
-/// Severity is Warning by design — the rule is informational and
-/// never gates. Scope: `Lazurite.toml` (and the legacy lowercase
-/// `lazurite.toml`). `.lzi` / `.lzx` follow in a future cycle once
-/// the comment-vs-statement counter understands Lazuli syntax.
-///
-/// Heuristic logic + 6 unit tests live in
-/// `lazuli_doctor::config_noise`; this function only stitches the
-/// metrics to a `DoctorDiagnostic`.
-pub(super) fn check_config_noise(package: &DoctorPackage) -> Vec<DoctorDiagnostic> {
-    use lazuli_doctor::config_noise::config_noise_metrics;
-    let mut diagnostics = Vec::new();
-    // Prefer the canonical capitalized name; fall back to legacy only
-    // if canonical is absent (mirrors `lazurite_manifest::load`). On
-    // case-insensitive filesystems both `exists()` calls would
-    // otherwise report the same file twice and double-fire.
-    let canonical = package
-        .project_root
-        .join(crate::lazurite_manifest::MANIFEST_FILENAME);
-    let legacy = package
-        .project_root
-        .join(crate::lazurite_manifest::LEGACY_MANIFEST_FILENAME);
-    let (path, filename) = if canonical.exists() {
-        (canonical, crate::lazurite_manifest::MANIFEST_FILENAME)
-    } else if legacy.exists() {
-        (legacy, crate::lazurite_manifest::LEGACY_MANIFEST_FILENAME)
-    } else {
-        return diagnostics;
-    };
-    let Ok(contents) = std::fs::read_to_string(&path) else {
-        return diagnostics;
-    };
-    let metrics = config_noise_metrics(&contents);
-    if metrics.fires() {
-        diagnostics.push(DoctorDiagnostic {
-            path,
-            line: 1,
-            column: 1,
-            severity: DoctorSeverity::Warning,
-            code: "CONFIG-NOISE-001".to_owned(),
-            message: format!(
-                "{filename} has {} comment line(s) vs {} semantic line(s) (ratio {:.2}:1). \
-                 When commentary exceeds config, the framework is leaking \
-                 intent into the user's file — push the knowledge into framework \
-                 defaults or canonical docs. See docs/canonical-semantics.md#config-hygiene.",
-                metrics.comment_lines, metrics.semantic_lines, metrics.ratio()
-            ),
-            category: Some(RuleCategory::Vocabulary),
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-    diagnostics
-}
-
 /// CAP-FILE-POLICY-IMPLICIT (warning) — every `@cap.File` field on
 /// a per-user resource should declare an explicit
 /// `auto_photo_policy: @policy.<name>`. The analyzer's heuristic
@@ -2012,7 +1863,9 @@ pub(super) fn check_config_noise(package: &DoctorPackage) -> Vec<DoctorDiagnosti
 /// pilots can migrate field-by-field; escalating to Error is
 /// gated on every pilot's `@cap.File` sites having explicit
 /// policy declarations.
-pub(super) fn cap_file_policy_implicit_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+pub(super) fn cap_file_policy_implicit_diagnostics(
+    facts: &[Tier3FeatureFacts],
+) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
     for feature in facts {
         for resource in &feature.resources {
@@ -2276,403 +2129,6 @@ pub(super) fn schema_rich_gap_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<Do
     diagnostics
 }
 
-/// PLUGIN-MANIFEST-MISSING (error) — every plugin declared in
-/// `Lazurite.toml [plugins]` with a resolvable local path must ship a
-/// `manifest.toml` at its root. Today the framework silently skips
-/// plugins without a manifest (the alias-builder pass returns
-/// `Ok(None)`); doctor escalates that to an error so the plugin
-/// catalog stays self-describing.
-///
-/// Remote plugins without a `dev.plugin_paths` override skip the
-/// check (the manifest isn't on the local filesystem at all — a
-/// different diagnostic class).
-pub(super) fn check_plugin_manifest_missing(
-    manifest: &crate::lazurite_manifest::Manifest,
-    package: &DoctorPackage,
-) -> Vec<DoctorDiagnostic> {
-    let mut diagnostics = Vec::new();
-    for plugin_ref in manifest.plugins.keys() {
-        let Some(plugin_root) = crate::plugin_manifest::resolve_plugin_root(
-            manifest,
-            &package.project_root,
-            plugin_ref,
-        ) else {
-            continue;
-        };
-        let manifest_path = plugin_root.join(crate::plugin_manifest::PLUGIN_MANIFEST_FILENAME);
-        if manifest_path.exists() {
-            continue;
-        }
-        diagnostics.push(DoctorDiagnostic {
-            path: package.project_root.join("Lazurite.toml"),
-            line: 1,
-            column: 1,
-            severity: DoctorSeverity::Error,
-            code: "PLUGIN-MANIFEST-MISSING".to_owned(),
-            message: format!(
-                "plugin `{plugin_ref}` at `{}` is missing `manifest.toml`. Every plugin must declare a `[plugin]` block (name + namespace + go_module + ts_package) so the catalog stays self-describing. Add `manifest.toml` to the plugin root or remove the plugin from Lazurite.toml [plugins].",
-                plugin_root.display(),
-            ),
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-    diagnostics
-}
-
-/// PLUGIN-MANIFEST-SCHEMA-LEGACY (error) — every plugin
-/// `manifest.toml` MUST declare a `[plugin]` block carrying
-/// `name`/`namespace`/`go_module` (per
-/// `crate::plugin_manifest::PluginManifest`). Some older plugins
-/// (pre-2026-05-12, before the lazuli-ops 85ff076 cutover) used a
-/// flat top-level `name`/`version`/`implements` shape that the
-/// loader accepts silently — codegen falls back to v1 conventions
-/// and the LSP catalog shows the plugin under its DSL ref, but
-/// every downstream feature is degraded.
-///
-/// Wave §A4 hard-cutover (2026-05-23): all 10 known legacy plugins
-/// have been migrated; any remaining legacy manifest is a bug, so
-/// this lint runs at Error severity from day one.
-pub(super) fn check_plugin_manifest_schema_legacy(
-    manifest: &crate::lazurite_manifest::Manifest,
-    package: &DoctorPackage,
-) -> Vec<DoctorDiagnostic> {
-    let mut diagnostics = Vec::new();
-    for plugin_ref in manifest.plugins.keys() {
-        let Some(plugin_root) = crate::plugin_manifest::resolve_plugin_root(
-            manifest,
-            &package.project_root,
-            plugin_ref,
-        ) else {
-            continue;
-        };
-        let manifest_path = plugin_root.join(crate::plugin_manifest::PLUGIN_MANIFEST_FILENAME);
-        let Ok(text) = std::fs::read_to_string(&manifest_path) else {
-            // PLUGIN-MANIFEST-MISSING already covers absence.
-            continue;
-        };
-        // Parse as raw TOML so we can inspect for a `[plugin]` table.
-        // The PluginManifest deserializer treats `plugin` as optional,
-        // so a `PluginManifest::default()` round-trips a legacy
-        // manifest cleanly — that's exactly the silent path we close
-        // here.
-        let Ok(value) = text.parse::<toml::Value>() else {
-            // TOML syntax error is a separate concern; let the loader
-            // surface it through its own error path.
-            continue;
-        };
-        let table = match value.as_table() {
-            Some(t) => t,
-            None => continue,
-        };
-        if table.contains_key("plugin") {
-            continue; // canonical v1 shape — no diagnostic
-        }
-        diagnostics.push(DoctorDiagnostic {
-            path: manifest_path.clone(),
-            line: 1,
-            column: 1,
-            severity: DoctorSeverity::Error,
-            code: "PLUGIN-MANIFEST-SCHEMA-LEGACY".to_owned(),
-            message: format!(
-                "plugin `{plugin_ref}` at `{}` uses the legacy flat manifest schema (top-level `name`/`version`/`implements`). Migrate to the v1 schema with a `[plugin]` block declaring `namespace`, `name`, `go_module`, and `ts_package` (optional). See `docs/proposals/plugin-manifest-v1-hard-cutover-2026-05-23.md` (wave §A4).",
-                manifest_path.display(),
-            ),
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-    diagnostics
-}
-
-/// PLUGIN-README-MISSING (warning) — every plugin with a resolvable
-/// local path should ship a `README.md`. Authors of new pilots (and
-/// new plugin contributors) rely on the README to understand the
-/// surface; missing READMEs silently degrade the catalog quality.
-pub(super) fn check_plugin_readme_missing(
-    manifest: &crate::lazurite_manifest::Manifest,
-    package: &DoctorPackage,
-) -> Vec<DoctorDiagnostic> {
-    let mut diagnostics = Vec::new();
-    for plugin_ref in manifest.plugins.keys() {
-        let Some(plugin_root) = crate::plugin_manifest::resolve_plugin_root(
-            manifest,
-            &package.project_root,
-            plugin_ref,
-        ) else {
-            continue;
-        };
-        // Skip when the manifest itself is missing — the manifest lint
-        // anchors that failure mode, no need to double-flag.
-        let manifest_path = plugin_root.join(crate::plugin_manifest::PLUGIN_MANIFEST_FILENAME);
-        if !manifest_path.exists() {
-            continue;
-        }
-        let readme_path = plugin_root.join("README.md");
-        if readme_path.exists() {
-            continue;
-        }
-        diagnostics.push(DoctorDiagnostic {
-            path: package.project_root.join("Lazurite.toml"),
-            line: 1,
-            column: 1,
-            severity: DoctorSeverity::Warning,
-            code: "PLUGIN-README-MISSING".to_owned(),
-            message: format!(
-                "plugin `{plugin_ref}` at `{}` is missing `README.md`. Plugins should ship a README documenting their surface (Go fns, TS fns, manifest scalars). The catalog page derives from it.",
-                plugin_root.display(),
-            ),
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-    diagnostics
-}
-
-/// PLUGIN-CATALOG-DRIFT (warning) — `dist/plugin-catalog.json` is
-/// expected to be regenerated whenever a plugin's manifest or README
-/// changes. When the catalog's mtime predates any plugin's
-/// `manifest.toml` or `README.md`, the catalog is stale and the LSP /
-/// docs site / `lazuli plugins` CLI will show outdated info.
-///
-/// Quietly skips when the catalog file doesn't exist yet (the next
-/// `lazuli generate ts` will produce it) and when no plugins are
-/// declared. Spec: `docs/proposals/plugin-catalog-file-2026-05-23.md`.
-pub(super) fn check_plugin_catalog_drift(
-    manifest: &crate::lazurite_manifest::Manifest,
-    package: &DoctorPackage,
-) -> Vec<DoctorDiagnostic> {
-    if manifest.plugins.is_empty() {
-        return Vec::new();
-    }
-    let catalog_path = package
-        .project_root
-        .join("dist")
-        .join("plugin-catalog.json");
-    let Ok(catalog_meta) = std::fs::metadata(&catalog_path) else {
-        return Vec::new();
-    };
-    let Ok(catalog_mtime) = catalog_meta.modified() else {
-        return Vec::new();
-    };
-
-    let mut stale_sources: Vec<String> = Vec::new();
-    for plugin_ref in manifest.plugins.keys() {
-        let Some(plugin_root) = crate::plugin_manifest::resolve_plugin_root(
-            manifest,
-            &package.project_root,
-            plugin_ref,
-        ) else {
-            continue;
-        };
-        for relpath in [
-            crate::plugin_manifest::PLUGIN_MANIFEST_FILENAME,
-            "README.md",
-        ] {
-            let p = plugin_root.join(relpath);
-            let Ok(meta) = std::fs::metadata(&p) else {
-                continue;
-            };
-            let Ok(mtime) = meta.modified() else { continue };
-            if mtime > catalog_mtime {
-                stale_sources.push(format!("{plugin_ref} ({relpath})"));
-                break;
-            }
-        }
-    }
-
-    if stale_sources.is_empty() {
-        return Vec::new();
-    }
-    stale_sources.sort();
-
-    vec![DoctorDiagnostic {
-        path: catalog_path.clone(),
-        line: 1,
-        column: 1,
-        severity: DoctorSeverity::Warning,
-        code: "PLUGIN-CATALOG-DRIFT".to_owned(),
-        message: format!(
-            "`dist/plugin-catalog.json` is older than {} plugin source(s) ({}). Run `lazuli generate ts` to refresh the catalog so the LSP / docs site / `lazuli plugins` CLI see current plugin info.",
-            stale_sources.len(),
-            stale_sources.join(", "),
-        ),
-        category: None,
-        feature_name: None,
-        construct: None,
-        fix: None,
-        group: None,
-    }]
-}
-
-/// SEMANTIC-PLUGIN-002 (B4) — `@semantic.<Name>` references that
-/// resolve to a plugin scalar with NO `validator` declared. The type
-/// alias exists but no runtime check enforces it; the field accepts
-/// any string at the wire boundary. Warn-level: some plugins ship
-/// brand aliases intentionally without validation.
-///
-/// Source-of-truth: `docs/proposals/ir-semantic-auto-validate-2026-05-22.md`
-/// (W2 §"Doctor B4").
-pub(super) fn check_semantic_plugin_no_validator(
-    manifest: &crate::lazurite_manifest::Manifest,
-    package: &DoctorPackage,
-) -> Vec<DoctorDiagnostic> {
-    let alias_map =
-        match crate::plugin_manifest::build_alias_map(Some(manifest), &package.project_root) {
-            Ok(map) => map,
-            Err(_) => return Vec::new(), // SEMANTIC-PLUGIN-001 already covers this
-        };
-    let mut diagnostics = Vec::new();
-    for file in &package.files {
-        if !is_lzi_path(&file.path) {
-            continue;
-        }
-        for reference in collect_at_references_in_source(&file.path, &file.source) {
-            let Some(rest) = reference.reference.strip_prefix("@semantic.") else {
-                continue;
-            };
-            let head = rest.split('(').next().unwrap_or(rest);
-            let alias = format!("@semantic.{}", head);
-            let Some(resolved) = alias_map.get(&alias) else {
-                continue;
-            };
-            if !resolved.validator.is_empty() {
-                continue;
-            }
-            diagnostics.push(DoctorDiagnostic {
-                path: reference.path.clone(),
-                line: reference.line,
-                column: reference.column,
-                severity: DoctorSeverity::Warning,
-                code: "SEMANTIC-PLUGIN-002".to_owned(),
-                message: format!(
-                    "plugin semantic type `{alias}` from `{}` does not declare a `validator` in its manifest. The type alias is accepted, but no runtime check enforces the value — invalid input is silently stored. Add a `validator` to the plugin's `[[semantic_types]]` entry, or annotate the field with `@validate.skip` to acknowledge the bypass.",
-                    resolved.plugin_namespace
-                ),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-    }
-    diagnostics
-}
-
-/// SEMANTIC-PLUGIN-001 — `@semantic.<Name>` references in `.lzi` files
-/// that resolve neither against the built-in closed catalog nor any
-/// plugin's `manifest.toml`. Per
-/// `docs/proposals/semantic-types-plugin-locales.md` §New diagnostics.
-///
-/// Three failure modes share the diagnostic code:
-/// 1. Plugin not declared in `Lazurite.toml [plugins]` (the source of
-///    truth for alias activation).
-/// 2. Plugin manifest missing or malformed.
-/// 3. Two or more active plugins declare the same alias (conflict).
-///
-/// The shared error code is intentional — every failure has the same
-/// resolution path (declare the right plugin, fix the manifest).
-pub(super) fn check_semantic_plugin_unresolved(
-    manifest: &crate::lazurite_manifest::Manifest,
-    package: &DoctorPackage,
-) -> Vec<DoctorDiagnostic> {
-    // Build the alias map. Map-construction errors (conflict, mismatch,
-    // unsupported carrier) surface as SEMANTIC-PLUGIN-001 anchored at
-    // the project root because they're project-wide.
-    let alias_map = match crate::plugin_manifest::build_alias_map(
-        Some(manifest),
-        &package.project_root,
-    ) {
-        Ok(map) => map,
-        Err(err) => {
-            return vec![DoctorDiagnostic {
-                path: package.project_root.join("Lazurite.toml"),
-                line: 1,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: "SEMANTIC-PLUGIN-001".to_owned(),
-                message: format!(
-                    "plugin semantic alias map: {}. Fix the affected plugin manifest under [plugins] in Lazurite.toml.",
-                    err
-                ),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            }];
-        }
-    };
-
-    // Closed catalog of built-in `@semantic.<X>` names; matches the
-    // analyzer's `type_ref_from_syntax` match arm. Authors writing one
-    // of these never hit the plugin path.
-    const BUILT_IN_SEMANTIC: &[&str] = &[
-        "Email", "Phone", "Url", "Uuid", "Currency", "GeoPoint", "Money",
-    ];
-
-    let mut diagnostics = Vec::new();
-    for file in &package.files {
-        if !is_lzi_path(&file.path) {
-            continue;
-        }
-        // Walk every `@semantic.<Name>` reference. The shared
-        // `collect_at_references_in_source` picks up the full set of
-        // `@namespace.name` references; we filter to `semantic` here.
-        for reference in collect_at_references_in_source(&file.path, &file.source) {
-            // `reference.reference` is the raw `@semantic.<Name>` text.
-            let Some(rest) = reference.reference.strip_prefix("@semantic.") else {
-                continue;
-            };
-            // Built-ins resolve syntactically — never SEMANTIC-PLUGIN-001.
-            if BUILT_IN_SEMANTIC.contains(&rest) {
-                continue;
-            }
-            // `@semantic.Money(currency:USD)` lifts via parens — pick
-            // the head token before `(` so we don't false-flag a typed
-            // money reference.
-            let head = rest.split('(').next().unwrap_or(rest);
-            if BUILT_IN_SEMANTIC.contains(&head) {
-                continue;
-            }
-            // Strip any trailing non-name punctuation (whitespace lifts
-            // already drop everything after the first non-ident char,
-            // but defensive normalisation here helps when the reference
-            // came from a typed-block line ending in `@validator.x`).
-            let alias = format!("@semantic.{}", head);
-            if alias_map.contains_key(&alias) {
-                continue;
-            }
-            diagnostics.push(DoctorDiagnostic {
-                path: reference.path.clone(),
-                line: reference.line,
-                column: reference.column,
-                severity: DoctorSeverity::Error,
-                code: "SEMANTIC-PLUGIN-001".to_owned(),
-                message: format!(
-                    "unknown plugin semantic type `{alias}`. No plugin in Lazurite.toml [plugins] declares this alias. Add the appropriate `@lazuli/plugin-<name>` to [plugins] or replace the field with a built-in `@semantic.*` type.",
-                ),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-    }
-    diagnostics
-}
-
 pub(super) fn lazuli_version_001_diagnostics(
     app: Option<&DoctorAppManifest>,
     schema: &str,
@@ -2777,897 +2233,6 @@ pub(super) fn lazuli_version_002_diagnostics(
     }]
 }
 
-
-
-
-pub(super) fn check_plugin_not_declared(
-    manifest: &Manifest,
-    package: &DoctorPackage,
-) -> Vec<DoctorDiagnostic> {
-    let declared: BTreeSet<&str> = manifest.plugins.keys().map(|key| key.as_str()).collect();
-    collect_package_plugin_references(package)
-        .into_iter()
-        .filter(|reference| !declared.contains(reference.reference.as_str()))
-        .map(|reference| DoctorDiagnostic {
-            path: reference.path,
-            line: reference.line,
-            column: reference.column,
-            severity: DoctorSeverity::Error,
-            code: "PLUGIN-NOT-DECLARED-001".to_owned(),
-            message: format!(
-                "`.lzi` references `{}`, but Lazurite.toml does not declare it in `[plugins]`.",
-                reference.reference
-            ),
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        })
-        .collect()
-}
-
-pub(super) fn check_plugin_unused(manifest: &Manifest, package: &DoctorPackage) -> Vec<DoctorDiagnostic> {
-    let used: BTreeSet<String> = collect_package_plugin_references(package)
-        .into_iter()
-        .map(|reference| reference.reference)
-        .collect();
-
-    manifest
-        .plugins
-        .keys()
-        .filter(|plugin_ref| !used.contains(*plugin_ref))
-        .map(|plugin_ref| DoctorDiagnostic {
-            path: package.project_root.join("Lazurite.toml"),
-            line: 1,
-            column: 1,
-            severity: DoctorSeverity::Warning,
-            code: "PLUGIN-UNUSED-001".to_owned(),
-            message: format!(
-                "Lazurite.toml declares `{plugin_ref}`, but no `.lzi` file references it."
-            ),
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        })
-        .collect()
-}
-
-pub(super) fn check_plugin_namespace_mismatch(
-    manifest: &Manifest,
-    package: &DoctorPackage,
-) -> Vec<DoctorDiagnostic> {
-    let mut diagnostics = Vec::new();
-    let declared_short: BTreeSet<String> = manifest
-        .plugins
-        .keys()
-        .filter_map(|key| {
-            key.strip_prefix("@lazuli/plugin-")
-                .map(|name| name.to_owned())
-        })
-        .collect();
-
-    for key in manifest.plugins.keys() {
-        if !key.starts_with("@lazuli/plugin-") {
-            diagnostics.push(DoctorDiagnostic {
-                path: package.project_root.join("Lazurite.toml"),
-                line: 1,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: "PLUGIN-NAMESPACE-MISMATCH-001".to_owned(),
-                message: format!(
-                    "manifest plugin key `{key}` does not use the canonical plugin namespace; plugins must be declared as `@lazuli/plugin-<name>`."
-                ),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-    }
-
-    for file in &package.files {
-        if !is_lzi_path(&file.path) {
-            continue;
-        }
-        for reference in collect_at_references_in_source(&file.path, &file.source) {
-            // A canonical plugin reference is `@lazuli/plugin-<name>` —
-            // the @-reference parser yields namespace=`lazuli`,
-            // name=`plugin-<name>` for that shape. Skip it before the
-            // mismatch detector runs.
-            if reference.namespace == "lazuli" && reference.name.starts_with("plugin-") {
-                continue;
-            }
-            if reference.namespace == "adapter" && declared_short.contains(&reference.name) {
-                diagnostics.push(DoctorDiagnostic {
-                    path: reference.path,
-                    line: reference.line,
-                    column: reference.column,
-                    severity: DoctorSeverity::Error,
-                    code: "PLUGIN-NAMESPACE-MISMATCH-001".to_owned(),
-                    message: format!(
-                        "`{}` uses the local adapter namespace, but Lazurite.toml declares `@lazuli/plugin-{}`; use the plugin reference.",
-                        reference.reference, reference.name
-                    ),
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                });
-            } else if !is_allowed_reference_namespace_for_doctor(&reference.namespace)
-                && declared_short.contains(&reference.name)
-            {
-                diagnostics.push(DoctorDiagnostic {
-                    path: reference.path,
-                    line: reference.line,
-                    column: reference.column,
-                    severity: DoctorSeverity::Error,
-                    code: "PLUGIN-NAMESPACE-MISMATCH-001".to_owned(),
-                    message: format!(
-                        "`{}` uses unknown namespace `@{}`, but Lazurite.toml declares `@lazuli/plugin-{}`; use the plugin reference.",
-                        reference.reference, reference.namespace, reference.name
-                    ),
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                });
-            }
-        }
-    }
-
-    diagnostics
-}
-
-pub(super) fn check_submodule_drift(manifest: &Manifest, package: &DoctorPackage) -> Vec<DoctorDiagnostic> {
-    if !manifest
-        .generate
-        .go
-        .as_ref()
-        .map(|go| go.submodule)
-        .unwrap_or(false)
-    {
-        return Vec::new();
-    }
-
-    let root_go_mod = package.project_root.join("go.mod");
-    let dist_go_mod = package.project_root.join("dist/go/go.mod");
-    if !dist_go_mod.is_file() {
-        return Vec::new();
-    }
-
-    let Ok(root_source) = fs::read_to_string(&root_go_mod) else {
-        return Vec::new();
-    };
-    let Ok(dist_source) = fs::read_to_string(&dist_go_mod) else {
-        return Vec::new();
-    };
-    let Some(root_version) = go_mod_lazuli_runtime_version(&root_source) else {
-        return Vec::new();
-    };
-    let Some(dist_version) = go_mod_lazuli_runtime_version(&dist_source) else {
-        return Vec::new();
-    };
-
-    if root_version == dist_version {
-        return Vec::new();
-    }
-
-    vec![DoctorDiagnostic {
-        path: dist_go_mod,
-        line: 1,
-        column: 1,
-        severity: DoctorSeverity::Error,
-        code: "SUBMODULE-DRIFT-001".to_owned(),
-        message: format!(
-            "`dist/go/go.mod` requires lazuli.dev/runtime {dist_version}, but root go.mod requires {root_version}."
-        ),
-        category: None,
-        feature_name: None,
-        construct: None,
-        fix: None,
-        group: None,
-    }]
-}
-
-pub(super) fn check_migration_strategy_conflict(
-    manifest: &Manifest,
-    package: &DoctorPackage,
-) -> Vec<DoctorDiagnostic> {
-    if !matches!(
-        manifest
-            .migrations
-            .as_ref()
-            .map(|migrations| &migrations.strategy),
-        Some(MigrationStrategy::Manual)
-    ) {
-        return Vec::new();
-    }
-
-    let Some(app) = package.app.as_ref() else {
-        return Vec::new();
-    };
-    if app
-        .manifest
-        .deploy
-        .as_ref()
-        .and_then(|deploy| deploy.migrations.as_deref())
-        != Some("before_deploy")
-    {
-        return Vec::new();
-    }
-
-    vec![DoctorDiagnostic {
-        path: app.path.clone(),
-        line: 1,
-        column: 1,
-        severity: DoctorSeverity::Warning,
-        code: "MIGRATION-STRATEGY-CONFLICT-001".to_owned(),
-        message: "`[migrations].strategy = \"manual\"` conflicts with `app.lzi deploy migrations before_deploy`."
-            .to_owned(),
-        category: None,
-        feature_name: None,
-        construct: None,
-        fix: None,
-        group: None,
-    }]
-}
-
-pub(super) fn check_frontend_audience_unknown(
-    manifest: &Manifest,
-    package: &DoctorPackage,
-) -> Vec<DoctorDiagnostic> {
-    let known = collect_known_audiences(&package.files);
-    let mut diagnostics = Vec::new();
-    for (frontend_name, frontend) in &manifest.frontends {
-        for audience in &frontend.audiences {
-            if !known.contains(audience) {
-                diagnostics.push(DoctorDiagnostic {
-                    path: package.project_root.join("Lazurite.toml"),
-                    line: 1,
-                    column: 1,
-                    severity: DoctorSeverity::Error,
-                    code: "FRONTEND-AUDIENCE-UNKNOWN-001".to_owned(),
-                    message: format!(
-                        "`[frontends.{frontend_name}]` ships audience `{audience}`, but no `.lzx` surface declares it."
-                    ),
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                });
-            }
-        }
-    }
-    diagnostics
-}
-
-pub(super) fn check_audience_no_frontend(
-    manifest: &Manifest,
-    package: &DoctorPackage,
-) -> Vec<DoctorDiagnostic> {
-    let shipped: BTreeSet<&str> = manifest
-        .frontends
-        .values()
-        .flat_map(|frontend| frontend.audiences.iter().map(|audience| audience.as_str()))
-        .collect();
-
-    collect_known_audiences(&package.files)
-        .into_iter()
-        .filter(|audience| !shipped.contains(audience.as_str()))
-        .map(|audience| DoctorDiagnostic {
-            path: package.project_root.join("Lazurite.toml"),
-            line: 1,
-            column: 1,
-            severity: DoctorSeverity::Warning,
-            code: "AUDIENCE-NO-FRONTEND-001".to_owned(),
-            message: format!(
-                "`.lzx` declares audience `{audience}`, but no `[frontends.*]` block ships it."
-            ),
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        })
-        .collect()
-}
-
-pub(super) fn check_frontend_out_collision(
-    manifest: &Manifest,
-    package: &DoctorPackage,
-) -> Vec<DoctorDiagnostic> {
-    let mut first_by_out: BTreeMap<&str, &str> = BTreeMap::new();
-    let mut diagnostics = Vec::new();
-    for (name, frontend) in &manifest.frontends {
-        if let Some(first) = first_by_out.insert(frontend.out.as_str(), name.as_str()) {
-            diagnostics.push(DoctorDiagnostic {
-                path: package.project_root.join("Lazurite.toml"),
-                line: 1,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: "FRONTEND-OUT-COLLISION-001".to_owned(),
-                message: format!(
-                    "`[frontends.{name}]` and `[frontends.{first}]` both declare output path `{}`.",
-                    frontend.out
-                ),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-    }
-    diagnostics
-}
-
-
-/// PG.B — collect `(callable_key, body_text, span)` tuples for
-/// every callable in every `.lzi` source so
-/// `diagnose_plan_gate_facts` can run the `GATE-EVAL-ORDER-001`
-/// per-body scan. Body text is the indented region under the callable
-/// header.
-pub(super) fn collect_callable_bodies_for_eval_order(
-    files: &[DoctorFile],
-) -> Vec<(String, String, lazuli_syntax::Span)> {
-    let mut out = Vec::new();
-    for file in files {
-        if !is_lzi_path(&file.path) {
-            continue;
-        }
-        let feature = derive_feature_name(&file.source).unwrap_or_else(|| {
-            file.path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_owned()
-        });
-        // Walk source lines tracking callable header + indent.
-        let mut current: Option<(String, usize, usize, String)> = None; // (key, header_indent, body_offset_start, body)
-        let mut offset = 0usize;
-        for line in file.source.lines() {
-            let line_len = line.len();
-            let trimmed = line.trim_start();
-            let indent = line.len() - trimmed.len();
-            if let Some((_, header_indent, _, _)) = &current {
-                if !trimmed.is_empty() && indent <= *header_indent {
-                    // Close current.
-                    if let Some((key, _, body_start, body)) = current.take() {
-                        out.push((
-                            format!("{}/{}", feature, key),
-                            body,
-                            lazuli_syntax::Span::new(body_start, offset),
-                        ));
-                    }
-                }
-            }
-            if let Some(key) = callable_header_key_from_trimmed(trimmed) {
-                if indent == 2 {
-                    current = Some((key, indent, offset + line_len + 1, String::new()));
-                    offset += line_len + 1;
-                    continue;
-                }
-            }
-            if let Some((_, _, _, body)) = &mut current {
-                body.push_str(line);
-                body.push('\n');
-            }
-            offset += line_len + 1;
-        }
-        if let Some((key, _, body_start, body)) = current.take() {
-            out.push((
-                format!("{}/{}", feature, key),
-                body,
-                lazuli_syntax::Span::new(body_start, offset),
-            ));
-        }
-    }
-    out
-}
-
-pub(super) fn callable_header_key_from_trimmed(trimmed: &str) -> Option<String> {
-    let prefixes: &[(&str, &str)] = &[
-        ("command ", "command"),
-        ("job ", "job"),
-        ("webhook ", "webhook"),
-        ("api ", "api"),
-        ("query.list ", "query.list"),
-        ("query.lookup ", "query.lookup"),
-        ("query.sql ", "query.sql"),
-        ("query.view ", "query.view"),
-    ];
-    for (prefix, kind) in prefixes {
-        if let Some(rest) = trimmed.strip_prefix(*prefix) {
-            let name = rest.split_whitespace().next().unwrap_or_default();
-            if !name.is_empty() {
-                return Some(format!("{}:{}", kind, name));
-            }
-        }
-    }
-    None
-}
-
-pub(super) fn collect_canonical_facts(file: &DoctorFile, operational: &mut OperationalFacts) {
-    let lines: Vec<_> = file.source.lines().collect();
-    collect_operational_lzi_facts(file, &lines, operational);
-    collect_file_capability_facts(file, &lines, operational);
-
-    let mut index = 0;
-    while index < lines.len() {
-        let trimmed = lines[index].trim_start();
-        if leading_spaces(lines[index]) != 0 || !trimmed.starts_with("feature ") {
-            index += 1;
-            continue;
-        }
-
-        let feature = trimmed
-            .split_whitespace()
-            .nth(1)
-            .unwrap_or("<anonymous>")
-            .to_owned();
-        let start = index;
-        index += 1;
-        while index < lines.len()
-            && !(leading_spaces(lines[index]) == 0
-                && lines[index].trim_start().starts_with("feature "))
-        {
-            index += 1;
-        }
-
-        collect_feature_integration_requirements(
-            file,
-            &feature,
-            start,
-            &lines[start..index],
-            operational,
-        );
-        // Phase L Tier 4 follow-up — the `job` branch of
-        // `collect_external_calls_in_block` is retired alongside the
-        // legacy `command` branch. Jobs now flow through
-        // `populate_job_external_calls_from_ir` which reads
-        // `Job.external_calls[*].span_ref` plus the typed
-        // `Job.timeout` / `Job.retry` / `Job.idempotency` axes.
-    }
-}
-
-pub(super) fn collect_feature_integration_requirements(
-    file: &DoctorFile,
-    feature: &str,
-    feature_start: usize,
-    lines: &[&str],
-    operational: &mut OperationalFacts,
-) {
-    let mut in_requires_block = false;
-
-    for (offset, line) in lines.iter().enumerate() {
-        let trimmed = line.trim_start();
-        let leading = leading_spaces(line);
-
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-
-        if leading == 2 {
-            in_requires_block = trimmed == "requires";
-            if let Some(requirement) = trimmed.strip_prefix("requires ") {
-                if let Some((slot, contract)) = parse_integration_requirement(requirement) {
-                    operational
-                        .integration_requirements
-                        .push(IntegrationRequirementFact {
-                            path: file.path.clone(),
-                            line: feature_start + offset + 1,
-                            column: leading + 1,
-                            feature: feature.to_owned(),
-                            slot: slot.to_owned(),
-                            contract: contract.to_owned(),
-                        });
-                }
-            }
-            continue;
-        }
-
-        if leading <= 2 {
-            in_requires_block = false;
-        }
-
-        if in_requires_block
-            && leading == 4
-            && let Some((slot, contract)) = parse_integration_requirement(trimmed)
-        {
-            operational
-                .integration_requirements
-                .push(IntegrationRequirementFact {
-                    path: file.path.clone(),
-                    line: feature_start + offset + 1,
-                    column: leading + 1,
-                    feature: feature.to_owned(),
-                    slot: slot.to_owned(),
-                    contract: contract.to_owned(),
-                });
-        }
-    }
-}
-
-/// Phase L Tier 4 follow-up — IR-driven replacement for the retired
-/// `job` branch of `collect_external_calls_in_block`. Walks each
-/// `job.external_calls` entry, reads `ExternalCallRef.span_ref` to
-/// anchor the diagnostic at the `calls <slot>.<op>` line, and emits an
-/// `ExternalCallFact` carrying the typed `has_timeout` / `has_retry` /
-/// `has_idempotency` axes lifted from the `Job` IR. The job branch of
-/// the legacy text walker is gone.
-pub(super) fn populate_job_external_calls_from_ir(
-    file: &DoctorFile,
-    feature: &lazuli_ir::Feature,
-    operational: &mut OperationalFacts,
-) {
-    if feature.jobs.is_empty() {
-        return;
-    }
-    let job_lines = collect_construct_lines(
-        &file.source,
-        "job ",
-        feature.jobs.iter().map(|j| j.name.as_str()).collect(),
-    );
-    for job in &feature.jobs {
-        if job.external_calls.is_empty() {
-            continue;
-        }
-        let header_line = job_lines.get(&job.name).copied().unwrap_or(1);
-        let has_timeout = job.timeout.is_some();
-        let has_retry = job.retry.is_some();
-        let has_idempotency = job.idempotency.is_some();
-        let subject = format!("{}.job.{}", feature.name, job.name);
-        for call in &job.external_calls {
-            let (call_line, call_column) = match call.span_ref.as_ref() {
-                Some(span) => {
-                    let (line, col) = line_col_for_offset(&file.source, span.start);
-                    (line, col)
-                }
-                None => (header_line, 1),
-            };
-            operational.external_calls.push(ExternalCallFact {
-                path: file.path.clone(),
-                line: call_line,
-                column: call_column,
-                feature: feature.name.clone(),
-                subject_kind: "job".to_owned(),
-                subject: subject.clone(),
-                slot: call.slot.clone(),
-                operation: call.op.clone(),
-                has_timeout,
-                has_retry,
-                has_idempotency,
-            });
-        }
-    }
-}
-
-/// Phase L Tier 4 follow-up — IR-driven replacement for the retired
-/// `command` branch of `collect_external_calls_in_block`. Walks each
-/// `command.external_calls` entry, finds its `calls <slot>.<op>` line
-/// in the source, and emits an `ExternalCallFact` carrying the typed
-/// `has_timeout` / `has_retry` / `has_idempotency` axes lifted from the
-/// `Command` IR. The line lookup is keyed on the verbatim `calls
-/// <slot>.<op>` substring inside the command body's source range, so
-/// the diagnostic anchors stay precise.
-pub(super) fn populate_command_external_calls_from_ir(
-    file: &DoctorFile,
-    feature: &lazuli_ir::Feature,
-    operational: &mut OperationalFacts,
-) {
-    if feature.commands.is_empty() {
-        return;
-    }
-    let command_lines = collect_construct_lines(
-        &file.source,
-        "command ",
-        feature.commands.iter().map(|c| c.name.as_str()).collect(),
-    );
-    let source_lines: Vec<&str> = file.source.lines().collect();
-    for command in &feature.commands {
-        if command.external_calls.is_empty() {
-            continue;
-        }
-        let header_line = command_lines
-            .get(&command.name)
-            .copied()
-            .unwrap_or(1)
-            .saturating_sub(1);
-        // Block ends at the next top-level construct (indent <= 2).
-        let mut block_end = header_line + 1;
-        while block_end < source_lines.len() && leading_spaces(source_lines[block_end]) > 2 {
-            block_end += 1;
-        }
-        let has_timeout = command.timeout.is_some();
-        let has_retry = command.retry.is_some();
-        let has_idempotency = command.idempotency.is_some();
-        let subject = format!("{}.command.{}", feature.name, command.name);
-        for call in &command.external_calls {
-            let needle = format!("calls {}.{}", call.slot, call.op);
-            let mut call_line = header_line + 1; // fall back to header
-            let mut call_column = 1;
-            for i in (header_line + 1)..block_end {
-                if source_lines[i].trim_start().starts_with(needle.as_str()) {
-                    call_line = i + 1;
-                    call_column = leading_spaces(source_lines[i]) + 1;
-                    break;
-                }
-            }
-            operational.external_calls.push(ExternalCallFact {
-                path: file.path.clone(),
-                line: call_line,
-                column: call_column,
-                feature: feature.name.clone(),
-                subject_kind: "command".to_owned(),
-                subject: subject.clone(),
-                slot: call.slot.clone(),
-                operation: call.op.clone(),
-                has_timeout,
-                has_retry,
-                has_idempotency,
-            });
-        }
-    }
-}
-
-pub(super) fn collect_operational_lzi_facts(
-    file: &DoctorFile,
-    lines: &[&str],
-    operational: &mut OperationalFacts,
-) {
-    for (index, line) in lines.iter().enumerate() {
-        let trimmed = line.trim_start();
-        let line_number = index + 1;
-        let column = leading_spaces(line) + 1;
-
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-
-        if leading_spaces(line) == 0 && trimmed.starts_with("feature ") {
-            if let Some(feature) = trimmed.split_whitespace().nth(1) {
-                operational.features.insert(
-                    feature.to_owned(),
-                    SourceFact {
-                        path: file.path.clone(),
-                        line: line_number,
-                        column,
-                        name: feature.to_owned(),
-                    },
-                );
-            }
-        }
-
-        for reference in path_references(trimmed, "env.") {
-            operational.env_references.push(SourceFact {
-                path: file.path.clone(),
-                line: line_number,
-                column,
-                name: reference.to_owned(),
-            });
-        }
-
-        if trimmed.contains("@cap.File") {
-            operational.file_capabilities.push(SourceFact {
-                path: file.path.clone(),
-                line: line_number,
-                column,
-                name: "@cap.File".to_owned(),
-            });
-        }
-
-        if leading_spaces(line) == 2 && trimmed.starts_with("api ") {
-            operational.apis.push(SourceFact {
-                path: file.path.clone(),
-                line: line_number,
-                column,
-                name: named_block_name(trimmed, "api")
-                    .unwrap_or("unknown")
-                    .to_owned(),
-            });
-        }
-
-        if leading_spaces(line) == 2 && trimmed.starts_with("webhook ") {
-            operational.webhooks.push(SourceFact {
-                path: file.path.clone(),
-                line: line_number,
-                column,
-                name: named_block_name(trimmed, "webhook")
-                    .unwrap_or("unknown")
-                    .to_owned(),
-            });
-        }
-
-        if leading_spaces(line) == 2 && trimmed.starts_with("job ") {
-            let job_name = named_block_name(trimmed, "job").unwrap_or("unknown");
-            let fact = SourceFact {
-                path: file.path.clone(),
-                line: line_number,
-                column,
-                name: job_name.to_owned(),
-            };
-            if job_block_has_schedule(lines, index) {
-                operational.schedules.push(fact.clone());
-            }
-            operational.jobs.push(fact);
-        }
-    }
-}
-
-pub(super) fn named_block_name<'a>(trimmed: &'a str, keyword: &str) -> Option<&'a str> {
-    let rest = trimmed.strip_prefix(keyword)?.trim_start();
-    rest.split_whitespace().next()
-}
-
-pub(super) fn job_block_has_schedule(lines: &[&str], start: usize) -> bool {
-    let mut index = start + 1;
-    while index < lines.len() {
-        let line = lines[index];
-        let trimmed = line.trim_start();
-        if !trimmed.is_empty() && leading_spaces(line) <= 2 {
-            break;
-        }
-        if leading_spaces(line) == 4 && trimmed.starts_with("trigger schedule ") {
-            return true;
-        }
-        index += 1;
-    }
-    false
-}
-
-/// Phase L Tier 4 follow-up — IR-driven replacement for the retired
-/// `collect_feature_commands` text-walker. Reads `feature.commands`
-/// (typed) and populates the `commands: BTreeMap<CommandKey, CommandPolicy>`
-/// map that `policy_reachability_diagnostics` +
-/// `command_route_binding_diagnostics` consume.
-///
-/// Commands without a `policy` clause are skipped (mirroring the old
-/// walker, which only inserted entries when it saw `policy ...`).
-///
-/// `@policy.<name>` atoms expand against the typed
-/// `feature.policies.categories` slot, populated by
-/// `lower_feature_skeleton` from the canonical-indent `policies` block.
-/// The retired `collect_policy_atoms` text-walker that previously
-/// resolved these names is gone. Route slot binding-from-context reads
-/// typed `RouteSlot.from`.
-pub(super) fn populate_commands_from_ir(
-    feature: &lazuli_ir::Feature,
-    commands: &mut BTreeMap<CommandKey, CommandPolicy>,
-) {
-    use lazuli_ir::PolicyRef;
-
-    let local_policies: BTreeMap<&str, &Vec<String>> = feature
-        .policies
-        .categories
-        .iter()
-        .map(|c| (c.name.as_str(), &c.atoms))
-        .collect();
-
-    for command in &feature.commands {
-        let (reference, atoms) = match &command.policy {
-            PolicyRef::None | PolicyRef::Unresolved(_) => continue,
-            PolicyRef::Atom(atom) => {
-                let reference = format!("@{atom}");
-                let atoms = if let Some(local) = atom.strip_prefix("policy.") {
-                    local_policies
-                        .get(local)
-                        .map(|atoms| (*atoms).clone())
-                        .unwrap_or_default()
-                } else {
-                    vec![reference.clone()]
-                };
-                (reference, atoms)
-            }
-            PolicyRef::Local(name) => (name.clone(), Vec::new()),
-            PolicyRef::External { feature, name } => {
-                let reference = format!("{feature}.policy.{name}");
-                (reference, Vec::new())
-            }
-        };
-
-        let routes = command
-            .route
-            .iter()
-            .map(|slot| {
-                (
-                    slot.name.clone(),
-                    CommandRouteSlot {
-                        bound_from_context: slot.from.is_some(),
-                    },
-                )
-            })
-            .collect();
-
-        commands.insert(
-            CommandKey {
-                feature: feature.name.clone(),
-                command: command.name.clone(),
-            },
-            CommandPolicy {
-                reference,
-                atoms,
-                routes,
-            },
-        );
-    }
-}
-
-pub(super) fn collect_lzx_experience_facts(
-    document: &LzxDocument,
-    experiences: &mut BTreeMap<String, ExperienceFacts>,
-) {
-    for experience in &document.experiences {
-        let facts = experiences.entry(experience.name.clone()).or_default();
-        for view in &experience.views {
-            facts.view_routes.insert(
-                view.name.clone(),
-                view.routes
-                    .iter()
-                    .filter_map(|route| route_slot_name(route).map(str::to_owned))
-                    .collect(),
-            );
-            let actions = facts.view_actions.entry(view.name.clone()).or_default();
-            for action in &view.actions {
-                actions.insert(action.name.clone(), action.target.clone());
-            }
-        }
-    }
-}
-
-pub(super) fn collect_lzx_operational_facts(
-    file: &DoctorFile,
-    document: &LzxDocument,
-    operational: &mut OperationalFacts,
-) {
-    for route in &document.routes {
-        let (line, column) = line_col_for_offset(&file.source, route.span.start);
-        let fact = SourceFact {
-            path: file.path.clone(),
-            line,
-            column,
-            name: route.name.clone(),
-        };
-        match lzx_route_surface_platform(route.surface.as_deref()) {
-            Some(LzxPlatform::Web) => operational.web_routes.push(fact),
-            Some(LzxPlatform::Mobile) => operational.mobile_routes.push(fact),
-            None => {
-                if route.path.is_some() {
-                    operational.web_routes.push(fact);
-                }
-            }
-        }
-    }
-
-    for surface in &document.surfaces {
-        let (line, column) = line_col_for_offset(&file.source, surface.span.start);
-        let fact = SourceFact {
-            path: file.path.clone(),
-            line,
-            column,
-            name: surface.experience.clone(),
-        };
-        match surface.platform {
-            LzxPlatform::Web => operational.web_surfaces.push(fact),
-            LzxPlatform::Mobile => operational.mobile_surfaces.push(fact),
-        }
-    }
-}
-
-pub(super) fn lzx_route_surface_platform(surface: Option<&str>) -> Option<LzxPlatform> {
-    match surface?.split_whitespace().last()? {
-        "web" => Some(LzxPlatform::Web),
-        "mobile" => Some(LzxPlatform::Mobile),
-        _ => None,
-    }
-}
-
 pub(super) fn policy_reachability_diagnostics(
     files: &[DoctorFile],
     experiences: &BTreeMap<String, ExperienceFacts>,
@@ -3745,7 +2310,9 @@ pub(super) fn policy_reachability_diagnostics(
     diagnostics
 }
 
-pub(super) fn missing_policy_on_query_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+pub(super) fn missing_policy_on_query_diagnostics(
+    facts: &[Tier3FeatureFacts],
+) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
     let mut seen = BTreeSet::new();
 
@@ -3788,7 +2355,9 @@ pub(super) fn missing_policy_on_query_diagnostics(facts: &[Tier3FeatureFacts]) -
     diagnostics
 }
 
-pub(super) fn duplicate_query_name_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+pub(super) fn duplicate_query_name_diagnostics(
+    facts: &[Tier3FeatureFacts],
+) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
 
     for fact in facts {
@@ -3826,7 +2395,9 @@ pub(super) fn duplicate_query_name_diagnostics(facts: &[Tier3FeatureFacts]) -> V
 /// `route <name>: <Type>` slot on an `updates` / `deletes` effect has
 /// no matching input slot to back the codegen's `FromInput(...)`
 /// binding. Anchored at the command header via `command_lines`.
-pub(super) fn route_id_effect_consistency_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+pub(super) fn route_id_effect_consistency_diagnostics(
+    facts: &[Tier3FeatureFacts],
+) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
     let mut seen = BTreeSet::new();
 
@@ -3874,7 +2445,9 @@ pub(super) fn route_id_effect_consistency_diagnostics(facts: &[Tier3FeatureFacts
 /// across ALL features (cross-feature read queries count, per cycle
 /// decision). Anchored at the command header line; falls back to the
 /// feature header when the command line is unknown.
-pub(super) fn mutation_without_readback_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+pub(super) fn mutation_without_readback_diagnostics(
+    facts: &[Tier3FeatureFacts],
+) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
     let mut seen = BTreeSet::new();
 
@@ -3930,7 +2503,9 @@ pub(super) fn mutation_without_readback_diagnostics(facts: &[Tier3FeatureFacts])
 /// effective timestamps enabled. Anchored at the feature header because the
 /// finding is resource-scoped and the current fact row does not carry
 /// resource-header line anchors.
-pub(super) fn updates_missing_updated_at_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+pub(super) fn updates_missing_updated_at_diagnostics(
+    facts: &[Tier3FeatureFacts],
+) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
     let mut seen = BTreeSet::new();
 
@@ -3964,9 +2539,6 @@ pub(super) fn updates_missing_updated_at_diagnostics(facts: &[Tier3FeatureFacts]
 
     diagnostics
 }
-
-
-
 
 pub(super) fn app_binding_contract_diagnostics(
     app: &DoctorAppManifest,
@@ -4129,11 +2701,9 @@ pub(super) fn app_binding_contract_diagnostics(
     diagnostics
 }
 
-
 // -----------------------------------------------------------------------------
 // Phase L Tier 3 — jobs bucket cycle (row 33) — six IR-driven diagnostics.
 // -----------------------------------------------------------------------------
-
 
 /// Phase L Tier 3 — EVENTGROUP-NESTING-001 + the pattern-prefix
 /// promotion (row 34). Two rules over `event_group`:
@@ -4145,7 +2715,6 @@ pub(super) fn app_binding_contract_diagnostics(
 ///   must share the pattern prefix (`customer_*` → events must start
 ///   with `customer_`). Promoted from the LSP `event_group_can_own_
 ///   short_event_declarations` rule.
-
 
 pub(super) fn profile_contract_diagnostics(
     app: &DoctorAppManifest,
@@ -4950,7 +3519,10 @@ pub(super) fn resolve_platform_action_target(
     resolve_command_target(target, default_feature)
 }
 
-pub(super) fn resolve_command_target(target: &str, default_feature: &str) -> Option<ResolvedCommandTarget> {
+pub(super) fn resolve_command_target(
+    target: &str,
+    default_feature: &str,
+) -> Option<ResolvedCommandTarget> {
     let target = target.trim();
     let (callee, args) = split_target_call(target);
 
@@ -5016,7 +3588,11 @@ pub(super) fn route_slot_name(route: &str) -> Option<&str> {
         .filter(|name| is_identifier(name))
 }
 
-pub(super) fn audience_can_reach_policy(audience: &str, qualifiers: &[String], atoms: &[String]) -> bool {
+pub(super) fn audience_can_reach_policy(
+    audience: &str,
+    qualifiers: &[String],
+    atoms: &[String],
+) -> bool {
     if atoms.iter().any(|atom| atom == "@scope.public") {
         return true;
     }
@@ -5072,7 +3648,6 @@ pub(super) fn line_col_for_offset(source: &str, offset: usize) -> (usize, usize)
 
     (line, column)
 }
-
 
 pub(super) fn path_references<'a>(source: &'a str, prefix: &str) -> Vec<&'a str> {
     let mut references = Vec::new();
@@ -5138,7 +3713,9 @@ struct AtReferenceFact {
     name: String,
 }
 
-pub(super) fn collect_package_plugin_references(package: &DoctorPackage) -> Vec<PluginReferenceFact> {
+pub(super) fn collect_package_plugin_references(
+    package: &DoctorPackage,
+) -> Vec<PluginReferenceFact> {
     package
         .files
         .iter()
@@ -5147,7 +3724,10 @@ pub(super) fn collect_package_plugin_references(package: &DoctorPackage) -> Vec<
         .collect()
 }
 
-pub(super) fn collect_plugin_references_in_source(path: &Path, source: &str) -> Vec<PluginReferenceFact> {
+pub(super) fn collect_plugin_references_in_source(
+    path: &Path,
+    source: &str,
+) -> Vec<PluginReferenceFact> {
     let mut references = Vec::new();
     let mut offset = 0;
     while let Some(relative_start) = source[offset..].find("@lazuli/plugin-") {
@@ -5286,540 +3866,6 @@ pub(super) fn go_mod_lazuli_runtime_version(source: &str) -> Option<String> {
     None
 }
 
-const SEMANTIC_TYPE_UNKNOWN_CODE: &str = "semantic_type_unknown";
-const SEMANTIC_TYPE_CATALOG: &str =
-    "EMAIL, PHONE, URL, UUID, DATE, CURRENCY, MONEY, JSON, GEOPOINT";
-
-pub(super) fn semantic_type_unknown_diagnostics_for_syntax_feature(
-    path: &Path,
-    source: &str,
-    feature: &lazuli_syntax::FeatureSkeleton,
-) -> Vec<DoctorDiagnostic> {
-    let mut diagnostics = Vec::new();
-
-    for command in &feature.commands {
-        for route in &command.route {
-            push_unknown_semantic_type_text(
-                path,
-                source,
-                &route.type_text,
-                route.span.start,
-                &mut diagnostics,
-            );
-        }
-        if let lazuli_syntax::CommandInputDecl::Typed(slots) = &command.input {
-            for slot in slots {
-                push_unknown_semantic_type_text(
-                    path,
-                    source,
-                    &slot.type_text,
-                    slot.span.start,
-                    &mut diagnostics,
-                );
-            }
-        }
-        if let Some(returns) = command.returns.as_deref() {
-            push_unknown_semantic_type_text(
-                path,
-                source,
-                returns,
-                command.span.start,
-                &mut diagnostics,
-            );
-        }
-        if let Some(handler) = command.handler.as_ref() {
-            if let Some(returns) = handler.returns.as_deref() {
-                push_unknown_semantic_type_text(
-                    path,
-                    source,
-                    returns,
-                    command.span.start,
-                    &mut diagnostics,
-                );
-            }
-        }
-    }
-
-    for query in &feature.queries {
-        match query {
-            lazuli_syntax::QueryDecl::List(query) => {
-                for param in &query.params {
-                    push_unknown_semantic_type_text(
-                        path,
-                        source,
-                        &param.type_text,
-                        param.span.start,
-                        &mut diagnostics,
-                    );
-                }
-            }
-            lazuli_syntax::QueryDecl::Lookup(query) => {
-                for key in &query.keys {
-                    push_unknown_semantic_type_text(
-                        path,
-                        source,
-                        &key.type_text,
-                        key.span.start,
-                        &mut diagnostics,
-                    );
-                }
-            }
-            lazuli_syntax::QueryDecl::Sql(query) => {
-                for param in &query.params {
-                    push_unknown_semantic_type_text(
-                        path,
-                        source,
-                        &param.type_text,
-                        param.span.start,
-                        &mut diagnostics,
-                    );
-                }
-                push_unknown_semantic_type_text(
-                    path,
-                    source,
-                    &query.returns,
-                    query.span.start,
-                    &mut diagnostics,
-                );
-            }
-        }
-    }
-
-    for api in &feature.apis {
-        push_unknown_semantic_type_text(
-            path,
-            source,
-            &api.output,
-            api.span.start,
-            &mut diagnostics,
-        );
-    }
-
-    for job in &feature.jobs {
-        match &job.body {
-            lazuli_syntax::JobBody::Handler(handler) => {
-                if let Some(returns) = handler.returns.as_deref() {
-                    push_unknown_semantic_type_text(
-                        path,
-                        source,
-                        returns,
-                        job.span.start,
-                        &mut diagnostics,
-                    );
-                }
-            }
-            lazuli_syntax::JobBody::Declarative(_) => {}
-            lazuli_syntax::JobBody::None => {}
-        }
-    }
-
-    for webhook in &feature.webhooks {
-        if let Some(handler) = webhook.handler.as_ref() {
-            if let Some(returns) = handler.returns.as_deref() {
-                push_unknown_semantic_type_text(
-                    path,
-                    source,
-                    returns,
-                    webhook.span.start,
-                    &mut diagnostics,
-                );
-            }
-        }
-    }
-
-    for agent in &feature.agents {
-        for slot in &agent.input {
-            push_unknown_semantic_type_text(
-                path,
-                source,
-                &slot.type_text,
-                slot.span.start,
-                &mut diagnostics,
-            );
-        }
-        if let Some(output) = agent.output.as_ref() {
-            match output {
-                lazuli_syntax::AgentOutput::Stream(type_text)
-                | lazuli_syntax::AgentOutput::Plain(type_text) => {
-                    push_unknown_semantic_type_text(
-                        path,
-                        source,
-                        type_text,
-                        agent.span.start,
-                        &mut diagnostics,
-                    );
-                }
-                lazuli_syntax::AgentOutput::Discriminator(_) => {}
-            }
-        }
-        if let Some(expose) = agent.expose.as_ref() {
-            for slot in &expose.route_slots {
-                push_unknown_semantic_type_text(
-                    path,
-                    source,
-                    &slot.type_text,
-                    slot.span.start,
-                    &mut diagnostics,
-                );
-            }
-        }
-    }
-
-    diagnostics
-}
-
-pub(super) fn semantic_type_unknown_diagnostics_for_feature(
-    path: &Path,
-    source: &str,
-    feature: &lazuli_ir::Feature,
-) -> Vec<DoctorDiagnostic> {
-    let mut diagnostics = Vec::new();
-    let feature_loc = span_line_col(source, feature.span_ref.as_ref()).unwrap_or((1, 1));
-
-    for resource in &feature.resources {
-        let resource_loc = span_line_col(source, resource.span_ref.as_ref()).unwrap_or(feature_loc);
-        for field in &resource.fields {
-            let loc = span_line_col(source, field.span_ref.as_ref())
-                .or_else(|| find_nested_type_site_line(source, resource_loc.0, &field.name))
-                .unwrap_or(resource_loc);
-            push_unknown_semantic_type(path, &field.type_ref, loc, &mut diagnostics);
-        }
-    }
-
-    for record in &feature.records {
-        let record_loc = span_line_col(source, record.span_ref.as_ref()).unwrap_or(feature_loc);
-        for field in &record.fields {
-            let loc = span_line_col(source, field.span_ref.as_ref())
-                .or_else(|| find_nested_type_site_line(source, record_loc.0, &field.name))
-                .unwrap_or(record_loc);
-            push_unknown_semantic_type(path, &field.type_ref, loc, &mut diagnostics);
-        }
-    }
-
-    for event in &feature.events {
-        let event_loc = span_line_col(source, event.span_ref.as_ref()).unwrap_or(feature_loc);
-        for field in &event.payload {
-            let loc =
-                find_nested_type_site_line(source, event_loc.0, &field.name).unwrap_or(event_loc);
-            push_unknown_semantic_type(path, &field.type_ref, loc, &mut diagnostics);
-        }
-    }
-
-    for command in &feature.commands {
-        let command_loc = span_line_col(source, command.span_ref.as_ref()).unwrap_or(feature_loc);
-        for slot in &command.route {
-            let loc = find_nested_type_site_line(source, command_loc.0, &slot.name)
-                .unwrap_or(command_loc);
-            push_unknown_semantic_type(path, &slot.type_ref, loc, &mut diagnostics);
-        }
-        if let lazuli_ir::CommandInput::Typed(slots) = &command.input {
-            check_typed_slots_for_unknown_semantics(
-                path,
-                source,
-                slots,
-                command_loc,
-                &mut diagnostics,
-            );
-        }
-        check_command_effect_for_unknown_semantics(
-            path,
-            &command.effect,
-            command_loc,
-            &mut diagnostics,
-        );
-    }
-
-    for query in &feature.queries {
-        let query_loc = query_line_col(source, query).unwrap_or(feature_loc);
-        match query {
-            lazuli_ir::Query::List(query) => {
-                check_typed_slots_for_unknown_semantics(
-                    path,
-                    source,
-                    &query.params,
-                    query_loc,
-                    &mut diagnostics,
-                );
-            }
-            lazuli_ir::Query::Lookup(query) => {
-                check_typed_slots_for_unknown_semantics(
-                    path,
-                    source,
-                    &query.params,
-                    query_loc,
-                    &mut diagnostics,
-                );
-            }
-            lazuli_ir::Query::Sql(query) => {
-                check_typed_slots_for_unknown_semantics(
-                    path,
-                    source,
-                    &query.params,
-                    query_loc,
-                    &mut diagnostics,
-                );
-                push_unknown_semantic_type(path, &query.returns, query_loc, &mut diagnostics);
-            }
-        }
-    }
-
-    for job in &feature.jobs {
-        let job_loc = span_line_col(source, job.span_ref.as_ref()).unwrap_or(feature_loc);
-        match &job.body {
-            lazuli_ir::JobBody::Handler(handler) => {
-                if let Some(returns) = handler.returns.as_ref() {
-                    push_unknown_semantic_type(path, returns, job_loc, &mut diagnostics);
-                }
-            }
-            lazuli_ir::JobBody::Declarative(body) => {
-                check_command_effect_for_unknown_semantics(
-                    path,
-                    &body.effect,
-                    job_loc,
-                    &mut diagnostics,
-                );
-            }
-        }
-    }
-
-    for webhook in &feature.webhooks {
-        let webhook_loc = span_line_col(source, webhook.span_ref.as_ref()).unwrap_or(feature_loc);
-        if let Some(returns) = webhook.returns.as_ref() {
-            push_unknown_semantic_type(path, returns, webhook_loc, &mut diagnostics);
-        }
-    }
-
-    for api in &feature.apis {
-        let api_loc = span_line_col(source, api.span_ref.as_ref()).unwrap_or(feature_loc);
-        push_unknown_semantic_type(path, &api.output, api_loc, &mut diagnostics);
-    }
-
-    for agent in &feature.agents {
-        let agent_loc = span_line_col(source, agent.span_ref.as_ref()).unwrap_or(feature_loc);
-        check_typed_slots_for_unknown_semantics(
-            path,
-            source,
-            &agent.input,
-            agent_loc,
-            &mut diagnostics,
-        );
-        if let Some(output_type) = agent.output_type.as_ref() {
-            push_unknown_semantic_type(path, output_type, agent_loc, &mut diagnostics);
-        }
-        if let Some(expose) = agent.expose_http.as_ref() {
-            let expose_loc = span_line_col(source, expose.span_ref.as_ref()).unwrap_or(agent_loc);
-            check_typed_slots_for_unknown_semantics(
-                path,
-                source,
-                &expose.route_slots,
-                expose_loc,
-                &mut diagnostics,
-            );
-        }
-    }
-
-    for extension in &feature.extensions {
-        let extension_loc =
-            span_line_col(source, extension.span_ref.as_ref()).unwrap_or(feature_loc);
-        check_extension_contract_for_unknown_semantics(
-            path,
-            &extension.contract,
-            extension_loc,
-            &mut diagnostics,
-        );
-    }
-
-    diagnostics
-}
-
-pub(super) fn check_typed_slots_for_unknown_semantics(
-    path: &Path,
-    source: &str,
-    slots: &[lazuli_ir::TypedSlot],
-    parent_loc: (usize, usize),
-    diagnostics: &mut Vec<DoctorDiagnostic>,
-) {
-    for slot in slots {
-        let loc =
-            find_nested_type_site_line(source, parent_loc.0, &slot.name).unwrap_or(parent_loc);
-        push_unknown_semantic_type(path, &slot.type_ref, loc, diagnostics);
-    }
-}
-
-pub(super) fn check_command_effect_for_unknown_semantics(
-    path: &Path,
-    effect: &lazuli_ir::CommandEffect,
-    loc: (usize, usize),
-    diagnostics: &mut Vec<DoctorDiagnostic>,
-) {
-    if let lazuli_ir::CommandEffect::Returns(returns) = effect {
-        push_unknown_semantic_type(path, &returns.return_type, loc, diagnostics);
-    }
-}
-
-pub(super) fn check_extension_contract_for_unknown_semantics(
-    path: &Path,
-    contract: &lazuli_ir::ExtensionContract,
-    loc: (usize, usize),
-    diagnostics: &mut Vec<DoctorDiagnostic>,
-) {
-    match contract {
-        lazuli_ir::ExtensionContract::CellRenderer { type_arg }
-        | lazuli_ir::ExtensionContract::ViewBlock { type_arg }
-        | lazuli_ir::ExtensionContract::FormField { type_arg }
-        | lazuli_ir::ExtensionContract::Hook { type_arg }
-        | lazuli_ir::ExtensionContract::Validator { type_arg }
-        | lazuli_ir::ExtensionContract::QueryModifier { type_arg }
-        | lazuli_ir::ExtensionContract::IntegrationAdapter { type_arg } => {
-            push_unknown_semantic_type(path, type_arg, loc, diagnostics);
-        }
-        lazuli_ir::ExtensionContract::Function { input, output } => {
-            push_unknown_semantic_type(path, input, loc, diagnostics);
-            push_unknown_semantic_type(path, output, loc, diagnostics);
-        }
-    }
-}
-
-pub(super) fn push_unknown_semantic_type(
-    path: &Path,
-    type_ref: &lazuli_ir::TypeRef,
-    loc: (usize, usize),
-    diagnostics: &mut Vec<DoctorDiagnostic>,
-) {
-    if let Some(name) = unknown_semantic_type_name(type_ref) {
-        diagnostics.push(DoctorDiagnostic {
-            path: path.to_path_buf(),
-            line: loc.0,
-            column: loc.1,
-            severity: DoctorSeverity::Error,
-            code: SEMANTIC_TYPE_UNKNOWN_CODE.to_owned(),
-            message: format!(
-                "unknown @semantic type \"{name}\"; the closed catalog is {{{SEMANTIC_TYPE_CATALOG}}}."
-            ),
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-}
-
-pub(super) fn push_unknown_semantic_type_text(
-    path: &Path,
-    source: &str,
-    type_text: &str,
-    offset: usize,
-    diagnostics: &mut Vec<DoctorDiagnostic>,
-) {
-    let loc = line_col_for_offset(source, offset);
-    for name in unknown_semantic_type_names_in_text(type_text) {
-        diagnostics.push(DoctorDiagnostic {
-            path: path.to_path_buf(),
-            line: loc.0,
-            column: loc.1,
-            severity: DoctorSeverity::Error,
-            code: SEMANTIC_TYPE_UNKNOWN_CODE.to_owned(),
-            message: format!(
-                "unknown @semantic type \"{name}\"; the closed catalog is {{{SEMANTIC_TYPE_CATALOG}}}."
-            ),
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-}
-
-pub(super) fn unknown_semantic_type_name(type_ref: &lazuli_ir::TypeRef) -> Option<&str> {
-    match type_ref {
-        lazuli_ir::TypeRef::UserDefined(qname)
-            if qname.name.starts_with("@semantic.")
-                && !is_known_semantic_type_name(qname.name.as_str()) =>
-        {
-            Some(qname.name.as_str())
-        }
-        lazuli_ir::TypeRef::Many(inner) => unknown_semantic_type_name(inner),
-        _ => None,
-    }
-}
-
-pub(super) fn unknown_semantic_type_names_in_text(type_text: &str) -> Vec<&str> {
-    type_text
-        .split(|ch: char| !(ch == '@' || ch == '.' || ch == '_' || ch.is_ascii_alphanumeric()))
-        .filter(|token| token.starts_with("@semantic.") && !is_known_semantic_type_name(token))
-        .collect()
-}
-
-pub(super) fn is_known_semantic_type_name(name: &str) -> bool {
-    let Some(short) = name.strip_prefix("@semantic.") else {
-        return false;
-    };
-    matches!(
-        short,
-        "Email"
-            | "Phone"
-            | "URL"
-            | "Url"
-            | "UUID"
-            | "Uuid"
-            | "Date"
-            | "Currency"
-            | "Money"
-            | "JSON"
-            | "Json"
-            | "GeoPoint"
-    )
-}
-
-pub(super) fn span_line_col(source: &str, span: Option<&lazuli_ir::SpanRef>) -> Option<(usize, usize)> {
-    span.map(|span| line_col_for_offset(source, span.start))
-}
-
-pub(super) fn query_line_col(source: &str, query: &lazuli_ir::Query) -> Option<(usize, usize)> {
-    match query {
-        lazuli_ir::Query::List(query) => span_line_col(source, query.span_ref.as_ref()),
-        lazuli_ir::Query::Lookup(query) => span_line_col(source, query.span_ref.as_ref()),
-        lazuli_ir::Query::Sql(query) => span_line_col(source, query.span_ref.as_ref()),
-    }
-}
-
-pub(super) fn find_nested_type_site_line(
-    source: &str,
-    parent_line: usize,
-    site_name: &str,
-) -> Option<(usize, usize)> {
-    let lines: Vec<&str> = source.lines().collect();
-    let parent_index = parent_line.checked_sub(1)?;
-    let parent_indent = lines
-        .get(parent_index)
-        .map(|line| leading_spaces(line))
-        .unwrap_or(0);
-    let field_prefix = format!("{site_name}:");
-    let route_prefix = format!("route {site_name}:");
-
-    for (idx, line) in lines.iter().enumerate().skip(parent_index + 1) {
-        let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        let indent = leading_spaces(line);
-        if indent <= parent_indent {
-            break;
-        }
-        if trimmed.starts_with(&field_prefix) || trimmed.starts_with(&route_prefix) {
-            let column = line
-                .find(site_name)
-                .map(|offset| offset + 1)
-                .unwrap_or(indent + 1);
-            return Some((idx + 1, column));
-        }
-    }
-
-    None
-}
-
 // =============================================================================
 // Cut A — cross-feature diagnostics (8 ids per plan §5.2).
 //
@@ -5830,510 +3876,13 @@ pub(super) fn find_nested_type_site_line(
 // owns the workspace-wide work that the LSP cannot perform.
 // =============================================================================
 
-/// Phase L Tier 4 follow-up (third wave, final) — populate
-/// `feature_symbols.commands` from the typed `Tier3FeatureFacts.commands`
-/// slot. Replaces the retired `collect_feature_symbols` /
-/// `scan_feature_range` / `scan_block_for_policy` text walkers. Only the
-/// `policy: Option<String>` text-hint for `agent_tool_policy_diagnostics`
-/// survives in `CommandSymbolFact`; the `base: SymbolFact` slot is dead
-/// (kept default for shape stability until `FeatureSymbols` itself is
-/// retired by Cut A.5 / Cut B follow-ups). `PolicyRef` is rendered into
-/// the same surface text the walker produced — `@policy.<name>` for
-/// local, `@<atom>` for atom, `<feature>.<name>` for external,
-/// `Unresolved` text verbatim — so `policy_atoms_more_restrictive`
-/// substring matching stays a one-to-one swap.
-pub(super) fn populate_feature_symbols_from_ir(
-    tier3_facts: &[Tier3FeatureFacts],
-    feature_symbols: &mut BTreeMap<String, FeatureSymbols>,
-) {
-    for fact in tier3_facts {
-        let symbols = feature_symbols.entry(fact.feature.clone()).or_default();
-        for command in &fact.commands {
-            symbols.commands.insert(
-                command.name.clone(),
-                CommandSymbolFact {
-                    base: SymbolFact::default(),
-                    policy: policy_ref_surface_text(&command.policy),
-                },
-            );
-        }
-    }
-}
-
-/// Render a `PolicyRef` into the same surface text the retired
-/// `scan_block_for_policy` walker captured verbatim from `policy <text>`
-/// child lines. `PolicyRef::None` returns `None` so the IR-driven
-/// populator skips empty entries the way the walker skipped missing
-/// `policy` clauses.
-pub(super) fn policy_ref_surface_text(p: &ir::PolicyRef) -> Option<String> {
-    match p {
-        ir::PolicyRef::Local(name) => Some(format!("@policy.{name}")),
-        ir::PolicyRef::Atom(atom) => Some(atom.clone()),
-        ir::PolicyRef::External { feature, name } => Some(format!("{feature}.{name}")),
-        ir::PolicyRef::Unresolved(text) => Some(text.clone()),
-        ir::PolicyRef::None => None,
-    }
-}
-
 // -----------------------------------------------------------------------------
 // Diagnostic id: cross_feature_type_unresolved
 // -----------------------------------------------------------------------------
 
-pub(super) fn cross_feature_type_unresolved_diagnostics(
-    files: &[DoctorFile],
-    tier3_facts: &[Tier3FeatureFacts],
-    feature_resources: &BTreeMap<String, BTreeMap<String, ResourceFact>>,
-) -> Vec<DoctorDiagnostic> {
-    let declared_types = build_cross_feature_declared_type_index(tier3_facts, feature_resources);
-    let mut diagnostics = Vec::new();
-    let mut reported: BTreeSet<(PathBuf, String, String)> = BTreeSet::new();
-
-    for (feature_name, resources) in feature_resources {
-        for (resource_name, resource) in resources {
-            for (field_name, field) in &resource.fields {
-                push_unresolved_type_ref_diagnostic(
-                    &mut diagnostics,
-                    &mut reported,
-                    &declared_types,
-                    &field.type_ref,
-                    &resource.path,
-                    field.line.max(resource.line).max(1),
-                    format!("{feature_name}.{resource_name}.{field_name}"),
-                );
-            }
-        }
-    }
-
-    for fact in tier3_facts {
-        for record in &fact.records {
-            for field in &record.fields {
-                push_unresolved_type_ref_diagnostic(
-                    &mut diagnostics,
-                    &mut reported,
-                    &declared_types,
-                    &field.type_ref,
-                    &fact.path,
-                    span_line(files, &fact.path, field.span_ref, fact.feature_line),
-                    format!("{}.{}.{}", fact.feature, record.name, field.name),
-                );
-            }
-        }
-
-        for command in &fact.commands {
-            let command_line = fact
-                .command_lines
-                .get(&command.name)
-                .copied()
-                .unwrap_or_else(|| {
-                    span_line(files, &fact.path, command.span_ref, fact.feature_line)
-                });
-
-            for slot in &command.route {
-                push_unresolved_type_ref_diagnostic(
-                    &mut diagnostics,
-                    &mut reported,
-                    &declared_types,
-                    &slot.type_ref,
-                    &fact.path,
-                    command_line.max(1),
-                    format!("{}.{}.route.{}", fact.feature, command.name, slot.name),
-                );
-            }
-
-            if let ir::CommandInput::Typed(slots) = &command.input {
-                for slot in slots {
-                    push_unresolved_type_ref_diagnostic(
-                        &mut diagnostics,
-                        &mut reported,
-                        &declared_types,
-                        &slot.type_ref,
-                        &fact.path,
-                        command_line.max(1),
-                        format!("{}.{}.input.{}", fact.feature, command.name, slot.name),
-                    );
-                }
-            }
-
-            if let ir::CommandEffect::Returns(returns) = &command.effect {
-                push_unresolved_type_ref_diagnostic(
-                    &mut diagnostics,
-                    &mut reported,
-                    &declared_types,
-                    &returns.return_type,
-                    &fact.path,
-                    command_line.max(1),
-                    format!("{}.{}.returns", fact.feature, command.name),
-                );
-            }
-        }
-    }
-
-    diagnostics
-}
-
-pub(super) fn build_cross_feature_declared_type_index(
-    tier3_facts: &[Tier3FeatureFacts],
-    feature_resources: &BTreeMap<String, BTreeMap<String, ResourceFact>>,
-) -> BTreeSet<String> {
-    let mut declared = BTreeSet::new();
-
-    for resources in feature_resources.values() {
-        declared.extend(resources.keys().cloned());
-    }
-    for fact in tier3_facts {
-        declared.extend(fact.records.iter().map(|record| record.name.clone()));
-        declared.extend(fact.enums.iter().map(|enum_decl| enum_decl.name.clone()));
-    }
-
-    declared
-}
-
-pub(super) fn push_unresolved_type_ref_diagnostic(
-    diagnostics: &mut Vec<DoctorDiagnostic>,
-    reported: &mut BTreeSet<(PathBuf, String, String)>,
-    declared_types: &BTreeSet<String>,
-    type_ref: &ir::TypeRef,
-    path: &Path,
-    line: usize,
-    site: String,
-) {
-    let Some(name) = unresolved_bare_user_type_name(type_ref, declared_types) else {
-        return;
-    };
-    if !reported.insert((path.to_path_buf(), site.clone(), name.to_owned())) {
-        return;
-    }
-
-    diagnostics.push(DoctorDiagnostic {
-        path: path.to_path_buf(),
-        line,
-        column: 1,
-        severity: DoctorSeverity::Error,
-        code: "cross_feature_type_unresolved".to_owned(),
-        message: format!(
-            "type `{name}` referenced by `{site}` is not declared in any feature. Add a `resource`/`record`/`enum {name}` block, or check for a typo."
-        ),
-        category: None,
-        feature_name: None,
-        construct: None,
-        fix: None,
-        group: None,
-    });
-}
-
-pub(super) fn unresolved_bare_user_type_name<'a>(
-    type_ref: &'a ir::TypeRef,
-    declared_types: &BTreeSet<String>,
-) -> Option<&'a str> {
-    match type_ref {
-        ir::TypeRef::UserDefined(qname) | ir::TypeRef::EnumRef(qname)
-            if qname.feature.is_none()
-                && !declared_types.contains(&qname.name)
-                && !is_trivial_type_ref_name(&qname.name) =>
-        {
-            Some(qname.name.as_str())
-        }
-        _ => None,
-    }
-}
-
-pub(super) fn is_trivial_type_ref_name(name: &str) -> bool {
-    let trimmed = name.trim();
-    trimmed.len() <= 1 || trimmed.starts_with('@')
-}
-
-pub(crate) fn span_line(
-    files: &[DoctorFile],
-    path: &Path,
-    span_ref: Option<lazuli_ir::SpanRef>,
-    fallback: usize,
-) -> usize {
-    span_ref
-        .and_then(|span| {
-            files
-                .iter()
-                .find(|file| file.path.as_path() == path)
-                .map(|file| line_col_for_offset(&file.source, span.start).0)
-        })
-        .unwrap_or(fallback.max(1))
-}
-
 // -----------------------------------------------------------------------------
 // Diagnostic id: feature_uses_missing
 // -----------------------------------------------------------------------------
-
-pub(super) fn feature_uses_missing_diagnostics(
-    files: &[DoctorFile],
-    tier3_facts: &[Tier3FeatureFacts],
-    feature_resources: &BTreeMap<String, BTreeMap<String, ResourceFact>>,
-    feature_uses: &BTreeMap<String, BTreeSet<String>>,
-) -> Vec<DoctorDiagnostic> {
-    let type_owners = DoctorCrossFeatureTypeIndex::build(tier3_facts, feature_resources);
-    let mut missing: BTreeMap<(String, String), MissingUsesRef> = BTreeMap::new();
-
-    for (feature_name, resources) in feature_resources {
-        for resource in resources.values() {
-            for field in resource.fields.values() {
-                record_missing_uses_ref(
-                    &mut missing,
-                    &type_owners,
-                    feature_name,
-                    &field.type_ref,
-                    &resource.path,
-                    field.line.max(resource.line).max(1),
-                );
-            }
-        }
-    }
-
-    for fact in tier3_facts {
-        for record in &fact.records {
-            for field in &record.fields {
-                record_missing_uses_ref(
-                    &mut missing,
-                    &type_owners,
-                    &fact.feature,
-                    &field.type_ref,
-                    &fact.path,
-                    span_line(files, &fact.path, field.span_ref, fact.feature_line),
-                );
-            }
-        }
-
-        for command in &fact.commands {
-            let command_line = fact
-                .command_lines
-                .get(&command.name)
-                .copied()
-                .unwrap_or_else(|| {
-                    span_line(files, &fact.path, command.span_ref, fact.feature_line)
-                })
-                .max(1);
-
-            for slot in &command.route {
-                record_missing_uses_ref(
-                    &mut missing,
-                    &type_owners,
-                    &fact.feature,
-                    &slot.type_ref,
-                    &fact.path,
-                    command_line,
-                );
-            }
-
-            if let ir::CommandInput::Typed(slots) = &command.input {
-                for slot in slots {
-                    record_missing_uses_ref(
-                        &mut missing,
-                        &type_owners,
-                        &fact.feature,
-                        &slot.type_ref,
-                        &fact.path,
-                        command_line,
-                    );
-                }
-            }
-
-            if let ir::CommandEffect::Returns(returns) = &command.effect {
-                record_missing_uses_ref(
-                    &mut missing,
-                    &type_owners,
-                    &fact.feature,
-                    &returns.return_type,
-                    &fact.path,
-                    command_line,
-                );
-            }
-        }
-
-        for query in &fact.queries {
-            let query_line = fact
-                .query_lines
-                .get(query.name())
-                .copied()
-                .unwrap_or_else(|| {
-                    span_line(files, &fact.path, query_span_ref(query), fact.feature_line)
-                })
-                .max(1);
-            for slot in query_params(query) {
-                record_missing_uses_ref(
-                    &mut missing,
-                    &type_owners,
-                    &fact.feature,
-                    &slot.type_ref,
-                    &fact.path,
-                    query_line,
-                );
-            }
-        }
-    }
-
-    missing
-        .into_iter()
-        .filter(|((feature, dependency), _)| {
-            !feature_uses
-                .get(feature)
-                .map(|uses| uses.contains(dependency))
-                .unwrap_or(false)
-        })
-        .map(|((feature, dependency), site)| DoctorDiagnostic {
-            path: site.path,
-            line: site.line,
-            column: 1,
-            severity: DoctorSeverity::Warning,
-            code: "feature_uses_missing".to_owned(),
-            message: format!(
-                "feature `{feature}` references types declared in feature `{dependency}` but does not declare `uses {dependency}` in its header. Add `uses {dependency}` to make the dependency explicit."
-            ),
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        })
-        .collect()
-}
-
-#[derive(Debug, Clone)]
-struct MissingUsesRef {
-    path: PathBuf,
-    line: usize,
-}
-
-pub(super) fn record_missing_uses_ref(
-    missing: &mut BTreeMap<(String, String), MissingUsesRef>,
-    type_owners: &DoctorCrossFeatureTypeIndex,
-    feature: &str,
-    type_ref: &ir::TypeRef,
-    path: &Path,
-    line: usize,
-) {
-    let mut owners = BTreeSet::new();
-    collect_cross_feature_type_ref_owners(&mut owners, type_owners, feature, type_ref);
-    for owner in owners {
-        missing
-            .entry((feature.to_owned(), owner))
-            .or_insert_with(|| MissingUsesRef {
-                path: path.to_path_buf(),
-                line: line.max(1),
-            });
-    }
-}
-
-pub(super) fn collect_cross_feature_type_ref_owners(
-    owners: &mut BTreeSet<String>,
-    type_owners: &DoctorCrossFeatureTypeIndex,
-    feature: &str,
-    type_ref: &ir::TypeRef,
-) {
-    match type_ref {
-        ir::TypeRef::UserDefined(qname) | ir::TypeRef::EnumRef(qname) => {
-            if qname.name.starts_with('@') {
-                return;
-            }
-            let owner = qname
-                .feature
-                .as_deref()
-                .or_else(|| type_owners.owner(&qname.name));
-            if let Some(owner) = owner {
-                if owner != feature {
-                    owners.insert(owner.to_owned());
-                }
-            }
-        }
-        ir::TypeRef::Many(inner) => {
-            collect_cross_feature_type_ref_owners(owners, type_owners, feature, inner);
-        }
-        ir::TypeRef::Unresolved(name) => {
-            // Command/query lowering still carries authored custom
-            // types as `Unresolved`; the codegen cross-feature pass
-            // resolves these names against the same owner index.
-            if name.starts_with('@') {
-                return;
-            }
-            if let Some(owner) = type_owners.owner(name) {
-                if owner != feature {
-                    owners.insert(owner.to_owned());
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-pub(super) fn query_params(query: &ir::Query) -> &[ir::TypedSlot] {
-    match query {
-        ir::Query::List(query) => &query.params,
-        ir::Query::Lookup(query) => &query.params,
-        ir::Query::Sql(query) => &query.params,
-    }
-}
-
-pub(super) fn query_span_ref(query: &ir::Query) -> Option<ir::SpanRef> {
-    match query {
-        ir::Query::List(query) => query.span_ref,
-        ir::Query::Lookup(query) => query.span_ref,
-        ir::Query::Sql(query) => query.span_ref,
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-struct DoctorCrossFeatureTypeIndex {
-    map: BTreeMap<String, String>,
-    ambiguous: BTreeMap<String, BTreeSet<String>>,
-}
-
-impl DoctorCrossFeatureTypeIndex {
-    fn build(
-        tier3_facts: &[Tier3FeatureFacts],
-        feature_resources: &BTreeMap<String, BTreeMap<String, ResourceFact>>,
-    ) -> Self {
-        let mut index = Self::default();
-
-        for (feature, resources) in feature_resources {
-            for resource_name in resources.keys() {
-                index.register(resource_name, feature);
-            }
-        }
-        for fact in tier3_facts {
-            for record in &fact.records {
-                index.register(&record.name, &fact.feature);
-            }
-            for enum_decl in &fact.enums {
-                index.register(&enum_decl.name, &fact.feature);
-            }
-        }
-
-        index
-    }
-
-    fn register(&mut self, name: &str, feature: &str) {
-        if let Some(owners) = self.ambiguous.get_mut(name) {
-            owners.insert(feature.to_owned());
-            return;
-        }
-
-        match self.map.remove(name) {
-            Some(existing) if existing == feature => {
-                self.map.insert(name.to_owned(), existing);
-            }
-            Some(existing) => {
-                let mut owners = BTreeSet::new();
-                owners.insert(existing);
-                owners.insert(feature.to_owned());
-                self.ambiguous.insert(name.to_owned(), owners);
-            }
-            None => {
-                self.map.insert(name.to_owned(), feature.to_owned());
-            }
-        }
-    }
-
-    fn owner(&self, name: &str) -> Option<&str> {
-        self.map.get(name).map(String::as_str)
-    }
-}
-
 
 /// Normalise a URL path so `:foo` and `:bar` become a single
 /// placeholder. Two paths with the same shape but different slot
@@ -6360,7 +3909,9 @@ pub(super) fn collect_known_audiences(files: &[DoctorFile]) -> BTreeSet<String> 
     audiences
 }
 
-pub(super) fn app_urls_missing_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorDiagnostic> {
+pub(super) fn app_urls_missing_diagnostics(
+    app: Option<&DoctorAppManifest>,
+) -> Vec<DoctorDiagnostic> {
     let Some(app_manifest) = app else {
         return Vec::new();
     };
@@ -6385,267 +3936,9 @@ pub(super) fn app_urls_missing_diagnostics(app: Option<&DoctorAppManifest>) -> V
 
 const APP_URLS_MISSING_MESSAGE: &str = "app declares no `urls` block — auth callbacks, CORS allowlist, and frontend redirect targets cannot be configured. Add a `urls` block to app.lzi with at least one environment URL (e.g., `urls\n  dev: \"http://localhost:3000\"`).";
 
-
-
-
-
 // -----------------------------------------------------------------------------
 // Cut A.9 — `approval` primitive on commands
 // -----------------------------------------------------------------------------
-
-/// Phase L Tier 4b — minimal text-walker output that captures the
-/// existence of an `approval` block plus its missing children. Other
-/// approval cross-checks (`timeout` shape, `then` catalog, `by` role
-/// resolution) read from IR `Command.approval` via `Tier3FeatureFacts`.
-///
-/// The walker is retained because the parser canonical-indent slice
-/// rejects malformed `approval` blocks with a parse error — which
-/// short-circuits the feature lift, so `Command.approval` never reaches
-/// the IR for those sources. The LSP file-local pass
-/// (`approval_contract_diagnostics` in `crates/lazuli_lsp/src/lib.rs`)
-/// emits the same diagnostic when invoked via `lazuli doctor`; this
-/// walker covers the in-process unit test path
-/// (`package_from_sources`), which does not feed sources through
-/// `lazuli_lsp::diagnostics_for_source`.
-#[derive(Debug, Clone)]
-struct ApprovalBlockPresence {
-    feature: String,
-    command: String,
-    path: PathBuf,
-    line: usize,
-    missing_children: Vec<&'static str>,
-}
-
-pub(super) fn collect_approval_block_presence(file: &DoctorFile, out: &mut Vec<ApprovalBlockPresence>) {
-    let lines: Vec<&str> = file.source.lines().collect();
-    let mut feature: Option<String> = None;
-    let mut i = 0;
-    while i < lines.len() {
-        let line = lines[i];
-        let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            i += 1;
-            continue;
-        }
-        if leading_spaces(line) == 0 && trimmed.starts_with("feature ") {
-            feature = trimmed
-                .strip_prefix("feature ")
-                .map(|n| n.trim().to_owned());
-            i += 1;
-            continue;
-        }
-        if leading_spaces(line) == 2 && trimmed.starts_with("command ") {
-            let name = trimmed
-                .strip_prefix("command ")
-                .map(|n| n.split_whitespace().next().unwrap_or("").to_owned())
-                .unwrap_or_default();
-            let feature_name = feature.clone().unwrap_or_default();
-
-            // Find the `approval` child (indent 4) inside this command body.
-            let mut j = i + 1;
-            let mut approval_at: Option<usize> = None;
-            while j < lines.len() {
-                let inner = lines[j];
-                let inner_trim = inner.trim_start();
-                if inner_trim.is_empty() || inner_trim.starts_with('#') {
-                    j += 1;
-                    continue;
-                }
-                if leading_spaces(inner) <= 2 {
-                    break;
-                }
-                if leading_spaces(inner) == 4 && inner_trim == "approval" {
-                    approval_at = Some(j);
-                    break;
-                }
-                j += 1;
-            }
-
-            if let Some(approval_at) = approval_at {
-                let mut has_by = false;
-                let mut has_timeout = false;
-                let mut has_then = false;
-                let mut k = approval_at + 1;
-                while k < lines.len() {
-                    let body = lines[k];
-                    let body_trim = body.trim_start();
-                    if body_trim.is_empty() || body_trim.starts_with('#') {
-                        k += 1;
-                        continue;
-                    }
-                    if leading_spaces(body) <= 4 {
-                        break;
-                    }
-                    if leading_spaces(body) == 6 {
-                        if body_trim.starts_with("by ") {
-                            has_by = true;
-                        } else if body_trim.starts_with("timeout ") {
-                            has_timeout = true;
-                        } else if body_trim.starts_with("then ") {
-                            has_then = true;
-                        }
-                    }
-                    k += 1;
-                }
-                let mut missing: Vec<&'static str> = Vec::new();
-                if !has_by {
-                    missing.push("by");
-                }
-                if !has_timeout {
-                    missing.push("timeout");
-                }
-                if !has_then {
-                    missing.push("then");
-                }
-                if !missing.is_empty() {
-                    out.push(ApprovalBlockPresence {
-                        feature: feature_name,
-                        command: name,
-                        path: file.path.clone(),
-                        line: approval_at + 1,
-                        missing_children: missing,
-                    });
-                }
-                i = k;
-                continue;
-            }
-        }
-        i += 1;
-    }
-}
-
-/// `approval_contract_diagnostics` (missing-children variant) — emitted
-/// from the text-pattern walker above because parse-error approval
-/// blocks never reach the IR.
-pub(super) fn approval_missing_children_diagnostics(
-    presences: &[ApprovalBlockPresence],
-) -> Vec<DoctorDiagnostic> {
-    presences
-        .iter()
-        .map(|p| DoctorDiagnostic {
-            path: p.path.clone(),
-            line: p.line,
-            column: 1,
-            severity: DoctorSeverity::Error,
-            code: "approval_contract_diagnostics".to_owned(),
-            message: format!(
-                "command `{}.{}` declares `approval` but is missing required children: {}.",
-                p.feature,
-                p.command,
-                p.missing_children.join(", "),
-            ),
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        })
-        .collect()
-}
-
-/// Doctor-side diagnostics for the `approval` primitive. Three
-/// dedicated ids plus the write-tool guard extension; the latter
-/// reaches inside `agent_tool_write_unguarded_diagnostics` so write
-/// tools whose target command carries `approval` no longer require
-/// the agent's `safety` validator.
-///
-/// Phase L Tier 4b — reads `Command.approval` from `Tier3FeatureFacts`
-/// (populated by `lower_feature_skeleton`). The text-walking
-/// `CommandApprovalFact` collector retired; a minimal
-/// `ApprovalBlockPresence` walker survives for the
-/// missing-required-children variant. Two drift facts the retirement
-/// repaired:
-///
-/// 1. The text-walker treated `by` as a `,`-split list. The parser
-///    only accepts a single `by` declaration; the lifted IR carries
-///    `by: String`. The doctor now validates the single role atom.
-/// 2. The text-walker reported a closed catalog of `deny | proceed`
-///    for `then`. The parser already enforces `deny | allow | escalate`
-///    at parse time, lowering to `ApprovalThen` (enum-fechado). The
-///    redundant doctor-side catalog check retired.
-pub(super) fn approval_diagnostics(
-    tier3_facts: &[Tier3FeatureFacts],
-    known_roles: &BTreeSet<String>,
-) -> Vec<DoctorDiagnostic> {
-    let mut diagnostics = Vec::new();
-
-    for feature in tier3_facts {
-        for command in &feature.commands {
-            let Some(approval) = &command.approval else {
-                continue;
-            };
-            let line = feature
-                .command_lines
-                .get(&command.name)
-                .copied()
-                .unwrap_or(feature.feature_line);
-
-            // Timeout shape (when authored).
-            if let Some(timeout) = approval.timeout.as_deref() {
-                if !approval_timeout_well_formed(timeout) {
-                    diagnostics.push(DoctorDiagnostic {
-                        path: feature.path.clone(),
-                        line,
-                        column: 1,
-                        severity: DoctorSeverity::Error,
-                        code: "approval_timeout_invalid_diagnostics".to_owned(),
-                        message: format!(
-                            "command `{}.{}` declares `approval timeout {:?}` which is not a recognised duration shape (e.g. `\"24h\"`, `\"30 minutes\"`, `\"7d\"`).",
-                            feature.feature, command.name, timeout,
-                        ),
-                        category: None,
-                        feature_name: None,
-                        construct: None,
-                        fix: None,
-                        group: None,
-                    });
-                }
-            }
-
-            // Role resolution. `by` is a single `@role.<name>` atom.
-            let role_ref = approval.by.as_str();
-            let Some(suffix) = role_ref.strip_prefix("@role.") else {
-                diagnostics.push(DoctorDiagnostic {
-                    path: feature.path.clone(),
-                    line,
-                    column: 1,
-                    severity: DoctorSeverity::Error,
-                    code: "approval_role_unresolved_diagnostics".to_owned(),
-                    message: format!(
-                        "command `{}.{}` approval `by {role_ref}` is not a `@role.<name>` reference; approvers are roles, not scopes.",
-                        feature.feature, command.name,
-                    ),
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                });
-                continue;
-            };
-            if !known_roles.contains(suffix) {
-                diagnostics.push(DoctorDiagnostic {
-                    path: feature.path.clone(),
-                    line,
-                    column: 1,
-                    severity: DoctorSeverity::Error,
-                    code: "approval_role_unresolved_diagnostics".to_owned(),
-                    message: format!(
-                        "command `{}.{}` approval `by @role.{suffix}` references a role that no `policies` block or `app.lzi` `policy_for` declares.",
-                        feature.feature, command.name,
-                    ),
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                });
-            }
-        }
-    }
-
-    diagnostics
-}
 
 /// `SCOPE-OWNER-COLUMN-001` — warn when a command's policy includes
 /// `@scope.owner` or `@scope.same_org` but the targeted resource has
@@ -6658,7 +3951,9 @@ pub(super) fn approval_diagnostics(
 /// Closed-catalog column priorities mirror codegen exactly:
 /// - `@scope.owner` searches `user_id` > `user` > `owner_id` > `owner`.
 /// - `@scope.same_org` searches `org_id` > `org` > `tenant_id` > `tenant`.
-pub(super) fn scope_owner_column_diagnostics(tier3_facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+pub(super) fn scope_owner_column_diagnostics(
+    tier3_facts: &[Tier3FeatureFacts],
+) -> Vec<DoctorDiagnostic> {
     use lazuli_ir::{CommandEffect, PolicyRef};
 
     const OWNER_COLUMNS: &[&str] = &["user_id", "user", "owner_id", "owner"];
@@ -7088,122 +4383,6 @@ pub(super) fn resource_validates_path_unknown_diagnostics(
     diagnostics
 }
 
-/// Shape-check a duration string. Accepts `<digits> <unit>` or
-/// `<digits><unit>` where unit ∈ s, m, h, d, w, second(s),
-/// minute(s), hour(s), day(s), week(s). The runtime adapter parses
-/// the canonical form; this layer rejects obviously malformed input.
-pub(super) fn approval_timeout_well_formed(text: &str) -> bool {
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        return false;
-    }
-    let mut chars = trimmed.chars();
-    let mut saw_digit = false;
-    let mut unit_start = 0;
-    for (i, c) in chars.by_ref().enumerate() {
-        if c.is_ascii_digit() {
-            saw_digit = true;
-            continue;
-        }
-        unit_start = i;
-        break;
-    }
-    if !saw_digit {
-        return false;
-    }
-    let unit = trimmed[unit_start..].trim();
-    matches!(
-        unit,
-        "s" | "m"
-            | "h"
-            | "d"
-            | "w"
-            | "second"
-            | "seconds"
-            | "minute"
-            | "minutes"
-            | "hour"
-            | "hours"
-            | "day"
-            | "days"
-            | "week"
-            | "weeks"
-    )
-}
-
-/// Collect every role name declared by a feature's `policies` block
-/// (children at indent 4 referencing `@role.<name>`) or by an
-/// `app.lzi` `policy_for ...: @role.<name>` default. Used by
-/// `approval_role_unresolved_diagnostics`.
-///
-/// Intentionally scoped: scanning every `@role.X` reference in the
-/// file would self-resolve the very `by @role.X` line we're trying
-/// to validate. Only first-class declarations count.
-pub(super) fn collect_known_roles(files: &[DoctorFile]) -> BTreeSet<String> {
-    let mut roles = BTreeSet::new();
-    for file in files {
-        if !is_lzi_path(&file.path) {
-            continue;
-        }
-        let lines: Vec<&str> = file.source.lines().collect();
-        let mut i = 0;
-        while i < lines.len() {
-            let line = lines[i];
-            let trimmed = line.trim_start();
-            if trimmed.is_empty() || trimmed.starts_with('#') {
-                i += 1;
-                continue;
-            }
-            // Feature-level `policies` block at indent 2.
-            if leading_spaces(line) == 2 && trimmed == "policies" {
-                let mut j = i + 1;
-                while j < lines.len() {
-                    let inner = lines[j];
-                    let inner_trim = inner.trim_start();
-                    if inner_trim.is_empty() || inner_trim.starts_with('#') {
-                        j += 1;
-                        continue;
-                    }
-                    if leading_spaces(inner) <= 2 {
-                        break;
-                    }
-                    // `<name>: @role.x, @scope.y, ...` — harvest only
-                    // the @role.<name> entries.
-                    if let Some((_, refs)) = inner_trim.split_once(':') {
-                        extract_role_atoms(refs, &mut roles);
-                    }
-                    j += 1;
-                }
-                i = j;
-                continue;
-            }
-            // Top-level `app.lzi` `policy_for <kinds>: @role.x, ...`
-            // (or feature-level `policy_for` inside `defaults`).
-            if let Some(rest) = trimmed.strip_prefix("policy_for ") {
-                if let Some((_, refs)) = rest.split_once(':') {
-                    extract_role_atoms(refs, &mut roles);
-                }
-            }
-            i += 1;
-        }
-    }
-    roles
-}
-
-pub(super) fn extract_role_atoms(refs: &str, roles: &mut BTreeSet<String>) {
-    for token in refs.split(',') {
-        let token = token.trim();
-        if let Some(name) = token.strip_prefix("@role.") {
-            let end = name
-                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-                .unwrap_or(name.len());
-            if end > 0 {
-                roles.insert(name[..end].to_owned());
-            }
-        }
-    }
-}
-
 // =============================================================================
 // RB.B — RBAC catalog diagnostics.
 //
@@ -7218,313 +4397,6 @@ pub(super) fn extract_role_atoms(refs: &str, roles: &mut BTreeSet<String>) {
 //   - RBAC-MISSING-POLICY-001 (warning): a feature with ≥2 policied
 //     commands has a sibling command/query without explicit policy.
 // =============================================================================
-
-/// Aggregate the package-level RBAC catalog by re-parsing each `.lzi`
-/// file and concatenating `permission` / `role` decls. Cross-file
-/// duplicates are caught by the analyzer's per-package pass.
-pub(super) fn collect_package_rbac_catalog(
-    files: &[DoctorFile],
-) -> (
-    Option<lazuli_ir::RbacCatalog>,
-    Vec<(PathBuf, lazuli_analyzer::rbac::RbacIssue)>,
-) {
-    use lazuli_syntax::{PackageSkeleton, PermissionDeclAst, RoleDeclAst, parse_package_skeleton};
-
-    let mut all_permissions: Vec<PermissionDeclAst> = Vec::new();
-    let mut all_roles: Vec<RoleDeclAst> = Vec::new();
-    let mut file_of_decl: BTreeMap<usize, PathBuf> = BTreeMap::new();
-
-    for file in files {
-        if !is_lzi_path(&file.path) {
-            continue;
-        }
-        let Ok(pkg) = parse_package_skeleton(&file.source) else {
-            continue;
-        };
-        for p in pkg.permissions {
-            file_of_decl.insert(all_permissions.len(), file.path.clone());
-            all_permissions.push(p);
-        }
-        for r in pkg.roles {
-            // Use a disjoint key space (roles indexed by 1_000_000 + i)
-            // to avoid collision with permission indices.
-            file_of_decl.insert(1_000_000 + all_roles.len(), file.path.clone());
-            all_roles.push(r);
-        }
-    }
-
-    if all_permissions.is_empty() && all_roles.is_empty() {
-        return (None, Vec::new());
-    }
-
-    let pkg = PackageSkeleton {
-        features: Vec::new(),
-        permissions: all_permissions,
-        roles: all_roles,
-    };
-    let (catalog, issues) = lazuli_analyzer::rbac::analyze_rbac_catalog(&pkg);
-    // For now, attach the first .lzi file with rbac decls to each issue.
-    let representative = files
-        .iter()
-        .find(|f| {
-            is_lzi_path(&f.path) && f.source.contains("\nrole ") || f.source.starts_with("role ")
-        })
-        .or_else(|| files.iter().find(|f| is_lzi_path(&f.path)))
-        .map(|f| f.path.clone())
-        .unwrap_or_default();
-    let issues_with_path: Vec<(PathBuf, _)> = issues
-        .into_iter()
-        .map(|i| (representative.clone(), i))
-        .collect();
-    (catalog, issues_with_path)
-}
-
-/// Convert analyzer-emitted RBAC issues into doctor diagnostics.
-pub(super) fn rbac_catalog_diagnostics(
-    files: &[DoctorFile],
-) -> (Vec<DoctorDiagnostic>, Option<lazuli_ir::RbacCatalog>) {
-    let (catalog, issues) = collect_package_rbac_catalog(files);
-    let mut out: Vec<DoctorDiagnostic> = Vec::new();
-    for (path, issue) in issues {
-        let line = if let Some((start, _)) = issue.span {
-            line_col_for_offset_from_files(files, &path, start).0
-        } else {
-            1
-        };
-        let severity = match issue.code {
-            "RBAC-PERM-UNUSED-001" => DoctorSeverity::Warning,
-            _ => DoctorSeverity::Error,
-        };
-        out.push(DoctorDiagnostic {
-            path,
-            line,
-            column: 1,
-            severity,
-            code: issue.code.to_owned(),
-            message: issue.message,
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-    (out, catalog)
-}
-
-/// Resolve a byte offset within a given file path to (line, column).
-pub(super) fn line_col_for_offset_from_files(
-    files: &[DoctorFile],
-    path: &Path,
-    offset: usize,
-) -> (usize, usize) {
-    for f in files {
-        if f.path == path {
-            return line_col_for_offset(&f.source, offset);
-        }
-    }
-    (1, 1)
-}
-
-/// RBAC-ROLE-UNDECLARED-001 — when a catalog IS declared, every
-/// `@role.X` mention in `policies` / `policy_for` must resolve to a
-/// catalog role. Returns one diagnostic per orphan reference (deduped).
-pub(super) fn rbac_role_undeclared_diagnostics(
-    files: &[DoctorFile],
-    catalog: &lazuli_ir::RbacCatalog,
-) -> Vec<DoctorDiagnostic> {
-    let mut out = Vec::new();
-    let catalog_roles: BTreeSet<String> = catalog.roles.iter().map(|r| r.name.clone()).collect();
-    let mentioned = collect_known_roles(files);
-    for role in mentioned.difference(&catalog_roles) {
-        // Find the first file that mentions this role.
-        for file in files {
-            if !is_lzi_path(&file.path) {
-                continue;
-            }
-            let needle = format!("@role.{}", role);
-            if let Some(idx) = file.source.find(&needle) {
-                let (line, _) = line_col_for_offset(&file.source, idx);
-                out.push(DoctorDiagnostic {
-                    path: file.path.clone(),
-                    line,
-                    column: 1,
-                    severity: DoctorSeverity::Error,
-                    code: "RBAC-ROLE-UNDECLARED-001".to_owned(),
-                    message: format!(
-                        "`@role.{}` references a role not declared in the RBAC catalog (declare `role {}` at top level or remove the reference).",
-                        role, role
-                    ),
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                });
-                break;
-            }
-        }
-    }
-    out
-}
-
-/// RBAC-CATALOG-MISSING-001 (info advisory) — fires when the legacy
-/// implicit-role-set has entries but no `role` / `permission` blocks
-/// were authored at top level. Migration hint per
-/// `docs/proposals/rbac-catalog-vocab.md` §Backwards compatibility.
-pub(super) fn rbac_catalog_missing_diagnostics(
-    files: &[DoctorFile],
-    catalog_present: bool,
-) -> Vec<DoctorDiagnostic> {
-    if catalog_present {
-        return Vec::new();
-    }
-    let implicit = collect_known_roles(files);
-    if implicit.is_empty() {
-        return Vec::new();
-    }
-    // Surface a single hint on the first `.lzi` file that mentions a
-    // role. Severity is `Info` mapped to LSP Hint.
-    let role_names: Vec<String> = implicit.into_iter().collect();
-    for file in files {
-        if !is_lzi_path(&file.path) {
-            continue;
-        }
-        let needle = format!("@role.{}", role_names[0]);
-        if let Some(idx) = file.source.find(&needle) {
-            let (line, _) = line_col_for_offset(&file.source, idx);
-            return vec![DoctorDiagnostic {
-                path: file.path.clone(),
-                line,
-                column: 1,
-                severity: DoctorSeverity::Info,
-                code: "RBAC-CATALOG-MISSING-001".to_owned(),
-                message: format!(
-                    "package uses `@role.*` references ({}) but declares no `role` / `permission` catalog. Consider migrating to a top-level RBAC catalog (see docs/proposals/rbac-catalog-vocab.md).",
-                    role_names.join(", ")
-                ),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            }];
-        }
-    }
-    Vec::new()
-}
-
-/// RBAC-MISSING-POLICY-001 — feature mixes policied + unpoliced
-/// commands/queries. Suspicious gap; explicit `policy @scope.public`
-/// opts out. Warning level. Per-feature; scans for indent-2 `command`/
-/// `query.*` blocks and checks if their indent-4 children include a
-/// `policy ` line.
-pub(super) fn rbac_missing_policy_diagnostics(files: &[DoctorFile]) -> Vec<DoctorDiagnostic> {
-    let mut out = Vec::new();
-    for file in files {
-        if !is_lzi_path(&file.path) {
-            continue;
-        }
-        let lines: Vec<&str> = file.source.lines().collect();
-        let mut feature: Option<String> = None;
-        let mut feature_line: usize = 0;
-        // For each feature, count callables with/without `policy`.
-        let mut policied: Vec<String> = Vec::new();
-        let mut unpoliced: Vec<(String, usize)> = Vec::new();
-        let mut i = 0;
-        while i < lines.len() {
-            let line = lines[i];
-            let trimmed = line.trim_start();
-            if trimmed.is_empty() || trimmed.starts_with('#') {
-                i += 1;
-                continue;
-            }
-            if leading_spaces(line) == 0 && trimmed.starts_with("feature ") {
-                // Flush prior feature.
-                if let Some(_fname) = feature.take() {
-                    flush_missing_policy(&mut out, &file.path, &policied, &unpoliced);
-                }
-                feature = trimmed
-                    .strip_prefix("feature ")
-                    .map(|n| n.trim().to_owned());
-                feature_line = i + 1;
-                policied.clear();
-                unpoliced.clear();
-                i += 1;
-                continue;
-            }
-            let _ = feature_line;
-            if leading_spaces(line) == 2
-                && (trimmed.starts_with("command ")
-                    || trimmed.starts_with("query.list ")
-                    || trimmed.starts_with("query.lookup ")
-                    || trimmed.starts_with("query.sql ")
-                    || trimmed.starts_with("query.view ")
-                    || trimmed.starts_with("api "))
-            {
-                let name = trimmed.split_whitespace().nth(1).unwrap_or("").to_owned();
-                // Scan body at indent 4 for a `policy ` line.
-                let mut has_policy = false;
-                let mut j = i + 1;
-                while j < lines.len() {
-                    let inner = lines[j];
-                    let inner_trim = inner.trim_start();
-                    if inner_trim.is_empty() || inner_trim.starts_with('#') {
-                        j += 1;
-                        continue;
-                    }
-                    if leading_spaces(inner) <= 2 {
-                        break;
-                    }
-                    if leading_spaces(inner) == 4 && inner_trim.starts_with("policy ") {
-                        has_policy = true;
-                        break;
-                    }
-                    j += 1;
-                }
-                if has_policy {
-                    policied.push(name);
-                } else {
-                    unpoliced.push((name, i + 1));
-                }
-            }
-            i += 1;
-        }
-        if let Some(_fname) = feature.take() {
-            flush_missing_policy(&mut out, &file.path, &policied, &unpoliced);
-        }
-    }
-    out
-}
-
-pub(super) fn flush_missing_policy(
-    out: &mut Vec<DoctorDiagnostic>,
-    path: &Path,
-    policied: &[String],
-    unpoliced: &[(String, usize)],
-) {
-    if policied.len() < 2 || unpoliced.is_empty() {
-        return;
-    }
-    for (name, line) in unpoliced {
-        out.push(DoctorDiagnostic {
-            path: path.to_path_buf(),
-            line: *line,
-            column: 1,
-            severity: DoctorSeverity::Warning,
-            code: "RBAC-MISSING-POLICY-001".to_owned(),
-            message: format!(
-                "`{}` declares no explicit `policy` while sibling callables do; add `policy <atoms>` (or `policy @scope.public` to opt out) for visibility.",
-                name
-            ),
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-}
 
 // =============================================================================
 // Phase L — auth block cross-feature diagnostics.
@@ -7632,293 +4504,6 @@ pub(super) fn collect_auth_anchors(source: &str, auth_line: usize) -> AuthAnchor
     anchors
 }
 
-/// Phase L Tier 3 — best-effort line lookup for `job` / `webhook` /
-/// `notification` headers inside a feature. Walks the file looking for
-/// lines whose trimmed text starts with `<prefix><name>` (e.g.
-/// `job process_import`). Returns a `name -> 1-based line` map.
-pub(super) fn collect_construct_lines(
-    source: &str,
-    prefix: &str,
-    names: BTreeSet<&str>,
-) -> BTreeMap<String, usize> {
-    let mut out = BTreeMap::new();
-    if names.is_empty() {
-        return out;
-    }
-    for (idx, line) in source.lines().enumerate() {
-        let trimmed = line.trim_start();
-        let Some(rest) = trimmed.strip_prefix(prefix) else {
-            continue;
-        };
-        let name = rest.split_whitespace().next().unwrap_or("");
-        if names.contains(name) {
-            out.entry(name.to_owned()).or_insert(idx + 1);
-        }
-    }
-    out
-}
-
-/// OpenAPI/Cache bucket cycles — line lookup for `query.list`,
-/// `query.lookup`, `query.sql`, `query.view` headers. Mirrors `collect_construct_lines`
-/// but the parser folds the kind into the header keyword.
-pub(super) fn collect_query_lines(source: &str, queries: &[lazuli_ir::Query]) -> BTreeMap<String, usize> {
-    let mut out = BTreeMap::new();
-    if queries.is_empty() {
-        return out;
-    }
-    let names: BTreeSet<&str> = queries
-        .iter()
-        .map(|q| match q {
-            lazuli_ir::Query::List(l) => l.name.as_str(),
-            lazuli_ir::Query::Lookup(l) => l.name.as_str(),
-            lazuli_ir::Query::Sql(s) => s.name.as_str(),
-        })
-        .collect();
-    for (idx, line) in source.lines().enumerate() {
-        let trimmed = line.trim_start();
-        let after = trimmed
-            .strip_prefix("query.list ")
-            .or_else(|| trimmed.strip_prefix("query.lookup "))
-            .or_else(|| trimmed.strip_prefix("query.sql "))
-            .or_else(|| trimmed.strip_prefix("query.view "));
-        let Some(rest) = after else {
-            continue;
-        };
-        let name = rest.split_whitespace().next().unwrap_or("");
-        if names.contains(name) {
-            out.entry(name.to_owned()).or_insert(idx + 1);
-        }
-    }
-    out
-}
-
-/// OpenAPI bucket cycle — collect every `api <name>` declaration in
-/// the source by text-pattern. The doctor diagnostic then subtracts
-/// names that were lifted to `feature.apis` IR to know which entries
-/// are still text-pattern (i.e. the OpenAPI emitter falls back to a
-/// stub for them).
-pub(super) fn collect_text_pattern_api_names(source: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    for line in source.lines() {
-        let trimmed = line.trim_start();
-        if let Some(rest) = trimmed.strip_prefix("api ") {
-            let name = rest.split_whitespace().next().unwrap_or("");
-            if !name.is_empty() {
-                out.push(name.to_owned());
-            }
-        }
-    }
-    out
-}
-
-/// i18n bucket cycle — find the first line containing the bare keyword
-/// (preceded only by whitespace). Used for `translation` line anchoring.
-pub(super) fn find_keyword_line(source: &str, keyword: &str) -> Option<usize> {
-    for (idx, line) in source.lines().enumerate() {
-        if line.trim() == keyword {
-            return Some(idx + 1);
-        }
-    }
-    None
-}
-
-/// Phase L Tier 3 — line lookup for `event_group <pattern>` headers.
-/// Same as `collect_construct_lines` but matches the pattern token.
-pub(super) fn collect_event_group_lines(source: &str, patterns: BTreeSet<&str>) -> BTreeMap<String, usize> {
-    let mut out = BTreeMap::new();
-    if patterns.is_empty() {
-        return out;
-    }
-    for (idx, line) in source.lines().enumerate() {
-        let trimmed = line.trim_start();
-        let Some(rest) = trimmed.strip_prefix("event_group ") else {
-            continue;
-        };
-        let pattern = rest.split_whitespace().next().unwrap_or("");
-        if patterns.contains(pattern) {
-            out.entry(pattern.to_owned()).or_insert(idx + 1);
-        }
-    }
-    out
-}
-
-/// Phase L Tier 3 — derive the feature's tenancy axis from the lifted
-/// IR `Defaults` block. Returns the axis name (`org`, `team`, custom)
-/// or `None` when the feature declares `tenancy none` / inherits.
-///
-/// Phase L Tier 4a — `parse_feature_skeletons` now lifts
-/// `defaults.tenancy`; this is a typed read of
-/// `feature.defaults.tenancy`. The legacy "axis unknown → only check
-/// presence" fallback that tier 3 diagnostics rode on is retired.
-pub(super) fn tenancy_axis_for(feature: &lazuli_ir::Feature) -> Option<String> {
-    match feature.defaults.tenancy.as_ref()? {
-        lazuli_ir::Tenancy::Org => Some("org".to_owned()),
-        lazuli_ir::Tenancy::Team => Some("team".to_owned()),
-        lazuli_ir::Tenancy::Custom(name) => Some(name.clone()),
-        // `tenancy none` is an explicit opt-out — there is no axis to
-        // cross-check against.
-        lazuli_ir::Tenancy::None => None,
-    }
-}
-
-/// Phase L Tier 4 follow-up — IR-driven replacement for the retired
-/// `collect_feature_resources` text-walker. Reads typed `Feature.resources`
-/// and projects each `Resource` + its fields into the `ResourceFact` /
-/// `ResourceFieldFact` shape consumed by `auth_diagnostics`. The
-/// resource line anchor comes from `collect_construct_lines` on the
-/// file source so cross-feature anchored diagnostics still point at the
-/// `resource <Name>` header.
-pub(super) fn populate_feature_resources_from_ir(
-    file_path: &Path,
-    file_source: &str,
-    feature: &lazuli_ir::Feature,
-    out: &mut BTreeMap<String, BTreeMap<String, ResourceFact>>,
-) {
-    if feature.resources.is_empty() {
-        return;
-    }
-    let resource_lines = collect_construct_lines(
-        file_source,
-        "resource ",
-        feature.resources.iter().map(|r| r.name.as_str()).collect(),
-    );
-    let entry = out.entry(feature.name.clone()).or_default();
-    for resource in &feature.resources {
-        let line = resource_lines.get(&resource.name).copied().unwrap_or(0);
-        let mut fields = BTreeMap::new();
-        for field in &resource.fields {
-            let field_line = field
-                .span_ref
-                .map(|span| line_col_for_offset(file_source, span.start).0)
-                .unwrap_or(line);
-            fields.insert(
-                field.name.clone(),
-                ResourceFieldFact {
-                    type_ref: field.type_ref.clone(),
-                    unique: field.unique,
-                    line: field_line,
-                },
-            );
-        }
-        entry.insert(
-            resource.name.clone(),
-            ResourceFact {
-                path: file_path.to_path_buf(),
-                line,
-                fields,
-            },
-        );
-    }
-}
-
-/// Harvest each feature's `extensions adapter <name>: <Type> at "..."`
-/// declarations. Only the local name is stored; the type contract is
-/// checked elsewhere.
-pub(super) fn collect_feature_adapters(file: &DoctorFile, out: &mut BTreeMap<String, BTreeSet<String>>) {
-    if !is_lzi_path(&file.path) {
-        return;
-    }
-    let lines: Vec<&str> = file.source.lines().collect();
-    let mut feature: Option<String> = None;
-    let mut i = 0;
-    while i < lines.len() {
-        let line = lines[i];
-        let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            i += 1;
-            continue;
-        }
-        if leading_spaces(line) == 0 && trimmed.starts_with("feature ") {
-            feature = trimmed
-                .strip_prefix("feature ")
-                .map(|n| n.trim().to_owned());
-            i += 1;
-            continue;
-        }
-        if leading_spaces(line) == 2 && trimmed == "extensions" {
-            let mut j = i + 1;
-            while j < lines.len() {
-                let inner = lines[j];
-                let inner_trim = inner.trim_start();
-                if inner_trim.is_empty() || inner_trim.starts_with('#') {
-                    j += 1;
-                    continue;
-                }
-                if leading_spaces(inner) <= 2 {
-                    break;
-                }
-                if let Some(rest) = inner_trim.strip_prefix("adapter ") {
-                    let name_segment = rest.split([':', ' ']).next().unwrap_or("").trim();
-                    if !name_segment.is_empty() {
-                        if let Some(feature_name) = feature.as_ref() {
-                            out.entry(feature_name.clone())
-                                .or_default()
-                                .insert(name_segment.to_owned());
-                        }
-                    }
-                }
-                j += 1;
-            }
-            i = j;
-            continue;
-        }
-        i += 1;
-    }
-}
-
-/// Harvest each feature's `uses <feature>, <feature>, ...` declarations.
-/// Cross-feature resource resolution (e.g. `auth identity Customer.email`
-/// in `customer_auth uses customer`) reads this map.
-pub(super) fn collect_feature_uses(file: &DoctorFile, out: &mut BTreeMap<String, BTreeSet<String>>) {
-    if !is_lzi_path(&file.path) {
-        return;
-    }
-    let lines: Vec<&str> = file.source.lines().collect();
-    let mut feature: Option<String> = None;
-    let mut i = 0;
-    while i < lines.len() {
-        let line = lines[i];
-        let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            i += 1;
-            continue;
-        }
-        if leading_spaces(line) == 0 && trimmed.starts_with("feature ") {
-            feature = trimmed
-                .strip_prefix("feature ")
-                .map(|n| n.trim().to_owned());
-            i += 1;
-            continue;
-        }
-        if leading_spaces(line) == 2 && trimmed.starts_with("uses ") {
-            if let Some(rest) = trimmed.strip_prefix("uses ") {
-                if let Some(feature_name) = feature.as_ref() {
-                    // Cross-feature contracts §5.4 — strip the optional
-                    // trailing `version v<N>` pin BEFORE comma-splitting.
-                    // The pin applies to all entries on the line, but the
-                    // legacy uses-map only tracks feature names.
-                    let list_part = match rest.find(" version ") {
-                        Some(idx) => &rest[..idx],
-                        None => rest,
-                    };
-                    let entry = out.entry(feature_name.clone()).or_default();
-                    for token in list_part.split(',') {
-                        let name = token.trim();
-                        if !name.is_empty() {
-                            entry.insert(name.to_owned());
-                        }
-                    }
-                }
-            }
-        }
-        i += 1;
-    }
-}
-
-
-
-
-
 // ============================================================================
 // Row 30 — Storage bucket cycle diagnostics
 //
@@ -7946,135 +4531,6 @@ const KNOWN_MIME_FAMILIES: &[&str] = &[
     "font",
     "*",
 ];
-
-pub(super) fn collect_file_capability_facts(
-    file: &DoctorFile,
-    lines: &[&str],
-    operational: &mut OperationalFacts,
-) {
-    if !is_lzi_path(&file.path) {
-        return;
-    }
-
-    let mut current_feature: Option<String> = None;
-    let mut current_resource: Option<(String, usize)> = None;
-    let mut current_api: Option<(String, usize)> = None;
-
-    for (index, line) in lines.iter().enumerate() {
-        let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        let indent = leading_spaces(line);
-        let line_number = index + 1;
-        let column = indent + 1;
-
-        // Top-level feature header anchors all enclosed sites.
-        if indent == 0 && trimmed.starts_with("feature ") {
-            current_feature = trimmed.split_whitespace().nth(1).map(str::to_owned);
-            current_resource = None;
-            current_api = None;
-            continue;
-        }
-
-        // Resource and api headers; close on any line that retreats to
-        // the header indent or shallower (matching `inspect_storage_projection`).
-        if let Some(rest) = trimmed.strip_prefix("resource ") {
-            current_resource = Some((
-                rest.split_whitespace().next().unwrap_or("").to_owned(),
-                indent,
-            ));
-            current_api = None;
-            continue;
-        }
-        if let Some(rest) = trimmed.strip_prefix("api ") {
-            current_api = Some((
-                rest.split_whitespace().next().unwrap_or("").to_owned(),
-                indent,
-            ));
-            current_resource = None;
-            continue;
-        }
-        if let Some((_, header_indent)) = &current_resource {
-            if indent <= *header_indent {
-                current_resource = None;
-            }
-        }
-        if let Some((_, header_indent)) = &current_api {
-            if indent <= *header_indent {
-                current_api = None;
-            }
-        }
-
-        let Some(feature) = current_feature.as_deref() else {
-            continue;
-        };
-
-        // Resource field shape: `<field>: @cap.File(...)`.
-        if let Some((resource, _)) = &current_resource {
-            if let Some((field_name, cap_text)) = extract_cap_file_field_line(trimmed) {
-                if let lazuli_ir::TypeRef::Capability(lazuli_ir::CapabilityRef::File(file_cap)) =
-                    lazuli_analyzer::type_ref_from_syntax_public(&cap_text)
-                {
-                    operational.file_capability_facts.push(FileCapabilityFact {
-                        path: file.path.clone(),
-                        line: line_number,
-                        column,
-                        feature: feature.to_owned(),
-                        binding: FileCapabilityBinding::ResourceField {
-                            resource: resource.clone(),
-                            field: field_name,
-                        },
-                        capability: file_cap,
-                    });
-                }
-            }
-        }
-
-        // Api output shape: `output @cap.File(...)`.
-        if let Some((api, _)) = &current_api {
-            if let Some(rest) = trimmed.strip_prefix("output ") {
-                let rest = rest.trim();
-                if rest.starts_with("@cap.File(") {
-                    if let Some(close) = rest.find(')') {
-                        let cap_text = &rest[..=close];
-                        if let lazuli_ir::TypeRef::Capability(lazuli_ir::CapabilityRef::File(
-                            file_cap,
-                        )) = lazuli_analyzer::type_ref_from_syntax_public(cap_text)
-                        {
-                            operational.file_capability_facts.push(FileCapabilityFact {
-                                path: file.path.clone(),
-                                line: line_number,
-                                column,
-                                feature: feature.to_owned(),
-                                binding: FileCapabilityBinding::ApiOutput { api: api.clone() },
-                                capability: file_cap,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Extract `(field_name, "@cap.File(...)")` from a resource-field line.
-/// Mirrors `crates/lazuli_cli/src/main.rs:extract_cap_file_field` but is
-/// re-implemented here to keep the doctor crate's dependency surface
-/// unchanged (no new pub item needed).
-pub(super) fn extract_cap_file_field_line(trimmed: &str) -> Option<(String, String)> {
-    let (name_part, type_part) = trimmed.split_once(':')?;
-    let name = name_part.trim();
-    if name.is_empty() || name.contains(char::is_whitespace) {
-        return None;
-    }
-    let type_tokens = type_part.trim();
-    let cap_start = type_tokens.find("@cap.File(")?;
-    let from_cap = &type_tokens[cap_start..];
-    let close = from_cap.find(')')?;
-    let cap_text = &from_cap[..=close];
-    Some((name.to_owned(), cap_text.to_owned()))
-}
 
 /// Run the 10 `REPORT-*` doctor rules per
 /// `docs/proposals/report-vocab.md` v0.2 §Doctor / LSP, aggregating
@@ -8394,9 +4850,9 @@ pub(crate) fn make_synthetic_feature_for_reports(fact: &Tier3FeatureFacts) -> la
     }
 }
 
-
-
-pub(super) fn cap_file_storage_diagnostics(operational: &OperationalFacts) -> Vec<DoctorDiagnostic> {
+pub(super) fn cap_file_storage_diagnostics(
+    operational: &OperationalFacts,
+) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
 
     // (1) cap_file_visibility_undeclared — api output without `visibility:`.
@@ -8582,10 +5038,6 @@ pub(super) fn cap_file_storage_diagnostics(operational: &OperationalFacts) -> Ve
     diagnostics
 }
 
-
-
-
-
 /// Wave B.4 — `query.view` is a typed SQL-backed screen-read primitive.
 /// The analyzer lowers `source @file.<name>.sql` into the canonical
 /// project-relative file path; doctor owns the filesystem and best-effort
@@ -8699,8 +5151,6 @@ pub(super) fn plus_near_dollar_placeholder(line: &str) -> bool {
     }
     false
 }
-
-
 
 #[cfg(test)]
 mod tests;

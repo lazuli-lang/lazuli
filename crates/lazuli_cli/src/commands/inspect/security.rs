@@ -12,11 +12,11 @@
 //! "every @cap.Pii field has a documented purpose") live in
 //! `lazuli doctor`; this module is the inspect-side observable.
 
+use super::expand::{collect_event_decls, leading_spaces};
 use super::{
     InspectSecurity, InspectSecurityEventPayload, InspectSecurityField, InspectSecurityOperation,
     InspectSecurityWebhook,
 };
-use super::expand::{collect_event_decls, leading_spaces};
 
 pub(super) fn inspect_security(lines: &[String]) -> InspectSecurity {
     InspectSecurity {
@@ -70,7 +70,9 @@ pub(super) fn inspect_security_fields(lines: &[String]) -> Vec<InspectSecurityFi
     fields
 }
 
-pub(super) fn inspect_security_event_payloads(lines: &[String]) -> Vec<InspectSecurityEventPayload> {
+pub(super) fn inspect_security_event_payloads(
+    lines: &[String],
+) -> Vec<InspectSecurityEventPayload> {
     let mut payloads = Vec::new();
 
     for event in collect_event_decls(lines) {
@@ -217,7 +219,8 @@ pub(super) fn inspect_security_webhooks(lines: &[String]) -> Vec<InspectSecurity
 
     for block in super::top_level_blocks(lines, "webhook ") {
         let name = super::named_top_block_name(block[0].trim_start()).unwrap_or("unknown");
-        let verify = super::direct_child_value(block, "verify ").unwrap_or_else(|| "missing".to_owned());
+        let verify =
+            super::direct_child_value(block, "verify ").unwrap_or_else(|| "missing".to_owned());
         let secrets = block
             .iter()
             .filter_map(|line| {

@@ -141,9 +141,7 @@ pub(crate) fn inject_runtime_into_go_work(project: &Path, runtime_dir: &Path) ->
             let updated_manifest =
                 inject_lazuli_path_into_lazurite(&manifest_src, &lazuli_root_entry);
             if let Err(err) = fs::write(&lazurite_path, updated_manifest) {
-                eprintln!(
-                    "warning: failed to write [lazuli] path into Lazurite.toml: {err:#}"
-                );
+                eprintln!("warning: failed to write [lazuli] path into Lazurite.toml: {err:#}");
             }
         }
     }

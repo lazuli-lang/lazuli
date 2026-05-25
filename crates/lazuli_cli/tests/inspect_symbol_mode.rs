@@ -61,10 +61,13 @@ fn qualified_lookup_returns_symbol_json() {
         .output()
         .expect("run lazuli inspect");
 
-    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let json: serde_json::Value =
-        serde_json::from_str(&stdout).expect("parse stdout as JSON");
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("parse stdout as JSON");
 
     assert_eq!(json["symbol"], "Customer");
     assert_eq!(json["feature"], "customer");
@@ -112,8 +115,7 @@ fn qualified_lookup_via_uses_populates_imported_via() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let json: serde_json::Value =
-        serde_json::from_str(&stdout).expect("parse stdout as JSON");
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("parse stdout as JSON");
 
     // Symbol is found via the import edge.
     assert_eq!(json["symbol"], "Customer");
@@ -142,7 +144,11 @@ fn path_mode_preserved_when_input_ends_in_lzi() {
         .output()
         .expect("run lazuli inspect");
 
-    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     // Path-mode emits the raw .lzi source; symbol-mode would emit JSON.
     assert!(stdout.contains("feature customer"));

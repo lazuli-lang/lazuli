@@ -27,9 +27,7 @@ use crate::ast::{
     LzxViewTestAssertion, Span,
 };
 
-use super::super::common::{
-    SourceLine, is_lzx_bare_ident, is_trivia, line_error, split_lzx_list,
-};
+use super::super::common::{SourceLine, is_lzx_bare_ident, is_trivia, line_error, split_lzx_list};
 use super::super::error::ParseError;
 
 use super::app::{
@@ -409,4 +407,3 @@ pub(super) fn parse_lzx_surface(
         index,
     ))
 }
-

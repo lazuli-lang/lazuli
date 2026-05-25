@@ -49,10 +49,7 @@ pub fn layers_for_path(path: &Path, project_root: &Path) -> Vec<Layer> {
         return Vec::new();
     }
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    let name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("");
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
     let mut layers = Vec::new();
     match ext {
         "lzi" => {
@@ -225,10 +222,7 @@ impl<F: FnMut(Layer, &[PathBuf]) -> Result<()>> WatchDispatcher for F {
 
 /// Run the watch loop synchronously. Blocks until `rx` returns
 /// disconnect (Ctrl-C, or the watcher dropped).
-pub fn run_watch_loop<D: WatchDispatcher>(
-    rx: Receiver<WatchEvent>,
-    mut dispatch: D,
-) -> Result<()> {
+pub fn run_watch_loop<D: WatchDispatcher>(rx: Receiver<WatchEvent>, mut dispatch: D) -> Result<()> {
     let mut buf = DebounceBuffer::new();
     loop {
         // Wait for either the next event or the next debounce flush

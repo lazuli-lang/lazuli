@@ -47,8 +47,8 @@ use lazuli_ir::{
 
 use super::imports::ImportSet;
 use super::patterns::{
-    emit_pattern_header, PATTERN_CORS_REGISTER, PATTERN_ENCRYPTION_REGISTER,
-    PATTERN_MAIN_ENTRYPOINT,
+    PATTERN_CORS_REGISTER, PATTERN_ENCRYPTION_REGISTER, PATTERN_MAIN_ENTRYPOINT,
+    emit_pattern_header,
 };
 use super::printer::GoPrinter;
 use crate::LazuriteManifest;
@@ -358,11 +358,11 @@ pub fn emit_lazuli_app_gen(module: &Module, source_label: &str) -> Option<String
     let emit_name = !manifest.name.trim().is_empty();
     let emit_cors_todo = manifest.cors.is_some();
     let emit_routes_todo = true; // `Module.app.routes` lifts from `ExperienceModule`.
-                                  // Encryption bucket cycle — emit `var EncryptionBindings = ...`
-                                  // when the capsule declares one or more `encryption.key @key.<scope>`
-                                  // bindings. Each binding wires to the runtime registry via an
-                                  // `init()` block calling `encryption.Register(...)`. See
-                                  // `docs/proposals/encryption-vocab.md` §Codegen.
+    // Encryption bucket cycle — emit `var EncryptionBindings = ...`
+    // when the capsule declares one or more `encryption.key @key.<scope>`
+    // bindings. Each binding wires to the runtime registry via an
+    // `init()` block calling `encryption.Register(...)`. See
+    // `docs/proposals/encryption-vocab.md` §Codegen.
     let emit_encryption = !manifest.encryption_bindings.is_empty();
 
     if !emit_locale

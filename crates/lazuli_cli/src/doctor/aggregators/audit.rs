@@ -5,9 +5,9 @@
 //!
 //! Extracted from `doctor/mod.rs` in rails-style R4-C Stage 4.
 
-use std::path::PathBuf;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use std::path::PathBuf;
 
 use crate::doctor::parsers::{catalog_list, is_lzi_path};
 use crate::doctor::scanners::leading_spaces;
@@ -503,7 +503,9 @@ pub(super) fn is_write_effect_command(command: &lazuli_ir::Command) -> bool {
     )
 }
 
-pub(super) fn write_effect_resource(command: &lazuli_ir::Command) -> Option<&lazuli_ir::QualifiedName> {
+pub(super) fn write_effect_resource(
+    command: &lazuli_ir::Command,
+) -> Option<&lazuli_ir::QualifiedName> {
     match &command.effect {
         lazuli_ir::CommandEffect::Creates(effect) => Some(&effect.resource),
         lazuli_ir::CommandEffect::Updates(effect) => Some(&effect.resource),

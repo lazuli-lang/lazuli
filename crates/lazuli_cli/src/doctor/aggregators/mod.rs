@@ -25,6 +25,7 @@
 
 pub(crate) mod agent;
 pub(crate) mod app_manifest;
+pub(crate) mod approval;
 pub(crate) mod audit;
 pub(crate) mod auth;
 pub(crate) mod cache;
@@ -40,8 +41,11 @@ pub(crate) mod folder;
 pub(crate) mod headers_secrets;
 pub(crate) mod http_hygiene;
 pub(crate) mod i18n;
+pub(crate) mod lazurite_manifest;
 pub(crate) mod migrations;
 pub(crate) mod observability;
+pub(crate) mod rbac_catalog;
+pub(crate) mod semantic_type;
 pub(crate) mod test_discipline;
 pub(crate) mod tier3;
 pub(crate) mod webhook_event_registry;

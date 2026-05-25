@@ -42,7 +42,9 @@ pub(crate) fn emit_feature_barrel_ts(feature: &lazuli_ir::Feature) -> String {
 /// import for a file that won't exist.
 pub(super) fn feature_has_semantic_preflight(feature: &lazuli_ir::Feature) -> bool {
     for command in &feature.commands {
-        let lazuli_ir::CommandInput::Typed(slots) = &command.input else { continue };
+        let lazuli_ir::CommandInput::Typed(slots) = &command.input else {
+            continue;
+        };
         for slot in slots {
             if slot.validate_skip {
                 continue;

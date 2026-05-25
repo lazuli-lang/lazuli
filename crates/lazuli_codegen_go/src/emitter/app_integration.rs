@@ -242,11 +242,9 @@ mod tests {
         let out = emit_app_integrations("test.lzi", &module).expect("emits file");
         assert!(out.contains("package app"));
         assert!(out.contains("\"lazuli.dev/runtime/lazuli\""));
-        assert!(
-            out.contains(
-                "lazuli.RegisterAppIntegration(\"object_store\", \"@lazuli/plugin-object-store\")"
-            )
-        );
+        assert!(out.contains(
+            "lazuli.RegisterAppIntegration(\"object_store\", \"@lazuli/plugin-object-store\")"
+        ));
         // Deferred resolution invariant: emitter must NOT call
         // `MustResolveAdapter` at codegen-emit time. The init-order
         // panic class is closed precisely by avoiding eager resolution.
@@ -269,11 +267,9 @@ mod tests {
             Some("@lazuli/plugin-object-store"),
         )]);
         let out = emit_app_integrations("test.lzi", &module).expect("emits file");
-        assert!(
-            out.contains(
-                "lazuli.RegisterAppIntegration(\"object_store\", \"@lazuli/plugin-object-store\")"
-            )
-        );
+        assert!(out.contains(
+            "lazuli.RegisterAppIntegration(\"object_store\", \"@lazuli/plugin-object-store\")"
+        ));
         assert!(
             !out.contains("MustResolveAdapter"),
             "emitter regression: registry path must also pass ref string:\n{out}"

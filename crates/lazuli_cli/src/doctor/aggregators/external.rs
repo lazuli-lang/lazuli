@@ -193,7 +193,9 @@ pub(crate) fn external_contract_diagnostics(
     diagnostics
 }
 
-pub(crate) fn external_call_contract_diagnostics(operational: &OperationalFacts) -> Vec<DoctorDiagnostic> {
+pub(crate) fn external_call_contract_diagnostics(
+    operational: &OperationalFacts,
+) -> Vec<DoctorDiagnostic> {
     let mut diagnostics = Vec::new();
     let declared_slots: BTreeSet<_> = operational
         .integration_requirements

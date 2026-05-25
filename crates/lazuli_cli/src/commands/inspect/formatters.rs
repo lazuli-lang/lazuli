@@ -196,7 +196,10 @@ pub(super) fn inspect_command_effect_to_string(e: &lazuli_ir::CommandEffect) -> 
     }
 }
 
-pub(super) fn inspect_assignments_to_string(head: &str, assignments: &[lazuli_ir::Assignment]) -> String {
+pub(super) fn inspect_assignments_to_string(
+    head: &str,
+    assignments: &[lazuli_ir::Assignment],
+) -> String {
     if assignments.is_empty() {
         head.to_owned()
     } else {
