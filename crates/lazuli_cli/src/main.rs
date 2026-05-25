@@ -12,6 +12,7 @@ use serde::Serialize;
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 
 mod app_manifest;
+mod casing;
 mod cmd_design;
 mod commands;
 mod cmd_fix;
@@ -44,6 +45,7 @@ mod inspect {
 }
 mod lazurite_manifest;
 mod migrate;
+mod path_utils;
 mod plugin_catalog;
 mod plugin_manifest;
 mod plugin_semantic_resolver;
@@ -54,6 +56,13 @@ mod signature_aware_stub;
 mod templates;
 mod upgrade;
 mod version;
+
+// `doctor::schema_rich_001` reached for `crate::pascal_case`; preserve
+// that surface plus expose the other casers crate-wide so the carved-out
+// `commands::generate::ts::*` and `commands::new::*` modules can call
+// them without per-module re-imports.
+pub(crate) use casing::{lower_camel, pascal_case, to_kebab_case, to_snake_case};
+pub(crate) use path_utils::{absolutize_for_codegen, absolutize_project_root, relative_path};
 
 const DEFAULT_TEMPLATE: &str = include_str!("../../../examples/crm.lzi");
 const REGISTRY_TEMPLATE: &str =
@@ -3852,24 +3861,6 @@ fn format_string_array(items: &[String]) -> String {
     format!("[{}]", parts.join(", "))
 }
 
-fn lower_camel(s: &str) -> String {
-    let pascal = if s.chars().any(|ch| !ch.is_ascii_alphanumeric()) {
-        pascal_case(s)
-    } else {
-        s.to_owned()
-    };
-    let mut chars = pascal.chars();
-    let Some(first) = chars.next() else {
-        return pascal;
-    };
-    let mut out = String::with_capacity(pascal.len());
-    for c in first.to_lowercase() {
-        out.push(c);
-    }
-    out.push_str(chars.as_str());
-    out
-}
-
 impl From<DesignImportFormat> for cmd_design::ImportFormat {
     fn from(format: DesignImportFormat) -> Self {
         match format {
@@ -4050,61 +4041,6 @@ fn detect_runtime_dev_replace(project_root: &Path, out_dir: &Path) -> Option<Run
     None
 }
 
-fn absolutize_project_root(project_root: &Path) -> std::path::PathBuf {
-    if project_root.is_absolute() {
-        project_root.to_path_buf()
-    } else {
-        std::env::current_dir()
-            .unwrap_or_else(|_| Path::new(".").to_path_buf())
-            .join(project_root)
-    }
-}
-
-fn absolutize_for_codegen(project_root: &Path, path: &Path) -> std::path::PathBuf {
-    if path.is_absolute() {
-        path.to_path_buf()
-    } else if path.starts_with(project_root) {
-        std::env::current_dir()
-            .unwrap_or_else(|_| project_root.to_path_buf())
-            .join(path)
-    } else {
-        project_root.join(path)
-    }
-}
-
-fn relative_path(from_dir: &Path, to_dir: &Path) -> String {
-    let from_components = from_dir
-        .components()
-        .map(|component| component.as_os_str().to_owned())
-        .collect::<Vec<_>>();
-    let to_components = to_dir
-        .components()
-        .map(|component| component.as_os_str().to_owned())
-        .collect::<Vec<_>>();
-
-    let mut common = 0;
-    while common < from_components.len()
-        && common < to_components.len()
-        && from_components[common] == to_components[common]
-    {
-        common += 1;
-    }
-
-    let mut parts = Vec::new();
-    for _ in common..from_components.len() {
-        parts.push("..".to_owned());
-    }
-    for component in &to_components[common..] {
-        parts.push(component.to_string_lossy().into_owned());
-    }
-
-    if parts.is_empty() {
-        ".".to_owned()
-    } else {
-        parts.join("/")
-    }
-}
-
 /// Derive the Go module name from the IR's `app.name` (kebab-cased,
 /// per proposal §1.1). Falls back to `lazuli/app` when no manifest
 /// surfaces a name.
@@ -4116,37 +4052,6 @@ fn default_go_module_name(module: &lazuli_ir::Module) -> String {
         .unwrap_or("app");
     format!("lazuli/{}", to_kebab_case(name))
 }
-
-/// Lower-snake / lower-kebab caser used by `default_module_name`. Kept
-/// local to avoid pulling the codegen-go internal helpers into the CLI
-/// surface; mirrors the small kebab caser in
-/// `lazuli_codegen_go::to_kebab_case`.
-fn to_kebab_case(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    let mut prev_lower = false;
-    for ch in value.chars() {
-        if ch == '_' || ch == ' ' {
-            out.push('-');
-            prev_lower = false;
-            continue;
-        }
-        if ch.is_ascii_uppercase() {
-            if prev_lower && !out.is_empty() {
-                out.push('-');
-            }
-            for low in ch.to_lowercase() {
-                out.push(low);
-            }
-            prev_lower = false;
-            continue;
-        }
-        out.push(ch);
-        prev_lower = ch.is_ascii_lowercase() || ch.is_ascii_digit();
-    }
-    out
-}
-
-
 
 /// OpenAPI bucket cycle — emit a changelog markdown from two inspect
 /// JSON payloads.
@@ -5790,31 +5695,6 @@ fn scaffold_from_template(
 /// IDENT_LOWER (snake_case) of an arbitrary identifier. Used for
 /// `design <name>` headers and other contexts that require lowercase
 /// idents with `_` separators. Mirrors `to_kebab_case` but uses `_`.
-fn to_snake_case(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    let mut prev_lower = false;
-    for ch in value.chars() {
-        if ch == '-' || ch == ' ' {
-            out.push('_');
-            prev_lower = false;
-            continue;
-        }
-        if ch.is_ascii_uppercase() {
-            if prev_lower && !out.is_empty() {
-                out.push('_');
-            }
-            for low in ch.to_lowercase() {
-                out.push(low);
-            }
-            prev_lower = false;
-            continue;
-        }
-        out.push(ch);
-        prev_lower = ch.is_ascii_lowercase() || ch.is_ascii_digit();
-    }
-    out
-}
-
 fn default_module_name(project: &Path) -> String {
     let name = project
         .file_name()
@@ -6044,32 +5924,6 @@ fn pascal_case_project_name(project: &Path) -> Result<String> {
     }
 
     Ok(app_name)
-}
-
-fn pascal_case(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for word in value.split(|c: char| !c.is_ascii_alphanumeric()) {
-        if word.is_empty() {
-            continue;
-        }
-        if out.is_empty() && word.chars().next().is_some_and(|ch| ch.is_ascii_digit()) {
-            out.push_str("App");
-        }
-        if matches!(
-            word.to_ascii_lowercase().as_str(),
-            "id" | "url" | "uri" | "html" | "json" | "sql" | "ttl"
-        ) {
-            out.push_str(&word.to_ascii_uppercase());
-            continue;
-        }
-        let mut chars = word.chars();
-        if let Some(first) = chars.next() {
-            out.push(first.to_ascii_uppercase());
-        }
-        out.push_str(chars.as_str());
-    }
-
-    out
 }
 
 fn write_generated_file(root: &Path, relative: &str, contents: &str) -> Result<()> {
