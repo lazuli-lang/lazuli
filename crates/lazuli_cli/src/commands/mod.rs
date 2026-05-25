@@ -47,3 +47,4 @@ pub mod profile;
 pub mod spike_generate;
 pub mod test;
 pub mod translate;
+pub mod upgrade;

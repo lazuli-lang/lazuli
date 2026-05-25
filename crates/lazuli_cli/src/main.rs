@@ -1055,22 +1055,7 @@ fn main() -> Result<()> {
             to,
             target,
             dry_run,
-        } => {
-            let project_root = std::env::current_dir().context("reading current directory")?;
-            let report = upgrade::run_upgrade(&project_root, &from, &to, &target, dry_run)
-                .map_err(|err| anyhow::anyhow!("{err}"))?;
-            for recipe in &report.applied {
-                println!("applied {}", recipe.display());
-            }
-            for (recipe, error) in &report.failed {
-                println!("failed {}: {}", recipe.display(), error);
-            }
-            if !report.failed.is_empty() {
-                bail!("lazuli upgrade failed");
-            }
-            println!("lazuli upgrade applied {} recipe(s)", report.applied.len());
-            Ok(())
-        }
+        } => commands::upgrade::upgrade_command(&from, &to, &target, dry_run),
         Commands::Seed { only, force } => {
             let project_root =
                 std::env::current_dir().context("failed to determine current directory")?;
