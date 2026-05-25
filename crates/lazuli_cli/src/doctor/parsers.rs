@@ -127,7 +127,7 @@ pub(super) fn tool_kind_word(kind: ir::ToolKind) -> &'static str {
 
 /// IR `FileVisibility` → canonical wire word for `@cap.File` /
 /// `cap_file_*` diagnostics.
-pub(super) fn format_visibility(v: lazuli_ir::FileVisibility) -> &'static str {
+pub(crate) fn format_visibility(v: lazuli_ir::FileVisibility) -> &'static str {
     match v {
         lazuli_ir::FileVisibility::Public => "public",
         lazuli_ir::FileVisibility::Private => "private",
@@ -284,7 +284,7 @@ pub(super) fn is_parseable_cidr(raw: &str) -> bool {
 /// where absent). A declared `url` is the canonical reference; the
 /// origin must match its scheme + authority for the CORS layer to
 /// recognise it as the same browser origin.
-pub(super) fn same_origin(declared_url: &str, origin: &str) -> bool {
+pub(crate) fn same_origin(declared_url: &str, origin: &str) -> bool {
     let canon = |raw: &str| {
         let raw = raw.trim();
         // Strip path / query — keep scheme + authority only.
@@ -330,7 +330,7 @@ pub(crate) fn payload_field_list(canonical: &BTreeSet<String>) -> String {
 
 /// Render the closed `ir::ERROR_PAGE_STATUS_CATALOG` as a comma-joined
 /// list of HTTP status codes for the `error_page` diagnostic message.
-pub(super) fn error_page_catalog_display() -> String {
+pub(crate) fn error_page_catalog_display() -> String {
     ir::ERROR_PAGE_STATUS_CATALOG
         .iter()
         .map(u16::to_string)
@@ -368,7 +368,7 @@ pub(super) fn type_ref_name(t: &lazuli_ir::TypeRef) -> String {
 /// `true` when any pair of MIME types in the two lists matches (under
 /// `mime_matches`). Used by `cap_file_accept_input_output_mismatch` to
 /// check that an input/output overlap exists.
-pub(super) fn mime_sets_intersect(
+pub(crate) fn mime_sets_intersect(
     left: &[lazuli_ir::MimeType],
     right: &[lazuli_ir::MimeType],
 ) -> bool {
@@ -384,7 +384,7 @@ pub(super) fn mime_sets_intersect(
 
 /// `true` when two MIME types match exactly or via a wildcard
 /// (`image/*` matches `image/png`).
-pub(super) fn mime_matches(left: &lazuli_ir::MimeType, right: &lazuli_ir::MimeType) -> bool {
+pub(crate) fn mime_matches(left: &lazuli_ir::MimeType, right: &lazuli_ir::MimeType) -> bool {
     let family_ok = left.family == right.family || left.family == "*" || right.family == "*";
     let subtype_ok = left.subtype == right.subtype || left.subtype == "*" || right.subtype == "*";
     family_ok && subtype_ok

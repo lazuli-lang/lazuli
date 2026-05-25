@@ -18,8 +18,7 @@ use super::returns_list_002;
 use super::route_guard;
 use super::schema_rich_001;
 use super::{
-    DoctorDiagnostic, DoctorSeverity, LZIR_SCHEMA, app_contract_diagnostics,
-    app_urls_missing_diagnostics,
+    DoctorDiagnostic, DoctorSeverity, LZIR_SCHEMA, app_urls_missing_diagnostics,
     approval_diagnostics, approval_missing_children_diagnostics,
     cap_file_policy_implicit_diagnostics, cap_file_storage_diagnostics,
     check_auth_session_callsite_001, check_codegen_wrap_001, check_pattern_draft_stale_001,
@@ -37,7 +36,6 @@ use super::{
     resource_validates_path_unknown_diagnostics, route_id_effect_consistency_diagnostics,
     schema_rich_gap_diagnostics, scope_owner_column_diagnostics, suppress_env_schema_when_declared,
     updates_missing_updated_at_diagnostics, vocab_grammar_form_diagnostics,
-    workspace_contract_diagnostics,
 };
 
 impl DoctorPackage {
@@ -139,13 +137,15 @@ impl DoctorPackage {
             &self.project_root,
         ));
         diagnostics.extend(returns_list_002::diagnostics(&self.tier3_facts));
-        diagnostics.extend(app_contract_diagnostics(
+        diagnostics.extend(aggregators::app_manifest::app_contract_diagnostics(
             self.app.as_ref(),
             self.registry.as_ref(),
             &self.profiles,
             &self.operational,
         ));
-        diagnostics.extend(workspace_contract_diagnostics(self.workspace.as_ref()));
+        diagnostics.extend(aggregators::app_manifest::workspace_contract_diagnostics(
+            self.workspace.as_ref(),
+        ));
         diagnostics.extend(aggregators::external::external_contract_diagnostics(
             &self.contracts,
             self.workspace.as_ref(),
