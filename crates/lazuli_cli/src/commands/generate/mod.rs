@@ -26,6 +26,7 @@
 //! - `commands/generate/go.rs` (TBD), `commands/generate/ts.rs`
 //!   (TBD), `commands/generate/openapi.rs`.
 
+pub mod go;
 pub mod openapi;
 
 use std::path::Path;
@@ -66,7 +67,7 @@ pub fn generate_command(
 
     match kind {
         GenerateKind::Openapi => openapi::generate_openapi(input, output, api_version),
-        GenerateKind::Go => crate::generate_go(
+        GenerateKind::Go => go::generate_go(
             input,
             output,
             module,
