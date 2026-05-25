@@ -958,7 +958,7 @@ pub fn aggregate_plan_gate_facts(
     }
 }
 
-fn build_plan_catalog(plan_blocks: &[syntax::PlanBlockAst]) -> ir::PlanCatalog {
+pub(crate) fn build_plan_catalog(plan_blocks: &[syntax::PlanBlockAst]) -> ir::PlanCatalog {
     use std::collections::{BTreeMap, BTreeSet};
 
     // Pass 1: gather declared features/limits per plan, deferring
@@ -1328,7 +1328,7 @@ pub fn diagnose_plan_gate_facts(
 ///      synthesized name for that field's command role (request,
 ///      confirm, clear, get_url) — name collision skips THAT one
 ///      role and emits the other 3.
-fn synthesize_auto_photo(feature: &mut ir::Feature) {
+pub(crate) fn synthesize_auto_photo(feature: &mut ir::Feature) {
     let mut to_add_commands: Vec<ir::Command> = Vec::new();
     let mut to_add_records: Vec<ir::Record> = Vec::new();
 
@@ -1492,7 +1492,7 @@ fn auto_photo_display_record(name: &str) -> ir::Record {
     }
 }
 
-fn build_auto_photo_command(
+pub(crate) fn build_auto_photo_command(
     name: String,
     resource: &str,
     field: &str,
@@ -2287,7 +2287,7 @@ fn classify_me_mode(resource: &ir::Resource) -> Option<MeMode> {
 /// `query.lookup ... filters` blocks (e.g.,
 /// `traveler.lzi:79-83` references `ctx.actor.user_id`; the IR-level
 /// `KeyClause.equals` carries an `Expr::Path` per `Path::from_segments`).
-fn build_lookup_my_query(name: &str, resource: &str, mode: MeMode) -> ir::Query {
+pub(crate) fn build_lookup_my_query(name: &str, resource: &str, mode: MeMode) -> ir::Query {
     let _ = resource; // reserved for future signature-mismatch detail
     // Runtime `readCtx` (runtime/go/lazuli/handle.go:893) accepts only
     // canonical snake-case ctx paths: `actor.user_id` / `actor.org_id`.
@@ -2910,7 +2910,7 @@ fn check_query_signature_mismatch(
 }
 
 /// §5.2 — build `create_<resource>` command IR.
-fn build_create_command(
+pub(crate) fn build_create_command(
     name: &str,
     resource: &str,
     input_fields: &[(&ir::Field, bool)],
@@ -2943,7 +2943,7 @@ fn build_create_command(
 }
 
 /// §5.3 — build `update_<resource>` command IR.
-fn build_update_command(
+pub(crate) fn build_update_command(
     name: &str,
     resource: &str,
     input_fields: &[(&ir::Field, bool)],
@@ -3044,7 +3044,7 @@ fn input_field_assignments(input_fields: &[(&ir::Field, bool)]) -> Vec<ir::Assig
 }
 
 /// §5.4 — build `delete_<resource>` command IR.
-fn build_delete_command(name: &str, resource: &str) -> ir::Command {
+pub(crate) fn build_delete_command(name: &str, resource: &str) -> ir::Command {
     ir::Command {
         name: name.to_owned(),
         public_contract: None,
@@ -3069,7 +3069,7 @@ fn build_delete_command(name: &str, resource: &str) -> ir::Command {
 }
 
 /// §5.5 — build `lookup_<resource>` query IR.
-fn build_lookup_query(name: &str, resource: &str) -> ir::Query {
+pub(crate) fn build_lookup_query(name: &str, resource: &str) -> ir::Query {
     let _ = resource;
     ir::Query::Lookup(ir::LookupQuery {
         name: name.to_owned(),
@@ -3092,7 +3092,7 @@ fn build_lookup_query(name: &str, resource: &str) -> ir::Query {
 }
 
 /// §5.6 — build `list_<resource>s` query IR.
-fn build_list_query(name: &str, resource: &str) -> ir::Query {
+pub(crate) fn build_list_query(name: &str, resource: &str) -> ir::Query {
     let _ = resource;
     ir::Query::List(ir::ListQuery {
         name: name.to_owned(),
@@ -3399,7 +3399,7 @@ pub fn lower_feature_skeleton(
 /// `ir::Aggregate`. Resource references stay unqualified `QualifiedName`
 /// (feature `None`); doctor resolves them against the surrounding
 /// feature's resource list.
-fn lower_aggregate_decl(decl: &syntax::AggregateDecl) -> ir::Aggregate {
+pub(crate) fn lower_aggregate_decl(decl: &syntax::AggregateDecl) -> ir::Aggregate {
     ir::Aggregate {
         name: decl.name.clone(),
         root: ir::QualifiedName {
@@ -3425,7 +3425,7 @@ fn lower_aggregate_decl(decl: &syntax::AggregateDecl) -> ir::Aggregate {
 /// (`parse_closed_predicate`); when the shape isn't recognized the
 /// `EvalPredicate::Unparsed(text)` variant carries the verbatim source
 /// so doctor can echo it on failure.
-fn lower_invariant_decl(decl: &syntax::InvariantDecl) -> ir::Invariant {
+pub(crate) fn lower_invariant_decl(decl: &syntax::InvariantDecl) -> ir::Invariant {
     ir::Invariant {
         name: decl.name.clone(),
         when: parse_closed_predicate(&decl.when),
@@ -3443,7 +3443,7 @@ fn lower_invariant_decl(decl: &syntax::InvariantDecl) -> ir::Invariant {
 /// `caches`. When the profile is unknown, lowering preserves the
 /// reference (so doctor can fire `cache-profile-unknown`) without
 /// inventing a body.
-fn lower_query_decl(
+pub(crate) fn lower_query_decl(
     feature_name: &str,
     q: &syntax::QueryDecl,
     caches: &[syntax::CacheProfileDecl],
@@ -3546,7 +3546,7 @@ fn lower_query_decl(
     }
 }
 
-fn lower_sql_file_ref(feature_name: &str, source: &str) -> String {
+pub(crate) fn lower_sql_file_ref(feature_name: &str, source: &str) -> String {
     let trimmed = source.trim();
     let Some(rest) = trimmed.strip_prefix("@file.") else {
         return trimmed.to_owned();
@@ -3583,7 +3583,7 @@ fn lower_sql_file_ref(feature_name: &str, source: &str) -> String {
 ///
 /// Lines that fail to parse are dropped silently; doctor's
 /// vocab-filter lint catches malformed forms (TODO: add the lint).
-fn lower_query_filter_lines(lines: &[String]) -> Vec<ir::Filter> {
+pub(crate) fn lower_query_filter_lines(lines: &[String]) -> Vec<ir::Filter> {
     lines
         .iter()
         .filter_map(|line| parse_query_filter_line(line))
@@ -3667,7 +3667,7 @@ fn filter_rhs_expr(text: &str) -> ir::Expr {
 /// <literal-or-prose>`, `tags <label>...`, `namespace <label>`) into
 /// the typed `QueryCache` IR shape. Returns `None` when no `key` is
 /// declared (defensive — doctor flags `cache without key/ttl`).
-fn lower_query_cache(lines: &[String]) -> Option<ir::QueryCache> {
+pub(crate) fn lower_query_cache(lines: &[String]) -> Option<ir::QueryCache> {
     if lines.is_empty() {
         return None;
     }
@@ -3714,7 +3714,7 @@ fn lower_query_cache(lines: &[String]) -> Option<ir::QueryCache> {
 /// `profile_ref` and no body so doctor can fire
 /// `cache-profile-unknown`. The defensive shape (`key`/`ttl` left
 /// empty) is OK because doctor blocks before codegen consumes it.
-fn lower_query_cache_with_profile(
+pub(crate) fn lower_query_cache_with_profile(
     inline_lines: &[String],
     profile_ref: Option<&str>,
     caches: &[syntax::CacheProfileDecl],
@@ -3754,7 +3754,7 @@ fn lower_query_cache_with_profile(
 /// adds the four CL.C.3 decorators (`stale_while_revalidate`,
 /// `coalesce`, `sliding`). Closed-catalog enforcement (units, boolean
 /// shape, SWR <= TTL) lives in doctor.
-fn lower_cache_profile_decl(decl: &syntax::CacheProfileDecl) -> ir::CacheProfile {
+pub(crate) fn lower_cache_profile_decl(decl: &syntax::CacheProfileDecl) -> ir::CacheProfile {
     ir::CacheProfile {
         name: decl.name.clone(),
         key: decl.key.clone(),
@@ -3826,7 +3826,7 @@ pub(crate) fn strip_validate_skip(text: &str) -> (String, bool) {
 
 /// Phase L Tier 4d — lower a canonical-indent `record` block into
 /// `ir::Record`.
-fn lower_record_decl(r: &syntax::RecordDecl) -> Result<ir::Record, AnalyzeError> {
+pub(crate) fn lower_record_decl(r: &syntax::RecordDecl) -> Result<ir::Record, AnalyzeError> {
     let fields = r
         .fields
         .iter()
@@ -3845,7 +3845,7 @@ fn lower_record_decl(r: &syntax::RecordDecl) -> Result<ir::Record, AnalyzeError>
 /// into `ir::Policies`. The AST mirrors the IR shape 1:1 so this is a
 /// structural copy: category atoms and per-resource field overrides
 /// project directly. Closed-catalog validation lives in doctor.
-fn lower_policies_decl(decl: &syntax::PoliciesDecl) -> ir::Policies {
+pub(crate) fn lower_policies_decl(decl: &syntax::PoliciesDecl) -> ir::Policies {
     let categories = decl
         .categories
         .iter()
@@ -3885,7 +3885,7 @@ fn lower_policies_decl(decl: &syntax::PoliciesDecl) -> ir::Policies {
     }
 }
 
-fn lower_when_denied_route(route: &syntax::WhenDeniedRouteAst) -> ir::WhenDeniedRoute {
+pub(crate) fn lower_when_denied_route(route: &syntax::WhenDeniedRouteAst) -> ir::WhenDeniedRoute {
     ir::WhenDeniedRoute {
         unauthenticated: route
             .unauthenticated
@@ -3905,7 +3905,7 @@ fn lower_when_denied_route(route: &syntax::WhenDeniedRouteAst) -> ir::WhenDenied
     }
 }
 
-fn lower_route_redirect_target(target: &syntax::RouteRedirectTargetAst) -> ir::RouteRedirectTarget {
+pub(crate) fn lower_route_redirect_target(target: &syntax::RouteRedirectTargetAst) -> ir::RouteRedirectTarget {
     match target {
         syntax::RouteRedirectTargetAst::View(view) => ir::RouteRedirectTarget::View(view.clone()),
         syntax::RouteRedirectTargetAst::Path(path) => ir::RouteRedirectTarget::Path(path.clone()),
@@ -3928,7 +3928,7 @@ pub(crate) fn lower_public_contract(
 /// declaration into `ir::EnumDecl`. Variant storage values project
 /// directly onto `ir::StorageValue`; absent values leave the codegen
 /// target free to pick.
-fn lower_enum_decl(decl: &syntax::EnumDeclAst) -> ir::EnumDecl {
+pub(crate) fn lower_enum_decl(decl: &syntax::EnumDeclAst) -> ir::EnumDecl {
     ir::EnumDecl {
         name: decl.name.clone(),
         public_contract: lower_public_contract(&decl.public_contract),
@@ -3956,7 +3956,7 @@ fn lower_enum_decl(decl: &syntax::EnumDeclAst) -> ir::EnumDecl {
 /// `ir::Resource`. `tenancy` (resource-local override), `soft_delete`,
 /// `timestamps`, `retention`, `validates`, and `derived_from` all
 /// project through additive IR fields landed alongside this lowering.
-fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resource, AnalyzeError> {
+pub(crate) fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resource, AnalyzeError> {
     let tenancy = r.tenancy.as_ref().map(|t| match t {
         syntax::DefaultsTenancy::Org => ir::Tenancy::Org,
         syntax::DefaultsTenancy::Team => ir::Tenancy::Team,
@@ -4052,7 +4052,7 @@ fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resource, Analyze
     })
 }
 
-fn lower_resource_constraint(constraint: &syntax::ResourceConstraintAst) -> ir::Constraint {
+pub(crate) fn lower_resource_constraint(constraint: &syntax::ResourceConstraintAst) -> ir::Constraint {
     match constraint {
         syntax::ResourceConstraintAst::Unique(unique) => {
             ir::Constraint::Unique(ir::UniqueConstraint {
@@ -4087,7 +4087,7 @@ fn strip_previously_mode(raw: &str) -> String {
     trimmed.to_owned()
 }
 
-fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> Result<ir::Field, AnalyzeError> {
+pub(crate) fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> Result<ir::Field, AnalyzeError> {
     let (type_text_with_recovered_modifiers, type_pii) =
         extract_field_level_pii_decorator(&f.type_text);
     let recovered = peel_trailing_field_modifiers(&type_text_with_recovered_modifiers);
@@ -4291,7 +4291,7 @@ pub(crate) fn lift_field_constraints(
     })
 }
 
-fn lower_sanitize_html_profile(
+pub(crate) fn lower_sanitize_html_profile(
     field: &str,
     profile: &str,
 ) -> Result<ir::SanitizeHtmlProfile, AnalyzeError> {
@@ -4696,7 +4696,7 @@ fn validate_default_against_constraints(
 /// as `"unlimited"`. Cell 3 doctor surfaces
 /// `rate_limit_no_default_with_qualifications` so the silent default
 /// is visible at lint time, per proposal §9.2.
-fn lower_rate_limit_spec(spec: &syntax::RateLimitSpecAst) -> ir::RateLimitSpec {
+pub(crate) fn lower_rate_limit_spec(spec: &syntax::RateLimitSpecAst) -> ir::RateLimitSpec {
     let default = match spec.default.as_deref() {
         Some(literal) => lower_rate_limit_literal(literal),
         None => String::new(),
@@ -4734,7 +4734,7 @@ fn lower_rate_limit_spec(spec: &syntax::RateLimitSpecAst) -> ir::RateLimitSpec {
 /// (proposal §4.4). The keyword is recognised verbatim (case-sensitive)
 /// and lowers to the empty string; everything else passes through
 /// unchanged.
-fn lower_rate_limit_literal(literal: &str) -> String {
+pub(crate) fn lower_rate_limit_literal(literal: &str) -> String {
     if literal == "unlimited" {
         String::new()
     } else {
@@ -5034,7 +5034,7 @@ pub(crate) fn lower_api_decl(a: &syntax::ApiDecl) -> ir::Api {
 /// `FilenameToken::CtxNowStrftime("")` placeholders only if a parsing
 /// helper rejects them — but we instead keep the literal verbatim and
 /// surface unknown tokens via doctor.
-fn lower_report_decl(_feature: &str, r: &syntax::ReportDecl) -> Result<ir::Report, AnalyzeError> {
+pub(crate) fn lower_report_decl(_feature: &str, r: &syntax::ReportDecl) -> Result<ir::Report, AnalyzeError> {
     let source = lower_report_source(&r.source);
 
     let columns: Vec<ir::ReportColumn> = r
@@ -5103,7 +5103,7 @@ fn lower_report_decl(_feature: &str, r: &syntax::ReportDecl) -> Result<ir::Repor
     })
 }
 
-fn lower_report_source(text: &str) -> ir::ReportSource {
+pub(crate) fn lower_report_source(text: &str) -> ir::ReportSource {
     // Source forms:
     //   - `query.<name>`         (local short)
     //   - `<feature>.query.<name>` (cross-feature)
@@ -5130,7 +5130,7 @@ fn lower_report_source(text: &str) -> ir::ReportSource {
     ir::ReportSource::Query(qn)
 }
 
-fn lower_report_column_source(src: &syntax::ReportColumnSourceAst) -> ir::ReportColumnSource {
+pub(crate) fn lower_report_column_source(src: &syntax::ReportColumnSourceAst) -> ir::ReportColumnSource {
     match src {
         syntax::ReportColumnSourceAst::RowField(field) => {
             ir::ReportColumnSource::RowField(field.clone())
@@ -5149,7 +5149,7 @@ fn lower_report_column_source(src: &syntax::ReportColumnSourceAst) -> ir::Report
 /// token list; the literal is preserved so doctor's
 /// `REPORT-FILENAME-TOKEN-UNKNOWN-001` rule can scan the literal and
 /// report user-facing diagnostics.
-fn lower_report_filename(literal: &str) -> ir::ReportFilenamePattern {
+pub(crate) fn lower_report_filename(literal: &str) -> ir::ReportFilenamePattern {
     let mut tokens = Vec::new();
     let bytes = literal.as_bytes();
     let mut i = 0;
@@ -5196,7 +5196,7 @@ fn parse_filename_token(raw: &str) -> Option<ir::FilenameToken> {
 /// `expose client 4xx|5xx <fields>` slots project 1:1; per-code message
 /// overrides keep their verbatim `code` so analyzer-side closed-catalog
 /// enforcement (ERR-VOCAB-CODE-UNKNOWN) can report the offending token.
-fn lower_feature_errors_decl(decl: &syntax::FeatureErrorsDecl) -> ir::FeatureErrors {
+pub(crate) fn lower_feature_errors_decl(decl: &syntax::FeatureErrorsDecl) -> ir::FeatureErrors {
     ir::FeatureErrors {
         default: decl.default.map(|d| match d {
             syntax::ErrorExposureDefaultAst::Hide => ir::ErrorExposureDefault::Hide,
@@ -5230,7 +5230,7 @@ fn lower_feature_errors_decl(decl: &syntax::FeatureErrorsDecl) -> ir::FeatureErr
     }
 }
 
-fn lower_translation_decl(t: &syntax::TranslationDecl) -> ir::Translation {
+pub(crate) fn lower_translation_decl(t: &syntax::TranslationDecl) -> ir::Translation {
     ir::Translation {
         catalog: t.catalog.clone(),
         keys: t
@@ -5286,7 +5286,7 @@ pub(crate) fn lower_locale_negotiate_decl(n: &syntax::LocaleNegotiateDecl) -> ir
 /// checks the surface form by walking the typed
 /// `feature.policies.categories` slot (`populate_commands_from_ir`);
 /// the legacy `collect_policy_atoms` text walker is retired.
-fn lower_defaults(defaults: &syntax::FeatureDefaults) -> ir::Defaults {
+pub(crate) fn lower_defaults(defaults: &syntax::FeatureDefaults) -> ir::Defaults {
     let tenancy = defaults.tenancy.as_ref().map(|t| match t {
         syntax::DefaultsTenancy::Org => ir::Tenancy::Org,
         syntax::DefaultsTenancy::Team => ir::Tenancy::Team,
@@ -6067,7 +6067,7 @@ pub fn lower_auth(auth: &syntax::Auth) -> Result<ir::Auth, AnalyzeError> {
     })
 }
 
-fn lower_auth_identity(identity: &syntax::AuthIdentity) -> Result<ir::AuthIdentity, AnalyzeError> {
+pub(crate) fn lower_auth_identity(identity: &syntax::AuthIdentity) -> Result<ir::AuthIdentity, AnalyzeError> {
     let (resource, field) =
         identity
             .field
@@ -6089,7 +6089,7 @@ fn lower_auth_identity(identity: &syntax::AuthIdentity) -> Result<ir::AuthIdenti
     })
 }
 
-fn lower_auth_password(password: &syntax::AuthPassword) -> ir::AuthPassword {
+pub(crate) fn lower_auth_password(password: &syntax::AuthPassword) -> ir::AuthPassword {
     ir::AuthPassword {
         algorithm: password.algorithm.clone(),
         hash: password.hash.clone(),
@@ -6098,7 +6098,7 @@ fn lower_auth_password(password: &syntax::AuthPassword) -> ir::AuthPassword {
     }
 }
 
-fn lower_auth_sessions(sessions: &syntax::AuthSessions) -> ir::AuthSessions {
+pub(crate) fn lower_auth_sessions(sessions: &syntax::AuthSessions) -> ir::AuthSessions {
     ir::AuthSessions {
         resource: qualified_name_local(&sessions.resource),
         ttl: sessions.ttl.clone(),
@@ -6110,7 +6110,7 @@ fn lower_auth_sessions(sessions: &syntax::AuthSessions) -> ir::AuthSessions {
     }
 }
 
-fn lower_auth_session_rotation(rotation: &syntax::AuthSessionRotation) -> ir::RotationConfig {
+pub(crate) fn lower_auth_session_rotation(rotation: &syntax::AuthSessionRotation) -> ir::RotationConfig {
     ir::RotationConfig {
         refresh_ttl: rotation.refresh_ttl.as_ref().map(|ttl| ttl.value.clone()),
         grace: rotation.grace.as_ref().map(|grace| grace.value.clone()),
@@ -6122,7 +6122,7 @@ fn lower_auth_session_rotation(rotation: &syntax::AuthSessionRotation) -> ir::Ro
     }
 }
 
-fn lower_auth_theft_action(action: syntax::AuthTheftDetectionAction) -> ir::TheftAction {
+pub(crate) fn lower_auth_theft_action(action: syntax::AuthTheftDetectionAction) -> ir::TheftAction {
     match action {
         syntax::AuthTheftDetectionAction::RevokeSessionFamily => {
             ir::TheftAction::RevokeSessionFamily
@@ -6131,7 +6131,7 @@ fn lower_auth_theft_action(action: syntax::AuthTheftDetectionAction) -> ir::Thef
     }
 }
 
-fn lower_auth_mfa(mfa: &syntax::AuthMfa) -> ir::AuthMfa {
+pub(crate) fn lower_auth_mfa(mfa: &syntax::AuthMfa) -> ir::AuthMfa {
     ir::AuthMfa {
         method: mfa.method.clone(),
         enroll: mfa.enroll.clone(),
@@ -6140,7 +6140,7 @@ fn lower_auth_mfa(mfa: &syntax::AuthMfa) -> ir::AuthMfa {
     }
 }
 
-fn lower_auth_oauth(oauth: &syntax::AuthOAuthProvider) -> ir::AuthOAuthProvider {
+pub(crate) fn lower_auth_oauth(oauth: &syntax::AuthOAuthProvider) -> ir::AuthOAuthProvider {
     ir::AuthOAuthProvider {
         provider: oauth.provider.clone(),
         adapter: oauth.adapter.clone(),
@@ -6247,7 +6247,7 @@ pub fn lower_agent(feature: &str, agent: &syntax::Agent) -> Result<ir::Agent, An
 /// route slots become `TypedSlot`s with `required: true` (path params
 /// are inherently required); audience / rate-limit pass-through as
 /// strings.
-fn lower_agent_expose(expose: &syntax::AgentExpose) -> ir::HttpExposure {
+pub(crate) fn lower_agent_expose(expose: &syntax::AgentExpose) -> ir::HttpExposure {
     let route_slots = expose
         .route_slots
         .iter()
@@ -6278,7 +6278,7 @@ fn lower_agent_expose(expose: &syntax::AgentExpose) -> ir::HttpExposure {
 /// Lower a single tool reference. `feature` is the owning feature so the
 /// short form `query.by_id` rewrites to `Local` and the analyzer
 /// preserves the same-feature locality for the expand pass to resolve.
-fn lower_tool_ref(raw: &str, _feature: &str) -> Result<ir::QualifiedToolRef, AnalyzeError> {
+pub(crate) fn lower_tool_ref(raw: &str, _feature: &str) -> Result<ir::QualifiedToolRef, AnalyzeError> {
     if let Some(rest) = raw.strip_prefix("@tool.") {
         if rest.is_empty() {
             return Err(AnalyzeError::InvalidToolRef {
@@ -6345,7 +6345,7 @@ fn parse_tool_kind_local(segments: &[&str]) -> Option<(ir::ToolKind, String)> {
     }
 }
 
-fn lower_eval_case(
+pub(crate) fn lower_eval_case(
     case: &syntax::AgentEvalCase,
     feature: &str,
 ) -> Result<ir::EvalCase, AnalyzeError> {
@@ -6373,7 +6373,7 @@ fn lower_eval_case(
     })
 }
 
-fn lower_eval_predicate(
+pub(crate) fn lower_eval_predicate(
     predicate: &syntax::AgentEvalPredicate,
     feature: &str,
 ) -> Result<ir::EvalPredicate, AnalyzeError> {
@@ -6472,7 +6472,7 @@ pub(crate) fn lower_policy_atom_with_args(text: &str) -> ir::PolicyAtom {
 }
 
 #[cfg(test)]
-fn lower_audit_block(src: &str) -> ir::AuditSpec {
+pub(crate) fn lower_audit_block(src: &str) -> ir::AuditSpec {
     let mut spec = ir::AuditSpec {
         subjects: Vec::new(),
         emit_to: None,
@@ -6515,7 +6515,7 @@ fn lower_audit_block(src: &str) -> ir::AuditSpec {
 }
 
 #[cfg(test)]
-fn lower_validate_line(line: &str) -> Result<ir::FieldConstraints, AnalyzeError> {
+pub(crate) fn lower_validate_line(line: &str) -> Result<ir::FieldConstraints, AnalyzeError> {
     let trimmed = line.trim();
     let mut decl = syntax::FieldConstraintsDecl::default();
     if let Some(rest) = trimmed.strip_prefix("validate sanitize_html(") {
@@ -6689,7 +6689,7 @@ pub fn lower_design(ast: &syntax::DesignDeclAst) -> Result<ir::Design, AnalyzeEr
     })
 }
 
-fn lower_design_custom_token(
+pub(crate) fn lower_design_custom_token(
     token: &syntax::CustomTokenAst,
 ) -> Result<ir::CustomToken, AnalyzeError> {
     // Hex validation for the `custom` 9th meta-group is intentionally
@@ -6706,7 +6706,7 @@ fn lower_design_custom_token(
     })
 }
 
-fn lower_design_color_token(token: &syntax::ColorTokenAst) -> Result<ir::ColorToken, AnalyzeError> {
+pub(crate) fn lower_design_color_token(token: &syntax::ColorTokenAst) -> Result<ir::ColorToken, AnalyzeError> {
     let mut states = Vec::with_capacity(token.states.len());
     for state in &token.states {
         let kind = match state.kind.as_str() {
@@ -6750,7 +6750,7 @@ fn lower_design_color_token(token: &syntax::ColorTokenAst) -> Result<ir::ColorTo
     })
 }
 
-fn lower_design_weight(weight: &syntax::WeightTokenAst) -> Result<ir::WeightToken, AnalyzeError> {
+pub(crate) fn lower_design_weight(weight: &syntax::WeightTokenAst) -> Result<ir::WeightToken, AnalyzeError> {
     let parsed =
         weight
             .value
@@ -6766,7 +6766,7 @@ fn lower_design_weight(weight: &syntax::WeightTokenAst) -> Result<ir::WeightToke
     })
 }
 
-fn lower_design_shadow(shadow: &syntax::ShadowTokenAst) -> Result<ir::ShadowToken, AnalyzeError> {
+pub(crate) fn lower_design_shadow(shadow: &syntax::ShadowTokenAst) -> Result<ir::ShadowToken, AnalyzeError> {
     if has_top_level_comma(&shadow.value) {
         return Err(AnalyzeError::DesignShadowMultiLayer {
             name: shadow.name.clone(),
@@ -6778,7 +6778,7 @@ fn lower_design_shadow(shadow: &syntax::ShadowTokenAst) -> Result<ir::ShadowToke
     })
 }
 
-fn lower_design_z(z: &syntax::ZTokenAst) -> Result<ir::ZToken, AnalyzeError> {
+pub(crate) fn lower_design_z(z: &syntax::ZTokenAst) -> Result<ir::ZToken, AnalyzeError> {
     let parsed = z
         .value
         .trim()
