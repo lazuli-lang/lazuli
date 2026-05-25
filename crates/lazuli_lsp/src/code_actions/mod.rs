@@ -10,10 +10,12 @@
 //!
 //! * `auth_refresh` — auth.sessions rotation scaffolds (proposal
 //!   `docs/proposals/auth-refresh-rotation.md`).
+//! * `error_vocab` — IR Error-Vocab scaffolds for `errors` blocks and
+//!   `when_denied` lines (proposal
+//!   `docs/proposals/ir-error-messages-vocab.md` §7.4).
 //!
 //! Pending extraction (still in `lib.rs`):
 //!
-//! * IR Error-Vocab (`error_vocab_code_actions` + helpers)
 //! * Route guard (`route_guard_code_actions` + helpers)
 //! * Lifecycle gate (`lifecycle_gate_code_actions` + helpers)
 //!
@@ -22,3 +24,4 @@
 //!   action vectors and sets the default `quickfix` kind.
 
 pub mod auth_refresh;
+pub mod error_vocab;
