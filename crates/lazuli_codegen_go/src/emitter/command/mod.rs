@@ -72,6 +72,8 @@ mod naming;
 mod policy;
 mod scope;
 mod semantic;
+#[cfg(test)]
+mod test_support;
 mod tier4;
 mod wrap;
 

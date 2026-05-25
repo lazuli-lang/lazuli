@@ -15,8 +15,7 @@ use lazuli_ir::{Command, CommandInput, Feature};
 // pick it up without each block listing its own subset.
 #[cfg(test)]
 use lazuli_ir::{
-    CommandEffect, CommandKind, Expr, FieldConstraints, Gate, NamedArg, Path, QualifiedName,
-    RouteSlot, TypedSlot,
+    CommandEffect, CommandKind, Expr, NamedArg, Path, QualifiedName, RouteSlot, TypedSlot,
 };
 
 use super::super::cross_feature::CrossFeatureIndex;
@@ -163,196 +162,12 @@ pub fn emit_command_file(
 
 #[cfg(test)]
 mod feature_emit_tests {
-    use super::*;
-    use lazuli_ir::{
-        AppManifest, Assignment, BuiltinType, CommandKind, CreateEffect, Defaults, Feature, Module,
-        Policies, PolicyRef, QualifiedName, Resource, TypeRef, TypedSlot,
+    use super::super::test_support::{
+        base_command, base_feature, local_qname, module_with_features, simple_resource, typed_slot,
     };
+    use super::*;
+    use lazuli_ir::{Assignment, BuiltinType, CreateEffect};
     use lazuli_ir::{CommandEffect, CommandInput, Expr, Path};
-
-    fn base_feature(name: &str) -> Feature {
-        Feature {
-            name: name.to_owned(),
-            purpose: None,
-            non_goals: Vec::new(),
-            context_path: None,
-            defaults: Defaults {
-                tenancy: None,
-                timestamps: false,
-                policy: None,
-            },
-            uses: Vec::new(),
-            uses_spans: Vec::new(),
-            uses_versions: Vec::new(),
-            requirements: Vec::new(),
-            enums: Vec::new(),
-            resources: Vec::new(),
-            events: Vec::new(),
-            rules: Vec::new(),
-            policies: Policies {
-                categories: Vec::new(),
-                fields: Vec::new(),
-                span_ref: None,
-            },
-            errors: None,
-            commands: Vec::new(),
-            apis: Vec::new(),
-            records: Vec::new(),
-            queries: Vec::new(),
-            resume_routers: Vec::new(),
-            workflows: Vec::new(),
-            jobs: Vec::new(),
-            webhooks: Vec::new(),
-            notifications: Vec::new(),
-            event_groups: Vec::new(),
-            tenant_migrations: Vec::new(),
-            translation: None,
-            pollers: vec![],
-            auth: None,
-            surfaces: Vec::new(),
-            extensions: Vec::new(),
-            escape_routes: Vec::new(),
-            agents: Vec::new(),
-            reports: Vec::new(),
-            channels: Vec::new(),
-            caches: Vec::new(),
-            aggregates: vec![],
-            mcp_servers: vec![],
-            previous_names: Vec::new(),
-            span_ref: None,
-            synth_origins: std::collections::BTreeMap::new(),
-        }
-    }
-
-    fn minimal_app() -> AppManifest {
-        AppManifest {
-            name: "test".to_owned(),
-            title: None,
-            version: None,
-            lazuli_version: None,
-            targets: Vec::new(),
-            default_locale: None,
-            default_timezone: None,
-            auth_failed_redirect: None,
-            not_found: None,
-            error_pages: Vec::new(),
-            uses: Vec::new(),
-            packs: Vec::new(),
-            bindings: Vec::new(),
-            architecture: None,
-            services: Vec::new(),
-            communication: None,
-            environments: Vec::new(),
-            urls: Vec::new(),
-            cors: None,
-            headers: None,
-            cookie: None,
-            proxy: None,
-            limits: None,
-            env: Vec::new(),
-            integrations: Vec::new(),
-            capabilities: Vec::new(),
-            runtime: Vec::new(),
-            deploy: None,
-            logging: None,
-            tracing: None,
-            observability: None,
-            locale: None,
-            encryption_bindings: Vec::new(),
-            route_guard: None,
-            actor_query: None,
-            span_ref: None,
-        }
-    }
-
-    fn module_with_features(features: Vec<Feature>) -> Module {
-        Module {
-            workspace: None,
-            contracts: Vec::new(),
-            app: Some(minimal_app()),
-            registry: None,
-            profiles: Vec::new(),
-            design: None,
-            rbac: None,
-            features,
-        }
-    }
-
-    fn simple_resource(name: &str) -> Resource {
-        Resource {
-            name: name.to_owned(),
-            public_contract: None,
-            tenancy: None,
-            soft_delete: false,
-            timestamps: None,
-            fields: Vec::new(),
-            constraints: Vec::new(),
-            validate: None,
-            validates: Vec::new(),
-            retention: None,
-            previous_names: Vec::new(),
-            span_ref: None,
-            lifecycle: None,
-            invariants: vec![],
-
-            lock: None,
-
-            composite_key: None,
-            conventions: Vec::new(),
-            lifecycle_routes: None,
-        }
-    }
-
-    fn typed_slot(name: &str, builtin: BuiltinType, required: bool) -> TypedSlot {
-        TypedSlot {
-            name: name.to_owned(),
-            type_ref: TypeRef::Builtin(builtin),
-            required,
-            constraints: lazuli_ir::FieldConstraints::default(),
-            validate_skip: false,
-        }
-    }
-
-    fn local_qname(name: &str) -> QualifiedName {
-        QualifiedName {
-            feature: None,
-            name: name.to_owned(),
-        }
-    }
-
-    fn base_command(name: &str) -> Command {
-        Command {
-            name: name.to_owned(),
-            public_contract: None,
-            kind: CommandKind::Create,
-            route: Vec::new(),
-            input: CommandInput::Empty,
-            target: None,
-            lets: Vec::new(),
-            effect: CommandEffect::None,
-            policy: PolicyRef::None,
-            policy_expr: None,
-            policy_when_denied: None,
-            emits: Vec::new(),
-            rate_limit: None,
-            audit: None,
-            approval: None,
-            invalidates: Vec::new(),
-            external_calls: Vec::new(),
-            timeout: None,
-            retry: None,
-            idempotency: None,
-            write_window: None,
-            deprecated: None,
-            handler: None,
-            tests: None,
-            triggers: vec![],
-            synthesized_from_cap_file: None,
-            previous_names: Vec::new(),
-            span_ref: None,
-            owner_scope_sql: None,
-        }
-    }
 
     #[test]
     fn representative_feature_emits_command_file_shape() {
@@ -398,148 +213,17 @@ mod feature_emit_tests {
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_support::{
+        base_command, base_feature, local_qname, module_with_features, simple_resource, typed_slot,
+    };
     use super::*;
     use lazuli_ir::{
-        AppManifest, Assignment, BackoffStrategy, BuiltinType, CommandKind, CreateEffect, Defaults,
-        DeleteEffect, DeprecationReplacement, EnumLiteral, EnvName, Feature, HandlerRef,
-        IdempotencyKey, InvalidatesSpec, LetBinding, Lifecycle, LifecycleState, LifecycleStateKind,
-        LifecycleTransition, Module, NamedArg, Path, Policies, PolicyExpr, PolicyRef,
-        QualifiedName, RateLimitByEnv, RateLimitSpec, Record, Resource, RetryPolicy, ReturnsEffect,
-        RouteSlot, Tenancy, TypeRef, UpdateEffect,
+        Assignment, BackoffStrategy, BuiltinType, CreateEffect, DeleteEffect,
+        DeprecationReplacement, EnumLiteral, EnvName, Feature, HandlerRef, IdempotencyKey,
+        InvalidatesSpec, LetBinding, Lifecycle, LifecycleState, LifecycleStateKind,
+        LifecycleTransition, Policies, PolicyExpr, PolicyRef, RateLimitByEnv, RateLimitSpec,
+        Record, Resource, RetryPolicy, ReturnsEffect, Tenancy, TypeRef, UpdateEffect,
     };
-
-    fn base_feature(name: &str) -> Feature {
-        Feature {
-            name: name.to_owned(),
-            purpose: None,
-            non_goals: Vec::new(),
-            context_path: None,
-            defaults: Defaults {
-                tenancy: None,
-                timestamps: false,
-                policy: None,
-            },
-            uses: Vec::new(),
-            uses_spans: Vec::new(),
-            uses_versions: Vec::new(),
-            requirements: Vec::new(),
-            enums: Vec::new(),
-            resources: Vec::new(),
-            events: Vec::new(),
-            rules: Vec::new(),
-            policies: Policies {
-                categories: Vec::new(),
-                fields: Vec::new(),
-                span_ref: None,
-            },
-            errors: None,
-            commands: Vec::new(),
-            apis: Vec::new(),
-            records: Vec::new(),
-            queries: Vec::new(),
-            resume_routers: Vec::new(),
-            workflows: Vec::new(),
-            jobs: Vec::new(),
-            webhooks: Vec::new(),
-            notifications: Vec::new(),
-            event_groups: Vec::new(),
-            tenant_migrations: Vec::new(),
-            translation: None,
-            pollers: vec![],
-            auth: None,
-            surfaces: Vec::new(),
-            extensions: Vec::new(),
-            escape_routes: Vec::new(),
-            agents: Vec::new(),
-            reports: Vec::new(),
-            channels: Vec::new(),
-            caches: Vec::new(),
-            aggregates: vec![],
-            mcp_servers: vec![],
-            previous_names: Vec::new(),
-            span_ref: None,
-            synth_origins: std::collections::BTreeMap::new(),
-        }
-    }
-
-    fn minimal_app() -> AppManifest {
-        AppManifest {
-            name: "test".to_owned(),
-            title: None,
-            version: None,
-            lazuli_version: None,
-            targets: Vec::new(),
-            default_locale: None,
-            default_timezone: None,
-            auth_failed_redirect: None,
-            not_found: None,
-            error_pages: Vec::new(),
-            uses: Vec::new(),
-            packs: Vec::new(),
-            bindings: Vec::new(),
-            architecture: None,
-            services: Vec::new(),
-            communication: None,
-            environments: Vec::new(),
-            urls: Vec::new(),
-            cors: None,
-            headers: None,
-            cookie: None,
-            proxy: None,
-            limits: None,
-            env: Vec::new(),
-            integrations: Vec::new(),
-            capabilities: Vec::new(),
-            runtime: Vec::new(),
-            deploy: None,
-            logging: None,
-            tracing: None,
-            observability: None,
-            locale: None,
-            encryption_bindings: Vec::new(),
-            route_guard: None,
-            actor_query: None,
-            span_ref: None,
-        }
-    }
-
-    fn module_with_features(features: Vec<Feature>) -> Module {
-        Module {
-            workspace: None,
-            contracts: Vec::new(),
-            app: Some(minimal_app()),
-            registry: None,
-            profiles: Vec::new(),
-            design: None,
-            rbac: None,
-            features,
-        }
-    }
-
-    fn simple_resource(name: &str) -> Resource {
-        Resource {
-            name: name.to_owned(),
-            public_contract: None,
-            tenancy: None,
-            soft_delete: false,
-            timestamps: None,
-            fields: Vec::new(),
-            constraints: Vec::new(),
-            validate: None,
-            validates: Vec::new(),
-            retention: None,
-            previous_names: Vec::new(),
-            span_ref: None,
-            lifecycle: None,
-            invariants: vec![],
-
-            lock: None,
-
-            composite_key: None,
-            conventions: Vec::new(),
-            lifecycle_routes: None,
-        }
-    }
 
     fn lifecycle_resource(name: &str, field: &str, enum_name: &str) -> Resource {
         let mut resource = simple_resource(name);
@@ -584,23 +268,6 @@ mod tests {
         resource
     }
 
-    fn typed_slot(name: &str, builtin: BuiltinType, required: bool) -> TypedSlot {
-        TypedSlot {
-            name: name.to_owned(),
-            type_ref: TypeRef::Builtin(builtin),
-            required,
-            constraints: lazuli_ir::FieldConstraints::default(),
-            validate_skip: false,
-        }
-    }
-
-    fn local_qname(name: &str) -> QualifiedName {
-        QualifiedName {
-            feature: None,
-            name: name.to_owned(),
-        }
-    }
-
     /// Helper: emit `command.gen.go` for the given feature.
     fn emit(feature: &Feature) -> Option<String> {
         let mut features = vec![feature.clone()];
@@ -623,40 +290,6 @@ mod tests {
             &index,
             &emit_ctx,
         )
-    }
-
-    fn base_command(name: &str) -> Command {
-        Command {
-            name: name.to_owned(),
-            public_contract: None,
-            kind: CommandKind::Create,
-            route: Vec::new(),
-            input: CommandInput::Empty,
-            target: None,
-            lets: Vec::new(),
-            effect: CommandEffect::None,
-            policy: PolicyRef::None,
-            policy_expr: None,
-            policy_when_denied: None,
-            emits: Vec::new(),
-            rate_limit: None,
-            audit: None,
-            approval: None,
-            invalidates: Vec::new(),
-            external_calls: Vec::new(),
-            timeout: None,
-            retry: None,
-            idempotency: None,
-            write_window: None,
-            deprecated: None,
-            handler: None,
-            tests: None,
-            triggers: vec![],
-            synthesized_from_cap_file: None,
-            previous_names: Vec::new(),
-            span_ref: None,
-            owner_scope_sql: None,
-        }
     }
 
     #[test]
