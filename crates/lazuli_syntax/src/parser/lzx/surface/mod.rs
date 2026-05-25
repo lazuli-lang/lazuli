@@ -14,10 +14,9 @@
 //! `crate::parser::lzx::parse_surface_document`.
 
 use crate::ast::{
-    AudienceAst, CellBindingAst, DrawerBindingSourceAst, DrawerRouteBindingAst, DrawerSubViewAst,
-    DrawerTriggerAst, FilterDeclAst, OnSuccessSpecAst, PolicyAtomAst, RouteParamAst, SearchDeclAst,
-    SelectionDeclAst, SelectionModeAst, SettingDeclAst, SortDeclAst, Span, SurfaceAst,
-    SurfaceTargetAst, ViewAst, ViewCreateAst, ViewDetailAst, ViewListAst,
+    AudienceAst, CellBindingAst, DrawerSubViewAst, FilterDeclAst, OnSuccessSpecAst, PolicyAtomAst,
+    RouteParamAst, SearchDeclAst, SelectionDeclAst, SelectionModeAst, SettingDeclAst, SortDeclAst,
+    Span, SurfaceAst, SurfaceTargetAst, ViewAst, ViewCreateAst, ViewDetailAst, ViewListAst,
 };
 
 use super::super::common::{
@@ -42,6 +41,9 @@ use search::parse_view_search_decl;
 
 mod filter;
 use filter::parse_filters_block;
+
+mod drawer;
+use drawer::parse_drawer_block;
 
 /// Parse a full `.lzx` ViewModel file. Expects exactly one
 /// `surface <feature> web|mobile` declaration at indent 0.
@@ -495,28 +497,28 @@ fn parse_view_block(
 }
 
 #[derive(Default)]
-struct ViewBodyState {
-    source: Option<String>,
-    submit: Option<String>,
-    columns: Vec<String>,
-    search: Option<SearchDeclAst>,
-    filter: Vec<String>,
-    filters: Vec<FilterDeclAst>,
-    has_filters_block: bool,
-    fields: Vec<String>,
-    sections: Vec<String>,
-    cells_slot: Option<String>,
-    cells: Vec<CellBindingAst>,
-    actions: Vec<String>,
-    route_params: Vec<RouteParamAst>,
-    drawer: Option<DrawerSubViewAst>,
-    on_success: Option<OnSuccessSpecAst>,
-    sort: Option<SortDeclAst>,
-    selection: Option<SelectionDeclAst>,
-    bulk_actions: Vec<String>,
-    bulk_actions_seen: bool,
-    settings: Vec<SettingDeclAst>,
-    redacted_fields: Vec<String>,
+pub(super) struct ViewBodyState {
+    pub(super) source: Option<String>,
+    pub(super) submit: Option<String>,
+    pub(super) columns: Vec<String>,
+    pub(super) search: Option<SearchDeclAst>,
+    pub(super) filter: Vec<String>,
+    pub(super) filters: Vec<FilterDeclAst>,
+    pub(super) has_filters_block: bool,
+    pub(super) fields: Vec<String>,
+    pub(super) sections: Vec<String>,
+    pub(super) cells_slot: Option<String>,
+    pub(super) cells: Vec<CellBindingAst>,
+    pub(super) actions: Vec<String>,
+    pub(super) route_params: Vec<RouteParamAst>,
+    pub(super) drawer: Option<DrawerSubViewAst>,
+    pub(super) on_success: Option<OnSuccessSpecAst>,
+    pub(super) sort: Option<SortDeclAst>,
+    pub(super) selection: Option<SelectionDeclAst>,
+    pub(super) bulk_actions: Vec<String>,
+    pub(super) bulk_actions_seen: bool,
+    pub(super) settings: Vec<SettingDeclAst>,
+    pub(super) redacted_fields: Vec<String>,
 }
 
 type ViewBodyLineHandler =
@@ -538,7 +540,7 @@ fn view_body_handlers() -> &'static [(&'static str, ViewBodyLineHandler)] {
     ]
 }
 
-fn parse_view_source_line(
+pub(super) fn parse_view_source_line(
     line: &SourceLine<'_>,
     rest: &str,
     state: &mut ViewBodyState,
@@ -595,7 +597,7 @@ fn parse_view_filter_line(
     Ok(())
 }
 
-fn parse_view_sections_line(
+pub(super) fn parse_view_sections_line(
     _line: &SourceLine<'_>,
     rest: &str,
     state: &mut ViewBodyState,
@@ -604,7 +606,7 @@ fn parse_view_sections_line(
     Ok(())
 }
 
-fn parse_view_actions_line(
+pub(super) fn parse_view_actions_line(
     _line: &SourceLine<'_>,
     rest: &str,
     state: &mut ViewBodyState,
@@ -613,7 +615,7 @@ fn parse_view_actions_line(
     Ok(())
 }
 
-fn parse_view_cells_line(
+pub(super) fn parse_view_cells_line(
     line: &SourceLine<'_>,
     rest: &str,
     state: &mut ViewBodyState,
@@ -665,171 +667,6 @@ fn parse_view_route_line(
     let param = parse_route_param(line, rest)?;
     state.route_params.push(param);
     Ok(())
-}
-
-fn parse_drawer_block(
-    lines: &[SourceLine<'_>],
-    start: usize,
-    drawer_indent: usize,
-    header_rest: &str,
-) -> Result<(DrawerSubViewAst, usize), ParseError> {
-    let header = &lines[start];
-    let parts: Vec<_> = header_rest.split_whitespace().collect();
-    if parts.len() != 3 || parts[1] != "on" {
-        return Err(line_error(
-            header,
-            "drawer blocks use `drawer <name> on select|open`",
-        ));
-    }
-    let name = parts[0].to_owned();
-    if !is_kebab_or_snake_ident(&name) {
-        return Err(line_error_owned(
-            header,
-            format!("drawer name `{}` must be kebab/snake identifier", name),
-        ));
-    }
-    let trigger = match parts[2] {
-        "select" => DrawerTriggerAst::Select,
-        "open" => DrawerTriggerAst::ManualOpen,
-        _ => {
-            return Err(line_error(
-                header,
-                "drawer trigger must be `select` or `open`",
-            ));
-        }
-    };
-
-    let child_indent = drawer_indent + 2;
-    let mut state = ViewBodyState::default();
-    let mut route_binding = None;
-    let mut last_end = header.end;
-    let mut i = start + 1;
-
-    while i < lines.len() {
-        let line = &lines[i];
-        let raw = line.text.trim_start();
-        if is_trivia(raw) {
-            i += 1;
-            continue;
-        }
-        if line.indent <= drawer_indent {
-            break;
-        }
-        if line.indent != child_indent {
-            return Err(line_error(
-                line,
-                "drawer body lines use one indentation level deeper than the `drawer` header",
-            ));
-        }
-        if raw.contains("+=") || raw.contains("-=") {
-            return Err(line_error(
-                line,
-                "partial overrides are not valid in `.lzx`; redeclare the whole drawer",
-            ));
-        }
-
-        let trimmed = strip_inline_comment(raw).trim_end();
-        if trimmed.starts_with("drawer ") {
-            return Err(line_error(line, "drawer cannot be nested"));
-        }
-
-        if let Some(rest) = trimmed.strip_prefix("source ") {
-            parse_view_source_line(line, rest.trim(), &mut state)?;
-        } else if let Some(rest) = trimmed.strip_prefix("route ") {
-            if route_binding.is_some() {
-                return Err(line_error(line, "drawer declares `route` at most once"));
-            }
-            route_binding = Some(parse_drawer_route_binding(line, rest.trim())?);
-        } else if let Some(rest) = trimmed.strip_prefix("sections ") {
-            parse_view_sections_line(line, rest.trim(), &mut state)?;
-        } else if let Some(rest) = trimmed.strip_prefix("cells ") {
-            parse_drawer_cells_line(line, rest.trim(), &mut state)?;
-        } else if let Some(rest) = trimmed.strip_prefix("actions ") {
-            parse_view_actions_line(line, rest.trim(), &mut state)?;
-        } else {
-            return Err(line_error_owned(
-                line,
-                format!(
-                    "drawer body lines are `source`, `route <key> from selection`, `sections`, `cells <field> @client.<slot>`, or `actions` declarations (got `{}`)",
-                    trimmed
-                ),
-            ));
-        }
-
-        last_end = line.end;
-        i += 1;
-    }
-
-    Ok((
-        DrawerSubViewAst {
-            name,
-            trigger,
-            source: state.source.ok_or_else(|| {
-                line_error(
-                    header,
-                    "drawer requires a `source <feature>.query.<name>` line",
-                )
-            })?,
-            route_binding,
-            sections: state.sections,
-            cells: state.cells,
-            actions: state.actions,
-            span: Span::new(header.start, last_end),
-        },
-        i,
-    ))
-}
-
-fn parse_drawer_cells_line(
-    line: &SourceLine<'_>,
-    rest: &str,
-    state: &mut ViewBodyState,
-) -> Result<(), ParseError> {
-    if rest.split_whitespace().count() != 2 {
-        return Err(line_error(
-            line,
-            "drawer cells use `cells <field> @client.<slot>`",
-        ));
-    }
-    parse_view_cells_line(line, rest, state)
-}
-
-fn parse_drawer_route_binding(
-    line: &SourceLine<'_>,
-    value: &str,
-) -> Result<DrawerRouteBindingAst, ParseError> {
-    let (target, source) = value.rsplit_once(" from ").ok_or_else(|| {
-        line_error(
-            line,
-            "drawer route binding must be `route <key> from selection`",
-        )
-    })?;
-    let target = target.trim();
-    if target.is_empty() {
-        return Err(line_error(
-            line,
-            "drawer route binding requires a target key",
-        ));
-    }
-    if !is_kebab_or_snake_ident(target) {
-        return Err(line_error_owned(
-            line,
-            format!(
-                "drawer route target `{}` must be kebab/snake identifier",
-                target
-            ),
-        ));
-    }
-    if source.trim() != "selection" {
-        return Err(line_error(
-            line,
-            "drawer route binding source must be `from selection`",
-        ));
-    }
-    Ok(DrawerRouteBindingAst {
-        target: target.to_owned(),
-        source: DrawerBindingSourceAst::Selection,
-    })
 }
 
 fn parse_view_selection_line(
