@@ -1398,10 +1398,11 @@ impl DoctorPackage {
     /// diagnostic flags them via `check_coverage_preset_unknown`).
     pub fn coverage_report(&self) -> lazuli_doctor::coverage::CoverageReport {
         use lazuli_doctor::coverage::{
-            build_coverage_report, resolve_coverage_thresholds, CoveragePreset, CoverageProfile,
-            LayerThreshold,
+            build_coverage_report_with_e2e_root, resolve_coverage_thresholds, CoveragePreset,
+            CoverageProfile, LayerThreshold,
         };
         use std::collections::BTreeMap;
+        use std::path::PathBuf;
 
         let (features, lzx_views) = self.coverage_inputs();
         let profile = match self.security_profile {
@@ -1443,12 +1444,22 @@ impl DoctorPackage {
 
         let thresholds =
             resolve_coverage_thresholds(profile, preset, per_layer_overrides, aggregate_method);
-        build_coverage_report(
+
+        let e2e_discovery_root: Option<PathBuf> = self
+            .lazurite_manifest
+            .as_ref()
+            .and_then(|m| m.testing.as_ref())
+            .and_then(|t| t.playwright.as_ref())
+            .and_then(|pw| pw.discovery_root.as_deref())
+            .map(PathBuf::from);
+
+        build_coverage_report_with_e2e_root(
             &features,
             &lzx_views,
             profile,
             &thresholds,
             Some(&self.project_root),
+            e2e_discovery_root.as_deref(),
         )
     }
 

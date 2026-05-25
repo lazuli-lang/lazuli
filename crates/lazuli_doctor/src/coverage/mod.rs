@@ -369,6 +369,28 @@ pub fn build_coverage_report(
     thresholds: &CoverageThresholds,
     project_root: Option<&Path>,
 ) -> CoverageReport {
+    build_coverage_report_with_e2e_root(
+        features,
+        lzx_views,
+        profile,
+        thresholds,
+        project_root,
+        None,
+    )
+}
+
+/// Frente 2 — view_e2e_pair now honors a configurable Playwright
+/// discovery root (`[testing.playwright].discovery_root` in
+/// `Lazurite.toml`). Callers with manifest access pass it through
+/// here; the bare `build_coverage_report` shim keeps backwards-compat.
+pub fn build_coverage_report_with_e2e_root(
+    features: &[Feature],
+    lzx_views: &[LzxViewRef],
+    profile: CoverageProfile,
+    thresholds: &CoverageThresholds,
+    project_root: Option<&Path>,
+    e2e_discovery_root: Option<&Path>,
+) -> CoverageReport {
     let mut layers: BTreeMap<String, LayerCoverage> = BTreeMap::new();
     layers.insert(
         "spec_predicate".to_string(),
@@ -388,7 +410,7 @@ pub fn build_coverage_report(
     );
     layers.insert(
         "view_e2e_pair".to_string(),
-        view_e2e_pair::compute(lzx_views, project_root),
+        view_e2e_pair::compute(lzx_views, project_root, e2e_discovery_root),
     );
     layers.insert("handler_go".to_string(), handler_go::compute(project_root));
     apply_thresholds(&mut layers, thresholds);
