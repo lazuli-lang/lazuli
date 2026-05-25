@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod auth_refresh;
 pub mod folder;
+mod helpers;
 pub mod lifecycle_gate;
 pub mod lzx;
 pub mod rbac;
@@ -8,6 +9,12 @@ mod returns_list_001;
 mod returns_list_002;
 pub mod route_guard;
 pub mod schema_rich_001;
+
+use helpers::{
+    doctor_project_root, parse_doctor_format, parse_doctor_severity, parse_fail_on_specs,
+    project_has_lazurite_manifest, resolve_internal_hygiene_severity,
+    resolve_test_discipline_severity,
+};
 
 // Re-export file-local diagnostic sub-modules extracted to the `lazuli_doctor`
 // crate on 2026-05-15 so the LSP can import them. Existing call sites inside
@@ -172,26 +179,6 @@ pub fn doctor_command_with_options(
 
     println!("{} passed Lazuli doctor checks", input.display());
     Ok(())
-}
-
-fn parse_doctor_format(input: Option<&str>) -> crate::doctor_report::DoctorFormat {
-    use crate::doctor_report::DoctorFormat;
-    match input.unwrap_or("text").to_ascii_lowercase().as_str() {
-        "text" => DoctorFormat::Text,
-        "json" => DoctorFormat::Json,
-        "ndjson" => DoctorFormat::Ndjson,
-        "auto" => DoctorFormat::Auto,
-        _ => DoctorFormat::Text,
-    }
-}
-
-fn parse_fail_on_specs(
-    inputs: &[String],
-) -> Result<Vec<crate::doctor_report::FailOnSpec>, String> {
-    inputs
-        .iter()
-        .map(|s| crate::doctor_report::FailOnSpec::parse(s))
-        .collect()
 }
 
 /// Build a canonical `DoctorReport` from `DoctorDiagnostic` list +
@@ -2144,19 +2131,6 @@ fn doctor_rule_severity(security_profile: SecurityProfile) -> DoctorSeverity {
     )
 }
 
-/// Parse a TOML override string (`"warning"`, `"error"`, …) into a
-/// `DoctorSeverity`. Returns `None` for unrecognized strings; callers
-/// fall back to the category default in that case.
-fn parse_doctor_severity(s: &str) -> Option<DoctorSeverity> {
-    match s.to_ascii_lowercase().as_str() {
-        "error" => Some(DoctorSeverity::Error),
-        "warning" | "warn" => Some(DoctorSeverity::Warning),
-        "info" => Some(DoctorSeverity::Info),
-        "hint" => Some(DoctorSeverity::Hint),
-        _ => None,
-    }
-}
-
 /// Per-rule severity override as authored in `Lazurite.toml`.
 ///
 /// `[doctor.test_discipline.severity_override]` table entries lift into
@@ -3400,63 +3374,6 @@ enum DoctorSeverity {
     Hint,
 }
 
-impl From<lazuli_doctor::DoctorSeverity> for DoctorSeverity {
-    /// W1.5 — bridge from the shared `lazuli_doctor::DoctorSeverity`
-    /// returned by preset machinery into the CLI's private severity
-    /// enum used by `DoctorDiagnostic`. 1:1 mapping; variants line up.
-    fn from(severity: lazuli_doctor::DoctorSeverity) -> Self {
-        match severity {
-            lazuli_doctor::DoctorSeverity::Error => Self::Error,
-            lazuli_doctor::DoctorSeverity::Warning => Self::Warning,
-            lazuli_doctor::DoctorSeverity::Info => Self::Info,
-            lazuli_doctor::DoctorSeverity::Hint => Self::Hint,
-        }
-    }
-}
-
-/// W1.5 — resolve effective severity for a test-discipline rule under
-/// the active `[doctor.test_discipline].preset`. Returns the preset's
-/// opinion when one exists, otherwise the caller-supplied default
-/// (typically the per-rule severity calibrated by the rule's authored
-/// intent).
-///
-/// Centralized helper so every test-discipline dispatch site
-/// (`test_discipline_diagnostics`, `.lzx`-loop view rules, future
-/// per-file dispatchers) escalates uniformly under `tdd-iron-hand`.
-fn resolve_test_discipline_severity(
-    default: DoctorSeverity,
-    code: &str,
-    preset: Option<lazuli_doctor::test_discipline::preset::TestDisciplinePreset>,
-) -> DoctorSeverity {
-    if let Some(preset) = preset {
-        if let Some(override_sev) =
-            lazuli_doctor::test_discipline::preset::preset_rule_severity(preset, code)
-        {
-            return override_sev.into();
-        }
-    }
-    default
-}
-
-/// W3 — mirror of `resolve_test_discipline_severity` for the
-/// internal-hygiene category. Under `tdd-iron-hand`, every `INTERNAL-*`
-/// rule escalates to `Error`; otherwise the per-rule default carried
-/// by the dispatcher stands.
-fn resolve_internal_hygiene_severity(
-    default: DoctorSeverity,
-    code: &str,
-    preset: Option<lazuli_doctor::internal_hygiene::preset::InternalHygienePreset>,
-) -> DoctorSeverity {
-    if let Some(preset) = preset {
-        if let Some(override_sev) =
-            lazuli_doctor::internal_hygiene::preset::preset_rule_severity(preset, code)
-        {
-            return override_sev.into();
-        }
-    }
-    default
-}
-
 /// W3 — `lazuli doctor --self` entry point. Walks the framework's
 /// own Rust source under `crates/lazuli_*/src/` and emits
 /// `INTERNAL-*` findings. Pairs with workspace-root
@@ -3841,21 +3758,6 @@ fn collect_package_paths(input: &Path) -> Result<Vec<PathBuf>> {
     }
     paths.sort();
     Ok(paths)
-}
-
-fn doctor_project_root(input: &Path) -> PathBuf {
-    if input.is_dir() {
-        return input.to_path_buf();
-    }
-
-    input
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .to_path_buf()
-}
-
-fn project_has_lazurite_manifest(project_root: &Path) -> bool {
-    project_root.join("Lazurite.toml").is_file()
 }
 
 fn project_uses_plugin_refs(project_root: &Path) -> bool {
