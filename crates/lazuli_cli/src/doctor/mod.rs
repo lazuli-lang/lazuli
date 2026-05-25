@@ -409,104 +409,110 @@ struct DoctorPackage {
 
 /// Phase L Tier 3 — lifted job/webhook/notification/event_group bundle
 /// for one feature, with source line anchors for diagnostic placement.
+///
+/// Field-level visibility (Wave 4.3 R2): every field is `pub(crate)` so
+/// the per-category aggregators under `doctor/aggregators/*` can read
+/// the lifted Tier 3 IR without re-deriving it from source. Construction
+/// stays inside `DoctorPackage::load` — these structs are read-only
+/// once the package is loaded.
 #[derive(Debug, Clone)]
-struct Tier3FeatureFacts {
-    feature: String,
-    path: PathBuf,
-    feature_line: usize,
+pub(crate) struct Tier3FeatureFacts {
+    pub(crate) feature: String,
+    pub(crate) path: PathBuf,
+    pub(crate) feature_line: usize,
     /// Resolved tenancy axis (`org`, `team`, custom, none) inferred
     /// from the feature's `defaults` block. `None` if the source did
     /// not declare a default. Doctor's tenant_from / fanout checks
     /// use this to cross-check axis references.
-    tenancy_axis: Option<String>,
+    pub(crate) tenancy_axis: Option<String>,
     /// Feature-level default policy from `defaults.policy`. Queries
     /// with no per-query policy inherit this; absent defaults imply the
     /// runtime's public fallback.
-    defaults_policy: Option<lazuli_ir::PolicyRef>,
+    pub(crate) defaults_policy: Option<lazuli_ir::PolicyRef>,
     /// Feature-level `defaults.timestamps`. Most correctness dispatchers
     /// only need commands/resources, but audit timestamp checks must know
     /// whether `updated_at` is framework-managed.
-    defaults_timestamps: bool,
-    jobs: Vec<lazuli_ir::Job>,
-    webhooks: Vec<lazuli_ir::Webhook>,
-    notifications: Vec<lazuli_ir::Notification>,
-    event_groups: Vec<lazuli_ir::EventGroup>,
+    pub(crate) defaults_timestamps: bool,
+    pub(crate) jobs: Vec<lazuli_ir::Job>,
+    pub(crate) webhooks: Vec<lazuli_ir::Webhook>,
+    pub(crate) notifications: Vec<lazuli_ir::Notification>,
+    pub(crate) event_groups: Vec<lazuli_ir::EventGroup>,
     /// Migrations bucket cycle Route C — lifted `TenantMigration`
     /// declarations for this feature, paired with `tenant_migration_lines`
     /// for `TM-*` diagnostic line anchoring.
-    tenant_migrations: Vec<lazuli_ir::TenantMigration>,
+    pub(crate) tenant_migrations: Vec<lazuli_ir::TenantMigration>,
     /// Migrations bucket cycle Route C — `Resource.previous_names`
     /// captures plus current resource names per feature, for
     /// `PREVIOUSLY-*` cross-checks.
-    resource_previous_names: Vec<ResourcePreviousFact>,
+    pub(crate) resource_previous_names: Vec<ResourcePreviousFact>,
     /// Migrations bucket cycle Route C — `Field.previous_names`
     /// captures (resource + field + previous names + line).
-    field_previous_names: Vec<FieldPreviousFact>,
+    pub(crate) field_previous_names: Vec<FieldPreviousFact>,
     /// Migrations bucket cycle Route C — every current resource name
     /// in this feature (including resources without any `previously`
     /// declaration) so `PREVIOUSLY-FWD-001` can detect stale rename
     /// targets pointing at live symbols.
-    all_resource_names_in_feature: BTreeSet<String>,
+    pub(crate) all_resource_names_in_feature: BTreeSet<String>,
     /// Migrations bucket cycle Route C — `resource_name -> {field_names}`
     /// per feature for `PREVIOUSLY-FWD-001` on field-level rename hints.
-    all_field_names_in_feature: BTreeMap<String, BTreeSet<String>>,
+    pub(crate) all_field_names_in_feature: BTreeMap<String, BTreeSet<String>>,
     /// `job_name -> source line` lookup.
-    job_lines: BTreeMap<String, usize>,
-    webhook_lines: BTreeMap<String, usize>,
-    notification_lines: BTreeMap<String, usize>,
-    tenant_migration_lines: BTreeMap<String, usize>,
+    pub(crate) job_lines: BTreeMap<String, usize>,
+    pub(crate) webhook_lines: BTreeMap<String, usize>,
+    pub(crate) notification_lines: BTreeMap<String, usize>,
+    pub(crate) tenant_migration_lines: BTreeMap<String, usize>,
     /// `event_group_pattern -> source line` lookup.
-    event_group_lines: BTreeMap<String, usize>,
+    pub(crate) event_group_lines: BTreeMap<String, usize>,
     /// OpenAPI/Cache bucket cycles — lifted `command` IR per feature.
     /// Doctor reads `Command.deprecated` and `Command.invalidates` from
     /// here for the openapi/cache cross-checks.
-    commands: Vec<lazuli_ir::Command>,
+    pub(crate) commands: Vec<lazuli_ir::Command>,
     /// `command_name -> source line` lookup. Anchors `deprecated_*` and
     /// `cache_invalidates_*` diagnostics at the command header.
-    command_lines: BTreeMap<String, usize>,
+    pub(crate) command_lines: BTreeMap<String, usize>,
     /// Cache bucket cycle — lifted `query` IR per feature. Doctor reads
     /// `Query.cache` (when populated) for the cache cross-checks.
-    queries: Vec<lazuli_ir::Query>,
+    pub(crate) queries: Vec<lazuli_ir::Query>,
     /// `query_name -> source line` lookup. Anchors `cache_*` diagnostics
     /// at the query header.
-    query_lines: BTreeMap<String, usize>,
+    pub(crate) query_lines: BTreeMap<String, usize>,
     /// Cache bucket cycle (CL.C.3) — feature-level `cache <name>`
     /// profile declarations lifted from the canonical-indent slice.
     /// Doctor uses this to (1) resolve query `cache <profile>`
     /// references for `cache-profile-unknown`, (2) build the package-
     /// wide tag index for `cache-tag-unknown`, and (3) cross-check TTL
     /// shape invariants for `cache-ttl-contract`.
-    caches: Vec<lazuli_ir::CacheProfile>,
+    pub(crate) caches: Vec<lazuli_ir::CacheProfile>,
     /// `cache_profile_name -> source line` lookup. Anchors CL.C.3
     /// diagnostics at the profile header.
-    cache_lines: BTreeMap<String, usize>,
+    pub(crate) cache_lines: BTreeMap<String, usize>,
     /// OpenAPI bucket cycle — every `api <name>` declaration in this
     /// feature (text-pattern era, before Tier 4 lift). Doctor uses this
     /// to surface `openapi_text_pattern_api_block`.
-    api_names_text_pattern: Vec<String>,
+    pub(crate) api_names_text_pattern: Vec<String>,
     /// i18n bucket cycle — lifted typed `api` blocks (post Tier 4).
     /// Doctor reads `Api.locale_negotiate` from here for per-endpoint
     /// override validation.
-    apis: Vec<lazuli_ir::Api>,
+    pub(crate) apis: Vec<lazuli_ir::Api>,
     /// Phase L Tier 4b — `api_name -> source line` lookup for the lifted
     /// `apis` slot. Anchors `agent_expose_*` cross-checks at each api
     /// header.
-    api_lines: BTreeMap<String, usize>,
+    pub(crate) api_lines: BTreeMap<String, usize>,
     /// Cut A.7 — lifted agents for report auto-mount route conflict checks.
-    agents: Vec<lazuli_ir::Agent>,
+    pub(crate) agents: Vec<lazuli_ir::Agent>,
     /// i18n bucket cycle — lifted `translation` block (when authored).
-    translation: Option<lazuli_ir::Translation>,
-    translation_line: usize,
+    pub(crate) translation: Option<lazuli_ir::Translation>,
+    pub(crate) translation_line: usize,
     /// Phase L Tier 4 follow-up — lifted `record <Name>` declarations
     /// per feature. Replaces the text-scanned `FeatureSymbols.records`
     /// for the agent discriminator cross-checks.
-    records: Vec<lazuli_ir::Record>,
+    pub(crate) records: Vec<lazuli_ir::Record>,
     /// Phase L Tier 4 follow-up — lifted `enum <Name>` declarations per
     /// feature. Closes out the canonical-indent slice for `domain`:
     /// `agent_discriminator_target_invalid` and
     /// `check_record_discriminator` both read from here. The retired
     /// `FeatureSymbols.enums` text walker is gone.
-    enums: Vec<lazuli_ir::EnumDecl>,
+    pub(crate) enums: Vec<lazuli_ir::EnumDecl>,
     /// Notifications expanded bucket cycle — lifted `event` /
     /// `event.trace` declarations for this feature. `NOTIF-DIGEST-001`
     /// resolves `notification.digest.group_by` against the trigger
@@ -514,62 +520,62 @@ struct Tier3FeatureFacts {
     /// keyed by `<feature>.<event>`. Tracking the full payload at the
     /// fact level keeps the diagnostic shape-aware without adding a
     /// new fact family.
-    events: Vec<lazuli_ir::Event>,
+    pub(crate) events: Vec<lazuli_ir::Event>,
     /// Whether the feature authored a top-level `policies` block.
     /// `Feature.policies` has a default value, so doctor reads the
     /// lowered `span_ref` to distinguish "absent" from "declared".
-    policies_declared: bool,
+    pub(crate) policies_declared: bool,
     /// Phase L Tier 4 follow-up — full lifted `policies` block. Used
     /// by `SCOPE-OWNER-COLUMN-001` and other lints that need to walk
     /// a command's policy atom list (resolving `PolicyRef::Local`
     /// through `categories`) without re-deriving the lookup from
     /// text. Empty `Policies::default()` when the feature did not
     /// author a block.
-    policies: lazuli_ir::Policies,
+    pub(crate) policies: lazuli_ir::Policies,
     /// Wave 10 — feature-level `extensions` block lifted. Used by
     /// `resource_validates_path_unknown` to resolve
     /// `validates field <f> @validator.<name>` references against
     /// declared `extensions.validator`. Empty when the feature has
     /// no extensions block.
-    extensions: Vec<lazuli_ir::Extension>,
+    pub(crate) extensions: Vec<lazuli_ir::Extension>,
     /// Report vocab — lifted `report` declarations per feature. See
     /// `docs/proposals/report-vocab.md`.
-    reports: Vec<lazuli_ir::Report>,
+    pub(crate) reports: Vec<lazuli_ir::Report>,
     /// `report_name -> source line` lookup. Anchors `REPORT-*`
     /// diagnostics at the report header.
-    report_lines: BTreeMap<String, usize>,
+    pub(crate) report_lines: BTreeMap<String, usize>,
     /// Resources captured (full `Resource`) per feature — used by
     /// `REPORT-COLUMN-MISMATCH-001` to resolve `row.<field>` against
     /// the source query's projection.
-    resources: Vec<lazuli_ir::Resource>,
+    pub(crate) resources: Vec<lazuli_ir::Resource>,
     /// Raw `ReportDecl` AST per feature — used by rules that need the
     /// original (pre-lowering) form (e.g. `REPORT-FORMAT-UNKNOWN-001`
     /// scans the AST formats list since lowering drops unknown tokens).
-    report_decls: Vec<lazuli_syntax::ReportDecl>,
+    pub(crate) report_decls: Vec<lazuli_syntax::ReportDecl>,
     /// CL.C.4 — lifted `aggregate <Name>` declarations per feature.
     /// Powers the four domain-model diagnostics:
     /// `AGGREGATE-ROOT-UNKNOWN`, `AGGREGATE-CONTAINS-UNKNOWN`,
     /// `INVARIANT-PREDICATE-INVALID`, `SLUG-UNIQUENESS-IMPLICIT`.
     /// Empty vec when the feature authored no aggregate blocks.
-    aggregates: Vec<lazuli_ir::Aggregate>,
+    pub(crate) aggregates: Vec<lazuli_ir::Aggregate>,
     /// CL.C.4 — `aggregate_name -> source line` lookup. Anchors the
     /// `AGGREGATE-*` and aggregate-scoped `INVARIANT-*` diagnostics
     /// at the aggregate header.
-    aggregate_lines: BTreeMap<String, usize>,
+    pub(crate) aggregate_lines: BTreeMap<String, usize>,
     /// IR Error-Vocab (Cell ANALYZE-1) — lifted `errors` block. `None`
     /// when the feature did not author one. Used by the 7 `ERR-VOCAB-*`
     /// checks for `default hide/expose`, `expose client 4xx/5xx`, and
     /// per-code `<code> message @translation.<key>` rows.
-    errors: Option<lazuli_ir::FeatureErrors>,
+    pub(crate) errors: Option<lazuli_ir::FeatureErrors>,
     /// IR Error-Vocab (Cell ANALYZE-1) — cloned `Feature.uses` so the
     /// `ERR-VOCAB-002` cross-feature key resolver can walk imported
     /// features without re-deriving the import set from `feature_uses`.
-    uses: Vec<String>,
+    pub(crate) uses: Vec<String>,
     /// Realtime bucket cycle — lifted `channel <name>` declarations per
     /// feature. Used by `CHANNEL-PAYLOAD-001` to resolve each channel's
     /// `payload <Type>` against the feature's `records` / `resources`.
     /// Empty when the feature declares no realtime channels.
-    channels: Vec<lazuli_ir::Channel>,
+    pub(crate) channels: Vec<lazuli_ir::Channel>,
 }
 
 /// Migrations bucket cycle Route C — `Resource` rename fact captured
