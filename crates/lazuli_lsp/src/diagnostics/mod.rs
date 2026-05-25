@@ -40,3 +40,5 @@
 //!   (e.g. `FEATURE_BODY_KINDS`) consumed by the producers below.
 //! * `crate::code_actions` — code-action providers; structurally
 //!   parallel to this module (one file per family).
+
+pub(crate) mod agent;
