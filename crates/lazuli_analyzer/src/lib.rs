@@ -101,6 +101,7 @@ mod command;
 mod conventions;
 mod design;
 mod expr;
+mod feature;
 mod helpers;
 mod lifecycle;
 mod lzx;
@@ -121,6 +122,7 @@ pub use conventions::{
     build_owner_scope_where_for_test, synthesize_conventions,
 };
 pub use design::lower_design;
+pub use feature::lower_feature_skeleton;
 pub use lzx::lower_lzx_document;
 pub use plan_gate::{
     PlanGateCode, PlanGateDiagnostic, PlanGateFacts, aggregate_plan_gate_facts,
@@ -130,7 +132,6 @@ pub use surface::lower_surface;
 pub use symbol_origin::build_symbol_origin_index;
 
 use agent::parse_closed_predicate;
-use auto_photo::synthesize_auto_photo;
 use command::{
     lower_command_effect, lower_invalidates_query_ref, lower_let_binding, lower_named_arg,
     lower_target_expr,
@@ -139,9 +140,9 @@ use expr::{
     lower_path_string, lower_policy_atom, lower_policy_expr, lower_qualified_name,
     lower_translation_key_ref,
 };
-use query::{lower_cache_profile_decl, lower_query_decl, strip_validate_skip};
+use query::strip_validate_skip;
 use resource::{
-    lift_field_constraints, lower_rate_limit_spec, lower_resource_decl, lower_resource_field,
+    lift_field_constraints, lower_rate_limit_spec, lower_resource_field,
     validate_constraint_combinations, validate_constraint_pattern_compile,
     validate_constraint_range_invariant, validate_constraint_type_compatibility,
 };
@@ -152,9 +153,7 @@ use workflow::{
     lower_tenant_migration_target,
 };
 
-use helpers::{
-    conventions_levenshtein, first_paren_balanced_token, pascal_to_snake, snake_to_pascal, span_of,
-};
+use helpers::{conventions_levenshtein, first_paren_balanced_token, span_of};
 
 use lazuli_ir as ir;
 use lazuli_syntax as syntax;
@@ -860,200 +859,6 @@ pub(crate) fn parse_default(raw: &str) -> ir::DefaultValue {
     }
 
     ir::DefaultValue::String(raw.to_owned())
-}
-
-/// Lower a canonical-indent feature skeleton into an `ir::Feature`.
-pub fn lower_feature_skeleton(
-    skeleton: &syntax::FeatureSkeleton,
-) -> Result<ir::Feature, AnalyzeError> {
-    let mut agents = Vec::with_capacity(skeleton.agents.len());
-    for agent_ast in &skeleton.agents {
-        agents.push(lower_agent(&skeleton.name, agent_ast)?);
-    }
-    let auth = match &skeleton.auth {
-        Some(auth_ast) => Some(lower_auth(auth_ast)?),
-        None => None,
-    };
-    let mut jobs = Vec::with_capacity(skeleton.jobs.len());
-    for job_ast in &skeleton.jobs {
-        jobs.push(lower_job(&skeleton.name, job_ast)?);
-    }
-    let mut webhooks = Vec::with_capacity(skeleton.webhooks.len());
-    for webhook_ast in &skeleton.webhooks {
-        webhooks.push(lower_webhook(webhook_ast)?);
-    }
-    let mut notifications = Vec::with_capacity(skeleton.notifications.len());
-    for notification_ast in &skeleton.notifications {
-        notifications.push(lower_notification(&skeleton.name, notification_ast)?);
-    }
-    let mut pollers = Vec::with_capacity(skeleton.pollers.len());
-    for poller_ast in &skeleton.pollers {
-        pollers.push(lower_poller(poller_ast)?);
-    }
-    let mut event_groups = Vec::with_capacity(skeleton.event_groups.len());
-    for group_ast in &skeleton.event_groups {
-        event_groups.push(lower_event_group(group_ast));
-    }
-    let mut tenant_migrations = Vec::with_capacity(skeleton.tenant_migrations.len());
-    for tm_ast in &skeleton.tenant_migrations {
-        tenant_migrations.push(lower_tenant_migration(tm_ast)?);
-    }
-    let defaults = match &skeleton.defaults {
-        Some(d) => lower_defaults(d),
-        None => ir::Defaults::default(),
-    };
-    let commands = skeleton
-        .commands
-        .iter()
-        .map(|command| lower_command_decl(&skeleton.name, command))
-        .collect::<Result<Vec<_>, _>>()?;
-    let apis = skeleton.apis.iter().map(lower_api_decl).collect();
-    let resources = skeleton
-        .resources
-        .iter()
-        .map(lower_resource_decl)
-        .collect::<Result<Vec<_>, _>>()?;
-    let queries = skeleton
-        .queries
-        .iter()
-        .map(|q| lower_query_decl(&skeleton.name, q, &skeleton.caches))
-        .collect::<Result<Vec<_>, _>>()?;
-    let records = skeleton
-        .records
-        .iter()
-        .map(lower_record_decl)
-        .collect::<Result<Vec<_>, _>>()?;
-    let policies = skeleton
-        .policies
-        .as_ref()
-        .map(lower_policies_decl)
-        .unwrap_or_default();
-    let enums = skeleton.enums.iter().map(lower_enum_decl).collect();
-    let reports = skeleton
-        .reports
-        .iter()
-        .map(|r| report::lower_report_decl(&skeleton.name, r))
-        .collect::<Result<Vec<_>, _>>()?;
-    // CL.C.4 — lower `aggregate <Name>` blocks from the surface AST.
-    let aggregates = skeleton
-        .aggregates
-        .iter()
-        .map(lower_aggregate_decl)
-        .collect::<Vec<_>>();
-    // MCP bucket cycle — lower `mcp_server <name>` blocks. Lowering is
-    // value-preserving except for the closed-catalog `transport` mapping
-    // (rejects unknown literals with a typed error).
-    let mcp_servers: Vec<ir::MCPServerSpec> = skeleton
-        .mcp_servers
-        .iter()
-        .map(lower_mcp_server)
-        .collect::<Result<Vec<_>, _>>()?;
-    // Cross-feature contracts §5.4 — lift the feature-level
-    // `uses <feature>[, ...]+ [version v<N>]` clauses into parallel
-    // `uses` / `uses_spans` / `uses_versions` lists. Each clause from a
-    // single `uses` line becomes one entry in each parallel vector.
-    let uses: Vec<String> = skeleton
-        .uses_clauses
-        .iter()
-        .map(|c| c.feature.clone())
-        .collect();
-    let uses_spans: Vec<ir::SpanRef> = skeleton
-        .uses_clauses
-        .iter()
-        .map(|c| span_of(c.span))
-        .collect();
-    let uses_versions: Vec<Option<u16>> = skeleton.uses_clauses.iter().map(|c| c.version).collect();
-
-    // Iron-hand context vocabulary — lower the surface AST into IR
-    // shapes. `purpose` is stored as the raw quoted-string text (empty
-    // strings preserved so the lint can fire). `non_goals` are flat
-    // strings on the surface; we map each into `NonGoal { key,
-    // description }` with `key = ""` (the IR carries a richer shape for
-    // future delegated_to / out_of_scope partitioning, but the
-    // wire-thin grammar only authors descriptions today). `attach_ctx`
-    // becomes the verbatim path; resolution + content-length check
-    // happens in `VOCAB-CONTEXT-CTXMD-001`.
-    let purpose = skeleton.purpose.as_ref().map(|p| p.text.clone());
-    let non_goals = skeleton
-        .non_goals
-        .as_ref()
-        .map(|block| {
-            block
-                .entries
-                .iter()
-                .map(|description| ir::NonGoal {
-                    key: String::new(),
-                    description: description.clone(),
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let context_path = skeleton.attach_ctx.as_ref().map(|c| c.path.clone());
-
-    let mut feature = ir::Feature {
-        name: skeleton.name.clone(),
-        purpose,
-        non_goals,
-        context_path,
-        defaults,
-        uses,
-        uses_spans,
-        uses_versions,
-        requirements: Vec::new(),
-        enums,
-        resources,
-        events: Vec::new(),
-        rules: Vec::new(),
-        policies,
-        // IR Error-Vocab (Cell PARSE-1) — lower the optional `errors`
-        // block onto the typed IR slot. Pre-vocab fixtures (no `errors`
-        // block) keep `None`; codegen treats `None` identically to a
-        // block with no overrides.
-        errors: skeleton.errors.as_ref().map(lower_feature_errors_decl),
-        commands,
-        apis,
-        records,
-        queries,
-        resume_routers: Vec::new(),
-        workflows: Vec::new(),
-        jobs,
-        webhooks,
-        notifications,
-        event_groups,
-        tenant_migrations,
-        translation: skeleton.translation.as_ref().map(lower_translation_decl),
-        pollers,
-        auth,
-        surfaces: Vec::new(),
-        extensions: Vec::new(),
-        escape_routes: Vec::new(),
-        agents,
-        reports,
-        channels: skeleton.channels.iter().map(lower_channel).collect(),
-        caches: skeleton
-            .caches
-            .iter()
-            .map(lower_cache_profile_decl)
-            .collect(),
-        aggregates,
-        mcp_servers,
-        previous_names: Vec::new(),
-        // Cell C4 (inlined): empty until C3's synthesis pass populates the
-        // map per `docs/proposals/ir-resource-conventions-crud.md` §11.
-        synth_origins: std::collections::BTreeMap::new(),
-        span_ref: Some(span_of(skeleton.span)),
-    };
-    lifecycle::lower_lifecycles(&mut feature, &skeleton.resources);
-    synthesize_auto_photo(&mut feature);
-    // ir-resource-conventions-crud §5 — synthesize 3 commands + 2
-    // queries per resource that opts into `conventions [crud]`. The
-    // bridge to populate `Feature.synth_origins` (so the inspect
-    // surface from Cell C4 can annotate `[conv:crud]`) is wired in
-    // `synthesize_conventions` itself. Diagnostics returned here are
-    // currently dropped; the bridge cycle wires them through to
-    // doctor per §11.
-    let _ = synthesize_conventions(&mut feature);
-    Ok(feature)
 }
 
 /// CL.C.4 — lower an `AggregateDecl` from the surface AST into
