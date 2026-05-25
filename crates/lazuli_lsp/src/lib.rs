@@ -17,9 +17,11 @@ use tower_lsp::lsp_types::{
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server, async_trait};
 
+mod catalogs;
 mod lzx_completion;
 mod types;
 
+pub use catalogs::*;
 pub use types::SecurityProfile;
 
 pub fn server_name() -> &'static str {
@@ -18344,13 +18346,6 @@ fn snake_case(token: &str) -> String {
     out
 }
 
-/// Closed env catalog for `rate_limit "..." in <env>` qualifications.
-/// Mirrors `lazuli_ir::EnvName` (5-entry closed set per
-/// `docs/proposals/ir-rate-limit-env-aware.md` §4.3). Adding a name
-/// here without the matching IR variant + proposal is incorrect.
-pub const RATE_LIMIT_ENV_CATALOG: &[&str] =
-    &["production", "staging", "test", "dev", "local"];
-
 /// Inside a `rate_limit "<spec>" in <|>` (or `rate_limit "<spec>" in
 /// <env>, <|>`) context, offer the closed env catalog. Returns `None`
 /// outside that context.
@@ -18810,11 +18805,6 @@ const KEYWORDS: &[&str] = &[
     "primary",
 ];
 
-/// Roadmap §1.5 (CL.C.2) — closed-catalog values for the `lock`
-/// strategy keyword. Surfaced as `VALUE` completions so authors and
-/// LLMs see the canonical set when typing inside `lock`.
-pub const RESOURCE_LOCK_STRATEGY_VALUES: &[&str] = &["optimistic", "pessimistic", "row_level"];
-
 pub fn resource_lock_strategy_detail(value: &str) -> Option<&'static str> {
     match value {
         "optimistic" => Some(
@@ -18829,38 +18819,6 @@ pub fn resource_lock_strategy_detail(value: &str) -> Option<&'static str> {
         _ => None,
     }
 }
-
-/// Phase L — closed-catalog tokens offered as completion values for
-/// `auth` subblock slots. The slot context is not inferred today; the
-/// LSP simply offers these as `VALUE` completions so authors and LLMs
-/// see the canonical set alongside keyword completions.
-///
-/// - `algorithm` → `argon2id`, `bcrypt`
-/// - `oauth <provider>` → `google`, `github`, `microsoft`, `apple`
-/// - `mfa <method>` → `totp`
-/// - `refresh` → `true`, `false`
-pub const AUTH_CATALOG_VALUES: &[&str] = &[
-    "argon2id",
-    "bcrypt",
-    "google",
-    "github",
-    "microsoft",
-    "apple",
-    "totp",
-    "true",
-    "false",
-];
-
-pub const AUTH_REFRESH_ACCESS_DURATION_LITERALS: &[&str] = &["\"15 minutes\"", "\"1 hour\""];
-pub const AUTH_REFRESH_REFRESH_DURATION_LITERALS: &[&str] = &["\"30 days\"", "\"7 days\""];
-pub const AUTH_REFRESH_GRACE_DURATION_LITERALS: &[&str] = &["\"30 seconds\"", "\"5 minutes\""];
-pub const AUTH_REFRESH_THEFT_ACTION_VALUES: &[&str] = &["revoke_session_family", "revoke_user"];
-
-pub const ERROR_PAGE_STATUS_VALUES: &[&str] = &[
-    "400", "401", "403", "404", "405", "410", "422", "429", "500", "502", "503", "504",
-];
-
-pub const ERROR_PAGE_AUDIENCE_VALUES: &[&str] = &["public", "authenticated", "admin"];
 
 pub fn error_page_status_detail(value: &str) -> Option<&'static str> {
     match value {
@@ -18908,18 +18866,6 @@ pub fn auth_refresh_theft_action_detail(value: &str) -> Option<&'static str> {
     }
 }
 
-/// Observability bucket cycle row 36 — closed-catalog values offered
-/// as `VALUE` completions for the new `app.logging` / `app.tracing`
-/// slots. Same shape and dispatch as `AUTH_CATALOG_VALUES`.
-///
-/// - `level` → `debug`, `info`, `warn`, `error`
-/// - `format` → `json`, `text`
-/// - `redact` → `pii`, `none`
-/// - `propagate` (tracing) → `true`, `false`
-pub const OBSERVABILITY_CATALOG_VALUES: &[&str] = &[
-    "debug", "info", "warn", "error", "json", "text", "pii", "none",
-];
-
 /// Hover/completion description for the observability closed-catalog
 /// values. Mirrors `auth_catalog_detail` shape.
 pub fn observability_catalog_detail(value: &str) -> Option<&'static str> {
@@ -18935,47 +18881,6 @@ pub fn observability_catalog_detail(value: &str) -> Option<&'static str> {
         _ => None,
     }
 }
-
-/// Migrations bucket cycle Route C — closed `deploy.strategy` catalog.
-/// Three rollout patterns the language fixes so doctor can pin a
-/// finite ruleset (`DEPLOY-STRATEGY-001`).
-pub const DEPLOY_STRATEGY_VALUES: &[&str] = &["rolling", "blue_green", "canary"];
-
-/// i18n bucket cycle — closed `locale_negotiate.source` catalog.
-/// Five request axes the runtime can read to populate `ctx.locale`.
-/// Doctor `locale_negotiate_source_invalid` enforces this set.
-pub const LOCALE_NEGOTIATE_SOURCE_VALUES: &[&str] = &[
-    "accept_language",
-    "query_param",
-    "cookie",
-    "user_profile",
-    "subdomain",
-];
-
-/// i18n bucket cycle — closed `locale_negotiate.strategy` catalog.
-/// Three matching algorithms. Doctor `locale_negotiate_strategy_invalid`
-/// enforces this set.
-pub const LOCALE_NEGOTIATE_STRATEGY_VALUES: &[&str] =
-    &["best_match", "prefix_match", "exact_match"];
-
-/// i18n bucket cycle — closed CLDR plural-arm catalog. Doctor
-/// `cldr_plural_arm_invalid` enforces this set.
-pub const CLDR_PLURAL_ARM_VALUES: &[&str] = &["zero", "one", "two", "few", "many", "other"];
-
-/// Notifications expanded bucket cycle — closed catalog for
-/// `notification.digest.template_strategy`. Two strategies: `merge`
-/// (last-write-wins per payload key) and `append` (emits a list the
-/// digest template iterates over). Doctor surfaces unknown values
-/// silently as `None` in IR; LSP completion narrows authoring.
-pub const NOTIFICATION_DIGEST_TEMPLATE_STRATEGY_VALUES: &[&str] = &["merge", "append"];
-
-/// i18n bucket cycle — popular BCP-47 tags surfaced as soft completions.
-/// The set is **not** closed (BCP-47 tags are open); these are
-/// authoring hints only. Doctor never validates against this list.
-pub const BCP47_POPULAR_TAGS: &[&str] = &[
-    "en-US", "en-GB", "pt-BR", "pt-PT", "es-ES", "es-AR", "es-MX", "fr-FR", "de-DE", "it-IT",
-    "ja-JP", "zh-CN", "zh-TW", "ko-KR",
-];
 
 /// Notifications expanded bucket cycle — hover/completion description
 /// for `notification.digest.template_strategy` closed-catalog values.
@@ -19008,49 +18913,11 @@ pub fn deploy_strategy_detail(value: &str) -> Option<&'static str> {
     }
 }
 
-// ── IR Error-Vocab — closed catalogs surfaced by the LSP ────────────────────
-//
-// See `docs/proposals/ir-error-messages-vocab.md` §2.C, §3.4, §7.
-// These mirror the runtime's `error.go:128-138` closed catalog of overridable
-// error codes and the exposure-field catalogs lowered into `FeatureErrors`.
-// The 12 codes here are the **only** error families authors can override via
-// `feature.errors.<code> message @translation.<key>`; adding a new code
-// requires a proposal (Rule Zero — closed catalog growth at zero).
-//
-// DB-INTEGRITY-CATALOG-EXT (2026-05-19): extended with the 4 db-integrity
-// codes emitted by the runtime's `classifyDBError` helper (handle_db_errors.go).
-
-/// Closed catalog of overridable error codes for `feature.errors`. Mirrors
-/// the runtime's emitted-code set; the proposal §2.C pins this list.
-pub const ERROR_VOCAB_CODES: &[&str] = &[
-    "policy_denied",
-    "validation_failed",
-    "tenant_mismatch",
-    "not_found",
-    "rate_limited",
-    "bad_request",
-    "method_not_allowed",
-    "integration_error",
-    "unique_violation",
-    "foreign_key_violation",
-    "not_null_violation",
-    "check_violation",
-];
-
-/// Closed catalog of exposable wire-envelope fields for `expose client 4xx`.
-/// `message_key` is the new opt-in field introduced by proposal §2.G; the
-/// other three (`message`, `code`, `data`) pre-existed in the LSP-only shape
-/// check (`error_exposure_fields_valid`).
-pub const ERROR_VOCAB_EXPOSE_4XX_FIELDS: &[&str] = &["message", "code", "data", "message_key"];
-
-/// Closed catalog of exposable wire-envelope fields for `expose client 5xx`.
-/// `message` is **deliberately excluded** — 5xx errors are framework-internal
-/// and their messages may carry stack traces or implementation details.
-/// Doctor diagnostic `ERR-VOCAB-EXPOSE-5XX-MESSAGE` rejects `message` here.
-pub const ERROR_VOCAB_EXPOSE_5XX_FIELDS: &[&str] = &["code", "data"];
-
-/// Closed catalog of `errors default` values.
-pub const ERROR_VOCAB_DEFAULT_VALUES: &[&str] = &["hide", "expose"];
+// IR Error-Vocab closed catalogs (`ERROR_VOCAB_CODES`,
+// `ERROR_VOCAB_EXPOSE_4XX_FIELDS`, `ERROR_VOCAB_EXPOSE_5XX_FIELDS`,
+// `ERROR_VOCAB_DEFAULT_VALUES`) now live in `catalogs.rs` and are
+// re-exported via `pub use catalogs::*;`. See proposal
+// `docs/proposals/ir-error-messages-vocab.md` §2.C, §3.4, §7.
 
 /// Built-in PT-BR fallback strings shipped with the runtime — used by the
 /// LSP hover to **resolve** the displayed text when the surrounding feature
