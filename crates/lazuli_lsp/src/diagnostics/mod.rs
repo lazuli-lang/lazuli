@@ -42,3 +42,4 @@
 //!   parallel to this module (one file per family).
 
 pub(crate) mod agent;
+pub(crate) mod notification;
