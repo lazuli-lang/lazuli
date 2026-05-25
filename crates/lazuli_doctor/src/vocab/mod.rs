@@ -23,6 +23,13 @@ pub mod universal_columns;
 pub mod vocab_audit_001;
 pub mod vocab_audit_002;
 pub mod vocab_cap_missing_001;
+// Iron-hand context vocabulary (v0.7). Three rules surface from a
+// single meta-bundle preset; see
+// `docs/canonical-semantics.md#feature-context-vocabulary` and
+// `crates/lazuli_doctor/src/coverage/mod.rs:preset_severity_overrides`.
+pub mod vocab_context_ctxmd_001;
+pub mod vocab_context_nongoals_001;
+pub mod vocab_context_purpose_001;
 pub mod vocab_derived_read_001;
 pub mod vocab_event_orphan_001;
 pub mod vocab_event_payload_001;
