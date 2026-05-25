@@ -163,3 +163,147 @@ pub(super) fn fold_rate_limit_line(
 
     Ok(())
 }
+
+// =============================================================================
+// `ir-rate-limit-env-aware` cell 1 — parser tests for the env-qualified
+// `rate_limit` shape (proposal §4.2, §9). Cover both back-compat
+// (single-line `rate_limit "X"`) and the new multi-line shape with
+// optional `in <env_list>` qualification.
+// =============================================================================
+#[cfg(test)]
+mod rate_limit_env_aware_tests {
+    use super::super::parse_feature_skeletons;
+
+    fn feature_with_command_body(body: &str) -> String {
+        format!(
+            "\nfeature customer\n  resource Customer\n    name: Text required\n\n  command create\n    input\n      name: Text required\n    policy @policy.public\n{body}    creates Customer\n      name = params.name\n",
+        )
+    }
+
+    fn single_command<'a>(
+        features: &'a [crate::ast::FeatureSkeleton],
+    ) -> &'a crate::ast::CommandDecl {
+        let feature = features.first().expect("one feature parsed");
+        feature.commands.first().expect("one command parsed")
+    }
+
+    #[test]
+    fn single_unqualified_rate_limit_is_back_compat() {
+        // Proposal §8 — the existing `rate_limit "X per Y per Z"` shape
+        // must still parse and lower into `{ default: "X...", by_env: [] }`.
+        let source = feature_with_command_body("    rate_limit \"5 per 10 minutes per ip\"\n");
+        let features = parse_feature_skeletons(&source).expect("parses");
+        let command = single_command(&features);
+        let spec = command.rate_limit.as_ref().expect("rate_limit");
+        assert_eq!(spec.default.as_deref(), Some("5 per 10 minutes per ip"));
+        assert!(spec.by_env.is_empty());
+    }
+
+    #[test]
+    fn default_plus_single_qualified_line_parses() {
+        // Proposal §5.1 — `account.register` shape after the migration.
+        let source = feature_with_command_body(
+            "    rate_limit \"5 per 10 minutes per ip\"\n    rate_limit \"unlimited\" in dev, test\n",
+        );
+        let features = parse_feature_skeletons(&source).expect("parses");
+        let command = single_command(&features);
+        let spec = command.rate_limit.as_ref().expect("rate_limit");
+        assert_eq!(spec.default.as_deref(), Some("5 per 10 minutes per ip"));
+        assert_eq!(spec.by_env.len(), 1);
+        let entry = &spec.by_env[0];
+        assert_eq!(entry.limit, "unlimited");
+        assert_eq!(entry.envs, vec!["dev".to_owned(), "test".to_owned()]);
+    }
+
+    #[test]
+    fn single_line_with_three_envs_folds_into_one_entry() {
+        // Proposal §5.4 — one qualified line, multiple envs.
+        let source = feature_with_command_body(
+            "    rate_limit \"5 per 1 minutes per user\"\n    rate_limit \"1000 per 1 minutes per user\" in dev, staging, test\n",
+        );
+        let features = parse_feature_skeletons(&source).expect("parses");
+        let command = single_command(&features);
+        let spec = command.rate_limit.as_ref().expect("rate_limit");
+        assert_eq!(spec.by_env.len(), 1);
+        let entry = &spec.by_env[0];
+        assert_eq!(entry.limit, "1000 per 1 minutes per user");
+        assert_eq!(
+            entry.envs,
+            vec!["dev".to_owned(), "staging".to_owned(), "test".to_owned()]
+        );
+    }
+
+    #[test]
+    fn unlimited_keyword_in_qualified_line_preserves_literal_for_analyzer() {
+        // Proposal §4.4 — `"unlimited"` is preserved verbatim at AST
+        // level; the analyzer lowers it to the empty-string sentinel in
+        // `ir::RateLimitByEnv.limit`.
+        let source = feature_with_command_body(
+            "    rate_limit \"5 per minute per ip\"\n    rate_limit \"unlimited\" in test\n",
+        );
+        let features = parse_feature_skeletons(&source).expect("parses");
+        let command = single_command(&features);
+        let spec = command.rate_limit.as_ref().expect("rate_limit");
+        assert_eq!(spec.by_env.len(), 1);
+        let entry = &spec.by_env[0];
+        assert_eq!(entry.limit, "unlimited");
+        assert_eq!(entry.envs, vec!["test".to_owned()]);
+    }
+
+    #[test]
+    fn duplicate_default_lines_are_rejected() {
+        // Proposal §9.2 — two unqualified declarations is the
+        // `rate_limit_duplicate_default` error.
+        let source = feature_with_command_body(
+            "    rate_limit \"5 per minute per ip\"\n    rate_limit \"10 per minute per ip\"\n",
+        );
+        let err = parse_feature_skeletons(&source).expect_err("duplicate default rejected");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("rate_limit_duplicate_default"),
+            "expected `rate_limit_duplicate_default` code, got: {msg}",
+        );
+    }
+
+    #[test]
+    fn empty_in_tail_is_rejected() {
+        // Proposal §12 Cell 1 — `rate_limit "X" in` (empty list) errors.
+        let source = feature_with_command_body("    rate_limit \"5 per minute per ip\" in\n");
+        let err = parse_feature_skeletons(&source).expect_err("empty `in` tail rejected");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("requires at least one env name"),
+            "expected empty-env-list diagnostic, got: {msg}",
+        );
+    }
+
+    #[test]
+    fn unknown_env_identifier_parses_at_ast_level() {
+        // Proposal §4.3 / §9.2 — the parser is forgiving; the doctor
+        // (Cell 3) emits the `rate_limit_unknown_env` warning later.
+        let source = feature_with_command_body(
+            "    rate_limit \"5 per minute per ip\"\n    rate_limit \"unlimited\" in dev, qa\n",
+        );
+        let features = parse_feature_skeletons(&source).expect("parses");
+        let command = single_command(&features);
+        let spec = command.rate_limit.as_ref().expect("rate_limit");
+        assert_eq!(spec.by_env.len(), 1);
+        // Raw identifiers as authored; analyzer normalises closed-catalog
+        // names and surfaces unknowns via `ir::RateLimitByEnv.unknown_envs`.
+        assert_eq!(spec.by_env[0].envs, vec!["dev".to_owned(), "qa".to_owned()]);
+    }
+
+    #[test]
+    fn trailing_garbage_after_literal_is_rejected() {
+        // Defensive — anything other than `in <env_list>` after the
+        // quoted literal must fail (catches typos like `for` or `on`).
+        let source =
+            feature_with_command_body("    rate_limit \"5 per minute per ip\" on production\n");
+        let err = parse_feature_skeletons(&source).expect_err("trailing garbage rejected");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("`in <env_list>`"),
+            "expected `in <env_list>` diagnostic, got: {msg}",
+        );
+    }
+}
