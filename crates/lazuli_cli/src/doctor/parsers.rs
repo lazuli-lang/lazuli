@@ -454,7 +454,7 @@ pub(super) fn auth_session_ttl_seconds(raw: &str) -> Option<u64> {
 /// CL.C.3 — convert a `CacheTtl` to seconds for ordering comparisons
 /// (`stale_while_revalidate` <= `ttl`). Returns `None` for quoted prose
 /// (adapter-parsed; we don't second-guess the runtime there).
-pub(super) fn cache_ttl_as_seconds(ttl: &lazuli_ir::CacheTtl) -> Option<u64> {
+pub(crate) fn cache_ttl_as_seconds(ttl: &lazuli_ir::CacheTtl) -> Option<u64> {
     match ttl {
         lazuli_ir::CacheTtl::Literal(lit) => Some(match lit {
             lazuli_ir::CacheTtlLiteral::Seconds(n) => *n as u64,

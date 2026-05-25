@@ -238,7 +238,12 @@ fn visible_keys_for_message(
 /// run without needing the doctor scaffolding. Only the slots the rules
 /// read are populated; everything else stays default. Mirrors the
 /// `make_synthetic_feature_for_reports` pattern.
-fn make_synthetic_feature_for_error_vocab(fact: &Tier3FeatureFacts) -> lazuli_ir::Feature {
+///
+/// Re-exported through `crate::doctor` so the legacy `lifecycle_gate`
+/// and `route_guard` sibling modules can keep building the same
+/// Feature shape until their dispatch slots move into the aggregators
+/// directory.
+pub(crate) fn make_synthetic_feature_for_error_vocab(fact: &Tier3FeatureFacts) -> lazuli_ir::Feature {
     lazuli_ir::Feature {
         name: fact.feature.clone(),
         purpose: None,
