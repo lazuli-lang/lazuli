@@ -50,6 +50,7 @@ pub(crate) mod canonical_kinds;
 pub(crate) mod command;
 pub(crate) mod crypto;
 pub(crate) mod doctor_local;
+pub(crate) mod env;
 pub(crate) mod error;
 pub(crate) mod external;
 pub(crate) mod http_headers;
