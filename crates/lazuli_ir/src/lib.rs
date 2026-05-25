@@ -35,6 +35,10 @@ pub use nodes::capability::{
     CapabilityRef, EncryptedCapability, FileCapability, FileSize, FileSizeLiteral, FileVisibility,
     HashAlgorithm, HashedCapability, MimeType, PiiCapability, TokenCapability, TokenStore,
 };
+pub use nodes::design::{
+    ColorState, ColorStateKind, ColorToken, CustomToken, Design, EasingToken, FamilyToken, Motion,
+    ScaleToken, ShadowToken, TextScaleToken, TrackingToken, Typography, WeightToken, ZToken,
+};
 pub use nodes::error_vocab::{
     ErrorExposeRule, ErrorExposureDefault, FeatureErrorMessage, FeatureErrors, FeatureFieldError,
     TranslationKeyRef,
@@ -5032,186 +5036,14 @@ pub enum ToolsCallsOp {
 
 
 // =============================================================================
-// L0 #2 — Design Tokens
-//
-// `design.lzi` at project root declares the closed catalog of visual
-// primitives (color, typography, space, radius, shadow, motion, breakpoint,
-// z). The parser yields an AST mirror (`DesignDeclAst` in `lazuli_syntax`);
-// the analyzer lowers to `Design` here. Emitters consume `Design` to
-// produce `tokens.ts` / `tokens.css` / `tailwind.gen.ts` etc. See
-// `docs/proposals/design-tokens.md` §3 for the canonical surface and
-// `Cell A` spec for the IR contract.
+// L0 #2 — Design Tokens.
+// Design family (Design, CustomToken, ColorToken, ColorState, ColorStateKind,
+// Typography, FamilyToken, TextScaleToken, WeightToken, TrackingToken,
+// ScaleToken, ShadowToken, Motion, EasingToken, ZToken) lives in
+// `nodes::design` after the W4.1 rails-style split. Re-exported at the
+// crate root above to preserve the ABI surface. See
+// `docs/proposals/design-tokens.md` §3 and `docs/proposals/design-tokens-custom.md`.
 // =============================================================================
-
-/// L0 #2 — top-level design tokens catalog. Eight closed groups carry
-/// closed-catalog token sub-shapes. `extends` is reserved for Cut B
-/// brand variants; v0 lowering rejects it (DESIGN-EXTENDS-CUT-B). The
-/// surface is intentionally narrow — no group can be extended outside
-/// a Lazuli core proposal (closed catalog, Rule Zero).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Design {
-    pub name: String,
-    /// Reserved for Cut B (brand variants). v0 lowering rejects when
-    /// `Some`. Keyword is parsed so v0 → Cut B is additive on lowering
-    /// only, not grammar.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extends: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub colors: Vec<ColorToken>,
-    #[serde(default)]
-    pub typography: Typography,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub spaces: Vec<ScaleToken>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub radii: Vec<ScaleToken>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub shadows: Vec<ShadowToken>,
-    #[serde(default)]
-    pub motion: Motion,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub breakpoints: Vec<ScaleToken>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub z_indices: Vec<ZToken>,
-    /// L0 #2 — 9th meta-group `custom` (proposal-pending per
-    /// `docs/proposals/design-tokens-custom.md`). Product-domain color
-    /// tokens that don't fit the Shadcn-semantic vocabulary in `color`.
-    /// Lowering emits these alongside `colors` under the `--color-*` CSS-var
-    /// prefix; doctor enforces collision + reserved-name policy.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub custom: Vec<CustomToken>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// L0 #2 — flat custom-group entry. `name` is kebab-case; `base` is the
-/// light-mode hex; `dark` is the optional dark-mode overlay. See
-/// `docs/proposals/design-tokens-custom.md` §2 for the grammar.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CustomToken {
-    pub name: String,
-    /// Hex literal preserved verbatim, e.g. `"#dcf8c6"`.
-    pub base: String,
-    /// Optional `dark <hex>` overlay.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dark: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// Single named color. `states` carries one entry (`kind=Base`) for the
-/// flat form `success "#16a34a"`, or up to four entries (one per state)
-/// for the sub-block form `primary { base / hover / active / foreground }`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ColorToken {
-    pub name: String,
-    pub states: Vec<ColorState>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ColorState {
-    pub kind: ColorStateKind,
-    /// Hex literal preserved verbatim, e.g. `"#7c3aed"`.
-    pub value: String,
-    /// Optional `dark <hex>` companion; `None` = same value in both themes.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dark: Option<String>,
-}
-
-/// Closed catalog of color states. Adding entries requires a new L0
-/// proposal (per `docs/proposals/design-tokens.md` §3.2).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ColorStateKind {
-    /// Default state. Used both for the flat form (`success "#16a34a"`)
-    /// and the explicit `base "#..."` entry inside a sub-block.
-    Base,
-    Hover,
-    Active,
-    Foreground,
-}
-
-/// `typography` group with four closed sub-groups.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct Typography {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub families: Vec<FamilyToken>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub scale: Vec<TextScaleToken>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub weights: Vec<WeightToken>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tracking: Vec<TrackingToken>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FamilyToken {
-    pub name: String,
-    /// Font stack string, e.g. `"Inter, system-ui, sans-serif"`.
-    pub value: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TextScaleToken {
-    pub name: String,
-    /// Size literal preserved verbatim, e.g. `"0.75rem"`.
-    pub size: String,
-    /// Line-height literal preserved verbatim, e.g. `"1rem"` or `"1.5"`.
-    pub line_height: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WeightToken {
-    pub name: String,
-    pub value: u16,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TrackingToken {
-    pub name: String,
-    /// Letter-spacing literal preserved verbatim, e.g. `"-0.025em"` or `"0"`.
-    pub value: String,
-}
-
-/// Generic name/value token used by `space`, `radius`, `breakpoint`, and
-/// the `motion.duration` sub-group. Values are CSS literals (`"0.25rem"`,
-/// `"640px"`, `"150ms"`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ScaleToken {
-    pub name: String,
-    pub value: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ShadowToken {
-    pub name: String,
-    /// Full CSS `box-shadow` string for a single layer. Multi-layer
-    /// (top-level comma outside parens) is rejected at lowering
-    /// (`DESIGN-SHADOW-MULTI-LAYER`).
-    pub value: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct Motion {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub durations: Vec<ScaleToken>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub easings: Vec<EasingToken>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EasingToken {
-    pub name: String,
-    /// `cubic-bezier(...)` quoted string or named CSS curve identifier.
-    pub value: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ZToken {
-    pub name: String,
-    pub value: i32,
-}
 
 // =============================================================================
 // Plan & Gate vocabulary (PG.B — `docs/proposals/plan-and-gate-vocab.md`).

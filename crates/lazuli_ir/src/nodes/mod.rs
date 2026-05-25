@@ -36,6 +36,7 @@
 pub mod async_work;
 pub mod auth;
 pub mod capability;
+pub mod design;
 pub mod error_vocab;
 pub mod feature_defaults;
 pub mod mcp;
