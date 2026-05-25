@@ -45,5 +45,6 @@ pub(crate) mod agent;
 pub(crate) mod api;
 pub(crate) mod auth;
 pub(crate) mod cache;
+pub(crate) mod crypto;
 pub(crate) mod notification;
 pub(crate) mod webhook;
