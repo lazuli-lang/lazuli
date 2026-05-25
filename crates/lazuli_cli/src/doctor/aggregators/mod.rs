@@ -38,3 +38,4 @@ pub(crate) mod i18n;
 pub(crate) mod migrations;
 pub(crate) mod observability;
 pub(crate) mod test_discipline;
+pub(crate) mod webhook_event_registry;
