@@ -63,6 +63,7 @@
 //! remain reachable at the same path. Internal helpers used across
 //! sibling modules are `pub(crate)`.
 
+mod auth;
 pub mod checks;
 mod command;
 mod design;
@@ -79,6 +80,7 @@ mod surface;
 pub mod symbol_origin;
 mod workflow;
 
+pub use auth::lower_auth;
 pub use design::lower_design;
 pub use lzx::lower_lzx_document;
 pub use plan_gate::{
@@ -4395,100 +4397,6 @@ fn extract_env_binding(raw: &str) -> String {
         .unwrap_or_else(|| raw.trim().to_owned())
 }
 
-/// Phase L — lower a canonical-indent `auth` block into the IR `Auth`
-/// shape. The translation is mostly structural; the analyzer's only
-/// non-trivial duty is splitting `Customer.email` into `FieldRef`.
-pub fn lower_auth(auth: &syntax::Auth) -> Result<ir::Auth, AnalyzeError> {
-    Ok(ir::Auth {
-        identity: lower_auth_identity(&auth.identity)?,
-        password: auth.password.as_ref().map(lower_auth_password),
-        sessions: auth.sessions.as_ref().map(lower_auth_sessions),
-        mfa: auth.mfa.as_ref().map(lower_auth_mfa),
-        oauth: auth.oauth.iter().map(lower_auth_oauth).collect(),
-        span_ref: Some(span_of(auth.span)),
-    })
-}
-
-pub(crate) fn lower_auth_identity(identity: &syntax::AuthIdentity) -> Result<ir::AuthIdentity, AnalyzeError> {
-    let (resource, field) =
-        identity
-            .field
-            .split_once('.')
-            .ok_or_else(|| AnalyzeError::InvalidAuthIdentity {
-                reference: identity.field.clone(),
-            })?;
-    if resource.is_empty() || field.is_empty() || field.contains('.') {
-        return Err(AnalyzeError::InvalidAuthIdentity {
-            reference: identity.field.clone(),
-        });
-    }
-    Ok(ir::AuthIdentity {
-        field: ir::FieldRef {
-            resource: qualified_name_local(resource),
-            field: field.to_owned(),
-        },
-        public_contract: lower_public_contract(&identity.public_contract),
-    })
-}
-
-pub(crate) fn lower_auth_password(password: &syntax::AuthPassword) -> ir::AuthPassword {
-    ir::AuthPassword {
-        algorithm: password.algorithm.clone(),
-        hash: password.hash.clone(),
-        verify: password.verify.clone(),
-        rate_limit: password.rate_limit.as_ref().map(lower_rate_limit_spec),
-    }
-}
-
-pub(crate) fn lower_auth_sessions(sessions: &syntax::AuthSessions) -> ir::AuthSessions {
-    ir::AuthSessions {
-        resource: qualified_name_local(&sessions.resource),
-        ttl: sessions.ttl.clone(),
-        refresh: sessions.refresh,
-        // Populated in S3 when the orchestrator wires resource FieldSpec lookup.
-        extra_columns: vec![],
-        access_ttl: sessions.access_ttl.as_ref().map(|ttl| ttl.value.clone()),
-        rotation: sessions.rotation.as_ref().map(lower_auth_session_rotation),
-    }
-}
-
-pub(crate) fn lower_auth_session_rotation(rotation: &syntax::AuthSessionRotation) -> ir::RotationConfig {
-    ir::RotationConfig {
-        refresh_ttl: rotation.refresh_ttl.as_ref().map(|ttl| ttl.value.clone()),
-        grace: rotation.grace.as_ref().map(|grace| grace.value.clone()),
-        theft_detection_action: rotation
-            .theft_detection_action
-            .as_ref()
-            .map(|action| lower_auth_theft_action(action.action)),
-        span_ref: Some(span_of(rotation.span)),
-    }
-}
-
-pub(crate) fn lower_auth_theft_action(action: syntax::AuthTheftDetectionAction) -> ir::TheftAction {
-    match action {
-        syntax::AuthTheftDetectionAction::RevokeSessionFamily => {
-            ir::TheftAction::RevokeSessionFamily
-        }
-        syntax::AuthTheftDetectionAction::RevokeUser => ir::TheftAction::RevokeUser,
-    }
-}
-
-pub(crate) fn lower_auth_mfa(mfa: &syntax::AuthMfa) -> ir::AuthMfa {
-    ir::AuthMfa {
-        method: mfa.method.clone(),
-        enroll: mfa.enroll.clone(),
-        verify: mfa.verify.clone(),
-        adapter: mfa.adapter.clone(),
-    }
-}
-
-pub(crate) fn lower_auth_oauth(oauth: &syntax::AuthOAuthProvider) -> ir::AuthOAuthProvider {
-    ir::AuthOAuthProvider {
-        provider: oauth.provider.clone(),
-        adapter: oauth.adapter.clone(),
-    }
-}
-
 /// Lower a single `agent` AST node into the IR form. The `feature` arg
 /// pins the owning feature name on the IR record so cross-feature doctor
 /// checks can rebuild `<feature>.agent.<name>` references.
@@ -4777,7 +4685,7 @@ fn parse_closed_predicate(text: &str) -> ir::EvalPredicate {
 }
 
 /// Build a feature-local `QualifiedName` (no feature prefix).
-fn qualified_name_local(name: &str) -> ir::QualifiedName {
+pub(crate) fn qualified_name_local(name: &str) -> ir::QualifiedName {
     ir::QualifiedName {
         feature: None,
         name: name.to_owned(),
@@ -4788,7 +4696,7 @@ fn qualified_name_local(name: &str) -> ir::QualifiedName {
 /// `@llm.default`, `@validator.pii_email_scrub`, `@semantic.Email`).
 /// Doctor + LSP enforce the closed-namespace catalog elsewhere; this
 /// helper keeps the raw form so resolution stays uniform.
-fn qualified_namespace(raw: &str) -> ir::QualifiedName {
+pub(crate) fn qualified_namespace(raw: &str) -> ir::QualifiedName {
     ir::QualifiedName {
         feature: None,
         name: raw.to_owned(),
@@ -4872,10 +4780,11 @@ mod tests {
     use lazuli_syntax::{parse_feature_skeletons, parse_lzx_document};
 
     use super::{
-        AnalyzeError, lower_audit_block, lower_auth_identity, lower_feature_skeleton,
-        lower_lzx_document, lower_policy_atom_with_args, parse_cap_file_type,
-        resolve_invalidates_targets, type_ref_from_syntax,
+        AnalyzeError, lower_audit_block, lower_feature_skeleton, lower_lzx_document,
+        lower_policy_atom_with_args, parse_cap_file_type, resolve_invalidates_targets,
+        type_ref_from_syntax,
     };
+    use super::auth::lower_auth_identity;
     use super::query::parse_query_filter_line;
     use super::resource::lower_validate_line;
 
