@@ -30,6 +30,7 @@ pub(crate) mod deprecated;
 pub(crate) mod design;
 pub(crate) mod domain;
 pub(crate) mod error_vocab;
+pub(crate) mod event_group;
 pub(crate) mod folder;
 pub(crate) mod headers_secrets;
 pub(crate) mod http_hygiene;
