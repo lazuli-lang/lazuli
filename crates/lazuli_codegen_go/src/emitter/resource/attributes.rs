@@ -11,9 +11,7 @@
 //! or booleans; the struct/value emitters in `super::struct_emit` /
 //! `super::mod` decide where they land.
 
-use lazuli_ir::{
-    BuiltinType, CapabilityRef, Feature, RetentionAction, Tenancy, TypeRef,
-};
+use lazuli_ir::{BuiltinType, CapabilityRef, Feature, RetentionAction, Tenancy, TypeRef};
 
 use crate::emitter::imports::ImportSet;
 use crate::emitter::types::{self, TypeCtx};
@@ -22,10 +20,7 @@ use crate::emitter::types::{self, TypeCtx};
 /// resource-level override. Resource override wins; if both unset we
 /// default to `Tenancy::None` because the registered Lazuli Go lib
 /// only recognises `TenancyOrg`/`TenancyNone` today.
-pub(super) fn effective_tenancy(
-    feature: &Feature,
-    resource: &lazuli_ir::Resource,
-) -> Tenancy {
+pub(super) fn effective_tenancy(feature: &Feature, resource: &lazuli_ir::Resource) -> Tenancy {
     if let Some(t) = resource.tenancy.clone() {
         return t;
     }
@@ -37,10 +32,7 @@ pub(super) fn effective_tenancy(
 
 /// Resolve effective timestamps flag — `Resource.timestamps` overrides
 /// `Defaults.timestamps`. `Some(false)` is the explicit opt-out.
-pub(super) fn uses_timestamps(
-    feature: &Feature,
-    resource: &lazuli_ir::Resource,
-) -> bool {
+pub(super) fn uses_timestamps(feature: &Feature, resource: &lazuli_ir::Resource) -> bool {
     resource.timestamps.unwrap_or(feature.defaults.timestamps)
 }
 

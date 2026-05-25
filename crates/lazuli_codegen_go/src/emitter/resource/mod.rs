@@ -138,8 +138,6 @@ pub fn emit_resource_file(
     Some(p.finish())
 }
 
-
-
 pub(super) fn write_section_banner(p: &mut GoPrinter, lines: &[String]) {
     let rule = "-".repeat(76);
     p.line(&format!("// {rule}"));
@@ -1098,7 +1096,9 @@ mod tests {
 #[cfg(test)]
 mod feature_emit_tests {
     use super::*;
-    use lazuli_ir::{AppManifest, BuiltinType, Defaults, Field, Module, Policies, Resource, TypeRef};
+    use lazuli_ir::{
+        AppManifest, BuiltinType, Defaults, Field, Module, Policies, Resource, TypeRef,
+    };
 
     fn synthetic_feature_with_resource() -> Feature {
         Feature {

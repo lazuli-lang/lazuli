@@ -38,9 +38,7 @@ pub(super) struct EncryptedFieldRef<'a> {
 /// preserving the IR `Vec` order so emission is deterministic. Used
 /// both for the import-side gate (`imports.add("…/encryption")`) and
 /// for the helper-function body.
-pub(super) fn encrypted_fields(
-    resource: &Resource,
-) -> impl Iterator<Item = EncryptedFieldRef<'_>> {
+pub(super) fn encrypted_fields(resource: &Resource) -> impl Iterator<Item = EncryptedFieldRef<'_>> {
     resource
         .fields
         .iter()
