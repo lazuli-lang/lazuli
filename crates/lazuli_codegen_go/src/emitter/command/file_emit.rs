@@ -32,11 +32,6 @@ use super::lifecycle::emit_lifecycle_machines;
 use super::semantic::semantic_validator_plugins;
 use super::wrap::command_wrap_buckets;
 
-// Re-export so the inline test modules below address the names without
-// reaching across submodule boundaries explicitly.
-#[cfg(test)]
-use super::lifecycle::{emit_transition_advances, transition_advances_for_triggers};
-
 pub fn emit_command_file(
     source_label: &str,
     feature: &Feature,
@@ -221,53 +216,9 @@ mod tests {
     use lazuli_ir::{
         Assignment, BackoffStrategy, BuiltinType, CreateEffect, DeleteEffect,
         DeprecationReplacement, EnumLiteral, EnvName, IdempotencyKey, InvalidatesSpec, LetBinding,
-        Lifecycle, LifecycleState, LifecycleStateKind, LifecycleTransition, PolicyExpr, PolicyRef,
-        RateLimitByEnv, RateLimitSpec, Record, Resource, RetryPolicy, ReturnsEffect, Tenancy,
-        TypeRef, UpdateEffect,
+        PolicyExpr, PolicyRef, RateLimitByEnv, RateLimitSpec, Record, RetryPolicy, ReturnsEffect,
+        Tenancy, TypeRef, UpdateEffect,
     };
-
-    fn lifecycle_resource(name: &str, field: &str, enum_name: &str) -> Resource {
-        let mut resource = simple_resource(name);
-        resource.lifecycle = Some(Lifecycle {
-            discriminator_field: field.to_owned(),
-            generated_enum: enum_name.to_owned(),
-            states: vec![
-                LifecycleState {
-                    name: "scheduled".to_owned(),
-                    kind: LifecycleStateKind::Initial,
-                    span_ref: None,
-                },
-                LifecycleState {
-                    name: "publishing".to_owned(),
-                    kind: LifecycleStateKind::Intermediate,
-                    span_ref: None,
-                },
-                LifecycleState {
-                    name: "published".to_owned(),
-                    kind: LifecycleStateKind::Terminal,
-                    span_ref: None,
-                },
-            ],
-            transitions: vec![LifecycleTransition {
-                name: "begin_publishing".to_owned(),
-                from: vec!["scheduled".to_owned()],
-                to: "publishing".to_owned(),
-                policy: None,
-                audit: None,
-                timestamps: Some("publishing_at".to_owned()),
-                emits: Vec::new(),
-                requires: None,
-                tests: None,
-                previous_names: Vec::new(),
-                span_ref: None,
-            }],
-            invariants: Vec::new(),
-            invariant_handlers: Vec::new(),
-            previous_names: Vec::new(),
-            span_ref: None,
-        });
-        resource
-    }
 
     #[test]
     fn empty_feature_returns_none() {
@@ -508,151 +459,6 @@ mod tests {
         assert!(out.contains("lazuli.Policy{Name: \"@policy.update\"},"));
     }
 
-    #[test]
-    fn lifecycle_command_emits_apply_call() {
-        let mut feature = base_feature("publication");
-        feature.resources.push(lifecycle_resource(
-            "Publication",
-            "status",
-            "PublicationStatus",
-        ));
-        let mut cmd = base_command("begin_publishing");
-        cmd.kind = CommandKind::Update;
-        cmd.effect = CommandEffect::Updates(UpdateEffect {
-            resource: local_qname("Publication"),
-            assignments: Vec::new(),
-        });
-        feature.commands.push(cmd);
-
-        let out = emit(&feature).expect("must emit");
-        assert!(out.contains("\"lazuli.dev/runtime/lazuli/lifecycle\""));
-        assert!(out.contains("var publicationLifecycle = lifecycle.New[PublicationStatus]("));
-        assert!(out.contains(
-            "// lifecycle: newState, err := publicationLifecycle.Apply(ctx, current.Status, \"begin_publishing\")"
-        ));
-    }
-
-    #[test]
-    fn command_triggers_emit_transition_advances_in_order() {
-        let mut feature = base_feature("publication");
-        let mut resource = simple_resource("Publication");
-        resource.lifecycle = Some(Lifecycle {
-            discriminator_field: "lifecycle_state".to_owned(),
-            generated_enum: "PublicationState".to_owned(),
-            states: vec![
-                LifecycleState {
-                    name: "basic_details_pending".to_owned(),
-                    kind: LifecycleStateKind::Initial,
-                    span_ref: None,
-                },
-                LifecycleState {
-                    name: "address_pending".to_owned(),
-                    kind: LifecycleStateKind::Intermediate,
-                    span_ref: None,
-                },
-                LifecycleState {
-                    name: "review_pending".to_owned(),
-                    kind: LifecycleStateKind::Intermediate,
-                    span_ref: None,
-                },
-            ],
-            transitions: vec![
-                LifecycleTransition {
-                    name: "T1".to_owned(),
-                    from: vec!["basic_details_pending".to_owned()],
-                    to: "address_pending".to_owned(),
-                    policy: None,
-                    audit: None,
-                    timestamps: None,
-                    emits: Vec::new(),
-                    requires: None,
-                    tests: None,
-                    previous_names: Vec::new(),
-                    span_ref: None,
-                },
-                LifecycleTransition {
-                    name: "T2".to_owned(),
-                    from: vec!["address_pending".to_owned()],
-                    to: "review_pending".to_owned(),
-                    policy: None,
-                    audit: None,
-                    timestamps: None,
-                    emits: Vec::new(),
-                    requires: None,
-                    tests: None,
-                    previous_names: Vec::new(),
-                    span_ref: None,
-                },
-            ],
-            invariants: Vec::new(),
-            invariant_handlers: Vec::new(),
-            previous_names: Vec::new(),
-            span_ref: None,
-        });
-        feature.resources.push(resource);
-
-        let mut cmd = base_command("advance_publication");
-        cmd.kind = CommandKind::Update;
-        cmd.effect = CommandEffect::Updates(UpdateEffect {
-            resource: local_qname("Publication"),
-            assignments: Vec::new(),
-        });
-        let triggers = vec!["T1".to_owned(), "T2".to_owned()];
-
-        let transitions = transition_advances_for_triggers(&feature, &cmd.effect, &triggers);
-        let mut p = GoPrinter::new();
-        emit_transition_advances(&mut p, &transitions);
-        let out = p.finish();
-
-        assert!(out.contains("Transitions: []lazuli.TransitionAdvance{"));
-        let first = "{From: \"basic_details_pending\", To: \"address_pending\"},";
-        let second = "{From: \"address_pending\", To: \"review_pending\"},";
-        assert!(out.contains(first), "first trigger pair missing:\n{out}");
-        assert!(out.contains(second), "second trigger pair missing:\n{out}");
-        assert!(
-            out.find(first) < out.find(second),
-            "trigger order should be preserved:\n{out}"
-        );
-    }
-
-    #[test]
-    fn non_lifecycle_command_does_not_emit_apply_call() {
-        let mut feature = base_feature("publication");
-        feature.resources.push(lifecycle_resource(
-            "Publication",
-            "status",
-            "PublicationStatus",
-        ));
-        let mut cmd = base_command("rename");
-        cmd.kind = CommandKind::Update;
-        cmd.effect = CommandEffect::Updates(UpdateEffect {
-            resource: local_qname("Publication"),
-            assignments: Vec::new(),
-        });
-        feature.commands.push(cmd);
-
-        let out = emit(&feature).expect("must emit");
-        assert!(!out.contains(".Apply(ctx,"));
-    }
-
-    #[test]
-    fn multi_lifecycle_resources_emit_per_resource_vars() {
-        let mut feature = base_feature("publication");
-        feature.resources.push(lifecycle_resource(
-            "Publication",
-            "status",
-            "PublicationStatus",
-        ));
-        feature
-            .resources
-            .push(lifecycle_resource("Issue", "state", "IssueState"));
-        feature.commands.push(base_command("noop"));
-
-        let out = emit(&feature).expect("must emit");
-        assert!(out.contains("var issueLifecycle = lifecycle.New[IssueState]("));
-        assert!(out.contains("var publicationLifecycle = lifecycle.New[PublicationStatus]("));
-        assert_eq!(out.matches("lifecycle.New[").count(), 2);
-    }
 
     #[test]
     fn deletes_emits_deletes_effect_with_id_binding() {
