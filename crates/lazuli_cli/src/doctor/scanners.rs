@@ -215,7 +215,7 @@ pub(super) fn is_ident_char(c: char) -> bool {
 /// Errors propagate so the caller can surface a precise context;
 /// the typical caller is `project_uses_plugin_refs` which falls back
 /// to `false` on IO failure.
-pub(super) fn collect_lazuli_paths_recursive(root: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
+pub(crate) fn collect_lazuli_paths_recursive(root: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
     for entry in fs::read_dir(root).with_context(|| format!("failed to list {}", root.display()))? {
         let entry = entry.with_context(|| format!("failed to read {}", root.display()))?;
         let path = entry.path();
