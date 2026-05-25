@@ -64,5 +64,6 @@ pub(crate) mod profile;
 pub(crate) mod query;
 pub(crate) mod registry;
 pub(crate) mod route_guard;
+pub(crate) mod security;
 pub(crate) mod webhook;
 pub(crate) mod workspace;
