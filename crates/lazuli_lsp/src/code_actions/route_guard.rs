@@ -13,19 +13,16 @@
 //!    `on_unauthenticated redirect "<path>"` (or `on_unauthorized
 //!    redirect "<path>"`) line when the same path is declared in 3+ view
 //!    blocks AND no `app.route_guard.default_*_redirect` exists yet.
-//!    Hoists the path into the central default.
 //! 3. **Scaffold `app.route_guard` defaults** — fires inside `app`
 //!    when an `actor_query` is declared but no defaults are set.
-//!    Inserts `default_policy @scope.authenticated` plus the two
-//!    default redirects.
 //! 4. **Insert `actor_query account.query.me` stub** — fires inside
 //!    `app` when an `app.route_guard` block exists but no `actor_query`
 //!    sibling.
 //!
-//! All actions are pure text edits; no IR awareness. The module imports
-//! shared helpers (`enclosing_view_block`, `simple_edit_action`,
-//! `in_app_body_context`, etc.) from `lib.rs` because they're also used
-//! by `route_guard_completions` and `route_guard_hover`.
+//! All actions are pure text edits; no IR awareness. Shared helpers
+//! (`enclosing_view_block`, `simple_edit_action`,
+//! `in_app_body_context`, etc.) come from `lib.rs` because they're also
+//! used by `route_guard_completions` and `route_guard_hover`.
 //!
 //! ## See also
 //! * `lib.rs::RouteGuardViewBlock` — facts struct shared with completions

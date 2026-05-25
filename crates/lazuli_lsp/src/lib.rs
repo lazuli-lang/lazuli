@@ -29,6 +29,7 @@ mod types;
 pub use catalogs::*;
 pub use code_actions::auth_refresh::auth_refresh_code_actions;
 pub use code_actions::error_vocab::error_vocab_code_actions;
+pub use code_actions::route_guard::route_guard_code_actions;
 pub use conventions::conventions_list_completions;
 pub use hover::*;
 pub use rate_limit::rate_limit_env_completions;
