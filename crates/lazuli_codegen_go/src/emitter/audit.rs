@@ -332,16 +332,16 @@ mod tests {
                 .contains("happened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),")
         );
         assert!(file.contents.contains("correlation_id TEXT"));
-        assert!(
-            file.contents
-                .contains("CREATE INDEX IF NOT EXISTS audit_log_command_idx ON audit_log (command_name);")
-        );
+        assert!(file.contents.contains(
+            "CREATE INDEX IF NOT EXISTS audit_log_command_idx ON audit_log (command_name);"
+        ));
         assert!(file.contents.contains(
             "CREATE INDEX IF NOT EXISTS audit_log_target_idx ON audit_log (target_resource, target_id);"
         ));
         assert!(
-            file.contents
-                .contains("CREATE INDEX IF NOT EXISTS audit_log_actor_idx ON audit_log (actor_id);")
+            file.contents.contains(
+                "CREATE INDEX IF NOT EXISTS audit_log_actor_idx ON audit_log (actor_id);"
+            )
         );
         assert!(file.contents.contains(
             "CREATE INDEX IF NOT EXISTS audit_log_org_time_idx ON audit_log (org_id, happened_at DESC);"

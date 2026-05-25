@@ -1248,11 +1248,7 @@ fn extract_handler_refs(text: &str) -> Vec<HandlerRef> {
             .char_indices()
             .find_map(
                 |(index, ch)| {
-                    if is_ref_char(ch) {
-                        None
-                    } else {
-                        Some(index)
-                    }
+                    if is_ref_char(ch) { None } else { Some(index) }
                 },
             )
             .unwrap_or(after_prefix.len());
@@ -1755,13 +1751,15 @@ mod tests {
         assert!(hash.contents.contains(
             "func HashPassword(ctx *lazuli.Ctx, input string) (lazuli.HashedRef, error)"
         ));
-        assert!(hash
-            .contents
-            .contains("//   Site: customer_auth.auth.password.hash"));
+        assert!(
+            hash.contents
+                .contains("//   Site: customer_auth.auth.password.hash")
+        );
         assert!(hash.contents.contains("var zero lazuli.HashedRef"));
-        assert!(hash
-            .contents
-            .contains("return zero, errors.New(\"hash_password not yet implemented\")"));
+        assert!(
+            hash.contents
+                .contains("return zero, errors.New(\"hash_password not yet implemented\")")
+        );
         assert!(hash.contents.contains("//lazuli:pattern extension_stub v1"));
         // Source-tag duplication cleanup (review bug #8, 2026-05-15):
         // the previous stub re-stamped `lazuli.WithSource(...)` inside
@@ -1779,9 +1777,10 @@ mod tests {
             "starter stub must not construct SourceTag inline; got:\n{}",
             hash.contents
         );
-        assert!(hash
-            .contents
-            .contains("ctx.Context, endOp = observability.StartOp(ctx.Context)"));
+        assert!(
+            hash.contents
+                .contains("ctx.Context, endOp = observability.StartOp(ctx.Context)")
+        );
         // Inlined zero value (was generic `func zero[T any]() T` helper);
         // each stub carries its own `var zero <output>` so two stubs in
         // the same `<feature>handlers` package no longer collide on a
@@ -1816,12 +1815,16 @@ mod tests {
 
         let files = emit_handler_stubs(&module, "lazuli/test", &existing);
 
-        assert!(!files
-            .iter()
-            .any(|file| file.path == "app/features/customer_auth/handlers/hash_password.go"));
-        assert!(files
-            .iter()
-            .any(|file| file.path == "app/features/customer_auth/handlers/verify_password.go"));
+        assert!(
+            !files
+                .iter()
+                .any(|file| file.path == "app/features/customer_auth/handlers/hash_password.go")
+        );
+        assert!(
+            files
+                .iter()
+                .any(|file| file.path == "app/features/customer_auth/handlers/verify_password.go")
+        );
     }
 
     #[test]
@@ -1845,12 +1848,16 @@ mod tests {
 
         let files = emit_handler_stubs(&module, "lazuli/test", &existing);
 
-        assert!(!files
-            .iter()
-            .any(|file| file.path == "app/features/customer_auth/handlers/hash_password.go"));
-        assert!(files
-            .iter()
-            .any(|file| file.path == "app/features/customer_auth/handlers/verify_password.go"));
+        assert!(
+            !files
+                .iter()
+                .any(|file| file.path == "app/features/customer_auth/handlers/hash_password.go")
+        );
+        assert!(
+            files
+                .iter()
+                .any(|file| file.path == "app/features/customer_auth/handlers/verify_password.go")
+        );
     }
 
     #[test]
@@ -1913,12 +1920,14 @@ mod tests {
         assert!(risk.contents.contains(
             "func RiskScore(ctx *lazuli.Ctx, input customergen.Customer) (int64, error)"
         ));
-        assert!(risk
-            .contents
-            .contains("customergen \"lazuli/test/customer\""));
-        assert!(risk
-            .contents
-            .contains("//   Site: customer.recompute_score.let.new_score"));
+        assert!(
+            risk.contents
+                .contains("customergen \"lazuli/test/customer\"")
+        );
+        assert!(
+            risk.contents
+                .contains("//   Site: customer.recompute_score.let.new_score")
+        );
     }
 
     #[test]
@@ -2004,9 +2013,11 @@ mod tests {
         assert!(login.contents.contains(
             "func Login(ctx *lazuli.Ctx, input accountgen.LoginAuthSessionInput) (accountgen.AuthSession, error)"
         ));
-        assert!(login
-            .contents
-            .contains("accountgen \"github.com/acme/app/generated/account\""));
+        assert!(
+            login
+                .contents
+                .contains("accountgen \"github.com/acme/app/generated/account\"")
+        );
     }
 
     #[test]
@@ -2030,9 +2041,10 @@ mod tests {
             .iter()
             .find(|file| file.path == "app/features/customer/handlers/risk_score.go")
             .expect("risk_score declaration stub emitted");
-        assert!(risk
-            .contents
-            .contains("//   Site: customer.extensions.fn.risk_score"));
+        assert!(
+            risk.contents
+                .contains("//   Site: customer.extensions.fn.risk_score")
+        );
     }
 
     #[test]
@@ -2044,13 +2056,15 @@ mod tests {
         let files = emit_handler_stubs(&module, "lazuli/test", &BTreeSet::new());
         let file = &files[0];
 
-        assert!(file
-            .contents
-            .contains("func Unknown(ctx *lazuli.Ctx, input any) (any, error)"));
+        assert!(
+            file.contents
+                .contains("func Unknown(ctx *lazuli.Ctx, input any) (any, error)")
+        );
         assert!(file.contents.contains("var zero any"));
-        assert!(file
-            .contents
-            .contains("return zero, errors.New(\"unknown not yet implemented\")"));
+        assert!(
+            file.contents
+                .contains("return zero, errors.New(\"unknown not yet implemented\")")
+        );
     }
 
     #[test]

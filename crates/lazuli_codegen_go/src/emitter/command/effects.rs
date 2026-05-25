@@ -31,14 +31,12 @@ use lazuli_ir::{
 
 use super::super::printer::GoPrinter;
 use super::super::types::{self, TypeCtx};
-use super::lifecycle::{lifecycle_machine_var, LifecycleCommand};
+use super::lifecycle::{LifecycleCommand, lifecycle_machine_var};
 use super::scope::{
-    command_pascal_to_snake, emit_scope_binding_row, resolve_where_keys, ScopeBinding,
-    WhereKeyBinding,
+    ScopeBinding, WhereKeyBinding, command_pascal_to_snake, emit_scope_binding_row,
+    resolve_where_keys,
 };
-use super::{
-    escape_string, format_expr, pascal_case, resource_var_for_qname,
-};
+use super::{escape_string, format_expr, pascal_case, resource_var_for_qname};
 
 pub(super) fn emit_effect(
     p: &mut GoPrinter,
@@ -204,7 +202,11 @@ fn emit_creates_effect(
         ));
         p.indent();
         for assignment in &create.assignments {
-            p.line(&format_binding_row(assignment, let_bindings, &optional_inputs));
+            p.line(&format_binding_row(
+                assignment,
+                let_bindings,
+                &optional_inputs,
+            ));
         }
         p.dedent();
         p.line("}, lazuli.OwnerCheckSpec{");
@@ -228,7 +230,11 @@ fn emit_creates_effect(
     ));
     p.indent();
     for assignment in &create.assignments {
-        p.line(&format_binding_row(assignment, let_bindings, &optional_inputs));
+        p.line(&format_binding_row(
+            assignment,
+            let_bindings,
+            &optional_inputs,
+        ));
     }
     p.dedent();
     p.line("}),");
@@ -244,8 +250,7 @@ fn emit_updates_effect(
 ) {
     let resource_var = resource_var_for_qname(&update.resource);
     let optional_inputs = collect_optional_inputs(command);
-    let scope_columns: BTreeSet<&str> =
-        scope_bindings.iter().map(|b| b.column.as_str()).collect();
+    let scope_columns: BTreeSet<&str> = scope_bindings.iter().map(|b| b.column.as_str()).collect();
     // Suppress route/input-derived where keys when scope_bindings
     // claim the same column (e.g. `@scope.self` claims `id` from
     // ctx; the route's `id` would conflict).
@@ -295,7 +300,11 @@ fn emit_updates_effect(
     p.line("lazuli.Bindings{");
     p.indent();
     for assignment in &update.assignments {
-        p.line(&format_binding_row(assignment, let_bindings, &optional_inputs));
+        p.line(&format_binding_row(
+            assignment,
+            let_bindings,
+            &optional_inputs,
+        ));
     }
     p.dedent();
     p.line("},");

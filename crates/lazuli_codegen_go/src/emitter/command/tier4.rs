@@ -125,11 +125,7 @@ pub(super) fn build_outbox_index(
 /// in newer paths the `feature` slot may be `None`. Both cases are
 /// resolved here by substituting the host feature name, so the rendered
 /// wire key is always `<host_feature>.<name>`.
-pub(super) fn emit_invalidates(
-    p: &mut GoPrinter,
-    specs: &[InvalidatesSpec],
-    host_feature: &str,
-) {
+pub(super) fn emit_invalidates(p: &mut GoPrinter, specs: &[InvalidatesSpec], host_feature: &str) {
     let mut entries: Vec<String> = Vec::with_capacity(specs.len());
     for spec in specs {
         let qname = &spec.query;

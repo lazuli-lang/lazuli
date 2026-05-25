@@ -875,7 +875,9 @@ fn plugin_semantic_validate_tag(type_ref: &TypeRef) -> Option<String> {
     else {
         return None;
     };
-    let short = plugin.strip_prefix("@lazuli/plugin-").unwrap_or(plugin.as_str());
+    let short = plugin
+        .strip_prefix("@lazuli/plugin-")
+        .unwrap_or(plugin.as_str());
     Some(format!("{}.{}", short, validator))
 }
 
