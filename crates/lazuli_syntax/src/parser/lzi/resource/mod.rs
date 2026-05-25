@@ -479,3 +479,75 @@ fn handle_resource_fts(
         }));
     Ok(())
 }
+
+#[cfg(test)]
+mod resource_ddl_authoring_tests {
+    use super::super::parse_feature_skeletons;
+    use crate::ast::{ResourceConstraintAst, ResourceIndexMethodAst};
+
+    fn resource_with(lines: &[&str]) -> crate::ast::ResourceDecl {
+        let mut source = String::from(
+            "\nfeature customer\n  resource Customer\n    workspace: Workspace required\n    email: Text required\n    tags: list of Text\n",
+        );
+        for line in lines {
+            source.push_str("    ");
+            source.push_str(line);
+            source.push('\n');
+        }
+        parse_feature_skeletons(&source)
+            .expect("resource DDL authoring should parse")
+            .remove(0)
+            .resources
+            .remove(0)
+    }
+
+    #[test]
+    fn parses_single_column_index_on_parenthesized_field() {
+        let resource = resource_with(&["index on (workspace)"]);
+        match &resource.constraints[0] {
+            ResourceConstraintAst::Index(index) => {
+                assert_eq!(index.fields, vec!["workspace"]);
+                assert_eq!(index.method, None);
+                assert!(!index.full_text);
+            }
+            other => panic!("expected index constraint, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_single_column_index_with_gin_modifier() {
+        let resource = resource_with(&["index on tags gin"]);
+        match &resource.constraints[0] {
+            ResourceConstraintAst::Index(index) => {
+                assert_eq!(index.fields, vec!["tags"]);
+                assert_eq!(index.method, Some(ResourceIndexMethodAst::Gin));
+                assert!(!index.full_text);
+            }
+            other => panic!("expected index constraint, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_compound_unique_constraint() {
+        let resource = resource_with(&["unique (workspace, email)"]);
+        match &resource.constraints[0] {
+            ResourceConstraintAst::Unique(unique) => {
+                assert_eq!(unique.fields, vec!["workspace", "email"]);
+            }
+            other => panic!("expected unique constraint, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_resource_fts_as_full_text_gin_index() {
+        let resource = resource_with(&["fts on (email, tags)"]);
+        match &resource.constraints[0] {
+            ResourceConstraintAst::Index(index) => {
+                assert_eq!(index.fields, vec!["email", "tags"]);
+                assert_eq!(index.method, None);
+                assert!(index.full_text);
+            }
+            other => panic!("expected full-text index constraint, got {other:?}"),
+        }
+    }
+}

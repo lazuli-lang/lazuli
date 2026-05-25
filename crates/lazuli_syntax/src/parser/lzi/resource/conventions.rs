@@ -135,3 +135,138 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
     }
     prev[m]
 }
+
+#[cfg(test)]
+mod resource_conventions_tests {
+    //! Parser tests for the `conventions [<name>, ...]` resource slot.
+    //! Grammar + diagnostics anchored in
+    //! `docs/proposals/ir-resource-conventions-crud.md` §4.1 / §4.3.
+
+    use super::super::super::parse_feature_skeletons;
+    use crate::ast::ResourceConventionAst;
+
+    fn customer_source(slot_line: &str) -> String {
+        // Anchor the slot inside a minimal resource block. The trailing
+        // `\n` keeps the indentation parser happy when `slot_line` is
+        // empty (missing-slot test).
+        let mut src = String::from(
+            "\nfeature customer\n  resource Customer\n    org: Org required\n    email: Text required\n",
+        );
+        if !slot_line.is_empty() {
+            src.push_str("    ");
+            src.push_str(slot_line);
+            src.push('\n');
+        }
+        src
+    }
+
+    #[test]
+    fn parses_conventions_crud() {
+        let src = customer_source("conventions [crud]");
+        let features = parse_feature_skeletons(&src).expect("parses");
+        let resource = &features[0].resources[0];
+        assert_eq!(resource.conventions, vec![ResourceConventionAst::Crud]);
+    }
+
+    #[test]
+    fn missing_conventions_is_empty() {
+        let src = customer_source("");
+        let features = parse_feature_skeletons(&src).expect("parses");
+        let resource = &features[0].resources[0];
+        assert!(resource.conventions.is_empty());
+    }
+
+    #[test]
+    fn parses_conventions_with_duplicates() {
+        // Per §4.1: duplicates are permissive at parse time —
+        // deduplication is the analyzer's responsibility if needed.
+        let src = customer_source("conventions [crud, crud]");
+        let features = parse_feature_skeletons(&src).expect("parses");
+        let resource = &features[0].resources[0];
+        assert_eq!(
+            resource.conventions,
+            vec![ResourceConventionAst::Crud, ResourceConventionAst::Crud]
+        );
+    }
+
+    #[test]
+    fn empty_conventions_list_errors() {
+        let src = customer_source("conventions []");
+        let err = parse_feature_skeletons(&src).expect_err("empty list rejected");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("`conventions []` is not allowed"),
+            "expected empty-list diagnostic, got: {msg}",
+        );
+    }
+
+    #[test]
+    fn unknown_convention_errors_with_suggestion() {
+        // §4.3 — single-character Levenshtein → `crud` for `crd`.
+        let src = customer_source("conventions [crd]");
+        let err = parse_feature_skeletons(&src).expect_err("unknown rejected");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("conventions_unknown"),
+            "expected `conventions_unknown` code, got: {msg}",
+        );
+        assert!(
+            msg.contains("did you mean `crud`?"),
+            "expected `crud` suggestion verbatim, got: {msg}",
+        );
+    }
+
+    #[test]
+    fn far_unknown_convention_errors_without_suggestion() {
+        // Identifier far enough from `crud` that single-char Levenshtein
+        // does not propose a match — diagnostic still fires.
+        let src = customer_source("conventions [foo]");
+        let err = parse_feature_skeletons(&src).expect_err("unknown rejected");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("conventions_unknown"),
+            "expected `conventions_unknown` code, got: {msg}",
+        );
+        assert!(
+            msg.contains("`foo`"),
+            "expected offending ident, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn unbracketed_conventions_errors() {
+        let src = customer_source("conventions crud");
+        let err = parse_feature_skeletons(&src).expect_err("missing brackets rejected");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("bracketed identifier list"),
+            "expected bracket-required diagnostic, got: {msg}",
+        );
+    }
+
+    #[test]
+    fn bare_conventions_keyword_errors() {
+        let src = customer_source("conventions");
+        let err = parse_feature_skeletons(&src).expect_err("bare keyword rejected");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("bracketed identifier list"),
+            "expected bracket-required diagnostic, got: {msg}",
+        );
+    }
+
+    #[test]
+    fn duplicate_conventions_slot_errors() {
+        // Two `conventions [...]` lines on one resource — reject.
+        let mut src =
+            String::from("\nfeature customer\n  resource Customer\n    org: Org required\n");
+        src.push_str("    conventions [crud]\n");
+        src.push_str("    conventions [crud]\n");
+        let err = parse_feature_skeletons(&src).expect_err("duplicate slot rejected");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("at most one `conventions` slot"),
+            "expected duplicate-slot diagnostic, got: {msg}",
+        );
+    }
+}
