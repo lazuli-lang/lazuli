@@ -18,16 +18,12 @@ use tower_lsp::lsp_types::{
 use tower_lsp::{Client, LanguageServer, LspService, Server, async_trait};
 
 mod lzx_completion;
+mod types;
+
+pub use types::SecurityProfile;
 
 pub fn server_name() -> &'static str {
     "lazuli-lsp"
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SecurityProfile {
-    Prototype,
-    Strict,
-    Production,
 }
 
 pub fn diagnostics_for_source(source: &str) -> Vec<Diagnostic> {
