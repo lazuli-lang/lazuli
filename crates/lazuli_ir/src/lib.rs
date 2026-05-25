@@ -25,6 +25,10 @@ pub use nodes::auth::{
     Auth, AuthIdentity, AuthMfa, AuthOAuthProvider, AuthPassword, AuthSessions, RotationConfig,
     SessionExtraColumn, TheftAction,
 };
+pub use nodes::plan_and_gate::{
+    AutoPhotoCommandRole, Gate, Plan, PlanCatalog, PlanLimit, PlanLimitValue, SubscriptionAnchor,
+    SynthesizedFromCapFile, TrialPolicy,
+};
 pub use nodes::report::{
     FilenameToken, FnInvocation, Report, ReportColumn, ReportColumnSource, ReportFilenamePattern,
     ReportFormat, ReportSource,
@@ -6421,111 +6425,11 @@ pub struct ZToken {
 
 // =============================================================================
 // Plan & Gate vocabulary (PG.B — `docs/proposals/plan-and-gate-vocab.md`).
-// -----------------------------------------------------------------------------
-// IR types are exposed here so consumers (codegen, doctor, LSP) share
-// one shape. The aggregation context (`PlanGateFacts`) lives in
-// `lazuli_analyzer` because it's a one-pass projection over `.lzi`
-// source rather than a slot on `Module` / `Feature` (keeping IR
-// invariants stable across the existing struct-literal call sites).
+// Plan family (PlanCatalog, Plan, PlanLimit, PlanLimitValue, TrialPolicy,
+// SubscriptionAnchor, Gate, SynthesizedFromCapFile, AutoPhotoCommandRole)
+// lives in `nodes::plan_and_gate` after the W4.1 rails-style split.
+// Re-exported at the crate root above to preserve the ABI surface.
 // =============================================================================
-
-/// Closed plan catalog lifted from the package's `plan <name>` blocks.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PlanCatalog {
-    /// Plans declared in the package, sorted by name for deterministic
-    /// JSON output.
-    pub plans: Vec<Plan>,
-    /// Union of every plan's feature set (sorted).
-    pub feature_catalog: Vec<String>,
-    /// Union of every plan's limit names (sorted).
-    pub limit_catalog: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Plan {
-    pub name: String,
-    /// Closed feature set (sorted) after cross-plan reference expansion.
-    pub features: Vec<String>,
-    /// Closed limit map (sorted by name) after cross-plan reference
-    /// expansion.
-    pub limits: Vec<PlanLimit>,
-    /// Optional trial revert policy.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub trial: Option<TrialPolicy>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PlanLimit {
-    pub name: String,
-    pub value: PlanLimitValue,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value")]
-pub enum PlanLimitValue {
-    Integer(u64),
-    Unlimited,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TrialPolicy {
-    /// Raw duration literal (e.g. `"14d"`).
-    pub duration: String,
-    /// The plan to revert to after the trial elapses.
-    pub then_plan: String,
-}
-
-/// PG.A/B — subscription anchor lifted from `app.lzi`
-/// `subscription resource <feature>.<field>`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SubscriptionAnchor {
-    /// The feature that owns the subscription edge (e.g. `users`).
-    pub feature: String,
-    /// The field/edge on the parent resource that points to the
-    /// subscription resource (e.g. `subscription`).
-    pub field: String,
-    /// Optional `tenancy <axis>` parity hint. Empty for single-tenant
-    /// apps.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tenancy_axis: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// Gate directive lifted onto a callable.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value")]
-pub enum Gate {
-    /// `gate behind plan.feature: <name>` — boolean check.
-    Behind { feature: String },
-    /// `gate quota plan.limit: <name>` — counter check.
-    Quota { limit: String },
-}
-
-/// FR-3a — marker carried on commands the analyzer auto-derived from
-/// a `@cap.File(...)` resource field. Records the source field's
-/// coordinates so codegen can wire the runtime auto-photo helper
-/// without re-walking the IR.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SynthesizedFromCapFile {
-    /// Resource name (PascalCase) carrying the `@cap.File` field.
-    pub resource: String,
-    /// Field name (snake_case) on the resource.
-    pub field: String,
-    /// Which of the 4 canonical command roles this is.
-    pub role: AutoPhotoCommandRole,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AutoPhotoCommandRole {
-    Request,
-    Confirm,
-    Clear,
-    GetUrl,
-}
 
 #[cfg(test)]
 mod lifecycle_tests {
