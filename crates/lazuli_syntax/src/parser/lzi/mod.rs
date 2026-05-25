@@ -5460,7 +5460,9 @@ feature account
 
         assert_eq!(
             route.unauthenticated,
-            Some(crate::ast::RouteRedirectTargetAst::View("sign_in".to_string()))
+            Some(crate::ast::RouteRedirectTargetAst::View(
+                "sign_in".to_string()
+            ))
         );
         assert_eq!(route.role_mismatch.len(), 2);
         assert_eq!(route.role_mismatch[0].role, "traveler");
@@ -5470,7 +5472,9 @@ feature account
         );
         assert_eq!(
             route.default,
-            Some(crate::ast::RouteRedirectTargetAst::Path("/welcome".to_string()))
+            Some(crate::ast::RouteRedirectTargetAst::Path(
+                "/welcome".to_string()
+            ))
         );
     }
 
