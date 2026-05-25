@@ -42,6 +42,7 @@
 //! sibling modules are `pub(crate)`.
 
 pub mod checks;
+mod expr;
 mod helpers;
 mod lifecycle;
 mod lzx;
@@ -51,6 +52,11 @@ pub mod symbol_origin;
 
 pub use lzx::lower_lzx_document;
 pub use symbol_origin::build_symbol_origin_index;
+
+use expr::{
+    expr_from_text, lower_path_string, lower_policy_atom, lower_policy_expr, lower_qualified_name,
+    lower_raw_expr, lower_translation_key_ref,
+};
 
 use helpers::{
     conventions_levenshtein, find_balanced_decorator_end, find_keyword_line_offset,
@@ -4299,7 +4305,7 @@ pub(crate) fn lower_command_input_to_typed(
 
 /// Strip `@validate.skip` (anywhere in the text) and return the
 /// trimmed remainder + whether the marker was present.
-fn strip_validate_skip(text: &str) -> (String, bool) {
+pub(crate) fn strip_validate_skip(text: &str) -> (String, bool) {
     if !text.contains("@validate.skip") {
         return (text.to_owned(), false);
     }
@@ -5678,20 +5684,6 @@ fn parse_filename_token(raw: &str) -> Option<ir::FilenameToken> {
 /// verbatim; doctor validates them against `app.locale.supported` and
 /// the CLDR plural catalog.
 ///
-/// IR Error-Vocab (Cell PARSE-1) — lower a surface
-/// `TranslationKeyRefAst` (parsed from `@translation.<key>`) onto the
-/// typed IR `TranslationKeyRef`. The `span_ref` is preserved so doctor
-/// can quote the offending line on `translation_key_unknown` /
-/// ERR-VOCAB-002 emission. Same-feature scope; v1 does not lower the
-/// cross-feature `<feature>.@translation.<key>` form (cf. proposal
-/// §3.1 — the surface token form keeps the parser single-shape).
-pub(crate) fn lower_translation_key_ref(decl: &syntax::TranslationKeyRefAst) -> ir::TranslationKeyRef {
-    ir::TranslationKeyRef {
-        key: decl.key.clone(),
-        span_ref: Some(span_of(decl.span)),
-    }
-}
-
 /// IR Error-Vocab (Cell PARSE-1) — lower a surface `FeatureErrorsDecl`
 /// onto `ir::FeatureErrors`. The `default hide` / `default expose` and
 /// `expose client 4xx|5xx <fields>` slots project 1:1; per-code message
@@ -5771,7 +5763,7 @@ fn lower_translation_decl(t: &syntax::TranslationDecl) -> ir::Translation {
 /// `ir::LocaleNegotiate`. The runtime-unit form is parsed elsewhere
 /// (`crates/lazuli_cli/src/app_manifest.rs`) since it lives on the
 /// `app.lzi` side rather than feature side.
-fn lower_locale_negotiate_decl(n: &syntax::LocaleNegotiateDecl) -> ir::LocaleNegotiate {
+pub(crate) fn lower_locale_negotiate_decl(n: &syntax::LocaleNegotiateDecl) -> ir::LocaleNegotiate {
     ir::LocaleNegotiate {
         source: n.source.clone(),
         strategy: n.strategy.clone(),
@@ -6768,21 +6760,6 @@ pub(crate) fn lower_command_effect(effect: &syntax::CommandEffectDecl) -> ir::Co
     }
 }
 
-pub(crate) fn lower_qualified_name(text: &str) -> ir::QualifiedName {
-    let trimmed = text.trim();
-    if let Some((feature, name)) = trimmed.split_once('.') {
-        ir::QualifiedName {
-            feature: Some(feature.to_owned()),
-            name: name.to_owned(),
-        }
-    } else {
-        ir::QualifiedName {
-            feature: None,
-            name: trimmed.to_owned(),
-        }
-    }
-}
-
 /// Lower `invalidates` query refs into the cache-invalidation IR shape.
 /// The authored namespace marker (`query.`) is syntax only:
 ///
@@ -6891,115 +6868,6 @@ impl InvalidatesQueryIndex {
         self.queries_by_feature
             .get(feature)
             .is_some_and(|queries| queries.contains(query))
-    }
-}
-
-/// Capture a freeform expression as a typed `ir::Expr`. Today this
-/// handles five literal shapes (string / integer / bool / nil / enum
-/// or path) plus the v1 `@fn.<name>(<arg>...)` invocation form (closes
-/// WAR-VOCAB-CREATES-FN-CALL-01).
-pub(crate) fn lower_raw_expr(text: &str) -> ir::Expr {
-    let trimmed = text.trim();
-    if let Some(unquoted) = trimmed
-        .strip_prefix('"')
-        .and_then(|rest| rest.strip_suffix('"'))
-    {
-        return ir::Expr::String(unquoted.to_owned());
-    }
-    if let Ok(n) = trimmed.parse::<i64>() {
-        return ir::Expr::Integer(n);
-    }
-    match trimmed {
-        "true" => return ir::Expr::Boolean(true),
-        "false" => return ir::Expr::Boolean(false),
-        "nil" => return ir::Expr::Nil,
-        _ => {}
-    }
-    // `@fn.<name>(<arg>, ...)` — extension-fn invocation. The args
-    // are recursively lowered as expressions; nested fn calls are
-    // permitted at the IR level (codegen guards against unsupported
-    // nesting today by emitting a TODO comment).
-    if let Some(fn_call) = parse_fn_call_expr(trimmed) {
-        return ir::Expr::FnCall(fn_call);
-    }
-    let segments = trimmed.split('.').map(|s| s.trim().to_owned()).collect();
-    ir::Expr::Path(ir::Path { segments })
-}
-
-fn parse_fn_call_expr(text: &str) -> Option<ir::FnCallExpr> {
-    let rest = text.strip_prefix("@fn.")?;
-    let paren_idx = rest.find('(')?;
-    if !rest.ends_with(')') {
-        return None;
-    }
-    let (name_text, after) = rest.split_at(paren_idx);
-    let inside = &after[1..after.len() - 1];
-    let name = name_text.trim();
-    if name.is_empty() {
-        return None;
-    }
-    let args = if inside.trim().is_empty() {
-        Vec::new()
-    } else {
-        split_fn_call_args(inside)
-            .into_iter()
-            .map(|arg| lower_raw_expr(&arg))
-            .collect()
-    };
-    Some(ir::FnCallExpr {
-        name: ir::QualifiedName {
-            feature: None,
-            name: name.to_owned(),
-        },
-        args,
-    })
-}
-
-fn split_fn_call_args(input: &str) -> Vec<String> {
-    // Splits on commas that live at paren-depth 0 outside double-quoted
-    // strings. Nested fn-call args therefore stay grouped.
-    let mut out = Vec::new();
-    let mut depth: usize = 0;
-    let mut in_quote = false;
-    let mut start = 0usize;
-    let bytes = input.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if b == b'"' {
-            in_quote = !in_quote;
-        } else if !in_quote {
-            if b == b'(' {
-                depth += 1;
-            } else if b == b')' {
-                depth = depth.saturating_sub(1);
-            } else if b == b',' && depth == 0 {
-                let part = input[start..i].trim();
-                if !part.is_empty() {
-                    out.push(part.to_owned());
-                }
-                start = i + 1;
-            }
-        }
-        i += 1;
-    }
-    let tail = input[start..].trim();
-    if !tail.is_empty() {
-        out.push(tail.to_owned());
-    }
-    out
-}
-
-pub(crate) fn lower_path_string(text: &str) -> ir::Path {
-    ir::Path {
-        segments: text
-            .split(',')
-            .next()
-            .unwrap_or(text)
-            .split('.')
-            .map(|s| s.trim().to_owned())
-            .filter(|s| !s.is_empty())
-            .collect(),
     }
 }
 
@@ -7392,28 +7260,6 @@ fn parse_closed_predicate(text: &str) -> ir::EvalPredicate {
     ir::EvalPredicate::Unparsed(text.to_owned())
 }
 
-/// Promote a token to the smallest expression kind that fits. Strings
-/// must be double-quoted; integers parse as `Integer`; `true`/`false` as
-/// `Boolean`; bare identifiers / dotted paths become `Path`; bare
-/// identifiers that look like enum literals (no dots) also surface as
-/// `Path` — the analyzer narrows once symbols resolve in expand.
-pub(crate) fn expr_from_text(text: &str) -> ir::Expr {
-    let text = text.trim();
-    if let Some(stripped) = text.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
-        return ir::Expr::String(stripped.to_owned());
-    }
-    if let Ok(n) = text.parse::<i64>() {
-        return ir::Expr::Integer(n);
-    }
-    match text {
-        "true" => return ir::Expr::Boolean(true),
-        "false" => return ir::Expr::Boolean(false),
-        "nil" => return ir::Expr::Nil,
-        _ => {}
-    }
-    ir::Expr::Path(ir::Path::from_segments(text.split('.').map(str::to_owned)))
-}
-
 /// Build a feature-local `QualifiedName` (no feature prefix).
 fn qualified_name_local(name: &str) -> ir::QualifiedName {
     ir::QualifiedName {
@@ -7430,14 +7276,6 @@ fn qualified_namespace(raw: &str) -> ir::QualifiedName {
     ir::QualifiedName {
         feature: None,
         name: raw.to_owned(),
-    }
-}
-
-pub(crate) fn lower_policy_atom(atom: &str) -> ir::PolicyRef {
-    if let Some(rest) = atom.strip_prefix('@') {
-        ir::PolicyRef::Atom(rest.to_owned())
-    } else {
-        ir::PolicyRef::Local(atom.to_owned())
     }
 }
 
@@ -7523,37 +7361,10 @@ fn lower_validate_line(line: &str) -> Result<ir::FieldConstraints, AnalyzeError>
     lift_field_constraints("validate", &decl)
 }
 
-/// RB.S6 — lower the structured AST policy expression (parser
-/// already validated permission-ref shape + closed keyword catalog).
-/// The lowering is purely structural; catalog cross-checks (role/perm
-/// existence) live in doctor (`RBAC-ROLE-UNDECLARED-001` /
-/// `RBAC-PERM-UNDECLARED-001`).
-pub(crate) fn lower_policy_expr(expr: &syntax::PolicyExprAst) -> ir::PolicyExpr {
-    match expr {
-        syntax::PolicyExprAst::Authenticated => ir::PolicyExpr::Authenticated,
-        syntax::PolicyExprAst::HasRole(name) => ir::PolicyExpr::HasRole(name.clone()),
-        syntax::PolicyExprAst::HasPermission(perm) => ir::PolicyExpr::HasPermission(perm.clone()),
-        syntax::PolicyExprAst::Atom(atom) => ir::PolicyExpr::Atom(ir::PolicyAtom {
-            namespace: atom.namespace.clone(),
-            name: atom.name.clone(),
-            args: atom.args.clone(),
-        }),
-        syntax::PolicyExprAst::And(terms) => {
-            ir::PolicyExpr::And(terms.iter().map(lower_policy_expr).collect())
-        }
-        syntax::PolicyExprAst::Or(terms) => {
-            ir::PolicyExpr::Or(terms.iter().map(lower_policy_expr).collect())
-        }
-        syntax::PolicyExprAst::Not(inner) => {
-            ir::PolicyExpr::Not(Box::new(lower_policy_expr(inner)))
-        }
-    }
-}
-
 /// The Phase 1 parser captures type references as raw source text. Turn
 /// that into a minimal `TypeRef` so doctor and inspect can read it; the
 /// canonical-indent migration replaces this with a real type-ref parser.
-fn type_ref_from_text(text: &str) -> ir::TypeRef {
+pub(crate) fn type_ref_from_text(text: &str) -> ir::TypeRef {
     // Single canonical lifter for type tokens. Previously a slimmer
     // duplicate of `type_ref_from_syntax` with drift bugs (notably:
     // matched `"Json"` only, lost `"JSON"`; always lowered `@semantic.*`
