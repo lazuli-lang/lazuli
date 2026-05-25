@@ -47,6 +47,9 @@ pub use nodes::mcp::{
     MCPAuth, MCPParam, MCPPrompt, MCPResource, MCPServerMetadata, MCPServerSpec, MCPTool,
     MCPTransport,
 };
+pub use nodes::migrations::{
+    TenantMigration, TenantMigrationTarget, TenantMigrationTargetOperation,
+};
 pub use nodes::plan_and_gate::{
     AutoPhotoCommandRole, Gate, Plan, PlanCatalog, PlanLimit, PlanLimitValue, SubscriptionAnchor,
     SynthesizedFromCapFile, TrialPolicy,
@@ -4677,62 +4680,12 @@ impl EmitPredicate {
 // =============================================================================
 
 // =============================================================================
-// Migrations bucket cycle (Route C) — tenant_migration kind
+// Migrations bucket cycle (Route C) — tenant_migration kind.
+// TenantMigration family (TenantMigration, TenantMigrationTarget,
+// TenantMigrationTargetOperation) lives in `nodes::migrations` after the
+// W4.1 rails-style split. Re-exported at the crate root above to preserve
+// the ABI surface.
 // =============================================================================
-
-/// Migrations bucket cycle Route C — `tenant_migration <name>` declaration.
-///
-/// Mirrors `Job`'s spine (idempotency / retry / timeout / handler) but is
-/// scoped to per-tenant data/schema migrations. The closed body shape is:
-/// `target query.<name>|command.<name>`, `axis <name>`, `idempotency <path>`
-/// (mandatory), `retry <count> backoff <strategy>`, `timeout "<duration>"`,
-/// and `handler "<path>"`.
-///
-/// Doctor cross-checks:
-///   - `TM-AXIS-001` — `target` axis matches a `defaults.tenancy` axis
-///     in the same feature.
-///   - `TM-IDEMP-001` — `idempotency by` is mandatory; absence is an
-///     error because schema migrations are not safely re-runnable
-///     without an idempotency key.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TenantMigration {
-    pub name: String,
-    pub target: TenantMigrationTarget,
-    /// Mandatory; absence triggers `TM-IDEMP-001`.
-    pub idempotency: IdempotencyKey,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub retry: Option<RetryPolicy>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub timeout: Option<String>,
-    pub handler: PathRef,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub previous_names: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// Migrations bucket cycle Route C — `target tenants <axis>` fanout
-/// directive for tenant migrations. Captures the axis verbatim; doctor
-/// cross-checks against `defaults.tenancy` declared in the same feature.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TenantMigrationTarget {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub operation: Option<TenantMigrationTargetOperation>,
-    pub axis: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum TenantMigrationTargetOperation {
-    Query {
-        feature: Option<String>,
-        name: String,
-    },
-    Command {
-        feature: Option<String>,
-        name: String,
-    },
-}
 
 // =============================================================================
 // Phase 1e — auth block
