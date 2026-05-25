@@ -80,116 +80,12 @@ use crate::ast::{
 };
 
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct LifecycleBlockAst {
-    pub discriminator_field: String,
-    pub states: Vec<LifecycleStateAst>,
-    pub transitions: Vec<LifecycleTransitionAst>,
-    pub invariants: Vec<LifecycleInvariantAst>,
-    pub invariant_handlers: Vec<String>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct LifecycleStateAst {
-    pub name: String,
-    pub kind_keyword: Option<String>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct LifecycleTransitionAst {
-    pub name: String,
-    pub from: Vec<String>,
-    pub to: String,
-    pub policy: Option<String>,
-    pub audit: Option<String>,
-    pub timestamps: Option<String>,
-    pub emits: Vec<String>,
-    pub requires: Option<String>,
-    pub tests: Vec<String>,
-    pub previously: Vec<String>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct LifecycleInvariantAst {
-    /// Raw tail after `invariant `; lowering tokenizes the closed catalog.
-    pub raw: String,
-    pub span: Span,
-}
-
-// ---------------------------------------------------------------------------
-// L0 #8 — `poller` vocabulary (docs/proposals/poller-vocab.md).
-// Top-level feature kind, parallel to `job` / `webhook` / `notification`.
-// AST is closed-catalog: only the children listed in §3.1 of the proposal
-// are accepted; any other keyword is a parse error.
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct PollerBlockAst {
-    pub name: String,
-    pub source: String,
-    pub cursor: Option<PollerCursorAst>,
-    pub retry: Option<PollerRetryAst>,
-    pub states: Vec<PollerStateAst>,
-    pub resolve_handler: Option<String>,
-    pub terminal_status_field: Option<String>,
-    pub terminal_result_field: Option<String>,
-    pub tick: Option<PollerTickAst>,
-    pub tenant_from: Option<String>,
-    pub idempotency: Vec<String>,
-    pub audit: Option<String>,
-    pub emits: Vec<String>,
-    pub retry_quirks: Vec<PollerRetryQuirkAst>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct PollerCursorAst {
-    pub next_at_field: String,
-    pub resolved_at_field: String,
-    pub attempts_field: String,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct PollerRetryAst {
-    pub max_attempts: u32,
-    pub backoff_strategy: String,
-    pub backoff_base: Option<String>,
-    pub backoff_cap: Option<String>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct PollerStateAst {
-    pub name: String,
-    pub kind_keyword: Option<String>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct PollerTickAst {
-    pub every: String,
-    pub batch: Option<u32>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct PollerRetryQuirkAst {
-    /// Catalog form name (`gender_flip_once` in v0.1).
-    pub kind: String,
-    /// Raw predicate after `when ` — closed predicate language;
-    /// analyzer cross-checks.
-    pub when: String,
-    /// Counter field on `source`.
-    pub counter_field: String,
-    /// `mutate <field> = <transform>` raw rhs.
-    pub mutate_field: String,
-    pub mutate_transform: String,
-    pub span: Span,
-}
+pub mod types;
+pub use types::{
+    LifecycleBlockAst, LifecycleInvariantAst, LifecycleStateAst, LifecycleTransitionAst,
+    PollerBlockAst, PollerCursorAst, PollerRetryAst, PollerRetryQuirkAst, PollerStateAst,
+    PollerTickAst,
+};
 
 // =============================================================================
 // Cut A — feature skeleton + agent slice
