@@ -188,7 +188,7 @@ pub(super) fn parse_notification(
             last_end = line.end;
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("trigger ") {
-            trigger = Some(super::parse_job_trigger(line, rest)?);
+            trigger = Some(super::job::parse_job_trigger(line, rest)?);
             last_end = line.end;
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("tenant_from ") {
@@ -200,7 +200,7 @@ pub(super) fn parse_notification(
             last_end = line.end;
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("retry ") {
-            retry = Some(super::parse_job_retry(line, rest)?);
+            retry = Some(super::job::parse_job_retry(line, rest)?);
             last_end = line.end;
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("template ") {
