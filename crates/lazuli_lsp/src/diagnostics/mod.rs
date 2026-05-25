@@ -46,6 +46,7 @@ pub(crate) mod api;
 pub(crate) mod auth;
 pub(crate) mod cache;
 pub(crate) mod crypto;
+pub(crate) mod http_headers;
 pub(crate) mod notification;
 pub(crate) mod policy;
 pub(crate) mod query;
