@@ -23,6 +23,7 @@
 //! See `docs/proposals/tdd-bdd-first-2026-05-23.md` §Wave 0.5 for the
 //! envelope contract every aggregator pushes onto the diagnostic vec.
 
+pub(crate) mod auth;
 pub(crate) mod cache;
 pub(crate) mod correctness;
 pub(crate) mod cors;

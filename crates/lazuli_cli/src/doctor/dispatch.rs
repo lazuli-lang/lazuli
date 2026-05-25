@@ -22,7 +22,7 @@ use super::{
     agent_eval_diagnostics, agent_expose_diagnostics, agent_run_trace_diagnostics,
     agent_tool_diagnostics, app_contract_diagnostics, app_urls_missing_diagnostics,
     approval_diagnostics, approval_missing_children_diagnostics, audit_event_health_diagnostics,
-    auth_diagnostics, cap_file_policy_implicit_diagnostics, cap_file_storage_diagnostics,
+    cap_file_policy_implicit_diagnostics, cap_file_storage_diagnostics,
     check_auth_session_callsite_001, check_codegen_wrap_001, check_pattern_draft_stale_001,
     collect_callable_bodies_for_eval_order, collect_known_audiences, collect_known_roles,
     cross_feature_type_unresolved_diagnostics, dedupe_env_contract_diagnostics, doctor_rule_path,
@@ -288,7 +288,7 @@ impl DoctorPackage {
         ));
 
         // Phase L — auth block cross-feature diagnostics.
-        diagnostics.extend(auth_diagnostics(
+        diagnostics.extend(aggregators::auth::diagnostics(
             &self.auth_facts,
             &self.feature_resources,
             &self.feature_adapters,
