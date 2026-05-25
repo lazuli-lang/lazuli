@@ -45,11 +45,9 @@
 //! intact even when IR reordering happens elsewhere.
 
 use lazuli_ir::{
-    ApprovalSpec, ApprovalThen, Assignment, BackoffStrategy, Command, CommandEffect, CommandInput,
-    CreateEffect, DeleteEffect, Deprecation, DeprecationReplacement, Expr, ExternalCallRef,
-    Feature, FieldConstraints, Gate, HandlerRef, IdempotencyKey, InvalidatesSpec, NamedArg,
-    OwnerScopeSql, Path, Policies, PolicyRef, QualifiedName, Resource, RetryPolicy, ReturnsEffect,
-    RouteSlot, TypedSlot, UpdateEffect,
+    Assignment, Command, CommandEffect, CommandInput, CreateEffect, DeleteEffect, Expr, Feature,
+    FieldConstraints, Gate, HandlerRef, NamedArg, Path, QualifiedName, ReturnsEffect, RouteSlot,
+    TypedSlot, UpdateEffect,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -84,6 +82,12 @@ mod scope;
 use scope::{
     command_pascal_to_snake, emit_scope_binding_row, owner_scope_binding, resolve_scope_bindings,
     resolve_where_keys, ScopeBinding, WhereKeyBinding,
+};
+
+mod tier4;
+pub(super) use tier4::{format_deprecation_replacement, format_rate_limit_struct};
+use tier4::{
+    build_outbox_index, emit_emits, emit_invalidates, emit_tier4_fields, format_approval,
 };
 
 /// Emit `<feature>/command.gen.go` for a feature, or `None` when the
@@ -1156,259 +1160,16 @@ fn collect_optional_inputs(command: &Command) -> BTreeSet<&str> {
     out
 }
 
-/// Emit `Emits: []lazuli.EventEmit{...}` block. The IR `emits: Vec<String>`
-/// only carries event names today; the spike's `from creates` axis is
-/// implicit when the surrounding effect is `Creates`. We default the
-/// `From` to the matching effect-derived constant.
-///
-/// EVENT-OUTBOX §3.3 — when `outbox_index` reports `Guaranteed` for an
-/// event name, the literal carries `Outbox: lazuli.OutboxGuaranteed` so
-/// the runtime command path writes the outbox row in the resource tx.
-fn emit_emits(
-    p: &mut GoPrinter,
-    emits: &[String],
-    outbox_index: &std::collections::BTreeMap<String, lazuli_ir::OutboxMode>,
-) {
-    p.line("Emits: []lazuli.EventEmit{");
-    p.indent();
-    for emit in emits {
-        let mode = outbox_index
-            .get(emit)
-            .copied()
-            .unwrap_or(lazuli_ir::OutboxMode::None);
-        let suffix = if mode.is_guaranteed() {
-            ", Outbox: lazuli.OutboxGuaranteed"
-        } else {
-            ""
-        };
-        // Without typed `from <axis>` slots on the IR, we surface the
-        // emit with `FromExplicit` (the runtime then requires an
-        // explicit Bind block; the user's `let` declarations are
-        // expected to land there in a follow-up cell).
-        p.line(&format!(
-            "{{Name: \"{}\", From: lazuli.FromExplicit{}}},",
-            emit, suffix
-        ));
-    }
-    p.dedent();
-    p.line("},");
-}
 
-/// EVENT-OUTBOX §3.3 — build a lookup of `<event-name> -> OutboxMode`
-/// from one feature. Walks `feature.event_groups` (parallel
-/// `events`/`events_outbox`) and `feature.events`. Group events are
-/// indexed by both the short name and the prefix-qualified full name
-/// so command `emits` lines match regardless of authoring shape.
-fn build_outbox_index(
-    feature: &Feature,
-) -> std::collections::BTreeMap<String, lazuli_ir::OutboxMode> {
-    let mut index: std::collections::BTreeMap<String, lazuli_ir::OutboxMode> =
-        std::collections::BTreeMap::new();
-    for group in &feature.event_groups {
-        let prefix = group.pattern.strip_suffix('*').unwrap_or(&group.pattern);
-        for (i, short_name) in group.events.iter().enumerate() {
-            let mode = group
-                .events_outbox
-                .get(i)
-                .copied()
-                .unwrap_or(lazuli_ir::OutboxMode::None);
-            if mode.is_none() {
-                continue;
-            }
-            // Index both the short authored name and the prefix-qualified
-            // full name so command `emits` lines match either shape.
-            index.insert(short_name.clone(), mode);
-            let qualified = if short_name.starts_with(prefix) {
-                short_name.clone()
-            } else {
-                format!("{}{}", prefix, short_name)
-            };
-            index.insert(qualified, mode);
-        }
-    }
-    for event in &feature.events {
-        if event.outbox.is_guaranteed() {
-            index.insert(event.name.clone(), event.outbox);
-        }
-    }
-    index
-}
-
-/// Emit `Invalidates: []string{...}` block. Source is the IR
-/// `Vec<InvalidatesSpec>`; we render each as the fully-qualified
-/// `<feature>.<name>` wire-registry key Lazuli Go lib expects.
-///
-/// Cell B1 (codegen-correctness-cycle-2026-05-21) dropped the historical
-/// `.query.` infix because the `/q/` HTTP prefix already disambiguates
-/// query vs command at the route layer. The registry key the runtime
-/// cache matches against is now `<feature>.<query_name>` (see
-/// `query.rs` and `runtime.rs` emitters), so invalidates entries must
-/// agree byte-for-byte.
-///
-/// Same-feature shorthand handling: `lower_qualified_name` in the
-/// analyzer splits the authored `query.list` form into
-/// `feature=Some("query"), name="list"` (legacy pseudo-feature) — and
-/// in newer paths the `feature` slot may be `None`. Both cases are
-/// resolved here by substituting the host feature name, so the rendered
-/// wire key is always `<host_feature>.<name>`.
-fn emit_invalidates(p: &mut GoPrinter, specs: &[InvalidatesSpec], host_feature: &str) {
-    let mut entries: Vec<String> = Vec::with_capacity(specs.len());
-    for spec in specs {
-        let qname = &spec.query;
-        let feature = match qname.feature.as_deref() {
-            // Pseudo-feature `query.<name>` — same-feature short form
-            // surfaced by `lower_qualified_name` (analyzer doesn't
-            // peel off the `query.` keyword prefix today).
-            Some("query") | None => host_feature,
-            Some(feat) => feat,
-        };
-        let qualified = format!("{}.{}", feature, qname.name);
-        entries.push(format!("\"{}\"", qualified));
-    }
-    p.line(&format!("Invalidates: []string{{{}}},", entries.join(", ")));
-}
-
-fn format_approval(approval: &ApprovalSpec) -> String {
-    format!(
-        "&lazuli.ApprovalSpec{{Then: \"{}\", By: \"{}\", Reason: \"{}\"}},",
-        approval_then_literal(approval.then),
-        escape_string(&approval.by),
-        escape_string(approval.required_when.as_deref().unwrap_or(""))
-    )
-}
-
-fn emit_tier4_fields(p: &mut GoPrinter, feature: &Feature, command: &Command) {
-    if !command.external_calls.is_empty() {
-        emit_external_calls(p, &command.external_calls);
-    }
-    if let Some(timeout) = &command.timeout {
-        p.line(&format!("Timeout: \"{}\",", escape_string(timeout)));
-    }
-    if let Some(retry) = &command.retry {
-        emit_retry(p, retry);
-    }
-    if let Some(idempotency) = &command.idempotency {
-        emit_idempotency(p, idempotency);
-    }
-    if let Some(deprecation) = &command.deprecated {
-        emit_deprecation(p, &feature.name, deprecation);
-    }
-}
-
-fn emit_external_calls(p: &mut GoPrinter, calls: &[ExternalCallRef]) {
-    let mut sorted: Vec<&ExternalCallRef> = calls.iter().collect();
-    sorted.sort_by(|a, b| {
-        a.slot
-            .cmp(&b.slot)
-            .then_with(|| a.op.cmp(&b.op))
-            .then_with(|| format_args_key(&a.args).cmp(&format_args_key(&b.args)))
-    });
-
-    p.line("ExternalCalls: []lazuli.ExternalCallRef{");
-    p.indent();
-    for call in sorted {
-        if call.args.is_empty() {
-            p.line(&format!(
-                "{{Slot: \"{}\", Operation: \"{}\"}},",
-                escape_string(&call.slot),
-                escape_string(&call.op)
-            ));
-            continue;
-        }
-
-        let args = sorted_arg_strings(&call.args)
-            .into_iter()
-            .map(|arg| format!("\"{}\"", escape_string(&arg)))
-            .collect::<Vec<_>>()
-            .join(", ");
-        p.line(&format!(
-            "{{Slot: \"{}\", Operation: \"{}\", Args: []string{{{}}}}},",
-            escape_string(&call.slot),
-            escape_string(&call.op),
-            args
-        ));
-    }
-    p.dedent();
-    p.line("},");
-}
-
-fn emit_retry(p: &mut GoPrinter, retry: &RetryPolicy) {
-    p.line(&format!(
-        "Retry: &lazuli.RetryPolicy{{Count: {}, Backoff: {}}},",
-        retry.count,
-        backoff_literal(retry.backoff)
-    ));
-}
-
-fn emit_idempotency(p: &mut GoPrinter, idempotency: &IdempotencyKey) {
-    p.line(&format!(
-        "Idempotency: &lazuli.IdempotencyKey{{Path: \"{}\"}},",
-        escape_string(&format_path(&idempotency.by))
-    ));
-}
-
-fn emit_deprecation(p: &mut GoPrinter, feature: &str, deprecation: &Deprecation) {
-    p.line(&format!(
-        "Deprecation: &lazuli.Deprecation{{Since: \"{}\", Replacement: \"{}\", Sunset: \"{}\"}},",
-        escape_string(deprecation.since.as_deref().unwrap_or("")),
-        escape_string(&format_deprecation_replacement(
-            feature,
-            deprecation.replacement.as_ref()
-        )),
-        escape_string(deprecation.sunset.as_deref().unwrap_or(""))
-    ));
-}
-
-fn approval_then_literal(then: ApprovalThen) -> &'static str {
-    match then {
-        ApprovalThen::Deny => "deny",
-        ApprovalThen::Allow => "allow",
-        ApprovalThen::Escalate => "escalate",
-    }
-}
-
-fn backoff_literal(backoff: BackoffStrategy) -> &'static str {
-    match backoff {
-        BackoffStrategy::Fixed => "\"fixed\"",
-        BackoffStrategy::Exponential => "\"exponential\"",
-    }
-}
-
-pub(super) fn format_deprecation_replacement(
-    feature: &str,
-    replacement: Option<&DeprecationReplacement>,
-) -> String {
-    match replacement {
-        Some(DeprecationReplacement::LocalCommand(name)) => {
-            format!("{feature}.command.{name}")
-        }
-        Some(DeprecationReplacement::LocalApi(name)) => {
-            format!("{feature}.api.{name}")
-        }
-        Some(DeprecationReplacement::Qualified(qname)) => format!(
-            "{}.command.{}",
-            qname.feature.as_deref().unwrap_or(feature),
-            qname.name
-        ),
-        Some(DeprecationReplacement::QualifiedApi(qname)) => format!(
-            "{}.api.{}",
-            qname.feature.as_deref().unwrap_or(feature),
-            qname.name
-        ),
-        Some(DeprecationReplacement::Url(url)) => url.clone(),
-        None => String::new(),
-    }
-}
-
-fn format_path(path: &Path) -> String {
+pub(super) fn format_path(path: &Path) -> String {
     path.segments.join(".")
 }
 
-fn format_args_key(args: &[NamedArg]) -> String {
+pub(super) fn format_args_key(args: &[NamedArg]) -> String {
     sorted_arg_strings(args).join("\u{1f}")
 }
 
-fn sorted_arg_strings(args: &[NamedArg]) -> Vec<String> {
+pub(super) fn sorted_arg_strings(args: &[NamedArg]) -> Vec<String> {
     let mut out: Vec<String> = args
         .iter()
         .map(|arg| format!("{}={}", arg.name, format_expr(&arg.value)))
@@ -1640,67 +1401,13 @@ fn _returns_effect_compiles(_: ReturnsEffect) {}
 ///
 /// The runtime's `Resolve()` resolves the active limit at request time
 /// against `LAZULI_ENV`; empty Default + empty ByEnv == no throttle.
-pub(super) fn format_rate_limit_struct(
-    rate_limit: &lazuli_ir::RateLimitSpec,
-    continuation_indent: &str,
-) -> String {
-    if rate_limit.by_env.is_empty() {
-        // Compact one-liner — matches the legacy single-`rate_limit "X"`
-        // path so backward-compat fixtures emit a stable single line.
-        if rate_limit.default.is_empty() {
-            return "lazuli.RateLimit{}".to_owned();
-        }
-        return format!(
-            "lazuli.RateLimit{{Default: \"{}\"}}",
-            escape_string(&rate_limit.default)
-        );
-    }
-    // Multi-line struct literal: the IR carries env-qualified entries.
-    // Per RULE-VOCAB-04 the emission is read-through: each by_env entry
-    // appears verbatim so authors reading `*.gen.go` see the full
-    // resolution table.
-    //
-    // Layout (with continuation_indent = "\t"):
-    //   RateLimit: lazuli.RateLimit{
-    //   \t\tDefault: "X",
-    //   \t\tByEnv: []lazuli.RateLimitByEnv{
-    //   \t\t\t{Envs: []string{"dev"}, Limit: "..."},
-    //   \t\t},
-    //   \t},
-    let mut out = String::new();
-    out.push_str("lazuli.RateLimit{\n");
-    out.push_str(continuation_indent);
-    out.push_str("\tDefault: \"");
-    out.push_str(&escape_string(&rate_limit.default));
-    out.push_str("\",\n");
-    out.push_str(continuation_indent);
-    out.push_str("\tByEnv: []lazuli.RateLimitByEnv{\n");
-    for entry in &rate_limit.by_env {
-        out.push_str(continuation_indent);
-        out.push_str("\t\t{Envs: []string{");
-        let envs: Vec<String> = entry
-            .envs
-            .iter()
-            .map(|e| format!("\"{}\"", e.as_str()))
-            .collect();
-        out.push_str(&envs.join(", "));
-        out.push_str("}, Limit: \"");
-        out.push_str(&escape_string(&entry.limit));
-        out.push_str("\"},\n");
-    }
-    out.push_str(continuation_indent);
-    out.push_str("\t},\n");
-    out.push_str(continuation_indent);
-    out.push('}');
-    out
-}
 
 #[cfg(test)]
 mod feature_emit_tests {
     use super::*;
     use lazuli_ir::{
-        AppManifest, BuiltinType, CommandKind, Defaults, Feature, Module, Policies, QualifiedName,
-        Resource, TypeRef,
+        AppManifest, BuiltinType, CommandKind, Defaults, Feature, Module, Policies, PolicyRef,
+        QualifiedName, Resource, TypeRef,
     };
 
     fn base_feature(name: &str) -> Feature {
@@ -1933,10 +1640,10 @@ mod tests {
     use lazuli_ir::{
         AppManifest, BackoffStrategy, BuiltinType, CommandKind, CreateEffect, Defaults,
         DeleteEffect, DeprecationReplacement, EnumLiteral, EnvName, Feature, HandlerRef,
-        IdempotencyKey, LetBinding, Lifecycle, LifecycleState, LifecycleStateKind,
-        LifecycleTransition, Module, NamedArg, Path, Policies, PolicyExpr, QualifiedName,
-        RateLimitByEnv, RateLimitSpec, Record, Resource, RetryPolicy, ReturnsEffect, RouteSlot,
-        Tenancy, TypeRef, UpdateEffect,
+        IdempotencyKey, InvalidatesSpec, LetBinding, Lifecycle, LifecycleState, LifecycleStateKind,
+        LifecycleTransition, Module, NamedArg, Path, Policies, PolicyExpr, PolicyRef,
+        QualifiedName, RateLimitByEnv, RateLimitSpec, Record, Resource, RetryPolicy, ReturnsEffect,
+        RouteSlot, Tenancy, TypeRef, UpdateEffect,
     };
 
     fn base_feature(name: &str) -> Feature {
