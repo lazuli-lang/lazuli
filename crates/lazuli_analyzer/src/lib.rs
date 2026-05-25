@@ -10,11 +10,13 @@
 //! lives in `lazuli_cli` (the `expand` pass) or `lazuli_doctor`;
 //! anything per-file lives here.
 //!
-//! ## Submodule layout (Wave 4.6 R2 — rails-style refactor)
+//! ## Submodule layout (R3-E — rails-style refactor)
 //!
 //! The lowering pipeline is organised into per-concern sibling
 //! modules. Each one carries the projection rules for a single
 //! "slot" in the vocabulary:
+//!
+//! ### Cross-cutting primitives
 //!
 //! * [`helpers`] — pure utility predicates (case conversion, span
 //!   bridging, edit-distance, balanced-paren walkers). No AST shape,
@@ -22,6 +24,12 @@
 //! * [`expr`] — pure mechanical "text → IR atom" projections
 //!   (paths, qualified names, raw exprs, policy atoms, translation
 //!   keys). Every other slice calls into this slot.
+//! * [`source_map`] — source-position bookkeeping consumed by LSP.
+//! * [`symbol_origin`] — origin tagging (handwritten vs synthesized
+//!   vs pack-derived) used by inspect and doctor.
+//!
+//! ### Per-domain lowering (R2 — Wave 4.6)
+//!
 //! * [`command`] — command effect cluster (`creates|updates|deletes`),
 //!   target / let / named-arg / assignment leaves, and the
 //!   `invalidates query.<name>` cross-feature reference resolver.
@@ -35,19 +43,41 @@
 //! * [`surface`] — `.lzx` *ViewModel layer* (per-feature audiences +
 //!   views + cells + drawers + route params). One entry point:
 //!   `lower_surface`.
+//!
+//! ### Per-domain lowering (R3-E)
+//!
+//! * [`resource`] — `resource <Foo> { ... }` decl + field-level
+//!   lowering (`@cap.PII` extraction, modifier recovery,
+//!   inline-validator constraint lift, the four `validate_constraint_*`
+//!   gates) + rate-limit literal projection.
+//! * [`query`] — `query.list` / `query.lookup` / `query.sql` lowering,
+//!   filter line parser (WAR-VOCAB-QUERY-ENUM-01), cache profile
+//!   resolution (CL.C.3), and `lower_command_input_to_typed` for
+//!   typed query/command input slots.
+//! * [`auth`] — `auth { identity | password | sessions | mfa | oauth }`
+//!   lowering. The non-trivial bit is `<Resource>.<field>` ->
+//!   `FieldRef` splitting; the rest is structural.
+//! * [`agent`] — LLM capability lowering: input slots, policy atom,
+//!   output projection (text|stream|enum|record-discriminator),
+//!   tool reference resolution (Adapter|Local|CrossFeature), eval
+//!   case + closed-predicate parser, HTTP expose.
+//! * [`design`] — closed-catalog design token lowering (colors,
+//!   typography, spaces, radii, shadows, motion, breakpoints,
+//!   z-indices, custom). Cheap structural validation per group.
+//! * [`plan_gate`] — package-wide `PlanGateFacts` aggregator
+//!   (subscription anchor + plan catalog + per-callable gates)
+//!   and the six PG diagnostic codes.
 //! * [`lifecycle`] — resource lifecycle synthesis hooks.
 //! * [`checks`] — public per-file structural checks invoked by
 //!   `lazuli_cli` / `lazuli_doctor`. Stays public because external
 //!   tools depend on it.
 //! * [`rbac`] — RBAC closure construction over a feature's policies.
-//! * [`source_map`] — source-position bookkeeping consumed by LSP.
-//! * [`symbol_origin`] — origin tagging (handwritten vs synthesized
-//!   vs pack-derived) used by inspect and doctor.
 //!
-//! Per-feature orchestration (`lower_feature_skeleton`, resources,
-//! queries, jobs, agents, auth, design tokens, reports, plan + gate
-//! synthesis, conventions / CRUD synthesis) lives in this file. The
-//! per-domain leaves above are called from there.
+//! Per-feature orchestration (`lower_feature_skeleton`, jobs / pollers
+//! / webhooks / notifications / channels / event groups orchestration,
+//! reports, conventions / CRUD synthesis, auto-photo synthesis) still
+//! lives in this file. The per-domain leaves above are called from
+//! there.
 //!
 //! ## Vocabulary cross-reference
 //!
