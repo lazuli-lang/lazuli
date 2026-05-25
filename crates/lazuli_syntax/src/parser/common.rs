@@ -199,3 +199,44 @@ pub(crate) fn is_lzx_resume_ref(s: &str) -> bool {
     matches!(parts.as_slice(), [name] if is_lzx_bare_ident(name))
         || matches!(parts.as_slice(), [feature, name] if is_lzx_bare_ident(feature) && is_lzx_bare_ident(name))
 }
+
+/// Split a comma-separated `.lzx` value list, trimming whitespace and
+/// dropping empty entries. Used by audience / role / scope lists.
+pub(crate) fn split_lzx_list(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Strip surrounding double quotes from an `.lzx` literal value.
+/// Returns the input unchanged when no enclosing quotes are present.
+pub(crate) fn unquote_lzx_value(value: &str) -> &str {
+    value
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+        .unwrap_or(value)
+}
+
+/// Split an `.lzx` arrow expression (`lhs → rhs` or `lhs -> rhs`) into
+/// its two sides. Accepts both the Unicode arrow and its ASCII fallback;
+/// the earliest occurrence wins when both are present.
+pub(crate) fn split_lzx_arrow(text: &str) -> Option<(&str, &str)> {
+    let unicode = text.find('→').map(|idx| (idx, '→'.len_utf8()));
+    let ascii = text.find("->").map(|idx| (idx, 2));
+    let (idx, len) = match (unicode, ascii) {
+        (Some(u), Some(a)) => {
+            if u.0 <= a.0 {
+                u
+            } else {
+                a
+            }
+        }
+        (Some(u), None) => u,
+        (None, Some(a)) => a,
+        (None, None) => return None,
+    };
+    Some((&text[..idx], &text[idx + len..]))
+}
