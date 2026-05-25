@@ -32,9 +32,9 @@ use super::{
     operational_env_names, policy_reachability_diagnostics, query_view_sql_file_diagnostics,
     rbac_catalog_diagnostics, rbac_catalog_missing_diagnostics, rbac_missing_policy_diagnostics,
     rbac_role_undeclared_diagnostics, report_diagnostics,
-    resource_unique_qualifier_unknown_diagnostics,
-    resource_validates_path_unknown_diagnostics, route_id_effect_consistency_diagnostics,
-    schema_rich_gap_diagnostics, scope_owner_column_diagnostics, suppress_env_schema_when_declared,
+    resource_unique_qualifier_unknown_diagnostics, resource_validates_path_unknown_diagnostics,
+    route_id_effect_consistency_diagnostics, schema_rich_gap_diagnostics,
+    scope_owner_column_diagnostics, suppress_env_schema_when_declared,
     updates_missing_updated_at_diagnostics, vocab_grammar_form_diagnostics,
 };
 

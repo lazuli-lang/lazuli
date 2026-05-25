@@ -35,12 +35,11 @@ use super::{
     collect_approval_block_presence, collect_auth_anchors, collect_canonical_facts,
     collect_construct_lines, collect_event_group_lines, collect_feature_adapters,
     collect_feature_uses, collect_lzx_experience_facts, collect_lzx_operational_facts,
-    collect_package_paths, collect_query_lines, collect_text_pattern_api_names,
-    find_keyword_line, line_col_for_offset, money_arithmetic_001_diagnostics,
-    money_compare_001_diagnostics, populate_command_external_calls_from_ir,
-    populate_commands_from_ir, populate_feature_resources_from_ir,
-    populate_feature_symbols_from_ir, populate_job_external_calls_from_ir,
-    semantic_type_unknown_diagnostics_for_feature,
+    collect_package_paths, collect_query_lines, collect_text_pattern_api_names, find_keyword_line,
+    line_col_for_offset, money_arithmetic_001_diagnostics, money_compare_001_diagnostics,
+    populate_command_external_calls_from_ir, populate_commands_from_ir,
+    populate_feature_resources_from_ir, populate_feature_symbols_from_ir,
+    populate_job_external_calls_from_ir, semantic_type_unknown_diagnostics_for_feature,
     semantic_type_unknown_diagnostics_for_syntax_feature, tenancy_axis_for,
     vocab_tests_missing_001_diagnostics,
 };
@@ -330,8 +329,8 @@ impl DoctorPackage {
                                         .and_then(
                                             lazuli_doctor::test_discipline::preset::TestDisciplinePreset::parse,
                                         );
-                                    file.local_diagnostics
-                                        .extend(aggregators::test_discipline::diagnostics(
+                                    file.local_diagnostics.extend(
+                                        aggregators::test_discipline::diagnostics(
                                             &file.path,
                                             &project_root,
                                             &app_root_for_handlers,
@@ -339,7 +338,8 @@ impl DoctorPackage {
                                             &file.source,
                                             security_profile,
                                             test_discipline_preset,
-                                        ));
+                                        ),
+                                    );
                                     // Tier 3 facts harvest — done before
                                     // `feature.agents` is consumed below.
                                     // Migrations bucket cycle Route C —
@@ -751,8 +751,7 @@ impl DoctorPackage {
                             }
                             // Wave 4 — TEST-VIEW-EXTENSIBILITY-001 + TEST-VIEW-DRIFT-001.
                             // Both walk the lowered ExperienceModule.
-                            let experience_module =
-                                lazuli_analyzer::lower_lzx_document(&document);
+                            let experience_module = lazuli_analyzer::lower_lzx_document(&document);
                             let view_ext_code = lazuli_doctor::test_discipline::test_view_extensibility_001
                                 ::Finding::CODE;
                             for finding in
@@ -780,8 +779,8 @@ impl DoctorPackage {
                                     group: None,
                                 });
                             }
-                            let view_drift_code = lazuli_doctor::test_discipline::test_view_drift_001
-                                ::Finding::CODE;
+                            let view_drift_code =
+                                lazuli_doctor::test_discipline::test_view_drift_001::Finding::CODE;
                             for finding in
                                 lazuli_doctor::test_discipline::test_view_drift_001::check(
                                     &experience_module,
@@ -914,7 +913,12 @@ impl DoctorPackage {
     /// `lower_feature_skeleton` are already cached at the syntax layer
     /// for the per-feature loop, so this second pass is mostly metadata
     /// extraction). Walks `file.lzx` documents directly for view refs.
-    pub(super) fn coverage_inputs(&self) -> (Vec<lazuli_ir::Feature>, Vec<lazuli_doctor::coverage::LzxViewRef>) {
+    pub(super) fn coverage_inputs(
+        &self,
+    ) -> (
+        Vec<lazuli_ir::Feature>,
+        Vec<lazuli_doctor::coverage::LzxViewRef>,
+    ) {
         let mut features: Vec<lazuli_ir::Feature> = Vec::new();
         let mut lzx_views: Vec<lazuli_doctor::coverage::LzxViewRef> = Vec::new();
         for file in &self.files {

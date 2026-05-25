@@ -74,12 +74,17 @@ impl Finding {
 
 /// Top-level closed catalog for the client tree (singular `app/web/`
 /// or each plural `app/clients/<name>/src/`).
-const TOP_LEVEL_ALLOWED: &[&str] =
-    &["shell", "routes", "ui", "theme", "state", "assets", "cells"];
+const TOP_LEVEL_ALLOWED: &[&str] = &["shell", "routes", "ui", "theme", "state", "assets", "cells"];
 
 /// Closed sub-catalog for `ui/` children inside the client tree.
-const UI_CHILDREN_ALLOWED: &[&str] =
-    &["forms", "feedback", "navigation", "display", "overlays", "layout"];
+const UI_CHILDREN_ALLOWED: &[&str] = &[
+    "forms",
+    "feedback",
+    "navigation",
+    "display",
+    "overlays",
+    "layout",
+];
 
 /// Well-known tooling directories that are skipped at the top-level
 /// without firing a diagnostic. They are not source-controlled vocab
@@ -253,9 +258,7 @@ fn ui_child_message(name: &str, path: &Path) -> String {
              `theme/` (brand tokens)",
         ),
         "cards" => Some("consolidate into `ui/display/` — Card is a display primitive"),
-        "service" => Some(
-            "feature-specific widget; move to `app/features/<f>/cells/`",
-        ),
+        "service" => Some("feature-specific widget; move to `app/features/<f>/cells/`"),
         "atoms" | "molecules" | "organisms" => Some(
             "Atomic Design rejected per \
              `[[client_src_canonical_architecture_2026-05-17]]` §3.2 — \
@@ -374,7 +377,12 @@ mod tests {
 
         let findings = check(temp.path());
 
-        assert_eq!(findings.len(), 4, "expected 4 findings; got: {:?}", findings);
+        assert_eq!(
+            findings.len(),
+            4,
+            "expected 4 findings; got: {:?}",
+            findings
+        );
         let got = names(&findings);
         let expected: BTreeSet<String> = ["application", "features", "presentation", "shared"]
             .iter()
@@ -385,7 +393,9 @@ mod tests {
         // Every message has the rule's hint-routing destination text.
         for finding in &findings {
             assert!(
-                finding.message.contains("client_src_canonical_architecture"),
+                finding
+                    .message
+                    .contains("client_src_canonical_architecture"),
                 "message missing anchor: {}",
                 finding.message
             );
@@ -405,7 +415,12 @@ mod tests {
 
         let findings = check(temp.path());
 
-        assert_eq!(findings.len(), 2, "expected 2 findings; got: {:?}", findings);
+        assert_eq!(
+            findings.len(),
+            2,
+            "expected 2 findings; got: {:?}",
+            findings
+        );
         let got = names(&findings);
         let expected: BTreeSet<String> = ["actions", "branding"]
             .iter()
@@ -458,9 +473,17 @@ mod tests {
         // Anti-pattern names INSIDE app/clients/external/website/src/ —
         // would fire if walker descended, but must not.
         mkdir_p(&temp.path().join("app/clients/external/website/src/shared"));
-        mkdir_p(&temp.path().join("app/clients/external/website/src/presentation"));
+        mkdir_p(
+            &temp
+                .path()
+                .join("app/clients/external/website/src/presentation"),
+        );
         mkdir_p(&temp.path().join("app/clients/external/website/src/pages"));
-        mkdir_p(&temp.path().join("app/clients/external/website/src/components"));
+        mkdir_p(
+            &temp
+                .path()
+                .join("app/clients/external/website/src/components"),
+        );
         // Sibling Lazuli-native client with a real divergence — must still fire.
         mkdir_p(&temp.path().join("app/clients/web-app/src/shared"));
 
@@ -468,9 +491,7 @@ mod tests {
 
         assert_eq!(findings.len(), 1, "got: {:?}", findings);
         assert!(
-            findings[0]
-                .path
-                .ends_with("app/clients/web-app/src/shared"),
+            findings[0].path.ends_with("app/clients/web-app/src/shared"),
             "should fire only on the lazuli-native client: {:?}",
             findings[0].path
         );
@@ -579,7 +600,11 @@ mod tests {
 
         let findings = check(temp.path());
 
-        assert!(findings.is_empty(), "files should be ignored: {:?}", findings);
+        assert!(
+            findings.is_empty(),
+            "files should be ignored: {:?}",
+            findings
+        );
     }
 
     /// Both singular and plural can coexist briefly during migration
@@ -625,7 +650,11 @@ mod tests {
 
         let findings = check(temp.path());
 
-        assert!(findings.is_empty(), "deep nesting should pass: {:?}", findings);
+        assert!(
+            findings.is_empty(),
+            "deep nesting should pass: {:?}",
+            findings
+        );
     }
 
     /// CODE constant is the brief-mandated string verbatim.

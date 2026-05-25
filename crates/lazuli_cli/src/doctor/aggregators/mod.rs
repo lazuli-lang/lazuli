@@ -43,6 +43,7 @@ pub(crate) mod i18n;
 pub(crate) mod lazurite_manifest;
 pub(crate) mod migrations;
 pub(crate) mod observability;
+pub(crate) mod semantic_type;
 pub(crate) mod test_discipline;
 pub(crate) mod tier3;
 pub(crate) mod webhook_event_registry;

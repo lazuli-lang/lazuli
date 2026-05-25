@@ -55,7 +55,8 @@ pub(super) fn doctor_self_command(input: &Path, opts: &DoctorRuntimeOptions) -> 
             file_size_001::Tier::Warn => DoctorSeverity::Warning,
             file_size_001::Tier::Error => DoctorSeverity::Error,
         };
-        let severity = resolve_internal_hygiene_severity(default, file_size_001::Finding::CODE, preset);
+        let severity =
+            resolve_internal_hygiene_severity(default, file_size_001::Finding::CODE, preset);
         let message = finding.message();
         diagnostics.push(DoctorDiagnostic {
             path: finding.path,
@@ -195,8 +196,14 @@ pub(super) fn doctor_self_command(input: &Path, opts: &DoctorRuntimeOptions) -> 
             "\n{} self-audit: {} files scanned, {} errors, {} warnings, {} infos",
             workspace_root.display(),
             files.len(),
-            diagnostics.iter().filter(|d| d.severity == DoctorSeverity::Error).count(),
-            diagnostics.iter().filter(|d| d.severity == DoctorSeverity::Warning).count(),
+            diagnostics
+                .iter()
+                .filter(|d| d.severity == DoctorSeverity::Error)
+                .count(),
+            diagnostics
+                .iter()
+                .filter(|d| d.severity == DoctorSeverity::Warning)
+                .count(),
             diagnostics
                 .iter()
                 .filter(|d| matches!(d.severity, DoctorSeverity::Info | DoctorSeverity::Hint))
@@ -205,16 +212,14 @@ pub(super) fn doctor_self_command(input: &Path, opts: &DoctorRuntimeOptions) -> 
     }
 
     // --fail-on category:internal_hygiene gate.
-    let specs = parse_fail_on_specs(&opts.fail_on)
-        .map_err(|e| anyhow::anyhow!("--fail-on: {e}"))?;
+    let specs =
+        parse_fail_on_specs(&opts.fail_on).map_err(|e| anyhow::anyhow!("--fail-on: {e}"))?;
     let gate_fail = !specs.is_empty()
         && specs.iter().any(|s| match s {
             crate::doctor_report::FailOnSpec::Category(c) => {
                 *c == lazuli_doctor::RuleCategory::InternalHygiene && !diagnostics.is_empty()
             }
-            crate::doctor_report::FailOnSpec::Rule(r) => {
-                diagnostics.iter().any(|d| &d.code == r)
-            }
+            crate::doctor_report::FailOnSpec::Rule(r) => diagnostics.iter().any(|d| &d.code == r),
             crate::doctor_report::FailOnSpec::Severity(_) => has_error,
             _ => false,
         });
