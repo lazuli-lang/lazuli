@@ -52,5 +52,6 @@ pub mod poller;
 pub mod rbac;
 pub mod realtime;
 pub mod report;
+pub mod resource;
 pub mod surface;
 pub mod test_and_policy;
