@@ -112,9 +112,7 @@ pub(crate) fn lower_auth_session_rotation(
     }
 }
 
-pub(crate) fn lower_auth_theft_action(
-    action: syntax::AuthTheftDetectionAction,
-) -> ir::TheftAction {
+pub(crate) fn lower_auth_theft_action(action: syntax::AuthTheftDetectionAction) -> ir::TheftAction {
     match action {
         syntax::AuthTheftDetectionAction::RevokeSessionFamily => {
             ir::TheftAction::RevokeSessionFamily

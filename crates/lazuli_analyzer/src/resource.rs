@@ -117,20 +117,17 @@ pub(crate) fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resour
         .iter()
         .map(lower_resource_constraint)
         .collect();
-    let lifecycle_routes = r
-        .lifecycle_routes
-        .as_ref()
-        .map(|lr| ir::LifecycleRoutes {
-            arms: lr
-                .arms
-                .iter()
-                .map(|arm| ir::LifecycleRouteArm {
-                    state: arm.state.clone(),
-                    url: arm.url.clone(),
-                })
-                .collect(),
-            span_ref: Some(span_of(lr.span)),
-        });
+    let lifecycle_routes = r.lifecycle_routes.as_ref().map(|lr| ir::LifecycleRoutes {
+        arms: lr
+            .arms
+            .iter()
+            .map(|arm| ir::LifecycleRouteArm {
+                state: arm.state.clone(),
+                url: arm.url.clone(),
+            })
+            .collect(),
+        span_ref: Some(span_of(lr.span)),
+    });
     Ok(ir::Resource {
         name: r.name.clone(),
         public_contract: lower_public_contract(&r.public_contract),
@@ -157,7 +154,9 @@ pub(crate) fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resour
     })
 }
 
-pub(crate) fn lower_resource_constraint(constraint: &syntax::ResourceConstraintAst) -> ir::Constraint {
+pub(crate) fn lower_resource_constraint(
+    constraint: &syntax::ResourceConstraintAst,
+) -> ir::Constraint {
     match constraint {
         syntax::ResourceConstraintAst::Unique(unique) => {
             ir::Constraint::Unique(ir::UniqueConstraint {
@@ -192,7 +191,9 @@ fn strip_previously_mode(raw: &str) -> String {
     trimmed.to_owned()
 }
 
-pub(crate) fn lower_resource_field(f: &syntax::ResourceFieldDecl) -> Result<ir::Field, AnalyzeError> {
+pub(crate) fn lower_resource_field(
+    f: &syntax::ResourceFieldDecl,
+) -> Result<ir::Field, AnalyzeError> {
     let (type_text_with_recovered_modifiers, type_pii) =
         extract_field_level_pii_decorator(&f.type_text);
     let recovered = peel_trailing_field_modifiers(&type_text_with_recovered_modifiers);

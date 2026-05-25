@@ -49,10 +49,7 @@ fn qualified_key(feature: &str, name: &str) -> String {
 /// (by matching the file path against the feature name); if no match exists,
 /// the walker uses `FileId(1)` as a best-effort fallback and resolution may
 /// produce sentinel `<unresolved>` locations.
-pub fn build_symbol_origin_index(
-    module: &ir::Module,
-    source_map: &SourceMap,
-) -> SymbolOriginIndex {
+pub fn build_symbol_origin_index(module: &ir::Module, source_map: &SourceMap) -> SymbolOriginIndex {
     let mut symbols: BTreeMap<String, SymbolOrigin> = BTreeMap::new();
     let mut imports: BTreeMap<String, Vec<ImportEdge>> = BTreeMap::new();
 
@@ -432,10 +429,7 @@ mod tests {
         let module = empty_module(vec![feature]);
         let index = build_symbol_origin_index(&module, &empty_source_map());
         assert_eq!(index.symbols.len(), 1);
-        let origin = index
-            .symbols
-            .get("account.Gender")
-            .expect("Gender indexed");
+        let origin = index.symbols.get("account.Gender").expect("Gender indexed");
         assert_eq!(origin.feature, "account");
         assert_eq!(origin.name, "Gender");
         assert!(matches!(origin.kind, SymbolKind::Enum));
@@ -492,10 +486,7 @@ mod tests {
         let module = empty_module(vec![feature]);
         let index = build_symbol_origin_index(&module, &source_map);
 
-        let origin = index
-            .symbols
-            .get("account.Gender")
-            .expect("Gender indexed");
+        let origin = index.symbols.get("account.Gender").expect("Gender indexed");
         match &origin.defined_at {
             SourceLocation::File { file, line, column } => {
                 assert_eq!(file, "features/account/account.lzi");

@@ -48,8 +48,8 @@
 //! `lazuli_analyzer::lower_design` path); per-token helpers stay
 //! `pub(crate)`.
 
-use crate::helpers::{has_top_level_comma, is_valid_design_hex, span_of};
 use crate::AnalyzeError;
+use crate::helpers::{has_top_level_comma, is_valid_design_hex, span_of};
 use lazuli_ir as ir;
 use lazuli_syntax as syntax;
 
@@ -262,14 +262,15 @@ pub(crate) fn lower_design_color_token(
 pub(crate) fn lower_design_weight(
     weight: &syntax::WeightTokenAst,
 ) -> Result<ir::WeightToken, AnalyzeError> {
-    let parsed = weight
-        .value
-        .trim()
-        .parse::<u16>()
-        .map_err(|_| AnalyzeError::DesignWeightInvalid {
-            name: weight.name.clone(),
-            value: weight.value.clone(),
-        })?;
+    let parsed =
+        weight
+            .value
+            .trim()
+            .parse::<u16>()
+            .map_err(|_| AnalyzeError::DesignWeightInvalid {
+                name: weight.name.clone(),
+                value: weight.value.clone(),
+            })?;
     Ok(ir::WeightToken {
         name: weight.name.clone(),
         value: parsed,

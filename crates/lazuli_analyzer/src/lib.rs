@@ -1261,10 +1261,7 @@ pub enum ConventionSynthDiagnostic {
     /// `@owner_axis(through: <col>)` on another field. The two scopes
     /// would compose redundantly; the unique-user mode already
     /// provides ownership. See §7.4 + §11.1.
-    OwnerAxisCollidesWithUniqueUser {
-        resource: String,
-        field: String,
-    },
+    OwnerAxisCollidesWithUniqueUser { resource: String, field: String },
 }
 
 /// Legacy alias preserved during the M2 rename. Downstream code should
@@ -1359,253 +1356,244 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
         // against the resource. Diagnostics (§11.1) are pushed
         // regardless of which bundles are active (they're a property
         // of the resource shape, not of the bundle).
-        let owner_scope =
-            resolve_owner_scope(feature, resource, &mut diagnostics);
+        let owner_scope = resolve_owner_scope(feature, resource, &mut diagnostics);
 
         // ===== `crud` bundle (§5) — gated; runs only when declared. =====
         if has_crud {
-
-        // §5.8 — guard: policy `authenticated` must exist.
-        if !has_authenticated {
-            diagnostics.push(CrudSynthDiagnostic::PolicyNotFound {
-                resource: resource.name.clone(),
-            });
-            // We still synthesize with `PolicyRef::Local("authenticated")`
-            // even though it's unresolved — Cell C4 will surface the
-            // diagnostic; the IR shape stays uniform. This mirrors the
-            // FR-3a auto-photo precedent (which returns silently when
-            // no policy is found; here we surface a typed diagnostic
-            // instead).
-        }
-
-        let categorised = categorize_fields(resource);
-
-        // §11 `crud_synth_no_required_fields` — `create.input` would be
-        // empty if every required-on-resource field is Tenant or Auto.
-        // Detect by looking at the create-input list.
-        let create_input_fields = categorised.create_input_fields();
-        if create_input_fields.is_empty() {
-            diagnostics.push(CrudSynthDiagnostic::NoRequiredFields {
-                resource: resource.name.clone(),
-            });
-        }
-
-        let resource_snake = pascal_to_snake(&resource.name);
-
-        // §5.1 — the 5 synth names, in canonical order.
-        let create_name = format!("create_{}", resource_snake);
-        let update_name = format!("update_{}", resource_snake);
-        let delete_name = format!("delete_{}", resource_snake);
-        let lookup_name = format!("lookup_{}", resource_snake);
-        let list_name = format!("list_{}s", resource_snake);
-
-        // §6 — per-name override. If the author wrote the same name we
-        // skip *just that name* with no warning, unless the author's
-        // signature diverges from the canonical shape — that lands the
-        // `crud_synth_author_signature_mismatch` diagnostic (§11 / §9).
-        //
-        // The `if existing_*.contains(...)` checks below are
-        // authoring-time controls (which synth to add), NOT lowering
-        // control flow over the emitted IR — RULE-VOCAB-03 (§7) is
-        // preserved.
-
-        // 1) create_<resource>
-        if existing_command_names.contains(&create_name) {
-            if let Some(reason) = check_command_signature_mismatch(
-                feature,
-                &create_name,
-                &create_input_fields,
-                CanonicalReturn::CreatesResource(&resource.name),
-            ) {
-                diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
+            // §5.8 — guard: policy `authenticated` must exist.
+            if !has_authenticated {
+                diagnostics.push(CrudSynthDiagnostic::PolicyNotFound {
                     resource: resource.name.clone(),
-                    synth_name: create_name.clone(),
-                    reason,
+                });
+                // We still synthesize with `PolicyRef::Local("authenticated")`
+                // even though it's unresolved — Cell C4 will surface the
+                // diagnostic; the IR shape stays uniform. This mirrors the
+                // FR-3a auto-photo precedent (which returns silently when
+                // no policy is found; here we surface a typed diagnostic
+                // instead).
+            }
+
+            let categorised = categorize_fields(resource);
+
+            // §11 `crud_synth_no_required_fields` — `create.input` would be
+            // empty if every required-on-resource field is Tenant or Auto.
+            // Detect by looking at the create-input list.
+            let create_input_fields = categorised.create_input_fields();
+            if create_input_fields.is_empty() {
+                diagnostics.push(CrudSynthDiagnostic::NoRequiredFields {
+                    resource: resource.name.clone(),
                 });
             }
-            synth_origins_inserts.push((
-                create_name.clone(),
-                ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
-            ));
-        } else {
-            let mut cmd = build_create_command(
-                &create_name,
-                &resource.name,
-                &create_input_fields,
-            );
-            // §8.5.A — owner-scope create-side CTE-INSERT. The CREATE
-            // synth carries the *full* OwnerScopeSql (cte_owner_check
-            // populated) so codegen can paste the CTE prefix in front
-            // of the INSERT. Tenant-only resources keep
-            // `owner_scope_sql: None` and emit the same shape as
-            // before this cell.
+
+            let resource_snake = pascal_to_snake(&resource.name);
+
+            // §5.1 — the 5 synth names, in canonical order.
+            let create_name = format!("create_{}", resource_snake);
+            let update_name = format!("update_{}", resource_snake);
+            let delete_name = format!("delete_{}", resource_snake);
+            let lookup_name = format!("lookup_{}", resource_snake);
+            let list_name = format!("list_{}s", resource_snake);
+
+            // §6 — per-name override. If the author wrote the same name we
+            // skip *just that name* with no warning, unless the author's
+            // signature diverges from the canonical shape — that lands the
+            // `crud_synth_author_signature_mismatch` diagnostic (§11 / §9).
+            //
+            // The `if existing_*.contains(...)` checks below are
+            // authoring-time controls (which synth to add), NOT lowering
+            // control flow over the emitted IR — RULE-VOCAB-03 (§7) is
+            // preserved.
+
+            // 1) create_<resource>
+            if existing_command_names.contains(&create_name) {
+                if let Some(reason) = check_command_signature_mismatch(
+                    feature,
+                    &create_name,
+                    &create_input_fields,
+                    CanonicalReturn::CreatesResource(&resource.name),
+                ) {
+                    diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
+                        resource: resource.name.clone(),
+                        synth_name: create_name.clone(),
+                        reason,
+                    });
+                }
+                synth_origins_inserts.push((
+                    create_name.clone(),
+                    ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
+                ));
+            } else {
+                let mut cmd =
+                    build_create_command(&create_name, &resource.name, &create_input_fields);
+                // §8.5.A — owner-scope create-side CTE-INSERT. The CREATE
+                // synth carries the *full* OwnerScopeSql (cte_owner_check
+                // populated) so codegen can paste the CTE prefix in front
+                // of the INSERT. Tenant-only resources keep
+                // `owner_scope_sql: None` and emit the same shape as
+                // before this cell.
+                if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
+                    cmd.owner_scope_sql = Some(scope.clone());
+                }
+                cmd.invalidates =
+                    synth_crud_invalidates(&lookup_name, &list_name, has_me, &resource_snake);
+                to_add_commands.push(cmd);
+                synth_origins_inserts.push((
+                    create_name.clone(),
+                    ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
+                ));
+            }
+
+            // 2) update_<resource>
+            if existing_command_names.contains(&update_name) {
+                let canonical_update_inputs = categorised.update_input_fields();
+                if let Some(reason) = check_command_signature_mismatch(
+                    feature,
+                    &update_name,
+                    &canonical_update_inputs,
+                    CanonicalReturn::UpdatesResource(&resource.name),
+                ) {
+                    diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
+                        resource: resource.name.clone(),
+                        synth_name: update_name.clone(),
+                        reason,
+                    });
+                }
+                synth_origins_inserts.push((
+                    update_name.clone(),
+                    ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
+                ));
+            } else {
+                let mut cmd = build_update_command(
+                    &update_name,
+                    &resource.name,
+                    &categorised.update_input_fields(),
+                );
+                // §8.2 — owner-scope WHERE on UPDATE. The carrier carries
+                // ONLY the `where_predicate`; codegen drops the
+                // `cte_owner_check` (None here, since UPDATE doesn't need
+                // the CTE wrapper). We share the resolution by cloning;
+                // codegen reads only what it needs per shape.
+                if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
+                    cmd.owner_scope_sql = Some(ir::OwnerScopeSql {
+                        cte_owner_check: None,
+                        ..scope.clone()
+                    });
+                }
+                cmd.invalidates =
+                    synth_crud_invalidates(&lookup_name, &list_name, has_me, &resource_snake);
+                to_add_commands.push(cmd);
+                synth_origins_inserts.push((
+                    update_name.clone(),
+                    ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
+                ));
+            }
+
+            // 3) delete_<resource>
+            if existing_command_names.contains(&delete_name) {
+                if let Some(reason) = check_command_signature_mismatch(
+                    feature,
+                    &delete_name,
+                    &[],
+                    CanonicalReturn::DeletesResource(&resource.name),
+                ) {
+                    diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
+                        resource: resource.name.clone(),
+                        synth_name: delete_name.clone(),
+                        reason,
+                    });
+                }
+                synth_origins_inserts.push((
+                    delete_name.clone(),
+                    ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
+                ));
+            } else {
+                let mut cmd = build_delete_command(&delete_name, &resource.name);
+                // §8.1 — owner-scope WHERE on DELETE. Same shape as the
+                // pre-absorption hand-rolled handler in §1.1 trigger
+                // evidence. CTE not used on DELETE; only the predicate.
+                if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
+                    cmd.owner_scope_sql = Some(ir::OwnerScopeSql {
+                        cte_owner_check: None,
+                        ..scope.clone()
+                    });
+                }
+                cmd.invalidates =
+                    synth_crud_invalidates(&lookup_name, &list_name, has_me, &resource_snake);
+                to_add_commands.push(cmd);
+                synth_origins_inserts.push((
+                    delete_name.clone(),
+                    ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
+                ));
+            }
+
+            // 4) lookup_<resource>
+            let mut canonical_lookup = build_lookup_query(&lookup_name, &resource.name);
+            // §8.3 — owner-scope WHERE on LOOKUP. The Lookup query's
+            // canonical keys (id = $1) get extended with the chain
+            // predicate emitted by codegen via `owner_scope_sql`.
             if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
-                cmd.owner_scope_sql = Some(scope.clone());
+                if let ir::Query::Lookup(lq) = &mut canonical_lookup {
+                    lq.owner_scope_sql = Some(ir::OwnerScopeSql {
+                        cte_owner_check: None,
+                        ..scope.clone()
+                    });
+                }
             }
-            cmd.invalidates =
-                synth_crud_invalidates(&lookup_name, &list_name, has_me, &resource_snake);
-            to_add_commands.push(cmd);
-            synth_origins_inserts.push((
-                create_name.clone(),
-                ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
-            ));
-        }
+            if existing_query_names.contains(&lookup_name) {
+                if let Some(reason) =
+                    check_query_signature_mismatch(feature, &lookup_name, &canonical_lookup)
+                {
+                    diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
+                        resource: resource.name.clone(),
+                        synth_name: lookup_name.clone(),
+                        reason,
+                    });
+                }
+                synth_origins_inserts.push((
+                    lookup_name.clone(),
+                    ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
+                ));
+            } else {
+                to_add_queries.push(canonical_lookup);
+                synth_origins_inserts.push((
+                    lookup_name.clone(),
+                    ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
+                ));
+            }
 
-        // 2) update_<resource>
-        if existing_command_names.contains(&update_name) {
-            let canonical_update_inputs = categorised.update_input_fields();
-            if let Some(reason) = check_command_signature_mismatch(
-                feature,
-                &update_name,
-                &canonical_update_inputs,
-                CanonicalReturn::UpdatesResource(&resource.name),
-            ) {
-                diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
-                    resource: resource.name.clone(),
-                    synth_name: update_name.clone(),
-                    reason,
-                });
-            }
-            synth_origins_inserts.push((
-                update_name.clone(),
-                ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
-            ));
-        } else {
-            let mut cmd = build_update_command(
-                &update_name,
-                &resource.name,
-                &categorised.update_input_fields(),
-            );
-            // §8.2 — owner-scope WHERE on UPDATE. The carrier carries
-            // ONLY the `where_predicate`; codegen drops the
-            // `cte_owner_check` (None here, since UPDATE doesn't need
-            // the CTE wrapper). We share the resolution by cloning;
-            // codegen reads only what it needs per shape.
+            // 5) list_<resource>s
+            let mut canonical_list = build_list_query(&list_name, &resource.name);
+            // §8.4 — owner-scope WHERE on LIST. Same predicate; the
+            // synth's pagination shape is unaffected.
             if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
-                cmd.owner_scope_sql = Some(ir::OwnerScopeSql {
-                    cte_owner_check: None,
-                    ..scope.clone()
-                });
+                if let ir::Query::List(lq) = &mut canonical_list {
+                    lq.owner_scope_sql = Some(ir::OwnerScopeSql {
+                        cte_owner_check: None,
+                        ..scope.clone()
+                    });
+                }
             }
-            cmd.invalidates =
-                synth_crud_invalidates(&lookup_name, &list_name, has_me, &resource_snake);
-            to_add_commands.push(cmd);
-            synth_origins_inserts.push((
-                update_name.clone(),
-                ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
-            ));
-        }
-
-        // 3) delete_<resource>
-        if existing_command_names.contains(&delete_name) {
-            if let Some(reason) = check_command_signature_mismatch(
-                feature,
-                &delete_name,
-                &[],
-                CanonicalReturn::DeletesResource(&resource.name),
-            ) {
-                diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
-                    resource: resource.name.clone(),
-                    synth_name: delete_name.clone(),
-                    reason,
-                });
+            if existing_query_names.contains(&list_name) {
+                if let Some(reason) =
+                    check_query_signature_mismatch(feature, &list_name, &canonical_list)
+                {
+                    diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
+                        resource: resource.name.clone(),
+                        synth_name: list_name.clone(),
+                        reason,
+                    });
+                }
+                synth_origins_inserts.push((
+                    list_name.clone(),
+                    ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
+                ));
+            } else {
+                to_add_queries.push(canonical_list);
+                synth_origins_inserts.push((
+                    list_name.clone(),
+                    ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
+                ));
             }
-            synth_origins_inserts.push((
-                delete_name.clone(),
-                ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
-            ));
-        } else {
-            let mut cmd = build_delete_command(&delete_name, &resource.name);
-            // §8.1 — owner-scope WHERE on DELETE. Same shape as the
-            // pre-absorption hand-rolled handler in §1.1 trigger
-            // evidence. CTE not used on DELETE; only the predicate.
-            if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
-                cmd.owner_scope_sql = Some(ir::OwnerScopeSql {
-                    cte_owner_check: None,
-                    ..scope.clone()
-                });
-            }
-            cmd.invalidates =
-                synth_crud_invalidates(&lookup_name, &list_name, has_me, &resource_snake);
-            to_add_commands.push(cmd);
-            synth_origins_inserts.push((
-                delete_name.clone(),
-                ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
-            ));
-        }
-
-        // 4) lookup_<resource>
-        let mut canonical_lookup = build_lookup_query(&lookup_name, &resource.name);
-        // §8.3 — owner-scope WHERE on LOOKUP. The Lookup query's
-        // canonical keys (id = $1) get extended with the chain
-        // predicate emitted by codegen via `owner_scope_sql`.
-        if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
-            if let ir::Query::Lookup(lq) = &mut canonical_lookup {
-                lq.owner_scope_sql = Some(ir::OwnerScopeSql {
-                    cte_owner_check: None,
-                    ..scope.clone()
-                });
-            }
-        }
-        if existing_query_names.contains(&lookup_name) {
-            if let Some(reason) = check_query_signature_mismatch(
-                feature,
-                &lookup_name,
-                &canonical_lookup,
-            ) {
-                diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
-                    resource: resource.name.clone(),
-                    synth_name: lookup_name.clone(),
-                    reason,
-                });
-            }
-            synth_origins_inserts.push((
-                lookup_name.clone(),
-                ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
-            ));
-        } else {
-            to_add_queries.push(canonical_lookup);
-            synth_origins_inserts.push((
-                lookup_name.clone(),
-                ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
-            ));
-        }
-
-        // 5) list_<resource>s
-        let mut canonical_list = build_list_query(&list_name, &resource.name);
-        // §8.4 — owner-scope WHERE on LIST. Same predicate; the
-        // synth's pagination shape is unaffected.
-        if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
-            if let ir::Query::List(lq) = &mut canonical_list {
-                lq.owner_scope_sql = Some(ir::OwnerScopeSql {
-                    cte_owner_check: None,
-                    ..scope.clone()
-                });
-            }
-        }
-        if existing_query_names.contains(&list_name) {
-            if let Some(reason) = check_query_signature_mismatch(
-                feature,
-                &list_name,
-                &canonical_list,
-            ) {
-                diagnostics.push(CrudSynthDiagnostic::SignatureMismatch {
-                    resource: resource.name.clone(),
-                    synth_name: list_name.clone(),
-                    reason,
-                });
-            }
-            synth_origins_inserts.push((
-                list_name.clone(),
-                ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud),
-            ));
-        } else {
-            to_add_queries.push(canonical_list);
-            synth_origins_inserts.push((
-                list_name.clone(),
-                ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud),
-            ));
-        }
         } // ===== end `crud` bundle =====
 
         // ===== `me` bundle (me §5) — singleton-per-actor lookup. =====
@@ -1660,24 +1648,18 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
                             &lookup_my_name,
                             &resource.name,
                         ) {
-                            diagnostics.push(
-                                ConventionSynthDiagnostic::MeSignatureMismatch {
-                                    resource: resource.name.clone(),
-                                    synth_name: lookup_my_name.clone(),
-                                    reason,
-                                },
-                            );
+                            diagnostics.push(ConventionSynthDiagnostic::MeSignatureMismatch {
+                                resource: resource.name.clone(),
+                                synth_name: lookup_my_name.clone(),
+                                reason,
+                            });
                         }
                         synth_origins_inserts.push((
                             lookup_my_name.clone(),
                             ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Me),
                         ));
                     } else {
-                        let mut q = build_lookup_my_query(
-                            &lookup_my_name,
-                            &resource.name,
-                            m,
-                        );
+                        let mut q = build_lookup_my_query(&lookup_my_name, &resource.name, m);
                         // §6.1 composition — `[crud, me]` + `@owner_axis`
                         // composes uniformly: the `me` synth also reads
                         // the resource-level annotation and appends the
@@ -1777,8 +1759,7 @@ fn classify_me_mode(resource: &ir::Resource) -> Option<MeMode> {
             && matches!(&f.type_ref, ir::TypeRef::UserDefined(q) if q.name == "User")
     });
     let has_org_field = resource.fields.iter().any(|f| {
-        f.name == "org"
-            && matches!(&f.type_ref, ir::TypeRef::UserDefined(q) if q.name == "Org")
+        f.name == "org" && matches!(&f.type_ref, ir::TypeRef::UserDefined(q) if q.name == "Org")
     });
 
     // me §5.3 rows 1 and 2 — `user_keyed` variants.
@@ -2086,12 +2067,10 @@ fn resolve_owner_scope(
         // collide (rare; the spec describes "the resource has BOTH").
         if has_user_unique {
             if !emitted_collision_diag {
-                diagnostics_out.push(
-                    ConventionSynthDiagnostic::OwnerAxisCollidesWithUniqueUser {
-                        resource: resource.name.clone(),
-                        field: field.name.clone(),
-                    },
-                );
+                diagnostics_out.push(ConventionSynthDiagnostic::OwnerAxisCollidesWithUniqueUser {
+                    resource: resource.name.clone(),
+                    field: field.name.clone(),
+                });
                 emitted_collision_diag = true;
             }
             continue;
@@ -2127,10 +2106,7 @@ fn resolve_owner_scope(
         // `fk_target` (name) and `axis.through_column` (column name)
         // verbatim from the annotation; it does NOT need fk_resource
         // to exist locally.
-        let fk_resource = feature
-            .resources
-            .iter()
-            .find(|r| r.name == fk_target);
+        let fk_resource = feature.resources.iter().find(|r| r.name == fk_target);
 
         if let Some(fk_resource) = fk_resource {
             let through_field = fk_resource
@@ -3041,7 +3017,9 @@ pub(crate) fn lower_when_denied_route(route: &syntax::WhenDeniedRouteAst) -> ir:
     }
 }
 
-pub(crate) fn lower_route_redirect_target(target: &syntax::RouteRedirectTargetAst) -> ir::RouteRedirectTarget {
+pub(crate) fn lower_route_redirect_target(
+    target: &syntax::RouteRedirectTargetAst,
+) -> ir::RouteRedirectTarget {
     match target {
         syntax::RouteRedirectTargetAst::View(view) => ir::RouteRedirectTarget::View(view.clone()),
         syntax::RouteRedirectTargetAst::Path(path) => ir::RouteRedirectTarget::Path(path.clone()),
@@ -3088,12 +3066,14 @@ pub(crate) fn lower_enum_decl(decl: &syntax::EnumDeclAst) -> ir::EnumDecl {
     }
 }
 
-
 /// Phase L Tier 4b — lower a canonical-indent `command` block into
 /// `ir::Command`. The kind is inferred from the body shape: `creates`
 /// → Create, `updates` → Update, `deletes` → Delete, `returns` → Returns,
 /// `handler`-only → Returns (the escape hatch case).
-pub(crate) fn lower_command_decl(feature: &str, c: &syntax::CommandDecl) -> Result<ir::Command, AnalyzeError> {
+pub(crate) fn lower_command_decl(
+    feature: &str,
+    c: &syntax::CommandDecl,
+) -> Result<ir::Command, AnalyzeError> {
     let kind = match c.effect.as_ref().map(|e| e.kind) {
         Some(syntax::CommandEffectKindDecl::Creates) => ir::CommandKind::Create,
         Some(syntax::CommandEffectKindDecl::Updates) => ir::CommandKind::Update,
@@ -3381,7 +3361,10 @@ pub(crate) fn lower_api_decl(a: &syntax::ApiDecl) -> ir::Api {
 /// `FilenameToken::CtxNowStrftime("")` placeholders only if a parsing
 /// helper rejects them — but we instead keep the literal verbatim and
 /// surface unknown tokens via doctor.
-pub(crate) fn lower_report_decl(_feature: &str, r: &syntax::ReportDecl) -> Result<ir::Report, AnalyzeError> {
+pub(crate) fn lower_report_decl(
+    _feature: &str,
+    r: &syntax::ReportDecl,
+) -> Result<ir::Report, AnalyzeError> {
     let source = lower_report_source(&r.source);
 
     let columns: Vec<ir::ReportColumn> = r
@@ -3477,7 +3460,9 @@ pub(crate) fn lower_report_source(text: &str) -> ir::ReportSource {
     ir::ReportSource::Query(qn)
 }
 
-pub(crate) fn lower_report_column_source(src: &syntax::ReportColumnSourceAst) -> ir::ReportColumnSource {
+pub(crate) fn lower_report_column_source(
+    src: &syntax::ReportColumnSourceAst,
+) -> ir::ReportColumnSource {
     match src {
         syntax::ReportColumnSourceAst::RowField(field) => {
             ir::ReportColumnSource::RowField(field.clone())
@@ -4400,7 +4385,6 @@ fn extract_env_binding(raw: &str) -> String {
         .unwrap_or_else(|| raw.trim().to_owned())
 }
 
-
 /// Build a feature-local `QualifiedName` (no feature prefix).
 pub(crate) fn qualified_name_local(name: &str) -> ir::QualifiedName {
     ir::QualifiedName {
@@ -4496,14 +4480,14 @@ pub(crate) fn type_ref_from_text(text: &str) -> ir::TypeRef {
 mod tests {
     use lazuli_syntax::{parse_feature_skeletons, parse_lzx_document};
 
+    use super::auth::lower_auth_identity;
+    use super::query::parse_query_filter_line;
+    use super::resource::lower_validate_line;
     use super::{
         AnalyzeError, lower_audit_block, lower_feature_skeleton, lower_lzx_document,
         lower_policy_atom_with_args, parse_cap_file_type, resolve_invalidates_targets,
         type_ref_from_syntax,
     };
-    use super::auth::lower_auth_identity;
-    use super::query::parse_query_filter_line;
-    use super::resource::lower_validate_line;
 
     #[test]
     fn query_filter_line_lowers_dotted_path() {
@@ -6157,7 +6141,10 @@ feature account
         let ty = type_ref_from_syntax("list of Text");
         match ty {
             ir::TypeRef::Many(inner) => {
-                assert!(matches!(*inner, ir::TypeRef::Builtin(ir::BuiltinType::Text)));
+                assert!(matches!(
+                    *inner,
+                    ir::TypeRef::Builtin(ir::BuiltinType::Text)
+                ));
             }
             other => panic!("expected Many(Text), got {other:?}"),
         }
@@ -6183,7 +6170,10 @@ feature account
         let ty = type_ref_from_syntax("list Text");
         match ty {
             ir::TypeRef::Many(inner) => {
-                assert!(matches!(*inner, ir::TypeRef::Builtin(ir::BuiltinType::Text)));
+                assert!(matches!(
+                    *inner,
+                    ir::TypeRef::Builtin(ir::BuiltinType::Text)
+                ));
             }
             other => panic!("expected Many(Text), got {other:?}"),
         }
@@ -7854,10 +7844,7 @@ mod conventions_unknown_diagnostic_tests {
             msg.contains("CONVENTIONS-UNKNOWN"),
             "missing diagnostic code: {msg}"
         );
-        assert!(
-            msg.contains("`Customer`"),
-            "missing resource name: {msg}"
-        );
+        assert!(msg.contains("`Customer`"), "missing resource name: {msg}");
         assert!(msg.contains("`crd`"), "missing offending identifier: {msg}");
         assert!(
             msg.contains("did you mean `crud`?"),
@@ -8026,7 +8013,10 @@ mod conventions_crud_synth_tests {
                 ),
                 req_field("name", ir::TypeRef::Builtin(ir::BuiltinType::Text)),
                 req_field("status", user_qn("CustomerStatus")),
-                req_field("created_at", ir::TypeRef::Builtin(ir::BuiltinType::DateTime)),
+                req_field(
+                    "created_at",
+                    ir::TypeRef::Builtin(ir::BuiltinType::DateTime),
+                ),
             ],
             constraints: Vec::new(),
             validate: None,
@@ -8196,8 +8186,10 @@ mod conventions_crud_synth_tests {
             ir::CommandEffect::Creates(e) => &e.assignments,
             other => panic!("expected Creates effect, got {:?}", other),
         };
-        let create_fields: Vec<&str> =
-            create_assignments.iter().map(|a| a.field.as_str()).collect();
+        let create_fields: Vec<&str> = create_assignments
+            .iter()
+            .map(|a| a.field.as_str())
+            .collect();
         assert_eq!(
             create_fields,
             vec!["email", "name", "status"],
@@ -8223,8 +8215,10 @@ mod conventions_crud_synth_tests {
             ir::CommandEffect::Updates(e) => &e.assignments,
             other => panic!("expected Updates effect, got {:?}", other),
         };
-        let update_fields: Vec<&str> =
-            update_assignments.iter().map(|a| a.field.as_str()).collect();
+        let update_fields: Vec<&str> = update_assignments
+            .iter()
+            .map(|a| a.field.as_str())
+            .collect();
         assert_eq!(
             update_fields,
             vec!["email", "name", "status"],
@@ -8331,7 +8325,10 @@ mod conventions_crud_synth_tests {
         assert!(cmd_names.contains(&"create_customer"));
         assert!(cmd_names.contains(&"delete_customer"));
         // update_customer present, but appears exactly once (the author's).
-        let update_count = cmd_names.iter().filter(|n| **n == "update_customer").count();
+        let update_count = cmd_names
+            .iter()
+            .filter(|n| **n == "update_customer")
+            .count();
         assert_eq!(update_count, 1, "update_customer must not be duplicated");
 
         // The remaining update_customer is the author's — its policy is
@@ -8364,9 +8361,11 @@ mod conventions_crud_synth_tests {
     fn fx1_crud_author_list_query_silences_synth() {
         let mut feature = empty_feature("customer", true);
         feature.resources.push(customer_resource());
-        feature.queries.push(author_list_customers_query(ir::PolicyRef::Local(
-            "authenticated".to_owned(),
-        )));
+        feature
+            .queries
+            .push(author_list_customers_query(ir::PolicyRef::Local(
+                "authenticated".to_owned(),
+            )));
 
         let diags = synthesize_conventions(&mut feature);
         assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
@@ -8376,10 +8375,15 @@ mod conventions_crud_synth_tests {
             .iter()
             .filter(|q| q.name() == "list_customers")
             .count();
-        assert_eq!(list_count, 1, "author list_customers must not be duplicated");
+        assert_eq!(
+            list_count, 1,
+            "author list_customers must not be duplicated"
+        );
         assert_eq!(
             feature.synth_origins.get("list_customers"),
-            Some(&ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud))
+            Some(&ir::ConventionOrigin::AuthorOverride(
+                ir::ConventionRef::Crud
+            ))
         );
     }
 
@@ -8387,18 +8391,22 @@ mod conventions_crud_synth_tests {
     fn fx1_crud_author_list_query_policy_mismatch_warns_and_silences() {
         let mut feature = empty_feature("customer", true);
         feature.resources.push(customer_resource());
-        feature.queries.push(author_list_customers_query(ir::PolicyRef::Local(
-            "customer_admin".to_owned(),
-        )));
+        feature
+            .queries
+            .push(author_list_customers_query(ir::PolicyRef::Local(
+                "customer_admin".to_owned(),
+            )));
 
         let diags = synthesize_conventions(&mut feature);
         let mismatch = diags
             .iter()
-            .find(|d| matches!(
-                d,
-                CrudSynthDiagnostic::SignatureMismatch { resource, synth_name, .. }
-                    if resource == "Customer" && synth_name == "list_customers"
-            ))
+            .find(|d| {
+                matches!(
+                    d,
+                    CrudSynthDiagnostic::SignatureMismatch { resource, synth_name, .. }
+                        if resource == "Customer" && synth_name == "list_customers"
+                )
+            })
             .expect("expected SignatureMismatch for list_customers policy divergence");
         assert_eq!(
             mismatch.diagnostic_code(),
@@ -8411,7 +8419,11 @@ mod conventions_crud_synth_tests {
             .iter()
             .filter(|q| q.name() == "list_customers")
             .collect();
-        assert_eq!(lists.len(), 1, "author list_customers must not be duplicated");
+        assert_eq!(
+            lists.len(),
+            1,
+            "author list_customers must not be duplicated"
+        );
         match lists[0] {
             ir::Query::List(lq) => {
                 assert!(matches!(&lq.policy, ir::PolicyRef::Local(p) if p == "customer_admin"));
@@ -8426,9 +8438,11 @@ mod conventions_crud_synth_tests {
         let mut resource = customer_resource();
         resource.conventions = Vec::new();
         feature.resources.push(resource);
-        feature.queries.push(author_list_customers_query(ir::PolicyRef::Local(
-            "authenticated".to_owned(),
-        )));
+        feature
+            .queries
+            .push(author_list_customers_query(ir::PolicyRef::Local(
+                "authenticated".to_owned(),
+            )));
 
         let diags = synthesize_conventions(&mut feature);
         assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
@@ -8525,7 +8539,10 @@ mod conventions_crud_synth_tests {
             fields: vec![
                 req_field("id", ir::TypeRef::Builtin(ir::BuiltinType::Id)),
                 req_field("org", user_qn("Org")),
-                req_field("created_at", ir::TypeRef::Builtin(ir::BuiltinType::DateTime)),
+                req_field(
+                    "created_at",
+                    ir::TypeRef::Builtin(ir::BuiltinType::DateTime),
+                ),
             ],
             constraints: Vec::new(),
             validate: None,
@@ -8832,7 +8849,11 @@ mod conventions_me_synth_tests {
         match lookup {
             ir::Query::Lookup(lq) => {
                 // Route-less + param-less per §5.2.
-                assert!(lq.params.is_empty(), "expected no params, got {:?}", lq.params);
+                assert!(
+                    lq.params.is_empty(),
+                    "expected no params, got {:?}",
+                    lq.params
+                );
                 // Two key clauses: org + user.
                 assert_eq!(lq.keys.len(), 2);
                 assert_eq!(lq.keys[0].path.segments, vec!["org".to_owned()]);
@@ -8912,10 +8933,7 @@ mod conventions_me_synth_tests {
             "OrgSettings",
             vec![
                 req_field("org", user_qn("Org")),
-                req_field(
-                    "theme",
-                    ir::TypeRef::Builtin(ir::BuiltinType::Text),
-                ),
+                req_field("theme", ir::TypeRef::Builtin(ir::BuiltinType::Text)),
             ],
         ));
 
@@ -9085,8 +9103,11 @@ mod conventions_me_synth_tests {
         assert_eq!(cmd_names.len(), 3, "got commands: {:?}", cmd_names);
 
         // 2 crud queries + 1 me query.
-        let q_names: std::collections::BTreeSet<String> =
-            feature.queries.iter().map(|q| q.name().to_owned()).collect();
+        let q_names: std::collections::BTreeSet<String> = feature
+            .queries
+            .iter()
+            .map(|q| q.name().to_owned())
+            .collect();
         assert!(q_names.contains("lookup_customer"));
         assert!(q_names.contains("list_customers"));
         assert!(q_names.contains("lookup_my_customer"));
@@ -9100,7 +9121,13 @@ mod conventions_me_synth_tests {
             feature.synth_origins
         );
         // Spot-check the 5 crud entries.
-        for name in ["create_customer", "update_customer", "delete_customer", "lookup_customer", "list_customers"] {
+        for name in [
+            "create_customer",
+            "update_customer",
+            "delete_customer",
+            "lookup_customer",
+            "list_customers",
+        ] {
             assert_eq!(
                 feature.synth_origins.get(name),
                 Some(&ir::ConventionOrigin::Synthesized(ir::ConventionRef::Crud)),
@@ -9123,7 +9150,10 @@ mod conventions_me_synth_tests {
         let mut feature = empty_feature("audit");
         feature.resources.push(me_resource(
             "AuditNote",
-            vec![req_field("note", ir::TypeRef::Builtin(ir::BuiltinType::Text))],
+            vec![req_field(
+                "note",
+                ir::TypeRef::Builtin(ir::BuiltinType::Text),
+            )],
         ));
 
         let diags = synthesize_conventions(&mut feature);
@@ -9482,7 +9512,10 @@ mod conventions_owner_scope_synth_tests {
             .find(|c| c.name == "update_property")
             .expect("synth emits update_property");
         assert_eq!(
-            update.owner_scope_sql.as_ref().map(|s| s.where_predicate.as_str()),
+            update
+                .owner_scope_sql
+                .as_ref()
+                .map(|s| s.where_predicate.as_str()),
             Some(expected)
         );
 
@@ -9658,11 +9691,9 @@ mod conventions_owner_scope_synth_tests {
                 through,
                 fk_target,
                 suggestion,
-            } if resource == "Property" && field == "host" => Some((
-                through.clone(),
-                fk_target.clone(),
-                suggestion.clone(),
-            )),
+            } if resource == "Property" && field == "host" => {
+                Some((through.clone(), fk_target.clone(), suggestion.clone()))
+            }
             _ => None,
         });
         let (through, fk_target, suggestion) =
@@ -9904,7 +9935,9 @@ mod conventions_owner_scope_synth_tests {
         // §11 — synth_origins records AuthorOverride(Crud).
         assert_eq!(
             feature.synth_origins.get("delete_property"),
-            Some(&ir::ConventionOrigin::AuthorOverride(ir::ConventionRef::Crud)),
+            Some(&ir::ConventionOrigin::AuthorOverride(
+                ir::ConventionRef::Crud
+            )),
         );
 
         // Other 4 crud entries still synth WITH owner-scope.
