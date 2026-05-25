@@ -18,9 +18,8 @@ use super::returns_list_002;
 use super::route_guard;
 use super::schema_rich_001;
 use super::{
-    DoctorDiagnostic, DoctorSeverity, LZIR_SCHEMA, agent_discriminator_diagnostics,
-    agent_eval_diagnostics, agent_expose_diagnostics, agent_run_trace_diagnostics,
-    agent_tool_diagnostics, app_contract_diagnostics, app_urls_missing_diagnostics,
+    DoctorDiagnostic, DoctorSeverity, LZIR_SCHEMA, app_contract_diagnostics,
+    app_urls_missing_diagnostics,
     approval_diagnostics, approval_missing_children_diagnostics,
     cap_file_policy_implicit_diagnostics, cap_file_storage_diagnostics,
     check_auth_session_callsite_001, check_codegen_wrap_001, check_pattern_draft_stale_001,
@@ -33,7 +32,7 @@ use super::{
     missing_policy_on_query_diagnostics, mutation_without_readback_diagnostics,
     operational_env_names, policy_reachability_diagnostics, query_view_sql_file_diagnostics,
     rbac_catalog_diagnostics, rbac_catalog_missing_diagnostics, rbac_missing_policy_diagnostics,
-    rbac_role_undeclared_diagnostics, registry_tool_effect_diagnostics, report_diagnostics,
+    rbac_role_undeclared_diagnostics, report_diagnostics,
     resource_unique_qualifier_unknown_diagnostics,
     resource_validates_path_unknown_diagnostics, route_id_effect_consistency_diagnostics,
     schema_rich_gap_diagnostics, scope_owner_column_diagnostics, suppress_env_schema_when_declared,
@@ -153,20 +152,20 @@ impl DoctorPackage {
         ));
 
         // Cut A — agent + tool + eval + discriminator cross-feature checks.
-        diagnostics.extend(registry_tool_effect_diagnostics(
+        diagnostics.extend(aggregators::agent::registry_tool_effect_diagnostics(
             &self.registry_tool_defects,
         ));
-        diagnostics.extend(agent_tool_diagnostics(
+        diagnostics.extend(aggregators::agent::agent_tool_diagnostics(
             &self.agents,
             &self.feature_symbols,
             self.registry.as_ref(),
             &self.tier3_facts,
         ));
-        diagnostics.extend(agent_discriminator_diagnostics(
+        diagnostics.extend(aggregators::agent::agent_discriminator_diagnostics(
             &self.agents,
             &self.tier3_facts,
         ));
-        diagnostics.extend(agent_eval_diagnostics(&self.agents));
+        diagnostics.extend(aggregators::agent::agent_eval_diagnostics(&self.agents));
         diagnostics.extend(cross_feature_type_unresolved_diagnostics(
             &self.files,
             &self.tier3_facts,
@@ -181,7 +180,7 @@ impl DoctorPackage {
 
         // Cut A.7 — `expose http` cross-feature checks.
         let known_audiences = collect_known_audiences(&self.files);
-        diagnostics.extend(agent_expose_diagnostics(
+        diagnostics.extend(aggregators::agent::agent_expose_diagnostics(
             &self.agents,
             &self.tier3_facts,
             &known_audiences,
@@ -189,7 +188,7 @@ impl DoctorPackage {
 
         // Cut A.8 — built-in trace event reservation + subscriber
         // payload drift checks.
-        diagnostics.extend(agent_run_trace_diagnostics(&self.files));
+        diagnostics.extend(aggregators::agent::agent_run_trace_diagnostics(&self.files));
 
         // Observability bucket cycle row 37 — `audit emit_to`
         // resolution, `event.trace level` closed catalog, and health

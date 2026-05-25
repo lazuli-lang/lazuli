@@ -15,6 +15,11 @@ use crate::doctor::{
     Tier3FeatureFacts,
 };
 
+/// Mirrors `log/slog` level discipline; kept in sync with
+/// `aggregators::observability::LOG_LEVEL_CATALOG`.
+const TRACE_LEVEL_CATALOG: &[&str] = &["debug", "info", "warn", "error"];
+const RESERVED_AUDIT_STREAMS: &[&str] = &["audit_log", "audit_stream"];
+
 /// Public entrypoint — audit emit_to / event.trace level / health probe
 /// cross-checks.
 pub(crate) fn diagnostics(

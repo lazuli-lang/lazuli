@@ -40,7 +40,7 @@ use lazuli_ir as ir;
 /// `true` when the path's extension is `.lzi`. The doctor walker uses
 /// extension-based dispatch — `app.lzi`, `registry.lzi`, and feature
 /// files all share the `.lzi` suffix.
-pub(super) fn is_lzi_path(path: &Path) -> bool {
+pub(crate) fn is_lzi_path(path: &Path) -> bool {
     path.extension().and_then(|ext| ext.to_str()) == Some("lzi")
 }
 
@@ -78,7 +78,7 @@ pub(super) fn is_one_dot_zero_plus(version: &str) -> bool {
 /// Strip path parameters down to `:_` placeholders so two routes that
 /// differ only in slot names (`/users/:id` vs `/users/:userId`) compare
 /// equal. Preserves the leading `/`.
-pub(super) fn normalise_path(path: &str) -> String {
+pub(crate) fn normalise_path(path: &str) -> String {
     let mut out = String::with_capacity(path.len());
     for segment in path.split('/') {
         if !out.is_empty() {
@@ -101,7 +101,7 @@ pub(super) fn normalise_path(path: &str) -> String {
 
 /// IR HTTP method → canonical wire word. Closed catalog: the IR enum
 /// is exhaustive.
-pub(super) fn http_method_word(method: ir::HttpMethod) -> &'static str {
+pub(crate) fn http_method_word(method: ir::HttpMethod) -> &'static str {
     match method {
         ir::HttpMethod::Get => "GET",
         ir::HttpMethod::Post => "POST",
@@ -303,7 +303,7 @@ pub(super) fn same_origin(declared_url: &str, origin: &str) -> bool {
 
 /// Render a `{name1, name2, ...}`-style list for diagnostic messages.
 /// Empty sets render as `<none>` so the message stays unambiguous.
-pub(super) fn format_name_list(names: &BTreeSet<String>) -> String {
+pub(crate) fn format_name_list(names: &BTreeSet<String>) -> String {
     if names.is_empty() {
         "<none>".to_owned()
     } else {
@@ -318,7 +318,7 @@ pub(super) fn format_name_list(names: &BTreeSet<String>) -> String {
 /// Render an event-payload field set as the backtick-wrapped list used
 /// by `NOTIF-DIGEST-001` and the payload-drift diagnostics. Sorted
 /// deterministically so messages are stable across runs.
-pub(super) fn payload_field_list(canonical: &BTreeSet<String>) -> String {
+pub(crate) fn payload_field_list(canonical: &BTreeSet<String>) -> String {
     let mut fields: Vec<&String> = canonical.iter().collect();
     fields.sort();
     fields
@@ -341,7 +341,7 @@ pub(super) fn error_page_catalog_display() -> String {
 /// Stringify an `Agent`'s policy reference for diagnostic messages.
 /// Mirrors the LSP rendering so doctor and LSP agree on the wire word
 /// (`@atom`, `@policy.local`, `feature.external`, `<none>`).
-pub(super) fn format_agent_policy(agent: &lazuli_ir::Agent) -> String {
+pub(crate) fn format_agent_policy(agent: &lazuli_ir::Agent) -> String {
     match agent.policy.as_ref() {
         Some(ir::PolicyRef::Atom(name)) => format!("@{name}"),
         Some(ir::PolicyRef::Local(name)) => format!("@policy.{name}"),
