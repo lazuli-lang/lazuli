@@ -466,4 +466,3 @@ fn app_ts_target_prefixes(
     }
     targets
 }
-

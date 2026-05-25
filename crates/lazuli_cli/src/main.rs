@@ -145,9 +145,7 @@ dist/ts-mobile/design/
 .lazuli/
 "#;
 
-use cli_args::{
-    Cli, Commands, DesignCommand, ExamplesCommand, MigrateCommand, TranslateCommand,
-};
+use cli_args::{Cli, Commands, DesignCommand, ExamplesCommand, MigrateCommand, TranslateCommand};
 // Sibling modules reach for these clap enums by short name
 // (`crate::PlaywrightTarget`, `crate::InspectFormat`, …); re-export so
 // the carve-out of `cli_args` is invisible from outside `main.rs`.
@@ -170,7 +168,6 @@ pub(crate) use playwright_fixture::playwright_fixture_config;
 // `commands::generate::ts`, `commands::generate::go`, `crate::tests`
 // reach for these by short name; canonical home is `go_work_io`.
 pub(crate) use go_work_io::{write_generated_file, write_go_work_preserving_entries};
-
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -352,10 +349,8 @@ fn main() -> Result<()> {
     }
 }
 
-
 /// OpenAPI bucket cycle — emit a changelog markdown from two inspect
 /// JSON payloads.
-
 
 /// Back-compat shim for callers that pre-date the W4.5 R2 split of
 /// `lazuli generate go` into `commands/generate/go.rs`. `dev::regen`
@@ -384,7 +379,6 @@ pub(crate) fn generate_go(
         allow_drops,
     )
 }
-
 
 #[cfg(test)]
 mod tests;

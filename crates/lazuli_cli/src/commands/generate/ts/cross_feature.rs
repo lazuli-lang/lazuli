@@ -92,23 +92,23 @@ fn collect_cross_feature_refs(
     module: &lazuli_ir::Module,
     out: &mut BTreeMap<String, BTreeSet<String>>,
 ) {
-    let walk_type =
-        |type_ref: &lazuli_ir::TypeRef, out: &mut BTreeMap<String, BTreeSet<String>>| {
-            let mut stack: Vec<&lazuli_ir::TypeRef> = vec![type_ref];
-            while let Some(t) = stack.pop() {
-                match t {
-                    lazuli_ir::TypeRef::Many(inner) => stack.push(inner),
-                    lazuli_ir::TypeRef::EnumRef(qn) | lazuli_ir::TypeRef::UserDefined(qn) => {
-                        if let Some(owner) = owner_feature_for_type(qn, module, feature) {
-                            out.entry(owner)
-                                .or_insert_with(BTreeSet::new)
-                                .insert(qn.name.clone());
-                        }
+    let walk_type = |type_ref: &lazuli_ir::TypeRef,
+                     out: &mut BTreeMap<String, BTreeSet<String>>| {
+        let mut stack: Vec<&lazuli_ir::TypeRef> = vec![type_ref];
+        while let Some(t) = stack.pop() {
+            match t {
+                lazuli_ir::TypeRef::Many(inner) => stack.push(inner),
+                lazuli_ir::TypeRef::EnumRef(qn) | lazuli_ir::TypeRef::UserDefined(qn) => {
+                    if let Some(owner) = owner_feature_for_type(qn, module, feature) {
+                        out.entry(owner)
+                            .or_insert_with(BTreeSet::new)
+                            .insert(qn.name.clone());
                     }
-                    _ => {}
                 }
+                _ => {}
             }
-        };
+        }
+    };
     for record in &feature.records {
         for field in &record.fields {
             walk_type(&field.type_ref, out);
