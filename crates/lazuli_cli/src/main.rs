@@ -1075,7 +1075,17 @@ fn main() -> Result<()> {
                 }
             }
         }
-        Commands::Design { sub } => design_command(sub),
+        Commands::Design { sub } => match sub {
+            DesignCommand::Import {
+                from,
+                format,
+                overwrite,
+            } => commands::design::import_command(&from, format.into(), overwrite),
+            DesignCommand::Export { target, out } => {
+                commands::design::export_command(target.into(), &out)
+            }
+            DesignCommand::Diff { against } => commands::design::diff_command(&against),
+        },
         Commands::Upgrade {
             from,
             to,
@@ -4040,32 +4050,6 @@ fn reject_generate_feature_options(
         );
     }
     Ok(())
-}
-
-fn design_command(sub: DesignCommand) -> Result<()> {
-    let project_root = std::env::current_dir().context("failed to determine current directory")?;
-    let design_path = cmd_design::default_design_path(&project_root);
-    match sub {
-        DesignCommand::Import {
-            from,
-            format,
-            overwrite,
-        } => cmd_design::import(&from, format.into(), &design_path, overwrite),
-        DesignCommand::Export { target, out } => {
-            let design = cmd_design::read_design(&design_path)?;
-            cmd_design::export(&out, target.into(), &design)
-        }
-        DesignCommand::Diff { against } => {
-            let design = cmd_design::read_design(&design_path)?;
-            let report = cmd_design::diff(&against, &design)?;
-            print!("{}", report.render());
-            if report.is_empty() {
-                Ok(())
-            } else {
-                bail!("design diff found changes")
-            }
-        }
-    }
 }
 
 impl From<DesignImportFormat> for cmd_design::ImportFormat {

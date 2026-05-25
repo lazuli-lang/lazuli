@@ -34,6 +34,7 @@
 pub mod changelog;
 pub mod check;
 pub mod debug;
+pub mod design;
 pub mod init;
 pub mod lsp;
 pub mod mcp;
