@@ -73,7 +73,7 @@ pub(super) fn walk_gen_ts_files(root: &Path, visit: &mut dyn FnMut(&Path, &str))
 /// `visit(path, contents)` for every matched file. Skips
 /// generated artifacts (`*.gen.ts`, `*.gen.tsx`), tests
 /// (`*.test.*`, `*.spec.*`), and `node_modules`/`dist` subtrees.
-pub(super) fn walk_frontend_ts_files(clients_root: &Path, visit: &mut dyn FnMut(&Path, &str)) {
+pub(crate) fn walk_frontend_ts_files(clients_root: &Path, visit: &mut dyn FnMut(&Path, &str)) {
     let Ok(entries) = std::fs::read_dir(clients_root) else {
         return;
     };
@@ -90,7 +90,7 @@ pub(super) fn walk_frontend_ts_files(clients_root: &Path, visit: &mut dyn FnMut(
 /// Inner recursion for `walk_frontend_ts_files`. Filters
 /// node_modules / dist / build subdirectories and the
 /// `.gen.` / `.test.` / `.spec.` filename infixes.
-pub(super) fn walk_frontend_ts_files_recursive(dir: &Path, visit: &mut dyn FnMut(&Path, &str)) {
+pub(crate) fn walk_frontend_ts_files_recursive(dir: &Path, visit: &mut dyn FnMut(&Path, &str)) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -125,7 +125,7 @@ pub(super) fn walk_frontend_ts_files_recursive(dir: &Path, visit: &mut dyn FnMut
 
 /// Walks `dist/ts-{web,mobile}/**/*.gen.ts` collecting export names
 /// preceded by a `/** @deprecated ... */` jsdoc block.
-pub(super) fn collect_deprecated_exports(dist_root: &Path, out: &mut BTreeMap<String, PathBuf>) {
+pub(crate) fn collect_deprecated_exports(dist_root: &Path, out: &mut BTreeMap<String, PathBuf>) {
     walk_gen_ts_files(dist_root, &mut |path, contents| {
         let lines: Vec<&str> = contents.lines().collect();
         for (idx, line) in lines.iter().enumerate() {
@@ -190,7 +190,7 @@ pub(super) fn parse_export_name(line: &str) -> Option<String> {
 /// `true` when `needle` appears in `haystack` with non-identifier
 /// boundaries on both sides (whole-word match). Used by the
 /// deprecated-alias scanner to avoid `Foo` matching `FooBar`.
-pub(super) fn matches_word(haystack: &str, needle: &str) -> bool {
+pub(crate) fn matches_word(haystack: &str, needle: &str) -> bool {
     let mut start = 0usize;
     while let Some(pos) = haystack[start..].find(needle) {
         let abs = start + pos;
@@ -215,7 +215,7 @@ pub(super) fn is_ident_char(c: char) -> bool {
 /// Errors propagate so the caller can surface a precise context;
 /// the typical caller is `project_uses_plugin_refs` which falls back
 /// to `false` on IO failure.
-pub(super) fn collect_lazuli_paths_recursive(root: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
+pub(crate) fn collect_lazuli_paths_recursive(root: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
     for entry in fs::read_dir(root).with_context(|| format!("failed to list {}", root.display()))? {
         let entry = entry.with_context(|| format!("failed to read {}", root.display()))?;
         let path = entry.path();

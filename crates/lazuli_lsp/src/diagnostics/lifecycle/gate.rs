@@ -15,15 +15,13 @@
 
 use std::collections::HashSet;
 
-use crate::{
-    find_block_end, first_quoted_value, leading_spaces, RouteGuardViewBlock,
-};
+use crate::{RouteGuardViewBlock, find_block_end, first_quoted_value, leading_spaces};
 
 use super::lookup::{resolve_lifecycle_command_resource, resolve_lifecycle_lookup_query};
 use super::parse::{
     lifecycle_top_level_named_header, lifecycle_uses_in_block, slug_for_lifecycle_token,
 };
-use super::state::{collect_lifecycle_resources, LifecycleResourceInfo};
+use super::state::{LifecycleResourceInfo, collect_lifecycle_resources};
 
 #[derive(Debug, Clone)]
 pub(crate) struct LifecycleGateCandidate {

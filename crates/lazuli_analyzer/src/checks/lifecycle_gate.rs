@@ -5,7 +5,7 @@
 
 use lazuli_ir::{AppManifest, ExperienceModule, Feature, SpanRef};
 
-#[path = "lifecycle_gate_helpers.rs"]
+#[path = "lifecycle_gate_helpers/mod.rs"]
 mod lifecycle_gate_helpers;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

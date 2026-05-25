@@ -19,9 +19,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use tower_lsp::lsp_types::{
-    Diagnostic, DiagnosticSeverity, NumberOrString, Position, Range,
-};
+use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, NumberOrString, Position, Range};
 
 use crate::{feature_name, leading_spaces, simple_canonical_diagnostic};
 

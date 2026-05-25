@@ -17,7 +17,11 @@ use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 
 use crate::simple_canonical_diagnostic;
 
-pub(crate) fn validate_app_capability_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+pub(crate) fn validate_app_capability_line(
+    diagnostics: &mut Vec<Diagnostic>,
+    line_index: usize,
+    line: &str,
+) {
     let trimmed = line.trim_start();
     let parts: Vec<_> = trimmed.split_whitespace().collect();
     if parts.len() != 2

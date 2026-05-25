@@ -29,7 +29,7 @@
 use std::collections::HashSet;
 
 use tower_lsp::lsp_types::{
-    CompletionItem, CompletionItemKind, Documentation, DocumentSymbol, MarkupContent, MarkupKind,
+    CompletionItem, CompletionItemKind, DocumentSymbol, Documentation, MarkupContent, MarkupKind,
     Range, SymbolKind, Url,
 };
 

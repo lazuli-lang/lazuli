@@ -6,6 +6,23 @@
 
 mod tests {
     use crate::doctor::aggregators::auth::auth_diagnostics;
+    use crate::doctor::aggregators::cross_feature::{
+        APP_URLS_MISSING_MESSAGE, app_urls_missing_diagnostics, scope_owner_column_diagnostics,
+    };
+    use crate::doctor::aggregators::env_manifest::{
+        cap_file_policy_implicit_diagnostics, dedupe_env_contract_diagnostics,
+        manifest_required_diagnostics, suppress_env_schema_when_declared,
+    };
+    use crate::doctor::aggregators::field_health::{
+        collect_unresolved_field_refs, field_derived_from_unresolved_diagnostics,
+        resource_unique_qualifier_unknown_diagnostics, resource_validates_path_unknown_diagnostics,
+    };
+    use crate::doctor::aggregators::runtime_version::{
+        lazuli_version_001_diagnostics, lazuli_version_002_diagnostics, schema_rich_gap_diagnostics,
+    };
+    use crate::doctor::aggregators::ts_consumers::{
+        import_deprecated_alias_diagnostics, manual_param_coercion_diagnostics,
+    };
     use crate::doctor::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 

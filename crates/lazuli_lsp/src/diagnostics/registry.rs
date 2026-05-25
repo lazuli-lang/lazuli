@@ -16,9 +16,10 @@
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 
 use crate::{
-    leading_spaces, parse_env_group_name, simple_canonical_diagnostic, validate_app_capability_line,
-    validate_app_env_line, validate_app_integration_child, validate_app_integration_credential_line,
-    validate_app_integration_header, validate_registry_pack_child, validate_registry_pack_header,
+    leading_spaces, parse_env_group_name, simple_canonical_diagnostic,
+    validate_app_capability_line, validate_app_env_line, validate_app_integration_child,
+    validate_app_integration_credential_line, validate_app_integration_header,
+    validate_registry_pack_child, validate_registry_pack_header,
 };
 
 pub(crate) fn registry_contract_diagnostics(source: &str) -> Vec<Diagnostic> {

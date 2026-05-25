@@ -34,13 +34,10 @@
 //!   refresh-rotation contract.
 
 use tower_lsp::lsp_types::{
-    CodeAction, CodeActionKind, CodeActionOrCommand, Position, Range, TextEdit, Url,
-    WorkspaceEdit,
+    CodeAction, CodeActionKind, CodeActionOrCommand, Position, Range, TextEdit, Url, WorkspaceEdit,
 };
 
-use crate::{
-    ERROR_VOCAB_CODES, enclosing_feature_name, leading_spaces, position_at_line_start,
-};
+use crate::{ERROR_VOCAB_CODES, enclosing_feature_name, leading_spaces, position_at_line_start};
 
 /// IR Error-Vocab code actions — three actions per proposal §7.4.
 pub fn error_vocab_code_actions(
