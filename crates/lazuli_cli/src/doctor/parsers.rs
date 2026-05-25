@@ -179,7 +179,7 @@ pub(super) fn catalog_list(items: &[&str]) -> String {
 ///
 /// `today_pivot` is lexical (the tuple sorts as if it were a real date
 /// because each component is fixed-width).
-pub(super) fn parse_iso_date(s: &str) -> Option<(u16, u8, u8)> {
+pub(crate) fn parse_iso_date(s: &str) -> Option<(u16, u8, u8)> {
     let trimmed = s.trim();
     let bytes = trimmed.as_bytes();
     if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
@@ -202,7 +202,7 @@ pub(super) fn parse_iso_date(s: &str) -> Option<(u16, u8, u8)> {
 /// pivot at the current Lazuli development date so the diagnostic is
 /// deterministic across runs. Bump alongside the canonical fixture
 /// each cycle; in practice the day-of-month precision is sufficient.
-pub(super) fn openapi_today_pivot() -> (u16, u8, u8) {
+pub(crate) fn openapi_today_pivot() -> (u16, u8, u8) {
     (2026, 5, 11)
 }
 

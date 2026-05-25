@@ -25,6 +25,7 @@
 
 pub(crate) mod cache;
 pub(crate) mod correctness;
+pub(crate) mod deprecated;
 pub(crate) mod design;
 pub(crate) mod domain;
 pub(crate) mod error_vocab;
