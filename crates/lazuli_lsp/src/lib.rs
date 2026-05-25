@@ -18,6 +18,7 @@ use tower_lsp::lsp_types::{
 use tower_lsp::{Client, LanguageServer, LspService, Server, async_trait};
 
 mod catalogs;
+mod code_actions;
 mod conventions;
 mod hover;
 mod lzx_completion;
@@ -26,6 +27,7 @@ mod source_scan;
 mod types;
 
 pub use catalogs::*;
+pub use code_actions::auth_refresh::auth_refresh_code_actions;
 pub use conventions::conventions_list_completions;
 pub use hover::*;
 pub use rate_limit::rate_limit_env_completions;
@@ -13938,15 +13940,15 @@ pub(crate) fn is_inside_conventions_list(source: &str, position: Position) -> bo
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct AuthSessionsBlock {
-    line_idx: usize,
-    indent: usize,
-    end_line: usize,
+    pub(crate) line_idx: usize,
+    pub(crate) indent: usize,
+    pub(crate) end_line: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct AuthRotationBlock {
-    line_idx: usize,
-    indent: usize,
+    pub(crate) line_idx: usize,
+    pub(crate) indent: usize,
 }
 
 /// Completion provider for Cell LSP-1 of auth refresh rotation. This stays
@@ -17545,140 +17547,8 @@ pub fn error_vocab_completions(source: &str, position: Position) -> Option<Vec<C
     None
 }
 
-/// Auth-refresh rotation code actions for Cell LSP-1.
-///
-/// 1. Promote an `auth.sessions` block with no `rotation` child by adding
-///    `access_ttl` plus a complete defaulted `rotation` block.
-/// 2. Scaffold missing children below a bare `rotation` line.
-pub fn auth_refresh_code_actions(
-    source: &str,
-    uri: &Url,
-    position: Position,
-) -> Vec<CodeActionOrCommand> {
-    let mut actions: Vec<CodeActionOrCommand> = Vec::new();
-    let line = source.lines().nth(position.line as usize).unwrap_or("");
-    let trimmed = line.trim_start();
-
-    if is_rotation_line(trimmed) {
-        if let Some(rotation) = enclosing_auth_rotation_block(source, position) {
-            if !auth_rotation_has_children(source, rotation) {
-                if let Some(action) = build_scaffold_rotation_block_action(source, uri, rotation) {
-                    actions.push(action.into());
-                }
-            }
-        }
-    }
-
-    if let Some(sessions) = enclosing_auth_sessions_block(source, position) {
-        if !auth_sessions_has_child(source, sessions, "rotation") {
-            if let Some(action) =
-                build_promote_single_token_to_rotation_action(source, uri, sessions)
-            {
-                actions.push(action.into());
-            }
-        }
-    }
-
-    actions
-}
-
-pub(crate) fn build_promote_single_token_to_rotation_action(
-    source: &str,
-    uri: &Url,
-    sessions: AuthSessionsBlock,
-) -> Option<CodeAction> {
-    let include_access_ttl = !auth_sessions_has_child(source, sessions, "access_ttl");
-    let new_text = build_rotation_defaults_text(sessions.indent, include_access_ttl);
-    let insertion = position_at_line_start(sessions.end_line);
-    let edits = vec![TextEdit {
-        range: Range {
-            start: insertion,
-            end: insertion,
-        },
-        new_text,
-    }];
-    let mut changes = std::collections::HashMap::new();
-    changes.insert(uri.clone(), edits);
-    Some(CodeAction {
-        title: "Promote single-token to rotation".to_owned(),
-        kind: Some(CodeActionKind::REFACTOR_REWRITE),
-        diagnostics: None,
-        edit: Some(WorkspaceEdit {
-            changes: Some(changes),
-            document_changes: None,
-            change_annotations: None,
-        }),
-        command: None,
-        is_preferred: Some(true),
-        disabled: None,
-        data: None,
-    })
-}
-
-pub(crate) fn build_scaffold_rotation_block_action(
-    _source: &str,
-    uri: &Url,
-    rotation: AuthRotationBlock,
-) -> Option<CodeAction> {
-    let insertion = position_at_line_start(rotation.line_idx + 1);
-    let edits = vec![TextEdit {
-        range: Range {
-            start: insertion,
-            end: insertion,
-        },
-        new_text: build_rotation_inner_defaults_text(rotation.indent),
-    }];
-    let mut changes = std::collections::HashMap::new();
-    changes.insert(uri.clone(), edits);
-    Some(CodeAction {
-        title: "Scaffold rotation block".to_owned(),
-        kind: Some(CodeActionKind::QUICKFIX),
-        diagnostics: None,
-        edit: Some(WorkspaceEdit {
-            changes: Some(changes),
-            document_changes: None,
-            change_annotations: None,
-        }),
-        command: None,
-        is_preferred: Some(true),
-        disabled: None,
-        data: None,
-    })
-}
-
-pub(crate) fn build_rotation_defaults_text(sessions_indent: usize, include_access_ttl: bool) -> String {
-    let session_child_indent = " ".repeat(sessions_indent + 2);
-    let mut lines: Vec<String> = Vec::new();
-    if include_access_ttl {
-        lines.push(format!(
-            "{session_child_indent}access_ttl \"15 minutes\" # framework default: short-lived access"
-        ));
-    }
-    lines.push(format!("{session_child_indent}rotation"));
-    lines.push(
-        build_rotation_inner_defaults_text(sessions_indent + 2)
-            .trim_end()
-            .to_owned(),
-    );
-    format!("{}\n", lines.join("\n"))
-}
-
-pub(crate) fn build_rotation_inner_defaults_text(rotation_indent: usize) -> String {
-    let child_indent = " ".repeat(rotation_indent + 2);
-    [
-        format!(
-            "{child_indent}refresh_ttl \"30 days\" # framework default: long-lived refresh"
-        ),
-        format!(
-            "{child_indent}grace \"30 seconds\" # framework default: two-tab race window"
-        ),
-        format!(
-            "{child_indent}theft_detection_action revoke_session_family # framework default: revoke this session family"
-        ),
-    ]
-    .join("\n")
-        + "\n"
-}
+// Auth-refresh rotation code actions live in `code_actions/auth_refresh.rs`
+// and are re-exported above as `pub use code_actions::auth_refresh::auth_refresh_code_actions;`.
 
 /// IR Error-Vocab code actions — three actions per proposal §7.4.
 ///
