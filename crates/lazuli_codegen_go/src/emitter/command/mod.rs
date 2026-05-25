@@ -73,6 +73,7 @@ mod policy;
 mod scope;
 mod semantic;
 mod tier4;
+mod wrap;
 
 // Sibling emitters address command helpers via `super::command::<name>`.
 // The re-exports below keep that surface stable after the Rails-style

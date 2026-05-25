@@ -9,7 +9,7 @@
 //! constant via the `pub use file_emit::emit_command_file` re-export in
 //! `mod.rs`.
 
-use lazuli_ir::{Command, CommandInput, Feature, ReturnsEffect};
+use lazuli_ir::{Command, CommandInput, Feature};
 // The inline test modules below address several IR types via `use
 // super::*;`. Re-import the surface from `lazuli_ir` once so the tests
 // pick it up without each block listing its own subset.
@@ -20,9 +20,7 @@ use lazuli_ir::{
 };
 
 use super::super::cross_feature::CrossFeatureIndex;
-use super::super::error_envelope::{
-    bucket_names_for_external_calls, emit_wrap_helper, sentinel_buckets,
-};
+use super::super::error_envelope::emit_wrap_helper;
 use super::super::error_resolver::command_has_error_keys;
 use super::super::imports::ImportSet;
 use super::super::module::EmitContext;
@@ -33,6 +31,7 @@ use super::emit::emit_command;
 use super::format::register_imports_for_type;
 use super::lifecycle::emit_lifecycle_machines;
 use super::semantic::semantic_validator_plugins;
+use super::wrap::command_wrap_buckets;
 
 // Re-export so the inline test modules below address the names without
 // reaching across submodule boundaries explicitly.
@@ -161,19 +160,6 @@ pub fn emit_command_file(
 
     Some(p.finish())
 }
-
-fn command_wrap_buckets(commands: &[&Command]) -> std::collections::BTreeSet<&'static str> {
-    let referenced: std::collections::BTreeSet<&str> = commands
-        .iter()
-        .flat_map(|command| bucket_names_for_external_calls(&command.external_calls))
-        .collect();
-    sentinel_buckets(&referenced)
-}
-
-// Unused (today) but kept so the Returns/None branches can graduate
-// to a typed `ReturnsEffect` codepath without re-importing the symbol.
-#[allow(dead_code)]
-fn _returns_effect_compiles(_: ReturnsEffect) {}
 
 #[cfg(test)]
 mod feature_emit_tests {
