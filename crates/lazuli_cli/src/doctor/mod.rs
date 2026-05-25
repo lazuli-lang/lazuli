@@ -7,12 +7,14 @@ pub mod lifecycle_gate;
 pub mod lzx;
 pub(crate) mod parsers;
 pub mod rbac;
+mod release;
 mod returns_list_001;
 mod returns_list_002;
 pub mod route_guard;
 mod runtime_options;
 mod scanners;
 pub mod schema_rich_001;
+mod self_audit;
 
 pub use runtime_options::DoctorRuntimeOptions;
 // Re-exported so the `returns_list_001` / `returns_list_002` rule
@@ -22,8 +24,7 @@ pub(super) use scanners::leading_spaces;
 
 use helpers::{
     doctor_project_root, parse_doctor_format, parse_doctor_severity, parse_fail_on_specs,
-    project_has_lazurite_manifest, resolve_internal_hygiene_severity,
-    resolve_test_discipline_severity,
+    project_has_lazurite_manifest, resolve_test_discipline_severity,
 };
 use parsers::{
     auth_session_ttl_seconds, cache_ttl_as_seconds, catalog_list, environments_summary,
@@ -35,10 +36,9 @@ use parsers::{
     tool_kind_word, type_ref_name,
 };
 use scanners::{
-    collect_deprecated_exports, collect_lazuli_paths_recursive, collect_recipe_dirs,
-    derive_feature_name, extract_lzir_schema, is_ident_char, is_identifier, is_type_name,
-    lazuli_version_line, matches_word, package_stem, parse_export_name, walk_frontend_ts_files,
-    walk_gen_ts_files,
+    collect_deprecated_exports, collect_lazuli_paths_recursive, derive_feature_name,
+    is_ident_char, is_identifier, is_type_name, lazuli_version_line, matches_word, package_stem,
+    parse_export_name, walk_frontend_ts_files, walk_gen_ts_files,
 };
 
 // Re-export file-local diagnostic sub-modules extracted to the `lazuli_doctor`
@@ -102,14 +102,14 @@ pub fn doctor_command_with_options(
     }
 
     if check_release {
-        return doctor_release_command(input);
+        return release::doctor_release_command(input);
     }
 
     // W3 — `--self` short-circuits the standard IR pipeline and walks
     // the framework's Rust source instead. Pairs with workspace
     // `Lazurite.toml [doctor.internal_hygiene]` (preset / overrides).
     if opts.self_audit {
-        return doctor_self_command(input, &opts);
+        return self_audit::doctor_self_command(input, &opts);
     }
 
     let package = DoctorPackage::load(input, security_profile)?;
@@ -321,27 +321,6 @@ pub(crate) fn doctor_diagnostics_json(
         })
         .collect();
     Ok(serde_json::Value::Array(payload))
-}
-
-fn doctor_release_command(input: &Path) -> Result<()> {
-    let project_root = doctor_project_root(input);
-    let mut diagnostics = Vec::new();
-    diagnostics.extend(check_migration_recipe_001(&project_root, LZIR_SCHEMA));
-    diagnostics.extend(check_migration_recipe_002(&project_root));
-    let has_error = diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.severity == DoctorSeverity::Error);
-
-    for diagnostic in &diagnostics {
-        diagnostic.print();
-    }
-
-    if has_error {
-        bail!("{} failed Lazuli release checks", project_root.display());
-    }
-
-    println!("{} passed Lazuli release checks", project_root.display());
-    Ok(())
 }
 
 #[derive(Debug)]
@@ -2850,225 +2829,6 @@ pub(crate) enum DoctorSeverity {
     Hint,
 }
 
-/// W3 — `lazuli doctor --self` entry point. Walks the framework's
-/// own Rust source under `crates/lazuli_*/src/` and emits
-/// `INTERNAL-*` findings. Pairs with workspace-root
-/// `[doctor.internal_hygiene]` config (preset / per-rule overrides /
-/// fail-on gate).
-///
-/// `input` is interpreted as the workspace root. Defaults to the
-/// current directory when called as `lazuli doctor --self` without
-/// an explicit path.
-fn doctor_self_command(input: &Path, opts: &DoctorRuntimeOptions) -> Result<()> {
-    use lazuli_doctor::internal_hygiene::{
-        file_size_001, no_example_001, preset::InternalHygienePreset, test_pairing_001,
-        undoc_pub_001, walker::walk_workspace_rust_sources,
-    };
-
-    let workspace_root = if input.as_os_str().is_empty() {
-        std::env::current_dir().context("failed to determine current directory")?
-    } else {
-        input.to_path_buf()
-    };
-
-    let manifest = lazurite_manifest::load(&workspace_root).ok().flatten();
-    let preset = manifest
-        .as_ref()
-        .and_then(|m| m.doctor.as_ref())
-        .and_then(|d| d.internal_hygiene.as_ref())
-        .and_then(|ih| ih.preset.as_deref())
-        .and_then(InternalHygienePreset::parse);
-
-    let files = walk_workspace_rust_sources(&workspace_root);
-    if files.is_empty() {
-        bail!(
-            "{} contains no `crates/lazuli_*/src/` Rust sources; `--self` is only valid \
-             from the Lazuli framework workspace root",
-            workspace_root.display()
-        );
-    }
-
-    let mut diagnostics: Vec<DoctorDiagnostic> = Vec::new();
-
-    // INTERNAL-FILE-SIZE-001 — per-finding tier-aware default severity.
-    for finding in file_size_001::check(&files) {
-        let default = match finding.tier {
-            file_size_001::Tier::Warn => DoctorSeverity::Warning,
-            file_size_001::Tier::Error => DoctorSeverity::Error,
-        };
-        let severity = resolve_internal_hygiene_severity(default, file_size_001::Finding::CODE, preset);
-        let message = finding.message();
-        diagnostics.push(DoctorDiagnostic {
-            path: finding.path,
-            line: 1,
-            column: 1,
-            severity,
-            code: file_size_001::Finding::CODE.to_owned(),
-            message,
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-
-    // INTERNAL-UNDOC-PUB-001 — default Warning.
-    for finding in undoc_pub_001::check(&files) {
-        let severity = resolve_internal_hygiene_severity(
-            DoctorSeverity::Warning,
-            undoc_pub_001::Finding::CODE,
-            preset,
-        );
-        let message = finding.message();
-        diagnostics.push(DoctorDiagnostic {
-            path: finding.path,
-            line: finding.line,
-            column: 1,
-            severity,
-            code: undoc_pub_001::Finding::CODE.to_owned(),
-            message,
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-
-    // INTERNAL-NO-EXAMPLE-001 — default Info (soft during W5 sweep).
-    for finding in no_example_001::check(&files) {
-        let severity = resolve_internal_hygiene_severity(
-            DoctorSeverity::Info,
-            no_example_001::Finding::CODE,
-            preset,
-        );
-        let message = finding.message();
-        diagnostics.push(DoctorDiagnostic {
-            path: finding.path,
-            line: finding.line,
-            column: 1,
-            severity,
-            code: no_example_001::Finding::CODE.to_owned(),
-            message,
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-
-    // INTERNAL-TEST-PAIRING-001 — default Warning.
-    for finding in test_pairing_001::check(&files) {
-        let severity = resolve_internal_hygiene_severity(
-            DoctorSeverity::Warning,
-            test_pairing_001::Finding::CODE,
-            preset,
-        );
-        let message = finding.message();
-        diagnostics.push(DoctorDiagnostic {
-            path: finding.path,
-            line: 1,
-            column: 1,
-            severity,
-            code: test_pairing_001::Finding::CODE.to_owned(),
-            message,
-            category: None,
-            feature_name: None,
-            construct: None,
-            fix: None,
-            group: None,
-        });
-    }
-
-    let has_error = diagnostics
-        .iter()
-        .any(|d| d.severity == DoctorSeverity::Error);
-
-    // Emit in text or JSON per --format.
-    let format = parse_doctor_format(opts.format.as_deref());
-    if matches!(
-        format,
-        crate::doctor_report::DoctorFormat::Json | crate::doctor_report::DoctorFormat::Ndjson
-    ) {
-        // Reuse build_doctor_report logic by constructing a synthetic
-        // DoctorPackage path — but for self-audit, we serialize a
-        // lightweight payload directly with summary by_rule + findings.
-        let mut by_severity = (0usize, 0usize, 0usize);
-        let mut by_rule = std::collections::BTreeMap::<String, usize>::new();
-        for d in &diagnostics {
-            *by_rule.entry(d.code.clone()).or_insert(0) += 1;
-            match d.severity {
-                DoctorSeverity::Error => by_severity.0 += 1,
-                DoctorSeverity::Warning => by_severity.1 += 1,
-                _ => by_severity.2 += 1,
-            }
-        }
-        let report = serde_json::json!({
-            "schema_version": 1,
-            "self_audit": true,
-            "summary": {
-                "errors": by_severity.0,
-                "warnings": by_severity.1,
-                "infos": by_severity.2,
-                "by_category": { "internal_hygiene": diagnostics.len() },
-                "by_rule": by_rule,
-            },
-            "findings": diagnostics.iter().map(|d| serde_json::json!({
-                "code": d.code,
-                "severity": format!("{:?}", d.severity).to_lowercase(),
-                "path": d.path.display().to_string(),
-                "line": d.line,
-                "message": d.message,
-            })).collect::<Vec<_>>(),
-        });
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&report)
-                .context("failed to serialize self-audit DoctorReport JSON")?
-        );
-    } else {
-        for d in &diagnostics {
-            d.print();
-        }
-        println!(
-            "\n{} self-audit: {} files scanned, {} errors, {} warnings, {} infos",
-            workspace_root.display(),
-            files.len(),
-            diagnostics.iter().filter(|d| d.severity == DoctorSeverity::Error).count(),
-            diagnostics.iter().filter(|d| d.severity == DoctorSeverity::Warning).count(),
-            diagnostics
-                .iter()
-                .filter(|d| matches!(d.severity, DoctorSeverity::Info | DoctorSeverity::Hint))
-                .count(),
-        );
-    }
-
-    // --fail-on category:internal_hygiene gate.
-    let specs = parse_fail_on_specs(&opts.fail_on)
-        .map_err(|e| anyhow::anyhow!("--fail-on: {e}"))?;
-    let gate_fail = !specs.is_empty()
-        && specs.iter().any(|s| match s {
-            crate::doctor_report::FailOnSpec::Category(c) => {
-                *c == lazuli_doctor::RuleCategory::InternalHygiene && !diagnostics.is_empty()
-            }
-            crate::doctor_report::FailOnSpec::Rule(r) => {
-                diagnostics.iter().any(|d| &d.code == r)
-            }
-            crate::doctor_report::FailOnSpec::Severity(_) => has_error,
-            _ => false,
-        });
-
-    if has_error || gate_fail {
-        bail!(
-            "{} failed Lazuli doctor self-audit (internal_hygiene category)",
-            workspace_root.display()
-        );
-    }
-
-    Ok(())
-}
 
 /// Rails-style canonical envelope for every doctor finding.
 ///
@@ -4347,93 +4107,6 @@ fn lazuli_version_002_diagnostics(
 }
 
 
-fn check_migration_recipe_001(project_root: &Path, lzir_schema: &str) -> Vec<DoctorDiagnostic> {
-    let Ok(output) = std::process::Command::new("git")
-        .args(["show", "HEAD~1:crates/lazuli_ir/src/lib.rs"])
-        .current_dir(project_root)
-        .output()
-    else {
-        return Vec::new();
-    };
-    if !output.status.success() {
-        return Vec::new();
-    }
-
-    let previous_source = String::from_utf8_lossy(&output.stdout);
-    let Some(previous_schema) = extract_lzir_schema(&previous_source) else {
-        return Vec::new();
-    };
-    if previous_schema == lzir_schema {
-        return Vec::new();
-    }
-
-    let previous_major_minor = major_minor(&previous_schema);
-    let current_major_minor = major_minor(lzir_schema);
-    let transition_dir = project_root.join("migrations/recipes").join(format!(
-        "{}-to-{}",
-        previous_major_minor, current_major_minor
-    ));
-    let recipe_count = fs::read_dir(&transition_dir)
-        .map(|entries| {
-            entries
-                .filter_map(|entry| entry.ok())
-                .filter(|entry| entry.path().is_dir())
-                .count()
-        })
-        .unwrap_or(0);
-
-    if recipe_count > 0 {
-        return Vec::new();
-    }
-
-    vec![DoctorDiagnostic {
-        path: transition_dir,
-        line: 1,
-        column: 1,
-        severity: DoctorSeverity::Error,
-        code: "MIGRATION-RECIPE-001".to_owned(),
-        message: format!(
-            "LZIR_SCHEMA changed from {} to {}, but no recipe directory exists under migrations/recipes/{}-to-{}/.",
-            previous_schema, lzir_schema, previous_major_minor, current_major_minor
-        ),
-        category: None,
-        feature_name: None,
-        construct: None,
-        fix: None,
-        group: None,
-    }]
-}
-
-fn check_migration_recipe_002(project_root: &Path) -> Vec<DoctorDiagnostic> {
-    let recipe_root = project_root.join("migrations/recipes");
-    let mut recipe_dirs = Vec::new();
-    collect_recipe_dirs(&recipe_root, &mut recipe_dirs);
-
-    let mut diagnostics = Vec::new();
-    for recipe_dir in recipe_dirs {
-        let input = recipe_dir.join("input.lzi");
-        let output = recipe_dir.join("output.lzi");
-        if !input.exists() && !output.exists() {
-            continue;
-        }
-        if let Err(error) = crate::upgrade::smoke_recipe(&recipe_dir) {
-            diagnostics.push(DoctorDiagnostic {
-                path: recipe_dir,
-                line: 1,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: "MIGRATION-RECIPE-002".to_owned(),
-                message: format!("migration recipe smoke failed: {error}"),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-    }
-    diagnostics
-}
 
 
 fn check_plugin_not_declared(
