@@ -10,9 +10,14 @@ mod returns_list_001;
 mod returns_list_002;
 pub mod route_guard;
 mod runtime_options;
+mod scanners;
 pub mod schema_rich_001;
 
 pub use runtime_options::DoctorRuntimeOptions;
+// Re-exported so the `returns_list_001` / `returns_list_002` rule
+// modules can keep calling `super::leading_spaces` (the helper is
+// indent-aware, used to walk command bodies in those rules).
+pub(super) use scanners::leading_spaces;
 
 use helpers::{
     doctor_project_root, parse_doctor_format, parse_doctor_severity, parse_fail_on_specs,
@@ -24,6 +29,12 @@ use parsers::{
     is_lzi_path, is_lzx_path, is_one_dot_zero_plus, is_parseable_cidr, is_parseable_duration,
     is_parseable_size, major_minor, normalise_path, openapi_today_pivot, parse_iso_date,
     same_origin, tool_kind_word,
+};
+use scanners::{
+    collect_deprecated_exports, collect_lazuli_paths_recursive, collect_recipe_dirs,
+    derive_feature_name, extract_lzir_schema, is_ident_char, is_identifier, is_type_name,
+    lazuli_version_line, matches_word, package_stem, parse_export_name, walk_frontend_ts_files,
+    walk_gen_ts_files,
 };
 
 // Re-export file-local diagnostic sub-modules extracted to the `lazuli_doctor`
@@ -4276,164 +4287,6 @@ fn import_deprecated_alias_diagnostics(project_root: &Path) -> Vec<DoctorDiagnos
     diagnostics
 }
 
-/// Walks `dist/ts-{web,mobile}/**/*.gen.ts` collecting export names
-/// preceded by a `/** @deprecated ... */` jsdoc block.
-fn collect_deprecated_exports(dist_root: &Path, out: &mut BTreeMap<String, PathBuf>) {
-    walk_gen_ts_files(dist_root, &mut |path, contents| {
-        let lines: Vec<&str> = contents.lines().collect();
-        for (idx, line) in lines.iter().enumerate() {
-            let trimmed = line.trim_start();
-            if !trimmed.starts_with("export ") {
-                continue;
-            }
-            // Look at the previous 1-3 lines for a @deprecated marker.
-            let mut found_deprecated = false;
-            for prev in (idx.saturating_sub(3)..idx).rev() {
-                let p = lines.get(prev).map(|s| s.trim()).unwrap_or("");
-                if p.contains("@deprecated") {
-                    found_deprecated = true;
-                    break;
-                }
-                if p.starts_with("export ")
-                    || (!p.starts_with("*") && !p.starts_with("//") && !p.is_empty())
-                {
-                    break;
-                }
-            }
-            if !found_deprecated {
-                continue;
-            }
-            // Extract the export name. Handles `export const X =`,
-            // `export function X(`, `export type X =`, `export interface X {`.
-            if let Some(name) = parse_export_name(trimmed) {
-                out.insert(name, path.to_path_buf());
-            }
-        }
-    });
-}
-
-fn parse_export_name(line: &str) -> Option<String> {
-    let after_export = line.strip_prefix("export ")?;
-    for keyword in [
-        "const ",
-        "let ",
-        "var ",
-        "function ",
-        "type ",
-        "interface ",
-        "class ",
-    ] {
-        if let Some(rest) = after_export.strip_prefix(keyword) {
-            let ident: String = rest
-                .chars()
-                .take_while(|ch| ch.is_ascii_alphanumeric() || *ch == '_' || *ch == '$')
-                .collect();
-            if ident.is_empty() {
-                return None;
-            }
-            return Some(ident);
-        }
-    }
-    None
-}
-
-fn matches_word(haystack: &str, needle: &str) -> bool {
-    let mut start = 0usize;
-    while let Some(pos) = haystack[start..].find(needle) {
-        let abs = start + pos;
-        let end = abs + needle.len();
-        let before_ok = abs == 0 || !is_ident_char(haystack.as_bytes()[abs - 1] as char);
-        let after_ok = end >= haystack.len() || !is_ident_char(haystack.as_bytes()[end] as char);
-        if before_ok && after_ok {
-            return true;
-        }
-        start = abs + 1;
-    }
-    false
-}
-
-fn is_ident_char(c: char) -> bool {
-    c.is_ascii_alphanumeric() || c == '_' || c == '$'
-}
-
-fn walk_gen_ts_files(root: &Path, visit: &mut dyn FnMut(&Path, &str)) {
-    let Ok(entries) = std::fs::read_dir(root) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let name = match path.file_name().and_then(|s| s.to_str()) {
-            Some(n) => n,
-            None => continue,
-        };
-        if name == "node_modules" || name == "go" {
-            continue;
-        }
-        if path.is_dir() {
-            walk_gen_ts_files(&path, visit);
-            continue;
-        }
-        if !name.ends_with(".gen.ts") && !name.ends_with(".gen.tsx") {
-            continue;
-        }
-        let Ok(contents) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        visit(&path, &contents);
-    }
-}
-
-/// Walks `app/clients/<frontend>/src/**/*.{ts,tsx}` invoking
-/// `visit(path, contents)` for every matched file. Skips
-/// generated artifacts (`*.gen.ts`, `*.gen.tsx`), tests
-/// (`*.test.*`, `*.spec.*`), and `node_modules`/`dist` subtrees.
-fn walk_frontend_ts_files(clients_root: &Path, visit: &mut dyn FnMut(&Path, &str)) {
-    let Ok(entries) = std::fs::read_dir(clients_root) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let client_root = entry.path();
-        let src = client_root.join("src");
-        if !src.is_dir() {
-            continue;
-        }
-        walk_frontend_ts_files_recursive(&src, visit);
-    }
-}
-
-fn walk_frontend_ts_files_recursive(dir: &Path, visit: &mut dyn FnMut(&Path, &str)) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let file_name = match path.file_name().and_then(|s| s.to_str()) {
-            Some(n) => n,
-            None => continue,
-        };
-        if file_name == "node_modules" || file_name == "dist" || file_name == "build" {
-            continue;
-        }
-        if path.is_dir() {
-            walk_frontend_ts_files_recursive(&path, visit);
-            continue;
-        }
-        if !file_name.ends_with(".ts") && !file_name.ends_with(".tsx") {
-            continue;
-        }
-        if file_name.contains(".gen.")
-            || file_name.contains(".test.")
-            || file_name.contains(".spec.")
-        {
-            continue;
-        }
-        let Ok(contents) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        visit(&path, &contents);
-    }
-}
-
 /// SCHEMA-RICH-GAP (hint) — flags resource fields declared as
 /// opaque `JSON` whose name strongly suggests a richer typed
 /// shape (`*_photos`, `*_files`, `*_attachments`, `*_images`,
@@ -4999,14 +4852,6 @@ fn lazuli_version_002_diagnostics(
     }]
 }
 
-fn lazuli_version_line(source: &str) -> Option<usize> {
-    source
-        .lines()
-        .position(|line| {
-            leading_spaces(line) == 2 && line.trim_start().starts_with("lazuli_version ")
-        })
-        .map(|line| line + 1)
-}
 
 fn check_migration_recipe_001(project_root: &Path, lzir_schema: &str) -> Vec<DoctorDiagnostic> {
     let Ok(output) = std::process::Command::new("git")
@@ -5096,34 +4941,6 @@ fn check_migration_recipe_002(project_root: &Path) -> Vec<DoctorDiagnostic> {
     diagnostics
 }
 
-fn collect_recipe_dirs(root: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = fs::read_dir(root) else {
-        return;
-    };
-    for entry in entries.filter_map(|entry| entry.ok()) {
-        let path = entry.path();
-        if !path.is_dir() {
-            continue;
-        }
-        if path.join("recipe.toml").is_file() {
-            out.push(path);
-        } else {
-            collect_recipe_dirs(&path, out);
-        }
-    }
-}
-
-fn extract_lzir_schema(source: &str) -> Option<String> {
-    source.lines().find_map(|line| {
-        let trimmed = line.trim();
-        if !trimmed.starts_with("pub const LZIR_SCHEMA") {
-            return None;
-        }
-        let (_, rest) = trimmed.split_once('"')?;
-        let (value, _) = rest.split_once('"')?;
-        Some(value.to_owned())
-    })
-}
 
 fn check_plugin_not_declared(
     manifest: &Manifest,
@@ -5453,41 +5270,6 @@ fn check_frontend_out_collision(
     diagnostics
 }
 
-fn collect_lazuli_paths_recursive(root: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
-    for entry in fs::read_dir(root).with_context(|| format!("failed to list {}", root.display()))? {
-        let entry = entry.with_context(|| format!("failed to read {}", root.display()))?;
-        let path = entry.path();
-        if path.is_dir() {
-            collect_lazuli_paths_recursive(&path, paths)?;
-        } else if path.is_file() && (is_lzi_path(&path) || is_lzx_path(&path)) {
-            paths.push(path);
-        }
-    }
-    Ok(())
-}
-
-fn package_stem(path: &Path) -> Option<String> {
-    let file_name = path.file_name()?.to_str()?;
-    if let Some(stem) = file_name.strip_suffix(".lzi") {
-        return Some(stem.to_owned());
-    }
-
-    let stem = file_name.strip_suffix(".lzx")?;
-    Some(stem.split('.').next().unwrap_or(stem).to_owned())
-}
-
-/// PG.B — read the first `feature <name>` header from a `.lzi` source.
-/// Returns `None` for app.lzi / registry.lzi / contracts that don't
-/// declare a feature.
-fn derive_feature_name(source: &str) -> Option<String> {
-    for line in source.lines() {
-        let trimmed = line.trim_start();
-        if let Some(rest) = trimmed.strip_prefix("feature ") {
-            return rest.split_whitespace().next().map(|s| s.to_owned());
-        }
-    }
-    None
-}
 
 /// PG.B — collect `(callable_key, body_text, span)` tuples for
 /// every callable in every `.lzi` source so
@@ -9967,21 +9749,6 @@ fn line_col_for_offset(source: &str, offset: usize) -> (usize, usize) {
     (line, column)
 }
 
-fn leading_spaces(line: &str) -> usize {
-    line.bytes().take_while(|byte| *byte == b' ').count()
-}
-
-fn is_identifier(source: &str) -> bool {
-    let mut chars = source.chars();
-    matches!(chars.next(), Some(first) if first == '_' || first.is_ascii_alphabetic())
-        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
-}
-
-fn is_type_name(source: &str) -> bool {
-    let mut chars = source.chars();
-    matches!(chars.next(), Some(first) if first.is_ascii_uppercase())
-        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
-}
 
 fn path_references<'a>(source: &'a str, prefix: &str) -> Vec<&'a str> {
     let mut references = Vec::new();
