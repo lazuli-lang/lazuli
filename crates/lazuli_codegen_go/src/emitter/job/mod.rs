@@ -12,12 +12,21 @@
 //! Determinism: jobs are sorted by name before emission; nested
 //! repeated entries that are semantically set-like are sorted before
 //! rendering.
+//!
+//! ## Module layout
+//!
+//! - `format` — small pure renderers (qname / path / expr / casing
+//!   / duration / policy / effect / banner).
+//! - `slots` — per-slot field emitters (`TenantFrom`, `Fanout`,
+//!   `Idempotency`, `Retry`, `ExternalCalls`, `Emits`, gate
+//!   `Prelude`).
+//! - `runtime_gaps` — `// TODO(runtime):` comment emitters that
+//!   surface IR intent the runtime contract hasn't expressed yet.
+//!
+//! Split out from a single flat `job.rs` (557 prod LOC) in
+//! rails-style R7-4.
 
-use lazuli_ir::{
-    BackoffStrategy, CommandEffect, ExternalCallRef, FanoutScope, Feature, Gate, IdempotencyKey,
-    Job, JobBody, JobDeclarative, JobHandler, JobTrigger, NamedArg, Path, PolicyRef, RetryPolicy,
-    TenantFromSpec,
-};
+use lazuli_ir::{Feature, Job, JobBody};
 
 use super::cross_feature::CrossFeatureIndex;
 use super::error_envelope::{
@@ -27,7 +36,21 @@ use super::imports::ImportSet;
 use super::module::EmitContext;
 use super::patterns::{PATTERN_JOB_HANDLER, emit_pattern_header};
 use super::printer::GoPrinter;
-use super::types::{self, TypeCtx};
+use super::types::TypeCtx;
+
+mod format;
+mod runtime_gaps;
+mod slots;
+
+use format::{
+    escape_comment, escape_string, format_trigger, job_var_name, policy_string, timeout_expr,
+    write_section_banner,
+};
+use runtime_gaps::{effective_policy, emit_body_runtime_gaps};
+use slots::{
+    emit_emits, emit_external_calls, emit_fanout, emit_gate_annotations, emit_idempotency,
+    emit_retry, emit_tenant_from,
+};
 
 /// Emit `<feature>/job.gen.go` for a feature, or `None` when the
 /// feature declares no jobs.
@@ -209,358 +232,14 @@ fn emit_job(
     emit_ctx.reset_line_directive(p, line_directive_emitted);
 }
 
-fn emit_tenant_from(p: &mut GoPrinter, tenant_from: &TenantFromSpec) {
-    p.line("TenantFrom: &jobs.TenantFromSpec{");
-    p.indent();
-    p.line(&format!(
-        "Path: \"{}\",",
-        escape_string(&format_path(&tenant_from.path))
-    ));
-    p.dedent();
-    p.line("},");
-}
-
-fn emit_fanout(p: &mut GoPrinter, fanout: &lazuli_ir::FanoutSpec) {
-    p.line("Fanout: &jobs.FanoutSpec{");
-    p.indent();
-    p.line(&format!("Scope: \"{}\",", fanout_scope(fanout.scope)));
-    p.line(&format!("Axis:  \"{}\",", escape_string(&fanout.axis)));
-    p.dedent();
-    p.line("},");
-}
-
-fn emit_idempotency(p: &mut GoPrinter, idempotency: &IdempotencyKey) {
-    p.line("Idempotency: &jobs.IdempotencyKeySpec{");
-    p.indent();
-    p.line(&format!(
-        "Path: \"{}\",",
-        escape_string(&format_path(&idempotency.by))
-    ));
-    p.dedent();
-    p.line("},");
-}
-
-fn emit_retry(p: &mut GoPrinter, retry: &RetryPolicy) {
-    p.line("Retry: &jobs.RetryPolicy{");
-    p.indent();
-    p.line(&format!("Count:   {},", retry.count));
-    p.line(&format!("Backoff: {},", backoff_const(retry.backoff)));
-    p.dedent();
-    p.line("},");
-}
-
-fn emit_external_calls(p: &mut GoPrinter, calls: &[ExternalCallRef]) {
-    let mut sorted: Vec<&ExternalCallRef> = calls.iter().collect();
-    sorted.sort_by(|a, b| {
-        a.slot
-            .cmp(&b.slot)
-            .then_with(|| a.op.cmp(&b.op))
-            .then_with(|| format_args_key(&a.args).cmp(&format_args_key(&b.args)))
-    });
-
-    p.line("ExternalCalls: []jobs.ExternalCallRef{");
-    p.indent();
-    for call in sorted {
-        if call.args.is_empty() {
-            p.line(&format!(
-                "{{Slot: \"{}\", Operation: \"{}\"}},",
-                escape_string(&call.slot),
-                escape_string(&call.op)
-            ));
-            continue;
-        }
-
-        let args = sorted_arg_strings(&call.args)
-            .into_iter()
-            .map(|arg| format!("\"{}\"", escape_string(&arg)))
-            .collect::<Vec<_>>()
-            .join(", ");
-        p.line(&format!(
-            "{{Slot: \"{}\", Operation: \"{}\", Args: []string{{{}}}}},",
-            escape_string(&call.slot),
-            escape_string(&call.op),
-            args
-        ));
-    }
-    p.dedent();
-    p.line("},");
-}
-
-fn emit_emits(p: &mut GoPrinter, emits: &[String]) {
-    let mut sorted: Vec<&String> = emits.iter().collect();
-    sorted.sort();
-    let entries = sorted
-        .iter()
-        .map(|name| format!("\"{}\"", escape_string(name)))
-        .collect::<Vec<_>>()
-        .join(", ");
-    p.line(&format!("Emits: []string{{{entries}}},"));
-}
-
-fn emit_body_runtime_gaps(p: &mut GoPrinter, body: &JobBody, ctx: &TypeCtx<'_>) {
-    match body {
-        JobBody::Handler(handler) => emit_handler_runtime_gaps(p, handler, ctx),
-        JobBody::Declarative(declarative) => emit_declarative_runtime_gaps(p, declarative, ctx),
-    }
-}
-
-fn emit_handler_runtime_gaps(p: &mut GoPrinter, handler: &JobHandler, ctx: &TypeCtx<'_>) {
-    if let Some(return_type) = &handler.returns {
-        let (go_type, _import) = types::go_type_for(return_type, ctx);
-        p.line(&format!(
-            "// TODO(runtime): handler returns {go_type}, but jobs.JobContract has no return type field."
-        ));
-    }
-}
-
-fn emit_declarative_runtime_gaps(
-    p: &mut GoPrinter,
-    declarative: &JobDeclarative,
-    ctx: &TypeCtx<'_>,
-) {
-    p.line("// TODO(runtime): declarative job bodies are not represented in jobs.JobContract yet.");
-    if let Some(target) = &declarative.target {
-        p.line(&format!(
-            "// TODO(runtime): preserve declarative target {}.",
-            escape_comment(&format_qname(None, &target.query))
-        ));
-    }
-    if !declarative.lets.is_empty() {
-        let mut names: Vec<&str> = declarative
-            .lets
-            .iter()
-            .map(|binding| binding.name.as_str())
-            .collect();
-        names.sort();
-        p.line(&format!(
-            "// TODO(runtime): preserve declarative let bindings {}.",
-            escape_comment(&names.join(", "))
-        ));
-    }
-    p.line(&format!(
-        "// TODO(runtime): preserve declarative effect {}.",
-        escape_comment(&effect_summary(&declarative.effect, ctx))
-    ));
-}
-
-fn format_trigger(feature: &Feature, trigger: &JobTrigger) -> String {
-    match trigger {
-        JobTrigger::Event { event } => format!(
-            "jobs.JobTrigger{{Kind: \"event\", Event: \"{}\"}},",
-            escape_string(&format_qname(Some(&feature.name), event))
-        ),
-        JobTrigger::Schedule { cron } => format!(
-            "jobs.JobTrigger{{Kind: \"schedule\", Cron: \"{}\"}},",
-            escape_string(cron)
-        ),
-    }
-}
-
-fn backoff_const(backoff: BackoffStrategy) -> &'static str {
-    match backoff {
-        BackoffStrategy::Fixed => "jobs.BackoffFixed",
-        BackoffStrategy::Exponential => "jobs.BackoffExponential",
-    }
-}
-
-fn fanout_scope(scope: FanoutScope) -> &'static str {
-    match scope {
-        FanoutScope::Tenants => "tenants",
-    }
-}
-
-fn effective_policy<'a>(job: &'a Job, feature: &'a Feature) -> Option<&'a PolicyRef> {
-    job.policy
-        .as_ref()
-        .or(feature.defaults.policy.as_ref())
-        .filter(|policy| !matches!(policy, PolicyRef::None))
-}
-
-fn policy_string(policy: &PolicyRef) -> String {
-    match policy {
-        PolicyRef::Local(name) => format!("@policy.{}", escape_string(name)),
-        PolicyRef::Atom(atom) => {
-            let stripped = atom.strip_prefix('@').unwrap_or(atom);
-            format!("@{}", escape_string(stripped))
-        }
-        PolicyRef::External { feature, name } => {
-            format!("{}.policy.{}", escape_string(feature), escape_string(name))
-        }
-        PolicyRef::Unresolved(raw) => escape_string(raw),
-        PolicyRef::None => String::new(),
-    }
-}
-
-fn effect_summary(effect: &CommandEffect, ctx: &TypeCtx<'_>) -> String {
-    match effect {
-        CommandEffect::Creates(create) => format!("creates {}", create.resource.name),
-        CommandEffect::Updates(update) => format!("updates {}", update.resource.name),
-        CommandEffect::Deletes(delete) => format!("deletes {}", delete.resource.name),
-        CommandEffect::Returns(ret) => {
-            let (go_type, _import) = types::go_type_for(&ret.return_type, ctx);
-            format!("returns {go_type}")
-        }
-        CommandEffect::None => "none".to_owned(),
-    }
-}
-
-fn timeout_expr(raw: Option<&str>) -> Option<String> {
-    let raw = raw?.trim();
-    if raw.is_empty() {
-        return None;
-    }
-
-    let split_at = raw
-        .find(|ch: char| !ch.is_ascii_digit())
-        .unwrap_or(raw.len());
-    if split_at == 0 || split_at == raw.len() {
-        return None;
-    }
-
-    let amount = &raw[..split_at];
-    if !amount.chars().all(|ch| ch.is_ascii_digit()) {
-        return None;
-    }
-    let unit = &raw[split_at..];
-    let go_unit = match unit {
-        "ns" => "Nanosecond",
-        "us" => "Microsecond",
-        "ms" => "Millisecond",
-        "s" => "Second",
-        "m" => "Minute",
-        "h" => "Hour",
-        _ => return None,
-    };
-
-    if amount == "0" {
-        return Some("0".to_owned());
-    }
-    if amount == "1" {
-        return Some(format!("time.{go_unit}"));
-    }
-    Some(format!("{amount} * time.{go_unit}"))
-}
-
-fn format_qname(default_feature: Option<&str>, qname: &lazuli_ir::QualifiedName) -> String {
-    if qname.name.contains('.') && qname.feature.is_none() {
-        return qname.name.clone();
-    }
-    match qname.feature.as_deref().or(default_feature) {
-        Some(feature) => format!("{feature}.{}", qname.name),
-        None => qname.name.clone(),
-    }
-}
-
-fn format_path(path: &Path) -> String {
-    path.segments.join(".")
-}
-
-fn format_args_key(args: &[NamedArg]) -> String {
-    sorted_arg_strings(args).join("\u{1f}")
-}
-
-fn sorted_arg_strings(args: &[NamedArg]) -> Vec<String> {
-    let mut out: Vec<String> = args
-        .iter()
-        .map(|arg| format!("{}={}", arg.name, format_expr(&arg.value)))
-        .collect();
-    out.sort();
-    out
-}
-
-fn format_expr(expr: &lazuli_ir::Expr) -> String {
-    match expr {
-        lazuli_ir::Expr::Path(path) => format_path(path),
-        lazuli_ir::Expr::String(value) => format!("\"{}\"", escape_string(value)),
-        lazuli_ir::Expr::Integer(value) => value.to_string(),
-        lazuli_ir::Expr::Boolean(value) => value.to_string(),
-        lazuli_ir::Expr::Enum(literal) => match &literal.type_name {
-            Some(qname) => format!("{}.{}", format_qname(None, qname), literal.variant),
-            None => literal.variant.clone(),
-        },
-        lazuli_ir::Expr::Nil => "nil".to_owned(),
-        // Job-level format_expr is used for trigger inputs / log
-        // rendering; FnCall isn't expected here today, fall back to a
-        // best-effort textual rendering for diagnostics.
-        lazuli_ir::Expr::FnCall(call) => {
-            let args: Vec<String> = call.args.iter().map(format_expr).collect();
-            format!("@fn.{}({})", call.name.name, args.join(", "))
-        }
-    }
-}
-
-fn write_section_banner(p: &mut GoPrinter, lines: &[String]) {
-    let rule = "-".repeat(76);
-    p.line(&format!("// {rule}"));
-    for line in lines {
-        p.line(&format!("// {line}"));
-    }
-    p.line(&format!("// {rule}"));
-    p.blank();
-}
-
-fn job_var_name(feature_name: &str, job_name: &str) -> String {
-    format!("{}{}Job", lower_camel(feature_name), pascal_case(job_name))
-}
-
-fn pascal_case(s: &str) -> String {
-    super::casing::pascal_case(s)
-}
-
-fn lower_camel(s: &str) -> String {
-    super::casing::lower_camel(s)
-}
-
-fn escape_string(raw: &str) -> String {
-    let mut out = String::with_capacity(raw.len());
-    for ch in raw.chars() {
-        match ch {
-            '\\' => out.push_str("\\\\"),
-            '"' => out.push_str("\\\""),
-            _ => out.push(ch),
-        }
-    }
-    out
-}
-
-fn escape_comment(raw: &str) -> String {
-    raw.replace('\n', " ").replace('\r', " ")
-}
-
-/// PG.C.2 — emit the `Prelude: []billing.GateRef{...}` field on a
-/// `jobs.JobContract` value. `DispatchJob` (and the River worker
-/// shim) consults the slice via the package-level runner the
-/// `billing` package registers at init. Empty slice → no field
-/// emitted, preserving byte-equivalent output for ungated jobs.
-fn emit_gate_annotations(p: &mut GoPrinter, gates: &[Gate]) {
-    if gates.is_empty() {
-        return;
-    }
-    p.line("Prelude: []billing.GateRef{");
-    p.indent();
-    for gate in gates {
-        match gate {
-            Gate::Behind { feature } => {
-                p.line(&format!(
-                    "{{Kind: billing.GateBehind, Name: {:?}}},",
-                    feature
-                ));
-            }
-            Gate::Quota { limit } => {
-                p.line(&format!("{{Kind: billing.GateQuota, Name: {:?}}},", limit));
-            }
-        }
-    }
-    p.dedent();
-    p.line("},");
-}
-
 #[cfg(test)]
 mod feature_emit_tests {
     use super::*;
     use lazuli_ir::{
-        AppManifest, Assignment, CreateEffect, Defaults, Expr, JobHandler, LetBinding, Module,
-        Policies, QualifiedName, Resource, TypeRef, UpdateEffect,
+        AppManifest, Assignment, BackoffStrategy, CommandEffect, CreateEffect, Defaults, Expr,
+        ExternalCallRef, FanoutScope, IdempotencyKey, JobDeclarative, JobHandler, JobTrigger,
+        LetBinding, Module, NamedArg, Path, Policies, PolicyRef, QualifiedName, Resource,
+        RetryPolicy, TenantFromSpec, TypeRef, UpdateEffect,
     };
 
     fn base_feature(name: &str) -> Feature {
