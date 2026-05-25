@@ -280,3 +280,81 @@ pub fn deploy_strategy_detail(value: &str) -> Option<&'static str> {
         _ => None,
     }
 }
+
+// ── IR Error-Vocab built-in tables ─────────────────────────────────────────
+//
+// Pure data tables companion to `ERROR_VOCAB_CODES`. The hover layer
+// renders these as the **fallback** when a feature has no
+// `errors.<code> message @translation.<key>` override.
+
+/// Built-in PT-BR fallback strings shipped with the runtime — used by the
+/// LSP hover to **resolve** the displayed text when the surrounding feature
+/// has no override (proposal §2.D, §7.2). Mirrors
+/// `runtime/go/lazuli/i18n/builtin.pt-BR.json`; the LSP keeps a copy here so
+/// hover stays self-contained (no filesystem read at hover time).
+pub fn error_vocab_code_builtin_en_us(code: &str) -> Option<&'static str> {
+    match code {
+        "policy_denied" => Some("You need to sign in to do this."),
+        "validation_failed" => Some("Some of the information you sent is missing or incorrect."),
+        "tenant_mismatch" => Some("This action does not belong to the current workspace."),
+        "not_found" => Some("We couldn't find the requested item."),
+        "rate_limited" => Some("Too many attempts — please wait a moment."),
+        "bad_request" => Some("The request was sent in an invalid format."),
+        "method_not_allowed" => Some("This operation is not supported on this route."),
+        "integration_error" => Some("There was a problem reaching an external service."),
+        "unique_violation" => Some("This item already exists. Try another value."),
+        "foreign_key_violation" => {
+            Some("We couldn't complete this because a related item is missing.")
+        }
+        "not_null_violation" => {
+            Some("Some required information is missing. Please review and try again.")
+        }
+        "check_violation" => Some("One of the values doesn't meet the rules for this operation."),
+        _ => None,
+    }
+}
+
+/// One-line catalog-style hover/completion description for each of the 8
+/// closed-catalog error codes. Shown inline in completion lists and as a
+/// fallback hover (when no feature-level override is found in the document).
+pub fn error_vocab_code_detail(code: &str) -> Option<&'static str> {
+    match code {
+        "policy_denied" => Some(
+            "Authorization failure — actor lacks the required policy. Resolves through the per-command, per-policy, feature, builtin chain.",
+        ),
+        "validation_failed" => Some(
+            "Input validation failure — per-field details ride in `data.field_errors`; this message is the human-readable headline.",
+        ),
+        "tenant_mismatch" => Some(
+            "Cross-tenant access rejected — the targeted resource does not belong to the active workspace.",
+        ),
+        "not_found" => Some(
+            "Resource lookup failed — no row matched the requested key under the current scope.",
+        ),
+        "rate_limited" => {
+            Some("Throttle tripped — the caller exceeded the declared `rate_limit` axis budget.")
+        }
+        "bad_request" => Some(
+            "Malformed request — the request envelope failed structural parsing or schema validation.",
+        ),
+        "method_not_allowed" => {
+            Some("HTTP verb mismatch — the route is registered under a different method.")
+        }
+        "integration_error" => Some(
+            "External service failure — an outbound integration returned an error or timed out.",
+        ),
+        "unique_violation" => Some(
+            "Database unique constraint tripped (Postgres SQLSTATE 23505). Maps to HTTP 409. Authors override with `errors unique_violation message @translation.<key>` for domain-specific phrasing.",
+        ),
+        "foreign_key_violation" => Some(
+            "Database foreign-key constraint tripped (Postgres SQLSTATE 23503). Maps to HTTP 400. A row references a parent that does not exist (or was deleted).",
+        ),
+        "not_null_violation" => Some(
+            "Database NOT NULL constraint tripped (Postgres SQLSTATE 23502). Maps to HTTP 400. A required column was left blank by the request bindings.",
+        ),
+        "check_violation" => Some(
+            "Database CHECK constraint tripped (Postgres SQLSTATE 23514). Maps to HTTP 400. A column value failed the table's declared check expression.",
+        ),
+        _ => None,
+    }
+}
