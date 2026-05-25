@@ -48,6 +48,10 @@ pub use nodes::feature_defaults::{
     Constraint, Defaults, EscapeRoute, Extension, ExtensionContract, FieldValidation,
     IndexConstraint, IndexMethod, NonGoal, PathRef, PathSource, Tenancy, UniqueConstraint,
 };
+pub use nodes::lifecycle::{
+    FieldRef, HandlerRef, Lifecycle, LifecycleInvariant, LifecycleState, LifecycleStateKind,
+    LifecycleTransition, Transition, Workflow,
+};
 pub use nodes::mcp::{
     MCPAuth, MCPParam, MCPPrompt, MCPResource, MCPServerMetadata, MCPServerSpec, MCPTool,
     MCPTransport,
@@ -2496,118 +2500,6 @@ pub enum OperationKind {
 // preserve the ABI surface.
 // =============================================================================
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Workflow {
-    pub name: String,
-    pub on: FieldRef,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default_policy: Option<PolicyRef>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub default_emits: Vec<String>,
-    pub transitions: Vec<Transition>,
-    /// IR Error-Vocab — reserved-slot per-workflow override for the
-    /// `policy_denied` error message. v1 codegen does not consume this
-    /// slot (workflow transitions are author-driven, not end-user HTTP
-    /// boundaries); the IR shape exists so v2 promotion is purely
-    /// additive. See `docs/proposals/ir-error-messages-vocab.md` §3.3.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy_when_denied: Option<TranslationKeyRef>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub previous_names: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Lifecycle {
-    /// Name of the discriminator field on the parent Resource.
-    pub discriminator_field: String,
-
-    /// Auto-generated enum name (e.g. "PublicationStatus" for
-    /// `resource Publication { lifecycle status }`). Doctor enforces no
-    /// sibling `enum` of the same name.
-    pub generated_enum: String,
-
-    /// One per `state <name> [initial|terminal]` child. Order preserved
-    /// from source so doctor can reason about "linear chain" for
-    /// no_jump_more_than_one.
-    pub states: Vec<LifecycleState>,
-
-    /// One per `transition <name> ... ` child.
-    pub transitions: Vec<LifecycleTransition>,
-
-    /// One per `invariant <form>` child — closed catalog (§3.4).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub invariants: Vec<LifecycleInvariant>,
-
-    /// One per `invariant_handler @fn.<name>` escape-hatch child.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub invariant_handlers: Vec<HandlerRef>,
-
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub previous_names: Vec<String>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HandlerRef {
-    /// Extension namespace, e.g. `fn` for `@fn.<name>`.
-    pub namespace: String,
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LifecycleState {
-    pub name: String,
-    pub kind: LifecycleStateKind,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum LifecycleStateKind {
-    Initial,
-    Intermediate,
-    Terminal,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LifecycleTransition {
-    pub name: String,
-    /// One or more source state names. Multi = fan-in.
-    pub from: Vec<String>,
-    pub to: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy: Option<PolicyRef>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub audit: Option<AuditSpec>,
-    /// Name of the DateTime resource field stamped by this transition.
-    /// Lowering auto-emits the field on the parent resource if missing.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub timestamps: Option<String>,
-    /// Emitted events — same shape as Command.emits (verbatim strings;
-    /// the existing emit-string lowering handles `<event>` /
-    /// `<event> payload <fields>` / `<event> from updates`).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub emits: Vec<String>,
-    /// `requires @policy.<name>` — raises the bar above the lifecycle
-    /// default, mirrors Transition::requires.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub requires: Option<PolicyRef>,
-    /// `tests` block — mirrors Transition::tests (v0.2 §3.3).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tests: Option<TestBlock>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub previous_names: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
 // =============================================================================
 // L0 #8 — `poller` vocabulary (docs/proposals/poller-vocab.md §4).
 // Additive IR types; closed-catalog backoff / state-kind / quirk enums.
@@ -2717,47 +2609,6 @@ pub enum PollerRetryQuirk {
         counter_field: String,
         gender_field: String,
     },
-}
-
-/// Closed catalog (§3.4). `serde(tag = "kind", content = "value")` keeps
-/// the JSON projection self-describing for inspect consumers.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value")]
-pub enum LifecycleInvariant {
-    /// `invariant terminal_immutable`
-    #[serde(rename = "terminal_immutable")]
-    TerminalImmutable,
-    /// `invariant single <state> per <scope_field>`
-    #[serde(rename = "single_state_per_scope")]
-    SingleStatePerScope { state: String, scope_field: String },
-    /// `invariant no_jump_more_than_one`
-    #[serde(rename = "no_jump_more_than_one")]
-    NoJumpMoreThanOne,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FieldRef {
-    pub resource: QualifiedName,
-    pub field: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Transition {
-    pub name: String,
-    pub from: String,
-    pub to: String,
-    /// `requires @policy.<category>` raises the policy bar for this transition
-    /// above the workflow default (e.g. `requires @policy.delete`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub requires: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub emits: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tests: Option<TestBlock>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub previous_names: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
 }
 
 // =============================================================================
