@@ -4,19 +4,28 @@
 //! @client.<slot>` bindings.
 //!
 //! Per `docs/proposals/lzx-integration-codegen.md` §6.1.
+//!
+//! ## Module layout
+//!
+//! - `imports` — three-stage import block emission (runtime hooks +
+//!   React hooks, feature SDK imports, cell-slot prop types).
+//! - `spec` — the compile-time `<view>View` const, the
+//!   `_AssertColumns` type guard for table views, and the
+//!   `<Audience><View>Slots` / `Cells` interface for slot bindings.
+//! - `hook` — the `use<Audience><View>View` hook body, including
+//!   drawer state, multi-selection wiring, search/filter binding,
+//!   and the cellClick dispatcher.
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::Write;
+mod hook;
+mod imports;
+mod spec;
 
-use crate::lzx::{
-    Audience, CommandRef, Surface, ViewList, audience_view_pascal, banner, command_action_key,
-    command_ident, format_cells_literal, format_string_array, lower_camel, pascal_case, query_ident,
-    view_hook_name, view_spec_const,
-};
 use crate::lzx::lzx_aux;
-use crate::lzx::lzx_filters;
-use crate::lzx::lzx_search;
-use crate::lzx::{ListRender, SearchDecl, SearchMode, SelectionMode};
+use crate::lzx::{Audience, Surface, ViewList, banner};
+
+use hook::write_hook;
+use imports::write_imports;
+use spec::{write_column_assert, write_slot_interface, write_spec_const};
 
 /// Emit `dist/ts-<target>/<feat>/views/<audience>/<view-name>.gen.ts`.
 pub fn emit_view_list(
@@ -38,561 +47,6 @@ pub fn emit_view_list(
     s
 }
 
-fn write_imports(s: &mut String, surface: &Surface, view: &ViewList) {
-    let feature_pascal = pascal_case(&surface.feature);
-    let has_drawer = view.drawer.is_some();
-    let has_drawer_delete = drawer_delete_action(view).is_some();
-    let has_multi_selection = is_multi_selection(view);
-    let has_filters = !view.filter.is_empty();
-    let has_search = view.search.is_some();
-    let has_segmented_search = lzx_search::needs_segmented_imports(view.search.as_ref());
-    let has_url_synced_filters = lzx_filters::has_url_synced_filters(&view.filter);
-
-    // 1. Runtime hooks.
-    writeln!(s, "import {{").ok();
-    writeln!(s, "  useLazuliQuery,").ok();
-    if !view.actions.is_empty() || has_drawer_delete || lzx_aux::needs_bulk_commands(view) {
-        writeln!(s, "  useLazuliCommand,").ok();
-    }
-    if has_drawer {
-        writeln!(s, "  useDrawerSubView,").ok();
-    }
-    if has_multi_selection || lzx_aux::needs_multi_selection(view) {
-        writeln!(s, "  useMultiSelection,").ok();
-    }
-    if lzx_aux::needs_local_setting(view) {
-        writeln!(s, "  useLocalSetting,").ok();
-    }
-    if has_filters {
-        writeln!(s, "  useFilterState,").ok();
-    }
-    if has_url_synced_filters {
-        // TODO: introduce useUrlParams() helper in @lazuli/runtime/react.
-        writeln!(s, "  useUrlParams,").ok();
-    }
-    if has_segmented_search {
-        writeln!(s, "  parseSegments,").ok();
-        writeln!(s, "  canonicalizeSearch,").ok();
-    }
-    writeln!(s, "  type UseLazuliQueryOptions,").ok();
-    writeln!(s, "}} from \"@lazuli/runtime/react\";").ok();
-
-    // React hooks — combine search-driven needs with the existing
-    // drawer/aux state needs so we never emit two `import ... from "react"`
-    // lines.
-    let needs_use_state = has_drawer || lzx_aux::needs_use_state(view) || has_search;
-    let needs_use_callback = has_drawer || has_search;
-    let needs_use_memo = has_segmented_search;
-    let needs_react_type = has_drawer || !view.cells.is_empty();
-    if needs_use_state || needs_use_callback || needs_use_memo {
-        let mut parts: Vec<&str> = Vec::new();
-        if needs_use_callback {
-            parts.push("useCallback");
-        }
-        if needs_use_memo {
-            parts.push("useMemo");
-        }
-        if needs_use_state {
-            parts.push("useState");
-        }
-        writeln!(s, "import {{ {} }} from \"react\";", parts.join(", ")).ok();
-    }
-    if needs_react_type {
-        writeln!(s, "import type * as React from \"react\";").ok();
-    }
-    if has_drawer {
-        writeln!(
-            s,
-            "import {{ useRouterState }} from \"@tanstack/react-router\";"
-        )
-        .ok();
-    }
-    if has_url_synced_filters {
-        writeln!(
-            s,
-            "import {{ useSearch as useRouterSearch, useNavigate }} from \"@tanstack/react-router\";"
-        )
-        .ok();
-    }
-    if has_segmented_search {
-        writeln!(
-            s,
-            "import {{ parse as parseSearchQuery, type SearchParserResult, type SearchParserOptions }} from \"search-query-parser\";"
-        )
-        .ok();
-    }
-
-    // 2. Feature SDK — resource type + source query + each action command.
-    let mut sdk_imports: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    sdk_imports
-        .entry(view.source.feature.clone())
-        .or_default()
-        .insert(query_ident(&view.source));
-    for cmd in &view.actions {
-        sdk_imports
-            .entry(cmd.feature.clone())
-            .or_default()
-            .insert(command_ident(cmd));
-    }
-    if let Some(drawer) = &view.drawer {
-        sdk_imports
-            .entry(drawer.source.feature.clone())
-            .or_default()
-            .insert(query_ident(&drawer.source));
-        for cmd in &drawer.actions {
-            sdk_imports
-                .entry(cmd.feature.clone())
-                .or_default()
-                .insert(command_ident(cmd));
-        }
-    }
-    for ident in lzx_aux::unique_bulk_command_imports(view) {
-        sdk_imports
-            .entry(surface.feature.clone())
-            .or_default()
-            .insert(ident);
-    }
-    for ident in lzx_filters::enum_value_imports(&view.filter) {
-        sdk_imports
-            .entry(surface.feature.clone())
-            .or_default()
-            .insert(ident);
-    }
-    sdk_imports
-        .entry(surface.feature.clone())
-        .or_default()
-        .insert(format!("type {}", feature_pascal));
-
-    for (feature, imports) in sdk_imports {
-        writeln!(s, "import {{").ok();
-        for import in imports {
-            writeln!(s, "  {},", import).ok();
-        }
-        writeln!(s, "}} from \"../../{}.gen.js\";", feature).ok();
-    }
-
-    // 3. Cell slot prop types — one import per binding.
-    for cell in &view.cells {
-        let pascal_slot = pascal_case(&cell.slot);
-        writeln!(
-            s,
-            "import type {{ {}Props }} from \"../../cells/{}.gen.js\";",
-            pascal_slot, cell.slot
-        )
-        .ok();
-    }
-    s.push('\n');
-}
-
-
-fn write_spec_const(s: &mut String, audience: &Audience, view: &ViewList) {
-    let const_name = view_spec_const(&audience.name, &view.name);
-    let search_columns = view_search_columns(view);
-    let filter_names = view_filter_names(view);
-
-    writeln!(
-        s,
-        "// Compile-time view spec const. Frozen, type-checked against .lzx."
-    )
-    .ok();
-    writeln!(s, "export const {} = {{", const_name).ok();
-    writeln!(s, "  source: {},", query_ident(&view.source)).ok();
-    match &view.render {
-        ListRender::Table { columns } => {
-            writeln!(
-                s,
-                "  columns: {} as const,",
-                format_string_array(columns)
-            )
-            .ok();
-        }
-        ListRender::Cells { slot } => {
-            writeln!(s, "  cells: \"@client.{}\" as const,", slot).ok();
-        }
-    }
-    if !search_columns.is_empty() {
-        writeln!(
-            s,
-            "  search: {} as const,",
-            format_string_array(search_columns)
-        )
-        .ok();
-    }
-    if !filter_names.is_empty() {
-        writeln!(
-            s,
-            "  filter: {} as const,",
-            format_string_array(&filter_names)
-        )
-        .ok();
-    }
-    if matches!(&view.render, ListRender::Table { .. }) {
-        writeln!(s, "  cells: {},", format_cells_literal(&view.cells)).ok();
-    }
-    if !view.actions.is_empty() {
-        writeln!(s, "  actions: {},", format_actions_object(&view.actions)).ok();
-    }
-    if let Some(route) = &view.route {
-        writeln!(s, "  route: \"{}\",", route).ok();
-    }
-    writeln!(s, "}} as const;").ok();
-    s.push('\n');
-}
-
-fn view_search_columns(view: &ViewList) -> &[String] {
-    match &view.search {
-        Some(SearchDecl {
-            mode: SearchMode::Columns { columns },
-            ..
-        }) => columns.as_slice(),
-        _ => &[],
-    }
-}
-
-fn view_filter_names(view: &ViewList) -> Vec<String> {
-    view.filter
-        .iter()
-        .map(|filter| filter.name.clone())
-        .collect()
-}
-
-fn format_actions_object(actions: &[CommandRef]) -> String {
-    let parts: Vec<String> = actions
-        .iter()
-        .map(|c| format!("{}: {}", command_action_key(c), command_ident(c)))
-        .collect();
-    format!("{{ {} }}", parts.join(", "))
-}
-
-fn write_column_assert(s: &mut String, audience: &Audience, view: &ViewList, surface: &Surface) {
-    if !matches!(&view.render, ListRender::Table { .. }) {
-        return;
-    }
-
-    let const_name = view_spec_const(&audience.name, &view.name);
-    let feature_pascal = pascal_case(&surface.feature);
-
-    writeln!(
-        s,
-        "// Compile-time guarantee: every column must be a {} field.",
-        feature_pascal
-    )
-    .ok();
-    writeln!(
-        s,
-        "type _AssertColumns = (typeof {}.columns)[number] extends keyof {}",
-        const_name, feature_pascal
-    )
-    .ok();
-    writeln!(s, "  ? true").ok();
-    writeln!(s, "  : never;").ok();
-    s.push('\n');
-}
-
-fn write_slot_interface(s: &mut String, audience: &Audience, view: &ViewList, surface: &Surface) {
-    match &view.render {
-        ListRender::Table { .. } => {
-            if view.cells.is_empty() {
-                return;
-            }
-            let iface = format!("{}Slots", audience_view_pascal(&audience.name, &view.name));
-            writeln!(s, "// Slot binding contract.").ok();
-            writeln!(s, "export interface {} {{", iface).ok();
-            for cell in &view.cells {
-                let pascal_slot = pascal_case(&cell.slot);
-                writeln!(
-                    s,
-                    "  {}: React.ComponentType<{}Props>;",
-                    pascal_slot, pascal_slot
-                )
-                .ok();
-            }
-        }
-        ListRender::Cells { slot } => {
-            let iface = format!("{}Cells", audience_view_pascal(&audience.name, &view.name));
-            let pascal_slot = pascal_case(slot);
-            let row_prop = lower_camel(&surface.feature);
-            let row_type = pascal_case(&surface.feature);
-            writeln!(s, "// Grid cell slot contract.").ok();
-            writeln!(s, "export interface {} {{", iface).ok();
-            writeln!(
-                s,
-                "  {}: React.ComponentType<{{ {}: {} }}>;",
-                pascal_slot, row_prop, row_type
-            )
-            .ok();
-        }
-    }
-    writeln!(s, "}}").ok();
-    s.push('\n');
-}
-
-fn write_hook(s: &mut String, audience: &Audience, view: &ViewList, surface: &Surface) {
-    let const_name = view_spec_const(&audience.name, &view.name);
-    let hook_name = view_hook_name(&audience.name, &view.name);
-    let feature_pascal = pascal_case(&surface.feature);
-    let has_filters = !view.filter.is_empty();
-    let has_url_synced_filters = lzx_filters::has_url_synced_filters(&view.filter);
-    let has_search = view.search.is_some();
-    let is_columns_search = matches!(
-        view.search.as_ref().map(|d| &d.mode),
-        Some(SearchMode::Columns { .. })
-    );
-
-    writeln!(s, "export function {}(", hook_name).ok();
-    writeln!(
-        s,
-        "  options: UseLazuliQueryOptions<{{}}, {}[]> = {{}},",
-        feature_pascal
-    )
-    .ok();
-    writeln!(s, ") {{").ok();
-
-    if has_url_synced_filters {
-        // TODO: useUrlParams() ships with @lazuli/runtime/react alongside
-        // this emitter — see follow-up issue.
-        writeln!(s, "  const [params, setParams] = useUrlParams();").ok();
-    }
-    if has_filters {
-        s.push_str(&lzx_filters::emit_filters_const(&view.filter, surface));
-    }
-    if has_search {
-        lzx_search::emit_hook_setup(s, view);
-    }
-
-    writeln!(
-        s,
-        "  const query = useLazuliQuery({}.source, {}, options);",
-        const_name,
-        format_query_input(view, has_filters, is_columns_search)
-    )
-    .ok();
-    lzx_aux::write_hook_state(s, surface, view);
-    if is_multi_selection(view) && view.selection.is_none() {
-        // Currently unreachable (is_multi_selection already implies
-        // view.selection.is_some()), but kept in sync with the primary
-        // emission in lzx_aux::write_selection_state so a future
-        // refactor doesn't reintroduce the `<string>` hardcode.
-        writeln!(
-            s,
-            "  const selection = useMultiSelection<{}[\"id\"]>(query.data ?? []);",
-            pascal_case(&surface.feature)
-        )
-        .ok();
-    }
-    if view.drawer.is_some() {
-        writeln!(s, "  const routerState = useRouterState();").ok();
-        writeln!(
-            s,
-            "  const [drawerId, setDrawerId] = useState<string | null>(null);"
-        )
-        .ok();
-        if is_multi_selection(view) {
-            writeln!(
-                s,
-                "  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);"
-            )
-            .ok();
-        }
-    }
-
-    for cmd in &view.actions {
-        let key = command_action_key(cmd);
-        // `delete` is reserved → suffix `_`. Match the proposal §6.1 shape.
-        let bind = if key == "delete" {
-            "delete_".to_owned()
-        } else {
-            key.clone()
-        };
-        writeln!(
-            s,
-            "  const {} = useLazuliCommand({}.actions.{});",
-            bind, const_name, key
-        )
-        .ok();
-    }
-    if let Some(delete_cmd) = drawer_delete_action(view)
-        && !view
-            .actions
-            .iter()
-            .any(|cmd| command_action_key(cmd) == "delete")
-    {
-        writeln!(
-            s,
-            "  const drawerDelete = useLazuliCommand({});",
-            command_ident(delete_cmd)
-        )
-        .ok();
-    }
-    write_drawer_state(s, view);
-
-    writeln!(s).ok();
-    writeln!(s, "  return {{").ok();
-    writeln!(s, "    query,").ok();
-    if has_filters {
-        writeln!(s, "    filters,").ok();
-    }
-    lzx_search::emit_return_field(s, view.search.as_ref());
-    if !view.actions.is_empty() {
-        let parts: Vec<String> = view
-            .actions
-            .iter()
-            .map(|c| {
-                let key = command_action_key(c);
-                if key == "delete" {
-                    "delete: delete_".to_owned()
-                } else {
-                    key
-                }
-            })
-            .collect();
-        writeln!(s, "    actions: {{ {} }},", parts.join(", ")).ok();
-    }
-    lzx_aux::write_return_fields(s, view);
-    if view.drawer.is_some() {
-        writeln!(s, "    drawer,").ok();
-        writeln!(s, "    cellClick,").ok();
-    }
-    writeln!(s, "    meta: {},", const_name).ok();
-    writeln!(s, "  }} as const;").ok();
-    writeln!(s, "}}").ok();
-}
-
-fn format_query_input(view: &ViewList, has_filters: bool, is_columns_search: bool) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    if has_filters {
-        for filter in &view.filter {
-            parts.push(format!("{}: filters.{}.value", filter.name, filter.name));
-        }
-    }
-    if is_columns_search {
-        parts.push("q: searchRaw".to_owned());
-    }
-    if parts.is_empty() {
-        "{}".to_owned()
-    } else {
-        format!("{{ {} }}", parts.join(", "))
-    }
-}
-
-fn is_multi_selection(view: &ViewList) -> bool {
-    matches!(
-        view.selection.as_ref().map(|selection| selection.mode),
-        Some(SelectionMode::Multi)
-    )
-}
-
-fn drawer_delete_action(view: &ViewList) -> Option<&CommandRef> {
-    view.drawer.as_ref().and_then(|drawer| {
-        drawer
-            .actions
-            .iter()
-            .find(|cmd| command_action_key(cmd) == "delete")
-    })
-}
-
-fn delete_success_expr(view: &ViewList) -> &'static str {
-    if drawer_delete_action(view).is_none() {
-        "null"
-    } else if view
-        .actions
-        .iter()
-        .any(|cmd| command_action_key(cmd) == "delete")
-    {
-        "delete_.isSuccess ? delete_.submittedAt : null"
-    } else {
-        "drawerDelete.isSuccess ? drawerDelete.submittedAt : null"
-    }
-}
-
-fn write_drawer_state(s: &mut String, view: &ViewList) {
-    let Some(drawer) = &view.drawer else {
-        return;
-    };
-
-    let input = drawer
-        .route_binding
-        .as_ref()
-        .map(|binding| format!("{{ {}: drawerId ?? \"\" }}", binding.target))
-        .unwrap_or_else(|| "{ id: drawerId ?? \"\" }".to_owned());
-    let drawer_source = query_ident(&drawer.source);
-    let selection_contains = if is_multi_selection(view) {
-        "drawerId !== null ? selection.has(drawerId) : false"
-    } else {
-        "undefined"
-    };
-
-    writeln!(
-        s,
-        "  const drawerSubQuery = useLazuliQuery({}, {}, {{ enabled: drawerId !== null }});",
-        drawer_source, input
-    )
-    .ok();
-    writeln!(s, "  const drawerState = useDrawerSubView({{").ok();
-    writeln!(s, "    item: drawerSubQuery.data,").ok();
-    writeln!(
-        s,
-        "    itemMissing: !drawerSubQuery.isLoading && drawerSubQuery.data === null,"
-    )
-    .ok();
-    writeln!(s, "    pathname: routerState.location.pathname,").ok();
-    writeln!(s, "    lastDeleteSuccess: {},", delete_success_expr(view)).ok();
-    writeln!(s, "    selectionContainsOpenId: {},", selection_contains).ok();
-    writeln!(s, "  }});").ok();
-    writeln!(s, "  const drawer = {{").ok();
-    writeln!(s, "    ...drawerState,").ok();
-    writeln!(s, "    id: drawerId,").ok();
-    writeln!(s, "    isOpen: drawerState.isOpen,").ok();
-    writeln!(
-        s,
-        "    item: drawerId !== null ? (drawerSubQuery.data ?? null) : null,"
-    )
-    .ok();
-    writeln!(
-        s,
-        "    open: (id: string) => {{ setDrawerId(id); drawerState.open(id); }},"
-    )
-    .ok();
-    writeln!(
-        s,
-        "    close: () => {{ setDrawerId(null); drawerState.close(); }},"
-    )
-    .ok();
-    writeln!(s, "  }};").ok();
-    if is_multi_selection(view) {
-        writeln!(
-            s,
-            "  const cellClick = useCallback((id: string, event: React.MouseEvent) => {{"
-        )
-        .ok();
-        writeln!(
-            s,
-            "    if (event.shiftKey && lastSelectedId !== null) {{ selection.selectRange(lastSelectedId, id); setLastSelectedId(id); return; }}"
-        )
-        .ok();
-        writeln!(
-            s,
-            "    if (event.metaKey || event.ctrlKey) {{ selection.toggle(id); setLastSelectedId(id); return; }}"
-        )
-        .ok();
-        writeln!(
-            s,
-            "    if (selection.ids.size > 0) {{ selection.toggle(id); setLastSelectedId(id); return; }}"
-        )
-        .ok();
-        writeln!(s, "    drawer.open(id); setLastSelectedId(id);").ok();
-        writeln!(s, "  }}, [selection, drawer, lastSelectedId]);").ok();
-    } else {
-        writeln!(
-            s,
-            "  const cellClick = useCallback((id: string, _event: React.MouseEvent) => {{"
-        )
-        .ok();
-        writeln!(s, "    drawer.open(id);").ok();
-        writeln!(s, "  }}, [drawer]);").ok();
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -600,6 +54,7 @@ fn write_drawer_state(s: &mut String, view: &ViewList) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lzx::CommandRef;
     use crate::lzx::ir::*;
     use crate::lzx::test_fixtures;
 
@@ -904,7 +359,9 @@ mod tests {
         assert!(out.contains("useMultiSelection"));
         // Resource ID type is threaded via indexed-access on the
         // surface feature interface (`Thing["id"]`).
-        assert!(out.contains("const selection = useMultiSelection<Thing[\"id\"]>(query.data ?? [])"));
+        assert!(
+            out.contains("const selection = useMultiSelection<Thing[\"id\"]>(query.data ?? [])")
+        );
         assert!(
             out.contains(
                 "const cellClick = useCallback((id: string, event: React.MouseEvent) => {"
@@ -1081,9 +538,11 @@ mod tests {
         assert!(out.contains("parseSearchQuery(input,"));
         assert!(out.contains("canonicalizeSearch({"));
         // Return field surfaces segments via parseSegments.
-        assert!(out.contains(
-            "segments: parseSegments(searchRaw, SEARCH_KEYWORDS, SEARCH_ALWAYS_ARRAY),"
-        ));
+        assert!(
+            out.contains(
+                "segments: parseSegments(searchRaw, SEARCH_KEYWORDS, SEARCH_ALWAYS_ARRAY),"
+            )
+        );
     }
 
     #[test]
