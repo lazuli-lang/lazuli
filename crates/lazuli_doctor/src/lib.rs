@@ -14,6 +14,7 @@
 //! `ir_stub::Feature` shape that needs an adapter; cells A.1/A.2/A.3 retire
 //! that stub, after which `lzx/` can move too.
 
+pub mod config_noise;
 pub mod correctness;
 pub mod coverage;
 pub mod cross_feature;

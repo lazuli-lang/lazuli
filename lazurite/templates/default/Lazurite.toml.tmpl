@@ -6,101 +6,14 @@ schema = 1
 [lazuli]
 runtime = "0.1.0"
 
-[lazurite]
-template = "lazurite-default"
-template_version = "0.1.0"
-app_dir = "app"
-
-# Wave 3 — TDD/BDD-first defaults. Strict profile means doctor blocks
-# on missing/stub tests by default. Override per-rule with a reason
-# (DOCTOR-OVERRIDE-NEEDS-REASON-001 enforces non-empty reasons).
-# See `docs/proposals/tdd-bdd-first-2026-05-23.md`.
+# Doctor — strict security profile plus the TDD-strict coverage preset.
+# `tdd-strict` blocks handler_go at 90/95 (the non-negotiable TDD pair);
+# spec/actor-matrix/transition/view layers stay warn-only until you opt
+# up to `preset = "tdd-mature"`. Per-layer `[doctor.coverage.<layer>]`
+# sub-blocks override the preset when needed.
+# See docs/canonical-semantics.md#coverage-presets.
 [doctor]
 profile = "strict"
 
-[doctor.test_discipline]
-# All test-discipline rules at default severity for strict profile.
-# To override per-rule (with required `reason`):
-#
-#   [doctor.test_discipline.severity_override."TEST-STUB-001"]
-#   severity = "info"
-#   reason   = "in-flight refactor 2026-06"
-
-# Per-layer test-coverage thresholds. `lazuli doctor --coverage` cross-references
-# every IR construct (handler / spec / view) against the tests that exercise it
-# and grades each layer independently.
-#
-# Defaults below are conservative: `handler_go` is the only layer enforced
-# strictly out-of-the-box (matches the TDD pair discipline already enforced by
-# `HANDLER-MISSING-001` + `TEST-HANDLER-MISSING-001`). The other five layers
-# start lenient so new projects don't fight coverage from day one — raise the
-# bars as you author specs, view E2Es, and extensibility tests.
 [doctor.coverage]
-aggregate_method = "all_pass"
-
-[doctor.coverage.handler_go]
-block_under = 90
-warn_under = 95
-
-[doctor.coverage.spec_predicate]
-block_under = 0
-warn_under = 90
-
-[doctor.coverage.spec_actor_matrix]
-block_under = 0
-warn_under = 50
-
-[doctor.coverage.spec_transition_state]
-block_under = 0
-warn_under = 50
-
-[doctor.coverage.view_e2e_pair]
-block_under = 0
-warn_under = 50
-
-[doctor.coverage.view_extensibility]
-block_under = 0
-warn_under = 90
-
-[generate.go]
-out = "dist/go"
-gofmt = true
-strict = true
-emit_main = true
-submodule = true
-
-[migrations]
-generated = "dist/go/migrations"
-manual = "migrations"
-strategy = "auto"
-
-[seeds]
-dir = "seeds"
-auto = false
-
-# ----------------------------------------------------------------------------
-# Test runner (`lazuli test`)
-# ----------------------------------------------------------------------------
-# Wire-thin passthrough to `go test`, Vitest, and Playwright. `default_layers`
-# is what `lazuli test .` runs when no `--layer` is supplied. The discovery
-# roots assume the scaffolded layout (`app/features/<f>/handlers/`,
-# `app/web/src/`, `app/web/e2e/`); adjust if you opt into the multi-client
-# `app/clients/<name>/` layout instead.
-[testing]
-default_layers = ["handler_go", "view_extensibility"]
-
-[testing.go]
-flags = ["-count=1"]
-coverage = false
-package_pattern = "./app/features/.../handlers/..."
-
-[testing.ts]
-runner = "vitest"
-config = "app/web/vite.config.ts"
-discovery_root = "app/web/src"
-coverage = false
-
-[testing.playwright]
-config = "app/web/playwright.config.ts"
-discovery_root = "app/web/e2e"
-workers = 4
+preset = "tdd-strict"

@@ -60,8 +60,20 @@ pub struct SeverityOverride {
 }
 
 /// Wave 6 — `[doctor.coverage]` schema.
+///
+/// Frente 1 (2026-05-24) adds the optional `preset` shortcut so
+/// pilots can opt into the `tdd-strict` / `tdd-mature` / `off`
+/// opinionated layer-threshold sets without authoring all six
+/// `[doctor.coverage.<layer>]` sub-blocks. Per-layer sub-blocks
+/// still override the preset; see
+/// `docs/canonical-semantics.md#coverage-presets`.
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct CoverageSection {
+    /// Coverage preset name. One of `tdd-strict`, `tdd-mature`,
+    /// `off`. Unknown values surface as a doctor error so unknown
+    /// presets don't silently degrade into vacuous-pass behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
     #[serde(flatten)]
     pub per_layer: BTreeMap<String, LayerThresholdConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -117,6 +129,11 @@ pub struct TestingPlaywright {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TestingTs {
+    /// Frente 1 — defaults to `"vitest"` when omitted. Pilots that
+    /// follow the canonical scaffold need only `[testing.ts]` to opt
+    /// in without restating the runner choice. Use `runner = "jest"`
+    /// to switch.
+    #[serde(default = "default_ts_runner")]
     pub runner: String,
     #[serde(default)]
     pub flags: Vec<String>,
@@ -200,6 +217,22 @@ pub struct GenerateGo {
     pub dev_replace: Option<String>,
 }
 
+/// Frente 1 — canonical defaults for `[generate.go]`. Applied
+/// transparently when the block is absent from `Lazurite.toml`, so
+/// pilots can omit boilerplate that matches the canonical layout.
+impl Default for GenerateGo {
+    fn default() -> Self {
+        Self {
+            out: default_go_out(),
+            gofmt: true,
+            strict: true,
+            emit_main: true,
+            submodule: true,
+            dev_replace: None,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Frontend {
     pub target: FrontendTarget,
@@ -218,14 +251,30 @@ pub enum FrontendTarget {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Migrations {
+    #[serde(default = "default_migrations_generated")]
     pub generated: String,
+    #[serde(default = "default_migrations_manual")]
     pub manual: String,
+    #[serde(default)]
     pub strategy: MigrationStrategy,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+/// Frente 1 — canonical defaults for `[migrations]`. Applied
+/// transparently when the block is absent.
+impl Default for Migrations {
+    fn default() -> Self {
+        Self {
+            generated: default_migrations_generated(),
+            manual: default_migrations_manual(),
+            strategy: MigrationStrategy::default(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum MigrationStrategy {
+    #[default]
     Auto,
     Manual,
     CheckOnly,
@@ -233,8 +282,21 @@ pub enum MigrationStrategy {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Seeds {
+    #[serde(default = "default_seeds_dir")]
     pub dir: String,
+    #[serde(default)]
     pub auto: bool,
+}
+
+/// Frente 1 — canonical defaults for `[seeds]`. Applied transparently
+/// when the block is absent.
+impl Default for Seeds {
+    fn default() -> Self {
+        Self {
+            dir: default_seeds_dir(),
+            auto: false,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -358,6 +420,145 @@ impl Manifest {
         }
     }
 
+    /// Frente 1 — resolve `[generate.go]` with canonical defaults
+    /// applied when the block is omitted. Pilots that follow the
+    /// canonical layout can skip the section entirely.
+    pub fn generate_go_or_default(&self) -> GenerateGo {
+        self.generate.go.clone().unwrap_or_default()
+    }
+
+    /// Frente 1 — resolve `[migrations]` with canonical defaults
+    /// applied when the block is omitted.
+    pub fn migrations_or_default(&self) -> Migrations {
+        self.migrations.clone().unwrap_or_default()
+    }
+
+    /// Frente 1 — resolve `[seeds]` with canonical defaults applied
+    /// when the block is omitted.
+    pub fn seeds_or_default(&self) -> Seeds {
+        self.seeds.clone().unwrap_or_default()
+    }
+
+    /// Frente 1 — resolve effective `[testing.ts]` config. Authored
+    /// `[testing.ts]` (or missing fields filled with layout-derived
+    /// canonical defaults) > pure layout defaults > `None`.
+    ///
+    /// Layout-derived defaults (when `detect_frontend_layout` resolves):
+    /// - `runner = "vitest"`
+    /// - `config  = "<layout>/vite.config.ts"`
+    /// - `discovery_root = "<layout>/src"`
+    ///
+    /// Returns `None` only when the project is neither in the canonical
+    /// layout nor declares `[testing.ts]` (back-compat).
+    pub fn testing_ts_resolved(&self, project_root: &Path) -> Option<TestingTs> {
+        let authored = self.testing.as_ref().and_then(|t| t.ts.as_ref());
+        let layout = self.detect_frontend_layout(project_root);
+        match (authored, layout) {
+            (Some(cfg), layout) => {
+                let mut cfg = cfg.clone();
+                if cfg.config.is_none() {
+                    if let Some(l) = layout.as_ref() {
+                        cfg.config = Some(format!("{l}/vite.config.ts"));
+                    }
+                }
+                if cfg.discovery_root.is_none() {
+                    if let Some(l) = layout.as_ref() {
+                        cfg.discovery_root = Some(format!("{l}/src"));
+                    }
+                }
+                Some(cfg)
+            }
+            (None, Some(l)) => Some(TestingTs {
+                runner: default_ts_runner(),
+                flags: Vec::new(),
+                config: Some(format!("{l}/vite.config.ts")),
+                discovery_root: Some(format!("{l}/src")),
+                coverage: false,
+            }),
+            (None, None) => None,
+        }
+    }
+
+    /// Frente 1 — resolve effective `[testing.playwright]` config.
+    /// Same precedence as `testing_ts_resolved`. Layout-derived
+    /// defaults:
+    /// - `config = "<layout>/playwright.config.ts"`
+    /// - `discovery_root = "<layout>/e2e"`
+    /// - `workers = Some(4)`
+    pub fn testing_playwright_resolved(&self, project_root: &Path) -> Option<TestingPlaywright> {
+        let authored = self.testing.as_ref().and_then(|t| t.playwright.as_ref());
+        let layout = self.detect_frontend_layout(project_root);
+        match (authored, layout) {
+            (Some(cfg), layout) => {
+                let mut cfg = cfg.clone();
+                if cfg.config.is_none() {
+                    if let Some(l) = layout.as_ref() {
+                        cfg.config = Some(format!("{l}/playwright.config.ts"));
+                    }
+                }
+                if cfg.discovery_root.is_none() {
+                    if let Some(l) = layout.as_ref() {
+                        cfg.discovery_root = Some(format!("{l}/e2e"));
+                    }
+                }
+                if cfg.workers.is_none() {
+                    cfg.workers = Some(4);
+                }
+                Some(cfg)
+            }
+            (None, Some(l)) => Some(TestingPlaywright {
+                config: Some(format!("{l}/playwright.config.ts")),
+                workers: Some(4),
+                project: None,
+                discovery_root: Some(format!("{l}/e2e")),
+                flags: Vec::new(),
+            }),
+            (None, None) => None,
+        }
+    }
+
+    /// Frente 1 — `[testing] default_layers` with canonical default
+    /// `["handler_go", "view_extensibility"]` applied when the field
+    /// (or the entire `[testing]` block) is missing.
+    pub fn testing_default_layers(&self) -> Vec<String> {
+        self.testing
+            .as_ref()
+            .and_then(|t| t.default_layers.clone())
+            .unwrap_or_else(|| vec!["handler_go".to_string(), "view_extensibility".to_string()])
+    }
+
+    /// Frente 1 — detect the canonical frontend layout. Returns
+    /// `Some("app/web")` when the singular scaffold layout is in use,
+    /// `Some("app/clients/<name>")` when the multi-client layout is
+    /// in use (and exactly one client exists), `None` otherwise.
+    ///
+    /// Used to apply default `[testing.ts]` / `[testing.playwright]`
+    /// config + discovery_root paths so pilots on the canonical layout
+    /// don't need to author either block.
+    pub fn detect_frontend_layout(&self, project_root: &Path) -> Option<String> {
+        let singular = project_root.join("app").join("web");
+        if singular.is_dir() {
+            return Some("app/web".to_string());
+        }
+        let clients = project_root.join("app").join("clients");
+        if !clients.is_dir() {
+            return None;
+        }
+        // Only auto-detect when exactly one client dir exists; with
+        // multiple clients the pilot must spell out which to use.
+        let mut entries: Vec<String> = std::fs::read_dir(&clients)
+            .ok()?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .filter_map(|e| e.file_name().into_string().ok())
+            .collect();
+        entries.sort();
+        if entries.len() == 1 {
+            return Some(format!("app/clients/{}", entries[0]));
+        }
+        None
+    }
+
     pub fn validate(&self) -> Result<(), ManifestError> {
         if self.project.schema != 1 {
             return Err(ManifestError::UnsupportedSchema(self.project.schema));
@@ -473,6 +674,25 @@ fn default_true() -> bool {
 
 fn default_go_out() -> String {
     "dist/go".to_string()
+}
+
+fn default_migrations_generated() -> String {
+    "dist/go/migrations".to_string()
+}
+
+fn default_migrations_manual() -> String {
+    "migrations".to_string()
+}
+
+fn default_seeds_dir() -> String {
+    "seeds".to_string()
+}
+
+/// Frente 1 — `[testing.ts] runner` defaults to `"vitest"` since
+/// that's the canonical scaffold choice. Pilots opting into Jest
+/// must set `runner = "jest"` explicitly.
+fn default_ts_runner() -> String {
+    "vitest".to_string()
 }
 
 #[cfg(test)]
@@ -748,6 +968,431 @@ aggregate_method   = "weighted-by-construct-count"
             .expect("spec_actor_matrix entry");
         assert_eq!(sa.block_under, 70);
         assert_eq!(sa.warn_under, 90);
+    }
+
+    /// Frente 1 — `[doctor.coverage] preset = "<name>"` parses.
+    #[test]
+    fn parse_doctor_coverage_with_preset() {
+        let manifest = parse_manifest(
+            r#"
+[project]
+name = "myapp"
+module = "github.com/myorg/myapp"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+
+[doctor.coverage]
+preset = "tdd-strict"
+"#,
+        )
+        .unwrap();
+
+        let coverage = manifest
+            .doctor
+            .and_then(|d| d.coverage)
+            .expect("coverage section");
+        assert_eq!(coverage.preset.as_deref(), Some("tdd-strict"));
+        assert!(coverage.per_layer.is_empty());
+    }
+
+    /// Frente 1 — preset + per-layer overrides coexist; preset is
+    /// captured as a string and individual layers as their own
+    /// `LayerThresholdConfig` entries.
+    #[test]
+    fn parse_doctor_coverage_preset_with_overrides() {
+        let manifest = parse_manifest(
+            r#"
+[project]
+name = "myapp"
+module = "github.com/myorg/myapp"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+
+[doctor.coverage]
+preset = "tdd-strict"
+
+[doctor.coverage.handler_go]
+block_under = 70
+warn_under = 80
+"#,
+        )
+        .unwrap();
+
+        let coverage = manifest
+            .doctor
+            .and_then(|d| d.coverage)
+            .expect("coverage section");
+        assert_eq!(coverage.preset.as_deref(), Some("tdd-strict"));
+        let handler = coverage
+            .per_layer
+            .get("handler_go")
+            .expect("handler_go entry");
+        assert_eq!(handler.block_under, 70);
+        assert_eq!(handler.warn_under, 80);
+    }
+
+    /// Frente 1 — `[generate.go]` defaults apply when block is absent.
+    #[test]
+    fn generate_go_or_default_when_block_absent() {
+        let manifest = parse_manifest(
+            r#"
+[project]
+name = "myapp"
+module = "github.com/myorg/myapp"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+"#,
+        )
+        .unwrap();
+
+        let go = manifest.generate_go_or_default();
+        assert_eq!(go.out, "dist/go");
+        assert!(go.gofmt);
+        assert!(go.strict);
+        assert!(go.emit_main);
+        assert!(go.submodule);
+    }
+
+    /// Frente 1 — partial `[generate.go]` block fills missing fields
+    /// with canonical defaults.
+    #[test]
+    fn generate_go_partial_block_fills_defaults() {
+        let manifest = parse_manifest(
+            r#"
+[project]
+name = "myapp"
+module = "github.com/myorg/myapp"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+
+[generate.go]
+out = "build/server"
+"#,
+        )
+        .unwrap();
+
+        let go = manifest.generate_go_or_default();
+        assert_eq!(go.out, "build/server");
+        // Other fields default to the canonical values.
+        assert!(go.gofmt);
+        assert!(go.strict);
+        assert!(go.emit_main);
+        assert!(go.submodule);
+    }
+
+    /// Frente 1 — `[migrations]` defaults apply when block is absent.
+    #[test]
+    fn migrations_or_default_when_block_absent() {
+        let manifest = parse_manifest(
+            r#"
+[project]
+name = "myapp"
+module = "github.com/myorg/myapp"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+"#,
+        )
+        .unwrap();
+
+        let migrations = manifest.migrations_or_default();
+        assert_eq!(migrations.generated, "dist/go/migrations");
+        assert_eq!(migrations.manual, "migrations");
+        assert!(matches!(migrations.strategy, MigrationStrategy::Auto));
+    }
+
+    /// Frente 1 — partial `[migrations]` block fills missing fields
+    /// with canonical defaults.
+    #[test]
+    fn migrations_partial_block_fills_defaults() {
+        let manifest = parse_manifest(
+            r#"
+[project]
+name = "myapp"
+module = "github.com/myorg/myapp"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+
+[migrations]
+strategy = "manual"
+"#,
+        )
+        .unwrap();
+
+        let migrations = manifest.migrations_or_default();
+        assert_eq!(migrations.generated, "dist/go/migrations");
+        assert_eq!(migrations.manual, "migrations");
+        assert!(matches!(migrations.strategy, MigrationStrategy::Manual));
+    }
+
+    /// Frente 1 — `[testing] default_layers` defaults to
+    /// `["handler_go", "view_extensibility"]` when missing.
+    #[test]
+    fn testing_default_layers_when_block_absent() {
+        let manifest = parse_manifest(
+            r#"
+[project]
+name = "myapp"
+module = "github.com/myorg/myapp"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+"#,
+        )
+        .unwrap();
+
+        let layers = manifest.testing_default_layers();
+        assert_eq!(layers, vec!["handler_go", "view_extensibility"]);
+    }
+
+    /// Frente 1 — authored `default_layers` wins over the canonical
+    /// default.
+    #[test]
+    fn testing_default_layers_authored_wins() {
+        let manifest = parse_manifest(
+            r#"
+[project]
+name = "myapp"
+module = "github.com/myorg/myapp"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+
+[testing]
+default_layers = ["spec_predicate"]
+"#,
+        )
+        .unwrap();
+
+        let layers = manifest.testing_default_layers();
+        assert_eq!(layers, vec!["spec_predicate"]);
+    }
+
+    /// Frente 1 — `[testing.ts]` runner defaults to `"vitest"`.
+    #[test]
+    fn testing_ts_runner_defaults_to_vitest() {
+        let manifest = parse_manifest(
+            r#"
+[project]
+name = "myapp"
+module = "github.com/myorg/myapp"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+
+[testing.ts]
+"#,
+        )
+        .unwrap();
+
+        let ts = manifest
+            .testing
+            .as_ref()
+            .and_then(|t| t.ts.as_ref())
+            .expect("ts block");
+        assert_eq!(ts.runner, "vitest");
+    }
+
+    /// Frente 1 — layout detection: `app/web/` → singular.
+    #[test]
+    fn detect_frontend_layout_singular() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("app").join("web")).unwrap();
+        let manifest = parse_manifest(
+            r#"
+[project]
+name = "myapp"
+module = "github.com/myorg/myapp"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            manifest.detect_frontend_layout(tmp.path()),
+            Some("app/web".to_string())
+        );
+    }
+
+    /// Frente 1 — layout detection: `app/clients/<sole>/` → plural.
+    #[test]
+    fn detect_frontend_layout_single_client() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("app").join("clients").join("hostpoint-app"))
+            .unwrap();
+        let manifest = parse_manifest(
+            r#"
+[project]
+name = "myapp"
+module = "github.com/myorg/myapp"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            manifest.detect_frontend_layout(tmp.path()),
+            Some("app/clients/hostpoint-app".to_string())
+        );
+    }
+
+    /// Frente 1 — multiple clients → no auto-detect (pilot must
+    /// spell out the config).
+    #[test]
+    fn detect_frontend_layout_multiple_clients_ambiguous() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("app").join("clients").join("web")).unwrap();
+        std::fs::create_dir_all(tmp.path().join("app").join("clients").join("mobile")).unwrap();
+        let manifest = parse_manifest(
+            r#"
+[project]
+name = "myapp"
+module = "github.com/myorg/myapp"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+"#,
+        )
+        .unwrap();
+        assert_eq!(manifest.detect_frontend_layout(tmp.path()), None);
+    }
+
+    /// Frente 1 — `testing_ts_resolved` returns layout-derived
+    /// defaults when block is omitted.
+    #[test]
+    fn testing_ts_resolved_layout_defaults() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("app").join("web")).unwrap();
+        let manifest = parse_manifest(
+            r#"
+[project]
+name = "myapp"
+module = "github.com/myorg/myapp"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+"#,
+        )
+        .unwrap();
+        let ts = manifest.testing_ts_resolved(tmp.path()).expect("resolved");
+        assert_eq!(ts.runner, "vitest");
+        assert_eq!(ts.config.as_deref(), Some("app/web/vite.config.ts"));
+        assert_eq!(ts.discovery_root.as_deref(), Some("app/web/src"));
+    }
+
+    /// Frente 1 — authored fields win over layout defaults; missing
+    /// fields are filled.
+    #[test]
+    fn testing_ts_resolved_authored_wins_with_layout_fill() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("app").join("web")).unwrap();
+        let manifest = parse_manifest(
+            r#"
+[project]
+name = "myapp"
+module = "github.com/myorg/myapp"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+
+[testing.ts]
+discovery_root = "custom/src"
+"#,
+        )
+        .unwrap();
+        let ts = manifest.testing_ts_resolved(tmp.path()).expect("resolved");
+        // discovery_root authored wins.
+        assert_eq!(ts.discovery_root.as_deref(), Some("custom/src"));
+        // config filled from layout.
+        assert_eq!(ts.config.as_deref(), Some("app/web/vite.config.ts"));
+    }
+
+    /// Frente 1 — no layout AND no authored block → None
+    /// (back-compat skip path for non-canonical projects).
+    #[test]
+    fn testing_ts_resolved_none_when_neither() {
+        let tmp = tempfile::tempdir().unwrap();
+        let manifest = parse_manifest(
+            r#"
+[project]
+name = "myapp"
+module = "github.com/myorg/myapp"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+"#,
+        )
+        .unwrap();
+        assert!(manifest.testing_ts_resolved(tmp.path()).is_none());
+    }
+
+    /// Frente 1 — `testing_playwright_resolved` mirrors the ts
+    /// behavior with playwright-specific paths.
+    #[test]
+    fn testing_playwright_resolved_layout_defaults() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("app").join("web")).unwrap();
+        let manifest = parse_manifest(
+            r#"
+[project]
+name = "myapp"
+module = "github.com/myorg/myapp"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+"#,
+        )
+        .unwrap();
+        let pw = manifest
+            .testing_playwright_resolved(tmp.path())
+            .expect("resolved");
+        assert_eq!(pw.config.as_deref(), Some("app/web/playwright.config.ts"));
+        assert_eq!(pw.discovery_root.as_deref(), Some("app/web/e2e"));
+        assert_eq!(pw.workers, Some(4));
+    }
+
+    /// Frente 1 — `[seeds]` defaults apply when block is absent.
+    #[test]
+    fn seeds_or_default_when_block_absent() {
+        let manifest = parse_manifest(
+            r#"
+[project]
+name = "myapp"
+module = "github.com/myorg/myapp"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+"#,
+        )
+        .unwrap();
+
+        let seeds = manifest.seeds_or_default();
+        assert_eq!(seeds.dir, "seeds");
+        assert!(!seeds.auto);
     }
 
     /// Lazurite.toml rename (2026-05-15) — `load()` must accept both

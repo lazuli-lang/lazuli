@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 use lazuli_ir::Feature;
 
 use crate::handler_path;
-use crate::handler_walker::{HandlerSite, HandlerSiteKind, iter_handler_sites};
+use crate::handler_walker::{iter_handler_sites, HandlerSite, HandlerSiteKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
@@ -275,6 +275,7 @@ mod tests {
             policy_expr: None,
             policy_when_denied: None,
             handler: lazuli_ir::PathRef::authored("./webhooks/handle_invoice_paid.go".to_owned()),
+            returns: None,
             emits: vec![],
             emit_predicates: vec![],
             payload_from: None,

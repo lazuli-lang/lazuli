@@ -134,6 +134,145 @@ impl CoverageThresholds {
     pub fn get(&self, layer: &str) -> Option<LayerThreshold> {
         self.per_layer.get(layer).copied()
     }
+
+    /// Per-layer override merge: every entry in `overrides` replaces
+    /// the same layer (if present) or extends the map (if new).
+    /// Aggregate method is overridden only when `Some` on the
+    /// override side, so passing an empty override preserves the
+    /// base aggregate method.
+    pub fn merge_overrides(mut self, overrides: CoverageThresholds) -> Self {
+        for (layer, threshold) in overrides.per_layer {
+            self.per_layer.insert(layer, threshold);
+        }
+        if overrides.aggregate_method.is_some() {
+            self.aggregate_method = overrides.aggregate_method;
+        }
+        self
+    }
+}
+
+/// `[doctor.coverage] preset = "<name>"` — opinionated layer-threshold
+/// preset that pilots can opt into without authoring all six per-layer
+/// sub-blocks by hand. Orthogonal to `[doctor] profile` (security
+/// profile); presets target test-coverage stance specifically.
+///
+/// Frente 1 / 2026-05-24 — see
+/// `docs/canonical-semantics.md#coverage-presets`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CoveragePreset {
+    /// Block `handler_go` strictly (90/95); warn-only on the spec
+    /// and view layers. Mirrors the historical hostpoint tuning and
+    /// the scaffold-default expectation: handler tests are the
+    /// non-negotiable TDD pair, the other layers are aspirational
+    /// while specs/view-e2e ramp up.
+    TddStrict,
+    /// Block every layer at 70/85 — for pilots with full spec /
+    /// actor-matrix / transition / view-extensibility / e2e
+    /// authorship. The "mature TDD shop" stance.
+    TddMature,
+    /// All zeros across the board; report only, never gate. Useful
+    /// for prototypes that still want the coverage report rendered
+    /// but don't want any layer to fail CI.
+    Off,
+}
+
+impl CoveragePreset {
+    /// Parse a string preset name from `Lazurite.toml`. Returns
+    /// `None` for any unknown name; callers should surface that as a
+    /// config error so unknown presets don't silently degrade into
+    /// vacuous-pass behavior.
+    pub fn parse(input: &str) -> Option<Self> {
+        match input.trim() {
+            "tdd-strict" => Some(Self::TddStrict),
+            "tdd-mature" => Some(Self::TddMature),
+            "off" => Some(Self::Off),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::TddStrict => "tdd-strict",
+            Self::TddMature => "tdd-mature",
+            Self::Off => "off",
+        }
+    }
+}
+
+/// Preset-derived thresholds. Independent of `CoverageProfile` —
+/// the two compose via [`resolve_coverage_thresholds`].
+pub fn preset_thresholds(preset: CoveragePreset) -> CoverageThresholds {
+    let layers: &[(&str, u32, u32)] = match preset {
+        CoveragePreset::TddStrict => &[
+            ("handler_go", 90, 95),
+            ("spec_predicate", 0, 90),
+            ("spec_actor_matrix", 0, 50),
+            ("spec_transition_state", 0, 50),
+            ("view_e2e_pair", 0, 50),
+            ("view_extensibility", 0, 90),
+        ],
+        CoveragePreset::TddMature => &[
+            ("handler_go", 70, 85),
+            ("spec_predicate", 70, 85),
+            ("spec_actor_matrix", 70, 85),
+            ("spec_transition_state", 70, 85),
+            ("view_e2e_pair", 70, 85),
+            ("view_extensibility", 70, 85),
+        ],
+        CoveragePreset::Off => &[
+            ("handler_go", 0, 0),
+            ("spec_predicate", 0, 0),
+            ("spec_actor_matrix", 0, 0),
+            ("spec_transition_state", 0, 0),
+            ("view_e2e_pair", 0, 0),
+            ("view_extensibility", 0, 0),
+        ],
+    };
+    let per_layer = layers
+        .iter()
+        .map(|(name, block, warn)| {
+            (
+                (*name).to_string(),
+                LayerThreshold {
+                    block_under: *block,
+                    warn_under: *warn,
+                },
+            )
+        })
+        .collect();
+    CoverageThresholds {
+        per_layer,
+        aggregate_method: None,
+    }
+}
+
+/// Resolve the effective `CoverageThresholds` from a base profile, an
+/// optional preset, and an optional per-layer override map.
+/// Resolution precedence (highest wins):
+///
+///   1. per-layer `[doctor.coverage.<layer>]` override
+///   2. `[doctor.coverage] preset = "<name>"`
+///   3. profile-default thresholds (from `profile_default_thresholds`)
+///
+/// `per_layer_overrides` is the raw `BTreeMap` from
+/// `CoverageSection::per_layer` (manifest sub-block form);
+/// `aggregate_method` passes through verbatim.
+pub fn resolve_coverage_thresholds(
+    profile: CoverageProfile,
+    preset: Option<CoveragePreset>,
+    per_layer_overrides: BTreeMap<String, LayerThreshold>,
+    aggregate_method: Option<String>,
+) -> CoverageThresholds {
+    let base = profile_default_thresholds(profile);
+    let after_preset = match preset {
+        Some(p) => base.merge_overrides(preset_thresholds(p)),
+        None => base,
+    };
+    let overrides = CoverageThresholds {
+        per_layer: per_layer_overrides,
+        aggregate_method,
+    };
+    after_preset.merge_overrides(overrides)
 }
 
 /// Security profile mapping for default thresholds. Mirrors
@@ -234,10 +373,7 @@ pub fn build_coverage_report(
         "view_e2e_pair".to_string(),
         view_e2e_pair::compute(lzx_views, project_root),
     );
-    layers.insert(
-        "handler_go".to_string(),
-        handler_go::compute(project_root),
-    );
+    layers.insert("handler_go".to_string(), handler_go::compute(project_root));
     apply_thresholds(&mut layers, thresholds);
     let gate_result = compute_gate(&layers);
     let applied_profile = match profile {
@@ -359,5 +495,151 @@ mod tests {
             assert_eq!(t.block_under, 0);
             assert_eq!(t.warn_under, 0);
         }
+    }
+
+    // ---------- Frente 1 — coverage preset resolution ----------
+
+    #[test]
+    fn preset_parse_recognizes_canonical_names() {
+        assert_eq!(
+            CoveragePreset::parse("tdd-strict"),
+            Some(CoveragePreset::TddStrict)
+        );
+        assert_eq!(
+            CoveragePreset::parse("tdd-mature"),
+            Some(CoveragePreset::TddMature)
+        );
+        assert_eq!(CoveragePreset::parse("off"), Some(CoveragePreset::Off));
+        // Surrounding whitespace tolerated.
+        assert_eq!(
+            CoveragePreset::parse("  tdd-strict  "),
+            Some(CoveragePreset::TddStrict)
+        );
+    }
+
+    #[test]
+    fn preset_parse_rejects_unknown_names() {
+        assert_eq!(CoveragePreset::parse("tdd-loose"), None);
+        assert_eq!(CoveragePreset::parse(""), None);
+        assert_eq!(CoveragePreset::parse("strict"), None); // profile name leaked in
+    }
+
+    #[test]
+    fn preset_tdd_strict_blocks_only_handler_go() {
+        let t = preset_thresholds(CoveragePreset::TddStrict);
+        let handler = t.get("handler_go").expect("handler_go entry");
+        assert_eq!(handler.block_under, 90);
+        assert_eq!(handler.warn_under, 95);
+        // Every other layer warn-only.
+        for layer in [
+            "spec_predicate",
+            "spec_actor_matrix",
+            "spec_transition_state",
+            "view_e2e_pair",
+            "view_extensibility",
+        ] {
+            let lt = t.get(layer).expect(layer);
+            assert_eq!(lt.block_under, 0, "{layer} should warn-only");
+            assert!(lt.warn_under > 0, "{layer} should warn at >0");
+        }
+    }
+
+    #[test]
+    fn preset_tdd_mature_blocks_every_layer() {
+        let t = preset_thresholds(CoveragePreset::TddMature);
+        for (_, lt) in t.per_layer.iter() {
+            assert_eq!(lt.block_under, 70);
+            assert_eq!(lt.warn_under, 85);
+        }
+    }
+
+    #[test]
+    fn preset_off_never_gates() {
+        let t = preset_thresholds(CoveragePreset::Off);
+        for (_, lt) in t.per_layer.iter() {
+            assert_eq!(lt.block_under, 0);
+            assert_eq!(lt.warn_under, 0);
+        }
+    }
+
+    /// Resolution precedence: preset overrides profile defaults.
+    #[test]
+    fn resolve_preset_overrides_profile_defaults() {
+        let thresholds = resolve_coverage_thresholds(
+            CoverageProfile::Strict,
+            Some(CoveragePreset::TddStrict),
+            BTreeMap::new(),
+            None,
+        );
+        let handler = thresholds.get("handler_go").unwrap();
+        // Strict profile would have left handler_go at (0, 70); preset lifts it to (90, 95).
+        assert_eq!(handler.block_under, 90);
+        assert_eq!(handler.warn_under, 95);
+    }
+
+    /// Resolution precedence: per-layer override wins over preset.
+    #[test]
+    fn resolve_per_layer_override_wins_over_preset() {
+        let mut overrides = BTreeMap::new();
+        overrides.insert(
+            "handler_go".to_string(),
+            LayerThreshold {
+                block_under: 30,
+                warn_under: 40,
+            },
+        );
+        let thresholds = resolve_coverage_thresholds(
+            CoverageProfile::Strict,
+            Some(CoveragePreset::TddStrict),
+            overrides,
+            None,
+        );
+        let handler = thresholds.get("handler_go").unwrap();
+        assert_eq!(handler.block_under, 30);
+        assert_eq!(handler.warn_under, 40);
+        // Untouched layers still carry preset values.
+        let spec_pred = thresholds.get("spec_predicate").unwrap();
+        assert_eq!(spec_pred.warn_under, 90); // tdd-strict spec_predicate
+    }
+
+    /// When no preset is supplied, profile defaults still apply (the
+    /// backwards-compat path).
+    #[test]
+    fn resolve_no_preset_falls_back_to_profile() {
+        let thresholds =
+            resolve_coverage_thresholds(CoverageProfile::Strict, None, BTreeMap::new(), None);
+        // Strict profile: handler_go warn_under = 70, block_under = 0.
+        let handler = thresholds.get("handler_go").unwrap();
+        assert_eq!(handler.block_under, 0);
+        assert_eq!(handler.warn_under, 70);
+    }
+
+    /// Preset + profile interaction: `off` clears every gate even if
+    /// the profile is Production (which would otherwise block).
+    #[test]
+    fn resolve_off_preset_neutralizes_production_profile() {
+        let thresholds = resolve_coverage_thresholds(
+            CoverageProfile::Production,
+            Some(CoveragePreset::Off),
+            BTreeMap::new(),
+            None,
+        );
+        for (_, lt) in thresholds.per_layer.iter() {
+            assert_eq!(lt.block_under, 0);
+            assert_eq!(lt.warn_under, 0);
+        }
+    }
+
+    /// Aggregate method passes through verbatim from the override
+    /// side; preset itself never sets it.
+    #[test]
+    fn resolve_passes_aggregate_method_through_override() {
+        let thresholds = resolve_coverage_thresholds(
+            CoverageProfile::Strict,
+            Some(CoveragePreset::TddStrict),
+            BTreeMap::new(),
+            Some("all_pass".to_string()),
+        );
+        assert_eq!(thresholds.aggregate_method.as_deref(), Some("all_pass"));
     }
 }

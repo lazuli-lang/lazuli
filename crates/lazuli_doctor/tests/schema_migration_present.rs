@@ -56,6 +56,7 @@ fn make_resource(name: &str, fields: Vec<Field>) -> Resource {
         lock: None,
         composite_key: None,
         conventions: Vec::new(),
+        lifecycle_routes: None,
     }
 }
 
@@ -157,11 +158,7 @@ CREATE TABLE IF NOT EXISTS \"invoice\" (
         make_field("amount", BuiltinType::Decimal, true),
         make_field("description", BuiltinType::Text, true),
     ]);
-    let findings = schema_migration_present::check(
-        &feature,
-        &root.join("billing.lzi"),
-        &root,
-    );
+    let findings = schema_migration_present::check(&feature, &root.join("billing.lzi"), &root);
     cleanup(&root);
     assert!(
         findings.is_empty(),
@@ -185,11 +182,7 @@ CREATE TABLE IF NOT EXISTS invoice (
         make_field("amount", BuiltinType::Decimal, true),
         make_field("description", BuiltinType::Text, true),
     ]);
-    let findings = schema_migration_present::check(
-        &feature,
-        &root.join("billing.lzi"),
-        &root,
-    );
+    let findings = schema_migration_present::check(&feature, &root.join("billing.lzi"), &root);
     cleanup(&root);
     assert_eq!(findings.len(), 1, "expected one drift finding");
     let Finding {
@@ -211,8 +204,14 @@ CREATE TABLE IF NOT EXISTS invoice (
         "diagnostic ID matches cell spec",
     );
     let msg = findings[0].message();
-    assert!(msg.contains("description"), "message lists missing column: {msg}");
-    assert!(msg.contains("lazuli generate go ."), "message tells the author what to do: {msg}");
+    assert!(
+        msg.contains("description"),
+        "message lists missing column: {msg}"
+    );
+    assert!(
+        msg.contains("lazuli generate go ."),
+        "message tells the author what to do: {msg}"
+    );
 }
 
 // ── scenario 3: migration has column not in IR ──────────────────────────────
@@ -229,14 +228,9 @@ CREATE TABLE IF NOT EXISTS invoice (
     let root = make_capsule("mig-ahead", Some(migration));
     // IR does not declare `legacy_note` — the migration carries a
     // column the IR no longer wants. The drift warning must flag it.
-    let (feature, _) = billing_invoice_resource(vec![
-        make_field("amount", BuiltinType::Decimal, true),
-    ]);
-    let findings = schema_migration_present::check(
-        &feature,
-        &root.join("billing.lzi"),
-        &root,
-    );
+    let (feature, _) =
+        billing_invoice_resource(vec![make_field("amount", BuiltinType::Decimal, true)]);
+    let findings = schema_migration_present::check(&feature, &root.join("billing.lzi"), &root);
     cleanup(&root);
     assert_eq!(findings.len(), 1, "expected one drift finding");
     let Finding {
@@ -249,7 +243,10 @@ CREATE TABLE IF NOT EXISTS invoice (
     assert!(adds.is_empty(), "IR contributes nothing new");
     assert_eq!(drops, &vec!["legacy_note".to_string()]);
     let msg = findings[0].message();
-    assert!(msg.contains("legacy_note"), "message lists migration-only column: {msg}");
+    assert!(
+        msg.contains("legacy_note"),
+        "message lists migration-only column: {msg}"
+    );
 }
 
 // ── scenario 4: no migration on disk ────────────────────────────────────────
@@ -257,23 +254,24 @@ CREATE TABLE IF NOT EXISTS invoice (
 #[test]
 fn missing_migration_directory_fires_missing() {
     let root = make_capsule("no-migrations-dir", None);
-    let (feature, _) = billing_invoice_resource(vec![
-        make_field("amount", BuiltinType::Decimal, true),
-    ]);
-    let findings = schema_migration_present::check(
-        &feature,
-        &root.join("billing.lzi"),
-        &root,
-    );
+    let (feature, _) =
+        billing_invoice_resource(vec![make_field("amount", BuiltinType::Decimal, true)]);
+    let findings = schema_migration_present::check(&feature, &root.join("billing.lzi"), &root);
     cleanup(&root);
     assert_eq!(
         findings.len(),
         1,
         "expected one MigrationMissing finding when dist/go/migrations is absent"
     );
-    assert!(matches!(findings[0].kind, FindingKind::MigrationMissing { .. }));
+    assert!(matches!(
+        findings[0].kind,
+        FindingKind::MigrationMissing { .. }
+    ));
     let msg = findings[0].message();
-    assert!(msg.contains("lazuli generate go ."), "missing message instructs initial codegen: {msg}");
+    assert!(
+        msg.contains("lazuli generate go ."),
+        "missing message instructs initial codegen: {msg}"
+    );
     assert!(msg.contains("billing"), "message names the feature: {msg}");
     assert!(msg.contains("Invoice"), "message names the resource: {msg}");
 }
@@ -296,14 +294,13 @@ CREATE TABLE IF NOT EXISTS audit_log (
         vec![make_field("name", BuiltinType::Text, true)],
     );
     let feature = make_feature("crm", vec![other]);
-    let findings = schema_migration_present::check(
-        &feature,
-        &root.join("crm.lzi"),
-        &root,
-    );
+    let findings = schema_migration_present::check(&feature, &root.join("crm.lzi"), &root);
     cleanup(&root);
     assert_eq!(findings.len(), 1);
-    assert!(matches!(findings[0].kind, FindingKind::MigrationMissing { .. }));
+    assert!(matches!(
+        findings[0].kind,
+        FindingKind::MigrationMissing { .. }
+    ));
 }
 
 // ── small extension trait: expose the diagnostic code for tests ─────────────

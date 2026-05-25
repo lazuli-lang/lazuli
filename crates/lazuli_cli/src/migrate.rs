@@ -1,6 +1,6 @@
 pub mod dsl;
 
-use crate::lazurite_manifest::{MigrationStrategy, Migrations};
+use crate::lazurite_manifest::MigrationStrategy;
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::ffi::OsStr;
@@ -35,7 +35,7 @@ pub fn run_migrate(
         )
     })?;
 
-    let migrations = manifest.migrations.unwrap_or_else(default_migrations);
+    let migrations = manifest.migrations_or_default();
     if matches!(migrations.strategy, MigrationStrategy::CheckOnly)
         && matches!(
             action,
@@ -67,14 +67,6 @@ pub fn run_migrate(
         }
         MigrateAction::Down { steps, yes } => migrate_down(&database_url, &files, steps, yes),
         MigrateAction::Status => migrate_status(&database_url, &files),
-    }
-}
-
-fn default_migrations() -> Migrations {
-    Migrations {
-        generated: "dist/go/migrations".to_owned(),
-        manual: "migrations".to_owned(),
-        strategy: MigrationStrategy::Auto,
     }
 }
 
@@ -391,10 +383,9 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
 
         let err = run_migrate(&root, MigrateAction::Status).unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("lazuli migrate requires Lazurite.toml")
-        );
+        assert!(err
+            .to_string()
+            .contains("lazuli migrate requires Lazurite.toml"));
 
         let _ = fs::remove_dir_all(root);
     }

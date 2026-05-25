@@ -57,10 +57,11 @@ pub fn probe(runner: TsRunner) -> Option<String> {
 
 pub fn run(manifest: Option<&Manifest>, project_root: &Path) -> Result<LayerResult> {
     let started = Instant::now();
-    let Some(cfg): Option<TestingTs> = manifest
-        .and_then(|m| m.testing.as_ref())
-        .and_then(|t| t.ts.as_ref())
-        .cloned()
+    // Frente 1 — resolve effective `[testing.ts]` honoring authored
+    // overrides + canonical layout-derived defaults. Returns None only
+    // when the project is neither in the canonical layout nor declares
+    // the block (back-compat skip path).
+    let Some(cfg): Option<TestingTs> = manifest.and_then(|m| m.testing_ts_resolved(project_root))
     else {
         return Ok(LayerResult {
             layer: Layer::Ts,
@@ -76,7 +77,7 @@ pub fn run(manifest: Option<&Manifest>, project_root: &Path) -> Result<LayerResu
             failures: Vec::new(),
             runner_native_only: None,
             skip_reason: Some(
-                "[testing.ts] not configured in Lazurite.toml (explicit opt-in)".into(),
+                "[testing.ts] not configured and project layout is not canonical (app/web/ or app/clients/<name>/)".into(),
             ),
         });
     };
@@ -169,11 +170,7 @@ pub fn run(manifest: Option<&Manifest>, project_root: &Path) -> Result<LayerResu
     }
     cmd.current_dir(project_root);
 
-    let command_pretty = format!(
-        "npx {} {}",
-        runner.as_str(),
-        flag_summary(runner, &cfg)
-    );
+    let command_pretty = format!("npx {} {}", runner.as_str(), flag_summary(runner, &cfg));
 
     let output = match cmd.output() {
         Ok(o) => o,
@@ -419,9 +416,7 @@ mod tests {
         assert_eq!(parsed.failures.len(), 1);
         assert_eq!(parsed.failures[0].test, "post > publishes");
         assert_eq!(parsed.failures[0].duration_ms, Some(30));
-        assert!(parsed.failures[0]
-            .message
-            .contains("expected 1 to be 2"));
+        assert!(parsed.failures[0].message.contains("expected 1 to be 2"));
     }
 
     #[test]

@@ -4184,10 +4184,12 @@ pub(crate) fn generate_go(
     } else {
         (build_module_from_path(input)?, None)
     };
+    // Frente 1 — `[generate.go]` defaults apply transparently when the
+    // block is absent; pilots no longer need to author the section just
+    // to pin the canonical `out = "dist/go"` value.
     let manifest_out = manifest
         .as_ref()
-        .and_then(|m| m.generate.go.as_ref())
-        .map(|go| project_root.join(&go.out));
+        .map(|m| project_root.join(m.generate_go_or_default().out));
     let out_dir = output.or(manifest_out.as_deref());
     let codegen_manifest = manifest
         .as_ref()
@@ -4419,7 +4421,12 @@ fn codegen_lazurite_manifest(
             )
         })
         .collect::<BTreeMap<_, _>>();
-    let generate_go = manifest.generate.go.as_ref().map(|go| {
+    // Frente 1 — `[generate.go]` defaults apply transparently. Pilots
+    // can omit the block entirely; the canonical
+    // `emit_main = true / submodule = true / out = "dist/go"` shape lifts
+    // from `GenerateGo::default()`.
+    let generate_go = {
+        let go = manifest.generate_go_or_default();
         // Resolve the Lazuli runtime/go path. Lazurite.toml's
         // `[lazuli] path` is authoritative (the user explicitly
         // points at a local checkout); fall back to the ancestor
@@ -4439,7 +4446,7 @@ fn codegen_lazurite_manifest(
             }
         });
         let resolved = manifest_runtime.or(detected);
-        lazuli_codegen_go::LazuriteGenerateGo {
+        Some(lazuli_codegen_go::LazuriteGenerateGo {
             emit_main: go.emit_main,
             submodule: go.submodule,
             dev_replace: go
@@ -4450,8 +4457,8 @@ fn codegen_lazurite_manifest(
                 .dev_replace
                 .clone()
                 .or_else(|| resolved.map(|paths| paths.go_work)),
-        }
-    });
+        })
+    };
     let dev = manifest
         .dev
         .as_ref()
