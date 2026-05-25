@@ -1,4 +1,10 @@
 feature account
+  purpose "Identity, password authentication, and session lifecycle for end users."
+  non_goals
+    "Social / OAuth identity providers (delegate to a dedicated feature when needed)"
+    "MFA / WebAuthn / passkeys (separate feature when the product earns it)"
+  attach_ctx "./account.ctx.md"
+
   domain
     resource User
       email: @semantic.Email required unique

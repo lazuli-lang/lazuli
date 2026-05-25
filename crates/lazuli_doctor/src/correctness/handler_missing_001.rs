@@ -13,9 +13,9 @@
 //! <app_dir>/features/<feature>/handlers/<name>.go
 //! ```
 //!
-//! When the file does not exist, emits a finding pointing at the source
-//! `.lzi` so the LSP can squiggle the reference. Today `go build` fails
-//! late with a cryptic import error; this rule catches it at
+//! Fires when the file does not exist — emits a finding pointing at the
+//! source `.lzi` so the LSP can squiggle the reference. Today `go build`
+//! fails late with a cryptic import error; this rule catches it at
 //! `lazuli check` / `lazuli doctor` time before any code generation runs.
 //!
 //! Severity: `warning` (prototype profile) / `error` (strict, production).

@@ -1,12 +1,63 @@
 //! Lowering from `lazuli_syntax` canonical AST slices into `lazuli_ir`.
+//!
+//! ## Role in the compile pipeline
+//!
+//! `lazuli_analyzer` sits between `lazuli_syntax` (canonical AST) and
+//! `lazuli_ir` (typed lowered shape). Its job is **mechanical
+//! projection plus structural validation**: lift the parser's verbatim
+//! AST onto the IR shape that downstream consumers (codegen, doctor,
+//! LSP, inspect) read. Anything that needs cross-module reasoning
+//! lives in `lazuli_cli` (the `expand` pass) or `lazuli_doctor`;
+//! anything per-file lives here.
+//!
+//! ## Submodule layout (Wave 4.6 — rails-style refactor)
+//!
+//! The lowering pipeline is organised into per-concern sibling
+//! modules. Each one carries the projection rules for a single
+//! "slot" in the vocabulary:
+//!
+//! * [`helpers`] — pure utility predicates (case conversion, span
+//!   bridging, edit-distance, balanced-paren walkers). No AST shape,
+//!   no IR shape larger than `SpanRef`. Shared by every slice.
+//! * [`checks`] — public per-file structural checks invoked by
+//!   `lazuli_cli` / `lazuli_doctor`. Stays public because external
+//!   tools depend on it.
+//! * [`rbac`] — RBAC closure construction over a feature's policies.
+//! * [`source_map`] — source-position bookkeeping consumed by LSP.
+//! * [`symbol_origin`] — origin tagging (handwritten vs synthesized
+//!   vs pack-derived) used by inspect and doctor.
+//!
+//! ## Vocabulary cross-reference
+//!
+//! Source AST shapes are defined in `lazuli_syntax::ast` (Wave 4.4).
+//! Destination IR shapes are defined in `lazuli_ir` (Wave 4.1). When
+//! a lowering function feels like it's "thinking" rather than just
+//! "translating", the design pressure belongs upstream (parser
+//! enforcement, IR shape change) — not here.
+//!
+//! ## ABI guarantee
+//!
+//! Public items historically reachable at `lazuli_analyzer::Foo`
+//! remain reachable at the same path. Internal helpers used across
+//! sibling modules are `pub(crate)`.
 
 pub mod checks;
+mod helpers;
 mod lifecycle;
+mod lzx;
 pub mod rbac;
 pub mod source_map;
 pub mod symbol_origin;
 
+pub use lzx::lower_lzx_document;
 pub use symbol_origin::build_symbol_origin_index;
+
+use helpers::{
+    conventions_levenshtein, find_balanced_decorator_end, find_keyword_line_offset,
+    find_top_level_operator, find_word, first_paren_balanced_token, has_top_level_comma,
+    is_valid_design_hex, levenshtein, pascal_to_snake, quoted_ident, quoted_table, snake_to_pascal,
+    span_of, strip_quotes,
+};
 
 use lazuli_ir as ir;
 use lazuli_syntax as syntax;
@@ -337,372 +388,8 @@ pub fn conventions_unknown_suggestion(identifier: &str) -> Option<&'static str> 
     best.map(|(name, _)| name)
 }
 
-/// Plain Levenshtein edit distance (O(n*m) DP). Used only for short
-/// catalog identifiers so the cost is negligible. Kept local to the
-/// analyzer crate because the LSP's identical helper is `pub(crate)`
-/// there; promoting either to a shared util would couple the two
-/// crates needlessly. The duplication is intentional and stable —
-/// neither identifier is hot-path code.
-fn conventions_levenshtein(a: &str, b: &str) -> usize {
-    let a: Vec<char> = a.chars().collect();
-    let b: Vec<char> = b.chars().collect();
-    let n = a.len();
-    let m = b.len();
-    if n == 0 {
-        return m;
-    }
-    if m == 0 {
-        return n;
-    }
-    let mut prev: Vec<usize> = (0..=m).collect();
-    let mut curr: Vec<usize> = vec![0; m + 1];
-    for i in 1..=n {
-        curr[0] = i;
-        for j in 1..=m {
-            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
-            curr[j] = (curr[j - 1] + 1).min(prev[j] + 1).min(prev[j - 1] + cost);
-        }
-        std::mem::swap(&mut prev, &mut curr);
-    }
-    prev[m]
-}
-
-pub fn lower_lzx_document(document: &syntax::LzxDocument) -> ir::ExperienceModule {
-    ir::ExperienceModule {
-        app: document.app.as_ref().map(lower_lzx_app),
-        routes: document.routes.iter().map(lower_lzx_route).collect(),
-        experiences: document.experiences.iter().map(lower_experience).collect(),
-        surfaces: document
-            .surfaces
-            .iter()
-            .map(lower_platform_surface)
-            .collect(),
-    }
-}
-
-fn lower_lzx_app(app: &syntax::LzxApp) -> ir::AppManifest {
-    let route_guard = app
-        .route_guard
-        .as_ref()
-        .map(lower_route_guard_defaults)
-        .or_else(|| {
-            app.auth_failed_redirect
-                .as_ref()
-                .map(|redirect| ir::RouteGuardDefaults {
-                    default_policy: None,
-                    on_unauthenticated: Some(redirect.clone()),
-                    on_unauthorized: None,
-                    skeleton: None,
-                    span_ref: Some(span_of(app.span)),
-                })
-        });
-
-    ir::AppManifest {
-        name: app.name.clone(),
-        title: app.title.clone(),
-        version: app.version.clone(),
-        lazuli_version: None,
-        targets: app.targets.clone(),
-        default_locale: app.default_locale.clone(),
-        default_timezone: app.default_timezone.clone(),
-        auth_failed_redirect: app.auth_failed_redirect.clone(),
-        not_found: app.not_found.clone(),
-        error_pages: app
-            .error_pages
-            .iter()
-            .map(|page| ir::ErrorPage {
-                status: page.status,
-                template: page.template.clone(),
-                audience: page.audience.clone(),
-            })
-            .collect(),
-        uses: app.uses.clone(),
-        packs: Vec::new(),
-        bindings: Vec::new(),
-        architecture: None,
-        services: Vec::new(),
-        communication: None,
-        environments: Vec::new(),
-        urls: Vec::new(),
-        cors: None,
-        headers: None,
-        env: Vec::new(),
-        integrations: Vec::new(),
-        capabilities: Vec::new(),
-        runtime: Vec::new(),
-        deploy: None,
-        logging: None,
-        tracing: None,
-        observability: None,
-        locale: None,
-        encryption_bindings: Vec::new(),
-        cookie: None,
-        proxy: None,
-        limits: None,
-        // ir-route-guards Cell IR-1 — slots wired by Cell PARSE-1.
-        route_guard,
-        actor_query: app.actor_query.clone(),
-        span_ref: Some(span_of(app.span)),
-    }
-}
-
-fn lower_lzx_route(route: &syntax::LzxRoute) -> ir::AppRoute {
-    ir::AppRoute {
-        name: route.name.clone(),
-        path: route.path.clone(),
-        routes: route.routes.clone(),
-        route_params: route
-            .route_params
-            .iter()
-            .map(|p| ir::RouteParam {
-                name: p.name.clone(),
-                type_ref: p.type_ref.clone(),
-            })
-            .collect(),
-        to: route.to.clone(),
-        surface: route.surface.clone(),
-        audience: route.audience.clone(),
-        lazy: route.lazy,
-        prerender: route.prerender.clone(),
-        // ir-route-guards Cell IR-1 — guard slot wired by Cell PARSE-1.
-        guard: route.guard.as_ref().map(lower_view_guard),
-        // router-w5 — loader declarations.
-        loaders: route
-            .loaders
-            .iter()
-            .map(|l| ir::RouteLoader {
-                feature: l.feature.clone(),
-                query: l.query.clone(),
-                span_ref: Some(span_of(l.span)),
-            })
-            .collect(),
-        pending_view: route.pending_view.clone(),
-        error_view: route.error_view.clone(),
-        parent: route.parent.clone(),
-        span_ref: Some(span_of(route.span)),
-    }
-}
-
-fn lower_experience(experience: &syntax::LzxExperience) -> ir::Experience {
-    ir::Experience {
-        name: experience.name.clone(),
-        imports: experience.imports.clone(),
-        views: experience.views.iter().map(lower_experience_view).collect(),
-        resume_routers: experience
-            .resume_routers
-            .iter()
-            .map(lower_resume_router)
-            .collect(),
-        extensions: experience
-            .extensions
-            .iter()
-            .map(lower_view_extension)
-            .collect(),
-        span_ref: Some(span_of(experience.span)),
-    }
-}
-
-fn lower_resume_router(router: &syntax::LzxResumeRouter) -> ir::ResumeRouter {
-    ir::ResumeRouter {
-        name: router.name.clone(),
-        source_query: router.source_query.clone(),
-        arms: router.arms.iter().map(lower_resume_arm).collect(),
-        span_ref: Some(span_of(router.span)),
-    }
-}
-
-fn lower_resume_arm(arm: &syntax::LzxResumeArm) -> ir::ResumeArm {
-    ir::ResumeArm {
-        kind: match &arm.kind {
-            syntax::LzxResumeArmKind::State(state) => ir::ResumeArmKind::State(state.clone()),
-            syntax::LzxResumeArmKind::None => ir::ResumeArmKind::None,
-            syntax::LzxResumeArmKind::Wildcard => ir::ResumeArmKind::Wildcard,
-        },
-        substep: arm.substep.clone(),
-        target_view: arm.target_view.clone(),
-        span_ref: Some(span_of(arm.span)),
-    }
-}
-
-fn lower_experience_view(view: &syntax::LzxExperienceView) -> ir::ExperienceView {
-    ir::ExperienceView {
-        name: view.name.clone(),
-        anchor: view.anchor.clone(),
-        routes: view.routes.clone(),
-        extensible_by: view.extensible_by.clone(),
-        source: view.source.clone(),
-        submit: view.submit.clone(),
-        blocks: view.blocks.clone(),
-        actions: view.actions.iter().map(lower_experience_action).collect(),
-        opens: view.opens.clone(),
-        // Wave 4 — typed view test assertions. Surface AST and IR shapes
-        // are 1:1 isomorphic, so this lowering preserves the closed
-        // catalog (`accepted by` / `rejected by`) verbatim while
-        // forwarding the source span for diagnostic surfaces.
-        tests: view.tests.iter().map(lower_view_test_assertion).collect(),
-        // ir-route-guards Cell IR-1 — guard slot wired by Cell PARSE-1.
-        guard: view.guard.as_ref().map(lower_view_guard),
-        resolved_guard_policy: None,
-        resolved_lifecycle_gate: None,
-        span_ref: Some(span_of(view.span)),
-    }
-}
-
-fn lower_view_test_assertion(
-    assertion: &syntax::LzxViewTestAssertion,
-) -> ir::ViewTestAssertion {
-    match assertion {
-        syntax::LzxViewTestAssertion::AcceptedBy { feature, span } => {
-            ir::ViewTestAssertion::AcceptedBy {
-                feature: feature.clone(),
-                span_ref: Some(span_of(*span)),
-            }
-        }
-        syntax::LzxViewTestAssertion::RejectedBy { feature, span } => {
-            ir::ViewTestAssertion::RejectedBy {
-                feature: feature.clone(),
-                span_ref: Some(span_of(*span)),
-            }
-        }
-    }
-}
-
-fn lower_experience_action(action: &syntax::LzxAction) -> ir::ExperienceAction {
-    ir::ExperienceAction {
-        name: action.name.clone(),
-        target: action.target.clone(),
-        span_ref: Some(span_of(action.span)),
-    }
-}
-
-fn lower_view_extension(extension: &syntax::LzxViewExtension) -> ir::ViewExtension {
-    ir::ViewExtension {
-        anchor: extension.anchor.clone(),
-        blocks: extension.blocks.clone(),
-        slots: extension
-            .slots
-            .iter()
-            .map(lower_view_extension_slot)
-            .collect(),
-        span_ref: Some(span_of(extension.span)),
-    }
-}
-
-fn lower_view_extension_slot(slot: &syntax::LzxExtensionSlot) -> ir::ViewExtensionSlot {
-    ir::ViewExtensionSlot {
-        name: slot.name.clone(),
-        order: slot.order.as_ref().map(|order| ir::ViewExtensionOrder {
-            relation: order.relation.clone(),
-            target: order.target.clone(),
-        }),
-        blocks: slot.blocks.clone(),
-        platforms: slot.platforms.clone(),
-        audiences: slot.audiences.clone(),
-        span_ref: Some(span_of(slot.span)),
-    }
-}
-
-fn lower_platform_surface(surface: &syntax::LzxSurface) -> ir::PlatformSurface {
-    ir::PlatformSurface {
-        experience: surface.experience.clone(),
-        platform: match surface.platform {
-            syntax::LzxPlatform::Web => ir::Platform::Web,
-            syntax::LzxPlatform::Mobile => ir::Platform::Mobile,
-        },
-        uses_experience: surface.uses_experience.clone(),
-        audiences: surface
-            .audiences
-            .iter()
-            .map(lower_audience_surface)
-            .collect(),
-        span_ref: Some(span_of(surface.span)),
-    }
-}
-
-fn lower_audience_surface(audience: &syntax::LzxAudience) -> ir::AudienceSurface {
-    ir::AudienceSurface {
-        name: audience.name.clone(),
-        qualifiers: audience.qualifiers.clone(),
-        views: audience.views.iter().map(lower_platform_view).collect(),
-        // ir-route-guards Cell IR-1 — guard slot wired by Cell PARSE-1.
-        guard: audience.guard.as_ref().map(lower_view_guard),
-        span_ref: Some(span_of(audience.span)),
-    }
-}
-
-fn lower_platform_view(view: &syntax::LzxPlatformView) -> ir::PlatformView {
-    ir::PlatformView {
-        name: view.name.clone(),
-        view_type: view.view_type.clone(),
-        columns: view.columns.clone(),
-        fields: view.fields.clone(),
-        sections: view.sections.clone(),
-        search: view.search.clone(),
-        filter: view.filter.clone(),
-        cells: view.cells.clone(),
-        actions: view.actions.clone(),
-        submit: view.submit.clone(),
-        blocks: view.blocks.clone(),
-        // ir-route-guards Cell IR-1 — guard slot wired by Cell PARSE-1.
-        guard: view.guard.as_ref().map(lower_view_guard),
-        resolved_guard_policy: None,
-        span_ref: Some(span_of(view.span)),
-    }
-}
-
-fn lower_view_guard(guard: &syntax::LzxViewGuard) -> ir::ViewGuard {
-    ir::ViewGuard {
-        policy: guard.policy.clone(),
-        on_unauthenticated: guard.on_unauthenticated.clone(),
-        on_unauthorized: guard.on_unauthorized.clone(),
-        requires_lifecycle: guard.requires_lifecycle.as_ref().map(|requires| {
-            ir::RequiresLifecycle {
-                resource: requires.resource.clone(),
-                state: requires.state.clone(),
-                substep: requires.substep.clone(),
-                span_ref: Some(span_of(requires.span)),
-            }
-        }),
-        on_lifecycle_pending: guard.on_lifecycle_pending.clone(),
-        forbid_when: guard
-            .forbid_when
-            .iter()
-            .filter_map(lower_forbid_when)
-            .collect(),
-        span_ref: Some(span_of(guard.span)),
-    }
-}
-
-/// router-w3 Tier 3 — lift `LzxForbidWhen` to `ir::ForbidWhen`,
-/// resolving the `@<ns>.<name>` atom into a `PolicyAtom`. Returns
-/// `None` for atoms that don't parse — silently drops; the analyzer's
-/// existing atom validator passes will surface the invalid reference
-/// against the source line.
-fn lower_forbid_when(fw: &syntax::LzxForbidWhen) -> Option<ir::ForbidWhen> {
-    let bare = fw.atom_ref.strip_prefix('@').unwrap_or(&fw.atom_ref);
-    let (ns, rest) = bare.split_once('.')?;
-    let name = rest.split('(').next().unwrap_or(rest);
-    Some(ir::ForbidWhen {
-        atom_ref: fw.atom_ref.clone(),
-        atom: ir::PolicyAtom {
-            namespace: ns.to_owned(),
-            name: name.to_owned(),
-            args: None,
-        },
-        dispatch_to: fw.dispatch_to.clone(),
-        span_ref: Some(span_of(fw.span)),
-    })
-}
-
-fn lower_route_guard_defaults(defaults: &syntax::LzxRouteGuardDefaults) -> ir::RouteGuardDefaults {
-    ir::RouteGuardDefaults {
-        default_policy: defaults.default_policy.clone(),
-        on_unauthenticated: defaults.on_unauthenticated.clone(),
-        on_unauthorized: defaults.on_unauthorized.clone(),
-        skeleton: defaults.skeleton.clone(),
-        span_ref: Some(span_of(defaults.span)),
-    }
-}
+// `lower_lzx_document` and the `LzxDocument` → `ExperienceModule`
+// family moved to `lzx.rs`.
 
 // =============================================================================
 // L0 #3 — lzx ViewModel surface lowering.
@@ -1370,25 +1057,6 @@ fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
     }
 }
 
-/// Phase L Tier 4 follow-up — return the first whitespace-delimited
-/// token from `text`, respecting paren-balanced segments. The
-/// canonical-indent parser captures decorator markers (`@pii.contact`,
-/// `@cap.Hashed(algorithm:argon2id)`) and trailing markers after the
-/// real type in `type_text`; this helper picks the leading type.
-fn first_paren_balanced_token(text: &str) -> &str {
-    let text = text.trim();
-    let mut depth = 0i32;
-    for (idx, ch) in text.char_indices() {
-        match ch {
-            '(' | '[' => depth += 1,
-            ')' | ']' => depth -= 1,
-            c if c.is_whitespace() && depth == 0 => return text[..idx].trim_end(),
-            _ => {}
-        }
-    }
-    text
-}
-
 /// Phase L Tier 4 follow-up — `@cap.Hashed(algorithm:<X>)`. Closed
 /// catalog `{argon2id, bcrypt}`. Returns `None` if the algorithm is
 /// missing or unrecognised so callers fall through to `UserDefined`
@@ -1623,13 +1291,6 @@ fn parse_default(raw: &str) -> ir::DefaultValue {
     }
 
     ir::DefaultValue::String(raw.to_owned())
-}
-
-fn span_of(span: syntax::Span) -> ir::SpanRef {
-    ir::SpanRef {
-        start: span.start,
-        end: span.end,
-    }
 }
 
 // =============================================================================
@@ -2141,20 +1802,6 @@ pub fn diagnose_plan_gate_facts(
     }
 
     out
-}
-
-/// Find the byte offset of the first line starting with `<indent>`
-/// (any amount) + `keyword` in `body`. Returns `None` if not present.
-fn find_keyword_line_offset(body: &str, keyword: &str) -> Option<usize> {
-    let mut offset = 0usize;
-    for line in body.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with(keyword) {
-            return Some(offset);
-        }
-        offset += line.len() + 1;
-    }
-    None
 }
 
 /// FR-3a — for each resource with a `user: User required unique`
@@ -3354,22 +3001,6 @@ enum OwnerScopeResolution {
     Tenant,
 }
 
-/// §7.3 — table-name from PascalCase resource name. The convention
-/// existing crud / me synths follow (snake_case identifier, quoted
-/// per Postgres convention to dodge keyword collisions like `"user"`).
-fn quoted_table(resource_name: &str) -> String {
-    format!("\"{}\"", pascal_to_snake(resource_name))
-}
-
-/// §7.3 — quote an identifier when codegen will paste it inside an
-/// SQL fragment. Postgres treats `"user"` and `user` differently
-/// (the latter is a reserved keyword in many positions); the
-/// hand-rolled handlers in the trigger pilot (`hostpoint/.../delete_service.go`
-/// §1.1) quote both sides. We match that shape.
-fn quoted_ident(ident: &str) -> String {
-    format!("\"{}\"", ident)
-}
-
 /// §7.3 — resolve a resource's `@owner_axis` annotations into an
 /// emittable `OwnerScopeSql` carrier, OR emit diagnostics for the 3
 /// new doctor codes (§11.1) when the annotation can't resolve.
@@ -3567,31 +3198,6 @@ fn nearest_field_name(target: &str, fields: &[ir::Field]) -> Option<String> {
     } else {
         None
     }
-}
-
-/// Minimal Levenshtein for the nearest-name suggestion. Small (~12
-/// LOC) so we don't pull a dependency for a one-off use. Copying the
-/// pattern from elsewhere in the analyzer keeps the suggestion
-/// quality consistent.
-fn levenshtein(a: &str, b: &str) -> usize {
-    let a: Vec<char> = a.chars().collect();
-    let b: Vec<char> = b.chars().collect();
-    let mut dp = vec![vec![0usize; b.len() + 1]; a.len() + 1];
-    for i in 0..=a.len() {
-        dp[i][0] = i;
-    }
-    for j in 0..=b.len() {
-        dp[0][j] = j;
-    }
-    for i in 1..=a.len() {
-        for j in 1..=b.len() {
-            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
-            dp[i][j] = (dp[i - 1][j] + 1)
-                .min(dp[i][j - 1] + 1)
-                .min(dp[i - 1][j - 1] + cost);
-        }
-    }
-    dp[a.len()][b.len()]
 }
 
 /// `pub` re-export of the §7.3 WHERE-clause builder for direct test
@@ -4082,55 +3688,6 @@ fn crud_write_rate_limit() -> &'static str {
     "100 per 10 minutes per ip"
 }
 
-fn pascal_to_snake(s: &str) -> String {
-    let mut out = String::new();
-    let mut prev: Option<char> = None;
-    let mut iter = s.chars().peekable();
-
-    while let Some(ch) = iter.next() {
-        if ch.is_ascii_uppercase() {
-            let next_is_lower = iter
-                .peek()
-                .copied()
-                .is_some_and(|next| next.is_ascii_lowercase());
-            let prev_needs_sep = prev.is_some_and(|p| {
-                p.is_ascii_lowercase()
-                    || p.is_ascii_digit()
-                    || (p.is_ascii_uppercase() && next_is_lower)
-            });
-            if !out.is_empty() && prev_needs_sep {
-                out.push('_');
-            }
-            out.push(ch.to_ascii_lowercase());
-        } else {
-            out.push(ch);
-        }
-        prev = Some(ch);
-    }
-
-    out
-}
-
-fn snake_to_pascal(s: &str) -> String {
-    let mut out = String::new();
-    let mut capitalize_next = true;
-
-    for ch in s.chars() {
-        if ch == '_' {
-            capitalize_next = true;
-            continue;
-        }
-        if capitalize_next {
-            out.push(ch.to_ascii_uppercase());
-            capitalize_next = false;
-        } else {
-            out.push(ch);
-        }
-    }
-
-    out
-}
-
 /// Lower a canonical-indent feature skeleton into an `ir::Feature`.
 pub fn lower_feature_skeleton(
     skeleton: &syntax::FeatureSkeleton,
@@ -4233,11 +3790,37 @@ pub fn lower_feature_skeleton(
         .collect();
     let uses_versions: Vec<Option<u16>> = skeleton.uses_clauses.iter().map(|c| c.version).collect();
 
+    // Iron-hand context vocabulary — lower the surface AST into IR
+    // shapes. `purpose` is stored as the raw quoted-string text (empty
+    // strings preserved so the lint can fire). `non_goals` are flat
+    // strings on the surface; we map each into `NonGoal { key,
+    // description }` with `key = ""` (the IR carries a richer shape for
+    // future delegated_to / out_of_scope partitioning, but the
+    // wire-thin grammar only authors descriptions today). `attach_ctx`
+    // becomes the verbatim path; resolution + content-length check
+    // happens in `VOCAB-CONTEXT-CTXMD-001`.
+    let purpose = skeleton.purpose.as_ref().map(|p| p.text.clone());
+    let non_goals = skeleton
+        .non_goals
+        .as_ref()
+        .map(|block| {
+            block
+                .entries
+                .iter()
+                .map(|description| ir::NonGoal {
+                    key: String::new(),
+                    description: description.clone(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let context_path = skeleton.attach_ctx.as_ref().map(|c| c.path.clone());
+
     let mut feature = ir::Feature {
         name: skeleton.name.clone(),
-        purpose: None,
-        non_goals: Vec::new(),
-        context_path: None,
+        purpose,
+        non_goals,
+        context_path,
         defaults,
         uses,
         uses_spans,
@@ -5166,36 +4749,6 @@ fn find_field_level_cap_pii_span(text: &str) -> Option<(usize, usize)> {
             _ => {}
         }
         i += 1;
-    }
-    None
-}
-
-fn find_balanced_decorator_end(text: &str, start: usize) -> Option<usize> {
-    let mut depth = 0i32;
-    let mut in_string = false;
-    let mut escaped = false;
-    for (offset, ch) in text[start..].char_indices() {
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-        match ch {
-            '"' => in_string = true,
-            '(' | '[' => depth += 1,
-            ')' | ']' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(start + offset + ch.len_utf8());
-                }
-            }
-            _ => {}
-        }
     }
     None
 }
@@ -6706,36 +6259,6 @@ fn parse_emit_predicate_kind(text: &str) -> Option<ir::EmitPredicateKind> {
     None
 }
 
-fn strip_quotes(raw: &str) -> Option<&str> {
-    let trimmed = raw.trim();
-    if (trimmed.starts_with('"') && trimmed.ends_with('"') && trimmed.len() >= 2)
-        || (trimmed.starts_with('\'') && trimmed.ends_with('\'') && trimmed.len() >= 2)
-    {
-        Some(&trimmed[1..trimmed.len() - 1])
-    } else {
-        None
-    }
-}
-
-/// Find a whole-word token (`word`) in `text`, returning its byte
-/// offset. Returns `None` when the substring only appears as part of
-/// a longer identifier (e.g. `withdrawn`).
-fn find_word(text: &str, word: &str) -> Option<usize> {
-    let bytes = text.as_bytes();
-    let mut from = 0usize;
-    while let Some(rel) = text[from..].find(word) {
-        let abs = from + rel;
-        let before_ok = abs == 0 || bytes[abs - 1].is_ascii_whitespace();
-        let after_pos = abs + word.len();
-        let after_ok = after_pos >= bytes.len() || bytes[after_pos].is_ascii_whitespace();
-        if before_ok && after_ok {
-            return Some(abs);
-        }
-        from = abs + word.len();
-    }
-    None
-}
-
 /// Realtime bucket cycle MVP — lower a canonical-indent `channel`
 /// block into `ir::Channel`. Mechanical projection: the parser
 /// already enforces presence of all three required children, so the
@@ -7869,27 +7392,6 @@ fn parse_closed_predicate(text: &str) -> ir::EvalPredicate {
     ir::EvalPredicate::Unparsed(text.to_owned())
 }
 
-/// Locate `op` outside of any double-quoted span. Returns the byte index
-/// in `text` where the operator begins, or `None` if no top-level match.
-fn find_top_level_operator(text: &str, op: &str) -> Option<usize> {
-    let bytes = text.as_bytes();
-    let mut in_quote = false;
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if b == b'"' {
-            in_quote = !in_quote;
-            i += 1;
-            continue;
-        }
-        if !in_quote && text[i..].starts_with(op) {
-            return Some(i);
-        }
-        i += 1;
-    }
-    None
-}
-
 /// Promote a token to the smallest expression kind that fits. Strings
 /// must be double-quoted; integers parse as `Integer`; `true`/`false` as
 /// `Boolean`; bare identifiers / dotted paths become `Path`; bare
@@ -8304,45 +7806,6 @@ fn lower_design_z(z: &syntax::ZTokenAst) -> Result<ir::ZToken, AnalyzeError> {
         name: z.name.clone(),
         value: parsed,
     })
-}
-
-/// Match `^#[0-9a-fA-F]{3,8}$` without pulling in a regex dependency.
-/// 3-digit (`#fff`), 4-digit (`#ffff` rgba shorthand), 6-digit (`#ffffff`),
-/// and 8-digit (`#ffffffff` rgba) are all valid CSS hex notations.
-fn is_valid_design_hex(text: &str) -> bool {
-    let trimmed = text.trim();
-    if !trimmed.starts_with('#') {
-        return false;
-    }
-    let rest = &trimmed[1..];
-    let len = rest.len();
-    if !(len == 3 || len == 4 || len == 6 || len == 8) {
-        return false;
-    }
-    rest.bytes().all(|b| b.is_ascii_hexdigit())
-}
-
-/// Detect a top-level comma in a CSS box-shadow value, signaling
-/// multi-layer composition. Commas inside `(...)` or `[...]` (e.g.
-/// `rgb(0, 0, 0)`) do NOT count. Strings inside quoted regions also
-/// don't count (a hypothetical `content: ","` would not trigger).
-fn has_top_level_comma(text: &str) -> bool {
-    let bytes = text.as_bytes();
-    let mut depth = 0i32;
-    let mut in_quote = false;
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
-        match b {
-            b'"' | b'\'' => in_quote = !in_quote,
-            b'(' | b'[' if !in_quote => depth += 1,
-            b')' | b']' if !in_quote => depth -= 1,
-            b',' if !in_quote && depth == 0 => return true,
-            _ => {}
-        }
-        i += 1;
-    }
-    false
 }
 
 #[cfg(test)]
@@ -8794,7 +8257,11 @@ route customer_detail
             vec!["backend go", "web react"]
         );
         assert_eq!(module.routes[0].name, "customer_detail");
-        assert_eq!(module.routes[0].routes, vec!["id: Customer.ID"]);
+        // ir+codegen(ts) §2.1 typed route_params landed (commit fe4d3a1c):
+        // `route id: Customer.ID` now lifts to `route_params`, not `routes`.
+        assert_eq!(module.routes[0].routes, Vec::<String>::new());
+        assert_eq!(module.routes[0].route_params.len(), 1);
+        assert_eq!(module.routes[0].route_params[0].name, "id");
         assert_eq!(
             module.routes[0].to.as_deref(),
             Some("customer.view.detail(id: route.id)")

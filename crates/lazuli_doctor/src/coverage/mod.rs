@@ -208,6 +208,44 @@ impl CoveragePreset {
     }
 }
 
+/// Iron-hand meta-bundle — opinionated rule-severity escalation map
+/// that ships alongside [`preset_thresholds`]. Returns the set of rule
+/// codes that the preset wants to escalate from their category-default
+/// severity to a stricter one.
+///
+/// The `tdd-iron-hand` preset is the canonical "production ship-bar"
+/// stance: not only does it block all six coverage layers at 90/95
+/// (numerical TDD), it also forces every feature to carry a context
+/// header (`purpose`, `non_goals`, `attach_ctx`). The three
+/// `VOCAB-CONTEXT-*` rules normally surface as `warning`; under iron
+/// hand they become `error` so CI gates on missing structural
+/// documentation.
+///
+/// Other presets return an empty map — their coverage thresholds
+/// already express the strictness, no rule-severity escalation is
+/// added.
+///
+/// Manifest-authored overrides
+/// (`[doctor.test_discipline.severity_override]`) win over this map,
+/// matching the existing precedence in `doctor_severity_for`: a pilot
+/// that wants to opt the lint back down to `warning` (e.g. mid-flight
+/// migration) writes:
+///
+/// ```toml
+/// [doctor.test_discipline.severity_override."VOCAB-CONTEXT-CTXMD-001"]
+/// severity = "warning"
+/// reason = "ctx.md backfill scheduled for sprint 24"
+/// ```
+pub fn preset_severity_overrides(preset: CoveragePreset) -> BTreeMap<String, &'static str> {
+    let mut out = BTreeMap::new();
+    if matches!(preset, CoveragePreset::TddIronHand) {
+        out.insert("VOCAB-CONTEXT-PURPOSE-001".to_string(), "error");
+        out.insert("VOCAB-CONTEXT-NONGOALS-001".to_string(), "error");
+        out.insert("VOCAB-CONTEXT-CTXMD-001".to_string(), "error");
+    }
+    out
+}
+
 /// Preset-derived thresholds. Independent of `CoverageProfile` —
 /// the two compose via [`resolve_coverage_thresholds`].
 pub fn preset_thresholds(preset: CoveragePreset) -> CoverageThresholds {
@@ -705,5 +743,32 @@ mod tests {
             Some("all_pass".to_string()),
         );
         assert_eq!(thresholds.aggregate_method.as_deref(), Some("all_pass"));
+    }
+
+    // ── iron-hand meta-bundle severity overrides ─────────────────────────────
+
+    #[test]
+    fn iron_hand_escalates_three_vocab_context_rules_to_error() {
+        let overrides = preset_severity_overrides(CoveragePreset::TddIronHand);
+        assert_eq!(overrides.len(), 3);
+        assert_eq!(overrides.get("VOCAB-CONTEXT-PURPOSE-001"), Some(&"error"));
+        assert_eq!(overrides.get("VOCAB-CONTEXT-NONGOALS-001"), Some(&"error"));
+        assert_eq!(overrides.get("VOCAB-CONTEXT-CTXMD-001"), Some(&"error"));
+    }
+
+    #[test]
+    fn other_presets_emit_no_severity_escalation() {
+        for preset in [
+            CoveragePreset::TddStrict,
+            CoveragePreset::TddMature,
+            CoveragePreset::Off,
+        ] {
+            assert!(
+                preset_severity_overrides(preset).is_empty(),
+                "preset {:?} must not escalate any rule severities — only iron-hand bundles \
+                 the structural documentation gate",
+                preset
+            );
+        }
     }
 }

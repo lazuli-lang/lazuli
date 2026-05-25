@@ -41,6 +41,7 @@
 
 pub mod migration_dsl_unique_001;
 pub mod override_needs_reason_001;
+pub mod preset;
 pub mod runtime_update_builder_jsonb_001;
 pub mod test_command_assertion_drift_001;
 pub mod test_fixture_literal_001;

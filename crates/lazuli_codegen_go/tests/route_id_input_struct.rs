@@ -178,6 +178,7 @@ fn resource_with(name: &str, field_name: &str, field_ty: TypeRef) -> Resource {
         lock: None,
         composite_key: None,
         conventions: Vec::new(),
+        lifecycle_routes: None,
     }
 }
 
@@ -254,6 +255,7 @@ fn traveler_fixture() -> Module {
         type_ref: TypeRef::UserDefined(local_qname("TravelerVehicle")),
         required: true,
         constraints: FieldConstraints::default(),
+        validate_skip: false,
     }]);
     save.effect = CommandEffect::Updates(UpdateEffect {
         resource: local_qname("TravelerVehicle"),
@@ -274,6 +276,7 @@ fn traveler_fixture() -> Module {
         type_ref: TypeRef::Builtin(BuiltinType::Text),
         required: true,
         constraints: FieldConstraints::default(),
+        validate_skip: false,
     }]);
     create.effect = CommandEffect::Creates(CreateEffect {
         resource: local_qname("TravelerVehicle"),

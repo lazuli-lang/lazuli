@@ -31,6 +31,13 @@ pub enum RuleCategory {
     ErrorVocab,
     Poller,
     Report,
+    /// Wave 3 (rails-style-refactor) — rules that audit the Lazuli
+    /// framework's own Rust source code (file size, missing rustdoc,
+    /// missing `## Examples`, unpaired tests). Fires under `lazuli
+    /// doctor --self` against `crates/lazuli_*/src/`. Other categories
+    /// audit user `.lzi`/`.lzx` source; `InternalHygiene` is the
+    /// dogfooding counterpart for the framework's own code.
+    InternalHygiene,
 }
 
 impl RuleCategory {
@@ -62,6 +69,7 @@ impl RuleCategory {
             Some("REPORT") => Self::Report,
             Some("DESIGN") => Self::Design,
             Some("ENCRYPTION") | Some("ENCRYPT") => Self::Encryption,
+            Some("INTERNAL") => Self::InternalHygiene,
             _ => Self::Vocabulary, // safe fallback; auditor flags
         }
     }
@@ -83,6 +91,7 @@ impl RuleCategory {
             "error_vocab" | "ErrorVocab" => Some(Self::ErrorVocab),
             "poller" | "Poller" => Some(Self::Poller),
             "report" | "Report" => Some(Self::Report),
+            "internal_hygiene" | "InternalHygiene" => Some(Self::InternalHygiene),
             _ => None,
         }
     }
@@ -103,6 +112,7 @@ impl RuleCategory {
             Self::ErrorVocab => "error_vocab",
             Self::Poller => "poller",
             Self::Report => "report",
+            Self::InternalHygiene => "internal_hygiene",
         }
     }
 }
@@ -132,6 +142,30 @@ mod tests {
         assert_eq!(
             RuleCategory::from_code_prefix("MONEY-COMPARE-001"),
             RuleCategory::Vocabulary
+        );
+    }
+
+    #[test]
+    fn internal_prefix_routes_to_internal_hygiene() {
+        assert_eq!(
+            RuleCategory::from_code_prefix("INTERNAL-FILE-SIZE-001"),
+            RuleCategory::InternalHygiene
+        );
+        assert_eq!(
+            RuleCategory::from_code_prefix("INTERNAL-UNDOC-PUB-001"),
+            RuleCategory::InternalHygiene
+        );
+    }
+
+    #[test]
+    fn internal_hygiene_parses_both_cases() {
+        assert_eq!(
+            RuleCategory::parse("internal_hygiene"),
+            Some(RuleCategory::InternalHygiene)
+        );
+        assert_eq!(
+            RuleCategory::parse("InternalHygiene"),
+            Some(RuleCategory::InternalHygiene)
         );
     }
 

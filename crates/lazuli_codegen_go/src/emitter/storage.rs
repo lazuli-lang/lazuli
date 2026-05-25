@@ -445,6 +445,7 @@ mod tests {
 
             composite_key: None,
             conventions: Vec::new(),
+            lifecycle_routes: None,
         }
     }
 
@@ -804,6 +805,7 @@ mod feature_emit_tests {
             lock: None,
             composite_key: None,
             conventions: Vec::new(),
+            lifecycle_routes: None,
         });
 
         let out = emit_entry_point(&feature).expect("typed file field must emit storage.gen.go");

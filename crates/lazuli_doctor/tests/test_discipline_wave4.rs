@@ -212,11 +212,11 @@ fn mk_resource(
         previous_names: vec![],
         span_ref: None,
         lifecycle,
-        lifecycle_routes: None,
         invariants,
         lock: None,
         composite_key: None,
         conventions: Vec::new(),
+        lifecycle_routes: None,
     }
 }
 

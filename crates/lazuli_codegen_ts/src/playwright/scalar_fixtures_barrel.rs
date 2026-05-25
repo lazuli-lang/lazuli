@@ -109,12 +109,12 @@ mod tests {
                 "// v1 placeholder — when plugins ship their `/fixtures` export, the\n",
                 "// commented imports populate.\n",
                 "\n",
-                "import { fixtures as _scalarsBr } from '@lazuli/plugin-scalars-br/fixtures';\n",
-                "// import { fixtures as _scalarsAr } from '@lazuli/plugin-scalars-ar/fixtures';\n",
+                "import { fixtures as _pluginScalarsBr } from '@lazuli/plugin-scalars-br/fixtures';\n",
+                "// import { fixtures as _pluginScalarsAr } from '@lazuli/plugin-scalars-ar/fixtures';\n",
                 "\n",
                 "export const fixtures = {\n",
-                "  ..._scalarsBr,\n",
-                "  // ..._scalarsAr,\n",
+                "  ..._pluginScalarsBr,\n",
+                "  // ..._pluginScalarsAr,\n",
                 "} as Record<string, { generate: () => string; example?: string; invalid?: () => string }>;\n"
             )
         );

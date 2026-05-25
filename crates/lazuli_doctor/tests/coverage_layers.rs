@@ -51,7 +51,7 @@ fn view_e2e_pair_with_missing_specs_is_uncovered() {
             view: "settings".to_string(),
         },
     ];
-    let layer = coverage::view_e2e_pair::compute(&views, Some(tmp.path()));
+    let layer = coverage::view_e2e_pair::compute(&views, Some(tmp.path()), None);
     assert_eq!(layer.total, 2);
     assert_eq!(layer.covered, 0);
 }
@@ -72,7 +72,7 @@ fn view_e2e_pair_with_one_present_spec_is_partially_covered() {
             view: "settings".to_string(),
         },
     ];
-    let layer = coverage::view_e2e_pair::compute(&views, Some(tmp.path()));
+    let layer = coverage::view_e2e_pair::compute(&views, Some(tmp.path()), None);
     assert_eq!(layer.total, 2);
     assert_eq!(layer.covered, 1);
 }

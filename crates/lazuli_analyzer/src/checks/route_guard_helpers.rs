@@ -878,6 +878,7 @@ mod tests {
             name: "host_home".to_string(),
             path: Some("/host".to_string()),
             routes: Vec::new(),
+            route_params: Vec::new(),
             to: Some("host.view.host_home".to_string()),
             surface: Some("host web".to_string()),
             audience: Some("host".to_string()),

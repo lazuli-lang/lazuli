@@ -24,11 +24,14 @@ pub mod encryption;
 pub mod error_vocab;
 pub mod handler_path;
 pub mod handler_walker;
+pub mod internal_hygiene;
 pub mod lifecycle;
 pub mod poller;
 pub mod report;
 pub mod rule_category;
+pub mod severity;
 pub mod test_discipline;
 pub mod vocab;
 
 pub use rule_category::RuleCategory;
+pub use severity::DoctorSeverity;

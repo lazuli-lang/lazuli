@@ -13,6 +13,7 @@ use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 
 mod app_manifest;
 mod cmd_design;
+mod commands;
 mod cmd_fix;
 mod cmd_generate_command;
 mod cmd_generate_feature;
@@ -157,6 +158,15 @@ enum Commands {
         /// - `coverage:<layer>=<N>` — coverage threshold gate
         #[arg(long, action = clap::ArgAction::Append)]
         fail_on: Vec<String>,
+        /// W3 (rails-style-refactor) — audit the framework's own Rust
+        /// source instead of (or in addition to) `.lzi`/`.lzx` IR.
+        /// Walks `crates/lazuli_*/src/` and emits `INTERNAL-*` findings
+        /// (file size, missing rustdoc, absent `## Examples`, unpaired
+        /// tests). Pairs with workspace-root
+        /// `[doctor.internal_hygiene].preset = "tdd-iron-hand"` for
+        /// the framework's CI editorial veto.
+        #[arg(long = "self")]
+        self_audit: bool,
     },
     Inspect {
         input: PathBuf,
@@ -910,11 +920,15 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Parse { input } => parse_command(&input),
+        Commands::Parse { input } => commands::parse::parse_command(&input),
         Commands::Check {
             input,
             security_profile,
-        } => check_command(&input, security_profile, cli.allow_version_mismatch),
+        } => commands::check::check_command(
+            &input,
+            security_profile.into(),
+            cli.allow_version_mismatch,
+        ),
         Commands::Doctor {
             input,
             security_profile,
@@ -922,6 +936,7 @@ fn main() -> Result<()> {
             format,
             coverage,
             fail_on,
+            self_audit,
         } => doctor::doctor_command_with_options(
             &input,
             security_profile.into(),
@@ -931,6 +946,7 @@ fn main() -> Result<()> {
                 format: Some(format),
                 coverage,
                 fail_on,
+                self_audit,
             },
         ),
         Commands::Inspect {
@@ -950,7 +966,7 @@ fn main() -> Result<()> {
             top,
             by,
             format,
-        } => profile_command(&profile, top, &by, &format),
+        } => commands::profile::profile_command(&profile, top, &by, &format),
         Commands::Examples { sub } => {
             let project_root =
                 std::env::current_dir().context("failed to determine current directory")?;
@@ -964,7 +980,7 @@ fn main() -> Result<()> {
             }
             .map_err(|err| anyhow::anyhow!("{err}"))
         }
-        Commands::Init { path } => init_command(&path),
+        Commands::Init { path } => commands::init::init_command(&path, DEFAULT_TEMPLATE),
         Commands::New {
             project_name,
             template,
@@ -982,9 +998,13 @@ fn main() -> Result<()> {
             frontends,
             in_place,
         ),
-        Commands::Lsp { stdio: _ } => lsp_command(),
-        Commands::SpikeGenerate { root, spec } => spike_generate_command(&root, spec.as_deref()),
-        Commands::Plan { input, check } => plan_command(&input, check.as_deref()),
+        Commands::Lsp { stdio: _ } => commands::lsp::lsp_command(),
+        Commands::SpikeGenerate { root, spec } => {
+            commands::spike_generate::spike_generate_command(&root, spec.as_deref())
+        }
+        Commands::Plan { input, check } => {
+            commands::plan::plan_command(&input, check.as_deref())
+        }
         Commands::Generate {
             kind,
             input,
@@ -1084,7 +1104,7 @@ fn main() -> Result<()> {
                 .map_err(|err| anyhow::anyhow!("{err}"))
         }
         Commands::Changelog { from, to, output } => {
-            changelog_command(&from, &to, output.as_deref())
+            commands::changelog::changelog_command(&from, &to, output.as_deref())
         }
         Commands::Translate { sub } => match sub {
             TranslateCommand::Extract {
@@ -1094,7 +1114,7 @@ fn main() -> Result<()> {
                 check,
             } => translate_extract_command(&input, &out, locale.as_deref(), check),
         },
-        Commands::Mcp => cmd_mcp::run_mcp_server(),
+        Commands::Mcp => commands::mcp::mcp_command(),
         Commands::Test {
             input,
             layer,
@@ -1105,9 +1125,9 @@ fn main() -> Result<()> {
             fail_fast,
             aggregate_method,
             extra_args,
-        } => test_command(
+        } => commands::test::test_command(
             input,
-            layer,
+            layer.into_iter().map(Into::into).collect(),
             format,
             coverage,
             fail_on,
@@ -1117,50 +1137,6 @@ fn main() -> Result<()> {
             extra_args,
         ),
     }
-}
-
-fn test_command(
-    input: PathBuf,
-    layer: Vec<TestLayerFlag>,
-    format: String,
-    coverage: bool,
-    fail_on: Vec<String>,
-    watch: bool,
-    fail_fast: bool,
-    aggregate_method: Option<String>,
-    extra_args: Vec<String>,
-) -> Result<()> {
-    let format = cmd_test::OutputFormat::parse(&format).map_err(|e| anyhow::anyhow!(e))?;
-    let mut parsed_fail_on = Vec::new();
-    for raw in &fail_on {
-        let spec = cmd_test_types::FailOnSpec::parse(raw)
-            .map_err(|e| anyhow::anyhow!(e))?;
-        parsed_fail_on.push(spec);
-    }
-    // Gate coverage:aggregate=<N> behind --aggregate-method per
-    // proposal §Coverage.
-    if aggregate_method.is_none()
-        && parsed_fail_on.iter().any(|s| {
-            matches!(s, cmd_test_types::FailOnSpec::Coverage { metric, .. } if metric == "aggregate")
-        })
-    {
-        bail!(
-            "--fail-on coverage:aggregate=<N> requires --aggregate-method to be set explicitly"
-        );
-    }
-
-    let opts = cmd_test::TestOptions {
-        input,
-        layers: layer.into_iter().map(Into::into).collect(),
-        format,
-        coverage,
-        fail_on: parsed_fail_on,
-        watch,
-        fail_fast,
-        aggregate_method,
-        extra_args,
-    };
-    cmd_test::run(opts)
 }
 
 /// OpenAPI / Lazuli Go bucket cycle — emit an artifact derived from
@@ -4105,32 +4081,6 @@ impl From<DesignExportTarget> for cmd_design::ExportTarget {
     }
 }
 
-fn profile_command(profile_path: &Path, top: usize, by: &str, format: &str) -> Result<()> {
-    let axis = match by {
-        "cpu" => profile::ProfileAxis::Cpu,
-        "alloc" => profile::ProfileAxis::Alloc,
-        "block" => profile::ProfileAxis::Block,
-        other => bail!("unknown profile axis `{other}`; expected cpu, alloc, or block"),
-    };
-    let report = profile::run_profile(profile_path, top, axis)
-        .map_err(|err| anyhow::anyhow!("failed to read profile: {err}"))?;
-    match format {
-        "text" => {
-            print!("{}", profile::format_report(&report));
-            Ok(())
-        }
-        "json" => {
-            let payload = serde_json::json!({
-                "top_ops": report.top_ops,
-                "top_patterns": report.top_patterns,
-            });
-            println!("{}", serde_json::to_string_pretty(&payload)?);
-            Ok(())
-        }
-        other => bail!("unknown profile format `{other}`; expected text or json"),
-    }
-}
-
 /// Lazuli Go bucket cycle — emit Lazuli Go user-code from the typed
 /// IR. Walks `lazuli_codegen_go::generate_v1`, then either writes the
 /// resulting files into `--out` or, in `--check` mode, prints what
@@ -4932,34 +4882,6 @@ fn json_escape(s: &str) -> String {
 
 /// OpenAPI bucket cycle — emit a changelog markdown from two inspect
 /// JSON payloads.
-fn changelog_command(from: &Path, to: &Path, output: Option<&Path>) -> Result<()> {
-    let old_text =
-        fs::read_to_string(from).with_context(|| format!("reading {}", from.display()))?;
-    let new_text = fs::read_to_string(to).with_context(|| format!("reading {}", to.display()))?;
-    let old_module: lazuli_ir::Module = serde_json::from_str(&old_text)
-        .with_context(|| format!("parsing {} as IR JSON", from.display()))?;
-    let new_module: lazuli_ir::Module = serde_json::from_str(&new_text)
-        .with_context(|| format!("parsing {} as IR JSON", to.display()))?;
-    let report = lazuli_changelog::diff(&old_module, &new_module);
-    let md = lazuli_changelog::render_markdown(&report);
-    match output {
-        Some(path) => {
-            if let Some(parent) = path.parent() {
-                if !parent.as_os_str().is_empty() {
-                    fs::create_dir_all(parent).with_context(|| {
-                        format!("creating output directory {}", parent.display())
-                    })?;
-                }
-            }
-            fs::write(path, &md)
-                .with_context(|| format!("writing changelog to {}", path.display()))?;
-            println!("wrote {}", path.display());
-        }
-        None => print!("{}", md),
-    }
-    Ok(())
-}
-
 /// Recursively collect every `.lzi` file under a package root, skipping
 /// well-known noise directories (build output, vcs metadata, vendored
 /// deps). Honors the Lazurite convention (`features/<name>/<name>.lzi`)
@@ -5094,7 +5016,7 @@ fn read_package_lzi_source(dir: &Path) -> Result<String> {
 /// `feature` blocks through the canonical-indent slice (Phase L Tier
 /// 4). Files without typed feature skeletons (e.g. `app.lzi`,
 /// `registry.lzi`) feed `AppManifest` / `AppRegistry`.
-fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> {
+pub(crate) fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> {
     let mut module = lazuli_ir::Module {
         workspace: None,
         contracts: Vec::new(),
@@ -5574,227 +5496,6 @@ fn build_module_with_source_from_path(
 ///
 /// Typed field-level diff (`Rename Customer.status -> Customer.lifecycle_status`)
 /// is out of scope for Route C; lands in the Tier-4 follow-up cycle.
-fn plan_command(input: &Path, check: Option<&str>) -> Result<()> {
-    let Some(check_name) = check else {
-        bail!("`lazuli plan` currently requires `--check <snapshot_name>`");
-    };
-
-    // Locate `app.lzi` — accept either a direct path or a directory.
-    let app_path = if input.is_dir() {
-        lazurite_manifest::resolve_in_app_dir(input, "app.lzi")
-    } else {
-        input.to_path_buf()
-    };
-    if !app_path.exists() {
-        bail!("app manifest not found at {}", app_path.display());
-    }
-
-    let source = fs::read_to_string(&app_path)
-        .with_context(|| format!("failed to read {}", app_path.display()))?;
-
-    let manifest = app_manifest::parse_app_manifest(&source)
-        .ok_or_else(|| anyhow::anyhow!("{} does not declare an `app` block", app_path.display()))?;
-
-    let Some(deploy) = manifest.deploy.as_ref() else {
-        bail!(
-            "app `{}` declares no `deploy` block — nothing to plan",
-            manifest.name
-        );
-    };
-    let Some(checkpoint) = deploy.checkpoint.as_ref() else {
-        bail!(
-            "app `{}` declares no `deploy.checkpoint` — add `checkpoint <name> \"<path>\"` first",
-            manifest.name
-        );
-    };
-    if checkpoint.name != check_name {
-        bail!(
-            "checkpoint `{}` not declared in app `{}` (found `{}`)",
-            check_name,
-            manifest.name,
-            checkpoint.name
-        );
-    }
-
-    // Resolve checkpoint path relative to app.lzi's directory.
-    let app_dir = app_path.parent().unwrap_or_else(|| Path::new("."));
-    let snapshot_path = app_dir.join(&checkpoint.path);
-    if !snapshot_path.exists() {
-        bail!(
-            "checkpoint `{}` references path `{}` that does not exist relative to {}",
-            check_name,
-            checkpoint.path,
-            app_path.display()
-        );
-    }
-
-    let text = fs::read_to_string(&snapshot_path)
-        .with_context(|| format!("failed to read snapshot {}", snapshot_path.display()))?;
-    let value: serde_json::Value = serde_json::from_str(&text)
-        .with_context(|| format!("snapshot {} is not valid JSON", snapshot_path.display()))?;
-
-    let expected_version = env!("CARGO_PKG_VERSION");
-    let snapshot_version = value
-        .get("lazuli_version")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    if snapshot_version.is_empty() {
-        println!(
-            "checkpoint {}: ok (snapshot missing `lazuli_version`; regenerate to enable version drift detection)",
-            check_name
-        );
-        return Ok(());
-    }
-    if snapshot_version != expected_version {
-        println!(
-            "checkpoint {}: ok (snapshot lazuli_version {} lags analyzer {}; consider regenerating)",
-            check_name, snapshot_version, expected_version
-        );
-        return Ok(());
-    }
-    println!("checkpoint {}: ok", check_name);
-    Ok(())
-}
-
-fn spike_generate_command(root: &Path, spec: Option<&Path>) -> Result<()> {
-    let feature = match spec {
-        Some(path) => {
-            let text =
-                fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
-            serde_json::from_str(&text)
-                .with_context(|| format!("parse runtime spec JSON {}", path.display()))?
-        }
-        None => lazuli_codegen_spec::customer_spike(),
-    };
-    let go_path = root.join("dist/go/customer/customer.gen.go");
-    let ts_path = root.join("dist/web/customer/src/customer.gen.ts");
-
-    let go_source = lazuli_codegen_go::emit_feature_go(&feature);
-    let ts_source = lazuli_codegen_ts::emit_feature_ts(&feature);
-
-    if let Some(parent) = go_path.parent() {
-        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
-    }
-    if let Some(parent) = ts_path.parent() {
-        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
-    }
-
-    fs::write(&go_path, go_source).with_context(|| format!("write {}", go_path.display()))?;
-    fs::write(&ts_path, ts_source).with_context(|| format!("write {}", ts_path.display()))?;
-
-    println!("wrote {}", go_path.display());
-    println!("wrote {}", ts_path.display());
-    Ok(())
-}
-
-fn check_command(
-    input: &Path,
-    security_profile: CheckSecurityProfile,
-    allow_version_mismatch: bool,
-) -> Result<()> {
-    if !allow_version_mismatch {
-        let project_root = project_root_for_input(input);
-        let manifest = lazurite_manifest::load(&project_root).with_context(|| {
-            format!(
-                "failed to read {}",
-                project_root.join("Lazurite.toml").display()
-            )
-        })?;
-        version::enforce_manifest_pin(manifest.as_ref())?;
-    }
-
-    let inputs = check_inputs(input)?;
-    let mut has_error = false;
-
-    for path in &inputs {
-        let source =
-            fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
-        let diagnostics =
-            lazuli_lsp::diagnostics_for_source_with_profile(&source, security_profile.into());
-        has_error |= diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.severity == Some(DiagnosticSeverity::ERROR));
-
-        for diagnostic in &diagnostics {
-            print_diagnostic(path, diagnostic);
-        }
-    }
-
-    if has_error {
-        bail!(
-            "{} failed Lazuli checks under {:?} security profile",
-            input.display(),
-            security_profile
-        );
-    }
-
-    println!("{} passed Lazuli checks", input.display());
-    Ok(())
-}
-
-fn check_inputs(input: &Path) -> Result<Vec<PathBuf>> {
-    if !input.is_dir() {
-        return Ok(vec![input.to_path_buf()]);
-    }
-
-    let mut paths = Vec::new();
-    let mut stack = vec![input.to_path_buf()];
-    while let Some(path) = stack.pop() {
-        for entry in fs::read_dir(&path)
-            .with_context(|| format!("failed to read {}", path.display()))?
-        {
-            let path = entry
-                .with_context(|| format!("failed to read entry under {}", path.display()))?
-                .path();
-            if path.is_dir() {
-                stack.push(path);
-            } else if matches!(
-                path.extension().and_then(|extension| extension.to_str()),
-                Some("lzi" | "lzx")
-            ) {
-                paths.push(path);
-            }
-        }
-    }
-
-    paths.sort();
-    if paths.is_empty() {
-        bail!("no .lzi or .lzx files found under {}", input.display());
-    }
-    Ok(paths)
-}
-
-fn print_diagnostic(input: &Path, diagnostic: &Diagnostic) {
-    let severity = match diagnostic.severity {
-        Some(DiagnosticSeverity::ERROR) => "error",
-        Some(DiagnosticSeverity::WARNING) => "warning",
-        Some(DiagnosticSeverity::INFORMATION) => "info",
-        Some(DiagnosticSeverity::HINT) => "hint",
-        _ => "diagnostic",
-    };
-    let code = diagnostic
-        .code
-        .as_ref()
-        .map(|code| match code {
-            tower_lsp::lsp_types::NumberOrString::String(value) => format!(" [{value}]"),
-            tower_lsp::lsp_types::NumberOrString::Number(value) => format!(" [{value}]"),
-        })
-        .unwrap_or_default();
-    println!(
-        "{}:{}:{}: {severity}{code}: {}",
-        input.display(),
-        diagnostic.range.start.line + 1,
-        diagnostic.range.start.character + 1,
-        diagnostic.message
-    );
-}
-
-fn parse_command(input: &Path) -> Result<()> {
-    let app = compile_to_ir(input)?;
-    println!("{}", serde_json::to_string_pretty(&app)?);
-    Ok(())
-}
-
 fn inspect_command(
     input: &Path,
     expand: &str,
@@ -6398,7 +6099,7 @@ fn inspect_plugin_semantic_types(
     serde_json::Value::Array(entries)
 }
 
-fn project_root_for_input(input: &Path) -> PathBuf {
+pub(crate) fn project_root_for_input(input: &Path) -> PathBuf {
     if input.is_dir() {
         return input.to_path_buf();
     }
@@ -6477,20 +6178,6 @@ fn collect_plan_gate_facts_for_generate(
         subscription_anchor: facts.subscription_anchor,
         gates: facts.gates,
     })
-}
-
-fn init_command(path: &Path) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create directory {}", parent.display()))?;
-        }
-    }
-
-    fs::write(path, DEFAULT_TEMPLATE)
-        .with_context(|| format!("failed to write {}", path.display()))?;
-    println!("created {}", path.display());
-    Ok(())
 }
 
 fn new_command(
@@ -7121,19 +6808,6 @@ fn pascal_case(value: &str) -> String {
     }
 
     out
-}
-
-fn lsp_command() -> Result<()> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("failed to start Lazuli LSP runtime")?;
-    runtime.block_on(lazuli_lsp::serve_stdio());
-    Ok(())
-}
-
-fn compile_to_ir(input: &Path) -> Result<lazuli_ir::Module> {
-    build_module_from_path(input).context("failed to compile .lzi file")
 }
 
 fn write_generated_file(root: &Path, relative: &str, contents: &str) -> Result<()> {

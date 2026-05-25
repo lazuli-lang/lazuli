@@ -15,10 +15,50 @@
 use serde::{Deserialize, Serialize};
 
 pub mod encryption;
+pub mod nodes;
 pub mod security_duration;
 pub use encryption::{
     E2eeCapability, EncryptionAlgorithm, EncryptionBinding, EncryptionKeyScope, EncryptionRotation,
     EncryptionSource, EncryptionTemplate, EncryptionTemplateAxis,
+};
+pub use nodes::async_work::{
+    BackoffStrategy, DigestStrategy, DlqSpec, ExternalCallRef, FanoutScope, FanoutSpec,
+    IdempotencyKey, Job, JobBody, JobDeclarative, JobHandler, JobOperationalKind, JobTrigger,
+    Notification, NotificationDigest, NotificationThrottle, ReplayMode, ReplaySpec, RetryPolicy,
+    TenantFromSpec, VerifyScheme, VerifySpec, Webhook, WebhookEventRef, WebhookScopeGlobalSpec,
+};
+pub use nodes::auth::{
+    Auth, AuthIdentity, AuthMfa, AuthOAuthProvider, AuthPassword, AuthSessions, RotationConfig,
+    SessionExtraColumn, TheftAction,
+};
+pub use nodes::capability::{
+    CapabilityRef, EncryptedCapability, FileCapability, FileSize, FileSizeLiteral, FileVisibility,
+    HashAlgorithm, HashedCapability, MimeType, PiiCapability, TokenCapability, TokenStore,
+};
+pub use nodes::error_vocab::{
+    ErrorExposeRule, ErrorExposureDefault, FeatureErrorMessage, FeatureErrors, FeatureFieldError,
+    TranslationKeyRef,
+};
+pub use nodes::feature_defaults::{
+    Constraint, Defaults, EscapeRoute, Extension, ExtensionContract, FieldValidation,
+    IndexConstraint, IndexMethod, NonGoal, PathRef, PathSource, Tenancy, UniqueConstraint,
+};
+pub use nodes::mcp::{
+    MCPAuth, MCPParam, MCPPrompt, MCPResource, MCPServerMetadata, MCPServerSpec, MCPTool,
+    MCPTransport,
+};
+pub use nodes::plan_and_gate::{
+    AutoPhotoCommandRole, Gate, Plan, PlanCatalog, PlanLimit, PlanLimitValue, SubscriptionAnchor,
+    SynthesizedFromCapFile, TrialPolicy,
+};
+pub use nodes::rbac::{PermissionEntry, RbacCatalog, RoleEntry, RoleGrants};
+pub use nodes::report::{
+    FilenameToken, FnInvocation, Report, ReportColumn, ReportColumnSource, ReportFilenamePattern,
+    ReportFormat, ReportSource,
+};
+pub use nodes::test_and_policy::{
+    FieldPolicies, FieldPolicy, Policies, PolicyCategory, RoleMismatchArm, RouteRedirectTarget,
+    TestAssertion, TestBlock, WhenDeniedRoute,
 };
 
 /// LZIR_SCHEMA — version of the IR JSON ABI. Bumped to 0.16.0 by
@@ -307,57 +347,15 @@ pub struct Module {
     pub features: Vec<Feature>,
 }
 
-// -----------------------------------------------------------------------------
-// RBAC catalog IR — produced by `lazuli_analyzer::analyze_rbac_catalog`
-// from the surface AST (`PackageSkeleton.permissions` / `.roles`).
-// Closure is analyzer-derived, baked into the IR for downstream
-// consumers (codegen, doctor, inspect) so they never recompute.
-// -----------------------------------------------------------------------------
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RbacCatalog {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub permissions: Vec<PermissionEntry>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub roles: Vec<RoleEntry>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PermissionEntry {
-    /// Full identifier (`users:read`).
-    pub name: String,
-    /// Colon-split segments.
-    pub segments: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RoleEntry {
-    pub name: String,
-    /// Single-parent inheritance ref (v0.1). `None` for root roles.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub inherits: Option<String>,
-    pub grants: RoleGrants,
-    /// Analyzer-computed flat permission list (closure of own grants
-    /// plus transitively inherited grants). Sorted for determinism.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub closure: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value")]
-pub enum RoleGrants {
-    /// Explicit `grants` block — direct permission refs (closure also
-    /// folds in inherited).
-    Explicit(Vec<String>),
-    /// `grants_all` shorthand. Closure = every declared permission.
-    All,
-    /// No `grants*` block. Closure = inherited only.
-    InheritedOnly,
-}
+// =============================================================================
+// RBAC catalog IR.
+// RBAC family (RbacCatalog, PermissionEntry, RoleEntry, RoleGrants) lives in
+// nodes::rbac after the W4.1 rails-style split. Re-exported at the crate root
+// above to preserve the ABI surface. Produced by
+// `lazuli_analyzer::analyze_rbac_catalog`; closure is analyzer-derived and
+// baked into the IR so downstream consumers (codegen, doctor, inspect) never
+// recompute.
+// =============================================================================
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppContract {
@@ -1308,173 +1306,12 @@ impl CurrencyCode {
 }
 
 // =============================================================================
-// Phase L Tier 2 — typed `@cap.File` capability
-//
-// `@cap.File(max_size:<size>,accept:<mime>,visibility:<mode>,signed_ttl:<dur>)`
-// becomes a `TypeRef::Capability(CapabilityRef::File(FileCapability { ... }))`.
-//
-// Surface → IR mapping lives in `lazuli_analyzer::type_ref_from_syntax`.
-// Doctor cross-checks against `object_storage` capability + input/output
-// symmetry remain in the existing text-pattern doctor pipeline until the
-// storage bucket cycle migrates them.
+// Phase L Tier 2 — typed `@cap.*` capabilities.
+// Family (CapabilityRef + File/PII/Hashed/Encrypted/Token sub-shapes,
+// FileSize, FileSizeLiteral, MimeType, FileVisibility, HashAlgorithm,
+// TokenStore) lives in `nodes::capability` after the W4.1 rails-style
+// split. Re-exported at the crate root above to preserve the ABI surface.
 // =============================================================================
-
-/// Discriminated union for typed capability decorators. New variants land
-/// as the bucket cycles type each `@cap.*` family.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value")]
-pub enum CapabilityRef {
-    File(FileCapability),
-    /// `@cap.PII(class:<X>, retention:<dur>, log_redact:<bool>)` —
-    /// marks fields as regulated personal data. Drives audit
-    /// data_subject inference + auto-redaction at log emission.
-    PII(PiiCapability),
-    /// Phase L Tier 4 follow-up — `@cap.Hashed(algorithm:<X>)`.
-    /// Closed catalog: `argon2id` canonical, `bcrypt` for legacy
-    /// migration only.
-    Hashed(HashedCapability),
-    /// Phase L Tier 4 follow-up — `@cap.Encrypted(key:@key.<scope>)`.
-    Encrypted(EncryptedCapability),
-    /// Encryption bucket cycle — `@cap.E2ee(key:@key.<scope>)`.
-    /// Sibling of `Encrypted`: the server stores ciphertext but
-    /// never reads it. See `docs/proposals/encryption-vocab.md`.
-    E2ee(E2eeCapability),
-    /// Phase L Tier 4 follow-up — `@cap.Token(ttl:<duration>,
-    /// single_use:<bool>,store:<storage>)`. `store` is `hashed` in v0.
-    Token(TokenCapability),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PiiCapability {
-    /// Free-form class name (`identity`, `contact`, `financial`,
-    /// `medical`, `biometric`). Adapters/doctor cross-check against a
-    /// registry-level catalog if declared.
-    pub class: String,
-    /// Optional retention period (duration literal, e.g. `"90d"`,
-    /// `"7y"`). When set, doctor flags resources without a
-    /// retention-cleanup job.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub retention: Option<String>,
-    /// When true, observability redaction must mask this field's
-    /// values in log output. Default true.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub log_redact: Option<bool>,
-}
-
-/// Phase L Tier 4 follow-up — typed `@cap.Hashed(algorithm:<X>)`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HashedCapability {
-    pub algorithm: HashAlgorithm,
-}
-
-/// Phase L Tier 4 follow-up — closed catalog of `@cap.Hashed` algorithms.
-/// `Argon2id` is canonical; `Bcrypt` is kept only for legacy migration
-/// (doctor warns on new uses).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum HashAlgorithm {
-    Argon2id,
-    Bcrypt,
-}
-
-/// Phase L Tier 4 follow-up — typed `@cap.Encrypted(key:@key.<scope>)`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EncryptedCapability {
-    /// `@key.<scope>` reference, stored verbatim with the `@key.`
-    /// prefix preserved so cold-readers see the namespace.
-    pub key: String,
-}
-
-/// Phase L Tier 4 follow-up — typed `@cap.Token(...)`. All three
-/// dimensions (ttl/single_use/store) are mandatory in canonical v0.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TokenCapability {
-    /// `ttl:<integer><s|m|h|d>` — duration literal preserved verbatim
-    /// (adapter parses).
-    pub ttl: String,
-    /// `single_use:true|false`.
-    pub single_use: bool,
-    /// `store:hashed` — closed catalog `{Hashed}` in v0.
-    pub store: TokenStore,
-}
-
-/// Phase L Tier 4 follow-up — closed catalog of token storage modes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TokenStore {
-    Hashed,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FileCapability {
-    pub max_size: FileSize,
-    /// At least one MIME entry. The `|`-separated source form is
-    /// normalised into a flat vector; a `*/*` wildcard authoring is
-    /// represented as `family: "*", subtype: "*"`.
-    pub accept: Vec<MimeType>,
-    /// `None` is the parse-time default (`private` on a resource
-    /// field, **required** on an api output — doctor warns on
-    /// omission). The bucket-storage cycle proposal carries the
-    /// closed catalog `{public, private, signed}`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub visibility: Option<FileVisibility>,
-    /// `Some` only when `visibility == Signed`. Mutually exclusive
-    /// with `visibility == Private` (doctor enforces); language
-    /// records what the author wrote.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub signed_ttl: Option<String>,
-    /// `auto_photo_policy: @policy.<name>` — explicit policy attached
-    /// to the 4 commands synthesized from this `@cap.File` site
-    /// (FR-3a). `None` defers to the analyzer's heuristic
-    /// (resource_singular + "_only").
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub auto_photo_policy: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FileSize {
-    pub bytes: u64,
-    /// Source-text literal preserved for inspect round-trip.
-    pub literal: FileSizeLiteral,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "unit", content = "amount")]
-pub enum FileSizeLiteral {
-    Kb(u32),
-    Mb(u32),
-    Gb(u32),
-}
-
-impl FileSizeLiteral {
-    /// Convert the literal into a byte count. `kb` = 1024, `mb` = 1024*1024,
-    /// `gb` = 1024*1024*1024 (binary prefixes, matching the LSP literal
-    /// catalog `is_file_size_literal`).
-    pub fn bytes(self) -> u64 {
-        match self {
-            Self::Kb(n) => n as u64 * 1024,
-            Self::Mb(n) => n as u64 * 1024 * 1024,
-            Self::Gb(n) => n as u64 * 1024 * 1024 * 1024,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MimeType {
-    /// IANA top-level family (`text`, `image`, `application`, `audio`,
-    /// `video`, `font`) or wildcard `*`.
-    pub family: String,
-    /// Subtype, e.g. `csv`, `vnd.ms-excel`, `*`.
-    pub subtype: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum FileVisibility {
-    Public,
-    Private,
-    Signed,
-}
 
 /// Qualified name for a feature-scoped or local symbol. `feature` is `None`
 /// for local references; cross-feature references carry the feature id.
@@ -2268,7 +2105,7 @@ impl Path {
     }
 }
 
-fn is_false(value: &bool) -> bool {
+pub(crate) fn is_false(value: &bool) -> bool {
     !*value
 }
 
@@ -3752,140 +3589,13 @@ pub struct TranslationPluralArm {
 }
 
 // =============================================================================
-// IR Error-Vocab — typed translation key references + feature-level errors
-// block lowering. See `docs/proposals/ir-error-messages-vocab.md` §3.
-//
-// Additive: every new shape lives behind `Option`/`Vec` slots wired with
-// `#[serde(default, skip_serializing_if = "...")]` so pre-vocab fixtures
-// deserialize unchanged. Complements the legacy `Rule.message_ref:
-// Option<String>` — that string-form stays untouched for back-compat.
+// IR Error-Vocab — typed translation key references + feature-level errors.
+// Family (TranslationKeyRef, ErrorExposureDefault, FeatureErrors,
+// ErrorExposeRule, FeatureErrorMessage, FeatureFieldError) lives in
+// `nodes::error_vocab` after the W4.1 rails-style split. Re-exported at the
+// crate root above to preserve the ABI surface. See
+// `docs/proposals/ir-error-messages-vocab.md` §3 for design.
 // =============================================================================
-
-/// A `@translation.<key>` reference used by feature-level errors blocks,
-/// per-command/per-policy `when_denied` overrides, and (post-pilot) per-
-/// field validator errors. The key resolves against the surrounding
-/// feature's `Translation.keys[]` at analyze time; doctor cross-checks
-/// the key against the resolved feature's catalog
-/// (`translation_key_unknown` + ERR-VOCAB-002).
-///
-/// Complements the legacy `Rule.message_ref: Option<String>` — the
-/// string form stays for back-compat in v1; v2 migrates rules onto this
-/// struct.
-///
-/// See `docs/proposals/ir-error-messages-vocab.md` §3.1.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TranslationKeyRef {
-    /// The key name, e.g. `must_be_signed_in`.
-    pub key: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// Closed catalog of feature-level `errors default ...` resolutions.
-/// `Hide` means error envelope fields default to suppressed unless an
-/// `expose client 4xx/5xx ...` line opts them in; `Expose` flips the
-/// default. Mirrors the pre-existing LSP validator at
-/// `valid_error_exposure_line`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ErrorExposureDefault {
-    Hide,
-    Expose,
-}
-
-/// Feature-level error contract lowered from the `errors` block.
-/// Subsumes both the pre-existing LSP-validated `default hide / expose
-/// client 4xx ...` exposure surface (now lowered into IR) and the new
-/// typed per-code message overrides introduced by the error-vocab
-/// proposal.
-///
-/// Resolution-chain step 3 (see proposal §2.E): when neither the
-/// per-command `policy_when_denied` nor the per-policy `when_denied`
-/// resolves, the runtime falls through to `messages[].message` for the
-/// matching closed-catalog `code`.
-///
-/// See `docs/proposals/ir-error-messages-vocab.md` §3.4.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FeatureErrors {
-    /// `default hide` | `default expose`. `None` defers to the runtime
-    /// default (currently `Hide`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default: Option<ErrorExposureDefault>,
-    /// 4xx envelope-field exposure. Closed catalog: `message`, `code`,
-    /// `data`, `message_key`.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub exposure_4xx: Vec<String>,
-    /// 5xx envelope-field exposure. Closed catalog: `code`, `data`.
-    /// (`message` deliberately not allowed for 5xx — see proposal §2.C.)
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub exposure_5xx: Vec<String>,
-    /// Audience-scoped exposure rules from `expose to @audience <name>
-    /// <fields>`. Runtime/codegen enforcement lands in a follow-up.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub audience_exposure: Vec<ErrorExposeRule>,
-    /// `error_redact <pattern>` lines — regex patterns to mask from
-    /// emitted error bodies before client-side delivery.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub redact_patterns: Vec<String>,
-    /// Per-code message overrides; one entry per `<code> message
-    /// @translation.<key>` line. Resolution-chain step 3.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub messages: Vec<FeatureErrorMessage>,
-    /// Reserved for v2 — per-field validator error references
-    /// (`validates field <Field>.<code> message @translation.<key>`).
-    /// v1 parser leaves this empty; codegen ignores. The slot lives in
-    /// IR so v2 promotion is purely additive.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub field_messages: Vec<FeatureFieldError>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ErrorExposeRule {
-    /// Optional audience target. `None` is the legacy client-wide
-    /// exposure shape; `Some("operator")` comes from
-    /// `expose to @audience operator ...`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub audience: Option<String>,
-    /// Envelope fields exposed by this rule.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub fields: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// One `<code> message @translation.<key>` row inside a feature's
-/// `errors` block. `code` is constrained to the closed catalog of
-/// overridable error families (`policy_denied`, `validation_failed`,
-/// `tenant_mismatch`, `not_found`, `rate_limited`, `bad_request`,
-/// `method_not_allowed`, `integration_error`) — doctor diagnostic
-/// `ERR-VOCAB-CODE-UNKNOWN` rejects unknown codes.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FeatureErrorMessage {
-    pub code: String,
-    pub message: TranslationKeyRef,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// Reserved-for-v2 per-field validator error reference. v1 parser leaves
-/// this slot empty; the IR shape exists so v2 lowering and codegen
-/// promotion can land additively without an IR-ABI churn.
-///
-/// `resource` + `field` identify the target (e.g. `Customer.email`);
-/// `code` is the per-field validator error code (`format_invalid`,
-/// `required_missing`, ...); `message` is the typed key reference into
-/// the surrounding feature's `Translation.keys[]`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FeatureFieldError {
-    pub resource: String,
-    pub field: String,
-    pub code: String,
-    pub message: TranslationKeyRef,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppBinding {
@@ -4778,734 +4488,32 @@ pub struct PlatformView {
 }
 
 // =============================================================================
-// Phase 1c — feature defaults, resource enrichment, extensions, escape routes
+// Phase 1c — feature defaults, resource enrichment, extensions, escape routes.
+// Family (NonGoal, Defaults, Tenancy, Constraint, UniqueConstraint,
+// IndexConstraint, IndexMethod, FieldValidation, Extension, ExtensionContract,
+// PathRef, PathSource, EscapeRoute) lives in nodes::feature_defaults after the
+// W4.1 rails-style split. Re-exported at the crate root above to preserve the
+// ABI surface.
 // =============================================================================
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NonGoal {
-    /// Boundary key. Canonical capsules group these under `delegated_to`
-    /// or `out_of_scope`; the lowered IR keeps a flat key for now.
-    pub key: String,
-    pub description: String,
-}
-
-/// Feature-level `defaults` block. Resource-local declarations override these.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Defaults {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tenancy: Option<Tenancy>,
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub timestamps: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy: Option<PolicyRef>,
-}
-
-/// Tenancy axis. Non-tenant resources use `Tenancy::None` (the explicit
-/// `tenancy none` opt-out); resources inheriting feature defaults carry
-/// `Resource.tenancy = None` until the derived pass resolves them.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "axis", content = "value")]
-pub enum Tenancy {
-    Org,
-    Team,
-    /// Custom axis identifier (`tenancy workspace`, etc.).
-    Custom(String),
-    /// Explicit `tenancy none` opt-out.
-    None,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind")]
-pub enum Constraint {
-    Unique(UniqueConstraint),
-    Index(IndexConstraint),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct UniqueConstraint {
-    pub fields: Vec<String>,
-    /// `unique email per org` -> `qualifier = Some("org")`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub per: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct IndexConstraint {
-    pub fields: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub method: Option<IndexMethod>,
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub full_text: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum IndexMethod {
-    Btree,
-    Gin,
-    Gist,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FieldValidation {
-    pub field: String,
-    pub path: PathRef,
-}
-
-/// An extension contract declared under `extensions` and resolved to a
-/// filesystem implementation.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Extension {
-    pub name: String,
-    pub contract: ExtensionContract,
-    pub resolved_path: PathRef,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub previous_names: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// Closed catalog of extension contracts. Adding a contract is a minor bump;
-/// changing one is a major bump. See `docs/canonical-semantics.md`
-/// "Extension Path Convention" for the full table.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value")]
-pub enum ExtensionContract {
-    /// `client <name>: CellRenderer[X]`
-    CellRenderer { type_arg: TypeRef },
-    /// `client <name>: ViewBlock[X]` or single-use `block <name>: ViewBlock[X]`
-    ViewBlock { type_arg: TypeRef },
-    /// `client <name>: FormField[X]`
-    FormField { type_arg: TypeRef },
-    /// `hook <name>: Hook[X]`
-    Hook { type_arg: TypeRef },
-    /// `validator <name>: Validator[X]`
-    Validator { type_arg: TypeRef },
-    /// `fn <name>: Function[X, Y]`
-    Function { input: TypeRef, output: TypeRef },
-    /// `query_modifier <name>: QueryModifier[X]`
-    QueryModifier { type_arg: TypeRef },
-    /// `adapter <name>: IntegrationAdapter[X]`
-    IntegrationAdapter { type_arg: TypeRef },
-}
-
-/// Filesystem path with provenance. `Convention` paths are derived from the
-/// extension name + contract kind via the table in `docs/canonical-semantics.md`;
-/// `Authored` paths come from an explicit `at "..."` clause.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PathRef {
-    pub path: String,
-    pub source: PathSource,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum PathSource {
-    Convention,
-    Authored,
-}
-
-impl PathRef {
-    pub fn convention(path: impl Into<String>) -> Self {
-        Self {
-            path: path.into(),
-            source: PathSource::Convention,
-        }
-    }
-
-    pub fn authored(path: impl Into<String>) -> Self {
-        Self {
-            path: path.into(),
-            source: PathSource::Authored,
-        }
-    }
-}
-
-/// Pages Lazuli should know about but should not govern internally.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EscapeRoute {
-    pub route: String,
-    pub at: PathRef,
-    pub policy: PolicyRef,
-    /// Coarse tenant axis for the escape page. `None` = no tenant scope claimed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tenant: Option<Tenancy>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
 
 // =============================================================================
-// Phase 1d — async work: jobs and webhooks
+// Phase 1d — async work: jobs and webhooks.
+// Job + Webhook + Notification families live in nodes::async_work after the
+// W4.1 rails-style split. Re-exported at the crate root above to preserve
+// the ABI surface. See nodes/async_work.rs for shape + design notes.
 // =============================================================================
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Job {
-    pub name: String,
-    pub trigger: JobTrigger,
-    /// Execution lane for queued workers. `None` runs the reactor inline.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub queue: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub idempotency: Option<IdempotencyKey>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub retry: Option<RetryPolicy>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy: Option<PolicyRef>,
-    /// RB.S6 — structured `policy <expr>` form (see `Command.policy_expr`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy_expr: Option<PolicyExpr>,
-    /// IR Error-Vocab — reserved-slot per-job override for the
-    /// `policy_denied` error message. v1 codegen does not consume this
-    /// slot (jobs do not reach end users directly); the IR shape exists
-    /// so v2 promotion is purely additive. See
-    /// `docs/proposals/ir-error-messages-vocab.md` §3.3.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy_when_denied: Option<TranslationKeyRef>,
-    /// Phase L Tier 3 — `tenant_from payload.<axis>_id` extractor.
-    /// Lowered from the canonical-indent slice; doctor cross-checks
-    /// the path against the resource tenancy axis.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tenant_from: Option<TenantFromSpec>,
-    /// Phase L Tier 3 — `fanout tenants <axis>` scheduled-job
-    /// declaration. `None` for non-scheduled or single-tenant jobs.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fanout: Option<FanoutSpec>,
-    /// Phase L Tier 3 — `timeout "<duration>"`. Adapter-parsed string;
-    /// language keeps the literal.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub timeout: Option<String>,
-    /// Phase L Tier 3 — `calls <slot>.<op>` external-call references
-    /// surfaced from the job body. Doctor uses these for cross-feature
-    /// integration coverage (`INT-CALL-*`).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub external_calls: Vec<ExternalCallRef>,
-    pub body: JobBody,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub emits: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub previous_names: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value")]
-pub enum JobTrigger {
-    /// `trigger event customer.customer_archived` — feature-qualified or local.
-    Event { event: QualifiedName },
-    /// `trigger schedule "0 2 * * *"` — cron expression.
-    Schedule { cron: String },
-}
-
-/// Derived operational kind for inspect output. Authoring never sets this;
-/// the analyzer resolves `Schedule` -> Scheduled, event without queue ->
-/// Reactor, event with queue -> QueuedWorker.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum JobOperationalKind {
-    Scheduled,
-    Reactor,
-    QueuedWorker,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct IdempotencyKey {
-    /// Path expression: `envelope.id`, `payload.batch_id`, `payload.external_id`.
-    pub by: Path,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RetryPolicy {
-    pub count: u32,
-    pub backoff: BackoffStrategy,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum BackoffStrategy {
-    Fixed,
-    Exponential,
-}
-
-/// A job has exactly one body style. Handler-backed jobs may still declare
-/// `emits`; declarative bodies bind a target and apply one write effect.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value")]
-pub enum JobBody {
-    Handler(JobHandler),
-    Declarative(JobDeclarative),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct JobHandler {
-    pub path: PathRef,
-    /// `handler "./..." returns Customer`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub returns: Option<TypeRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct JobDeclarative {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub target: Option<TargetExpr>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub lets: Vec<LetBinding>,
-    pub effect: CommandEffect,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Webhook {
-    pub name: String,
-    /// Inbound HTTP path: `"/webhooks/stripe/invoice-paid"`.
-    pub route: String,
-    pub verify: PathRef,
-    /// Phase L Tier 3 — structured `verify hmac <alg>` declaration.
-    /// `None` for legacy text-pattern webhooks; `Some` when the
-    /// canonical-indent parser lifted the structured form. Coexists
-    /// with `verify: PathRef` because the legacy path uses a file
-    /// reference for verifier bodies.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub structured_verify: Option<VerifySpec>,
-    /// Phase L Tier 3 — `tenant_from payload.<axis>_id` extractor.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tenant_from: Option<TenantFromSpec>,
-    /// Explicit `scope global` + `reason "..."` escape hatch when the
-    /// provider doesn't send a tenant key. Closes the doctor-side gap
-    /// surfaced by multi-tenant pilot port (LSP rule at `lazuli_lsp/src/lib.rs:10720`
-    /// already detected scope_global; IR was dropping it).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scope_global: Option<WebhookScopeGlobalSpec>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub idempotency: Option<IdempotencyKey>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy: Option<PolicyRef>,
-    /// RB.S6 — structured `policy <expr>` form (see `Command.policy_expr`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy_expr: Option<PolicyExpr>,
-    /// IR Error-Vocab — per-webhook override for the `policy_denied`
-    /// error message. Inbound webhook providers receive the error body
-    /// the same way HTTP clients do, so customizing the message helps
-    /// the integration author debug from the upstream's logs. See
-    /// `docs/proposals/ir-error-messages-vocab.md` §3.3.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy_when_denied: Option<TranslationKeyRef>,
-    pub handler: PathRef,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub returns: Option<TypeRef>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub emits: Vec<String>,
-    /// B5 framework gap 2 — per-branch emit predicates. Same length
-    /// as `emits` when present: `emit_predicates[i]` carries the
-    /// `when <predicate>` clause authored on `emits[i]`, or `None`
-    /// when the entry has no predicate (flat-list back-compat).
-    /// Empty vec means "no predicates anywhere" (legacy fixtures).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub emit_predicates: Vec<Option<EmitPredicate>>,
-    /// Webhooks expanded cycle — `payload from webhook_events.<name>`
-    /// typed envelope reference resolved against
-    /// `AppRegistry.webhook_events`. Carried as a structured ref so
-    /// doctor and inspect consumers do not have to re-parse the
-    /// dotted form. Atrito #2 of the canonical proposal: this is a
-    /// typed `WebhookEventRef`, not an opaque string.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub payload_from: Option<WebhookEventRef>,
-    /// Webhooks expanded cycle — `replay` child declaring an inbound
-    /// replay contract. `None` defers to the runtime default.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub replay: Option<ReplaySpec>,
-    /// Webhooks expanded cycle — `dlq <variant>` child declaring how
-    /// the runtime routes deliveries after retry exhaustion.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dlq: Option<DlqSpec>,
-    /// Webhooks expanded cycle — Atrito #5 of the canonical proposal:
-    /// optional retry policy on inbound webhooks, reusing the jobs-side
-    /// `RetryPolicy` verbatim. Surface form: `retry <n> backoff
-    /// <strategy>`. The shared shape keeps the parser, doctor, and
-    /// codegen single-pathed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub retry: Option<RetryPolicy>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub previous_names: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// Webhooks expanded cycle — typed reference to a
-/// `registry.webhook_events.<name>` envelope. The `webhook_events.`
-/// prefix is implicit (registry path); the language keeps only the
-/// final identifier on disk so renames are local.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WebhookEventRef {
-    /// Catalog entry name within `AppRegistry.webhook_events`.
-    pub name: String,
-}
-
-/// Webhooks expanded cycle — declarative replay contract on an inbound
-/// webhook. `Allow` requires `within "<duration>"`; `Deny` rejects any
-/// re-delivery whose dedupe key was seen before.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReplaySpec {
-    pub mode: ReplayMode,
-    /// `within "<duration>"` — verbatim duration literal. The runtime
-    /// parses it; the language never normalises.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub within: Option<String>,
-    /// `dedupe by <path>` — optional override for the dedupe key path.
-    /// `None` reuses the webhook's `idempotency by ...` path.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dedupe_by: Option<Path>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ReplayMode {
-    /// `replay allow within "<duration>"` — re-delivery accepted in
-    /// the window; runtime returns 200 without re-running the handler.
-    Allow,
-    /// `replay deny` — re-delivery always rejected; runtime returns a
-    /// 409 with `ErrWebhookReplayDenied`.
-    Deny,
-}
-
-/// Webhooks expanded cycle — dead-letter routing after retry
-/// exhaustion. Closed three-variant catalog; mutual exclusion is baked
-/// into the discriminator so the parser fails on duplicate children.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
-pub enum DlqSpec {
-    /// `dlq emit <event>` — publish a tombstone event onto the bus.
-    /// Doctor resolves the event name against the feature's declared
-    /// events / `event.trace` set.
-    Emit { event: String },
-    /// `dlq handler "./path.go"` — adapter-side custom handler.
-    Handler { path: PathRef },
-    /// `dlq drop reason "..."` — explicit waiver. Mirrors
-    /// `verify none reason "..."` for the silent-drop edge.
-    Drop { reason: String },
-}
-
-/// Phase L Tier 3 — `tenant_from payload.<axis>_id` extractor used by
-/// jobs, webhooks, and notifications. Captures the path verbatim;
-/// doctor splits and validates against tenancy axes.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TenantFromSpec {
-    /// `payload.org_id`, `envelope.tenant_id`, etc.
-    pub path: Path,
-}
-
-/// `scope global` + `reason "..."` declaration on a webhook. IR
-/// counterpart of the syntax-side `WebhookScopeGlobal`. Doctor reads
-/// this to suppress `WEBHOOK-SCOPE-001` when the webhook explicitly
-/// opts out of `tenant_from`. The `reason` text is captured for audit
-/// surfaces so operators can see why this webhook escapes the
-/// standard tenancy invariant.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WebhookScopeGlobalSpec {
-    pub reason: String,
-}
-
-/// Phase L Tier 3 — `fanout tenants <axis>` scheduled-job fanout
-/// directive. `scope` is closed (`Tenants` today); the `axis` carries
-/// the partition key the doctor cross-checks against the feature's
-/// tenancy axis.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FanoutSpec {
-    pub scope: FanoutScope,
-    pub axis: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum FanoutScope {
-    /// `fanout tenants <axis>` — one execution per tenant per fire.
-    Tenants,
-}
-
-/// Phase L Tier 3 — structured webhook verification spec. Replaces the
-/// legacy `verify: PathRef` for canonical-indent webhooks: the
-/// algorithm is closed, the secret is an env binding, and the header is
-/// a literal string. Bare `PathRef` `verify` stays in place for the
-/// legacy text-pattern path until Tier 4.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct VerifySpec {
-    pub scheme: VerifyScheme,
-    pub algorithm: String,
-    pub secret_env: String,
-    pub header: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum VerifyScheme {
-    /// `verify hmac <alg>` — the canonical inbound verifier today.
-    Hmac,
-}
-
-/// Phase L Tier 3 — `calls <slot>.<op>` reference surfaced from the
-/// job body. The slot is a registry integration name and the op is the
-/// adapter method; doctor pairs these against the feature's
-/// `integrations` block. `args` carries the named-argument bindings
-/// declared on the call site.
-///
-/// Phase L Tier 4 follow-up — `span_ref` carries the call site's AST
-/// span so doctor anchors `INT-CALL-*` diagnostics on the `calls`
-/// line directly instead of text-walking the job body.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ExternalCallRef {
-    pub slot: String,
-    pub op: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub args: Vec<NamedArg>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// Phase L Tier 3 — `notification <name>` declarative contract.
-///
-/// `channel`, `recipient`, `template`, and `trigger` are the
-/// notification-specific axes; `tenant_from`, `idempotency`, `retry`,
-/// `emits`, and `policy` reuse the same shapes as jobs.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Notification {
-    pub name: String,
-    /// `trigger event <feature>.<event>` or `trigger schedule "<cron>"`.
-    pub trigger: JobTrigger,
-    /// `channel email, in_app`. Closed catalog enforced by
-    /// `NOTIF-CHANNEL-001`: `email`, `in_app`, `sms`, `push`, `slack`,
-    /// `discord`, `webhook`.
-    pub channels: Vec<String>,
-    /// `recipient target.email` — a path captured verbatim. Lowering
-    /// keeps the literal so the adapter resolves against the live
-    /// payload.
-    pub recipient: String,
-    /// `template "./outreach/welcome.mjml"`.
-    pub template: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy: Option<PolicyRef>,
-    /// RB.S6 — structured `policy <expr>` form (see `Command.policy_expr`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy_expr: Option<PolicyExpr>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tenant_from: Option<TenantFromSpec>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub idempotency: Option<IdempotencyKey>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub retry: Option<RetryPolicy>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub emits: Vec<String>,
-    /// Notifications expanded bucket cycle — optional `digest` block.
-    /// Aggregates triggers into a single dispatch per window per
-    /// `group_by` key. Distinct from `rate_limit` (scalar, per-call) —
-    /// digest is per-recipient/per-group structured batching. Doctor:
-    /// `NOTIF-DIGEST-001/002/003`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub digest: Option<NotificationDigest>,
-    /// Notifications expanded bucket cycle — optional `throttle` block.
-    /// Per-recipient / per-channel structured rate-limit with burst.
-    /// Distinct from scalar `rate_limit "N per <window>"` used on
-    /// `agent` / `auth password` / `command` / `expose http`; throttle
-    /// keys on the notification's recipient/channel axes, not on the
-    /// caller. Doctor: `NOTIF-THROTTLE-001/002/003`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub throttle: Option<NotificationThrottle>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub previous_names: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// Notifications expanded bucket cycle — `digest` sub-block on
-/// `notification`. Aggregates N triggers within `every` into one
-/// dispatch per `group_by` value, capped at `max_size`. The
-/// `template_strategy` closed catalog (`merge` | `append`) describes
-/// how the adapter combines the per-trigger payloads when rendering
-/// the digest template.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NotificationDigest {
-    /// `every "15 minutes"` / `every "1 hour"` / `every "1 day"`.
-    /// Captured verbatim; doctor `NOTIF-DIGEST-001` rejects shapes
-    /// outside `<N> (seconds|minutes|hours|days)`.
-    pub every: String,
-    /// `group_by <payload-path>` — typically the recipient axis
-    /// (`customer_id`, `target.email`). Optional: when absent, the
-    /// digest groups globally per notification kind.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub group_by: Option<String>,
-    /// `max_size <N>` — hard cap on items per digest. Doctor
-    /// `NOTIF-DIGEST-002` rejects `<= 0` or `> 10000`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_size: Option<u32>,
-    /// `template_strategy merge|append` — closed catalog. None defaults
-    /// to `merge` at the adapter.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub template_strategy: Option<DigestStrategy>,
-    /// Raw authored `template_strategy` when it was outside the closed
-    /// catalog. Kept only so doctor can report `NOTIF-DIGEST-003`
-    /// after lowering without widening `DigestStrategy`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub invalid_template_strategy: Option<String>,
-}
-
-/// Notifications expanded bucket cycle — closed catalog for
-/// `digest template_strategy`. `merge` collapses per-trigger payloads
-/// into a single object (last-write-wins per key); `append` emits a
-/// list the template iterates over.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DigestStrategy {
-    Merge,
-    Append,
-}
-
-/// Notifications expanded bucket cycle — `throttle` sub-block on
-/// `notification`. Distinct from scalar `rate_limit "N per <window>"`:
-/// throttle keys on recipient and/or channel and supports an
-/// `immediate burst` before the bucket starts rejecting. The shape is
-/// per-recipient / per-channel / per-burst, not per-caller — that is
-/// why it does not reuse the `rate_limit` keyword.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NotificationThrottle {
-    /// `max_per "1 hour"` / `max_per "1 day"`. Window over which the
-    /// bucket refills. Doctor `NOTIF-THROTTLE-003` rejects shapes
-    /// outside `<N> (seconds|minutes|hours|days)`.
-    pub max_per: String,
-    /// `per_recipient` — when set, the throttle bucket is keyed on the
-    /// notification's `recipient <path>` value. At least one of
-    /// `per_recipient` or `per_channel` is required by doctor
-    /// `NOTIF-THROTTLE-001`.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub per_recipient: bool,
-    /// `per_channel` — when set, each channel of a multi-channel
-    /// notification gets its own bucket. Email and `in_app` are then
-    /// throttled independently.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub per_channel: bool,
-    /// `burst <N>` — number of immediate dispatches the bucket allows
-    /// before throttling starts. Useful for OTP/login flows where the
-    /// first 1-3 sends must go through without delay.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub burst: Option<u32>,
-}
 
 /// Phase L Tier 3 — `event_group <pattern> on <Resource>` declaration.
-// ============================================================================
-// MCP bucket cycle — IR mirroring of feature-scoped `mcp_server <name>`
-// blocks. See `docs/proposals/bucket-mcp-cycle.md` §L1.
-// ============================================================================
+// =============================================================================
+// MCP bucket cycle — feature-scoped `mcp_server <name>` IR.
+// MCP family (MCPServerSpec, MCPTransport, MCPAuth, MCPServerMetadata,
+// MCPTool, MCPResource, MCPPrompt, MCPParam) lives in nodes::mcp after the
+// W4.1 rails-style split. Re-exported at the crate root above to preserve
+// the ABI surface. See docs/proposals/bucket-mcp-cycle.md §L1.
+// =============================================================================
 
-/// MCP server endpoint declaration. Codegen emits one
-/// `<feature>_mcp_<name>.mcp.gen.go` per entry, wiring the runtime helper
-/// against the upstream Go SDK.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MCPServerSpec {
-    pub name: String,
-    /// Closed catalog: `stdio` | `http_sse` | `http_streamable`.
-    pub transport: MCPTransport,
-    /// `scope feature.<name>` — captures which feature surface this
-    /// server projects. None for top-level mcp_server (future).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scope_feature: Option<String>,
-    /// `auth bearer env.<NAME>` — optional. Stored verbatim
-    /// (the env var name lives in `MCPAuth::BearerEnvVar`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub auth: Option<MCPAuth>,
-    pub metadata: MCPServerMetadata,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tools: Vec<MCPTool>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub resources: Vec<MCPResource>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub prompts: Vec<MCPPrompt>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// Closed catalog of MCP wire transports. Doctor `MCP-TRANSPORT-001`
-/// enforces.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MCPTransport {
-    Stdio,
-    HttpSse,
-    HttpStreamable,
-}
-
-/// MCP auth shape. v0 only supports bearer-via-env; future expansions
-/// (OAuth, mTLS) widen the enum without breaking the bearer form.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value")]
-pub enum MCPAuth {
-    BearerEnvVar { env: String },
-}
-
-/// Server metadata projected over the MCP `initialize` response.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MCPServerMetadata {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub version: Option<String>,
-}
-
-/// A single MCP tool declaration. `handler` is an `@fn.<name>` ref
-/// resolved by codegen against the feature's `handlers/<name>.go`
-/// (or, when scope is cross-feature, the resolution is done by the
-/// analyzer ahead of codegen).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MCPTool {
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub params: Vec<MCPParam>,
-    /// `returns <KindRef>` — optional verbatim type reference. Doctor
-    /// `MCP-TOOL-RETURNS-001` validates it resolves to a known kind.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub returns_kind: Option<String>,
-    /// `handler @fn.<name>` — required.
-    pub handler_fn: String,
-    /// `policy @policy.<name>` — optional.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// A single MCP resource declaration.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MCPResource {
-    pub name: String,
-    pub uri_template: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mime: Option<String>,
-    pub handler_fn: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// A single MCP prompt declaration.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MCPPrompt {
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub params: Vec<MCPParam>,
-    pub template_path: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// One parameter row inside an `MCPTool` or `MCPPrompt`. `ty_literal`
-/// is the verbatim author-side type token (`string`, `int`,
-/// `enum [a, b]`, etc.); codegen renders it to JSON Schema.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MCPParam {
-    pub name: String,
-    pub ty_literal: String,
-    pub required: bool,
-}
 
 ///
 /// The pattern is a glob (`customer_*`) the doctor uses to bind
@@ -5767,236 +4775,11 @@ pub enum TenantMigrationTargetOperation {
 
 // =============================================================================
 // Phase 1e — auth block
+// Auth family (Auth, AuthIdentity, AuthPassword, AuthSessions, AuthMfa,
+// AuthOAuthProvider, RotationConfig, SessionExtraColumn, TheftAction) lives
+// in `nodes::auth` after the W4.1 rails-style split. Re-exported at the
+// crate root above to preserve the ABI surface.
 // =============================================================================
-
-/// Authentication is a family of related subcontracts. Modeling them in one
-/// optional block keeps identity, password, sessions, MFA, and OAuth visible
-/// together. A feature should not declare more than one identity domain.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Auth {
-    pub identity: AuthIdentity,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub password: Option<AuthPassword>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sessions: Option<AuthSessions>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mfa: Option<AuthMfa>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub oauth: Vec<AuthOAuthProvider>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// `auth identity Customer.email` — one identity field on one resource.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AuthIdentity {
-    pub field: FieldRef,
-    /// Cross-feature contract per `docs/proposals/cross-feature-contracts.md`
-    /// §3.5 + §5.3. Populated when the source declares `public contract
-    /// identity as v<N>` adjacent to the `auth identity` line. `None`
-    /// when no contract is declared (the policy `actor.*` references
-    /// cannot cross feature boundaries under `architecture mode
-    /// microservices` without doctor erroring).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub public_contract: Option<PublicContract>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AuthPassword {
-    /// `algorithm argon2id` — required by Phase L. The runtime adapter
-    /// pins the KDF; the language records the author's choice verbatim
-    /// so doctor can spot legacy/banned algorithms (`md5`, `sha1`, etc.).
-    /// Existing JSON payloads that omit this field default to the empty
-    /// string for backward compatibility; doctor warns once the slot is
-    /// known to be empty.
-    #[serde(default)]
-    pub algorithm: String,
-    /// `hash @fn.hash_customer_password` — extension fn reference.
-    pub hash: String,
-    pub verify: String,
-    /// `rate_limit "5 per 10 minutes"` — declarative throttle parsed by
-    /// the auth adapter. Per `ir-rate-limit-env-aware` (cell 1) the slot
-    /// accepts the env-qualified `RateLimitSpec` shape; single-line
-    /// fixtures lower via `RateLimitSpec::from_default`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rate_limit: Option<RateLimitSpec>,
-}
-
-/// `theft_detection_action <verb>` — what the runtime does when a revoked
-/// refresh token is used after the grace window has expired AND the
-/// session family has a grandchild (i.e. the token has provably been
-/// rotated past).
-///
-/// Closed catalog — adding a new action requires a proposal.
-///
-/// See `docs/proposals/ir-auth-refresh-rotation.md` §3.1, §2.H.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TheftAction {
-    /// Walk the family chain (parents + descendants) of the offending
-    /// session; revoke every row. The user stays logged in on other
-    /// devices (other session families are untouched). Recommended default.
-    RevokeSessionFamily,
-    /// Revoke ALL sessions for the user. The user is logged out on every
-    /// device. Stronger blast radius — reserve for high-stakes apps.
-    RevokeUser,
-}
-
-impl Default for TheftAction {
-    fn default() -> Self {
-        TheftAction::RevokeSessionFamily
-    }
-}
-
-/// Rotation policy for refresh tokens. Present iff the author declared a
-/// `rotation` block under `auth.sessions`. Each inner slot is independently
-/// optional — framework defaults kick in when absent (post-§2.B
-/// auto-promotion).
-///
-/// See `docs/proposals/ir-auth-refresh-rotation.md` §2.A (authoring shape),
-/// §3.2 (lowering shape).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RotationConfig {
-    /// Long-lived refresh token TTL. When `None`, framework reads
-    /// `"30 days"`. See proposal §2.A.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub refresh_ttl: Option<String>,
-    /// Grace window for legitimate two-tab refresh races. When `None`,
-    /// framework reads `"30 seconds"`. See proposal §2.G.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub grace: Option<String>,
-    /// What to do when theft is detected (revoked refresh used past
-    /// grace with a successor). When `None`, framework reads
-    /// `RevokeSessionFamily`. See proposal §2.H.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub theft_detection_action: Option<TheftAction>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AuthSessions {
-    /// `resource CustomerSession`
-    pub resource: QualifiedName,
-    /// `ttl "7 days"` — legacy single-token duration. PRESERVED for
-    /// back-compat. When `access_ttl` is `None` AND `rotation` is `None`,
-    /// the runtime uses this as the session lifetime (current single-token
-    /// behavior).
-    pub ttl: String,
-    /// `refresh false` — legacy bool. Originally a placeholder for the
-    /// rotation work landed in proposal `ir-auth-refresh-rotation`.
-    /// PRESERVED for back-compat. When `rotation` is `Some(...)`, this
-    /// field is silent (the new rotation slot takes over). Doctor warns
-    /// on `refresh = true` && `rotation` absent
-    /// (AUTH-REFRESH-LEGACY-REFRESH-BOOL).
-    pub refresh: bool,
-    /// Extra session-table columns beyond the v0 baseline
-    /// (`id`, `user`, `token_hash`, `expires_at`, `created_at`).
-    /// Empty for single-tenant resources — back-compat guaranteed.
-    #[serde(default)]
-    pub extra_columns: Vec<SessionExtraColumn>,
-    /// IR Auth Refresh — short-lived access token TTL. When rotation is
-    /// enabled and this is `None`, the framework reads `"15 minutes"`.
-    /// See proposal §2.A, §2.L.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub access_ttl: Option<String>,
-    /// IR Auth Refresh — rotation discipline. Presence = enabled; inner
-    /// slots each optional with framework defaults. When `None`, the
-    /// runtime uses the single-token path (preserves legacy behavior).
-    /// See proposal §2.A.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rotation: Option<RotationConfig>,
-}
-
-impl AuthSessions {
-    /// Returns `true` when the resolved configuration uses two-token
-    /// rotation. Used by codegen + runtime to branch.
-    pub fn is_rotation_enabled(&self) -> bool {
-        self.rotation.is_some()
-    }
-
-    /// Resolved access TTL. Reads `access_ttl` if present; else the
-    /// framework default when rotation is on (`"15 minutes"`); else
-    /// `ttl` (legacy single-token).
-    pub fn resolved_access_ttl(&self) -> &str {
-        if let Some(t) = self.access_ttl.as_deref() {
-            return t;
-        }
-        if self.is_rotation_enabled() {
-            return "15 minutes";
-        }
-        self.ttl.as_str()
-    }
-
-    /// Resolved refresh TTL. Reads `rotation.refresh_ttl` if present;
-    /// else the framework default when rotation is on (`"30 days"`);
-    /// else `None` (no refresh — single-token mode).
-    pub fn resolved_refresh_ttl(&self) -> Option<&str> {
-        self.rotation
-            .as_ref()
-            .map(|r| r.refresh_ttl.as_deref().unwrap_or("30 days"))
-    }
-
-    /// Resolved rotation grace. Reads `rotation.grace` if present; else
-    /// the framework default when rotation is on (`"30 seconds"`); else
-    /// `None`.
-    pub fn resolved_rotation_grace(&self) -> Option<&str> {
-        self.rotation
-            .as_ref()
-            .map(|r| r.grace.as_deref().unwrap_or("30 seconds"))
-    }
-
-    /// Resolved theft action. Reads explicit value if present; else
-    /// framework default when rotation is on (`RevokeSessionFamily`);
-    /// else `None`.
-    pub fn resolved_theft_action(&self) -> Option<TheftAction> {
-        self.rotation
-            .as_ref()
-            .map(|r| r.theft_detection_action.unwrap_or_default())
-    }
-}
-
-/// One non-baseline column on a session resource (e.g. `org: Org required`).
-/// Populated by the lowering pass from the resource's `FieldSpec` list;
-/// consumed by the `auth_session` codegen emitter for typed shim emission.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SessionExtraColumn {
-    /// DSL field name as declared (`"org"`).
-    pub field_name: String,
-    /// SQL column name derived from the field (`"org_id"`).
-    pub column_name: String,
-    /// Go type string for the emitted parameter (`"lazuli.ID"`).
-    pub go_type: String,
-    /// Referenced resource name if the field is a resource ref (`"Org"`).
-    pub references: Option<String>,
-    /// Whether the column carries a `required` constraint.
-    pub required: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AuthMfa {
-    /// MFA method id: `totp`, `sms`, `webauthn`. Adapter-specific beyond this.
-    pub method: String,
-    /// `enroll @fn.<name>` — enrollment extension fn reference. Required
-    /// by Phase L; legacy payloads default to the empty string.
-    #[serde(default)]
-    pub enroll: String,
-    /// `verify @validator.<name>` or `@fn.<name>` — verification reference.
-    /// Required by Phase L; legacy payloads default to the empty string.
-    #[serde(default)]
-    pub verify: String,
-    /// Optional adapter reference, e.g. `@adapter.totp_provider`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub adapter: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AuthOAuthProvider {
-    /// Provider id: `google`, `github`, `microsoft`, etc.
-    pub provider: String,
-    /// `@adapter.<provider>_oauth` reference.
-    pub adapter: String,
-}
 
 // =============================================================================
 // Cut A — AI primitives: agent + tools + evals + discriminated output.
@@ -6145,143 +4928,13 @@ pub struct Api {
 
 // =============================================================================
 // Report vocab — `report <name>` IR.
-//
-// Tabular export contract (CSV / XLSX). Pure types lowered from
-// `lazuli_syntax::ast::ReportDecl`. Boundary discipline: this IR has no
-// concept of byte-level CSV/XLSX writing, signed URL signing, or HTTP
-// routing — those live in `runtime/go/lazuli/report` and the codegen
-// emitter. See `docs/proposals/report-vocab.md` v0.2.
+// Report family (Report, ReportSource, ReportColumn, ReportColumnSource,
+// FnInvocation, ReportFormat, ReportFilenamePattern, FilenameToken) lives in
+// `nodes::report` after the W4.1 rails-style split. Re-exported at the crate
+// root above to preserve the ABI surface. See `docs/proposals/report-vocab.md`
+// v0.2 for the design and `runtime/go/lazuli/report` for the byte-level
+// adapter the IR routes into.
 // =============================================================================
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Report {
-    pub name: String,
-    pub source: ReportSource,
-    pub columns: Vec<ReportColumn>,
-    pub formats: Vec<ReportFormat>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub storage: Option<QualifiedName>,
-    pub visibility: FileVisibility,
-    /// Duration literal (`1h`, `15m`, `30s`, `7d`) preserved verbatim.
-    /// Required when `visibility == Signed`; doctor enforces.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub signed_ttl: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub filename: Option<ReportFilenamePattern>,
-    pub policy: PolicyRef,
-    /// RB.S6 — structured `policy <expr>` form (see `Command.policy_expr`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy_expr: Option<PolicyExpr>,
-    /// `rate_limit "<N per period per scope>"` with optional
-    /// env-qualified overrides per `ir-rate-limit-env-aware` (cell 1).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rate_limit: Option<RateLimitSpec>,
-    /// Canonical audit block reused from commands/queries/jobs/webhooks.
-    /// v0.2 forbids `emit_to` on reports; the doctor layer rejects.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub audit: Option<AuditSpec>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value")]
-pub enum ReportSource {
-    /// `source <feature>.query.<name>` or `query.<name>` (same feature).
-    /// Doctor cross-checks the kind (`query.list` or `query.sql` only;
-    /// `query.lookup` rejected by `REPORT-SOURCE-KIND-001`).
-    Query(QualifiedName),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReportColumn {
-    pub name: String,
-    pub source: ReportColumnSource,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
-    /// Value format hint (`yyyy-mm-dd`, `currency:BRL`, ...). Closed
-    /// catalog at runtime; the IR keeps the source verbatim.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub format: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// Closed two-variant column source. The earlier `Constant(String)`
-/// variant was rejected at architect review v0.2 (no pilot evidence).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value")]
-pub enum ReportColumnSource {
-    /// `row.<field>` — project a field from the source query's record.
-    RowField(String),
-    /// `@fn.<name>(args)` — call a user-defined function. `args` is the
-    /// verbatim argument list (comma-split, trimmed).
-    Fn(FnInvocation),
-}
-
-/// `@fn.<name>(arg, arg, ...)` invocation site for a report column.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FnInvocation {
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub args: Vec<String>,
-}
-
-/// Closed catalog of writer formats. JSON / Parquet / PDF are explicitly
-/// out of scope for v0.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ReportFormat {
-    Csv,
-    Xlsx,
-}
-
-impl ReportFormat {
-    /// Parse a token from `formats csv, xlsx`. Returns `None` outside
-    /// the closed catalog — caller emits `REPORT-FORMAT-UNKNOWN-001`.
-    pub fn from_token(token: &str) -> Option<Self> {
-        match token {
-            "csv" => Some(Self::Csv),
-            "xlsx" => Some(Self::Xlsx),
-            _ => None,
-        }
-    }
-
-    /// Canonical lowercase token (`csv` / `xlsx`).
-    pub fn token(&self) -> &'static str {
-        match self {
-            Self::Csv => "csv",
-            Self::Xlsx => "xlsx",
-        }
-    }
-}
-
-/// Lowered filename pattern. `literal` preserves the source string;
-/// `tokens` is the parsed `{...}` placeholder sequence. The runtime
-/// resolves `tokens` against `ctx`; the codegen emits the literal so
-/// adapter pattern engines (e.g. `text/template`) can re-tokenize.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReportFilenamePattern {
-    pub literal: String,
-    pub tokens: Vec<FilenameToken>,
-}
-
-/// Closed catalog of recognised filename pattern tokens. Anything
-/// outside this set is `REPORT-FILENAME-TOKEN-UNKNOWN-001`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value")]
-pub enum FilenameToken {
-    /// `{format}` — replaced with `csv` / `xlsx` at request time.
-    Format,
-    /// `{ctx.now:<strftime>}` — runtime formats the current time. The
-    /// string holds the strftime suffix (`yyyymmdd`, `yyyymm`, etc.).
-    /// Closed sub-catalog: `yyyy`, `mm`, `dd`, `HH`, `MM`, `ss`.
-    CtxNowStrftime(String),
-    /// `{ctx.user.id}` — opaque request user id.
-    CtxUserId,
-    /// `{ctx.tenant.id}` — opaque tenant id.
-    CtxTenantId,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -6456,132 +5109,13 @@ pub enum ToolsCallsOp {
 }
 
 // =============================================================================
-// Phase 1f — inline tests + policy registry with field-level policies
+// Phase 1f — inline tests + policy registry with field-level policies.
+// Family (TestBlock, TestAssertion, Policies, PolicyCategory, WhenDeniedRoute,
+// RoleMismatchArm, RouteRedirectTarget, FieldPolicies, FieldPolicy) lives in
+// nodes::test_and_policy after the W4.1 rails-style split. Re-exported at the
+// crate root above to preserve the ABI surface.
 // =============================================================================
 
-/// Inline declarative assertions about IR shape. A `TestBlock` is the last
-/// child of a command, workflow transition, rule, or extensible view. See
-/// `docs/canonical-semantics.md` "Tests" for the verb catalogue.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TestBlock {
-    pub assertions: Vec<TestAssertion>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// Closed catalog of test verbs. The analyzer rejects assertions that do not
-/// belong to the parent construct (e.g. `accepted by` on a command).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "verb", content = "value")]
-pub enum TestAssertion {
-    /// Generated command policy matrix row: `permits @role.admin, @role.sales`.
-    PolicyAllow { actors: Vec<String> },
-    /// Generated command policy matrix row: `forbids @role.viewer`.
-    PolicyDeny { actors: Vec<String> },
-    /// Command/rule predicate: `allows when target.status = active` or
-    /// `allows when self.status = active`, depending on the parent construct.
-    AllowsWhen { predicate: Predicate },
-    /// Command/rule predicate: `denies when target.deleted_at != nil` or
-    /// `denies when self.deleted_at != nil`, depending on the parent construct.
-    DeniesWhen { predicate: Predicate },
-    /// Workflow transition state edge: `allows from active`.
-    AllowsFrom { state: String },
-    /// Workflow transition state edge: `denies from paused`.
-    DeniesFrom { state: String },
-    /// Workflow transition policy: `allows as @role.admin`.
-    AllowsAs { actor: String },
-    /// Workflow transition policy: `denies as @role.viewer`.
-    DeniesAs { actor: String },
-    /// Combined transition: `allows from active as @role.admin`.
-    AllowsFromAs { state: String, actor: String },
-    /// Combined transition: `denies from active as @role.sales`.
-    DeniesFromAs { state: String, actor: String },
-    /// Extensible view whitelist: `accepted by customer_tags`.
-    AcceptedBy { feature: String },
-    /// Extensible view whitelist: `rejected by billing`.
-    RejectedBy { feature: String },
-}
-
-/// Feature-level `policies` block. Categories are named atom lists; field
-/// policies are per-resource read/write rules.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Policies {
-    pub categories: Vec<PolicyCategory>,
-    pub fields: Vec<FieldPolicies>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// Named feature-local policy: `create: @role.admin, @role.sales`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PolicyCategory {
-    pub name: String,
-    /// Atom names like `@role.admin`, `@scope.same_org`, `@actor.system`. The
-    /// analyzer validates that each atom resolves through the registry.
-    pub atoms: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub previous_names: Vec<String>,
-    /// IR Error-Vocab — per-policy default error message. When `Some`,
-    /// every command/query using this policy emits `policy_denied` with
-    /// the resolved `TranslationKeyRef` unless the operation declares
-    /// its own `policy_when_denied`. Resolution-chain step 2
-    /// (proposal §2.E step 2). See
-    /// `docs/proposals/ir-error-messages-vocab.md` §3.2.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub when_denied: Option<TranslationKeyRef>,
-    /// Route-only denial redirect targets. Command/query/api codegen ignores
-    /// this slot; route guard codegen consumes it when a view guard references
-    /// this policy.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub when_denied_route: Option<WhenDeniedRoute>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WhenDeniedRoute {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub unauthenticated: Option<RouteRedirectTarget>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub role_mismatch: Vec<RoleMismatchArm>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default: Option<RouteRedirectTarget>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RoleMismatchArm {
-    pub role: String,
-    pub target: RouteRedirectTarget,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
-pub enum RouteRedirectTarget {
-    View(String),
-    Path(String),
-}
-
-/// Per-resource field policies: `fields Customer\n  email\n    read: ...`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FieldPolicies {
-    pub resource: QualifiedName,
-    pub fields: Vec<FieldPolicy>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FieldPolicy {
-    pub field: String,
-    /// Atom list governing reads. `None` = inherit feature-level read policy.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub read: Option<Vec<String>>,
-    /// Atom list governing writes. `None` = inherit feature-level write policy.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub write: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub previous_names: Vec<String>,
-}
 
 // =============================================================================
 // L0 #2 — Design Tokens
@@ -6767,111 +5301,11 @@ pub struct ZToken {
 
 // =============================================================================
 // Plan & Gate vocabulary (PG.B — `docs/proposals/plan-and-gate-vocab.md`).
-// -----------------------------------------------------------------------------
-// IR types are exposed here so consumers (codegen, doctor, LSP) share
-// one shape. The aggregation context (`PlanGateFacts`) lives in
-// `lazuli_analyzer` because it's a one-pass projection over `.lzi`
-// source rather than a slot on `Module` / `Feature` (keeping IR
-// invariants stable across the existing struct-literal call sites).
+// Plan family (PlanCatalog, Plan, PlanLimit, PlanLimitValue, TrialPolicy,
+// SubscriptionAnchor, Gate, SynthesizedFromCapFile, AutoPhotoCommandRole)
+// lives in `nodes::plan_and_gate` after the W4.1 rails-style split.
+// Re-exported at the crate root above to preserve the ABI surface.
 // =============================================================================
-
-/// Closed plan catalog lifted from the package's `plan <name>` blocks.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PlanCatalog {
-    /// Plans declared in the package, sorted by name for deterministic
-    /// JSON output.
-    pub plans: Vec<Plan>,
-    /// Union of every plan's feature set (sorted).
-    pub feature_catalog: Vec<String>,
-    /// Union of every plan's limit names (sorted).
-    pub limit_catalog: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Plan {
-    pub name: String,
-    /// Closed feature set (sorted) after cross-plan reference expansion.
-    pub features: Vec<String>,
-    /// Closed limit map (sorted by name) after cross-plan reference
-    /// expansion.
-    pub limits: Vec<PlanLimit>,
-    /// Optional trial revert policy.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub trial: Option<TrialPolicy>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PlanLimit {
-    pub name: String,
-    pub value: PlanLimitValue,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value")]
-pub enum PlanLimitValue {
-    Integer(u64),
-    Unlimited,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TrialPolicy {
-    /// Raw duration literal (e.g. `"14d"`).
-    pub duration: String,
-    /// The plan to revert to after the trial elapses.
-    pub then_plan: String,
-}
-
-/// PG.A/B — subscription anchor lifted from `app.lzi`
-/// `subscription resource <feature>.<field>`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SubscriptionAnchor {
-    /// The feature that owns the subscription edge (e.g. `users`).
-    pub feature: String,
-    /// The field/edge on the parent resource that points to the
-    /// subscription resource (e.g. `subscription`).
-    pub field: String,
-    /// Optional `tenancy <axis>` parity hint. Empty for single-tenant
-    /// apps.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tenancy_axis: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
-
-/// Gate directive lifted onto a callable.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value")]
-pub enum Gate {
-    /// `gate behind plan.feature: <name>` — boolean check.
-    Behind { feature: String },
-    /// `gate quota plan.limit: <name>` — counter check.
-    Quota { limit: String },
-}
-
-/// FR-3a — marker carried on commands the analyzer auto-derived from
-/// a `@cap.File(...)` resource field. Records the source field's
-/// coordinates so codegen can wire the runtime auto-photo helper
-/// without re-walking the IR.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SynthesizedFromCapFile {
-    /// Resource name (PascalCase) carrying the `@cap.File` field.
-    pub resource: String,
-    /// Field name (snake_case) on the resource.
-    pub field: String,
-    /// Which of the 4 canonical command roles this is.
-    pub role: AutoPhotoCommandRole,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AutoPhotoCommandRole {
-    Request,
-    Confirm,
-    Clear,
-    GetUrl,
-}
 
 #[cfg(test)]
 mod lifecycle_tests {
@@ -6938,6 +5372,11 @@ mod lifecycle_tests {
             name: "BrazilianCPF".to_owned(),
             carrier: Box::new(BuiltinType::Text),
             validator: "ValidateCPF".to_owned(),
+            go_module: String::new(),
+            ts_package: String::new(),
+            error_code: String::new(),
+            message_key: String::new(),
+            ts_validator: String::new(),
         };
         let json = serde_json::to_string(&plugin).expect("serialize");
         let back: BuiltinType = serde_json::from_str(&json).expect("deserialize");
@@ -6971,6 +5410,7 @@ mod lifecycle_tests {
 
             composite_key: None,
             conventions: vec![],
+            lifecycle_routes: None,
         };
         let json = serde_json::to_string(&r).unwrap();
         assert!(
@@ -7025,6 +5465,7 @@ mod lifecycle_tests {
             lock: None,
             composite_key: None,
             conventions: vec![ConventionRef::Crud],
+            lifecycle_routes: None,
         };
         let json = serde_json::to_string(&r).unwrap();
         assert!(
@@ -7476,6 +5917,7 @@ mod l0_6_ir_tests {
             on_unauthorized: Some("/explore".to_string()),
             requires_lifecycle: None,
             on_lifecycle_pending: None,
+            forbid_when: Vec::new(),
             span_ref: Some(SpanRef { start: 1, end: 50 }),
         });
     }
@@ -7488,6 +5930,7 @@ mod l0_6_ir_tests {
             on_unauthorized: None,
             requires_lifecycle: None,
             on_lifecycle_pending: None,
+            forbid_when: Vec::new(),
             span_ref: None,
         });
     }
@@ -7505,6 +5948,7 @@ mod l0_6_ir_tests {
                 span_ref: Some(SpanRef { start: 10, end: 47 }),
             }),
             on_lifecycle_pending: Some("host_onboarding".to_string()),
+            forbid_when: Vec::new(),
             span_ref: None,
         });
     }
@@ -7517,6 +5961,7 @@ mod l0_6_ir_tests {
             on_unauthorized: None,
             requires_lifecycle: None,
             on_lifecycle_pending: None,
+            forbid_when: Vec::new(),
             span_ref: None,
         };
         let v = serde_json::to_value(&g).unwrap();
@@ -7542,6 +5987,7 @@ mod l0_6_ir_tests {
             on_unauthorized: Some("/explore".to_string()),
             requires_lifecycle: Some(requires.clone()),
             on_lifecycle_pending: Some("host_onboarding".to_string()),
+            forbid_when: Vec::new(),
             span_ref: Some(SpanRef { start: 1, end: 60 }),
         };
         let resolved = ResolvedLifecycleGate {
@@ -7583,6 +6029,7 @@ mod l0_6_ir_tests {
                 name: "host_index".to_string(),
                 path: Some("/host".to_string()),
                 routes: Vec::new(),
+                route_params: Vec::new(),
                 to: Some("host_home".to_string()),
                 surface: Some("host web".to_string()),
                 audience: Some("host".to_string()),
@@ -7610,10 +6057,6 @@ mod l0_6_ir_tests {
                     opens: Vec::new(),
                     tests: Vec::<ViewTestAssertion>::new(),
                     guard: Some(guard.clone()),
-                    loaders: Vec::new(),
-                    pending_view: None,
-                    error_view: None,
-                    parent: None,
                     resolved_guard_policy: None,
                     resolved_lifecycle_gate: Some(resolved.clone()),
                     span_ref: None,

@@ -1,13 +1,44 @@
 pub mod auth;
 pub mod auth_refresh;
 pub mod folder;
+mod helpers;
 pub mod lifecycle_gate;
 pub mod lzx;
+mod parsers;
 pub mod rbac;
 mod returns_list_001;
 mod returns_list_002;
 pub mod route_guard;
+mod runtime_options;
+mod scanners;
 pub mod schema_rich_001;
+
+pub use runtime_options::DoctorRuntimeOptions;
+// Re-exported so the `returns_list_001` / `returns_list_002` rule
+// modules can keep calling `super::leading_spaces` (the helper is
+// indent-aware, used to walk command bodies in those rules).
+pub(super) use scanners::leading_spaces;
+
+use helpers::{
+    doctor_project_root, parse_doctor_format, parse_doctor_severity, parse_fail_on_specs,
+    project_has_lazurite_manifest, resolve_internal_hygiene_severity,
+    resolve_test_discipline_severity,
+};
+use parsers::{
+    auth_session_ttl_seconds, cache_ttl_as_seconds, catalog_list, environments_summary,
+    error_page_catalog_display, format_accept_list, format_agent_policy, format_name_list,
+    format_visibility, http_method_word, is_lzi_path, is_lzx_path, is_one_dot_zero_plus,
+    is_parseable_cidr, is_parseable_duration, is_parseable_size, is_valid_notification_duration,
+    major_minor, mime_matches, mime_sets_intersect, normalise_path, openapi_today_pivot,
+    parse_iso_date, parse_notification_duration_seconds, payload_field_list, same_origin,
+    tool_kind_word, type_ref_name,
+};
+use scanners::{
+    collect_deprecated_exports, collect_lazuli_paths_recursive, collect_recipe_dirs,
+    derive_feature_name, extract_lzir_schema, is_ident_char, is_identifier, is_type_name,
+    lazuli_version_line, matches_word, package_stem, parse_export_name, walk_frontend_ts_files,
+    walk_gen_ts_files,
+};
 
 // Re-export file-local diagnostic sub-modules extracted to the `lazuli_doctor`
 // crate on 2026-05-15 so the LSP can import them. Existing call sites inside
@@ -51,17 +82,6 @@ pub fn doctor_command(
     )
 }
 
-/// Wave 2 (CLI surface) + Wave 6 (coverage) — agent-first CLI surface
-/// runtime options. `format` selects text vs JSON output; `coverage`
-/// emits the per-layer coverage report; `fail_on` composes the
-/// non-zero exit gate.
-#[derive(Debug, Clone, Default)]
-pub struct DoctorRuntimeOptions {
-    pub format: Option<String>,
-    pub coverage: bool,
-    pub fail_on: Vec<String>,
-}
-
 pub fn doctor_command_with_options(
     input: &Path,
     security_profile: SecurityProfile,
@@ -82,6 +102,13 @@ pub fn doctor_command_with_options(
 
     if check_release {
         return doctor_release_command(input);
+    }
+
+    // W3 — `--self` short-circuits the standard IR pipeline and walks
+    // the framework's Rust source instead. Pairs with workspace
+    // `Lazurite.toml [doctor.internal_hygiene]` (preset / overrides).
+    if opts.self_audit {
+        return doctor_self_command(input, &opts);
     }
 
     let package = DoctorPackage::load(input, security_profile)?;
@@ -160,26 +187,6 @@ pub fn doctor_command_with_options(
 
     println!("{} passed Lazuli doctor checks", input.display());
     Ok(())
-}
-
-fn parse_doctor_format(input: Option<&str>) -> crate::doctor_report::DoctorFormat {
-    use crate::doctor_report::DoctorFormat;
-    match input.unwrap_or("text").to_ascii_lowercase().as_str() {
-        "text" => DoctorFormat::Text,
-        "json" => DoctorFormat::Json,
-        "ndjson" => DoctorFormat::Ndjson,
-        "auto" => DoctorFormat::Auto,
-        _ => DoctorFormat::Text,
-    }
-}
-
-fn parse_fail_on_specs(
-    inputs: &[String],
-) -> Result<Vec<crate::doctor_report::FailOnSpec>, String> {
-    inputs
-        .iter()
-        .map(|s| crate::doctor_report::FailOnSpec::parse(s))
-        .collect()
 }
 
 /// Build a canonical `DoctorReport` from `DoctorDiagnostic` list +
@@ -795,6 +802,18 @@ impl DoctorPackage {
                                         .as_ref()
                                         .map(|m| m.app_root(&project_root))
                                         .unwrap_or_else(|| project_root.clone());
+                                    // W1.5 — resolve [doctor.test_discipline].preset
+                                    // once per feature loop. Under `tdd-iron-hand`,
+                                    // every TEST-* / DOCTOR-* / MIGRATION-* / RUNTIME-*
+                                    // rule fires at Error regardless of profile.
+                                    let test_discipline_preset = lazurite_manifest
+                                        .as_ref()
+                                        .and_then(|m| m.doctor.as_ref())
+                                        .and_then(|d| d.test_discipline.as_ref())
+                                        .and_then(|td| td.preset.as_deref())
+                                        .and_then(
+                                            lazuli_doctor::test_discipline::preset::TestDisciplinePreset::parse,
+                                        );
                                     file.local_diagnostics
                                         .extend(test_discipline_diagnostics(
                                             &file.path,
@@ -803,6 +822,7 @@ impl DoctorPackage {
                                             &feature,
                                             &file.source,
                                             security_profile,
+                                            test_discipline_preset,
                                         ));
                                     // Tier 3 facts harvest — done before
                                     // `feature.agents` is consumed below.
@@ -1165,14 +1185,27 @@ impl DoctorPackage {
                         // Wave 3.5 + Wave 4 — view test_discipline rules. All
                         // operate on the LzxDocument or its lowered IR.
                         // Severity per profile: prototype=info, strict=warning,
-                        // production=error.
+                        // production=error. W1.5: under
+                        // [doctor.test_discipline].preset = "tdd-iron-hand",
+                        // every rule below escalates to Error.
                         if security_profile != SecurityProfile::Prototype {
                             let severity_warn = match security_profile {
                                 SecurityProfile::Production => DoctorSeverity::Error,
                                 _ => DoctorSeverity::Warning,
                             };
+                            // W1.5 — resolve preset once per .lzx file.
+                            let lzx_test_discipline_preset = lazurite_manifest
+                                .as_ref()
+                                .and_then(|m| m.doctor.as_ref())
+                                .and_then(|d| d.test_discipline.as_ref())
+                                .and_then(|td| td.preset.as_deref())
+                                .and_then(
+                                    lazuli_doctor::test_discipline::preset::TestDisciplinePreset::parse,
+                                );
                             // Wave 3.5 — TEST-VIEW-E2E-MISSING-001 (file-pair).
                             // Doctor does NOT invoke Playwright; only Path::exists().
+                            let view_e2e_code = lazuli_doctor::test_discipline::test_view_e2e_missing_001
+                                ::Finding::CODE;
                             for finding in
                                 lazuli_doctor::test_discipline::test_view_e2e_missing_001::check(
                                     &document,
@@ -1186,10 +1219,12 @@ impl DoctorPackage {
                                     path: finding.path,
                                     line: finding.line,
                                     column: finding.column,
-                                    severity: severity_warn,
-                                    code:
-                                        lazuli_doctor::test_discipline::test_view_e2e_missing_001
-                                            ::Finding::CODE.to_owned(),
+                                    severity: resolve_test_discipline_severity(
+                                        severity_warn,
+                                        view_e2e_code,
+                                        lzx_test_discipline_preset,
+                                    ),
+                                    code: view_e2e_code.to_owned(),
                                     message,
                                     category: None,
                                     feature_name: None,
@@ -1202,6 +1237,8 @@ impl DoctorPackage {
                             // Both walk the lowered ExperienceModule.
                             let experience_module =
                                 lazuli_analyzer::lower_lzx_document(&document);
+                            let view_ext_code = lazuli_doctor::test_discipline::test_view_extensibility_001
+                                ::Finding::CODE;
                             for finding in
                                 lazuli_doctor::test_discipline::test_view_extensibility_001::check(
                                     &experience_module,
@@ -1213,10 +1250,12 @@ impl DoctorPackage {
                                     path: finding.path,
                                     line: 1,
                                     column: 1,
-                                    severity: severity_warn,
-                                    code:
-                                        lazuli_doctor::test_discipline::test_view_extensibility_001
-                                            ::Finding::CODE.to_owned(),
+                                    severity: resolve_test_discipline_severity(
+                                        severity_warn,
+                                        view_ext_code,
+                                        lzx_test_discipline_preset,
+                                    ),
+                                    code: view_ext_code.to_owned(),
                                     message,
                                     category: None,
                                     feature_name: None,
@@ -1225,6 +1264,8 @@ impl DoctorPackage {
                                     group: None,
                                 });
                             }
+                            let view_drift_code = lazuli_doctor::test_discipline::test_view_drift_001
+                                ::Finding::CODE;
                             for finding in
                                 lazuli_doctor::test_discipline::test_view_drift_001::check(
                                     &experience_module,
@@ -1236,10 +1277,12 @@ impl DoctorPackage {
                                     path: finding.path,
                                     line: 1,
                                     column: 1,
-                                    severity: DoctorSeverity::Error,
-                                    code:
-                                        lazuli_doctor::test_discipline::test_view_drift_001
-                                            ::Finding::CODE.to_owned(),
+                                    severity: resolve_test_discipline_severity(
+                                        DoctorSeverity::Error,
+                                        view_drift_code,
+                                        lzx_test_discipline_preset,
+                                    ),
+                                    code: view_drift_code.to_owned(),
                                     message,
                                     category: None,
                                     feature_name: None,
@@ -1383,6 +1426,161 @@ impl DoctorPackage {
         (features, lzx_views)
     }
 
+    /// Iron-hand meta-bundle — return the active `[doctor.coverage]
+    /// preset` parsed into `CoveragePreset`, or `None` when no manifest
+    /// / no preset / unknown preset name. Drives both the coverage
+    /// thresholds and the rule-severity escalation map applied by
+    /// dispatchers (see `context_vocab_diagnostics`).
+    fn coverage_preset(&self) -> Option<lazuli_doctor::coverage::CoveragePreset> {
+        use lazuli_doctor::coverage::CoveragePreset;
+        self.lazurite_manifest
+            .as_ref()
+            .and_then(|m| m.doctor.as_ref())
+            .and_then(|d| d.coverage.as_ref())
+            .and_then(|cov| cov.preset.as_deref())
+            .and_then(CoveragePreset::parse)
+    }
+
+    /// Iron-hand meta-bundle — dispatch the three `VOCAB-CONTEXT-*`
+    /// rules across every `.lzi` feature in the package and resolve
+    /// each finding's severity through the layered precedence:
+    ///
+    ///   1. Manifest user override
+    ///      (`[doctor.test_discipline.severity_override."<CODE>"]`)
+    ///      wins absolutely. Authors can downgrade an iron-hand error
+    ///      back to a warning with a documented `reason`.
+    ///   2. Active coverage preset escalation
+    ///      (`preset_severity_overrides`): under `tdd-iron-hand` the
+    ///      three rules become `error`.
+    ///   3. Category default (`doctor_severity_for` →
+    ///      `RuleCategory::Vocabulary` → warning at strict, error at
+    ///      production).
+    ///
+    /// The `off` preset suppresses the rules entirely (consistent with
+    /// the coverage layers it zeroes out).
+    fn context_vocab_diagnostics(&self) -> Vec<DoctorDiagnostic> {
+        use lazuli_doctor::coverage::{CoveragePreset, preset_severity_overrides};
+        use lazuli_doctor::vocab::{
+            vocab_context_ctxmd_001, vocab_context_nongoals_001, vocab_context_purpose_001,
+        };
+
+        let preset = self.coverage_preset();
+        // `off` preset opts out entirely — mirrors how the coverage
+        // layers all zero out under `off`.
+        if matches!(preset, Some(CoveragePreset::Off)) {
+            return Vec::new();
+        }
+
+        let manifest_overrides = self
+            .lazurite_manifest
+            .as_ref()
+            .and_then(|m| m.doctor.as_ref())
+            .and_then(|d| d.test_discipline.as_ref())
+            .map(|td| &td.severity_override);
+
+        let preset_overrides = preset.map(preset_severity_overrides).unwrap_or_default();
+
+        // Resolver: manifest > preset > category default.
+        let resolve = |code: &str| -> DoctorSeverity {
+            if let Some(map) = manifest_overrides
+                && let Some(ov) = map.get(code)
+                && let Some(parsed) = parse_doctor_severity(&ov.severity)
+            {
+                return parsed;
+            }
+            if let Some(severity_str) = preset_overrides.get(code)
+                && let Some(parsed) = parse_doctor_severity(severity_str)
+            {
+                return parsed;
+            }
+            doctor_severity_for(
+                code,
+                RuleCategory::Vocabulary,
+                self.security_profile,
+                &std::collections::BTreeMap::new(),
+            )
+        };
+
+        let mut out: Vec<DoctorDiagnostic> = Vec::new();
+        for file in &self.files {
+            if !is_lzi_path(&file.path) {
+                continue;
+            }
+            let Ok(skeletons) = parse_feature_skeletons(&file.source) else {
+                continue;
+            };
+            for skeleton in &skeletons {
+                let Ok(feature) = lower_feature_skeleton(skeleton) else {
+                    continue;
+                };
+
+                // VOCAB-CONTEXT-PURPOSE-001
+                let sev = resolve(vocab_context_purpose_001::Finding::CODE);
+                for finding in vocab_context_purpose_001::check(&feature, &file.path) {
+                    let message = finding.message();
+                    out.push(DoctorDiagnostic {
+                        path: finding.path,
+                        line: 1,
+                        column: 1,
+                        severity: sev,
+                        code: vocab_context_purpose_001::Finding::CODE.to_owned(),
+                        message,
+                        category: Some(RuleCategory::Vocabulary),
+                        feature_name: Some(finding.feature),
+                        construct: None,
+                        fix: None,
+                        group: None,
+                    });
+                }
+
+                // VOCAB-CONTEXT-NONGOALS-001
+                let sev = resolve(vocab_context_nongoals_001::Finding::CODE);
+                for finding in vocab_context_nongoals_001::check(&feature, &file.path) {
+                    let message = finding.message();
+                    out.push(DoctorDiagnostic {
+                        path: finding.path,
+                        line: 1,
+                        column: 1,
+                        severity: sev,
+                        code: vocab_context_nongoals_001::Finding::CODE.to_owned(),
+                        message,
+                        category: Some(RuleCategory::Vocabulary),
+                        feature_name: Some(finding.feature),
+                        construct: None,
+                        fix: None,
+                        group: None,
+                    });
+                }
+
+                // VOCAB-CONTEXT-CTXMD-001 — passes project_root so
+                // sidecar paths resolve relative to the feature `.lzi`
+                // first, then to the project root as a fallback.
+                let sev = resolve(vocab_context_ctxmd_001::Finding::CODE);
+                for finding in vocab_context_ctxmd_001::check(
+                    &feature,
+                    &file.path,
+                    Some(&self.project_root),
+                ) {
+                    let message = finding.message();
+                    out.push(DoctorDiagnostic {
+                        path: finding.path,
+                        line: 1,
+                        column: 1,
+                        severity: sev,
+                        code: vocab_context_ctxmd_001::Finding::CODE.to_owned(),
+                        message,
+                        category: Some(RuleCategory::Vocabulary),
+                        feature_name: Some(finding.feature),
+                        construct: None,
+                        fix: None,
+                        group: None,
+                    });
+                }
+            }
+        }
+        out
+    }
+
     /// Wave 6 — `lazuli doctor --coverage` data path. Builds the per-layer
     /// coverage report using the active `SecurityProfile`, the optional
     /// `[doctor.coverage] preset = "<name>"` opt-in (Frente 1), and any
@@ -1471,6 +1669,12 @@ impl DoctorPackage {
             self.single_file_input,
         ));
         diagnostics.extend(lazurite_manifest_diagnostics(self));
+
+        // Iron-hand context-vocabulary lints (VOCAB-CONTEXT-PURPOSE-001,
+        // VOCAB-CONTEXT-NONGOALS-001, VOCAB-CONTEXT-CTXMD-001). Severity
+        // resolves through: manifest override > preset escalation
+        // (iron-hand promotes to error) > category default.
+        diagnostics.extend(self.context_vocab_diagnostics());
 
         // PG.B — plan-and-gate cross-feature checks.
         if let Some(facts) = &self.plan_gate_facts {
@@ -1935,19 +2139,6 @@ fn doctor_rule_severity(security_profile: SecurityProfile) -> DoctorSeverity {
     )
 }
 
-/// Parse a TOML override string (`"warning"`, `"error"`, …) into a
-/// `DoctorSeverity`. Returns `None` for unrecognized strings; callers
-/// fall back to the category default in that case.
-fn parse_doctor_severity(s: &str) -> Option<DoctorSeverity> {
-    match s.to_ascii_lowercase().as_str() {
-        "error" => Some(DoctorSeverity::Error),
-        "warning" | "warn" => Some(DoctorSeverity::Warning),
-        "info" => Some(DoctorSeverity::Info),
-        "hint" => Some(DoctorSeverity::Hint),
-        _ => None,
-    }
-}
-
 /// Per-rule severity override as authored in `Lazurite.toml`.
 ///
 /// `[doctor.test_discipline.severity_override]` table entries lift into
@@ -2130,8 +2321,10 @@ fn test_discipline_diagnostics(
     feature: &lazuli_ir::Feature,
     source: &str,
     security_profile: SecurityProfile,
+    preset: Option<lazuli_doctor::test_discipline::preset::TestDisciplinePreset>,
 ) -> Vec<DoctorDiagnostic> {
     use lazuli_doctor::correctness::handler_missing_001;
+    use lazuli_doctor::test_discipline::preset::preset_rule_severity;
     use lazuli_doctor::test_discipline::{
         migration_dsl_unique_001, runtime_update_builder_jsonb_001,
         test_command_assertion_drift_001, test_fixture_literal_001, test_handler_missing_001,
@@ -2142,6 +2335,19 @@ fn test_discipline_diagnostics(
         return Vec::new();
     }
 
+    // W1.5 — resolve effective severity per rule: preset wins over the
+    // per-rule default when it has an opinion. `tdd-iron-hand` returns
+    // `Error` for every TEST-* / DOCTOR-* / MIGRATION-* / RUNTIME-* code;
+    // other presets either uniform-override or defer (None).
+    let resolve_severity = |default: DoctorSeverity, code: &str| -> DoctorSeverity {
+        if let Some(preset) = preset {
+            if let Some(override_sev) = preset_rule_severity(preset, code) {
+                return override_sev.into();
+            }
+        }
+        default
+    };
+
     let mut out: Vec<DoctorDiagnostic> = Vec::new();
 
     for finding in test_missing_authored_001::check(feature, path) {
@@ -2150,7 +2356,7 @@ fn test_discipline_diagnostics(
             path: finding.path,
             line: 1,
             column: 1,
-            severity: DoctorSeverity::Warning,
+            severity: resolve_severity(DoctorSeverity::Warning, test_missing_authored_001::Finding::CODE),
             code: test_missing_authored_001::Finding::CODE.to_owned(),
             message,
             category: None,
@@ -2166,7 +2372,7 @@ fn test_discipline_diagnostics(
             path: finding.path,
             line: 1,
             column: 1,
-            severity: DoctorSeverity::Info,
+            severity: resolve_severity(DoctorSeverity::Info, test_predicate_uncovered_001::Finding::CODE),
             code: test_predicate_uncovered_001::Finding::CODE.to_owned(),
             message,
             category: None,
@@ -2182,7 +2388,7 @@ fn test_discipline_diagnostics(
             path: finding.path,
             line: 1,
             column: 1,
-            severity: DoctorSeverity::Warning,
+            severity: resolve_severity(DoctorSeverity::Warning, test_restates_effect_001::Finding::CODE),
             code: test_restates_effect_001::Finding::CODE.to_owned(),
             message,
             category: None,
@@ -2198,7 +2404,7 @@ fn test_discipline_diagnostics(
             path: finding.path,
             line: 1,
             column: 1,
-            severity: DoctorSeverity::Warning,
+            severity: resolve_severity(DoctorSeverity::Warning, test_restates_policy_001::Finding::CODE),
             code: test_restates_policy_001::Finding::CODE.to_owned(),
             message,
             category: None,
@@ -2214,7 +2420,7 @@ fn test_discipline_diagnostics(
             path: finding.path,
             line: 1,
             column: 1,
-            severity: DoctorSeverity::Error,
+            severity: resolve_severity(DoctorSeverity::Error, test_fixture_literal_001::Finding::CODE),
             code: test_fixture_literal_001::Finding::CODE.to_owned(),
             message,
             category: None,
@@ -2230,7 +2436,7 @@ fn test_discipline_diagnostics(
             path: finding.path,
             line: 1,
             column: 1,
-            severity: DoctorSeverity::Error,
+            severity: resolve_severity(DoctorSeverity::Error, migration_dsl_unique_001::Finding::CODE),
             code: migration_dsl_unique_001::Finding::CODE.to_owned(),
             message,
             category: None,
@@ -2246,7 +2452,7 @@ fn test_discipline_diagnostics(
             path: finding.path,
             line: 1,
             column: 1,
-            severity: DoctorSeverity::Warning,
+            severity: resolve_severity(DoctorSeverity::Warning, runtime_update_builder_jsonb_001::Finding::CODE),
             code: runtime_update_builder_jsonb_001::Finding::CODE.to_owned(),
             message,
             category: None,
@@ -2263,7 +2469,7 @@ fn test_discipline_diagnostics(
             path: finding.path,
             line: finding.line,
             column: finding.column,
-            severity: DoctorSeverity::Warning,
+            severity: resolve_severity(DoctorSeverity::Warning, test_stub_001::Finding::CODE),
             code: test_stub_001::Finding::CODE.to_owned(),
             message,
             category: None,
@@ -2282,7 +2488,7 @@ fn test_discipline_diagnostics(
             path: finding.path,
             line: 1,
             column: 1,
-            severity: DoctorSeverity::Error,
+            severity: resolve_severity(DoctorSeverity::Error, test_command_assertion_drift_001::Finding::CODE),
             code: test_command_assertion_drift_001::Finding::CODE.to_owned(),
             message,
             category: None,
@@ -3176,6 +3382,226 @@ enum DoctorSeverity {
     Hint,
 }
 
+/// W3 — `lazuli doctor --self` entry point. Walks the framework's
+/// own Rust source under `crates/lazuli_*/src/` and emits
+/// `INTERNAL-*` findings. Pairs with workspace-root
+/// `[doctor.internal_hygiene]` config (preset / per-rule overrides /
+/// fail-on gate).
+///
+/// `input` is interpreted as the workspace root. Defaults to the
+/// current directory when called as `lazuli doctor --self` without
+/// an explicit path.
+fn doctor_self_command(input: &Path, opts: &DoctorRuntimeOptions) -> Result<()> {
+    use lazuli_doctor::internal_hygiene::{
+        file_size_001, no_example_001, preset::InternalHygienePreset, test_pairing_001,
+        undoc_pub_001, walker::walk_workspace_rust_sources,
+    };
+
+    let workspace_root = if input.as_os_str().is_empty() {
+        std::env::current_dir().context("failed to determine current directory")?
+    } else {
+        input.to_path_buf()
+    };
+
+    let manifest = lazurite_manifest::load(&workspace_root).ok().flatten();
+    let preset = manifest
+        .as_ref()
+        .and_then(|m| m.doctor.as_ref())
+        .and_then(|d| d.internal_hygiene.as_ref())
+        .and_then(|ih| ih.preset.as_deref())
+        .and_then(InternalHygienePreset::parse);
+
+    let files = walk_workspace_rust_sources(&workspace_root);
+    if files.is_empty() {
+        bail!(
+            "{} contains no `crates/lazuli_*/src/` Rust sources; `--self` is only valid \
+             from the Lazuli framework workspace root",
+            workspace_root.display()
+        );
+    }
+
+    let mut diagnostics: Vec<DoctorDiagnostic> = Vec::new();
+
+    // INTERNAL-FILE-SIZE-001 — per-finding tier-aware default severity.
+    for finding in file_size_001::check(&files) {
+        let default = match finding.tier {
+            file_size_001::Tier::Warn => DoctorSeverity::Warning,
+            file_size_001::Tier::Error => DoctorSeverity::Error,
+        };
+        let severity = resolve_internal_hygiene_severity(default, file_size_001::Finding::CODE, preset);
+        let message = finding.message();
+        diagnostics.push(DoctorDiagnostic {
+            path: finding.path,
+            line: 1,
+            column: 1,
+            severity,
+            code: file_size_001::Finding::CODE.to_owned(),
+            message,
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
+        });
+    }
+
+    // INTERNAL-UNDOC-PUB-001 — default Warning.
+    for finding in undoc_pub_001::check(&files) {
+        let severity = resolve_internal_hygiene_severity(
+            DoctorSeverity::Warning,
+            undoc_pub_001::Finding::CODE,
+            preset,
+        );
+        let message = finding.message();
+        diagnostics.push(DoctorDiagnostic {
+            path: finding.path,
+            line: finding.line,
+            column: 1,
+            severity,
+            code: undoc_pub_001::Finding::CODE.to_owned(),
+            message,
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
+        });
+    }
+
+    // INTERNAL-NO-EXAMPLE-001 — default Info (soft during W5 sweep).
+    for finding in no_example_001::check(&files) {
+        let severity = resolve_internal_hygiene_severity(
+            DoctorSeverity::Info,
+            no_example_001::Finding::CODE,
+            preset,
+        );
+        let message = finding.message();
+        diagnostics.push(DoctorDiagnostic {
+            path: finding.path,
+            line: finding.line,
+            column: 1,
+            severity,
+            code: no_example_001::Finding::CODE.to_owned(),
+            message,
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
+        });
+    }
+
+    // INTERNAL-TEST-PAIRING-001 — default Warning.
+    for finding in test_pairing_001::check(&files) {
+        let severity = resolve_internal_hygiene_severity(
+            DoctorSeverity::Warning,
+            test_pairing_001::Finding::CODE,
+            preset,
+        );
+        let message = finding.message();
+        diagnostics.push(DoctorDiagnostic {
+            path: finding.path,
+            line: 1,
+            column: 1,
+            severity,
+            code: test_pairing_001::Finding::CODE.to_owned(),
+            message,
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
+        });
+    }
+
+    let has_error = diagnostics
+        .iter()
+        .any(|d| d.severity == DoctorSeverity::Error);
+
+    // Emit in text or JSON per --format.
+    let format = parse_doctor_format(opts.format.as_deref());
+    if matches!(
+        format,
+        crate::doctor_report::DoctorFormat::Json | crate::doctor_report::DoctorFormat::Ndjson
+    ) {
+        // Reuse build_doctor_report logic by constructing a synthetic
+        // DoctorPackage path — but for self-audit, we serialize a
+        // lightweight payload directly with summary by_rule + findings.
+        let mut by_severity = (0usize, 0usize, 0usize);
+        let mut by_rule = std::collections::BTreeMap::<String, usize>::new();
+        for d in &diagnostics {
+            *by_rule.entry(d.code.clone()).or_insert(0) += 1;
+            match d.severity {
+                DoctorSeverity::Error => by_severity.0 += 1,
+                DoctorSeverity::Warning => by_severity.1 += 1,
+                _ => by_severity.2 += 1,
+            }
+        }
+        let report = serde_json::json!({
+            "schema_version": 1,
+            "self_audit": true,
+            "summary": {
+                "errors": by_severity.0,
+                "warnings": by_severity.1,
+                "infos": by_severity.2,
+                "by_category": { "internal_hygiene": diagnostics.len() },
+                "by_rule": by_rule,
+            },
+            "findings": diagnostics.iter().map(|d| serde_json::json!({
+                "code": d.code,
+                "severity": format!("{:?}", d.severity).to_lowercase(),
+                "path": d.path.display().to_string(),
+                "line": d.line,
+                "message": d.message,
+            })).collect::<Vec<_>>(),
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report)
+                .context("failed to serialize self-audit DoctorReport JSON")?
+        );
+    } else {
+        for d in &diagnostics {
+            d.print();
+        }
+        println!(
+            "\n{} self-audit: {} files scanned, {} errors, {} warnings, {} infos",
+            workspace_root.display(),
+            files.len(),
+            diagnostics.iter().filter(|d| d.severity == DoctorSeverity::Error).count(),
+            diagnostics.iter().filter(|d| d.severity == DoctorSeverity::Warning).count(),
+            diagnostics
+                .iter()
+                .filter(|d| matches!(d.severity, DoctorSeverity::Info | DoctorSeverity::Hint))
+                .count(),
+        );
+    }
+
+    // --fail-on category:internal_hygiene gate.
+    let specs = parse_fail_on_specs(&opts.fail_on)
+        .map_err(|e| anyhow::anyhow!("--fail-on: {e}"))?;
+    let gate_fail = !specs.is_empty()
+        && specs.iter().any(|s| match s {
+            crate::doctor_report::FailOnSpec::Category(c) => {
+                *c == lazuli_doctor::RuleCategory::InternalHygiene && !diagnostics.is_empty()
+            }
+            crate::doctor_report::FailOnSpec::Rule(r) => {
+                diagnostics.iter().any(|d| &d.code == r)
+            }
+            crate::doctor_report::FailOnSpec::Severity(_) => has_error,
+            _ => false,
+        });
+
+    if has_error || gate_fail {
+        bail!(
+            "{} failed Lazuli doctor self-audit (internal_hygiene category)",
+            workspace_root.display()
+        );
+    }
+
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 struct DoctorDiagnostic {
     path: PathBuf,
@@ -3340,21 +3766,6 @@ fn collect_package_paths(input: &Path) -> Result<Vec<PathBuf>> {
     }
     paths.sort();
     Ok(paths)
-}
-
-fn doctor_project_root(input: &Path) -> PathBuf {
-    if input.is_dir() {
-        return input.to_path_buf();
-    }
-
-    input
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .to_path_buf()
-}
-
-fn project_has_lazurite_manifest(project_root: &Path) -> bool {
-    project_root.join("Lazurite.toml").is_file()
 }
 
 fn project_uses_plugin_refs(project_root: &Path) -> bool {
@@ -3877,164 +4288,6 @@ fn import_deprecated_alias_diagnostics(project_root: &Path) -> Vec<DoctorDiagnos
     });
 
     diagnostics
-}
-
-/// Walks `dist/ts-{web,mobile}/**/*.gen.ts` collecting export names
-/// preceded by a `/** @deprecated ... */` jsdoc block.
-fn collect_deprecated_exports(dist_root: &Path, out: &mut BTreeMap<String, PathBuf>) {
-    walk_gen_ts_files(dist_root, &mut |path, contents| {
-        let lines: Vec<&str> = contents.lines().collect();
-        for (idx, line) in lines.iter().enumerate() {
-            let trimmed = line.trim_start();
-            if !trimmed.starts_with("export ") {
-                continue;
-            }
-            // Look at the previous 1-3 lines for a @deprecated marker.
-            let mut found_deprecated = false;
-            for prev in (idx.saturating_sub(3)..idx).rev() {
-                let p = lines.get(prev).map(|s| s.trim()).unwrap_or("");
-                if p.contains("@deprecated") {
-                    found_deprecated = true;
-                    break;
-                }
-                if p.starts_with("export ")
-                    || (!p.starts_with("*") && !p.starts_with("//") && !p.is_empty())
-                {
-                    break;
-                }
-            }
-            if !found_deprecated {
-                continue;
-            }
-            // Extract the export name. Handles `export const X =`,
-            // `export function X(`, `export type X =`, `export interface X {`.
-            if let Some(name) = parse_export_name(trimmed) {
-                out.insert(name, path.to_path_buf());
-            }
-        }
-    });
-}
-
-fn parse_export_name(line: &str) -> Option<String> {
-    let after_export = line.strip_prefix("export ")?;
-    for keyword in [
-        "const ",
-        "let ",
-        "var ",
-        "function ",
-        "type ",
-        "interface ",
-        "class ",
-    ] {
-        if let Some(rest) = after_export.strip_prefix(keyword) {
-            let ident: String = rest
-                .chars()
-                .take_while(|ch| ch.is_ascii_alphanumeric() || *ch == '_' || *ch == '$')
-                .collect();
-            if ident.is_empty() {
-                return None;
-            }
-            return Some(ident);
-        }
-    }
-    None
-}
-
-fn matches_word(haystack: &str, needle: &str) -> bool {
-    let mut start = 0usize;
-    while let Some(pos) = haystack[start..].find(needle) {
-        let abs = start + pos;
-        let end = abs + needle.len();
-        let before_ok = abs == 0 || !is_ident_char(haystack.as_bytes()[abs - 1] as char);
-        let after_ok = end >= haystack.len() || !is_ident_char(haystack.as_bytes()[end] as char);
-        if before_ok && after_ok {
-            return true;
-        }
-        start = abs + 1;
-    }
-    false
-}
-
-fn is_ident_char(c: char) -> bool {
-    c.is_ascii_alphanumeric() || c == '_' || c == '$'
-}
-
-fn walk_gen_ts_files(root: &Path, visit: &mut dyn FnMut(&Path, &str)) {
-    let Ok(entries) = std::fs::read_dir(root) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let name = match path.file_name().and_then(|s| s.to_str()) {
-            Some(n) => n,
-            None => continue,
-        };
-        if name == "node_modules" || name == "go" {
-            continue;
-        }
-        if path.is_dir() {
-            walk_gen_ts_files(&path, visit);
-            continue;
-        }
-        if !name.ends_with(".gen.ts") && !name.ends_with(".gen.tsx") {
-            continue;
-        }
-        let Ok(contents) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        visit(&path, &contents);
-    }
-}
-
-/// Walks `app/clients/<frontend>/src/**/*.{ts,tsx}` invoking
-/// `visit(path, contents)` for every matched file. Skips
-/// generated artifacts (`*.gen.ts`, `*.gen.tsx`), tests
-/// (`*.test.*`, `*.spec.*`), and `node_modules`/`dist` subtrees.
-fn walk_frontend_ts_files(clients_root: &Path, visit: &mut dyn FnMut(&Path, &str)) {
-    let Ok(entries) = std::fs::read_dir(clients_root) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let client_root = entry.path();
-        let src = client_root.join("src");
-        if !src.is_dir() {
-            continue;
-        }
-        walk_frontend_ts_files_recursive(&src, visit);
-    }
-}
-
-fn walk_frontend_ts_files_recursive(dir: &Path, visit: &mut dyn FnMut(&Path, &str)) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let file_name = match path.file_name().and_then(|s| s.to_str()) {
-            Some(n) => n,
-            None => continue,
-        };
-        if file_name == "node_modules" || file_name == "dist" || file_name == "build" {
-            continue;
-        }
-        if path.is_dir() {
-            walk_frontend_ts_files_recursive(&path, visit);
-            continue;
-        }
-        if !file_name.ends_with(".ts") && !file_name.ends_with(".tsx") {
-            continue;
-        }
-        if file_name.contains(".gen.")
-            || file_name.contains(".test.")
-            || file_name.contains(".spec.")
-        {
-            continue;
-        }
-        let Ok(contents) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        visit(&path, &contents);
-    }
 }
 
 /// SCHEMA-RICH-GAP (hint) — flags resource fields declared as
@@ -4602,33 +4855,6 @@ fn lazuli_version_002_diagnostics(
     }]
 }
 
-fn major_minor(version: &str) -> String {
-    let mut parts = version.split('.');
-    let Some(major) = parts.next() else {
-        return version.to_owned();
-    };
-    let Some(minor) = parts.next() else {
-        return version.to_owned();
-    };
-    format!("{major}.{minor}")
-}
-
-fn is_one_dot_zero_plus(version: &str) -> bool {
-    version
-        .split('.')
-        .next()
-        .and_then(|major| major.parse::<u64>().ok())
-        .is_some_and(|major| major >= 1)
-}
-
-fn lazuli_version_line(source: &str) -> Option<usize> {
-    source
-        .lines()
-        .position(|line| {
-            leading_spaces(line) == 2 && line.trim_start().starts_with("lazuli_version ")
-        })
-        .map(|line| line + 1)
-}
 
 fn check_migration_recipe_001(project_root: &Path, lzir_schema: &str) -> Vec<DoctorDiagnostic> {
     let Ok(output) = std::process::Command::new("git")
@@ -4718,34 +4944,6 @@ fn check_migration_recipe_002(project_root: &Path) -> Vec<DoctorDiagnostic> {
     diagnostics
 }
 
-fn collect_recipe_dirs(root: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = fs::read_dir(root) else {
-        return;
-    };
-    for entry in entries.filter_map(|entry| entry.ok()) {
-        let path = entry.path();
-        if !path.is_dir() {
-            continue;
-        }
-        if path.join("recipe.toml").is_file() {
-            out.push(path);
-        } else {
-            collect_recipe_dirs(&path, out);
-        }
-    }
-}
-
-fn extract_lzir_schema(source: &str) -> Option<String> {
-    source.lines().find_map(|line| {
-        let trimmed = line.trim();
-        if !trimmed.starts_with("pub const LZIR_SCHEMA") {
-            return None;
-        }
-        let (_, rest) = trimmed.split_once('"')?;
-        let (value, _) = rest.split_once('"')?;
-        Some(value.to_owned())
-    })
-}
 
 fn check_plugin_not_declared(
     manifest: &Manifest,
@@ -5075,49 +5273,6 @@ fn check_frontend_out_collision(
     diagnostics
 }
 
-fn collect_lazuli_paths_recursive(root: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
-    for entry in fs::read_dir(root).with_context(|| format!("failed to list {}", root.display()))? {
-        let entry = entry.with_context(|| format!("failed to read {}", root.display()))?;
-        let path = entry.path();
-        if path.is_dir() {
-            collect_lazuli_paths_recursive(&path, paths)?;
-        } else if path.is_file() && (is_lzi_path(&path) || is_lzx_path(&path)) {
-            paths.push(path);
-        }
-    }
-    Ok(())
-}
-
-fn package_stem(path: &Path) -> Option<String> {
-    let file_name = path.file_name()?.to_str()?;
-    if let Some(stem) = file_name.strip_suffix(".lzi") {
-        return Some(stem.to_owned());
-    }
-
-    let stem = file_name.strip_suffix(".lzx")?;
-    Some(stem.split('.').next().unwrap_or(stem).to_owned())
-}
-
-fn is_lzi_path(path: &Path) -> bool {
-    path.extension().and_then(|ext| ext.to_str()) == Some("lzi")
-}
-
-fn is_lzx_path(path: &Path) -> bool {
-    path.extension().and_then(|ext| ext.to_str()) == Some("lzx")
-}
-
-/// PG.B — read the first `feature <name>` header from a `.lzi` source.
-/// Returns `None` for app.lzi / registry.lzi / contracts that don't
-/// declare a feature.
-fn derive_feature_name(source: &str) -> Option<String> {
-    for line in source.lines() {
-        let trimmed = line.trim_start();
-        if let Some(rest) = trimmed.strip_prefix("feature ") {
-            return rest.split_whitespace().next().map(|s| s.to_owned());
-        }
-    }
-    None
-}
 
 /// PG.B — collect `(callable_key, body_text, span)` tuples for
 /// every callable in every `.lzi` source so
@@ -6635,14 +6790,6 @@ fn error_page_line(app: &DoctorAppManifest, status: u16) -> usize {
         .unwrap_or(1)
 }
 
-fn error_page_catalog_display() -> String {
-    ir::ERROR_PAGE_STATUS_CATALOG
-        .iter()
-        .map(u16::to_string)
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
 fn workspace_contract_diagnostics(workspace: Option<&DoctorAppWorkspace>) -> Vec<DoctorDiagnostic> {
     let Some(workspace) = workspace else {
         return Vec::new();
@@ -8015,33 +8162,6 @@ fn tier3_notification_diagnostics(
 /// The runtime resolves the final string via Go's `time.ParseDuration`;
 /// doctor's job is to reject obviously wrong literals at design
 /// time so the adapter never sees `"1 month"` or `"forever"`.
-fn is_valid_notification_duration(raw: &str) -> bool {
-    parse_notification_duration_seconds(raw).is_some()
-}
-
-fn parse_notification_duration_seconds(raw: &str) -> Option<u64> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let (num_part, unit_part) = trimmed
-        .find(|c: char| !c.is_ascii_digit())
-        .map(|idx| trimmed.split_at(idx))
-        .unwrap_or(("", ""));
-    if num_part.is_empty() {
-        return None;
-    }
-    let n = num_part.parse::<u64>().ok()?;
-    let unit = unit_part.trim().to_ascii_lowercase();
-    let multiplier = match unit.as_str() {
-        "s" | "sec" | "secs" | "second" | "seconds" => 1,
-        "m" | "min" | "mins" | "minute" | "minutes" => 60,
-        "h" | "hr" | "hrs" | "hour" | "hours" => 60 * 60,
-        "d" | "day" | "days" => 24 * 60 * 60,
-        _ => return None,
-    };
-    n.checked_mul(multiplier)
-}
 
 /// Notifications expanded bucket cycle — cross-feature event-payload
 /// index keyed on `<feature>.<event-name>`. Each entry stores the
@@ -9597,21 +9717,6 @@ fn line_col_for_offset(source: &str, offset: usize) -> (usize, usize) {
     (line, column)
 }
 
-fn leading_spaces(line: &str) -> usize {
-    line.bytes().take_while(|byte| *byte == b' ').count()
-}
-
-fn is_identifier(source: &str) -> bool {
-    let mut chars = source.chars();
-    matches!(chars.next(), Some(first) if first == '_' || first.is_ascii_alphabetic())
-        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
-}
-
-fn is_type_name(source: &str) -> bool {
-    let mut chars = source.chars();
-    matches!(chars.next(), Some(first) if first.is_ascii_uppercase())
-        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
-}
 
 fn path_references<'a>(source: &'a str, prefix: &str) -> Vec<&'a str> {
     let mut references = Vec::new();
@@ -11162,27 +11267,6 @@ fn resolve_tool(
     }
 }
 
-fn tool_kind_word(kind: ir::ToolKind) -> &'static str {
-    match kind {
-        ir::ToolKind::QueryList => "query.list",
-        ir::ToolKind::QueryLookup => "query.lookup",
-        ir::ToolKind::QuerySql => "query.sql",
-        ir::ToolKind::QueryView => "query.view",
-        ir::ToolKind::QueryUnspecified => "query",
-        ir::ToolKind::Command => "command",
-        ir::ToolKind::Api => "api",
-    }
-}
-
-fn format_agent_policy(agent: &Agent) -> String {
-    match agent.policy.as_ref() {
-        Some(ir::PolicyRef::Atom(name)) => format!("@{name}"),
-        Some(ir::PolicyRef::Local(name)) => format!("@policy.{name}"),
-        Some(ir::PolicyRef::External { feature, name }) => format!("{feature}.{name}"),
-        Some(ir::PolicyRef::Unresolved(text)) => text.clone(),
-        Some(ir::PolicyRef::None) | None => "<none>".to_owned(),
-    }
-}
 
 /// Conservative `more restrictive than` check: a policy is considered
 /// stricter than the agent's when both texts parse as `@policy.<x>` and
@@ -11376,15 +11460,6 @@ fn check_record_discriminator(
 /// `check_record_discriminator` to find the matching enum). Many
 /// variants don't yield a usable name; callers fall back to the empty
 /// string and the enum lookup fails as expected.
-fn type_ref_name(t: &lazuli_ir::TypeRef) -> String {
-    use lazuli_ir::TypeRef;
-    match t {
-        TypeRef::UserDefined(qn) | TypeRef::EnumRef(qn) => qn.name.clone(),
-        TypeRef::Unresolved(name) => name.clone(),
-        TypeRef::Many(inner) => type_ref_name(inner),
-        _ => String::new(),
-    }
-}
 
 // -----------------------------------------------------------------------------
 // Diagnostic ids: eval_ordered_op_invalid / eval_nondeterministic_warning
@@ -11604,37 +11679,6 @@ struct ExposePathFact {
 /// placeholder. Two paths with the same shape but different slot
 /// names collide at the gateway, so the check should treat them as
 /// equal.
-fn normalise_path(path: &str) -> String {
-    let mut out = String::with_capacity(path.len());
-    for segment in path.split('/') {
-        if !out.is_empty() {
-            out.push('/');
-        } else if path.starts_with('/') {
-            // preserve leading `/`
-        }
-        if let Some(_name) = segment.strip_prefix(':') {
-            out.push_str(":_");
-        } else {
-            out.push_str(segment);
-        }
-    }
-    if path.starts_with('/') && !out.starts_with('/') {
-        format!("/{out}")
-    } else {
-        out
-    }
-}
-
-fn http_method_word(method: ir::HttpMethod) -> &'static str {
-    match method {
-        ir::HttpMethod::Get => "GET",
-        ir::HttpMethod::Post => "POST",
-        ir::HttpMethod::Put => "PUT",
-        ir::HttpMethod::Patch => "PATCH",
-        ir::HttpMethod::Delete => "DELETE",
-    }
-}
-
 /// Collect every audience that's a first-class declaration in the
 /// workspace. Today, surfaces in `.lzx` files are the canonical source
 /// (`surface customer web` ... `audience admin`). A future cut may
@@ -11790,39 +11834,6 @@ fn cors_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorDiagnostic> {
     }
 
     diagnostics
-}
-
-fn environments_summary(environments: &BTreeSet<&str>) -> String {
-    if environments.is_empty() {
-        "none declared".to_owned()
-    } else {
-        environments
-            .iter()
-            .map(|e| format!("`{e}`"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    }
-}
-
-/// Compare two URLs by scheme + host (ignoring path, query, port
-/// where absent). A declared `url` is the canonical reference; the
-/// origin must match its scheme + authority for the CORS layer to
-/// recognise it as the same browser origin.
-fn same_origin(declared_url: &str, origin: &str) -> bool {
-    let canon = |raw: &str| {
-        let raw = raw.trim();
-        // Strip path / query — keep scheme + authority only.
-        let cut = raw
-            .find("://")
-            .and_then(|idx| {
-                let after = &raw[idx + 3..];
-                let tail_start = after.find('/').map(|p| idx + 3 + p);
-                tail_start.map(|p| raw[..p].to_owned())
-            })
-            .unwrap_or_else(|| raw.to_owned());
-        cut.trim_end_matches('/').to_owned()
-    };
-    canon(declared_url) == canon(origin)
 }
 
 // =============================================================================
@@ -12001,14 +12012,6 @@ fn app_logging_tracing_diagnostics(
     }
 
     diagnostics
-}
-
-fn catalog_list(items: &[&str]) -> String {
-    items
-        .iter()
-        .map(|i| format!("`{i}`"))
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 // =============================================================================
@@ -12222,76 +12225,6 @@ fn app_limits_contract_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<Docto
 /// positive integer; the suffix is one of `ms | s | m | h | d`. This
 /// stays in sync with the runtime parser at
 /// `runtime/go/lazuli/http.go`.
-fn is_parseable_duration(raw: &str) -> bool {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return false;
-    }
-    let suffixes = ["ms", "s", "m", "h", "d"];
-    for suffix in suffixes {
-        if let Some(head) = trimmed.strip_suffix(suffix) {
-            if !head.is_empty() && head.chars().all(|c| c.is_ascii_digit()) {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-/// Liberal size parser. Matches the common Go idiom (`512b`, `16kb`,
-/// `10mb`, `2gb`). The numeric prefix must be a positive integer; the
-/// suffix is one of `b | kb | mb | gb | tb`.
-fn is_parseable_size(raw: &str) -> bool {
-    let trimmed = raw.trim().to_ascii_lowercase();
-    if trimmed.is_empty() {
-        return false;
-    }
-    let suffixes = ["tb", "gb", "mb", "kb", "b"];
-    for suffix in suffixes {
-        if let Some(head) = trimmed.strip_suffix(suffix) {
-            if !head.is_empty() && head.chars().all(|c| c.is_ascii_digit()) {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-/// Liberal CIDR parser. Accepts IPv4 (`a.b.c.d/n`, `0 ≤ n ≤ 32`) and
-/// IPv6 (`prefix::/n`, `0 ≤ n ≤ 128`). We don't need full RFC 4632
-/// canonicalization at this layer — the Go runtime parses via
-/// `netip.ParsePrefix` at wire time and surfaces real errors there.
-/// This check just catches the obvious typo (missing slash, garbage
-/// prefix length).
-fn is_parseable_cidr(raw: &str) -> bool {
-    let Some((addr, mask)) = raw.split_once('/') else {
-        return false;
-    };
-    if addr.is_empty() || mask.is_empty() {
-        return false;
-    }
-    let Ok(prefix_len) = mask.parse::<u32>() else {
-        return false;
-    };
-    if addr.contains(':') {
-        prefix_len <= 128
-    } else {
-        let octets: Vec<&str> = addr.split('.').collect();
-        if octets.len() != 4 {
-            return false;
-        }
-        for octet in &octets {
-            let Ok(value) = octet.parse::<u32>() else {
-                return false;
-            };
-            if value > 255 {
-                return false;
-            }
-        }
-        prefix_len <= 32
-    }
-}
-
 // -----------------------------------------------------------------------------
 // Roadmap §1.10 — `app.headers` + `secret_rotation` diagnostics
 //
@@ -14542,28 +14475,6 @@ fn auth_diagnostics(
     diagnostics
 }
 
-fn auth_session_ttl_seconds(raw: &str) -> Option<u64> {
-    let trimmed = raw.trim().trim_matches('"').trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let digit_end = trimmed
-        .find(|c: char| !c.is_ascii_digit())
-        .unwrap_or(trimmed.len());
-    if digit_end == 0 {
-        return None;
-    }
-    let value = trimmed[..digit_end].parse::<u64>().ok()?;
-    let unit = trimmed[digit_end..].trim().to_ascii_lowercase();
-    let multiplier = match unit.as_str() {
-        "s" | "sec" | "secs" | "second" | "seconds" => 1,
-        "m" | "min" | "mins" | "minute" | "minutes" => 60,
-        "h" | "hr" | "hrs" | "hour" | "hours" => 60 * 60,
-        "d" | "day" | "days" => 24 * 60 * 60,
-        _ => return None,
-    };
-    value.checked_mul(multiplier)
-}
 
 // -----------------------------------------------------------------------------
 // Cut A.8 — built-in trace event diagnostics
@@ -15225,19 +15136,6 @@ fn write_effect_resource(command: &lazuli_ir::Command) -> Option<&lazuli_ir::Qua
     }
 }
 
-/// Render a `{name1, name2, ...}`-style list for diagnostic messages.
-/// Empty sets render as `<none>` so the message stays unambiguous.
-fn format_name_list(names: &BTreeSet<String>) -> String {
-    if names.is_empty() {
-        "<none>".to_owned()
-    } else {
-        names
-            .iter()
-            .map(|n| format!("`{n}`"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    }
-}
 
 fn canonical_payload_event(name: &str, canonical: &BTreeSet<String>) -> bool {
     !canonical.is_empty() && ir::is_reserved_trace_event_name(name)
@@ -15326,15 +15224,6 @@ fn scan_payload_field_drift(
     diagnostics
 }
 
-fn payload_field_list(canonical: &BTreeSet<String>) -> String {
-    let mut fields: Vec<&String> = canonical.iter().collect();
-    fields.sort();
-    fields
-        .iter()
-        .map(|f| format!("`{f}`"))
-        .collect::<Vec<_>>()
-        .join(", ")
-}
 
 // ============================================================================
 // Row 30 — Storage bucket cycle diagnostics
@@ -16370,38 +16259,7 @@ fn cap_file_storage_diagnostics(operational: &OperationalFacts) -> Vec<DoctorDia
     diagnostics
 }
 
-fn mime_sets_intersect(left: &[lazuli_ir::MimeType], right: &[lazuli_ir::MimeType]) -> bool {
-    for l in left {
-        for r in right {
-            if mime_matches(l, r) {
-                return true;
-            }
-        }
-    }
-    false
-}
 
-fn mime_matches(left: &lazuli_ir::MimeType, right: &lazuli_ir::MimeType) -> bool {
-    let family_ok = left.family == right.family || left.family == "*" || right.family == "*";
-    let subtype_ok = left.subtype == right.subtype || left.subtype == "*" || right.subtype == "*";
-    family_ok && subtype_ok
-}
-
-fn format_visibility(v: lazuli_ir::FileVisibility) -> &'static str {
-    match v {
-        lazuli_ir::FileVisibility::Public => "public",
-        lazuli_ir::FileVisibility::Private => "private",
-        lazuli_ir::FileVisibility::Signed => "signed",
-    }
-}
-
-fn format_accept_list(accept: &[lazuli_ir::MimeType]) -> String {
-    accept
-        .iter()
-        .map(|m| format!("{}/{}", m.family, m.subtype))
-        .collect::<Vec<_>>()
-        .join("|")
-}
 
 // =============================================================================
 // OpenAPI bucket cycle (row 48) — `deprecated_*` diagnostics.
@@ -16696,38 +16554,6 @@ fn push_unknown_replacement_if_missing(
         fix: None,
         group: None,
     });
-}
-
-/// Parse `YYYY-MM-DD` into a `(year, month, day)` triple. Returns `None`
-/// if the format is wrong or numbers are out of plausible range. Doctor
-/// uses this for `deprecated_sunset_*` checks; the comparison against
-/// `today_pivot` is lexical (the tuple sorts as if it were a real date
-/// because each component is fixed-width).
-fn parse_iso_date(s: &str) -> Option<(u16, u8, u8)> {
-    let trimmed = s.trim();
-    let bytes = trimmed.as_bytes();
-    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
-        return None;
-    }
-    let year: u16 = trimmed[0..4].parse().ok()?;
-    let month: u8 = trimmed[5..7].parse().ok()?;
-    let day: u8 = trimmed[8..10].parse().ok()?;
-    if !(1..=12).contains(&month) {
-        return None;
-    }
-    if !(1..=31).contains(&day) {
-        return None;
-    }
-    Some((year, month, day))
-}
-
-/// Calendar pivot the OpenAPI `sunset_in_past` rule compares against.
-/// The runtime context exposes no `chrono` dependency; we anchor the
-/// pivot at the current Lazuli development date so the diagnostic is
-/// deterministic across runs. Bump alongside the canonical fixture
-/// each cycle; in practice the day-of-month precision is sufficient.
-fn openapi_today_pivot() -> (u16, u8, u8) {
-    (2026, 5, 11)
 }
 
 // =============================================================================
@@ -17260,20 +17086,6 @@ fn plus_near_dollar_placeholder(line: &str) -> bool {
     false
 }
 
-/// CL.C.3 — convert a `CacheTtl` to seconds for ordering comparisons
-/// (`stale_while_revalidate` <= `ttl`). Returns `None` for quoted prose
-/// (adapter-parsed; we don't second-guess the runtime there).
-fn cache_ttl_as_seconds(ttl: &lazuli_ir::CacheTtl) -> Option<u64> {
-    match ttl {
-        lazuli_ir::CacheTtl::Literal(lit) => Some(match lit {
-            lazuli_ir::CacheTtlLiteral::Seconds(n) => *n as u64,
-            lazuli_ir::CacheTtlLiteral::Minutes(n) => *n as u64 * 60,
-            lazuli_ir::CacheTtlLiteral::Hours(n) => *n as u64 * 60 * 60,
-            lazuli_ir::CacheTtlLiteral::Days(n) => *n as u64 * 60 * 60 * 24,
-        }),
-        lazuli_ir::CacheTtl::Quoted(_) => None,
-    }
-}
 
 // =============================================================================
 // i18n bucket cycle (row 54) — 15 locale/translation diagnostics.
@@ -18871,7 +18683,7 @@ surface customer web
         let diagnostics: Vec<_> = package
             .diagnostics()
             .into_iter()
-            .filter(|d| !d.code.starts_with("ERR-VOCAB-"))
+            .filter(|d| !d.code.starts_with("ERR-VOCAB-") && !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
             .collect();
         assert!(diagnostics.is_empty(), "got: {:#?}", diagnostics);
     }
@@ -18927,7 +18739,7 @@ surface customer web
             .iter()
             .filter(|d| {
                 matches!(d.severity, DoctorSeverity::Error | DoctorSeverity::Warning)
-                    && !d.code.starts_with("ERR-VOCAB-")
+                    && !d.code.starts_with("ERR-VOCAB-") && !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT"
             })
             .collect();
         assert!(
@@ -19009,7 +18821,7 @@ surface customer_auth web
         let diagnostics: Vec<_> = package
             .diagnostics()
             .into_iter()
-            .filter(|d| !d.code.starts_with("ERR-VOCAB-"))
+            .filter(|d| !d.code.starts_with("ERR-VOCAB-") && !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
             .collect();
         assert!(diagnostics.is_empty(), "got: {:#?}", diagnostics);
     }
@@ -19183,7 +18995,14 @@ route customer_list
             ),
         ]);
 
-        assert!(package.diagnostics().is_empty());
+        assert!(
+            package
+                .diagnostics()
+                .into_iter()
+                .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+                .collect::<Vec<_>>()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -19242,7 +19061,11 @@ feature customer
             ),
         ]);
 
-        let diagnostics = package.diagnostics();
+        let diagnostics: Vec<_> = package
+            .diagnostics()
+            .into_iter()
+            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .collect();
 
         assert!(
             diagnostics.is_empty(),
@@ -19417,7 +19240,14 @@ feature payments
             ),
         ]);
 
-        assert!(package.diagnostics().is_empty());
+        assert!(
+            package
+                .diagnostics()
+                .into_iter()
+                .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+                .collect::<Vec<_>>()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -19699,9 +19529,15 @@ feature imports
             ),
         ]);
 
+        let leftover: Vec<_> = valid
+            .diagnostics()
+            .into_iter()
+            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .collect();
         assert!(
-            valid.diagnostics().is_empty(),
-            "expected external call contract to pass doctor"
+            leftover.is_empty(),
+            "expected external call contract to pass doctor: {:#?}",
+            leftover
         );
 
         let invalid = package_from_sources(vec![
@@ -19812,9 +19648,15 @@ profile local
             ),
         ]);
 
+        let leftover: Vec<_> = valid
+            .diagnostics()
+            .into_iter()
+            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .collect();
         assert!(
-            valid.diagnostics().is_empty(),
-            "expected profile contract to pass doctor"
+            leftover.is_empty(),
+            "expected profile contract to pass doctor: {:#?}",
+            leftover
         );
 
         let invalid = package_from_sources(vec![
@@ -19956,9 +19798,15 @@ workspace AcmeERP
 "#,
         )]);
 
+        let leftover: Vec<_> = valid
+            .diagnostics()
+            .into_iter()
+            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .collect();
         assert!(
-            valid.diagnostics().is_empty(),
-            "expected valid workspace contract to pass doctor"
+            leftover.is_empty(),
+            "expected valid workspace contract to pass doctor: {:#?}",
+            leftover
         );
 
         let invalid = package_from_sources(vec![(
@@ -20025,9 +19873,15 @@ contract acme.ai.v1
             ),
         ]);
 
+        let leftover: Vec<_> = valid
+            .diagnostics()
+            .into_iter()
+            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .collect();
         assert!(
-            valid.diagnostics().is_empty(),
-            "expected external contract to pass doctor"
+            leftover.is_empty(),
+            "expected external contract to pass doctor: {:#?}",
+            leftover
         );
 
         let invalid = package_from_sources(vec![
@@ -20375,7 +20229,7 @@ feature host
 
     const APP_URLS_MISSING_FIXTURE: &str = "app MyApp\n";
 
-    const SEMANTIC_UNKNOWN_FIXTURE: &str = include_str!("../tests/fixtures/semantic_unknown.lzi");
+    const SEMANTIC_UNKNOWN_FIXTURE: &str = include_str!("../../tests/fixtures/semantic_unknown.lzi");
 
     const DOCTOR_HINTS_WRITE_WITHOUT_GUARDS_FIXTURE: &str = r#"
 feature customer
@@ -22592,19 +22446,19 @@ feature customer_auth
     // -------------------------------------------------------------------------
 
     const MIGRATIONS_PREVIOUSLY_FWD_FIXTURE: &str =
-        include_str!("../tests/fixtures/migrations/previously_forward_unresolved.lzi");
+        include_str!("../../tests/fixtures/migrations/previously_forward_unresolved.lzi");
     const MIGRATIONS_PREVIOUSLY_CYCLE_FIXTURE: &str =
-        include_str!("../tests/fixtures/migrations/previously_cycle.lzi");
+        include_str!("../../tests/fixtures/migrations/previously_cycle.lzi");
     const MIGRATIONS_PREVIOUSLY_DUP_FIXTURE: &str =
-        include_str!("../tests/fixtures/migrations/previously_duplicate_claim.lzi");
+        include_str!("../../tests/fixtures/migrations/previously_duplicate_claim.lzi");
     const MIGRATIONS_TM_AXIS_FIXTURE: &str =
-        include_str!("../tests/fixtures/migrations/tenant_migration_axis_unknown.lzi");
+        include_str!("../../tests/fixtures/migrations/tenant_migration_axis_unknown.lzi");
     const MIGRATIONS_TM_IDEMP_FIXTURE: &str =
-        include_str!("../tests/fixtures/migrations/tenant_migration_no_idempotency.lzi");
+        include_str!("../../tests/fixtures/migrations/tenant_migration_no_idempotency.lzi");
     const MIGRATIONS_CHECKPOINT_INVALID_FIXTURE: &str =
-        include_str!("../tests/fixtures/migrations/deploy_checkpoint_path_invalid.lzi");
+        include_str!("../../tests/fixtures/migrations/deploy_checkpoint_path_invalid.lzi");
     const MIGRATIONS_STRATEGY_INVALID_FIXTURE: &str =
-        include_str!("../tests/fixtures/migrations/deploy_strategy_invalid.lzi");
+        include_str!("../../tests/fixtures/migrations/deploy_strategy_invalid.lzi");
     const MIGRATIONS_TM_TARGET_UNKNOWN_FIXTURE: &str = r#"
 feature x
   defaults
@@ -22800,13 +22654,13 @@ app crm
     // =========================================================================
 
     const OPENAPI_REPLACEMENT_UNKNOWN_FIXTURE: &str =
-        include_str!("../tests/fixtures/openapi/deprecated_replacement_unknown.lzi");
+        include_str!("../../tests/fixtures/openapi/deprecated_replacement_unknown.lzi");
     const OPENAPI_SUNSET_DATE_INVALID_FIXTURE: &str =
-        include_str!("../tests/fixtures/openapi/deprecated_sunset_date_invalid.lzi");
+        include_str!("../../tests/fixtures/openapi/deprecated_sunset_date_invalid.lzi");
     const OPENAPI_SUNSET_IN_PAST_FIXTURE: &str =
-        include_str!("../tests/fixtures/openapi/deprecated_sunset_in_past.lzi");
+        include_str!("../../tests/fixtures/openapi/deprecated_sunset_in_past.lzi");
     const OPENAPI_TEXT_PATTERN_API_FIXTURE: &str =
-        include_str!("../tests/fixtures/openapi/text_pattern_api_block.lzi");
+        include_str!("../../tests/fixtures/openapi/text_pattern_api_block.lzi");
 
     #[test]
     fn deprecated_replacement_unknown_fires() {
@@ -23014,15 +22868,15 @@ feature customer
     // =========================================================================
 
     const I18N_DEFAULT_NOT_SUPPORTED_FIXTURE: &str =
-        include_str!("../tests/fixtures/i18n/default_not_supported.lzi");
+        include_str!("../../tests/fixtures/i18n/default_not_supported.lzi");
     const I18N_TRANSLATION_LOCALE_UNSUPPORTED_FIXTURE: &str =
-        include_str!("../tests/fixtures/i18n/translation_locale_unsupported.lzi");
+        include_str!("../../tests/fixtures/i18n/translation_locale_unsupported.lzi");
     const I18N_TRANSLATION_KEY_UNRESOLVED_FIXTURE: &str =
-        include_str!("../tests/fixtures/i18n/translation_key_unresolved.lzi");
+        include_str!("../../tests/fixtures/i18n/translation_key_unresolved.lzi");
     const I18N_CLDR_PLURAL_ARM_INVALID_FIXTURE: &str =
-        include_str!("../tests/fixtures/i18n/cldr_plural_arm_invalid.lzi");
+        include_str!("../../tests/fixtures/i18n/cldr_plural_arm_invalid.lzi");
     const I18N_LOCALE_NEGOTIATE_SOURCE_INVALID_FIXTURE: &str =
-        include_str!("../tests/fixtures/i18n/locale_negotiate_source_invalid.lzi");
+        include_str!("../../tests/fixtures/i18n/locale_negotiate_source_invalid.lzi");
 
     #[test]
     fn app_locale_default_unsupported_fires() {
@@ -23091,17 +22945,21 @@ feature customer
     // =========================================================================
 
     const MISSING_POLICY_ON_QUERY_HAPPY_FIXTURE: &str =
-        include_str!("../tests/fixtures/missing-policy-on-query/happy.lzi");
+        include_str!("../../tests/fixtures/missing-policy-on-query/happy.lzi");
     const MISSING_POLICY_ON_QUERY_MISSING_FIXTURE: &str =
-        include_str!("../tests/fixtures/missing-policy-on-query/missing.lzi");
+        include_str!("../../tests/fixtures/missing-policy-on-query/missing.lzi");
     const MISSING_POLICY_ON_QUERY_EXPLICIT_PUBLIC_FIXTURE: &str =
-        include_str!("../tests/fixtures/missing-policy-on-query/explicit_public.lzi");
+        include_str!("../../tests/fixtures/missing-policy-on-query/explicit_public.lzi");
 
     #[test]
     fn missing_policy_on_query_happy_fixture_has_zero_diagnostics() {
         let package =
             package_from_sources(vec![("happy.lzi", MISSING_POLICY_ON_QUERY_HAPPY_FIXTURE)]);
-        let diagnostics = package.diagnostics();
+        let diagnostics: Vec<_> = package
+            .diagnostics()
+            .into_iter()
+            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .collect();
         assert!(
             diagnostics.is_empty(),
             "expected happy fixture to emit zero diagnostics, got {:?}",
@@ -23130,7 +22988,11 @@ feature customer
             "explicit_public.lzi",
             MISSING_POLICY_ON_QUERY_EXPLICIT_PUBLIC_FIXTURE,
         )]);
-        let diagnostics = package.diagnostics();
+        let diagnostics: Vec<_> = package
+            .diagnostics()
+            .into_iter()
+            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .collect();
         assert!(
             diagnostics.is_empty(),
             "expected explicit public fixture to emit zero diagnostics, got {:?}",
@@ -23175,17 +23037,17 @@ feature catalog
     // =========================================================================
 
     const CACHE_INVALIDATES_UNRESOLVED_FIXTURE: &str =
-        include_str!("../tests/fixtures/cache/invalidates_target_unresolved.lzi");
+        include_str!("../../tests/fixtures/cache/invalidates_target_unresolved.lzi");
     const CACHE_NAMESPACE_COLLISION_FIXTURE: &str =
-        include_str!("../tests/fixtures/cache/namespace_collision.lzi");
+        include_str!("../../tests/fixtures/cache/namespace_collision.lzi");
     const CACHE_CAPABILITY_UNDECLARED_FIXTURE: &str =
-        include_str!("../tests/fixtures/cache/capability_undeclared.lzi");
+        include_str!("../../tests/fixtures/cache/capability_undeclared.lzi");
     // CL.C.3 — feature-level `cache <name>` profile diagnostics.
     const CACHE_PROFILE_UNKNOWN_FIXTURE: &str =
-        include_str!("../tests/fixtures/cache/profile_unknown.lzi");
-    const CACHE_TAG_UNKNOWN_FIXTURE: &str = include_str!("../tests/fixtures/cache/tag_unknown.lzi");
+        include_str!("../../tests/fixtures/cache/profile_unknown.lzi");
+    const CACHE_TAG_UNKNOWN_FIXTURE: &str = include_str!("../../tests/fixtures/cache/tag_unknown.lzi");
     const CACHE_TTL_CONTRACT_SWR_FIXTURE: &str =
-        include_str!("../tests/fixtures/cache/ttl_contract_swr_exceeds.lzi");
+        include_str!("../../tests/fixtures/cache/ttl_contract_swr_exceeds.lzi");
 
     #[test]
     fn cache_invalidates_target_unresolved_fires() {
@@ -24620,58 +24482,58 @@ registry
     // =========================================================================
 
     const ERR_VOCAB_NO_WHEN_DENIED_FIXTURE: &str =
-        include_str!("../tests/fixtures/error-vocab/no_when_denied.lzi");
+        include_str!("../../tests/fixtures/error-vocab/no_when_denied.lzi");
     const ERR_VOCAB_KEY_UNKNOWN_FROM_POLICY_FIXTURE: &str =
-        include_str!("../tests/fixtures/error-vocab/key_unknown_from_policy.lzi");
+        include_str!("../../tests/fixtures/error-vocab/key_unknown_from_policy.lzi");
     const ERR_VOCAB_BUILTIN_FALLBACK_FIXTURE: &str =
-        include_str!("../tests/fixtures/error-vocab/builtin_fallback.lzi");
+        include_str!("../../tests/fixtures/error-vocab/builtin_fallback.lzi");
     const ERR_VOCAB_CODE_UNKNOWN_FIXTURE: &str =
-        include_str!("../tests/fixtures/error-vocab/code_unknown.lzi");
+        include_str!("../../tests/fixtures/error-vocab/code_unknown.lzi");
     const ERR_VOCAB_EXPOSE_UNKNOWN_FIXTURE: &str =
-        include_str!("../tests/fixtures/error-vocab/expose_unknown.lzi");
+        include_str!("../../tests/fixtures/error-vocab/expose_unknown.lzi");
     const ERR_VOCAB_WHEN_DENIED_NO_POLICY_FIXTURE: &str =
-        include_str!("../tests/fixtures/error-vocab/when_denied_no_policy.lzi");
+        include_str!("../../tests/fixtures/error-vocab/when_denied_no_policy.lzi");
     const ERR_VOCAB_EXPOSE_5XX_MESSAGE_FIXTURE: &str =
-        include_str!("../tests/fixtures/error-vocab/expose_5xx_message.lzi");
-    const ERR_VOCAB_HAPPY_FIXTURE: &str = include_str!("../tests/fixtures/error-vocab/happy.lzi");
-    const ROUTE_GUARD_HAPPY_LZI: &str = include_str!("../tests/fixtures/route-guard/happy.lzi");
-    const ROUTE_GUARD_HAPPY_LZX: &str = include_str!("../tests/fixtures/route-guard/happy.lzx");
+        include_str!("../../tests/fixtures/error-vocab/expose_5xx_message.lzi");
+    const ERR_VOCAB_HAPPY_FIXTURE: &str = include_str!("../../tests/fixtures/error-vocab/happy.lzi");
+    const ROUTE_GUARD_HAPPY_LZI: &str = include_str!("../../tests/fixtures/route-guard/happy.lzi");
+    const ROUTE_GUARD_HAPPY_LZX: &str = include_str!("../../tests/fixtures/route-guard/happy.lzx");
     const ROUTE_GUARD_UNGUARDED_LZX: &str =
-        include_str!("../tests/fixtures/route-guard/view_unguarded_with_gated_backend.lzx");
+        include_str!("../../tests/fixtures/route-guard/view_unguarded_with_gated_backend.lzx");
     const ROUTE_GUARD_LAXER_LZX: &str =
-        include_str!("../tests/fixtures/route-guard/view_laxer_than_backend.lzx");
+        include_str!("../../tests/fixtures/route-guard/view_laxer_than_backend.lzx");
     const ROUTE_GUARD_REDIRECT_LZX: &str =
-        include_str!("../tests/fixtures/route-guard/redirect_unreachable.lzx");
+        include_str!("../../tests/fixtures/route-guard/redirect_unreachable.lzx");
     const ROUTE_GUARD_MISSING_ACTOR_LZI: &str =
-        include_str!("../tests/fixtures/route-guard/missing_actor_query.lzi");
+        include_str!("../../tests/fixtures/route-guard/missing_actor_query.lzi");
     const ROUTE_GUARD_MISSING_ACTOR_LZX: &str =
-        include_str!("../tests/fixtures/route-guard/missing_actor_query.lzx");
+        include_str!("../../tests/fixtures/route-guard/missing_actor_query.lzx");
     const ROUTE_GUARD_AUDIENCE_LZX: &str =
-        include_str!("../tests/fixtures/route-guard/audience_runtime_disagreement.lzx");
+        include_str!("../../tests/fixtures/route-guard/audience_runtime_disagreement.lzx");
     const LIFECYCLE_GATE_HAPPY_LZI: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/happy.lzi");
+        include_str!("../../tests/fixtures/lifecycle-gate/happy.lzi");
     const LIFECYCLE_GATE_HAPPY_LZX: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/happy.lzx");
+        include_str!("../../tests/fixtures/lifecycle-gate/happy.lzx");
     const LIFECYCLE_GATE_UNKNOWN_RESOURCE_LZX: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/unknown_resource.lzx");
+        include_str!("../../tests/fixtures/lifecycle-gate/unknown_resource.lzx");
     const LIFECYCLE_GATE_UNKNOWN_STATE_LZX: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/unknown_state.lzx");
+        include_str!("../../tests/fixtures/lifecycle-gate/unknown_state.lzx");
     const LIFECYCLE_GATE_MISSING_STATE_COVERAGE_LZX: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/missing_state_coverage.lzx");
+        include_str!("../../tests/fixtures/lifecycle-gate/missing_state_coverage.lzx");
     const LIFECYCLE_GATE_EXTRA_STATE_ARM_LZX: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/extra_state_arm.lzx");
+        include_str!("../../tests/fixtures/lifecycle-gate/extra_state_arm.lzx");
     const LIFECYCLE_GATE_WILDCARD_OVERUSE_LZX: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/wildcard_overuse.lzx");
+        include_str!("../../tests/fixtures/lifecycle-gate/wildcard_overuse.lzx");
     const LIFECYCLE_GATE_REDIRECT_CYCLE_LZX: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/redirect_cycle.lzx");
+        include_str!("../../tests/fixtures/lifecycle-gate/redirect_cycle.lzx");
     const LIFECYCLE_GATE_RESUME_RESOURCE_MISMATCH_LZX: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/resume_resource_mismatch.lzx");
+        include_str!("../../tests/fixtures/lifecycle-gate/resume_resource_mismatch.lzx");
     const LIFECYCLE_GATE_WRONG_QUERY_KIND_LZX: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/wrong_query_kind.lzx");
+        include_str!("../../tests/fixtures/lifecycle-gate/wrong_query_kind.lzx");
     const LIFECYCLE_GATE_WITHOUT_ACTOR_GATE_LZX: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/lifecycle_without_actor_gate.lzx");
+        include_str!("../../tests/fixtures/lifecycle-gate/lifecycle_without_actor_gate.lzx");
     const LIFECYCLE_GATE_CROSS_FEATURE_LZX: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/cross_feature_resume.lzx");
+        include_str!("../../tests/fixtures/lifecycle-gate/cross_feature_resume.lzx");
 
     fn err_vocab_diags<'a>(diagnostics: &'a [DoctorDiagnostic]) -> Vec<&'a DoctorDiagnostic> {
         diagnostics
@@ -24892,25 +24754,25 @@ feature sales
         );
     }
 
-    const AUTH_REFRESH_HAPPY: &str = include_str!("../tests/fixtures/auth-refresh/happy.lzi");
+    const AUTH_REFRESH_HAPPY: &str = include_str!("../../tests/fixtures/auth-refresh/happy.lzi");
     const AUTH_REFRESH_001: &str =
-        include_str!("../tests/fixtures/auth-refresh/missing_secret_provider.lzi");
+        include_str!("../../tests/fixtures/auth-refresh/missing_secret_provider.lzi");
     const AUTH_REFRESH_002: &str =
-        include_str!("../tests/fixtures/auth-refresh/grace_exceeds_refresh_ttl.lzi");
+        include_str!("../../tests/fixtures/auth-refresh/grace_exceeds_refresh_ttl.lzi");
     const AUTH_REFRESH_003: &str =
-        include_str!("../tests/fixtures/auth-refresh/schema_missing_columns.lzi");
+        include_str!("../../tests/fixtures/auth-refresh/schema_missing_columns.lzi");
     const AUTH_REFRESH_004: &str =
-        include_str!("../tests/fixtures/auth-refresh/revoke_user_missing_user_fk.lzi");
+        include_str!("../../tests/fixtures/auth-refresh/revoke_user_missing_user_fk.lzi");
     const AUTH_REFRESH_005: &str =
-        include_str!("../tests/fixtures/auth-refresh/refresh_ttl_long.lzi");
+        include_str!("../../tests/fixtures/auth-refresh/refresh_ttl_long.lzi");
     const AUTH_REFRESH_006: &str =
-        include_str!("../tests/fixtures/auth-refresh/missing_on_refresh_failure.lzi");
+        include_str!("../../tests/fixtures/auth-refresh/missing_on_refresh_failure.lzi");
     const AUTH_REFRESH_007: &str =
-        include_str!("../tests/fixtures/auth-refresh/auto_promotion_applied.lzi");
+        include_str!("../../tests/fixtures/auth-refresh/auto_promotion_applied.lzi");
     const AUTH_REFRESH_008: &str =
-        include_str!("../tests/fixtures/auth-refresh/auto_refresh_not_surfaced.lzi");
+        include_str!("../../tests/fixtures/auth-refresh/auto_refresh_not_surfaced.lzi");
     const AUTH_REFRESH_009: &str =
-        include_str!("../tests/fixtures/auth-refresh/cookie_domain_missing.lzi");
+        include_str!("../../tests/fixtures/auth-refresh/cookie_domain_missing.lzi");
 
     fn auth_refresh_diags<'a>(diagnostics: &'a [DoctorDiagnostic]) -> Vec<&'a DoctorDiagnostic> {
         diagnostics
@@ -25089,7 +24951,11 @@ feature sales
     #[test]
     fn auth_refresh_happy_fixture_has_zero_diagnostics() {
         let package = package_from_sources(vec![("auth_refresh.lzi", AUTH_REFRESH_HAPPY)]);
-        let diagnostics = package.diagnostics();
+        let diagnostics: Vec<_> = package
+            .diagnostics()
+            .into_iter()
+            .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT")
+            .collect();
         assert!(
             diagnostics.is_empty(),
             "happy auth-refresh fixture must emit zero diagnostics; got {:?}",

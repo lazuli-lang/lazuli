@@ -1961,6 +1961,7 @@ mod tests {
                 type_ref: TypeRef::Builtin(BuiltinType::SemanticEmail),
                 required: true,
                 constraints: FieldConstraints::default(),
+                validate_skip: false,
             }]),
             target: None,
             lets: Vec::new(),
