@@ -967,19 +967,12 @@ fn main() -> Result<()> {
             by,
             format,
         } => commands::profile::profile_command(&profile, top, &by, &format),
-        Commands::Examples { sub } => {
-            let project_root =
-                std::env::current_dir().context("failed to determine current directory")?;
-            match sub {
-                ExamplesCommand::Bundle { out } => {
-                    examples_bundle::run_examples_bundle(&project_root, out.as_deref())
-                }
-                ExamplesCommand::Validate { check_decay } => {
-                    examples_bundle::run_examples_validate(&project_root, check_decay)
-                }
+        Commands::Examples { sub } => match sub {
+            ExamplesCommand::Bundle { out } => commands::examples::bundle_command(out.as_deref()),
+            ExamplesCommand::Validate { check_decay } => {
+                commands::examples::validate_command(check_decay)
             }
-            .map_err(|err| anyhow::anyhow!("{err}"))
-        }
+        },
         Commands::Init { path } => commands::init::init_command(&path, DEFAULT_TEMPLATE),
         Commands::New {
             project_name,
