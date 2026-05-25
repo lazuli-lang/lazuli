@@ -48,7 +48,7 @@ pub(crate) fn write_go_work_preserving_entries(
     Ok(())
 }
 
-fn add_missing_go_work_use_entries(original: &str, required_entries: &[String]) -> String {
+pub(crate) fn add_missing_go_work_use_entries(original: &str, required_entries: &[String]) -> String {
     let existing_entries = extract_go_work_use_entries(original);
     let missing_entries: Vec<&str> = required_entries
         .iter()
@@ -80,7 +80,7 @@ fn add_missing_go_work_use_entries(original: &str, required_entries: &[String]) 
     updated
 }
 
-fn extract_go_work_use_entries(contents: &str) -> Vec<String> {
+pub(crate) fn extract_go_work_use_entries(contents: &str) -> Vec<String> {
     let mut entries = Vec::new();
     let mut in_use_block = false;
 
