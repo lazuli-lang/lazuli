@@ -18,8 +18,7 @@ use crate::ast::{
     DrawerSubViewAst, DrawerTriggerAst, FilterCardinalityAst, FilterDeclAst, OnSuccessSpecAst,
     PolicyAtomAst, RouteParamAst, SearchDeclAst, SearchFieldAst, SearchModeAst, SelectionDeclAst,
     SelectionModeAst, SettingDeclAst, SettingPersistenceAst, SettingValueSpaceAst, SortDeclAst,
-    SortDirAst, Span, SurfaceAst, SurfaceTargetAst, ViewAst, ViewCreateAst, ViewDetailAst,
-    ViewListAst,
+    Span, SurfaceAst, SurfaceTargetAst, ViewAst, ViewCreateAst, ViewDetailAst, ViewListAst,
 };
 
 use super::super::common::{
@@ -33,6 +32,9 @@ use super::policy_expr::parse_policy_atom;
 
 mod on_success;
 use on_success::parse_on_success_block;
+
+mod sort;
+use sort::parse_view_sort_block;
 
 /// Parse a full `.lzx` ViewModel file. Expects exactly one
 /// `surface <feature> web|mobile` declaration at indent 0.
@@ -1276,102 +1278,6 @@ fn parse_route_param(line: &SourceLine<'_>, value: &str) -> Result<RouteParamAst
         type_ref,
         span: Span::new(line.start, line.end),
     })
-}
-
-fn parse_view_sort_block(
-    lines: &[SourceLine<'_>],
-    start: usize,
-    body_indent: usize,
-) -> Result<(SortDeclAst, usize, usize), ParseError> {
-    let header = &lines[start];
-    let child_indent = body_indent + 2;
-    let mut index = start + 1;
-    let mut allowed: Option<Vec<String>> = None;
-    let mut default: Option<(String, SortDirAst)> = None;
-    let mut last_end = header.end;
-
-    while index < lines.len() {
-        let line = &lines[index];
-        let raw = line.text.trim_start();
-        if is_trivia(raw) {
-            index += 1;
-            continue;
-        }
-        if line.indent <= body_indent {
-            break;
-        }
-        if line.indent != child_indent {
-            return Err(line_error(
-                line,
-                "`sort` children use one indentation level deeper than `sort`",
-            ));
-        }
-        let trimmed = strip_inline_comment(raw).trim_end();
-        if let Some(rest) = trimmed.strip_prefix("by ") {
-            if allowed.is_some() {
-                return Err(line_error(line, "`sort` declares `by` at most once"));
-            }
-            let fields = split_lzx_list(rest);
-            if fields.is_empty() {
-                return Err(line_error(line, "`sort by` requires at least one field"));
-            }
-            allowed = Some(fields);
-        } else if let Some(rest) = trimmed.strip_prefix("default ") {
-            if default.is_some() {
-                return Err(line_error(line, "`sort` declares `default` at most once"));
-            }
-            let parts: Vec<&str> = rest.split_whitespace().collect();
-            if parts.len() != 2 {
-                return Err(line_error(
-                    line,
-                    "`sort default` uses `default <field> <asc|desc>`",
-                ));
-            }
-            default = Some((parts[0].to_owned(), parse_sort_dir(line, parts[1])?));
-        } else {
-            return Err(line_error(
-                line,
-                "`sort` children are `by <field>, ...` or `default <field> <asc|desc>`",
-            ));
-        }
-        last_end = line.end;
-        index += 1;
-    }
-
-    let allowed = allowed.ok_or_else(|| line_error(header, "`sort` requires a `by` line"))?;
-    let (default_field, default_dir) =
-        default.ok_or_else(|| line_error(header, "`sort` requires a `default` line"))?;
-    if !allowed.iter().any(|field| field == &default_field) {
-        return Err(line_error_owned(
-            header,
-            format!(
-                "`sort default` field `{}` must be listed in `sort by`",
-                default_field
-            ),
-        ));
-    }
-
-    Ok((
-        SortDeclAst {
-            allowed,
-            default_field,
-            default_dir,
-            span: Span::new(header.start, last_end),
-        },
-        index,
-        last_end,
-    ))
-}
-
-fn parse_sort_dir(line: &SourceLine<'_>, value: &str) -> Result<SortDirAst, ParseError> {
-    match value {
-        "asc" => Ok(SortDirAst::Asc),
-        "desc" => Ok(SortDirAst::Desc),
-        _ => Err(line_error(
-            line,
-            "`sort default` dir must be `asc` or `desc`",
-        )),
-    }
 }
 
 fn parse_view_settings_block(
