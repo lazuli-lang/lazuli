@@ -24,11 +24,11 @@
 
 use lazuli_ir::{
     AppArchitecture, AppCapability, AppCommunication, AppCookie, AppCors, AppDeploy, AppHeaders,
-    AppHsts, AppIntegration, AppIntegrationCredentialBinding, AppIntegrationCredentials,
-    AppLimits, AppLocale, AppLogging, AppManifest, AppObservability, AppProxy, AppRuntimeUnit,
-    AppService, AppServiceExposure, AppTracing, AppUrl, CookieProfile, DeployCheckpoint,
-    EncryptionAlgorithm, EncryptionBinding, EncryptionRotation, EncryptionSource,
-    EncryptionTemplate, ErrorPage, LocaleFallback, LocaleNegotiate, RouteGuardDefaults,
+    AppHsts, AppIntegration, AppIntegrationCredentialBinding, AppIntegrationCredentials, AppLimits,
+    AppLocale, AppLogging, AppManifest, AppObservability, AppProxy, AppRuntimeUnit, AppService,
+    AppServiceExposure, AppTracing, AppUrl, CookieProfile, DeployCheckpoint, EncryptionAlgorithm,
+    EncryptionBinding, EncryptionRotation, EncryptionSource, EncryptionTemplate, ErrorPage,
+    LocaleFallback, LocaleNegotiate, RouteGuardDefaults,
 };
 
 use super::parsers::{
