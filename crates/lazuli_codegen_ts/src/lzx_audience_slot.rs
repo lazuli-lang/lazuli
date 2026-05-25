@@ -21,7 +21,7 @@
 //! Until then this stub keeps Cells C.1 + C.2 testable end-to-end
 //! under `cargo test -p lazuli_codegen_ts`.
 
-#[path = "audience_sdk.rs"]
+#[path = "audience_sdk/mod.rs"]
 pub mod audience_sdk;
 
 #[path = "slot_interface.rs"]
