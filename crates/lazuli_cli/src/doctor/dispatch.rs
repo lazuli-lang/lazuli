@@ -17,6 +17,9 @@ use super::aggregators::field_health::{
 use super::aggregators::runtime_version::{
     lazuli_version_001_diagnostics, lazuli_version_002_diagnostics, schema_rich_gap_diagnostics,
 };
+use super::aggregators::ts_consumers::{
+    import_deprecated_alias_diagnostics, manual_param_coercion_diagnostics,
+};
 use super::auth_refresh;
 use super::lifecycle_gate;
 use super::package::DoctorPackage;
@@ -32,8 +35,7 @@ use super::{
     collect_callable_bodies_for_eval_order, collect_known_audiences, collect_known_roles,
     cross_feature_type_unresolved_diagnostics, dedupe_env_contract_diagnostics, doctor_rule_path,
     duplicate_query_name_diagnostics, feature_uses_missing_diagnostics,
-    import_deprecated_alias_diagnostics, lazurite_manifest_diagnostics,
-    manifest_required_diagnostics, manual_param_coercion_diagnostics,
+    lazurite_manifest_diagnostics, manifest_required_diagnostics,
     missing_policy_on_query_diagnostics, mutation_without_readback_diagnostics,
     operational_env_names, policy_reachability_diagnostics, query_view_sql_file_diagnostics,
     rbac_catalog_diagnostics, rbac_catalog_missing_diagnostics, rbac_missing_policy_diagnostics,
