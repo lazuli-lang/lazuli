@@ -137,7 +137,7 @@ pub(crate) fn format_visibility(v: lazuli_ir::FileVisibility) -> &'static str {
 
 /// Format a list of MIME types as the canonical pipe-separated wire
 /// string (`image/png|image/jpeg|application/pdf`).
-pub(super) fn format_accept_list(accept: &[lazuli_ir::MimeType]) -> String {
+pub(crate) fn format_accept_list(accept: &[lazuli_ir::MimeType]) -> String {
     accept
         .iter()
         .map(|m| format!("{}/{}", m.family, m.subtype))
