@@ -47,10 +47,9 @@
 use lazuli_ir::{
     ApprovalSpec, ApprovalThen, Assignment, BackoffStrategy, Command, CommandEffect, CommandInput,
     CreateEffect, DeleteEffect, Deprecation, DeprecationReplacement, Expr, ExternalCallRef,
-    Feature, FieldConstraints, Gate, HandlerRef, IdempotencyKey, InvalidatesSpec, Lifecycle,
-    LifecycleStateKind, LifecycleTransition, NamedArg, OwnerScopeSql, Path, Policies, PolicyExpr,
-    PolicyRef, QualifiedName, Resource, RetryPolicy, ReturnsEffect, RouteSlot, TypedSlot,
-    UpdateEffect,
+    Feature, FieldConstraints, Gate, HandlerRef, IdempotencyKey, InvalidatesSpec, NamedArg,
+    OwnerScopeSql, Path, Policies, PolicyExpr, PolicyRef, QualifiedName, Resource, RetryPolicy,
+    ReturnsEffect, RouteSlot, TypedSlot, UpdateEffect,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -66,6 +65,13 @@ use super::patterns::{
 };
 use super::printer::GoPrinter;
 use super::types::{self, TypeCtx};
+
+mod lifecycle;
+use lifecycle::{
+    command_trigger_names, emit_lifecycle_machines, emit_transition_advances,
+    lifecycle_machine_var, lifecycle_transition_for, transition_advances_for_triggers,
+    LifecycleCommand,
+};
 
 /// Emit `<feature>/command.gen.go` for a feature, or `None` when the
 /// feature declares no commands (mirrors `resource.rs` skip rule —
@@ -934,162 +940,6 @@ fn emit_updates_effect(
     p.line("),");
 }
 
-struct LifecycleCommand<'a> {
-    resource: &'a Resource,
-    lifecycle: &'a Lifecycle,
-    transition: &'a LifecycleTransition,
-}
-
-struct TransitionAdvanceLiteral<'a> {
-    from: &'a str,
-    to: &'a str,
-}
-
-fn command_trigger_names(command: &Command) -> &[String] {
-    &command.triggers
-}
-
-fn lifecycle_transition_for<'a>(
-    feature: &'a Feature,
-    command: &Command,
-) -> Option<LifecycleCommand<'a>> {
-    let CommandEffect::Updates(update) = &command.effect else {
-        return None;
-    };
-    feature
-        .resources
-        .iter()
-        .filter(|resource| resource.name == update.resource.name)
-        .find_map(|resource| {
-            let lifecycle = resource.lifecycle.as_ref()?;
-            let transition = lifecycle
-                .transitions
-                .iter()
-                .find(|transition| transition.name == command.name)?;
-            Some(LifecycleCommand {
-                resource,
-                lifecycle,
-                transition,
-            })
-        })
-}
-
-fn transition_advances_for_triggers<'a>(
-    feature: &'a Feature,
-    effect: &CommandEffect,
-    triggers: &'a [String],
-) -> Vec<TransitionAdvanceLiteral<'a>> {
-    if triggers.is_empty() {
-        return Vec::new();
-    }
-
-    let resource_name = match effect {
-        CommandEffect::Updates(update) => update.resource.name.as_str(),
-        _ => return Vec::new(),
-    };
-    let Some(lifecycle) = feature
-        .resources
-        .iter()
-        .find(|resource| resource.name == resource_name)
-        .and_then(|resource| resource.lifecycle.as_ref())
-    else {
-        return Vec::new();
-    };
-
-    triggers
-        .iter()
-        .filter_map(|trigger| {
-            let transition = lifecycle
-                .transitions
-                .iter()
-                .find(|transition| transition.name == *trigger)?;
-            Some(TransitionAdvanceLiteral {
-                from: transition.from.first().map(String::as_str).unwrap_or(""),
-                to: transition.to.as_str(),
-            })
-        })
-        .collect()
-}
-
-fn emit_transition_advances(p: &mut GoPrinter, transitions: &[TransitionAdvanceLiteral<'_>]) {
-    if transitions.is_empty() {
-        return;
-    }
-
-    p.line("Transitions: []lazuli.TransitionAdvance{");
-    p.indent();
-    for transition in transitions {
-        p.line(&format!(
-            "{{From: \"{}\", To: \"{}\"}},",
-            escape_string(transition.from),
-            escape_string(transition.to)
-        ));
-    }
-    p.dedent();
-    p.line("},");
-}
-
-fn emit_lifecycle_machines(p: &mut GoPrinter, feature: &Feature) -> bool {
-    let mut lifecycles: Vec<&Resource> = feature
-        .resources
-        .iter()
-        .filter(|resource| resource.lifecycle.is_some())
-        .collect();
-    lifecycles.sort_by(|a, b| a.name.cmp(&b.name));
-    if lifecycles.is_empty() {
-        return false;
-    }
-
-    for (idx, resource) in lifecycles.iter().enumerate() {
-        if idx > 0 {
-            p.blank();
-        }
-        let lifecycle = resource.lifecycle.as_ref().expect("filtered above");
-        let enum_name = pascal_case(&lifecycle.generated_enum);
-        let initial = initial_lifecycle_state(lifecycle)
-            .map(|state| enum_variant_name(&enum_name, state))
-            .unwrap_or_else(|| format!("{enum_name}(\"\")"));
-        p.line(&format!(
-            "var {} = lifecycle.New[{enum_name}]({initial}, []lifecycle.Transition[{enum_name}]{{",
-            lifecycle_machine_var(resource)
-        ));
-        p.indent();
-        for transition in &lifecycle.transitions {
-            let from = transition
-                .from
-                .iter()
-                .map(|state| format!("\"{}\"", escape_string(state)))
-                .collect::<Vec<_>>()
-                .join(", ");
-            p.line(&format!(
-                "{{Name: \"{}\", From: []string{{{from}}}, To: {}}},",
-                escape_string(&transition.name),
-                enum_variant_name(&enum_name, &transition.to)
-            ));
-        }
-        p.dedent();
-        p.line("})");
-    }
-
-    true
-}
-
-fn lifecycle_machine_var(resource: &Resource) -> String {
-    format!("{}Lifecycle", lower_camel(&resource.name))
-}
-
-fn initial_lifecycle_state(lifecycle: &Lifecycle) -> Option<&str> {
-    lifecycle
-        .states
-        .iter()
-        .find(|state| matches!(state.kind, LifecycleStateKind::Initial))
-        .or_else(|| lifecycle.states.first())
-        .map(|state| state.name.as_str())
-}
-
-fn enum_variant_name(enum_name: &str, variant: &str) -> String {
-    format!("{}{}", enum_name, pascal_case(variant))
-}
 
 fn emit_deletes_effect(
     p: &mut GoPrinter,
@@ -2344,11 +2194,11 @@ fn command_handler_func_name(short_name: &str) -> String {
     format!("Handle{}", pascal_case(short_name))
 }
 
-fn pascal_case(s: &str) -> String {
+pub(super) fn pascal_case(s: &str) -> String {
     super::casing::pascal_case(s)
 }
 
-fn lower_camel(s: &str) -> String {
+pub(super) fn lower_camel(s: &str) -> String {
     super::casing::lower_camel(s)
 }
 
@@ -2557,7 +2407,7 @@ fn is_acronym(word: &str) -> bool {
 /// Escape backslashes and double-quotes so a Go string literal stays
 /// well-formed. Backticks are not used here because every literal
 /// we emit is double-quoted (single-line strings).
-fn escape_string(raw: &str) -> String {
+pub(super) fn escape_string(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     for ch in raw.chars() {
         match ch {
