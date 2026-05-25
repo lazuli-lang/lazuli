@@ -28,6 +28,13 @@ use super::patterns::{
 use super::printer::GoPrinter;
 use super::types::{self, TypeCtx};
 
+mod util;
+use util::{
+    escape_string, lower_camel, pascal_case, pascal_to_snake, plural_pascal, query_kind_rank,
+    return_name, write_section_banner,
+};
+pub(super) use util::resource_for_query;
+
 /// Emit `<feature>/query.gen.go` for a feature, or `None` when the
 /// feature declares no queries.
 pub fn emit_query_file(
@@ -933,21 +940,6 @@ fn owned_via_source(
     ))
 }
 
-fn pascal_to_snake(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    for (i, ch) in s.chars().enumerate() {
-        if ch.is_ascii_uppercase() {
-            if i > 0 {
-                out.push('_');
-            }
-            out.push(ch.to_ascii_lowercase());
-        } else {
-            out.push(ch);
-        }
-    }
-    out
-}
-
 fn format_source_expr(expr: &Expr) -> String {
     match expr {
         Expr::Path(path) => format_path_source(&path.segments),
@@ -1288,53 +1280,6 @@ fn format_cache_ttl(ttl: CacheTtlLiteral) -> String {
     }
 }
 
-pub(super) fn resource_for_query<'a>(
-    feature: &'a Feature,
-    query_name: &str,
-) -> Option<&'a Resource> {
-    let mut resources: Vec<&Resource> = feature.resources.iter().collect();
-    resources.sort_by(|a, b| a.name.cmp(&b.name));
-    if resources.len() <= 1 {
-        return resources.into_iter().next();
-    }
-
-    let query_tokens = split_ident_tokens(query_name);
-    resources
-        .into_iter()
-        .map(|resource| {
-            let tokens = split_ident_tokens(&resource.name);
-            let last = tokens.last().cloned().unwrap_or_default();
-            let mut score = 0usize;
-            for token in &tokens {
-                if query_tokens
-                    .iter()
-                    .any(|q| q == token || q == &plural(token))
-                {
-                    score += 10;
-                }
-            }
-            if !last.is_empty()
-                && query_tokens
-                    .iter()
-                    .any(|q| q == &last || q == &plural(&last))
-            {
-                score += 50;
-            }
-            (score, resource)
-        })
-        .max_by(|(score_a, a), (score_b, b)| score_a.cmp(score_b).then_with(|| b.name.cmp(&a.name)))
-        .map(|(_, resource)| resource)
-}
-
-fn query_kind_rank(query: &Query) -> u8 {
-    match query {
-        Query::List(_) => 0,
-        Query::Lookup(_) => 1,
-        Query::Sql(q) if q.sql_kind == lazuli_ir::SqlQueryKind::View => 2,
-        Query::Sql(_) => 3,
-    }
-}
-
 fn list_args_struct_name(query_name: &str, resource_pascal: &str) -> String {
     if query_name == "list" {
         format!("List{}Args", plural_pascal(resource_pascal))
@@ -1369,101 +1314,6 @@ pub(super) fn lookup_var_name(query_name: &str, resource_pascal: &str) -> String
     } else {
         lower_camel(query_name)
     }
-}
-
-fn plural_pascal(s: &str) -> String {
-    if let Some(stem) = s.strip_suffix('y') {
-        return format!("{stem}ies");
-    }
-    if s.ends_with('s') {
-        format!("{s}es")
-    } else {
-        format!("{s}s")
-    }
-}
-
-fn return_name(type_ref: &TypeRef, ctx: &TypeCtx<'_>) -> String {
-    match type_ref {
-        TypeRef::Many(inner) => format!("{}[]", return_name(inner, ctx)),
-        TypeRef::UserDefined(qname) | TypeRef::EnumRef(qname) => match qname.feature.as_deref() {
-            Some(feature) => format!("{}.{}", feature, qname.name),
-            None => qname.name.clone(),
-        },
-        other => {
-            let (go, _import) = types::go_type_for(other, ctx);
-            go
-        }
-    }
-}
-
-fn write_section_banner(p: &mut GoPrinter, lines: &[String]) {
-    let rule = "-".repeat(76);
-    p.line(&format!("// {rule}"));
-    for line in lines {
-        p.line(&format!("// {line}"));
-    }
-    p.line(&format!("// {rule}"));
-    p.blank();
-}
-
-fn pascal_case(s: &str) -> String {
-    super::casing::pascal_case(s)
-}
-
-fn lower_camel(s: &str) -> String {
-    super::casing::lower_camel(s)
-}
-
-/// Local helper used only by `resource_for_query` scoring: split an
-/// identifier into lowercase tokens. The shared `casing::split_words`
-/// preserves case (`fooBar` → `["foo", "Bar"]`); the scorer wants
-/// lowercase tokens for direct equality + plural matching.
-fn split_ident_tokens(s: &str) -> Vec<String> {
-    let mut words = Vec::new();
-    let mut current = String::new();
-    let mut prev_lower_or_digit = false;
-    for ch in s.chars() {
-        if ch == '_' || ch == '-' || ch == ' ' {
-            if !current.is_empty() {
-                words.push(current.to_ascii_lowercase());
-                current.clear();
-            }
-            prev_lower_or_digit = false;
-            continue;
-        }
-        if ch.is_ascii_uppercase() && prev_lower_or_digit && !current.is_empty() {
-            words.push(current.to_ascii_lowercase());
-            current.clear();
-        }
-        current.push(ch);
-        prev_lower_or_digit = ch.is_ascii_lowercase() || ch.is_ascii_digit();
-    }
-    if !current.is_empty() {
-        words.push(current.to_ascii_lowercase());
-    }
-    words
-}
-
-fn plural(word: &str) -> String {
-    if let Some(stem) = word.strip_suffix('y') {
-        format!("{stem}ies")
-    } else if word.ends_with('s') {
-        format!("{word}es")
-    } else {
-        format!("{word}s")
-    }
-}
-
-fn escape_string(raw: &str) -> String {
-    let mut out = String::with_capacity(raw.len());
-    for ch in raw.chars() {
-        match ch {
-            '\\' => out.push_str("\\\\"),
-            '"' => out.push_str("\\\""),
-            _ => out.push(ch),
-        }
-    }
-    out
 }
 
 /// PG.C.2 — emit the `Prelude: []billing.GateRef{...}` field on a
