@@ -15,9 +15,11 @@ mod tests {
     use clap::Parser;
     use tempfile::TempDir;
 
-    use crate::{
-        Cli, Commands, DesignCommand, DesignExportTarget, DesignImportFormat, ExpandSet,
-        GenerateKind, MigrateCommand, REGISTRY_TEMPLATE, add_missing_go_work_use_entries,
+    use crate::cli_args::{DesignExportTarget, DesignImportFormat};
+use crate::go_work_io::add_missing_go_work_use_entries;
+use crate::{
+        Cli, Commands, DesignCommand, ExpandSet,
+        GenerateKind, MigrateCommand, REGISTRY_TEMPLATE,
         app_template, default_module_name, emit_feature_barrel_ts, emit_feature_react_hooks_ts,
         emit_feature_sdk_ts, expand_canonical_source, inspect_canonical_source, inspect_json_value,
         new_command, parse_expand_set, pascal_case, pascal_case_project_name,
@@ -40,7 +42,7 @@ mod tests {
         let generated = "go 1.26.0\n\nuse (\n\t.\n\t./dist/go\n)\n";
         let updated = add_missing_go_work_use_entries(
             original,
-            &crate::extract_go_work_use_entries(generated),
+            &crate::go_work_io::extract_go_work_use_entries(generated),
         );
 
         assert!(updated.contains("\t.\n"));

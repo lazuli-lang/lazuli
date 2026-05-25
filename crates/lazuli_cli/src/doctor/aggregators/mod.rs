@@ -24,11 +24,13 @@
 //! envelope contract every aggregator pushes onto the diagnostic vec.
 
 pub(crate) mod agent;
+pub(crate) mod app_contract;
 pub(crate) mod app_manifest;
 pub(crate) mod approval;
 pub(crate) mod audit;
 pub(crate) mod auth;
 pub(crate) mod cache;
+pub(crate) mod command_routing;
 pub(crate) mod correctness;
 pub(crate) mod cors;
 pub(crate) mod deprecated;
@@ -45,6 +47,7 @@ pub(crate) mod lazurite_manifest;
 pub(crate) mod migrations;
 pub(crate) mod observability;
 pub(crate) mod rbac_catalog;
+pub(crate) mod report_storage;
 pub(crate) mod semantic_type;
 pub(crate) mod test_discipline;
 pub(crate) mod tier3;

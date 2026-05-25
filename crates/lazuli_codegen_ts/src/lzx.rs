@@ -40,7 +40,7 @@ pub mod lzx_filters;
 #[path = "lzx_search.rs"]
 pub mod lzx_search;
 
-#[path = "lzx_view_list.rs"]
+#[path = "lzx_view_list/mod.rs"]
 pub mod lzx_view_list;
 
 #[path = "lzx_view_detail.rs"]

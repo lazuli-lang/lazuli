@@ -151,3 +151,39 @@ pub(super) fn doctor_project_root(input: &Path) -> PathBuf {
 pub(crate) fn project_has_lazurite_manifest(project_root: &Path) -> bool {
     project_root.join("Lazurite.toml").is_file()
 }
+
+/// Walk `source` and translate a byte offset into a `(line, column)`
+/// pair, both 1-based. Used by every diagnostic builder that anchors
+/// a finding to a span: the parser hands back byte offsets, and the
+/// LSP / text report want line/column. Shared so the command-routing,
+/// plugin-reference, and report-storage aggregators agree on the same
+/// counting (lines split on `\n`, columns count chars).
+pub(crate) fn line_col_for_offset(source: &str, offset: usize) -> (usize, usize) {
+    let mut line = 1;
+    let mut column = 1;
+
+    for (index, ch) in source.char_indices() {
+        if index >= offset {
+            break;
+        }
+        if ch == '\n' {
+            line += 1;
+            column = 1;
+        } else {
+            column += 1;
+        }
+    }
+
+    (line, column)
+}
+
+/// File-anchored variant of [`line_col_for_offset`]: reads the file at
+/// `path` and resolves the offset against its on-disk contents. Falls
+/// back to `(1, 1)` on a read failure so the caller still gets a valid
+/// anchor (the diagnostic stays attached to the file, just at the top).
+pub(crate) fn line_col_for_offset_in_file(path: &Path, offset: usize) -> (usize, usize) {
+    let Ok(source) = std::fs::read_to_string(path) else {
+        return (1, 1);
+    };
+    line_col_for_offset(&source, offset)
+}
