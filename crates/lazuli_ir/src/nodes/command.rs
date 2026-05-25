@@ -1,0 +1,482 @@
+//! Command IR — declarative writes (`command <name>`).
+//!
+//! A [`Command`] is the lowered shape of one `command <name> { … }` block.
+//! It declares one of four [`CommandKind`]s — `create`, `update`, `delete`,
+//! or `returns` — plus all the cross-cutting decorators that gate the
+//! write: `policy`, `audit`, `approval`, `invalidates`, `external_calls`,
+//! `timeout`, `retry`, `idempotency`, `write_window`, `deprecated`,
+//! `handler`, `tests`, and lifecycle `triggers`.
+//!
+//! ## Catalog
+//!
+//! - [`Command`] — root.
+//! - [`CommandKind`] — closed catalog `Create` / `Update` / `Delete` /
+//!   `Returns`.
+//! - [`CommandEffect`] + [`CreateEffect`] / [`UpdateEffect`] /
+//!   [`DeleteEffect`] / [`ReturnsEffect`] — typed effect shapes.
+//! - [`Assignment`] — `<field> = <expr>` slot.
+//! - [`CommandInput`] + [`TypedSlot`] — short list or typed block.
+//! - [`RouteSlot`] + [`RouteSlotKind`] — typed path-param declarations.
+//! - [`TargetExpr`] + [`NamedArg`] + [`LetBinding`] — predicate-style
+//!   bindings.
+//! - [`PolicyRef`] — `@policy.<name>` / `@role.*` / `@scope.*` resolved
+//!   reference. Default `None` means feature-level default applies.
+//! - [`Deprecation`] + [`DeprecationReplacement`] — typed deprecation
+//!   marker.
+//! - [`AuditSpec`] — declarative audit policy (subjects + emit_to +
+//!   retention + record_before/after).
+//! - [`ApprovalSpec`] + [`ApprovalThen`] — Cut A.9 approval block.
+//! - [`InvalidatesSpec`] — `invalidates query.<name>(args)` reference.
+//! - [`CommandWriteWindow`] — `write_window by <path> within <duration>`.
+
+use serde::{Deserialize, Serialize};
+
+use crate::nodes::async_work::{ExternalCallRef, IdempotencyKey, RetryPolicy};
+use crate::nodes::error_vocab::TranslationKeyRef;
+use crate::nodes::lifecycle::HandlerRef;
+use crate::nodes::plan_and_gate::SynthesizedFromCapFile;
+use crate::nodes::query::{Expr, Path};
+use crate::nodes::resource::{FieldConstraints, OwnerScopeSql, TypeRef};
+use crate::nodes::test_and_policy::TestBlock;
+use crate::{PolicyExpr, PublicContract, QualifiedName, RateLimitSpec, SpanRef, is_false};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Command {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_contract: Option<PublicContract>,
+    pub kind: CommandKind,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub route: Vec<RouteSlot>,
+    pub input: CommandInput,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<TargetExpr>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lets: Vec<LetBinding>,
+    pub effect: CommandEffect,
+    pub policy: PolicyRef,
+    /// RB.S6 — structured `policy <expr>` form when the authored
+    /// policy contained predicates (`has_role` / `has_permission` /
+    /// `authenticated`) or boolean combinators. Coexists with `policy`
+    /// (legacy atom ref) for back-compat. `None` when the policy is
+    /// a bare atom or absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_expr: Option<PolicyExpr>,
+    /// IR Error-Vocab — per-command override for the `policy_denied`
+    /// error message. Highest-precedence step in the resolution chain
+    /// (proposal §2.E step 1). When `Some`, the codegen emits a
+    /// per-command `ErrorKeys.PolicyDenied` entry and the runtime
+    /// resolver picks it before consulting `PolicyCategory.when_denied`
+    /// or `FeatureErrors.messages`. See
+    /// `docs/proposals/ir-error-messages-vocab.md` §3.3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_when_denied: Option<TranslationKeyRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub emits: Vec<String>,
+    /// `rate_limit "<N per period per scope>"` declaration, optionally
+    /// env-qualified per `ir-rate-limit-env-aware` (cell 1). The single-
+    /// line `rate_limit "X"` source shape lowers to `RateLimitSpec {
+    /// default: "X", by_env: [] }`; multi-line shapes populate `by_env`.
+    /// Captured verbatim and parsed by adapters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rate_limit: Option<RateLimitSpec>,
+    /// Phase L Tier 4b — `audit <subject>, <subject>, ...` with optional
+    /// `emit_to <event_group>` child.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audit: Option<AuditSpec>,
+    /// Phase L Tier 4b — Cut A.9 `approval` block. Replaces the
+    /// `CommandApprovalFact` text-walker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval: Option<ApprovalSpec>,
+    /// Phase L Tier 4b — `invalidates query.<name>(...)` references.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub invalidates: Vec<InvalidatesSpec>,
+    /// Phase L Tier 4b — `calls <slot>.<op>` inside a command body.
+    /// Mirrors `Job.external_calls`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub external_calls: Vec<ExternalCallRef>,
+    /// Phase L Tier 4 follow-up — `timeout "<duration>"` literal.
+    /// Mirrors `Job.timeout`. Adapter parses; language keeps verbatim.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<String>,
+    /// Phase L Tier 4 follow-up — `retry <count> [backoff <strategy>]`.
+    /// Mirrors `Job.retry`. Doctor cross-checks against `external_calls`
+    /// to enforce `INT-CALL-RETRY-001`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry: Option<RetryPolicy>,
+    /// Phase L Tier 4 follow-up — `idempotency by <field>[, ...]`.
+    /// Mirrors `Job.idempotency`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency: Option<IdempotencyKey>,
+    /// `write_window by <path> within <duration_or_ref>`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_window: Option<CommandWriteWindow>,
+    /// OpenAPI bucket cycle — `deprecated [since "..." replacement <ref>
+    /// sunset "..."]`. `None` for live commands; `Some` for those flagged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deprecated: Option<Deprecation>,
+    /// `handler @fn.<name>` or `handler "./path.go"` escape hatch.
+    /// `None` for commands fully described by their declarative body
+    /// (`creates`/`updates`/`deletes`/`returns` with no user code).
+    ///
+    /// When set with `effect == None`, the runtime treats the command as
+    /// a pure-read invocation routed to the user's Go handler — codegen
+    /// emits `Effect: lazuli.Returns(<PascalCase(name)>)` instead of
+    /// `Effect: nil` (closes WAR-RUNTIME-COMMAND-01 Effect half).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handler: Option<HandlerRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tests: Option<TestBlock>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+    /// Lifecycle transitions this command fires, in order. Empty = no
+    /// lifecycle binding. Multi-element = chain that runs in one tx
+    /// (pre-guard = transitions[0].from, post-update = last.to).
+    /// See docs/proposals/ir-command-transition-binding.md.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub triggers: Vec<String>,
+    /// FR-3a — marker set on commands that the analyzer synthesized
+    /// from a `@cap.File(...)` field on a per-user resource. `None`
+    /// for author-written commands. Codegen reads this to wire the
+    /// auto-photo runtime helper instead of expecting a hand-rolled
+    /// handler. See docs/proposals/fileref-jsonb-fr3-design.md.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub synthesized_from_cap_file: Option<SynthesizedFromCapFile>,
+    /// `ir-resource-conventions-owner-scope.md` §7.3 + §8.5.A —
+    /// owner-scope SQL fragment composed by the analyzer at synth
+    /// time. `Some` only when this command was emitted by the crud /
+    /// me synth pass for a resource carrying a `@owner_axis(through:
+    /// <col>)` field. Codegen passes the fragments through verbatim
+    /// — there is no runtime branching. See Cell O2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_scope_sql: Option<OwnerScopeSql>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandWriteWindow {
+    pub by: Path,
+    pub within: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// OpenAPI bucket cycle — typed deprecation marker for commands (and
+/// post-Tier-4 apis). All sub-fields are optional; bare `deprecated`
+/// surfaces as `Deprecation::default()`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Deprecation {
+    /// Authored `since "<version>"`. Free-form (semver, calendar,
+    /// git-sha) — emitted verbatim under `x-lazuli-deprecated-since`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<String>,
+    /// Authored `replacement <ref>` resolved at lowering. `None` when
+    /// omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replacement: Option<DeprecationReplacement>,
+    /// Authored `sunset "<YYYY-MM-DD>"` — ISO-8601 date. Format-checked
+    /// at lowering; doctor warns if in the past.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sunset: Option<String>,
+}
+
+/// Closed catalog of replacement reference shapes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum DeprecationReplacement {
+    /// `replacement <command_name>` — same-feature short form.
+    LocalCommand(String),
+    /// `replacement api.<name>` on an api — same-feature short form.
+    LocalApi(String),
+    /// `replacement <feature>.command.<name>` — cross-feature.
+    Qualified(QualifiedName),
+    /// `replacement <feature>.api.<name>` — cross-feature api.
+    QualifiedApi(QualifiedName),
+    /// `replacement "https://..."` — explicit URL escape hatch.
+    Url(String),
+}
+
+/// Phase L Tier 4b — declarative audit spec captured from a command's
+/// `audit <subject>, <subject>, ...` line and optional `emit_to <group>`
+/// child. The subject strings stay verbatim (`actor`, `target.id`,
+/// `input.owner_id`) because the analyzer resolves them against the
+/// command's input slots; doctor cross-checks `emit_to` against the
+/// feature's `event_group` declarations.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuditSpec {
+    /// `actor`, `target.id`, `input.<field>`, etc. Each entry is a single
+    /// subject reference.
+    pub subjects: Vec<String>,
+    /// `emit_to <event_group>` — optional event-group emission target.
+    /// `None` when the command writes audit without emitting to a group.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emit_to: Option<String>,
+    /// LGPD/GDPR shape — names the field on the affected resource
+    /// that identifies the data subject for right-of-access /
+    /// right-to-erasure queries. `None` for non-personal-data
+    /// commands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_subject: Option<String>,
+    /// `audit before` — capture pre-mutation field values.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub record_before: bool,
+    /// `audit after` — capture post-mutation field values.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub record_after: bool,
+    /// `audit retain <duration>` — retention horizon for audit rows.
+    /// `None` = use feature/registry default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retain_for: Option<String>,
+}
+
+/// Phase L Tier 4b — Cut A.9 `approval` block lifted into IR.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovalSpec {
+    /// `required_when <predicate>` — verbatim predicate text. The
+    /// predicate language tracks the command target's resource fields;
+    /// the analyzer keeps the raw form so future Cut A.9 evolutions can
+    /// land without an IR churn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required_when: Option<String>,
+    /// `by @role.<name>` or `by @actor.<name>` — single approver atom.
+    pub by: String,
+    /// `timeout "24h"` — duration literal parsed by the adapter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<String>,
+    /// `then deny | allow | escalate` — closed catalog of resolutions.
+    pub then: ApprovalThen,
+}
+
+/// Phase L Tier 4b — closed catalog of approval timeout resolutions
+/// (Cut A.9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalThen {
+    Deny,
+    Allow,
+    Escalate,
+}
+
+/// Phase L Tier 4b — `invalidates query.<name>(args)` reference.
+/// `query` carries the qualified query name and `args` the explicit
+/// named-argument bindings (e.g. `id: route.id`). Doctor uses this for
+/// cache-invalidation cross-checks.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InvalidatesSpec {
+    pub query: QualifiedName,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<NamedArg>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CommandKind {
+    Create,
+    Update,
+    Delete,
+    Returns,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RouteSlot {
+    pub name: String,
+    pub type_ref: TypeRef,
+    /// Phase L Tier 4 follow-up — `route <name>: <Type> from ctx.<expr>`
+    /// captures the optional default-binding expression. `Some(text)`
+    /// means the slot has a context default; `None` means the caller
+    /// must supply it. Doctor's command-route-binding check reads this
+    /// to suppress missing-argument diagnostics.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    /// `route opaque token: Text` -> `OpaqueToken`.
+    /// `route signed_token`       -> `SignedToken`.
+    /// Plain `route id: ID`       -> `Plain` (default).
+    #[serde(default, skip_serializing_if = "is_plain_route_slot_kind")]
+    pub kind: RouteSlotKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RouteSlotKind {
+    Plain,
+    OpaqueToken,
+    SignedToken,
+}
+
+impl Default for RouteSlotKind {
+    fn default() -> Self {
+        RouteSlotKind::Plain
+    }
+}
+
+fn is_plain_route_slot_kind(kind: &RouteSlotKind) -> bool {
+    matches!(kind, RouteSlotKind::Plain)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum CommandInput {
+    /// Short list — every entry maps 1:1 to a field on the command's local
+    /// `creates`/`updates` resource.
+    Short(Vec<String>),
+    /// Typed block — explicit name/type pairs.
+    Typed(Vec<TypedSlot>),
+    /// Empty inputs (`delete` commands often have none).
+    Empty,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TypedSlot {
+    pub name: String,
+    pub type_ref: TypeRef,
+    pub required: bool,
+    /// L0 #3 §10 — inline constraints carried on command input
+    /// slots (`input` block). Mirrors `Field::constraints` so Zod
+    /// schemas for command inputs, Go validator tags on
+    /// `<Cmd>Input` structs, and OpenAPI parameter schemas pick up
+    /// the same six-keyword catalog without a parallel field.
+    #[serde(default, skip_serializing_if = "FieldConstraints::is_empty")]
+    pub constraints: FieldConstraints,
+    /// LAZ-SEMANTIC-AUTO-VALIDATE W2 — `@validate.skip` annotation on
+    /// the slot. Codegen skips emitting the semantic-scalar runtime
+    /// validation pre-pass for this field, even when the
+    /// `@semantic.X` type declares a validator. Used for migration /
+    /// legacy import flows where authors knowingly accept invalid
+    /// scalar values. Doctor SEMANTIC-PLUGIN-002 stays silent when set.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub validate_skip: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TargetExpr {
+    pub query: QualifiedName,
+    pub args: Vec<NamedArg>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NamedArg {
+    pub name: String,
+    pub value: Expr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LetBinding {
+    pub name: String,
+    pub value: Expr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum CommandEffect {
+    Creates(CreateEffect),
+    Updates(UpdateEffect),
+    Deletes(DeleteEffect),
+    /// Pure request/response command — declares `returns` instead of an effect.
+    Returns(ReturnsEffect),
+    /// No effect declared yet (legacy lowering path).
+    None,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CreateEffect {
+    pub resource: QualifiedName,
+    /// True when the command body uses `creates X from input`.
+    pub from_input: bool,
+    pub assignments: Vec<Assignment>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateEffect {
+    pub resource: QualifiedName,
+    pub assignments: Vec<Assignment>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeleteEffect {
+    pub resource: QualifiedName,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReturnsEffect {
+    pub return_type: TypeRef,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Assignment {
+    pub field: String,
+    pub value: Expr,
+}
+
+/// Policy reference. `Local` = feature-local policy category. `Atom` = closed
+/// `@role.*`/`@scope.*`/`@actor.*` namespace. `External` = `<feature>.<name>`.
+/// `Unresolved` covers legacy strings until full lowering lands.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(tag = "kind", content = "value")]
+pub enum PolicyRef {
+    Local(String),
+    Atom(String),
+    External {
+        feature: String,
+        name: String,
+    },
+    Unresolved(String),
+    #[default]
+    None,
+}
+
+impl PolicyRef {
+    /// Returns `true` when the policy is unset. Used by serde's
+    /// `skip_serializing_if` on query / command IR fields so absent
+    /// per-callable policies serialize cleanly and round-trip back to
+    /// `PolicyRef::None` (the explicit "feature-default applies" marker).
+    pub fn is_none(&self) -> bool {
+        matches!(self, PolicyRef::None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn policy_ref_default_is_none() {
+        let p = PolicyRef::default();
+        assert!(p.is_none());
+    }
+
+    #[test]
+    fn policy_ref_round_trips_atom() {
+        let v = PolicyRef::Atom("@role.host".into());
+        let s = serde_json::to_string(&v).expect("serialize");
+        assert!(s.contains("\"kind\":\"Atom\""));
+        let back: PolicyRef = serde_json::from_str(&s).expect("deserialize");
+        assert_eq!(v, back);
+    }
+
+    #[test]
+    fn approval_then_serialises_snake_case() {
+        let v = ApprovalThen::Escalate;
+        let s = serde_json::to_string(&v).expect("serialize");
+        assert_eq!(s, "\"escalate\"");
+    }
+
+    #[test]
+    fn deprecation_default_is_all_none() {
+        let d = Deprecation::default();
+        let s = serde_json::to_string(&d).expect("serialize");
+        assert_eq!(s, "{}");
+    }
+
+    #[test]
+    fn route_slot_kind_default_is_plain() {
+        assert_eq!(RouteSlotKind::default(), RouteSlotKind::Plain);
+    }
+
+    #[test]
+    fn command_kind_round_trips() {
+        let v = CommandKind::Create;
+        let s = serde_json::to_string(&v).expect("serialize");
+        let back: CommandKind = serde_json::from_str(&s).expect("deserialize");
+        assert_eq!(v, back);
+    }
+}
