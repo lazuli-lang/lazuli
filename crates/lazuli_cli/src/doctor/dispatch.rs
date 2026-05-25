@@ -25,7 +25,7 @@ use super::{
     check_auth_session_callsite_001, check_codegen_wrap_001, check_pattern_draft_stale_001,
     collect_callable_bodies_for_eval_order, collect_known_audiences, collect_known_roles,
     cross_feature_type_unresolved_diagnostics, dedupe_env_contract_diagnostics, doctor_rule_path,
-    duplicate_query_name_diagnostics, external_contract_diagnostics, feature_uses_missing_diagnostics,
+    duplicate_query_name_diagnostics, feature_uses_missing_diagnostics,
     field_derived_from_unresolved_diagnostics, import_deprecated_alias_diagnostics,
     lazuli_version_001_diagnostics, lazuli_version_002_diagnostics, lazurite_manifest_diagnostics,
     manifest_required_diagnostics, manual_param_coercion_diagnostics,
@@ -146,7 +146,7 @@ impl DoctorPackage {
             &self.operational,
         ));
         diagnostics.extend(workspace_contract_diagnostics(self.workspace.as_ref()));
-        diagnostics.extend(external_contract_diagnostics(
+        diagnostics.extend(aggregators::external::external_contract_diagnostics(
             &self.contracts,
             self.workspace.as_ref(),
         ));
