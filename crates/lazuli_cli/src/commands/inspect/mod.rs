@@ -992,10 +992,13 @@ fn project_invariant(inv: &lazuli_ir::Invariant) -> InspectInvariant {
 mod formatters;
 
 use formatters::{
-    compare_op_to_string, format_qname, inspect_assignments_to_string,
-    inspect_command_effect_to_string, inspect_expr_to_string, inspect_let_binding_to_string,
-    inspect_target_expr_to_string, op_as_str, path_to_string, policy_ref_to_string,
-    predicate_to_string, tool_kind_segment, tool_ref_to_string, type_ref_to_string,
+    compare_op_to_string, format_e2ee_capability, format_encrypted_capability,
+    format_file_capability, format_file_size_literal, format_file_visibility,
+    format_hashed_capability, format_pii_capability, format_qname, format_token_capability,
+    format_type_ref, inspect_assignments_to_string, inspect_command_effect_to_string,
+    inspect_expr_to_string, inspect_let_binding_to_string, inspect_target_expr_to_string,
+    op_as_str, path_to_string, policy_ref_to_string, predicate_to_string, tool_kind_segment,
+    tool_ref_to_string, type_ref_to_string,
 };
 
 /// Phase L Tier 2 — walk a feature's source lines, find every
@@ -2460,133 +2463,6 @@ fn built_in_trace_fires_per_word(kind: lazuli_ir::TraceFiresPer) -> &'static str
     }
 }
 
-fn format_type_ref(t: &lazuli_ir::TypeRef) -> String {
-    use lazuli_ir::{BuiltinType, CapabilityRef, TypeRef};
-    match t {
-        TypeRef::Builtin(BuiltinType::SemanticMoney { currency }) => {
-            format!("@semantic.Money(currency:{})", currency.as_iso())
-        }
-        // B3 — surface plugin-contributed `@semantic.<Name>` back as
-        // the authored alias so inspect-text renderings stay stable.
-        TypeRef::Builtin(BuiltinType::SemanticPluginType { name, .. }) => {
-            format!("@semantic.{}", name)
-        }
-        TypeRef::Builtin(b) => match b {
-            BuiltinType::Text => "Text",
-            BuiltinType::Integer => "Integer",
-            BuiltinType::Boolean => "Boolean",
-            BuiltinType::Decimal => "Decimal",
-            BuiltinType::Date => "Date",
-            BuiltinType::DateTime => "DateTime",
-            BuiltinType::Id => "ID",
-            BuiltinType::Json => "Json",
-            BuiltinType::SemanticEmail => "@semantic.Email",
-            BuiltinType::SemanticPhone => "@semantic.Phone",
-            BuiltinType::SemanticUrl => "@semantic.Url",
-            BuiltinType::SemanticUuid => "@semantic.Uuid",
-            // SemanticMoney + SemanticPluginType handled above.
-            BuiltinType::SemanticMoney { .. } => unreachable!(),
-            BuiltinType::SemanticPluginType { .. } => unreachable!(),
-            BuiltinType::SemanticCurrency => "@semantic.Currency",
-            BuiltinType::SemanticGeoPoint => "@semantic.GeoPoint",
-            BuiltinType::CapSecret => "@cap.Secret",
-            BuiltinType::CapFile => "@cap.File",
-        }
-        .to_owned(),
-        TypeRef::UserDefined(qn) | TypeRef::EnumRef(qn) => qn.name.clone(),
-        TypeRef::Many(inner) => format!("{}*", format_type_ref(inner)),
-        TypeRef::Unresolved(text) => text.clone(),
-        // Phase L Tier 2 — render the typed capability back into the
-        // canonical source form so inspect summary lines stay readable.
-        TypeRef::Capability(CapabilityRef::File(file)) => format_file_capability(file),
-        TypeRef::Capability(CapabilityRef::Hashed(h)) => format_hashed_capability(h),
-        TypeRef::Capability(CapabilityRef::Encrypted(e)) => format_encrypted_capability(e),
-        TypeRef::Capability(CapabilityRef::E2ee(e)) => format_e2ee_capability(e),
-        TypeRef::Capability(CapabilityRef::Token(t)) => format_token_capability(t),
-        TypeRef::Capability(CapabilityRef::PII(pii)) => format_pii_capability(pii),
-    }
-}
-
-fn format_pii_capability(pii: &lazuli_ir::PiiCapability) -> String {
-    let mut args = vec![format!("class:{}", pii.class)];
-    if let Some(retention) = pii.retention.as_ref() {
-        args.push(format!("retention:{}", retention));
-    }
-    if let Some(log_redact) = pii.log_redact {
-        args.push(format!("log_redact:{}", log_redact));
-    }
-    format!("@cap.PII({})", args.join(","))
-}
-
-/// Encryption bucket cycle — render `E2eeCapability` back to source form.
-fn format_e2ee_capability(e: &lazuli_ir::E2eeCapability) -> String {
-    format!("@cap.E2ee(key:{})", e.key)
-}
-
-/// Phase L Tier 4 follow-up — render `HashedCapability` back to source form.
-fn format_hashed_capability(h: &lazuli_ir::HashedCapability) -> String {
-    let alg = match h.algorithm {
-        lazuli_ir::HashAlgorithm::Argon2id => "argon2id",
-        lazuli_ir::HashAlgorithm::Bcrypt => "bcrypt",
-    };
-    format!("@cap.Hashed(algorithm:{alg})")
-}
-
-fn format_encrypted_capability(e: &lazuli_ir::EncryptedCapability) -> String {
-    format!("@cap.Encrypted(key:{})", e.key)
-}
-
-fn format_token_capability(t: &lazuli_ir::TokenCapability) -> String {
-    let store = match t.store {
-        lazuli_ir::TokenStore::Hashed => "hashed",
-    };
-    format!(
-        "@cap.Token(ttl:{},single_use:{},store:{})",
-        t.ttl, t.single_use, store
-    )
-}
-
-/// Render a `FileCapability` back into the `@cap.File(...)` source form.
-/// Used by both `format_type_ref` and the `--expand=storage` projection.
-fn format_file_capability(file: &lazuli_ir::FileCapability) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    parts.push(format!(
-        "max_size:{}",
-        format_file_size_literal(file.max_size.literal)
-    ));
-    let accept = file
-        .accept
-        .iter()
-        .map(|m| format!("{}/{}", m.family, m.subtype))
-        .collect::<Vec<_>>()
-        .join("|");
-    parts.push(format!("accept:{accept}"));
-    if let Some(v) = file.visibility {
-        parts.push(format!("visibility:{}", format_file_visibility(v)));
-    }
-    if let Some(ttl) = file.signed_ttl.as_deref() {
-        parts.push(format!("signed_ttl:{ttl}"));
-    }
-    format!("@cap.File({})", parts.join(","))
-}
-
-fn format_file_size_literal(literal: lazuli_ir::FileSizeLiteral) -> String {
-    use lazuli_ir::FileSizeLiteral::*;
-    match literal {
-        Kb(n) => format!("{n}kb"),
-        Mb(n) => format!("{n}mb"),
-        Gb(n) => format!("{n}gb"),
-    }
-}
-
-fn format_file_visibility(visibility: lazuli_ir::FileVisibility) -> &'static str {
-    use lazuli_ir::FileVisibility::*;
-    match visibility {
-        Public => "public",
-        Private => "private",
-        Signed => "signed",
-    }
-}
 
 fn inspect_events(lines: &[String]) -> Vec<InspectEvent> {
     let event_groups = collect_event_groups(lines);
