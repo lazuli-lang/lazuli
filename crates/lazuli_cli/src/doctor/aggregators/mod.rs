@@ -49,6 +49,7 @@ pub(crate) mod migrations;
 pub(crate) mod observability;
 pub(crate) mod rbac_catalog;
 pub(crate) mod report_storage;
+pub(crate) mod runtime_version;
 pub(crate) mod semantic_type;
 pub(crate) mod test_discipline;
 pub(crate) mod tier3;

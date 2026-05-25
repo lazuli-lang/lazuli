@@ -14,6 +14,9 @@ use super::aggregators::field_health::{
     field_derived_from_unresolved_diagnostics, resource_unique_qualifier_unknown_diagnostics,
     resource_validates_path_unknown_diagnostics,
 };
+use super::aggregators::runtime_version::{
+    lazuli_version_001_diagnostics, lazuli_version_002_diagnostics, schema_rich_gap_diagnostics,
+};
 use super::auth_refresh;
 use super::lifecycle_gate;
 use super::package::DoctorPackage;
@@ -29,13 +32,12 @@ use super::{
     collect_callable_bodies_for_eval_order, collect_known_audiences, collect_known_roles,
     cross_feature_type_unresolved_diagnostics, dedupe_env_contract_diagnostics, doctor_rule_path,
     duplicate_query_name_diagnostics, feature_uses_missing_diagnostics,
-    import_deprecated_alias_diagnostics, lazuli_version_001_diagnostics,
-    lazuli_version_002_diagnostics, lazurite_manifest_diagnostics, manifest_required_diagnostics,
-    manual_param_coercion_diagnostics, missing_policy_on_query_diagnostics,
-    mutation_without_readback_diagnostics, operational_env_names, policy_reachability_diagnostics,
-    query_view_sql_file_diagnostics, rbac_catalog_diagnostics, rbac_catalog_missing_diagnostics,
-    rbac_missing_policy_diagnostics, rbac_role_undeclared_diagnostics, report_diagnostics,
-    route_id_effect_consistency_diagnostics, schema_rich_gap_diagnostics,
+    import_deprecated_alias_diagnostics, lazurite_manifest_diagnostics,
+    manifest_required_diagnostics, manual_param_coercion_diagnostics,
+    missing_policy_on_query_diagnostics, mutation_without_readback_diagnostics,
+    operational_env_names, policy_reachability_diagnostics, query_view_sql_file_diagnostics,
+    rbac_catalog_diagnostics, rbac_catalog_missing_diagnostics, rbac_missing_policy_diagnostics,
+    rbac_role_undeclared_diagnostics, report_diagnostics, route_id_effect_consistency_diagnostics,
     scope_owner_column_diagnostics, suppress_env_schema_when_declared,
     updates_missing_updated_at_diagnostics, vocab_grammar_form_diagnostics,
 };
