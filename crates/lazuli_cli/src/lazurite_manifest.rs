@@ -44,9 +44,22 @@ pub struct Doctor {
     pub coverage: Option<CoverageSection>,
 }
 
-/// Wave 0.5 — `[doctor.test_discipline]` block.
+/// Wave 0.5 + Wave 1.5 — `[doctor.test_discipline]` block.
+///
+/// Wave 1.5 (rails-style-refactor) adds the optional `preset` shortcut.
+/// Mirrors `[doctor.coverage].preset` mechanism: a single line sets the
+/// severity posture for every TEST-* / DOCTOR-* / MIGRATION-* / RUNTIME-*
+/// rule. Values: `tdd-iron-hand` (all error), `tdd-strict` (all warning),
+/// `tdd-mature` (per-rule defaults), `off` (all info). Per-rule overrides
+/// in `severity_override` still win — preset is the baseline.
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct TestDisciplineDoctor {
+    /// Wave 1.5 — preset name. Parsed by
+    /// `lazuli_doctor::test_discipline::preset::TestDisciplinePreset::parse`.
+    /// `None` means "no preset; defer to profile-derived defaults +
+    /// per-rule overrides only".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub severity_override: BTreeMap<String, SeverityOverride>,
 }

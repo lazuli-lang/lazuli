@@ -795,6 +795,18 @@ impl DoctorPackage {
                                         .as_ref()
                                         .map(|m| m.app_root(&project_root))
                                         .unwrap_or_else(|| project_root.clone());
+                                    // W1.5 — resolve [doctor.test_discipline].preset
+                                    // once per feature loop. Under `tdd-iron-hand`,
+                                    // every TEST-* / DOCTOR-* / MIGRATION-* / RUNTIME-*
+                                    // rule fires at Error regardless of profile.
+                                    let test_discipline_preset = lazurite_manifest
+                                        .as_ref()
+                                        .and_then(|m| m.doctor.as_ref())
+                                        .and_then(|d| d.test_discipline.as_ref())
+                                        .and_then(|td| td.preset.as_deref())
+                                        .and_then(
+                                            lazuli_doctor::test_discipline::preset::TestDisciplinePreset::parse,
+                                        );
                                     file.local_diagnostics
                                         .extend(test_discipline_diagnostics(
                                             &file.path,
@@ -803,6 +815,7 @@ impl DoctorPackage {
                                             &feature,
                                             &file.source,
                                             security_profile,
+                                            test_discipline_preset,
                                         ));
                                     // Tier 3 facts harvest — done before
                                     // `feature.agents` is consumed below.
@@ -1165,14 +1178,27 @@ impl DoctorPackage {
                         // Wave 3.5 + Wave 4 — view test_discipline rules. All
                         // operate on the LzxDocument or its lowered IR.
                         // Severity per profile: prototype=info, strict=warning,
-                        // production=error.
+                        // production=error. W1.5: under
+                        // [doctor.test_discipline].preset = "tdd-iron-hand",
+                        // every rule below escalates to Error.
                         if security_profile != SecurityProfile::Prototype {
                             let severity_warn = match security_profile {
                                 SecurityProfile::Production => DoctorSeverity::Error,
                                 _ => DoctorSeverity::Warning,
                             };
+                            // W1.5 — resolve preset once per .lzx file.
+                            let lzx_test_discipline_preset = lazurite_manifest
+                                .as_ref()
+                                .and_then(|m| m.doctor.as_ref())
+                                .and_then(|d| d.test_discipline.as_ref())
+                                .and_then(|td| td.preset.as_deref())
+                                .and_then(
+                                    lazuli_doctor::test_discipline::preset::TestDisciplinePreset::parse,
+                                );
                             // Wave 3.5 — TEST-VIEW-E2E-MISSING-001 (file-pair).
                             // Doctor does NOT invoke Playwright; only Path::exists().
+                            let view_e2e_code = lazuli_doctor::test_discipline::test_view_e2e_missing_001
+                                ::Finding::CODE;
                             for finding in
                                 lazuli_doctor::test_discipline::test_view_e2e_missing_001::check(
                                     &document,
@@ -1186,10 +1212,12 @@ impl DoctorPackage {
                                     path: finding.path,
                                     line: finding.line,
                                     column: finding.column,
-                                    severity: severity_warn,
-                                    code:
-                                        lazuli_doctor::test_discipline::test_view_e2e_missing_001
-                                            ::Finding::CODE.to_owned(),
+                                    severity: resolve_test_discipline_severity(
+                                        severity_warn,
+                                        view_e2e_code,
+                                        lzx_test_discipline_preset,
+                                    ),
+                                    code: view_e2e_code.to_owned(),
                                     message,
                                     category: None,
                                     feature_name: None,
@@ -1202,6 +1230,8 @@ impl DoctorPackage {
                             // Both walk the lowered ExperienceModule.
                             let experience_module =
                                 lazuli_analyzer::lower_lzx_document(&document);
+                            let view_ext_code = lazuli_doctor::test_discipline::test_view_extensibility_001
+                                ::Finding::CODE;
                             for finding in
                                 lazuli_doctor::test_discipline::test_view_extensibility_001::check(
                                     &experience_module,
@@ -1213,10 +1243,12 @@ impl DoctorPackage {
                                     path: finding.path,
                                     line: 1,
                                     column: 1,
-                                    severity: severity_warn,
-                                    code:
-                                        lazuli_doctor::test_discipline::test_view_extensibility_001
-                                            ::Finding::CODE.to_owned(),
+                                    severity: resolve_test_discipline_severity(
+                                        severity_warn,
+                                        view_ext_code,
+                                        lzx_test_discipline_preset,
+                                    ),
+                                    code: view_ext_code.to_owned(),
                                     message,
                                     category: None,
                                     feature_name: None,
@@ -1225,6 +1257,8 @@ impl DoctorPackage {
                                     group: None,
                                 });
                             }
+                            let view_drift_code = lazuli_doctor::test_discipline::test_view_drift_001
+                                ::Finding::CODE;
                             for finding in
                                 lazuli_doctor::test_discipline::test_view_drift_001::check(
                                     &experience_module,
@@ -1236,10 +1270,12 @@ impl DoctorPackage {
                                     path: finding.path,
                                     line: 1,
                                     column: 1,
-                                    severity: DoctorSeverity::Error,
-                                    code:
-                                        lazuli_doctor::test_discipline::test_view_drift_001
-                                            ::Finding::CODE.to_owned(),
+                                    severity: resolve_test_discipline_severity(
+                                        DoctorSeverity::Error,
+                                        view_drift_code,
+                                        lzx_test_discipline_preset,
+                                    ),
+                                    code: view_drift_code.to_owned(),
                                     message,
                                     category: None,
                                     feature_name: None,
@@ -2130,8 +2166,10 @@ fn test_discipline_diagnostics(
     feature: &lazuli_ir::Feature,
     source: &str,
     security_profile: SecurityProfile,
+    preset: Option<lazuli_doctor::test_discipline::preset::TestDisciplinePreset>,
 ) -> Vec<DoctorDiagnostic> {
     use lazuli_doctor::correctness::handler_missing_001;
+    use lazuli_doctor::test_discipline::preset::preset_rule_severity;
     use lazuli_doctor::test_discipline::{
         migration_dsl_unique_001, runtime_update_builder_jsonb_001,
         test_command_assertion_drift_001, test_fixture_literal_001, test_handler_missing_001,
@@ -2142,6 +2180,19 @@ fn test_discipline_diagnostics(
         return Vec::new();
     }
 
+    // W1.5 — resolve effective severity per rule: preset wins over the
+    // per-rule default when it has an opinion. `tdd-iron-hand` returns
+    // `Error` for every TEST-* / DOCTOR-* / MIGRATION-* / RUNTIME-* code;
+    // other presets either uniform-override or defer (None).
+    let resolve_severity = |default: DoctorSeverity, code: &str| -> DoctorSeverity {
+        if let Some(preset) = preset {
+            if let Some(override_sev) = preset_rule_severity(preset, code) {
+                return override_sev.into();
+            }
+        }
+        default
+    };
+
     let mut out: Vec<DoctorDiagnostic> = Vec::new();
 
     for finding in test_missing_authored_001::check(feature, path) {
@@ -2150,7 +2201,7 @@ fn test_discipline_diagnostics(
             path: finding.path,
             line: 1,
             column: 1,
-            severity: DoctorSeverity::Warning,
+            severity: resolve_severity(DoctorSeverity::Warning, test_missing_authored_001::Finding::CODE),
             code: test_missing_authored_001::Finding::CODE.to_owned(),
             message,
             category: None,
@@ -2166,7 +2217,7 @@ fn test_discipline_diagnostics(
             path: finding.path,
             line: 1,
             column: 1,
-            severity: DoctorSeverity::Info,
+            severity: resolve_severity(DoctorSeverity::Info, test_predicate_uncovered_001::Finding::CODE),
             code: test_predicate_uncovered_001::Finding::CODE.to_owned(),
             message,
             category: None,
@@ -2182,7 +2233,7 @@ fn test_discipline_diagnostics(
             path: finding.path,
             line: 1,
             column: 1,
-            severity: DoctorSeverity::Warning,
+            severity: resolve_severity(DoctorSeverity::Warning, test_restates_effect_001::Finding::CODE),
             code: test_restates_effect_001::Finding::CODE.to_owned(),
             message,
             category: None,
@@ -2198,7 +2249,7 @@ fn test_discipline_diagnostics(
             path: finding.path,
             line: 1,
             column: 1,
-            severity: DoctorSeverity::Warning,
+            severity: resolve_severity(DoctorSeverity::Warning, test_restates_policy_001::Finding::CODE),
             code: test_restates_policy_001::Finding::CODE.to_owned(),
             message,
             category: None,
@@ -2214,7 +2265,7 @@ fn test_discipline_diagnostics(
             path: finding.path,
             line: 1,
             column: 1,
-            severity: DoctorSeverity::Error,
+            severity: resolve_severity(DoctorSeverity::Error, test_fixture_literal_001::Finding::CODE),
             code: test_fixture_literal_001::Finding::CODE.to_owned(),
             message,
             category: None,
@@ -2230,7 +2281,7 @@ fn test_discipline_diagnostics(
             path: finding.path,
             line: 1,
             column: 1,
-            severity: DoctorSeverity::Error,
+            severity: resolve_severity(DoctorSeverity::Error, migration_dsl_unique_001::Finding::CODE),
             code: migration_dsl_unique_001::Finding::CODE.to_owned(),
             message,
             category: None,
@@ -2246,7 +2297,7 @@ fn test_discipline_diagnostics(
             path: finding.path,
             line: 1,
             column: 1,
-            severity: DoctorSeverity::Warning,
+            severity: resolve_severity(DoctorSeverity::Warning, runtime_update_builder_jsonb_001::Finding::CODE),
             code: runtime_update_builder_jsonb_001::Finding::CODE.to_owned(),
             message,
             category: None,
@@ -2263,7 +2314,7 @@ fn test_discipline_diagnostics(
             path: finding.path,
             line: finding.line,
             column: finding.column,
-            severity: DoctorSeverity::Warning,
+            severity: resolve_severity(DoctorSeverity::Warning, test_stub_001::Finding::CODE),
             code: test_stub_001::Finding::CODE.to_owned(),
             message,
             category: None,
@@ -2282,7 +2333,7 @@ fn test_discipline_diagnostics(
             path: finding.path,
             line: 1,
             column: 1,
-            severity: DoctorSeverity::Error,
+            severity: resolve_severity(DoctorSeverity::Error, test_command_assertion_drift_001::Finding::CODE),
             code: test_command_assertion_drift_001::Finding::CODE.to_owned(),
             message,
             category: None,
@@ -3174,6 +3225,44 @@ enum DoctorSeverity {
     Warning,
     Info,
     Hint,
+}
+
+impl From<lazuli_doctor::DoctorSeverity> for DoctorSeverity {
+    /// W1.5 — bridge from the shared `lazuli_doctor::DoctorSeverity`
+    /// returned by preset machinery into the CLI's private severity
+    /// enum used by `DoctorDiagnostic`. 1:1 mapping; variants line up.
+    fn from(severity: lazuli_doctor::DoctorSeverity) -> Self {
+        match severity {
+            lazuli_doctor::DoctorSeverity::Error => Self::Error,
+            lazuli_doctor::DoctorSeverity::Warning => Self::Warning,
+            lazuli_doctor::DoctorSeverity::Info => Self::Info,
+            lazuli_doctor::DoctorSeverity::Hint => Self::Hint,
+        }
+    }
+}
+
+/// W1.5 — resolve effective severity for a test-discipline rule under
+/// the active `[doctor.test_discipline].preset`. Returns the preset's
+/// opinion when one exists, otherwise the caller-supplied default
+/// (typically the per-rule severity calibrated by the rule's authored
+/// intent).
+///
+/// Centralized helper so every test-discipline dispatch site
+/// (`test_discipline_diagnostics`, `.lzx`-loop view rules, future
+/// per-file dispatchers) escalates uniformly under `tdd-iron-hand`.
+fn resolve_test_discipline_severity(
+    default: DoctorSeverity,
+    code: &str,
+    preset: Option<lazuli_doctor::test_discipline::preset::TestDisciplinePreset>,
+) -> DoctorSeverity {
+    if let Some(preset) = preset {
+        if let Some(override_sev) =
+            lazuli_doctor::test_discipline::preset::preset_rule_severity(preset, code)
+        {
+            return override_sev.into();
+        }
+    }
+    default
 }
 
 #[derive(Debug, Clone)]

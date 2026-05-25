@@ -28,7 +28,9 @@ pub mod lifecycle;
 pub mod poller;
 pub mod report;
 pub mod rule_category;
+pub mod severity;
 pub mod test_discipline;
 pub mod vocab;
 
 pub use rule_category::RuleCategory;
+pub use severity::DoctorSeverity;
