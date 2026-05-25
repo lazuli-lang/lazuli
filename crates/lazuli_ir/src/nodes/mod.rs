@@ -39,6 +39,7 @@ pub mod auth;
 pub mod capability;
 pub mod design;
 pub mod error_vocab;
+pub mod event;
 pub mod feature_defaults;
 pub mod lifecycle;
 pub mod mcp;
