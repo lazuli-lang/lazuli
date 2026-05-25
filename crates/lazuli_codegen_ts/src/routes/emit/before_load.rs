@@ -152,10 +152,7 @@ pub(super) fn build_tree_expr(specs: &[RouteSpec]) -> String {
     }
     fn render(route_const: &str, children_of: &BTreeMap<String, Vec<String>>) -> String {
         if let Some(children) = children_of.get(route_const) {
-            let parts: Vec<String> = children
-                .iter()
-                .map(|c| render(c, children_of))
-                .collect();
+            let parts: Vec<String> = children.iter().map(|c| render(c, children_of)).collect();
             format!("{route_const}.addChildren([{}] as const)", parts.join(", "))
         } else {
             route_const.to_owned()

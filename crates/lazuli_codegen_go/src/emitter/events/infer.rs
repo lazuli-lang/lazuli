@@ -122,4 +122,3 @@ fn infer_by_name(name: &str, imports: &mut ImportSet) -> InferredType {
         go_type: "any".to_owned(),
     }
 }
-

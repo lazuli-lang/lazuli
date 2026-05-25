@@ -50,7 +50,10 @@ pub(super) fn nav_arg_ts_type(raw: &str) -> String {
 pub(super) fn nav_arg_needs_string_coercion(raw: &str) -> bool {
     matches!(
         classify_route_param_type(raw),
-        TypedParamKind::Id | TypedParamKind::Integer | TypedParamKind::Decimal | TypedParamKind::Boolean
+        TypedParamKind::Id
+            | TypedParamKind::Integer
+            | TypedParamKind::Decimal
+            | TypedParamKind::Boolean
     )
 }
 

@@ -43,9 +43,11 @@ pub(super) fn emit_routes_file(specs: &[RouteSpec]) -> String {
     // and the router instance is not assignable to RouterProvider).
     let any_ir_guard = specs.iter().any(|s| s.guard_emit.is_some());
     let any_lifecycle = specs.iter().any(|s| s.lifecycle_emit.is_some());
-    let any_forbid_when = specs
-        .iter()
-        .any(|s| s.guard_emit.as_ref().is_some_and(|g| !g.forbid_when.is_empty()));
+    let any_forbid_when = specs.iter().any(|s| {
+        s.guard_emit
+            .as_ref()
+            .is_some_and(|g| !g.forbid_when.is_empty())
+    });
     s.push_str("import { createElement, type FunctionComponent, type ReactElement } from \"@lazuli/runtime/react\";\n");
     let any_lazy = specs.iter().any(|s| s.lazy);
     s.push_str(
@@ -272,7 +274,6 @@ pub(super) fn emit_routes_file(specs: &[RouteSpec]) -> String {
     emit_nav_helpers(&mut s, specs);
     s
 }
-
 
 pub(super) fn ts_string(value: &str) -> String {
     format!("{:?}", value)

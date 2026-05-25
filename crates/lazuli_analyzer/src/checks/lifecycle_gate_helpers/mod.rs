@@ -166,7 +166,6 @@ impl<'a> Index<'a> {
     }
 }
 
-
 pub(super) fn lifecycle_states(resource: &Resource) -> Vec<String> {
     resource
         .lifecycle
@@ -175,11 +174,7 @@ pub(super) fn lifecycle_states(resource: &Resource) -> Vec<String> {
         .unwrap_or_default()
 }
 
-pub(super) fn valid_requires(
-    index: &Index<'_>,
-    feature: &str,
-    req: &RequiresLifecycle,
-) -> bool {
+pub(super) fn valid_requires(index: &Index<'_>, feature: &str, req: &RequiresLifecycle) -> bool {
     index
         .resource(feature, &req.resource)
         .map(|(_, resource)| lifecycle_states(resource).contains(&req.state))

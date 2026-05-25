@@ -125,7 +125,6 @@ pub fn run_migrate_dsl(
     Ok(report)
 }
 
-
 /// Public-facing summary report renderer. Used by the CLI driver.
 pub fn render_report(report: &DslReport, dry_run: bool) -> String {
     let mut out = String::new();

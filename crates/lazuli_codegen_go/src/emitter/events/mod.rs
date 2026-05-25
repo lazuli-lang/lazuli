@@ -30,9 +30,7 @@ use super::types::{self, TypeCtx};
 mod infer;
 mod payload;
 
-use payload::{
-    PayloadStruct, group_payload_fields, typed_event_fields, typed_payload_field,
-};
+use payload::{PayloadStruct, group_payload_fields, typed_event_fields, typed_payload_field};
 
 /// Emit `<feature>/events.gen.go` for a feature, or `None` when the
 /// feature declares no event groups and no standalone typed events.

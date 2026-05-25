@@ -9,7 +9,7 @@
 
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 
-use super::{closest_feature_body_kind};
+use super::closest_feature_body_kind;
 use crate::{leading_spaces, simple_canonical_diagnostic};
 
 /// 2026-05-15 — Closed catalog of indent-2 kind keywords that may

@@ -181,7 +181,6 @@ fn push_issue(
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

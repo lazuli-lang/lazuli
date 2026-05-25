@@ -234,7 +234,6 @@ pub(crate) fn canonical_block_kind(trimmed_line: &str) -> Option<CanonicalBlockK
     }
 }
 
-
 /// Damerau-Levenshtein-style closest match against `FEATURE_BODY_KINDS`.
 /// Returns the closest kind when distance ≤ `max_distance`, else `None`.
 /// Plain Levenshtein (no transposition) is enough for our typo cases
@@ -300,4 +299,3 @@ pub(crate) fn levenshtein(a: &str, b: &str) -> usize {
     }
     prev[m]
 }
-

@@ -49,7 +49,6 @@ impl RoutesTarget {
     }
 }
 
-
 pub fn emit_routes_artifacts(
     _app: Option<&AppManifest>,
     routes: &[AppRoute],
@@ -73,7 +72,10 @@ pub fn emit_routes_artifacts(
             audience,
             component_key: lower_camel(&route.name),
             route_const: route_const_name(&route.name),
-            guard_emit: route.guard.as_ref().and_then(|g| resolve_guard_emit(g, features)),
+            guard_emit: route
+                .guard
+                .as_ref()
+                .and_then(|g| resolve_guard_emit(g, features)),
             lifecycle_emit: route
                 .guard
                 .as_ref()
@@ -145,8 +147,6 @@ fn matching_surface<'a>(
         })
 }
 
-
-
 pub(super) fn snake_case(s: &str) -> String {
     // Resource names are PascalCase; convert to snake_case for the
     // lookup_my_<snake> query name + helper export.
@@ -163,7 +163,6 @@ pub(super) fn snake_case(s: &str) -> String {
 pub(super) fn lower_camel_export(s: &str) -> String {
     super::runtime::lower_camel_export(s)
 }
-
 
 fn surface_matches(surface: &PlatformSurface, label: &str) -> bool {
     label == surface.experience
@@ -233,4 +232,3 @@ pub(super) fn pascal_case(value: &str) -> String {
     }
     out
 }
-
