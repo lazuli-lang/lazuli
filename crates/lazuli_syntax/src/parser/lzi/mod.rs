@@ -82,6 +82,7 @@ use crate::ast::{
 pub mod cache;
 pub mod design;
 pub mod event;
+mod locale;
 pub mod mcp;
 pub mod notification;
 mod numerics;
@@ -92,6 +93,7 @@ pub mod report;
 pub mod translation;
 pub mod types;
 
+use locale::parse_locale_negotiate_decl;
 use numerics::{
     fold_rate_limit_line, parse_float, parse_int64, parse_rate_limit_line_body, parse_uint32,
 };
@@ -3743,68 +3745,6 @@ pub(super) fn take_quoted_string<'a>(
 /// parsed by `app_manifest.rs` separately). Children at indent 6
 /// (six-space): `source <axis>`, `strategy <name>`, `fallback <tag>`.
 /// All slots optional.
-pub(super) fn parse_locale_negotiate_decl(
-    lines: &[SourceLine<'_>],
-    start: usize,
-) -> Result<(LocaleNegotiateDecl, usize), ParseError> {
-    let header = &lines[start];
-    let header_indent = header.indent;
-    let child_indent = header_indent + 2;
-    let mut source: Option<String> = None;
-    let mut strategy: Option<String> = None;
-    let mut fallback: Option<String> = None;
-    let mut last_end = header.end;
-    let mut i = start + 1;
-
-    while i < lines.len() {
-        let line = &lines[i];
-        let trimmed = line.text.trim_start();
-
-        if is_trivia(trimmed) {
-            i += 1;
-            continue;
-        }
-        if line.indent <= header_indent {
-            break;
-        }
-        if line.indent != child_indent {
-            return Err(line_error(
-                line,
-                "`locale_negotiate` body children use six-space indentation",
-            ));
-        }
-
-        if let Some(rest) = trimmed.strip_prefix("source ") {
-            source = Some(rest.trim().to_owned());
-            last_end = line.end;
-            i += 1;
-        } else if let Some(rest) = trimmed.strip_prefix("strategy ") {
-            strategy = Some(rest.trim().to_owned());
-            last_end = line.end;
-            i += 1;
-        } else if let Some(rest) = trimmed.strip_prefix("fallback ") {
-            fallback = Some(unquote_lzx_value(rest.trim()).to_owned());
-            last_end = line.end;
-            i += 1;
-        } else {
-            return Err(line_error(
-                line,
-                "`locale_negotiate` children are `source`, `strategy`, or `fallback`",
-            ));
-        }
-    }
-
-    Ok((
-        LocaleNegotiateDecl {
-            source,
-            strategy,
-            fallback,
-            span: Span::new(header.start, last_end),
-        },
-        i,
-    ))
-}
-
 // -----------------------------------------------------------------------------
 // Phase L Tier 4c — `resource <Name>` block parser.
 //
