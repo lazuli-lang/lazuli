@@ -4987,3 +4987,187 @@ surface slug web
         assert!(create_err.to_string().contains("valid only in `view list`"));
     }
 }
+
+// =============================================================================
+// RB.S6 — policy-expression parser tests (`has_role`, `has_permission`,
+// `authenticated`, with boolean combinators).
+// =============================================================================
+#[cfg(test)]
+mod policy_expr_parser_tests {
+    use super::{looks_like_policy_expr, try_parse_policy_expr};
+    use super::SourceLine;
+    use crate::ast::PolicyExprAst;
+
+    fn line(text: &'static str) -> SourceLine<'static> {
+        SourceLine {
+            text,
+            indent: 0,
+            start: 0,
+            end: text.len(),
+        }
+    }
+
+    #[test]
+    fn legacy_atom_falls_back_to_none() {
+        let l = line("policy @policy.create");
+        assert_eq!(
+            try_parse_policy_expr(&l, "@policy.create").unwrap(),
+            None,
+            "bare @policy.* atom must remain raw-string back-compat"
+        );
+        assert!(!looks_like_policy_expr("@policy.create"));
+        assert!(!looks_like_policy_expr("@role.admin"));
+    }
+
+    #[test]
+    fn authenticated_alone_parses() {
+        let l = line("policy authenticated");
+        let expr = try_parse_policy_expr(&l, "authenticated").unwrap().unwrap();
+        assert_eq!(expr, PolicyExprAst::Authenticated);
+    }
+
+    #[test]
+    fn has_role_parses() {
+        let l = line("policy has_role manager");
+        let expr = try_parse_policy_expr(&l, "has_role manager")
+            .unwrap()
+            .unwrap();
+        assert_eq!(expr, PolicyExprAst::HasRole("manager".into()));
+    }
+
+    #[test]
+    fn has_permission_parses() {
+        let l = line("policy has_permission queries:start");
+        let expr = try_parse_policy_expr(&l, "has_permission queries:start")
+            .unwrap()
+            .unwrap();
+        assert_eq!(expr, PolicyExprAst::HasPermission("queries:start".into()));
+    }
+
+    #[test]
+    fn has_permission_three_segments_parses() {
+        let l = line("policy has_permission report:repasse:mark");
+        let expr = try_parse_policy_expr(&l, "has_permission report:repasse:mark")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            expr,
+            PolicyExprAst::HasPermission("report:repasse:mark".into())
+        );
+    }
+
+    #[test]
+    fn malformed_permission_ref_errors() {
+        let l = line("policy has_permission users");
+        let err = try_parse_policy_expr(&l, "has_permission users").unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("must be 2-4 colon-separated"),
+            "expected segment-count error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn missing_has_role_arg_errors() {
+        let l = line("policy has_role");
+        let err = try_parse_policy_expr(&l, "has_role").unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("`has_role` requires an identifier"),
+            "expected missing-ident error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn and_combinator_parses() {
+        let l = line("policy authenticated and has_role manager");
+        let expr = try_parse_policy_expr(&l, "authenticated and has_role manager")
+            .unwrap()
+            .unwrap();
+        match expr {
+            PolicyExprAst::And(terms) => {
+                assert_eq!(terms.len(), 2);
+                assert_eq!(terms[0], PolicyExprAst::Authenticated);
+                assert_eq!(terms[1], PolicyExprAst::HasRole("manager".into()));
+            }
+            other => panic!("expected And, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn or_combinator_parses() {
+        let l = line("policy has_role manager or has_role admin");
+        let expr = try_parse_policy_expr(&l, "has_role manager or has_role admin")
+            .unwrap()
+            .unwrap();
+        match expr {
+            PolicyExprAst::Or(terms) => {
+                assert_eq!(terms.len(), 2);
+                assert_eq!(terms[0], PolicyExprAst::HasRole("manager".into()));
+                assert_eq!(terms[1], PolicyExprAst::HasRole("admin".into()));
+            }
+            other => panic!("expected Or, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn not_combinator_parses() {
+        let l = line("policy not has_role viewer");
+        let expr = try_parse_policy_expr(&l, "not has_role viewer")
+            .unwrap()
+            .unwrap();
+        match expr {
+            PolicyExprAst::Not(inner) => {
+                assert_eq!(*inner, PolicyExprAst::HasRole("viewer".into()));
+            }
+            other => panic!("expected Not, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parens_override_precedence() {
+        // `and` binds tighter than `or`; parens force the alternative
+        // grouping. We expect `Or([authenticated, And([X,Y])])` without
+        // parens vs `And([Or([authenticated, X]), Y])` with parens.
+        let l = line("policy");
+        let raw = "(authenticated or has_role manager) and has_permission queries:start";
+        let expr = try_parse_policy_expr(&l, raw).unwrap().unwrap();
+        match expr {
+            PolicyExprAst::And(terms) => {
+                assert_eq!(terms.len(), 2);
+                match &terms[0] {
+                    PolicyExprAst::Or(_) => {}
+                    other => panic!("expected Or under And, got {other:?}"),
+                }
+                assert_eq!(
+                    terms[1],
+                    PolicyExprAst::HasPermission("queries:start".into())
+                );
+            }
+            other => panic!("expected And, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn embedded_atom_parses() {
+        // `has_role X or @actor.system` mixes a predicate with an atom.
+        let l = line("policy");
+        let expr = try_parse_policy_expr(&l, "has_role admin or @actor.system")
+            .unwrap()
+            .unwrap();
+        match expr {
+            PolicyExprAst::Or(terms) => {
+                assert_eq!(terms.len(), 2);
+                assert_eq!(terms[0], PolicyExprAst::HasRole("admin".into()));
+                match &terms[1] {
+                    PolicyExprAst::Atom(atom) => {
+                        assert_eq!(atom.namespace, "actor");
+                        assert_eq!(atom.name, "system");
+                    }
+                    other => panic!("expected Atom, got {other:?}"),
+                }
+            }
+            other => panic!("expected Or, got {other:?}"),
+        }
+    }
+}
