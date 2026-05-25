@@ -52,6 +52,7 @@ pub use nodes::plan_and_gate::{
     SynthesizedFromCapFile, TrialPolicy,
 };
 pub use nodes::rbac::{PermissionEntry, RbacCatalog, RoleEntry, RoleGrants};
+pub use nodes::realtime::Channel;
 pub use nodes::report::{
     FilenameToken, FnInvocation, Report, ReportColumn, ReportColumnSource, ReportFilenamePattern,
     ReportFormat, ReportSource,
@@ -4668,52 +4669,12 @@ impl EmitPredicate {
 }
 
 // =============================================================================
-// Realtime bucket cycle MVP — `channel <name>` kind
-//
-// See `docs/proposals/bucket-realtime-cycle.md` and
+// Realtime bucket cycle MVP — `channel <name>` kind.
+// Channel family (Channel) lives in `nodes::realtime` after the W4.1
+// rails-style split. Re-exported at the crate root above to preserve the
+// ABI surface. See `docs/proposals/bucket-realtime-cycle.md` and
 // `docs/proposals/bucket-realtime-scope.md`.
-//
-// The MVP grammar locks three required children: `tenant_from <axis>`,
-// `policy @policy.<name>`, `payload <RecordType>`. Optional children
-// (`audit`, `rate_limit`, presence/subscription/broadcast wiring) are
-// deferred pending ≥3-app pilot evidence per `docs/scope-discipline.md`.
-//
-// Doctor cross-check at MVP: `CHANNEL-PAYLOAD-001` resolves the payload
-// reference against `Feature.records` / `Feature.resources`. Tenant
-// axis and policy lattice checks ride the existing tenant_axis /
-// policy_lattice diagnostic infrastructure.
 // =============================================================================
-
-/// Realtime bucket cycle MVP — `channel <name>` declaration.
-///
-/// Typed, tenant-scoped, policy-gated declaration of a push stream.
-/// Sibling of `event` (durable bus) but on a push transport. The
-/// runtime materializes WebSocket / SSE; the language declares the
-/// contract.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Channel {
-    pub name: String,
-    /// `tenant_from <axis>` — axis name verbatim (`org`, `team`, ...).
-    /// Resolved against the feature's `defaults.tenancy` lattice via
-    /// the same plumbing `Job.tenant_from` uses.
-    pub tenant_from: TenantFromSpec,
-    /// `policy @policy.<name>` — read policy gating subscribers.
-    pub policy: PolicyRef,
-    /// IR Error-Vocab — reserved-slot per-channel override for the
-    /// `policy_denied` error message. v1 codegen does not consume this
-    /// slot (subscriber rejections surface through realtime transport,
-    /// not HTTP envelopes); the IR shape exists so v2 promotion is
-    /// purely additive. See
-    /// `docs/proposals/ir-error-messages-vocab.md` §3.3.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy_when_denied: Option<TranslationKeyRef>,
-    /// `payload <RecordType>` — verbatim type name. Doctor
-    /// `CHANNEL-PAYLOAD-001` resolves it against
-    /// `Feature.records` / `Feature.resources`.
-    pub payload: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub span_ref: Option<SpanRef>,
-}
 
 // =============================================================================
 // Migrations bucket cycle (Route C) — tenant_migration kind

@@ -68,7 +68,7 @@ pub async fn serve_stdio() {
     Server::new(stdin, stdout, socket).serve(service).await;
 }
 
-struct Backend {
+pub(crate) struct Backend {
     client: Client,
     documents: Arc<RwLock<HashMap<Url, String>>>,
 }
@@ -418,7 +418,7 @@ impl LanguageServer for Backend {
     }
 }
 
-fn completion_items_for_uri(uri: &Url) -> Vec<CompletionItem> {
+pub(crate) fn completion_items_for_uri(uri: &Url) -> Vec<CompletionItem> {
     if is_design_lzi_uri(uri) {
         return design_keyword_completion_items();
     }
@@ -426,7 +426,7 @@ fn completion_items_for_uri(uri: &Url) -> Vec<CompletionItem> {
     lazuli_keyword_completion_items()
 }
 
-fn merge_completion_items(
+pub(crate) fn merge_completion_items(
     primary: Option<Vec<CompletionItem>>,
     secondary: Option<Vec<CompletionItem>>,
 ) -> Vec<CompletionItem> {
@@ -440,7 +440,7 @@ fn merge_completion_items(
     items
 }
 
-fn lazuli_keyword_completion_items() -> Vec<CompletionItem> {
+pub(crate) fn lazuli_keyword_completion_items() -> Vec<CompletionItem> {
     let mut items: Vec<CompletionItem> = KEYWORDS
         .iter()
         .map(|keyword| CompletionItem {
@@ -499,7 +499,7 @@ fn lazuli_keyword_completion_items() -> Vec<CompletionItem> {
 }
 
 #[allow(deprecated)]
-fn make_symbol(
+pub(crate) fn make_symbol(
     name: String,
     detail: Option<String>,
     kind: SymbolKind,
@@ -527,7 +527,7 @@ impl Backend {
     }
 }
 
-fn diagnostics_for_uri(uri: &Url, source: &str) -> Vec<Diagnostic> {
+pub(crate) fn diagnostics_for_uri(uri: &Url, source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = diagnostics_for(source);
 
     if is_lzx_source(source) {
@@ -537,20 +537,20 @@ fn diagnostics_for_uri(uri: &Url, source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn diagnostics_for(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn diagnostics_for(source: &str) -> Vec<Diagnostic> {
     diagnostics_for_with_profile(source, SecurityProfile::Strict)
 }
 
 /// Internal in-LSP entry point — always includes the doctor file-local
 /// diagnostics wired in R2.F so editor squiggles fire live.
-fn diagnostics_for_with_profile(
+pub(crate) fn diagnostics_for_with_profile(
     source: &str,
     security_profile: SecurityProfile,
 ) -> Vec<Diagnostic> {
     diagnostics_for_with_profile_inner(source, security_profile, true)
 }
 
-fn diagnostics_for_with_profile_inner(
+pub(crate) fn diagnostics_for_with_profile_inner(
     source: &str,
     security_profile: SecurityProfile,
     include_doctor: bool,
@@ -688,7 +688,7 @@ fn diagnostics_for_with_profile_inner(
     Vec::new()
 }
 
-fn is_canonical_source(source: &str) -> bool {
+pub(crate) fn is_canonical_source(source: &str) -> bool {
     if has_lzx_top_level_contract(source) {
         return false;
     }
@@ -704,7 +704,7 @@ fn is_canonical_source(source: &str) -> bool {
         || has_canonical_design_block(source)
 }
 
-fn has_canonical_app_block(source: &str) -> bool {
+pub(crate) fn has_canonical_app_block(source: &str) -> bool {
     let lines: Vec<_> = source.lines().collect();
 
     for (index, line) in lines.iter().enumerate() {
@@ -725,25 +725,25 @@ fn has_canonical_app_block(source: &str) -> bool {
     false
 }
 
-fn has_canonical_registry_block(source: &str) -> bool {
+pub(crate) fn has_canonical_registry_block(source: &str) -> bool {
     source
         .lines()
         .any(|line| leading_spaces(line) == 0 && line.trim_start() == "registry")
 }
 
-fn has_canonical_profile_block(source: &str) -> bool {
+pub(crate) fn has_canonical_profile_block(source: &str) -> bool {
     source
         .lines()
         .any(|line| leading_spaces(line) == 0 && line.trim_start().starts_with("profile "))
 }
 
-fn has_canonical_workspace_block(source: &str) -> bool {
+pub(crate) fn has_canonical_workspace_block(source: &str) -> bool {
     source
         .lines()
         .any(|line| leading_spaces(line) == 0 && line.trim_start().starts_with("workspace "))
 }
 
-fn has_canonical_contract_block(source: &str) -> bool {
+pub(crate) fn has_canonical_contract_block(source: &str) -> bool {
     source
         .lines()
         .any(|line| leading_spaces(line) == 0 && line.trim_start().starts_with("contract "))
@@ -752,17 +752,17 @@ fn has_canonical_contract_block(source: &str) -> bool {
 /// `design.lzi` is a separate sub-grammar (parsed by
 /// `parse_design_document`); marking it canonical short-circuits the
 /// generic feature parser path.
-fn has_canonical_design_block(source: &str) -> bool {
+pub(crate) fn has_canonical_design_block(source: &str) -> bool {
     source
         .lines()
         .any(|line| leading_spaces(line) == 0 && line.trim_start().starts_with("design "))
 }
 
-fn is_lzx_source(source: &str) -> bool {
+pub(crate) fn is_lzx_source(source: &str) -> bool {
     has_lzx_top_level_contract(source)
 }
 
-fn has_lzx_top_level_contract(source: &str) -> bool {
+pub(crate) fn has_lzx_top_level_contract(source: &str) -> bool {
     source.lines().any(|line| {
         leading_spaces(line) == 0
             && matches!(
@@ -772,7 +772,7 @@ fn has_lzx_top_level_contract(source: &str) -> bool {
     })
 }
 
-fn lzx_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn lzx_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut current_surface: Option<(usize, String, bool, Option<String>)> = None;
     let mut in_audience = false;
@@ -969,14 +969,14 @@ fn lzx_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
 }
 
 #[derive(Debug)]
-struct LzxRouteViewFacts {
+pub(crate) struct LzxRouteViewFacts {
     routes: HashSet<String>,
     references: Vec<(usize, String, String)>,
     unbound_target_actions: Vec<(usize, String)>,
 }
 
 #[derive(Debug)]
-struct LzxAppRouteFacts {
+pub(crate) struct LzxAppRouteFacts {
     line_index: usize,
     line: String,
     has_path: bool,
@@ -988,7 +988,7 @@ struct LzxAppRouteFacts {
     route_references: Vec<(usize, String, String)>,
 }
 
-fn lzx_route_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn lzx_route_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut in_experience = false;
     let mut current_view: Option<LzxRouteViewFacts> = None;
@@ -1118,7 +1118,7 @@ fn lzx_route_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn lzx_app_route_diagnostics(route: LzxAppRouteFacts) -> Vec<Diagnostic> {
+pub(crate) fn lzx_app_route_diagnostics(route: LzxAppRouteFacts) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     if !route.has_path {
@@ -1180,7 +1180,7 @@ fn lzx_app_route_diagnostics(route: LzxAppRouteFacts) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn lzx_declared_path_params(path: &str) -> Vec<String> {
+pub(crate) fn lzx_declared_path_params(path: &str) -> Vec<String> {
     let mut params = Vec::new();
     let bytes = path.as_bytes();
     let mut index = 0;
@@ -1220,18 +1220,18 @@ fn lzx_declared_path_params(path: &str) -> Vec<String> {
     params
 }
 
-fn unquote_lzx_literal(value: &str) -> &str {
+pub(crate) fn unquote_lzx_literal(value: &str) -> &str {
     value
         .strip_prefix('"')
         .and_then(|rest| rest.strip_suffix('"'))
         .unwrap_or(value)
 }
 
-fn is_quoted_lzx_literal(value: &str) -> bool {
+pub(crate) fn is_quoted_lzx_literal(value: &str) -> bool {
     value.starts_with('"') && value.ends_with('"') && value.len() >= 2
 }
 
-fn split_items(value: &str) -> Vec<String> {
+pub(crate) fn split_items(value: &str) -> Vec<String> {
     value
         .split(',')
         .map(str::trim)
@@ -1240,7 +1240,7 @@ fn split_items(value: &str) -> Vec<String> {
         .collect()
 }
 
-fn lzx_route_view_diagnostics(view: LzxRouteViewFacts) -> Vec<Diagnostic> {
+pub(crate) fn lzx_route_view_diagnostics(view: LzxRouteViewFacts) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     for (line_index, line, route) in view.references {
@@ -1272,7 +1272,7 @@ fn lzx_route_view_diagnostics(view: LzxRouteViewFacts) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn route_slot_name(route: &str) -> Option<&str> {
+pub(crate) fn route_slot_name(route: &str) -> Option<&str> {
     route
         .split_once(':')
         .map(|(name, _)| name.trim())
@@ -1280,11 +1280,11 @@ fn route_slot_name(route: &str) -> Option<&str> {
         .filter(|name| is_identifier(name))
 }
 
-fn lzx_route_references(source: &str) -> Vec<&str> {
+pub(crate) fn lzx_route_references(source: &str) -> Vec<&str> {
     path_references(source, "route.")
 }
 
-fn path_references<'a>(source: &'a str, prefix: &str) -> Vec<&'a str> {
+pub(crate) fn path_references<'a>(source: &'a str, prefix: &str) -> Vec<&'a str> {
     let mut references = Vec::new();
     let mut rest = source;
 
@@ -1303,7 +1303,7 @@ fn path_references<'a>(source: &'a str, prefix: &str) -> Vec<&'a str> {
     references
 }
 
-fn lzx_filename_diagnostics(uri: &Url, source: &str) -> Vec<Diagnostic> {
+pub(crate) fn lzx_filename_diagnostics(uri: &Url, source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let Some(file_name) = uri
         .path_segments()
@@ -1356,7 +1356,7 @@ fn lzx_filename_diagnostics(uri: &Url, source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn lzx_platform_from_file_name(file_name: &str) -> Option<&'static str> {
+pub(crate) fn lzx_platform_from_file_name(file_name: &str) -> Option<&'static str> {
     if file_name.ends_with(".web.lzx") {
         Some("web")
     } else if file_name.ends_with(".mobile.lzx") {
@@ -1366,7 +1366,7 @@ fn lzx_platform_from_file_name(file_name: &str) -> Option<&'static str> {
     }
 }
 
-fn first_lzx_surface_header(source: &str) -> Option<(usize, &str, &str)> {
+pub(crate) fn first_lzx_surface_header(source: &str) -> Option<(usize, &str, &str)> {
     for (line_index, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
         if leading_spaces(line) != 0 || !trimmed.starts_with("surface ") {
@@ -1380,7 +1380,7 @@ fn first_lzx_surface_header(source: &str) -> Option<(usize, &str, &str)> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CanonicalBlockKind {
+pub(crate) enum CanonicalBlockKind {
     Meta,
     Defaults,
     Uses,
@@ -1443,9 +1443,9 @@ impl CanonicalBlockKind {
     }
 }
 
-const CANONICAL_FEATURE_ORDER: &str = "meta -> defaults -> uses -> refs -> domain -> policies -> errors -> auth -> command -> api -> workflow -> job -> webhook -> surface -> extensions -> escape_route";
+pub(crate) const CANONICAL_FEATURE_ORDER: &str = "meta -> defaults -> uses -> refs -> domain -> policies -> errors -> auth -> command -> api -> workflow -> job -> webhook -> surface -> extensions -> escape_route";
 
-fn canonical_order_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn canonical_order_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut current_feature: Option<CanonicalFeatureOrder> = None;
 
@@ -1493,7 +1493,7 @@ fn canonical_order_diagnostics(source: &str) -> Vec<Diagnostic> {
 }
 
 #[derive(Debug)]
-struct CanonicalFeatureOrder {
+pub(crate) struct CanonicalFeatureOrder {
     name: String,
     last_kind: Option<CanonicalBlockKind>,
 }
@@ -1507,7 +1507,7 @@ impl CanonicalFeatureOrder {
     }
 }
 
-fn canonical_order_diagnostic(
+pub(crate) fn canonical_order_diagnostic(
     line_index: usize,
     line: &str,
     feature_name: &str,
@@ -1542,7 +1542,7 @@ fn canonical_order_diagnostic(
     }
 }
 
-fn canonical_block_kind(trimmed_line: &str) -> Option<CanonicalBlockKind> {
+pub(crate) fn canonical_block_kind(trimmed_line: &str) -> Option<CanonicalBlockKind> {
     let first = trimmed_line.split_whitespace().next()?;
 
     match first {
@@ -1574,7 +1574,7 @@ fn canonical_block_kind(trimmed_line: &str) -> Option<CanonicalBlockKind> {
 ///
 /// Keep this list aligned with the parser's accepted feature-body
 /// vocabulary. Sorted alphabetically for diff hygiene.
-const FEATURE_BODY_KINDS: &[&str] = &[
+pub(crate) const FEATURE_BODY_KINDS: &[&str] = &[
     "agent",
     "aggregate",
     "api",
@@ -1644,7 +1644,7 @@ const FEATURE_BODY_KINDS: &[&str] = &[
 /// Ignores comments, blank lines, and lines whose first token starts
 /// with `@` (decorator/anchor reference) or contains `(`/`:` (typed
 /// field decl, namespaced-decorator call, key-value).
-fn feature_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn feature_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut inside_feature = false;
 
@@ -1706,7 +1706,7 @@ fn feature_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
 /// Plain Levenshtein (no transposition) is enough for our typo cases
 /// (`comand` / `quiery` / `wokflow`) — adjacent-swap support adds
 /// complexity without much gain at our scale.
-fn closest_feature_body_kind(word: &str, max_distance: usize) -> Option<&'static str> {
+pub(crate) fn closest_feature_body_kind(word: &str, max_distance: usize) -> Option<&'static str> {
     closest_kind(word, FEATURE_BODY_KINDS, max_distance)
 }
 
@@ -1721,7 +1721,7 @@ fn closest_feature_body_kind(word: &str, max_distance: usize) -> Option<&'static
 /// query-statement/audience) to the same closed-catalog treatment as
 /// `feature_unknown_kind_diagnostics`. Reuse this — do NOT copy-paste the
 /// O(n*m) loop into each new diagnostic.
-fn closest_kind(word: &str, catalog: &[&'static str], max_distance: usize) -> Option<&'static str> {
+pub(crate) fn closest_kind(word: &str, catalog: &[&'static str], max_distance: usize) -> Option<&'static str> {
     let mut best: Option<(&'static str, usize)> = None;
     for &candidate in catalog {
         let d = levenshtein(word, candidate);
@@ -1739,7 +1739,7 @@ fn closest_kind(word: &str, catalog: &[&'static str], max_distance: usize) -> Op
 
 /// Plain Levenshtein edit distance. O(n*m) DP. Used only for short
 /// keyword names so the cost is negligible.
-fn levenshtein(a: &str, b: &str) -> usize {
+pub(crate) fn levenshtein(a: &str, b: &str) -> usize {
     let a: Vec<char> = a.chars().collect();
     let b: Vec<char> = b.chars().collect();
     let n = a.len();
@@ -1787,7 +1787,7 @@ fn levenshtein(a: &str, b: &str) -> usize {
 /// (scalar one-liners). Kept manually in sync with both helpers; if
 /// either grows a new keyword, add it here too.
 /// Sorted alphabetically for diff hygiene.
-const APP_BODY_KINDS: &[&str] = &[
+pub(crate) const APP_BODY_KINDS: &[&str] = &[
     "architecture",
     "actor_query",
     "auth_failed_redirect",
@@ -1832,7 +1832,7 @@ const APP_BODY_KINDS: &[&str] = &[
 /// child grammar additionally accepts `endpoint env.X` and
 /// `auth keys env.A env.B` so authors can write the
 /// roadmap §3.5 shape directly.
-const REGISTRY_BODY_KINDS: &[&str] = &[
+pub(crate) const REGISTRY_BODY_KINDS: &[&str] = &[
     "bindings",
     "capabilities",
     "env",
@@ -1849,7 +1849,7 @@ const REGISTRY_BODY_KINDS: &[&str] = &[
 /// (`drawer`, `filters`, `search`, `sort`, `selection`, `bulk_actions`,
 /// `settings`) and the route/extends/anchor/audience scaffolding from
 /// the L0 #6 grammar.
-const VIEW_BODY_KINDS: &[&str] = &[
+pub(crate) const VIEW_BODY_KINDS: &[&str] = &[
     "actions",
     "anchor",
     "audience",
@@ -1883,7 +1883,7 @@ const VIEW_BODY_KINDS: &[&str] = &[
 /// flat form (`view <name> <Component>` directly under surface). Plus
 /// the `uses experience` declaration. The `uses` prefix-form is
 /// matched on the head token alone.
-const SURFACE_BODY_KINDS: &[&str] = &["audience", "uses", "view"];
+pub(crate) const SURFACE_BODY_KINDS: &[&str] = &["audience", "uses", "view"];
 
 /// Closed catalog of indent-4 statement keywords inside a `command X`
 /// body. Mirrors `parse_command_decl`'s prefix dispatch table. The
@@ -1892,7 +1892,7 @@ const SURFACE_BODY_KINDS: &[&str] = &["audience", "uses", "view"];
 /// per-line capitalized-identifier check (a bare `Customer` line is a
 /// stray token, not an unknown kind).
 /// Sorted alphabetically.
-const COMMAND_STATEMENT_KINDS: &[&str] = &[
+pub(crate) const COMMAND_STATEMENT_KINDS: &[&str] = &[
     "approval",
     "audit",
     "calls",
@@ -1928,7 +1928,7 @@ const COMMAND_STATEMENT_KINDS: &[&str] = &[
 /// typos would cause false positives across query kinds, so we accept
 /// them and let the parser emit the precise per-kind error).
 /// Sorted alphabetically.
-const QUERY_STATEMENT_KINDS: &[&str] = &[
+pub(crate) const QUERY_STATEMENT_KINDS: &[&str] = &[
     "cache", "filters", "gate", "modifier", "order", "paginate", "params", "policy", "returns",
     "scope", "search", "source", "sql",
 ];
@@ -1938,12 +1938,12 @@ const QUERY_STATEMENT_KINDS: &[&str] = &[
 /// `view list|detail|create <name>` are valid. The `requires` lines
 /// are filtered out by the leading-`@` skip; we catalog the bare kind
 /// keywords here.
-const AUDIENCE_BODY_KINDS: &[&str] = &["policy", "requires", "view"];
+pub(crate) const AUDIENCE_BODY_KINDS: &[&str] = &["policy", "requires", "view"];
 
 /// 2026-05-15 — Indent-2 kind keywords inside `app <name>`. Without
 /// this lint, a typo like `urls` → `urs` is silently dropped by the
 /// parser, no diagnostic, and the regenerated app forgets every URL.
-fn app_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn app_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut inside_app = false;
 
@@ -1998,7 +1998,7 @@ fn app_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
 /// `webhook_evnts` (vs `webhook_events`) silently drops the registry
 /// catalog, leaving downstream webhooks unable to resolve their typed
 /// envelope shape.
-fn registry_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn registry_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut inside_registry = false;
 
@@ -2053,7 +2053,7 @@ fn registry_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
 /// view body). A typo like `selecton` (vs `selection`) silently strips
 /// row-selection from the rendered list view; `colums` (vs `columns`)
 /// produces an empty grid.
-fn view_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn view_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     // Stack of (header_indent, body_indent) for the currently open view block.
     let mut current_view: Option<(usize, usize)> = None;
@@ -2123,7 +2123,7 @@ fn view_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
 /// Only `uses experience` and `audience` are valid children. A typo
 /// like `audeince` silently drops the entire audience subtree, taking
 /// every view inside it with no diagnostic.
-fn surface_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn surface_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     // Stack of (header_indent, body_indent) for the currently open surface.
     let mut current_surface: Option<(usize, usize)> = None;
@@ -2194,7 +2194,7 @@ fn surface_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
 /// Skips lines that are NOT keyword-statements: assignments (`x = ...`),
 /// effect targets (capitalized identifier like `Customer`), field-name
 /// lines inside `input`/`output` sub-blocks (which carry `:`).
-fn command_statement_unknown_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn command_statement_unknown_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut current_command: Option<(usize, usize)> = None;
 
@@ -2273,7 +2273,7 @@ fn command_statement_unknown_diagnostics(source: &str) -> Vec<Diagnostic> {
 /// 2026-05-15 — Indent-4 statement keywords inside `query.list`,
 /// `query.lookup`, `query.sql`, and `query.view` bodies. A typo like `paginat` silently
 /// drops pagination; `cahce` drops the cache profile binding.
-fn query_statement_unknown_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn query_statement_unknown_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut current_query: Option<(usize, usize)> = None;
 
@@ -2344,7 +2344,7 @@ fn query_statement_unknown_diagnostics(source: &str) -> Vec<Diagnostic> {
 /// <Component>` lines are accepted. A typo like `vieww list ItemList`
 /// causes the parser to bail with a generic shape error; this lint
 /// turns it into a precise typo suggestion.
-fn audience_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn audience_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut current_audience: Option<(usize, usize)> = None;
 
@@ -2406,7 +2406,7 @@ fn audience_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn query_mode_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn query_mode_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     for (line_index, line) in source.lines().enumerate() {
@@ -2458,7 +2458,7 @@ fn query_mode_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn previously_mode_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn previously_mode_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     for (line_index, line) in source.lines().enumerate() {
@@ -2520,14 +2520,14 @@ fn previously_mode_diagnostics(source: &str) -> Vec<Diagnostic> {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum InlinePreviouslyKind {
+pub(crate) enum InlinePreviouslyKind {
     Field,
     Header,
     Transition,
     Other,
 }
 
-fn inline_previously_kind(head: &str, tail: &str) -> InlinePreviouslyKind {
+pub(crate) fn inline_previously_kind(head: &str, tail: &str) -> InlinePreviouslyKind {
     let head = head.trim();
     if head.is_empty() {
         return InlinePreviouslyKind::Other;
@@ -2576,7 +2576,7 @@ fn inline_previously_kind(head: &str, tail: &str) -> InlinePreviouslyKind {
     InlinePreviouslyKind::Other
 }
 
-fn query_order_default_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn query_order_default_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut in_query_list = false;
 
@@ -2606,7 +2606,7 @@ fn query_order_default_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn query_pagination_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn query_pagination_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut current_query_mode: Option<&str> = None;
 
@@ -2654,7 +2654,7 @@ fn query_pagination_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn query_filter_index_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn query_filter_index_diagnostics(source: &str) -> Vec<Diagnostic> {
     let generated = generated_query_filter_indexes(source);
     if generated.is_empty() {
         return Vec::new();
@@ -2683,7 +2683,7 @@ fn query_filter_index_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn query_search_syntax_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn query_search_syntax_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     for (line_index, line) in source.lines().enumerate() {
@@ -2708,14 +2708,14 @@ fn query_search_syntax_diagnostics(source: &str) -> Vec<Diagnostic> {
 }
 
 #[derive(Debug)]
-struct ActiveSessionQueryFacts {
+pub(crate) struct ActiveSessionQueryFacts {
     line_index: usize,
     line: String,
     has_temporal_scope: bool,
     expires_not_nil: Option<(usize, String)>,
 }
 
-fn active_session_query_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn active_session_query_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut current_query: Option<ActiveSessionQueryFacts> = None;
 
@@ -2777,7 +2777,7 @@ fn active_session_query_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn active_session_query_facts_diagnostics(query: ActiveSessionQueryFacts) -> Vec<Diagnostic> {
+pub(crate) fn active_session_query_facts_diagnostics(query: ActiveSessionQueryFacts) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     if let Some((line_index, line)) = query.expires_not_nil {
@@ -2801,7 +2801,7 @@ fn active_session_query_facts_diagnostics(query: ActiveSessionQueryFacts) -> Vec
     diagnostics
 }
 
-fn generated_query_filter_indexes(source: &str) -> HashSet<String> {
+pub(crate) fn generated_query_filter_indexes(source: &str) -> HashSet<String> {
     let lines: Vec<_> = source.lines().collect();
     let tenancy_axis = single_tenancy_axis(&lines);
     let mut indexes = HashSet::new();
@@ -2830,7 +2830,7 @@ fn generated_query_filter_indexes(source: &str) -> HashSet<String> {
     indexes
 }
 
-fn single_tenancy_axis(lines: &[&str]) -> Option<String> {
+pub(crate) fn single_tenancy_axis(lines: &[&str]) -> Option<String> {
     let axes: HashSet<String> = lines
         .iter()
         .filter_map(|line| {
@@ -2846,7 +2846,7 @@ fn single_tenancy_axis(lines: &[&str]) -> Option<String> {
     }
 }
 
-fn query_block_has_scope_override(lines: &[&str], start: usize) -> bool {
+pub(crate) fn query_block_has_scope_override(lines: &[&str], start: usize) -> bool {
     let mut index = start + 1;
 
     while index < lines.len() {
@@ -2864,7 +2864,7 @@ fn query_block_has_scope_override(lines: &[&str], start: usize) -> bool {
     false
 }
 
-fn query_block_filter_index_fields(lines: &[&str], start: usize) -> Vec<String> {
+pub(crate) fn query_block_filter_index_fields(lines: &[&str], start: usize) -> Vec<String> {
     let mut fields = Vec::new();
     let mut in_filters = false;
     let mut index = start + 1;
@@ -2895,7 +2895,7 @@ fn query_block_filter_index_fields(lines: &[&str], start: usize) -> Vec<String> 
     fields
 }
 
-fn filter_index_field(filter: &str) -> Option<String> {
+pub(crate) fn filter_index_field(filter: &str) -> Option<String> {
     if filter.contains(" has ")
         || filter.contains(" != ")
         || filter.contains(" = nil")
@@ -2932,7 +2932,7 @@ fn filter_index_field(filter: &str) -> Option<String> {
     None
 }
 
-fn normalize_index_value(value: &str) -> String {
+pub(crate) fn normalize_index_value(value: &str) -> String {
     value
         .split(',')
         .map(str::trim)
@@ -2941,19 +2941,19 @@ fn normalize_index_value(value: &str) -> String {
         .join(", ")
 }
 
-fn is_identifier(source: &str) -> bool {
+pub(crate) fn is_identifier(source: &str) -> bool {
     let mut chars = source.chars();
     matches!(chars.next(), Some(first) if first == '_' || first.is_ascii_alphabetic())
         && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
 }
 
-fn is_type_name(source: &str) -> bool {
+pub(crate) fn is_type_name(source: &str) -> bool {
     let mut chars = source.chars();
     matches!(chars.next(), Some(first) if first.is_ascii_uppercase())
         && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
 }
 
-fn generated_summary_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn generated_summary_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     for (line_index, line) in source.lines().enumerate() {
@@ -2972,7 +2972,7 @@ fn generated_summary_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn non_goals_shape_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn non_goals_shape_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut in_non_goals = false;
 
@@ -3021,7 +3021,7 @@ fn non_goals_shape_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn defaults_policy_syntax_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn defaults_policy_syntax_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut in_defaults = false;
 
@@ -3052,14 +3052,14 @@ fn defaults_policy_syntax_diagnostics(source: &str) -> Vec<Diagnostic> {
 }
 
 #[derive(Debug)]
-struct LookupQueryFacts {
+pub(crate) struct LookupQueryFacts {
     line_index: usize,
     line: String,
     params: Vec<(String, String)>,
     key: Option<(String, String)>,
 }
 
-fn lookup_shorthand_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn lookup_shorthand_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut current_query: Option<LookupQueryFacts> = None;
     let mut current_child: Option<&str> = None;
@@ -3125,7 +3125,7 @@ fn lookup_shorthand_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn lookup_query_diagnostics(query: LookupQueryFacts) -> Vec<Diagnostic> {
+pub(crate) fn lookup_query_diagnostics(query: LookupQueryFacts) -> Vec<Diagnostic> {
     let Some((key_field, key_param)) = query.key.as_ref() else {
         return Vec::new();
     };
@@ -3144,7 +3144,7 @@ fn lookup_query_diagnostics(query: LookupQueryFacts) -> Vec<Diagnostic> {
     }
 }
 
-fn typed_param(trimmed_line: &str) -> Option<(&str, &str)> {
+pub(crate) fn typed_param(trimmed_line: &str) -> Option<(&str, &str)> {
     let (name, rest) = trimmed_line.split_once(':')?;
     let name = name.trim();
     let ty = rest.trim().split_whitespace().next()?;
@@ -3156,7 +3156,7 @@ fn typed_param(trimmed_line: &str) -> Option<(&str, &str)> {
     }
 }
 
-fn lookup_key_assignment(trimmed_line: &str) -> Option<(&str, &str)> {
+pub(crate) fn lookup_key_assignment(trimmed_line: &str) -> Option<(&str, &str)> {
     let rest = trimmed_line.strip_prefix("key ")?;
     let (lhs, rhs) = rest.split_once('=')?;
     let lhs = lhs.trim();
@@ -3169,7 +3169,7 @@ fn lookup_key_assignment(trimmed_line: &str) -> Option<(&str, &str)> {
     }
 }
 
-fn namespace_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn namespace_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     for (line_index, line) in source.lines().enumerate() {
@@ -3190,7 +3190,7 @@ fn namespace_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn namespace_references(line: &str) -> Vec<&str> {
+pub(crate) fn namespace_references(line: &str) -> Vec<&str> {
     // Mask the spans inside double-quoted string literals so e.g.
     // `requires customer.email = "ada@example.com"` does not surface
     // `@example` as a stray namespace. The scan walks the original byte
@@ -3249,7 +3249,7 @@ fn namespace_references(line: &str) -> Vec<&str> {
     namespaces
 }
 
-fn is_allowed_reference_namespace(namespace: &str) -> bool {
+pub(crate) fn is_allowed_reference_namespace(namespace: &str) -> bool {
     matches!(
         namespace,
         "role"
@@ -3283,14 +3283,14 @@ fn is_allowed_reference_namespace(namespace: &str) -> bool {
 }
 
 #[derive(Debug, Default)]
-struct FeatureRefsFacts {
+pub(crate) struct FeatureRefsFacts {
     name: String,
     refs_line: Option<(usize, String)>,
     declared: HashSet<String>,
     used: HashSet<String>,
 }
 
-fn refs_block_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn refs_block_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut current: Option<FeatureRefsFacts> = None;
     let mut current_top: Option<&str> = None;
@@ -3351,7 +3351,7 @@ fn refs_block_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn refs_facts_diagnostics(facts: FeatureRefsFacts) -> Vec<Diagnostic> {
+pub(crate) fn refs_facts_diagnostics(facts: FeatureRefsFacts) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let Some((line_index, line)) = facts.refs_line else {
         return diagnostics;
@@ -3401,7 +3401,7 @@ fn refs_facts_diagnostics(facts: FeatureRefsFacts) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn policy_namespace_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn policy_namespace_diagnostics(source: &str) -> Vec<Diagnostic> {
     let policy_categories = collect_policy_categories(source);
     let mut diagnostics = Vec::new();
     let mut current_feature: Option<String> = None;
@@ -3520,7 +3520,7 @@ fn policy_namespace_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn collect_policy_categories(source: &str) -> HashMap<String, HashSet<String>> {
+pub(crate) fn collect_policy_categories(source: &str) -> HashMap<String, HashSet<String>> {
     let mut categories: HashMap<String, HashSet<String>> = HashMap::new();
     let mut current_feature: Option<String> = None;
     let mut current_top: Option<&str> = None;
@@ -3561,7 +3561,7 @@ fn collect_policy_categories(source: &str) -> HashMap<String, HashSet<String>> {
     categories
 }
 
-fn policy_atoms_from_dictionary_line(trimmed_line: &str) -> Vec<&str> {
+pub(crate) fn policy_atoms_from_dictionary_line(trimmed_line: &str) -> Vec<&str> {
     let Some((_, rhs)) = trimmed_line.split_once(':') else {
         return Vec::new();
     };
@@ -3576,7 +3576,7 @@ fn policy_atoms_from_dictionary_line(trimmed_line: &str) -> Vec<&str> {
         .collect()
 }
 
-fn policy_statement_ref(trimmed_line: &str) -> Option<&str> {
+pub(crate) fn policy_statement_ref(trimmed_line: &str) -> Option<&str> {
     let mut parts = trimmed_line.split_whitespace();
     if parts.next()? == "policy" {
         parts.next()
@@ -3585,7 +3585,7 @@ fn policy_statement_ref(trimmed_line: &str) -> Option<&str> {
     }
 }
 
-fn is_namespaced_atom(atom: &str) -> bool {
+pub(crate) fn is_namespaced_atom(atom: &str) -> bool {
     matches!(
         atom.strip_prefix('@').and_then(|rest| rest.split_once('.')),
         Some(("role" | "scope" | "actor", name)) if !name.is_empty()
@@ -3593,7 +3593,7 @@ fn is_namespaced_atom(atom: &str) -> bool {
 }
 
 #[derive(Debug)]
-struct QuerySecurityFacts {
+pub(crate) struct QuerySecurityFacts {
     line_index: usize,
     line: String,
     has_policy: bool,
@@ -3601,7 +3601,7 @@ struct QuerySecurityFacts {
     has_scope_override_reason: bool,
 }
 
-fn scope_override_policy_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn scope_override_policy_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut current_query: Option<QuerySecurityFacts> = None;
 
@@ -3649,7 +3649,7 @@ fn scope_override_policy_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn query_scope_override_diagnostics(query: QuerySecurityFacts) -> Vec<Diagnostic> {
+pub(crate) fn query_scope_override_diagnostics(query: QuerySecurityFacts) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     if query.has_scope_override && !query.has_policy {
@@ -3676,7 +3676,7 @@ fn query_scope_override_diagnostics(query: QuerySecurityFacts) -> Vec<Diagnostic
 }
 
 #[derive(Debug)]
-struct CommandSecurityFacts {
+pub(crate) struct CommandSecurityFacts {
     feature: String,
     line_index: usize,
     line: String,
@@ -3687,7 +3687,7 @@ struct CommandSecurityFacts {
     rate_limit_none_has_reason: bool,
 }
 
-fn command_rate_limit_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn command_rate_limit_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let policies = collect_policy_atom_map(source);
     let mut diagnostics = Vec::new();
     let mut current_feature: Option<String> = None;
@@ -3760,7 +3760,7 @@ fn command_rate_limit_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn command_rate_limit_diagnostics(
+pub(crate) fn command_rate_limit_diagnostics(
     command: CommandSecurityFacts,
     policies: &HashMap<(String, String), Vec<String>>,
 ) -> Vec<Diagnostic> {
@@ -3803,7 +3803,7 @@ fn command_rate_limit_diagnostics(
     diagnostics
 }
 
-fn policy_ref_is_public(
+pub(crate) fn policy_ref_is_public(
     feature: &str,
     policy_ref: &str,
     policies: &HashMap<(String, String), Vec<String>>,
@@ -3821,7 +3821,7 @@ fn policy_ref_is_public(
         .is_some_and(|atoms| atoms.iter().any(|atom| atom == "@scope.public"))
 }
 
-fn collect_policy_atom_map(source: &str) -> HashMap<(String, String), Vec<String>> {
+pub(crate) fn collect_policy_atom_map(source: &str) -> HashMap<(String, String), Vec<String>> {
     let mut policies = HashMap::new();
     let mut current_feature: Option<String> = None;
     let mut current_top: Option<&str> = None;
@@ -3867,7 +3867,7 @@ fn collect_policy_atom_map(source: &str) -> HashMap<(String, String), Vec<String
     policies
 }
 
-fn crypto_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn crypto_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     for (line_index, line) in source.lines().enumerate() {
@@ -4040,7 +4040,7 @@ fn crypto_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn file_capability_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn file_capability_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     for (line_index, line) in source.lines().enumerate() {
@@ -4121,7 +4121,7 @@ fn file_capability_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn capability_args(line: &str, capability: &str) -> Option<Vec<(String, String)>> {
+pub(crate) fn capability_args(line: &str, capability: &str) -> Option<Vec<(String, String)>> {
     let marker = format!("@cap.{capability}(");
     let start = line.find(&marker)? + marker.len();
     let args = line[start..].split_once(')')?.0;
@@ -4139,13 +4139,13 @@ fn capability_args(line: &str, capability: &str) -> Option<Vec<(String, String)>
     )
 }
 
-fn capability_arg<'a>(args: &'a [(String, String)], key: &str) -> Option<&'a str> {
+pub(crate) fn capability_arg<'a>(args: &'a [(String, String)], key: &str) -> Option<&'a str> {
     args.iter()
         .find(|(arg_key, _)| arg_key == key)
         .map(|(_, value)| value.as_str())
 }
 
-fn warn_unknown_capability_args(
+pub(crate) fn warn_unknown_capability_args(
     diagnostics: &mut Vec<Diagnostic>,
     line_index: usize,
     line: &str,
@@ -4169,7 +4169,7 @@ fn warn_unknown_capability_args(
     }
 }
 
-fn is_duration_literal(value: &str) -> bool {
+pub(crate) fn is_duration_literal(value: &str) -> bool {
     let digit_count = value
         .chars()
         .take_while(|character| character.is_ascii_digit())
@@ -4186,7 +4186,7 @@ fn is_duration_literal(value: &str) -> bool {
     amount > 0 && matches!(&value[digit_count..], "s" | "m" | "h" | "d")
 }
 
-fn is_file_size_literal(value: &str) -> bool {
+pub(crate) fn is_file_size_literal(value: &str) -> bool {
     let digit_count = value
         .chars()
         .take_while(|character| character.is_ascii_digit())
@@ -4203,7 +4203,7 @@ fn is_file_size_literal(value: &str) -> bool {
     amount > 0 && matches!(&value[digit_count..], "b" | "kb" | "mb" | "gb")
 }
 
-fn is_retention_duration_literal(value: &str) -> bool {
+pub(crate) fn is_retention_duration_literal(value: &str) -> bool {
     let digit_count = value
         .chars()
         .take_while(|character| character.is_ascii_digit())
@@ -4220,13 +4220,13 @@ fn is_retention_duration_literal(value: &str) -> bool {
     amount > 0 && matches!(&value[digit_count..], "h" | "d" | "w" | "mo" | "y")
 }
 
-fn is_key_scope(value: &str) -> bool {
+pub(crate) fn is_key_scope(value: &str) -> bool {
     value
         .strip_prefix("@key.")
         .is_some_and(|scope| is_identifier(scope))
 }
 
-fn type_namespace_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn type_namespace_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut in_env = false;
     let mut in_app = false;
@@ -4301,7 +4301,7 @@ fn type_namespace_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn sql_return_type_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn sql_return_type_diagnostics(source: &str) -> Vec<Diagnostic> {
     let declared_types = collect_declared_type_names_by_feature(source);
     let mut diagnostics = Vec::new();
     let mut current_feature: Option<String> = None;
@@ -4364,7 +4364,7 @@ fn sql_return_type_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn collect_declared_type_names_by_feature(source: &str) -> HashMap<String, HashSet<String>> {
+pub(crate) fn collect_declared_type_names_by_feature(source: &str) -> HashMap<String, HashSet<String>> {
     let mut types = HashMap::new();
     let mut current_feature: Option<String> = None;
     let mut current_top: Option<&str> = None;
@@ -4407,14 +4407,14 @@ fn collect_declared_type_names_by_feature(source: &str) -> HashMap<String, HashS
     types
 }
 
-fn canonical_return_type_name(return_type: &str) -> &str {
+pub(crate) fn canonical_return_type_name(return_type: &str) -> &str {
     return_type
         .strip_suffix("[]")
         .unwrap_or(return_type)
         .trim_end_matches('?')
 }
 
-fn is_builtin_return_type(return_type: &str) -> bool {
+pub(crate) fn is_builtin_return_type(return_type: &str) -> bool {
     matches!(
         return_type,
         "Text" | "Integer" | "Decimal" | "Boolean" | "ID" | "DateTime" | "JSON"
@@ -4422,7 +4422,7 @@ fn is_builtin_return_type(return_type: &str) -> bool {
         || return_type.starts_with("@cap.")
 }
 
-fn typed_line_type(trimmed_line: &str) -> Option<&str> {
+pub(crate) fn typed_line_type(trimmed_line: &str) -> Option<&str> {
     let (_, rhs) = trimmed_line.split_once(':')?;
     let ty = rhs.trim().split_whitespace().next()?;
 
@@ -4433,14 +4433,14 @@ fn typed_line_type(trimmed_line: &str) -> Option<&str> {
     }
 }
 
-fn is_float_in_range(value: &str, min: f64, max: f64) -> bool {
+pub(crate) fn is_float_in_range(value: &str, min: f64, max: f64) -> bool {
     value
         .parse::<f64>()
         .map(|v| v >= min && v <= max)
         .unwrap_or(false)
 }
 
-fn derived_field_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn derived_field_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     for (line_index, line) in source.lines().enumerate() {
@@ -4501,7 +4501,7 @@ fn derived_field_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn agent_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn agent_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let lines: Vec<&str> = source.lines().collect();
     let mut index = 0;
@@ -4664,7 +4664,7 @@ fn agent_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
 /// header line index and the body slice (one-based inclusive on the
 /// header, exclusive on the next sibling). The caller decides which
 /// children to inspect. Shared helper for the three Cut A LSP checks.
-fn iter_agent_blocks(source: &str) -> Vec<(usize, Vec<usize>)> {
+pub(crate) fn iter_agent_blocks(source: &str) -> Vec<(usize, Vec<usize>)> {
     let lines: Vec<&str> = source.lines().collect();
     let mut blocks: Vec<(usize, Vec<usize>)> = Vec::new();
     let mut index = 0;
@@ -4701,7 +4701,7 @@ fn iter_agent_blocks(source: &str) -> Vec<(usize, Vec<usize>)> {
 /// Reject tool entries whose *shape* is invalid. Cross-feature
 /// reachability is doctor's job — this layer only catches malformed
 /// shorthand (e.g. `query.list` with no name; `customer..by_id`).
-fn agent_tools_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn agent_tools_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let lines: Vec<&str> = source.lines().collect();
 
@@ -4746,7 +4746,7 @@ fn agent_tools_diagnostics(source: &str) -> Vec<Diagnostic> {
 ///   - `query.<name>` (unspecified subkind — doctor narrows)
 ///   - `command.<name>` / `api.<name>`
 ///   - `<feature>.<above>` cross-feature prefix
-fn validate_tool_reference_shape(text: &str) -> Option<String> {
+pub(crate) fn validate_tool_reference_shape(text: &str) -> Option<String> {
     if text.split_whitespace().count() != 1 {
         return Some("each tool entry is a single qualified reference (one per line)".to_owned());
     }
@@ -4815,7 +4815,7 @@ fn validate_tool_reference_shape(text: &str) -> Option<String> {
 /// malformed. Cases without `temperature 0` + `seed <int>` also surface
 /// a warning here so the inner loop catches non-determinism without
 /// waiting on `lazuli doctor`.
-fn agent_evals_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn agent_evals_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let lines: Vec<&str> = source.lines().collect();
 
@@ -4966,7 +4966,7 @@ fn agent_evals_diagnostics(source: &str) -> Vec<Diagnostic> {
 /// operators, dangling `tools.calls`). Anything that looks like a
 /// `<path> <op> <value>` shape passes through — doctor and analyzer
 /// own the deeper validation.
-fn validate_eval_predicate_shape(body: &str) -> Option<String> {
+pub(crate) fn validate_eval_predicate_shape(body: &str) -> Option<String> {
     let body = body.trim();
     if let Some(rest) = body.strip_prefix("tools.calls ") {
         let mut parts = rest.split_whitespace();
@@ -5012,7 +5012,7 @@ fn validate_eval_predicate_shape(body: &str) -> Option<String> {
 /// `record <Name>` block. Per proposal §A2 the marker is record-only;
 /// authors who attach it to other constructs (agent input, command
 /// input, query params) get a fast LSP error.
-fn agent_discriminator_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn agent_discriminator_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let lines: Vec<&str> = source.lines().collect();
 
@@ -5080,7 +5080,7 @@ fn agent_discriminator_diagnostics(source: &str) -> Vec<Diagnostic> {
 /// Stand-alone `discriminator` token (not a substring of a longer
 /// identifier). Used to avoid false positives on names like
 /// `discriminators_list`.
-fn contains_token(line: &str, token: &str) -> bool {
+pub(crate) fn contains_token(line: &str, token: &str) -> bool {
     line.split(|c: char| !(c == '_' || c.is_ascii_alphanumeric()))
         .any(|word| word == token)
 }
@@ -5089,7 +5089,7 @@ fn contains_token(line: &str, token: &str) -> bool {
 /// path collisions live in doctor; this layer handles same-file path
 /// duplicates, missing path slots, slot-shape misuse, and the
 /// GET-streaming warning.
-fn agent_expose_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn agent_expose_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let lines: Vec<&str> = source.lines().collect();
 
@@ -5308,20 +5308,20 @@ fn agent_expose_diagnostics(source: &str) -> Vec<Diagnostic> {
 }
 
 #[derive(Debug, Clone)]
-struct LocalExpose {
+pub(crate) struct LocalExpose {
     line: usize,
     method: String,
     path_normalised: String,
     origin: String,
 }
 
-fn extract_path_slots(path: &str) -> Vec<String> {
+pub(crate) fn extract_path_slots(path: &str) -> Vec<String> {
     path.split('/')
         .filter_map(|segment| segment.strip_prefix(':').map(str::to_owned))
         .collect()
 }
 
-fn lsp_normalise_path(path: &str) -> String {
+pub(crate) fn lsp_normalise_path(path: &str) -> String {
     let mut out = String::with_capacity(path.len());
     for (i, segment) in path.split('/').enumerate() {
         if i > 0 {
@@ -5341,7 +5341,7 @@ fn lsp_normalise_path(path: &str) -> String {
 /// quoted origin, and `allow_credentials` is `true`/`false`. The
 /// cross-feature checks (origin documented in `urls`, environment
 /// declared, credentials/wildcard conflict) live in doctor.
-fn cors_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn cors_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let lines: Vec<&str> = source.lines().collect();
 
@@ -5461,7 +5461,7 @@ fn cors_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
 /// shape gate here so the editor catches typos at the keystroke.
 /// Cross-feature checks (production-profile completeness) live in
 /// doctor's `headers-contract`.
-fn headers_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn headers_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let lines: Vec<&str> = source.lines().collect();
 
@@ -5598,7 +5598,7 @@ fn headers_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
 /// `overlap`, and `auto_rollback`; the children are closed-catalog
 /// tokens. Cross-feature checks (overlap > cadence, binding to an
 /// unknown profile) live in doctor.
-fn secret_rotation_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn secret_rotation_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let lines: Vec<&str> = source.lines().collect();
 
@@ -5687,7 +5687,7 @@ fn secret_rotation_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
 /// commands. Required children present (`by`, `timeout`, `then`),
 /// `then` value in the closed catalog, `by` non-empty. Cross-feature
 /// role resolution lives in doctor.
-fn approval_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn approval_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let lines: Vec<&str> = source.lines().collect();
 
@@ -5778,7 +5778,7 @@ fn approval_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
 /// `<name>` is reserved by the IR's built-in trace event registry.
 /// File-local fast feedback that mirrors doctor's
 /// `event_trace_reserved_name_diagnostics`.
-fn reserved_trace_event_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn reserved_trace_event_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for (line_index, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
@@ -5805,7 +5805,7 @@ fn reserved_trace_event_diagnostics(source: &str) -> Vec<Diagnostic> {
 
 /// `lower_snake` identifier: ASCII letters / digits / underscores, must
 /// not start with a digit, must be non-empty.
-fn is_lower_ident(token: &str) -> bool {
+pub(crate) fn is_lower_ident(token: &str) -> bool {
     let mut chars = token.chars();
     let Some(first) = chars.next() else {
         return false;
@@ -5816,7 +5816,7 @@ fn is_lower_ident(token: &str) -> bool {
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-fn emits_derived_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn emits_derived_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let lines: Vec<&str> = source.lines().collect();
 
@@ -5891,7 +5891,7 @@ fn emits_derived_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn notification_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn notification_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let lines: Vec<&str> = source.lines().collect();
     let mut index = 0;
@@ -5988,7 +5988,7 @@ fn notification_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn has_many_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn has_many_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     for (line_index, line) in source.lines().enumerate() {
@@ -6065,7 +6065,7 @@ fn has_many_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn split_derived_from(rhs: &str) -> Option<(&str, &str)> {
+pub(crate) fn split_derived_from(rhs: &str) -> Option<(&str, &str)> {
     if let Some(pos) = rhs.find(" derived from ") {
         return Some((&rhs[..pos], &rhs[pos + " derived from ".len()..]));
     }
@@ -6075,7 +6075,7 @@ fn split_derived_from(rhs: &str) -> Option<(&str, &str)> {
     None
 }
 
-fn contains_top_level_eq(expr: &str) -> bool {
+pub(crate) fn contains_top_level_eq(expr: &str) -> bool {
     let mut depth_paren: i32 = 0;
     let mut in_string = false;
     let mut prev = ' ';
@@ -6092,7 +6092,7 @@ fn contains_top_level_eq(expr: &str) -> bool {
     false
 }
 
-fn field_typed_rhs(trimmed: &str) -> Option<&str> {
+pub(crate) fn field_typed_rhs(trimmed: &str) -> Option<&str> {
     let (lhs, rhs) = trimmed.split_once(':')?;
     if lhs.contains(' ') || lhs.is_empty() {
         return None;
@@ -6104,7 +6104,7 @@ fn field_typed_rhs(trimmed: &str) -> Option<&str> {
     Some(rhs)
 }
 
-fn validation_syntax_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn validation_syntax_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     for (line_index, line) in source.lines().enumerate() {
@@ -6196,7 +6196,7 @@ fn validation_syntax_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn extension_declaration_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn extension_declaration_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut current_top: Option<&str> = None;
 
@@ -6245,7 +6245,7 @@ fn extension_declaration_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn extension_declaration(trimmed_line: &str) -> Option<(&str, &str)> {
+pub(crate) fn extension_declaration(trimmed_line: &str) -> Option<(&str, &str)> {
     let mut parts = trimmed_line.split_whitespace();
     let keyword = parts.next()?;
     if !matches!(
@@ -6260,7 +6260,7 @@ fn extension_declaration(trimmed_line: &str) -> Option<(&str, &str)> {
     Some((keyword, contract))
 }
 
-fn expected_extension_keyword(contract: &str) -> Option<&'static str> {
+pub(crate) fn expected_extension_keyword(contract: &str) -> Option<&'static str> {
     match contract {
         "CellRenderer" | "ViewBlock" | "FormField" => Some("client"),
         "Function" => Some("fn"),
@@ -6272,7 +6272,7 @@ fn expected_extension_keyword(contract: &str) -> Option<&'static str> {
     }
 }
 
-fn event_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn event_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     for (line_index, line) in source.lines().enumerate() {
@@ -6292,7 +6292,7 @@ fn event_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn event_trace_trigger_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn event_trace_trigger_diagnostics(source: &str) -> Vec<Diagnostic> {
     let trace_events = collect_trace_events(source);
     let mut diagnostics = Vec::new();
     let mut current_feature: Option<String> = None;
@@ -6336,7 +6336,7 @@ fn event_trace_trigger_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn collect_trace_events(source: &str) -> HashSet<String> {
+pub(crate) fn collect_trace_events(source: &str) -> HashSet<String> {
     let mut events = HashSet::new();
     let mut current_feature: Option<String> = None;
     let mut current_group_prefix: Option<String> = None;
@@ -6378,7 +6378,7 @@ fn collect_trace_events(source: &str) -> HashSet<String> {
     events
 }
 
-fn event_locator_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn event_locator_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     for (line_index, line) in source.lines().enumerate() {
@@ -6413,7 +6413,7 @@ fn event_locator_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn target_binding_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn target_binding_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut current_top: Option<&str> = None;
 
@@ -6445,7 +6445,7 @@ fn target_binding_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn rule_self_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn rule_self_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     for (line_index, line) in source.lines().enumerate() {
@@ -6475,7 +6475,7 @@ fn rule_self_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn required_field_nil_rule_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn required_field_nil_rule_diagnostics(source: &str) -> Vec<Diagnostic> {
     let required_fields = collect_required_resource_fields(source);
     let mut diagnostics = Vec::new();
     let mut current_feature: Option<String> = None;
@@ -6532,13 +6532,13 @@ fn required_field_nil_rule_diagnostics(source: &str) -> Vec<Diagnostic> {
 }
 
 #[derive(Debug)]
-struct CommandValidatorFacts {
+pub(crate) struct CommandValidatorFacts {
     validators: Vec<(String, usize, String)>,
     requirements: HashSet<String>,
     has_blocking_validate: bool,
 }
 
-fn command_validator_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn command_validator_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut current_command: Option<CommandValidatorFacts> = None;
 
@@ -6599,7 +6599,7 @@ fn command_validator_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn command_validator_facts_diagnostics(command: CommandValidatorFacts) -> Vec<Diagnostic> {
+pub(crate) fn command_validator_facts_diagnostics(command: CommandValidatorFacts) -> Vec<Diagnostic> {
     if command.has_blocking_validate {
         return Vec::new();
     }
@@ -6623,7 +6623,7 @@ fn command_validator_facts_diagnostics(command: CommandValidatorFacts) -> Vec<Di
 }
 
 #[derive(Debug)]
-struct ApiContractFacts {
+pub(crate) struct ApiContractFacts {
     line_index: usize,
     line: String,
     has_method: bool,
@@ -6635,7 +6635,7 @@ struct ApiContractFacts {
     path_params: Vec<String>,
 }
 
-fn api_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn api_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut current_api: Option<ApiContractFacts> = None;
 
@@ -6735,7 +6735,7 @@ fn api_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn api_facts_diagnostics(api: ApiContractFacts) -> Vec<Diagnostic> {
+pub(crate) fn api_facts_diagnostics(api: ApiContractFacts) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut missing = Vec::new();
 
@@ -6786,7 +6786,7 @@ fn api_facts_diagnostics(api: ApiContractFacts) -> Vec<Diagnostic> {
 }
 
 #[derive(Debug)]
-struct QueryCacheFacts {
+pub(crate) struct QueryCacheFacts {
     line_index: usize,
     line: String,
     has_key: bool,
@@ -6794,13 +6794,13 @@ struct QueryCacheFacts {
 }
 
 #[derive(Debug)]
-struct CommandInvalidationFacts {
+pub(crate) struct CommandInvalidationFacts {
     line_index: usize,
     line: String,
     entries: usize,
 }
 
-fn cache_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn cache_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut in_query = false;
     let mut in_command = false;
@@ -6933,7 +6933,7 @@ fn cache_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn query_cache_diagnostics(cache: QueryCacheFacts) -> Vec<Diagnostic> {
+pub(crate) fn query_cache_diagnostics(cache: QueryCacheFacts) -> Vec<Diagnostic> {
     if cache.has_key && cache.has_ttl {
         return Vec::new();
     }
@@ -6958,7 +6958,7 @@ fn query_cache_diagnostics(cache: QueryCacheFacts) -> Vec<Diagnostic> {
     )]
 }
 
-fn command_invalidation_diagnostics(invalidates: CommandInvalidationFacts) -> Vec<Diagnostic> {
+pub(crate) fn command_invalidation_diagnostics(invalidates: CommandInvalidationFacts) -> Vec<Diagnostic> {
     if invalidates.entries > 0 {
         return Vec::new();
     }
@@ -6972,7 +6972,7 @@ fn command_invalidation_diagnostics(invalidates: CommandInvalidationFacts) -> Ve
     )]
 }
 
-fn error_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn error_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut in_feature_errors = false;
     let mut in_command_errors = false;
@@ -7071,7 +7071,7 @@ fn error_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn valid_error_exposure_line(line: &str) -> bool {
+pub(crate) fn valid_error_exposure_line(line: &str) -> bool {
     let parts: Vec<_> = line.split_whitespace().collect();
     parts.len() >= 4
         && parts[0] == "expose"
@@ -7080,7 +7080,7 @@ fn valid_error_exposure_line(line: &str) -> bool {
         && error_exposure_fields_valid(parts[3..].join(" ").as_str())
 }
 
-fn error_case_contract_error(line: &str) -> Option<&'static str> {
+pub(crate) fn error_case_contract_error(line: &str) -> Option<&'static str> {
     let parts: Vec<_> = line.split_whitespace().collect();
     if parts.len() < 6 || parts[0] != "error" || parts[2] != "status" || parts[4] != "expose" {
         return Some(
@@ -7099,7 +7099,7 @@ fn error_case_contract_error(line: &str) -> Option<&'static str> {
     None
 }
 
-fn error_exposure_fields_valid(fields: &str) -> bool {
+pub(crate) fn error_exposure_fields_valid(fields: &str) -> bool {
     fields
         .split(',')
         .map(str::trim)
@@ -7107,11 +7107,11 @@ fn error_exposure_fields_valid(fields: &str) -> bool {
         .all(|field| matches!(field, "message" | "code" | "data"))
 }
 
-fn is_http_status_code(value: &str) -> bool {
+pub(crate) fn is_http_status_code(value: &str) -> bool {
     matches!(value.parse::<u16>(), Ok(status) if (100..=599).contains(&status))
 }
 
-fn collect_required_resource_fields(source: &str) -> HashSet<(String, String, String)> {
+pub(crate) fn collect_required_resource_fields(source: &str) -> HashSet<(String, String, String)> {
     let mut fields = HashSet::new();
     let mut current_feature: Option<String> = None;
     let mut current_top: Option<&str> = None;
@@ -7164,12 +7164,12 @@ fn collect_required_resource_fields(source: &str) -> HashSet<(String, String, St
     fields
 }
 
-fn predicate_references_nil_self_field(predicate: &str, field: &str) -> bool {
+pub(crate) fn predicate_references_nil_self_field(predicate: &str, field: &str) -> bool {
     let left = format!("self.{field}");
     predicate.contains(&format!("{left} = nil")) || predicate.contains(&format!("{left} != nil"))
 }
 
-fn legacy_rule_subject_alias(predicate: &str) -> Option<&str> {
+pub(crate) fn legacy_rule_subject_alias(predicate: &str) -> Option<&str> {
     let first = predicate.split_whitespace().next()?;
     let (head, _) = first.split_once('.')?;
 
@@ -7190,14 +7190,14 @@ fn legacy_rule_subject_alias(predicate: &str) -> Option<&str> {
 }
 
 #[derive(Debug)]
-struct AnchorWhitelistEntry {
+pub(crate) struct AnchorWhitelistEntry {
     anchor: String,
     feature: String,
     line_index: usize,
     line: String,
 }
 
-fn anchor_whitelist_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn anchor_whitelist_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut whitelisted = Vec::new();
     let mut extensions = HashSet::new();
@@ -7263,7 +7263,7 @@ fn anchor_whitelist_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn test_block_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn test_block_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut stack: Vec<(usize, String)> = Vec::new();
     let mut current_test_context: Option<String> = None;
@@ -7340,7 +7340,7 @@ fn test_block_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn stack_kind(trimmed_line: &str) -> Option<&'static str> {
+pub(crate) fn stack_kind(trimmed_line: &str) -> Option<&'static str> {
     let first = trimmed_line.split_whitespace().next()?;
 
     if first == "command" {
@@ -7363,14 +7363,14 @@ fn stack_kind(trimmed_line: &str) -> Option<&'static str> {
     }
 }
 
-fn test_context(stack: &[(usize, String)]) -> Option<String> {
+pub(crate) fn test_context(stack: &[(usize, String)]) -> Option<String> {
     stack
         .last()
         .filter(|(_, kind)| matches!(kind.as_str(), "command" | "transition" | "rule" | "anchor"))
         .map(|(_, kind)| kind.clone())
 }
 
-fn is_transition_line(trimmed_line: &str) -> bool {
+pub(crate) fn is_transition_line(trimmed_line: &str) -> bool {
     let Some((lhs, rhs)) = trimmed_line.split_once(':') else {
         return false;
     };
@@ -7378,7 +7378,7 @@ fn is_transition_line(trimmed_line: &str) -> bool {
     !lhs.trim().is_empty() && rhs.contains("->")
 }
 
-fn is_valid_test_assertion(context: &str, trimmed_line: &str) -> bool {
+pub(crate) fn is_valid_test_assertion(context: &str, trimmed_line: &str) -> bool {
     match context {
         "command" => {
             trimmed_line.starts_with("permits @")
@@ -7402,18 +7402,18 @@ fn is_valid_test_assertion(context: &str, trimmed_line: &str) -> bool {
     }
 }
 
-fn view_anchor(trimmed_line: &str) -> Option<&str> {
+pub(crate) fn view_anchor(trimmed_line: &str) -> Option<&str> {
     let marker = " id @anchor.";
     let (_, rest) = trimmed_line.split_once(marker)?;
     rest.split_whitespace().next()
 }
 
-fn extends_anchor(trimmed_line: &str) -> Option<&str> {
+pub(crate) fn extends_anchor(trimmed_line: &str) -> Option<&str> {
     let rest = trimmed_line.strip_prefix("extends @anchor.")?;
     rest.split_whitespace().next()
 }
 
-fn extensible_by_features(trimmed_line: &str) -> Vec<String> {
+pub(crate) fn extensible_by_features(trimmed_line: &str) -> Vec<String> {
     let Some(rest) = trimmed_line.strip_prefix("extensible_by ") else {
         return Vec::new();
     };
@@ -7425,7 +7425,7 @@ fn extensible_by_features(trimmed_line: &str) -> Vec<String> {
         .collect()
 }
 
-fn extension_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn extension_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     for (line_index, line) in source.lines().enumerate() {
@@ -7447,7 +7447,7 @@ fn extension_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn idempotency_key_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn idempotency_key_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut in_tenant_migration = false;
 
@@ -7477,7 +7477,7 @@ fn idempotency_key_diagnostics(source: &str) -> Vec<Diagnostic> {
 }
 
 #[derive(Debug)]
-struct SensitiveFieldFacts {
+pub(crate) struct SensitiveFieldFacts {
     feature: String,
     resource: String,
     field: String,
@@ -7486,12 +7486,12 @@ struct SensitiveFieldFacts {
 }
 
 #[derive(Debug, Default)]
-struct FieldPolicyFacts {
+pub(crate) struct FieldPolicyFacts {
     read: bool,
     write: bool,
 }
 
-fn field_security_policy_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn field_security_policy_diagnostics(source: &str) -> Vec<Diagnostic> {
     let sensitive_fields = collect_sensitive_fields(source);
     let field_policies = collect_field_policy_facts(source);
     let mut diagnostics = Vec::new();
@@ -7522,7 +7522,7 @@ fn field_security_policy_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn collect_sensitive_fields(source: &str) -> Vec<SensitiveFieldFacts> {
+pub(crate) fn collect_sensitive_fields(source: &str) -> Vec<SensitiveFieldFacts> {
     let mut fields = Vec::new();
     let mut current_feature: Option<String> = None;
     let mut current_top: Option<&str> = None;
@@ -7578,7 +7578,7 @@ fn collect_sensitive_fields(source: &str) -> Vec<SensitiveFieldFacts> {
     fields
 }
 
-fn is_sensitive_field_line(line: &str) -> bool {
+pub(crate) fn is_sensitive_field_line(line: &str) -> bool {
     line.contains("@pii.")
         || line.contains("@cap.Encrypted")
         || line.contains("@cap.E2ee")
@@ -7587,14 +7587,14 @@ fn is_sensitive_field_line(line: &str) -> bool {
 }
 
 #[derive(Debug)]
-struct PiiResourceFacts {
+pub(crate) struct PiiResourceFacts {
     feature: String,
     resource: String,
     line_index: usize,
     line: String,
 }
 
-fn retention_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn retention_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let pii_resources = collect_pii_resource_facts(source);
     let retention = collect_retention_facts(source, &mut diagnostics);
@@ -7622,12 +7622,12 @@ fn retention_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
 }
 
 #[derive(Debug, Default)]
-struct RetentionFacts {
+pub(crate) struct RetentionFacts {
     feature_defaults: HashSet<String>,
     resources: HashSet<(String, String)>,
 }
 
-fn collect_retention_facts(source: &str, diagnostics: &mut Vec<Diagnostic>) -> RetentionFacts {
+pub(crate) fn collect_retention_facts(source: &str, diagnostics: &mut Vec<Diagnostic>) -> RetentionFacts {
     let mut facts = RetentionFacts::default();
     let mut current_feature: Option<String> = None;
     let mut current_top: Option<&str> = None;
@@ -7704,7 +7704,7 @@ fn collect_retention_facts(source: &str, diagnostics: &mut Vec<Diagnostic>) -> R
     facts
 }
 
-fn retention_contract_error(trimmed_line: &str) -> Option<&'static str> {
+pub(crate) fn retention_contract_error(trimmed_line: &str) -> Option<&'static str> {
     let parts: Vec<_> = trimmed_line.split_whitespace().collect();
     if parts.len() != 4 || parts[2] != "then" {
         return Some(
@@ -7725,7 +7725,7 @@ fn retention_contract_error(trimmed_line: &str) -> Option<&'static str> {
     None
 }
 
-fn collect_pii_resource_facts(source: &str) -> Vec<PiiResourceFacts> {
+pub(crate) fn collect_pii_resource_facts(source: &str) -> Vec<PiiResourceFacts> {
     let mut resources = Vec::new();
     let mut current_feature: Option<String> = None;
     let mut current_top: Option<&str> = None;
@@ -7790,7 +7790,7 @@ fn collect_pii_resource_facts(source: &str) -> Vec<PiiResourceFacts> {
     resources
 }
 
-fn write_window_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn write_window_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     for (line_index, line) in source.lines().enumerate() {
@@ -7831,7 +7831,7 @@ fn write_window_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
 }
 
 #[derive(Debug)]
-struct AppOperationalFacts {
+pub(crate) struct AppOperationalFacts {
     line_index: usize,
     line: String,
     has_uses: bool,
@@ -7870,7 +7870,7 @@ impl AppOperationalFacts {
 }
 
 #[derive(Debug)]
-struct AppRuntimeUnitFacts {
+pub(crate) struct AppRuntimeUnitFacts {
     line_index: usize,
     line: String,
     name: String,
@@ -7891,7 +7891,7 @@ impl AppRuntimeUnitFacts {
 }
 
 #[derive(Debug)]
-struct AppServiceFacts {
+pub(crate) struct AppServiceFacts {
     line_index: usize,
     line: String,
     name: String,
@@ -7910,7 +7910,7 @@ impl AppServiceFacts {
 }
 
 #[derive(Debug)]
-struct AppIntegrationFacts;
+pub(crate) struct AppIntegrationFacts;
 
 impl AppIntegrationFacts {
     fn new() -> Self {
@@ -7918,7 +7918,7 @@ impl AppIntegrationFacts {
     }
 }
 
-fn workspace_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn workspace_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut in_workspace = false;
     let mut current_child: Option<&'static str> = None;
@@ -8053,7 +8053,7 @@ fn workspace_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn validate_workspace_app_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+pub(crate) fn validate_workspace_app_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
     let trimmed = line.trim_start();
     let parts: Vec<_> = trimmed.split_whitespace().collect();
     let valid = matches!(
@@ -8076,7 +8076,7 @@ fn validate_workspace_app_line(diagnostics: &mut Vec<Diagnostic>, line_index: us
     }
 }
 
-fn validate_workspace_boundary_line(
+pub(crate) fn validate_workspace_boundary_line(
     diagnostics: &mut Vec<Diagnostic>,
     line_index: usize,
     line: &str,
@@ -8098,7 +8098,7 @@ fn validate_workspace_boundary_line(
     }
 }
 
-fn validate_workspace_communication_line(
+pub(crate) fn validate_workspace_communication_line(
     diagnostics: &mut Vec<Diagnostic>,
     line_index: usize,
     line: &str,
@@ -8134,7 +8134,7 @@ fn validate_workspace_communication_line(
     }
 }
 
-fn validate_workspace_gateway_route_line(
+pub(crate) fn validate_workspace_gateway_route_line(
     diagnostics: &mut Vec<Diagnostic>,
     line_index: usize,
     line: &str,
@@ -8174,7 +8174,7 @@ fn validate_workspace_gateway_route_line(
     valid
 }
 
-fn validate_workspace_gateway_route_child(
+pub(crate) fn validate_workspace_gateway_route_child(
     diagnostics: &mut Vec<Diagnostic>,
     line_index: usize,
     line: &str,
@@ -8197,13 +8197,13 @@ fn validate_workspace_gateway_route_child(
     }
 }
 
-fn quoted_prefix(value: &str) -> Option<(&str, &str)> {
+pub(crate) fn quoted_prefix(value: &str) -> Option<(&str, &str)> {
     let rest = value.strip_prefix('"')?;
     let end = rest.find('"')?;
     Some((&rest[..end], rest[end + 1..].trim()))
 }
 
-fn external_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn external_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut in_contract = false;
     let mut current_child: Option<&'static str> = None;
@@ -8374,7 +8374,7 @@ fn external_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn validate_contract_import_line(
+pub(crate) fn validate_contract_import_line(
     diagnostics: &mut Vec<Diagnostic>,
     line_index: usize,
     line: &str,
@@ -8397,7 +8397,7 @@ fn validate_contract_import_line(
     }
 }
 
-fn validate_contract_operation_line(
+pub(crate) fn validate_contract_operation_line(
     diagnostics: &mut Vec<Diagnostic>,
     line_index: usize,
     line: &str,
@@ -8427,7 +8427,7 @@ fn validate_contract_operation_line(
     }
 }
 
-fn is_contract_operation_retry(parts: &[&str]) -> bool {
+pub(crate) fn is_contract_operation_retry(parts: &[&str]) -> bool {
     if parts.first().copied() != Some("retry") {
         return false;
     }
@@ -8442,14 +8442,14 @@ fn is_contract_operation_retry(parts: &[&str]) -> bool {
     }
 }
 
-fn is_contract_operation_idempotency(parts: &[&str]) -> bool {
+pub(crate) fn is_contract_operation_idempotency(parts: &[&str]) -> bool {
     parts.len() >= 3
         && parts[0] == "idempotency"
         && parts[1] == "by"
         && parts.iter().skip(2).all(|t| !t.is_empty())
 }
 
-fn is_contract_operation_error(parts: &[&str]) -> bool {
+pub(crate) fn is_contract_operation_error(parts: &[&str]) -> bool {
     if parts.first().copied() != Some("error") {
         return false;
     }
@@ -8483,7 +8483,7 @@ fn is_contract_operation_error(parts: &[&str]) -> bool {
     true
 }
 
-fn validate_contract_field_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+pub(crate) fn validate_contract_field_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
     let trimmed = line.trim_start();
     let Some((name, rest)) = trimmed.split_once(':') else {
         diagnostics.push(simple_canonical_diagnostic(
@@ -8517,7 +8517,7 @@ fn validate_contract_field_line(diagnostics: &mut Vec<Diagnostic>, line_index: u
     }
 }
 
-fn is_contract_name(value: &str) -> bool {
+pub(crate) fn is_contract_name(value: &str) -> bool {
     let mut parts = value.split('.');
     let Some(first) = parts.next() else {
         return false;
@@ -8531,7 +8531,7 @@ fn is_contract_name(value: &str) -> bool {
         })
 }
 
-fn is_contract_type_token(value: &str) -> bool {
+pub(crate) fn is_contract_type_token(value: &str) -> bool {
     value.starts_with("@semantic.")
         || value.starts_with("@cap.")
         || is_type_name(value)
@@ -8541,7 +8541,7 @@ fn is_contract_type_token(value: &str) -> bool {
         )
 }
 
-fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut current_app: Option<AppOperationalFacts> = None;
     let mut current_app_child: Option<&'static str> = None;
@@ -8904,7 +8904,7 @@ fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn app_child_block(trimmed: &str) -> Option<&'static str> {
+pub(crate) fn app_child_block(trimmed: &str) -> Option<&'static str> {
     let first = trimmed.split_whitespace().next()?;
     match first {
         "uses" => Some("uses"),
@@ -8957,7 +8957,7 @@ fn app_child_block(trimmed: &str) -> Option<&'static str> {
     }
 }
 
-fn registry_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn registry_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut in_registry = false;
     let mut current_child: Option<&'static str> = None;
@@ -9161,7 +9161,7 @@ fn registry_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn profile_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn profile_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut in_profile = false;
     let mut current_child: Option<&str> = None;
@@ -9272,7 +9272,7 @@ fn profile_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn profile_child_kind(trimmed: &str) -> Option<&'static str> {
+pub(crate) fn profile_child_kind(trimmed: &str) -> Option<&'static str> {
     match trimmed {
         "urls" => Some("urls"),
         "bindings" => Some("bindings"),
@@ -9282,7 +9282,7 @@ fn profile_child_kind(trimmed: &str) -> Option<&'static str> {
     }
 }
 
-fn validate_profile_url_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+pub(crate) fn validate_profile_url_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
     let trimmed = line.trim_start();
     let parts: Vec<_> = trimmed.split_whitespace().collect();
     if matches!(parts.as_slice(), [target, url] if is_identifier(target) && is_quoted_lzx_literal(url))
@@ -9299,7 +9299,7 @@ fn validate_profile_url_line(diagnostics: &mut Vec<Diagnostic>, line_index: usiz
     ));
 }
 
-fn is_profile_binding_line(trimmed: &str) -> bool {
+pub(crate) fn is_profile_binding_line(trimmed: &str) -> bool {
     let Some((target, source)) = trimmed.split_once('=') else {
         return false;
     };
@@ -9318,7 +9318,7 @@ fn is_profile_binding_line(trimmed: &str) -> bool {
                 .is_some_and(is_identifier))
 }
 
-fn validate_profile_integration_line(
+pub(crate) fn validate_profile_integration_line(
     diagnostics: &mut Vec<Diagnostic>,
     line_index: usize,
     line: &str,
@@ -9340,7 +9340,7 @@ fn validate_profile_integration_line(
     ));
 }
 
-fn validate_profile_deploy_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+pub(crate) fn validate_profile_deploy_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
     let trimmed = line.trim_start();
     let parts: Vec<_> = trimmed.split_whitespace().collect();
     match parts.as_slice() {
@@ -9365,7 +9365,7 @@ fn validate_profile_deploy_line(diagnostics: &mut Vec<Diagnostic>, line_index: u
     ));
 }
 
-fn feature_requirements_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn feature_requirements_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut in_feature = false;
     let mut in_requires_block = false;
@@ -9416,7 +9416,7 @@ fn feature_requirements_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn validate_feature_requirement_line(
+pub(crate) fn validate_feature_requirement_line(
     diagnostics: &mut Vec<Diagnostic>,
     line_index: usize,
     line: &str,
@@ -9435,7 +9435,7 @@ fn validate_feature_requirement_line(
     ));
 }
 
-fn parse_feature_integration_requirement(trimmed: &str) -> Option<(&str, &str)> {
+pub(crate) fn parse_feature_integration_requirement(trimmed: &str) -> Option<(&str, &str)> {
     let rest = trimmed.trim().strip_prefix("integration ")?;
     let (name, contract) = rest.split_once(':')?;
     let name = name.trim();
@@ -9448,7 +9448,7 @@ fn parse_feature_integration_requirement(trimmed: &str) -> Option<(&str, &str)> 
     }
 }
 
-fn external_call_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn external_call_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut in_feature = false;
     let mut requirement_slots = HashSet::new();
@@ -9570,7 +9570,7 @@ fn external_call_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
 }
 
 #[derive(Debug)]
-struct ExternalCallBlockFacts {
+pub(crate) struct ExternalCallBlockFacts {
     kind: &'static str,
     name: String,
     line_index: usize,
@@ -9595,12 +9595,12 @@ impl ExternalCallBlockFacts {
 }
 
 #[derive(Debug)]
-struct ExternalCallLine {
+pub(crate) struct ExternalCallLine {
     line_index: usize,
     line: String,
 }
 
-fn external_call_block_diagnostics(block: ExternalCallBlockFacts) -> Vec<Diagnostic> {
+pub(crate) fn external_call_block_diagnostics(block: ExternalCallBlockFacts) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     if block.calls.is_empty() {
@@ -9644,7 +9644,7 @@ fn external_call_block_diagnostics(block: ExternalCallBlockFacts) -> Vec<Diagnos
     diagnostics
 }
 
-fn parse_external_call_header(trimmed: &str) -> Option<(&str, &str)> {
+pub(crate) fn parse_external_call_header(trimmed: &str) -> Option<(&str, &str)> {
     let rest = trimmed.strip_prefix("calls ")?;
     let (slot, operation) = rest.trim().split_once('.')?;
     let slot = slot.trim();
@@ -9657,11 +9657,11 @@ fn parse_external_call_header(trimmed: &str) -> Option<(&str, &str)> {
     }
 }
 
-fn command_name_if(trimmed: &str) -> Option<String> {
+pub(crate) fn command_name_if(trimmed: &str) -> Option<String> {
     named_block_name(trimmed, "command").map(str::to_owned)
 }
 
-fn named_block_name<'a>(trimmed: &'a str, keyword: &str) -> Option<&'a str> {
+pub(crate) fn named_block_name<'a>(trimmed: &'a str, keyword: &str) -> Option<&'a str> {
     let rest = trimmed.strip_prefix(keyword)?;
     if !rest.starts_with(char::is_whitespace) {
         return None;
@@ -9671,7 +9671,7 @@ fn named_block_name<'a>(trimmed: &'a str, keyword: &str) -> Option<&'a str> {
     is_identifier(name).then_some(name)
 }
 
-fn is_app_scalar_child(trimmed: &str) -> bool {
+pub(crate) fn is_app_scalar_child(trimmed: &str) -> bool {
     matches!(
         trimmed.split_whitespace().next(),
         Some(
@@ -9691,7 +9691,7 @@ fn is_app_scalar_child(trimmed: &str) -> bool {
     )
 }
 
-fn validate_app_child_header(
+pub(crate) fn validate_app_child_header(
     diagnostics: &mut Vec<Diagnostic>,
     line_index: usize,
     line: &str,
@@ -9726,7 +9726,7 @@ fn validate_app_child_header(
     }
 }
 
-fn validate_app_scalar_child(
+pub(crate) fn validate_app_scalar_child(
     diagnostics: &mut Vec<Diagnostic>,
     line_index: usize,
     line: &str,
@@ -9744,7 +9744,7 @@ fn validate_app_scalar_child(
     }
 }
 
-fn validate_app_architecture_line(
+pub(crate) fn validate_app_architecture_line(
     diagnostics: &mut Vec<Diagnostic>,
     line_index: usize,
     line: &str,
@@ -9766,7 +9766,7 @@ fn validate_app_architecture_line(
     }
 }
 
-fn validate_app_communication_line(
+pub(crate) fn validate_app_communication_line(
     diagnostics: &mut Vec<Diagnostic>,
     line_index: usize,
     line: &str,
@@ -9798,7 +9798,7 @@ fn validate_app_communication_line(
     }
 }
 
-fn validate_app_service_child(
+pub(crate) fn validate_app_service_child(
     diagnostics: &mut Vec<Diagnostic>,
     service: &mut AppServiceFacts,
     current_service_child: &mut Option<&'static str>,
@@ -9852,7 +9852,7 @@ fn validate_app_service_child(
     ));
 }
 
-fn validate_app_service_exposure_line(
+pub(crate) fn validate_app_service_exposure_line(
     diagnostics: &mut Vec<Diagnostic>,
     line_index: usize,
     line: &str,
@@ -9875,7 +9875,7 @@ fn validate_app_service_exposure_line(
     }
 }
 
-fn validate_app_target_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+pub(crate) fn validate_app_target_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
     let trimmed = line.trim_start();
     let parts: Vec<_> = trimmed.split_whitespace().collect();
     if parts.len() != 2 || !matches!(parts[0], "backend" | "web" | "mobile") {
@@ -9889,7 +9889,7 @@ fn validate_app_target_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize
     }
 }
 
-fn validate_app_url_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+pub(crate) fn validate_app_url_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
     let trimmed = line.trim_start();
     let parts: Vec<_> = trimmed.split_whitespace().collect();
     if parts.len() != 3 || !matches!(parts[0], "web" | "api" | "mobile") {
@@ -9925,7 +9925,7 @@ fn validate_app_url_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, l
     }
 }
 
-fn validate_app_binding_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+pub(crate) fn validate_app_binding_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
     let trimmed = line.trim_start();
     if parse_app_binding_line(trimmed).is_none() {
         diagnostics.push(simple_canonical_diagnostic(
@@ -9938,7 +9938,7 @@ fn validate_app_binding_line(diagnostics: &mut Vec<Diagnostic>, line_index: usiz
     }
 }
 
-fn validate_app_pack_use_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+pub(crate) fn validate_app_pack_use_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
     let trimmed = line.trim_start();
     let Some((name, source)) = trimmed.split_once(" from ") else {
         diagnostics.push(simple_canonical_diagnostic(
@@ -9966,7 +9966,7 @@ fn validate_app_pack_use_line(diagnostics: &mut Vec<Diagnostic>, line_index: usi
     }
 }
 
-fn validate_registry_pack_header(
+pub(crate) fn validate_registry_pack_header(
     diagnostics: &mut Vec<Diagnostic>,
     line_index: usize,
     line: &str,
@@ -10002,7 +10002,7 @@ fn validate_registry_pack_header(
     }
 }
 
-fn validate_registry_pack_child(
+pub(crate) fn validate_registry_pack_child(
     diagnostics: &mut Vec<Diagnostic>,
     line_index: usize,
     line: &str,
@@ -10035,7 +10035,7 @@ fn validate_registry_pack_child(
     ));
 }
 
-fn parse_app_binding_line(trimmed: &str) -> Option<(&str, &str, &str)> {
+pub(crate) fn parse_app_binding_line(trimmed: &str) -> Option<(&str, &str, &str)> {
     let (target, source) = trimmed.split_once('=')?;
     let target = target.trim();
     let source = source.trim();
@@ -10051,7 +10051,7 @@ fn parse_app_binding_line(trimmed: &str) -> Option<(&str, &str, &str)> {
     }
 }
 
-fn validate_app_env_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+pub(crate) fn validate_app_env_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
     let trimmed = line.trim_start();
     let parts: Vec<_> = trimmed.split_whitespace().collect();
     if !valid_env_declaration_parts(&parts) {
@@ -10093,11 +10093,11 @@ fn validate_app_env_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, l
 /// frequently impose the latter shape because their key names are
 /// fixed by the upstream service. As long as `PUBLIC` shows up as a
 /// `_`-delimited token, the author has signalled intent to expose.
-fn has_public_token(name: &str) -> bool {
+pub(crate) fn has_public_token(name: &str) -> bool {
     name.split('_').any(|token| token == "PUBLIC")
 }
 
-fn valid_env_declaration_parts(parts: &[&str]) -> bool {
+pub(crate) fn valid_env_declaration_parts(parts: &[&str]) -> bool {
     let has_environment_scope = parts.len() >= 6
         && parts[4] == "in"
         && split_items(&parts[5..].join(" "))
@@ -10111,7 +10111,7 @@ fn valid_env_declaration_parts(parts: &[&str]) -> bool {
         && matches!(parts[3], "required" | "optional")
 }
 
-fn parse_env_group_name(trimmed: &str) -> Option<&str> {
+pub(crate) fn parse_env_group_name(trimmed: &str) -> Option<&str> {
     let parts: Vec<_> = trimmed.split_whitespace().collect();
     if parts.len() == 2 && parts[0] == "group" && is_identifier(parts[1]) {
         Some(parts[1])
@@ -10120,7 +10120,7 @@ fn parse_env_group_name(trimmed: &str) -> Option<&str> {
     }
 }
 
-fn validate_app_integration_header(
+pub(crate) fn validate_app_integration_header(
     diagnostics: &mut Vec<Diagnostic>,
     line_index: usize,
     line: &str,
@@ -10137,7 +10137,7 @@ fn validate_app_integration_header(
     }
 }
 
-fn parse_app_integration_header(trimmed: &str) -> Option<(&str, &str)> {
+pub(crate) fn parse_app_integration_header(trimmed: &str) -> Option<(&str, &str)> {
     let (name, kind) = trimmed.split_once(':')?;
     let name = name.trim();
     let kind = kind.trim();
@@ -10148,7 +10148,7 @@ fn parse_app_integration_header(trimmed: &str) -> Option<(&str, &str)> {
     }
 }
 
-fn validate_app_integration_child(
+pub(crate) fn validate_app_integration_child(
     diagnostics: &mut Vec<Diagnostic>,
     current_integration_child: &mut Option<&'static str>,
     line_index: usize,
@@ -10199,7 +10199,7 @@ fn validate_app_integration_child(
     }
 }
 
-fn adapter_source_provenance(source: &str) -> Option<&'static str> {
+pub(crate) fn adapter_source_provenance(source: &str) -> Option<&'static str> {
     if source
         .strip_prefix("@runtime/")
         .is_some_and(valid_pathish_tail)
@@ -10221,7 +10221,7 @@ fn adapter_source_provenance(source: &str) -> Option<&'static str> {
     }
 }
 
-fn valid_plugin_tail(value: &str) -> bool {
+pub(crate) fn valid_plugin_tail(value: &str) -> bool {
     // Mirror `app_manifest::valid_plugin_tail` — accept single-segment
     // (`@lazuli/plugin-<name>`) as well as multi-segment (`@lazuli/plugin-<publisher>/<name>`).
     // All currently-shipped Lazuli plugins use the single-segment convention.
@@ -10229,18 +10229,18 @@ fn valid_plugin_tail(value: &str) -> bool {
     !segments.is_empty() && segments.iter().all(|s| valid_path_segment(s))
 }
 
-fn valid_pathish_tail(value: &str) -> bool {
+pub(crate) fn valid_pathish_tail(value: &str) -> bool {
     !value.is_empty() && value.split('/').all(valid_path_segment)
 }
 
-fn valid_path_segment(value: &str) -> bool {
+pub(crate) fn valid_path_segment(value: &str) -> bool {
     !value.is_empty()
         && value
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'))
 }
 
-fn validate_app_integration_credential_line(
+pub(crate) fn validate_app_integration_credential_line(
     diagnostics: &mut Vec<Diagnostic>,
     line_index: usize,
     line: &str,
@@ -10262,7 +10262,7 @@ fn validate_app_integration_credential_line(
     }
 }
 
-fn validate_app_capability_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
+pub(crate) fn validate_app_capability_line(diagnostics: &mut Vec<Diagnostic>, line_index: usize, line: &str) {
     let trimmed = line.trim_start();
     let parts: Vec<_> = trimmed.split_whitespace().collect();
     if parts.len() != 2
@@ -10294,7 +10294,7 @@ fn validate_app_capability_line(diagnostics: &mut Vec<Diagnostic>, line_index: u
     }
 }
 
-fn validate_app_deploy_line(
+pub(crate) fn validate_app_deploy_line(
     diagnostics: &mut Vec<Diagnostic>,
     app: &mut AppOperationalFacts,
     line_index: usize,
@@ -10332,7 +10332,7 @@ fn validate_app_deploy_line(
     }
 }
 
-fn validate_app_runtime_unit_child(
+pub(crate) fn validate_app_runtime_unit_child(
     diagnostics: &mut Vec<Diagnostic>,
     unit: &mut AppRuntimeUnitFacts,
     line_index: usize,
@@ -10380,7 +10380,7 @@ fn validate_app_runtime_unit_child(
     ));
 }
 
-fn app_operational_block_diagnostics(app: AppOperationalFacts) -> Vec<Diagnostic> {
+pub(crate) fn app_operational_block_diagnostics(app: AppOperationalFacts) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     if !app.has_uses {
@@ -10519,7 +10519,7 @@ fn app_operational_block_diagnostics(app: AppOperationalFacts) -> Vec<Diagnostic
     diagnostics
 }
 
-fn env_top_level_legacy_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn env_top_level_legacy_diagnostics(source: &str) -> Vec<Diagnostic> {
     // Warn when an `env` block lives at indent 0 in a `.lzi` source that
     // also declares `feature` or `app`. The canonical home for env schema
     // is `registry.lzi`; top-level `env` here is a legacy duplicate.
@@ -10561,7 +10561,7 @@ fn env_top_level_legacy_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn env_schema_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn env_schema_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut declared = HashSet::new();
     let mut env_indent: Option<usize> = None;
@@ -10675,7 +10675,7 @@ fn env_schema_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn collect_field_policy_facts(source: &str) -> HashMap<(String, String, String), FieldPolicyFacts> {
+pub(crate) fn collect_field_policy_facts(source: &str) -> HashMap<(String, String, String), FieldPolicyFacts> {
     let mut policies = HashMap::new();
     let mut current_feature: Option<String> = None;
     let mut current_top: Option<&str> = None;
@@ -10738,7 +10738,7 @@ fn collect_field_policy_facts(source: &str) -> HashMap<(String, String, String),
 }
 
 #[derive(Debug)]
-struct WebhookSecurityFacts {
+pub(crate) struct WebhookSecurityFacts {
     line_index: usize,
     line: String,
     has_verify: bool,
@@ -10747,7 +10747,7 @@ struct WebhookSecurityFacts {
     has_idempotency: bool,
 }
 
-fn webhook_security_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn webhook_security_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut current_webhook: Option<WebhookSecurityFacts> = None;
 
@@ -10804,7 +10804,7 @@ fn webhook_security_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn webhook_diagnostics(webhook: WebhookSecurityFacts) -> Vec<Diagnostic> {
+pub(crate) fn webhook_diagnostics(webhook: WebhookSecurityFacts) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     if !webhook.has_verify {
@@ -10851,7 +10851,7 @@ fn webhook_diagnostics(webhook: WebhookSecurityFacts) -> Vec<Diagnostic> {
 }
 
 #[derive(Debug)]
-struct WebhookTenantFacts {
+pub(crate) struct WebhookTenantFacts {
     feature: String,
     line_index: usize,
     line: String,
@@ -10859,7 +10859,7 @@ struct WebhookTenantFacts {
     has_global_scope: bool,
 }
 
-fn webhook_tenant_from_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn webhook_tenant_from_diagnostics(source: &str) -> Vec<Diagnostic> {
     let tenant_axes = collect_feature_tenant_axes(source);
     let mut diagnostics = Vec::new();
     let mut current_feature: Option<String> = None;
@@ -10917,7 +10917,7 @@ fn webhook_tenant_from_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn webhook_tenant_from_facts_diagnostics(
+pub(crate) fn webhook_tenant_from_facts_diagnostics(
     webhook: WebhookTenantFacts,
     tenant_axes: &HashMap<String, HashSet<String>>,
 ) -> Vec<Diagnostic> {
@@ -10952,14 +10952,14 @@ fn webhook_tenant_from_facts_diagnostics(
 }
 
 #[derive(Debug)]
-struct EscapeRouteSecurityFacts {
+pub(crate) struct EscapeRouteSecurityFacts {
     line_index: usize,
     line: String,
     has_policy: bool,
     has_tenant: bool,
 }
 
-fn escape_route_security_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn escape_route_security_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut current_escape_route: Option<EscapeRouteSecurityFacts> = None;
 
@@ -11006,7 +11006,7 @@ fn escape_route_security_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn escape_route_diagnostics(route: EscapeRouteSecurityFacts) -> Vec<Diagnostic> {
+pub(crate) fn escape_route_diagnostics(route: EscapeRouteSecurityFacts) -> Vec<Diagnostic> {
     let mut missing = Vec::new();
     if !route.has_policy {
         missing.push("policy");
@@ -11032,7 +11032,7 @@ fn escape_route_diagnostics(route: EscapeRouteSecurityFacts) -> Vec<Diagnostic> 
 }
 
 #[derive(Debug, Default)]
-struct AuthSecurityFacts {
+pub(crate) struct AuthSecurityFacts {
     password_line: Option<(usize, String)>,
     password_algorithm: bool,
     password_rate_limit: bool,
@@ -11040,7 +11040,7 @@ struct AuthSecurityFacts {
     sessions_ttl: bool,
 }
 
-fn auth_security_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn auth_security_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut current_top: Option<&str> = None;
     let mut auth = AuthSecurityFacts::default();
@@ -11098,7 +11098,7 @@ fn auth_security_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn auth_diagnostics(auth: AuthSecurityFacts) -> Vec<Diagnostic> {
+pub(crate) fn auth_diagnostics(auth: AuthSecurityFacts) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     if let Some((line_index, line)) = auth.password_line {
@@ -11137,7 +11137,7 @@ fn auth_diagnostics(auth: AuthSecurityFacts) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn apply_security_profile(
+pub(crate) fn apply_security_profile(
     mut diagnostics: Vec<Diagnostic>,
     security_profile: SecurityProfile,
 ) -> Vec<Diagnostic> {
@@ -11160,14 +11160,14 @@ fn apply_security_profile(
     diagnostics
 }
 
-fn diagnostic_code(diagnostic: &Diagnostic) -> Option<&str> {
+pub(crate) fn diagnostic_code(diagnostic: &Diagnostic) -> Option<&str> {
     match diagnostic.code.as_ref()? {
         tower_lsp::lsp_types::NumberOrString::String(code) => Some(code.as_str()),
         tower_lsp::lsp_types::NumberOrString::Number(_) => None,
     }
 }
 
-fn is_security_enforcement_code(code: &str) -> bool {
+pub(crate) fn is_security_enforcement_code(code: &str) -> bool {
     matches!(
         code,
         "command-policy"
@@ -11196,11 +11196,11 @@ fn is_security_enforcement_code(code: &str) -> bool {
     )
 }
 
-fn is_security_opt_out_code(code: &str) -> bool {
+pub(crate) fn is_security_opt_out_code(code: &str) -> bool {
     matches!(code, "security-opt-out")
 }
 
-fn simple_canonical_diagnostic(
+pub(crate) fn simple_canonical_diagnostic(
     line_index: usize,
     line: &str,
     severity: DiagnosticSeverity,
@@ -11232,14 +11232,14 @@ fn simple_canonical_diagnostic(
 }
 
 #[derive(Debug, Default)]
-struct CanonicalFeatureFacts {
+pub(crate) struct CanonicalFeatureFacts {
     default_tenancy: Option<String>,
     default_timestamps: bool,
     resources: HashMap<String, CanonicalResourceFacts>,
 }
 
 #[derive(Debug)]
-struct CanonicalResourceFacts {
+pub(crate) struct CanonicalResourceFacts {
     fields: HashSet<String>,
     tenancy_field: Option<String>,
 }
@@ -11284,7 +11284,7 @@ impl CanonicalResourceFacts {
     }
 }
 
-fn event_payload_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn event_payload_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
     let features = collect_canonical_feature_facts(source);
     let mut diagnostics = Vec::new();
     let mut current_feature: Option<String> = None;
@@ -11355,26 +11355,26 @@ fn event_payload_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
 }
 
 #[derive(Debug, Default)]
-struct EventPayloadGroup {
+pub(crate) struct EventPayloadGroup {
     prefix: String,
     fields: HashSet<String>,
 }
 
 #[derive(Debug)]
-struct JobPayloadReference {
+pub(crate) struct JobPayloadReference {
     field: String,
     line_index: usize,
     line: String,
 }
 
 #[derive(Debug)]
-struct EventTriggeredJobFacts {
+pub(crate) struct EventTriggeredJobFacts {
     feature: String,
     trigger: Option<String>,
     payload_references: Vec<JobPayloadReference>,
 }
 
-fn event_consumer_payload_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn event_consumer_payload_diagnostics(source: &str) -> Vec<Diagnostic> {
     let contracts = collect_event_contracts(source);
     let mut diagnostics = Vec::new();
     let mut current_feature: Option<String> = None;
@@ -11437,7 +11437,7 @@ fn event_consumer_payload_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn event_triggered_job_payload_diagnostics(
+pub(crate) fn event_triggered_job_payload_diagnostics(
     job: EventTriggeredJobFacts,
     contracts: &HashMap<String, HashSet<String>>,
 ) -> Vec<Diagnostic> {
@@ -11468,7 +11468,7 @@ fn event_triggered_job_payload_diagnostics(
 }
 
 #[derive(Debug)]
-struct EventJobTenantFacts {
+pub(crate) struct EventJobTenantFacts {
     feature: String,
     line_index: usize,
     line: String,
@@ -11476,7 +11476,7 @@ struct EventJobTenantFacts {
     tenant_from: Option<String>,
 }
 
-fn event_job_tenant_from_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn event_job_tenant_from_diagnostics(source: &str) -> Vec<Diagnostic> {
     let contracts = collect_event_contracts(source);
     let mut diagnostics = Vec::new();
     let mut current_feature: Option<String> = None;
@@ -11533,7 +11533,7 @@ fn event_job_tenant_from_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn event_job_tenant_from_diagnostic(
+pub(crate) fn event_job_tenant_from_diagnostic(
     job: EventJobTenantFacts,
     contracts: &HashMap<String, HashSet<String>>,
 ) -> Vec<Diagnostic> {
@@ -11565,7 +11565,7 @@ fn event_job_tenant_from_diagnostic(
 }
 
 #[derive(Debug)]
-struct ScheduledJobFacts {
+pub(crate) struct ScheduledJobFacts {
     feature: String,
     line_index: usize,
     line: String,
@@ -11574,7 +11574,7 @@ struct ScheduledJobFacts {
     has_global_scope: bool,
 }
 
-fn scheduled_job_tenancy_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn scheduled_job_tenancy_diagnostics(source: &str) -> Vec<Diagnostic> {
     let tenant_axes = collect_feature_tenant_axes(source);
     let mut diagnostics = Vec::new();
     let mut current_feature: Option<String> = None;
@@ -11635,7 +11635,7 @@ fn scheduled_job_tenancy_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn scheduled_job_tenancy_facts_diagnostics(
+pub(crate) fn scheduled_job_tenancy_facts_diagnostics(
     job: ScheduledJobFacts,
     tenant_axes: &HashMap<String, HashSet<String>>,
 ) -> Vec<Diagnostic> {
@@ -11665,7 +11665,7 @@ fn scheduled_job_tenancy_facts_diagnostics(
     )]
 }
 
-fn collect_feature_tenant_axes(source: &str) -> HashMap<String, HashSet<String>> {
+pub(crate) fn collect_feature_tenant_axes(source: &str) -> HashMap<String, HashSet<String>> {
     let mut axes: HashMap<String, HashSet<String>> = HashMap::new();
     let mut current_feature: Option<String> = None;
     let mut current_top: Option<&str> = None;
@@ -11710,7 +11710,7 @@ fn collect_feature_tenant_axes(source: &str) -> HashMap<String, HashSet<String>>
     axes
 }
 
-fn insert_tenant_axis(
+pub(crate) fn insert_tenant_axis(
     axes: &mut HashMap<String, HashSet<String>>,
     feature: Option<&str>,
     axis: &str,
@@ -11725,7 +11725,7 @@ fn insert_tenant_axis(
     }
 }
 
-fn collect_event_contracts(source: &str) -> HashMap<String, HashSet<String>> {
+pub(crate) fn collect_event_contracts(source: &str) -> HashMap<String, HashSet<String>> {
     let mut event_fields: HashMap<String, HashSet<String>> = HashMap::new();
     let mut groups_by_feature: HashMap<String, Vec<EventPayloadGroup>> = HashMap::new();
     let mut current_feature: Option<String> = None;
@@ -11861,7 +11861,7 @@ fn collect_event_contracts(source: &str) -> HashMap<String, HashSet<String>> {
     event_fields
 }
 
-fn event_decl_name(trimmed_line: &str) -> Option<&str> {
+pub(crate) fn event_decl_name(trimmed_line: &str) -> Option<&str> {
     if trimmed_line.starts_with("event.trace ") || trimmed_line.starts_with("event ") {
         trimmed_line.split_whitespace().nth(1)
     } else {
@@ -11869,7 +11869,7 @@ fn event_decl_name(trimmed_line: &str) -> Option<&str> {
     }
 }
 
-fn event_group_prefix(trimmed_line: &str) -> Option<&str> {
+pub(crate) fn event_group_prefix(trimmed_line: &str) -> Option<&str> {
     let mut parts = trimmed_line.split_whitespace();
     if !matches!(parts.next()?, "event_group" | "events") {
         return None;
@@ -11877,7 +11877,7 @@ fn event_group_prefix(trimmed_line: &str) -> Option<&str> {
     parts.next()?.strip_suffix('*')
 }
 
-fn qualify_group_event_name(prefix: &str, raw_name: &str) -> String {
+pub(crate) fn qualify_group_event_name(prefix: &str, raw_name: &str) -> String {
     if raw_name.starts_with(prefix) {
         raw_name.to_owned()
     } else {
@@ -11885,13 +11885,13 @@ fn qualify_group_event_name(prefix: &str, raw_name: &str) -> String {
     }
 }
 
-fn payload_assignment_field(trimmed_line: &str) -> Option<&str> {
+pub(crate) fn payload_assignment_field(trimmed_line: &str) -> Option<&str> {
     let (field, _) = trimmed_line.split_once('=')?;
     let field = field.trim();
     (!field.is_empty()).then_some(field)
 }
 
-fn payload_field_references(line: &str) -> Vec<String> {
+pub(crate) fn payload_field_references(line: &str) -> Vec<String> {
     let mut references = Vec::new();
     let mut rest = line;
 
@@ -11913,7 +11913,7 @@ fn payload_field_references(line: &str) -> Vec<String> {
     references
 }
 
-fn event_consumer_payload_diagnostic(
+pub(crate) fn event_consumer_payload_diagnostic(
     line_index: usize,
     line: &str,
     event_ref: &str,
@@ -11930,7 +11930,7 @@ fn event_consumer_payload_diagnostic(
     )
 }
 
-fn collect_canonical_feature_facts(source: &str) -> HashMap<String, CanonicalFeatureFacts> {
+pub(crate) fn collect_canonical_feature_facts(source: &str) -> HashMap<String, CanonicalFeatureFacts> {
     let mut features = HashMap::new();
     let mut current_feature: Option<String> = None;
     let mut current_top: Option<&str> = None;
@@ -12022,7 +12022,7 @@ fn collect_canonical_feature_facts(source: &str) -> HashMap<String, CanonicalFea
     features
 }
 
-fn tenancy_axis(trimmed_line: &str) -> Option<&str> {
+pub(crate) fn tenancy_axis(trimmed_line: &str) -> Option<&str> {
     let mut parts = trimmed_line.split_whitespace();
     if parts.next()? == "tenancy" {
         parts.next()
@@ -12031,7 +12031,7 @@ fn tenancy_axis(trimmed_line: &str) -> Option<&str> {
     }
 }
 
-fn resource_name(trimmed_line: &str) -> Option<&str> {
+pub(crate) fn resource_name(trimmed_line: &str) -> Option<&str> {
     let mut parts = trimmed_line.split_whitespace();
     if parts.next()? == "resource" {
         parts.next()
@@ -12040,7 +12040,7 @@ fn resource_name(trimmed_line: &str) -> Option<&str> {
     }
 }
 
-fn events_resource_name(trimmed_line: &str) -> Option<&str> {
+pub(crate) fn events_resource_name(trimmed_line: &str) -> Option<&str> {
     let mut parts = trimmed_line.split_whitespace();
     if !matches!(parts.next()?, "event_group" | "events") {
         return None;
@@ -12055,7 +12055,7 @@ fn events_resource_name(trimmed_line: &str) -> Option<&str> {
     None
 }
 
-fn field_name(trimmed_line: &str) -> Option<&str> {
+pub(crate) fn field_name(trimmed_line: &str) -> Option<&str> {
     let (head, _) = trimmed_line.split_once(':')?;
     let name = head.trim().split_whitespace().next()?;
 
@@ -12069,12 +12069,12 @@ fn field_name(trimmed_line: &str) -> Option<&str> {
     }
 }
 
-fn payload_assignment_rhs(trimmed_line: &str) -> Option<&str> {
+pub(crate) fn payload_assignment_rhs(trimmed_line: &str) -> Option<&str> {
     let (_, rhs) = trimmed_line.split_once('=')?;
     Some(rhs.trim())
 }
 
-fn resource_field_reference(expression: &str) -> Option<&str> {
+pub(crate) fn resource_field_reference(expression: &str) -> Option<&str> {
     let first = expression.bytes().next()?;
 
     if first == b'"' || first.is_ascii_digit() || first.is_ascii_uppercase() {
@@ -12110,7 +12110,7 @@ fn resource_field_reference(expression: &str) -> Option<&str> {
     }
 }
 
-fn event_payload_reference_diagnostic(
+pub(crate) fn event_payload_reference_diagnostic(
     line_index: usize,
     line: &str,
     resource_name: &str,
@@ -12143,7 +12143,7 @@ fn event_payload_reference_diagnostic(
 }
 
 #[derive(Debug)]
-struct CanonicalCommandFacts {
+pub(crate) struct CanonicalCommandFacts {
     feature_name: Option<String>,
     name: String,
     line_index: usize,
@@ -12184,20 +12184,20 @@ impl CanonicalCommandFacts {
 }
 
 #[derive(Debug)]
-struct CommandRouteReference {
+pub(crate) struct CommandRouteReference {
     name: String,
     line_index: usize,
     line: String,
 }
 
 #[derive(Debug)]
-struct CommandShortInput {
+pub(crate) struct CommandShortInput {
     name: String,
     line_index: usize,
     line: String,
 }
 
-fn command_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn command_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let features = collect_canonical_feature_facts(source);
     let mut diagnostics = Vec::new();
     let mut current_feature: Option<String> = None;
@@ -12334,7 +12334,7 @@ fn command_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn command_diagnostics(
+pub(crate) fn command_diagnostics(
     command: CanonicalCommandFacts,
     features: &HashMap<String, CanonicalFeatureFacts>,
 ) -> Vec<Diagnostic> {
@@ -12458,7 +12458,7 @@ fn command_diagnostics(
     diagnostics
 }
 
-fn command_name(trimmed_line: &str) -> String {
+pub(crate) fn command_name(trimmed_line: &str) -> String {
     trimmed_line
         .split_whitespace()
         .nth(1)
@@ -12466,7 +12466,7 @@ fn command_name(trimmed_line: &str) -> String {
         .to_owned()
 }
 
-fn command_route_slot(trimmed_line: &str) -> Option<&str> {
+pub(crate) fn command_route_slot(trimmed_line: &str) -> Option<&str> {
     let mut parts = trimmed_line.split_whitespace();
     if parts.next()? != "route" {
         return None;
@@ -12475,7 +12475,7 @@ fn command_route_slot(trimmed_line: &str) -> Option<&str> {
     Some(parts.next()?.trim_end_matches(':'))
 }
 
-fn command_write_effect(trimmed_line: &str) -> Option<(&str, &str)> {
+pub(crate) fn command_write_effect(trimmed_line: &str) -> Option<(&str, &str)> {
     let mut parts = trimmed_line.split_whitespace();
     let effect = parts.next()?;
     if matches!(effect, "creates" | "updates" | "deletes") {
@@ -12485,7 +12485,7 @@ fn command_write_effect(trimmed_line: &str) -> Option<(&str, &str)> {
     }
 }
 
-fn command_short_input_fields(trimmed_line: &str) -> Option<Vec<String>> {
+pub(crate) fn command_short_input_fields(trimmed_line: &str) -> Option<Vec<String>> {
     let rest = trimmed_line.strip_prefix("input ")?;
     let fields: Vec<String> = rest
         .split(',')
@@ -12507,7 +12507,7 @@ fn command_short_input_fields(trimmed_line: &str) -> Option<Vec<String>> {
     }
 }
 
-fn route_references(line: &str) -> Vec<String> {
+pub(crate) fn route_references(line: &str) -> Vec<String> {
     let mut references = Vec::new();
     let mut rest = line;
 
@@ -12529,7 +12529,7 @@ fn route_references(line: &str) -> Vec<String> {
     references
 }
 
-fn input_references(line: &str) -> Vec<String> {
+pub(crate) fn input_references(line: &str) -> Vec<String> {
     let mut references = Vec::new();
     let mut rest = line;
 
@@ -12551,7 +12551,7 @@ fn input_references(line: &str) -> Vec<String> {
     references
 }
 
-fn command_policy_diagnostic(line_index: usize, line: &str, command_name: &str) -> Diagnostic {
+pub(crate) fn command_policy_diagnostic(line_index: usize, line: &str, command_name: &str) -> Diagnostic {
     Diagnostic {
         range: Range {
             start: Position {
@@ -12578,7 +12578,7 @@ fn command_policy_diagnostic(line_index: usize, line: &str, command_name: &str) 
     }
 }
 
-fn command_route_diagnostic(
+pub(crate) fn command_route_diagnostic(
     line_index: usize,
     line: &str,
     command_name: &str,
@@ -12610,7 +12610,7 @@ fn command_route_diagnostic(
     }
 }
 
-fn command_default_route_diagnostic(
+pub(crate) fn command_default_route_diagnostic(
     line_index: usize,
     line: &str,
     command_name: &str,
@@ -12641,7 +12641,7 @@ fn command_default_route_diagnostic(
     }
 }
 
-fn command_short_input_diagnostic(
+pub(crate) fn command_short_input_diagnostic(
     line_index: usize,
     line: &str,
     command_name: &str,
@@ -12674,7 +12674,7 @@ fn command_short_input_diagnostic(
     }
 }
 
-fn command_short_input_without_resource_diagnostic(
+pub(crate) fn command_short_input_without_resource_diagnostic(
     line_index: usize,
     line: &str,
     command_name: &str,
@@ -12706,7 +12706,7 @@ fn command_short_input_without_resource_diagnostic(
     }
 }
 
-fn command_short_input_ambiguous_resource_diagnostic(
+pub(crate) fn command_short_input_ambiguous_resource_diagnostic(
     line_index: usize,
     line: &str,
     command_name: &str,
@@ -12738,7 +12738,7 @@ fn command_short_input_ambiguous_resource_diagnostic(
     }
 }
 
-fn command_from_input_unconsumed_diagnostic(
+pub(crate) fn command_from_input_unconsumed_diagnostic(
     line_index: usize,
     line: &str,
     command_name: &str,
@@ -12771,7 +12771,7 @@ fn command_from_input_unconsumed_diagnostic(
     }
 }
 
-fn format_canonical_source(source: &str) -> Option<String> {
+pub(crate) fn format_canonical_source(source: &str) -> Option<String> {
     if !is_canonical_source(source) {
         return None;
     }
@@ -12816,13 +12816,13 @@ fn format_canonical_source(source: &str) -> Option<String> {
 }
 
 #[derive(Debug)]
-struct FeatureBlockSegment {
+pub(crate) struct FeatureBlockSegment {
     kind: Option<CanonicalBlockKind>,
     ordinal: usize,
     lines: Vec<String>,
 }
 
-fn format_feature_lines(lines: &[&str]) -> Vec<String> {
+pub(crate) fn format_feature_lines(lines: &[&str]) -> Vec<String> {
     let Some((first, rest)) = lines.split_first() else {
         return Vec::new();
     };
@@ -12896,7 +12896,7 @@ fn format_feature_lines(lines: &[&str]) -> Vec<String> {
     formatted
 }
 
-fn format_workflow_lines(lines: Vec<String>) -> Vec<String> {
+pub(crate) fn format_workflow_lines(lines: Vec<String>) -> Vec<String> {
     let mut formatted = Vec::new();
     let mut index = 0;
 
@@ -12927,7 +12927,7 @@ fn format_workflow_lines(lines: Vec<String>) -> Vec<String> {
     formatted
 }
 
-fn is_trivia_line(line: &str) -> bool {
+pub(crate) fn is_trivia_line(line: &str) -> bool {
     let trimmed = line.trim_start();
     trimmed.is_empty() || trimmed.starts_with('#')
 }
@@ -12936,7 +12936,7 @@ pub(crate) fn leading_spaces(line: &str) -> usize {
     line.bytes().take_while(|byte| *byte == b' ').count()
 }
 
-fn feature_name(trimmed_line: &str) -> String {
+pub(crate) fn feature_name(trimmed_line: &str) -> String {
     trimmed_line
         .split_whitespace()
         .nth(1)
@@ -12944,7 +12944,7 @@ fn feature_name(trimmed_line: &str) -> String {
         .to_owned()
 }
 
-fn range_from_span(source: &str, span: Span) -> Range {
+pub(crate) fn range_from_span(source: &str, span: Span) -> Range {
     let len = source.len();
     let start = span.start.min(len);
     let end = span.end.max(span.start.saturating_add(1)).min(len);
@@ -12955,7 +12955,7 @@ fn range_from_span(source: &str, span: Span) -> Range {
     }
 }
 
-fn first_line_range(source: &str) -> Range {
+pub(crate) fn first_line_range(source: &str) -> Range {
     let end = source.lines().next().map(str::len).unwrap_or(1).max(1);
     Range {
         start: Position {
@@ -12969,7 +12969,7 @@ fn first_line_range(source: &str) -> Range {
     }
 }
 
-fn full_document_range(source: &str) -> Range {
+pub(crate) fn full_document_range(source: &str) -> Range {
     Range {
         start: Position {
             line: 0,
@@ -12979,7 +12979,7 @@ fn full_document_range(source: &str) -> Range {
     }
 }
 
-fn position_for_offset(source: &str, offset: usize) -> Position {
+pub(crate) fn position_for_offset(source: &str, offset: usize) -> Position {
     let mut line = 0u32;
     let mut character = 0u32;
 
@@ -12999,7 +12999,7 @@ fn position_for_offset(source: &str, offset: usize) -> Position {
     Position { line, character }
 }
 
-fn word_at_position(source: &str, position: Position) -> Option<String> {
+pub(crate) fn word_at_position(source: &str, position: Position) -> Option<String> {
     let line = source.lines().nth(position.line as usize)?;
     let target = byte_index_for_utf16_position(line, position.character);
     let mut start = target.min(line.len());
@@ -13021,16 +13021,16 @@ fn word_at_position(source: &str, position: Position) -> Option<String> {
     }
 }
 
-fn is_word_byte(byte: u8) -> bool {
+pub(crate) fn is_word_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'.'
 }
 
-fn line_prefix_at_position(line: &str, character: u32) -> &str {
+pub(crate) fn line_prefix_at_position(line: &str, character: u32) -> &str {
     let byte_index = byte_index_for_utf16_position(line, character);
     &line[..byte_index]
 }
 
-fn byte_index_for_utf16_position(line: &str, character: u32) -> usize {
+pub(crate) fn byte_index_for_utf16_position(line: &str, character: u32) -> usize {
     let mut utf16 = 0u32;
     for (byte_index, ch) in line.char_indices() {
         if utf16 >= character {
@@ -13045,15 +13045,15 @@ fn byte_index_for_utf16_position(line: &str, character: u32) -> usize {
     line.len()
 }
 
-fn is_design_lzi_uri(uri: &Url) -> bool {
+pub(crate) fn is_design_lzi_uri(uri: &Url) -> bool {
     uri.path().ends_with("design.lzi")
 }
 
-fn is_lzx_uri(uri: &Url) -> bool {
+pub(crate) fn is_lzx_uri(uri: &Url) -> bool {
     uri.path().ends_with(".lzx")
 }
 
-fn design_keyword_completion_items() -> Vec<CompletionItem> {
+pub(crate) fn design_keyword_completion_items() -> Vec<CompletionItem> {
     DESIGN_KEYWORDS
         .iter()
         .map(|keyword| CompletionItem {
@@ -13082,7 +13082,7 @@ fn design_keyword_completion_items() -> Vec<CompletionItem> {
 /// - `max_size:<int>` → `kb`, `mb`, `gb`
 /// - `signed_ttl:<int>` → `s`, `m`, `h`, `d`
 /// - `accept:` → the seven IANA-top families (`text`, `image`, …, `*`)
-fn cap_file_value_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
+pub(crate) fn cap_file_value_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
     let line = source.lines().nth(position.line as usize)?;
     let cursor = (position.character as usize).min(line.len());
     let before = &line[..cursor];
@@ -13177,7 +13177,7 @@ fn cap_file_value_completions(source: &str, position: Position) -> Option<Vec<Co
 /// no FK fields are visible on the surrounding resource, returns
 /// `Some(vec![])` (the LSP suppresses the global keyword list in
 /// favour of the empty context-specific list rather than offering noise).
-fn owner_axis_through_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
+pub(crate) fn owner_axis_through_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
     let line = source.lines().nth(position.line as usize)?;
     let cursor = (position.character as usize).min(line.len());
     let before = &line[..cursor];
@@ -13358,7 +13358,7 @@ pub fn input_field_completions(source: &str, position: Position) -> Option<Vec<C
 
 /// Returns `Some(partial_identifier_text)` when the line prefix ends with
 /// `input.<partial>` (partial may be empty). Returns `None` otherwise.
-fn input_dot_trigger(before: &str) -> Option<&str> {
+pub(crate) fn input_dot_trigger(before: &str) -> Option<&str> {
     let dot = before.rfind("input.")?;
     let after_dot = &before[dot + "input.".len()..];
     if !after_dot
@@ -13382,7 +13382,7 @@ fn input_dot_trigger(before: &str) -> Option<&str> {
 /// `command <name>` header, then walk forward gathering its `route` slot
 /// names (in source order) and `input` field names (short + typed). Stops
 /// at the next sibling/parent block.
-fn collect_command_input_and_route_params(
+pub(crate) fn collect_command_input_and_route_params(
     source: &str,
     position: Position,
 ) -> Option<(Vec<String>, Vec<String>)> {
@@ -13491,7 +13491,7 @@ fn collect_command_input_and_route_params(
     Some((route_params, input_fields))
 }
 
-fn design_keyword_description(keyword: &str) -> Option<&'static str> {
+pub(crate) fn design_keyword_description(keyword: &str) -> Option<&'static str> {
     match keyword {
         "design" => Some(
             "Declares the project-root design token catalog. See `docs/proposals/design-tokens.md`.",
@@ -13578,7 +13578,7 @@ fn design_keyword_description(keyword: &str) -> Option<&'static str> {
 /// The kind matcher is forgiving: any line whose first non-space token
 /// starts with one of these prefixes (e.g. `command capture_lead`)
 /// counts as the matching block.
-const KIND_CHILD_COMPLETIONS: &[(&str, &[&str])] = &[
+pub(crate) const KIND_CHILD_COMPLETIONS: &[(&str, &[&str])] = &[
     (
         "command",
         &[
@@ -13705,13 +13705,13 @@ const KIND_CHILD_COMPLETIONS: &[(&str, &[&str])] = &[
 /// cursor is positioned where an effect would go inside a `command`.
 /// `returns` is the non-mutating sibling shipped on commands like the
 /// `smoke-hello` fixture's `greet` command.
-const EFFECT_VERBS: &[&str] = &["creates", "updates", "deletes", "returns"];
+pub(crate) const EFFECT_VERBS: &[&str] = &["creates", "updates", "deletes", "returns"];
 
 /// Closed catalog of `rate_limit` axis tokens for the
 /// `"<N> per <window> per <axis>"` grammar. Surfaced inside double
 /// quotes after `per` so authors / LLMs see the closed set instead of
 /// guessing tenant-style words.
-const RATE_LIMIT_AXES: &[&str] = &["ip", "user", "org", "tenant"];
+pub(crate) const RATE_LIMIT_AXES: &[&str] = &["ip", "user", "org", "tenant"];
 
 /// Detect which kind block the cursor is in by walking the source
 /// backwards from `position.line` looking for the closest header line
@@ -13724,7 +13724,7 @@ const RATE_LIMIT_AXES: &[&str] = &["ip", "user", "org", "tenant"];
 /// shallower indent wins. This handles the canonical Lazurite layout
 /// where `command capture_lead` sits at indent 2 inside a feature and
 /// its children at indent 4.
-fn block_kind_at(source: &str, position: Position) -> Option<&'static str> {
+pub(crate) fn block_kind_at(source: &str, position: Position) -> Option<&'static str> {
     let lines: Vec<&str> = source.lines().collect();
     let cursor_line_idx = position.line as usize;
     if cursor_line_idx >= lines.len() {
@@ -13777,7 +13777,7 @@ fn block_kind_at(source: &str, position: Position) -> Option<&'static str> {
 ///    `ENUM_MEMBER` so editors render them distinctly.
 /// 3. Inside a `rate_limit "..."` value after the second `per ` —
 ///    offers the closed axis catalog (`ip`/`user`/`org`/`tenant`).
-fn context_aware_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
+pub(crate) fn context_aware_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
     let line = source.lines().nth(position.line as usize)?;
     let before = line_prefix_at_position(line, position.character);
 
@@ -13887,7 +13887,7 @@ fn context_aware_completions(source: &str, position: Position) -> Option<Vec<Com
 }
 
 
-fn convention_bundle_hover(source: &str, position: Position, word: &str) -> Option<String> {
+pub(crate) fn convention_bundle_hover(source: &str, position: Position, word: &str) -> Option<String> {
     let bundle = match word {
         "crud" | "me" => word,
         _ => return None,
@@ -13918,7 +13918,7 @@ fn convention_bundle_hover(source: &str, position: Position, word: &str) -> Opti
     Some(lines.join("\n"))
 }
 
-fn is_inside_conventions_list(source: &str, position: Position) -> bool {
+pub(crate) fn is_inside_conventions_list(source: &str, position: Position) -> bool {
     let Some(line) = source.lines().nth(position.line as usize) else {
         return false;
     };
@@ -13937,14 +13937,14 @@ fn is_inside_conventions_list(source: &str, position: Position) -> bool {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct AuthSessionsBlock {
+pub(crate) struct AuthSessionsBlock {
     line_idx: usize,
     indent: usize,
     end_line: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
-struct AuthRotationBlock {
+pub(crate) struct AuthRotationBlock {
     line_idx: usize,
     indent: usize,
 }
@@ -14001,7 +14001,7 @@ pub fn auth_refresh_completions(source: &str, position: Position) -> Option<Vec<
     None
 }
 
-fn after_keyword_value_prefix(trimmed_before: &str, keyword: &str) -> bool {
+pub(crate) fn after_keyword_value_prefix(trimmed_before: &str, keyword: &str) -> bool {
     let Some(rest) = trimmed_before.strip_prefix(keyword) else {
         return false;
     };
@@ -14012,7 +14012,7 @@ fn after_keyword_value_prefix(trimmed_before: &str, keyword: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '"' || c == ' ')
 }
 
-fn duration_literal_completion_items(values: &[&str]) -> Vec<CompletionItem> {
+pub(crate) fn duration_literal_completion_items(values: &[&str]) -> Vec<CompletionItem> {
     values
         .iter()
         .map(|value| CompletionItem {
@@ -14025,7 +14025,7 @@ fn duration_literal_completion_items(values: &[&str]) -> Vec<CompletionItem> {
         .collect()
 }
 
-fn auth_refresh_theft_action_completion_items() -> Vec<CompletionItem> {
+pub(crate) fn auth_refresh_theft_action_completion_items() -> Vec<CompletionItem> {
     AUTH_REFRESH_THEFT_ACTION_VALUES
         .iter()
         .map(|value| CompletionItem {
@@ -14037,7 +14037,7 @@ fn auth_refresh_theft_action_completion_items() -> Vec<CompletionItem> {
         .collect()
 }
 
-fn rotation_block_snippet_completion(line_indent: usize) -> CompletionItem {
+pub(crate) fn rotation_block_snippet_completion(line_indent: usize) -> CompletionItem {
     let child_indent = " ".repeat(line_indent + 2);
     CompletionItem {
         label: "scaffold rotation block".to_owned(),
@@ -14054,7 +14054,7 @@ fn rotation_block_snippet_completion(line_indent: usize) -> CompletionItem {
     }
 }
 
-fn auth_refresh_rotation_clause_completion_items() -> Vec<CompletionItem> {
+pub(crate) fn auth_refresh_rotation_clause_completion_items() -> Vec<CompletionItem> {
     [
         (
             "refresh_ttl \"30 days\"",
@@ -14084,7 +14084,7 @@ fn auth_refresh_rotation_clause_completion_items() -> Vec<CompletionItem> {
     .collect()
 }
 
-fn enclosing_auth_sessions_block(source: &str, position: Position) -> Option<AuthSessionsBlock> {
+pub(crate) fn enclosing_auth_sessions_block(source: &str, position: Position) -> Option<AuthSessionsBlock> {
     let lines: Vec<&str> = source.lines().collect();
     if lines.is_empty() {
         return None;
@@ -14114,7 +14114,7 @@ fn enclosing_auth_sessions_block(source: &str, position: Position) -> Option<Aut
     None
 }
 
-fn enclosing_auth_rotation_block(source: &str, position: Position) -> Option<AuthRotationBlock> {
+pub(crate) fn enclosing_auth_rotation_block(source: &str, position: Position) -> Option<AuthRotationBlock> {
     let lines: Vec<&str> = source.lines().collect();
     if lines.is_empty() {
         return None;
@@ -14151,15 +14151,15 @@ fn enclosing_auth_rotation_block(source: &str, position: Position) -> Option<Aut
     None
 }
 
-fn is_sessions_line(trimmed: &str) -> bool {
+pub(crate) fn is_sessions_line(trimmed: &str) -> bool {
     trimmed.split_whitespace().next() == Some("sessions")
 }
 
-fn is_rotation_line(trimmed: &str) -> bool {
+pub(crate) fn is_rotation_line(trimmed: &str) -> bool {
     trimmed.split_whitespace().next() == Some("rotation")
 }
 
-fn has_auth_parent(lines: &[&str], line_idx: usize, child_indent: usize) -> bool {
+pub(crate) fn has_auth_parent(lines: &[&str], line_idx: usize, child_indent: usize) -> bool {
     for idx in (0..line_idx).rev() {
         let line = lines[idx];
         if is_trivia_line(line) {
@@ -14174,7 +14174,7 @@ fn has_auth_parent(lines: &[&str], line_idx: usize, child_indent: usize) -> bool
     false
 }
 
-fn block_end_line(lines: &[&str], start_idx: usize, block_indent: usize) -> usize {
+pub(crate) fn block_end_line(lines: &[&str], start_idx: usize, block_indent: usize) -> usize {
     for idx in (start_idx + 1)..lines.len() {
         let line = lines[idx];
         if is_trivia_line(line) {
@@ -14187,7 +14187,7 @@ fn block_end_line(lines: &[&str], start_idx: usize, block_indent: usize) -> usiz
     lines.len()
 }
 
-fn auth_sessions_has_child(source: &str, block: AuthSessionsBlock, keyword: &str) -> bool {
+pub(crate) fn auth_sessions_has_child(source: &str, block: AuthSessionsBlock, keyword: &str) -> bool {
     let lines: Vec<&str> = source.lines().collect();
     for idx in (block.line_idx + 1)..block.end_line.min(lines.len()) {
         let line = lines[idx];
@@ -14201,7 +14201,7 @@ fn auth_sessions_has_child(source: &str, block: AuthSessionsBlock, keyword: &str
     false
 }
 
-fn auth_rotation_has_children(source: &str, rotation: AuthRotationBlock) -> bool {
+pub(crate) fn auth_rotation_has_children(source: &str, rotation: AuthRotationBlock) -> bool {
     let lines: Vec<&str> = source.lines().collect();
     for idx in (rotation.line_idx + 1)..lines.len() {
         let line = lines[idx];
@@ -14217,7 +14217,7 @@ fn auth_rotation_has_children(source: &str, rotation: AuthRotationBlock) -> bool
     false
 }
 
-fn error_page_value_completions(
+pub(crate) fn error_page_value_completions(
     source: &str,
     position: Position,
     before_cursor: &str,
@@ -14276,7 +14276,7 @@ fn error_page_value_completions(
 ///   tokens used anywhere in the policies block (declared catalogs
 ///   live in `app.lzi` policy blocks; the LSP file-locally surfaces
 ///   what appears in this document).
-fn namespace_prefix_completions(source: &str, before_cursor: &str) -> Option<Vec<CompletionItem>> {
+pub(crate) fn namespace_prefix_completions(source: &str, before_cursor: &str) -> Option<Vec<CompletionItem>> {
     // The token under construction is the run of word chars at the
     // end of `before_cursor`; everything before it should end with
     // `@<ns>.`.
@@ -14323,7 +14323,7 @@ fn namespace_prefix_completions(source: &str, before_cursor: &str) -> Option<Vec
 /// Collect declared names for a closed-namespace prefix by scanning
 /// the document. Cheap text-based scan rather than a full IR walk —
 /// matches the existing LSP convention used elsewhere in this crate.
-fn collect_namespace_names(source: &str, ns: &str) -> Vec<String> {
+pub(crate) fn collect_namespace_names(source: &str, ns: &str) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
     let lines: Vec<&str> = source.lines().collect();
@@ -14433,21 +14433,21 @@ fn collect_namespace_names(source: &str, ns: &str) -> Vec<String> {
 
 // ── IR Route-Guards — LSP completion / hover / code actions ────────────────
 
-const ROUTE_GUARD_DEFAULT_CLAUSES: &[&str] = &[
+pub(crate) const ROUTE_GUARD_DEFAULT_CLAUSES: &[&str] = &[
     "default_policy",
     "default_unauthenticated_redirect",
     "default_unauthorized_redirect",
 ];
 
 #[derive(Debug, Clone)]
-struct RouteGuardBlock {
+pub(crate) struct RouteGuardBlock {
     header_line: usize,
     header_indent: usize,
     end_line: usize,
 }
 
 #[derive(Debug, Clone)]
-struct RouteGuardViewBlock {
+pub(crate) struct RouteGuardViewBlock {
     header_line: usize,
     header_indent: usize,
     end_line: usize,
@@ -14564,7 +14564,7 @@ pub fn route_guard_completions(source: &str, position: Position) -> Option<Vec<C
     None
 }
 
-fn route_guard_redirect_path_trigger(trimmed_before: &str) -> Option<&'static str> {
+pub(crate) fn route_guard_redirect_path_trigger(trimmed_before: &str) -> Option<&'static str> {
     let triggers = [
         "on_unauthenticated redirect ",
         "on_unauthorized redirect ",
@@ -14576,13 +14576,13 @@ fn route_guard_redirect_path_trigger(trimmed_before: &str) -> Option<&'static st
         .find(|trigger| trimmed_before.starts_with(trigger))
 }
 
-fn redirect_trigger_has_open_quote(trimmed_before: &str) -> bool {
+pub(crate) fn redirect_trigger_has_open_quote(trimmed_before: &str) -> bool {
     route_guard_redirect_path_trigger(trimmed_before)
         .map(|trigger| trimmed_before[trigger.len()..].starts_with('"'))
         .unwrap_or(false)
 }
 
-fn route_path_completion_items(source: &str, open_quote: bool) -> Vec<CompletionItem> {
+pub(crate) fn route_path_completion_items(source: &str, open_quote: bool) -> Vec<CompletionItem> {
     collect_route_paths(source)
         .into_iter()
         .map(|path| CompletionItem {
@@ -14599,7 +14599,7 @@ fn route_path_completion_items(source: &str, open_quote: bool) -> Vec<Completion
         .collect()
 }
 
-fn query_ref_completion_items(source: &str) -> Vec<CompletionItem> {
+pub(crate) fn query_ref_completion_items(source: &str) -> Vec<CompletionItem> {
     collect_query_refs(source)
         .into_iter()
         .map(|query_ref| CompletionItem {
@@ -14611,7 +14611,7 @@ fn query_ref_completion_items(source: &str) -> Vec<CompletionItem> {
         .collect()
 }
 
-fn policy_ref_completion_items(
+pub(crate) fn policy_ref_completion_items(
     source: &str,
     feature_hint: Option<&str>,
     include_atom_prefixes: bool,
@@ -14640,7 +14640,7 @@ fn policy_ref_completion_items(
     items
 }
 
-fn route_guard_default_clause_completion_items() -> Vec<CompletionItem> {
+pub(crate) fn route_guard_default_clause_completion_items() -> Vec<CompletionItem> {
     ROUTE_GUARD_DEFAULT_CLAUSES
         .iter()
         .map(|clause| match *clause {
@@ -14664,7 +14664,7 @@ fn route_guard_default_clause_completion_items() -> Vec<CompletionItem> {
         .collect()
 }
 
-fn snippet_completion(label: &str, body: &str, detail: &str) -> CompletionItem {
+pub(crate) fn snippet_completion(label: &str, body: &str, detail: &str) -> CompletionItem {
     CompletionItem {
         label: label.to_owned(),
         kind: Some(CompletionItemKind::SNIPPET),
@@ -14724,7 +14724,7 @@ pub fn route_guard_hover(source: &str, position: Position, word: &str) -> Option
     }
 }
 
-fn route_guard_policy_ref_hover(source: &str, position: Position, word: &str) -> Option<String> {
+pub(crate) fn route_guard_policy_ref_hover(source: &str, position: Position, word: &str) -> Option<String> {
     let line = source.lines().nth(position.line as usize).unwrap_or("");
     let policy_ref = format!("@{word}");
     if !line.contains(&policy_ref) || !in_view_or_audience_guard_context(source, position) {
@@ -14803,7 +14803,7 @@ pub fn route_guard_code_actions(
     actions
 }
 
-fn collect_route_paths(source: &str) -> Vec<String> {
+pub(crate) fn collect_route_paths(source: &str) -> Vec<String> {
     let mut paths = Vec::new();
     let mut seen = HashSet::new();
     for line in source.lines() {
@@ -14822,14 +14822,14 @@ fn collect_route_paths(source: &str) -> Vec<String> {
 
 
 
-fn first_quoted_value(value: &str) -> Option<String> {
+pub(crate) fn first_quoted_value(value: &str) -> Option<String> {
     let open = value.find('"')?;
     let rest = &value[open + 1..];
     let close = rest.find('"')?;
     Some(rest[..close].to_owned())
 }
 
-fn route_guard_context_feature(source: &str, position: Position) -> Option<String> {
+pub(crate) fn route_guard_context_feature(source: &str, position: Position) -> Option<String> {
     let lines: Vec<&str> = source.lines().collect();
     let cursor_line_idx = (position.line as usize).min(lines.len().saturating_sub(1));
     for idx in (0..=cursor_line_idx).rev() {
@@ -14852,7 +14852,7 @@ fn route_guard_context_feature(source: &str, position: Position) -> Option<Strin
     None
 }
 
-fn in_app_body_context(source: &str, position: Position) -> bool {
+pub(crate) fn in_app_body_context(source: &str, position: Position) -> bool {
     let lines: Vec<&str> = source.lines().collect();
     let cursor_line_idx = (position.line as usize).min(lines.len().saturating_sub(1));
     let cursor_line = lines.get(cursor_line_idx).copied().unwrap_or("");
@@ -14874,12 +14874,12 @@ fn in_app_body_context(source: &str, position: Position) -> bool {
     false
 }
 
-fn at_app_child_completion_line(source: &str, position: Position) -> bool {
+pub(crate) fn at_app_child_completion_line(source: &str, position: Position) -> bool {
     let line = source.lines().nth(position.line as usize).unwrap_or("");
     leading_spaces(line) == 2 && in_app_body_context(source, position)
 }
 
-fn in_app_route_guard_block(source: &str, position: Position) -> Option<RouteGuardBlock> {
+pub(crate) fn in_app_route_guard_block(source: &str, position: Position) -> Option<RouteGuardBlock> {
     let block = app_route_guard_block(source)?;
     let line_idx = position.line as usize;
     let line = source.lines().nth(line_idx).unwrap_or("");
@@ -14891,7 +14891,7 @@ fn in_app_route_guard_block(source: &str, position: Position) -> Option<RouteGua
     }
 }
 
-fn app_route_guard_block(source: &str) -> Option<RouteGuardBlock> {
+pub(crate) fn app_route_guard_block(source: &str) -> Option<RouteGuardBlock> {
     let lines: Vec<&str> = source.lines().collect();
     for (idx, line) in lines.iter().enumerate() {
         let trimmed = line.trim_start();
@@ -14908,7 +14908,7 @@ fn app_route_guard_block(source: &str) -> Option<RouteGuardBlock> {
     None
 }
 
-fn in_view_or_audience_guard_context(source: &str, position: Position) -> bool {
+pub(crate) fn in_view_or_audience_guard_context(source: &str, position: Position) -> bool {
     let line = source.lines().nth(position.line as usize).unwrap_or("");
     let trimmed = line.trim_start();
     if trimmed.starts_with("policy ") {
@@ -14919,7 +14919,7 @@ fn in_view_or_audience_guard_context(source: &str, position: Position) -> bool {
         || enclosing_audience_block(source, position).is_some()
 }
 
-fn in_guard_policy_child_context(source: &str, position: Position) -> bool {
+pub(crate) fn in_guard_policy_child_context(source: &str, position: Position) -> bool {
     let lines: Vec<&str> = source.lines().collect();
     let cursor_line_idx = (position.line as usize).min(lines.len().saturating_sub(1));
     let cursor_line = lines.get(cursor_line_idx).copied().unwrap_or("");
@@ -14946,15 +14946,15 @@ fn in_guard_policy_child_context(source: &str, position: Position) -> bool {
     false
 }
 
-fn enclosing_view_block(source: &str, position: Position) -> Option<RouteGuardViewBlock> {
+pub(crate) fn enclosing_view_block(source: &str, position: Position) -> Option<RouteGuardViewBlock> {
     enclosing_named_block(source, position, "view")
 }
 
-fn enclosing_audience_block(source: &str, position: Position) -> Option<RouteGuardViewBlock> {
+pub(crate) fn enclosing_audience_block(source: &str, position: Position) -> Option<RouteGuardViewBlock> {
     enclosing_named_block(source, position, "audience")
 }
 
-fn enclosing_named_block(
+pub(crate) fn enclosing_named_block(
     source: &str,
     position: Position,
     keyword: &str,
@@ -14999,7 +14999,7 @@ fn enclosing_named_block(
     None
 }
 
-fn find_block_end(lines: &[&str], header_line: usize, header_indent: usize) -> usize {
+pub(crate) fn find_block_end(lines: &[&str], header_line: usize, header_indent: usize) -> usize {
     for (idx, line) in lines.iter().enumerate().skip(header_line + 1) {
         let trimmed = line.trim_start();
         if trimmed.is_empty() || trimmed.starts_with('#') {
@@ -15012,7 +15012,7 @@ fn find_block_end(lines: &[&str], header_line: usize, header_indent: usize) -> u
     lines.len()
 }
 
-fn resolve_policy_atoms(
+pub(crate) fn resolve_policy_atoms(
     source: &str,
     feature_hint: Option<&str>,
     policy_ref: &str,
@@ -15077,7 +15077,7 @@ fn resolve_policy_atoms(
     None
 }
 
-fn route_guard_backend_alignment(source: &str, position: Position, policy_ref: &str) -> String {
+pub(crate) fn route_guard_backend_alignment(source: &str, position: Position, policy_ref: &str) -> String {
     let Some(view) = enclosing_view_block(source, position) else {
         return "No enclosing view found.".to_owned();
     };
@@ -15106,7 +15106,7 @@ fn route_guard_backend_alignment(source: &str, position: Position, policy_ref: &
     }
 }
 
-fn hosted_backend_refs_for_view(source: &str, view: &RouteGuardViewBlock) -> Vec<String> {
+pub(crate) fn hosted_backend_refs_for_view(source: &str, view: &RouteGuardViewBlock) -> Vec<String> {
     let lines: Vec<&str> = source.lines().collect();
     let mut refs = Vec::new();
     for line in lines.iter().take(view.end_line).skip(view.header_line + 1) {
@@ -15124,7 +15124,7 @@ fn hosted_backend_refs_for_view(source: &str, view: &RouteGuardViewBlock) -> Vec
     refs
 }
 
-fn backend_policy_for_ref(source: &str, backend_ref: &str) -> Option<String> {
+pub(crate) fn backend_policy_for_ref(source: &str, backend_ref: &str) -> Option<String> {
     let parts: Vec<&str> = backend_ref.split('.').collect();
     if parts.len() != 3 {
         return None;
@@ -15179,7 +15179,7 @@ fn backend_policy_for_ref(source: &str, backend_ref: &str) -> Option<String> {
     None
 }
 
-fn build_scaffold_view_guard_action(
+pub(crate) fn build_scaffold_view_guard_action(
     source: &str,
     uri: &Url,
     view_line_idx: usize,
@@ -15228,7 +15228,7 @@ fn build_scaffold_view_guard_action(
     ))
 }
 
-fn view_has_policy(source: &str, view: &RouteGuardViewBlock) -> bool {
+pub(crate) fn view_has_policy(source: &str, view: &RouteGuardViewBlock) -> bool {
     let lines: Vec<&str> = source.lines().collect();
     lines
         .iter()
@@ -15240,7 +15240,7 @@ fn view_has_policy(source: &str, view: &RouteGuardViewBlock) -> bool {
         })
 }
 
-fn view_guard_insertion_line(source: &str, view: &RouteGuardViewBlock) -> usize {
+pub(crate) fn view_guard_insertion_line(source: &str, view: &RouteGuardViewBlock) -> usize {
     let lines: Vec<&str> = source.lines().collect();
     for (idx, line) in lines
         .iter()
@@ -15256,7 +15256,7 @@ fn view_guard_insertion_line(source: &str, view: &RouteGuardViewBlock) -> usize 
     view.header_line + 1
 }
 
-fn build_promote_redirect_default_action(
+pub(crate) fn build_promote_redirect_default_action(
     source: &str,
     uri: &Url,
     line_idx: usize,
@@ -15287,7 +15287,7 @@ fn build_promote_redirect_default_action(
     ))
 }
 
-fn count_view_redirects(source: &str, keyword: &str, path: &str) -> usize {
+pub(crate) fn count_view_redirects(source: &str, keyword: &str, path: &str) -> usize {
     source
         .lines()
         .filter(|line| {
@@ -15298,7 +15298,7 @@ fn count_view_redirects(source: &str, keyword: &str, path: &str) -> usize {
         .count()
 }
 
-fn app_route_guard_has_default(source: &str, default_keyword: &str) -> bool {
+pub(crate) fn app_route_guard_has_default(source: &str, default_keyword: &str) -> bool {
     let Some(block) = app_route_guard_block(source) else {
         return false;
     };
@@ -15309,7 +15309,7 @@ fn app_route_guard_has_default(source: &str, default_keyword: &str) -> bool {
         .any(|line| line.trim_start().starts_with(default_keyword))
 }
 
-fn insert_route_guard_default_edit(
+pub(crate) fn insert_route_guard_default_edit(
     source: &str,
     default_keyword: &str,
     path: &str,
@@ -15335,7 +15335,7 @@ fn insert_route_guard_default_edit(
     })
 }
 
-fn build_scaffold_route_guard_defaults_action(source: &str, uri: &Url) -> Option<CodeAction> {
+pub(crate) fn build_scaffold_route_guard_defaults_action(source: &str, uri: &Url) -> Option<CodeAction> {
     let edit = if let Some(block) = app_route_guard_block(source) {
         TextEdit {
             range: Range {
@@ -15365,7 +15365,7 @@ fn build_scaffold_route_guard_defaults_action(source: &str, uri: &Url) -> Option
     ))
 }
 
-fn build_insert_actor_query_action(source: &str, uri: &Url) -> Option<CodeAction> {
+pub(crate) fn build_insert_actor_query_action(source: &str, uri: &Url) -> Option<CodeAction> {
     let insertion_line = app_route_guard_block(source)
         .map(|block| block.header_line)
         .unwrap_or(app_header_line(source)? + 1);
@@ -15385,24 +15385,24 @@ fn build_insert_actor_query_action(source: &str, uri: &Url) -> Option<CodeAction
     ))
 }
 
-fn has_actor_query(source: &str) -> bool {
+pub(crate) fn has_actor_query(source: &str) -> bool {
     source
         .lines()
         .any(|line| line.trim_start().starts_with("actor_query "))
 }
 
-fn route_guard_has_default_redirects(source: &str) -> bool {
+pub(crate) fn route_guard_has_default_redirects(source: &str) -> bool {
     let (unauthenticated, unauthorized) = route_guard_default_redirects(source);
     unauthenticated.is_some() || unauthorized.is_some()
 }
 
-fn app_header_line(source: &str) -> Option<usize> {
+pub(crate) fn app_header_line(source: &str) -> Option<usize> {
     source
         .lines()
         .position(|line| leading_spaces(line) == 0 && line.trim_start().starts_with("app "))
 }
 
-fn route_guard_default_redirects(source: &str) -> (Option<String>, Option<String>) {
+pub(crate) fn route_guard_default_redirects(source: &str) -> (Option<String>, Option<String>) {
     let Some(block) = app_route_guard_block(source) else {
         return (None, None);
     };
@@ -15427,7 +15427,7 @@ fn route_guard_default_redirects(source: &str) -> (Option<String>, Option<String
     (unauthenticated, unauthorized)
 }
 
-fn simple_edit_action(
+pub(crate) fn simple_edit_action(
     uri: &Url,
     title: &str,
     kind: CodeActionKind,
@@ -15457,28 +15457,28 @@ fn simple_edit_action(
 pub(crate) const LIFECYCLE_REQUIRES_HOVER: &str = "Gate this view on the actor's `<Resource>.lifecycle_state`. Codegen emits a TanStack `beforeLoad` that fetches the source query and redirects via `@resume` on mismatch.";
 pub(crate) const LIFECYCLE_PENDING_HOVER: &str = "Name of the `resume <name>` block to redirect through when `requires_lifecycle` doesn't match.";
 pub(crate) const LIFECYCLE_RESUME_HOVER: &str = "Block declaring how to route a user whose lifecycle state of a particular resource is mid-flow.";
-const LIFECYCLE_SOURCE_QUERY_HOVER: &str = "The lookup query that fetches the actor's row of the resource. Must return a single record OR not-found (404).";
-const LIFECYCLE_NONE_HOVER: &str =
+pub(crate) const LIFECYCLE_SOURCE_QUERY_HOVER: &str = "The lookup query that fetches the actor's row of the resource. Must return a single record OR not-found (404).";
+pub(crate) const LIFECYCLE_NONE_HOVER: &str =
     "Arm matched when the source query returns 404 (the actor's row doesn't exist yet).";
-const LIFECYCLE_WILDCARD_HOVER: &str = "Catch-all arm. Matches any state not explicitly listed. Required when `resume` arms don't cover every state in the lifecycle, OR for forward-compatibility.";
-const LIFECYCLE_ARROW_HOVER: &str = "Arrow token mapping a lifecycle state arm to a target view in a `resume` block. Both Unicode `→` and ASCII `->` accepted.";
+pub(crate) const LIFECYCLE_WILDCARD_HOVER: &str = "Catch-all arm. Matches any state not explicitly listed. Required when `resume` arms don't cover every state in the lifecycle, OR for forward-compatibility.";
+pub(crate) const LIFECYCLE_ARROW_HOVER: &str = "Arrow token mapping a lifecycle state arm to a target view in a `resume` block. Both Unicode `→` and ASCII `->` accepted.";
 
 #[derive(Debug, Clone)]
-struct LifecycleResourceInfo {
+pub(crate) struct LifecycleResourceInfo {
     feature: Option<String>,
     name: String,
     states: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
-struct LifecycleLookupQueryInfo {
+pub(crate) struct LifecycleLookupQueryInfo {
     feature: String,
     name: String,
     returns: Option<String>,
 }
 
 #[derive(Debug, Clone)]
-struct LifecycleResumeBlock {
+pub(crate) struct LifecycleResumeBlock {
     name: String,
     feature_hint: Option<String>,
     header_line: usize,
@@ -15489,7 +15489,7 @@ struct LifecycleResumeBlock {
 }
 
 #[derive(Debug, Clone)]
-struct LifecycleResumeArm {
+pub(crate) struct LifecycleResumeArm {
     state: String,
     line: usize,
 }
@@ -15584,7 +15584,7 @@ pub fn lifecycle_gate_completions(source: &str, position: Position) -> Option<Ve
     None
 }
 
-fn lifecycle_keyword_completion(label: &str, insert_text: &str, detail: &str) -> CompletionItem {
+pub(crate) fn lifecycle_keyword_completion(label: &str, insert_text: &str, detail: &str) -> CompletionItem {
     CompletionItem {
         label: label.to_owned(),
         kind: Some(CompletionItemKind::KEYWORD),
@@ -15595,7 +15595,7 @@ fn lifecycle_keyword_completion(label: &str, insert_text: &str, detail: &str) ->
     }
 }
 
-fn lifecycle_reference_completion(label: String, detail: &str) -> CompletionItem {
+pub(crate) fn lifecycle_reference_completion(label: String, detail: &str) -> CompletionItem {
     CompletionItem {
         label,
         kind: Some(CompletionItemKind::REFERENCE),
@@ -15604,12 +15604,12 @@ fn lifecycle_reference_completion(label: String, detail: &str) -> CompletionItem
     }
 }
 
-fn lifecycle_identifier_prefix(rest: &str) -> bool {
+pub(crate) fn lifecycle_identifier_prefix(rest: &str) -> bool {
     rest.chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
 }
 
-fn requires_lifecycle_state_trigger(trimmed_before: &str) -> Option<&str> {
+pub(crate) fn requires_lifecycle_state_trigger(trimmed_before: &str) -> Option<&str> {
     let rest = trimmed_before.strip_prefix("requires_lifecycle ")?;
     let (resource, value_part) = rest.split_once('=')?;
     let resource = resource.trim();
@@ -15631,7 +15631,7 @@ fn requires_lifecycle_state_trigger(trimmed_before: &str) -> Option<&str> {
     }
 }
 
-fn lifecycle_resource_completion_items(
+pub(crate) fn lifecycle_resource_completion_items(
     source: &str,
     feature_hint: Option<&str>,
 ) -> Vec<CompletionItem> {
@@ -15649,7 +15649,7 @@ fn lifecycle_resource_completion_items(
         .collect()
 }
 
-fn lifecycle_state_completion_items(
+pub(crate) fn lifecycle_state_completion_items(
     source: &str,
     feature_hint: Option<&str>,
     resource_name: &str,
@@ -15670,7 +15670,7 @@ fn lifecycle_state_completion_items(
         .unwrap_or_default()
 }
 
-fn lifecycle_resume_completion_items(
+pub(crate) fn lifecycle_resume_completion_items(
     source: &str,
     feature_hint: Option<&str>,
 ) -> Vec<CompletionItem> {
@@ -15687,7 +15687,7 @@ fn lifecycle_resume_completion_items(
         .collect()
 }
 
-fn lifecycle_lookup_query_completion_items(
+pub(crate) fn lifecycle_lookup_query_completion_items(
     source: &str,
     feature_hint: Option<&str>,
 ) -> Vec<CompletionItem> {
@@ -15701,7 +15701,7 @@ fn lifecycle_lookup_query_completion_items(
         .collect()
 }
 
-fn lifecycle_view_completion_items(
+pub(crate) fn lifecycle_view_completion_items(
     source: &str,
     feature_hint: Option<&str>,
 ) -> Vec<CompletionItem> {
@@ -15711,7 +15711,7 @@ fn lifecycle_view_completion_items(
         .collect()
 }
 
-fn lifecycle_resume_arm_completion_items(
+pub(crate) fn lifecycle_resume_arm_completion_items(
     source: &str,
     resume: &LifecycleResumeBlock,
 ) -> Vec<CompletionItem> {
@@ -15744,7 +15744,7 @@ fn lifecycle_resume_arm_completion_items(
     items
 }
 
-fn lifecycle_scoped_label(
+pub(crate) fn lifecycle_scoped_label(
     context_feature: Option<&str>,
     item_feature: Option<&str>,
     name: &str,
@@ -15756,7 +15756,7 @@ fn lifecycle_scoped_label(
     }
 }
 
-fn resume_header_source_trigger(
+pub(crate) fn resume_header_source_trigger(
     trimmed_before: &str,
     resume: &LifecycleResumeBlock,
     position: Position,
@@ -15773,7 +15773,7 @@ fn resume_header_source_trigger(
                 .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.'))
 }
 
-fn resume_arm_start_trigger(
+pub(crate) fn resume_arm_start_trigger(
     source: &str,
     before: &str,
     resume: &LifecycleResumeBlock,
@@ -15795,7 +15795,7 @@ fn resume_arm_start_trigger(
                 .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '*'))
 }
 
-fn resume_arm_view_keyword_trigger(trimmed_before: &str, resume: &LifecycleResumeBlock) -> bool {
+pub(crate) fn resume_arm_view_keyword_trigger(trimmed_before: &str, resume: &LifecycleResumeBlock) -> bool {
     let state = trimmed_before.split_whitespace().next().unwrap_or("");
     if !lifecycle_resume_arm_state_known(state, resume) {
         return false;
@@ -15812,7 +15812,7 @@ fn resume_arm_view_keyword_trigger(trimmed_before: &str, resume: &LifecycleResum
     false
 }
 
-fn resume_arm_view_target_trigger(trimmed_before: &str) -> bool {
+pub(crate) fn resume_arm_view_target_trigger(trimmed_before: &str) -> bool {
     let Some(after_arrow) = lifecycle_after_arrow(trimmed_before) else {
         return false;
     };
@@ -15824,7 +15824,7 @@ fn resume_arm_view_target_trigger(trimmed_before: &str) -> bool {
         .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
 }
 
-fn lifecycle_after_arrow(trimmed_before: &str) -> Option<&str> {
+pub(crate) fn lifecycle_after_arrow(trimmed_before: &str) -> Option<&str> {
     if let Some(index) = trimmed_before.rfind("->") {
         return Some(&trimmed_before[index + 2..]);
     }
@@ -15834,7 +15834,7 @@ fn lifecycle_after_arrow(trimmed_before: &str) -> Option<&str> {
     None
 }
 
-fn lifecycle_resume_arm_state_known(state: &str, resume: &LifecycleResumeBlock) -> bool {
+pub(crate) fn lifecycle_resume_arm_state_known(state: &str, resume: &LifecycleResumeBlock) -> bool {
     !state.is_empty()
         && (state == "none"
             || state == "*"
@@ -15842,7 +15842,7 @@ fn lifecycle_resume_arm_state_known(state: &str, resume: &LifecycleResumeBlock) 
             || state.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
 }
 
-fn lifecycle_view_slot_trigger(source: &str, position: Position, before: &str) -> bool {
+pub(crate) fn lifecycle_view_slot_trigger(source: &str, position: Position, before: &str) -> bool {
     if enclosing_lifecycle_resume_block(source, position).is_some() {
         return false;
     }
@@ -15922,13 +15922,13 @@ pub fn lifecycle_gate_hover(
     }
 }
 
-fn lifecycle_hover_is_wildcard(line: &str, position: Position) -> bool {
+pub(crate) fn lifecycle_hover_is_wildcard(line: &str, position: Position) -> bool {
     let index = byte_index_for_utf16_position(line, position.character);
     let bytes = line.as_bytes();
     (index < bytes.len() && bytes[index] == b'*') || (index > 0 && bytes[index - 1] == b'*')
 }
 
-fn lifecycle_hover_is_arrow(line: &str, position: Position) -> bool {
+pub(crate) fn lifecycle_hover_is_arrow(line: &str, position: Position) -> bool {
     let index = byte_index_for_utf16_position(line, position.character);
     let before = &line[..index.min(line.len())];
     let after = &line[index.min(line.len())..];
@@ -15938,7 +15938,7 @@ fn lifecycle_hover_is_arrow(line: &str, position: Position) -> bool {
         || after.starts_with('→')
 }
 
-fn lifecycle_resolved_gate_hover(source: &str, position: Position, word: &str) -> Option<String> {
+pub(crate) fn lifecycle_resolved_gate_hover(source: &str, position: Position, word: &str) -> Option<String> {
     let line = source.lines().nth(position.line as usize)?;
     let trimmed = line.trim_start();
     let rest = trimmed.strip_prefix("requires_lifecycle ")?;
@@ -15999,7 +15999,7 @@ pub fn lifecycle_gate_code_actions(
     actions
 }
 
-fn build_add_missing_lifecycle_arms_action(
+pub(crate) fn build_add_missing_lifecycle_arms_action(
     uri: &Url,
     resume: &LifecycleResumeBlock,
     missing: &[String],
@@ -16027,7 +16027,7 @@ fn build_add_missing_lifecycle_arms_action(
     ))
 }
 
-fn build_convert_lifecycle_arms_to_wildcard_action(
+pub(crate) fn build_convert_lifecycle_arms_to_wildcard_action(
     uri: &Url,
     resume: &LifecycleResumeBlock,
 ) -> Option<CodeAction> {
@@ -16050,7 +16050,7 @@ fn build_convert_lifecycle_arms_to_wildcard_action(
     ))
 }
 
-fn build_remove_stale_lifecycle_arm_action(
+pub(crate) fn build_remove_stale_lifecycle_arm_action(
     source: &str,
     uri: &Url,
     line_idx: usize,
@@ -16072,7 +16072,7 @@ fn build_remove_stale_lifecycle_arm_action(
     ))
 }
 
-fn build_add_lifecycle_gate_action(
+pub(crate) fn build_add_lifecycle_gate_action(
     source: &str,
     uri: &Url,
     view_line_idx: usize,
@@ -16113,12 +16113,12 @@ fn build_add_lifecycle_gate_action(
 }
 
 #[derive(Debug, Clone)]
-struct LifecycleGateCandidate {
+pub(crate) struct LifecycleGateCandidate {
     resource: String,
     state: String,
 }
 
-fn lifecycle_missing_resume_states(source: &str, resume: &LifecycleResumeBlock) -> Vec<String> {
+pub(crate) fn lifecycle_missing_resume_states(source: &str, resume: &LifecycleResumeBlock) -> Vec<String> {
     if resume.arms.iter().any(|arm| arm.state == "*") {
         return Vec::new();
     }
@@ -16133,7 +16133,7 @@ fn lifecycle_missing_resume_states(source: &str, resume: &LifecycleResumeBlock) 
         .collect()
 }
 
-fn lifecycle_stale_resume_arm_on_line(
+pub(crate) fn lifecycle_stale_resume_arm_on_line(
     source: &str,
     resume: &LifecycleResumeBlock,
     line_idx: usize,
@@ -16152,7 +16152,7 @@ fn lifecycle_stale_resume_arm_on_line(
         .cloned()
 }
 
-fn lifecycle_resume_arm_insertion_line(resume: &LifecycleResumeBlock) -> usize {
+pub(crate) fn lifecycle_resume_arm_insertion_line(resume: &LifecycleResumeBlock) -> usize {
     resume
         .arms
         .iter()
@@ -16161,7 +16161,7 @@ fn lifecycle_resume_arm_insertion_line(resume: &LifecycleResumeBlock) -> usize {
         .unwrap_or_else(|| resume.end_line)
 }
 
-fn lifecycle_gate_candidate_for_view(
+pub(crate) fn lifecycle_gate_candidate_for_view(
     source: &str,
     view: &RouteGuardViewBlock,
 ) -> Option<LifecycleGateCandidate> {
@@ -16174,7 +16174,7 @@ fn lifecycle_gate_candidate_for_view(
     None
 }
 
-fn lifecycle_resources_hosted_by_view(source: &str, view: &RouteGuardViewBlock) -> Vec<String> {
+pub(crate) fn lifecycle_resources_hosted_by_view(source: &str, view: &RouteGuardViewBlock) -> Vec<String> {
     let lines: Vec<&str> = source.lines().collect();
     let mut resources = Vec::new();
     let mut seen = HashSet::new();
@@ -16202,7 +16202,7 @@ fn lifecycle_resources_hosted_by_view(source: &str, view: &RouteGuardViewBlock) 
     resources
 }
 
-fn lifecycle_resource_for_source_ref(
+pub(crate) fn lifecycle_resource_for_source_ref(
     source: &str,
     feature_hint: Option<&str>,
     rest: &str,
@@ -16217,7 +16217,7 @@ fn lifecycle_resource_for_source_ref(
     resolve_lifecycle_lookup_query(source, feature_hint, &query_ref)?.returns
 }
 
-fn lifecycle_resource_for_submit_ref(
+pub(crate) fn lifecycle_resource_for_submit_ref(
     source: &str,
     feature_hint: Option<&str>,
     rest: &str,
@@ -16231,7 +16231,7 @@ fn lifecycle_resource_for_submit_ref(
     resolve_lifecycle_command_resource(source, feature_hint, command_ref)
 }
 
-fn lifecycle_default_gate_state(
+pub(crate) fn lifecycle_default_gate_state(
     source: &str,
     feature_hint: Option<&str>,
     resource_name: &str,
@@ -16245,7 +16245,7 @@ fn lifecycle_default_gate_state(
         .or_else(|| resource.states.first().cloned())
 }
 
-fn lifecycle_state_from_view_path(
+pub(crate) fn lifecycle_state_from_view_path(
     source: &str,
     view: &RouteGuardViewBlock,
     resource_name: &str,
@@ -16272,7 +16272,7 @@ fn lifecycle_state_from_view_path(
     })
 }
 
-fn lifecycle_view_path(source: &str, view: &RouteGuardViewBlock) -> Option<String> {
+pub(crate) fn lifecycle_view_path(source: &str, view: &RouteGuardViewBlock) -> Option<String> {
     let lines: Vec<&str> = source.lines().collect();
     for line in lines.iter().take(view.end_line).skip(view.header_line + 1) {
         if leading_spaces(line) == view.header_indent + 2 {
@@ -16291,7 +16291,7 @@ fn lifecycle_view_path(source: &str, view: &RouteGuardViewBlock) -> Option<Strin
     None
 }
 
-fn lifecycle_gate_insertion_line(source: &str, view: &RouteGuardViewBlock) -> usize {
+pub(crate) fn lifecycle_gate_insertion_line(source: &str, view: &RouteGuardViewBlock) -> usize {
     let lines: Vec<&str> = source.lines().collect();
     let mut fallback = view.header_line + 1;
     for (idx, line) in lines
@@ -16314,7 +16314,7 @@ fn lifecycle_gate_insertion_line(source: &str, view: &RouteGuardViewBlock) -> us
     fallback
 }
 
-fn view_has_requires_lifecycle(source: &str, view: &RouteGuardViewBlock) -> bool {
+pub(crate) fn view_has_requires_lifecycle(source: &str, view: &RouteGuardViewBlock) -> bool {
     let lines: Vec<&str> = source.lines().collect();
     lines
         .iter()
@@ -16326,7 +16326,7 @@ fn view_has_requires_lifecycle(source: &str, view: &RouteGuardViewBlock) -> bool
         })
 }
 
-fn lifecycle_pending_resume_for_view(source: &str, view: &RouteGuardViewBlock) -> Option<String> {
+pub(crate) fn lifecycle_pending_resume_for_view(source: &str, view: &RouteGuardViewBlock) -> Option<String> {
     let lines: Vec<&str> = source.lines().collect();
     for line in lines.iter().take(view.end_line).skip(view.header_line + 1) {
         if leading_spaces(line) != view.header_indent + 2 {
@@ -16342,7 +16342,7 @@ fn lifecycle_pending_resume_for_view(source: &str, view: &RouteGuardViewBlock) -
     None
 }
 
-fn lifecycle_resume_for_resource(
+pub(crate) fn lifecycle_resume_for_resource(
     source: &str,
     feature_hint: Option<&str>,
     resource_name: &str,
@@ -16360,7 +16360,7 @@ fn lifecycle_resume_for_resource(
         })
 }
 
-fn lifecycle_resource_for_resume(
+pub(crate) fn lifecycle_resource_for_resume(
     source: &str,
     resume: &LifecycleResumeBlock,
 ) -> Option<LifecycleResourceInfo> {
@@ -16371,7 +16371,7 @@ fn lifecycle_resource_for_resume(
     lifecycle_resource_for_name(source, resume.feature_hint.as_deref(), &resource_name)
 }
 
-fn resolve_lifecycle_lookup_query(
+pub(crate) fn resolve_lifecycle_lookup_query(
     source: &str,
     feature_hint: Option<&str>,
     query_ref: &str,
@@ -16389,7 +16389,7 @@ fn resolve_lifecycle_lookup_query(
         .find(|query| query.name == name && feature.map(|f| f == query.feature).unwrap_or(true))
 }
 
-fn resolve_lifecycle_command_resource(
+pub(crate) fn resolve_lifecycle_command_resource(
     source: &str,
     feature_hint: Option<&str>,
     command_ref: &str,
@@ -16443,7 +16443,7 @@ fn resolve_lifecycle_command_resource(
     None
 }
 
-fn lifecycle_resource_for_name(
+pub(crate) fn lifecycle_resource_for_name(
     source: &str,
     feature_hint: Option<&str>,
     resource_name: &str,
@@ -16456,7 +16456,7 @@ fn lifecycle_resource_for_name(
         })
 }
 
-fn lifecycle_feature_is_reachable(
+pub(crate) fn lifecycle_feature_is_reachable(
     source: &str,
     context_feature: Option<&str>,
     candidate_feature: Option<&str>,
@@ -16472,7 +16472,7 @@ fn lifecycle_feature_is_reachable(
         .any(|feature| feature == candidate)
 }
 
-fn lifecycle_reachable_features(source: &str, context_feature: &str) -> Vec<String> {
+pub(crate) fn lifecycle_reachable_features(source: &str, context_feature: &str) -> Vec<String> {
     let mut features = vec![context_feature.to_owned()];
     let mut seen = HashSet::from([context_feature.to_owned()]);
     let lines: Vec<&str> = source.lines().collect();
@@ -16497,7 +16497,7 @@ fn lifecycle_reachable_features(source: &str, context_feature: &str) -> Vec<Stri
     features
 }
 
-fn lifecycle_top_level_named_header(trimmed: &str) -> Option<(&str, &str)> {
+pub(crate) fn lifecycle_top_level_named_header(trimmed: &str) -> Option<(&str, &str)> {
     for keyword in ["feature", "experience", "surface"] {
         if let Some(rest) = trimmed.strip_prefix(&format!("{keyword} ")) {
             let name = rest.split_whitespace().next().unwrap_or("");
@@ -16509,7 +16509,7 @@ fn lifecycle_top_level_named_header(trimmed: &str) -> Option<(&str, &str)> {
     None
 }
 
-fn lifecycle_uses_in_block(lines: &[&str], start: usize, end: usize) -> Vec<String> {
+pub(crate) fn lifecycle_uses_in_block(lines: &[&str], start: usize, end: usize) -> Vec<String> {
     let mut uses = Vec::new();
     let mut seen = HashSet::new();
     for idx in start..end {
@@ -16543,7 +16543,7 @@ fn lifecycle_uses_in_block(lines: &[&str], start: usize, end: usize) -> Vec<Stri
     uses
 }
 
-fn lifecycle_parse_uses_rest(rest: &str) -> Vec<String> {
+pub(crate) fn lifecycle_parse_uses_rest(rest: &str) -> Vec<String> {
     let mut names = Vec::new();
     for token in rest.replace(',', " ").split_whitespace() {
         if token == "version" {
@@ -16559,7 +16559,7 @@ fn lifecycle_parse_uses_rest(rest: &str) -> Vec<String> {
     names
 }
 
-fn lifecycle_ident(token: &str) -> bool {
+pub(crate) fn lifecycle_ident(token: &str) -> bool {
     !token.is_empty()
         && token.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
         && token
@@ -16569,7 +16569,7 @@ fn lifecycle_ident(token: &str) -> bool {
             .unwrap_or(false)
 }
 
-fn collect_lifecycle_resources(source: &str) -> Vec<LifecycleResourceInfo> {
+pub(crate) fn collect_lifecycle_resources(source: &str) -> Vec<LifecycleResourceInfo> {
     let lines: Vec<&str> = source.lines().collect();
     let mut resources = Vec::new();
     let mut current_feature: Option<String> = None;
@@ -16619,7 +16619,7 @@ fn collect_lifecycle_resources(source: &str) -> Vec<LifecycleResourceInfo> {
     resources
 }
 
-fn lifecycle_states_in_resource_block(
+pub(crate) fn lifecycle_states_in_resource_block(
     lines: &[&str],
     start: usize,
     end: usize,
@@ -16636,7 +16636,7 @@ fn lifecycle_states_in_resource_block(
     None
 }
 
-fn lifecycle_state_children(
+pub(crate) fn lifecycle_state_children(
     lines: &[&str],
     start: usize,
     end: usize,
@@ -16658,7 +16658,7 @@ fn lifecycle_state_children(
     states
 }
 
-fn collect_lifecycle_lookup_queries(source: &str) -> Vec<LifecycleLookupQueryInfo> {
+pub(crate) fn collect_lifecycle_lookup_queries(source: &str) -> Vec<LifecycleLookupQueryInfo> {
     let lines: Vec<&str> = source.lines().collect();
     let mut queries = Vec::new();
     let mut current_feature: Option<String> = None;
@@ -16704,7 +16704,7 @@ fn collect_lifecycle_lookup_queries(source: &str) -> Vec<LifecycleLookupQueryInf
     queries
 }
 
-fn collect_lifecycle_view_names(source: &str, feature_hint: Option<&str>) -> Vec<String> {
+pub(crate) fn collect_lifecycle_view_names(source: &str, feature_hint: Option<&str>) -> Vec<String> {
     let mut names = Vec::new();
     let mut seen = HashSet::new();
     let lines: Vec<&str> = source.lines().collect();
@@ -16734,7 +16734,7 @@ fn collect_lifecycle_view_names(source: &str, feature_hint: Option<&str>) -> Vec
     names
 }
 
-fn collect_lifecycle_resume_blocks(source: &str) -> Vec<LifecycleResumeBlock> {
+pub(crate) fn collect_lifecycle_resume_blocks(source: &str) -> Vec<LifecycleResumeBlock> {
     let lines: Vec<&str> = source.lines().collect();
     let mut blocks = Vec::new();
     let mut current_top: Option<String> = None;
@@ -16788,7 +16788,7 @@ fn collect_lifecycle_resume_blocks(source: &str) -> Vec<LifecycleResumeBlock> {
     blocks
 }
 
-fn lifecycle_parse_resume_arm(trimmed: &str, line: usize) -> Option<LifecycleResumeArm> {
+pub(crate) fn lifecycle_parse_resume_arm(trimmed: &str, line: usize) -> Option<LifecycleResumeArm> {
     let state = trimmed.split_whitespace().next()?.to_owned();
     if !(state == "none" || state == "*" || lifecycle_ident(&state)) {
         return None;
@@ -16797,7 +16797,7 @@ fn lifecycle_parse_resume_arm(trimmed: &str, line: usize) -> Option<LifecycleRes
     Some(LifecycleResumeArm { state, line })
 }
 
-fn enclosing_lifecycle_resume_block(
+pub(crate) fn enclosing_lifecycle_resume_block(
     source: &str,
     position: Position,
 ) -> Option<LifecycleResumeBlock> {
@@ -16807,7 +16807,7 @@ fn enclosing_lifecycle_resume_block(
         .find(|block| line_idx >= block.header_line && line_idx < block.end_line)
 }
 
-fn slug_for_lifecycle_token(token: &str) -> String {
+pub(crate) fn slug_for_lifecycle_token(token: &str) -> String {
     let mut slug = String::new();
     for (idx, ch) in token.chars().enumerate() {
         if ch == '_' || ch == ' ' {
@@ -16824,7 +16824,7 @@ fn slug_for_lifecycle_token(token: &str) -> String {
     slug
 }
 
-fn snake_case(token: &str) -> String {
+pub(crate) fn snake_case(token: &str) -> String {
     let mut out = String::new();
     for (idx, ch) in token.chars().enumerate() {
         if ch.is_ascii_uppercase() {
@@ -16844,7 +16844,7 @@ fn snake_case(token: &str) -> String {
 
 /// Inside a `rate_limit "<N> per <window> per "` value, offer the
 /// closed axis catalog. Returns `None` outside that context.
-fn rate_limit_axis_completions(before_cursor: &str) -> Option<Vec<CompletionItem>> {
+pub(crate) fn rate_limit_axis_completions(before_cursor: &str) -> Option<Vec<CompletionItem>> {
     // We must be inside an open double-quoted string on a line whose
     // first non-space token is `rate_limit`.
     let quote_open = before_cursor.rfind('"')?;
@@ -16887,7 +16887,7 @@ fn rate_limit_axis_completions(before_cursor: &str) -> Option<Vec<CompletionItem
     )
 }
 
-const DESIGN_KEYWORDS: &[&str] = &[
+pub(crate) const DESIGN_KEYWORDS: &[&str] = &[
     "design",
     "extends",
     "color",
@@ -16913,7 +16913,7 @@ const DESIGN_KEYWORDS: &[&str] = &[
     "dark",
 ];
 
-const KEYWORDS: &[&str] = &[
+pub(crate) const KEYWORDS: &[&str] = &[
     "workspace",
     "app",
     "error_page",
@@ -17236,7 +17236,7 @@ pub fn error_vocab_resolved_text(source: &str, feature_name: &str, code: &str) -
 /// @translation.<key>` and return the key. Indent-based: looks for the
 /// matching feature header at indent 0, then the `errors` block at indent 2,
 /// then lines at indent 4 of the form `<code> message @translation.<key>`.
-fn lookup_feature_error_key(source: &str, feature_name: &str, code: &str) -> Option<String> {
+pub(crate) fn lookup_feature_error_key(source: &str, feature_name: &str, code: &str) -> Option<String> {
     let mut in_feature = false;
     let mut in_errors = false;
     for line in source.lines() {
@@ -17283,7 +17283,7 @@ fn lookup_feature_error_key(source: &str, feature_name: &str, code: &str) -> Opt
 /// `translation` block and return the **first locale variant's text** as a
 /// resolved hover string. Best-effort indent-walk parsing — matches the
 /// canonical four-space indent layout the rest of the LSP assumes.
-fn lookup_translation_first_variant(source: &str, feature_name: &str, key: &str) -> Option<String> {
+pub(crate) fn lookup_translation_first_variant(source: &str, feature_name: &str, key: &str) -> Option<String> {
     let mut in_feature = false;
     let mut in_translation = false;
     let mut in_key = false;
@@ -17582,7 +17582,7 @@ pub fn auth_refresh_code_actions(
     actions
 }
 
-fn build_promote_single_token_to_rotation_action(
+pub(crate) fn build_promote_single_token_to_rotation_action(
     source: &str,
     uri: &Url,
     sessions: AuthSessionsBlock,
@@ -17615,7 +17615,7 @@ fn build_promote_single_token_to_rotation_action(
     })
 }
 
-fn build_scaffold_rotation_block_action(
+pub(crate) fn build_scaffold_rotation_block_action(
     _source: &str,
     uri: &Url,
     rotation: AuthRotationBlock,
@@ -17646,7 +17646,7 @@ fn build_scaffold_rotation_block_action(
     })
 }
 
-fn build_rotation_defaults_text(sessions_indent: usize, include_access_ttl: bool) -> String {
+pub(crate) fn build_rotation_defaults_text(sessions_indent: usize, include_access_ttl: bool) -> String {
     let session_child_indent = " ".repeat(sessions_indent + 2);
     let mut lines: Vec<String> = Vec::new();
     if include_access_ttl {
@@ -17663,7 +17663,7 @@ fn build_rotation_defaults_text(sessions_indent: usize, include_access_ttl: bool
     format!("{}\n", lines.join("\n"))
 }
 
-fn build_rotation_inner_defaults_text(rotation_indent: usize) -> String {
+pub(crate) fn build_rotation_inner_defaults_text(rotation_indent: usize) -> String {
     let child_indent = " ".repeat(rotation_indent + 2);
     [
         format!(
@@ -17767,7 +17767,7 @@ pub fn error_vocab_code_actions(
 /// Check whether the named feature already contains an `errors` block.
 /// Best-effort indent-walk — matches the same canonical layout the rest of
 /// the LSP assumes.
-fn feature_has_errors_block(source: &str, feature_name: &str) -> bool {
+pub(crate) fn feature_has_errors_block(source: &str, feature_name: &str) -> bool {
     let mut in_feature = false;
     for line in source.lines() {
         let trimmed = line.trim_start();
@@ -17792,7 +17792,7 @@ fn feature_has_errors_block(source: &str, feature_name: &str) -> bool {
 /// Pull a `<name>:` category from a `policies` entry line. Returns the
 /// bare category name when `<line>` has the shape `<name>: <atom>[, ...]`,
 /// else `None`.
-fn policies_category_name(line: &str) -> Option<String> {
+pub(crate) fn policies_category_name(line: &str) -> Option<String> {
     let trimmed = line.trim_start();
     let colon = trimmed.find(':')?;
     let name = trimmed[..colon].trim();
@@ -17809,7 +17809,7 @@ fn policies_category_name(line: &str) -> Option<String> {
 
 /// Walk backwards looking for whether `cursor_line_idx` sits inside a
 /// `policies` block (parent indent strictly less than the line's indent).
-fn in_policies_block(source: &str, position: Position) -> bool {
+pub(crate) fn in_policies_block(source: &str, position: Position) -> bool {
     let lines: Vec<&str> = source.lines().collect();
     let cursor_line_idx = (position.line as usize).min(lines.len().saturating_sub(1));
     let cursor_line = lines.get(cursor_line_idx).copied().unwrap_or("");
@@ -17831,7 +17831,7 @@ fn in_policies_block(source: &str, position: Position) -> bool {
 /// Look ahead from `line_idx` for the next non-empty line. Return true
 /// when that line is indented deeper than `parent_indent` AND its trimmed
 /// form starts with `when_denied`.
-fn has_when_denied_child(source: &str, line_idx: usize, parent_indent: usize) -> bool {
+pub(crate) fn has_when_denied_child(source: &str, line_idx: usize, parent_indent: usize) -> bool {
     let lines: Vec<&str> = source.lines().collect();
     for idx in (line_idx + 1)..lines.len() {
         let line = lines[idx];
@@ -17851,7 +17851,7 @@ fn has_when_denied_child(source: &str, line_idx: usize, parent_indent: usize) ->
 /// Build the "Scaffold `errors` block with all 12 codes" code action. The
 /// action inserts a complete `errors` block plus 12 stub `key` entries in
 /// the feature's `translation` block (creating that block if absent).
-fn build_scaffold_errors_action(source: &str, uri: &Url, feature_name: &str) -> Option<CodeAction> {
+pub(crate) fn build_scaffold_errors_action(source: &str, uri: &Url, feature_name: &str) -> Option<CodeAction> {
     let lines: Vec<&str> = source.lines().collect();
     // Locate the feature header line index so we can position the inserted
     // edits at the line after it (when the feature is empty) OR at the
@@ -17951,7 +17951,7 @@ fn build_scaffold_errors_action(source: &str, uri: &Url, feature_name: &str) -> 
 }
 
 /// Detect whether the named feature already has a `translation` block.
-fn feature_has_translation_block(source: &str, feature_name: &str) -> bool {
+pub(crate) fn feature_has_translation_block(source: &str, feature_name: &str) -> bool {
     let mut in_feature = false;
     for line in source.lines() {
         let trimmed = line.trim_start();
@@ -17978,7 +17978,7 @@ fn feature_has_translation_block(source: &str, feature_name: &str) -> bool {
 
 /// Canonical text for a complete scaffold of the `errors` block. Mirrors
 /// the proposal §2.C example.
-fn build_errors_block_text(feature_name: &str) -> String {
+pub(crate) fn build_errors_block_text(feature_name: &str) -> String {
     [
         "  errors".to_owned(),
         "    default hide".to_owned(),
@@ -17999,7 +17999,7 @@ fn build_errors_block_text(feature_name: &str) -> String {
 /// Build a fresh `translation` block prepopulated with 8 stub keys (one
 /// per closed-catalog code). Used when the feature has no `translation`
 /// block yet.
-fn build_translation_block_with_stubs(feature_name: &str) -> String {
+pub(crate) fn build_translation_block_with_stubs(feature_name: &str) -> String {
     let mut lines: Vec<String> = vec![
         "  translation".to_owned(),
         format!("    catalog \"./i18n/{feature_name}.<locale>.json\""),
@@ -18014,7 +18014,7 @@ fn build_translation_block_with_stubs(feature_name: &str) -> String {
 /// Build only the 8 stub `key` lines (without a header) — used when the
 /// feature already has a `translation` block and we want to append entries
 /// to it. The author moves these into the existing block manually.
-fn build_translation_stub_keys_only(feature_name: &str) -> String {
+pub(crate) fn build_translation_stub_keys_only(feature_name: &str) -> String {
     let mut lines: Vec<String> = vec![
         "  # error-vocab — add the 8 stub keys into the existing `translation` block:".to_owned(),
     ];
@@ -18028,7 +18028,7 @@ fn build_translation_stub_keys_only(feature_name: &str) -> String {
 /// Build the "Add `when_denied @translation.<stub>`" code action for a
 /// `policies.<category>:` line. Inserts the child line right under the
 /// targeted line at +2 indent.
-fn build_add_when_denied_policies_action(
+pub(crate) fn build_add_when_denied_policies_action(
     source: &str,
     uri: &Url,
     line_idx: usize,
@@ -18078,7 +18078,7 @@ fn build_add_when_denied_policies_action(
 /// `<feature>_<command>_denied` pattern when the command name is
 /// recoverable from the surrounding context; otherwise falls back to a
 /// generic stub.
-fn build_add_when_denied_command_action(
+pub(crate) fn build_add_when_denied_command_action(
     source: &str,
     uri: &Url,
     line_idx: usize,
@@ -18125,7 +18125,7 @@ fn build_add_when_denied_command_action(
 
 /// Walk backwards from `line_idx` to find the enclosing `command <name>`
 /// (or `query.* <name>` / `api <name>` / ...) and return its name.
-fn enclosing_command_name(source: &str, line_idx: usize) -> Option<String> {
+pub(crate) fn enclosing_command_name(source: &str, line_idx: usize) -> Option<String> {
     let lines: Vec<&str> = source.lines().collect();
     let target_line = lines.get(line_idx).copied().unwrap_or("");
     let target_indent = leading_spaces(target_line);
@@ -18169,7 +18169,7 @@ fn enclosing_command_name(source: &str, line_idx: usize) -> Option<String> {
 
 /// Position at the start of `line_idx` (character 0). Used as both the
 /// start and end of an inserting `TextEdit` (zero-width range).
-fn position_at_line_start(line_idx: usize) -> Position {
+pub(crate) fn position_at_line_start(line_idx: usize) -> Position {
     Position {
         line: line_idx as u32,
         character: 0,
@@ -18232,7 +18232,7 @@ pub fn error_vocab_code_resolved_hover(
 /// feature `errors` block lives at indent 2 (under a feature header at
 /// indent 0); children at indent 4. Cursor must be at indent >= 4 under a
 /// closer-than-feature `errors` header.
-fn in_feature_errors_block(source: &str, position: Position) -> bool {
+pub(crate) fn in_feature_errors_block(source: &str, position: Position) -> bool {
     let lines: Vec<&str> = source.lines().collect();
     let cursor_line_idx = (position.line as usize).min(lines.len().saturating_sub(1));
     // Walk backwards looking for either an `errors` header at indent 2
@@ -18275,7 +18275,7 @@ fn in_feature_errors_block(source: &str, position: Position) -> bool {
 /// canonical `Finding::CODE: &'static str` + `fn message(&self) -> String`
 /// shape. We don't have AST spans on the IR-level findings, so the range
 /// targets the `feature <name>` line when locatable, else line 0.
-fn doctor_diagnostic(
+pub(crate) fn doctor_diagnostic(
     source: &str,
     feature_name: Option<&str>,
     code: &str,
@@ -18303,7 +18303,7 @@ fn doctor_diagnostic(
 
 /// Best-effort lookup of the `feature <name>` declaration line so doctor
 /// findings can attach to the feature header instead of line 0.
-fn feature_header_range(source: &str, feature_name: &str) -> Option<Range> {
+pub(crate) fn feature_header_range(source: &str, feature_name: &str) -> Option<Range> {
     for (idx, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
         let after_kw = trimmed.strip_prefix("feature ")?.trim_start();
@@ -18357,7 +18357,7 @@ macro_rules! wire_feature_check {
     }};
 }
 
-fn doctor_file_local_diagnostics(source: &str) -> Vec<Diagnostic> {
+pub(crate) fn doctor_file_local_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics: Vec<Diagnostic> = Vec::new();
 
     // VOCAB-GRAMMAR-FORM-001 runs on raw source (no lowering needed) and

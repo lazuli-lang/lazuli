@@ -2130,7 +2130,7 @@ fn doctor_severity_for(
 /// they had before Wave 0.5 because `from_code_prefix` recovers the
 /// category and the non-TestDiscipline branches reproduce the original
 /// mapping verbatim.
-fn doctor_rule_severity(security_profile: SecurityProfile) -> DoctorSeverity {
+pub(crate) fn doctor_rule_severity(security_profile: SecurityProfile) -> DoctorSeverity {
     doctor_severity_for(
         "",
         RuleCategory::Vocabulary,
@@ -2844,14 +2844,14 @@ fn design_token_diagnostics(
 /// `design-custom-*` rules then suppress (no false positives when the
 /// file isn't authored yet). Mirrors the parse-then-lower pipeline used
 /// by `lazuli build`.
-fn read_design_ir(project_root: &Path) -> Option<lazuli_ir::Design> {
+pub(crate) fn read_design_ir(project_root: &Path) -> Option<lazuli_ir::Design> {
     let path = project_root.join("design.lzi");
     let source = std::fs::read_to_string(&path).ok()?;
     let ast = lazuli_syntax::parse_design_document(&source).ok()?;
     lazuli_analyzer::lower_design(&ast).ok()
 }
 
-fn doctor_rule_path(project_root: &Path, path: PathBuf) -> PathBuf {
+pub(crate) fn doctor_rule_path(project_root: &Path, path: PathBuf) -> PathBuf {
     path.strip_prefix(project_root)
         .unwrap_or(&path)
         .to_path_buf()

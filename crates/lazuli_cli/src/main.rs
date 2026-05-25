@@ -960,7 +960,7 @@ fn main() -> Result<()> {
             capsule,
             project,
             format,
-        } => debug_command(&project, error.as_deref(), capsule, &format),
+        } => commands::debug::debug_command(&project, error.as_deref(), capsule, &format),
         Commands::Profile {
             profile,
             top,
@@ -5937,40 +5937,6 @@ fn symbol_kind_str(kind: &lazuli_ir::SymbolKind) -> &'static str {
         lazuli_ir::SymbolKind::Event => "event",
         lazuli_ir::SymbolKind::Aggregate => "aggregate",
     }
-}
-
-fn debug_command(
-    project_root: &Path,
-    error_path: Option<&Path>,
-    capsule: Option<String>,
-    format: &str,
-) -> Result<()> {
-    let input = match error_path {
-        Some(path) => fs::read_to_string(path)
-            .with_context(|| format!("failed to read error envelope {}", path.display()))?,
-        None => {
-            let mut input = String::new();
-            std::io::stdin()
-                .read_to_string(&mut input)
-                .context("failed to read error envelope from stdin")?;
-            input
-        }
-    };
-    let mut envelope: debug::ErrorEnvelopeInput =
-        serde_json::from_str(&input).context("failed to parse error envelope JSON")?;
-    if let Some(capsule) = capsule {
-        envelope.capsule = capsule;
-    }
-
-    let bundle =
-        debug::run_debug(project_root, envelope).map_err(|err| anyhow::anyhow!("{err}"))?;
-    match format {
-        "json" => println!("{}", serde_json::to_string_pretty(&bundle)?),
-        "markdown" => print!("{}", debug::format_markdown(&bundle)),
-        other => bail!("unsupported debug format `{other}`; expected json or markdown"),
-    }
-
-    Ok(())
 }
 
 fn inspect_source_path(input: &Path) -> PathBuf {

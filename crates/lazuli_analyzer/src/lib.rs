@@ -5413,7 +5413,7 @@ enum DeprecationTarget {
 /// the typed IR shape. `replacement` is classified by syntactic shape:
 /// `https?://` → Url, `[<feature>.]command.<name>` / `[<feature>.]api.<name>`
 /// → typed callable ref, otherwise → same-kind local ref.
-fn lower_deprecated(
+pub(crate) fn lower_deprecated(
     decl: &syntax::CommandDeprecatedDecl,
     target: DeprecationTarget,
 ) -> ir::Deprecation {
@@ -5460,7 +5460,7 @@ fn lower_deprecated(
     }
 }
 
-fn lower_route_slot_kind(kind: syntax::CommandRouteSlotKind) -> ir::RouteSlotKind {
+pub(crate) fn lower_route_slot_kind(kind: syntax::CommandRouteSlotKind) -> ir::RouteSlotKind {
     match kind {
         syntax::CommandRouteSlotKind::Plain => ir::RouteSlotKind::Plain,
         syntax::CommandRouteSlotKind::OpaqueToken => ir::RouteSlotKind::OpaqueToken,
@@ -5469,7 +5469,7 @@ fn lower_route_slot_kind(kind: syntax::CommandRouteSlotKind) -> ir::RouteSlotKin
 }
 
 /// Phase L Tier 4b — lower a canonical-indent `api` block into `ir::Api`.
-fn lower_api_decl(a: &syntax::ApiDecl) -> ir::Api {
+pub(crate) fn lower_api_decl(a: &syntax::ApiDecl) -> ir::Api {
     let method = match a.method {
         syntax::HttpMethod::Get => ir::HttpMethod::Get,
         syntax::HttpMethod::Post => ir::HttpMethod::Post,
@@ -5685,7 +5685,7 @@ fn parse_filename_token(raw: &str) -> Option<ir::FilenameToken> {
 /// ERR-VOCAB-002 emission. Same-feature scope; v1 does not lower the
 /// cross-feature `<feature>.@translation.<key>` form (cf. proposal
 /// §3.1 — the surface token form keeps the parser single-shape).
-fn lower_translation_key_ref(decl: &syntax::TranslationKeyRefAst) -> ir::TranslationKeyRef {
+pub(crate) fn lower_translation_key_ref(decl: &syntax::TranslationKeyRefAst) -> ir::TranslationKeyRef {
     ir::TranslationKeyRef {
         key: decl.key.clone(),
         span_ref: Some(span_of(decl.span)),
@@ -6210,7 +6210,7 @@ pub fn lower_webhook(webhook: &syntax::Webhook) -> Result<ir::Webhook, AnalyzeEr
 /// The lift is intentionally conservative: shapes that don't match
 /// the typed catalog are preserved verbatim so codegen can emit a
 /// runtime-evaluated stub without losing authoring intent.
-fn lower_emit_predicate(raw: &str) -> ir::EmitPredicate {
+pub(crate) fn lower_emit_predicate(raw: &str) -> ir::EmitPredicate {
     let trimmed = raw.trim();
     let kind = parse_emit_predicate_kind(trimmed).unwrap_or_else(|| ir::EmitPredicateKind::Other {
         raw: trimmed.to_owned(),
@@ -6388,7 +6388,7 @@ fn parse_mcp_auth(raw: &str) -> Option<ir::MCPAuth> {
     None
 }
 
-fn lower_mcp_tool(tool: &syntax::McpTool) -> ir::MCPTool {
+pub(crate) fn lower_mcp_tool(tool: &syntax::McpTool) -> ir::MCPTool {
     let params = tool.params.iter().map(lower_mcp_param).collect();
     ir::MCPTool {
         name: tool.name.clone(),
