@@ -8456,7 +8456,7 @@ fn parse_handler_line(rest: &str) -> JobHandler {
     }
 }
 
-fn parse_external_call(
+pub(super) fn parse_external_call(
     lines: &[SourceLine<'_>],
     start: usize,
     head_rest: &str,
@@ -8521,7 +8521,7 @@ fn parse_external_call(
 /// `idempotency <path>`, `retry`, `timeout`, `handler`. The older
 /// `target tenants <axis>` and `idempotency by <path>` spellings remain
 /// accepted for compatibility with existing fixtures.
-fn parse_tenant_migration(
+pub(super) fn parse_tenant_migration(
     lines: &[SourceLine<'_>],
     start: usize,
 ) -> Result<(TenantMigration, usize), ParseError> {
@@ -9787,19 +9787,19 @@ fn split_policy_atoms(value: &str) -> Vec<String> {
         .collect()
 }
 
-fn parse_float(line: &SourceLine<'_>, rest: &str) -> Result<f64, ParseError> {
+pub(super) fn parse_float(line: &SourceLine<'_>, rest: &str) -> Result<f64, ParseError> {
     rest.trim()
         .parse::<f64>()
         .map_err(|_| line_error(line, "expected a decimal value (e.g. `0`, `0.2`)"))
 }
 
-fn parse_uint32(line: &SourceLine<'_>, rest: &str) -> Result<u32, ParseError> {
+pub(super) fn parse_uint32(line: &SourceLine<'_>, rest: &str) -> Result<u32, ParseError> {
     rest.trim()
         .parse::<u32>()
         .map_err(|_| line_error(line, "expected a non-negative integer"))
 }
 
-fn parse_int64(line: &SourceLine<'_>, rest: &str) -> Result<i64, ParseError> {
+pub(super) fn parse_int64(line: &SourceLine<'_>, rest: &str) -> Result<i64, ParseError> {
     rest.trim()
         .parse::<i64>()
         .map_err(|_| line_error(line, "expected a signed integer"))
