@@ -8,7 +8,10 @@ pub mod rbac;
 mod returns_list_001;
 mod returns_list_002;
 pub mod route_guard;
+mod runtime_options;
 pub mod schema_rich_001;
+
+pub use runtime_options::DoctorRuntimeOptions;
 
 use helpers::{
     doctor_project_root, parse_doctor_format, parse_doctor_severity, parse_fail_on_specs,
@@ -56,22 +59,6 @@ pub fn doctor_command(
         allow_version_mismatch,
         DoctorRuntimeOptions::default(),
     )
-}
-
-/// Wave 2 (CLI surface) + Wave 6 (coverage) — agent-first CLI surface
-/// runtime options. `format` selects text vs JSON output; `coverage`
-/// emits the per-layer coverage report; `fail_on` composes the
-/// non-zero exit gate.
-#[derive(Debug, Clone, Default)]
-pub struct DoctorRuntimeOptions {
-    pub format: Option<String>,
-    pub coverage: bool,
-    pub fail_on: Vec<String>,
-    /// W3 — when `true`, run the `internal_hygiene` rules (file size,
-    /// undoc pub, no-example, test-pairing) against the framework's
-    /// own Rust source at `crates/lazuli_*/src/`. The input path is
-    /// treated as the workspace root.
-    pub self_audit: bool,
 }
 
 pub fn doctor_command_with_options(

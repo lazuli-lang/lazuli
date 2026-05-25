@@ -31,7 +31,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{DoctorSeverity, DoctorRuntimeOptions};
+use super::DoctorSeverity;
 
 impl From<lazuli_doctor::DoctorSeverity> for DoctorSeverity {
     /// W1.5 — bridge from the shared `lazuli_doctor::DoctorSeverity`
@@ -152,10 +152,3 @@ pub(super) fn project_has_lazurite_manifest(project_root: &Path) -> bool {
     project_root.join("Lazurite.toml").is_file()
 }
 
-/// Compile-time witness that `DoctorRuntimeOptions` stays accessible
-/// from this helpers module (kept so future helpers needing the opts
-/// shape can land here without an import flip).
-#[allow(dead_code)]
-const _: fn() = || {
-    let _ = std::mem::size_of::<DoctorRuntimeOptions>();
-};
