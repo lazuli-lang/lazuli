@@ -1097,6 +1097,7 @@ mod tests {
 
             composite_key: None,
             conventions: Vec::new(),
+            lifecycle_routes: None,
         }
     }
 
@@ -1613,6 +1614,7 @@ mod tests {
 
             composite_key: None,
             conventions: Vec::new(),
+            lifecycle_routes: None,
         });
 
         let module = Module {
@@ -1935,6 +1937,7 @@ mod feature_emit_tests {
                 lock: None,
                 composite_key: None,
                 conventions: Vec::new(),
+                lifecycle_routes: None,
             }],
             events: Vec::new(),
             rules: Vec::new(),

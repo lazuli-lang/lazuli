@@ -5372,6 +5372,11 @@ mod lifecycle_tests {
             name: "BrazilianCPF".to_owned(),
             carrier: Box::new(BuiltinType::Text),
             validator: "ValidateCPF".to_owned(),
+            go_module: String::new(),
+            ts_package: String::new(),
+            error_code: String::new(),
+            message_key: String::new(),
+            ts_validator: String::new(),
         };
         let json = serde_json::to_string(&plugin).expect("serialize");
         let back: BuiltinType = serde_json::from_str(&json).expect("deserialize");
@@ -5405,6 +5410,7 @@ mod lifecycle_tests {
 
             composite_key: None,
             conventions: vec![],
+            lifecycle_routes: None,
         };
         let json = serde_json::to_string(&r).unwrap();
         assert!(
@@ -5459,6 +5465,7 @@ mod lifecycle_tests {
             lock: None,
             composite_key: None,
             conventions: vec![ConventionRef::Crud],
+            lifecycle_routes: None,
         };
         let json = serde_json::to_string(&r).unwrap();
         assert!(
@@ -5910,6 +5917,7 @@ mod l0_6_ir_tests {
             on_unauthorized: Some("/explore".to_string()),
             requires_lifecycle: None,
             on_lifecycle_pending: None,
+            forbid_when: Vec::new(),
             span_ref: Some(SpanRef { start: 1, end: 50 }),
         });
     }
@@ -5922,6 +5930,7 @@ mod l0_6_ir_tests {
             on_unauthorized: None,
             requires_lifecycle: None,
             on_lifecycle_pending: None,
+            forbid_when: Vec::new(),
             span_ref: None,
         });
     }
@@ -5939,6 +5948,7 @@ mod l0_6_ir_tests {
                 span_ref: Some(SpanRef { start: 10, end: 47 }),
             }),
             on_lifecycle_pending: Some("host_onboarding".to_string()),
+            forbid_when: Vec::new(),
             span_ref: None,
         });
     }
@@ -5951,6 +5961,7 @@ mod l0_6_ir_tests {
             on_unauthorized: None,
             requires_lifecycle: None,
             on_lifecycle_pending: None,
+            forbid_when: Vec::new(),
             span_ref: None,
         };
         let v = serde_json::to_value(&g).unwrap();
@@ -5976,6 +5987,7 @@ mod l0_6_ir_tests {
             on_unauthorized: Some("/explore".to_string()),
             requires_lifecycle: Some(requires.clone()),
             on_lifecycle_pending: Some("host_onboarding".to_string()),
+            forbid_when: Vec::new(),
             span_ref: Some(SpanRef { start: 1, end: 60 }),
         };
         let resolved = ResolvedLifecycleGate {
@@ -6017,6 +6029,7 @@ mod l0_6_ir_tests {
                 name: "host_index".to_string(),
                 path: Some("/host".to_string()),
                 routes: Vec::new(),
+                route_params: Vec::new(),
                 to: Some("host_home".to_string()),
                 surface: Some("host web".to_string()),
                 audience: Some("host".to_string()),
@@ -6044,10 +6057,6 @@ mod l0_6_ir_tests {
                     opens: Vec::new(),
                     tests: Vec::<ViewTestAssertion>::new(),
                     guard: Some(guard.clone()),
-                    loaders: Vec::new(),
-                    pending_view: None,
-                    error_view: None,
-                    parent: None,
                     resolved_guard_policy: None,
                     resolved_lifecycle_gate: Some(resolved.clone()),
                     span_ref: None,

@@ -20187,7 +20187,7 @@ feature host
 
     const APP_URLS_MISSING_FIXTURE: &str = "app MyApp\n";
 
-    const SEMANTIC_UNKNOWN_FIXTURE: &str = include_str!("../tests/fixtures/semantic_unknown.lzi");
+    const SEMANTIC_UNKNOWN_FIXTURE: &str = include_str!("../../tests/fixtures/semantic_unknown.lzi");
 
     const DOCTOR_HINTS_WRITE_WITHOUT_GUARDS_FIXTURE: &str = r#"
 feature customer
@@ -22404,19 +22404,19 @@ feature customer_auth
     // -------------------------------------------------------------------------
 
     const MIGRATIONS_PREVIOUSLY_FWD_FIXTURE: &str =
-        include_str!("../tests/fixtures/migrations/previously_forward_unresolved.lzi");
+        include_str!("../../tests/fixtures/migrations/previously_forward_unresolved.lzi");
     const MIGRATIONS_PREVIOUSLY_CYCLE_FIXTURE: &str =
-        include_str!("../tests/fixtures/migrations/previously_cycle.lzi");
+        include_str!("../../tests/fixtures/migrations/previously_cycle.lzi");
     const MIGRATIONS_PREVIOUSLY_DUP_FIXTURE: &str =
-        include_str!("../tests/fixtures/migrations/previously_duplicate_claim.lzi");
+        include_str!("../../tests/fixtures/migrations/previously_duplicate_claim.lzi");
     const MIGRATIONS_TM_AXIS_FIXTURE: &str =
-        include_str!("../tests/fixtures/migrations/tenant_migration_axis_unknown.lzi");
+        include_str!("../../tests/fixtures/migrations/tenant_migration_axis_unknown.lzi");
     const MIGRATIONS_TM_IDEMP_FIXTURE: &str =
-        include_str!("../tests/fixtures/migrations/tenant_migration_no_idempotency.lzi");
+        include_str!("../../tests/fixtures/migrations/tenant_migration_no_idempotency.lzi");
     const MIGRATIONS_CHECKPOINT_INVALID_FIXTURE: &str =
-        include_str!("../tests/fixtures/migrations/deploy_checkpoint_path_invalid.lzi");
+        include_str!("../../tests/fixtures/migrations/deploy_checkpoint_path_invalid.lzi");
     const MIGRATIONS_STRATEGY_INVALID_FIXTURE: &str =
-        include_str!("../tests/fixtures/migrations/deploy_strategy_invalid.lzi");
+        include_str!("../../tests/fixtures/migrations/deploy_strategy_invalid.lzi");
     const MIGRATIONS_TM_TARGET_UNKNOWN_FIXTURE: &str = r#"
 feature x
   defaults
@@ -22612,13 +22612,13 @@ app crm
     // =========================================================================
 
     const OPENAPI_REPLACEMENT_UNKNOWN_FIXTURE: &str =
-        include_str!("../tests/fixtures/openapi/deprecated_replacement_unknown.lzi");
+        include_str!("../../tests/fixtures/openapi/deprecated_replacement_unknown.lzi");
     const OPENAPI_SUNSET_DATE_INVALID_FIXTURE: &str =
-        include_str!("../tests/fixtures/openapi/deprecated_sunset_date_invalid.lzi");
+        include_str!("../../tests/fixtures/openapi/deprecated_sunset_date_invalid.lzi");
     const OPENAPI_SUNSET_IN_PAST_FIXTURE: &str =
-        include_str!("../tests/fixtures/openapi/deprecated_sunset_in_past.lzi");
+        include_str!("../../tests/fixtures/openapi/deprecated_sunset_in_past.lzi");
     const OPENAPI_TEXT_PATTERN_API_FIXTURE: &str =
-        include_str!("../tests/fixtures/openapi/text_pattern_api_block.lzi");
+        include_str!("../../tests/fixtures/openapi/text_pattern_api_block.lzi");
 
     #[test]
     fn deprecated_replacement_unknown_fires() {
@@ -22826,15 +22826,15 @@ feature customer
     // =========================================================================
 
     const I18N_DEFAULT_NOT_SUPPORTED_FIXTURE: &str =
-        include_str!("../tests/fixtures/i18n/default_not_supported.lzi");
+        include_str!("../../tests/fixtures/i18n/default_not_supported.lzi");
     const I18N_TRANSLATION_LOCALE_UNSUPPORTED_FIXTURE: &str =
-        include_str!("../tests/fixtures/i18n/translation_locale_unsupported.lzi");
+        include_str!("../../tests/fixtures/i18n/translation_locale_unsupported.lzi");
     const I18N_TRANSLATION_KEY_UNRESOLVED_FIXTURE: &str =
-        include_str!("../tests/fixtures/i18n/translation_key_unresolved.lzi");
+        include_str!("../../tests/fixtures/i18n/translation_key_unresolved.lzi");
     const I18N_CLDR_PLURAL_ARM_INVALID_FIXTURE: &str =
-        include_str!("../tests/fixtures/i18n/cldr_plural_arm_invalid.lzi");
+        include_str!("../../tests/fixtures/i18n/cldr_plural_arm_invalid.lzi");
     const I18N_LOCALE_NEGOTIATE_SOURCE_INVALID_FIXTURE: &str =
-        include_str!("../tests/fixtures/i18n/locale_negotiate_source_invalid.lzi");
+        include_str!("../../tests/fixtures/i18n/locale_negotiate_source_invalid.lzi");
 
     #[test]
     fn app_locale_default_unsupported_fires() {
@@ -22903,11 +22903,11 @@ feature customer
     // =========================================================================
 
     const MISSING_POLICY_ON_QUERY_HAPPY_FIXTURE: &str =
-        include_str!("../tests/fixtures/missing-policy-on-query/happy.lzi");
+        include_str!("../../tests/fixtures/missing-policy-on-query/happy.lzi");
     const MISSING_POLICY_ON_QUERY_MISSING_FIXTURE: &str =
-        include_str!("../tests/fixtures/missing-policy-on-query/missing.lzi");
+        include_str!("../../tests/fixtures/missing-policy-on-query/missing.lzi");
     const MISSING_POLICY_ON_QUERY_EXPLICIT_PUBLIC_FIXTURE: &str =
-        include_str!("../tests/fixtures/missing-policy-on-query/explicit_public.lzi");
+        include_str!("../../tests/fixtures/missing-policy-on-query/explicit_public.lzi");
 
     #[test]
     fn missing_policy_on_query_happy_fixture_has_zero_diagnostics() {
@@ -22987,17 +22987,17 @@ feature catalog
     // =========================================================================
 
     const CACHE_INVALIDATES_UNRESOLVED_FIXTURE: &str =
-        include_str!("../tests/fixtures/cache/invalidates_target_unresolved.lzi");
+        include_str!("../../tests/fixtures/cache/invalidates_target_unresolved.lzi");
     const CACHE_NAMESPACE_COLLISION_FIXTURE: &str =
-        include_str!("../tests/fixtures/cache/namespace_collision.lzi");
+        include_str!("../../tests/fixtures/cache/namespace_collision.lzi");
     const CACHE_CAPABILITY_UNDECLARED_FIXTURE: &str =
-        include_str!("../tests/fixtures/cache/capability_undeclared.lzi");
+        include_str!("../../tests/fixtures/cache/capability_undeclared.lzi");
     // CL.C.3 — feature-level `cache <name>` profile diagnostics.
     const CACHE_PROFILE_UNKNOWN_FIXTURE: &str =
-        include_str!("../tests/fixtures/cache/profile_unknown.lzi");
-    const CACHE_TAG_UNKNOWN_FIXTURE: &str = include_str!("../tests/fixtures/cache/tag_unknown.lzi");
+        include_str!("../../tests/fixtures/cache/profile_unknown.lzi");
+    const CACHE_TAG_UNKNOWN_FIXTURE: &str = include_str!("../../tests/fixtures/cache/tag_unknown.lzi");
     const CACHE_TTL_CONTRACT_SWR_FIXTURE: &str =
-        include_str!("../tests/fixtures/cache/ttl_contract_swr_exceeds.lzi");
+        include_str!("../../tests/fixtures/cache/ttl_contract_swr_exceeds.lzi");
 
     #[test]
     fn cache_invalidates_target_unresolved_fires() {
@@ -24432,58 +24432,58 @@ registry
     // =========================================================================
 
     const ERR_VOCAB_NO_WHEN_DENIED_FIXTURE: &str =
-        include_str!("../tests/fixtures/error-vocab/no_when_denied.lzi");
+        include_str!("../../tests/fixtures/error-vocab/no_when_denied.lzi");
     const ERR_VOCAB_KEY_UNKNOWN_FROM_POLICY_FIXTURE: &str =
-        include_str!("../tests/fixtures/error-vocab/key_unknown_from_policy.lzi");
+        include_str!("../../tests/fixtures/error-vocab/key_unknown_from_policy.lzi");
     const ERR_VOCAB_BUILTIN_FALLBACK_FIXTURE: &str =
-        include_str!("../tests/fixtures/error-vocab/builtin_fallback.lzi");
+        include_str!("../../tests/fixtures/error-vocab/builtin_fallback.lzi");
     const ERR_VOCAB_CODE_UNKNOWN_FIXTURE: &str =
-        include_str!("../tests/fixtures/error-vocab/code_unknown.lzi");
+        include_str!("../../tests/fixtures/error-vocab/code_unknown.lzi");
     const ERR_VOCAB_EXPOSE_UNKNOWN_FIXTURE: &str =
-        include_str!("../tests/fixtures/error-vocab/expose_unknown.lzi");
+        include_str!("../../tests/fixtures/error-vocab/expose_unknown.lzi");
     const ERR_VOCAB_WHEN_DENIED_NO_POLICY_FIXTURE: &str =
-        include_str!("../tests/fixtures/error-vocab/when_denied_no_policy.lzi");
+        include_str!("../../tests/fixtures/error-vocab/when_denied_no_policy.lzi");
     const ERR_VOCAB_EXPOSE_5XX_MESSAGE_FIXTURE: &str =
-        include_str!("../tests/fixtures/error-vocab/expose_5xx_message.lzi");
-    const ERR_VOCAB_HAPPY_FIXTURE: &str = include_str!("../tests/fixtures/error-vocab/happy.lzi");
-    const ROUTE_GUARD_HAPPY_LZI: &str = include_str!("../tests/fixtures/route-guard/happy.lzi");
-    const ROUTE_GUARD_HAPPY_LZX: &str = include_str!("../tests/fixtures/route-guard/happy.lzx");
+        include_str!("../../tests/fixtures/error-vocab/expose_5xx_message.lzi");
+    const ERR_VOCAB_HAPPY_FIXTURE: &str = include_str!("../../tests/fixtures/error-vocab/happy.lzi");
+    const ROUTE_GUARD_HAPPY_LZI: &str = include_str!("../../tests/fixtures/route-guard/happy.lzi");
+    const ROUTE_GUARD_HAPPY_LZX: &str = include_str!("../../tests/fixtures/route-guard/happy.lzx");
     const ROUTE_GUARD_UNGUARDED_LZX: &str =
-        include_str!("../tests/fixtures/route-guard/view_unguarded_with_gated_backend.lzx");
+        include_str!("../../tests/fixtures/route-guard/view_unguarded_with_gated_backend.lzx");
     const ROUTE_GUARD_LAXER_LZX: &str =
-        include_str!("../tests/fixtures/route-guard/view_laxer_than_backend.lzx");
+        include_str!("../../tests/fixtures/route-guard/view_laxer_than_backend.lzx");
     const ROUTE_GUARD_REDIRECT_LZX: &str =
-        include_str!("../tests/fixtures/route-guard/redirect_unreachable.lzx");
+        include_str!("../../tests/fixtures/route-guard/redirect_unreachable.lzx");
     const ROUTE_GUARD_MISSING_ACTOR_LZI: &str =
-        include_str!("../tests/fixtures/route-guard/missing_actor_query.lzi");
+        include_str!("../../tests/fixtures/route-guard/missing_actor_query.lzi");
     const ROUTE_GUARD_MISSING_ACTOR_LZX: &str =
-        include_str!("../tests/fixtures/route-guard/missing_actor_query.lzx");
+        include_str!("../../tests/fixtures/route-guard/missing_actor_query.lzx");
     const ROUTE_GUARD_AUDIENCE_LZX: &str =
-        include_str!("../tests/fixtures/route-guard/audience_runtime_disagreement.lzx");
+        include_str!("../../tests/fixtures/route-guard/audience_runtime_disagreement.lzx");
     const LIFECYCLE_GATE_HAPPY_LZI: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/happy.lzi");
+        include_str!("../../tests/fixtures/lifecycle-gate/happy.lzi");
     const LIFECYCLE_GATE_HAPPY_LZX: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/happy.lzx");
+        include_str!("../../tests/fixtures/lifecycle-gate/happy.lzx");
     const LIFECYCLE_GATE_UNKNOWN_RESOURCE_LZX: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/unknown_resource.lzx");
+        include_str!("../../tests/fixtures/lifecycle-gate/unknown_resource.lzx");
     const LIFECYCLE_GATE_UNKNOWN_STATE_LZX: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/unknown_state.lzx");
+        include_str!("../../tests/fixtures/lifecycle-gate/unknown_state.lzx");
     const LIFECYCLE_GATE_MISSING_STATE_COVERAGE_LZX: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/missing_state_coverage.lzx");
+        include_str!("../../tests/fixtures/lifecycle-gate/missing_state_coverage.lzx");
     const LIFECYCLE_GATE_EXTRA_STATE_ARM_LZX: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/extra_state_arm.lzx");
+        include_str!("../../tests/fixtures/lifecycle-gate/extra_state_arm.lzx");
     const LIFECYCLE_GATE_WILDCARD_OVERUSE_LZX: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/wildcard_overuse.lzx");
+        include_str!("../../tests/fixtures/lifecycle-gate/wildcard_overuse.lzx");
     const LIFECYCLE_GATE_REDIRECT_CYCLE_LZX: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/redirect_cycle.lzx");
+        include_str!("../../tests/fixtures/lifecycle-gate/redirect_cycle.lzx");
     const LIFECYCLE_GATE_RESUME_RESOURCE_MISMATCH_LZX: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/resume_resource_mismatch.lzx");
+        include_str!("../../tests/fixtures/lifecycle-gate/resume_resource_mismatch.lzx");
     const LIFECYCLE_GATE_WRONG_QUERY_KIND_LZX: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/wrong_query_kind.lzx");
+        include_str!("../../tests/fixtures/lifecycle-gate/wrong_query_kind.lzx");
     const LIFECYCLE_GATE_WITHOUT_ACTOR_GATE_LZX: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/lifecycle_without_actor_gate.lzx");
+        include_str!("../../tests/fixtures/lifecycle-gate/lifecycle_without_actor_gate.lzx");
     const LIFECYCLE_GATE_CROSS_FEATURE_LZX: &str =
-        include_str!("../tests/fixtures/lifecycle-gate/cross_feature_resume.lzx");
+        include_str!("../../tests/fixtures/lifecycle-gate/cross_feature_resume.lzx");
 
     fn err_vocab_diags<'a>(diagnostics: &'a [DoctorDiagnostic]) -> Vec<&'a DoctorDiagnostic> {
         diagnostics
@@ -24704,25 +24704,25 @@ feature sales
         );
     }
 
-    const AUTH_REFRESH_HAPPY: &str = include_str!("../tests/fixtures/auth-refresh/happy.lzi");
+    const AUTH_REFRESH_HAPPY: &str = include_str!("../../tests/fixtures/auth-refresh/happy.lzi");
     const AUTH_REFRESH_001: &str =
-        include_str!("../tests/fixtures/auth-refresh/missing_secret_provider.lzi");
+        include_str!("../../tests/fixtures/auth-refresh/missing_secret_provider.lzi");
     const AUTH_REFRESH_002: &str =
-        include_str!("../tests/fixtures/auth-refresh/grace_exceeds_refresh_ttl.lzi");
+        include_str!("../../tests/fixtures/auth-refresh/grace_exceeds_refresh_ttl.lzi");
     const AUTH_REFRESH_003: &str =
-        include_str!("../tests/fixtures/auth-refresh/schema_missing_columns.lzi");
+        include_str!("../../tests/fixtures/auth-refresh/schema_missing_columns.lzi");
     const AUTH_REFRESH_004: &str =
-        include_str!("../tests/fixtures/auth-refresh/revoke_user_missing_user_fk.lzi");
+        include_str!("../../tests/fixtures/auth-refresh/revoke_user_missing_user_fk.lzi");
     const AUTH_REFRESH_005: &str =
-        include_str!("../tests/fixtures/auth-refresh/refresh_ttl_long.lzi");
+        include_str!("../../tests/fixtures/auth-refresh/refresh_ttl_long.lzi");
     const AUTH_REFRESH_006: &str =
-        include_str!("../tests/fixtures/auth-refresh/missing_on_refresh_failure.lzi");
+        include_str!("../../tests/fixtures/auth-refresh/missing_on_refresh_failure.lzi");
     const AUTH_REFRESH_007: &str =
-        include_str!("../tests/fixtures/auth-refresh/auto_promotion_applied.lzi");
+        include_str!("../../tests/fixtures/auth-refresh/auto_promotion_applied.lzi");
     const AUTH_REFRESH_008: &str =
-        include_str!("../tests/fixtures/auth-refresh/auto_refresh_not_surfaced.lzi");
+        include_str!("../../tests/fixtures/auth-refresh/auto_refresh_not_surfaced.lzi");
     const AUTH_REFRESH_009: &str =
-        include_str!("../tests/fixtures/auth-refresh/cookie_domain_missing.lzi");
+        include_str!("../../tests/fixtures/auth-refresh/cookie_domain_missing.lzi");
 
     fn auth_refresh_diags<'a>(diagnostics: &'a [DoctorDiagnostic]) -> Vec<&'a DoctorDiagnostic> {
         diagnostics

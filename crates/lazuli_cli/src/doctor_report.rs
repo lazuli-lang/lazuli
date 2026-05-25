@@ -319,7 +319,7 @@ mod tests {
         let mut report = DoctorReport::empty();
         report.findings.push(FindingJson {
             rule: "X".into(),
-            category: "Other".into(),
+            category: RuleCategory::Vocabulary.as_str().into(),
             severity: "warning".into(),
             path: "p".into(),
             span: SpanJson { line: 1, column: 1, end_line: None, end_column: None },
@@ -330,8 +330,8 @@ mod tests {
         });
         // Empty specs + only warnings → does NOT gate.
         assert!(!report_fails_gate(&report, &[]));
-        // category:Other → gates.
-        let specs = vec![FailOnSpec::Category(RuleCategory::Other)];
+        // Matching category spec → gates.
+        let specs = vec![FailOnSpec::Category(RuleCategory::Vocabulary)];
         assert!(report_fails_gate(&report, &specs));
     }
 }

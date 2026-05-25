@@ -1673,6 +1673,7 @@ mod tests {
 
             composite_key: None,
             conventions: Vec::new(),
+            lifecycle_routes: None,
         }
     }
 
@@ -1692,6 +1693,7 @@ mod tests {
             type_ref,
             required,
             constraints: lazuli_ir::FieldConstraints::default(),
+            validate_skip: false,
         }
     }
 
@@ -2855,6 +2857,7 @@ mod feature_emit {
 
             composite_key: None,
             conventions: Vec::new(),
+            lifecycle_routes: None,
         }
     }
 
@@ -2864,6 +2867,7 @@ mod feature_emit {
             type_ref,
             required,
             constraints: lazuli_ir::FieldConstraints::default(),
+            validate_skip: false,
         }
     }
 
