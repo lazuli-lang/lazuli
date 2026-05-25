@@ -43,13 +43,22 @@
 
 pub(crate) mod agent;
 pub(crate) mod api;
+pub(crate) mod app;
 pub(crate) mod auth;
 pub(crate) mod cache;
 pub(crate) mod canonical_kinds;
+pub(crate) mod command;
 pub(crate) mod crypto;
+pub(crate) mod doctor_local;
+pub(crate) mod env;
 pub(crate) mod error;
+pub(crate) mod external;
 pub(crate) mod http_headers;
+pub(crate) mod lzx;
 pub(crate) mod notification;
 pub(crate) mod policy;
+pub(crate) mod profile;
 pub(crate) mod query;
+pub(crate) mod registry;
 pub(crate) mod webhook;
+pub(crate) mod workspace;

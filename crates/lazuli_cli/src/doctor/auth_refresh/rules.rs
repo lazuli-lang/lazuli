@@ -1,6 +1,6 @@
 use lazuli_ir::{BuiltinType, TheftAction, TypeRef};
 
-use super::super::resolve_resource_for_feature;
+use super::super::aggregators::auth::resolve_resource_for_feature;
 use super::{
     AuthRefreshContext, AuthRefreshDiagnostic, DEFAULT_REFRESH_TTL, DEFAULT_ROTATION_GRACE,
     DEFAULT_THEFT_ACTION, Finding,

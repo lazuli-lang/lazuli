@@ -40,7 +40,7 @@ use lazuli_ir as ir;
 /// `true` when the path's extension is `.lzi`. The doctor walker uses
 /// extension-based dispatch — `app.lzi`, `registry.lzi`, and feature
 /// files all share the `.lzi` suffix.
-pub(super) fn is_lzi_path(path: &Path) -> bool {
+pub(crate) fn is_lzi_path(path: &Path) -> bool {
     path.extension().and_then(|ext| ext.to_str()) == Some("lzi")
 }
 
@@ -78,7 +78,7 @@ pub(super) fn is_one_dot_zero_plus(version: &str) -> bool {
 /// Strip path parameters down to `:_` placeholders so two routes that
 /// differ only in slot names (`/users/:id` vs `/users/:userId`) compare
 /// equal. Preserves the leading `/`.
-pub(super) fn normalise_path(path: &str) -> String {
+pub(crate) fn normalise_path(path: &str) -> String {
     let mut out = String::with_capacity(path.len());
     for segment in path.split('/') {
         if !out.is_empty() {
@@ -101,7 +101,7 @@ pub(super) fn normalise_path(path: &str) -> String {
 
 /// IR HTTP method → canonical wire word. Closed catalog: the IR enum
 /// is exhaustive.
-pub(super) fn http_method_word(method: ir::HttpMethod) -> &'static str {
+pub(crate) fn http_method_word(method: ir::HttpMethod) -> &'static str {
     match method {
         ir::HttpMethod::Get => "GET",
         ir::HttpMethod::Post => "POST",
@@ -127,7 +127,7 @@ pub(super) fn tool_kind_word(kind: ir::ToolKind) -> &'static str {
 
 /// IR `FileVisibility` → canonical wire word for `@cap.File` /
 /// `cap_file_*` diagnostics.
-pub(super) fn format_visibility(v: lazuli_ir::FileVisibility) -> &'static str {
+pub(crate) fn format_visibility(v: lazuli_ir::FileVisibility) -> &'static str {
     match v {
         lazuli_ir::FileVisibility::Public => "public",
         lazuli_ir::FileVisibility::Private => "private",
@@ -163,7 +163,7 @@ pub(super) fn environments_summary(environments: &BTreeSet<&str>) -> String {
 /// Format a closed catalog (`["a", "b", "c"]`) as the inline
 /// backtick-wrapped list used by diagnostic messages
 /// (`expected one of \`a\`, \`b\`, \`c\``).
-pub(super) fn catalog_list(items: &[&str]) -> String {
+pub(crate) fn catalog_list(items: &[&str]) -> String {
     items
         .iter()
         .map(|i| format!("`{i}`"))
@@ -210,7 +210,7 @@ pub(crate) fn openapi_today_pivot() -> (u16, u8, u8) {
 /// one of `ms | s | m | h | d`. The Go runtime re-parses with
 /// `time.ParseDuration` at wire time; this check just catches the
 /// obvious typo (empty, no suffix, garbage prefix).
-pub(super) fn is_parseable_duration(raw: &str) -> bool {
+pub(crate) fn is_parseable_duration(raw: &str) -> bool {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return false;
@@ -229,7 +229,7 @@ pub(super) fn is_parseable_duration(raw: &str) -> bool {
 /// Liberal size parser. Matches the common Go idiom (`512b`, `16kb`,
 /// `10mb`, `2gb`). The numeric prefix must be a positive integer; the
 /// suffix is one of `b | kb | mb | gb | tb`.
-pub(super) fn is_parseable_size(raw: &str) -> bool {
+pub(crate) fn is_parseable_size(raw: &str) -> bool {
     let trimmed = raw.trim().to_ascii_lowercase();
     if trimmed.is_empty() {
         return false;
@@ -284,7 +284,7 @@ pub(super) fn is_parseable_cidr(raw: &str) -> bool {
 /// where absent). A declared `url` is the canonical reference; the
 /// origin must match its scheme + authority for the CORS layer to
 /// recognise it as the same browser origin.
-pub(super) fn same_origin(declared_url: &str, origin: &str) -> bool {
+pub(crate) fn same_origin(declared_url: &str, origin: &str) -> bool {
     let canon = |raw: &str| {
         let raw = raw.trim();
         // Strip path / query — keep scheme + authority only.
@@ -303,7 +303,7 @@ pub(super) fn same_origin(declared_url: &str, origin: &str) -> bool {
 
 /// Render a `{name1, name2, ...}`-style list for diagnostic messages.
 /// Empty sets render as `<none>` so the message stays unambiguous.
-pub(super) fn format_name_list(names: &BTreeSet<String>) -> String {
+pub(crate) fn format_name_list(names: &BTreeSet<String>) -> String {
     if names.is_empty() {
         "<none>".to_owned()
     } else {
@@ -318,7 +318,7 @@ pub(super) fn format_name_list(names: &BTreeSet<String>) -> String {
 /// Render an event-payload field set as the backtick-wrapped list used
 /// by `NOTIF-DIGEST-001` and the payload-drift diagnostics. Sorted
 /// deterministically so messages are stable across runs.
-pub(super) fn payload_field_list(canonical: &BTreeSet<String>) -> String {
+pub(crate) fn payload_field_list(canonical: &BTreeSet<String>) -> String {
     let mut fields: Vec<&String> = canonical.iter().collect();
     fields.sort();
     fields
@@ -330,7 +330,7 @@ pub(super) fn payload_field_list(canonical: &BTreeSet<String>) -> String {
 
 /// Render the closed `ir::ERROR_PAGE_STATUS_CATALOG` as a comma-joined
 /// list of HTTP status codes for the `error_page` diagnostic message.
-pub(super) fn error_page_catalog_display() -> String {
+pub(crate) fn error_page_catalog_display() -> String {
     ir::ERROR_PAGE_STATUS_CATALOG
         .iter()
         .map(u16::to_string)
@@ -341,7 +341,7 @@ pub(super) fn error_page_catalog_display() -> String {
 /// Stringify an `Agent`'s policy reference for diagnostic messages.
 /// Mirrors the LSP rendering so doctor and LSP agree on the wire word
 /// (`@atom`, `@policy.local`, `feature.external`, `<none>`).
-pub(super) fn format_agent_policy(agent: &lazuli_ir::Agent) -> String {
+pub(crate) fn format_agent_policy(agent: &lazuli_ir::Agent) -> String {
     match agent.policy.as_ref() {
         Some(ir::PolicyRef::Atom(name)) => format!("@{name}"),
         Some(ir::PolicyRef::Local(name)) => format!("@policy.{name}"),
@@ -368,7 +368,7 @@ pub(super) fn type_ref_name(t: &lazuli_ir::TypeRef) -> String {
 /// `true` when any pair of MIME types in the two lists matches (under
 /// `mime_matches`). Used by `cap_file_accept_input_output_mismatch` to
 /// check that an input/output overlap exists.
-pub(super) fn mime_sets_intersect(
+pub(crate) fn mime_sets_intersect(
     left: &[lazuli_ir::MimeType],
     right: &[lazuli_ir::MimeType],
 ) -> bool {
@@ -384,7 +384,7 @@ pub(super) fn mime_sets_intersect(
 
 /// `true` when two MIME types match exactly or via a wildcard
 /// (`image/*` matches `image/png`).
-pub(super) fn mime_matches(left: &lazuli_ir::MimeType, right: &lazuli_ir::MimeType) -> bool {
+pub(crate) fn mime_matches(left: &lazuli_ir::MimeType, right: &lazuli_ir::MimeType) -> bool {
     let family_ok = left.family == right.family || left.family == "*" || right.family == "*";
     let subtype_ok = left.subtype == right.subtype || left.subtype == "*" || right.subtype == "*";
     family_ok && subtype_ok
@@ -394,13 +394,13 @@ pub(super) fn mime_matches(left: &lazuli_ir::MimeType, right: &lazuli_ir::MimeTy
 /// adapter can honor. Delegates to `parse_notification_duration_seconds`
 /// — the doctor's job is to reject obviously wrong literals at design
 /// time so the adapter never sees `"1 month"` or `"forever"`.
-pub(super) fn is_valid_notification_duration(raw: &str) -> bool {
+pub(crate) fn is_valid_notification_duration(raw: &str) -> bool {
     parse_notification_duration_seconds(raw).is_some()
 }
 
 /// Parse a notification-duration literal (`5m`, `1h`, `2d`, …) into
 /// seconds. Returns `None` for unknown units or arithmetic overflow.
-pub(super) fn parse_notification_duration_seconds(raw: &str) -> Option<u64> {
+pub(crate) fn parse_notification_duration_seconds(raw: &str) -> Option<u64> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return None;

@@ -53,10 +53,26 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use crate::casing::{lower_camel, pascal_case, to_snake_case};
+use crate::casing::{pascal_case, to_snake_case};
 use crate::{
     build_module_from_path, cmd_new_frontends, collect_lzx_bundle, collect_lzx_experience_module,
     lazurite_manifest, playwright_fixture_config, project_root_for_input,
+};
+
+mod barrel;
+mod design;
+mod hooks;
+mod mobile_views;
+mod sdk;
+mod zod;
+
+pub(crate) use barrel::emit_feature_barrel_ts;
+use design::emit_design_files;
+pub(crate) use hooks::emit_feature_react_hooks_ts;
+use mobile_views::scaffold_mobile_view_files;
+pub(crate) use sdk::emit_feature_sdk_ts;
+pub(crate) use zod::{
+    command_schema_ident, command_zod_slots, emit_feature_zod_ts, zod_base_for_type_ref,
 };
 
 /// L0 #3 — emit TypeScript user-code for a Lazuli/Lazurite project.
@@ -227,99 +243,6 @@ pub(crate) fn generate_ts(input: &Path, output: Option<&Path>, check: bool) -> R
         if scaffold_count == 1 { "" } else { "s" }
     );
     Ok(())
-}
-
-/// Walk every mobile surface and write a per-view scaffold under
-/// `app/clients/mobile/app/<audience>/<expo-route>.tsx`. Returns the count
-/// of files actually written (excludes already-present files left
-/// untouched by the `write_if_absent` guard).
-fn scaffold_mobile_view_files(
-    module: &lazuli_ir::Module,
-    out_dir: &Path,
-) -> Result<usize> {
-    let mut written = 0usize;
-
-    for feature in &module.features {
-        for surface in &feature.surfaces {
-            if !matches!(surface.target, lazuli_ir::SurfaceTarget::Mobile) {
-                continue;
-            }
-            for audience in &surface.audiences {
-                for view in &audience.views {
-                    let route = view_route_string(view);
-                    let path = lazuli_codegen_ts::mobile_view_scaffold::expo_app_file_path(
-                        &audience.name,
-                        &route,
-                    );
-                    let abs_path = out_dir.join(&path);
-                    if abs_path.exists() {
-                        continue;
-                    }
-                    let body = lazuli_codegen_ts::mobile_view_scaffold::scaffold_body_for_view(
-                        &surface.feature,
-                        &audience.name,
-                        view,
-                    );
-                    if let Some(parent) = abs_path.parent() {
-                        fs::create_dir_all(parent).with_context(|| {
-                            format!("creating {} for mobile scaffold", parent.display())
-                        })?;
-                    }
-                    fs::write(&abs_path, body).with_context(|| {
-                        format!("writing mobile scaffold {}", abs_path.display())
-                    })?;
-                    written += 1;
-                }
-            }
-        }
-    }
-
-    Ok(written)
-}
-
-/// Extract the `at "<path>"` string from a view declaration. Stored as
-/// `route: Option<String>` on each view kind in the IR. Falls back to
-/// `/` for views that omit the clause entirely (rare — Expo Router's
-/// `app/<audience>/index.tsx` is the natural landing target).
-fn view_route_string(view: &lazuli_ir::View) -> String {
-    match view {
-        lazuli_ir::View::List(v) => v.route.clone().unwrap_or_else(|| "/".to_owned()),
-        lazuli_ir::View::Detail(v) => v.route.clone().unwrap_or_else(|| "/".to_owned()),
-        lazuli_ir::View::Create(v) => v.route.clone().unwrap_or_else(|| "/".to_owned()),
-    }
-}
-
-/// Stub design emission walker. Wires the 6 design emitters from L0 #2
-/// Cell B in `lazuli_codegen_ts::design`.
-fn emit_design_files(
-    design: &lazuli_ir::Design,
-    _manifest: &Option<lazurite_manifest::Manifest>,
-) -> Vec<lazuli_codegen_ts::GeneratedFile> {
-    // Hook point: Cell B's individual emitters live as `pub fn emit_*` in
-    // `lazuli_codegen_ts::design::*`. Wire them inline here so the CLI
-    // doesn't depend on a yet-to-exist `lazuli_codegen_ts::generate_design`.
-    let mut out = Vec::new();
-    out.push(lazuli_codegen_ts::GeneratedFile {
-        path: "dist/ts-web/design/tokens.ts".to_owned(),
-        contents: lazuli_codegen_ts::design::emit_tokens_ts(design),
-    });
-    out.push(lazuli_codegen_ts::GeneratedFile {
-        path: "dist/ts-web/design/tokens.css".to_owned(),
-        contents: lazuli_codegen_ts::design::emit_tokens_css(design),
-    });
-    out.push(lazuli_codegen_ts::GeneratedFile {
-        path: "dist/ts-web/design/tailwind.gen.ts".to_owned(),
-        contents: lazuli_codegen_ts::design::emit_tailwind_v3_preset(design),
-    });
-    out.push(lazuli_codegen_ts::GeneratedFile {
-        path: "dist/ts-web/design/tailwind.theme.css".to_owned(),
-        contents: lazuli_codegen_ts::design::emit_tailwind_v4_theme(design),
-    });
-    out.push(lazuli_codegen_ts::GeneratedFile {
-        path: "dist/ts-web/design/allowlist.json".to_owned(),
-        contents: lazuli_codegen_ts::design::emit_allowlist_json(design),
-    });
-    out
 }
 
 /// Per-feature TS emission walker. Wires the .lzx view emitters from
@@ -514,387 +437,13 @@ fn app_ts_target_prefixes(
     targets
 }
 
-pub(crate) fn emit_feature_sdk_ts(feature: &lazuli_ir::Feature, module: &lazuli_ir::Module) -> String {
-    let mut s = String::new();
-    writeln!(s, "// Code generated by lazuli; DO NOT EDIT.").ok();
-    writeln!(
-        s,
-        "import {{ defineCommand, defineQuery, type ID, type Money, type Time }} from \"@lazuli/runtime\";"
-    )
-    .ok();
-    writeln!(s).ok();
-    write_cross_feature_imports(&mut s, feature, module);
-    write_plugin_semantic_aliases(&mut s, feature);
-    write_referenced_enum_aliases(&mut s, feature, module);
-
-    let mut records: Vec<&lazuli_ir::Record> = feature.records.iter().collect();
-    records.sort_by(|a, b| a.name.cmp(&b.name));
-    for record in records {
-        write_record_interface(&mut s, record, module);
-    }
-
-    let mut resources: Vec<&lazuli_ir::Resource> = feature.resources.iter().collect();
-    resources.sort_by(|a, b| a.name.cmp(&b.name));
-    for resource in resources {
-        write_resource_interface(&mut s, resource, module);
-    }
-
-    let mut commands: Vec<&lazuli_ir::Command> = feature.commands.iter().collect();
-    commands.sort_by(|a, b| a.name.cmp(&b.name));
-    for command in commands {
-        write_command_sdk(&mut s, feature, command, module);
-    }
-
-    let mut queries: Vec<&lazuli_ir::Query> = feature.queries.iter().collect();
-    queries.sort_by(|a, b| a.name().cmp(b.name()));
-    for query in queries {
-        write_query_sdk(&mut s, feature, query, module);
-    }
-
-    // router-w4 — per-resource lifecycle_route helpers. Appended at
-    // the tail so feature SDK consumers can `import { hostLifecycleRoute }
-    // from '@hostpoint/sdk/host/host.gen'` and the routes.gen.tsx
-    // beforeLoad closures can call the helper via the same path.
-    if let Some(helpers) = lazuli_codegen_ts::emit_lifecycle_route_helpers_ts(feature) {
-        writeln!(s).ok();
-        s.push_str(&helpers);
-    }
-
-    s
-}
-
-pub(crate) fn emit_feature_barrel_ts(feature: &lazuli_ir::Feature) -> String {
-    let mut s = String::new();
-    writeln!(s, "// Code generated by lazuli; DO NOT EDIT.").ok();
-    writeln!(s, "export * from \"./{}.gen.js\";", feature.name).ok();
-    if !feature.commands.is_empty() || !feature.queries.is_empty() {
-        writeln!(s, "export * from \"./{}.react.gen.js\";", feature.name).ok();
-    }
-    // LAZ-SEMANTIC-AUTO-VALIDATE — side-effect import so the
-    // preflight registrations run at app boot when the feature SDK
-    // is imported. The barrel always references the file; the file
-    // itself only exists when the feature has eligible commands, so
-    // a missing-file resolution error means the barrel and the
-    // generator drifted (the feature_has_semantic_preflight check
-    // below keeps them in sync).
-    if feature_has_semantic_preflight(feature) {
-        writeln!(s, "import \"./{}.preflight.gen.js\";", feature.name).ok();
-    }
-    s
-}
-
-/// Mirror of `lazuli_codegen_ts::preflight::emit_preflight_ts`'s
-/// eligibility predicate so the barrel doesn't emit a side-effect
-/// import for a file that won't exist.
-fn feature_has_semantic_preflight(feature: &lazuli_ir::Feature) -> bool {
-    for command in &feature.commands {
-        let lazuli_ir::CommandInput::Typed(slots) = &command.input else { continue };
-        for slot in slots {
-            if slot.validate_skip {
-                continue;
-            }
-            if let lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticPluginType {
-                ts_validator,
-                ts_package,
-                ..
-            }) = &slot.type_ref
-            {
-                if !ts_validator.is_empty() && !ts_package.is_empty() {
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
-
-pub(crate) fn emit_feature_react_hooks_ts(
-    feature: &lazuli_ir::Feature,
-    module: &lazuli_ir::Module,
-) -> String {
-    let mut s = String::new();
-    let has_query_hooks =
-        !feature.queries.is_empty() || feature.commands.iter().any(command_is_pure_read);
-    let has_command_hooks = feature.commands.iter().any(|command| !command_is_pure_read(command));
-    writeln!(s, "// Code generated by lazuli; DO NOT EDIT.").ok();
-    writeln!(s).ok();
-    writeln!(s, "import {{").ok();
-    if has_command_hooks {
-        writeln!(s, "  useLazuliCommand,").ok();
-    }
-    if has_query_hooks {
-        writeln!(s, "  useLazuliQuery,").ok();
-    }
-    if has_command_hooks {
-        writeln!(s, "  type UseLazuliCommandOptions,").ok();
-    }
-    if has_query_hooks {
-        writeln!(s, "  type UseLazuliQueryOptions,").ok();
-    }
-    writeln!(s, "}} from \"@lazuli/runtime/react\";").ok();
-    writeln!(s).ok();
-
-    let specs = feature_react_hook_specs(feature);
-    if !specs.is_empty() {
-        writeln!(s, "import {{").ok();
-        for spec in specs {
-            writeln!(s, "  {spec},").ok();
-        }
-        writeln!(s, "}} from \"./{}.gen.js\";", feature.name).ok();
-        writeln!(s).ok();
-    }
-
-    if has_command_hooks {
-        writeln!(
-            s,
-            "type CommandInput<TSpec> = TSpec extends {{ readonly _input?: infer Input }} ? Input : never;"
-        )
-        .ok();
-        writeln!(
-            s,
-            "type CommandOutput<TSpec> = TSpec extends {{ readonly _output?: infer Output }} ? Output : never;"
-        )
-        .ok();
-        writeln!(
-            s,
-            "type CommandOptions<TSpec> = UseLazuliCommandOptions<CommandInput<TSpec>, CommandOutput<TSpec>>;"
-        )
-        .ok();
-    }
-    if has_query_hooks {
-        writeln!(
-            s,
-            "type QueryArgs<TSpec> = TSpec extends {{ readonly _args?: infer Args }} ? Args : never;"
-        )
-        .ok();
-        writeln!(
-            s,
-            "type QueryResult<TSpec> = TSpec extends {{ readonly _result?: infer Result }} ? Result : never;"
-        )
-        .ok();
-        writeln!(
-            s,
-            "type QueryOptions<TSpec> = UseLazuliQueryOptions<QueryResult<TSpec>>;"
-        )
-        .ok();
-    }
-    writeln!(s).ok();
-
-    let mut used_hook_names = collect_canonical_react_hook_names(feature);
-    let mut pure_read_commands: Vec<&lazuli_ir::Command> = feature
-        .commands
-        .iter()
-        .filter(|command| command_is_pure_read(command))
-        .collect();
-    pure_read_commands.sort_by(|a, b| a.name.cmp(&b.name));
-
-    let mut queries: Vec<&lazuli_ir::Query> = feature.queries.iter().collect();
-    queries.sort_by(|a, b| a.name().cmp(b.name()));
-
-    if !pure_read_commands.is_empty() || !queries.is_empty() {
-        writeln!(s, "// Queries").ok();
-        for command in pure_read_commands {
-            let spec_ident = command_ident(&feature.name, &command.name);
-            let hook_name = react_hook_name_for_spec(&spec_ident);
-            let has_args = !command_sdk_slots(feature, command, module).is_empty();
-            write_react_query_hook(&mut s, &hook_name, &spec_ident, has_args);
-            let aliases = command
-                .previous_names
-                .iter()
-                .map(|name| react_hook_name_for_spec(&command_ident(&feature.name, name)))
-                .collect::<Vec<_>>();
-            write_deprecated_react_hook_aliases(
-                &mut s,
-                &mut used_hook_names,
-                &hook_name,
-                aliases,
-            );
-        }
-        for query in queries {
-            let kind = react_query_kind(query);
-            let resource_pascal = pick_query_resource_ts(feature, query.name()).unwrap_or_else(|| {
-                feature
-                    .resources
-                    .first()
-                    .map(|r| pascal_case(&r.name))
-                    .unwrap_or_else(|| pascal_case(&feature.name))
-            });
-            let spec_ident = query_ident(&feature.name, &resource_pascal, kind, query.name());
-            let hook_name = react_hook_name_for_spec(&spec_ident);
-            let has_args = !query_args(feature, query, module).is_empty();
-            write_react_query_hook(&mut s, &hook_name, &spec_ident, has_args);
-            let aliases = query_hook_aliases(feature, query);
-            write_deprecated_react_hook_aliases(
-                &mut s,
-                &mut used_hook_names,
-                &hook_name,
-                aliases,
-            );
-        }
-    }
-
-    let mut commands: Vec<&lazuli_ir::Command> = feature
-        .commands
-        .iter()
-        .filter(|command| !command_is_pure_read(command))
-        .collect();
-    commands.sort_by(|a, b| a.name.cmp(&b.name));
-    if !commands.is_empty() {
-        writeln!(s, "// Commands").ok();
-        for command in commands {
-            let spec_ident = command_ident(&feature.name, &command.name);
-            let hook_name = react_hook_name_for_spec(&spec_ident);
-            write_react_command_hook(&mut s, &hook_name, &spec_ident);
-            let aliases = command
-                .previous_names
-                .iter()
-                .map(|name| react_hook_name_for_spec(&command_ident(&feature.name, name)))
-                .collect::<Vec<_>>();
-            write_deprecated_react_hook_aliases(
-                &mut s,
-                &mut used_hook_names,
-                &hook_name,
-                aliases,
-            );
-        }
-    }
-
-    s
-}
-
-fn feature_react_hook_specs(feature: &lazuli_ir::Feature) -> BTreeSet<String> {
-    let mut specs = BTreeSet::new();
-    for command in &feature.commands {
-        specs.insert(command_ident(&feature.name, &command.name));
-    }
-    for query in &feature.queries {
-        let resource_pascal = pick_query_resource_ts(feature, query.name()).unwrap_or_else(|| {
-            feature
-                .resources
-                .first()
-                .map(|r| pascal_case(&r.name))
-                .unwrap_or_else(|| pascal_case(&feature.name))
-        });
-        specs.insert(query_ident(
-            &feature.name,
-            &resource_pascal,
-            react_query_kind(query),
-            query.name(),
-        ));
-    }
-    specs
-}
-
-fn collect_canonical_react_hook_names(feature: &lazuli_ir::Feature) -> BTreeSet<String> {
-    feature_react_hook_specs(feature)
-        .into_iter()
-        .map(|spec| react_hook_name_for_spec(&spec))
-        .collect()
-}
-
-fn write_react_query_hook(s: &mut String, hook_name: &str, spec_ident: &str, has_args: bool) {
-    if has_args {
-        writeln!(
-            s,
-            "export function {hook_name}(\n  args: QueryArgs<typeof {spec_ident}>,\n  options: QueryOptions<typeof {spec_ident}> = {{}},\n) {{"
-        )
-        .ok();
-        writeln!(s, "  return useLazuliQuery({spec_ident}, args, options);").ok();
-    } else {
-        writeln!(
-            s,
-            "export function {hook_name}(\n  options: QueryOptions<typeof {spec_ident}> = {{}},\n) {{"
-        )
-        .ok();
-        writeln!(s, "  return useLazuliQuery({spec_ident}, {{}}, options);").ok();
-    }
-    writeln!(s, "}}").ok();
-    writeln!(s).ok();
-}
-
-fn write_react_command_hook(s: &mut String, hook_name: &str, spec_ident: &str) {
-    writeln!(
-        s,
-        "export function {hook_name}(\n  options: CommandOptions<typeof {spec_ident}> = {{}},\n) {{"
-    )
-    .ok();
-    writeln!(s, "  return useLazuliCommand({spec_ident}, options);").ok();
-    writeln!(s, "}}").ok();
-    writeln!(s).ok();
-}
-
-fn write_deprecated_react_hook_aliases(
-    s: &mut String,
-    used_hook_names: &mut BTreeSet<String>,
-    canonical: &str,
-    aliases: Vec<String>,
-) {
-    for alias in aliases {
-        if alias == canonical || !used_hook_names.insert(alias.clone()) {
-            continue;
-        }
-        writeln!(s, "/** @deprecated Use `{canonical}` instead. */").ok();
-        writeln!(s, "export const {alias} = {canonical};").ok();
-        writeln!(s).ok();
-    }
-}
-
-fn query_hook_aliases(feature: &lazuli_ir::Feature, query: &lazuli_ir::Query) -> Vec<String> {
-    let kind = react_query_kind(query);
-    let resource_pascal = pick_query_resource_ts(feature, query.name()).unwrap_or_else(|| {
-        feature
-            .resources
-            .first()
-            .map(|r| pascal_case(&r.name))
-            .unwrap_or_else(|| pascal_case(&feature.name))
-    });
-    let mut aliases = query_previous_names(query)
-        .iter()
-        .map(|name| react_hook_name_for_spec(&query_ident(&feature.name, &resource_pascal, kind, name)))
-        .collect::<Vec<_>>();
-
-    // Compatibility with the runtime-spike React template: lookup
-    // queries without an authored `lookup_` prefix used to expose
-    // `use<Resource><ShortName>` (for example `useCustomerByID`).
-    // The canonical SDK name is now `useLookup<Resource>By<ShortName>`.
-    if kind == lazuli_ir::QueryKind::Lookup && !query.name().starts_with("lookup_") {
-        aliases.push(react_hook_name_for_spec(&format!(
-            "{}{}",
-            lazuli_codegen_ts::lower_camel_export(&feature.name),
-            pascal_case(query.name())
-        )));
-    }
-
-    aliases
-}
-
-fn query_previous_names(query: &lazuli_ir::Query) -> &[String] {
-    match query {
-        lazuli_ir::Query::List(query) => &query.previous_names,
-        lazuli_ir::Query::Lookup(query) => &query.previous_names,
-        lazuli_ir::Query::Sql(query) => &query.previous_names,
-    }
-}
-
-fn react_query_kind(query: &lazuli_ir::Query) -> lazuli_ir::QueryKind {
-    match query {
-        lazuli_ir::Query::List(_) => lazuli_ir::QueryKind::List,
-        lazuli_ir::Query::Lookup(_) => lazuli_ir::QueryKind::Lookup,
-        lazuli_ir::Query::Sql(_) => lazuli_ir::QueryKind::Sql,
-    }
-}
-
-fn react_hook_name_for_spec(spec_ident: &str) -> String {
-    format!("use{}", pascal_case(spec_ident))
-}
-
 /// Emit `import { X } from '../other-feature/other-feature.gen';` lines
 /// for every enum/record referenced by this feature but declared in
 /// another feature. Closes WAR-CODEGEN-TS-01 + WAR-CODEGEN-XFEAT-01/02:
 /// previously such cross-feature references silently dropped the import
 /// and produced `tsc` errors at the consumer site, forcing users to
 /// duplicate enums/records across every consuming feature.
-fn write_cross_feature_imports(
+pub(super) fn write_cross_feature_imports(
     s: &mut String,
     feature: &lazuli_ir::Feature,
     module: &lazuli_ir::Module,
@@ -1046,7 +595,7 @@ fn owner_feature_for_type(
 /// is the right surface. The Go side keeps the validate dispatch.
 ///
 /// Sorted output keeps generated TS byte-stable across runs.
-fn write_plugin_semantic_aliases(s: &mut String, feature: &lazuli_ir::Feature) {
+pub(super) fn write_plugin_semantic_aliases(s: &mut String, feature: &lazuli_ir::Feature) {
     let mut aliases: BTreeSet<String> = BTreeSet::new();
     collect_plugin_semantic_aliases_in_feature(feature, &mut aliases);
     if aliases.is_empty() {
@@ -1109,7 +658,7 @@ fn collect_plugin_semantic_aliases_in_type(
     }
 }
 
-fn write_referenced_enum_aliases(
+pub(super) fn write_referenced_enum_aliases(
     s: &mut String,
     feature: &lazuli_ir::Feature,
     module: &lazuli_ir::Module,
@@ -1249,281 +798,6 @@ fn enum_ref_matches_feature(feature: &lazuli_ir::Feature, name: &lazuli_ir::Qual
             .any(|enum_decl| enum_decl.name.eq_ignore_ascii_case(&name.name))
 }
 
-fn write_record_interface(s: &mut String, record: &lazuli_ir::Record, module: &lazuli_ir::Module) {
-    // Field keys in camelCase — idiomatic JS/TS. The wire JSON
-    // contract stays snake_case (Go runtime); `LazuliClient` re-keys
-    // at the boundary via `runtime/ts/lazuli/src/case-mapper.ts`.
-    writeln!(s, "export interface {} {{", pascal_case(&record.name)).ok();
-    let mut fields: Vec<&lazuli_ir::Field> = record.fields.iter().collect();
-    fields.sort_by(|a, b| a.name.cmp(&b.name));
-    for field in fields {
-        let ty = ts_type_for_type_ref(&field.type_ref, module);
-        let camel = lazuli_codegen_ts::lower_camel_export(&field.name);
-        if field.required {
-            writeln!(s, "  {}: {};", camel, ty).ok();
-        } else {
-            writeln!(s, "  {}?: {} | null;", camel, ty).ok();
-        }
-    }
-    writeln!(s, "}}").ok();
-    writeln!(s).ok();
-}
-
-fn write_resource_interface(
-    s: &mut String,
-    resource: &lazuli_ir::Resource,
-    module: &lazuli_ir::Module,
-) {
-    writeln!(s, "export interface {} {{", pascal_case(&resource.name)).ok();
-    writeln!(s, "  id: ID;").ok();
-    let mut fields: Vec<&lazuli_ir::Field> = resource.fields.iter().collect();
-    fields.sort_by(|a, b| a.name.cmp(&b.name));
-    for field in fields {
-        if matches!(
-            field.name.as_str(),
-            "id" | "created_at" | "updated_at" | "deleted_at"
-        ) {
-            continue;
-        }
-        let name = resource_field_ts_name(field, module);
-        let camel = lazuli_codegen_ts::lower_camel_export(&name);
-        let ty = resource_field_ts_type(field, module);
-        if field.required {
-            writeln!(s, "  {camel}: {ty};").ok();
-        } else {
-            writeln!(s, "  {camel}?: {ty} | null;").ok();
-        }
-    }
-    writeln!(s, "  createdAt: Time;").ok();
-    writeln!(s, "  updatedAt: Time;").ok();
-    if resource.soft_delete {
-        writeln!(s, "  deletedAt?: Time | null;").ok();
-    }
-    writeln!(s, "}}").ok();
-    writeln!(s).ok();
-}
-
-fn write_command_sdk(
-    s: &mut String,
-    feature: &lazuli_ir::Feature,
-    command: &lazuli_ir::Command,
-    module: &lazuli_ir::Module,
-) {
-    let feature_pascal = pascal_case(&feature.name);
-    let input_iface = command_input_iface(&command.name, &feature_pascal);
-    let output_ty = command_output_ts_type(feature, command, module);
-    let command_export = command_export_ident(feature, command, module);
-    let legacy_command_ident = command_ident(&feature.name, &command.name);
-
-    writeln!(s, "export interface {input_iface} {{").ok();
-    for slot in command_sdk_slots(feature, command, module) {
-        let optional = if slot.required { "" } else { "?" };
-        let camel = lazuli_codegen_ts::lower_camel_export(&slot.name);
-        writeln!(
-            s,
-            "  {}{}: {};",
-            camel,
-            optional,
-            ts_type_for_type_ref(&slot.type_ref, module)
-        )
-        .ok();
-    }
-    writeln!(s, "}}").ok();
-    writeln!(s).ok();
-
-    let invalidates: Vec<String> = command
-        .invalidates
-        .iter()
-        .map(|i| {
-            // Wire registry key: `<feature>.<query_name>` (cell B1 dropped
-            // `.query.` infix). The pseudo-feature `query` (legacy parser
-            // output for `query.<name>` same-feature shorthand) and the
-            // None fallback both resolve to the host feature.
-            let feature_name = match i.query.feature.as_deref() {
-                Some("query") | None => feature.name.as_str(),
-                Some(feat) => feat,
-            };
-            format!("{}.{}", feature_name, i.query.name)
-        })
-        .collect();
-    // Wave 0 (ir-returns-list-2026-05-22 §2.2): pure-read commands lower
-    // to `defineQuery` so the React app gets react-query semantics
-    // (cache, refetch, suspense, useLazuliQuery). The wire is identical;
-    // only the client-side factory differs. Non-read commands stay on
-    // `defineCommand` and keep carrying invalidates / policy / rate-limit
-    // / audit metadata for `useLazuliCommand` callers.
-    if command_is_pure_read(command) {
-        writeln!(
-            s,
-            "export const {} = defineQuery<{}, {}>(\"{}.{}\");",
-            command_export,
-            input_iface,
-            output_ty,
-            feature.name,
-            command.name
-        )
-        .ok();
-        writeln!(s).ok();
-        if legacy_command_ident != command_export {
-            write_deprecated_const_alias(s, &legacy_command_ident, &command_export);
-        }
-        return;
-    }
-    writeln!(
-        s,
-        "export const {} = defineCommand<{}, {}>(\"{}.{}\", {{",
-        command_export,
-        input_iface,
-        output_ty,
-        feature.name,
-        command.name
-    )
-    .ok();
-    writeln!(s, "  invalidates: {},", format_string_array(&invalidates)).ok();
-    // Operational metadata (review bug #7, 2026-05-15) — the Go side
-    // already carries Policy / RateLimit / Audit on `lazuli.Command[I,O]`.
-    // The TS SDK previously lost them, so clients had no way to drive
-    // policy-aware affordances or rate-limit-aware backoff without a
-    // separate metadata call.
-    if let Some(policy_literal) = format_policy_ts(&command.policy, feature) {
-        writeln!(s, "  policy: {policy_literal},").ok();
-    }
-    if let Some(rate_limit) = command.rate_limit.as_ref() {
-        // `ir-rate-limit-env-aware` cell 1 — SDK shim: surface the
-        // default literal. Cell 2 extends the wire shape to carry the
-        // env-qualified slice for client-side affordance.
-        writeln!(
-            s,
-            "  rateLimit: \"{}\",",
-            escape_js_string(&rate_limit.default)
-        )
-        .ok();
-    }
-    if let Some(audit_literal) = format_audit_ts(command.audit.as_ref()) {
-        writeln!(s, "  audit: {audit_literal},").ok();
-    }
-    writeln!(s, "}});").ok();
-    writeln!(s).ok();
-    if legacy_command_ident != command_export {
-        write_deprecated_const_alias(s, &legacy_command_ident, &command_export);
-    }
-}
-
-fn write_query_sdk(
-    s: &mut String,
-    feature: &lazuli_ir::Feature,
-    query: &lazuli_ir::Query,
-    module: &lazuli_ir::Module,
-) {
-    let args = query_args(feature, query, module);
-    let args_ty = if args.is_empty() {
-        "{}".to_owned()
-    } else {
-        let fields = args
-            .iter()
-            .map(|slot| {
-                let optional = if slot.required { "" } else { "?" };
-                format!(
-                    "{}{}: {}",
-                    slot.name,
-                    optional,
-                    ts_type_for_type_ref(&slot.type_ref, module)
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("; ");
-        format!("{{ {fields} }}")
-    };
-    // Pick the resource most likely matching the query's intent.
-    // Previous heuristic was `feature.resources.first()` which produced
-    // wildly wrong types when the first resource isn't the "main" one
-    // (e.g. `host.lookupHostByMyHost` typed as `IntermediationTermsAcceptance`
-    // because that's the first resource declared in `host.lzi`; see
-    // WAR-VOCAB-HOSTHOME-01). New heuristic: find a resource whose
-    // PascalCase name appears as a token in the query name, falling
-    // back to the first resource when no match is found.
-    let resource_ty = pick_query_resource_ts(feature, query.name()).unwrap_or_else(|| {
-        feature
-            .resources
-            .first()
-            .map(|r| pascal_case(&r.name))
-            .unwrap_or_else(|| "unknown".to_owned())
-    });
-    let resource_pascal = resource_ty.clone();
-    let returns = match query {
-        lazuli_ir::Query::Lookup(_) => resource_ty,
-        lazuli_ir::Query::List(_) => format!("{resource_ty}[]"),
-        lazuli_ir::Query::Sql(q) => ts_type_for_type_ref(&q.returns, module),
-    };
-    let query_ref_kind = match query {
-        lazuli_ir::Query::List(_) => lazuli_ir::QueryKind::List,
-        lazuli_ir::Query::Lookup(_) => lazuli_ir::QueryKind::Lookup,
-        lazuli_ir::Query::Sql(q) => match q.sql_kind {
-            lazuli_ir::SqlQueryKind::Sql => lazuli_ir::QueryKind::Sql,
-            lazuli_ir::SqlQueryKind::View => lazuli_ir::QueryKind::View,
-        },
-    };
-    // Query-side operational metadata (review bug #7, 2026-05-15).
-    // Today `lazuli_ir::Query` carries no explicit policy/rate_limit at
-    // the variant level — `query.list/lookup/sql` are universally
-    // readable inside a tenant (see audience_sdk.rs's note). The TS
-    // signature already accepts a `DefineQueryOptions` block so when
-    // policy lands on Query the codegen will populate it here without
-    // a runtime contract change.
-    writeln!(
-        s,
-        // Wire registry key: `<feature>.<query_name>` (cell B1 dropped
-        // `.query.` infix — the `/q/` HTTP prefix already disambiguates kind).
-        "export const {} = defineQuery<{}, {}>(\"{}.{}\");",
-        query_ident(&feature.name, &resource_pascal, query_ref_kind, query.name()),
-        args_ty,
-        returns,
-        feature.name,
-        query.name()
-    )
-    .ok();
-    writeln!(s).ok();
-    let legacy_ident = legacy_query_ident(&feature.name, query_ref_kind, query.name());
-    let current_ident = query_ident(&feature.name, &resource_pascal, query_ref_kind, query.name());
-    if legacy_ident != current_ident {
-        write_deprecated_const_alias(s, &legacy_ident, &current_ident);
-    }
-}
-
-pub(crate) fn emit_feature_zod_ts(feature: &lazuli_ir::Feature, module: &lazuli_ir::Module) -> String {
-    let mut s = String::new();
-    writeln!(s, "// Code generated by lazuli; DO NOT EDIT.").ok();
-    writeln!(s, "import {{ z }} from \"zod\";").ok();
-    writeln!(s).ok();
-
-    let feature_pascal = pascal_case(&feature.name);
-    let mut commands: Vec<&lazuli_ir::Command> = feature.commands.iter().collect();
-    commands.sort_by(|a, b| a.name.cmp(&b.name));
-    for command in commands {
-        let schema_ident = command_schema_ident(&command.name, &feature_pascal);
-        writeln!(s, "export const {schema_ident} = z.object({{").ok();
-        for slot in command_zod_slots(feature, command, module) {
-            // Zod schemas mirror the camelCase SDK interfaces emitted
-            // in `messaging.gen.ts` etc. The wire JSON contract stays
-            // snake_case; `LazuliClient` rekeys at the boundary
-            // (`case-mapper.ts`). Apps validating client-side state
-            // (forms, local cache) speak in camelCase, matching
-            // the typed interface.
-            writeln!(
-                s,
-                "  {}: {},",
-                lazuli_codegen_ts::lower_camel_export(&slot.name),
-                zod_expr_for_slot(&slot.type_ref, &slot.constraints, !slot.required, module)
-            )
-            .ok();
-        }
-        writeln!(s, "}});").ok();
-        writeln!(s).ok();
-    }
-
-    s
-}
-
 #[derive(Clone)]
 pub(crate) struct TsSlot {
     pub(crate) name: String,
@@ -1532,7 +806,7 @@ pub(crate) struct TsSlot {
     pub(crate) constraints: lazuli_ir::FieldConstraints,
 }
 
-fn command_sdk_slots(
+pub(super) fn command_sdk_slots(
     feature: &lazuli_ir::Feature,
     command: &lazuli_ir::Command,
     module: &lazuli_ir::Module,
@@ -1550,29 +824,7 @@ fn command_sdk_slots(
     slots
 }
 
-pub(crate) fn command_zod_slots(
-    feature: &lazuli_ir::Feature,
-    command: &lazuli_ir::Command,
-    module: &lazuli_ir::Module,
-) -> Vec<TsSlot> {
-    let input_slots = command_input_slots(feature, command, module);
-    if input_slots.is_empty() {
-        command
-            .route
-            .iter()
-            .map(|route| TsSlot {
-                name: route.name.clone(),
-                type_ref: route.type_ref.clone(),
-                required: route.from.is_none(),
-                constraints: lazuli_ir::FieldConstraints::default(),
-            })
-            .collect()
-    } else {
-        input_slots
-    }
-}
-
-fn command_input_slots(
+pub(super) fn command_input_slots(
     feature: &lazuli_ir::Feature,
     command: &lazuli_ir::Command,
     module: &lazuli_ir::Module,
@@ -1608,7 +860,7 @@ fn command_input_slots(
     }
 }
 
-fn query_args(
+pub(super) fn query_args(
     feature: &lazuli_ir::Feature,
     query: &lazuli_ir::Query,
     module: &lazuli_ir::Module,
@@ -1760,7 +1012,7 @@ fn ts_slot_from_typed(slot: &lazuli_ir::TypedSlot) -> TsSlot {
 /// which in `catalog.lzi` happens to be `UploadedAsset` — emitting
 /// the wrong TS return type. Hostpoint workaround was an explicit
 /// `as unknown as Property[]` cast in HostHome.tsx.
-fn pick_query_resource_ts(feature: &lazuli_ir::Feature, query_name: &str) -> Option<String> {
+pub(super) fn pick_query_resource_ts(feature: &lazuli_ir::Feature, query_name: &str) -> Option<String> {
     let query_lc = query_name.to_ascii_lowercase();
     // Prefer the longest match (so "service_transaction" beats
     // "service" + "transaction" tie). Sort by length desc.
@@ -1862,7 +1114,7 @@ fn pluralize_snake(word: &str) -> String {
 /// classification conservative — false negatives (a read that doesn't
 /// follow the naming convention) ship as `defineCommand`, which still
 /// works; false positives ship a wire mismatch, which doesn't.
-fn command_is_pure_read(command: &lazuli_ir::Command) -> bool {
+pub(super) fn command_is_pure_read(command: &lazuli_ir::Command) -> bool {
     if !matches!(command.effect, lazuli_ir::CommandEffect::Returns(_)) {
         return false;
     }
@@ -1891,7 +1143,7 @@ fn command_is_pure_read(command: &lazuli_ir::Command) -> bool {
         .any(|prefix| command.name.starts_with(prefix))
 }
 
-fn command_output_ts_type(
+pub(super) fn command_output_ts_type(
     _feature: &lazuli_ir::Feature,
     command: &lazuli_ir::Command,
     module: &lazuli_ir::Module,
@@ -1978,7 +1230,7 @@ fn resource_ts_name(name: &lazuli_ir::QualifiedName, module: &lazuli_ir::Module)
         .unwrap_or_else(|| pascal_case(&name.name))
 }
 
-fn resource_field_ts_name(field: &lazuli_ir::Field, module: &lazuli_ir::Module) -> String {
+pub(super) fn resource_field_ts_name(field: &lazuli_ir::Field, module: &lazuli_ir::Module) -> String {
     if is_resource_ref(&field.type_ref, module) && !field.name.ends_with("_id") {
         format!("{}_id", field.name)
     } else {
@@ -1986,7 +1238,7 @@ fn resource_field_ts_name(field: &lazuli_ir::Field, module: &lazuli_ir::Module) 
     }
 }
 
-fn resource_field_ts_type(field: &lazuli_ir::Field, module: &lazuli_ir::Module) -> String {
+pub(super) fn resource_field_ts_type(field: &lazuli_ir::Field, module: &lazuli_ir::Module) -> String {
     if is_resource_ref(&field.type_ref, module) {
         "ID".to_owned()
     } else {
@@ -2005,7 +1257,7 @@ fn is_resource_ref(type_ref: &lazuli_ir::TypeRef, module: &lazuli_ir::Module) ->
     }
 }
 
-fn ts_type_for_type_ref(type_ref: &lazuli_ir::TypeRef, module: &lazuli_ir::Module) -> String {
+pub(super) fn ts_type_for_type_ref(type_ref: &lazuli_ir::TypeRef, module: &lazuli_ir::Module) -> String {
     match type_ref {
         lazuli_ir::TypeRef::Builtin(builtin) => match builtin {
             lazuli_ir::BuiltinType::Id => "ID".to_owned(),
@@ -2122,7 +1374,7 @@ fn ts_type_for_type_ref(type_ref: &lazuli_ir::TypeRef, module: &lazuli_ir::Modul
 /// `PolicySpec` shape exported by `@lazuli/runtime/spec`. Returns `None`
 /// when the policy is omitted or explicitly `None` so the caller can
 /// elide the `policy: ...` line entirely (review bug #7).
-fn format_policy_ts(policy: &lazuli_ir::PolicyRef, feature: &lazuli_ir::Feature) -> Option<String> {
+pub(super) fn format_policy_ts(policy: &lazuli_ir::PolicyRef, feature: &lazuli_ir::Feature) -> Option<String> {
     // Re-prepend `@` when the parser dropped it. PolicyRef::Local
     // carries either the bare category name (`"update"`) or the
     // partial-qualified form (`"policy.update"`); PolicyRef::Atom can
@@ -2223,7 +1475,7 @@ fn parse_policy_atom_ts(raw: &str) -> Option<String> {
 ///   - `Some({subjects: [], ..})`        → `"default"` sentinel
 ///   - `Some({subjects: ["actor", ..]})` → string array literal
 ///   - `None`                             → caller elides the field
-fn format_audit_ts(audit: Option<&lazuli_ir::AuditSpec>) -> Option<String> {
+pub(super) fn format_audit_ts(audit: Option<&lazuli_ir::AuditSpec>) -> Option<String> {
     let audit = audit?;
     if audit.subjects.is_empty() {
         return Some("\"default\"".to_owned());
@@ -2239,7 +1491,7 @@ fn format_audit_ts(audit: Option<&lazuli_ir::AuditSpec>) -> Option<String> {
 /// Escape a string for embedding in a TS double-quoted literal. Conservative:
 /// covers `"`, `\`, and control chars that would terminate or break the
 /// literal. Newlines collapse to `\n`; nothing else is interpreted.
-fn escape_js_string(s: &str) -> String {
+pub(super) fn escape_js_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
         match ch {
@@ -2314,7 +1566,7 @@ fn enum_option_constant_name(type_ref: &str) -> String {
     out
 }
 
-fn enum_variant_ts_literal(variant: &lazuli_ir::EnumVariant) -> String {
+pub(super) fn enum_variant_ts_literal(variant: &lazuli_ir::EnumVariant) -> String {
     match &variant.storage_value {
         Some(lazuli_ir::StorageValue::String(value)) => format_ts_string(value),
         Some(lazuli_ir::StorageValue::Integer(value)) => value.to_string(),
@@ -2378,173 +1630,7 @@ fn format_ts_string(value: &str) -> String {
     format!("\"{escaped}\"")
 }
 
-fn zod_expr_for_slot(
-    type_ref: &lazuli_ir::TypeRef,
-    constraints: &lazuli_ir::FieldConstraints,
-    optional: bool,
-    module: &lazuli_ir::Module,
-) -> String {
-    let base = zod_base_for_type_ref(type_ref, module);
-    let is_text_base = zod_is_text_base(type_ref);
-    let mut out = format!(
-        "{}{}",
-        base,
-        lazuli_codegen_ts::zod_constraint_chain(constraints, is_text_base)
-    );
-    if optional {
-        out.push_str(".optional()");
-    }
-    out
-}
-
-pub(crate) fn zod_base_for_type_ref(type_ref: &lazuli_ir::TypeRef, module: &lazuli_ir::Module) -> String {
-    match type_ref {
-        lazuli_ir::TypeRef::Builtin(builtin) => match builtin {
-            lazuli_ir::BuiltinType::Boolean => "z.boolean()".to_owned(),
-            lazuli_ir::BuiltinType::Integer
-            | lazuli_ir::BuiltinType::Decimal
-            | lazuli_ir::BuiltinType::SemanticMoney { .. } => "z.number()".to_owned(),
-            lazuli_ir::BuiltinType::SemanticEmail => "z.string().email()".to_owned(),
-            lazuli_ir::BuiltinType::SemanticPhone => {
-                "/* TODO(@semantic.Phone): replace with pluggable locale-aware validator */ z.string().min(10).max(15)".to_owned()
-            }
-            lazuli_ir::BuiltinType::SemanticUuid => "z.string().uuid()".to_owned(),
-            lazuli_ir::BuiltinType::SemanticUrl => "z.string().url()".to_owned(),
-            lazuli_ir::BuiltinType::SemanticPluginType { name, .. } => {
-                zod_base_for_plugin_semantic(name)
-            }
-            lazuli_ir::BuiltinType::Json
-            | lazuli_ir::BuiltinType::SemanticGeoPoint
-            | lazuli_ir::BuiltinType::CapFile => "z.unknown()".to_owned(),
-            _ => "z.string()".to_owned(),
-        },
-        lazuli_ir::TypeRef::Capability(capability) => match capability {
-            lazuli_ir::CapabilityRef::File(_) => "z.unknown()".to_owned(),
-            _ => "z.string()".to_owned(),
-        },
-        // Wave 0 (ir-returns-list-2026-05-22 §2.3): closes the
-        // `SCHEMA-RICH-001` list axis early. `list <X>` lifts to
-        // `TypeRef::Many(X)` in the analyzer; emit `z.array(<inner>)`
-        // so form/wire schemas validate list-of-record at runtime
-        // instead of accepting any `unknown[]` shape.
-        lazuli_ir::TypeRef::Many(inner) => {
-            format!("z.array({})", zod_base_for_type_ref(inner, module))
-        }
-        lazuli_ir::TypeRef::EnumRef(name) => zod_base_for_enum_ref(module, name),
-        lazuli_ir::TypeRef::UserDefined(name) => find_enum_decl(module, name)
-            .map(zod_base_for_enum_decl)
-            .unwrap_or_else(|| "z.unknown()".to_owned()),
-        lazuli_ir::TypeRef::Unresolved(raw) => {
-            if !raw.starts_with('@') {
-                let synthetic = lazuli_ir::QualifiedName {
-                    feature: None,
-                    name: raw.clone(),
-                };
-                if let Some(enum_decl) = find_enum_decl(module, &synthetic) {
-                    return zod_base_for_enum_decl(enum_decl);
-                }
-            }
-            "z.unknown()".to_owned()
-        }
-    }
-}
-
-fn zod_base_for_enum_ref(
-    module: &lazuli_ir::Module,
-    name: &lazuli_ir::QualifiedName,
-) -> String {
-    find_enum_decl(module, name)
-        .map(zod_base_for_enum_decl)
-        .unwrap_or_else(|| {
-            format!(
-                "/* TODO: cross-feature enum {}; generated as string until the enum catalog is visible */ z.string()",
-                sanitize_ts_block_comment(&qualified_type_label(name))
-            )
-        })
-}
-
-fn zod_base_for_enum_decl(enum_decl: &lazuli_ir::EnumDecl) -> String {
-    let values = enum_decl
-        .variants
-        .iter()
-        .map(enum_variant_ts_literal)
-        .collect::<Vec<_>>();
-
-    if values.is_empty() {
-        return "z.never()".to_owned();
-    }
-
-    let has_numeric_storage = enum_decl
-        .variants
-        .iter()
-        .any(|variant| matches!(&variant.storage_value, Some(lazuli_ir::StorageValue::Integer(_))));
-    if !has_numeric_storage {
-        return format!("z.enum([{}])", values.join(", "));
-    }
-
-    let literals = values
-        .iter()
-        .map(|value| format!("z.literal({value})"))
-        .collect::<Vec<_>>();
-    if literals.len() == 1 {
-        literals[0].clone()
-    } else {
-        format!("z.union([{}])", literals.join(", "))
-    }
-}
-
-fn zod_base_for_plugin_semantic(name: &str) -> String {
-    match name {
-        "BrazilianCPF" => {
-            "/* @semantic.BrazilianCPF: basic digit-only pattern; checksum validator belongs to the plugin */ z.string().regex(/^\\d{11}$/)".to_owned()
-        }
-        "BrazilianCNPJ" => {
-            "/* @semantic.BrazilianCNPJ: basic digit-only pattern; checksum validator belongs to the plugin */ z.string().regex(/^\\d{14}$/)".to_owned()
-        }
-        other => format!(
-            "/* TODO(@semantic.{}): pluggable Zod validator */ z.string()",
-            sanitize_ts_block_comment(other)
-        ),
-    }
-}
-
-fn qualified_type_label(name: &lazuli_ir::QualifiedName) -> String {
-    match &name.feature {
-        Some(feature) => format!("{feature}.{}", name.name),
-        None => name.name.clone(),
-    }
-}
-
-fn sanitize_ts_block_comment(value: &str) -> String {
-    value.replace("*/", "* /").replace('\r', " ").replace('\n', " ")
-}
-
-fn zod_is_text_base(type_ref: &lazuli_ir::TypeRef) -> bool {
-    matches!(
-        type_ref,
-        lazuli_ir::TypeRef::Builtin(
-            lazuli_ir::BuiltinType::Id
-                | lazuli_ir::BuiltinType::Text
-                | lazuli_ir::BuiltinType::Date
-                | lazuli_ir::BuiltinType::DateTime
-                | lazuli_ir::BuiltinType::SemanticEmail
-                | lazuli_ir::BuiltinType::SemanticPhone
-                | lazuli_ir::BuiltinType::SemanticUrl
-                | lazuli_ir::BuiltinType::SemanticUuid
-                | lazuli_ir::BuiltinType::SemanticCurrency
-                | lazuli_ir::BuiltinType::SemanticPluginType { .. }
-                | lazuli_ir::BuiltinType::CapSecret
-        ) | lazuli_ir::TypeRef::EnumRef(_)
-            | lazuli_ir::TypeRef::Capability(
-                lazuli_ir::CapabilityRef::Hashed(_)
-                    | lazuli_ir::CapabilityRef::Encrypted(_)
-                    | lazuli_ir::CapabilityRef::E2ee(_)
-                    | lazuli_ir::CapabilityRef::Token(_)
-            )
-    )
-}
-
-fn command_ident(feature: &str, command_name: &str) -> String {
+pub(super) fn command_ident(feature: &str, command_name: &str) -> String {
     let resource_pascal = pascal_case(feature);
     let feature_lc = feature.to_ascii_lowercase();
     let mut parts = command_name.split('_');
@@ -2566,7 +1652,7 @@ fn command_ident(feature: &str, command_name: &str) -> String {
     out
 }
 
-fn command_export_ident(
+pub(super) fn command_export_ident(
     feature: &lazuli_ir::Feature,
     command: &lazuli_ir::Command,
     module: &lazuli_ir::Module,
@@ -2613,7 +1699,7 @@ fn resource_pascal_from_return_type(
     }
 }
 
-fn query_ident(
+pub(super) fn query_ident(
     _feature: &str,
     resource_pascal: &str,
     kind: lazuli_ir::QueryKind,
@@ -2654,7 +1740,7 @@ fn query_ident(
     }
 }
 
-fn legacy_query_ident(feature: &str, kind: lazuli_ir::QueryKind, query_name: &str) -> String {
+pub(super) fn legacy_query_ident(feature: &str, kind: lazuli_ir::QueryKind, query_name: &str) -> String {
     let resource_pascal = pascal_case(feature);
     match kind {
         lazuli_ir::QueryKind::List | lazuli_ir::QueryKind::Sql | lazuli_ir::QueryKind::View => {
@@ -2757,7 +1843,7 @@ fn pascal_tokens(value: &str) -> Vec<String> {
     tokens
 }
 
-fn write_deprecated_const_alias(s: &mut String, old_name: &str, new_name: &str) {
+pub(super) fn write_deprecated_const_alias(s: &mut String, old_name: &str, new_name: &str) {
     writeln!(s, "/** @deprecated use `{new_name}` */").ok();
     writeln!(s, "export const {old_name} = {new_name};").ok();
     writeln!(s).ok();
@@ -2780,7 +1866,7 @@ fn strip_query_verb_prefix<'a>(name: &'a str, prefix: &str) -> Option<&'a str> {
     Some(rest)
 }
 
-fn command_input_iface(command_name: &str, feature_pascal: &str) -> String {
+pub(super) fn command_input_iface(command_name: &str, feature_pascal: &str) -> String {
     let feature_lc = feature_pascal.to_ascii_lowercase();
     let mut parts = command_name.split('_');
     let verb = parts.next().unwrap_or("");
@@ -2800,12 +1886,7 @@ fn command_input_iface(command_name: &str, feature_pascal: &str) -> String {
     out
 }
 
-pub(crate) fn command_schema_ident(command_name: &str, feature_pascal: &str) -> String {
-    let iface = command_input_iface(command_name, feature_pascal);
-    lower_camel(&iface) + "Schema"
-}
-
-fn format_string_array(items: &[String]) -> String {
+pub(super) fn format_string_array(items: &[String]) -> String {
     if items.is_empty() {
         return "[]".to_owned();
     }

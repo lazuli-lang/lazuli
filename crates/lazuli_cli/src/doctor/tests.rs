@@ -6,6 +6,7 @@
 
 mod tests {
     use crate::doctor::*;
+    use crate::doctor::aggregators::auth::auth_diagnostics;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_project_root(name: &str) -> PathBuf {

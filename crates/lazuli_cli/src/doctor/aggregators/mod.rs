@@ -23,6 +23,10 @@
 //! See `docs/proposals/tdd-bdd-first-2026-05-23.md` §Wave 0.5 for the
 //! envelope contract every aggregator pushes onto the diagnostic vec.
 
+pub(crate) mod agent;
+pub(crate) mod app_manifest;
+pub(crate) mod audit;
+pub(crate) mod auth;
 pub(crate) mod cache;
 pub(crate) mod correctness;
 pub(crate) mod cors;
@@ -31,6 +35,7 @@ pub(crate) mod design;
 pub(crate) mod domain;
 pub(crate) mod error_vocab;
 pub(crate) mod event_group;
+pub(crate) mod external;
 pub(crate) mod folder;
 pub(crate) mod headers_secrets;
 pub(crate) mod http_hygiene;
@@ -38,4 +43,5 @@ pub(crate) mod i18n;
 pub(crate) mod migrations;
 pub(crate) mod observability;
 pub(crate) mod test_discipline;
+pub(crate) mod tier3;
 pub(crate) mod webhook_event_registry;
