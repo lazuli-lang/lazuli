@@ -1117,9 +1117,9 @@ fn main() -> Result<()> {
             fail_fast,
             aggregate_method,
             extra_args,
-        } => test_command(
+        } => commands::test::test_command(
             input,
-            layer,
+            layer.into_iter().map(Into::into).collect(),
             format,
             coverage,
             fail_on,
@@ -1129,50 +1129,6 @@ fn main() -> Result<()> {
             extra_args,
         ),
     }
-}
-
-fn test_command(
-    input: PathBuf,
-    layer: Vec<TestLayerFlag>,
-    format: String,
-    coverage: bool,
-    fail_on: Vec<String>,
-    watch: bool,
-    fail_fast: bool,
-    aggregate_method: Option<String>,
-    extra_args: Vec<String>,
-) -> Result<()> {
-    let format = cmd_test::OutputFormat::parse(&format).map_err(|e| anyhow::anyhow!(e))?;
-    let mut parsed_fail_on = Vec::new();
-    for raw in &fail_on {
-        let spec = cmd_test_types::FailOnSpec::parse(raw)
-            .map_err(|e| anyhow::anyhow!(e))?;
-        parsed_fail_on.push(spec);
-    }
-    // Gate coverage:aggregate=<N> behind --aggregate-method per
-    // proposal §Coverage.
-    if aggregate_method.is_none()
-        && parsed_fail_on.iter().any(|s| {
-            matches!(s, cmd_test_types::FailOnSpec::Coverage { metric, .. } if metric == "aggregate")
-        })
-    {
-        bail!(
-            "--fail-on coverage:aggregate=<N> requires --aggregate-method to be set explicitly"
-        );
-    }
-
-    let opts = cmd_test::TestOptions {
-        input,
-        layers: layer.into_iter().map(Into::into).collect(),
-        format,
-        coverage,
-        fail_on: parsed_fail_on,
-        watch,
-        fail_fast,
-        aggregate_method,
-        extra_args,
-    };
-    cmd_test::run(opts)
 }
 
 /// OpenAPI / Lazuli Go bucket cycle — emit an artifact derived from
