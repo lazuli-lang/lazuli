@@ -920,7 +920,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Parse { input } => parse_command(&input),
+        Commands::Parse { input } => commands::parse::parse_command(&input),
         Commands::Check {
             input,
             security_profile,
@@ -5017,7 +5017,7 @@ fn read_package_lzi_source(dir: &Path) -> Result<String> {
 /// `feature` blocks through the canonical-indent slice (Phase L Tier
 /// 4). Files without typed feature skeletons (e.g. `app.lzi`,
 /// `registry.lzi`) feed `AppManifest` / `AppRegistry`.
-fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> {
+pub(crate) fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> {
     let mut module = lazuli_ir::Module {
         workspace: None,
         contracts: Vec::new(),
@@ -5607,12 +5607,6 @@ fn spike_generate_command(root: &Path, spec: Option<&Path>) -> Result<()> {
 
     println!("wrote {}", go_path.display());
     println!("wrote {}", ts_path.display());
-    Ok(())
-}
-
-fn parse_command(input: &Path) -> Result<()> {
-    let app = compile_to_ir(input)?;
-    println!("{}", serde_json::to_string_pretty(&app)?);
     Ok(())
 }
 
@@ -6928,10 +6922,6 @@ fn pascal_case(value: &str) -> String {
     }
 
     out
-}
-
-fn compile_to_ir(input: &Path) -> Result<lazuli_ir::Module> {
-    build_module_from_path(input).context("failed to compile .lzi file")
 }
 
 fn write_generated_file(root: &Path, relative: &str, contents: &str) -> Result<()> {

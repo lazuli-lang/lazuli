@@ -35,4 +35,5 @@ pub mod check;
 pub mod init;
 pub mod lsp;
 pub mod mcp;
+pub mod parse;
 pub mod test;
