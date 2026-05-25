@@ -55,5 +55,6 @@ pub(crate) mod http_headers;
 pub(crate) mod notification;
 pub(crate) mod policy;
 pub(crate) mod query;
+pub(crate) mod registry;
 pub(crate) mod webhook;
 pub(crate) mod workspace;
