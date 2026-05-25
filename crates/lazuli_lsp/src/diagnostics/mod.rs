@@ -43,6 +43,7 @@
 
 pub(crate) mod agent;
 pub(crate) mod api;
+pub(crate) mod app;
 pub(crate) mod auth;
 pub(crate) mod cache;
 pub(crate) mod canonical_kinds;
