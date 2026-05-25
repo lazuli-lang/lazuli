@@ -13,9 +13,8 @@
 //! for SQL predicates / order clauses.
 
 use lazuli_ir::{
-    BuiltinType, CacheTtl, CacheTtlLiteral, CompareOp, Expr, Feature, Filter, Gate, KeyClause,
-    ListQuery, LookupQuery, OrderDir, PolicyRef, Predicate, Query, QueryCache, Resource, SqlQuery,
-    Tenancy, TypeRef, TypedSlot,
+    BuiltinType, CompareOp, Expr, Feature, Filter, Gate, KeyClause, ListQuery, LookupQuery,
+    OrderDir, PolicyRef, Predicate, Query, Resource, SqlQuery, Tenancy, TypeRef, TypedSlot,
 };
 
 use super::cross_feature::CrossFeatureIndex;
@@ -34,6 +33,9 @@ use util::{
     return_name, write_section_banner,
 };
 pub(super) use util::resource_for_query;
+
+mod args;
+use args::{emit_args_struct, emit_cache, query_error_keys_var, register_imports_for_query};
 
 /// Emit `<feature>/query.gen.go` for a feature, or `None` when the
 /// feature declares no queries.
@@ -621,54 +623,6 @@ fn effective_query_policy<'a>(
     feature.defaults.policy.as_ref().unwrap_or(query_policy)
 }
 
-fn query_error_keys_var(var_name: &str) -> String {
-    format!("{var_name}ErrorKeys")
-}
-
-fn emit_args_struct(p: &mut GoPrinter, name: &str, slots: &[TypedSlot], ctx: &TypeCtx<'_>) {
-    p.line(&format!("type {name} struct {{"));
-    p.indent();
-    let mut rows: Vec<(String, String, String)> = Vec::with_capacity(slots.len());
-    for slot in slots {
-        let type_ref = query_arg_type_ref(&slot.type_ref, ctx);
-        let (go_type, _import) = types::go_type_for(&type_ref, ctx);
-        let optional = !slot.required;
-        let final_type = if optional {
-            format!("*{}", go_type)
-        } else {
-            go_type
-        };
-        let json_suffix = if optional {
-            format!("{},omitempty", slot.name)
-        } else {
-            slot.name.clone()
-        };
-        let tag = format!("`json:\"{}\"`", json_suffix);
-        rows.push((pascal_case(&slot.name), final_type, tag));
-    }
-    let row_refs: Vec<(&str, &str, &str)> = rows
-        .iter()
-        .map(|(n, t, g)| (n.as_str(), t.as_str(), g.as_str()))
-        .collect();
-    p.aligned_struct_rows(&row_refs);
-    p.dedent();
-    p.line("}");
-}
-
-fn query_arg_type_ref(type_ref: &TypeRef, ctx: &TypeCtx<'_>) -> TypeRef {
-    match type_ref {
-        TypeRef::Unresolved(name) => match ctx.cross_index.owner(name) {
-            Some(owner) => TypeRef::UserDefined(lazuli_ir::QualifiedName {
-                feature: Some(owner.to_owned()),
-                name: name.clone(),
-            }),
-            None => type_ref.clone(),
-        },
-        TypeRef::Many(inner) => TypeRef::Many(Box::new(query_arg_type_ref(inner, ctx))),
-        _ => type_ref.clone(),
-    }
-}
-
 fn emit_scope_gaps(p: &mut GoPrinter, scope: &[Predicate], scope_override: bool) {
     if !scope.is_empty() {
         p.line("// TODO(runtime): Query.scope is not yet in Lazuli Go lib.");
@@ -820,36 +774,6 @@ fn emit_lookup_by_with_filters(
         p.line(&format!(
             "{{Column: \"{}\", Source: {source}}},",
             escape_string(column)
-        ));
-    }
-    p.dedent();
-    p.line("},");
-}
-
-fn emit_cache(p: &mut GoPrinter, cache: &QueryCache) {
-    p.line("Cache: &lazuli.CacheSpec{");
-    p.indent();
-    p.line(&format!("Key: \"{}\",", escape_string(&cache.key)));
-    match &cache.ttl {
-        CacheTtl::Literal(ttl) => p.line(&format!("TTL: {},", format_cache_ttl(*ttl))),
-        CacheTtl::Quoted(prose) => {
-            p.line("TTL: 0,");
-            p.line(&format!(
-                "// TODO(runtime): quoted QueryCache.ttl \"{}\" has no CacheSpec prose slot.",
-                escape_string(prose)
-            ));
-        }
-    }
-    if !cache.tags.is_empty() {
-        p.line(&format!(
-            "// TODO(runtime): QueryCache.tags not yet in Lazuli Go lib: {}.",
-            cache.tags.join(", ")
-        ));
-    }
-    if let Some(namespace) = &cache.namespace {
-        p.line(&format!(
-            "// TODO(runtime): QueryCache.namespace not yet in Lazuli Go lib: {}.",
-            escape_string(namespace)
         ));
     }
     p.dedent();
@@ -1119,7 +1043,7 @@ fn input_source_path(segments: &[String]) -> String {
         .join(".")
 }
 
-fn lookup_args(query: &LookupQuery, resource: Option<&Resource>) -> Vec<TypedSlot> {
+pub(super) fn lookup_args(query: &LookupQuery, resource: Option<&Resource>) -> Vec<TypedSlot> {
     let mut args = query.params.clone();
     for key in &query.keys {
         let name = lookup_arg_name(key);
@@ -1177,58 +1101,6 @@ fn infer_lookup_type(key: &KeyClause, resource: Option<&Resource>) -> TypeRef {
     TypeRef::Builtin(BuiltinType::Text)
 }
 
-fn register_imports_for_query(
-    query: &Query,
-    feature: &Feature,
-    ctx: &TypeCtx<'_>,
-    imports: &mut ImportSet,
-) {
-    match query {
-        Query::List(q) => {
-            for slot in &q.params {
-                register_imports_for_query_arg_type(&slot.type_ref, ctx, imports);
-            }
-            if q.cache.as_ref().map(cache_uses_time).unwrap_or(false) {
-                imports.add("time");
-            }
-        }
-        Query::Lookup(q) => {
-            let resource = resource_for_query(feature, &q.name);
-            for slot in lookup_args(q, resource) {
-                register_imports_for_query_arg_type(&slot.type_ref, ctx, imports);
-            }
-        }
-        Query::Sql(q) => {
-            for slot in &q.params {
-                register_imports_for_query_arg_type(&slot.type_ref, ctx, imports);
-            }
-            register_imports_for_type(&q.returns, ctx, imports);
-            if q.cache.as_ref().map(cache_uses_time).unwrap_or(false) {
-                imports.add("time");
-            }
-        }
-    }
-}
-
-fn register_imports_for_query_arg_type(
-    type_ref: &TypeRef,
-    ctx: &TypeCtx<'_>,
-    imports: &mut ImportSet,
-) {
-    let resolved = query_arg_type_ref(type_ref, ctx);
-    register_imports_for_type(&resolved, ctx, imports);
-}
-
-fn register_imports_for_type(type_ref: &TypeRef, ctx: &TypeCtx<'_>, imports: &mut ImportSet) {
-    let (_go, import) = types::go_type_for(type_ref, ctx);
-    if let Some(path) = import {
-        imports.add(&path);
-    }
-    if let TypeRef::Many(inner) = type_ref {
-        register_imports_for_type(inner, ctx, imports);
-    }
-}
-
 fn sql_query_callable_kind(query: &SqlQuery) -> &'static str {
     match query.sql_kind {
         lazuli_ir::SqlQueryKind::Sql => "query.sql",
@@ -1265,19 +1137,6 @@ fn emit_sql_args_fn(p: &mut GoPrinter, args_struct: &str, params: &[TypedSlot]) 
     }
     p.dedent();
     p.line("},");
-}
-
-fn cache_uses_time(cache: &QueryCache) -> bool {
-    matches!(cache.ttl, CacheTtl::Literal(_))
-}
-
-fn format_cache_ttl(ttl: CacheTtlLiteral) -> String {
-    match ttl {
-        CacheTtlLiteral::Seconds(n) => format!("{n} * time.Second"),
-        CacheTtlLiteral::Minutes(n) => format!("{n} * time.Minute"),
-        CacheTtlLiteral::Hours(n) => format!("{n} * time.Hour"),
-        CacheTtlLiteral::Days(n) => format!("{} * time.Hour", n.saturating_mul(24)),
-    }
 }
 
 fn list_args_struct_name(query_name: &str, resource_pascal: &str) -> String {
@@ -1360,7 +1219,10 @@ fn query_callable_kind(query: &Query) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lazuli_ir::{AppManifest, Defaults, Field, Module, Policies, QualifiedName, Record};
+    use lazuli_ir::{
+        AppManifest, CacheTtl, CacheTtlLiteral, Defaults, Field, Module, Policies, QualifiedName,
+        QueryCache, Record,
+    };
 
     fn emit(feature: &Feature) -> Option<String> {
         let module = module_with_features(vec![feature.clone()]);
