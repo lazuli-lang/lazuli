@@ -1332,8 +1332,8 @@ mod tests {
 mod feature_emit {
     use super::*;
     use lazuli_ir::{
-        AppManifest, BuiltinType, Defaults, Expr, Field, KeyClause, ListQuery, LookupQuery,
-        Module, Policies, PolicyRef, Resource, TypeRef, TypedSlot,
+        AppManifest, BuiltinType, Defaults, Expr, Field, KeyClause, ListQuery, LookupQuery, Module,
+        Policies, PolicyRef, Resource, TypeRef, TypedSlot,
     };
 
     fn emit(feature: &Feature) -> Option<String> {

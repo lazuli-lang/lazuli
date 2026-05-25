@@ -13,9 +13,7 @@
 //! declaration imports the right `<module>/other` package. The runtime
 //! does not see this — it's a codegen-time projection.
 
-use lazuli_ir::{
-    CacheTtl, CacheTtlLiteral, Feature, Query, QueryCache, TypeRef, TypedSlot,
-};
+use lazuli_ir::{CacheTtl, CacheTtlLiteral, Feature, Query, QueryCache, TypeRef, TypedSlot};
 
 use super::super::imports::ImportSet;
 use super::super::printer::GoPrinter;

@@ -16,9 +16,7 @@ use super::super::module::EmitContext;
 use super::super::patterns::{PATTERN_QUERY_PGX_SQL, emit_pattern_header};
 use super::super::printer::GoPrinter;
 use super::super::types::{self, TypeCtx};
-use super::args::{
-    emit_args_struct, emit_cache, query_error_keys_var,
-};
+use super::args::{emit_args_struct, emit_cache, query_error_keys_var};
 use super::header::{
     emit_gate_annotations, emit_query_header, emit_scope_gaps, query_policy_denied_key_for_parts,
 };
