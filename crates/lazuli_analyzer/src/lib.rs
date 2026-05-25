@@ -50,6 +50,7 @@ mod lzx;
 pub mod rbac;
 pub mod source_map;
 pub mod symbol_origin;
+mod workflow;
 
 pub use lzx::lower_lzx_document;
 pub use symbol_origin::build_symbol_origin_index;
@@ -60,14 +61,19 @@ use command::{
 };
 use expr::{
     expr_from_text, lower_path_string, lower_policy_atom, lower_policy_expr, lower_qualified_name,
-    lower_raw_expr, lower_translation_key_ref,
+    lower_translation_key_ref,
+};
+use workflow::{
+    lower_emit_predicate, lower_event_variant_field, lower_external_call, lower_fanout,
+    lower_job_body, lower_job_trigger, lower_mcp_prompt, lower_mcp_resource, lower_mcp_tool,
+    lower_notification_digest, lower_notification_throttle, lower_retry,
+    lower_tenant_migration_target,
 };
 
 use helpers::{
     conventions_levenshtein, find_balanced_decorator_end, find_keyword_line_offset,
-    find_top_level_operator, find_word, first_paren_balanced_token, has_top_level_comma,
-    is_valid_design_hex, levenshtein, pascal_to_snake, quoted_ident, quoted_table, snake_to_pascal,
-    span_of, strip_quotes,
+    find_top_level_operator, first_paren_balanced_token, has_top_level_comma, is_valid_design_hex,
+    levenshtein, pascal_to_snake, quoted_ident, quoted_table, snake_to_pascal, span_of,
 };
 
 use lazuli_ir as ir;
@@ -6207,55 +6213,6 @@ pub fn lower_webhook(webhook: &syntax::Webhook) -> Result<ir::Webhook, AnalyzeEr
 /// The lift is intentionally conservative: shapes that don't match
 /// the typed catalog are preserved verbatim so codegen can emit a
 /// runtime-evaluated stub without losing authoring intent.
-pub(crate) fn lower_emit_predicate(raw: &str) -> ir::EmitPredicate {
-    let trimmed = raw.trim();
-    let kind = parse_emit_predicate_kind(trimmed).unwrap_or_else(|| ir::EmitPredicateKind::Other {
-        raw: trimmed.to_owned(),
-    });
-    ir::EmitPredicate {
-        raw: trimmed.to_owned(),
-        kind,
-        span_ref: None,
-    }
-}
-
-fn parse_emit_predicate_kind(text: &str) -> Option<ir::EmitPredicateKind> {
-    // `path = "literal"` — split on the first `=` not followed by `=`
-    // (avoid `==` if a future surface accepts it). The current closed
-    // surface only authors a single `=`.
-    if let Some((lhs, rhs)) = text.split_once('=') {
-        let path = lhs.trim();
-        let literal_raw = rhs.trim();
-        if !path.is_empty() && !path.contains(' ') {
-            if let Some(literal) = strip_quotes(literal_raw) {
-                return Some(ir::EmitPredicateKind::Equals {
-                    path: path.to_owned(),
-                    literal: literal.to_owned(),
-                });
-            }
-        }
-    }
-    // `path in ("a", "b", ...)`
-    if let Some(in_pos) = find_word(text, "in") {
-        let path = text[..in_pos].trim();
-        let rhs = text[in_pos + 2..].trim();
-        if !path.is_empty() && !path.contains(' ') && rhs.starts_with('(') && rhs.ends_with(')') {
-            let inner = &rhs[1..rhs.len() - 1];
-            let literals: Vec<String> = inner
-                .split(',')
-                .filter_map(|raw| strip_quotes(raw.trim()).map(str::to_owned))
-                .collect();
-            if !literals.is_empty() {
-                return Some(ir::EmitPredicateKind::In {
-                    path: path.to_owned(),
-                    literals,
-                });
-            }
-        }
-    }
-    None
-}
-
 /// Realtime bucket cycle MVP — lower a canonical-indent `channel`
 /// block into `ir::Channel`. Mechanical projection: the parser
 /// already enforces presence of all three required children, so the
@@ -6385,85 +6342,6 @@ fn parse_mcp_auth(raw: &str) -> Option<ir::MCPAuth> {
     None
 }
 
-pub(crate) fn lower_mcp_tool(tool: &syntax::McpTool) -> ir::MCPTool {
-    let params = tool.params.iter().map(lower_mcp_param).collect();
-    ir::MCPTool {
-        name: tool.name.clone(),
-        description: tool.description.clone(),
-        params,
-        returns_kind: tool.returns.clone(),
-        handler_fn: tool.handler.clone(),
-        policy: tool.policy.clone(),
-        span_ref: Some(span_of(tool.span)),
-    }
-}
-
-pub(crate) fn lower_mcp_resource(resource: &syntax::McpResource) -> ir::MCPResource {
-    ir::MCPResource {
-        name: resource.name.clone(),
-        uri_template: resource.uri_template.clone(),
-        mime: resource.mime.clone(),
-        handler_fn: resource.handler.clone(),
-        policy: resource.policy.clone(),
-        span_ref: Some(span_of(resource.span)),
-    }
-}
-
-pub(crate) fn lower_mcp_prompt(prompt: &syntax::McpPrompt) -> ir::MCPPrompt {
-    let params = prompt.params.iter().map(lower_mcp_param).collect();
-    ir::MCPPrompt {
-        name: prompt.name.clone(),
-        description: prompt.description.clone(),
-        params,
-        template_path: prompt.template.clone(),
-        span_ref: Some(span_of(prompt.span)),
-    }
-}
-
-pub(crate) fn lower_mcp_param(param: &syntax::McpParam) -> ir::MCPParam {
-    ir::MCPParam {
-        name: param.name.clone(),
-        ty_literal: param.ty.clone(),
-        required: param.required,
-    }
-}
-
-/// Notifications expanded bucket cycle — lower AST `NotificationDigest`
-/// into the typed IR. `template_strategy` falls through `merge` /
-/// `append` into the closed-catalog enum; unknown values are preserved
-/// in `invalid_template_strategy` so doctor can report
-/// `NOTIF-DIGEST-003` without widening the enum.
-pub(crate) fn lower_notification_digest(digest: &syntax::NotificationDigest) -> ir::NotificationDigest {
-    let (template_strategy, invalid_template_strategy) = match digest.template_strategy.as_deref() {
-        Some("merge") => (Some(ir::DigestStrategy::Merge), None),
-        Some("append") => (Some(ir::DigestStrategy::Append), None),
-        Some(raw) => (None, Some(raw.to_owned())),
-        None => (None, None),
-    };
-    ir::NotificationDigest {
-        every: digest.every.clone(),
-        group_by: digest.group_by.clone(),
-        max_size: digest.max_size,
-        template_strategy,
-        invalid_template_strategy,
-    }
-}
-
-/// Notifications expanded bucket cycle — lower AST
-/// `NotificationThrottle` into the typed IR. Pure field-for-field
-/// projection; no validation here (doctor `NOTIF-THROTTLE-*` covers
-/// the closed-catalog and combinatorial rules).
-pub(crate) fn lower_notification_throttle(
-    throttle: &syntax::NotificationThrottle,
-) -> ir::NotificationThrottle {
-    ir::NotificationThrottle {
-        max_per: throttle.max_per.clone(),
-        per_recipient: throttle.per_recipient,
-        per_channel: throttle.per_channel,
-        burst: throttle.burst,
-    }
-}
-
 /// Phase L Tier 3 — lower a canonical-indent `event_group` into
 /// `ir::EventGroup`. The payload bag and authored events stay as raw
 /// strings; B5 framework gap 1 lifts the per-event typed payload
@@ -6554,28 +6432,6 @@ pub fn lower_event_group(group: &syntax::EventGroup) -> ir::EventGroup {
     }
 }
 
-/// B5 framework gap 1 — lift one typed event-variant field row into
-/// `ir::EventField`. Reuses `type_ref_from_syntax` so `@semantic.X`,
-/// `@cap.X`, and built-in scalars all flow through the same lifter
-/// resource fields use. `optional` falls back to `!required` when
-/// neither modifier was authored — matches the resource-field
-/// convention.
-pub(crate) fn lower_event_variant_field(decl: &syntax::EventVariantFieldDecl) -> ir::EventField {
-    let optional = if decl.required {
-        false
-    } else {
-        // Treat unmarked event-variant fields as required by default
-        // (events are projection contracts; missing values are a
-        // codegen-time bug). Authors opt into optionality explicitly.
-        decl.optional
-    };
-    ir::EventField {
-        name: decl.name.clone(),
-        type_ref: type_ref_from_syntax(&decl.type_text),
-        optional,
-    }
-}
-
 /// Migrations bucket cycle Route C — lower a canonical-indent
 /// `tenant_migration` block into `ir::TenantMigration`. Mirrors
 /// `lower_job` for the shared spine (idempotency / retry / timeout /
@@ -6607,111 +6463,6 @@ pub fn lower_tenant_migration(
         previous_names: Vec::new(),
         span_ref: Some(span_of(tm.span)),
     })
-}
-
-pub(crate) fn lower_tenant_migration_target(raw: &str) -> ir::TenantMigrationTargetOperation {
-    let parts: Vec<&str> = raw.split('.').collect();
-    match parts.as_slice() {
-        ["query", name] => ir::TenantMigrationTargetOperation::Query {
-            feature: None,
-            name: (*name).to_owned(),
-        },
-        [feature, "query", name] => ir::TenantMigrationTargetOperation::Query {
-            feature: Some((*feature).to_owned()),
-            name: (*name).to_owned(),
-        },
-        ["command", name] => ir::TenantMigrationTargetOperation::Command {
-            feature: None,
-            name: (*name).to_owned(),
-        },
-        [feature, "command", name] => ir::TenantMigrationTargetOperation::Command {
-            feature: Some((*feature).to_owned()),
-            name: (*name).to_owned(),
-        },
-        _ => ir::TenantMigrationTargetOperation::Query {
-            feature: None,
-            name: raw.to_owned(),
-        },
-    }
-}
-
-pub(crate) fn lower_job_trigger(feature: &str, trigger: &syntax::JobTrigger) -> ir::JobTrigger {
-    match trigger {
-        syntax::JobTrigger::Event(name) => ir::JobTrigger::Event {
-            event: qualified_event_name(feature, name),
-        },
-        syntax::JobTrigger::Schedule(cron) => ir::JobTrigger::Schedule { cron: cron.clone() },
-    }
-}
-
-fn qualified_event_name(feature: &str, name: &str) -> ir::QualifiedName {
-    if let Some((ns, ev)) = name.split_once('.') {
-        ir::QualifiedName {
-            feature: Some(ns.to_owned()),
-            name: ev.to_owned(),
-        }
-    } else {
-        ir::QualifiedName {
-            feature: Some(feature.to_owned()),
-            name: name.to_owned(),
-        }
-    }
-}
-
-pub(crate) fn lower_retry(retry: &syntax::JobRetry) -> ir::RetryPolicy {
-    ir::RetryPolicy {
-        count: retry.count,
-        backoff: match retry.backoff.as_str() {
-            "exponential" => ir::BackoffStrategy::Exponential,
-            _ => ir::BackoffStrategy::Fixed,
-        },
-    }
-}
-
-pub(crate) fn lower_fanout(fanout: &syntax::JobFanout) -> ir::FanoutSpec {
-    ir::FanoutSpec {
-        scope: ir::FanoutScope::Tenants,
-        axis: fanout.axis.clone(),
-    }
-}
-
-pub(crate) fn lower_external_call(call: &syntax::JobExternalCall) -> ir::ExternalCallRef {
-    ir::ExternalCallRef {
-        slot: call.slot.clone(),
-        op: call.op.clone(),
-        args: call
-            .args
-            .iter()
-            .map(|arg| ir::NamedArg {
-                name: arg.name.clone(),
-                value: lower_raw_expr(&arg.value),
-            })
-            .collect(),
-        span_ref: Some(span_of(call.span)),
-    }
-}
-
-pub(crate) fn lower_job_body(body: &syntax::JobBody) -> ir::JobBody {
-    match body {
-        syntax::JobBody::Handler(h) => ir::JobBody::Handler(ir::JobHandler {
-            path: ir::PathRef::authored(&h.path),
-            returns: h.returns.as_deref().map(|t| type_ref_from_text(t)),
-        }),
-        syntax::JobBody::Declarative(d) => ir::JobBody::Declarative(ir::JobDeclarative {
-            target: d.target.as_ref().map(lower_target_expr),
-            lets: d.lets.iter().map(lower_let_binding).collect(),
-            effect: d
-                .effect
-                .as_ref()
-                .map(lower_command_effect)
-                .unwrap_or(ir::CommandEffect::None),
-        }),
-        syntax::JobBody::None => ir::JobBody::Declarative(ir::JobDeclarative {
-            target: None,
-            lets: Vec::new(),
-            effect: ir::CommandEffect::None,
-        }),
-    }
 }
 
 /// Analyzer-level resolution for `Command.invalidates`. This pass is
