@@ -2015,7 +2015,7 @@ impl DoctorPackage {
         // CL.C.4 — domain-model diagnostics (roadmap §1.7). Four codes:
         // `AGGREGATE-ROOT-UNKNOWN`, `AGGREGATE-CONTAINS-UNKNOWN`,
         // `INVARIANT-PREDICATE-INVALID`, `SLUG-UNIQUENESS-IMPLICIT`.
-        diagnostics.extend(domain_diagnostics(&self.tier3_facts));
+        diagnostics.extend(aggregators::domain::diagnostics(&self.tier3_facts));
 
         // IR Error-Vocab (Cell ANALYZE-1) — 7 typed `ERR-VOCAB-*` codes
         // per `docs/proposals/ir-error-messages-vocab.md` §6. Operates
@@ -14841,7 +14841,7 @@ fn report_diagnostics(
 /// the report rule modules (which take `&Feature`) can be invoked
 /// without re-lowering. Only the slots the rule modules read are
 /// populated; everything else stays at default.
-fn make_synthetic_feature_for_reports(fact: &Tier3FeatureFacts) -> lazuli_ir::Feature {
+pub(crate) fn make_synthetic_feature_for_reports(fact: &Tier3FeatureFacts) -> lazuli_ir::Feature {
     lazuli_ir::Feature {
         name: fact.feature.clone(),
         purpose: None,
@@ -14887,113 +14887,6 @@ fn make_synthetic_feature_for_reports(fact: &Tier3FeatureFacts) -> lazuli_ir::Fe
     }
 }
 
-/// CL.C.4 — dispatch the four domain-model diagnostics over every
-/// feature fact. Each rule consumes a synthesized `Feature` view (the
-/// rules take `&Feature` to stay independent of the doctor scaffolding).
-/// Line anchoring uses `aggregate_lines` for aggregate-scoped findings
-/// and `feature_line` otherwise.
-fn domain_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
-    let mut diagnostics = Vec::new();
-    for fact in facts {
-        if fact.aggregates.is_empty()
-            && fact.resources.iter().all(|r| r.invariants.is_empty())
-            && fact
-                .resources
-                .iter()
-                .all(|r| r.fields.iter().all(|f| !f.slug))
-        {
-            continue;
-        }
-        let feature = make_synthetic_feature_for_reports(fact);
-
-        // AGGREGATE-ROOT-UNKNOWN
-        for finding in domain::aggregate_root_unknown::check(&feature, &fact.path) {
-            let line = fact
-                .aggregate_lines
-                .get(&finding.aggregate)
-                .copied()
-                .unwrap_or(fact.feature_line);
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: domain::aggregate_root_unknown::Finding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-        // AGGREGATE-CONTAINS-UNKNOWN
-        for finding in domain::aggregate_contains_unknown::check(&feature, &fact.path) {
-            let line = fact
-                .aggregate_lines
-                .get(&finding.aggregate)
-                .copied()
-                .unwrap_or(fact.feature_line);
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: domain::aggregate_contains_unknown::Finding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-        // INVARIANT-PREDICATE-INVALID — covers both resource-scoped
-        // and aggregate-scoped invariants.
-        for finding in domain::invariant_predicate_invalid::check(&feature, &fact.path) {
-            let line = match &finding.scope {
-                domain::invariant_predicate_invalid::InvariantScope::Aggregate(a) => fact
-                    .aggregate_lines
-                    .get(a)
-                    .copied()
-                    .unwrap_or(fact.feature_line),
-                domain::invariant_predicate_invalid::InvariantScope::Resource(_) => {
-                    fact.feature_line
-                }
-            };
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: domain::invariant_predicate_invalid::Finding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-        // SLUG-UNIQUENESS-IMPLICIT — warning, not error.
-        for finding in domain::slug_uniqueness_implicit::check(&feature, &fact.path) {
-            diagnostics.push(DoctorDiagnostic {
-                message: finding.message(),
-                path: finding.path,
-                line: fact.feature_line,
-                column: 1,
-                severity: DoctorSeverity::Warning,
-                code: domain::slug_uniqueness_implicit::Finding::CODE.to_owned(),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-    }
-    diagnostics
-}
 
 /// IR Error-Vocab (Cell ANALYZE-1) — dispatch the 7 `ERR-VOCAB-*` rules
 /// over every feature fact. Operates on the lowered IR carried in

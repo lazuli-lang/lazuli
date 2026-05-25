@@ -1,0 +1,140 @@
+//! Domain-model aggregator.
+//!
+//! Surfaces the four CL.C.4 closed-catalog rules over every feature's
+//! aggregate / resource / invariant / slug shape:
+//!
+//! - `AGGREGATE-ROOT-UNKNOWN`        — error
+//! - `AGGREGATE-CONTAINS-UNKNOWN`    — error
+//! - `INVARIANT-PREDICATE-INVALID`   — error (resource-scoped OR aggregate-scoped)
+//! - `SLUG-UNIQUENESS-IMPLICIT`      — warning
+//!
+//! Each rule lives in `lazuli_doctor::domain` and consumes a synthesized
+//! `&Feature` (so the rule signature stays independent of doctor
+//! scaffolding). This aggregator hands the rules a Feature view built
+//! from the Tier 3 fact bundle via `make_synthetic_feature_for_reports`
+//! (which carries the slots — `aggregates`, `resources`, `apis`,
+//! `records`, `queries`, `agents`, `reports` — that the domain checks
+//! actually walk).
+//!
+//! Optimization: when a fact row has zero aggregates AND no resource
+//! invariants AND no `slug` fields anywhere, the rules can't fire, so
+//! the loop body is skipped. This keeps the per-feature dispatch O(1)
+//! for the common case where a feature is plain CRUD without domain
+//! modeling.
+//!
+//! Line anchoring resolves through `aggregate_lines` for aggregate-scoped
+//! findings; resource-scoped findings anchor at the feature header
+//! because the fact bundle does not yet carry per-resource line spans.
+//!
+//! See `docs/proposals/correctness-tier3.md` §"Domain-model rules" for
+//! the full closed catalog and per-rule rationale.
+
+use crate::doctor::domain;
+use crate::doctor::{
+    DoctorDiagnostic, DoctorSeverity, Tier3FeatureFacts, make_synthetic_feature_for_reports,
+};
+
+/// Aggregate every domain-model finding across all Tier 3 features into
+/// the canonical `DoctorDiagnostic` envelope.
+pub(crate) fn diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    for fact in facts {
+        if fact.aggregates.is_empty()
+            && fact.resources.iter().all(|r| r.invariants.is_empty())
+            && fact
+                .resources
+                .iter()
+                .all(|r| r.fields.iter().all(|f| !f.slug))
+        {
+            continue;
+        }
+        let feature = make_synthetic_feature_for_reports(fact);
+
+        // AGGREGATE-ROOT-UNKNOWN
+        for finding in domain::aggregate_root_unknown::check(&feature, &fact.path) {
+            let line = fact
+                .aggregate_lines
+                .get(&finding.aggregate)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: domain::aggregate_root_unknown::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            });
+        }
+        // AGGREGATE-CONTAINS-UNKNOWN
+        for finding in domain::aggregate_contains_unknown::check(&feature, &fact.path) {
+            let line = fact
+                .aggregate_lines
+                .get(&finding.aggregate)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: domain::aggregate_contains_unknown::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            });
+        }
+        // INVARIANT-PREDICATE-INVALID — covers both resource-scoped
+        // and aggregate-scoped invariants.
+        for finding in domain::invariant_predicate_invalid::check(&feature, &fact.path) {
+            let line = match &finding.scope {
+                domain::invariant_predicate_invalid::InvariantScope::Aggregate(a) => fact
+                    .aggregate_lines
+                    .get(a)
+                    .copied()
+                    .unwrap_or(fact.feature_line),
+                domain::invariant_predicate_invalid::InvariantScope::Resource(_) => {
+                    fact.feature_line
+                }
+            };
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: domain::invariant_predicate_invalid::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            });
+        }
+        // SLUG-UNIQUENESS-IMPLICIT — warning, not error.
+        for finding in domain::slug_uniqueness_implicit::check(&feature, &fact.path) {
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line: fact.feature_line,
+                column: 1,
+                severity: DoctorSeverity::Warning,
+                code: domain::slug_uniqueness_implicit::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            });
+        }
+    }
+    diagnostics
+}
