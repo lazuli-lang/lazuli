@@ -1763,7 +1763,7 @@ fn parse_defaults(
     ))
 }
 
-fn parse_defaults_tenancy(axis: &str) -> DefaultsTenancy {
+pub(super) fn parse_defaults_tenancy(axis: &str) -> DefaultsTenancy {
     match axis.trim() {
         "org" => DefaultsTenancy::Org,
         "team" => DefaultsTenancy::Team,
