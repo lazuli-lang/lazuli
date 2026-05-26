@@ -28,6 +28,9 @@ use crate::templates;
 
 mod internals;
 
+#[cfg(test)]
+mod testing;
+
 use internals::{append_manifest_block, ensure_dir, write_if_absent};
 
 /// Scaffold the web frontend skeleton. Idempotent.
@@ -321,53 +324,7 @@ pub fn scaffold_frontend_mobile(project_root: &Path, _app_name: &str) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Minimal inline tempdir helper (mirrors the pattern used by
-    /// `cmd_generate_feature::tests`). Avoids adding a `tempfile`
-    /// dev-dep for one module.
-    mod tempfile {
-        use std::fs;
-        use std::io;
-        use std::path::{Path, PathBuf};
-        use std::sync::atomic::{AtomicU64, Ordering};
-        use std::time::{SystemTime, UNIX_EPOCH};
-
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-
-        pub struct TempDir {
-            path: PathBuf,
-        }
-
-        impl TempDir {
-            pub fn new() -> io::Result<Self> {
-                let suffix = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos();
-                let bump = COUNTER.fetch_add(1, Ordering::SeqCst);
-                let path = std::env::temp_dir().join(format!(
-                    "lazuli-new-frontends-test-{}-{suffix}-{bump}",
-                    std::process::id()
-                ));
-                fs::create_dir_all(&path)?;
-                Ok(Self { path })
-            }
-
-            pub fn path(&self) -> &Path {
-                &self.path
-            }
-        }
-
-        impl Drop for TempDir {
-            fn drop(&mut self) {
-                let _ = fs::remove_dir_all(&self.path);
-            }
-        }
-    }
-
-    fn tempdir() -> tempfile::TempDir {
-        tempfile::TempDir::new().unwrap()
-    }
+    use super::testing::tempdir;
 
     #[test]
     fn scaffold_web_creates_all_expected_files() {
