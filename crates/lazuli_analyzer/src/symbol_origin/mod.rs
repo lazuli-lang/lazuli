@@ -49,6 +49,18 @@ fn qualified_key(feature: &str, name: &str) -> String {
 /// (by matching the file path against the feature name); if no match exists,
 /// the walker uses `FileId(1)` as a best-effort fallback and resolution may
 /// produce sentinel `<unresolved>` locations.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::symbol_origin::build_symbol_origin_index;
+/// use lazuli_ir::{Module, SourceMap};
+///
+/// let module: Module = unimplemented!();
+/// let source_map: SourceMap = unimplemented!();
+/// let index = build_symbol_origin_index(&module, &source_map);
+/// assert!(index.symbols.iter().all(|(k, _)| !k.is_empty()));
+/// ```
 pub fn build_symbol_origin_index(module: &ir::Module, source_map: &SourceMap) -> SymbolOriginIndex {
     let mut symbols: BTreeMap<String, SymbolOrigin> = BTreeMap::new();
     let mut imports: BTreeMap<String, Vec<ImportEdge>> = BTreeMap::new();

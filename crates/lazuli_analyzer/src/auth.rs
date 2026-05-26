@@ -42,6 +42,18 @@ use lazuli_syntax as syntax;
 /// Phase L — lower a canonical-indent `auth` block into the IR `Auth`
 /// shape. The translation is mostly structural; the analyzer's only
 /// non-trivial duty is splitting `Customer.email` into `FieldRef`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::lower_auth;
+/// use lazuli_syntax::Auth;
+///
+/// let auth: Auth = unimplemented!("from canonical-indent parse");
+/// let lowered = lower_auth(&auth)?;
+/// assert!(!lowered.identity.field.field.is_empty());
+/// # Ok::<(), lazuli_analyzer::AnalyzeError>(())
+/// ```
 pub fn lower_auth(auth: &syntax::Auth) -> Result<ir::Auth, AnalyzeError> {
     Ok(ir::Auth {
         identity: lower_auth_identity(&auth.identity)?,
@@ -134,5 +146,35 @@ pub(crate) fn lower_auth_oauth(oauth: &syntax::AuthOAuthProvider) -> ir::AuthOAu
     ir::AuthOAuthProvider {
         provider: oauth.provider.clone(),
         adapter: oauth.adapter.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lower_auth_identity_splits_dotted_pair() {
+        let identity = syntax::AuthIdentity {
+            field: "Customer.email".into(),
+            public_contract: None,
+            span: syntax::Span { start: 0, end: 0 },
+        };
+        let lowered = lower_auth_identity(&identity).expect("dotted pair lowers");
+        assert_eq!(lowered.field.resource.name, "Customer");
+        assert_eq!(lowered.field.field, "email");
+    }
+
+    #[test]
+    fn lower_auth_identity_rejects_missing_dot() {
+        let identity = syntax::AuthIdentity {
+            field: "no_dot_here".into(),
+            public_contract: None,
+            span: syntax::Span { start: 0, end: 0 },
+        };
+        assert!(matches!(
+            lower_auth_identity(&identity),
+            Err(AnalyzeError::InvalidAuthIdentity { .. })
+        ));
     }
 }

@@ -60,6 +60,18 @@ use lazuli_syntax as syntax;
 /// Lower a single `agent` AST node into the IR form. The `feature` arg
 /// pins the owning feature name on the IR record so cross-feature doctor
 /// checks can rebuild `<feature>.agent.<name>` references.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::lower_agent;
+/// use lazuli_syntax::Agent;
+///
+/// let agent: Agent = unimplemented!("from canonical-indent parse");
+/// let lowered = lower_agent("Support", &agent)?;
+/// assert!(!lowered.name.is_empty());
+/// # Ok::<(), lazuli_analyzer::AnalyzeError>(())
+/// ```
 pub fn lower_agent(feature: &str, agent: &syntax::Agent) -> Result<ir::Agent, AnalyzeError> {
     let input = agent
         .input
@@ -345,4 +357,31 @@ pub(crate) fn parse_closed_predicate(text: &str) -> ir::EvalPredicate {
         }
     }
     ir::EvalPredicate::Unparsed(text.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_tool_kind_local_recognizes_query_kinds() {
+        assert!(matches!(
+            parse_tool_kind_local(&["query", "by_id"]),
+            Some((ir::ToolKind::QueryUnspecified, _))
+        ));
+        assert!(matches!(
+            parse_tool_kind_local(&["query", "list", "customers"]),
+            Some((ir::ToolKind::QueryList, _))
+        ));
+        assert!(matches!(
+            parse_tool_kind_local(&["command", "create"]),
+            Some((ir::ToolKind::Command, _))
+        ));
+    }
+
+    #[test]
+    fn parse_tool_kind_local_rejects_unknown_shape() {
+        assert!(parse_tool_kind_local(&["nonsense"]).is_none());
+        assert!(parse_tool_kind_local(&["query", "view", "x", "y"]).is_none());
+    }
 }

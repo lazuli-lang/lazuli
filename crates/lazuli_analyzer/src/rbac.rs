@@ -34,6 +34,18 @@ pub struct RbacIssue {
 /// for doctor to surface. When the source has no `permission` or
 /// `role` decls, returns `(None, vec![])` and the caller passes
 /// `None` into `Module.rbac`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::analyze_rbac_catalog;
+/// use lazuli_syntax::PackageSkeleton;
+///
+/// let pkg: PackageSkeleton = unimplemented!("from parser");
+/// let (catalog, issues) = analyze_rbac_catalog(&pkg);
+/// assert!(catalog.is_some() || pkg.permissions.is_empty());
+/// assert!(issues.iter().all(|i| !i.code.is_empty()));
+/// ```
 pub fn analyze_rbac_catalog(pkg: &PackageSkeleton) -> (Option<ir::RbacCatalog>, Vec<RbacIssue>) {
     if pkg.permissions.is_empty() && pkg.roles.is_empty() {
         return (None, Vec::new());
@@ -232,6 +244,17 @@ pub fn analyze_rbac_catalog(pkg: &PackageSkeleton) -> (Option<ir::RbacCatalog>, 
 
 /// Returns true iff `perm` is in the closure of `role` in the given
 /// catalog. Used by codegen and doctor.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::role_grants_permission;
+/// use lazuli_ir::RbacCatalog;
+///
+/// let catalog: RbacCatalog = unimplemented!("from analyze_rbac_catalog");
+/// let granted = role_grants_permission(&catalog, "Admin", "users.delete");
+/// # let _ = granted;
+/// ```
 pub fn role_grants_permission(catalog: &ir::RbacCatalog, role: &str, perm: &str) -> bool {
     catalog
         .roles

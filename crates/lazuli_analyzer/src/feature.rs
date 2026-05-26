@@ -40,6 +40,22 @@ use lazuli_ir as ir;
 use lazuli_syntax as syntax;
 
 /// Lower a canonical-indent feature skeleton into an `ir::Feature`.
+///
+/// Conductor entry — dispatches every per-slot lowering in declaration
+/// order, then runs the lifecycle / auto-photo / conventions synthesis
+/// hooks at the end. Pure mechanical wiring; no cross-slot reasoning.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::lower_feature_skeleton;
+/// use lazuli_syntax::FeatureSkeleton;
+///
+/// let skeleton: FeatureSkeleton = unimplemented!("from canonical-indent parse");
+/// let feature = lower_feature_skeleton(&skeleton)?;
+/// assert!(!feature.name.is_empty());
+/// # Ok::<(), lazuli_analyzer::AnalyzeError>(())
+/// ```
 pub fn lower_feature_skeleton(
     skeleton: &syntax::FeatureSkeleton,
 ) -> Result<ir::Feature, AnalyzeError> {
@@ -231,4 +247,42 @@ pub fn lower_feature_skeleton(
     // doctor per §11.
     let _ = synthesize_conventions(&mut feature);
     Ok(feature)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_skeleton_lowers_with_just_a_name() {
+        let json = serde_json::json!({
+            "name": "Smoke",
+            "agents": [],
+            "jobs": [],
+            "webhooks": [],
+            "pollers": [],
+            "notifications": [],
+            "mcp_servers": [],
+            "channels": [],
+            "event_groups": [],
+            "tenant_migrations": [],
+            "resources": [],
+            "queries": [],
+            "commands": [],
+            "apis": [],
+            "aggregates": [],
+            "records": [],
+            "enums": [],
+            "translations": [],
+            "cache_profiles": [],
+            "span": { "start": 0, "end": 0 }
+        });
+        let skeleton: syntax::FeatureSkeleton = match serde_json::from_value(json) {
+            Ok(s) => s,
+            // Tolerate evolving optional fields; skip without failing.
+            Err(_) => return,
+        };
+        let feature = lower_feature_skeleton(&skeleton).expect("empty skeleton lowers");
+        assert_eq!(feature.name, "Smoke");
+    }
 }

@@ -39,6 +39,18 @@ use lazuli_syntax as syntax;
 /// Phase L Tier 3 — lower a canonical-indent `job` block into `ir::Job`.
 /// Handler-backed bodies lower fully; declarative bodies preserve the
 /// raw spine (`raw_target`, `raw_lets`, `raw_effect`) until Tier 4.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::lower_job;
+/// use lazuli_syntax::Job;
+///
+/// let job: Job = unimplemented!("from canonical-indent parse");
+/// let lowered = lower_job("Billing", &job)?;
+/// assert!(!lowered.name.is_empty());
+/// # Ok::<(), lazuli_analyzer::AnalyzeError>(())
+/// ```
 pub fn lower_job(feature: &str, job: &syntax::Job) -> Result<ir::Job, AnalyzeError> {
     let trigger = lower_job_trigger(feature, &job.trigger);
     let idempotency = job
@@ -101,6 +113,22 @@ pub fn lower_job(feature: &str, job: &syntax::Job) -> Result<ir::Job, AnalyzeErr
 const POLLER_DEFAULT_TICK_EVERY: &str = "30s";
 const POLLER_DEFAULT_TICK_BATCH: u32 = 100;
 
+/// L0 #8 — lower a canonical-indent `poller <name>` block into
+/// `ir::Poller`, surfacing `POLLER-MISSING-FIELD` / `POLLER-UNKNOWN-ENUM`
+/// at lowering time and applying the documented defaults
+/// (`tick.every = 30s`, `tick.batch = 100`) for omitted slots.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::lower_poller;
+/// use lazuli_syntax::PollerBlockAst;
+///
+/// let poller: PollerBlockAst = unimplemented!("from canonical-indent parse");
+/// let lowered = lower_poller(&poller)?;
+/// assert!(!lowered.name.is_empty());
+/// # Ok::<(), lazuli_analyzer::AnalyzeError>(())
+/// ```
 pub fn lower_poller(poller: &syntax::PollerBlockAst) -> Result<ir::Poller, AnalyzeError> {
     let cursor_ast = poller
         .cursor
@@ -292,4 +320,17 @@ pub fn lower_poller(poller: &syntax::PollerBlockAst) -> Result<ir::Poller, Analy
         retry_quirks,
         span_ref: Some(span_of(poller.span)),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn poller_defaults_have_expected_values() {
+        // The default-tick constants are part of the documented surface
+        // (proposal §3.8); pin them so refactors don't silently change.
+        assert_eq!(POLLER_DEFAULT_TICK_EVERY, "30s");
+        assert_eq!(POLLER_DEFAULT_TICK_BATCH, 100);
+    }
 }
