@@ -5,7 +5,7 @@
 
 use lazuli_ir::{AppManifest, ExperienceModule, Feature, SpanRef};
 
-#[path = "route_guard_helpers.rs"]
+#[path = "route_guard_helpers/mod.rs"]
 mod route_guard_helpers;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
