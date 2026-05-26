@@ -24,6 +24,21 @@ use anyhow::{Context, Result, bail};
 use crate::{app_manifest, lazurite_manifest};
 
 /// Handler for the `Commands::Plan` clap arm.
+///
+/// Validates a single named `deploy.checkpoint` against its snapshot
+/// JSON on disk: existence, that the manifest carries the checkpoint
+/// under that name, and that the snapshot's `lazuli_version` matches
+/// the running analyzer. Mismatches print an `ok (...)` advisory; hard
+/// failures (missing checkpoint, missing file) `bail!`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::commands::plan::plan_command;
+///
+/// // plan_command(Path::new("."), Some("baseline"))?;
+/// ```
 pub fn plan_command(input: &Path, check: Option<&str>) -> Result<()> {
     let Some(check_name) = check else {
         bail!("`lazuli plan` currently requires `--check <snapshot_name>`");
@@ -104,4 +119,16 @@ pub fn plan_command(input: &Path, check: Option<&str>) -> Result<()> {
     }
     println!("checkpoint {}: ok", check_name);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plan_command_requires_check_flag() {
+        let result = plan_command(Path::new("."), None);
+        let err = result.expect_err("missing --check should error");
+        assert!(format!("{err}").contains("--check"));
+    }
 }

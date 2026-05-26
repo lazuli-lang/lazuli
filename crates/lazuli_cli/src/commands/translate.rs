@@ -35,6 +35,21 @@ use anyhow::{Context, Result};
 use crate::build_module_from_path;
 
 /// Handler for the `TranslateCommand::Extract` clap arm.
+///
+/// Compiles `input` to IR, walks the locale catalog from the app
+/// manifest, and writes per-`(feature, locale)` JSON catalog stubs to
+/// `out`. `check` flips into CI gate mode (missing default-locale
+/// variants and undeclared `@translation.<key>` references are errors);
+/// `locale_filter` restricts the emit to a single locale.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::commands::translate::translate_extract_command;
+///
+/// // translate_extract_command(Path::new("."), Path::new("translations"), None, false)?;
+/// ```
 pub fn translate_extract_command(
     input: &Path,
     out: &Path,
@@ -245,4 +260,20 @@ fn json_escape(s: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_missing_input_errors() {
+        let result = translate_extract_command(
+            Path::new("__lazuli_no_such_file.lzi"),
+            Path::new("__lazuli_translate_out"),
+            None,
+            false,
+        );
+        assert!(result.is_err());
+    }
 }

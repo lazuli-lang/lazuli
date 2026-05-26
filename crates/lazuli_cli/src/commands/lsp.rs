@@ -19,6 +19,15 @@ use anyhow::{Context, Result};
 
 /// Handler for the `Commands::Lsp` clap arm. Blocks the current thread
 /// running the LSP event loop until stdin is closed.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::commands::lsp::lsp_command;
+///
+/// // Run blocking; editors spawn this as their language-server child:
+/// // lsp_command()?;
+/// ```
 pub fn lsp_command() -> Result<()> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -26,4 +35,17 @@ pub fn lsp_command() -> Result<()> {
         .context("failed to start Lazuli LSP runtime")?;
     runtime.block_on(lazuli_lsp::serve_stdio());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    // Smoke pairing: the `lsp_command` blocks on stdin and would hang
+    // a test thread, so we only assert that the module compiles with
+    // the symbol public.
+    use super::lsp_command;
+
+    #[test]
+    fn lsp_command_is_callable() {
+        let _ = lsp_command;
+    }
 }

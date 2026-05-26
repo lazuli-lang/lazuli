@@ -23,6 +23,15 @@ use anyhow::{Context, Result};
 /// `path`, creating intermediate directories. Mirrors the pre-split
 /// behaviour byte-for-byte: same `with_context` messages, same `println!`
 /// echo, same `Ok(())` return shape.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::commands::init::init_command;
+///
+/// // init_command(Path::new("scratch/app.lzi"), "feature Foo {}\n")?;
+/// ```
 pub fn init_command(path: &Path, template: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
@@ -34,4 +43,21 @@ pub fn init_command(path: &Path, template: &str) -> Result<()> {
     fs::write(path, template).with_context(|| format!("failed to write {}", path.display()))?;
     println!("created {}", path.display());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+
+    #[test]
+    fn writes_template_creating_parent() {
+        let dir = env::temp_dir().join("lazuli_cli_init_test");
+        let _ = fs::remove_dir_all(&dir);
+        let path = dir.join("nested").join("app.lzi");
+        init_command(&path, "feature Foo {}\n").expect("init_command writes file");
+        let contents = fs::read_to_string(&path).expect("file readable");
+        assert_eq!(contents, "feature Foo {}\n");
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

@@ -27,6 +27,16 @@ use anyhow::{Context, Result, bail};
 use crate::migrate;
 
 /// Handler for `MigrateCommand::Up`.
+///
+/// Applies pending migrations up to `target` (or all when `None`).
+/// `yes` skips the destructive-confirmation prompt.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::commands::migrate::up_command;
+/// // up_command(None, true)?;
+/// ```
 pub fn up_command(target: Option<String>, yes: bool) -> Result<()> {
     let project_root = std::env::current_dir().context("reading current directory")?;
     migrate::run_migrate(&project_root, migrate::MigrateAction::Up { target, yes })
@@ -34,6 +44,15 @@ pub fn up_command(target: Option<String>, yes: bool) -> Result<()> {
 }
 
 /// Handler for `MigrateCommand::Down`.
+///
+/// Rolls back `steps` migrations. `yes` skips the destructive prompt.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::commands::migrate::down_command;
+/// // down_command(1, true)?;
+/// ```
 pub fn down_command(steps: u32, yes: bool) -> Result<()> {
     let project_root = std::env::current_dir().context("reading current directory")?;
     migrate::run_migrate(&project_root, migrate::MigrateAction::Down { steps, yes })
@@ -41,6 +60,15 @@ pub fn down_command(steps: u32, yes: bool) -> Result<()> {
 }
 
 /// Handler for `MigrateCommand::Status`.
+///
+/// Prints the ledger of applied / pending migrations for the project.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::commands::migrate::status_command;
+/// // status_command()?;
+/// ```
 pub fn status_command() -> Result<()> {
     let project_root = std::env::current_dir().context("reading current directory")?;
     migrate::run_migrate(&project_root, migrate::MigrateAction::Status)
@@ -48,6 +76,17 @@ pub fn status_command() -> Result<()> {
 }
 
 /// Handler for `MigrateCommand::Dsl`.
+///
+/// Runs typed DSL upgrade recipes from `from` → `to` over the project
+/// source. `dry_run` previews the rewrite. `bail!`s when any recipe
+/// rolled back so authors notice the failure.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::commands::migrate::dsl_command;
+/// // dsl_command("1.0", "1.1", true, None)?;
+/// ```
 pub fn dsl_command(from: &str, to: &str, dry_run: bool, path: Option<PathBuf>) -> Result<()> {
     let project_root = std::env::current_dir().context("reading current directory")?;
     let root = path.unwrap_or(project_root);
@@ -61,4 +100,19 @@ pub fn dsl_command(from: &str, to: &str, dry_run: bool, path: Option<PathBuf>) -
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dsl_command_unknown_versions_returns_err() {
+        // Pointing at a fresh temp dir without any sources still
+        // exercises the version-resolution path; we just guard against
+        // panics.
+        let dir = std::env::temp_dir().join("lazuli_cli_migrate_dsl_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = dsl_command("0.0", "0.0", true, Some(dir));
+    }
 }

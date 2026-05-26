@@ -41,6 +41,23 @@ use crate::{
 };
 
 /// Handler for the `Commands::Generate` clap arm.
+///
+/// Enforces the manifest pin (unless `allow_version_mismatch`) and
+/// dispatches to the sibling submodule (`go`, `ts`, `openapi`) or one
+/// of the Wave 3 scaffold runners by `kind`. Scaffold kinds receive
+/// only their ident and the project root; codegen kinds receive the
+/// full flag bag.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::commands::generate::generate_command;
+/// use lazuli_cli::GenerateKind;
+///
+/// // generate_command(GenerateKind::Go, Path::new("."), None, None, None, None,
+/// //                  false, false, false, true, None)?;
+/// ```
 #[allow(clippy::too_many_arguments)]
 pub fn generate_command(
     kind: GenerateKind,

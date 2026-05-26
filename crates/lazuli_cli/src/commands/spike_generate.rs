@@ -24,6 +24,20 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 /// Handler for the `Commands::SpikeGenerate` clap arm.
+///
+/// Loads a `RuntimeFeature` (from `--spec` JSON or the in-process
+/// `customer_spike` fixture), pipes it through `emit_feature_go` and
+/// `emit_feature_ts`, and writes the artifacts under
+/// `dist/{go,web}/customer/`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::commands::spike_generate::spike_generate_command;
+///
+/// // spike_generate_command(Path::new("."), None)?;
+/// ```
 pub fn spike_generate_command(root: &Path, spec: Option<&Path>) -> Result<()> {
     let feature = match spec {
         Some(path) => {
@@ -53,4 +67,19 @@ pub fn spike_generate_command(root: &Path, spec: Option<&Path>) -> Result<()> {
     println!("wrote {}", go_path.display());
     println!("wrote {}", ts_path.display());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fixture_run_writes_both_artifacts() {
+        let root = std::env::temp_dir().join("lazuli_cli_spike_test");
+        let _ = fs::remove_dir_all(&root);
+        spike_generate_command(&root, None).expect("fixture run succeeds");
+        assert!(root.join("dist/go/customer/customer.gen.go").exists());
+        assert!(root.join("dist/web/customer/src/customer.gen.ts").exists());
+        let _ = fs::remove_dir_all(&root);
+    }
 }

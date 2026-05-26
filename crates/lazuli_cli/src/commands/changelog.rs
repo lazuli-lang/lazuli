@@ -24,6 +24,20 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 /// Handler for the `Commands::Changelog` clap arm.
+///
+/// Reads two `inspect --format=json` payloads, runs them through
+/// `lazuli_changelog::diff` + `render_markdown`, and either writes the
+/// result to `output` (creating its parent directory) or prints to
+/// stdout when `output` is `None`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::commands::changelog::changelog_command;
+///
+/// // changelog_command(Path::new("v1.json"), Path::new("v2.json"), None)?;
+/// ```
 pub fn changelog_command(from: &Path, to: &Path, output: Option<&Path>) -> Result<()> {
     let old_text =
         fs::read_to_string(from).with_context(|| format!("reading {}", from.display()))?;
@@ -50,4 +64,19 @@ pub fn changelog_command(from: &Path, to: &Path, output: Option<&Path>) -> Resul
         None => print!("{}", md),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_from_file_errors() {
+        let result = changelog_command(
+            Path::new("__lazuli_nonexistent_from.json"),
+            Path::new("__lazuli_nonexistent_to.json"),
+            None,
+        );
+        assert!(result.is_err(), "expected read failure for missing input");
+    }
 }

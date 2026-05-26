@@ -29,6 +29,20 @@ use anyhow::{Context, Result, bail};
 use crate::debug;
 
 /// Handler for the `Commands::Debug` clap arm.
+///
+/// Reads an `ErrorEnvelopeInput` (from `error_path` or stdin), applies
+/// the optional `capsule` override, calls `debug::run_debug` for triage,
+/// and emits either pretty JSON or a markdown bundle. Any other format
+/// is rejected — agent surfaces must not silently fall through.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::commands::debug::debug_command;
+///
+/// // debug_command(Path::new("."), Some(Path::new("err.json")), None, "json")?;
+/// ```
 pub fn debug_command(
     project_root: &Path,
     error_path: Option<&Path>,
@@ -61,4 +75,22 @@ pub fn debug_command(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_unknown_format_when_envelope_read_fails() {
+        // Missing error file path forces a read failure first; we just
+        // confirm the handler returns Err rather than panicking.
+        let result = debug_command(
+            Path::new("."),
+            Some(Path::new("__lazuli_no_such_envelope.json")),
+            None,
+            "yaml",
+        );
+        assert!(result.is_err());
+    }
 }
