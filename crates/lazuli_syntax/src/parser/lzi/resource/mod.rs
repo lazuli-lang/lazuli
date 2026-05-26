@@ -22,6 +22,7 @@
 //! retention / validates / has_many / index / unique / fts).
 
 mod aggregate_invariant;
+mod body_handlers;
 mod composite_key_lock;
 mod conventions;
 mod field;
@@ -41,25 +42,17 @@ pub(super) use aggregate_invariant::parse_aggregate_decl;
 pub(super) use field::parse_resource_field_decl;
 
 use aggregate_invariant::parse_invariant_decl;
+use body_handlers::{ResourceBodyState, resource_body_handlers};
 
 use composite_key_lock::{parse_resource_composite_key, parse_resource_lock};
 use conventions::parse_resource_conventions_list;
-use has_many::parse_resource_has_many;
-use index::{parse_parenthesized_field_list_with_trailing, parse_resource_index_target};
 use lifecycle_routes::parse_resource_lifecycle_routes;
-use retention::parse_resource_retention;
 
-use super::super::common::{SourceLine, is_trivia, line_error, line_error_owned};
+use super::super::common::{SourceLine, is_trivia, line_error};
 use super::super::error::ParseError;
-use super::{lifecycle, parse_defaults_tenancy};
+use super::lifecycle;
 
-use super::types::LifecycleBlockAst;
-use crate::ast::{
-    DefaultsTenancy, InvariantDecl, ResourceCompositeKey, ResourceConstraintAst,
-    ResourceConventionAst, ResourceDecl, ResourceFieldDecl, ResourceHasMany, ResourceIndexAst,
-    ResourceIndexMethodAst, ResourceLifecycleRoutesAst, ResourceLock, ResourceRetention,
-    ResourceUniqueAst, Span,
-};
+use crate::ast::{ResourceDecl, Span};
 
 pub(super) fn parse_resource_decl(
     lines: &[SourceLine<'_>],
@@ -291,266 +284,6 @@ pub(super) fn parse_resource_decl(
     ))
 }
 
-#[derive(Default)]
-struct ResourceBodyState {
-    previously: Vec<String>,
-    tenancy: Option<DefaultsTenancy>,
-    fields: Vec<ResourceFieldDecl>,
-    has_many: Vec<ResourceHasMany>,
-    soft_delete: bool,
-    timestamps: bool,
-    retention: Option<ResourceRetention>,
-    validates: Vec<String>,
-    lifecycle: Option<LifecycleBlockAst>,
-    /// CL.C.4 — resource-scoped `invariant <name>` blocks.
-    invariants: Vec<InvariantDecl>,
-    /// Roadmap §1.5 (CL.C.2) — `lock` decorator.
-    lock: Option<ResourceLock>,
-    /// Roadmap §1.5 (CL.C.2) — `composite_key` block.
-    composite_key: Option<ResourceCompositeKey>,
-    /// `conventions [<name>, ...]` resource-level slot — closed catalog.
-    /// See `docs/proposals/ir-resource-conventions-crud.md` §4.1.
-    conventions: Vec<ResourceConventionAst>,
-    /// Authored DDL constraints (`index on`, compound `unique`, `fts on`).
-    constraints: Vec<ResourceConstraintAst>,
-    /// router-w4 — `lifecycle_routes` block.
-    lifecycle_routes: Option<ResourceLifecycleRoutesAst>,
-}
-
-type ResourceBodyHandler =
-    for<'a> fn(&SourceLine<'a>, &str, &mut ResourceBodyState) -> Result<(), ParseError>;
-
-fn resource_body_handlers() -> &'static [(&'static str, ResourceBodyHandler)] {
-    &[
-        ("previously ", handle_resource_previously),
-        ("tenancy ", handle_resource_tenancy),
-        ("retention ", handle_resource_retention),
-        ("validates ", handle_resource_validates),
-        ("has_many ", handle_resource_has_many),
-        ("lifecycle ", handle_resource_lifecycle),
-        ("index ", handle_resource_index),
-        ("unique ", handle_resource_unique),
-        ("fts ", handle_resource_fts),
-    ]
-}
-
-fn handle_resource_lifecycle(
-    line: &SourceLine<'_>,
-    _rest: &str,
-    _state: &mut ResourceBodyState,
-) -> Result<(), ParseError> {
-    Err(line_error(
-        line,
-        "internal: lifecycle should be dispatched inline before registry",
-    ))
-}
-
-fn handle_resource_previously(
-    _line: &SourceLine<'_>,
-    rest: &str,
-    state: &mut ResourceBodyState,
-) -> Result<(), ParseError> {
-    state.previously.push(rest.trim().to_owned());
-    Ok(())
-}
-
-fn handle_resource_tenancy(
-    line: &SourceLine<'_>,
-    rest: &str,
-    state: &mut ResourceBodyState,
-) -> Result<(), ParseError> {
-    let axis = rest.trim();
-    if axis.is_empty() {
-        return Err(line_error(
-            line,
-            "`resource tenancy` requires an axis (`org`, `team`, `none`, or a custom name)",
-        ));
-    }
-    state.tenancy = Some(parse_defaults_tenancy(axis));
-    Ok(())
-}
-
-fn handle_resource_retention(
-    line: &SourceLine<'_>,
-    rest: &str,
-    state: &mut ResourceBodyState,
-) -> Result<(), ParseError> {
-    state.retention = Some(parse_resource_retention(line, rest)?);
-    Ok(())
-}
-
-fn handle_resource_validates(
-    _line: &SourceLine<'_>,
-    rest: &str,
-    state: &mut ResourceBodyState,
-) -> Result<(), ParseError> {
-    state.validates.push(rest.trim().to_owned());
-    Ok(())
-}
-
-fn handle_resource_has_many(
-    line: &SourceLine<'_>,
-    rest: &str,
-    state: &mut ResourceBodyState,
-) -> Result<(), ParseError> {
-    state.has_many.push(parse_resource_has_many(line, rest)?);
-    Ok(())
-}
-
-fn handle_resource_index(
-    line: &SourceLine<'_>,
-    rest: &str,
-    state: &mut ResourceBodyState,
-) -> Result<(), ParseError> {
-    let rest = rest.trim();
-    let Some(target) = rest.strip_prefix("on ") else {
-        return Err(line_error(
-            line,
-            "`index` requires `on <field>` or `on (<field>, ...)`",
-        ));
-    };
-    let (fields, method) = parse_resource_index_target(line, target.trim())?;
-    state
-        .constraints
-        .push(ResourceConstraintAst::Index(ResourceIndexAst {
-            fields,
-            method,
-            full_text: false,
-            span: Span::new(line.start, line.end),
-        }));
-    Ok(())
-}
-
-fn handle_resource_unique(
-    line: &SourceLine<'_>,
-    rest: &str,
-    state: &mut ResourceBodyState,
-) -> Result<(), ParseError> {
-    let rest = rest.trim();
-    if !rest.starts_with('(') {
-        return Err(line_error(
-            line,
-            "`unique` resource constraints use `unique (<field>, <field>, ...)`",
-        ));
-    }
-    let (fields, trailing) = parse_parenthesized_field_list_with_trailing(line, rest)?;
-    if !trailing.trim().is_empty() {
-        return Err(line_error(
-            line,
-            "`unique (...)` does not accept trailing arguments",
-        ));
-    }
-    state
-        .constraints
-        .push(ResourceConstraintAst::Unique(ResourceUniqueAst {
-            fields,
-            span: Span::new(line.start, line.end),
-        }));
-    Ok(())
-}
-
-fn handle_resource_fts(
-    line: &SourceLine<'_>,
-    rest: &str,
-    state: &mut ResourceBodyState,
-) -> Result<(), ParseError> {
-    let rest = rest.trim();
-    let Some(target) = rest.strip_prefix("on ") else {
-        return Err(line_error(line, "`fts` requires `on (<field>, ...)`"));
-    };
-    let (fields, trailing) = parse_parenthesized_field_list_with_trailing(line, target.trim())?;
-    let method = match trailing.trim() {
-        "" => None,
-        "gin" => Some(ResourceIndexMethodAst::Gin),
-        other => {
-            return Err(line_error_owned(
-                line,
-                format!("`fts on (...)` only accepts an optional `gin` modifier (got `{other}`)"),
-            ));
-        }
-    };
-    state
-        .constraints
-        .push(ResourceConstraintAst::Index(ResourceIndexAst {
-            fields,
-            method,
-            full_text: true,
-            span: Span::new(line.start, line.end),
-        }));
-    Ok(())
-}
-
-#[cfg(test)]
-mod resource_ddl_authoring_tests {
-    use super::super::parse_feature_skeletons;
-    use crate::ast::{ResourceConstraintAst, ResourceIndexMethodAst};
-
-    fn resource_with(lines: &[&str]) -> crate::ast::ResourceDecl {
-        let mut source = String::from(
-            "\nfeature customer\n  resource Customer\n    workspace: Workspace required\n    email: Text required\n    tags: list of Text\n",
-        );
-        for line in lines {
-            source.push_str("    ");
-            source.push_str(line);
-            source.push('\n');
-        }
-        parse_feature_skeletons(&source)
-            .expect("resource DDL authoring should parse")
-            .remove(0)
-            .resources
-            .remove(0)
-    }
-
-    #[test]
-    fn parses_single_column_index_on_parenthesized_field() {
-        let resource = resource_with(&["index on (workspace)"]);
-        match &resource.constraints[0] {
-            ResourceConstraintAst::Index(index) => {
-                assert_eq!(index.fields, vec!["workspace"]);
-                assert_eq!(index.method, None);
-                assert!(!index.full_text);
-            }
-            other => panic!("expected index constraint, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parses_single_column_index_with_gin_modifier() {
-        let resource = resource_with(&["index on tags gin"]);
-        match &resource.constraints[0] {
-            ResourceConstraintAst::Index(index) => {
-                assert_eq!(index.fields, vec!["tags"]);
-                assert_eq!(index.method, Some(ResourceIndexMethodAst::Gin));
-                assert!(!index.full_text);
-            }
-            other => panic!("expected index constraint, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parses_compound_unique_constraint() {
-        let resource = resource_with(&["unique (workspace, email)"]);
-        match &resource.constraints[0] {
-            ResourceConstraintAst::Unique(unique) => {
-                assert_eq!(unique.fields, vec!["workspace", "email"]);
-            }
-            other => panic!("expected unique constraint, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parses_resource_fts_as_full_text_gin_index() {
-        let resource = resource_with(&["fts on (email, tags)"]);
-        match &resource.constraints[0] {
-            ResourceConstraintAst::Index(index) => {
-                assert_eq!(index.fields, vec!["email", "tags"]);
-                assert_eq!(index.method, None);
-                assert!(index.full_text);
-            }
-            other => panic!("expected full-text index constraint, got {other:?}"),
-        }
-    }
-}
 
 // =============================================================================
 // Phase L Tier 4c — `resource` + lifecycle + aggregate + invariant + slug +
