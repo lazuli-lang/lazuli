@@ -14,10 +14,14 @@
 //! values produced by the analyzer + C3's synthesis pass. Tests below
 //! exercise the §8 Customer + §9 worked-override examples verbatim.
 
-use lazuli_ir::{ConventionOrigin, ConventionRef, EnvName, Feature, RateLimitSpec};
+use lazuli_ir::{EnvName, Feature, RateLimitSpec};
 
+mod annotations;
 mod owner_scope;
 
+use annotations::{
+    format_origin_annotation, format_resource_conventions, render_name_row,
+};
 use owner_scope::{build_owner_scope_lookup, origin_owner_scope};
 
 /// Render a `lazuli inspect features` text digest for one or more
@@ -97,73 +101,6 @@ fn render_one_feature(feature: &Feature, out: &mut String) {
     }
 }
 
-/// Render one `<indent><name><pad>[<annotation>]` row, omitting the
-/// trailing space + bracket when the annotation is empty (pure
-/// author-written entry without a convention origin).
-fn render_name_row(name: &str, width: usize, annotation: &str) -> String {
-    if annotation.is_empty() {
-        format!("    {name}\n")
-    } else {
-        let pad = width.saturating_sub(name.len());
-        let spaces = " ".repeat(pad);
-        format!("    {name}{spaces}    {annotation}\n")
-    }
-}
-
-/// `(conventions: <a>, <b>)` annotation for a resource. Appends a
-/// trailing `, owner-scope` segment when at least one of the resource's
-/// fields carries `@owner_axis(through: ...)` — see owner-scope proposal
-/// §11.2. Empty string when the slot is empty (no annotation rendered at
-/// all); the owner-scope suffix is suppressed in that case because the
-/// inspect view scopes annotations to opted-in resources.
-fn format_resource_conventions(conventions: &[ConventionRef], owner_scope: bool) -> String {
-    if conventions.is_empty() {
-        return String::new();
-    }
-    let mut names: Vec<String> = conventions
-        .iter()
-        .map(|c| convention_name(c).to_owned())
-        .collect();
-    if owner_scope {
-        names.push("owner-scope".to_owned());
-    }
-    format!(" (conventions: {})", names.join(", "))
-}
-
-/// Bracketed origin annotation for a command/query name. Empty when
-/// the entry carries no `synth_origins` record (a pure author-written
-/// command with no convention overlap). Synth-origin entries carry the
-/// trailing `, owner-scope` segment when the originating resource has
-/// any field with `@owner_axis` — surfaces the owner-scope mode at
-/// per-command granularity per owner-scope proposal §11.2.
-fn format_origin_annotation(origin: Option<&ConventionOrigin>, owner_scope: bool) -> String {
-    match origin {
-        None => String::new(),
-        Some(ConventionOrigin::Synthesized(c)) => {
-            if owner_scope {
-                format!("[conv:{}, owner-scope]", convention_name(c))
-            } else {
-                format!("[conv:{}]", convention_name(c))
-            }
-        }
-        Some(ConventionOrigin::AuthorOverride(_)) => {
-            "[author override; convention skipped]".to_owned()
-        }
-    }
-}
-
-/// `crud`, `me`, etc. — single source of truth so the LSP catalog
-/// list, the doctor diagnostic suggestion, and this rendering all
-/// stay aligned. Adding a variant in `lazuli_ir::ConventionRef`
-/// requires extending this match — the closed `match` makes that
-/// failure mode load-bearing at compile time.
-fn convention_name(c: &ConventionRef) -> &'static str {
-    match c {
-        ConventionRef::Crud => "crud",
-        ConventionRef::Me => "me",
-    }
-}
-
 /// `rate_limit: <default> [(default) | <limit> in <envs>...]` projection
 /// for a single command/query/api row — see
 /// `docs/proposals/ir-rate-limit-env-aware.md` §11.2.
@@ -233,9 +170,9 @@ fn env_name_str(env: &EnvName) -> &'static str {
 mod tests {
     use super::*;
     use lazuli_ir::{
-        BuiltinType, Command, CommandEffect, CommandInput, CommandKind, Defaults, Feature, Field,
-        FieldConstraints, ListQuery, LookupQuery, OwnerAxis, Policies, PolicyRef, QualifiedName,
-        Query, Resource, TypeRef,
+        BuiltinType, Command, CommandEffect, CommandInput, CommandKind, ConventionOrigin,
+        ConventionRef, Defaults, Feature, Field, FieldConstraints, ListQuery, LookupQuery,
+        OwnerAxis, Policies, PolicyRef, QualifiedName, Query, Resource, TypeRef,
     };
     use std::collections::BTreeMap;
 
