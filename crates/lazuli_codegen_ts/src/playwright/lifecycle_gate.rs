@@ -3,6 +3,19 @@ use std::fmt::Write;
 use lazuli_ir::Resource;
 
 /// Emit `e2e/_generated/lifecycle-gate.spec.ts`.
+///
+/// Walks the resources, picks the ones with a `lifecycle` block, and
+/// writes one `test.describe` per resource that asserts every declared
+/// state is reachable through the seeded fixture. Resources without a
+/// lifecycle are silently skipped — they don't earn a generated spec.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_ts::playwright::lifecycle_gate::emit_playwright_lifecycle_gate;
+/// let out = emit_playwright_lifecycle_gate(&[]);
+/// assert!(out.contains("@playwright/test"));
+/// ```
 pub fn emit_playwright_lifecycle_gate(resources: &[Resource]) -> String {
     let mut s = String::new();
 

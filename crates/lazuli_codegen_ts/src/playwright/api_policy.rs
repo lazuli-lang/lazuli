@@ -1,12 +1,42 @@
 use std::fmt::Write;
 
+/// One backend command projected for the API-policy harness.
+///
+/// Only the policy string is consulted at emission time — public
+/// commands are dropped, every other policy collapses to "must be 403
+/// when called anonymously". The detailed policy AST stays in the Go
+/// emitter; this struct is the boundary shim into Playwright.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Command {
+    /// Feature name (e.g. `"account"`).
     pub feature: String,
+    /// Command name (e.g. `"disable"`).
     pub name: String,
+    /// Raw policy ref as written in the IR — only `@policy.public` is
+    /// special-cased; everything else is treated as protected.
     pub policy: String,
 }
 
+/// Emit the Playwright spec that asserts every protected command
+/// returns `403 policy_denied` when called anonymously.
+///
+/// Public commands are intentionally absent from the generated spec —
+/// they have their own positive-path tests elsewhere. The output is a
+/// complete, ready-to-write `.spec.ts` file including the file banner
+/// and the `test.describe` wrapper.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_ts::playwright::api_policy::{emit_playwright_api_policy, Command};
+/// let cmds = vec![Command {
+///     feature: "account".to_owned(),
+///     name: "disable".to_owned(),
+///     policy: "@policy.authenticated".to_owned(),
+/// }];
+/// let spec = emit_playwright_api_policy(&cmds);
+/// assert!(spec.contains("account.disable"));
+/// ```
 pub fn emit_playwright_api_policy(commands: &[Command]) -> String {
     let mut out = String::new();
 

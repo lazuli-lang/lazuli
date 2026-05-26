@@ -46,12 +46,40 @@ pub use zod_constraints::{is_numeric, zod_constraint_chain, zod_enum_replacement
 
 use lazuli_ir::Module;
 
+/// One file emitted by the TS codegen pipeline.
+///
+/// The pair is intentionally string-only (no `PathBuf`, no streaming
+/// writer) because the codegen contract is "produce a manifest, let the
+/// caller decide where it lands". The same struct fans out to disk
+/// writers, in-memory tests, and snapshot fixtures.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GeneratedFile {
+    /// Forward-slash relative path under the workspace root (e.g.
+    /// `dist/ts-web/design/tokens.ts`).
     pub path: String,
+    /// Raw file contents — already formatted, ready to write byte-for-byte.
     pub contents: String,
 }
 
+/// Run the full TS-web codegen for a parsed [`Module`].
+///
+/// This is the single entry point `lazuli build` invokes for the
+/// frontend target. The resulting manifest mixes the static scaffold
+/// (`package.json`, `vite.config.ts`, …), the IR-shaped client surface
+/// (`lazuli.generated.ts`), and the conditional packs — design tokens,
+/// RBAC catalog, route-guard adapters, lifecycle gates — that only
+/// appear when the IR opts in.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::generate;
+/// use lazuli_ir::Module;
+///
+/// let module: Module = /* obtain from analyzer */ unimplemented!();
+/// let files = generate(&module);
+/// assert!(files.iter().any(|f| f.path == "frontend/package.json"));
+/// ```
 pub fn generate(module: &Module) -> Vec<GeneratedFile> {
     let display_name = display_name(module);
 

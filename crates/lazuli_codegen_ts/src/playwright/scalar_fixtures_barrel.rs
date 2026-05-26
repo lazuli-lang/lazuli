@@ -1,9 +1,35 @@
+/// One scalar-plugin entry the barrel emitter is asked to re-export.
+///
+/// Plugins that haven't shipped a `/fixtures` export yet still appear
+/// here (and in the generated file, as a commented-out line) so the
+/// barrel stays an honest manifest of active scalar plugins.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScalarPlugin {
+    /// npm package name (e.g. `"@lazuli/plugin-scalars-br"`).
     pub name: String,
+    /// `true` if the plugin currently exposes `<name>/fixtures`.
     pub has_fixtures_export: bool,
 }
 
+/// Emit the Playwright scalar-fixtures barrel file.
+///
+/// The output is a flat `fixtures` map that aggregates each active
+/// plugin's `/fixtures` export; plugins without that export are emitted
+/// as commented-out lines so adding the export later is a one-character
+/// uncomment.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_ts::playwright::scalar_fixtures_barrel::{
+///     emit_playwright_scalar_fixtures_barrel, ScalarPlugin,
+/// };
+/// let out = emit_playwright_scalar_fixtures_barrel(&[ScalarPlugin {
+///     name: "@lazuli/plugin-scalars-br".to_owned(),
+///     has_fixtures_export: true,
+/// }]);
+/// assert!(out.contains("@lazuli/plugin-scalars-br/fixtures"));
+/// ```
 pub fn emit_playwright_scalar_fixtures_barrel(active_plugins: &[ScalarPlugin]) -> String {
     let active_plugin_names = active_plugins
         .iter()

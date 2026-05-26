@@ -1,3 +1,13 @@
+//! Playwright fixture emitter — generates the per-role `as<Role>()`
+//! helpers and lifecycle-state coercion that app authors use in
+//! handwritten specs.
+//!
+//! The output is one TS file co-imported with the app's own
+//! `e2e/helpers/*` modules. Whether the app has those helpers is
+//! signalled by [`PlaywrightFixtureConfig::helpers`]: when present, we
+//! re-export the helper-typed surface; when absent we fall back to a
+//! self-contained TODO-stub so the file still type-checks.
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
@@ -19,28 +29,56 @@ use policy::{
 
 const FIXTURE_ROLES: [&str; 3] = ["host", "traveler", "operator"];
 
+/// Knobs the caller passes to control which imports the generated
+/// fixture file emits.
+///
+/// The only field today toggles the helper-imports vs. the
+/// self-contained TODO-stub fallback. The struct exists rather than a
+/// bare `Option` so future config (default `goto`, alternate roles)
+/// has a place to land without churning the emitter signature.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlaywrightFixtureConfig {
+    /// If `Some`, the generated file imports from the app's e2e
+    /// helpers; if `None`, the file emits a TODO stub instead.
     pub helpers: Option<PlaywrightFixtureHelperImports>,
 }
 
 impl PlaywrightFixtureConfig {
+    /// Shorthand constructor for the stub-only mode used when the app
+    /// hasn't wired up its e2e helpers yet.
     pub fn without_helpers() -> Self {
         Self { helpers: None }
     }
 }
 
+/// Resolved import specifiers + lifecycle-seeder bindings for the
+/// generated fixture file.
+///
+/// Every path is written verbatim into a TS `import` statement, so the
+/// caller is responsible for resolving relative vs. alias paths
+/// upstream (see `playwright::resolve_helper_imports`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlaywrightFixtureHelperImports {
+    /// Import specifier for `registerWithRole` + the `Role` type.
     pub api_import: String,
+    /// Import specifier for the `signInAs` helper.
     pub session_import: String,
+    /// Optional import specifier for lifecycle seeder functions; when
+    /// `None` no lifecycle seeding is emitted regardless of
+    /// [`Self::lifecycle_seeders`].
     pub lifecycle_import: Option<String>,
+    /// One entry per role that has a lifecycle-seeding helper.
     pub lifecycle_seeders: Vec<LifecycleSeeder>,
 }
 
+/// Binding from a fixture role (e.g. `"host"`) to the name of the
+/// app-owned seeding function (e.g. `"seedHostLifecycle"`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LifecycleSeeder {
+    /// Role name as it appears in [`FIXTURE_ROLES`].
     pub role: String,
+    /// Bare TS identifier of the seeding function — must be a valid
+    /// import target.
     pub function_name: String,
 }
 
@@ -49,6 +87,29 @@ struct LifecycleSpec {
     states: Vec<String>,
 }
 
+/// Emit the full Playwright fixture file for one module.
+///
+/// Walks the routes / platform-surfaces / experiences once each to
+/// derive the per-role lifecycle types and the `routesByRole` map.
+/// The returned string is a complete `.ts` file — banner included,
+/// always ending with a trailing newline — and is safe to write
+/// byte-for-byte.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::playwright::fixtures::{
+///     emit_playwright_fixtures, PlaywrightFixtureConfig,
+/// };
+/// use lazuli_ir::Module;
+///
+/// let module: Module = /* … */ unimplemented!();
+/// let src = emit_playwright_fixtures(
+///     &module, &[], &[], &[],
+///     &PlaywrightFixtureConfig::without_helpers(),
+/// );
+/// assert!(src.contains("export async function asHost"));
+/// ```
 pub fn emit_playwright_fixtures(
     module: &Module,
     routes: &[AppRoute],
