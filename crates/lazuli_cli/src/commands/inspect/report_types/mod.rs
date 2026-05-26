@@ -31,11 +31,13 @@
 use serde::Serialize;
 use std::collections::BTreeMap;
 
+mod auth;
 mod storage;
 
 // Re-export at the `report_types` namespace so the existing glob in
 // `commands/inspect/mod.rs` (`pub(in crate::commands::inspect) use
 // report_types::*;`) keeps picking these up unchanged.
+pub(in crate::commands::inspect) use auth::*;
 pub(in crate::commands::inspect) use storage::*;
 
 #[derive(Debug, Serialize)]
@@ -201,75 +203,6 @@ pub(crate) struct InspectFeature {
     /// vectors empty) when the block exists but has no overrides.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) errors: Option<lazuli_ir::FeatureErrors>,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectAuth {
-    pub(super) origin: InspectOrigin,
-    pub(super) identity: InspectAuthIdentity,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) password: Option<InspectAuthPassword>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) sessions: Option<InspectAuthSessions>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) mfa: Option<InspectAuthMfa>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(super) oauth: Vec<InspectAuthOAuthProvider>,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectAuthIdentity {
-    /// `<Resource>.<field>` joined back together so downstream consumers
-    /// don't need to reassemble it.
-    pub(super) field: String,
-    pub(super) resource: String,
-    pub(super) origin: InspectOrigin,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectAuthPassword {
-    pub(super) algorithm: String,
-    pub(super) hash: String,
-    pub(super) verify: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) rate_limit: Option<String>,
-    pub(super) origin: InspectOrigin,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectAuthSessions {
-    pub(super) resource: String,
-    pub(super) ttl: String,
-    pub(super) refresh: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) access_ttl: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) rotation: Option<lazuli_ir::RotationConfig>,
-    pub(super) origin: InspectOrigin,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectAuthMfa {
-    pub(super) method: String,
-    pub(super) enroll: String,
-    pub(super) verify: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) adapter: Option<String>,
-    pub(super) origin: InspectOrigin,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectAuthOAuthProvider {
-    pub(super) provider: String,
-    pub(super) adapter: String,
-    pub(super) origin: InspectOrigin,
-}
-
-#[derive(Debug, Serialize, Clone)]
-pub(super) struct InspectOrigin {
-    pub(super) feature: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) line: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
