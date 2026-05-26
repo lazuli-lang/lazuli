@@ -34,6 +34,9 @@ use crate::nodes::ai_primitives::ToolEffect;
 use crate::nodes::app_manifest::security::SecretRotation;
 use crate::{FeatureRequirement, QualifiedName, SpanRef, is_false};
 
+/// One `feature.<feat>.<slot> from <source>` binding inside a profile.
+/// Wires a feature-level slot (typically an integration or env var) to
+/// a concrete source per environment.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppBinding {
     pub target_feature: String,
@@ -41,12 +44,18 @@ pub struct AppBinding {
     pub source: String,
 }
 
+/// `pack <name> from <source>` — opt-in pre-built feature pack
+/// imported into the registry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppPackUse {
     pub name: String,
     pub source: String,
 }
 
+/// Root for the app-level `registry { ... }` block. Holds every cross-
+/// feature declaration: env vars, integrations, capabilities, opt-in
+/// packs, tool adapters, webhook event schemas, and secret-rotation
+/// profiles.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppRegistry {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -119,6 +128,9 @@ pub struct WebhookEventField {
     pub capabilities: Vec<String>,
 }
 
+/// One `@tool.<name>` adapter declaration inside the registry. Pins
+/// the tool's effect (read vs write — required), declares any PII
+/// classes it can return, and binds an optional adapter implementation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegistryToolEntry {
     /// Dotted path under `@tool.`, e.g. `web_search`, `calendar.create_event`.
@@ -132,6 +144,9 @@ pub struct RegistryToolEntry {
     pub span_ref: Option<SpanRef>,
 }
 
+/// `pack <name> from <source>` declaration body. Declares the version
+/// pin, what the pack provides (features, integrations, etc.), and the
+/// feature-level capability requirements consumers must satisfy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppPack {
     pub name: String,
@@ -144,12 +159,17 @@ pub struct AppPack {
     pub requirements: Vec<FeatureRequirement>,
 }
 
+/// One `provides <kind> <name>` entry under an [`AppPack`]. Free-form
+/// `kind` so future pack shapes can land without IR churn.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppPackProvide {
     pub kind: String,
     pub name: String,
 }
 
+/// `profile <name> { ... }` — one named environment profile (`dev`,
+/// `staging`, `prod`). Carries URL bindings, integration overrides,
+/// and deploy knobs that vary across environments.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppProfile {
     pub name: String,
@@ -163,12 +183,17 @@ pub struct AppProfile {
     pub deploy: Option<AppProfileDeploy>,
 }
 
+/// `urls.<target> "<url>"` entry on a profile — per-environment URL
+/// for a deploy target (api, frontend, etc.).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppProfileUrl {
     pub target: String,
     pub url: String,
 }
 
+/// Per-profile integration override (`profile.<env>.integrations.<name>`).
+/// Pins the environment-specific adapter + provenance for an integration
+/// that's declared globally in the registry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppProfileIntegration {
     pub name: String,
@@ -180,6 +205,8 @@ pub struct AppProfileIntegration {
     pub adapter_provenance: Option<String>,
 }
 
+/// Deploy knobs declared under a profile's `deploy { ... }` block.
+/// All slots optional — defaults are baked into the deploy runtime.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct AppProfileDeploy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -194,6 +221,8 @@ pub struct AppProfileDeploy {
     pub rollback: Option<String>,
 }
 
+/// App-level `architecture { ... }` block — chooses between
+/// monolith/services and pins the boundary-enforcement strictness.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct AppArchitecture {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -204,6 +233,9 @@ pub struct AppArchitecture {
     pub enforce_service_boundaries: Option<bool>,
 }
 
+/// One `service <name> { ... }` declaration in services-mode apps.
+/// Names the resources/events the service owns, its outward exposures,
+/// and its event publish/consume topology.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppService {
     pub name: String,
@@ -217,12 +249,17 @@ pub struct AppService {
     pub consumes: Vec<String>,
 }
 
+/// One `exposes <kind> <target>` entry on an [`AppService`] (e.g.
+/// `http /api`, `grpc Hosts`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppServiceExposure {
     pub kind: String,
     pub target: String,
 }
 
+/// App-level `communication { ... }` block — pins the default
+/// internal/external transports, async dispatch shape, propagation
+/// headers, and global timeout/retry defaults.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct AppCommunication {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -239,6 +276,8 @@ pub struct AppCommunication {
     pub retry_default: Option<String>,
 }
 
+/// One `url <target> <env> "<url>"` entry in the registry — pins a
+/// specific deploy target's URL for a given environment.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppUrl {
     pub target: String,
@@ -246,6 +285,10 @@ pub struct AppUrl {
     pub url: String,
 }
 
+/// One `env <NAME>: <Type> required|optional` entry in the registry.
+/// Pins the type, requiredness, scope (build/runtime/both), the
+/// authoring group (used for organising secrets), and the
+/// environments where the variable is consumed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppEnvVar {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -258,6 +301,9 @@ pub struct AppEnvVar {
     pub environments: Vec<String>,
 }
 
+/// One `integration <name> { ... }` entry in the registry. Names the
+/// adapter, the environments it applies to, the credentials block,
+/// and the data-classification tag (used by doctor).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppIntegration {
     pub name: String,
@@ -274,6 +320,9 @@ pub struct AppIntegration {
     pub data_classification: Option<String>,
 }
 
+/// `credentials { scope ... bindings ... }` block on an integration.
+/// Scope names how the credentials are keyed (per-tenant, per-user, etc.);
+/// `bindings` lists the named credential slots and their env sources.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppIntegrationCredentials {
     pub scope: String,
@@ -281,21 +330,31 @@ pub struct AppIntegrationCredentials {
     pub bindings: Vec<AppIntegrationCredentialBinding>,
 }
 
+/// One `<name> from <env-var-or-secret>` binding inside an
+/// integration's credentials block.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppIntegrationCredentialBinding {
     pub name: String,
     pub source: String,
 }
 
+/// One `capability <name> <value>` entry — feature-level static
+/// capability declaration (free-form name/value pair).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppCapability {
     pub name: String,
     pub value: String,
 }
 
+/// Closed catalog of HTTP status codes admissible in app-level error
+/// pages. Doctor rejects `error_page <status>` declarations whose
+/// status is not in this list.
 pub const ERROR_PAGE_STATUS_CATALOG: &[u16] =
     &[400, 401, 403, 404, 405, 410, 422, 429, 500, 502, 503, 504];
 
+/// One `error_page <status> "<template>" [audience ...]` entry under
+/// the app block. Audience scopes the page to a specific authenticated
+/// surface (operator vs end-user, etc.).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ErrorPage {
     pub status: u16,
