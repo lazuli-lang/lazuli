@@ -6,10 +6,10 @@
 //! decides which routes exist and how each one is laid out as a
 //! `lazuli.RegisterApi(...)` call.
 
-use lazuli_ir::{Auth, AuthOAuthProvider, Feature};
+use lazuli_ir::{Auth, AuthOAuthProvider, AuthSessions, Feature};
 
 use super::super::module::EmitContext;
-use super::super::patterns::{PATTERN_AUTH_LOGIN, emit_pattern_header};
+use super::super::patterns::{PATTERN_AUTH_LOGIN, PATTERN_AUTH_REFRESH, emit_pattern_header};
 use super::super::printer::GoPrinter;
 use super::format::{escape_route_segment, escape_string, write_aligned_kv_rows, write_section_banner};
 
@@ -81,6 +81,44 @@ pub(super) fn auth_routes(auth_block: &Auth) -> Vec<AuthRoute> {
     }
 
     routes
+}
+
+/// Emit an `init()` block that registers the feature's
+/// `auth.sessions` contract with the runtime session resolver.
+/// Wires the production session middleware to this feature's table
+/// so `Authorization: Bearer <token>` and the `lazuli_session`
+/// cookie populate `Ctx.User` automatically.
+pub(super) fn emit_session_resolver_register(
+    p: &mut GoPrinter,
+    feature: &Feature,
+    feature_pascal: &str,
+    sessions: &AuthSessions,
+) {
+    write_section_banner(
+        p,
+        &[
+            format!("Auth session resolver: {}", feature.name),
+            "  wires the production session middleware to this feature".to_owned(),
+        ],
+    );
+    let pattern = if sessions.is_rotation_enabled() {
+        PATTERN_AUTH_REFRESH
+    } else {
+        PATTERN_AUTH_LOGIN
+    };
+    emit_pattern_header(p, pattern);
+    p.line("func init() {");
+    p.indent();
+    p.line(&format!(
+        "auth.RegisterSessionContract({feature_pascal}AuthSessions)"
+    ));
+    if sessions.is_rotation_enabled() {
+        p.line(&format!(
+            "auth.RegisterRefreshContract({feature_pascal}AuthSessions)"
+        ));
+    }
+    p.dedent();
+    p.line("}");
 }
 
 pub(super) fn emit_auth_routes(

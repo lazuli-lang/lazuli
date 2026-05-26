@@ -17,17 +17,17 @@ mod contracts;
 mod format;
 mod routes;
 
-use lazuli_ir::{Auth, AuthOAuthProvider, AuthSessions, Feature};
+use lazuli_ir::{Auth, AuthOAuthProvider, Feature};
 
 use super::cross_feature::CrossFeatureIndex;
 use super::imports::ImportSet;
 use super::module::EmitContext;
-use super::patterns::{PATTERN_AUTH_LOGIN, PATTERN_AUTH_REFRESH, emit_pattern_header};
+use super::patterns::{PATTERN_AUTH_LOGIN, emit_pattern_header};
 use super::printer::GoPrinter;
 
 use contracts::{emit_identity, emit_mfa, emit_oauth, emit_password, emit_sessions};
 use format::{pascal_case, write_section_banner};
-use routes::{auth_routes, emit_auth_routes, has_auth_routes};
+use routes::{auth_routes, emit_auth_routes, emit_session_resolver_register, has_auth_routes};
 
 /// Emit `<feature>/auth.gen.go` for a feature, or `None` when the
 /// feature declares no auth block.
@@ -129,44 +129,6 @@ fn emit_auth(p: &mut GoPrinter, feature: &Feature, auth_block: &Auth, emit_ctx: 
         );
     }
     emit_ctx.reset_line_directive(p, line_directive_emitted);
-}
-
-/// Emit an `init()` block that registers the feature's
-/// `auth.sessions` contract with the runtime session resolver.
-/// Wires the production session middleware to this feature's table
-/// so `Authorization: Bearer <token>` and the `lazuli_session`
-/// cookie populate `Ctx.User` automatically.
-fn emit_session_resolver_register(
-    p: &mut GoPrinter,
-    feature: &Feature,
-    feature_pascal: &str,
-    sessions: &AuthSessions,
-) {
-    write_section_banner(
-        p,
-        &[
-            format!("Auth session resolver: {}", feature.name),
-            "  wires the production session middleware to this feature".to_owned(),
-        ],
-    );
-    let pattern = if sessions.is_rotation_enabled() {
-        PATTERN_AUTH_REFRESH
-    } else {
-        PATTERN_AUTH_LOGIN
-    };
-    emit_pattern_header(p, pattern);
-    p.line("func init() {");
-    p.indent();
-    p.line(&format!(
-        "auth.RegisterSessionContract({feature_pascal}AuthSessions)"
-    ));
-    if sessions.is_rotation_enabled() {
-        p.line(&format!(
-            "auth.RegisterRefreshContract({feature_pascal}AuthSessions)"
-        ));
-    }
-    p.dedent();
-    p.line("}");
 }
 
 #[cfg(test)]
