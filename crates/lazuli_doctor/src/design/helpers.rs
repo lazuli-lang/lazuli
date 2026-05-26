@@ -54,6 +54,17 @@ pub struct Allowlist {
 
 impl Allowlist {
     /// `true` when `<prefix>-<suffix>` is a declared Tailwind class.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::design::helpers::Allowlist;
+    ///
+    /// let mut a = Allowlist::default();
+    /// a.buckets.insert("bg".into(), vec!["primary".into()]);
+    /// assert!(a.contains("bg", "primary"));
+    /// assert!(!a.contains("bg", "ghost"));
+    /// ```
     pub fn contains(&self, prefix: &str, suffix: &str) -> bool {
         self.buckets
             .get(prefix)
@@ -62,6 +73,17 @@ impl Allowlist {
 
     /// `true` when the `font` bucket lists `name`. Used by
     /// `design-token-fontfamily-leak` to validate inline font strings.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::design::helpers::Allowlist;
+    ///
+    /// let mut a = Allowlist::default();
+    /// a.buckets.insert("font".into(), vec!["sans".into(), "mono".into()]);
+    /// assert!(a.is_known_font_token("sans"));
+    /// assert!(!a.is_known_font_token("Helvetica"));
+    /// ```
     pub fn is_known_font_token(&self, name: &str) -> bool {
         self.buckets
             .get("font")
@@ -72,6 +94,17 @@ impl Allowlist {
     /// (e.g. `flex-`, `items-`, `justify-`) are not checked — they are not
     /// design-token bound. `design-token-undefined` only fires for prefixes
     /// that the allowlist actually owns.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::design::helpers::Allowlist;
+    ///
+    /// let mut a = Allowlist::default();
+    /// a.buckets.insert("bg".into(), vec!["primary".into()]);
+    /// assert!(a.knows_prefix("bg"));
+    /// assert!(!a.knows_prefix("flex"));
+    /// ```
     pub fn knows_prefix(&self, prefix: &str) -> bool {
         self.buckets.contains_key(prefix)
     }
@@ -90,6 +123,16 @@ impl Allowlist {
 /// (e.g. `@example/design-tokens`) which Lazuli's design.lzi
 /// emitter can't see. Tokens listed in the extension append to the
 /// per-prefix allowlist buckets. Same JSON shape as the canonical file.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::design::helpers::read_allowlist;
+///
+/// let allowlist = read_allowlist(Path::new("/proj")).unwrap_or_default();
+/// // Every design-token rule short-circuits to empty when this returns None.
+/// ```
 pub fn read_allowlist(root: &Path) -> Option<Allowlist> {
     let canonical = root
         .join("dist")
@@ -127,6 +170,17 @@ pub fn read_allowlist(root: &Path) -> Option<Allowlist> {
 /// - filenames ending in `.test.tsx`, `.spec.tsx`, `.stories.tsx`
 ///
 /// Output is sorted by path for deterministic diagnostics.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::design::helpers::walk_tsx_files;
+///
+/// for path in walk_tsx_files(Path::new("src")) {
+///     println!("scanning {}", path.display());
+/// }
+/// ```
 pub fn walk_tsx_files(root: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     collect_tsx(root, &mut out);
@@ -176,6 +230,16 @@ fn is_authoring_tsx(name: &str) -> bool {
 ///
 /// Trailing line endings are stripped; intra-line whitespace is preserved
 /// (rules need to inspect quoting and brace structure exactly as written).
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::design::helpers::scan_lines;
+///
+/// let body = "alpha\nbeta\n";
+/// let collected: Vec<_> = scan_lines(body).collect();
+/// assert_eq!(collected, vec![(1, "alpha"), (2, "beta")]);
+/// ```
 pub fn scan_lines(content: &str) -> impl Iterator<Item = (usize, &str)> {
     content.lines().enumerate().map(|(i, l)| (i + 1, l))
 }
@@ -189,6 +253,18 @@ pub fn scan_lines(content: &str) -> impl Iterator<Item = (usize, &str)> {
 /// is conventional but not enforced — any text after the code is accepted.
 /// The comment may be on the same line as the violation OR on the line
 /// immediately above it.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::design::helpers::is_allowed_by_escape_comment;
+///
+/// let lines = [
+///     "// lazuli-allow: design-token-hex-leak — vendor color",
+///     r##"<div style={{ color: "#7c3aed" }} />"##,
+/// ];
+/// assert!(is_allowed_by_escape_comment(&lines, 1, "design-token-hex-leak"));
+/// ```
 pub fn is_allowed_by_escape_comment(lines: &[&str], current_line_idx_0based: usize, code: &str) -> bool {
     if has_allow_comment_for(lines[current_line_idx_0based], code) {
         return true;
@@ -227,6 +303,16 @@ fn has_allow_comment_for(line: &str, code: &str) -> bool {
 /// Only `"..."` and `'...'` quoting recognised — `className={` JS
 /// expressions are out of scope (callers handle those via the inline-style
 /// path or future enhancements).
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::design::helpers::iter_class_strings;
+///
+/// let line = r#"<div className="bg-primary p-3" />"#;
+/// let collected: Vec<_> = iter_class_strings(line).collect();
+/// assert_eq!(collected, vec!["bg-primary p-3"]);
+/// ```
 pub fn iter_class_strings(line: &str) -> impl Iterator<Item = &str> {
     ClassStringIter { rest: line }
 }
@@ -316,6 +402,18 @@ pub struct StyleSpan<'a> {
 /// (the common case for readable React code) are scanned in full.
 /// Quoted strings inside the style block do NOT terminate the block —
 /// the matcher only counts `{` / `}` outside `"..."` and `'...'` regions.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::design::helpers::iter_style_spans;
+///
+/// let body = r##"<div style={{ color: "#7c3aed" }} />"##;
+/// let lines: Vec<&str> = body.lines().collect();
+/// let spans = iter_style_spans(body, &lines);
+/// assert_eq!(spans.len(), 1);
+/// assert!(spans[0].segment.contains("color"));
+/// ```
 pub fn iter_style_spans<'a>(content: &'a str, lines: &[&'a str]) -> Vec<StyleSpan<'a>> {
     let mut out: Vec<StyleSpan<'a>> = Vec::new();
     let _ = content; // explicit: we operate on `lines`, content is contextual

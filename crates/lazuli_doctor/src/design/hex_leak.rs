@@ -14,14 +14,22 @@ use super::helpers::{
     is_allowed_by_escape_comment, iter_class_strings, iter_style_spans, walk_tsx_files,
 };
 
+/// One DESIGN-TOKEN-HEX-LEAK finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// `.tsx` file path that contains the leaked hex.
     pub path: PathBuf,
+    /// 1-based line number where the hex was found.
     pub line: usize,
+    /// Hex digits (without the leading `#`).
     pub hex: String,
+    /// Whether the leak is in a Tailwind arbitrary-class value or
+    /// inside an inline `style={{ ... }}` prop.
     pub site: Site,
 }
 
+/// Which JSX surface leaked the hex literal — drives the wording of the
+/// remediation hint in [`Finding::message`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Site {
     /// `bg-[#fff]` inside a className attribute.
@@ -31,8 +39,11 @@ pub enum Site {
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "design-token-hex-leak";
 
+    /// Render the user-facing diagnostic body. Wording branches on
+    /// [`Site`] so the remediation hint points at the correct surface.
     pub fn message(&self) -> String {
         match self.site {
             Site::ArbitraryClass => format!(
@@ -49,6 +60,8 @@ impl Finding {
     }
 }
 
+/// Run DESIGN-TOKEN-HEX-LEAK across every `.tsx` file under `root`.
+/// Results are stably sorted by `(path, line)`.
 pub fn check(root: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     for path in walk_tsx_files(root) {
@@ -62,6 +75,9 @@ pub fn check(root: &Path) -> Vec<Finding> {
     findings
 }
 
+/// Single-file variant of [`check`]; preferred entry point when the
+/// caller already has the file's content in memory (e.g. the LSP).
+/// Honors `lazuli-allow: design-token-hex-leak` escape comments.
 pub fn check_file(path: &Path, content: &str, lines: &[&str]) -> Vec<Finding> {
     let mut findings = Vec::new();
 

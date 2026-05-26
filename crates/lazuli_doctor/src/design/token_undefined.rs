@@ -134,18 +134,43 @@ fn strip_opacity_modifier(suffix: &str) -> &str {
     }
 }
 
+/// One DESIGN-TOKEN-UNDEFINED finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// `.tsx` file path that contains the undeclared class.
     pub path: PathBuf,
+    /// 1-based line number where the class was found.
     pub line: usize,
+    /// Full Tailwind token (e.g. `bg-brand`) as authored.
     pub class_token: String,
+    /// Token prefix (e.g. `bg-`).
     pub prefix: String,
+    /// Token suffix (e.g. `brand`).
     pub suffix: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "design-token-undefined";
 
+    /// Render the user-facing diagnostic body — surfaces the offending
+    /// token and prompts to declare it in `design.lzi`.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::design::token_undefined::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("App.tsx"),
+    ///     line: 12,
+    ///     class_token: "bg-ghost".into(),
+    ///     prefix: "bg-".into(),
+    ///     suffix: "ghost".into(),
+    /// };
+    /// assert!(f.message().contains("bg-ghost"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "Tailwind class `{}` uses prefix `{}` with suffix `{}` not declared in design.lzi. \
@@ -157,6 +182,15 @@ impl Finding {
 
 /// Run `design-token-undefined` across every authoring `.tsx` file under
 /// `root`. Findings are sorted by `(path, line)` for determinism.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::design::token_undefined::check;
+/// // `allowlist` is loaded from dist/ts-web/design/allowlist.json:
+/// let findings = check(Path::new("src"), &allowlist);
+/// ```
 pub fn check(root: &Path, allowlist: &Allowlist) -> Vec<Finding> {
     let mut findings = Vec::new();
     for path in walk_tsx_files(root) {
@@ -172,6 +206,16 @@ pub fn check(root: &Path, allowlist: &Allowlist) -> Vec<Finding> {
 
 /// Same as `check` but for a single in-memory file. Exposed so the
 /// integration test can drive the rule without temp-files-for-every-case.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::design::token_undefined::check_file;
+///
+/// let lines = [r#"<div className="bg-ghost" />"#];
+/// let findings = check_file(Path::new("App.tsx"), &lines, &allowlist);
+/// ```
 pub fn check_file(path: &Path, lines: &[&str], allowlist: &Allowlist) -> Vec<Finding> {
     let mut findings = Vec::new();
     for (line_num, line) in scan_lines(&lines.join("\n")) {

@@ -12,17 +12,23 @@ use std::path::{Path, PathBuf};
 
 use super::helpers::{is_allowed_by_escape_comment, iter_style_spans, walk_tsx_files};
 
+/// One DESIGN-TOKEN-SHADOW-LEAK finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// `.tsx` file path that contains the leaked shadow.
     pub path: PathBuf,
+    /// 1-based line number where the value was found.
     pub line: usize,
     /// The raw boxShadow value as authored.
     pub value: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "design-token-shadow-leak";
 
+    /// Render the user-facing diagnostic body — surfaces the literal
+    /// and prompts for a declared `shadow` token (or Tailwind class).
     pub fn message(&self) -> String {
         format!(
             "boxShadow value `{}` is a raw literal — declare a `shadow` token in `design.lzi` \
@@ -32,6 +38,8 @@ impl Finding {
     }
 }
 
+/// Run DESIGN-TOKEN-SHADOW-LEAK across every `.tsx` file under `root`.
+/// Results are stably sorted by `(path, line)`.
 pub fn check(root: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     for path in walk_tsx_files(root) {
@@ -45,6 +53,9 @@ pub fn check(root: &Path) -> Vec<Finding> {
     findings
 }
 
+/// Single-file variant of [`check`]; preferred entry point when the
+/// caller already has the file's content in memory (e.g. the LSP).
+/// Honors `lazuli-allow: design-token-shadow-leak` escape comments.
 pub fn check_file(path: &Path, content: &str, lines: &[&str]) -> Vec<Finding> {
     let mut findings = Vec::new();
     for span in iter_style_spans(content, lines) {
