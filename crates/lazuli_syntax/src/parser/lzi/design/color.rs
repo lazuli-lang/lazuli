@@ -160,3 +160,51 @@ pub(super) fn parse_color_value_with_dark(
         Ok((strip_design_quotes(rest).to_owned(), None))
     }
 }
+
+#[cfg(test)]
+mod color_tests {
+    use super::super::parse_design_document;
+
+    #[test]
+    fn design_color_sub_block_with_four_states() {
+        let source = r##"
+design example
+  color
+    primary
+      base "#7c3aed"
+      hover "#6d28d9"
+      active "#5b21b6"
+      foreground "#ffffff"
+"##;
+        let ast = parse_design_document(source).unwrap();
+        assert_eq!(ast.colors.len(), 1);
+        assert_eq!(ast.colors[0].name, "primary");
+        assert_eq!(ast.colors[0].states.len(), 4);
+        let kinds: Vec<&str> = ast.colors[0]
+            .states
+            .iter()
+            .map(|s| s.kind.as_str())
+            .collect();
+        assert_eq!(kinds, vec!["base", "hover", "active", "foreground"]);
+        assert_eq!(ast.colors[0].states[0].value, "#7c3aed");
+        assert_eq!(ast.colors[0].states[3].value, "#ffffff");
+    }
+
+    #[test]
+    fn design_color_captures_dark_suffix() {
+        let source = r##"
+design example
+  color
+    background
+      base "#ffffff" dark "#09090b"
+      muted "#f4f4f5" dark "#18181b"
+"##;
+        let ast = parse_design_document(source).unwrap();
+        let bg = &ast.colors[0];
+        assert_eq!(bg.name, "background");
+        assert_eq!(bg.states[0].value, "#ffffff");
+        assert_eq!(bg.states[0].dark.as_deref(), Some("#09090b"));
+        assert_eq!(bg.states[1].value, "#f4f4f5");
+        assert_eq!(bg.states[1].dark.as_deref(), Some("#18181b"));
+    }
+}

@@ -83,3 +83,47 @@ pub(super) fn parse_design_typography(
     }
     Ok((typo, i))
 }
+
+#[cfg(test)]
+mod typography_tests {
+    use super::super::parse_design_document;
+
+    #[test]
+    fn design_typography_scale_pairs_size_and_line_height() {
+        let source = r##"
+design example
+  typography
+    scale
+      base size 1rem, line_height 1.5rem
+      lg   size 1.125rem, line_height 1.75rem
+"##;
+        let ast = parse_design_document(source).unwrap();
+        assert_eq!(ast.typography.scale.len(), 2);
+        let base = &ast.typography.scale[0];
+        assert_eq!(base.name, "base");
+        assert_eq!(base.size, "1rem");
+        assert_eq!(base.line_height, "1.5rem");
+        let lg = &ast.typography.scale[1];
+        assert_eq!(lg.name, "lg");
+        assert_eq!(lg.size, "1.125rem");
+        assert_eq!(lg.line_height, "1.75rem");
+    }
+
+    #[test]
+    fn design_tracking_accepts_negative_value() {
+        let source = r##"
+design example
+  typography
+    tracking
+      tight -0.025em
+      normal 0
+      wide 0.025em
+"##;
+        let ast = parse_design_document(source).unwrap();
+        assert_eq!(ast.typography.tracking.len(), 3);
+        assert_eq!(ast.typography.tracking[0].name, "tight");
+        assert_eq!(ast.typography.tracking[0].value, "-0.025em");
+        assert_eq!(ast.typography.tracking[1].value, "0");
+        assert_eq!(ast.typography.tracking[2].value, "0.025em");
+    }
+}

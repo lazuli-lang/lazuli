@@ -113,3 +113,150 @@ pub(super) fn parse_design_custom_group(
     }
     Ok((entries, i))
 }
+
+#[cfg(test)]
+mod scales_tests {
+    use super::super::parse_design_document;
+
+    #[test]
+    fn design_digit_prefix_names_require_quotes() {
+        let source = r##"
+design example
+  space
+    "1" 0.25rem
+    "2" 0.5rem
+  breakpoint
+    "2xl" 1536px
+    "3xl" 1920px
+"##;
+        let ast = parse_design_document(source).unwrap();
+        assert_eq!(ast.spaces[0].name, "1");
+        assert_eq!(ast.spaces[0].value, "0.25rem");
+        assert_eq!(ast.spaces[1].name, "2");
+        assert_eq!(ast.breakpoints[0].name, "2xl");
+        assert_eq!(ast.breakpoints[0].value, "1536px");
+        assert_eq!(ast.breakpoints[1].name, "3xl");
+    }
+
+    #[test]
+    fn design_shadow_quoted_strings_preserved_intact() {
+        let source = r##"
+design example
+  shadow
+    sm "0 1px 2px 0 rgb(0 0 0 / 0.05)"
+    base "0 1px 3px 0 rgb(0 0 0 / 0.1)"
+"##;
+        let ast = parse_design_document(source).unwrap();
+        assert_eq!(ast.shadows.len(), 2);
+        assert_eq!(ast.shadows[0].name, "sm");
+        assert_eq!(ast.shadows[0].value, "0 1px 2px 0 rgb(0 0 0 / 0.05)");
+        assert_eq!(ast.shadows[1].value, "0 1px 3px 0 rgb(0 0 0 / 0.1)");
+    }
+
+    #[test]
+    fn design_z_values_parsed_as_strings() {
+        let source = r##"
+design example
+  z
+    docked 10
+    modal 1300
+"##;
+        let ast = parse_design_document(source).unwrap();
+        assert_eq!(ast.z_indices.len(), 2);
+        assert_eq!(ast.z_indices[0].name, "docked");
+        assert_eq!(ast.z_indices[0].value, "10");
+        assert_eq!(ast.z_indices[1].value, "1300");
+    }
+
+    // ── `custom` 9th meta-group ──────────────────────────────────────────────
+    // Per `docs/proposals/design-tokens-custom.md` §2.
+
+    #[test]
+    fn design_custom_group_parses_flat_entries() {
+        let source = r##"
+design hostpoint
+  custom
+    chat-bubble-mine "#dcf8c6"
+    chat-bubble-other "#ffffff"
+    map-marker-active "#ff5722"
+"##;
+        let ast = parse_design_document(source).expect("parses");
+        assert_eq!(ast.custom.len(), 3);
+        assert_eq!(ast.custom[0].name, "chat-bubble-mine");
+        assert_eq!(ast.custom[0].value, "#dcf8c6");
+        assert!(ast.custom[0].dark.is_none());
+        assert_eq!(ast.custom[1].name, "chat-bubble-other");
+        assert_eq!(ast.custom[2].name, "map-marker-active");
+    }
+
+    #[test]
+    fn design_custom_entry_captures_dark_suffix() {
+        let source = r##"
+design hostpoint
+  custom
+    chat-bubble-mine "#dcf8c6" dark "#005c4b"
+    chat-bubble-other "#ffffff" dark "#202c33"
+"##;
+        let ast = parse_design_document(source).expect("parses");
+        assert_eq!(ast.custom.len(), 2);
+        assert_eq!(ast.custom[0].value, "#dcf8c6");
+        assert_eq!(ast.custom[0].dark.as_deref(), Some("#005c4b"));
+        assert_eq!(ast.custom[1].dark.as_deref(), Some("#202c33"));
+    }
+
+    #[test]
+    fn design_custom_group_coexists_with_color_group() {
+        let source = r##"
+design hostpoint
+  color
+    primary "#28bbdd"
+  custom
+    chat-bubble "#dcf8c6"
+"##;
+        let ast = parse_design_document(source).expect("parses");
+        assert_eq!(ast.colors.len(), 1);
+        assert_eq!(ast.colors[0].name, "primary");
+        assert_eq!(ast.custom.len(), 1);
+        assert_eq!(ast.custom[0].name, "chat-bubble");
+    }
+
+    #[test]
+    fn design_custom_entry_requires_value() {
+        let source = r##"
+design hostpoint
+  custom
+    chat-bubble
+"##;
+        let err = parse_design_document(source).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("custom entry requires"), "got: {msg}");
+    }
+
+    #[test]
+    fn design_custom_empty_block_skips_cleanly() {
+        // `custom` header with no children should not crash; the field
+        // remains an empty Vec.
+        let source = r##"
+design hostpoint
+  custom
+  color
+    primary "#28bbdd"
+"##;
+        let ast = parse_design_document(source).expect("parses");
+        assert!(ast.custom.is_empty());
+        assert_eq!(ast.colors.len(), 1);
+    }
+
+    #[test]
+    fn design_without_custom_group_still_parses() {
+        // Regression: pre-Z2 `design.lzi` blocks must keep parsing.
+        let source = r##"
+design legacy
+  color
+    primary "#28bbdd"
+"##;
+        let ast = parse_design_document(source).expect("parses");
+        assert!(ast.custom.is_empty());
+        assert_eq!(ast.colors.len(), 1);
+    }
+}

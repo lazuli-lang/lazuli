@@ -65,3 +65,24 @@ pub(super) fn parse_design_motion(
     }
     Ok((motion, i))
 }
+
+#[cfg(test)]
+mod motion_tests {
+    use super::super::parse_design_document;
+
+    #[test]
+    fn design_empty_motion_block_skips_cleanly() {
+        // `motion` header with no children should leave the AST defaults intact.
+        let source = r##"
+design example
+  color
+    success "#16a34a"
+  motion
+"##;
+        let ast = parse_design_document(source).unwrap();
+        assert!(ast.motion.durations.is_empty());
+        assert!(ast.motion.easings.is_empty());
+        // Sibling group still parsed.
+        assert_eq!(ast.colors.len(), 1);
+    }
+}

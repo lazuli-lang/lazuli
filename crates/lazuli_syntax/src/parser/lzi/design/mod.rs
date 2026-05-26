@@ -267,6 +267,12 @@ fn parse_design_decl(
 // =============================================================================
 // L0 #2 — `design.lzi` parser tests.
 // =============================================================================
+
+// =============================================================================
+// L0 #2 — `design.lzi` parser tests (dispatch + integration).
+// Sub-concern tests live next to their respective extracted parsers
+// (color/typography/motion/scales).
+// =============================================================================
 #[cfg(test)]
 mod design_parser_tests {
     #[test]
@@ -393,70 +399,6 @@ design example
     }
 
     #[test]
-    fn design_color_sub_block_with_four_states() {
-        let source = r##"
-design example
-  color
-    primary
-      base "#7c3aed"
-      hover "#6d28d9"
-      active "#5b21b6"
-      foreground "#ffffff"
-"##;
-        let ast = super::parse_design_document(source).unwrap();
-        assert_eq!(ast.colors.len(), 1);
-        assert_eq!(ast.colors[0].name, "primary");
-        assert_eq!(ast.colors[0].states.len(), 4);
-        let kinds: Vec<&str> = ast.colors[0]
-            .states
-            .iter()
-            .map(|s| s.kind.as_str())
-            .collect();
-        assert_eq!(kinds, vec!["base", "hover", "active", "foreground"]);
-        assert_eq!(ast.colors[0].states[0].value, "#7c3aed");
-        assert_eq!(ast.colors[0].states[3].value, "#ffffff");
-    }
-
-    #[test]
-    fn design_color_captures_dark_suffix() {
-        let source = r##"
-design example
-  color
-    background
-      base "#ffffff" dark "#09090b"
-      muted "#f4f4f5" dark "#18181b"
-"##;
-        let ast = super::parse_design_document(source).unwrap();
-        let bg = &ast.colors[0];
-        assert_eq!(bg.name, "background");
-        assert_eq!(bg.states[0].value, "#ffffff");
-        assert_eq!(bg.states[0].dark.as_deref(), Some("#09090b"));
-        assert_eq!(bg.states[1].value, "#f4f4f5");
-        assert_eq!(bg.states[1].dark.as_deref(), Some("#18181b"));
-    }
-
-    #[test]
-    fn design_typography_scale_pairs_size_and_line_height() {
-        let source = r##"
-design example
-  typography
-    scale
-      base size 1rem, line_height 1.5rem
-      lg   size 1.125rem, line_height 1.75rem
-"##;
-        let ast = super::parse_design_document(source).unwrap();
-        assert_eq!(ast.typography.scale.len(), 2);
-        let base = &ast.typography.scale[0];
-        assert_eq!(base.name, "base");
-        assert_eq!(base.size, "1rem");
-        assert_eq!(base.line_height, "1.5rem");
-        let lg = &ast.typography.scale[1];
-        assert_eq!(lg.name, "lg");
-        assert_eq!(lg.size, "1.125rem");
-        assert_eq!(lg.line_height, "1.75rem");
-    }
-
-    #[test]
     fn design_extends_keyword_parses() {
         let source = r##"
 design alpha
@@ -468,90 +410,6 @@ design alpha
         let ast = super::parse_design_document(source).expect("parses");
         assert_eq!(ast.name, "alpha");
         assert_eq!(ast.extends.as_deref(), Some("base"));
-    }
-
-    #[test]
-    fn design_digit_prefix_names_require_quotes() {
-        let source = r##"
-design example
-  space
-    "1" 0.25rem
-    "2" 0.5rem
-  breakpoint
-    "2xl" 1536px
-    "3xl" 1920px
-"##;
-        let ast = super::parse_design_document(source).unwrap();
-        assert_eq!(ast.spaces[0].name, "1");
-        assert_eq!(ast.spaces[0].value, "0.25rem");
-        assert_eq!(ast.spaces[1].name, "2");
-        assert_eq!(ast.breakpoints[0].name, "2xl");
-        assert_eq!(ast.breakpoints[0].value, "1536px");
-        assert_eq!(ast.breakpoints[1].name, "3xl");
-    }
-
-    #[test]
-    fn design_shadow_quoted_strings_preserved_intact() {
-        let source = r##"
-design example
-  shadow
-    sm "0 1px 2px 0 rgb(0 0 0 / 0.05)"
-    base "0 1px 3px 0 rgb(0 0 0 / 0.1)"
-"##;
-        let ast = super::parse_design_document(source).unwrap();
-        assert_eq!(ast.shadows.len(), 2);
-        assert_eq!(ast.shadows[0].name, "sm");
-        assert_eq!(ast.shadows[0].value, "0 1px 2px 0 rgb(0 0 0 / 0.05)");
-        assert_eq!(ast.shadows[1].value, "0 1px 3px 0 rgb(0 0 0 / 0.1)");
-    }
-
-    #[test]
-    fn design_z_values_parsed_as_strings() {
-        let source = r##"
-design example
-  z
-    docked 10
-    modal 1300
-"##;
-        let ast = super::parse_design_document(source).unwrap();
-        assert_eq!(ast.z_indices.len(), 2);
-        assert_eq!(ast.z_indices[0].name, "docked");
-        assert_eq!(ast.z_indices[0].value, "10");
-        assert_eq!(ast.z_indices[1].value, "1300");
-    }
-
-    #[test]
-    fn design_tracking_accepts_negative_value() {
-        let source = r##"
-design example
-  typography
-    tracking
-      tight -0.025em
-      normal 0
-      wide 0.025em
-"##;
-        let ast = super::parse_design_document(source).unwrap();
-        assert_eq!(ast.typography.tracking.len(), 3);
-        assert_eq!(ast.typography.tracking[0].name, "tight");
-        assert_eq!(ast.typography.tracking[0].value, "-0.025em");
-        assert_eq!(ast.typography.tracking[1].value, "0");
-        assert_eq!(ast.typography.tracking[2].value, "0.025em");
-    }
-
-    #[test]
-    fn design_empty_motion_block_skips_cleanly() {
-        // `motion` header with no children should leave the AST defaults intact.
-        let source = r##"
-design example
-  color
-    success "#16a34a"
-  motion
-"##;
-        let ast = super::parse_design_document(source).unwrap();
-        assert!(ast.motion.durations.is_empty());
-        assert!(ast.motion.easings.is_empty());
-        // Sibling group still parsed.
-        assert_eq!(ast.colors.len(), 1);
     }
 
     #[test]
@@ -567,97 +425,5 @@ design example
             msg.contains("design children"),
             "expected unknown-group diagnostic, got: {msg}"
         );
-    }
-
-    // ── `custom` 9th meta-group ──────────────────────────────────────────────
-    // Per `docs/proposals/design-tokens-custom.md` §2.
-
-    #[test]
-    fn design_custom_group_parses_flat_entries() {
-        let source = r##"
-design hostpoint
-  custom
-    chat-bubble-mine "#dcf8c6"
-    chat-bubble-other "#ffffff"
-    map-marker-active "#ff5722"
-"##;
-        let ast = super::parse_design_document(source).expect("parses");
-        assert_eq!(ast.custom.len(), 3);
-        assert_eq!(ast.custom[0].name, "chat-bubble-mine");
-        assert_eq!(ast.custom[0].value, "#dcf8c6");
-        assert!(ast.custom[0].dark.is_none());
-        assert_eq!(ast.custom[1].name, "chat-bubble-other");
-        assert_eq!(ast.custom[2].name, "map-marker-active");
-    }
-
-    #[test]
-    fn design_custom_entry_captures_dark_suffix() {
-        let source = r##"
-design hostpoint
-  custom
-    chat-bubble-mine "#dcf8c6" dark "#005c4b"
-    chat-bubble-other "#ffffff" dark "#202c33"
-"##;
-        let ast = super::parse_design_document(source).expect("parses");
-        assert_eq!(ast.custom.len(), 2);
-        assert_eq!(ast.custom[0].value, "#dcf8c6");
-        assert_eq!(ast.custom[0].dark.as_deref(), Some("#005c4b"));
-        assert_eq!(ast.custom[1].dark.as_deref(), Some("#202c33"));
-    }
-
-    #[test]
-    fn design_custom_group_coexists_with_color_group() {
-        let source = r##"
-design hostpoint
-  color
-    primary "#28bbdd"
-  custom
-    chat-bubble "#dcf8c6"
-"##;
-        let ast = super::parse_design_document(source).expect("parses");
-        assert_eq!(ast.colors.len(), 1);
-        assert_eq!(ast.colors[0].name, "primary");
-        assert_eq!(ast.custom.len(), 1);
-        assert_eq!(ast.custom[0].name, "chat-bubble");
-    }
-
-    #[test]
-    fn design_custom_entry_requires_value() {
-        let source = r##"
-design hostpoint
-  custom
-    chat-bubble
-"##;
-        let err = super::parse_design_document(source).unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("custom entry requires"), "got: {msg}");
-    }
-
-    #[test]
-    fn design_custom_empty_block_skips_cleanly() {
-        // `custom` header with no children should not crash; the field
-        // remains an empty Vec.
-        let source = r##"
-design hostpoint
-  custom
-  color
-    primary "#28bbdd"
-"##;
-        let ast = super::parse_design_document(source).expect("parses");
-        assert!(ast.custom.is_empty());
-        assert_eq!(ast.colors.len(), 1);
-    }
-
-    #[test]
-    fn design_without_custom_group_still_parses() {
-        // Regression: pre-Z2 `design.lzi` blocks must keep parsing.
-        let source = r##"
-design legacy
-  color
-    primary "#28bbdd"
-"##;
-        let ast = super::parse_design_document(source).expect("parses");
-        assert!(ast.custom.is_empty());
-        assert_eq!(ast.colors.len(), 1);
     }
 }
