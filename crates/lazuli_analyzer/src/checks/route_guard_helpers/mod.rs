@@ -8,8 +8,10 @@ use lazuli_ir::{
 use super::{RouteGuardDiagnostic, RouteGuardOrigin, RouteGuardSeverity};
 
 mod actor_query;
+mod redirects;
 
 use actor_query::check_actor_query;
+use redirects::{check_default_redirects, check_guard_redirects};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum GuardSource {
@@ -579,85 +581,6 @@ fn missing_atoms(guard: &[PolicyAtom], backend: &[PolicyAtom]) -> Vec<String> {
 fn sort_atoms(atoms: &mut Vec<PolicyAtom>) {
     atoms.sort_by(|a, b| (&a.namespace, &a.name).cmp(&(&b.namespace, &b.name)));
     atoms.dedup();
-}
-
-fn check_default_redirects(
-    defaults: &RouteGuardDefaults,
-    route_names: &BTreeSet<String>,
-    route_paths: &BTreeSet<String>,
-    seen: &mut BTreeSet<(String, &'static str)>,
-    out: &mut Vec<RouteGuardDiagnostic>,
-) {
-    for (slot, target) in [
-        ("on_unauthenticated", defaults.on_unauthenticated.as_deref()),
-        ("on_unauthorized", defaults.on_unauthorized.as_deref()),
-    ] {
-        if let Some(target) = target {
-            push_redirect_003(
-                target,
-                slot,
-                defaults.span_ref,
-                RouteGuardOrigin::App,
-                route_names,
-                route_paths,
-                seen,
-                out,
-            );
-        }
-    }
-}
-
-fn check_guard_redirects(
-    guard: &ViewGuard,
-    route_names: &BTreeSet<String>,
-    route_paths: &BTreeSet<String>,
-    seen: &mut BTreeSet<(String, &'static str)>,
-    out: &mut Vec<RouteGuardDiagnostic>,
-) {
-    for (slot, target) in [
-        ("on_unauthenticated", guard.on_unauthenticated.as_deref()),
-        ("on_unauthorized", guard.on_unauthorized.as_deref()),
-    ] {
-        if let Some(target) = target {
-            push_redirect_003(
-                target,
-                slot,
-                guard.span_ref,
-                RouteGuardOrigin::Lzx,
-                route_names,
-                route_paths,
-                seen,
-                out,
-            );
-        }
-    }
-}
-
-fn push_redirect_003(
-    target: &str,
-    slot: &'static str,
-    span: Option<SpanRef>,
-    origin: RouteGuardOrigin,
-    route_names: &BTreeSet<String>,
-    route_paths: &BTreeSet<String>,
-    seen: &mut BTreeSet<(String, &'static str)>,
-    out: &mut Vec<RouteGuardDiagnostic>,
-) {
-    if route_paths.contains(target) || (!target.starts_with('/') && route_names.contains(target)) {
-        return;
-    }
-    if !seen.insert((target.to_owned(), slot)) {
-        return;
-    }
-    out.push(RouteGuardDiagnostic {
-        code: "ROUTE-GUARD-003",
-        severity: RouteGuardSeverity::Error,
-        origin,
-        span,
-        message: format!(
-            "route guard `{slot}` redirect target `{target}` does not resolve to a declared route."
-        ),
-    });
 }
 
 fn target_view(to: Option<&str>) -> Option<(String, String)> {
