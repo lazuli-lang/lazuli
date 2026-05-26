@@ -36,6 +36,7 @@ mod auth;
 mod job;
 mod notification;
 mod storage;
+mod webhook;
 
 // Re-export at the `report_types` namespace so the existing glob in
 // `commands/inspect/mod.rs` (`pub(in crate::commands::inspect) use
@@ -45,6 +46,7 @@ pub(in crate::commands::inspect) use auth::*;
 pub(in crate::commands::inspect) use job::*;
 pub(in crate::commands::inspect) use notification::*;
 pub(in crate::commands::inspect) use storage::*;
+pub(in crate::commands::inspect) use webhook::*;
 
 #[derive(Debug, Serialize)]
 pub(crate) struct InspectReport {
@@ -374,77 +376,6 @@ pub(super) struct InspectAudit {
 // `notification`/`job`/`webhook` triple cold without joining tables.
 // Row 32 of `docs/next-checklist.md`.
 // -----------------------------------------------------------------------------
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectWebhook {
-    pub(super) name: String,
-    pub(super) route: String,
-    pub(super) verify: InspectWebhookVerify,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) tenant_from: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) idempotency_by: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) policy: Option<String>,
-    pub(super) handler: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) returns: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(super) emits: Vec<String>,
-    // Webhooks expanded cycle — typed envelope reference. Atrito #2:
-    // structured ref, not opaque string.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) payload_from: Option<InspectWebhookPayloadFrom>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) replay: Option<InspectWebhookReplay>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) dlq: Option<InspectWebhookDlq>,
-    // Webhooks expanded cycle — Atrito #5: retry shares the jobs IR
-    // `RetryPolicy` shape.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) retry: Option<InspectWebhookRetry>,
-    pub(super) origin: &'static str,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectWebhookVerify {
-    pub(super) scheme: &'static str,
-    pub(super) algorithm: String,
-    pub(super) secret_env: String,
-    pub(super) header: String,
-}
-
-/// Webhooks expanded cycle — typed payload-from projection. The
-/// `path` field is the canonical surface form (`webhook_events.<name>`)
-/// so JSON consumers do not have to reconstruct the catalog prefix.
-#[derive(Debug, Serialize)]
-pub(super) struct InspectWebhookPayloadFrom {
-    pub(super) name: String,
-    pub(super) path: String,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectWebhookReplay {
-    pub(super) mode: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) within: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) dedupe_by: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub(super) enum InspectWebhookDlq {
-    Emit { event: String },
-    Handler { path: String },
-    Drop { reason: String },
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectWebhookRetry {
-    pub(super) count: u32,
-    pub(super) backoff: &'static str,
-}
 
 #[derive(Debug, Serialize)]
 pub(super) struct InspectEventGroup {
