@@ -40,6 +40,12 @@ use crate::nodes::resource::{FieldConstraints, OwnerScopeSql, TypeRef};
 use crate::nodes::test_and_policy::TestBlock;
 use crate::{PolicyExpr, PublicContract, QualifiedName, RateLimitSpec, SpanRef, is_false};
 
+/// Root IR node for a `command <name> { … }` block. Carries the typed
+/// effect, input shape, route slots, and every cross-cutting decorator
+/// (`policy`, `audit`, `approval`, `invalidates`, `external_calls`,
+/// `timeout`, `retry`, `idempotency`, `write_window`, `deprecated`,
+/// `handler`, `tests`, `triggers`) the analyzer resolved from source.
+/// One [`Command`] per authored block; codegen targets fan out from here.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Command {
     pub name: String,
@@ -154,9 +160,14 @@ pub struct Command {
     pub owner_scope_sql: Option<OwnerScopeSql>,
 }
 
+/// `write_window by <path> within <duration>` — restricts repeated writes
+/// keyed by a target field within a sliding time window. Runtime adapters
+/// read this to throttle re-runs of the same command on the same target.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandWriteWindow {
+    /// Field path that keys the window (e.g. `target.user_id`).
     pub by: Path,
+    /// Authored duration literal (`"24h"`, `"5m"`).
     pub within: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
@@ -253,8 +264,11 @@ pub struct ApprovalSpec {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalThen {
+    /// Reject the command on approval timeout.
     Deny,
+    /// Allow the command on approval timeout.
     Allow,
+    /// Forward to the next approver tier on timeout.
     Escalate,
 }
 
@@ -269,14 +283,27 @@ pub struct InvalidatesSpec {
     pub args: Vec<NamedArg>,
 }
 
+/// Closed catalog of command effect categories. Mirrors the four typed
+/// effect shapes ([`CreateEffect`], [`UpdateEffect`], [`DeleteEffect`],
+/// [`ReturnsEffect`]); kept as a separate flag so consumers can branch on
+/// kind without pattern-matching the full `CommandEffect`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CommandKind {
+    /// `creates <Resource>` — inserts a new row.
     Create,
+    /// `updates <target>` — mutates an existing row.
     Update,
+    /// `deletes <target>` — removes a row.
     Delete,
+    /// `returns <Type>` — pure request/response, no side effect.
     Returns,
 }
 
+/// One typed `route <name>: <Type>` slot on a command. The
+/// `kind` axis ([`RouteSlotKind`]) discriminates plain ids,
+/// opaque-token sentinels, and signed tokens; `from` carries the optional
+/// `ctx.*` default binding so doctor can suppress missing-argument
+/// diagnostics.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RouteSlot {
     pub name: String,
@@ -295,11 +322,18 @@ pub struct RouteSlot {
     pub kind: RouteSlotKind,
 }
 
+/// Closed catalog of route-slot shapes. `Plain` is the default
+/// (typed identifier); `OpaqueToken` covers `route opaque token: Text` (no
+/// id leakage); `SignedToken` covers `route signed_token` (HMAC-signed
+/// stateless tokens decoded by the runtime).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RouteSlotKind {
+    /// Default — plain typed parameter (`route id: ID`).
     Plain,
+    /// `route opaque token: Text` — runtime hides the underlying id.
     OpaqueToken,
+    /// `route signed_token` — HMAC-signed payload, no DB lookup.
     SignedToken,
 }
 
@@ -313,6 +347,10 @@ fn is_plain_route_slot_kind(kind: &RouteSlotKind) -> bool {
     matches!(kind, RouteSlotKind::Plain)
 }
 
+/// Shape of a command's `input` declaration. `Short` is the field-name
+/// shortcut (`input { name, email }`); `Typed` is the explicit
+/// name/type form (`input { name: Text }`); `Empty` covers commands
+/// without an `input` block (typical for `delete`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum CommandInput {
@@ -325,6 +363,9 @@ pub enum CommandInput {
     Empty,
 }
 
+/// One name/type entry inside a typed [`CommandInput::Typed`] block.
+/// Mirrors `Field` shape — same constraints catalog flows to the
+/// generated Zod / Go validator / OpenAPI schemas.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TypedSlot {
     pub name: String,
@@ -347,29 +388,45 @@ pub struct TypedSlot {
     pub validate_skip: bool,
 }
 
+/// `target <query>(arg: value, ...)` — names the row(s) a non-create
+/// command writes against. Carries a qualified query reference plus the
+/// explicit named-argument bindings the analyzer resolved.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TargetExpr {
     pub query: QualifiedName,
     pub args: Vec<NamedArg>,
 }
 
+/// One `name: value` pair inside a `target(...)` or `invalidates(...)`
+/// argument list. `value` is a lowered `Expr` so route params, literals,
+/// and field paths share the same shape.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NamedArg {
     pub name: String,
     pub value: Expr,
 }
 
+/// `let <name> = <expr>` binding inside a command body. Resolved during
+/// lowering; downstream codegens may inline it or emit it as a typed
+/// local depending on the target language idiom.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LetBinding {
     pub name: String,
     pub value: Expr,
 }
 
+/// The write effect a command performs. `Creates` / `Updates` / `Deletes`
+/// each carry typed sub-payloads naming the resource and assignments;
+/// `Returns` is the pure-read variant for `returns <Type>` commands;
+/// `None` is the legacy lowering placeholder before effect inference ran.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum CommandEffect {
+    /// `creates <Resource>` — see [`CreateEffect`].
     Creates(CreateEffect),
+    /// `updates <target>` — see [`UpdateEffect`].
     Updates(UpdateEffect),
+    /// `deletes <target>` — see [`DeleteEffect`].
     Deletes(DeleteEffect),
     /// Pure request/response command — declares `returns` instead of an effect.
     Returns(ReturnsEffect),
@@ -377,6 +434,9 @@ pub enum CommandEffect {
     None,
 }
 
+/// `creates <Resource>` effect — inserts a new row with optional
+/// `from input` shortcut (auto-binds same-named fields from input) and
+/// explicit assignments for the rest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CreateEffect {
     pub resource: QualifiedName,
@@ -385,22 +445,30 @@ pub struct CreateEffect {
     pub assignments: Vec<Assignment>,
 }
 
+/// `updates <target>` effect — mutates a single resolved row. The
+/// `resource` is the resource type, paired with the command's `target`
+/// expression that names the row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpdateEffect {
     pub resource: QualifiedName,
     pub assignments: Vec<Assignment>,
 }
 
+/// `deletes <target>` effect — removes a single resolved row. No
+/// assignments because the row is going away.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeleteEffect {
     pub resource: QualifiedName,
 }
 
+/// `returns <Type>` effect — pure command with no DB mutation. Carries
+/// the declared return type so codegen can emit a typed response shape.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReturnsEffect {
     pub return_type: TypeRef,
 }
 
+/// One `field = expr` assignment inside a `creates` / `updates` body.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Assignment {
     pub field: String,
@@ -429,6 +497,15 @@ impl PolicyRef {
     /// `skip_serializing_if` on query / command IR fields so absent
     /// per-callable policies serialize cleanly and round-trip back to
     /// `PolicyRef::None` (the explicit "feature-default applies" marker).
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::PolicyRef;
+    ///
+    /// assert!(PolicyRef::None.is_none());
+    /// assert!(!PolicyRef::Atom("@role.host".into()).is_none());
+    /// ```
     pub fn is_none(&self) -> bool {
         matches!(self, PolicyRef::None)
     }
