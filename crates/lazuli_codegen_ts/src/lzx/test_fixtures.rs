@@ -12,6 +12,14 @@ use super::ir::*;
 
 /// `CellBinding` that maps the `tags` field onto the `type_badge`
 /// slot — used by every view in the slug surface example.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::lzx::test_fixtures::type_badge_cell;
+/// let cell = type_badge_cell();
+/// assert_eq!(cell.field, "tags");
+/// ```
 pub fn type_badge_cell() -> CellBinding {
     CellBinding {
         field: "tags".to_owned(),
@@ -21,6 +29,14 @@ pub fn type_badge_cell() -> CellBinding {
 
 /// The L0 §13.1 `slug_list` view — table layout with search, a
 /// `tags` filter, and the full CRUD action set.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::lzx::test_fixtures::slug_list_view;
+/// let view = slug_list_view();
+/// assert_eq!(view.name, "slug_list");
+/// ```
 pub fn slug_list_view() -> ViewList {
     ViewList {
         name: "slug_list".to_owned(),
@@ -79,6 +95,14 @@ pub fn slug_list_view() -> ViewList {
 
 /// The L0 §13.1 `slug_detail` view — keyed by `:key`, three
 /// sections, update + delete actions.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::lzx::test_fixtures::slug_detail_view;
+/// let view = slug_detail_view();
+/// assert_eq!(view.name, "slug_detail");
+/// ```
 pub fn slug_detail_view() -> ViewDetail {
     ViewDetail {
         name: "slug_detail".to_owned(),
@@ -115,6 +139,14 @@ pub fn slug_detail_view() -> ViewDetail {
 
 /// The L0 §13.1 `slug_create` view — bound to the `create`
 /// command, fields drawn from the resource.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::lzx::test_fixtures::slug_create_view;
+/// let view = slug_create_view();
+/// assert_eq!(view.name, "slug_create");
+/// ```
 pub fn slug_create_view() -> ViewCreate {
     ViewCreate {
         name: "slug_create".to_owned(),
@@ -138,6 +170,14 @@ pub fn slug_create_view() -> ViewCreate {
 
 /// The read-only `public_slug_list` view shown to non-admin audiences
 /// — same data source, narrower columns, no actions.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::lzx::test_fixtures::public_slug_list_view;
+/// let view = public_slug_list_view();
+/// assert!(view.actions.is_empty());
+/// ```
 pub fn public_slug_list_view() -> ViewList {
     ViewList {
         name: "public_slug_list".to_owned(),
@@ -172,6 +212,14 @@ pub fn public_slug_list_view() -> ViewList {
 
 /// The `admin` audience scoped to `workspace_admin`, holding the
 /// full list/detail/create surface.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::lzx::test_fixtures::admin_audience;
+/// let audience = admin_audience();
+/// assert_eq!(audience.name, "admin");
+/// ```
 pub fn admin_audience() -> Audience {
     Audience {
         name: "admin".to_owned(),
@@ -191,6 +239,14 @@ pub fn admin_audience() -> Audience {
 
 /// The `public` audience scoped to any `workspace_member`, holding
 /// only the read-only list view.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::lzx::test_fixtures::public_audience;
+/// let audience = public_audience();
+/// assert_eq!(audience.name, "public");
+/// ```
 pub fn public_audience() -> Audience {
     Audience {
         name: "public".to_owned(),
@@ -206,6 +262,14 @@ pub fn public_audience() -> Audience {
 
 /// The full `slug.web.lzx` [`Surface`] — web target, two audiences,
 /// drives every snapshot in the LZX emitter suite.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::lzx::test_fixtures::slug_web_surface;
+/// let surface = slug_web_surface();
+/// assert_eq!(surface.audiences.len(), 2);
+/// ```
 pub fn slug_web_surface() -> Surface {
     Surface {
         feature: "slug".to_owned(),

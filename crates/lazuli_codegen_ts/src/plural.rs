@@ -4,6 +4,15 @@
 /// `quiz` case from Wave A.6. It is also idempotent for already-plural regular
 /// identifiers such as `Payments`, so existing plural resource names do not
 /// become `Paymentss` / `Paymentses`.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_ts::pluralize;
+/// assert_eq!(pluralize("post"), "posts");
+/// assert_eq!(pluralize("quiz"), "quizzes");
+/// assert_eq!(pluralize("Payments"), "Payments");
+/// ```
 pub fn pluralize(word: &str) -> String {
     if word.is_empty() {
         return String::new();

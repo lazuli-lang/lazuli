@@ -63,6 +63,18 @@ mod tests;
 /// cells.slot == slot_name`. The first match wins; alternative
 /// bindings are listed as a `// Also bound by:` comment block so
 /// human reviewers see the divergence.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::slot_interface::emit_slot_interface;
+/// use lazuli_codegen_ts::lzx_audience_slot::ir::Surface;
+/// use lazuli_ir::runtime::RuntimeFeature;
+///
+/// let surface: Surface = /* … */ unimplemented!();
+/// let feature: RuntimeFeature = /* … */ unimplemented!();
+/// let _src = emit_slot_interface(&surface, &feature, "type_badge");
+/// ```
 pub fn emit_slot_interface(surface: &Surface, feature: &RuntimeFeature, slot_name: &str) -> String {
     let pascal_slot = pascal_case(slot_name);
     let interface_name = format!("{pascal_slot}Props");

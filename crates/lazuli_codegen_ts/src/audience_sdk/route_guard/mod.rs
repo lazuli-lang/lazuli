@@ -84,9 +84,7 @@ impl RouteGuardTarget {
 /// ## Examples
 ///
 /// ```
-/// use lazuli_codegen_ts::audience_sdk::route_guard::{
-///     emit_route_guard_artifacts, RouteGuardTarget,
-/// };
+/// use lazuli_codegen_ts::lzx_audience_slot::{emit_route_guard_artifacts, RouteGuardTarget};
 /// let files = emit_route_guard_artifacts(None, &[], &[], &[], &[], RouteGuardTarget::Web);
 /// assert!(files.is_empty());
 /// ```

@@ -20,6 +20,18 @@ enum SemanticFormatter {
 /// so web and mobile targets share identical behavior. Codegen keeps the app
 /// module tree-shake friendly by exporting only helpers whose semantic carrier
 /// appears in the IR.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::emit_semantic_formatters_ts;
+/// use lazuli_ir::Module;
+///
+/// let module: Module = /* … */ unimplemented!();
+/// if let Some(src) = emit_semantic_formatters_ts(&module) {
+///     assert!(src.contains("export"));
+/// }
+/// ```
 pub fn emit_semantic_formatters_ts(module: &Module) -> Option<String> {
     let formatters = collect_semantic_formatters(module);
     emit_semantic_formatters_for_set(&formatters)

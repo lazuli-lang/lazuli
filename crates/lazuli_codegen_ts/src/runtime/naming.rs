@@ -22,6 +22,14 @@ use lazuli_codegen_spec::FieldKind;
 ///
 /// Re-exported via `lazuli_codegen_ts::lower_camel_export` for the CLI
 /// zod emitter (single source of truth for SDK/zod casing alignment).
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_ts::lower_camel_export;
+/// assert_eq!(lower_camel_export("org_id"), "orgId");
+/// assert_eq!(lower_camel_export("created_at"), "createdAt");
+/// ```
 pub fn lower_camel_export(s: &str) -> String {
     lower_camel(s)
 }
@@ -82,5 +90,29 @@ pub(super) fn field_kind_ts(kind: FieldKind) -> &'static str {
         FieldKind::Text | FieldKind::Email => "string",
         FieldKind::Integer => "ID",
         FieldKind::Boolean => "boolean",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lower_camel_export_handles_snake_case_identifiers() {
+        assert_eq!(lower_camel_export("org_id"), "orgId");
+        assert_eq!(lower_camel_export("created_at"), "createdAt");
+    }
+
+    #[test]
+    fn pascal_case_uppercases_known_acronyms() {
+        assert_eq!(pascal_case("api_url"), "APIURL");
+        assert_eq!(pascal_case("user_id"), "UserID");
+    }
+
+    #[test]
+    fn field_kind_ts_maps_known_kinds() {
+        assert_eq!(field_kind_ts(FieldKind::Text), "string");
+        assert_eq!(field_kind_ts(FieldKind::Integer), "ID");
+        assert_eq!(field_kind_ts(FieldKind::Boolean), "boolean");
     }
 }

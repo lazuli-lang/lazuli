@@ -46,6 +46,14 @@ pub struct PlaywrightFixtureConfig {
 impl PlaywrightFixtureConfig {
     /// Shorthand constructor for the stub-only mode used when the app
     /// hasn't wired up its e2e helpers yet.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_codegen_ts::playwright::fixtures::PlaywrightFixtureConfig;
+    /// let cfg = PlaywrightFixtureConfig::without_helpers();
+    /// assert!(cfg.helpers.is_none());
+    /// ```
     pub fn without_helpers() -> Self {
         Self { helpers: None }
     }

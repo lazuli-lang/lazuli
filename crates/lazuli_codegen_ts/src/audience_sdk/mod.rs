@@ -82,7 +82,7 @@ impl AudienceProjection {
     /// ## Examples
     ///
     /// ```
-    /// use lazuli_codegen_ts::audience_sdk::AudienceProjection;
+    /// use lazuli_codegen_ts::lzx_audience_slot::audience_sdk::AudienceProjection;
     /// use std::collections::BTreeSet;
     /// let empty = AudienceProjection {
     ///     audiences: vec![],
@@ -116,7 +116,7 @@ impl AudienceProjection {
 /// ## Examples
 ///
 /// ```ignore
-/// use lazuli_codegen_ts::audience_sdk::compute_audience_projection;
+/// use lazuli_codegen_ts::lzx_audience_slot::audience_sdk::compute_audience_projection;
 /// use lazuli_ir::runtime::RuntimeFeature;
 /// use lazuli_ir::Audience;
 ///
@@ -239,7 +239,7 @@ fn policy_atoms_for_query(query: &RuntimeQuery) -> Vec<String> {
 /// ## Examples
 ///
 /// ```ignore
-/// use lazuli_codegen_ts::audience_sdk::{
+/// use lazuli_codegen_ts::lzx_audience_slot::audience_sdk::{
 ///     compute_audience_projection, emit_feature_sdk_filtered,
 /// };
 /// use lazuli_ir::runtime::RuntimeFeature;

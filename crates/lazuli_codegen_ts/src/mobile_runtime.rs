@@ -34,6 +34,14 @@ export default function RootLayout() {
 /// Emit the mobile runtime layout body. The file path is fixed at
 /// `dist/ts-mobile/runtime/layout.tsx`; callers append it to the file
 /// list when the module has at least one mobile-target frontend.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_ts::mobile_runtime::emit_mobile_runtime_layout;
+/// let src = emit_mobile_runtime_layout();
+/// assert!(src.contains("export"));
+/// ```
 pub fn emit_mobile_runtime_layout() -> String {
     MOBILE_RUNTIME_LAYOUT_TSX.to_owned()
 }

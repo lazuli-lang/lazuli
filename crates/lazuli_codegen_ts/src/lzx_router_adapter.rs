@@ -48,7 +48,7 @@ pub const PATTERN_LIFECYCLE_GATE_METADATA: (&str, &str) =
 /// ## Examples
 ///
 /// ```
-/// use lazuli_codegen_ts::lzx_router_adapter::route_guard_pattern_header;
+/// use lazuli_codegen_ts::lzx::lzx_router_adapter::route_guard_pattern_header;
 /// assert!(route_guard_pattern_header().starts_with("//lazuli:pattern route_guard "));
 /// ```
 pub fn route_guard_pattern_header() -> String {
@@ -66,7 +66,7 @@ pub fn route_guard_pattern_header() -> String {
 /// ## Examples
 ///
 /// ```
-/// use lazuli_codegen_ts::lzx_router_adapter::lifecycle_gate_pattern_header;
+/// use lazuli_codegen_ts::lzx::lzx_router_adapter::lifecycle_gate_pattern_header;
 /// assert!(
 ///     lifecycle_gate_pattern_header()
 ///         .starts_with("//lazuli:pattern pattern_lifecycle_gate_metadata ")
@@ -87,7 +87,7 @@ pub fn lifecycle_gate_pattern_header() -> String {
 /// ## Examples
 ///
 /// ```
-/// use lazuli_codegen_ts::lzx_router_adapter::{router_useparams_import, RouterTarget};
+/// use lazuli_codegen_ts::lzx::lzx_router_adapter::{router_useparams_import, RouterTarget};
 /// let line = router_useparams_import(RouterTarget::ViteReact);
 /// assert!(line.contains("@tanstack/react-router"));
 /// ```
@@ -112,7 +112,7 @@ pub fn router_useparams_import(target: RouterTarget) -> &'static str {
 /// ## Examples
 ///
 /// ```
-/// use lazuli_codegen_ts::lzx_router_adapter::{router_usesearchparams_import, RouterTarget};
+/// use lazuli_codegen_ts::lzx::lzx_router_adapter::{router_usesearchparams_import, RouterTarget};
 /// assert!(
 ///     router_usesearchparams_import(RouterTarget::NextJs).contains("next/navigation"),
 /// );
@@ -143,7 +143,7 @@ pub fn router_usesearchparams_import(target: RouterTarget) -> &'static str {
 /// ## Examples
 ///
 /// ```
-/// use lazuli_codegen_ts::lzx_router_adapter::{translate_route_path, RouterTarget};
+/// use lazuli_codegen_ts::lzx::lzx_router_adapter::{translate_route_path, RouterTarget};
 /// assert_eq!(
 ///     translate_route_path(RouterTarget::ViteReact, "/slugs/:key"),
 ///     "/slugs/$key",
