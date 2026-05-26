@@ -32,6 +32,8 @@ mod testing;
 mod doctor_tests;
 #[cfg(test)]
 mod generate_tests;
+#[cfg(test)]
+mod migrations_tests;
 
 pub use doctor::{
     CoverageSection, Doctor, InternalHygieneDoctor, LayerThresholdConfig, SeverityOverride,
@@ -515,54 +517,6 @@ audiences = ["host"]
         );
     }
 
-    /// Frente 1 — `[migrations]` defaults apply when block is absent.
-    #[test]
-    fn migrations_or_default_when_block_absent() {
-        let manifest = parse_manifest(
-            r#"
-[project]
-name = "myapp"
-module = "github.com/myorg/myapp"
-schema = 1
-
-[lazuli]
-runtime = "0.1.0"
-"#,
-        )
-        .unwrap();
-
-        let migrations = manifest.migrations_or_default();
-        assert_eq!(migrations.generated, "dist/go/migrations");
-        assert_eq!(migrations.manual, "migrations");
-        assert!(matches!(migrations.strategy, MigrationStrategy::Auto));
-    }
-
-    /// Frente 1 — partial `[migrations]` block fills missing fields
-    /// with canonical defaults.
-    #[test]
-    fn migrations_partial_block_fills_defaults() {
-        let manifest = parse_manifest(
-            r#"
-[project]
-name = "myapp"
-module = "github.com/myorg/myapp"
-schema = 1
-
-[lazuli]
-runtime = "0.1.0"
-
-[migrations]
-strategy = "manual"
-"#,
-        )
-        .unwrap();
-
-        let migrations = manifest.migrations_or_default();
-        assert_eq!(migrations.generated, "dist/go/migrations");
-        assert_eq!(migrations.manual, "migrations");
-        assert!(matches!(migrations.strategy, MigrationStrategy::Manual));
-    }
-
     /// Frente 1 — `[testing] default_layers` defaults to
     /// `["handler_go", "view_extensibility"]` when missing.
     #[test]
@@ -799,27 +753,6 @@ runtime = "0.1.0"
         assert_eq!(pw.config.as_deref(), Some("app/web/playwright.config.ts"));
         assert_eq!(pw.discovery_root.as_deref(), Some("app/web/e2e"));
         assert_eq!(pw.workers, Some(4));
-    }
-
-    /// Frente 1 — `[seeds]` defaults apply when block is absent.
-    #[test]
-    fn seeds_or_default_when_block_absent() {
-        let manifest = parse_manifest(
-            r#"
-[project]
-name = "myapp"
-module = "github.com/myorg/myapp"
-schema = 1
-
-[lazuli]
-runtime = "0.1.0"
-"#,
-        )
-        .unwrap();
-
-        let seeds = manifest.seeds_or_default();
-        assert_eq!(seeds.dir, "seeds");
-        assert!(!seeds.auto);
     }
 
     /// Lazurite.toml rename (2026-05-15) — `load()` must accept both
