@@ -272,3 +272,125 @@ pub(in super::super) fn parse_invariant_decl(
         i,
     ))
 }
+
+#[cfg(test)]
+mod aggregate_invariant_tests {
+    use super::super::super::parse_feature_skeletons;
+
+    #[test]
+    fn parses_aggregate_minimal_root_only() {
+        let source = "
+feature billing
+  aggregate Order
+    root Order
+";
+        let features = parse_feature_skeletons(source).unwrap();
+        assert_eq!(features[0].aggregates.len(), 1);
+        assert_eq!(features[0].aggregates[0].name, "Order");
+        assert_eq!(features[0].aggregates[0].root, "Order");
+        assert!(features[0].aggregates[0].contains.is_empty());
+        assert!(features[0].aggregates[0].invariants.is_empty());
+    }
+
+    #[test]
+    fn parses_aggregate_with_contains_list() {
+        let source = "
+feature billing
+  aggregate Order
+    root Order
+    contains OrderLine, Payment
+";
+        let features = parse_feature_skeletons(source).unwrap();
+        let agg = &features[0].aggregates[0];
+        assert_eq!(agg.contains, vec!["OrderLine", "Payment"]);
+    }
+
+    #[test]
+    fn parses_aggregate_with_invariants_block() {
+        let source = "
+feature billing
+  aggregate Order
+    root Order
+    contains OrderLine
+    invariants
+      invariant total_consistent
+        when total = total
+        message \"line totals must match order total\"
+";
+        let features = parse_feature_skeletons(source).unwrap();
+        let agg = &features[0].aggregates[0];
+        assert_eq!(agg.invariants.len(), 1);
+        assert_eq!(agg.invariants[0].name, "total_consistent");
+        assert_eq!(agg.invariants[0].when, "total = total");
+        assert_eq!(
+            agg.invariants[0].message,
+            "line totals must match order total"
+        );
+    }
+
+    #[test]
+    fn aggregate_rejects_missing_root() {
+        let source = "
+feature billing
+  aggregate Order
+    contains OrderLine
+";
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("requires a `root <Resource>` declaration"),
+            "got: {message}"
+        );
+    }
+
+    #[test]
+    fn parses_resource_level_invariant() {
+        let source = "
+feature billing
+  resource Order
+    total: Integer required
+    invariant total_non_negative
+      when total >= 0
+      message \"order total cannot be negative\"
+";
+        let features = parse_feature_skeletons(source).unwrap();
+        let r = &features[0].resources[0];
+        assert_eq!(r.invariants.len(), 1);
+        assert_eq!(r.invariants[0].name, "total_non_negative");
+        assert_eq!(r.invariants[0].when, "total >= 0");
+    }
+
+    #[test]
+    fn invariant_rejects_missing_when() {
+        let source = "
+feature billing
+  resource Order
+    total: Integer required
+    invariant bad
+      message \"oops\"
+";
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("requires a `when <predicate>` clause"),
+            "got: {message}"
+        );
+    }
+
+    #[test]
+    fn invariant_rejects_unknown_child() {
+        let source = "
+feature billing
+  resource Order
+    invariant bad
+      when total = 0
+      bogus thing
+";
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("`invariant` children are"),
+            "got: {message}"
+        );
+    }
+}
