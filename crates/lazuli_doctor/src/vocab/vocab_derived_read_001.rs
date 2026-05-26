@@ -40,8 +40,25 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "VOCAB-DERIVED-READ-001";
 
+    /// Render the "field is never written" message and prompt the
+    /// author to switch to `derived from <expr>` if it's computed.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::vocab_derived_read_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     resource: "Order".into(),
+    ///     field: "total_with_tax".into(),
+    /// };
+    /// assert!(f.message().contains("derived from"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "field `{}.{}` is never written by any command or job — \
@@ -57,6 +74,17 @@ impl Finding {
 /// Run VOCAB-DERIVED-READ-001 over one feature's resources.
 ///
 /// `path` is the source `.lzi` file; no I/O is performed here.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::vocab::vocab_derived_read_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with resources + commands");
+/// let _ = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let written = collect_write_sites(&feature.commands, &feature.jobs);
     feature

@@ -63,9 +63,11 @@ pub struct Finding {
     /// Fully-qualified event name as authored in `command.emits`
     /// (e.g. `"post.archived"`).
     pub event_name: String,
+    /// Which sub-rule fired — drives the prose in `message`.
     pub kind: FindingKind,
 }
 
+/// The two distinct shapes VOCAB-EVENT-PAYLOAD-001 surfaces.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FindingKind {
     /// The event name appears in a command `emits` list but has no matching
@@ -77,8 +79,26 @@ pub enum FindingKind {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "VOCAB-EVENT-PAYLOAD-001";
 
+    /// Render the per-kind message: undeclared events ask for an
+    /// `event ... payload ...` declaration; missing-payload events ask
+    /// for an explicit `payload <Type>` or `payload none` opt-out.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::vocab_event_payload_001::{Finding, FindingKind};
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     event_name: "post.archived".into(),
+    ///     kind: FindingKind::MissingPayload,
+    /// };
+    /// assert!(f.message().contains("payload"));
+    /// ```
     pub fn message(&self) -> String {
         match self.kind {
             FindingKind::Undeclared => format!(
@@ -109,6 +129,17 @@ impl Finding {
 ///
 /// Deduplicates across multiple commands that emit the same undeclared event:
 /// at most one `Undeclared` finding per unique event name.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::vocab::vocab_event_payload_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with events + commands");
+/// let _ = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     // Build a lookup: local event name → Event declaration.
     // Feature-level events are stored unqualified; command emits use the

@@ -34,24 +34,39 @@ pub const DEFAULT_MIN_CLUSTER_RATIO: f64 = 0.5;
 /// declarations all share the cluster, the rule emits 3 pairwise findings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the offending declarations live in.
     pub path: PathBuf,
+    /// Feature owning both declarations.
     pub feature: String,
+    /// Left-hand declaration in the pair.
     pub left: DeclarationRef,
+    /// Right-hand declaration in the pair.
     pub right: DeclarationRef,
+    /// Field names shared by both sides (post universal-column filter).
     pub shared_fields: Vec<String>,
 }
 
+/// Lightweight handle to a declaration site that participated in a
+/// shadow-record finding — enough metadata to render the diagnostic.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeclarationRef {
+    /// Whether the declaration is a resource, record, or command input.
     pub kind: DeclarationKind,
+    /// Declaration identifier (resource/record/command name).
     pub name: String,
+    /// Field count after universal-column filtering — used to compute
+    /// the intersection ratio against the cluster cutoff.
     pub post_filter_field_count: usize,
 }
 
+/// Closed catalog of declaration kinds the shadow-record rule inspects.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeclarationKind {
+    /// `resource <Name>` declaration.
     Resource,
+    /// `record <Name>` declaration.
     Record,
+    /// `command.* <name>` whose `input:` is a `Typed` record body.
     CommandInput,
 }
 
@@ -66,8 +81,37 @@ impl DeclarationKind {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "VOCAB-SHADOW-RECORD-001";
 
+    /// Render the "share N fields with matching types" message, prompting
+    /// for `record` extraction or a documented `# doctor:allow`.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::vocab_shadow_record_001::{
+    ///     Finding, DeclarationRef, DeclarationKind,
+    /// };
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     feature: "catalog".into(),
+    ///     left: DeclarationRef {
+    ///         kind: DeclarationKind::Resource,
+    ///         name: "Property".into(),
+    ///         post_filter_field_count: 8,
+    ///     },
+    ///     right: DeclarationRef {
+    ///         kind: DeclarationKind::Record,
+    ///         name: "PropertySummary".into(),
+    ///         post_filter_field_count: 6,
+    ///     },
+    ///     shared_fields: vec!["title".into(), "city".into(), "price".into(), "host".into()],
+    /// };
+    /// assert!(f.message().contains("Consider extracting"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "{} `{}` and {} `{}` share {} fields with matching types ({}). \
@@ -93,6 +137,22 @@ struct DeclarationView {
 }
 
 /// Run VOCAB-SHADOW-RECORD-001 over one feature's declarations.
+///
+/// Delegates to [`check_with_config`] with the default field-count /
+/// ratio thresholds. Tests that vary the cutoff call the config
+/// variant directly.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::vocab::vocab_shadow_record_001::check;
+/// use lazuli_ir::{Feature, Module};
+///
+/// let module: Module = unimplemented!();
+/// let feature = &module.features[0];
+/// let _ = check(feature, &module, Path::new("catalog.lzi"));
+/// ```
 pub fn check(feature: &Feature, module: &Module, path: &Path) -> Vec<Finding> {
     check_with_config(
         feature,
@@ -103,6 +163,22 @@ pub fn check(feature: &Feature, module: &Module, path: &Path) -> Vec<Finding> {
     )
 }
 
+/// Run VOCAB-SHADOW-RECORD-001 with caller-tuned cluster thresholds.
+///
+/// Exposed so unit tests and downstream tooling can vary the cluster
+/// field-count / ratio cutoffs without touching the defaults.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::vocab::vocab_shadow_record_001::check_with_config;
+/// use lazuli_ir::{Feature, Module};
+///
+/// let module: Module = unimplemented!();
+/// let feature = &module.features[0];
+/// let _ = check_with_config(feature, &module, Path::new("catalog.lzi"), 3, 0.4);
+/// ```
 pub fn check_with_config(
     feature: &Feature,
     module: &Module,

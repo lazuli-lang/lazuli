@@ -24,8 +24,25 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "VOCAB-EVENT-PRODUCER-001";
 
+    /// Render the "mutates but doesn't emit" message, listing candidate
+    /// events the command likely intended to emit.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::vocab_event_producer_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     command: "publish_post".into(),
+    ///     candidate_events: vec!["post.published".into()],
+    /// };
+    /// assert!(f.message().contains("emits"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "command `{}` mutates a resource for which event(s) {:?} exist, \
@@ -44,6 +61,17 @@ impl Finding {
 /// `path` is the source `.lzi` file — used to anchor findings; no I/O is
 /// performed here. The caller maps each `Finding` into a `DoctorDiagnostic` and
 /// supplies exact source locations from the syntax facts.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::vocab::vocab_event_producer_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with commands + events");
+/// let _ = check(&feature, Path::new("publishing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let event_names: Vec<&str> = feature.events.iter().map(|ev| ev.name.as_str()).collect();
 
