@@ -20,18 +20,30 @@
 
 use crate::leading_spaces;
 
+// Sibling modules — concerns split per the doc comment above. The
+// `pub(crate) use` blocks below re-export through `mod.rs` so the
+// crate-root `pub(crate) use diagnostics::agent::*;` glob in `lib.rs`
+// continues to surface every symbol at its original `crate::<name>`
+// path. `#[allow(unused_imports)]` silences the false-positive
+// "unused" warning that fires when a `pub(crate) use` is consumed
+// only via a downstream re-export.
 mod contract;
 mod discriminator;
 mod evals;
 mod expose;
 mod tools;
 
+#[allow(unused_imports)]
 pub(crate) use contract::agent_contract_diagnostics;
+#[allow(unused_imports)]
 pub(crate) use discriminator::{agent_discriminator_diagnostics, contains_token};
+#[allow(unused_imports)]
 pub(crate) use evals::{agent_evals_diagnostics, validate_eval_predicate_shape};
+#[allow(unused_imports)]
 pub(crate) use expose::{
     LocalExpose, agent_expose_diagnostics, extract_path_slots, lsp_normalise_path,
 };
+#[allow(unused_imports)]
 pub(crate) use tools::{agent_tools_diagnostics, validate_tool_reference_shape};
 
 /// Iterate every `agent <name>` block in the source, yielding the
