@@ -43,3 +43,29 @@ pub struct UsesClauseAst {
     pub version: Option<u16>,
     pub span: Span,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uses_clause_optional_version_pin_elides_when_none() {
+        let u = UsesClauseAst {
+            feature: "account".into(),
+            version: None,
+            span: Span::new(0, 0),
+        };
+        let s = serde_json::to_string(&u).unwrap();
+        assert!(!s.contains("version"));
+    }
+
+    #[test]
+    fn public_contract_decl_serializes_version() {
+        let p = PublicContractDeclAst {
+            version: 2,
+            span: Span::new(0, 0),
+        };
+        let s = serde_json::to_string(&p).unwrap();
+        assert!(s.contains("\"version\":2"));
+    }
+}

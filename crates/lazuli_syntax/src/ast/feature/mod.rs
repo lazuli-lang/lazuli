@@ -58,6 +58,14 @@ pub use translation::{
     TranslationVariantDecl,
 };
 
+/// The post-parse container for a single `feature <name>` block.
+///
+/// Owns flat vectors of every feature-scoped construct (agents,
+/// commands, queries, resources, jobs, webhooks, ...) plus the optional
+/// cross-cutting blocks (`policies`, `errors`, `defaults`, `translation`,
+/// iron-hand `context` vocab). New construct kinds are added as new
+/// vector fields here; the analyzer enumerates them in declaration order
+/// during lowering.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FeatureSkeleton {
     pub name: String,

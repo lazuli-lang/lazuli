@@ -33,3 +33,26 @@ pub struct LziFeatureAttachCtx {
     pub path: String,
     pub span: Span,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn purpose_text_preserved_verbatim() {
+        let p = LziFeaturePurpose {
+            text: "Ship hostpoint reservations".into(),
+            span: Span::new(0, 0),
+        };
+        assert!(p.text.contains("hostpoint"));
+    }
+
+    #[test]
+    fn non_goals_entries_can_be_empty() {
+        let n = LziFeatureNonGoals {
+            entries: vec![],
+            span: Span::new(0, 0),
+        };
+        assert!(n.entries.is_empty());
+    }
+}
