@@ -33,6 +33,7 @@ use std::collections::BTreeMap;
 
 mod agent;
 mod auth;
+mod notification;
 mod storage;
 
 // Re-export at the `report_types` namespace so the existing glob in
@@ -40,6 +41,7 @@ mod storage;
 // report_types::*;`) keeps picking these up unchanged.
 pub(in crate::commands::inspect) use agent::*;
 pub(in crate::commands::inspect) use auth::*;
+pub(in crate::commands::inspect) use notification::*;
 pub(in crate::commands::inspect) use storage::*;
 
 #[derive(Debug, Serialize)]
@@ -359,78 +361,6 @@ pub(super) struct InspectAudit {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) emit_to: Option<String>,
     pub(super) origin: &'static str,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectNotification {
-    pub(super) name: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(super) channels: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) recipient: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) trigger: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) template: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) policy: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) tenant_from: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) idempotency: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) retry: Option<String>,
-    /// Scalar `rate_limit "N per <window>"` captured verbatim. Kept
-    /// for forward-compat: the language reserves `rate_limit` as the
-    /// per-call scalar slot across `agent`/`auth password`/`command`/
-    /// `expose http` and may surface it on `notification` once pilot
-    /// pressure requires it. Distinct from the structured `throttle`
-    /// sub-block below.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) rate_limit: Option<String>,
-    /// Notifications expanded bucket cycle — typed projection of the
-    /// `digest` sub-block (`every`/`group_by`/`max_size`/
-    /// `template_strategy`). `None` when the notification does not
-    /// declare digesting.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) digest: Option<InspectNotificationDigest>,
-    /// Notifications expanded bucket cycle — typed projection of the
-    /// `throttle` sub-block (`max_per`/`per_recipient`/`per_channel`/
-    /// `burst`). `None` when the notification does not declare a
-    /// throttle bucket. Distinct from scalar `rate_limit`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) throttle: Option<InspectNotificationThrottle>,
-    pub(super) origin: &'static str,
-}
-
-/// Notifications expanded bucket cycle — `--expand=notifications`
-/// projection of `ir::NotificationDigest`. Mirrors the IR shape one-
-/// to-one so consumers can read the digest contract cold.
-#[derive(Debug, Serialize)]
-pub(super) struct InspectNotificationDigest {
-    pub(super) every: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) group_by: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) max_size: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) template_strategy: Option<String>,
-}
-
-/// Notifications expanded bucket cycle — `--expand=notifications`
-/// projection of `ir::NotificationThrottle`. Distinct shape from
-/// scalar `rate_limit` so the structured per-recipient/per-channel
-/// contract surfaces in JSON without being conflated with the scalar
-/// slot above.
-#[derive(Debug, Serialize)]
-pub(super) struct InspectNotificationThrottle {
-    pub(super) max_per: String,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub(super) per_recipient: bool,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub(super) per_channel: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) burst: Option<u32>,
 }
 
 // -----------------------------------------------------------------------------
