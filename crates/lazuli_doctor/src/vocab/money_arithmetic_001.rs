@@ -30,14 +30,19 @@ use std::path::{Path as FsPath, PathBuf};
 
 use lazuli_ir::{BuiltinType, CurrencyCode, Feature, Field, Resource, TypeRef};
 
-/// One MONEY-ARITHMETIC-001 finding.
+/// One MONEY-ARITHMETIC-001 finding — a `derived_from` expression on a
+/// `Money(<currency>)` field mixes incompatible operand types.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the offending field lives in.
     pub path: PathBuf,
+    /// Feature owning the resource where the field was authored.
     pub feature: String,
+    /// Resource carrying the offending field.
     pub resource: String,
     /// The field whose `derived_from` carries the bad expression.
     pub field: String,
+    /// Currency of the result field — anchor for "same-currency" check.
     pub field_currency: CurrencyCode,
     /// `"Money({other_currency})"` or `"Decimal"` etc. — the offending
     /// operand surface, rendered for the diagnostic message.
@@ -48,8 +53,30 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "MONEY-ARITHMETIC-001";
 
+    /// Render the user-facing diagnostic body naming the field, operator,
+    /// and offending operand.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::money_arithmetic_001::Finding;
+    /// use lazuli_ir::CurrencyCode;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("x.lzi"),
+    ///     feature: "payments".into(),
+    ///     resource: "Order".into(),
+    ///     field: "total".into(),
+    ///     field_currency: CurrencyCode::BRL,
+    ///     operand: "Decimal".into(),
+    ///     op: '+',
+    /// };
+    /// assert!(f.message().contains("Money(BRL)"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "Arithmetic on `Money({})` requires same-currency operand or \
@@ -63,6 +90,21 @@ impl Finding {
 }
 
 /// Run MONEY-ARITHMETIC-001 across one feature's resources.
+///
+/// Returns one finding per offending operator occurrence inside a
+/// Money-typed field's `derived_from` text. Path is purely anchor metadata.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::vocab::money_arithmetic_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a Money-bearing feature");
+/// let findings = check(&feature, Path::new("payments.lzi"));
+/// assert!(findings.is_empty() || findings.iter().all(|f| !f.field.is_empty()));
+/// ```
 pub fn check(feature: &Feature, path: &FsPath) -> Vec<Finding> {
     feature
         .resources
