@@ -21,18 +21,45 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Feature, Webhook, WebhookEvent, WebhookEventField};
 
+/// One WEBHOOK-EMIT-PREDICATE-FIELD-001 finding — a webhook's `emit
+/// when` predicate references a payload field that isn't on the
+/// webhook's declared typed-payload contract.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the offending webhook lives in.
     pub path: PathBuf,
+    /// Feature owning the webhook.
     pub feature: String,
+    /// Webhook name (`webhook <name>`).
     pub webhook: String,
+    /// Emit clause's event name the predicate gates.
     pub emit_event: String,
+    /// Dotted path the predicate referenced (e.g. `card.brand`).
     pub field_path: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "WEBHOOK-EMIT-PREDICATE-FIELD-001";
 
+    /// Render the "field not declared on payload contract" message
+    /// naming the webhook, emit event, and missing dotted path.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::correctness::webhook_emit_predicate_field_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     feature: "billing".into(),
+    ///     webhook: "stripe".into(),
+    ///     emit_event: "payment.captured".into(),
+    ///     field_path: "card.brand".into(),
+    /// };
+    /// assert!(f.message().contains("payload contract"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "Webhook `{}` emits `{}` when `{}` but `{}` is not declared on the webhook payload contract.",
@@ -48,6 +75,18 @@ impl Finding {
 /// no-op (the runtime dispatch table degrades to opaque envelope
 /// access; doctor doesn't gate on that until the typed catalog
 /// exists).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::correctness::webhook_emit_predicate_field_001::check;
+/// use lazuli_ir::{Feature, WebhookEvent};
+///
+/// let feature: Feature = unimplemented!("lower a feature with webhooks");
+/// let events: Vec<WebhookEvent> = vec![];
+/// let _ = check(&feature, &events, Path::new("billing.lzi"));
+/// ```
 pub fn check(
     feature: &Feature,
     webhook_events: &[WebhookEvent],

@@ -52,6 +52,8 @@ pub struct Finding {
     pub kind: FindingKind,
 }
 
+/// Why a `@correctness.migration_out_of_sync` finding fired — drives
+/// the prose in `Finding::message`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FindingKind {
     /// IR + migration disagree on the column set.
@@ -74,6 +76,26 @@ impl Finding {
     /// Diagnostic ID per the cell spec.
     pub const CODE: &'static str = "@correctness.migration_out_of_sync";
 
+    /// Render the per-kind message — `Drift` carries the per-column
+    /// add/drop diff; `MigrationMissing` points at the searched dir
+    /// and asks the author to run `lazuli generate go .`.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::correctness::schema_migration_present::{Finding, FindingKind};
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("billing.lzi"),
+    ///     feature: "billing".into(),
+    ///     resource: "Invoice".into(),
+    ///     kind: FindingKind::MigrationMissing {
+    ///         searched: PathBuf::from("dist/go/migrations"),
+    ///     },
+    /// };
+    /// assert!(f.message().contains("lazuli generate go ."));
+    /// ```
     pub fn message(&self) -> String {
         match &self.kind {
             FindingKind::Drift { migration, adds, drops } => format!(
@@ -108,6 +130,17 @@ impl Finding {
 /// `feature_path` is purely the diagnostic anchor (typically the `.lzi`
 /// file). It is recorded on findings so editors can land squiggles on
 /// the right source file.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::correctness::schema_migration_present::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with resources");
+/// let _ = check(&feature, Path::new("billing.lzi"), Path::new("/app"));
+/// ```
 pub fn check(feature: &Feature, feature_path: &Path, root: &Path) -> Vec<Finding> {
     let migrations_dir = root.join("dist").join("go").join("migrations");
     let entries = list_migration_entries(&migrations_dir);

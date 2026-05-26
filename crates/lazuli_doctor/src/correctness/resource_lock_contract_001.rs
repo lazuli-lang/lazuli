@@ -38,6 +38,7 @@ pub struct Finding {
     pub reason: Reason,
 }
 
+/// Sub-classification of the optimistic-lock contract violation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reason {
     /// `version_field` does not match any declared field on the resource.
@@ -47,8 +48,27 @@ pub enum Reason {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "RESOURCE-LOCK-CONTRACT-001";
 
+    /// Render the per-reason message — `missing` and `not_integer`
+    /// each carrying a canonical fix prompt.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::correctness::resource_lock_contract_001::{Finding, Reason};
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     feature: "billing".into(),
+    ///     resource: "Order".into(),
+    ///     version_field: "lock_version".into(),
+    ///     reason: Reason::Missing,
+    /// };
+    /// assert!(f.message().contains("lock optimistic"));
+    /// ```
     pub fn message(&self) -> String {
         match self.reason {
             Reason::Missing => format!(
@@ -68,6 +88,17 @@ impl Finding {
 // ── detection ────────────────────────────────────────────────────────────────
 
 /// Run RESOURCE-LOCK-CONTRACT-001 over every resource in one feature.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::correctness::resource_lock_contract_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with lock optimistic");
+/// let _ = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     feature
         .resources
