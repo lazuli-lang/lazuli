@@ -14,6 +14,10 @@ use crate::SpanRef;
 
 use super::core::{CellBinding, CommandRef, QueryRef};
 
+/// One `setting <name> { ... }` knob inside a [`super::ViewList`].
+/// Three typed value spaces (enum / bool / int with bounds) keep the
+/// surface tight so codegen can render the right control without
+/// dynamic dispatch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SettingDecl {
     pub name: String,
@@ -25,23 +29,38 @@ pub struct SettingDecl {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Closed catalog of setting value spaces. Each variant carries the
+/// minimal shape needed to render the control (enum values, bool
+/// switch, integer bounds).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SettingValueSpace {
+    /// Enum knob — closed list of admitted string values.
     Enum { values: Vec<String> },
+    /// Boolean toggle.
     Bool,
+    /// Integer knob with hard `[min, max]` bounds.
     Int { min: i64, max: i64 },
 }
 
+/// Closed catalog of setting persistence scopes. `None` is ephemeral
+/// (lives in component state); `Local` survives reload via local
+/// storage; `Workspace` is the planned cross-device scope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SettingPersistence {
+    /// Ephemeral — gone on reload.
     None,
+    /// Persisted in local storage; survives reload on the same device.
     Local,
     /// v0.2: declared but lowering warns until the cell ships.
     Workspace,
 }
 
+/// One drawer sub-view opened from a host list. Has its own query
+/// source, optional route binding (e.g. `from selection`), and the
+/// same composition surface as a detail view (sections + cells +
+/// actions).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DrawerSubView {
     pub name: String,
@@ -59,6 +78,9 @@ pub struct DrawerSubView {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Closed catalog of drawer opening behaviours. `Select` opens the
+/// drawer when the user clicks a host row; `ManualOpen` requires
+/// explicit `.open(id)` calls from author code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DrawerTrigger {
@@ -77,8 +99,22 @@ pub struct DrawerRouteBinding {
     pub source: DrawerBindingSource,
 }
 
+/// Closed catalog of drawer route-binding sources. v0 admits
+/// `Selection` only — additional sources require a proposal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DrawerBindingSource {
+    /// Bind the drawer route slot to the host's selected item.
     Selection,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drawer_trigger_round_trips() {
+        let s = serde_json::to_string(&DrawerTrigger::Select).unwrap();
+        assert_eq!(s, "\"select\"");
+    }
 }
