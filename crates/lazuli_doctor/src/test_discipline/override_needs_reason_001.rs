@@ -41,6 +41,20 @@ impl Finding {
 
     /// Render the user-facing diagnostic body — names the override
     /// site and suggests a `reason = "…"` line to add.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::test_discipline::override_needs_reason_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("Lazurite.toml"),
+    ///     category: "test_discipline".into(),
+    ///     rule_code: "TEST-MISSING-AUTHORED-001".into(),
+    /// };
+    /// assert!(f.message().contains("TEST-MISSING-AUTHORED-001"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "[doctor.{}].severity_override for `{}` requires a non-empty `reason` field — \

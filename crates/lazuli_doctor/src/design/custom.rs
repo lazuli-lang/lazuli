@@ -56,6 +56,14 @@ impl DuplicateFinding {
 
     /// Render the user-facing diagnostic body — names the colliding
     /// token and prompts for rename or move into the `color` group.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::design::custom::DuplicateFinding;
+    /// let f = DuplicateFinding { name: "brand-blue".into() };
+    /// assert!(f.message().contains("brand-blue"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "custom token `{}` collides with an existing `color` group token. \
@@ -70,6 +78,13 @@ impl DuplicateFinding {
 /// Run DESIGN-CUSTOM-DUPLICATE over a lowered `Design`. Results are
 /// sorted by name and de-duplicated so consumers can compare two runs
 /// stably.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_doctor::design::custom::check_duplicate;
+/// let findings = check_duplicate(&design);
+/// ```
 pub fn check_duplicate(design: &Design) -> Vec<DuplicateFinding> {
     let color_names: std::collections::HashSet<&str> =
         design.colors.iter().map(|c| c.name.as_str()).collect();
@@ -105,6 +120,18 @@ impl InvalidValueFinding {
 
     /// Render the user-facing diagnostic body. Disambiguates base vs
     /// dark slot in the prose so the author lands on the right line.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::design::custom::InvalidValueFinding;
+    /// let f = InvalidValueFinding {
+    ///     name: "oops".into(),
+    ///     value: "not-a-color".into(),
+    ///     is_dark: false,
+    /// };
+    /// assert!(f.message().contains("oops"));
+    /// ```
     pub fn message(&self) -> String {
         let slot = if self.is_dark { "dark" } else { "base" };
         format!(
@@ -120,6 +147,13 @@ impl InvalidValueFinding {
 /// Run DESIGN-CUSTOM-INVALID-VALUE over a lowered `Design`. Visits
 /// every `custom` token, checking both the base and (when present) the
 /// `dark` overlay. Results are sorted by name then base-before-dark.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_doctor::design::custom::check_invalid_value;
+/// let findings = check_invalid_value(&design);
+/// ```
 pub fn check_invalid_value(design: &Design) -> Vec<InvalidValueFinding> {
     let mut out = Vec::new();
     for tok in &design.custom {
@@ -159,6 +193,14 @@ impl ReservedNameFinding {
 
     /// Render the user-facing diagnostic body — explains that semantic
     /// tokens belong in the `color` group, not in `custom`.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::design::custom::ReservedNameFinding;
+    /// let f = ReservedNameFinding { name: "primary".into() };
+    /// assert!(f.message().contains("primary"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "custom token `{}` collides with the Shadcn-semantic reserved \
@@ -173,6 +215,13 @@ impl ReservedNameFinding {
 /// Run DESIGN-CUSTOM-RESERVED-NAME over a lowered `Design`. Compares
 /// every custom token name against the closed `RESERVED_NAMES` list;
 /// results are sorted by name and de-duplicated.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_doctor::design::custom::check_reserved_name;
+/// let findings = check_reserved_name(&design);
+/// ```
 pub fn check_reserved_name(design: &Design) -> Vec<ReservedNameFinding> {
     let mut out: Vec<ReservedNameFinding> = design
         .custom

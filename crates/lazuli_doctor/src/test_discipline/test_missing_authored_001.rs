@@ -36,6 +36,22 @@ impl Finding {
 
     /// Render the user-facing diagnostic body — names the construct
     /// and the missing inline `tests` block plus the override escape.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::test_discipline::test_missing_authored_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("billing.lzi"),
+    ///     feature: "billing".into(),
+    ///     construct_kind: "command".into(),
+    ///     construct: "create_invoice".into(),
+    ///     span: None,
+    /// };
+    /// assert!(f.message().contains("create_invoice"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "{} `{}` declares a predicate gate but has no `tests` block — add an \
@@ -50,6 +66,15 @@ impl Finding {
 /// Run TEST-MISSING-AUTHORED-001 over every predicate-bearing carrier
 /// in a feature. Fires when the carrier has an authored predicate
 /// (`policy_expr`, rule `when`, transition guard) and no `tests` block.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::test_discipline::test_missing_authored_001::check;
+///
+/// let findings = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 

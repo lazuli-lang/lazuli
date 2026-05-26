@@ -24,6 +24,15 @@ use super::LayerCoverage;
 /// `(construct, actor)` pair as one denominator unit and as covered
 /// when the construct's `tests` block names the actor in any allow/deny
 /// assertion. Always emits `source = "ir-walk"`.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::coverage::spec_actor_matrix::compute;
+///
+/// let layer = compute(&[]);
+/// assert_eq!(layer.total, 0);
+/// ```
 pub fn compute(features: &[Feature]) -> LayerCoverage {
     let mut total = 0usize;
     let mut covered = 0usize;

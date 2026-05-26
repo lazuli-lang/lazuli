@@ -29,6 +29,20 @@ impl Finding {
 
     /// Render the user-facing diagnostic body — surfaces the offending
     /// family literal and prompts for a `typography.family` declaration.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::design::fontfamily_leak::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("App.tsx"),
+    ///     line: 12,
+    ///     value: "Helvetica".into(),
+    /// };
+    /// assert!(f.message().contains("Helvetica"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "fontFamily value `{}` is not a declared family token. \
@@ -41,6 +55,14 @@ impl Finding {
 /// Run DESIGN-TOKEN-FONTFAMILY-LEAK across every `.tsx` file under
 /// `root`. Families listed in `allowlist.json` `font` bucket are
 /// silenced. Results are stably sorted by `(path, line)`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::design::fontfamily_leak::check;
+/// let findings = check(Path::new("src"), &allowlist);
+/// ```
 pub fn check(root: &Path, allowlist: &Allowlist) -> Vec<Finding> {
     let mut findings = Vec::new();
     for path in walk_tsx_files(root) {
@@ -57,6 +79,16 @@ pub fn check(root: &Path, allowlist: &Allowlist) -> Vec<Finding> {
 /// Single-file variant of [`check`]; preferred entry point when the
 /// caller already has the file's content in memory (e.g. the LSP).
 /// Honors `lazuli-allow: design-token-fontfamily-leak` escape comments.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::design::fontfamily_leak::check_file;
+///
+/// let lines: Vec<&str> = content.lines().collect();
+/// let findings = check_file(Path::new("App.tsx"), content, &lines, &allowlist);
+/// ```
 pub fn check_file(
     path: &Path,
     content: &str,

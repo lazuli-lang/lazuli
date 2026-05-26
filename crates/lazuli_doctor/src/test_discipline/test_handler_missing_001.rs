@@ -90,6 +90,15 @@ impl Finding {
 /// Walk `feature` for handlers whose paired test is missing. Symmetric
 /// to [`crate::correctness::handler_missing_001::check`] but with the
 /// presence ordering inverted: only fires when `<name>.go` exists.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::test_discipline::test_handler_missing_001::check;
+///
+/// let findings = check(&feature, Path::new("post.lzi"), Path::new("/proj/app"));
+/// ```
 pub fn check(feature: &Feature, lzi_path: &Path, app_root: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     for site in iter_handler_sites(feature) {

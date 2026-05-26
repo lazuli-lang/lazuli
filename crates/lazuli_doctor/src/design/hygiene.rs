@@ -59,6 +59,15 @@ pub struct ColorEntry {
 /// Best-effort loader for `dist/ts-web/design/catalog.json`. Returns
 /// `None` when the file is missing or unparseable so the hygiene rules
 /// can degrade gracefully into "no findings" rather than failing the run.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::design::hygiene::read_catalog;
+///
+/// let catalog = read_catalog(Path::new("/proj"));
+/// ```
 pub fn read_catalog(root: &Path) -> Option<HygieneCatalog> {
     let path = root
         .join("dist")
@@ -84,6 +93,14 @@ impl UnusedFinding {
 
     /// Render the user-facing diagnostic body — prompts for removal or
     /// a documented "reserved" comment.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::design::hygiene::UnusedFinding;
+    /// let f = UnusedFinding { token_path: "colors.brand".into() };
+    /// assert!(f.message().contains("colors.brand"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "token `{}` is declared but never referenced by any `.tsx` file. \
@@ -97,6 +114,16 @@ impl UnusedFinding {
 /// referenced class tokens, then reports catalog entries that no class
 /// reference resolves to. Returns empty when `catalog.class_to_token`
 /// is empty (catalog not yet emitted).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::design::hygiene::{check_unused, HygieneCatalog};
+///
+/// let catalog = HygieneCatalog::default();
+/// let findings = check_unused(Path::new("src"), &catalog);
+/// ```
 pub fn check_unused(root: &Path, catalog: &HygieneCatalog) -> Vec<UnusedFinding> {
     if catalog.class_to_token.is_empty() {
         return Vec::new();
@@ -158,6 +185,17 @@ impl DuplicateValueFinding {
 
     /// Render the user-facing diagnostic body — surfaces the value and
     /// the list of colliding tokens.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::design::hygiene::DuplicateValueFinding;
+    /// let f = DuplicateValueFinding {
+    ///     value: "#16a34a".into(),
+    ///     token_paths: vec!["success".into(), "green".into()],
+    /// };
+    /// assert!(f.message().contains("#16a34a"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "value `{}` is declared by {} tokens ({}) — consolidate or alias when Cut B lands.",
@@ -170,6 +208,16 @@ impl DuplicateValueFinding {
 
 /// Run DESIGN-TOKEN-DUPLICATE-VALUE. Buckets every catalog entry by
 /// its lower-cased value and reports buckets with two or more members.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::design::hygiene::{check_duplicate_value, HygieneCatalog};
+///
+/// let catalog = HygieneCatalog::default();
+/// let findings = check_duplicate_value(&catalog);
+/// assert!(findings.is_empty());
+/// ```
 pub fn check_duplicate_value(catalog: &HygieneCatalog) -> Vec<DuplicateValueFinding> {
     // Build value → [token_path]
     let mut by_value: HashMap<String, Vec<String>> = HashMap::new();
@@ -215,6 +263,17 @@ impl MissingDarkFinding {
 
     /// Render the user-facing diagnostic body — surfaces the gap and
     /// suggests the `lazuli-allow` escape comment when intentional.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::design::hygiene::MissingDarkFinding;
+    /// let f = MissingDarkFinding {
+    ///     token_path: "background.muted".into(),
+    ///     group: "background".into(),
+    /// };
+    /// assert!(f.message().contains("background.muted"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "color `{}` lacks a `dark` variant but other tokens in group `{}` declare one. \
@@ -228,6 +287,15 @@ impl MissingDarkFinding {
 /// Run DESIGN-TOKEN-MISSING-DARK. Buckets color entries by `group`,
 /// fires when at least one sibling carries `dark` but the entry does
 /// not.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::design::hygiene::{check_missing_dark, HygieneCatalog};
+///
+/// let catalog = HygieneCatalog::default();
+/// assert!(check_missing_dark(&catalog).is_empty());
+/// ```
 pub fn check_missing_dark(catalog: &HygieneCatalog) -> Vec<MissingDarkFinding> {
     // Build group → (has_any_dark, [(path, has_dark)])
     let mut groups: HashMap<String, Vec<(String, bool)>> = HashMap::new();
@@ -297,6 +365,15 @@ impl HygieneFinding {
 /// Convenience aggregator: runs all three hygiene checks, returns a
 /// flattened Vec. Useful when the orchestrator wants one entry-point.
 /// Returns empty when the catalog is absent (no false positives).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::design::hygiene::check_all;
+///
+/// let findings = check_all(Path::new("/proj"), Path::new("/proj"));
+/// ```
 pub fn check_all(root: &Path, _ignored_path_anchor: &Path) -> Vec<HygieneFinding> {
     let Some(catalog) = read_catalog(root) else {
         return Vec::new();

@@ -37,6 +37,16 @@ pub const DEFAULT_COVERPROFILE: &str = "coverage.out";
 /// supplied or no coverprofile is found, returns a vacuous-pass layer
 /// (`total = 0`) with `source = "go-coverprofile"` so the disclosure
 /// remains honest.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::coverage::handler_go::compute;
+///
+/// // Without a project root, the layer reports a vacuous pass.
+/// let l = compute(None);
+/// assert_eq!(l.total, 0);
+/// ```
 pub fn compute(project_root: Option<&Path>) -> LayerCoverage {
     let Some(root) = project_root else {
         return LayerCoverage::new(0, 0).with_source("go-coverprofile");

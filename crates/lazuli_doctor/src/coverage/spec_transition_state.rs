@@ -20,6 +20,15 @@ use super::LayerCoverage;
 /// a source is covered when the transition's tests carry at least one
 /// `AllowsFrom`/`AllowsFromAs` naming that state. Always emits
 /// `source = "ir-walk"`.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::coverage::spec_transition_state::compute;
+///
+/// let layer = compute(&[]);
+/// assert_eq!(layer.total, 0);
+/// ```
 pub fn compute(features: &[Feature]) -> LayerCoverage {
     let mut total = 0usize;
     let mut covered = 0usize;

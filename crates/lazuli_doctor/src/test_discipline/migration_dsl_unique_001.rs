@@ -48,6 +48,22 @@ impl Finding {
 
     /// Render the user-facing diagnostic body — names the column and
     /// the SQLSTATE 42P10 runtime failure that drops the constraint.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::test_discipline::migration_dsl_unique_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("messaging.lzi"),
+    ///     feature: "messaging".into(),
+    ///     resource: "Subscription".into(),
+    ///     field: "endpoint".into(),
+    ///     column: "endpoint".into(),
+    /// };
+    /// assert!(f.message().contains("endpoint"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "field `{}.{}` declares `unique` in `.lzi` but no migration SQL \
@@ -62,6 +78,15 @@ impl Finding {
 /// `<project_root>/migrations/*.sql` file and short-circuits to empty
 /// when the directory is absent or empty (no false positives before
 /// any migrations are authored).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::test_discipline::migration_dsl_unique_001::check;
+///
+/// let findings = check(&feature, Path::new("messaging.lzi"), Path::new("/proj"));
+/// ```
 pub fn check(feature: &Feature, source_path: &Path, project_root: &Path) -> Vec<Finding> {
     let migrations_dir = project_root.join("migrations");
     if !migrations_dir.is_dir() {

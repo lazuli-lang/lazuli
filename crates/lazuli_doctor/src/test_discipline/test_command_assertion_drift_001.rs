@@ -122,6 +122,15 @@ impl Finding {
 /// predicate of the shape `target.<field> = <literal>`, resolves the
 /// target resource via `command.effect` and checks whether the resource
 /// carries a backing guard. No I/O.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::test_discipline::test_command_assertion_drift_001::check;
+///
+/// let findings = check(&feature, Path::new("post.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut out = Vec::new();
     for command in &feature.commands {

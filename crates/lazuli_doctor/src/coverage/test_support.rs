@@ -15,6 +15,16 @@ use lazuli_ir::{
 /// Construct a minimal `Command` for coverage calculator tests with the
 /// given name, policy ref, and optional tests block. Every other field
 /// is defaulted to a value the calculators never inspect.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_ir::PolicyRef;
+/// use lazuli_doctor::coverage::test_support::cmd_with_policy;
+///
+/// let cmd = cmd_with_policy("publish", PolicyRef::None, None);
+/// assert_eq!(cmd.name, "publish");
+/// ```
 pub fn cmd_with_policy(name: &str, policy: PolicyRef, tests: Option<TestBlock>) -> Command {
     Command {
         name: name.to_string(),
@@ -52,6 +62,15 @@ pub fn cmd_with_policy(name: &str, policy: PolicyRef, tests: Option<TestBlock>) 
 /// Construct a minimal `Feature` with the given name and every collection
 /// empty. Useful as a baseline for coverage calculator tests that then
 /// push the few items they want exercised.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_doctor::coverage::test_support::empty_feature;
+///
+/// let f = empty_feature("billing");
+/// assert!(f.commands.is_empty());
+/// ```
 pub fn empty_feature(name: &str) -> Feature {
     Feature {
         name: name.into(),

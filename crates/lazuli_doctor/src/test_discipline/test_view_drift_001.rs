@@ -69,6 +69,24 @@ impl Finding {
     /// Render the user-facing diagnostic body. Wording branches on
     /// [`FindingKind`] so authors see whether the feature is unknown
     /// or merely missing the matching `extends <anchor>` declaration.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::test_discipline::test_view_drift_001::{Finding, FindingKind};
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("shop.lzx"),
+    ///     experience: "customer".into(),
+    ///     view: "dashboard".into(),
+    ///     anchor: "account-card".into(),
+    ///     target_feature: "billing".into(),
+    ///     kind: FindingKind::MissingFeature,
+    ///     span_ref: None,
+    /// };
+    /// assert!(f.message().contains("billing"));
+    /// ```
     pub fn message(&self) -> String {
         match self.kind {
             FindingKind::MissingFeature => format!(

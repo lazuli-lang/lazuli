@@ -44,6 +44,21 @@ impl Finding {
 
     /// Render the user-facing diagnostic body. Wording branches on
     /// [`Site`] so the remediation hint points at the correct surface.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::design::hex_leak::{Finding, Site};
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("App.tsx"),
+    ///     line: 12,
+    ///     hex: "7c3aed".into(),
+    ///     site: Site::InlineStyle,
+    /// };
+    /// assert!(f.message().contains("7c3aed"));
+    /// ```
     pub fn message(&self) -> String {
         match self.site {
             Site::ArbitraryClass => format!(
@@ -62,6 +77,14 @@ impl Finding {
 
 /// Run DESIGN-TOKEN-HEX-LEAK across every `.tsx` file under `root`.
 /// Results are stably sorted by `(path, line)`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::design::hex_leak::check;
+/// let findings = check(Path::new("src"));
+/// ```
 pub fn check(root: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     for path in walk_tsx_files(root) {
@@ -78,6 +101,18 @@ pub fn check(root: &Path) -> Vec<Finding> {
 /// Single-file variant of [`check`]; preferred entry point when the
 /// caller already has the file's content in memory (e.g. the LSP).
 /// Honors `lazuli-allow: design-token-hex-leak` escape comments.
+///
+/// ## Examples
+///
+/// ```rust
+/// use std::path::Path;
+/// use lazuli_doctor::design::hex_leak::check_file;
+///
+/// let body = r##"<div style={{ color: "#7c3aed" }} />"##;
+/// let lines: Vec<&str> = body.lines().collect();
+/// let findings = check_file(Path::new("App.tsx"), body, &lines);
+/// assert_eq!(findings.len(), 1);
+/// ```
 pub fn check_file(path: &Path, content: &str, lines: &[&str]) -> Vec<Finding> {
     let mut findings = Vec::new();
 

@@ -38,6 +38,23 @@ impl Finding {
 
     /// Render the user-facing diagnostic body — points out the missing
     /// boundary (allow- or deny-side) assertion.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::test_discipline::test_predicate_uncovered_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("billing.lzi"),
+    ///     feature: "billing".into(),
+    ///     construct_kind: "command".into(),
+    ///     construct: "approve".into(),
+    ///     side: "allows_only",
+    ///     span: None,
+    /// };
+    /// assert!(f.message().contains("allows_only"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "{} `{}` predicate tests carry {} coverage — add the matching boundary \
@@ -50,6 +67,15 @@ impl Finding {
 /// Run TEST-PREDICATE-UNCOVERED-001 over a feature. Fires when a
 /// predicate-bearing carrier's `tests` block exists but only covers
 /// one side of the boundary (allow-only or deny-only).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::test_discipline::test_predicate_uncovered_001::check;
+///
+/// let findings = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 

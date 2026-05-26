@@ -33,6 +33,15 @@ use super::{LayerCoverage, LzxViewRef};
 /// counts the view as covered when any candidate resolves to an existing
 /// file. Without a project root, returns a vacuous-pass layer with
 /// `source = "filesystem"`.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::coverage::view_e2e_pair::compute;
+///
+/// let layer = compute(&[], None, None);
+/// assert_eq!(layer.total, 0);
+/// ```
 pub fn compute(
     views: &[LzxViewRef],
     project_root: Option<&Path>,

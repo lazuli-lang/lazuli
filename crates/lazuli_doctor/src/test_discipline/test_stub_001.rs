@@ -48,6 +48,21 @@ impl Finding {
 
     /// Render the user-facing diagnostic body — surfaces the marker
     /// line so the author can find the unresolved stub quickly.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::test_discipline::test_stub_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("post.lzi"),
+    ///     line: 12,
+    ///     column: 5,
+    ///     marker_text: "# @TODO authored: cover policy".into(),
+    /// };
+    /// assert!(f.message().contains("@TODO authored:"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "unresolved `@TODO authored:` stub from `lazuli generate` — replace with real \

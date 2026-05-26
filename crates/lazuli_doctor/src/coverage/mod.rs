@@ -87,6 +87,17 @@ pub struct LayerCoverage {
 impl LayerCoverage {
     /// Build a layer with `covered`/`total` and a default `pending`
     /// verdict; [`apply_thresholds`] later sets the verdict.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::coverage::LayerCoverage;
+    ///
+    /// let l = LayerCoverage::new(7, 10);
+    /// assert_eq!(l.pct, 70.0);
+    /// // Vacuous-pass when total is zero.
+    /// assert_eq!(LayerCoverage::new(0, 0).pct, 100.0);
+    /// ```
     pub fn new(covered: usize, total: usize) -> Self {
         let pct = if total == 0 {
             100.0
@@ -105,6 +116,15 @@ impl LayerCoverage {
 
     /// Builder-style setter for the optional measurement-method label
     /// surfaced in the JSON report's `source` field.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::coverage::LayerCoverage;
+    ///
+    /// let l = LayerCoverage::new(7, 10).with_source("ir-walk");
+    /// assert_eq!(l.source.as_deref(), Some("ir-walk"));
+    /// ```
     pub fn with_source(mut self, source: impl Into<String>) -> Self {
         self.source = Some(source.into());
         self
@@ -167,6 +187,17 @@ pub struct CoverageThresholds {
 impl CoverageThresholds {
     /// Return the threshold for `layer`, or `None` when the layer is
     /// not registered (which the gate treats as a pass).
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::coverage::{CoverageThresholds, LayerThreshold};
+    ///
+    /// let mut t = CoverageThresholds::default();
+    /// t.per_layer.insert("handler_go".into(), LayerThreshold { block_under: 50, warn_under: 70 });
+    /// assert!(t.get("handler_go").is_some());
+    /// assert!(t.get("unknown").is_none());
+    /// ```
     pub fn get(&self, layer: &str) -> Option<LayerThreshold> {
         self.per_layer.get(layer).copied()
     }

@@ -68,6 +68,15 @@ pub fn compute(features: &[Feature]) -> LayerCoverage {
 /// snapshots enter the denominator; coverage counts when any test
 /// string starts with `accepted by ` or `rejected by `. Emits
 /// `source = "lzx-walk"`.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::coverage::view_extensibility::compute_from_snapshots;
+///
+/// let layer = compute_from_snapshots(&[]);
+/// assert_eq!(layer.total, 0);
+/// ```
 pub fn compute_from_snapshots(snapshots: &[ViewSnapshot]) -> LayerCoverage {
     let mut total = 0usize;
     let mut covered = 0usize;

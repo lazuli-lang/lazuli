@@ -64,6 +64,23 @@ impl Finding {
 
     /// Render the user-facing diagnostic body — names the expected
     /// spec path and suggests `lazuli generate playwright`.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::test_discipline::test_view_e2e_missing_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("shop.lzx"),
+    ///     line: 12,
+    ///     column: 3,
+    ///     experience: "customer".into(),
+    ///     view: "dashboard".into(),
+    ///     expected_spec: PathBuf::from("e2e/customer/dashboard.spec.ts"),
+    /// };
+    /// assert!(f.message().contains("dashboard.spec.ts"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "view `{}.{}` has no paired E2E spec at `{}`; run \

@@ -42,6 +42,22 @@ impl Finding {
 
     /// Render the user-facing diagnostic body — names the
     /// `extensible_by` list and points at the cross-check rule.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::test_discipline::test_view_extensibility_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("shop.lzx"),
+    ///     experience: "customer".into(),
+    ///     view: "post_card".into(),
+    ///     extensible_by: vec!["customer_tags".into()],
+    ///     span_ref: None,
+    /// };
+    /// assert!(f.message().contains("customer_tags"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "view `{}.{}` declares `extensible_by {}` but has no `accepted by` / `rejected by` \

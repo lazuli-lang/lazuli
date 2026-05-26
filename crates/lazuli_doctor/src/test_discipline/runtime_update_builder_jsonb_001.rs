@@ -48,6 +48,23 @@ impl Finding {
 
     /// Render the user-facing diagnostic body — explains the
     /// `SetIfNotNilSlice` vs JSONB encoding mismatch.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::test_discipline::runtime_update_builder_jsonb_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("billing.lzi"),
+    ///     feature: "billing".into(),
+    ///     command: "update_tags".into(),
+    ///     resource: "Invoice".into(),
+    ///     field: "tags".into(),
+    ///     span: None,
+    /// };
+    /// assert!(f.message().contains("update_tags"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "command `{}` updates `{}.{}` (slice/JSONB) via the generated \
@@ -62,6 +79,15 @@ impl Finding {
 /// Run RUNTIME-UPDATE-BUILDER-JSONB-001 over a feature. Inspects every
 /// `Update` command and reports field-level cases where the codegen
 /// would route a slice through the JSONB-incompatible helper.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::test_discipline::runtime_update_builder_jsonb_001::check;
+///
+/// let findings = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, source_path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     for cmd in &feature.commands {
