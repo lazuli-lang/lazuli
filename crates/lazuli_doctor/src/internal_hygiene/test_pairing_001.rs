@@ -55,6 +55,7 @@ use crate::internal_hygiene::walker::RustSourceFile;
 /// One `.rs` library file with `pub` items but no associated tests.
 #[derive(Debug, Clone)]
 pub struct Finding {
+    /// Path relative to the workspace root.
     pub path: PathBuf,
     /// Sibling files that would satisfy the pairing (informational —
     /// names the path the author would create).
@@ -62,8 +63,27 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with every finding.
     pub const CODE: &'static str = "INTERNAL-TEST-PAIRING-001";
 
+    /// Human-readable message naming the offending file + the
+    /// canonical sibling path the author can create.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::internal_hygiene::test_pairing_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("crates/lazuli_widget/src/widget.rs"),
+    ///     suggested_sibling: PathBuf::from(
+    ///         "crates/lazuli_widget/src/widget_test.rs",
+    ///     ),
+    /// };
+    /// assert!(f.message().contains("widget.rs"));
+    /// assert!(f.message().contains("widget_test.rs"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "{} declares `pub` items but has no inline `#[cfg(test)] mod tests` and no \
@@ -74,6 +94,24 @@ impl Finding {
     }
 }
 
+/// Walk every library `.rs` file, emit findings for those that declare
+/// `pub` items but have no inline `#[cfg(test)]` and no sibling
+/// `<name>_test.rs` / `tests/<name>.rs`. Wiring files
+/// (`lib.rs` / `main.rs` / `mod.rs`) and files without testable `pub`
+/// items are exempt.
+///
+/// ## Examples
+///
+/// ```no_run
+/// use lazuli_doctor::internal_hygiene::test_pairing_001::check;
+/// use lazuli_doctor::internal_hygiene::walker::walk_workspace_rust_sources;
+/// use std::path::Path;
+///
+/// let files = walk_workspace_rust_sources(Path::new("c:/Users/lucas/lazuli"));
+/// for f in check(&files) {
+///     eprintln!("missing tests: {} (try {})", f.path.display(), f.suggested_sibling.display());
+/// }
+/// ```
 pub fn check(files: &[RustSourceFile]) -> Vec<Finding> {
     let library_paths: HashSet<PathBuf> = files
         .iter()

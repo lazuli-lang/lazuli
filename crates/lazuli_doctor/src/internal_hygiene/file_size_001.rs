@@ -77,7 +77,24 @@ impl Finding {
     /// Stable rule code surfaced in `DoctorDiagnostic.code` + JSON output.
     pub const CODE: &'static str = "INTERNAL-FILE-SIZE-001";
 
-    /// Human-readable message for the diagnostic.
+    /// Human-readable message for the diagnostic. Names the path,
+    /// the actual LOC count, and which threshold was crossed so the
+    /// author can decide between "split now" and "warn-only".
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::internal_hygiene::file_size_001::{Finding, Tier};
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("crates/big/src/lib.rs"),
+    ///     loc_count: 6000,
+    ///     tier: Tier::Error,
+    ///  };
+    /// assert!(f.message().contains("6000"));
+    /// assert!(f.message().contains("Split required"));
+    /// ```
     pub fn message(&self) -> String {
         match self.tier {
             Tier::Warn => format!(
@@ -103,6 +120,19 @@ impl Finding {
 /// Generated `.rs` files (under `dist/`, `target/`, or any file whose
 /// first 200 chars contain `// @generated` / `// auto-generated`) are
 /// skipped — they're not human-authored source.
+///
+/// ## Examples
+///
+/// ```no_run
+/// use lazuli_doctor::internal_hygiene::file_size_001::check;
+/// use lazuli_doctor::internal_hygiene::walker::walk_workspace_rust_sources;
+/// use std::path::Path;
+///
+/// let files = walk_workspace_rust_sources(Path::new("c:/Users/lucas/lazuli"));
+/// for f in check(&files) {
+///     eprintln!("{} {} LOC", f.path.display(), f.loc_count);
+/// }
+/// ```
 pub fn check(files: &[RustSourceFile]) -> Vec<Finding> {
     let mut findings = Vec::new();
     for file in files {
