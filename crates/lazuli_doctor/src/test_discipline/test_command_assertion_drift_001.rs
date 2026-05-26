@@ -48,10 +48,14 @@ use lazuli_ir::{
 
 // ── output ────────────────────────────────────────────────────────────────────
 
+/// One TEST-COMMAND-ASSERTION-DRIFT-001 finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// `.lzi` source path that hosts the command.
     pub path: PathBuf,
+    /// Feature containing the command.
     pub feature: String,
+    /// Command whose tests carry the unbacked assertion.
     pub command: String,
     /// Field referenced by the `denies when target.<field> = <value>`
     /// predicate (left-hand path's terminal segment).
@@ -64,12 +68,35 @@ pub struct Finding {
     /// `None` when the command is a `Returns` shape (no implicit
     /// WHERE) — in that case the rule does not fire.
     pub resource: Option<String>,
+    /// Optional span pointer for editor jumps.
     pub span_ref: Option<SpanRef>,
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "TEST-COMMAND-ASSERTION-DRIFT-001";
 
+    /// Render the user-facing diagnostic body — names the unbacked
+    /// assertion and the canonical `leave_host_reply` bug pattern
+    /// reference from the TDD/BDD-first proposal §7.1.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::test_discipline::test_command_assertion_drift_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("post.lzi"),
+    ///     feature: "post".into(),
+    ///     command: "leave_host_reply".into(),
+    ///     field: "kind".into(),
+    ///     value: "\"draft\"".into(),
+    ///     resource: Some("Post".into()),
+    ///     span_ref: None,
+    /// };
+    /// assert!(f.message().contains("leave_host_reply"));
+    /// ```
     pub fn message(&self) -> String {
         let resource = self
             .resource

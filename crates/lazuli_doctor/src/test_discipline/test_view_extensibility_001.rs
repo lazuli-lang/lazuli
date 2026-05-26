@@ -20,6 +20,7 @@ use lazuli_ir::{Experience, ExperienceModule, ExperienceView, SpanRef};
 
 // ── output ────────────────────────────────────────────────────────────────────
 
+/// One TEST-VIEW-EXTENSIBILITY-001 finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
     /// Source `.lzx` file.
@@ -36,8 +37,11 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "TEST-VIEW-EXTENSIBILITY-001";
 
+    /// Render the user-facing diagnostic body — names the
+    /// `extensible_by` list and points at the cross-check rule.
     pub fn message(&self) -> String {
         format!(
             "view `{}.{}` declares `extensible_by {}` but has no `accepted by` / `rejected by` \
@@ -58,6 +62,19 @@ impl Finding {
 /// `path` is the source `.lzx` file. The rule does no I/O; the caller
 /// turns each `Finding` into a `DoctorDiagnostic` and anchors it via the
 /// returned `span_ref`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::test_discipline::test_view_extensibility_001::check;
+///
+/// let findings = check(&module, Path::new("shop.lzx"));
+/// for f in findings {
+///     eprintln!("{}.{} missing assertions for {:?}",
+///         f.experience, f.view, f.extensible_by);
+/// }
+/// ```
 pub fn check(module: &ExperienceModule, path: &Path) -> Vec<Finding> {
     let mut out = Vec::new();
     for experience in &module.experiences {
@@ -79,6 +96,17 @@ pub fn check(module: &ExperienceModule, path: &Path) -> Vec<Finding> {
 /// Helper for callers that already iterate experiences elsewhere (LSP
 /// single-view squiggle path). Returns one finding when the view triggers
 /// the rule, `None` otherwise.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::test_discipline::test_view_extensibility_001::check_view;
+///
+/// if let Some(f) = check_view(&experience, &view, Path::new("shop.lzx")) {
+///     eprintln!("{}.{} flagged", f.experience, f.view);
+/// }
+/// ```
 pub fn check_view(
     experience: &Experience,
     view: &ExperienceView,

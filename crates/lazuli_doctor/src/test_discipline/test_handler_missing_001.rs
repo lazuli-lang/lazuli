@@ -26,21 +26,53 @@ use lazuli_ir::Feature;
 use crate::handler_path;
 use crate::handler_walker::{HandlerSite, HandlerSiteKind, iter_handler_sites};
 
+/// One TEST-HANDLER-MISSING-001 finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// `.lzi` source path that references the handler.
     pub path: PathBuf,
+    /// Feature owning the handler reference.
     pub feature: String,
+    /// Construct name that references the handler (command/validator/etc).
     pub construct_name: String,
+    /// Handler site kind, used to render the diagnostic context.
     pub site_kind: HandlerSiteKind,
+    /// `fn`, `validator`, `job`, `webhook`, etc.
     pub handler_namespace: String,
+    /// Bare handler stem (no `.go` suffix).
     pub handler_name: String,
+    /// Existing handler `.go` file path.
     pub handler_path: PathBuf,
+    /// Canonical `_test.go` path the rule expects to exist.
     pub expected_test_path: PathBuf,
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "TEST-HANDLER-MISSING-001";
 
+    /// Render the user-facing diagnostic body — points to the existing
+    /// handler and the expected `_test.go` companion file.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::handler_walker::HandlerSiteKind;
+    /// use lazuli_doctor::test_discipline::test_handler_missing_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("post.lzi"),
+    ///     feature: "post".into(),
+    ///     construct_name: "create_post".into(),
+    ///     site_kind: HandlerSiteKind::CommandHandler,
+    ///     handler_namespace: "fn".into(),
+    ///     handler_name: "validate_title".into(),
+    ///     handler_path: PathBuf::from("validate_title.go"),
+    ///     expected_test_path: PathBuf::from("validate_title_test.go"),
+    /// };
+    /// assert!(f.message().contains("validate_title"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "@{}.{} handler exists at {} but its paired test is missing at {}. \

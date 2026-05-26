@@ -30,17 +30,27 @@ use lazuli_ir::{ExperienceModule, SpanRef, ViewTestAssertion};
 
 // ── output ────────────────────────────────────────────────────────────────────
 
+/// One TEST-VIEW-DRIFT-001 finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// `.lzx` source path that hosts the view.
     pub path: PathBuf,
+    /// Host experience containing the view.
     pub experience: String,
+    /// Host view name.
     pub view: String,
+    /// Host view's anchor token.
     pub anchor: String,
+    /// Feature named by the `accepted by <feature>` assertion.
     pub target_feature: String,
+    /// Specific drift detected — feature unknown vs feature known but
+    /// missing the required `extends <anchor>` declaration.
     pub kind: FindingKind,
+    /// Optional span pointer for editor jumps.
     pub span_ref: Option<SpanRef>,
 }
 
+/// Distinguishes the two `TEST-VIEW-DRIFT-001` shapes. See variants.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FindingKind {
     /// `accepted by <feature>` names a feature that does not appear in
@@ -53,8 +63,12 @@ pub enum FindingKind {
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "TEST-VIEW-DRIFT-001";
 
+    /// Render the user-facing diagnostic body. Wording branches on
+    /// [`FindingKind`] so authors see whether the feature is unknown
+    /// or merely missing the matching `extends <anchor>` declaration.
     pub fn message(&self) -> String {
         match self.kind {
             FindingKind::MissingFeature => format!(
@@ -86,6 +100,18 @@ impl Finding {
 /// view tests must resolve to a sibling `Experience` in the same `.lzx`
 /// module. (Cross-`.lzx` extension drift, if it ever lands, gets a
 /// dedicated rule — out of scope here.)
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::test_discipline::test_view_drift_001::check;
+///
+/// let findings = check(&module, Path::new("shop.lzx"));
+/// for f in findings {
+///     eprintln!("{}.{}: drift on accepted by {}", f.experience, f.view, f.target_feature);
+/// }
+/// ```
 pub fn check(module: &ExperienceModule, path: &Path) -> Vec<Finding> {
     let mut out = Vec::new();
     for experience in &module.experiences {

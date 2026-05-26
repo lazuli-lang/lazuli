@@ -17,19 +17,29 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Assignment, CommandEffect, Expr, Feature, Predicate, SpanRef, TestAssertion};
 
+/// One TEST-RESTATES-EFFECT-001 finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// `.lzi` source path that hosts the construct.
     pub path: PathBuf,
+    /// Feature containing the construct.
     pub feature: String,
+    /// Carrier kind (`command`, `workflow_transition`, …).
     pub construct_kind: String,
+    /// Construct name.
     pub construct: String,
+    /// Field name being restated.
     pub field: String,
+    /// Optional span pointer for editor jumps.
     pub span: Option<SpanRef>,
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "TEST-RESTATES-EFFECT-001";
 
+    /// Render the user-facing diagnostic body — names the restated
+    /// field and points at the runtime effect that already guarantees it.
     pub fn message(&self) -> String {
         format!(
             "{} `{}` `allows when` assertion restates the construct's own effect on \
@@ -41,6 +51,9 @@ impl Finding {
     }
 }
 
+/// Run TEST-RESTATES-EFFECT-001 over a feature. Fires when an
+/// `allows when` assertion's predicate touches a field the construct
+/// is already known to write — the assertion adds no inference value.
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 

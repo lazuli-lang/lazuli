@@ -25,19 +25,29 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Assignment, CommandEffect, Feature, Resource, SpanRef, TypeRef};
 
+/// One RUNTIME-UPDATE-BUILDER-JSONB-001 finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// `.lzi` source path that declares the command.
     pub path: PathBuf,
+    /// Feature containing the command.
     pub feature: String,
+    /// Command performing the update.
     pub command: String,
+    /// Target resource of the update.
     pub resource: String,
+    /// Field name (slice/JSONB) on which the broken helper would land.
     pub field: String,
+    /// Optional span pointer for editor jumps.
     pub span: Option<SpanRef>,
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "RUNTIME-UPDATE-BUILDER-JSONB-001";
 
+    /// Render the user-facing diagnostic body — explains the
+    /// `SetIfNotNilSlice` vs JSONB encoding mismatch.
     pub fn message(&self) -> String {
         format!(
             "command `{}` updates `{}.{}` (slice/JSONB) via the generated \
@@ -49,6 +59,9 @@ impl Finding {
     }
 }
 
+/// Run RUNTIME-UPDATE-BUILDER-JSONB-001 over a feature. Inspects every
+/// `Update` command and reports field-level cases where the codegen
+/// would route a slice through the JSONB-incompatible helper.
 pub fn check(feature: &Feature, source_path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     for cmd in &feature.commands {

@@ -15,20 +15,29 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Feature, SpanRef, TestAssertion, TestBlock};
 
+/// One TEST-PREDICATE-UNCOVERED-001 finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// `.lzi` source path that hosts the construct.
     pub path: PathBuf,
+    /// Feature containing the construct.
     pub feature: String,
+    /// Carrier kind (`command`, `rule`, `workflow_transition`, …).
     pub construct_kind: String,
+    /// Construct name.
     pub construct: String,
     /// One of `allows_only` or `denies_only`.
     pub side: &'static str,
+    /// Optional span pointer for editor jumps.
     pub span: Option<SpanRef>,
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "TEST-PREDICATE-UNCOVERED-001";
 
+    /// Render the user-facing diagnostic body — points out the missing
+    /// boundary (allow- or deny-side) assertion.
     pub fn message(&self) -> String {
         format!(
             "{} `{}` predicate tests carry {} coverage — add the matching boundary \
@@ -38,6 +47,9 @@ impl Finding {
     }
 }
 
+/// Run TEST-PREDICATE-UNCOVERED-001 over a feature. Fires when a
+/// predicate-bearing carrier's `tests` block exists but only covers
+/// one side of the boundary (allow-only or deny-only).
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 

@@ -15,20 +15,27 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Feature, PolicyRef, SpanRef};
 
+/// One TEST-MISSING-AUTHORED-001 finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// `.lzi` source path that hosts the construct.
     pub path: PathBuf,
+    /// Feature containing the construct.
     pub feature: String,
     /// One of `command`, `rule`, `workflow_transition`, `lifecycle_transition`.
     pub construct_kind: String,
     /// Construct name (e.g. command name, transition name, rule title).
     pub construct: String,
+    /// Optional span pointer for editor jumps.
     pub span: Option<SpanRef>,
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "TEST-MISSING-AUTHORED-001";
 
+    /// Render the user-facing diagnostic body — names the construct
+    /// and the missing inline `tests` block plus the override escape.
     pub fn message(&self) -> String {
         format!(
             "{} `{}` declares a predicate gate but has no `tests` block — add an \
@@ -40,6 +47,9 @@ impl Finding {
     }
 }
 
+/// Run TEST-MISSING-AUTHORED-001 over every predicate-bearing carrier
+/// in a feature. Fires when the carrier has an authored predicate
+/// (`policy_expr`, rule `when`, transition guard) and no `tests` block.
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 

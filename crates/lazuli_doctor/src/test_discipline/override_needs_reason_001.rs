@@ -36,8 +36,11 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "DOCTOR-OVERRIDE-NEEDS-REASON-001";
 
+    /// Render the user-facing diagnostic body — names the override
+    /// site and suggests a `reason = "…"` line to add.
     pub fn message(&self) -> String {
         format!(
             "[doctor.{}].severity_override for `{}` requires a non-empty `reason` field — \
@@ -72,6 +75,22 @@ pub struct OverrideEntry {
 /// `path` is the source `Lazurite.toml` file used to anchor findings.
 /// No I/O is performed here. A finding is emitted for every override
 /// whose `reason` is missing OR whose `reason` is present but blank.
+///
+/// ## Examples
+///
+/// ```rust
+/// use std::path::Path;
+/// use lazuli_doctor::test_discipline::override_needs_reason_001::{check, OverrideEntry};
+///
+/// let entries = vec![OverrideEntry {
+///     category: "test_discipline".into(),
+///     rule_code: "TEST-MISSING-AUTHORED-001".into(),
+///     severity: "warning".into(),
+///     reason: None,
+/// }];
+/// let findings = check(&entries, Path::new("Lazurite.toml"));
+/// assert_eq!(findings.len(), 1);
+/// ```
 pub fn check(overrides: &[OverrideEntry], path: &Path) -> Vec<Finding> {
     overrides
         .iter()

@@ -20,21 +20,32 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Expr, Feature, Predicate, SpanRef, TestAssertion, TestBlock};
 
+/// One TEST-FIXTURE-LITERAL-001 finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// `.lzi` source path that hosts the construct.
     pub path: PathBuf,
+    /// Feature containing the construct.
     pub feature: String,
+    /// What carrier owns the predicate (`command`, `rule`,
+    /// `workflow_transition`, `lifecycle_transition`).
     pub construct_kind: String,
+    /// Construct name (dotted form for nested transitions).
     pub construct: String,
+    /// The offending literal value as authored.
     pub literal: String,
     /// One of `cpf`, `email`, `phone`, `uuid`.
     pub shape: &'static str,
+    /// Optional span pointer for editor jumps.
     pub span: Option<SpanRef>,
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "TEST-FIXTURE-LITERAL-001";
 
+    /// Render the user-facing diagnostic body — names the literal,
+    /// classifies its shape, and prompts for an inference predicate.
     pub fn message(&self) -> String {
         format!(
             "{} `{}` predicate carries a fixture-shaped literal (`{}`, shape `{}`) — \
@@ -45,6 +56,8 @@ impl Finding {
     }
 }
 
+/// Run TEST-FIXTURE-LITERAL-001 over every `tests` carrier in a feature
+/// (commands, rules, workflow transitions, lifecycle transitions).
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 
