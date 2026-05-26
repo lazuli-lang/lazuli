@@ -25,7 +25,29 @@
 /// profile in `profiles.lzi`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SecurityProfile {
+    /// Pre-production sandbox. Production-only codes are demoted so
+    /// scaffolds can iterate without churn from rules that don't apply
+    /// until deploy.
     Prototype,
+    /// Default. Every catalog code fires at its declared severity.
     Strict,
+    /// Production lock-in. A handful of warnings escalate to errors so
+    /// `doctor` blocks deploy on weak postures (missing redact, open
+    /// CORS, etc.).
     Production,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn three_distinct_profiles() {
+        // Smoke test: the three profile variants are not aliases. If a
+        // future merge accidentally collapses two variants this catches
+        // it immediately.
+        assert_ne!(SecurityProfile::Prototype, SecurityProfile::Strict);
+        assert_ne!(SecurityProfile::Strict, SecurityProfile::Production);
+        assert_ne!(SecurityProfile::Prototype, SecurityProfile::Production);
+    }
 }
