@@ -190,3 +190,79 @@ fn register_imports_for_type(type_ref: &TypeRef, ctx: &TypeCtx<'_>, imports: &mu
         register_imports_for_type(inner, ctx, imports);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_support::{
+        base_feature, emit_from_module, module_with_features, resource, slot,
+    };
+    use lazuli_ir::{ListQuery, PolicyRef, Query, TypeRef};
+
+    #[test]
+    fn list_query_args_resolve_unresolved_cross_feature_ref() {
+        let mut customer = base_feature("customer");
+        customer.resources.push(resource("Customer", Vec::new()));
+        customer.queries.push(Query::List(ListQuery {
+            name: "list".to_owned(),
+            public_contract: None,
+            params: vec![slot("user", TypeRef::Unresolved("User".to_owned()), false)],
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            order: Vec::new(),
+            paginate: None,
+            modifier: None,
+            cache: None,
+            policy: PolicyRef::None,
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            owner_scope_sql: None,
+        }));
+        let mut account = base_feature("account");
+        account.resources.push(resource("User", Vec::new()));
+        let module = module_with_features(vec![customer, account]);
+
+        let out = emit_from_module(&module, "customer").expect("must emit");
+        // Resource refs collapse to `lazuli.ID` — query args are FK
+        // ids on the wire, never the embedded resource row.
+        assert!(out.contains("User *lazuli.ID `json:\"user,omitempty\"`"));
+    }
+
+    #[test]
+    fn list_query_args_resolve_many_unresolved_cross_feature_ref() {
+        let mut customer = base_feature("customer");
+        customer.resources.push(resource("Customer", Vec::new()));
+        customer.queries.push(Query::List(ListQuery {
+            name: "list".to_owned(),
+            public_contract: None,
+            params: vec![slot(
+                "reviewers",
+                TypeRef::Many(Box::new(TypeRef::Unresolved("User".to_owned()))),
+                true,
+            )],
+            scope: Vec::new(),
+            scope_override: false,
+            filters: Vec::new(),
+            order: Vec::new(),
+            paginate: None,
+            modifier: None,
+            cache: None,
+            policy: PolicyRef::None,
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+            owner_scope_sql: None,
+        }));
+        let mut account = base_feature("account");
+        account.resources.push(resource("User", Vec::new()));
+        let module = module_with_features(vec![customer, account]);
+
+        let out = emit_from_module(&module, "customer").expect("must emit");
+        // []Resource collapses to []lazuli.ID — see the singular case
+        // above for the rationale.
+        assert!(out.contains("Reviewers []lazuli.ID `json:\"reviewers\"`"));
+    }
+}
