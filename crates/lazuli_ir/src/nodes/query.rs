@@ -34,15 +34,30 @@ use crate::nodes::error_vocab::TranslationKeyRef;
 use crate::nodes::resource::{OwnerScopeSql, TypeRef};
 use crate::{EnumLiteral, PolicyExpr, PublicContract, QualifiedName, SpanRef, is_false};
 
+/// Sum over the three declarative read kinds. Use the variant payloads
+/// for kind-specific shape (filters, keys, sql_path); use [`Query::name`]
+/// when you just need the identifier.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum Query {
+    /// `query.list <name>` — collection read.
     List(ListQuery),
+    /// `query.lookup <name>` — single-row read.
     Lookup(LookupQuery),
+    /// `query.sql <name>` — typed hand-rolled SQL.
     Sql(SqlQuery),
 }
 
 impl Query {
+    /// Return the authored name regardless of which read kind this is.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// # use lazuli_ir::{Query, ListQuery};
+    /// # let q: Query = unimplemented!();
+    /// let name = q.name();
+    /// ```
     pub fn name(&self) -> &str {
         match self {
             Query::List(q) => &q.name,
@@ -157,6 +172,11 @@ pub enum CacheTtlLiteral {
     Days(u32),
 }
 
+/// `query.list <name>` — collection read. Carries the typed parameter
+/// list, optional owner-scope predicates, filters, ordering, pagination
+/// cap, and per-query cache + policy decorators. The analyzer composes
+/// `owner_scope_sql` at synth time when the target resource bears
+/// `@owner_axis`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListQuery {
     pub name: String,
@@ -210,6 +230,9 @@ pub struct ListQuery {
     pub owner_scope_sql: Option<OwnerScopeSql>,
 }
 
+/// `query.lookup <name>` — single-row read keyed by one or more
+/// [`KeyClause`] equalities. Pairs with optional owner-scope predicates
+/// and the standard policy/filter decorators.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LookupQuery {
     pub name: String,
@@ -251,6 +274,9 @@ pub struct LookupQuery {
     pub owner_scope_sql: Option<OwnerScopeSql>,
 }
 
+/// `query.sql <name>` — hand-rolled SQL whose return shape is declared
+/// inline via `returns <Type>`. Codegen wires the SQL file at
+/// `sql_path` into a typed function; doctor validates the path exists.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SqlQuery {
     pub name: String,
@@ -292,20 +318,40 @@ pub struct SqlQuery {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Closed catalog distinguishing a regular SQL query from a SQL view
+/// declaration. `Sql` is the default; `View` flags `query.sql.view` for
+/// codegen + doctor specialisation (views are materialised differently).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SqlQueryKind {
+    /// Standard `query.sql` — direct SQL file execution.
     #[default]
     Sql,
+    /// `query.sql.view` — surfaces as a materialised SQL view.
     View,
 }
 
 impl SqlQueryKind {
+    /// Returns `true` when the kind is `Sql` (the default). Used by
+    /// `skip_serializing_if` so the default round-trips without leaking
+    /// the discriminator into JSON.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::SqlQueryKind;
+    ///
+    /// assert!(SqlQueryKind::Sql.is_sql());
+    /// assert!(!SqlQueryKind::View.is_sql());
+    /// ```
     pub fn is_sql(&self) -> bool {
         matches!(self, Self::Sql)
     }
 }
 
+/// One `filter <predicate>` entry on a list/lookup/sql query. The
+/// optional `when` ties the filter to a typed parameter so codegen can
+/// skip the predicate when the param is unset (`when params.search`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Filter {
     pub predicate: Predicate,
@@ -314,21 +360,28 @@ pub struct Filter {
     pub when: Option<String>,
 }
 
+/// One `<path> = <expr>` lookup key. Lookups can declare multiple keys
+/// for composite primary keys; the analyzer enforces all-or-none cover.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyClause {
     pub path: Path,
     pub equals: Expr,
 }
 
+/// One `order by <field> <asc|desc>` entry on a list query. Multiple
+/// entries are applied in authored order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OrderBy {
     pub field: String,
     pub direction: OrderDir,
 }
 
+/// Ordering direction. Closed catalog `Asc` / `Desc`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OrderDir {
+    /// Ascending (lowest first).
     Asc,
+    /// Descending (highest first).
     Desc,
 }
 
@@ -350,28 +403,45 @@ pub enum Predicate {
     Or(Vec<Predicate>),
 }
 
+/// Comparison operators admitted in [`Predicate::Comparison`]. `Eq` /
+/// `Ne` are universally admissible; the ordered operators (`Lt`/`Le`/
+/// `Gt`/`Ge`) are restricted to numeric sites and inside eval blocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CompareOp {
+    /// `==`.
     Eq,
+    /// `!=`.
     Ne,
-    /// Cut A — ordered operators are admissible only inside an agent's
+    /// `<`. Cut A — ordered operators are admissible only inside an agent's
     /// `evals` block (proposal §A3). Doctor diagnostic
     /// `eval_ordered_op_invalid_diagnostics` rejects them outside that
     /// scope and when either side resolves to a non-numeric type.
     Lt,
+    /// `<=`. See `Lt` for scope restriction.
     Le,
+    /// `>`. See `Lt` for scope restriction.
     Gt,
+    /// `>=`. See `Lt` for scope restriction.
     Ge,
 }
 
+/// Read-side expression sublanguage. Closed catalog of leaves
+/// (literals + paths + enum constants) plus the one composite shape
+/// `FnCall` for `@fn.<name>(...)` invocations.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum Expr {
+    /// `params.x` / `ctx.user.id` / `target.field`.
     Path(Path),
+    /// `"hello"`.
     String(String),
+    /// `42`.
     Integer(i64),
+    /// `true` / `false`.
     Boolean(bool),
+    /// `Color.Red`.
     Enum(EnumLiteral),
+    /// `nil`.
     Nil,
     /// `@fn.<name>(<arg>...)` — closes WAR-VOCAB-CREATES-FN-CALL-01.
     /// Declarative `creates`/`updates` field bindings can now invoke
@@ -381,6 +451,8 @@ pub enum Expr {
     FnCall(FnCallExpr),
 }
 
+/// `@fn.<name>(<arg>...)` invocation. `name` is the qualified fn
+/// reference; `args` are the resolved argument expressions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FnCallExpr {
     pub name: QualifiedName,
@@ -388,12 +460,24 @@ pub struct FnCallExpr {
     pub args: Vec<Expr>,
 }
 
+/// Dotted path expression (e.g. `ctx.user.id`). Stored as a flat segment
+/// list so consumers never have to re-split a delimited string.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Path {
     pub segments: Vec<String>,
 }
 
 impl Path {
+    /// Build a [`Path`] from any iterable of stringy segments.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::Path;
+    ///
+    /// let p = Path::from_segments(["ctx", "user", "id"]);
+    /// assert_eq!(p.segments, vec!["ctx", "user", "id"]);
+    /// ```
     pub fn from_segments<I, S>(segments: I) -> Self
     where
         I: IntoIterator<Item = S>,
