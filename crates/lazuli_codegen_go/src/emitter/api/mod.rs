@@ -9,14 +9,22 @@
 //! Determinism: APIs are sorted by name, route args preserve path
 //! order, and imports flow through `ImportSet`.
 
-use lazuli_ir::{Api, Feature, Gate, HttpMethod, TypeRef};
+mod format;
+mod output_type;
+mod route_args;
 
-use super::casing::{lower_camel, pascal_case};
+use lazuli_ir::{Api, Feature, Gate};
+
+use super::casing::lower_camel;
 use super::cross_feature::CrossFeatureIndex;
 use super::imports::ImportSet;
 use super::module::EmitContext;
 use super::printer::GoPrinter;
-use super::types::{self, TypeCtx};
+use super::types::TypeCtx;
+
+use format::{api_args_type_name, escape_string, method_const_name, write_section_banner};
+use output_type::{go_type_for_api_output, register_imports_for_api_output};
+use route_args::{emit_args_struct, route_args};
 
 /// Emit `<feature>/api.gen.go` for a feature, or `None` when the
 /// feature declares no APIs.
@@ -225,180 +233,13 @@ fn emit_gate_annotations(p: &mut GoPrinter, gates: &[Gate]) {
     p.line("},");
 }
 
-fn emit_args_struct(p: &mut GoPrinter, name: &str, args: &[ApiArg]) {
-    if args.is_empty() {
-        p.line(&format!("type {name} struct{{}}"));
-        return;
-    }
-
-    p.line(&format!("type {name} struct {{"));
-    p.indent();
-    let rows: Vec<(String, String, String)> = args
-        .iter()
-        .map(|arg| {
-            (
-                pascal_case(&arg.name),
-                arg.go_type.clone(),
-                format!("`json:\"{}\"`", arg.name),
-            )
-        })
-        .collect();
-    let row_refs: Vec<(&str, &str, &str)> = rows
-        .iter()
-        .map(|(name, ty, tag)| (name.as_str(), ty.as_str(), tag.as_str()))
-        .collect();
-    p.aligned_struct_rows(&row_refs);
-    p.dedent();
-    p.line("}");
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct ApiArg {
-    name: String,
-    go_type: String,
-}
-
-fn route_args(path: &str) -> Vec<ApiArg> {
-    let mut args = Vec::new();
-    let mut seen = Vec::<String>::new();
-
-    for name in path_params(path) {
-        if name.is_empty() || seen.iter().any(|existing| existing == &name) {
-            continue;
-        }
-        let go_type = infer_route_arg_type(&name).to_owned();
-        seen.push(name.clone());
-        args.push(ApiArg { name, go_type });
-    }
-
-    args
-}
-
-fn path_params(path: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    for segment in path.split('/') {
-        if let Some(raw) = segment.strip_prefix(':') {
-            let name = raw
-                .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
-                .next()
-                .unwrap_or("")
-                .trim();
-            if !name.is_empty() {
-                out.push(name.to_owned());
-            }
-            continue;
-        }
-        out.extend(brace_params(segment));
-    }
-    out
-}
-
-fn brace_params(path: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut rest = path;
-    while let Some(start) = rest.find('{') {
-        let after_start = &rest[start + 1..];
-        let Some(end) = after_start.find('}') else {
-            break;
-        };
-        out.push(after_start[..end].trim().to_owned());
-        rest = &after_start[end + 1..];
-    }
-    out
-}
-
-fn infer_route_arg_type(name: &str) -> &'static str {
-    let lower = name.to_ascii_lowercase();
-    if lower == "id" || lower.ends_with("_id") {
-        "lazuli.ID"
-    } else {
-        "string"
-    }
-}
-
-fn go_type_for_api_output(type_ref: &TypeRef, ctx: &TypeCtx<'_>) -> (String, Option<String>) {
-    match type_ref {
-        TypeRef::Capability(_) => types::go_type_for(type_ref, ctx),
-        TypeRef::Many(inner) => {
-            let (inner_go, import) = go_type_for_api_output(inner, ctx);
-            (format!("[]{}", inner_go), import)
-        }
-        TypeRef::UserDefined(qname) if is_cap_file_literal(&qname.name) => storage_file_ref_type(),
-        TypeRef::Unresolved(raw) if is_cap_file_literal(raw) => storage_file_ref_type(),
-        _ => types::go_type_for(type_ref, ctx),
-    }
-}
-
-fn storage_file_ref_type() -> (String, Option<String>) {
-    (
-        "storage.FileRef".to_owned(),
-        Some("lazuli.dev/runtime/lazuli/storage".to_owned()),
-    )
-}
-
-// API outputs may still carry the authored decorator text on older
-// analyzer paths; normalize it before the generic identifier sanitizer.
-fn is_cap_file_literal(raw: &str) -> bool {
-    let raw = raw.trim();
-    raw == "@cap.File" || raw.starts_with("@cap.File(")
-}
-
-fn register_imports_for_api_output(type_ref: &TypeRef, ctx: &TypeCtx<'_>, imports: &mut ImportSet) {
-    let (_go, import) = go_type_for_api_output(type_ref, ctx);
-    if let Some(path) = import {
-        imports.add(&path);
-    }
-    if let TypeRef::Many(inner) = type_ref {
-        register_imports_for_api_output(inner, ctx, imports);
-    }
-}
-
-fn method_const_name(method: HttpMethod) -> &'static str {
-    match method {
-        HttpMethod::Get => "lazuli.MethodGet",
-        HttpMethod::Post => "lazuli.MethodPost",
-        HttpMethod::Put => "lazuli.MethodPut",
-        HttpMethod::Patch => "lazuli.MethodPatch",
-        HttpMethod::Delete => "lazuli.MethodDelete",
-    }
-}
-
-fn api_args_type_name(name: &str) -> String {
-    // Suffix `ApiArgs` so the type doesn't collide with a sibling
-    // `query.list <name>` (which uses `<Name>Args`). See the var-name
-    // comment on `emit_api` for the full story.
-    format!("{}ApiArgs", pascal_case(name))
-}
-
-fn write_section_banner(p: &mut GoPrinter, lines: &[String]) {
-    let rule = "-".repeat(76);
-    p.line(&format!("// {rule}"));
-    for line in lines {
-        p.line(&format!("// {line}"));
-    }
-    p.line(&format!("// {rule}"));
-    p.blank();
-}
-
-fn escape_string(raw: &str) -> String {
-    let mut out = String::with_capacity(raw.len());
-    for ch in raw.chars() {
-        match ch {
-            '\\' => out.push_str("\\\\"),
-            '"' => out.push_str("\\\""),
-            _ => out.push(ch),
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use lazuli_ir::{
         AppManifest, BuiltinType, CapabilityRef, Defaults, FileCapability, FileSize,
-        FileSizeLiteral, FileVisibility, MimeType, Module, PathRef, Policies, PolicyRef,
-        QualifiedName, RateLimitSpec, Record, Resource,
+        FileSizeLiteral, FileVisibility, HttpMethod, MimeType, Module, PathRef, Policies,
+        PolicyRef, QualifiedName, RateLimitSpec, Record, Resource, TypeRef,
     };
 
     fn base_feature(name: &str) -> Feature {
@@ -939,7 +780,8 @@ func init() { lazuli.RegisterApi(&customerSummaryApi) }
 mod feature_emit_tests {
     use super::*;
     use lazuli_ir::{
-        Api, BuiltinType, Defaults, Module, PathRef, Policies, PolicyRef, RateLimitSpec, TypeRef,
+        Api, BuiltinType, Defaults, HttpMethod, Module, PathRef, Policies, PolicyRef,
+        RateLimitSpec, TypeRef,
     };
 
     fn feature_with_api() -> Feature {
