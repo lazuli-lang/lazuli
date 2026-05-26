@@ -10,6 +10,19 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow};
 
 /// Run `lazuli generate rule <feature>.<name>`.
+///
+/// Appends a `rule` block (seeded with `@TODO authored:` markers in
+/// its `tests` body) to `<feature>.lzi`. Errors when the rule already
+/// exists.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::cmd_generate_rule::run;
+///
+/// // run("post.requires_author", Path::new("."))?;
+/// ```
 pub fn run(ident: &str, project_root: &Path) -> Result<()> {
     let (feature, name) = parse_ident(ident)?;
     validate_part(&feature, "feature")?;

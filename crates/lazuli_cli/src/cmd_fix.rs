@@ -7,6 +7,22 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 
+/// Execute one `lazuli fix` action against `path:line:column`.
+///
+/// Builds a `lazuli_fix::FixRequest` and dispatches into the shared
+/// fix-action crate so the CLI and the LSP code-action surface share
+/// the same kernel. `apply` distinguishes preview-only from
+/// commit-to-disk; preview mode exits non-zero so agents notice they
+/// need to confirm.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::cmd_fix::run_fix;
+///
+/// // run_fix("MISSING-TYPE-001", Path::new("app.lzi"), 12, 5, false)?;
+/// ```
 pub fn run_fix(rule: &str, path: &Path, line: usize, column: usize, apply: bool) -> Result<()> {
     let request = lazuli_fix::FixRequest {
         rule: rule.to_string(),
@@ -49,5 +65,24 @@ pub fn run_fix(rule: &str, path: &Path, line: usize, column: usize, apply: bool)
             }
             bail!("fix skipped — no action registered for {rule}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unknown_rule_against_missing_path_errors() {
+        // No action registered for the rule and no file at path: the
+        // execute call must return Err (either Skipped or io error).
+        let result = run_fix(
+            "__lazuli_no_such_rule__",
+            Path::new("__lazuli_no_such_path.lzi"),
+            1,
+            1,
+            false,
+        );
+        assert!(result.is_err());
     }
 }

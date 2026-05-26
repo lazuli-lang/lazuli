@@ -11,6 +11,15 @@ use anyhow::{Context, Result, anyhow};
 
 /// Run the subcommand. `project_root` is the directory containing
 /// `Lazurite.toml` (or the CWD if no manifest).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::cmd_generate_feature::run;
+///
+/// // run("orders", Path::new("."))?;
+/// ```
 pub fn run(name: &str, project_root: &Path) -> Result<()> {
     validate_feature_name(name)?;
 
@@ -184,11 +193,17 @@ mod tests {
         use std::path::{Path, PathBuf};
         use std::time::{SystemTime, UNIX_EPOCH};
 
+        /// Test-only scratch directory. Created under the system temp
+        /// dir with a unique suffix and removed on `Drop`. Lives inside
+        /// the `tempfile` sub-module so the test suite can build a
+        /// fresh project root for each `cmd_generate_feature::run` case.
         pub struct TempDir {
             path: PathBuf,
         }
 
         impl TempDir {
+            /// Allocate a fresh temp directory rooted at the system
+            /// temp dir.
             pub fn new() -> io::Result<Self> {
                 let suffix = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -202,6 +217,7 @@ mod tests {
                 Ok(Self { path })
             }
 
+            /// Borrow the allocated directory.
             pub fn path(&self) -> &Path {
                 &self.path
             }
