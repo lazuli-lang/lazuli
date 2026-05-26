@@ -19,19 +19,47 @@ use lazuli_ir::{
     EventVariant, Feature, QualifiedName, Resource, TypeRef,
 };
 
+/// One EVENT-GROUP-VARIANT-TYPE-001 finding — an `event_group` variant
+/// field type doesn't resolve to a known resource/record/enum.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the offending event_group lives in.
     pub path: PathBuf,
+    /// Feature owning the event_group.
     pub feature: String,
+    /// Source pattern of the event_group (e.g. `billing.*`).
     pub group_pattern: String,
+    /// Variant whose field type failed to resolve.
     pub variant_name: String,
+    /// Offending field name within the variant.
     pub field_name: String,
+    /// Verbatim type identifier the author wrote.
     pub authored_type: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "EVENT-GROUP-VARIANT-TYPE-001";
 
+    /// Render the "does not resolve to a known type" message warning
+    /// the author that subscribers will receive an untyped slot.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::correctness::event_group_variant_type_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     feature: "billing".into(),
+    ///     group_pattern: "billing.*".into(),
+    ///     variant_name: "PaymentFailed".into(),
+    ///     field_name: "reason".into(),
+    ///     authored_type: "MissingEnum".into(),
+    /// };
+    /// assert!(f.message().contains("untyped"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "event_group `{}` variant `{}` declares field `{}: {}` but `{}` does not resolve \
@@ -45,6 +73,21 @@ impl Finding {
     }
 }
 
+/// Run EVENT-GROUP-VARIANT-TYPE-001 over one feature.
+///
+/// Walks every variant of every `event_group` and emits one finding
+/// per unresolved field type. No I/O — `file_path` anchors findings.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::correctness::event_group_variant_type_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with event_groups");
+/// let _ = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, file_path: &Path) -> Vec<Finding> {
     let mut out = Vec::new();
     let resource_names: Vec<&str> = feature

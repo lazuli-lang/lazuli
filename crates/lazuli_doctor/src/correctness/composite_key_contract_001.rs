@@ -58,16 +58,23 @@ use lazuli_ir::{Feature, Resource};
 
 // ── output ───────────────────────────────────────────────────────────────────
 
+/// One COMPOSITE-KEY-CONTRACT-001 finding — a resource's `composite_key`
+/// block references a field that doesn't exist on the resource.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the offending resource lives in.
     pub path: PathBuf,
+    /// Feature owning the resource.
     pub feature: String,
+    /// Resource whose `composite_key` block triggered the check.
     pub resource: String,
     /// Unresolved field name listed in `composite_key.fields`.
     pub field: String,
+    /// Why the rule fired — drives the diagnostic prose.
     pub reason: Reason,
 }
 
+/// Sub-classification of the composite-key contract violation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reason {
     /// `fields` listed an identifier that doesn't match any
@@ -78,8 +85,27 @@ pub enum Reason {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "COMPOSITE-KEY-CONTRACT-001";
 
+    /// Render the per-reason message — unknown field vs empty-fields
+    /// list — each pointing at the canonical fix.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::correctness::composite_key_contract_001::{Finding, Reason};
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     feature: "orders".into(),
+    ///     resource: "OrderLine".into(),
+    ///     field: "missing".into(),
+    ///     reason: Reason::UnknownField,
+    /// };
+    /// assert!(f.message().contains("composite_key.fields"));
+    /// ```
     pub fn message(&self) -> String {
         match self.reason {
             Reason::UnknownField => format!(
@@ -98,6 +124,22 @@ impl Finding {
 
 // ── detection ────────────────────────────────────────────────────────────────
 
+/// Run COMPOSITE-KEY-CONTRACT-001 across one feature's resources.
+///
+/// Walks every resource's `composite_key.fields` list and emits one
+/// finding per unresolved name (plus a defensive `EmptyFields` if the
+/// list is empty). No I/O — `path` is anchor metadata.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::correctness::composite_key_contract_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with composite_key");
+/// let _ = check(&feature, Path::new("orders.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut out = Vec::new();
     for resource in &feature.resources {

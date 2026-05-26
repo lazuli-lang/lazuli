@@ -15,18 +15,44 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Feature, Query};
 
+/// One DUPLICATE-QUERY-NAME-001 finding — a feature declares two or
+/// more queries with the same name and the runtime registry would
+/// panic on duplicate keys.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the offending feature lives in.
     pub path: PathBuf,
+    /// Feature name carrying the duplicate.
     pub feature: String,
+    /// Name shared by two or more queries in the feature.
     pub query_name: String,
+    /// How many times the name appeared (always >= 2).
     pub occurrences: usize,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "DUPLICATE-QUERY-NAME-001";
+    /// Author-facing rule ID used in `# doctor:allow` and prose docs.
     pub const ID: &'static str = "@correctness.duplicate_query_name";
 
+    /// Render the "runtime registry panics on duplicates" message and
+    /// prompt the author to rename or delete the redundant declaration.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::correctness::duplicate_query_name::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     feature: "catalog".into(),
+    ///     query_name: "list_customers".into(),
+    ///     occurrences: 2,
+    /// };
+    /// assert!(f.message().contains("more than once"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "feature '{}' declares query '{}' more than once. The runtime registry panics on duplicate names. Either rename one or remove the redundant declaration.",
@@ -35,10 +61,40 @@ impl Finding {
     }
 }
 
+/// Run DUPLICATE-QUERY-NAME-001 over one feature.
+///
+/// Convenience wrapper that delegates to [`check_queries`] with the
+/// feature's own queries slice.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::correctness::duplicate_query_name::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with queries");
+/// let _ = check(&feature, Path::new("catalog.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     check_queries(&feature.name, &feature.queries, path)
 }
 
+/// Run DUPLICATE-QUERY-NAME-001 against an arbitrary `Query` slice.
+///
+/// Exposed separately so tests and downstream tooling can lint a query
+/// set assembled outside of a feature (e.g. post-synth pipeline checks).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::correctness::duplicate_query_name::check_queries;
+/// use lazuli_ir::Query;
+///
+/// let queries: Vec<Query> = vec![];
+/// let _ = check_queries("catalog", &queries, Path::new("catalog.lzi"));
+/// ```
 pub fn check_queries(feature_name: &str, queries: &[Query], path: &Path) -> Vec<Finding> {
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
     for query in queries {

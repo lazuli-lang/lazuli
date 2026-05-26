@@ -31,8 +31,25 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "CHANNEL-PAYLOAD-001";
 
+    /// Render the "no record/resource declared" message and prompt
+    /// the author to declare the missing type or fix the reference.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::correctness::channel_payload_unresolved_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     channel: "customer_activity".into(),
+    ///     payload_type: "UnknownPayload".into(),
+    /// };
+    /// assert!(f.message().contains("Cross-feature payload resolution"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "channel `{}` declares `payload {}` but no `record` or `resource` with that \
@@ -53,6 +70,17 @@ impl Finding {
 /// is performed here. Channel payload references are resolved against
 /// the feature's own `records` and `resources`; cross-feature lookups
 /// are deferred to a future cycle.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::correctness::channel_payload_unresolved_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with channels");
+/// let _ = check(&feature, Path::new("realtime.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     if feature.channels.is_empty() {
         return Vec::new();
