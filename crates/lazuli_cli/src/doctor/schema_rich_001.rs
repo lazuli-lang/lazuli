@@ -9,16 +9,26 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{BuiltinType, QualifiedName, TypeRef};
 
+/// One `SCHEMA-RICH-001` finding — a generated Zod schema slot that
+/// silently fell back to `z.unknown()` despite a typed axis being
+/// available.
 pub struct Finding {
+    /// Source `.gen.ts` path where the `z.unknown()` slot appears.
     pub path: PathBuf,
+    /// 1-based line number of the offending slot.
     pub line: usize,
+    /// Pre-rendered diagnostic message.
     pub message: String,
 }
 
 impl Finding {
+    /// Stable doctor rule code surfaced to the user.
     pub const CODE: &'static str = "SCHEMA-RICH-001";
 }
 
+/// Walk every feature's command Zod schemas under
+/// `<project_root>/dist/ts-*` and emit a `Finding` for each slot that
+/// fell back to `z.unknown()` despite a typed axis being available.
 pub fn check(project_root: &Path) -> Vec<Finding> {
     let Ok(module) = crate::build_module_from_path(project_root) else {
         return Vec::new();

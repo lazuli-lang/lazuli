@@ -235,6 +235,22 @@ use crate::app_manifest::{
 };
 use crate::lazurite_manifest::{self, Manifest, MigrationStrategy};
 
+/// Handler for `lazuli doctor` — runs the full diagnostic surface
+/// with the default runtime options.
+///
+/// Thin wrapper over [`doctor_command_with_options`]; exists so the
+/// clap arm in `main.rs` does not need to construct
+/// [`DoctorRuntimeOptions`] for the common case.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_lsp::SecurityProfile;
+/// use lazuli_cli::doctor::doctor_command;
+///
+/// // doctor_command(Path::new("."), SecurityProfile::Strict, false, true)?;
+/// ```
 pub fn doctor_command(
     input: &Path,
     security_profile: SecurityProfile,
@@ -250,6 +266,29 @@ pub fn doctor_command(
     )
 }
 
+/// Run `lazuli doctor` with a fully-specified
+/// [`DoctorRuntimeOptions`] bag.
+///
+/// This is the load-bearing entry point — every clap-side flag
+/// translates into a field of `opts` (release window, swarm mode, JSON
+/// vs text, machine context, etc.). The wrapper above just defaults
+/// `opts`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_lsp::SecurityProfile;
+/// use lazuli_cli::doctor::{doctor_command_with_options, DoctorRuntimeOptions};
+///
+/// // doctor_command_with_options(
+/// //     Path::new("."),
+/// //     SecurityProfile::Strict,
+/// //     false,
+/// //     true,
+/// //     DoctorRuntimeOptions::default(),
+/// // )?;
+/// ```
 pub fn doctor_command_with_options(
     input: &Path,
     security_profile: SecurityProfile,

@@ -39,3 +39,17 @@ pub struct DoctorRuntimeOptions {
     /// treated as the workspace root.
     pub self_audit: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_is_silent_text_no_coverage() {
+        let opts = DoctorRuntimeOptions::default();
+        assert!(opts.format.is_none());
+        assert!(!opts.coverage);
+        assert!(opts.fail_on.is_empty());
+        assert!(!opts.self_audit);
+    }
+}
