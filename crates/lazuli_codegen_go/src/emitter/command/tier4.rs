@@ -335,3 +335,215 @@ pub(in crate::emitter) fn format_rate_limit_struct(
     out.push('}');
     out
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tier-4 + rate-limit tests — exercise the runtime struct-field
+    //! emission for `approval`, `external_calls`, `timeout`, `retry`,
+    //! `idempotency`, `deprecated`, and the `RateLimit` literal. Lifted
+    //! out of `file_emit.rs` (wave R8-2b) so the tier-4 concern owns its
+    //! own behavioural tests.
+    use super::super::test_support::{
+        base_command, base_feature, emit_with_customer_fallback as emit, local_qname, typed_slot,
+    };
+    use lazuli_ir::{
+        Assignment, BackoffStrategy, BuiltinType, CommandEffect, CommandInput, CreateEffect,
+        DeprecationReplacement, EnvName, Expr, IdempotencyKey, Path, RateLimitByEnv, RateLimitSpec,
+        RetryPolicy, UpdateEffect,
+    };
+
+    #[test]
+    fn tier4_fields_emit_runtime_struct_fields() {
+        let mut feature = base_feature("customer");
+        let mut cmd = base_command("reassign");
+        cmd.effect = CommandEffect::Updates(UpdateEffect {
+            resource: local_qname("Customer"),
+            assignments: Vec::new(),
+        });
+        cmd.approval = Some(lazuli_ir::ApprovalSpec {
+            required_when: Some("target.tier = enterprise".to_owned()),
+            by: "@role.admin".to_owned(),
+            timeout: Some("24h".to_owned()),
+            then: lazuli_ir::ApprovalThen::Deny,
+        });
+        cmd.external_calls = vec![lazuli_ir::ExternalCallRef {
+            slot: "audit".to_owned(),
+            op: "log".to_owned(),
+            args: Vec::new(),
+            span_ref: None,
+        }];
+        cmd.timeout = Some("30s".to_owned());
+        cmd.retry = Some(RetryPolicy {
+            count: 3,
+            backoff: BackoffStrategy::Exponential,
+        });
+        cmd.idempotency = Some(IdempotencyKey {
+            by: Path::from_segments(["input", "external_id"]),
+        });
+        cmd.deprecated = Some(lazuli_ir::Deprecation {
+            since: Some("2026.04".to_owned()),
+            replacement: Some(DeprecationReplacement::LocalCommand(
+                "reassign_v2".to_owned(),
+            )),
+            sunset: Some("2026-12-31".to_owned()),
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains(
+            "Approval: &lazuli.ApprovalSpec{Then: \"deny\", By: \"@role.admin\", Reason: \"target.tier = enterprise\"},"
+        ));
+        assert!(out.contains("ExternalCalls: []lazuli.ExternalCallRef{"));
+        assert!(out.contains("{Slot: \"audit\", Operation: \"log\"},"));
+        assert!(out.contains("Timeout: \"30s\","));
+        assert!(out.contains("Retry: &lazuli.RetryPolicy{Count: 3, Backoff: \"exponential\"},"));
+        assert!(out.contains("Idempotency: &lazuli.IdempotencyKey{Path: \"input.external_id\"},"));
+        assert!(out.contains(
+            "Deprecation: &lazuli.Deprecation{Since: \"2026.04\", Replacement: \"customer.command.reassign_v2\", Sunset: \"2026-12-31\"},"
+        ));
+        assert!(!out.contains("TODO("));
+    }
+
+    #[test]
+    fn tier4_fields_omit_absent_slots() {
+        let mut feature = base_feature("customer");
+        let mut cmd = base_command("create");
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Customer"),
+            from_input: false,
+            assignments: Vec::new(),
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(!out.contains("Approval:"));
+        assert!(!out.contains("ExternalCalls:"));
+        assert!(!out.contains("Timeout:"));
+        assert!(!out.contains("Retry:"));
+        assert!(!out.contains("Idempotency:"));
+        assert!(!out.contains("Deprecation:"));
+    }
+
+    // `ir-rate-limit-env-aware` Cell 2 — codegen emission tests.
+
+    #[test]
+    fn rate_limit_default_only_emits_compact_struct_literal() {
+        // Backward-compat: legacy single-line `rate_limit "X"` source
+        // lowers to `RateLimitSpec { default: "X", by_env: [] }` and
+        // emits the compact one-liner struct literal so existing
+        // fixtures are byte-stable.
+        let mut feature = base_feature("customer");
+        let mut cmd = base_command("create");
+        cmd.input = CommandInput::Typed(vec![typed_slot("name", BuiltinType::Text, true)]);
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Customer"),
+            from_input: false,
+            assignments: vec![Assignment {
+                field: "name".to_owned(),
+                value: Expr::Path(Path::from_segments(["input", "name"])),
+            }],
+        });
+        cmd.rate_limit = Some(RateLimitSpec::from_default(
+            "5 per 10 minutes per ip".to_owned(),
+        ));
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("RateLimit: lazuli.RateLimit{Default: \"5 per 10 minutes per ip\"},"),
+            "compact single-line shape expected for default-only spec, got:\n{out}"
+        );
+        // No multi-line `ByEnv` block in the compact shape.
+        assert!(
+            !out.contains("ByEnv: []lazuli.RateLimitByEnv"),
+            "unexpected ByEnv block in default-only emission:\n{out}"
+        );
+    }
+
+    #[test]
+    fn rate_limit_with_by_env_emits_multi_line_struct_literal() {
+        // The 22+ playwright trigger case: production strict + dev /
+        // staging / test loose. Emission must list every env-qualified
+        // entry verbatim (RULE-VOCAB-04 read-through).
+        let mut feature = base_feature("customer");
+        let mut cmd = base_command("register");
+        cmd.input = CommandInput::Typed(vec![typed_slot("email", BuiltinType::Text, true)]);
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Customer"),
+            from_input: false,
+            assignments: vec![Assignment {
+                field: "email".to_owned(),
+                value: Expr::Path(Path::from_segments(["input", "email"])),
+            }],
+        });
+        cmd.rate_limit = Some(RateLimitSpec {
+            default: "5 per 10 minutes per ip".to_owned(),
+            by_env: vec![RateLimitByEnv {
+                envs: vec![EnvName::Dev, EnvName::Staging, EnvName::Test],
+                unknown_envs: Vec::new(),
+                limit: "1000 per 10 minutes per ip".to_owned(),
+                span_ref: None,
+            }],
+            span_ref: None,
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        // The opening of the struct literal sits on the kv-aligned line.
+        assert!(
+            out.contains("RateLimit: lazuli.RateLimit{"),
+            "multi-line struct opening missing, got:\n{out}"
+        );
+        // Default + ByEnv block emitted with absolute indentation so
+        // gofmt accepts the file without rewriting.
+        assert!(
+            out.contains("\t\tDefault: \"5 per 10 minutes per ip\","),
+            "Default row not at expected indent, got:\n{out}"
+        );
+        assert!(
+            out.contains("\t\tByEnv: []lazuli.RateLimitByEnv{"),
+            "ByEnv slice declaration missing, got:\n{out}"
+        );
+        assert!(
+            out.contains(
+                "{Envs: []string{\"dev\", \"staging\", \"test\"}, Limit: \"1000 per 10 minutes per ip\"},"
+            ),
+            "by-env entry not emitted verbatim, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn rate_limit_with_unlimited_keyword_emits_empty_string_limit() {
+        // The `"unlimited"` keyword lowers to an empty `limit` string
+        // (proposal §4.4). Codegen pastes the empty string verbatim;
+        // the runtime's `IsUnlimited()` reads the empty as "no throttle".
+        let mut feature = base_feature("customer");
+        let mut cmd = base_command("register");
+        cmd.input = CommandInput::Typed(vec![typed_slot("email", BuiltinType::Text, true)]);
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Customer"),
+            from_input: false,
+            assignments: vec![Assignment {
+                field: "email".to_owned(),
+                value: Expr::Path(Path::from_segments(["input", "email"])),
+            }],
+        });
+        cmd.rate_limit = Some(RateLimitSpec {
+            default: "5 per 10 minutes per ip".to_owned(),
+            by_env: vec![RateLimitByEnv {
+                envs: vec![EnvName::Test],
+                unknown_envs: Vec::new(),
+                limit: String::new(), // "unlimited" lowered.
+                span_ref: None,
+            }],
+            span_ref: None,
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains("{Envs: []string{\"test\"}, Limit: \"\"},"),
+            "unlimited (empty string) by-env entry missing, got:\n{out}"
+        );
+    }
+}
