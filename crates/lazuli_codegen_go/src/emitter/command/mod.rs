@@ -77,11 +77,14 @@ mod test_support;
 mod tier4;
 mod wrap;
 
-// Test-host siblings for `scope.rs` — each owns a coherent sub-cluster
-// of the scope production code's tests. See `scope.rs` doc-comment for
-// the per-file coverage map. Wired here (not inside `scope.rs`) so the
-// `#[path]`-implicit child resolution picks up the sibling `.rs` files
-// at `command/<name>.rs` instead of `command/scope/<name>.rs`.
+// Test-host siblings — each owns a coherent sub-cluster of one
+// production submodule's tests. Wired here (not inside the parent
+// submodule) so the `#[path]`-implicit child resolution picks up the
+// sibling `.rs` files at `command/<name>.rs` instead of
+// `command/<parent>/<name>.rs`. See each sibling's `//!` header for
+// the per-file coverage map.
+#[cfg(test)]
+mod emit_effect_dispatch_tests;
 #[cfg(test)]
 mod owner_scope_sql_tests;
 #[cfg(test)]
