@@ -24,6 +24,12 @@ use super::printer::GoPrinter;
 
 /// Emit `<feature>/migration.gen.go` for a feature, or `None` when
 /// the feature declares no tenant migrations.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let go_src = emit_migration_file("billing.lzi", &feature, "demo", &cross_index);
+/// ```
 pub fn emit_migration_file(
     source_label: &str,
     feature: &Feature,

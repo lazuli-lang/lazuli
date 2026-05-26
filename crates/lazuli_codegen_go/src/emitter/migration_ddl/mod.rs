@@ -96,6 +96,13 @@ use topo::foreign_key_owner;
 /// The shared audit table rollback is emitted here because the matching
 /// `migrations/audit_log.sql` up migration is always emitted by the
 /// top-level module emitter.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let files = emit_migrations(&module, "billing.lzi");
+/// assert!(files.iter().any(|f| f.path.contains("migrations/")));
+/// ```
 pub fn emit_migrations(module: &Module, source_label: &str) -> Vec<GeneratedFile> {
     let cross_index = CrossFeatureIndex::build(module);
     let raw_resources: Vec<(&Feature, &Resource)> = module

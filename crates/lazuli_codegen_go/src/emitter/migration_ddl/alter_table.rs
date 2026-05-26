@@ -121,6 +121,16 @@ pub struct SchemaDiff {
 }
 
 impl SchemaDiff {
+    /// `true` when no adds, drops, or type changes were recorded.
+    ///
+    /// The orchestrator skips writing an ALTER migration file when the
+    /// diff is empty so noise stays out of the output listing.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// assert!(SchemaDiff::default().is_empty());
+    /// ```
     pub fn is_empty(&self) -> bool {
         self.adds.is_empty() && self.drops.is_empty() && self.type_changes.is_empty()
     }
@@ -246,8 +256,17 @@ fn render_alter_type_change_down(change: &TypeChange) -> String {
 /// Knobs the orchestrator passes through from the CLI. `allow_drops`
 /// gates whether `diff.drops` emit as live SQL or commented lines + a
 /// warning header.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let opts = AlterEmitOptions { allow_drops: false };
+/// assert!(!opts.allow_drops);
+/// ```
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AlterEmitOptions {
+    /// `true` when the CLI was invoked with the explicit
+    /// `--allow-drops` flag.
     pub allow_drops: bool,
 }
 
@@ -259,6 +278,13 @@ pub struct AlterEmitOptions {
 /// derives from `ls migrations/`. `feature` and `resource` slug into
 /// the filename the same way `emit_resource_migration` slugs the
 /// initial migration.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let pair = emit_alter_migration_file(2, "billing", "Customer", "billing.lzi", &diff, opts);
+/// // None when the diff is empty.
+/// ```
 pub fn emit_alter_migration_file(
     sequence: usize,
     feature: &str,
@@ -459,4 +485,20 @@ fn render_alter_down(
     }
 
     sql
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_diff_is_empty() {
+        assert!(SchemaDiff::default().is_empty());
+    }
+
+    #[test]
+    fn safe_cast_text_to_jsonb_is_allowed() {
+        assert!(is_safe_cast("TEXT", "JSONB"));
+        assert!(!is_safe_cast("JSONB", "TEXT"));
+    }
 }
