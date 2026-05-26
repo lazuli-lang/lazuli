@@ -18,19 +18,44 @@ use lazuli_ir::{BuiltinType, Feature, Field, TypeRef};
 
 // ── output ───────────────────────────────────────────────────────────────────
 
+/// One FULL-TEXT-TYPE-001 finding — `@full_text` was attached to a
+/// field whose type isn't in the text-like catalog.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the offending field lives in.
     pub path: PathBuf,
+    /// Feature owning the resource.
     pub feature: String,
+    /// Resource carrying the offending field.
     pub resource: String,
+    /// Field name carrying the misapplied `@full_text` marker.
     pub field: String,
     /// Verbatim text describing the field's type (for the message).
     pub field_type: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "FULL-TEXT-TYPE-001";
 
+    /// Render the "@full_text only applies to text-like types" message
+    /// listing the catalog members the author can switch to.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::correctness::full_text_type_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     feature: "catalog".into(),
+    ///     resource: "Property".into(),
+    ///     field: "price".into(),
+    ///     field_type: "Integer".into(),
+    /// };
+    /// assert!(f.message().contains("text-like types"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "field `{}.{}` carries `@full_text` but its type is `{}` — `@full_text` only applies to text-like types \
@@ -43,6 +68,21 @@ impl Finding {
 
 // ── detection ────────────────────────────────────────────────────────────────
 
+/// Run FULL-TEXT-TYPE-001 over one feature's resources.
+///
+/// Emits one finding per field whose `@full_text` marker is attached
+/// to a non-text-like type.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::correctness::full_text_type_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with @full_text fields");
+/// let _ = check(&feature, Path::new("catalog.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut out = Vec::new();
     for resource in &feature.resources {

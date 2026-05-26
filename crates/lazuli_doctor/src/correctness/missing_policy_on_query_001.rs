@@ -54,17 +54,42 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Feature, PolicyExpr, PolicyRef, Query};
 
+/// One MISSING-POLICY-ON-QUERY-001 finding — a query has no authored
+/// policy AND the feature has no `defaults.policy_for queries:` fallback,
+/// so the query is implicitly public.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the offending query was authored in.
     pub path: PathBuf,
+    /// Feature owning the query.
     pub feature: String,
+    /// Query kind tag — `list`, `lookup`, `count`, etc.
     pub query_kind: &'static str,
+    /// Query name (matches the bare identifier after `query.<kind>`).
     pub query_name: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "MISSING-POLICY-ON-QUERY-001";
 
+    /// Render the "implicit public exposure" message and prompt the
+    /// author to declare either `@policy.public` or `@policy.authenticated`.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::correctness::missing_policy_on_query_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     feature: "catalog".into(),
+    ///     query_kind: "list",
+    ///     query_name: "list_customers".into(),
+    /// };
+    /// assert!(f.message().contains("@scope.public"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "query.{} {} has no authored policy and the feature has no defaults.policy. \
@@ -76,6 +101,21 @@ impl Finding {
     }
 }
 
+/// Run MISSING-POLICY-ON-QUERY-001 over one feature.
+///
+/// Delegates to [`check_queries`] with the feature's own queries slice
+/// and `defaults.policy` fallback.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::correctness::missing_policy_on_query_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with queries");
+/// let _ = check(&feature, Path::new("catalog.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     check_queries(
         &feature.name,
@@ -85,6 +125,21 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     )
 }
 
+/// Run MISSING-POLICY-ON-QUERY-001 against an arbitrary `Query` slice.
+///
+/// Exposed so tests and downstream tooling can lint queries assembled
+/// outside of a feature (post-synth pipelines).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::correctness::missing_policy_on_query_001::check_queries;
+/// use lazuli_ir::Query;
+///
+/// let queries: Vec<Query> = vec![];
+/// let _ = check_queries("catalog", None, &queries, Path::new("catalog.lzi"));
+/// ```
 pub fn check_queries(
     feature_name: &str,
     defaults_policy: Option<&PolicyRef>,

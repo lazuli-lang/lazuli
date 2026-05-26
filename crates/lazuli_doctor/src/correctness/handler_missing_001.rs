@@ -30,6 +30,8 @@ use lazuli_ir::Feature;
 use crate::handler_path;
 use crate::handler_walker::{iter_handler_sites, HandlerSite, HandlerSiteKind};
 
+/// One HANDLER-MISSING-001 finding — an `@fn.* / @validator.* / @job.*`
+/// reference points at a handler file that doesn't exist on disk.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
     /// Source `.lzi` file the reference was authored in.
@@ -52,8 +54,30 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "HANDLER-MISSING-001";
 
+    /// Render the "handler file missing" message naming the expected
+    /// path and the canonical `lazuli generate handler` scaffold cmd.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::correctness::handler_missing_001::Finding;
+    /// use lazuli_doctor::handler_walker::HandlerSiteKind;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("auth.lzi"),
+    ///     feature: "auth".into(),
+    ///     construct_name: "register".into(),
+    ///     site_kind: HandlerSiteKind::CommandHandler,
+    ///     handler_namespace: "fn".into(),
+    ///     handler_name: "verify_password".into(),
+    ///     expected_path: PathBuf::from("features/auth/handlers/verify_password.go"),
+    /// };
+    /// assert!(f.message().contains("lazuli generate handler"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "@{}.{} referenced from {} `{}` but handler file is missing at {}. \
@@ -73,6 +97,17 @@ impl Finding {
 /// resulting findings (so the LSP / CLI can format `<file>:<line>:` lines).
 /// `app_root` is the directory containing `features/` — resolved via the
 /// `Lazurite.toml [lazurite].app_dir` knob on the caller side.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::correctness::handler_missing_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with handler refs");
+/// let _ = check(&feature, Path::new("auth.lzi"), Path::new("/app"));
+/// ```
 pub fn check(feature: &Feature, lzi_path: &Path, app_root: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     for site in iter_handler_sites(feature) {
