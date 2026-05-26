@@ -32,7 +32,7 @@ mod tailwind_v4;
 #[path = "design_tokens_mobile/mod.rs"]
 mod tokens_mobile;
 
-#[path = "design_allowlist.rs"]
+#[path = "design_allowlist/mod.rs"]
 mod allowlist;
 
 pub use allowlist::emit_allowlist_json;
