@@ -39,6 +39,21 @@ impl Finding {
     /// Render the user-facing diagnostic body. The remediation prefix
     /// (`add \`public contract X as v1\``) is embedded in the message so
     /// CLI and LSP show identical phrasing.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::cross_feature::contract_missing_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     consumer_feature: "billing".into(),
+    ///     origin_feature: "auth".into(),
+    ///     symbol: "User".into(),
+    ///     consumer_site: "field `user` of resource `Invoice`".into(),
+    /// };
+    /// assert!(f.message().contains("billing"));
+    /// assert!(f.message().contains("User"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "feature `{}` references `{}.{}` from `{}` but the origin lacks a `public contract` annotation \

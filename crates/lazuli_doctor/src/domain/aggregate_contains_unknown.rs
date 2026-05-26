@@ -35,6 +35,22 @@ impl Finding {
 
     /// Render the user-facing diagnostic body — names the unknown
     /// resource and prompts for either declaration or removal.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::domain::aggregate_contains_unknown::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("billing.lzi"),
+    ///     feature: "billing".into(),
+    ///     aggregate: "OrderBoundary".into(),
+    ///     unresolved_member: "Ghost".into(),
+    /// };
+    /// assert!(f.message().contains("Ghost"));
+    /// assert!(f.message().contains("OrderBoundary"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "aggregate `{}` lists `contains {}` but no resource named `{}` \

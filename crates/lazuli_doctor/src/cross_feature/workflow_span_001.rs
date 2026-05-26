@@ -34,6 +34,20 @@ impl Finding {
 
     /// Render the user-facing diagnostic body, listing the spanned
     /// features and pointing at the proposal's saga-coordinator advice.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::cross_feature::workflow_span_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     feature: "host".into(),
+    ///     workflow: "checkout".into(),
+    ///     spanned_features: vec!["host".into(), "payments".into()],
+    /// };
+    /// assert!(f.message().contains("checkout"));
+    /// assert!(f.message().contains("payments"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "workflow `{}` in feature `{}` touches resources owned by multiple features ({}). \

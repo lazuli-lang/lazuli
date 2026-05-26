@@ -58,6 +58,23 @@ impl Finding {
     /// Render the user-facing diagnostic body. The wording branches on
     /// resource- vs aggregate-scope so the author sees the right hint
     /// (resource field vs root + contains members).
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::domain::invariant_predicate_invalid::{Finding, InvariantScope};
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("billing.lzi"),
+    ///     feature: "billing".into(),
+    ///     scope: InvariantScope::Resource("Order".into()),
+    ///     invariant: "total_non_negative".into(),
+    ///     unresolved_field: "ghost".into(),
+    /// };
+    /// assert!(f.message().contains("Order"));
+    /// assert!(f.message().contains("ghost"));
+    /// ```
     pub fn message(&self) -> String {
         match &self.scope {
             InvariantScope::Resource(r) => format!(

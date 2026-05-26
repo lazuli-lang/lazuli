@@ -42,6 +42,23 @@ impl Finding {
     /// Render the user-facing diagnostic body. The remediation prefix
     /// suggests both migrating the consumer or republishing the origin
     /// for compatibility.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::cross_feature::version_drift_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     consumer_feature: "billing".into(),
+    ///     origin_feature: "auth".into(),
+    ///     symbol: "User".into(),
+    ///     consumer_version: 1,
+    ///     origin_version: 2,
+    ///     consumer_site: "field `user` of resource `Invoice`".into(),
+    /// };
+    /// assert!(f.message().contains("v1"));
+    /// assert!(f.message().contains("v2"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "feature `{}` pins `{}` at v{} but references `{}.{}` whose origin publishes v{} \
