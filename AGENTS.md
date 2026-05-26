@@ -177,6 +177,64 @@ Three conventions:
 
 ---
 
+## Rails-style source layout — every `.rs` ≤ 500 LOC
+
+The framework's own Rust source follows Rails ActiveRecord layout, not just Rails docstring style. Every refactor between 2026-05-15 and 2026-05-26 enforced this; new work inherits the discipline.
+
+**The ceiling**: every `.rs` file under `crates/` ≤ 500 LOC. Production AND test code. No exceptions. Final audit @ `f61e2704`: 1354 `.rs` files, 0 above 500, max-LOC = 500 (`emitter/handlers/tests.rs`, exactly at the budget boundary).
+
+**The canonical shape**:
+
+```
+<concern>.rs                      # one file, ≤ 500 LOC, or →
+<concern>/
+  mod.rs                          # thin module root: re-exports + shared types + orchestrator only
+  <sub_concern_a>.rs              # each sibling ≤ 500 LOC, named for the concern it owns
+  <sub_concern_b>.rs
+  <sub_concern_c>/                # homonym subdirs are fine when a sibling itself needs splitting
+    mod.rs
+    ...
+  <sub_concern>_tests.rs          # inline test sibling — see "Inline-test rule" below
+```
+
+`mod.rs` is a re-exporter, not a kitchen sink. If a file is growing past ~300 LOC and you've already pulled the obvious helpers, that's the signal to split, not to keep packing.
+
+**ABI strictly additive when splitting**: never delete or rename a `pub` / `pub(crate)` / `pub(super)` / `pub(in crate::xxx)` symbol. When you move an item to a sibling file, restore visibility at the parent via `pub use sibling::Item;`. Downstream consumers (Hostpoint LSP extension, codegen, doctor dispatch tables) must keep resolving every original path. The `cargo public-api --diff` invariant from R4.2 still holds: zero public removal across any refactor commit.
+
+**Inline-test rule**: tests stay co-located with the production code they exercise. When a single `#[cfg(test)] mod tests { ... }` block alone exceeds 500 LOC, split it into sibling `*_tests.rs` files where each sibling is a coherent sub-concern (not a numeric chunk). The canonical pattern, which preserves raw-string indents byte-for-byte:
+
+```rust
+#[cfg(test)] mod foo_tests { include!("tests/foo_tests.rs"); }
+#[cfg(test)] mod bar_tests { include!("tests/bar_tests.rs"); }
+```
+
+The sibling file's content becomes the module body verbatim. **Never dedent or re-indent raw string fixture content** — `r#"..."#` blocks carry structural whitespace that the parser depends on. Use Read + write tools only; do not pipe content through any reformatter. Multiple parser fixture corruptions during R3 traced to dedenting `mod tests {` wrappers.
+
+**Integration test pattern** (`crates/<crate>/tests/*.rs`): when a single integration test file exceeds 500 LOC, convert `tests/foo.rs` → `tests/foo/main.rs` + sibling helper modules declared via `mod helpers;` from `main.rs`. Cargo auto-discovers `tests/foo/main.rs` as a single test binary; the siblings are local modules of that binary (not separately-discovered integration tests). No `Cargo.toml [[test]]` entries needed unless you're overriding a non-default name.
+
+**Shared test fixtures** belong in a `test_support.rs` sibling at `pub(super)` visibility — never duplicate fixture builders across sibling test files.
+
+**`//!` module headers** are required on every `.rs` file under `crates/lazuli_doctor/src/correctness/` and `crates/lazuli_doctor/src/vocab/` (enforced by `tests/module_headers.rs`). The header must describe severity and include one trigger cue (`fixture`, `example`, `fires when`, `warns when`). `*_tests.rs` and `tests.rs` siblings are skipped by the linter; they don't need headers.
+
+---
+
+## Git discipline for refactor work
+
+The rules below emerged from concrete incidents during R3-R10 — every one of them mitigates a specific class of bug observed in this repo. They are non-negotiable when refactoring.
+
+- **`git add <specific files>` ONLY.** Never `git add -A`, never `git add .`. Parallel agents share a `.git/index`; broad-stage commands sweep siblings' staged work into the wrong commit. R9 spent multiple cleanup commits recovering from this exact failure mode.
+- **Before every `git commit`** during a refactor, run `git diff --cached --name-only` and verify every staged path is in your scope. If unrelated paths appear, `git reset HEAD <them>` before committing.
+- **Never `git reset --hard`** to escape an obstacle. It deletes commits and uncommitted work. Investigate the root cause and fix forward in a new commit.
+- **Never `git rebase`** (in any form) on shared branches. **Never `--amend`** to fix a hook failure — create a new commit. Pre-commit hook failures mean the commit did NOT happen, so `--amend` modifies the PREVIOUS commit and silently rewrites history.
+- **Never `git stash pop`** during refactor work — re-apply work via a new commit so the diff is reviewable.
+- **No `--force` push** ever. No `--no-verify`. No `--no-gpg-sign`. If a hook fails, fix the underlying issue.
+- **One commit per extracted concern.** Commit messages: `<crate>/<area>: extract <concern> into <new-file>` (lowercase, present-tense imperative). This makes `git log` itself a readable refactor narrative.
+- **Workspace green every commit.** After each commit, run `cargo build --workspace` and the relevant per-crate test suite (`cargo test -p <crate> --lib` + `--tests` when integration tests changed). If anything fails, fix forward in a new commit; never amend.
+- **Sequential > parallel agents on a shared worktree.** When two agents both run `git add` + `git commit` near-simultaneously, the shared index causes cross-agent staging contamination — commit messages stop matching content, deletions from one agent's scope leak into another agent's commit. Either dispatch one agent at a time, or have each agent work in its own `git worktree`. If parallelism is unavoidable, brief each agent on the pre-commit `git diff --cached --name-only` discipline and the `git reset HEAD <out-of-scope>` recovery move.
+- **Branch per round, `--no-ff` merge into main.** R8 → `rails-style-r8`, R9 → `rails-style-r9`, R10 → `rails-style-r10`. The merge commit preserves topology so `git log --graph main` still tells you what each round did.
+
+---
+
 ## When you're unsure
 
 Ask: "could a Lazuli project still function if the Lazuli Go runtime was replaced by a hypothetical second runtime targeting Rust + Yew + Flutter?" If the answer is no because the language is leaking Go-specific or React-specific assumptions, the proposal is at the wrong layer.
