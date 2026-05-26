@@ -33,6 +33,7 @@ use std::collections::BTreeMap;
 
 mod agent;
 mod auth;
+mod job;
 mod notification;
 mod storage;
 
@@ -41,6 +42,7 @@ mod storage;
 // report_types::*;`) keeps picking these up unchanged.
 pub(in crate::commands::inspect) use agent::*;
 pub(in crate::commands::inspect) use auth::*;
+pub(in crate::commands::inspect) use job::*;
 pub(in crate::commands::inspect) use notification::*;
 pub(in crate::commands::inspect) use storage::*;
 
@@ -372,92 +374,6 @@ pub(super) struct InspectAudit {
 // `notification`/`job`/`webhook` triple cold without joining tables.
 // Row 32 of `docs/next-checklist.md`.
 // -----------------------------------------------------------------------------
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectJob {
-    pub(super) name: String,
-    /// Derived operational kind: `scheduled` / `reactor` / `queued_worker`.
-    pub(super) operational_kind: &'static str,
-    pub(super) trigger: InspectJobTrigger,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) queue: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) idempotency_by: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) retry: Option<InspectJobRetry>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) policy: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) tenant_from: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) fanout: Option<InspectJobFanout>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) timeout: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(super) external_calls: Vec<InspectJobExternalCall>,
-    pub(super) body: InspectJobBody,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(super) emits: Vec<String>,
-    pub(super) origin: &'static str,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(tag = "kind", content = "value")]
-pub(super) enum InspectJobTrigger {
-    /// `trigger event <feature>.<event>`.
-    Event(String),
-    /// `trigger schedule "<cron>"`.
-    Schedule(String),
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectJobRetry {
-    pub(super) count: u32,
-    pub(super) backoff: &'static str,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectJobFanout {
-    pub(super) scope: &'static str,
-    pub(super) axis: String,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectJobExternalCall {
-    pub(super) slot: String,
-    pub(super) op: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(super) args: Vec<String>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(tag = "kind", content = "value")]
-pub(super) enum InspectJobBody {
-    /// `handler "./..."` — declarative path with optional return type.
-    Handler(InspectJobHandler),
-    /// Declarative body with the typed declarative spine (Phase L Tier
-    /// 4b). Replaces the previous raw-string carve-out.
-    Declarative(InspectJobDeclarative),
-    /// Job declares no body — emits-only reactor.
-    None,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectJobHandler {
-    pub(super) path: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) returns: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectJobDeclarative {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) target: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(super) lets: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) effect: Option<String>,
-}
 
 #[derive(Debug, Serialize)]
 pub(super) struct InspectWebhook {
