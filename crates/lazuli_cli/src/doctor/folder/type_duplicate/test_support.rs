@@ -12,11 +12,14 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Test-only scratch directory used by the rule's sibling
+/// `tests_*.rs` files. Removes itself on `Drop`.
 pub struct TempDir {
     path: PathBuf,
 }
 
 impl TempDir {
+    /// Allocate a fresh unique temp directory under the system temp.
     pub fn new() -> io::Result<Self> {
         let mut path = std::env::temp_dir();
         let unique = SystemTime::now()
@@ -31,6 +34,7 @@ impl TempDir {
         Ok(Self { path })
     }
 
+    /// Borrow the allocated directory.
     pub fn path(&self) -> &Path {
         &self.path
     }
@@ -42,8 +46,25 @@ impl Drop for TempDir {
     }
 }
 
+/// Write `contents` to `root/rel`, creating any intermediate
+/// directories. Used by fixtures to stand up tiny project trees.
 pub fn write(root: &Path, rel: &str, contents: &str) {
     let path = root.join(rel);
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, contents).unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn write_creates_parents() {
+        let dir = TempDir::new().expect("tempdir");
+        write(dir.path(), "nested/x.ts", "export {};");
+        assert_eq!(
+            fs::read_to_string(dir.path().join("nested/x.ts")).unwrap(),
+            "export {};"
+        );
+    }
 }

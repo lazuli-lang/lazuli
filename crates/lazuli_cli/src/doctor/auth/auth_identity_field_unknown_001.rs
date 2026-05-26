@@ -33,18 +33,29 @@ pub enum Reason {
     FieldNotIdentityShaped,
 }
 
+/// One occurrence of an unresolved `auth identity <Resource>.<field>`
+/// reference. Carries enough provenance (path + feature + the offending
+/// resource/field names) that the doctor surface can render the
+/// diagnostic without further IR lookups.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` path the reference was found in.
     pub path: PathBuf,
+    /// Feature name owning the broken reference.
     pub feature: String,
+    /// `Resource` name the `auth identity` clause pointed at.
     pub identity_resource: String,
+    /// Field name on the resource that was requested.
     pub identity_field: String,
+    /// Why the reference did not resolve.
     pub reason: Reason,
 }
 
 impl Finding {
+    /// Stable doctor rule code surfaced to the user.
     pub const CODE: &'static str = "auth_identity_field_unknown_001";
 
+    /// Render a remediation-flavored diagnostic message for the finding.
     pub fn message(&self) -> String {
         match self.reason {
             Reason::ResourceNotFound => format!(
@@ -66,6 +77,10 @@ impl Finding {
 
 // ── detection ─────────────────────────────────────────────────────────────────
 
+/// Walk one feature's `auth.identity` reference and emit at most one
+/// `Finding` per closed sub-case (resource missing / field missing /
+/// field not identity-shaped). Features without an `auth` block
+/// produce no findings.
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let Some(auth) = feature.auth.as_ref() else {
         return Vec::new();

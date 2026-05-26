@@ -18,18 +18,28 @@
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+/// One direct cross-feature import flagged by the rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Path of the `.ts`/`.tsx` that issued the bad import.
     pub source_file: PathBuf,
+    /// Feature whose frontend tree the import references.
     pub target_feature: String,
+    /// Feature that contains `source_file`.
     pub source_feature: String,
+    /// Verbatim import specifier as authored.
     pub import_specifier: String,
+    /// Pre-rendered diagnostic message.
     pub message: String,
 }
 
 impl Finding {
+    /// Stable doctor rule code surfaced to the user.
     pub const CODE: &'static str = "cross-feature-direct-import";
 
+    /// Build the canonical diagnostic message for the rule. Lives on
+    /// the impl so the walker can format the string before allocating
+    /// a `Finding`.
     pub fn message(
         source_file: &Path,
         source_feature: &str,
@@ -53,6 +63,15 @@ impl Finding {
 /// Walk feature roots, scan each `.tsx`/`.ts` for import statements
 /// that reference a sibling feature's frontend tree. Emit Finding per
 /// violation.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::doctor::folder::cross_feature_import::check;
+///
+/// // let findings = check(Path::new("."));
+/// ```
 pub fn check(root: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 

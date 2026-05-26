@@ -37,8 +37,10 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable doctor rule code surfaced to the user.
     pub const CODE: &'static str = "auth_password_algorithm_hash_mismatch_001";
 
+    /// Render the remediation message naming both authored algorithms.
     pub fn message(&self) -> String {
         format!(
             "auth.password.algorithm `{}` must match `@cap.Hashed(algorithm:{})` \
@@ -62,6 +64,16 @@ impl Finding {
 /// Same-feature resolution only: cross-feature `auth sessions resource X`
 /// where `X` lives in a feature this one `uses` is the integration
 /// pipeline's responsibility (see `doctor.rs::auth_diagnostics`).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_ir::Feature;
+/// use lazuli_cli::doctor::auth::auth_password_algorithm_hash_mismatch_001::check;
+///
+/// // let findings = check(&feature, Path::new("app.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let Some(auth) = feature.auth.as_ref() else {
         return Vec::new();

@@ -73,8 +73,11 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable doctor rule code surfaced to the user.
     pub const CODE: &'static str = "feature-orphan-component";
 
+    /// Render the remediation message naming the orphan path and the
+    /// 7+6 closed catalog of canonical destinations.
     pub fn message(path: &Path) -> String {
         format!(
             "`{}` is outside the canonical Lazurite frontend layout. \
@@ -105,6 +108,15 @@ impl Finding {
 ///
 /// Also skips test/story files via extension: `*.test.tsx`, `*.spec.tsx`,
 /// `*.stories.tsx`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::doctor::folder::feature_orphan::check;
+///
+/// // let findings = check(Path::new("."));
+/// ```
 pub fn check(root: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     for entry in LAZULI_OWNED_ROOTS {
