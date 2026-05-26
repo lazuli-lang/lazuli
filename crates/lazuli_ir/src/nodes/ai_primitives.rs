@@ -79,6 +79,10 @@ use crate::{
     RateLimitSpec, SpanRef, TargetExpr, TranslationKeyRef, TypeRef, TypedSlot,
 };
 
+/// Root IR node for an `agent <name> { … }` block — Lazuli's typed
+/// LLM-callable surface. Carries the inputs/outputs/model parameters,
+/// the policy + rate-limit decorators, declared safety validators,
+/// tool bindings, eval cases, and optional HTTP exposure.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Agent {
     pub name: String,
@@ -143,6 +147,10 @@ pub struct Agent {
     pub span_ref: Option<SpanRef>,
 }
 
+/// `expose http` block on an [`Agent`]. Auto-mounts the agent as an
+/// HTTP endpoint with the agent's policy / rate_limit / output applied
+/// at the gateway. Doctor cross-checks path conflicts + audience
+/// reachability; LSP catches local shape issues.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HttpExposure {
     pub method: HttpMethod,
@@ -211,6 +219,8 @@ pub struct Api {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Closed catalog of agent output shapes. Discriminates plain text vs
+/// streaming vs the two discriminated-value forms.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentOutputKind {
@@ -226,6 +236,9 @@ pub enum AgentOutputKind {
     DiscriminatedRecord,
 }
 
+/// Resolved target of an agent's discriminator output. `Enum` for
+/// `output discriminator <Enum>`; `RecordField` for `output <Record>`
+/// when the record carries a typed discriminator field.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum DiscriminatorRef {
@@ -241,6 +254,10 @@ pub enum DiscriminatorRef {
     },
 }
 
+/// One `tools` entry on an [`Agent`]. `reference` names the tool;
+/// the `resolved_*` slots are populated by the expand pass (effect,
+/// policy, PII classes) so doctor + codegen can reason about agent
+/// permissions cold.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolBinding {
     pub reference: QualifiedToolRef,
@@ -277,6 +294,9 @@ pub enum QualifiedToolRef {
     Adapter { dotted: Vec<String> },
 }
 
+/// Closed catalog of tool reference subkinds. Mirrors the authored
+/// prefix (`query.list`, `command`, `api`, ...). `QueryUnspecified` is
+/// the lowering placeholder before the analyzer resolves the target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolKind {
@@ -297,13 +317,21 @@ pub enum ToolKind {
     QueryUnspecified,
 }
 
+/// Closed catalog of tool side-effect classes. `Read` tools are
+/// safe to call repeatedly; `Write` tools mutate state and are gated
+/// by policy + audit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolEffect {
+    /// Read-only tool.
     Read,
+    /// State-mutating tool.
     Write,
 }
 
+/// One `evals.<name>` block inside an [`Agent`]. Carries the typed
+/// assertions and optional golden-file binding the runtime evaluator
+/// uses to score the agent's outputs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EvalCase {
     pub name: String,
@@ -318,6 +346,9 @@ pub struct EvalCase {
     pub span_ref: Option<SpanRef>,
 }
 
+/// `golden "./path.jsonl" min_score N` — points the eval at a
+/// golden-file dataset and pins the gate threshold. Resolution is
+/// runtime-side; the language stays out of the scoring algorithm.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GoldenSpec {
     /// File path captured verbatim. The runtime resolves it.
@@ -330,6 +361,9 @@ pub struct GoldenSpec {
     pub span_ref: Option<SpanRef>,
 }
 
+/// One `requires <pred>` / `forbids <pred>` assertion inside an
+/// [`EvalCase`]. The `kind` axis flips the polarity; `predicate` is
+/// the typed predicate sublanguage.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EvalAssertion {
     pub kind: EvalAssertionKind,
@@ -338,13 +372,22 @@ pub struct EvalAssertion {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Closed catalog flipping eval assertion polarity. `Requires` holds
+/// when the predicate is true; `Forbids` holds when it is false.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EvalAssertionKind {
+    /// `requires <pred>` — predicate must hold.
     Requires,
+    /// `forbids <pred>` — predicate must NOT hold.
     Forbids,
 }
 
+/// Typed predicate sublanguage admitted in [`EvalAssertion`]. The
+/// `Closed` variant reuses the read-side predicate catalog; the
+/// `Contains` / `ToolsCalls` variants cover eval-specific shapes;
+/// `Unparsed` is the lowering fallback for shapes the parser has not
+/// yet been taught.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum EvalPredicate {
@@ -367,6 +410,9 @@ pub enum EvalPredicate {
     Unparsed(String),
 }
 
+/// Closed catalog of right-hand-side shapes admitted in a `contains`
+/// eval predicate. `Literal` is the simple substring case; `SemanticType`
+/// dispatches the type's auto validator under `lazuli test --evals`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum EvalContainsRhs {
@@ -376,10 +422,14 @@ pub enum EvalContainsRhs {
     SemanticType(QualifiedName),
 }
 
+/// Closed catalog of `tools.calls <op> <ref>` operators. `Includes`
+/// asserts the agent did call the tool; `Excludes` asserts it didn't.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolsCallsOp {
+    /// Agent must have called this tool.
     Includes,
+    /// Agent must NOT have called this tool.
     Excludes,
 }
 
