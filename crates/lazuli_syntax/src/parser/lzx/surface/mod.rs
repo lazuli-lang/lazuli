@@ -247,5 +247,5 @@ fn parse_lzx_audience_block(
 }
 
 #[cfg(test)]
-#[path = "../surface_tests.rs"]
+#[path = "../surface_tests/mod.rs"]
 mod surface_tests;
