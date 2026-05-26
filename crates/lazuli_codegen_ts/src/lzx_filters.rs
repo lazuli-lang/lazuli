@@ -8,6 +8,21 @@ use std::collections::BTreeSet;
 use crate::lzx::{FilterCardinality, FilterDecl, Surface};
 
 /// Emit a `filters` return field backed by `useFilterState(...)`.
+///
+/// Returns an empty string when the view declares no filters — the
+/// caller's emitter knows to skip the trailing comma when this is
+/// empty.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::lzx_filters::emit_filters_block;
+/// use lazuli_codegen_ts::lzx::{FilterDecl, Surface};
+///
+/// let filters: Vec<FilterDecl> = vec![];
+/// let surface: Surface = /* … */ unimplemented!();
+/// assert_eq!(emit_filters_block(&filters, &surface), "");
+/// ```
 pub fn emit_filters_block(filters: &[FilterDecl], _surface: &Surface) -> String {
     if filters.is_empty() {
         return String::new();

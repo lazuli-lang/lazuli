@@ -107,6 +107,18 @@ pub(crate) fn banner() -> &'static str {
 /// prefix for `settings ... persist local` so two apps don't collide
 /// on the same view name (proposal §3.7). Empty string falls back to
 /// the feature name.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::lzx::emit_surface_views;
+/// use lazuli_codegen_ts::lzx::lzx_router_adapter::RouterTarget;
+/// use lazuli_ir::Surface;
+///
+/// let surface: Surface = /* … */ unimplemented!();
+/// let files = emit_surface_views(&surface, RouterTarget::ViteReact, "hostpoint");
+/// assert!(files.iter().all(|f| f.path.ends_with(".gen.ts")));
+/// ```
 pub fn emit_surface_views(
     surface: &Surface,
     router_target: RouterTarget,

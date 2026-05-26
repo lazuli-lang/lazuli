@@ -80,6 +80,16 @@ impl RouteGuardTarget {
 /// No-op contract: when no route/view/audience guard is declared and the app
 /// has no `route_guard` block, this returns an empty vec even if
 /// `actor_query` is set. That keeps existing projects byte-for-byte stable.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_ts::audience_sdk::route_guard::{
+///     emit_route_guard_artifacts, RouteGuardTarget,
+/// };
+/// let files = emit_route_guard_artifacts(None, &[], &[], &[], &[], RouteGuardTarget::Web);
+/// assert!(files.is_empty());
+/// ```
 pub fn emit_route_guard_artifacts(
     app: Option<&AppManifest>,
     routes: &[AppRoute],

@@ -35,6 +35,21 @@ use std::fmt::Write;
 use super::ir::Design;
 
 /// Emit `dist/ts-web/design/allowlist.json` for the given `Design`.
+///
+/// The JSON is rendered by hand (two-space indent, sorted keys) so the
+/// output stays deterministic and diff-friendly without dragging
+/// `serde_json` into the build for one file.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::design_allowlist::emit_allowlist_json;
+/// use lazuli_ir::Design;
+///
+/// let design: Design = /* … */ unimplemented!();
+/// let src = emit_allowlist_json(&design);
+/// assert!(src.starts_with('{'));
+/// ```
 pub fn emit_allowlist_json(design: &Design) -> String {
     // -------- color utilities --------
     let mut bg: Vec<String> = Vec::new();
