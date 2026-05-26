@@ -32,6 +32,9 @@ use super::feature_prelude::{
     take_matching_public_contract,
 };
 use super::helpers::take_quoted_string;
+use super::iron_hand_context::{
+    parse_feature_attach_ctx_line, parse_feature_non_goals_block, parse_feature_purpose_line,
+};
 use super::job::{parse_job, parse_tenant_migration};
 use super::mcp;
 use super::notification;
@@ -201,23 +204,7 @@ fn parse_feature_skeleton(
                     "feature may declare at most one `purpose` line",
                 ));
             }
-            let (text, tail) = take_quoted_string(rest.trim_start(), line).map_err(|_| {
-                line_error(
-                    line,
-                    "`purpose` requires a quoted string literal — e.g. \
-                     `purpose \"Discover and book lodging\"`",
-                )
-            })?;
-            if !tail.trim().is_empty() {
-                return Err(line_error(
-                    line,
-                    "`purpose` accepts exactly one quoted string and no trailing tokens",
-                ));
-            }
-            purpose = Some(crate::ast::LziFeaturePurpose {
-                text,
-                span: Span::new(line.start, line.end),
-            });
+            purpose = Some(parse_feature_purpose_line(line, rest)?);
             last_end = line.end;
             i += 1;
             continue;
@@ -250,120 +237,10 @@ fn parse_feature_skeleton(
                     "feature may declare at most one `non_goals` block",
                 ));
             }
-            let header_indent = line.indent;
-            let child_indent = header_indent + 2;
-            let grandchild_indent = child_indent + 2;
-            let block_start = line.start;
-            let mut block_end = line.end;
-            let mut entries: Vec<String> = Vec::new();
-            let mut j = i + 1;
-            while j < lines.len() {
-                let child = &lines[j];
-                let child_trim = child.text.trim_start();
-                if is_trivia(child_trim) {
-                    j += 1;
-                    continue;
-                }
-                if child.indent <= header_indent {
-                    break;
-                }
-                if child.indent != child_indent {
-                    return Err(line_error(
-                        child,
-                        "`non_goals` entries must be indented by exactly two spaces \
-                         beyond the `non_goals` header",
-                    ));
-                }
-                // Partitioned form: `delegated_to` / `out_of_scope`
-                // group header followed by `key: \"text\"` lines.
-                if child_trim == "delegated_to" || child_trim == "out_of_scope" {
-                    block_end = child.end;
-                    let mut k = j + 1;
-                    while k < lines.len() {
-                        let grand = &lines[k];
-                        let grand_trim = grand.text.trim_start();
-                        if is_trivia(grand_trim) {
-                            k += 1;
-                            continue;
-                        }
-                        if grand.indent <= child_indent {
-                            break;
-                        }
-                        if grand.indent != grandchild_indent {
-                            return Err(line_error(
-                                grand,
-                                "`non_goals` partition entries must be indented by exactly \
-                                 two spaces beyond their group header",
-                            ));
-                        }
-                        // Accept either `key: "text"` (the canonical
-                        // partitioned shape) or a bare `"text"` line.
-                        if let Some(colon_pos) = grand_trim.find(':') {
-                            let value_part = grand_trim[colon_pos + 1..].trim_start();
-                            let (text, tail) =
-                                take_quoted_string(value_part, grand).map_err(|_| {
-                                    line_error(
-                                        grand,
-                                        "`non_goals` partition entry value must be a quoted \
-                                         string — e.g. `customer_auth: \"customer login and MFA\"`",
-                                    )
-                                })?;
-                            if !tail.trim().is_empty() {
-                                return Err(line_error(
-                                    grand,
-                                    "`non_goals` partition entry accepts exactly one quoted \
-                                     string after `:`",
-                                ));
-                            }
-                            entries.push(text);
-                        } else {
-                            let (text, tail) =
-                                take_quoted_string(grand_trim, grand).map_err(|_| {
-                                    line_error(
-                                        grand,
-                                        "`non_goals` entries must be quoted strings or \
-                                         `<key>: \"<text>\"` pairs",
-                                    )
-                                })?;
-                            if !tail.trim().is_empty() {
-                                return Err(line_error(
-                                    grand,
-                                    "`non_goals` entries accept exactly one quoted string \
-                                     per line",
-                                ));
-                            }
-                            entries.push(text);
-                        }
-                        block_end = grand.end;
-                        k += 1;
-                    }
-                    j = k;
-                    continue;
-                }
-                // Flat form: bare quoted string at child indent.
-                let (text, tail) = take_quoted_string(child_trim, child).map_err(|_| {
-                    line_error(
-                        child,
-                        "`non_goals` entries must be quoted strings — e.g. \
-                         `  \"Full marketplace listing optimization\"`",
-                    )
-                })?;
-                if !tail.trim().is_empty() {
-                    return Err(line_error(
-                        child,
-                        "`non_goals` entries accept exactly one quoted string per line",
-                    ));
-                }
-                entries.push(text);
-                block_end = child.end;
-                j += 1;
-            }
-            non_goals = Some(crate::ast::LziFeatureNonGoals {
-                entries,
-                span: Span::new(block_start, block_end),
-            });
-            last_end = block_end;
-            i = j;
+            let (block, next) = parse_feature_non_goals_block(lines, i)?;
+            last_end = block.span.end;
+            non_goals = Some(block);
+            i = next;
             continue;
         }
 
@@ -378,23 +255,7 @@ fn parse_feature_skeleton(
                     "feature may declare at most one `attach_ctx` line",
                 ));
             }
-            let (path, tail) = take_quoted_string(rest.trim_start(), line).map_err(|_| {
-                line_error(
-                    line,
-                    "`attach_ctx` requires a quoted relative path — e.g. \
-                     `attach_ctx \"./ctx.md\"`",
-                )
-            })?;
-            if !tail.trim().is_empty() {
-                return Err(line_error(
-                    line,
-                    "`attach_ctx` accepts exactly one quoted path and no trailing tokens",
-                ));
-            }
-            attach_ctx = Some(crate::ast::LziFeatureAttachCtx {
-                path,
-                span: Span::new(line.start, line.end),
-            });
+            attach_ctx = Some(parse_feature_attach_ctx_line(line, rest)?);
             last_end = line.end;
             i += 1;
             continue;
