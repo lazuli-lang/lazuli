@@ -19,12 +19,18 @@ use super::printer::GoPrinter;
 const LAZULI_RUNTIME_PREFIX: &str = "lazuli.dev/runtime/";
 
 /// Accumulates Go import paths into three sorted, dedup'd buckets.
+///
 /// Cheap to construct; the emitter usually creates one per generated
-/// file and finalises it before writing the file body.
+/// file and finalises it before writing the file body. All buckets use
+/// `BTreeSet`/`BTreeMap` so the rendered block is alphabetically sorted
+/// and byte-equivalent across runs (proposal §2.4 determinism).
 #[derive(Debug, Default, Clone)]
 pub struct ImportSet {
+    /// Standard library paths (no `.` in the first segment).
     stdlib: BTreeSet<String>,
+    /// Paths under `lazuli.dev/runtime/`.
     lazuli: BTreeSet<String>,
+    /// Everything else (`github.com/...`, `golang.org/x/...`, etc.).
     third_party: BTreeSet<String>,
     /// Explicitly-aliased third-party imports — emitted as
     /// `alias "path"`. Used when the path's last segment is not a
@@ -34,6 +40,14 @@ pub struct ImportSet {
 }
 
 impl ImportSet {
+    /// Construct an empty accumulator.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_codegen_go::emitter::imports::ImportSet;
+    /// assert!(ImportSet::new().is_empty());
+    /// ```
     pub fn new() -> Self {
         Self::default()
     }
@@ -45,6 +59,16 @@ impl ImportSet {
     /// - lazuli: starts with `lazuli.dev/runtime/`
     /// - third_party: everything else (includes `github.com/...`,
     ///   `golang.org/x/...`, `cloud.google.com/...`)
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_codegen_go::emitter::imports::ImportSet;
+    /// let mut s = ImportSet::new();
+    /// s.add("time");
+    /// s.add("lazuli.dev/runtime/lazuli");
+    /// assert!(!s.is_empty());
+    /// ```
     pub fn add(&mut self, path: &str) {
         if path.is_empty() {
             return;
@@ -66,6 +90,15 @@ impl ImportSet {
     /// + path collapse; adds with the same alias but a different
     /// path are unsupported (the second silently overwrites — caller
     /// must avoid alias collisions).
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_codegen_go::emitter::imports::ImportSet;
+    /// let mut s = ImportSet::new();
+    /// s.add_aliased("scalarsbr", "lazuli.dev/plugin/scalars-br");
+    /// assert!(!s.is_empty());
+    /// ```
     pub fn add_aliased(&mut self, alias: &str, path: &str) {
         if alias.is_empty() || path.is_empty() {
             return;
@@ -77,6 +110,13 @@ impl ImportSet {
     /// `true` when no imports are queued. The emitter uses this to
     /// skip emitting an empty `import ()` block (which `gofmt` would
     /// remove).
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_codegen_go::emitter::imports::ImportSet;
+    /// assert!(ImportSet::new().is_empty());
+    /// ```
     pub fn is_empty(&self) -> bool {
         self.stdlib.is_empty()
             && self.lazuli.is_empty()
@@ -88,6 +128,18 @@ impl ImportSet {
     /// single blank line; entries inside each group are
     /// alphabetically sorted (the `BTreeSet` guarantees that for
     /// free).
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_codegen_go::emitter::imports::ImportSet;
+    /// use lazuli_codegen_go::emitter::printer::GoPrinter;
+    /// let mut s = ImportSet::new();
+    /// s.add("time");
+    /// let mut p = GoPrinter::new();
+    /// s.emit(&mut p);
+    /// assert!(p.finish().contains("import ("));
+    /// ```
     pub fn emit(&self, p: &mut GoPrinter) {
         if self.is_empty() {
             return;

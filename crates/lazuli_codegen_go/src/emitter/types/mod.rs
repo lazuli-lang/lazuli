@@ -64,6 +64,13 @@ pub struct TypeCtx<'a> {
 /// rest of the closed catalog still produces a single owned `String`
 /// for the type and either `None` or a known runtime path; the heap
 /// cost is one short allocation per field, paid only at codegen time.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let (go, import) = go_type_for(&type_ref, &ctx);
+/// // FK columns resolve to "lazuli.ID"; builtins to their Go counterpart.
+/// ```
 pub fn go_type_for(ty: &TypeRef, ctx: &TypeCtx) -> (String, Option<String>) {
     match ty {
         TypeRef::Builtin(builtin) => {
@@ -106,6 +113,13 @@ pub fn go_type_for(ty: &TypeRef, ctx: &TypeCtx) -> (String, Option<String>) {
 ///
 /// Mirrors `query.rs`'s `resource_type = pascal_case(&r.name)` path for
 /// `Query[A, R]` — both axes carry the typed row.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let (go, import) = go_return_type_for(&return_ty, &ctx);
+/// // Resource return positions resolve to the full struct shape, not lazuli.ID.
+/// ```
 pub fn go_return_type_for(ty: &TypeRef, ctx: &TypeCtx) -> (String, Option<String>) {
     match ty {
         TypeRef::Builtin(builtin) => {

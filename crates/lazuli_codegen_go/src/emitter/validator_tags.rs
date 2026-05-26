@@ -30,6 +30,13 @@ use lazuli_ir::FieldConstraints;
 /// constraints + required flag. Returns the empty string when no
 /// constraint is set AND `required` is false; the caller can then
 /// elide the entire `validate:` slot.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let body = validator_tag_body(&constraints, true);
+/// // body starts with "required" when the flag is set.
+/// ```
 pub fn validator_tag_body(constraints: &FieldConstraints, required: bool) -> String {
     let mut parts: Vec<String> = Vec::new();
     if required {
