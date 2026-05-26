@@ -26,6 +26,7 @@ use object_lex::{fixture_keys_for_plugin, load_package_json};
 const WORKSPACE_MANIFEST: &str = "Lazurite.toml";
 const LEGACY_WORKSPACE_MANIFEST: &str = "lazurite.toml";
 const PLUGIN_MANIFEST: &str = "manifest.toml";
+#[cfg(test)]
 const PACKAGE_JSON: &str = "package.json";
 const FIXTURES_EXPORT: &str = "./fixtures";
 
