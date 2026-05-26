@@ -13,9 +13,14 @@ use lazuli_ir::{Feature, SpanRef};
 
 use super::catalogs::has_policy_denied_catchall;
 
+/// One ERR-VOCAB-001 finding — feature declares `policies` but no
+/// category authors `when_denied` AND there's no feature-level
+/// `errors policy_denied` catch-all, so denials emit framework text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PoliciesNoWhenDeniedFinding {
+    /// Source `.lzi` file the offending feature lives in.
     pub path: PathBuf,
+    /// Feature owning the `policies` block.
     pub feature: String,
     /// 1-based source line of the `policies` header; `None` when the
     /// feature carries no span (programmatic construction).
@@ -23,8 +28,26 @@ pub struct PoliciesNoWhenDeniedFinding {
 }
 
 impl PoliciesNoWhenDeniedFinding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "ERR-VOCAB-001";
 
+    /// Render the "built-in PT-BR/en-US fallback" message and prompt
+    /// the author to author `when_denied @translation.<key>` per
+    /// policy or a feature-level `policy_denied` catch-all.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::error_vocab::error_vocab::rule_policies_no_when_denied::PoliciesNoWhenDeniedFinding;
+    ///
+    /// let f = PoliciesNoWhenDeniedFinding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     feature: "billing".into(),
+    ///     policies_span: None,
+    /// };
+    /// assert!(f.message().contains("when_denied"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "feature `{}` declares policies but no `when_denied` overrides. Commands gated by \
@@ -44,6 +67,17 @@ impl PoliciesNoWhenDeniedFinding {
 /// 2. No named policy in that block has `when_denied`,
 /// 3. The feature has no `errors policy_denied message @translation.<key>`
 ///    catch-all (`feature.errors.messages` contains no `code == "policy_denied"`).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::error_vocab::error_vocab::rule_policies_no_when_denied::check_policies_no_when_denied;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with `policies`");
+/// let _ = check_policies_no_when_denied(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check_policies_no_when_denied(
     feature: &Feature,
     path: &Path,
@@ -77,4 +111,27 @@ pub fn check_policies_no_when_denied(
         feature: feature.name.clone(),
         policies_span: feature.policies.span_ref,
     }]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finding_code_is_stable() {
+        assert_eq!(PoliciesNoWhenDeniedFinding::CODE, "ERR-VOCAB-001");
+    }
+
+    #[test]
+    fn message_names_feature_and_canonical_fixes() {
+        let f = PoliciesNoWhenDeniedFinding {
+            path: PathBuf::from("billing.lzi"),
+            feature: "billing".to_owned(),
+            policies_span: None,
+        };
+        let msg = f.message();
+        assert!(msg.contains("billing"));
+        assert!(msg.contains("when_denied"));
+        assert!(msg.contains("policy_denied"));
+    }
 }
