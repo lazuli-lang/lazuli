@@ -8,17 +8,43 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::Feature;
 
+/// One POLLER-IDEMPOTENCY-ATTEMPTS-MISSING-001 finding — a poller's
+/// `idempotency by` segments don't include `row.attempts`. Conditional
+/// UPDATE crash-recovery relies on the attempts counter being part of
+/// the idempotency key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the poller was authored in.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
+    /// Poller missing `row.attempts` from its idempotency key.
     pub poller: String,
+    /// Current segments of the `idempotency by` block.
     pub keys: Vec<String>,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "POLLER-IDEMPOTENCY-ATTEMPTS-MISSING-001";
 
+    /// Render the "idempotency missing row.attempts" message, naming
+    /// the poller and listing the current keys.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::poller::idempotency_attempts_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("messages.lzi"),
+    ///     feature: "messages".into(),
+    ///     poller: "deliver_pending".into(),
+    ///     keys: vec!["row.id".into()],
+    /// };
+    /// assert!(f.message().contains("row.attempts"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "{}: poller '{}' idempotency keys must include 'row.attempts' for conditional UPDATE crash-recovery; current keys: [{}].",
@@ -29,6 +55,20 @@ impl Finding {
     }
 }
 
+/// Walk every poller in `feature` and emit a finding for each whose
+/// `idempotency by` segments are non-empty but lack a `row.attempts`
+/// (or `attempts`) entry.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::poller::idempotency_attempts_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a poller idempotency missing row.attempts");
+/// let _ = check(&feature, Path::new("messages.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     feature
         .pollers

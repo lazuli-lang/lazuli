@@ -12,21 +12,52 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{BuiltinType, Feature, Poller, Resource, TypeRef};
 
+/// Stable diagnostic code emitted with every finding from this rule.
 pub const CODE: &str = "POLLER-CURSOR-FIELD-TYPE-001";
 
+/// One POLLER-CURSOR-FIELD-TYPE-001 finding — a poller's
+/// `cursor.eligible_when` field is declared with a type other than
+/// `DateTime`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the poller was authored in.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
+    /// Poller carrying the offending cursor reference.
     pub poller: String,
+    /// Resource the poller reads from (`source`).
     pub source: String,
+    /// Cursor field the poller references.
     pub field: String,
+    /// Debug name of the actual type the field carries.
     pub found: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding (alias of the
+    /// module-level [`CODE`]).
     pub const CODE: &'static str = CODE;
 
+    /// Render the "cursor field must be DateTime" message, naming the
+    /// poller, field, and the actual type that was found.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::poller::cursor_field_type_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("messages.lzi"),
+    ///     feature: "messages".into(),
+    ///     poller: "deliver_pending".into(),
+    ///     source: "Message".into(),
+    ///     field: "send_at".into(),
+    ///     found: "Text".into(),
+    /// };
+    /// assert!(f.message().contains("DateTime"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "{}: poller '{}' cursor.eligible_when field '{}' must be DateTime; found {}.",
@@ -38,6 +69,21 @@ impl Finding {
     }
 }
 
+/// Walk every poller in `feature` and emit a finding for each
+/// `cursor.eligible_when` reference whose target field on the source
+/// resource is not `DateTime`. Pollers with cross-feature / unknown
+/// sources are skipped (handled by sibling poller-source rules).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::poller::cursor_field_type_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a poller cursor on a Text field");
+/// let _ = check(&feature, Path::new("messages.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     for poller in &feature.pollers {

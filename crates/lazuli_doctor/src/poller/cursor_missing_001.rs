@@ -8,18 +8,47 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::Feature;
 
+/// One POLLER-CURSOR-MISSING-001 finding — the source resource is
+/// missing one or more fields the poller's cursor block references.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the poller was authored in.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
+    /// Poller whose cursor block has dangling field refs.
     pub poller: String,
+    /// Source resource that lacks the fields.
     pub source: String,
+    /// Names of the missing fields (subset of
+    /// `next_at_field` / `resolved_at_field` / `attempts_field`).
     pub missing: Vec<String>,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "POLLER-CURSOR-MISSING-001";
 
+    /// Render the "cursor refs missing on source" message, naming the
+    /// poller, missing fields, and the source resource. The text
+    /// includes canonical scaffolds (`next_check_at: DateTime required`,
+    /// ...) so authors can paste them.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::poller::cursor_missing_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("messages.lzi"),
+    ///     feature: "messages".into(),
+    ///     poller: "deliver_pending".into(),
+    ///     source: "Message".into(),
+    ///     missing: vec!["next_check_at".into()],
+    /// };
+    /// assert!(f.message().contains("next_check_at"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "poller `{}` cursor references field(s) `{}` not present on `{}` — declare them on the source resource (`next_check_at: DateTime required`, `resolved_at: DateTime`, `attempts: Integer = 0`)",
@@ -30,6 +59,21 @@ impl Finding {
     }
 }
 
+/// Walk every poller in `feature` and emit a finding for each whose
+/// cursor block references fields the source resource doesn't declare.
+/// Cross-feature / unknown sources are skipped (handled by sibling
+/// `POLLER-SOURCE-CROSS-FEATURE-001`).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::poller::cursor_missing_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a poller missing next_check_at on source");
+/// let _ = check(&feature, Path::new("messages.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     for poller in &feature.pollers {

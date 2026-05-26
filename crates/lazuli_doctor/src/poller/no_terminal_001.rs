@@ -7,16 +7,39 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Feature, PollerStateKind};
 
+/// One POLLER-NO-TERMINAL-001 finding — a poller's `states` block
+/// has no entry marked `terminal`, so the runtime can never freeze
+/// resolved rows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the poller was authored in.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
+    /// Poller missing the terminal state.
     pub poller: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "POLLER-NO-TERMINAL-001";
 
+    /// Render the "poller has no terminal state" message, naming the
+    /// poller.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::poller::no_terminal_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("messages.lzi"),
+    ///     feature: "messages".into(),
+    ///     poller: "deliver_pending".into(),
+    /// };
+    /// assert!(f.message().contains("terminal"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "poller `{}` declares no `terminal` state — at least one state must be marked `terminal` so the runtime can freeze resolved rows",
@@ -25,6 +48,19 @@ impl Finding {
     }
 }
 
+/// Walk every poller in `feature` and emit a finding for each whose
+/// `states` block has no `PollerStateKind::Terminal` entry.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::poller::no_terminal_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a poller lacking a terminal state");
+/// let _ = check(&feature, Path::new("messages.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     feature
         .pollers

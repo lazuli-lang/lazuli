@@ -15,17 +15,43 @@ use lazuli_ir::Feature;
 
 const SANITY_CAP: u32 = 1000;
 
+/// One POLLER-MAX-RETRIES-UNBOUNDED-001 finding — a poller's
+/// `retry max_attempts` is either zero (never resolves) or above the
+/// sanity cap (effectively unbounded).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the poller was authored in.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
+    /// Poller carrying the suspect max-attempts value.
     pub poller: String,
+    /// The actual `max_attempts` value (`0` or above the sanity cap).
     pub max_attempts: u32,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "POLLER-MAX-RETRIES-UNBOUNDED-001";
 
+    /// Render the "max_attempts out of band" message — branches
+    /// between the zero footgun and the "above sanity cap" case so the
+    /// remediation is tailored.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::poller::max_retries_unbounded_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("messages.lzi"),
+    ///     feature: "messages".into(),
+    ///     poller: "deliver_pending".into(),
+    ///     max_attempts: 0,
+    /// };
+    /// assert!(f.message().contains("never resolves"));
+    /// ```
     pub fn message(&self) -> String {
         if self.max_attempts == 0 {
             format!(
@@ -41,6 +67,19 @@ impl Finding {
     }
 }
 
+/// Walk every poller in `feature` and emit a finding for each whose
+/// `retry.max_attempts` is `0` or greater than the sanity cap.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::poller::max_retries_unbounded_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a poller carrying max_attempts 0");
+/// let _ = check(&feature, Path::new("messages.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     feature
         .pollers
