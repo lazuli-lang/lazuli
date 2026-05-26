@@ -113,3 +113,138 @@ fn parse_agent_expose_route_slot(
         span: Span::new(line.start, line.end),
     })
 }
+
+#[cfg(test)]
+mod expose_tests {
+    use super::super::super::parse_feature_skeletons;
+    use crate::HttpMethod;
+
+    #[test]
+    fn agent_with_expose_http_minimal_parses() {
+        let source = r#"
+feature customer
+  agent summarize
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+    expose http
+      method POST
+      path "/api/customers/:id/summary"
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let agent = &features[0].agents[0];
+        let expose = agent.expose.as_ref().expect("expose");
+        assert_eq!(expose.method, HttpMethod::Post);
+        assert_eq!(expose.path, "/api/customers/:id/summary");
+    }
+
+    #[test]
+    fn agent_with_expose_http_full_parses() {
+        let source = r#"
+feature customer
+  agent summarize
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+    expose http
+      method POST
+      path "/api/customers/:customer_id/summary"
+      route customer_id: Customer.ID
+      audience admin
+      rate_limit "5 per minute per user"
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let expose = features[0].agents[0].expose.as_ref().expect("expose");
+        assert_eq!(expose.route_slots.len(), 1);
+        assert_eq!(expose.route_slots[0].name, "customer_id");
+        assert_eq!(expose.route_slots[0].type_text, "Customer.ID");
+        assert_eq!(expose.audience.as_deref(), Some("admin"));
+        assert_eq!(
+            expose.rate_limit_override.as_deref(),
+            Some("5 per minute per user")
+        );
+    }
+
+    #[test]
+    fn agent_rejects_unknown_method_in_expose() {
+        let source = r#"
+feature customer
+  agent broken
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+    expose http
+      method FROBNICATE
+      path "/x"
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(
+            err.to_string().contains("method"),
+            "error should mention method: {err}"
+        );
+    }
+
+    #[test]
+    fn agent_rejects_expose_http_without_method() {
+        let source = r#"
+feature customer
+  agent broken
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+    expose http
+      path "/x"
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(
+            err.to_string().contains("method"),
+            "error should require method: {err}"
+        );
+    }
+
+    #[test]
+    fn agent_rejects_expose_http_without_path() {
+        let source = r#"
+feature customer
+  agent broken
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+    expose http
+      method POST
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(
+            err.to_string().contains("path"),
+            "error should require path: {err}"
+        );
+    }
+
+    #[test]
+    fn agent_rejects_duplicate_expose_http_blocks() {
+        let source = r#"
+feature customer
+  agent broken
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./p.md"
+    expose http
+      method POST
+      path "/a"
+    expose http
+      method GET
+      path "/b"
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(
+            err.to_string().contains("at most one"),
+            "error should mention duplicate: {err}"
+        );
+    }
+}

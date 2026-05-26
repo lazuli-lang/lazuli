@@ -286,3 +286,139 @@ fn parse_contains_rhs(line: &SourceLine<'_>, rhs: &str) -> Result<ContainsRhs, P
         "`contains` rhs must be a quoted string literal or a `@semantic.<Type>` reference",
     ))
 }
+
+#[cfg(test)]
+mod evals_tests {
+    use super::super::super::parse_feature_skeletons;
+    use crate::{AgentEvalKind, AgentEvalPredicate, ContainsRhs, ToolsCallsOp};
+
+    #[test]
+    fn agent_with_evals_parses() {
+        let source = r#"
+feature customer
+  agent summarize_customer
+    input
+      customer_id: Customer.ID required
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    temperature 0
+    seed 1
+    prompt "./prompts/summarize.md"
+    evals
+      case short_for_active
+        requires customer.lifecycle_stage = active
+        requires output contains "active"
+
+      case redacts_email
+        requires customer.email = "ada@example.com"
+        forbids output contains @semantic.Email
+
+      case uses_lookup_when_id_known
+        requires input.customer_id = "cus_123"
+        requires tools.calls includes customer.query.by_id
+"#;
+
+        let features = parse_feature_skeletons(source).unwrap();
+        let agent = &features[0].agents[0];
+
+        assert_eq!(agent.temperature, Some(0.0));
+        assert_eq!(agent.seed, Some(1));
+        assert_eq!(agent.evals.len(), 3);
+
+        let case0 = &agent.evals[0];
+        assert_eq!(case0.name, "short_for_active");
+        assert_eq!(case0.assertions.len(), 2);
+        assert_eq!(case0.assertions[0].kind, AgentEvalKind::Requires);
+        match &case0.assertions[1].predicate {
+            AgentEvalPredicate::Contains { lhs, rhs } => {
+                assert_eq!(lhs, "output");
+                assert_eq!(rhs, &ContainsRhs::Literal("active".to_owned()));
+            }
+            other => panic!("expected Contains, got {other:?}"),
+        }
+
+        let case1 = &agent.evals[1];
+        assert_eq!(case1.name, "redacts_email");
+        assert_eq!(case1.assertions[1].kind, AgentEvalKind::Forbids);
+        match &case1.assertions[1].predicate {
+            AgentEvalPredicate::Contains { lhs, rhs } => {
+                assert_eq!(lhs, "output");
+                assert_eq!(
+                    rhs,
+                    &ContainsRhs::SemanticType("@semantic.Email".to_owned())
+                );
+            }
+            other => panic!("expected SemanticType Contains, got {other:?}"),
+        }
+
+        let case2 = &agent.evals[2];
+        assert_eq!(case2.name, "uses_lookup_when_id_known");
+        match &case2.assertions[1].predicate {
+            AgentEvalPredicate::ToolsCalls { op, target } => {
+                assert_eq!(*op, ToolsCallsOp::Includes);
+                assert_eq!(target, "customer.query.by_id");
+            }
+            other => panic!("expected ToolsCalls, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn agent_with_golden_eval_parses() {
+        let source = r#"
+feature customer
+  agent summarize
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    temperature 0
+    seed 1
+    prompt "./p.md"
+    evals
+      case golden_quality
+        requires output contains "active"
+        golden "./evals/summarize.jsonl" min_score 0.85
+
+      case golden_only
+        golden "./evals/summarize_minimal.jsonl"
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let evals = &features[0].agents[0].evals;
+        assert_eq!(evals.len(), 2);
+
+        let g0 = evals[0].golden.as_ref().expect("golden 0");
+        assert_eq!(g0.path, "./evals/summarize.jsonl");
+        assert_eq!(g0.min_score, Some(0.85));
+
+        let g1 = evals[1].golden.as_ref().expect("golden 1");
+        assert_eq!(g1.path, "./evals/summarize_minimal.jsonl");
+        assert!(g1.min_score.is_none());
+        assert!(
+            evals[1].assertions.is_empty(),
+            "case with only golden has zero assertions"
+        );
+    }
+
+    #[test]
+    fn agent_golden_rejects_out_of_range_score() {
+        let source = r#"
+feature customer
+  agent flaky
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    temperature 0
+    seed 1
+    prompt "./p.md"
+    evals
+      case bad
+        requires output contains "ok"
+        golden "./x.jsonl" min_score 1.5
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(
+            err.to_string().contains("0.0..=1.0"),
+            "error should reject out-of-range min_score: {err}"
+        );
+    }
+}

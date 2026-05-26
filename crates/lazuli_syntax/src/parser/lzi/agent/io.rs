@@ -177,3 +177,136 @@ pub(super) fn parse_agent_tools(
 
     Ok((tools, i))
 }
+
+#[cfg(test)]
+mod io_tests {
+    use super::super::super::parse_feature_skeletons;
+    use crate::AgentOutput;
+
+    #[test]
+    fn agent_with_tools_block_parses() {
+        let source = r#"
+feature customer
+  agent triage_customer
+    input
+      message: Text required
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./prompts/triage.md"
+    tools
+      customer.query.by_id
+      customer.query.list
+      @tool.web_search
+"#;
+
+        let features = parse_feature_skeletons(source).unwrap();
+        assert_eq!(features.len(), 1);
+        assert_eq!(features[0].name, "customer");
+        assert_eq!(features[0].agents.len(), 1);
+
+        let agent = &features[0].agents[0];
+        assert_eq!(agent.name, "triage_customer");
+        assert_eq!(agent.input.len(), 1);
+        assert_eq!(agent.input[0].name, "message");
+        assert_eq!(agent.input[0].type_text, "Text");
+        assert!(agent.input[0].required);
+        assert_eq!(
+            agent.policy.as_deref(),
+            Some(&["@policy.read".to_owned()][..])
+        );
+        assert_eq!(agent.model.as_deref(), Some("@llm.default"));
+        assert_eq!(agent.prompt.as_deref(), Some("./prompts/triage.md"));
+        assert_eq!(agent.output, Some(AgentOutput::Stream("Text".to_owned())));
+        assert_eq!(agent.tools.len(), 3);
+        assert_eq!(agent.tools[0].reference, "customer.query.by_id");
+        assert_eq!(agent.tools[1].reference, "customer.query.list");
+        assert_eq!(agent.tools[2].reference, "@tool.web_search");
+    }
+
+    #[test]
+    fn agent_with_discriminator_output_parses() {
+        let source = r#"
+feature customer_support
+  agent classify_intent
+    input
+      message: Text required
+    policy @policy.read
+    output discriminator Intent
+    model @llm.classifier
+    temperature 0
+    seed 42
+    prompt "./prompts/classify_intent.md"
+"#;
+
+        let features = parse_feature_skeletons(source).unwrap();
+        let agent = &features[0].agents[0];
+        assert_eq!(
+            agent.output,
+            Some(AgentOutput::Discriminator("Intent".to_owned()))
+        );
+    }
+
+    #[test]
+    fn agent_with_discriminated_record_output_parses() {
+        // The parser sees `output Action` as a bare type reference and emits
+        // `Plain`. Lowering disambiguates record-with-discriminator vs Text.
+        let source = r#"
+feature customer
+  agent extract_action
+    input
+      message: Text required
+    policy @policy.read
+    output Action
+    model @llm.default
+    prompt "./prompts/extract.md"
+"#;
+
+        let features = parse_feature_skeletons(source).unwrap();
+        let agent = &features[0].agents[0];
+        assert_eq!(agent.output, Some(AgentOutput::Plain("Action".to_owned())));
+    }
+
+    #[test]
+    fn agent_rejects_unknown_output_kind() {
+        let source = r#"
+feature customer
+  agent bad_output
+    input
+      message: Text required
+    policy @policy.read
+    output stream discriminator Intent
+    model @llm.default
+    prompt "./prompts/x.md"
+"#;
+
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(
+            err.to_string().contains("output stream"),
+            "error should mention `output stream` mis-shape: {err}"
+        );
+    }
+
+    #[test]
+    fn agent_input_optional_slot_parses() {
+        let source = r#"
+feature customer
+  agent triage
+    input
+      message: Text required
+      hint: Text optional
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    prompt "./prompts/triage.md"
+"#;
+
+        let features = parse_feature_skeletons(source).unwrap();
+        let agent = &features[0].agents[0];
+        assert_eq!(agent.input.len(), 2);
+        assert!(agent.input[0].required);
+        assert!(!agent.input[0].optional);
+        assert!(!agent.input[1].required);
+        assert!(agent.input[1].optional);
+    }
+}
