@@ -30,24 +30,37 @@ pub struct PlanBlockAst {
     pub span: Span,
 }
 
+/// One `features <ref>` entry inside a [`PlanBlockAst`]. `Ident` is the
+/// local form (`feature.foo`); `CrossPlan` references `<other_plan>.<feature>`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum PlanFeatureRefAst {
+    /// `features foo` — local feature reference.
     Ident(String),
+    /// `features other_plan.foo` — cross-plan reference (verbatim text).
     CrossPlan(String),
 }
 
+/// One `limits <name> = <value>` entry inside a [`PlanBlockAst`].
+/// Three closed shapes covering integer caps, the `unlimited` keyword,
+/// and cross-plan references.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum PlanLimitRefAst {
+    /// `limits seats = 5` — closed integer cap.
     Integer { name: String, value: u64 },
+    /// `limits seats = unlimited` — uncapped sentinel.
     Unlimited { name: String },
+    /// `limits other_plan.seats` — cross-plan reference verbatim.
     CrossPlan(String),
 }
 
+/// `trial <duration> then <plan>` clause on a [`PlanBlockAst`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlanTrialAst {
+    /// `<duration>` verbatim (e.g. `14d`).
     pub duration: String,
+    /// `then <plan>` — target plan once the trial expires.
     pub then_plan: String,
     pub span: Span,
 }
@@ -56,11 +69,26 @@ pub struct PlanTrialAst {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum GateDirectiveAst {
+    /// `gate behind plan.<feature>` — opt-in gating by plan feature flag.
     Behind { feature: String, span: Span },
+    /// `gate quota plan.<limit>` — quota cap referencing a plan limit.
     Quota { limit: String, span: Span },
 }
 
 impl GateDirectiveAst {
+    /// Source span of the gate line — used by doctor + LSP diagnostics.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_syntax::{GateDirectiveAst, Span};
+    ///
+    /// let g = GateDirectiveAst::Behind {
+    ///     feature: "premium".into(),
+    ///     span: Span::new(120, 145),
+    /// };
+    /// assert_eq!(g.span().start, 120);
+    /// ```
     pub fn span(&self) -> Span {
         match self {
             GateDirectiveAst::Behind { span, .. } => *span,
@@ -82,4 +110,26 @@ pub struct FeatureGatesAst {
     /// `query.sql:<name>`. The qualified-callable key is what doctor
     /// and codegen consume.
     pub callables: std::collections::BTreeMap<String, Vec<GateDirectiveAst>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plan_feature_ref_ident_serde_tagged() {
+        let r = PlanFeatureRefAst::Ident("foo".into());
+        let v = serde_json::to_value(&r).unwrap();
+        assert_eq!(v["kind"], "Ident");
+        assert_eq!(v["value"], "foo");
+    }
+
+    #[test]
+    fn gate_directive_span_dispatches_per_variant() {
+        let g = GateDirectiveAst::Quota {
+            limit: "seats".into(),
+            span: Span::new(10, 20),
+        };
+        assert_eq!(g.span(), Span::new(10, 20));
+    }
 }

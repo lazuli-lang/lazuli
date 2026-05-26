@@ -68,10 +68,14 @@ pub struct SurfaceAst {
     pub span: Span,
 }
 
+/// `surface <feature> web|mobile` target catalog. Closed; adding a
+/// target is an IR + codegen change requiring a proposal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SurfaceTargetAst {
+    /// `surface <feature> web` — React / web target.
     Web,
+    /// `surface <feature> mobile` — React Native / Expo target.
     Mobile,
 }
 
@@ -96,6 +100,33 @@ pub enum ViewAst {
 }
 
 impl ViewAst {
+    /// The view name, irrespective of variant.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_syntax::{ViewAst, ViewListAst, Span};
+    ///
+    /// let v = ViewAst::List(ViewListAst {
+    ///     name: "customers".into(),
+    ///     route: None,
+    ///     source: "customer.query.list".into(),
+    ///     columns: vec![],
+    ///     search: None,
+    ///     filter: vec![],
+    ///     filters: vec![],
+    ///     cells_slot: None,
+    ///     cells: vec![],
+    ///     drawer: None,
+    ///     sort: None,
+    ///     selection: None,
+    ///     settings: vec![],
+    ///     actions: vec![],
+    ///     redacted_fields: vec![],
+    ///     span: Span::new(0, 0),
+    /// });
+    /// assert_eq!(v.name(), "customers");
+    /// ```
     pub fn name(&self) -> &str {
         match self {
             ViewAst::List(v) => &v.name,
@@ -105,6 +136,9 @@ impl ViewAst {
     }
 }
 
+/// `view list <name>` — paginated/filterable collection view. Carries
+/// the full surface for list-style screens (columns, filters, search,
+/// sort, selection, settings, drawer, cells, actions).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ViewListAst {
     pub name: String,
@@ -134,21 +168,30 @@ pub struct ViewListAst {
     pub span: Span,
 }
 
+/// `search` block inside a [`ViewListAst`] — declares the search input
+/// surface and its binding into the underlying query.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchDeclAst {
     pub mode: SearchModeAst,
     pub fields: Vec<SearchFieldAst>,
+    /// Optional free-text bind target (e.g. when one field acts as the
+    /// catch-all input). `None` when only typed `fields` are authored.
     pub free_text_target: Option<BindingRefAst>,
     pub span: Span,
 }
 
+/// `search` mode catalog — `columns name, email, ...` (closed list) or
+/// `segmented` (UI-driven facet selector).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum SearchModeAst {
+    /// `columns <list>` mode — typed column projection.
     Columns(Vec<String>),
+    /// `segmented` mode — UI-driven facet picker.
     Segmented,
 }
 
+/// One typed `<key> binds_to <ref>` row inside [`SearchDeclAst`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchFieldAst {
     pub key: String,
@@ -156,14 +199,20 @@ pub struct SearchFieldAst {
     pub span: Span,
 }
 
+/// Where a filter / search input binds — one of the view's named
+/// filters, a source-query input, or the selection scalar.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum BindingRefAst {
+    /// Bind into a named filter declared via [`FilterDeclAst`].
     Filter { name: String },
+    /// Bind into one of the source query's typed `params` slots.
     SourceInput { name: String },
+    /// Bind into the row-selection scalar (single-select id).
     SelectionScalar,
 }
 
+/// `view detail <name>` — single-row detail screen driven by a lookup.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ViewDetailAst {
     pub name: String,
@@ -179,6 +228,8 @@ pub struct ViewDetailAst {
     pub span: Span,
 }
 
+/// `view create <name>` — submit-driven create screen with optional
+/// `on_success` orchestration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ViewCreateAst {
     pub name: String,
@@ -196,23 +247,36 @@ pub struct ViewCreateAst {
     pub span: Span,
 }
 
+/// `on_success` sub-block on a [`ViewCreateAst`] — post-submit
+/// orchestration (back / redirect / flash / invalidates / replace).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OnSuccessSpecAst {
+    /// `back` flag — pop the route stack after submit.
     pub back: bool,
+    /// `redirect "<path>"` — explicit redirect target.
     pub redirect: Option<String>,
+    /// `flash` toast specification.
     pub flash: Option<FlashSpecAst>,
+    /// `invalidates query.<name>` references to bust after submit.
     pub invalidates: Vec<InvalidatesDecl>,
+    /// `replace` flag — when redirecting, use `history.replaceState`.
     pub replace: bool,
     pub span: Span,
 }
 
+/// `flash <kind> @translation.<key>` toast specification used by
+/// [`OnSuccessSpecAst`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlashSpecAst {
+    /// Flash kind (`info`, `success`, `error`, ...). Verbatim identifier.
     pub kind: String,
+    /// `@translation.<key>` reference for the toast body.
     pub message_key: TranslationKeyRefAst,
     pub span: Span,
 }
 
+/// `drawer` sub-view inside a [`ViewListAst`] — slide-over detail view
+/// triggered from a row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DrawerSubViewAst {
     pub name: String,
@@ -225,22 +289,31 @@ pub struct DrawerSubViewAst {
     pub span: Span,
 }
 
+/// Drawer-open trigger catalog. `select` opens on row-click;
+/// `manual_open` waits for an explicit `actions ...` toggle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DrawerTriggerAst {
+    /// Opens on row selection.
     Select,
+    /// Opens on an explicit action toggle.
     ManualOpen,
 }
 
+/// One `route <target>: <source>` binding on a [`DrawerSubViewAst`] —
+/// hooks the drawer's source-query slot into the selected row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DrawerRouteBindingAst {
     pub target: String,
     pub source: DrawerBindingSourceAst,
 }
 
+/// Where the drawer route binding sources its value from. Today: only
+/// `selection` (the selected-row id).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DrawerBindingSourceAst {
+    /// `from selection` — derived from the row selection.
     Selection,
 }
 
@@ -264,10 +337,13 @@ pub struct FilterDeclAst {
     pub span: Span,
 }
 
+/// Closed two-arm catalog for filter cardinality (`single` / `multi`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FilterCardinalityAst {
+    /// `single` — one selection at a time.
     Single,
+    /// `multi` — multiple selections (chip / pill UI).
     Multi,
 }
 
@@ -290,10 +366,13 @@ pub struct SortDeclAst {
     pub span: Span,
 }
 
+/// Closed two-arm catalog for sort direction (`asc` / `desc`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SortDirAst {
+    /// `asc` — ascending order.
     Asc,
+    /// `desc` — descending order.
     Desc,
 }
 
@@ -306,11 +385,15 @@ pub struct SelectionDeclAst {
     pub span: Span,
 }
 
+/// Closed three-arm catalog for view selection mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SelectionModeAst {
+    /// `selection none` — no row selection UI.
     None,
+    /// `selection single` — one row selected at a time.
     Single,
+    /// `selection multi` — multi-row selection (drives bulk actions).
     Multi,
 }
 
@@ -324,18 +407,62 @@ pub struct SettingDeclAst {
     pub span: Span,
 }
 
+/// Closed catalog of value spaces for a [`SettingDeclAst`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SettingValueSpaceAst {
+    /// `enum [a, b, c]` — closed list of identifiers.
     Enum(Vec<String>),
+    /// `bool` — two-state toggle.
     Bool,
+    /// `int [<min>, <max>]` — bounded integer range; either bound may
+    /// be open.
     Int { min: Option<i64>, max: Option<i64> },
 }
 
+/// Closed catalog of persistence scopes for a [`SettingDeclAst`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SettingPersistenceAst {
+    /// `persistence none` — ephemeral, per-session.
     None,
+    /// `persistence local` — per-browser via localStorage.
     Local,
+    /// `persistence workspace` — server-stored, follows the user's workspace.
     Workspace,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn surface_target_ast_serde_snake_case() {
+        assert_eq!(
+            serde_json::to_value(SurfaceTargetAst::Web).unwrap(),
+            serde_json::json!("web")
+        );
+        assert_eq!(
+            serde_json::to_value(SurfaceTargetAst::Mobile).unwrap(),
+            serde_json::json!("mobile")
+        );
+    }
+
+    #[test]
+    fn selection_mode_ast_default_via_serde_token() {
+        assert_eq!(
+            serde_json::to_value(SelectionModeAst::Multi).unwrap(),
+            serde_json::json!("multi")
+        );
+    }
+
+    #[test]
+    fn binding_ref_ast_filter_serde_carries_name() {
+        let r = BindingRefAst::Filter {
+            name: "status".into(),
+        };
+        let v = serde_json::to_value(&r).unwrap();
+        assert_eq!(v["kind"], "filter");
+        assert_eq!(v["value"]["name"], "status");
+    }
 }

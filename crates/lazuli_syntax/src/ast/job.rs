@@ -34,6 +34,13 @@ use serde::{Deserialize, Serialize};
 
 use super::{CommandEffectDecl, LetBindingDecl, PolicyExprAst, Span, TargetExprDecl};
 
+/// `job <name>` block — async / queued / scheduled work declared at
+/// feature scope.
+///
+/// Phase L Tier 3 lineage. The body is either handler-backed
+/// ([`JobBody::Handler`]) or carries the typed declarative spine
+/// ([`JobBody::Declarative`]). Reactor-style jobs that only `emits`
+/// without a body land on [`JobBody::None`]. See module-level docs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Job {
     pub name: String,
@@ -65,6 +72,8 @@ pub struct Job {
     pub span: Span,
 }
 
+/// Closed two-arm catalog for `trigger <kind>` on a [`Job`] /
+/// [`Notification`](crate::ast::Notification).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum JobTrigger {
@@ -74,23 +83,32 @@ pub enum JobTrigger {
     Schedule(String),
 }
 
+/// `fanout tenants <axis>` directive on a scheduled [`Job`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JobFanout {
     /// `tenants` — closed scope catalog today.
     pub scope: String,
+    /// `axis` — name of the tenancy axis to fan out over.
     pub axis: String,
 }
 
+/// `retry <count> backoff <strategy>` clause shared by jobs / webhooks /
+/// notifications / tenant migrations.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JobRetry {
+    /// Attempts after the initial failure (max retries, not total tries).
     pub count: u32,
     /// `fixed` or `exponential` — closed strategy catalog today.
     pub backoff: String,
 }
 
+/// One `calls <slot>.<op>(args)` external-call reference on a [`Job`] /
+/// [`CommandDecl`](crate::ast::CommandDecl).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JobExternalCall {
+    /// Adapter / connector slot name.
     pub slot: String,
+    /// Op name on the slot.
     pub op: String,
     /// `arg_name = path.expr` pairs captured verbatim. Tier 4 lifts
     /// the right-hand-side expressions.
@@ -98,6 +116,7 @@ pub struct JobExternalCall {
     pub span: Span,
 }
 
+/// One named-arg pair inside [`JobExternalCall`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JobExternalCallArg {
     pub name: String,
@@ -121,6 +140,8 @@ pub enum JobBody {
     None,
 }
 
+/// Handler-backed body for a [`Job`] or [`CommandDecl`](crate::ast::CommandDecl) —
+/// the Go file the runtime invokes, plus an optional return-type pin.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JobHandler {
     /// `"./jobs/process_import.go"` — quotes stripped.
@@ -137,4 +158,37 @@ pub struct JobDeclarativeTyped {
     pub target: Option<TargetExprDecl>,
     pub lets: Vec<LetBindingDecl>,
     pub effect: Option<CommandEffectDecl>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn job_trigger_event_serde_tagged() {
+        let t = JobTrigger::Event("customer.activated".into());
+        let v = serde_json::to_value(&t).unwrap();
+        assert_eq!(v["kind"], "Event");
+        assert_eq!(v["value"], "customer.activated");
+    }
+
+    #[test]
+    fn job_body_none_variant_roundtrips() {
+        let b = JobBody::None;
+        let s = serde_json::to_string(&b).unwrap();
+        let back: JobBody = serde_json::from_str(&s).unwrap();
+        assert!(matches!(back, JobBody::None));
+    }
+
+    #[test]
+    fn job_retry_count_and_backoff_preserved() {
+        let r = JobRetry {
+            count: 5,
+            backoff: "exponential".into(),
+        };
+        let s = serde_json::to_string(&r).unwrap();
+        let back: JobRetry = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.count, 5);
+        assert_eq!(back.backoff, "exponential");
+    }
 }

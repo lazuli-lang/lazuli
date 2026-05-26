@@ -57,6 +57,13 @@ use super::{
     PublicContractDeclAst, RateLimitSpecAst, Span, TranslationKeyRefAst,
 };
 
+/// `command <name>` block — Phase L Tier 4b declarative command surface.
+///
+/// The widest contract in the language. Stitches together input typing,
+/// policy, route slots, audit, approval, the declarative effect spine
+/// (`creates`/`updates`/`deletes`), event emission, query invalidation,
+/// external calls, retry/timeout, write windows, and tests in one
+/// block. See module-level docs for the authoring shape.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandDecl {
     pub name: String,
@@ -140,13 +147,22 @@ pub struct CommandDecl {
     pub span: Span,
 }
 
+/// `write_window by <path> within <duration_or_ref>` on a [`CommandDecl`].
+///
+/// Idempotency / rate-shaping window keyed by `by` (e.g. `actor.id`)
+/// over the given duration window. Doctor checks that `within` is a
+/// duration literal or a known reference; surface keeps verbatim.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandWriteWindow {
+    /// `by <path>` — keying expression.
     pub by: String,
+    /// `within <duration_or_ref>` — window span.
     pub within: String,
     pub span: Span,
 }
 
+/// OpenAPI bucket — `deprecated [since "..." replacement <ref> sunset "..."]`
+/// metadata authored on a [`CommandDecl`] / [`ApiDecl`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandDeprecatedDecl {
     /// Authored `since "<version>"` — verbatim (semver, calendar, git-sha).
@@ -158,9 +174,12 @@ pub struct CommandDeprecatedDecl {
     pub span: Span,
 }
 
+/// One `route <name>: <Type>` placeholder inside a [`CommandDecl`] /
+/// [`ApiDecl`] route slot list.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandRouteSlot {
     pub name: String,
+    /// Type literal verbatim (`ID`, `Text`, `@semantic.X`, ...).
     pub type_text: String,
     /// `from ctx.customer.id` default expression — verbatim text.
     pub from: Option<String>,
@@ -169,11 +188,16 @@ pub struct CommandRouteSlot {
     pub span: Span,
 }
 
+/// Closed catalog of route-slot token kinds (`plain` / `opaque_token` /
+/// `signed_token`). Drives how the runtime decodes the URL placeholder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CommandRouteSlotKind {
+    /// Untransformed identifier (e.g. `id: ID`).
     Plain,
+    /// Opaque token issued by the framework; lookup decodes server-side.
     OpaqueToken,
+    /// Signed token (HMAC-derived) carrying its own integrity envelope.
     SignedToken,
 }
 
@@ -204,6 +228,7 @@ pub enum CommandInputDecl {
     Typed(Vec<CommandInputSlot>),
 }
 
+/// One row inside a `CommandInputDecl::Typed` block.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandInputSlot {
     pub name: String,
@@ -222,6 +247,8 @@ pub struct CommandInputSlot {
     pub span: Span,
 }
 
+/// `audit <subjects>` canonical block — declares which actor/target
+/// data points the command's write-event records.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandAudit {
     /// `actor`, `target.id`, `input.<field>`, etc.
@@ -241,6 +268,8 @@ pub struct CommandAudit {
     pub span: Span,
 }
 
+/// Cut A.9 `approval` block — declarative human approval gate on a
+/// [`CommandDecl`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandApproval {
     /// `required_when <predicate>` — verbatim predicate text.
@@ -254,11 +283,15 @@ pub struct CommandApproval {
     pub span: Span,
 }
 
+/// Closed three-arm catalog for the `then` clause of [`CommandApproval`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalThenDecl {
+    /// `then deny` — block the command on timeout / rejection.
     Deny,
+    /// `then allow` — auto-allow on timeout (best-effort approval).
     Allow,
+    /// `then escalate` — route to a wider approver pool.
     Escalate,
 }
 
@@ -273,13 +306,17 @@ pub struct TargetExprDecl {
     pub span: Span,
 }
 
+/// One `<name>: <expr>` named-arg pair inside a [`TargetExprDecl`] or
+/// [`InvalidatesDecl`] reference.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TargetArgDecl {
     pub name: String,
+    /// Verbatim RHS expression. The analyzer re-parses against `Expr`.
     pub value: String,
     pub span: Span,
 }
 
+/// One `let <name> = <expr>` binding inside a [`CommandDecl`] / Job body.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LetBindingDecl {
     pub name: String,
@@ -303,14 +340,22 @@ pub struct CommandEffectDecl {
     pub span: Span,
 }
 
+/// Closed three-arm catalog for the `creates`/`updates`/`deletes` head
+/// keyword of a [`CommandEffectDecl`]. Wire token is lowercase
+/// (`"creates"` etc.) to match authoring shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CommandEffectKindDecl {
+    /// `creates X` — inserts a new resource row.
     Creates,
+    /// `updates X` — mutates an existing row matched by `target`.
     Updates,
+    /// `deletes X` — removes the row matched by `target`.
     Deletes,
 }
 
+/// One `<field> = <expr>` row inside a [`CommandEffectDecl`] body or
+/// child of [`CommandEmit`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AssignmentDecl {
     pub field: String,
@@ -319,6 +364,7 @@ pub struct AssignmentDecl {
     pub span: Span,
 }
 
+/// One `emits <event> [from <kind>]` row on a [`CommandDecl`] or Job.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandEmit {
     /// `customer_created`, `customer_reassigned`, etc.
@@ -331,6 +377,7 @@ pub struct CommandEmit {
     pub span: Span,
 }
 
+/// One `invalidates query.<name>(args?)` reference on a [`CommandDecl`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InvalidatesDecl {
     /// Qualified query reference, e.g. `query.list` or
@@ -339,4 +386,39 @@ pub struct InvalidatesDecl {
     /// Named args, e.g. `id: route.id`.
     pub args: Vec<TargetArgDecl>,
     pub span: Span,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_route_slot_kind_default_is_plain() {
+        assert_eq!(CommandRouteSlotKind::default(), CommandRouteSlotKind::Plain);
+    }
+
+    #[test]
+    fn command_effect_kind_decl_serializes_lowercase() {
+        assert_eq!(
+            serde_json::to_value(CommandEffectKindDecl::Creates).unwrap(),
+            serde_json::json!("creates")
+        );
+    }
+
+    #[test]
+    fn approval_then_decl_serde_snake_case() {
+        assert_eq!(
+            serde_json::to_value(ApprovalThenDecl::Escalate).unwrap(),
+            serde_json::json!("escalate")
+        );
+    }
+
+    #[test]
+    fn command_input_decl_serde_tagged_variants() {
+        let v = serde_json::to_value(CommandInputDecl::Empty).unwrap();
+        assert_eq!(v["kind"], "Empty");
+        let v2 = serde_json::to_value(CommandInputDecl::Short("ref".into())).unwrap();
+        assert_eq!(v2["kind"], "Short");
+        assert_eq!(v2["value"], "ref");
+    }
 }

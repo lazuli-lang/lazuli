@@ -37,6 +37,12 @@ use serde::{Deserialize, Serialize};
 
 use super::{JobRetry, PolicyExprAst, Span};
 
+/// `webhook <name>` block — inbound webhook surface.
+///
+/// Ties together verification, tenant resolution, idempotency, branch
+/// dispatch (`emits ... when ...`), replay, DLQ and retry. Reuses
+/// `JobRetry` for backoff. See module-level docs for the authoring shape
+/// and the two structural nuances (branch dispatch + `scope global`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Webhook {
     pub name: String,
@@ -123,6 +129,8 @@ pub enum WebhookDlq {
     Drop { reason: String, span: Span },
 }
 
+/// `verify <scheme> <algorithm>` block on a [`Webhook`] — signature
+/// scheme + optional secret env binding + header name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WebhookVerify {
     /// `hmac` — closed scheme catalog today.
@@ -136,9 +144,12 @@ pub struct WebhookVerify {
     pub span: Span,
 }
 
+/// `handler "./path.go" [returns <Type>]` reference on a [`Webhook`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WebhookHandler {
+    /// Path literal verbatim (quotes stripped).
     pub path: String,
+    /// Optional `returns <Type>` suffix.
     pub returns: Option<String>,
 }
 
@@ -153,4 +164,30 @@ pub struct WebhookScopeGlobal {
     /// Quoted reason text (parser strips quotes). MUST be non-empty.
     pub reason: String,
     pub span: Span,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn webhook_scope_global_reason_preserved() {
+        let s = WebhookScopeGlobal {
+            reason: "provider sends no tenant key".into(),
+            span: Span::new(0, 0),
+        };
+        assert!(!s.reason.is_empty());
+    }
+
+    #[test]
+    fn webhook_verify_optional_fields_default_to_none() {
+        let v = WebhookVerify {
+            scheme: "hmac".into(),
+            algorithm: "sha256".into(),
+            secret_env: None,
+            header: None,
+            span: Span::new(0, 0),
+        };
+        assert!(v.secret_env.is_none() && v.header.is_none());
+    }
 }

@@ -42,6 +42,13 @@ use serde::{Deserialize, Serialize};
 
 use super::{RateLimitSpecAst, Span};
 
+/// `agent <name>` block — LLM agent declaration.
+///
+/// First-class language construct (not an adapter): the input shape,
+/// output shape, prompt, tools, evals, and optional HTTP exposure are
+/// typed at source level. The runtime supplies the LLM transport; the
+/// language pins nothing about the provider. See the module-level docs
+/// for the full authoring shape.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Agent {
     pub name: String,
@@ -68,23 +75,38 @@ pub struct Agent {
     pub span: Span,
 }
 
+/// Cut A.7 `expose http` block on an [`Agent`].
+///
+/// Mounts the agent as an HTTP endpoint that inherits the agent's
+/// policy / rate_limit / output. The endpoint is generated; no Go
+/// handler is required.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentExpose {
+    /// HTTP method authored on the exposure line.
     pub method: HttpMethod,
+    /// Path literal verbatim (placeholders kept inline).
     pub path: String,
+    /// Path placeholder declarations (`route <name>: <Type>`).
     pub route_slots: Vec<AgentExposeRouteSlot>,
+    /// `audience @audience.<name>` — optional restriction.
     pub audience: Option<String>,
+    /// `rate_limit "..."` — optional override over the agent's own limit.
     pub rate_limit_override: Option<String>,
     pub span: Span,
 }
 
+/// One `route <name>: <Type>` placeholder inside an [`AgentExpose`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentExposeRouteSlot {
     pub name: String,
+    /// Type literal verbatim (`ID`, `Text`, ...).
     pub type_text: String,
     pub span: Span,
 }
 
+/// Closed catalog of HTTP methods recognised by `api` / `agent expose`.
+///
+/// Serialises as the uppercase canonical token (`GET`, `POST`, ...).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum HttpMethod {
@@ -98,6 +120,17 @@ pub enum HttpMethod {
 impl HttpMethod {
     /// Parse a canonical uppercase method token. Returns `None` on
     /// unknown tokens — callers turn that into a `ParseError`.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_syntax::HttpMethod;
+    ///
+    /// assert_eq!(HttpMethod::from_token("GET"), Some(HttpMethod::Get));
+    /// assert_eq!(HttpMethod::from_token("POST"), Some(HttpMethod::Post));
+    /// assert_eq!(HttpMethod::from_token("get"), None); // lowercase rejected
+    /// assert_eq!(HttpMethod::from_token("OPTIONS"), None);
+    /// ```
     pub fn from_token(token: &str) -> Option<Self> {
         match token {
             "GET" => Some(Self::Get),
@@ -110,15 +143,20 @@ impl HttpMethod {
     }
 }
 
+/// One `input` row inside an [`Agent`]: `<name>: <type> [required|optional]`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentInputSlot {
     pub name: String,
+    /// Type literal verbatim (`ID`, `Text`, `@semantic.Email`, ...).
     pub type_text: String,
+    /// `required` modifier authored.
     pub required: bool,
+    /// `optional` modifier authored.
     pub optional: bool,
     pub span: Span,
 }
 
+/// Closed three-arm catalog for `output ...` on an [`Agent`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum AgentOutput {
@@ -132,6 +170,7 @@ pub enum AgentOutput {
     Plain(String),
 }
 
+/// One `tools <ref>` entry on an [`Agent`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentTool {
     /// Canonical source text: `customer.query.by_id`, `@tool.web_search`,
@@ -140,6 +179,7 @@ pub struct AgentTool {
     pub span: Span,
 }
 
+/// One `case <name>` row inside an [`Agent`]'s `evals` block.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentEvalCase {
     pub name: String,
@@ -152,6 +192,7 @@ pub struct AgentEvalCase {
     pub span: Span,
 }
 
+/// Cut A.10 `golden "./path.jsonl" min_score N` sidecar on an [`AgentEvalCase`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentEvalGolden {
     /// File path captured verbatim. The runtime resolves it.
@@ -163,6 +204,8 @@ pub struct AgentEvalGolden {
     pub span: Span,
 }
 
+/// One assertion row inside an [`AgentEvalCase`] (`requires` or `forbids`
+/// + a predicate).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentEvalAssertion {
     pub kind: AgentEvalKind,
@@ -170,10 +213,14 @@ pub struct AgentEvalAssertion {
     pub span: Span,
 }
 
+/// Closed two-arm catalog distinguishing `requires` from `forbids` on
+/// an [`AgentEvalAssertion`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentEvalKind {
+    /// `requires <predicate>` — must hold for the case to pass.
     Requires,
+    /// `forbids <predicate>` — must NOT hold for the case to pass.
     Forbids,
 }
 
@@ -202,6 +249,8 @@ pub enum AgentEvalPredicate {
     },
 }
 
+/// Right-hand side of a `<ref> contains <RHS>` predicate inside an
+/// [`AgentEvalPredicate::Contains`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum ContainsRhs {
@@ -212,9 +261,39 @@ pub enum ContainsRhs {
     SemanticType(String),
 }
 
+/// Closed two-arm catalog for the `tools.calls <op>` predicate operator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolsCallsOp {
+    /// `tools.calls includes <tool-ref>` — call must occur.
     Includes,
+    /// `tools.calls excludes <tool-ref>` — call must NOT occur.
     Excludes,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn http_method_from_token_matches_uppercase_only() {
+        assert_eq!(HttpMethod::from_token("GET"), Some(HttpMethod::Get));
+        assert_eq!(HttpMethod::from_token("get"), None);
+        assert_eq!(HttpMethod::from_token("UNKNOWN"), None);
+    }
+
+    #[test]
+    fn agent_output_serde_token_tagged() {
+        let v = serde_json::to_value(AgentOutput::Stream("Summary".into())).unwrap();
+        assert_eq!(v["kind"], "Stream");
+        assert_eq!(v["value"], "Summary");
+    }
+
+    #[test]
+    fn agent_eval_kind_serde_snake_case() {
+        assert_eq!(
+            serde_json::to_value(AgentEvalKind::Requires).unwrap(),
+            serde_json::json!("requires")
+        );
+    }
 }
