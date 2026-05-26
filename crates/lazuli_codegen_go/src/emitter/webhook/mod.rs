@@ -29,6 +29,12 @@ use contract::emit_webhook;
 
 /// Emit `<feature>/webhook.gen.go` for a feature, or `None` when the
 /// feature declares no webhooks.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let go_src = emit_webhook_file("billing.lzi", &feature, "demo", &cross_index, &emit_ctx);
+/// ```
 pub fn emit_webhook_file(
     source_label: &str,
     feature: &Feature,

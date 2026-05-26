@@ -23,6 +23,12 @@ use super::printer::GoPrinter;
 
 /// Emit `<feature>/reports.gen.go` for a feature, or `None` when the
 /// feature declares no reports.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let go_src = emit_reports_file("billing.lzi", &feature);
+/// ```
 pub fn emit_reports_file(source_label: &str, feature: &Feature) -> Option<String> {
     if feature.reports.is_empty() {
         return None;

@@ -45,6 +45,12 @@ use crate::GeneratedFile;
 ///   - `<feature>/translation.gen.go` — the `init()` registration call.
 ///   - One `<feature>/i18n/<feature>.<locale>.json` per locale that any
 ///     authored key carries a variant for.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let files = emit_translation_files("billing.lzi", &feature, "demo", &cross_index);
+/// ```
 pub fn emit_translation_files(
     source_label: &str,
     feature: &Feature,
@@ -91,6 +97,12 @@ pub fn emit_translation_files(
 /// the feature declares no `translation` block or has no keys — the
 /// orchestrator skips the file entirely in that case so packages
 /// without a real catalog never carry an empty `//go:embed` directive.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let go_src = emit_translation_file("billing.lzi", &feature, "demo", &cross_index);
+/// ```
 pub fn emit_translation_file(
     source_label: &str,
     feature: &Feature,

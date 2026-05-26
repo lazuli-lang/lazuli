@@ -31,6 +31,12 @@ mod feature_emit_tests;
 /// Emit `<feature>/storage.gen.go` for a feature, or `None` when the
 /// feature declares no typed `@cap.File(...)` resource fields or API
 /// outputs.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let go_src = emit_storage_file("photoshare.lzi", &feature, "demo", &cross_index);
+/// ```
 pub fn emit_storage_file(
     source_label: &str,
     feature: &Feature,

@@ -19,6 +19,12 @@ use super::printer::GoPrinter;
 
 /// Emit `dist/go/rbac/rbac.gen.go` for the package, or `None` when
 /// no `permission` / `role` blocks were authored.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let go_src = emit_rbac_file("app.lzi", &module);
+/// ```
 pub fn emit_rbac_file(source_label: &str, module: &Module) -> Option<String> {
     let catalog = module.rbac.as_ref()?;
     if catalog.permissions.is_empty() && catalog.roles.is_empty() {

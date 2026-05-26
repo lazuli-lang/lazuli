@@ -34,6 +34,12 @@ use payload::{PayloadStruct, group_payload_fields, typed_event_fields, typed_pay
 
 /// Emit `<feature>/events.gen.go` for a feature, or `None` when the
 /// feature declares no event groups and no standalone typed events.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let go_src = emit_events_file("billing.lzi", &feature, "demo", &cross_index);
+/// ```
 pub fn emit_events_file(
     source_label: &str,
     feature: &Feature,

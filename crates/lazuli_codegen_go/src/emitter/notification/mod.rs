@@ -25,6 +25,12 @@ use super::printer::GoPrinter;
 
 /// Emit `<feature>/notification.gen.go` for a feature, or `None` when
 /// the feature declares no notifications.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let go_src = emit_notification_file("billing.lzi", &feature, "demo", &cross_index, &emit_ctx);
+/// ```
 pub fn emit_notification_file(
     source_label: &str,
     feature: &Feature,

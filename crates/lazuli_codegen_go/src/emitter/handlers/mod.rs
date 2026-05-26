@@ -59,6 +59,13 @@ use types::go_type_for_stub;
 /// `existing_files` covers both the new app/features path and the
 /// legacy dist/go path (pre-pivot scaffolds) so migration is non-
 /// destructive — handlers authored at either location are skipped.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::collections::BTreeSet;
+/// let files = emit_handler_stubs(&module, "demo", &BTreeSet::new());
+/// ```
 pub fn emit_handler_stubs(
     module: &Module,
     module_name: &str,
@@ -87,6 +94,13 @@ pub fn emit_handler_stubs(
 /// have an `app/features/<f>/handlers/` directory on disk, so importing
 /// them anyway would fail `go build` with "package not found". Walks
 /// the same IR sites `emit_handler_stubs` does so the two stay in sync.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let features = features_with_handlers(&module);
+/// // main.go iterates this set to emit `_ "<module>/app/features/<f>/handlers"`.
+/// ```
 pub fn features_with_handlers(module: &Module) -> BTreeSet<String> {
     collect_handler_stubs(module)
         .into_values()

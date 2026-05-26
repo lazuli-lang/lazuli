@@ -21,6 +21,12 @@ use super::printer::GoPrinter;
 
 /// Emit `<feature>/mcp_server.gen.go` for a feature, or `None` when
 /// the feature declares no `mcp_server` blocks.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let go_src = emit_mcp_server_file("mcp.lzi", &feature);
+/// ```
 pub fn emit_mcp_server_file(source_label: &str, feature: &Feature) -> Option<String> {
     if feature.mcp_servers.is_empty() {
         return None;
@@ -315,4 +321,22 @@ fn emit_init(p: &mut GoPrinter, servers: &[&MCPServerSpec]) {
 
 fn escape_string(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn escape_string_double_escapes_backslash_and_quote() {
+        assert_eq!(escape_string(r#"a"b\c"#), r#"a\"b\\c"#);
+    }
+
+    #[test]
+    fn map_param_type_maps_int_and_list() {
+        assert_eq!(map_param_type("int"), "integer");
+        assert_eq!(map_param_type("list of string"), "array");
+        assert_eq!(map_param_type("bool"), "boolean");
+        assert_eq!(map_param_type("string"), "string");
+    }
 }
