@@ -50,8 +50,26 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "VOCAB-CAP-MISSING-001";
 
+    /// Render the "sensitive data stored in plaintext" message naming
+    /// the resource, field, and PII class.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::vocab_cap_missing_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     resource: "User".into(),
+    ///     field: "email".into(),
+    ///     pii_tag: "contact".into(),
+    /// };
+    /// assert!(f.message().contains("plaintext"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "field `{}.{}` carries `@pii.{}` but no `@cap.Hashed/Encrypted/Token` - sensitive data stored in plaintext",
@@ -68,6 +86,17 @@ impl Finding {
 /// function therefore only evaluates fields whose PII tags are available to
 /// this module (none today), preserving the vocabulary lint API without adding
 /// a new field to `lazuli_ir::Field`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::vocab::vocab_cap_missing_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a PII-tagged feature");
+/// let _ = check(&feature, Path::new("users.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     feature
         .resources
@@ -85,6 +114,17 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
 ///
 /// This is the practical entry point until resource-field `@pii.*` markers are
 /// lifted into IR. It intentionally only scans resource field lines.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::vocab::vocab_cap_missing_001::check_source;
+///
+/// let src = "resource User\n  email: Text @pii.contact\n";
+/// let findings = check_source(src, Path::new("users.lzi"));
+/// assert!(!findings.is_empty());
+/// ```
 pub fn check_source(source: &str, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     let mut current_resource: Option<(String, usize)> = None;

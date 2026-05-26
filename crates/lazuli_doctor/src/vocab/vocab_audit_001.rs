@@ -26,8 +26,21 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "VOCAB-AUDIT-001";
 
+    /// Render the user-facing diagnostic body prompting the author to
+    /// add one of the three `audit` forms (default / fields / none).
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::vocab_audit_001::Finding;
+    ///
+    /// let f = Finding { path: PathBuf::from("f.lzi"), command: "update_x".into() };
+    /// assert!(f.message().contains("audit default"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "command `{}` has a write effect or emits events but declares no `audit` child \
@@ -47,6 +60,17 @@ impl Finding {
 /// performed here.  The caller (doctor walker) maps each `Finding` into a
 /// `DoctorDiagnostic` and supplies the exact source line from
 /// `Tier3FeatureFacts.command_lines`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::vocab::vocab_audit_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with mutating commands");
+/// let _ = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     feature
         .commands

@@ -28,8 +28,26 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "VOCAB-AUDIT-002";
 
+    /// Render the message naming the command, invalidated resource, and
+    /// the list of sensitive capability-tagged field names.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::vocab_audit_002::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     command: "rotate_key".into(),
+    ///     resource: "Credential".into(),
+    ///     sensitive_fields: vec!["secret".into()],
+    /// };
+    /// assert!(f.message().contains("@cap.*"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "handler-only command `{}` invalidates `{}` which has \
@@ -53,6 +71,17 @@ impl Finding {
 /// This v1 rule intentionally stays conservative: it only fires when that
 /// invalidation target name also resolves to a resource in the same feature.
 /// Handler/policy body analysis remains outside doctor vocabulary lints.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::vocab::vocab_audit_002::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with handler-only commands");
+/// let _ = check(&feature, Path::new("auth.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let resources_by_name: HashMap<&str, &Resource> = feature
         .resources
