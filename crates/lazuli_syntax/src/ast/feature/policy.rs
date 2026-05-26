@@ -1,0 +1,146 @@
+//! Policy atoms, expressions, and the `policies` block surface AST.
+//!
+//! `PolicyAtomAst` and `PolicyExprAst` (RB.S6 structured policy form)
+//! live here because they're consumed by *every* callable surface and
+//! authoring them in the same file as the `policies` block keeps the
+//! policy vocabulary co-located with its consumers (`PoliciesDecl` /
+//! `PolicyCategoryDecl` / `FieldPolicyDecl`).
+//!
+//! The `policies` block lives at indent 2 under the feature header. Its
+//! direct children are either:
+//!
+//!   * Named category atoms (indent 4): `create: @role.admin, @role.sales`.
+//!   * Per-resource field overrides (indent 4): `fields <Resource>` with
+//!     grandchild field names at indent 6 and `read:` / `write:` at indent 8.
+//!
+//! The IR shape (`ir::Policies` / `ir::PolicyCategory` / `ir::FieldPolicies`
+//! / `ir::FieldPolicy`) is mirrored 1:1 so lowering is structural.
+
+use serde::{Deserialize, Serialize};
+
+use super::super::Span;
+
+/// `@<namespace>.<name>` — currently always `@scope.<x>` inside an
+/// audience's `requires` block, but kept structured for future
+/// `@role.x` / `@actor.x` expansion.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolicyAtomAst {
+    pub namespace: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub args: Option<String>,
+    pub span: Span,
+}
+
+/// RB.S6 — structured `policy <expr>` form used by command / query / job /
+/// webhook / api / notification / agent declarations. Coexists with the
+/// raw `policy: Option<String>` field for back-compat; populated only when
+/// the policy string parses as an expression (contains `has_role` /
+/// `has_permission` / `authenticated` keywords or boolean combinators).
+///
+/// Closed shape: atoms (`@role.X`, `@scope.X`, `@actor.X`), the
+/// `authenticated` keyword, `has_role <ident>`, `has_permission
+/// <segment>:<segment>...`, plus `and` / `or` / `not` combinators with
+/// optional parens. See `docs/proposals/rbac-catalog-vocab.md`
+/// §Composition with `policy` block.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum PolicyExprAst {
+    /// `authenticated` — true when ctx.User != nil.
+    Authenticated,
+    /// `has_role <name>` — true when actor's role is `<name>` or
+    /// transitively inherits it.
+    HasRole(String),
+    /// `has_permission <resource>:<action>[:...]` — true when actor's
+    /// role grants the permission via the catalog closure.
+    HasPermission(String),
+    /// `@<ns>.<name>` policy atom embedded in an expression.
+    Atom(PolicyAtomAst),
+    /// `<a> and <b>` — boolean conjunction (n-ary).
+    And(Vec<PolicyExprAst>),
+    /// `<a> or <b>` — boolean disjunction (n-ary).
+    Or(Vec<PolicyExprAst>),
+    /// `not <a>` — boolean negation.
+    Not(Box<PolicyExprAst>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PoliciesDecl {
+    pub categories: Vec<PolicyCategoryDecl>,
+    pub fields: Vec<FieldPoliciesDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolicyCategoryDecl {
+    pub name: String,
+    /// Verbatim atom literals (`@role.admin`, `@scope.same_org`, ...).
+    /// Atoms not prefixed with `@` are dropped silently — matches the
+    /// retired `collect_policy_atoms` walker.
+    pub atoms: Vec<String>,
+    /// IR Error-Vocab (Cell PARSE-1) — optional `when_denied
+    /// @translation.<key>` child at indent 6 declaring the per-policy
+    /// default message for `policy_denied`. Lowered into
+    /// `ir::PolicyCategory.when_denied`. See
+    /// `docs/proposals/ir-error-messages-vocab.md` §2.B.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when_denied: Option<TranslationKeyRefAst>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when_denied_route: Option<WhenDeniedRouteAst>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WhenDeniedRouteAst {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unauthenticated: Option<RouteRedirectTargetAst>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub role_mismatch: Vec<RoleMismatchArmAst>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<RouteRedirectTargetAst>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoleMismatchArmAst {
+    pub role: String,
+    pub target: RouteRedirectTargetAst,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum RouteRedirectTargetAst {
+    View(String),
+    Path(String),
+}
+
+/// IR Error-Vocab (Cell PARSE-1) — surface AST mirror of
+/// `ir::TranslationKeyRef`. Carries the key name parsed from
+/// `@translation.<key>` plus the source span for downstream doctor
+/// diagnostics (ERR-VOCAB-002, `translation_key_unknown`).
+///
+/// See `docs/proposals/ir-error-messages-vocab.md` §3.1.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TranslationKeyRefAst {
+    /// The bare key name extracted from `@translation.<key>`.
+    pub key: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FieldPoliciesDecl {
+    /// `fields <Resource>` — captured verbatim (qualifier-free identifier
+    /// in the fixture).
+    pub resource: String,
+    pub fields: Vec<FieldPolicyDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FieldPolicyDecl {
+    pub field: String,
+    pub read: Option<Vec<String>>,
+    pub write: Option<Vec<String>>,
+    pub span: Span,
+}

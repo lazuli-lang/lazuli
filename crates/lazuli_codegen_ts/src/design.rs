@@ -17,7 +17,7 @@ pub mod ir {
     };
 }
 
-#[path = "design_tokens_ts.rs"]
+#[path = "design_tokens_ts/mod.rs"]
 mod tokens_ts;
 
 #[path = "design_tokens_css.rs"]
@@ -29,10 +29,10 @@ mod tailwind_v3;
 #[path = "design_tailwind_v4.rs"]
 mod tailwind_v4;
 
-#[path = "design_tokens_mobile.rs"]
+#[path = "design_tokens_mobile/mod.rs"]
 mod tokens_mobile;
 
-#[path = "design_allowlist.rs"]
+#[path = "design_allowlist/mod.rs"]
 mod allowlist;
 
 pub use allowlist::emit_allowlist_json;

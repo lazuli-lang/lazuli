@@ -20,6 +20,8 @@ mod hover;
 mod keywords;
 mod lzx_completion;
 mod rate_limit;
+mod security_profile;
+mod source_diagnostics;
 mod source_scan;
 mod test_blocks;
 mod text_utils;
@@ -84,6 +86,26 @@ pub(crate) use diagnostics::security::*;
 pub(crate) use diagnostics::vocab::*;
 pub(crate) use diagnostics::webhook::*;
 pub(crate) use diagnostics::workspace::*;
+
+// Wave R9-B extract — small crate-root source-walk diagnostics
+// (`approval`, `event.trace`, `extensible_by` whitelist) moved into
+// `source_diagnostics.rs`. Re-exported so `dispatch.rs` keeps its
+// `crate::*` paths.
+#[allow(unused_imports)]
+pub(crate) use source_diagnostics::{
+    anchor_whitelist_diagnostics, approval_contract_diagnostics,
+    reserved_trace_event_diagnostics, AnchorWhitelistEntry,
+};
+
+// Wave R9-B extract — security-profile narrowing moved into
+// `security_profile.rs`. Re-exported so `dispatch.rs` and the
+// `diagnostics_for_source_with_profile` entry point keep their
+// `crate::*` paths.
+#[allow(unused_imports)]
+pub(crate) use security_profile::{
+    apply_security_profile, diagnostic_code, is_security_enforcement_code,
+    is_security_opt_out_code,
+};
 
 pub use catalogs::*;
 pub use code_actions::auth_refresh::auth_refresh_code_actions;
@@ -271,126 +293,6 @@ pub(crate) fn is_type_name(source: &str) -> bool {
         && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
 }
 
-/// Cut A.9 — file-local checks on `approval` blocks declared inside
-/// commands. Required children present (`by`, `timeout`, `then`),
-/// `then` value in the closed catalog, `by` non-empty. Cross-feature
-/// role resolution lives in doctor.
-pub(crate) fn approval_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-    let lines: Vec<&str> = source.lines().collect();
-
-    let mut i = 0;
-    while i < lines.len() {
-        let line = lines[i];
-        let trimmed = line.trim_start();
-        if leading_spaces(line) == 4 && trimmed == "approval" {
-            let header_line = i;
-            let mut has_by = false;
-            let mut by_nonempty = false;
-            let mut has_timeout = false;
-            let mut timeout_nonempty = false;
-            let mut has_then = false;
-            let mut then_invalid: Option<String> = None;
-            let mut j = i + 1;
-            while j < lines.len() {
-                let body = lines[j];
-                let body_trim = body.trim_start();
-                if body_trim.is_empty() || body_trim.starts_with('#') {
-                    j += 1;
-                    continue;
-                }
-                if leading_spaces(body) <= 4 {
-                    break;
-                }
-                if leading_spaces(body) == 6 {
-                    if let Some(rest) = body_trim.strip_prefix("by ") {
-                        has_by = true;
-                        by_nonempty = rest.split(',').any(|s| !s.trim().is_empty());
-                    } else if let Some(rest) = body_trim.strip_prefix("timeout ") {
-                        has_timeout = true;
-                        timeout_nonempty = !rest.trim().is_empty();
-                    } else if let Some(rest) = body_trim.strip_prefix("then ") {
-                        has_then = true;
-                        let value = rest.trim().to_owned();
-                        if !matches!(value.as_str(), "deny" | "proceed") {
-                            then_invalid = Some(value);
-                        }
-                    }
-                }
-                j += 1;
-            }
-
-            let mut missing: Vec<&str> = Vec::new();
-            if !has_by || !by_nonempty {
-                missing.push("by");
-            }
-            if !has_timeout || !timeout_nonempty {
-                missing.push("timeout");
-            }
-            if !has_then {
-                missing.push("then");
-            }
-            if !missing.is_empty() {
-                diagnostics.push(simple_canonical_diagnostic(
-                    header_line,
-                    line,
-                    DiagnosticSeverity::ERROR,
-                    "approval_contract_diagnostics",
-                    &format!(
-                        "`approval` block is missing required children: {}.",
-                        missing.join(", "),
-                    ),
-                ));
-            }
-            if let Some(value) = then_invalid {
-                diagnostics.push(simple_canonical_diagnostic(
-                    header_line,
-                    line,
-                    DiagnosticSeverity::ERROR,
-                    "approval_contract_diagnostics",
-                    &format!(
-                        "`approval then {value}` is invalid — closed catalog is `deny` or `proceed`."
-                    ),
-                ));
-            }
-            i = j;
-            continue;
-        }
-        i += 1;
-    }
-
-    diagnostics
-}
-
-/// Cut A.8 — flag authored `event.trace <name>` declarations whose
-/// `<name>` is reserved by the IR's built-in trace event registry.
-/// File-local fast feedback that mirrors doctor's
-/// `event_trace_reserved_name_diagnostics`.
-pub(crate) fn reserved_trace_event_diagnostics(source: &str) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-    for (line_index, line) in source.lines().enumerate() {
-        let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        if let Some(rest) = trimmed.strip_prefix("event.trace ") {
-            let name = rest.split_whitespace().next().unwrap_or("");
-            if lazuli_ir::is_reserved_trace_event_name(name) {
-                diagnostics.push(simple_canonical_diagnostic(
-                    line_index,
-                    line,
-                    DiagnosticSeverity::ERROR,
-                    "event_trace_reserved_name_diagnostics",
-                    &format!(
-                        "`event.trace {name}` is reserved by the IR as a built-in trace event; the runtime emits it automatically. Authoring this declaration is rejected — subscribe via `job ... trigger event.trace {name}` instead."
-                    ),
-                ));
-            }
-        }
-    }
-    diagnostics
-}
-
 /// `lower_snake` identifier: ASCII letters / digits / underscores, must
 /// not start with a digit, must be non-empty.
 pub(crate) fn is_lower_ident(token: &str) -> bool {
@@ -404,143 +306,6 @@ pub(crate) fn is_lower_ident(token: &str) -> bool {
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-#[derive(Debug)]
-pub(crate) struct AnchorWhitelistEntry {
-    anchor: String,
-    feature: String,
-    line_index: usize,
-    line: String,
-}
-
-pub(crate) fn anchor_whitelist_diagnostics(source: &str) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-    let mut whitelisted = Vec::new();
-    let mut extensions = HashSet::new();
-    let mut current_feature: Option<String> = None;
-    let mut current_view_anchor: Option<String> = None;
-
-    for (line_index, line) in source.lines().enumerate() {
-        let trimmed = line.trim_start();
-
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-
-        match leading_spaces(line) {
-            0 if trimmed.starts_with("feature ") => {
-                current_feature = Some(feature_name(trimmed));
-                current_view_anchor = None;
-            }
-            2 => {
-                current_view_anchor = None;
-                if let Some(anchor) = extends_anchor(trimmed) {
-                    if let Some(feature) = current_feature.as_deref() {
-                        extensions.insert((anchor.to_owned(), feature.to_owned()));
-                    }
-                }
-            }
-            4 => {
-                current_view_anchor = view_anchor(trimmed).map(str::to_owned);
-            }
-            6 => {
-                let Some(anchor) = current_view_anchor.as_deref() else {
-                    continue;
-                };
-
-                for feature in extensible_by_features(trimmed) {
-                    whitelisted.push(AnchorWhitelistEntry {
-                        anchor: anchor.to_owned(),
-                        feature,
-                        line_index,
-                        line: line.to_owned(),
-                    });
-                }
-            }
-            _ => {}
-        }
-    }
-
-    for entry in whitelisted {
-        if !extensions.contains(&(entry.anchor.clone(), entry.feature.clone())) {
-            diagnostics.push(simple_canonical_diagnostic(
-                entry.line_index,
-                &entry.line,
-                DiagnosticSeverity::WARNING,
-                "anchor-whitelist-unused",
-                &format!(
-                    "`extensible_by` lists feature `{}`, but that feature does not extend `@anchor.{}`.",
-                    entry.feature, entry.anchor
-                ),
-            ));
-        }
-    }
-
-    diagnostics
-}
-
-pub(crate) fn apply_security_profile(
-    mut diagnostics: Vec<Diagnostic>,
-    security_profile: SecurityProfile,
-) -> Vec<Diagnostic> {
-    for diagnostic in &mut diagnostics {
-        let Some(code) = diagnostic_code(diagnostic) else {
-            continue;
-        };
-
-        if is_security_enforcement_code(code) {
-            diagnostic.severity = Some(match security_profile {
-                SecurityProfile::Prototype => DiagnosticSeverity::WARNING,
-                SecurityProfile::Strict | SecurityProfile::Production => DiagnosticSeverity::ERROR,
-            });
-        } else if security_profile == SecurityProfile::Production && is_security_opt_out_code(code)
-        {
-            diagnostic.severity = Some(DiagnosticSeverity::ERROR);
-        }
-    }
-
-    diagnostics
-}
-
-pub(crate) fn diagnostic_code(diagnostic: &Diagnostic) -> Option<&str> {
-    match diagnostic.code.as_ref()? {
-        tower_lsp::lsp_types::NumberOrString::String(code) => Some(code.as_str()),
-        tower_lsp::lsp_types::NumberOrString::Number(_) => None,
-    }
-}
-
-pub(crate) fn is_security_enforcement_code(code: &str) -> bool {
-    matches!(
-        code,
-        "command-policy"
-            | "command-rate-limit"
-            | "scope-override-policy"
-            | "scope-override-reason"
-            | "field-security-policy"
-            | "webhook-verify"
-            | "webhook-idempotency"
-            | "event-job-tenant-from"
-            | "event-consumer-payload"
-            | "crypto-tier"
-            | "crypto-hash-algorithm"
-            | "crypto-key-scope"
-            | "crypto-token-contract"
-            | "crypto-capability-arguments"
-            | "escape-route-security"
-            | "auth-password-algorithm"
-            | "auth-password-rate-limit"
-            | "auth-session-ttl"
-            | "auth_password_algorithm_hash_mismatch"
-            | "auth_sessions_resource_unknown"
-            | "auth_identity_field_unknown"
-            | "auth_oauth_adapter_unbound"
-            | "security-opt-out-reason"
-    )
-}
-
-pub(crate) fn is_security_opt_out_code(code: &str) -> bool {
-    matches!(code, "security-opt-out")
-}
-
 #[cfg(test)]
-#[path = "lib_tests.rs"]
+#[path = "lib_tests/mod.rs"]
 mod tests;

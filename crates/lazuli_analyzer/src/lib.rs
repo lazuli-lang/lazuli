@@ -115,6 +115,8 @@ mod query;
 pub mod rbac;
 mod report;
 mod resource;
+mod resource_rate_limit;
+mod resource_validators;
 pub mod source_map;
 mod surface;
 pub mod symbol_origin;

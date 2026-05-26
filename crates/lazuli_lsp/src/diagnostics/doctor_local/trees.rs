@@ -1,0 +1,477 @@
+//! Per-tree fan-out of `lazuli_doctor` file-local feature checks.
+//!
+//! Each sub-tree gets its own dispatcher (`wire_correctness`,
+//! `wire_domain`, …) called by `doctor_file_local_diagnostics` for
+//! every parsed feature. Splitting by tree keeps the orchestrator
+//! readable while preserving the LSP / doctor ABI contract documented
+//! in `super::mod`.
+//!
+//! See `editors/vscode/AUDIT-LSP-DOCTOR-GAP.md` (R2.F) for the catalog
+//! of 46+ file-local-portable codes wired here.
+
+use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
+
+use super::doctor_diagnostic;
+
+/// Dispatch a `(feature, path) -> Vec<Finding>` doctor leaf and push
+/// each finding as an LSP `Diagnostic`. Severity defaults to `ERROR`;
+/// callers override per-leaf for the warning-severity rules
+/// (e.g. SLUG-UNIQUENESS).
+macro_rules! wire_feature_check {
+    ($source:expr, $diags:expr, $feature:expr, $path:expr, $module:path, $severity:expr) => {{
+        use $module as leaf;
+        for finding in leaf::check($feature, $path) {
+            $diags.push(doctor_diagnostic(
+                $source,
+                Some(&$feature.name),
+                leaf::Finding::CODE,
+                finding.message(),
+                $severity,
+            ));
+        }
+    }};
+    ($source:expr, $diags:expr, $feature:expr, $path:expr, $module:path) => {{
+        wire_feature_check!(
+            $source,
+            $diags,
+            $feature,
+            $path,
+            $module,
+            DiagnosticSeverity::ERROR
+        );
+    }};
+}
+
+pub(crate) fn wire_correctness(
+    source: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+    feature: &lazuli_ir::Feature,
+    synthetic_path: &std::path::Path,
+) {
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::correctness::channel_payload_unresolved_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::correctness::command_input_shadows_field_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::correctness::composite_key_contract_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::correctness::duplicate_query_name
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::correctness::full_text_type_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::correctness::hook_target_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::correctness::resource_lock_contract_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::correctness::route_id_effect_consistency
+    );
+}
+
+pub(crate) fn wire_domain(
+    source: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+    feature: &lazuli_ir::Feature,
+    synthetic_path: &std::path::Path,
+) {
+    // SLUG-UNIQUENESS-IMPLICIT is warning per the R2.F audit.
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::domain::aggregate_contains_unknown
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::domain::aggregate_root_unknown
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::domain::invariant_predicate_invalid
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::domain::slug_uniqueness_implicit,
+        DiagnosticSeverity::WARNING
+    );
+}
+
+pub(crate) fn wire_lifecycle(
+    source: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+    feature: &lazuli_ir::Feature,
+    synthetic_path: &std::path::Path,
+) {
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::lifecycle::enum_duplicate
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::lifecycle::field_double_declared
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::lifecycle::invariant_param_unresolved
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::lifecycle::no_initial_state
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::lifecycle::state_duplicate
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::lifecycle::terminal_has_outgoing
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::lifecycle::timestamp_type
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::lifecycle::transition_from_undeclared
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::lifecycle::transition_to_undeclared
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::lifecycle::unreachable_state
+    );
+}
+
+pub(crate) fn wire_vocab(
+    source: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+    feature: &lazuli_ir::Feature,
+    synthetic_path: &std::path::Path,
+) {
+    // 10 feature-based checks; vocab_grammar_form_001 is wired on raw
+    // source in the orchestrator (no lowering needed).
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::vocab::vocab_audit_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::vocab::vocab_audit_002
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::vocab::vocab_cap_missing_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::vocab::vocab_derived_read_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::vocab::vocab_event_orphan_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::vocab::vocab_event_payload_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::vocab::vocab_event_producer_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::vocab::vocab_json_typed_001
+    );
+    // NOTE: `vocab_lifecycle_001.rs` exists in the crate but is not
+    // exported via `vocab/mod.rs` (orphan file, pending extraction
+    // wave). Re-add the `wire_feature_check!` line here once the
+    // parent module publishes it.
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::vocab::vocab_union_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::vocab::vocab_union_002
+    );
+}
+
+pub(crate) fn wire_encryption(
+    source: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+    feature: &lazuli_ir::Feature,
+    synthetic_path: &std::path::Path,
+) {
+    // 2 of 6 — the other 4 need `AppManifest` / `AppRegistry`.
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::encryption::e2ee_event
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::encryption::tenancy
+    );
+}
+
+pub(crate) fn wire_poller(
+    source: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+    feature: &lazuli_ir::Feature,
+    synthetic_path: &std::path::Path,
+) {
+    // 10 of 12 — `cursor_field_type_001` and `exponential_no_cap_001`
+    // exist in the crate but are not exported via `poller/mod.rs`;
+    // re-wire when the parent module publishes them.
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::poller::cursor_missing_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::poller::dual_scheduler_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::poller::handler_orphan_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::poller::idempotency_attempts_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::poller::max_retries_unbounded_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::poller::no_terminal_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::poller::quirk_catalog_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::poller::terminal_field_enum_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::poller::terminal_no_emit_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::poller::tick_too_fast_001
+    );
+}
+
+pub(crate) fn wire_report(
+    source: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+    feature: &lazuli_ir::Feature,
+    synthetic_path: &std::path::Path,
+) {
+    // 8 of 11 — signed_no_storage / storage_ambiguous / format_unknown
+    // need registry / AST context not available here.
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::report::report_column_mismatch_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::report::report_columns_empty_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::report::report_filename_token_unknown_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::report::report_path_collision_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::report::report_policy_public_no_rate_limit_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::report::report_signed_ttl_forbidden_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::report::report_signed_ttl_missing_001
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::report::report_source_kind_001
+    );
+}

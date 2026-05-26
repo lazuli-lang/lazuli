@@ -31,7 +31,7 @@
 #[path = "../lzx_router_adapter.rs"]
 pub mod lzx_router_adapter;
 
-#[path = "../lzx_aux.rs"]
+#[path = "../lzx_aux/mod.rs"]
 pub mod lzx_aux;
 
 #[path = "../lzx_filters.rs"]

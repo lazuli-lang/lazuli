@@ -361,3 +361,111 @@ fn extract_full_text_marker(
     cleaned.push_str(tail);
     Ok((cleaned.trim().to_owned(), true))
 }
+
+#[cfg(test)]
+mod field_tests {
+    use super::super::super::parse_feature_skeletons;
+
+    #[test]
+    fn parses_slug_field_decorator() {
+        let source = "
+feature blog
+  resource Post
+    slug: Text @slug required
+    title: Text required
+";
+        let features = parse_feature_skeletons(source).unwrap();
+        let r = &features[0].resources[0];
+        assert_eq!(r.fields.len(), 2);
+        // First field is the slug field; `@slug` peeled, type clean.
+        assert_eq!(r.fields[0].name, "slug");
+        assert!(r.fields[0].slug, "`@slug` should peel into Field.slug");
+        assert!(r.fields[0].required);
+        assert!(
+            !r.fields[0].type_text.contains("@slug"),
+            "@slug should be stripped from type_text; got: {}",
+            r.fields[0].type_text
+        );
+        // Second field has no `@slug`.
+        assert!(!r.fields[1].slug);
+    }
+
+    #[test]
+    fn slug_decorator_coexists_with_unique_modifier() {
+        let source = "
+feature blog
+  resource Post
+    slug: Text @slug required unique
+";
+        let features = parse_feature_skeletons(source).unwrap();
+        let f = &features[0].resources[0].fields[0];
+        assert!(f.slug);
+        assert!(f.unique);
+        assert!(f.required);
+    }
+
+    // -------------------------------------------------------------------
+    // `ir-resource-conventions-owner-scope` Cell O1 — `@owner_axis(through: <ident>)`
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn parses_owner_axis_decorator_with_through_ident() {
+        let source = "
+feature catalog
+  resource Property
+    org: Org required
+    host: Host required @owner_axis(through: user)
+    name: Text required
+";
+        let features = parse_feature_skeletons(source).unwrap();
+        let property = &features[0].resources[0];
+        let host_field = &property.fields[1];
+        assert_eq!(host_field.name, "host");
+        let axis = host_field
+            .owner_axis
+            .as_ref()
+            .expect("`@owner_axis(through: user)` should peel into ResourceFieldDecl.owner_axis");
+        assert_eq!(axis.through_column, "user");
+        assert!(
+            !host_field.type_text.contains("@owner_axis"),
+            "@owner_axis should be stripped from type_text; got: {}",
+            host_field.type_text,
+        );
+        // The neighbouring fields stay axis-free.
+        assert!(property.fields[0].owner_axis.is_none());
+        assert!(property.fields[2].owner_axis.is_none());
+    }
+
+    #[test]
+    fn owner_axis_rejects_string_literal_argument() {
+        let source = "
+feature catalog
+  resource Property
+    host: Host required @owner_axis(through: \"user\")
+";
+        let err = parse_feature_skeletons(source).expect_err(
+            "string literal in @owner_axis(through: ...) must be a parse error per §7.1",
+        );
+        let message = format!("{err}");
+        assert!(
+            message.contains("requires a bare identifier"),
+            "got: {message}",
+        );
+    }
+
+    #[test]
+    fn owner_axis_without_arguments_is_a_parse_error() {
+        let source = "
+feature catalog
+  resource Property
+    host: Host required @owner_axis
+";
+        let err = parse_feature_skeletons(source)
+            .expect_err("bare @owner_axis must be rejected — annotation requires (through: ...)");
+        let message = format!("{err}");
+        assert!(
+            message.contains("`@owner_axis` requires `(through: <ident>)`"),
+            "got: {message}",
+        );
+    }
+}
