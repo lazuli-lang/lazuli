@@ -18,13 +18,18 @@ use serde::Deserialize;
 use crate::cmd_test_types::{Layer, LayerResult, LayerVerdict, TestFailure};
 use crate::lazurite_manifest::{Manifest, TestingTs};
 
+/// Closed catalog of supported TypeScript test runners.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TsRunner {
+    /// Vitest (canonical Lazurite scaffold default).
     Vitest,
+    /// Jest (legacy, opt-in via `[testing.ts] runner = "jest"`).
     Jest,
 }
 
 impl TsRunner {
+    /// Parse `[testing.ts] runner` into the typed enum; errors carry
+    /// the closed catalog name list verbatim.
     pub fn parse(s: &str) -> Result<Self, String> {
         match s {
             "vitest" => Ok(TsRunner::Vitest),
@@ -35,6 +40,7 @@ impl TsRunner {
         }
     }
 
+    /// Stable lowercase identifier — round-trips through `parse`.
     pub fn as_str(self) -> &'static str {
         match self {
             TsRunner::Vitest => "vitest",
@@ -43,6 +49,8 @@ impl TsRunner {
     }
 }
 
+/// Probe `npx <runner> --version`. Returns `None` when the runner is
+/// not installed under the project's `node_modules`.
 pub fn probe(runner: TsRunner) -> Option<String> {
     let output = Command::new("npx")
         .arg(runner.as_str())
@@ -55,6 +63,10 @@ pub fn probe(runner: TsRunner) -> Option<String> {
     String::from_utf8(output.stdout).ok()
 }
 
+/// Execute the resolved TS runner (Vitest or Jest) under
+/// `[testing.ts]`. Returns a `LayerVerdict::Skip` when neither the
+/// manifest nor the canonical layout produces a config and discovery
+/// root.
 pub fn run(manifest: Option<&Manifest>, project_root: &Path) -> Result<LayerResult> {
     let started = Instant::now();
     // Frente 1 — resolve effective `[testing.ts]` honoring authored
@@ -300,10 +312,13 @@ struct JsonAssertion {
     failure_messages: Vec<String>,
 }
 
+/// Parse Vitest's JSON reporter output. Shape is jest-compatible
+/// today; the dedicated entry point lets us swap if Vitest diverges.
 pub fn parse_vitest_json(stdout: &[u8]) -> ParsedRun {
     parse_jest_style(stdout)
 }
 
+/// Parse Jest's JSON reporter output.
 pub fn parse_jest_json(stdout: &[u8]) -> ParsedRun {
     parse_jest_style(stdout)
 }

@@ -26,6 +26,16 @@ use super::types::ResolvedPluginSemantic;
 /// Sites without a `Lazurite.toml` (e.g. single-file `lazuli check`)
 /// pass `None`; the map is empty and every `@semantic.<plugin name>`
 /// reference will fall through to `SEMANTIC-PLUGIN-001` in the doctor.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::plugin_manifest::alias_map::build_alias_map;
+///
+/// let aliases = build_alias_map(None, Path::new(".")).expect("build");
+/// assert!(aliases.is_empty());
+/// ```
 pub fn build_alias_map(
     manifest: Option<&Manifest>,
     project_root: &Path,
@@ -169,4 +179,15 @@ pub fn build_alias_map(
         out.insert(alias, candidates.remove(0));
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn none_manifest_returns_empty_map() {
+        let map = build_alias_map(None, Path::new(".")).expect("build");
+        assert!(map.is_empty());
+    }
 }

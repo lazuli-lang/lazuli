@@ -26,6 +26,14 @@ use lazuli_ir::{EnvName, RateLimitSpec};
 /// `"unlimited"` is surfaced verbatim (empty-string limits — the
 /// lowering target of `"unlimited"` in Cell 1 — also render as
 /// `unlimited` so the projection is round-trippable for humans).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::inspect::features_summary::rate_limit::format_rate_limit_suffix;
+///
+/// assert_eq!(format_rate_limit_suffix(None), "");
+/// ```
 #[allow(dead_code)] // wired into `render_one_feature` when Cell 1 flips Command.rate_limit type.
 pub fn format_rate_limit_suffix(spec: Option<&RateLimitSpec>) -> String {
     let Some(spec) = spec else {

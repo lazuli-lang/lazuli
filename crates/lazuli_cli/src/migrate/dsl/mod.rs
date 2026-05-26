@@ -86,6 +86,15 @@ pub struct DslDiff {
 /// `from` / `to` are version tags like `v0.11` and `v0.12`. The tool
 /// looks up `migrations/recipes/<from>-to-<to>/` and exits non-zero
 /// when that directory is missing.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::migrate::dsl::run_migrate_dsl;
+///
+/// // let report = run_migrate_dsl(Path::new("."), "v0.11", "v0.12", true)?;
+/// ```
 pub fn run_migrate_dsl(
     project_root: &Path,
     from: &str,
@@ -126,6 +135,15 @@ pub fn run_migrate_dsl(
 }
 
 /// Public-facing summary report renderer. Used by the CLI driver.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::migrate::dsl::{render_report, DslReport};
+///
+/// let text = render_report(&DslReport::default(), true);
+/// assert!(text.contains("recipe"));
+/// ```
 pub fn render_report(report: &DslReport, dry_run: bool) -> String {
     let mut out = String::new();
     use std::fmt::Write;

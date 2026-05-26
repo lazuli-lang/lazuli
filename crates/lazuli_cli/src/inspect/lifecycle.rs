@@ -2,6 +2,9 @@ use serde_json::{json, Value};
 
 use lazuli_ir::{AuditSpec, Feature, HandlerRef, LifecycleStateKind, PolicyRef};
 
+/// Project the per-resource `lifecycle` blocks across `features` into
+/// the `lazuli inspect --lifecycle` JSON shape — one row per
+/// resource that declares a lifecycle.
 pub fn project_lifecycle(features: &[Feature]) -> Value {
     let payload: Vec<Value> = features
         .iter()
