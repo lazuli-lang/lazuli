@@ -1,14 +1,10 @@
-//! Feature-skeleton walker: the hand-rolled line-stream parser that
-//! walks every `feature <name>` block in a `.lzi` source and dispatches
-//! to sibling parsers for each feature child (agent, auth, job, command,
-//! resource, ...). Re-exported from `parser/lzi/mod.rs`.
-//!
-//! See the parent module docs for ABI notes; the walker stays here so
-//! `lzi/mod.rs` can be the thin module root the rails-style split asks
-//! for.
+//! Inner walker — the giant per-feature dispatcher that builds a
+//! `FeatureSkeleton` from one `feature <name>` block body. Sibling of
+//! `feature_walker/mod.rs`, which keeps the public entry
+//! `parse_feature_skeletons` plus the indent constants Rails-thin.
 
-use super::super::common::{SourceLine, is_trivia, line_error, source_lines};
-use super::super::error::ParseError;
+use super::super::super::common::{SourceLine, is_trivia, line_error};
+use super::super::super::error::ParseError;
 
 use crate::ast::{
     AggregateDecl, ApiDecl, Auth, CacheProfileDecl, Channel, CommandDecl, EnumDeclAst, EventGroup,
@@ -16,87 +12,39 @@ use crate::ast::{
     PublicContractDeclAst, QueryDecl, RecordDecl, ReportDecl, ResourceDecl, Span, TenantMigration,
     TranslationDecl, UsesClauseAst, Webhook,
 };
-use super::types::PollerBlockAst;
+use super::super::types::PollerBlockAst;
 
-use super::agent::parse_agent;
-use super::api::parse_api_decl;
-use super::auth::parse_auth;
-use super::cache;
-use super::command;
-use super::defaults::parse_defaults;
-use super::enums::parse_enum_decl;
-use super::event;
-use super::feature_errors::parse_feature_errors_decl;
-use super::feature_prelude::{
+use super::super::agent::parse_agent;
+use super::super::api::parse_api_decl;
+use super::super::auth::parse_auth;
+use super::super::cache;
+use super::super::command;
+use super::super::defaults::parse_defaults;
+use super::super::enums::parse_enum_decl;
+use super::super::event;
+use super::super::feature_errors::parse_feature_errors_decl;
+use super::super::feature_prelude::{
     attach_public_contract_to_query, parse_public_contract_line, parse_uses_line,
     take_matching_public_contract,
 };
-use super::helpers::take_quoted_string;
-use super::iron_hand_context::{
+use super::super::iron_hand_context::{
     parse_feature_attach_ctx_line, parse_feature_non_goals_block, parse_feature_purpose_line,
 };
-use super::job::{parse_job, parse_tenant_migration};
-use super::mcp;
-use super::notification;
-use super::poller;
-use super::policy;
-use super::query;
-use super::record;
-use super::report;
-use super::resource::{parse_aggregate_decl, parse_resource_decl};
-use super::translation;
-use super::webhook::parse_webhook;
+use super::super::job::{parse_job, parse_tenant_migration};
+use super::super::mcp;
+use super::super::notification;
+use super::super::poller;
+use super::super::policy;
+use super::super::query;
+use super::super::record;
+use super::super::report;
+use super::super::resource::{parse_aggregate_decl, parse_resource_decl};
+use super::super::translation;
+use super::super::webhook::parse_webhook;
 
-pub(crate) const AGENT_INDENT_FEATURE_CHILD: usize = 2;
-pub(crate) const AGENT_INDENT_AGENT_CHILD: usize = 4;
-pub(crate) const AGENT_INDENT_GRANDCHILD: usize = 6;
-pub(crate) const AGENT_INDENT_GREAT_GRANDCHILD: usize = 8;
+use super::AGENT_INDENT_FEATURE_CHILD;
 
-/// Parse every `feature <name>` block in a `.lzi` source, returning a
-/// skeleton that lists only the agents inside each feature. Other feature
-/// children are not surfaced — Cut A intentionally narrows.
-pub fn parse_feature_skeletons(source: &str) -> Result<Vec<FeatureSkeleton>, ParseError> {
-    let lines = source_lines(source);
-    let mut features = Vec::new();
-    let mut i = 0;
-
-    while i < lines.len() {
-        let line = &lines[i];
-        let trimmed = line.text.trim_start();
-
-        if is_trivia(trimmed) {
-            i += 1;
-            continue;
-        }
-
-        if line.indent == 0 {
-            if let Some(rest) = trimmed.strip_prefix("feature ") {
-                let name = rest.trim().to_owned();
-                if name.is_empty() {
-                    return Err(line_error(
-                        line,
-                        "feature header requires a name: `feature <name>`",
-                    ));
-                }
-                let (feature, next) = parse_feature_skeleton(&lines, i, name)?;
-                features.push(feature);
-                i = next;
-                continue;
-            }
-            // Other top-level constructs (`app`, `workspace`, `contract`, ...)
-            // are not parsed by this slice. Skip the line.
-            i += 1;
-            continue;
-        }
-
-        // Stray indented top-level content — outside any feature. Skip.
-        i += 1;
-    }
-
-    Ok(features)
-}
-
-fn parse_feature_skeleton(
+pub(super) fn parse_feature_skeleton(
     lines: &[SourceLine<'_>],
     start: usize,
     name: String,
@@ -210,26 +158,9 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // Iron-hand context vocabulary — `non_goals` block. Two
-        // surface shapes are accepted (the lowered IR is identical):
-        //
-        //   non_goals
-        //     "Full marketplace listing optimization"
-        //     "Real-time chat (use messaging feature)"
-        //
-        //   non_goals
-        //     delegated_to
-        //       customer_auth: "customer login and MFA"
-        //       customer_tags: "tag management"
-        //     out_of_scope
-        //       "Invoicing"
-        //
-        // The flat form is preferred for new features; the partitioned
-        // form is retained because the canonical full-capsule fixture
-        // already authors it and removing it would invalidate the
-        // cold-read bar. Both lower to a flat list of descriptions for
-        // `VOCAB-CONTEXT-NONGOALS-001`; the analyzer keeps `key` for
-        // the optional partition tag (empty for flat entries).
+        // Iron-hand context vocabulary — `non_goals` block (see
+        // `lzi::iron_hand_context::parse_feature_non_goals_block` for
+        // the closed two-shape grammar).
         if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed == "non_goals" {
             if non_goals.is_some() {
                 return Err(line_error(
@@ -261,7 +192,6 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // Phase L Tier 3 — `job <name>` block.
         if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("job ") {
             let (parsed, next) = parse_job(lines, i)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
@@ -270,7 +200,6 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // Phase L Tier 3 — `webhook <name>` block.
         if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("webhook ") {
             let (parsed, next) = parse_webhook(lines, i)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
@@ -279,7 +208,6 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // Phase L Tier 3 — `notification <name>` block.
         if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("notification ") {
             let (parsed, next) = notification::parse_notification(lines, i)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
@@ -288,9 +216,6 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // L0 #8 — `poller <name>` block (docs/proposals/poller-vocab.md).
-        // Closed-catalog feature kind, parallel sibling of `job` /
-        // `webhook` / `notification`.
         if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("poller ") {
             let (parsed, next) = poller::parse_poller_block(lines, i)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
@@ -299,9 +224,6 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // Realtime bucket cycle MVP — `channel <name>` block. Closed
-        // three-child body (`tenant_from`, `policy`, `payload`). See
-        // `docs/proposals/bucket-realtime-cycle.md`.
         if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("channel ") {
             let (parsed, next) = notification::parse_channel(lines, i)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
@@ -310,12 +232,6 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // Cache bucket cycle (CL.C.3) — feature-level `cache <name>`
-        // profile block. Sibling of `notification`/`channel`/`poller`.
-        // Queries reference profiles by name via `cache <profile>` in
-        // their body; the inline `cache { key, ttl }` shape on a query
-        // stays for one-off ttl/key pairs.
-        // See `docs/proposals/bucket-cache-cycle.md` + roadmap §1.15.
         if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("cache ") {
             let (parsed, next) = cache::parse_cache_profile(lines, i)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
@@ -324,11 +240,6 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // CL.C.4 — `aggregate <Name>` block (DDD consistency boundary).
-        // Closed body: `root <Resource>` (required), `contains
-        // <Resource>, ...` (optional, repeatable), `invariants` block
-        // (optional). Sibling of `resource`/`command` at feature-child
-        // indent. See roadmap §1.7.
         if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("aggregate ") {
             let (parsed, next) = parse_aggregate_decl(lines, i)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
@@ -337,10 +248,8 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // Phase L Tier 3 — `event_group <pattern> on <Resource>` block.
-        // The fixture authors the group inside `domain` at indent 4, so
-        // we accept any indent > feature-child (the construct keyword is
-        // unambiguous).
+        // event_group accepts any indent > feature-child (keyword
+        // unambiguous; fixture authors it under `domain` at indent 4).
         if trimmed.starts_with("event_group ") {
             let (parsed, next) = event::parse_event_group(lines, i)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
@@ -349,9 +258,6 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // MCP bucket cycle — `mcp_server <name>` block. Closed-catalog
-        // children: transport / scope / auth / metadata / tool /
-        // resource / prompt. See `docs/proposals/bucket-mcp-cycle.md`.
         if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("mcp_server ") {
             let (parsed, next) = mcp::parse_mcp_server(lines, i)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
@@ -360,8 +266,6 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // Migrations bucket cycle Route C — `tenant_migration <name>`
-        // block. Sibling of `job`/`webhook`/`notification`; closed body.
         if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("tenant_migration ") {
             let (parsed, next) = parse_tenant_migration(lines, i)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
@@ -370,11 +274,8 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // Cross-feature contracts §5.4 — feature-level
-        // `uses <feature>[, <feature>]* [version v<N>]` line. Multiple
-        // comma-separated entries on one line yield multiple UsesClauseAst
-        // entries; the trailing `version v<N>` (when present) pins every
-        // entry on the line to that consumer-side version.
+        // `uses <feature>[, <feature>]* [version v<N>]` — cross-feature
+        // contracts §5.4. Multiple comma-separated entries fan out.
         if line.indent == AGENT_INDENT_FEATURE_CHILD
             && let Some(rest) = trimmed.strip_prefix("uses ")
         {
@@ -387,7 +288,6 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // Phase L Tier 4a — `defaults` block.
         if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed == "defaults" {
             if defaults.is_some() {
                 return Err(line_error(
@@ -402,7 +302,6 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // Phase L Tier 4b — `command <name>` block.
         if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("command ") {
             let (mut parsed, next) = command::parse_command_decl(lines, i)?;
             parsed.public_contract = take_matching_public_contract(
@@ -417,7 +316,6 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // Phase L Tier 4b — `api <name>` block.
         if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("api ") {
             let (parsed, next) = parse_api_decl(lines, i)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
@@ -426,9 +324,6 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // Report vocab — `report <name>` block. Tabular export contract
-        // (CSV / XLSX). Sibling of `api`/`command`/`query`.
-        // See `docs/proposals/report-vocab.md` v0.2.
         if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("report ") {
             let (parsed, next) = report::parse_report_decl(lines, i)?;
             last_end = lines[next.saturating_sub(1).max(i)].end;
@@ -437,12 +332,8 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // Phase L Tier 4c — `resource <Name>` block. The fixture authors
-        // resources inside `domain` at indent 4 (and historically also
-        // at indent 2 directly under `feature`), so we accept any
-        // indent > FEATURE_CHILD as long as the keyword and children
-        // shape are unambiguous. `parse_resource_decl` enforces the
-        // child indent contract relative to its own header.
+        // `resource` accepts any indent > FEATURE_CHILD (fixture nests
+        // under `domain` at indent 4); the decl walker enforces children.
         if trimmed.starts_with("resource ") {
             let (mut parsed, next) = parse_resource_decl(lines, i)?;
             parsed.public_contract = take_matching_public_contract(
@@ -457,10 +348,6 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // Phase L Tier 4d — `query.list` / `query.lookup` / `query.sql`
-        // / `query.view`
-        // blocks. Authored inside `domain` at indent 4. Header is
-        // recognised unambiguously by the keyword prefix.
         if trimmed.starts_with("query.list ")
             || trimmed.starts_with("query.lookup ")
             || trimmed.starts_with("query.sql ")
@@ -474,7 +361,6 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // Phase L Tier 4d — `record <Name>` block.
         if trimmed.starts_with("record ") {
             let (mut parsed, next) = record::parse_record_decl(lines, i)?;
             parsed.public_contract =
@@ -485,8 +371,6 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // Phase L Tier 4 follow-up — `policies` block. At most one per
-        // feature; duplicate is a parse error.
         if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed == "policies" {
             if policies_block.is_some() {
                 return Err(line_error(
@@ -501,8 +385,6 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // IR Error-Vocab (Cell PARSE-1) — `errors` block at indent 2.
-        // At most one per feature; duplicate is a parse error.
         if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed == "errors" {
             if errors_block.is_some() {
                 return Err(line_error(
@@ -517,9 +399,6 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // Phase L Tier 4 follow-up — `enum <Name>` declaration. The
-        // fixture authors enums inside `domain` at indent 4. Header is
-        // recognised unambiguously by the keyword prefix at indent > 2.
         if trimmed.starts_with("enum ") && line.indent > AGENT_INDENT_FEATURE_CHILD {
             let (mut parsed, next) = parse_enum_decl(lines, i)?;
             parsed.public_contract =
@@ -530,8 +409,6 @@ fn parse_feature_skeleton(
             continue;
         }
 
-        // i18n bucket cycle — `translation` block. At most one per
-        // feature; duplicate is a parse error.
         if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed == "translation" {
             if translation.is_some() {
                 return Err(line_error(
