@@ -16,6 +16,8 @@
 
 mod contracts;
 mod manifest;
+mod manifest_indent;
+mod manifest_indent4;
 mod parsers;
 mod parsers_app;
 mod parsers_common;
