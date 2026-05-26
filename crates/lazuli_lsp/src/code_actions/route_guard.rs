@@ -48,6 +48,21 @@ use crate::{
 /// policy and redirects`, `Promote <path> to app.route_guard default`,
 /// `Scaffold app.route_guard defaults`, and `Insert actor_query stub`.
 /// Returns an empty vector outside route-guard-related lines.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::route_guard_code_actions;
+/// use tower_lsp::lsp_types::{Position, Url};
+///
+/// let uri = Url::parse("file:///example.lzi").unwrap();
+/// let actions = route_guard_code_actions(
+///     "feature billing\n",
+///     &uri,
+///     Position { line: 0, character: 0 },
+/// );
+/// assert!(actions.is_empty());
+/// ```
 pub fn route_guard_code_actions(
     source: &str,
     uri: &Url,

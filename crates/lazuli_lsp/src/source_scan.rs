@@ -40,6 +40,14 @@ use tower_lsp::lsp_types::Position;
 /// Lossy by design: only feature-scoped indent-2 query declarations
 /// register. Incomplete or malformed lines are silently skipped so the
 /// caller never crashes on a half-typed identifier.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::collect_query_refs;
+/// let refs = collect_query_refs("feature billing\n  query.lookup me\n");
+/// assert!(refs.contains(&"billing.query.me".to_owned()));
+/// ```
 pub fn collect_query_refs(source: &str) -> Vec<String> {
     let mut refs = Vec::new();
     let mut seen = HashSet::new();
@@ -85,6 +93,15 @@ pub fn collect_query_refs(source: &str) -> Vec<String> {
 /// Powers the route-guard `@policy.<name>` completion provider — the
 /// category list is the closed completion set, scoped to the surrounding
 /// feature.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::collect_policy_categories_for_feature;
+/// let source = "feature billing\n  policies\n    admin: @user.is_admin\n";
+/// let cats = collect_policy_categories_for_feature(source, Some("billing"));
+/// assert!(cats.contains(&"admin".to_owned()));
+/// ```
 pub fn collect_policy_categories_for_feature(
     source: &str,
     feature_hint: Option<&str>,
@@ -147,6 +164,17 @@ pub fn collect_policy_categories_for_feature(
 ///
 /// Best-effort indent walk; safe in tight UI loops (completion / hover
 /// / code-action paths).
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::enclosing_feature_name;
+/// use tower_lsp::lsp_types::Position;
+///
+/// let source = "feature billing\n  query.lookup me\n";
+/// let name = enclosing_feature_name(source, Position { line: 1, character: 4 });
+/// assert_eq!(name, Some("billing".into()));
+/// ```
 pub fn enclosing_feature_name(source: &str, position: Position) -> Option<String> {
     let lines: Vec<&str> = source.lines().collect();
     let cursor_line_idx = (position.line as usize).min(lines.len().saturating_sub(1));
@@ -177,6 +205,15 @@ pub fn enclosing_feature_name(source: &str, position: Position) -> Option<String
 /// Used by the error-vocab completion provider to surface valid
 /// `@translation.<key>` targets for `when_denied` and `errors.<code>
 /// message` slots.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::collect_translation_keys_for_feature;
+/// let source = "feature billing\n  translation\n    key invoice_paid\n";
+/// let keys = collect_translation_keys_for_feature(source, "billing");
+/// assert_eq!(keys, vec!["invoice_paid".to_owned()]);
+/// ```
 pub fn collect_translation_keys_for_feature(source: &str, feature_name: &str) -> Vec<String> {
     let mut keys: Vec<String> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();

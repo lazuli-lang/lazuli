@@ -40,6 +40,17 @@ pub(crate) const LIFECYCLE_ARROW_HOVER: &str = "Arrow token mapping a lifecycle 
 /// or the resolved gate hover that prints the bound resource and
 /// declared states. Returns `None` for any token outside the
 /// lifecycle-gate surface.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::lifecycle_gate_hover;
+/// use tower_lsp::lsp_types::Position;
+///
+/// // Unrelated token — None.
+/// let hover = lifecycle_gate_hover("", Position { line: 0, character: 0 }, Some("unrelated"));
+/// assert!(hover.is_none());
+/// ```
 pub fn lifecycle_gate_hover(
     source: &str,
     position: Position,

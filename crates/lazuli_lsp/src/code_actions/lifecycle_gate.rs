@@ -51,6 +51,21 @@ use crate::{
 /// `Add missing state arms` for uncovered states, and `Convert to
 /// wildcard` for forward-compatibility. Returns an empty vector
 /// outside lifecycle-related lines.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::lifecycle_gate_code_actions;
+/// use tower_lsp::lsp_types::{Position, Url};
+///
+/// let uri = Url::parse("file:///example.lzi").unwrap();
+/// let actions = lifecycle_gate_code_actions(
+///     "feature billing\n",
+///     &uri,
+///     Position { line: 0, character: 0 },
+/// );
+/// assert!(actions.is_empty());
+/// ```
 pub fn lifecycle_gate_code_actions(
     source: &str,
     uri: &Url,

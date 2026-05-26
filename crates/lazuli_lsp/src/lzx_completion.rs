@@ -18,6 +18,17 @@ use tower_lsp::lsp_types::{
 /// `selection` block. Returns an empty vector outside known contexts.
 ///
 /// Lossy by design (no full parse) — see the module-level docstring.
+///
+/// ## Examples
+///
+/// ```ignore
+/// // Not re-exported at the crate root — example shape only.
+/// use lazuli_lsp::lzx_completion::completions_for_lzx;
+/// use tower_lsp::lsp_types::Position;
+///
+/// let items = completions_for_lzx("", Position { line: 0, character: 0 });
+/// assert!(items.iter().any(|c| c.label.contains("view list")));
+/// ```
 pub fn completions_for_lzx(source: &str, position: Position) -> Vec<CompletionItem> {
     let ctx = detect_context(source, position.line as usize);
     match ctx {

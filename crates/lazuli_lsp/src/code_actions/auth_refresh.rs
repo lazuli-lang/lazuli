@@ -43,6 +43,22 @@ use crate::{
 /// children). Returns an empty vector outside auth blocks.
 ///
 /// Pure text edits — no IR awareness. See module docs for the rationale.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::auth_refresh_code_actions;
+/// use tower_lsp::lsp_types::{Position, Url};
+///
+/// let uri = Url::parse("file:///example.lzi").unwrap();
+/// // Cursor on a feature header — no auth context, no actions.
+/// let actions = auth_refresh_code_actions(
+///     "feature billing\n",
+///     &uri,
+///     Position { line: 0, character: 0 },
+/// );
+/// assert!(actions.is_empty());
+/// ```
 pub fn auth_refresh_code_actions(
     source: &str,
     uri: &Url,

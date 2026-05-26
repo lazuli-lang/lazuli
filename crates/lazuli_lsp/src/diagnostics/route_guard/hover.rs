@@ -22,6 +22,21 @@ use super::context::{
 /// references that walk the document's `policies` block and compare
 /// the guard against any hosted backend's `policy` line. Returns
 /// `None` for any other token.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::route_guard_hover;
+/// use tower_lsp::lsp_types::Position;
+///
+/// // `route_guard` keyword always carries a hover.
+/// let hover = route_guard_hover("", Position { line: 0, character: 0 }, "route_guard");
+/// assert!(hover.is_some());
+///
+/// // Unrelated word — None.
+/// let hover = route_guard_hover("", Position { line: 0, character: 0 }, "nonsense");
+/// assert!(hover.is_none());
+/// ```
 pub fn route_guard_hover(source: &str, position: Position, word: &str) -> Option<String> {
     if word.starts_with("policy.") {
         if let Some(hover) = route_guard_policy_ref_hover(source, position, word) {
