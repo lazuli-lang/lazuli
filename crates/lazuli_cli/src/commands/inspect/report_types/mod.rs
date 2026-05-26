@@ -32,6 +32,7 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 
 mod agent;
+mod aggregate;
 mod auth;
 mod job;
 mod notification;
@@ -42,6 +43,7 @@ mod webhook;
 // `commands/inspect/mod.rs` (`pub(in crate::commands::inspect) use
 // report_types::*;`) keeps picking these up unchanged.
 pub(in crate::commands::inspect) use agent::*;
+pub(in crate::commands::inspect) use aggregate::*;
 pub(in crate::commands::inspect) use auth::*;
 pub(in crate::commands::inspect) use job::*;
 pub(in crate::commands::inspect) use notification::*;
@@ -376,46 +378,6 @@ pub(super) struct InspectAudit {
 // `notification`/`job`/`webhook` triple cold without joining tables.
 // Row 32 of `docs/next-checklist.md`.
 // -----------------------------------------------------------------------------
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectEventGroup {
-    pub(super) pattern: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) on_resource: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(super) payload: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) audit: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(super) events: Vec<String>,
-    pub(super) origin: &'static str,
-}
-
-// CL.C.4 — `--expand=aggregates` projections (roadmap §1.7).
-#[derive(Debug, Serialize)]
-pub(super) struct InspectAggregate {
-    pub(super) name: String,
-    pub(super) root: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(super) contains: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(super) invariants: Vec<InspectInvariant>,
-    pub(super) origin: &'static str,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectInvariant {
-    pub(super) name: String,
-    /// Closed-catalog predicate text. The IR carries an
-    /// `EvalPredicate`; we stringify it back so the projection is
-    /// stable across `Closed` / `Unparsed` / `Contains` shapes.
-    pub(super) when: String,
-    /// Predicate kind as projected. Aids LLM/cold-reader inspection;
-    /// stable closed catalog: `closed | contains | tools_calls | unparsed`.
-    pub(super) when_kind: &'static str,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub(super) message: String,
-}
 
 #[derive(Debug, Serialize)]
 pub(super) struct InspectSecurityWebhook {
