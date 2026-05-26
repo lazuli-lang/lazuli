@@ -22,6 +22,17 @@ use super::helpers::{
     parse_duration_to_seconds, redact_strategy_const,
 };
 
+/// Emit `lazuli_app.gen.go` lowering every observable sub-block of
+/// `module.app` into typed Go contract values. Returns `None` when
+/// the manifest declares no observable surface so the orchestrator can
+/// skip the file (keeps the output listing signal-rich).
+///
+/// ## Examples
+///
+/// ```ignore
+/// let go_src = emit_lazuli_app_gen(&module, "app.lzi");
+/// // None when the module has no `app` manifest.
+/// ```
 pub fn emit_lazuli_app_gen(module: &Module, source_label: &str) -> Option<String> {
     let manifest = module.app.as_ref()?;
 
@@ -301,4 +312,28 @@ fn emit_cors_contract(p: &mut GoPrinter, cors: &AppCors, has_locale: bool) {
     }
     p.dedent();
     p.line("}");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lazuli_ir::Module;
+
+    fn empty_module() -> Module {
+        Module {
+            workspace: None,
+            contracts: Vec::new(),
+            app: None,
+            registry: None,
+            profiles: Vec::new(),
+            design: None,
+            rbac: None,
+            features: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn module_without_app_manifest_emits_nothing() {
+        assert!(emit_lazuli_app_gen(&empty_module(), "app.lzi").is_none());
+    }
 }

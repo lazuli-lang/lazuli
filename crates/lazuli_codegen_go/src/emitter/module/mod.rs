@@ -45,6 +45,13 @@ use per_feature::emit_feature_files;
 /// Walk the IR module and produce every `.gen.go` plus the root
 /// `go.mod`. Per cell E1 this only emits the file skeleton; kinds
 /// land in subsequent cells.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_go::{emitter::emit_module, GoEmitOptions};
+/// let files = emit_module(&module, &GoEmitOptions::default(), None, None);
+/// ```
 pub fn emit_module(
     module: &Module,
     options: &GoEmitOptions,
