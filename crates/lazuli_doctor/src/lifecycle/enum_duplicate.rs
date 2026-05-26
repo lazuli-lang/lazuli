@@ -13,16 +13,40 @@ use lazuli_ir::Feature;
 
 // ── output ────────────────────────────────────────────────────────────────────
 
+/// One LIFECYCLE-ENUM-DUPLICATE finding — the enum a lifecycle would
+/// generate (e.g. `<Resource>Status`) collides with an authored
+/// `enum <Name>` in the same feature.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the lifecycle is declared in.
     pub path: PathBuf,
+    /// Resource owning the lifecycle.
     pub resource: String,
+    /// Name of the colliding enum.
     pub enum_name: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "LIFECYCLE-ENUM-DUPLICATE";
 
+    /// Render the "lifecycle enum collides with sibling enum" message.
+    /// Names both the resource and the enum so authors can decide
+    /// whether to rename the discriminator field or the existing enum.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::lifecycle::enum_duplicate::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("publishing.lzi"),
+    ///     resource: "Publication".into(),
+    ///     enum_name: "PublicationStatus".into(),
+    /// };
+    /// assert!(f.message().contains("PublicationStatus"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "lifecycle on `{}` auto-emits enum `{}` but a sibling `enum {}` is already declared — rename your existing enum OR rename the lifecycle discriminator field",
@@ -33,6 +57,20 @@ impl Finding {
 
 // ── detection ─────────────────────────────────────────────────────────────────
 
+/// Walk `feature` and flag any resource whose lifecycle would generate
+/// an enum that collides with an authored `enum <Name>` in the same
+/// feature.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::lifecycle::enum_duplicate::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a lifecycle + sibling enum collision");
+/// let _ = check(&feature, Path::new("publishing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let declared: HashSet<&str> = feature.enums.iter().map(|e| e.name.as_str()).collect();
     let mut findings = vec![];

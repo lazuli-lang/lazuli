@@ -11,17 +11,42 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::Feature;
 
+/// One LIFECYCLE-TRANSITION-FROM-UNDECLARED finding — a transition's
+/// `from` references a state name that isn't declared in the same
+/// lifecycle's `states` block.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the lifecycle is declared in.
     pub path: PathBuf,
+    /// Resource owning the lifecycle.
     pub resource: String,
+    /// Transition that referenced the undeclared state.
     pub transition: String,
+    /// Unresolved state name.
     pub unresolved_state: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "LIFECYCLE-TRANSITION-FROM-UNDECLARED";
 
+    /// Render the "transition references undeclared from state"
+    /// message naming the resource, transition, and dangling state.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::lifecycle::transition_from_undeclared::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("publishing.lzi"),
+    ///     resource: "Publication".into(),
+    ///     transition: "publish".into(),
+    ///     unresolved_state: "ghost".into(),
+    /// };
+    /// assert!(f.message().contains("ghost"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "lifecycle on `{}`: transition `{}` references undeclared `from` state `{}`",
@@ -30,6 +55,20 @@ impl Finding {
     }
 }
 
+/// Walk every transition in every resource lifecycle and emit a
+/// finding for each `from` entry that isn't in the lifecycle's
+/// `states` block.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::lifecycle::transition_from_undeclared::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a dangling transition `from`");
+/// let _ = check(&feature, Path::new("publishing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = vec![];
 

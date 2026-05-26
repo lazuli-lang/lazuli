@@ -12,23 +12,58 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Feature, LifecycleInvariant};
 
+/// One LIFECYCLE-INVARIANT-PARAM-UNRESOLVED finding — either the
+/// state or the scope-field an invariant references is not declared on
+/// the parent lifecycle / resource.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the lifecycle is declared in.
     pub path: PathBuf,
+    /// Resource owning the lifecycle.
     pub resource: String,
+    /// What's unresolved — state name vs scope-field name.
     pub kind: UnresolvedKind,
+    /// The dangling identifier.
     pub name: String,
 }
 
+/// Whether the unresolved reference is a lifecycle state name or a
+/// resource scope-field name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UnresolvedKind {
+    /// `invariant single <state>` referenced a state that isn't in
+    /// the lifecycle's `states` block.
     State,
+    /// `invariant single <state> per <scope_field>` referenced a
+    /// field that isn't declared on the parent resource.
     ScopeField,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "LIFECYCLE-INVARIANT-PARAM-UNRESOLVED";
 
+    /// Render the "unresolved invariant parameter" message. Branches
+    /// on [`UnresolvedKind`] to differentiate state vs scope-field
+    /// references so authors immediately know which catalog is
+    /// missing the name.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::lifecycle::invariant_param_unresolved::{
+    ///     Finding, UnresolvedKind,
+    /// };
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("publishing.lzi"),
+    ///     resource: "Publication".into(),
+    ///     kind: UnresolvedKind::State,
+    ///     name: "ghost".into(),
+    /// };
+    /// assert!(f.message().contains("unknown state"));
+    /// ```
     pub fn message(&self) -> String {
         match self.kind {
             UnresolvedKind::State => format!(
@@ -45,6 +80,20 @@ impl Finding {
     }
 }
 
+/// Walk every resource lifecycle in `feature` and emit a finding for
+/// every `SingleStatePerScope` invariant whose `state` or `scope_field`
+/// is dangling.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::lifecycle::invariant_param_unresolved::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a dangling invariant ref");
+/// let _ = check(&feature, Path::new("publishing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 

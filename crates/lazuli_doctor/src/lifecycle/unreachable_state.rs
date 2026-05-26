@@ -24,8 +24,25 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "LIFECYCLE-UNREACHABLE-STATE";
 
+    /// Render the "unreachable state" message, steering the author to
+    /// either mark the state `initial` or add a transition into it.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::lifecycle::unreachable_state::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("publishing.lzi"),
+    ///     resource: "Publication".into(),
+    ///     state_name: "limbo".into(),
+    /// };
+    /// assert!(f.message().contains("limbo"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "lifecycle on `{}`: non-initial state `{}` has no incoming transitions — \
@@ -41,6 +58,17 @@ impl Finding {
 ///
 /// `path` is the source `.lzi` file — used to anchor findings; no I/O is
 /// performed here. The caller maps each `Finding` into a `DoctorDiagnostic`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::lifecycle::unreachable_state::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with an unreachable non-initial state");
+/// let _ = check(&feature, Path::new("publishing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     feature
         .resources
