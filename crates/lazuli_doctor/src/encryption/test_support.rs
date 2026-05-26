@@ -11,6 +11,16 @@ use lazuli_ir::{
     EventKind, Feature, Field, FieldConstraints, OutboxMode, Policies, Resource, TypeRef,
 };
 
+/// Build an empty `AppManifest` skeleton used by encryption-rule tests
+/// as a starting point — every field zeroed / defaulted, ready for the
+/// caller to push `encryption_bindings` etc. before invoking a rule.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let mut app = empty_app();
+/// app.encryption_bindings.push(make_binding("@key.tenant", "CRYPT_KEY"));
+/// ```
 pub fn empty_app() -> AppManifest {
     AppManifest {
         name: "TestApp".into(),
@@ -52,6 +62,15 @@ pub fn empty_app() -> AppManifest {
     }
 }
 
+/// Build an `EncryptionBinding` with sensible defaults (`Aes256Gcm`,
+/// `Manual` rotation, `Env` source). `template_literal` is the env-var
+/// name to surface in the binding's source.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let b = make_binding("@key.tenant", "CRYPT_KEY_TENANT_{tenant_id}");
+/// ```
 pub fn make_binding(scope: &str, template_literal: &str) -> EncryptionBinding {
     EncryptionBinding {
         scope: scope.into(),
@@ -63,6 +82,16 @@ pub fn make_binding(scope: &str, template_literal: &str) -> EncryptionBinding {
     }
 }
 
+/// Build an empty `Feature` skeleton — every collection zero-length,
+/// every `Option` field `None`. Callers push the constructs the rule
+/// under test exercises (resources, events, ...).
+///
+/// ## Examples
+///
+/// ```ignore
+/// let mut feature = empty_feature("customer");
+/// feature.resources.push(resource_with_fields("Customer", vec![]));
+/// ```
 pub fn empty_feature(name: &str) -> Feature {
     Feature {
         name: name.into(),
@@ -109,6 +138,14 @@ pub fn empty_feature(name: &str) -> Feature {
     }
 }
 
+/// Build a `Field` typed as `@cap.Encrypted(key:@key.<scope>)` for use
+/// inside test-fixture resources.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let f = encrypted_field("external_id", "@key.tenant");
+/// ```
 pub fn encrypted_field(name: &str, key_scope: &str) -> Field {
     Field {
         name: name.into(),
@@ -129,6 +166,14 @@ pub fn encrypted_field(name: &str, key_scope: &str) -> Field {
     }
 }
 
+/// Build a `Field` typed as `@cap.E2ee(key:@key.<scope>)` for use
+/// inside test-fixture resources.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let f = e2ee_field("body", "@key.user");
+/// ```
 pub fn e2ee_field(name: &str, key_scope: &str) -> Field {
     Field {
         name: name.into(),
@@ -149,6 +194,15 @@ pub fn e2ee_field(name: &str, key_scope: &str) -> Field {
     }
 }
 
+/// Build a `Resource` named `name` carrying the given fields. All
+/// other knobs are defaulted (no tenancy, no soft-delete, no
+/// lifecycle).
+///
+/// ## Examples
+///
+/// ```ignore
+/// let r = resource_with_fields("Customer", vec![encrypted_field("ext_id", "@key.tenant")]);
+/// ```
 pub fn resource_with_fields(name: &str, fields: Vec<Field>) -> Resource {
     Resource {
         name: name.into(),
@@ -174,6 +228,14 @@ pub fn resource_with_fields(name: &str, fields: Vec<Field>) -> Resource {
     }
 }
 
+/// Build a domain `Event` named `name` carrying the given payload
+/// fields. Outbox mode is `None`, level defaulted.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let e = event_with_payload("message_sent", vec![]);
+/// ```
 pub fn event_with_payload(name: &str, fields: Vec<EventField>) -> Event {
     Event {
         name: name.into(),
@@ -187,6 +249,15 @@ pub fn event_with_payload(name: &str, fields: Vec<EventField>) -> Event {
     }
 }
 
+/// Build an `EventField` with `optional: false` carrying the given
+/// type reference (typically a `TypeRef::Capability(...)`).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_ir::TypeRef;
+/// let _ = event_field("body", TypeRef::Capability(unimplemented!()));
+/// ```
 pub fn event_field(name: &str, type_ref: TypeRef) -> EventField {
     EventField {
         name: name.into(),

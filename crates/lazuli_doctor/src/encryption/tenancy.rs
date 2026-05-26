@@ -12,20 +12,47 @@ use lazuli_ir::{CapabilityRef, Feature, Tenancy, TypeRef};
 
 // ── output ────────────────────────────────────────────────────────────────────
 
+/// One ENC-TENANCY-001 finding — a feature carries
+/// `@cap.Encrypted(key:@key.tenant)` (or the `@cap.E2ee` sibling) on a
+/// resource that has no tenant-bearing tenancy axis.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the offending capability was authored in.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
     /// Resource declaring the offending tenant-scoped capability.
     pub resource: String,
+    /// Field carrying the tenant-scoped capability.
     pub field: String,
     /// `@cap.Encrypted` or `@cap.E2ee`.
     pub capability: &'static str,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "ENC-TENANCY-001";
 
+    /// Render the "tenant-scoped encryption without tenant tenancy"
+    /// message. The text names both the capability and the resource so
+    /// the author can decide whether to raise tenancy or pick a
+    /// non-tenant key scope.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::encryption::tenancy::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("customer.lzi"),
+    ///     feature: "customer".into(),
+    ///     resource: "Customer".into(),
+    ///     field: "external_id".into(),
+    ///     capability: "@cap.Encrypted",
+    /// };
+    /// assert!(f.message().contains("@key.tenant"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "feature `{}` uses `{}(key:@key.tenant)` on `{}.{}` but its `defaults.tenancy` is not `org` (or another tenant axis) — tenant-scoped encryption without tenant-scoped data is a contract gap",
@@ -43,6 +70,20 @@ fn is_tenant_bearing(t: Option<&Tenancy>) -> bool {
     )
 }
 
+/// Walk `feature` and emit a finding for every `@key.tenant`-scoped
+/// capability declared on a resource whose effective tenancy is NOT
+/// tenant-bearing. Resource tenancy overrides feature-level defaults.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::encryption::tenancy::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with @key.tenant on a non-org resource");
+/// let _ = check(&feature, Path::new("customer.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     if is_tenant_bearing(feature.defaults.tenancy.as_ref()) {
         return vec![];

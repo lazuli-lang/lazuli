@@ -12,8 +12,12 @@ use lazuli_ir::{AppManifest, AppRegistry, EncryptionSource};
 
 // ── output ────────────────────────────────────────────────────────────────────
 
+/// One ENC-SOURCE-ENV-001 finding — an encryption key binding pulls
+/// its material from `env.<NAME>` but the env-var schema (in
+/// `registry.lzi` or `app.lzi`) declares no matching entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the binding was authored in.
     pub path: PathBuf,
     /// `@key.<scope>` reference, verbatim.
     pub scope: String,
@@ -22,8 +26,27 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "ENC-SOURCE-ENV-001";
 
+    /// Render the "env entry missing for encryption key" message.
+    /// Includes the literal env var name (with axes like
+    /// `{tenant_id}` preserved verbatim) so the author can paste it
+    /// into `registry.lzi`.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::encryption::source_env::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("app.lzi"),
+    ///     scope: "@key.tenant".into(),
+    ///     env_name: "CRYPT_KEY_TENANT_{tenant_id}".into(),
+    /// };
+    /// assert!(f.message().contains("CRYPT_KEY_TENANT_"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "`encryption.key {}` references env var `{}` but no `env <NAME>` schema entry exists in `registry.lzi` (or `app.lzi`)",
@@ -41,6 +64,17 @@ impl Finding {
 /// brace-bearing literal** verbatim: the registry pattern
 /// `CRYPT_KEY_TENANT_{tenant_id}` must appear in the env schema to
 /// satisfy this check.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::encryption::source_env::check;
+/// use lazuli_ir::{AppManifest, AppRegistry};
+///
+/// let app: AppManifest = unimplemented!("load app manifest");
+/// let _ = check(&app, None::<&AppRegistry>, Path::new("app.lzi"));
+/// ```
 pub fn check(
     app: &AppManifest,
     registry: Option<&AppRegistry>,

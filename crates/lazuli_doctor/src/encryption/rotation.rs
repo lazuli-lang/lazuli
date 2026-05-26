@@ -26,15 +26,37 @@ use lazuli_ir::{AppManifest, EncryptionKeyScope};
 
 // ── output ────────────────────────────────────────────────────────────────────
 
+/// One ENC-ROTATION-001 finding — a key binding for a rotation-relevant
+/// scope (`@key.tenant`, `@key.user`, `@key.record`) is silently
+/// inheriting the catalog default instead of declaring intent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file where the binding was authored.
     pub path: PathBuf,
+    /// `@key.<scope>` whose binding lacks an explicit rotation.
     pub scope: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "ENC-ROTATION-001";
 
+    /// Render the "rotation strategy missing" message naming the
+    /// scope. The text steers the author to write the runbook rather
+    /// than silently relying on the catalog default.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::encryption::rotation::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("app.lzi"),
+    ///     scope: "@key.tenant".into(),
+    /// };
+    /// assert!(f.message().contains("@key.tenant"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "`encryption.key {}` declares no `rotation` strategy; defaulting to `manual` — document the rotation procedure in the capsule's runbook",
@@ -48,6 +70,16 @@ impl Finding {
 /// Test whether a `@key.<scope>` reference is one of the cases where
 /// rotation procedure documentation matters operationally. Public so
 /// other tooling can adopt the same filter.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::encryption::rotation::rotation_matters;
+///
+/// assert!(rotation_matters("@key.tenant"));
+/// assert!(rotation_matters("@key.user"));
+/// assert!(!rotation_matters("@key.app"));
+/// ```
 pub fn rotation_matters(scope_ref: &str) -> bool {
     match EncryptionKeyScope::parse(scope_ref) {
         Some(EncryptionKeyScope::Tenant)
@@ -61,6 +93,18 @@ pub fn rotation_matters(scope_ref: &str) -> bool {
 /// distinguishes "rotation absent" from "rotation manual", this
 /// returns no findings; the function shape is committed so the
 /// adapter pass and doctor-dispatch wire-up can plug in cleanly.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::encryption::rotation::check;
+/// use lazuli_ir::AppManifest;
+///
+/// let app: AppManifest = unimplemented!("load app manifest");
+/// // Returns empty until parser tracks rotation-absent vs rotation-manual.
+/// assert!(check(&app, Path::new("app.lzi")).is_empty());
+/// ```
 pub fn check(_app: &AppManifest, _path: &Path) -> Vec<Finding> {
     Vec::new()
 }

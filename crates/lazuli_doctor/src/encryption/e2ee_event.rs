@@ -12,19 +12,48 @@ use lazuli_ir::{CapabilityRef, Feature, TypeRef};
 
 // ── output ────────────────────────────────────────────────────────────────────
 
+/// One ENC-E2EE-EVENT-001 finding — an event payload field is tagged
+/// with the `@cap.E2ee` capability. Event payloads cross consumer
+/// boundaries the server cannot decrypt for, so the only safe shape is
+/// to keep the ciphertext off the wire.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file that declared the offending event.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
+    /// Event the field belongs to.
     pub event: String,
+    /// Payload field carrying the E2ee capability.
     pub field: String,
     /// `@key.<scope>` reference, verbatim.
     pub key_scope: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "ENC-E2EE-EVENT-001";
 
+    /// Render the "E2ee in event payload" message. Includes the key
+    /// scope so authors recognise WHICH key boundary the field is
+    /// attached to and can plan a `@cap.Encrypted(key:@key.tenant)`
+    /// switch or a separate consumer-side fetch.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::encryption::e2ee_event::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("messages.lzi"),
+    ///     feature: "messages".into(),
+    ///     event: "message_sent".into(),
+    ///     field: "body".into(),
+    ///     key_scope: "@key.user".into(),
+    /// };
+    /// assert!(f.message().contains("E2ee"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "event payload `{}.{}` exposes `{}` declared as `@cap.E2ee(key:{})` — E2ee fields must not appear in event payloads (the server cannot decrypt them and consumers see ciphertext)",
@@ -35,6 +64,21 @@ impl Finding {
 
 // ── detection ─────────────────────────────────────────────────────────────────
 
+/// Walk every event in `feature` and emit a finding for each payload
+/// field tagged with `@cap.E2ee`. `path` anchors the resulting findings
+/// to the source `.lzi` so the LSP / CLI can surface a clickable
+/// `<file>:<line>:` line.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::encryption::e2ee_event::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with @cap.E2ee on an event payload");
+/// let _ = check(&feature, Path::new("messages.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = vec![];
 

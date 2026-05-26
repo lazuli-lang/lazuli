@@ -11,8 +11,13 @@ use lazuli_ir::{AppManifest, EncryptionKeyScope};
 
 // ── output ────────────────────────────────────────────────────────────────────
 
+/// One ENC-TEMPLATE-AXIS-001 finding — a key-binding source template
+/// either omits a required scope axis (e.g. `@key.tenant` template
+/// without `{tenant_id}`) or carries a forbidden one (e.g. `@key.app`
+/// with any brace expression).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the binding was authored in.
     pub path: PathBuf,
     /// `@key.<scope>` reference, verbatim.
     pub scope: String,
@@ -24,6 +29,8 @@ pub struct Finding {
     pub reason: AxisMismatch,
 }
 
+/// Two-way axis violation: the scope's required axis is missing, or
+/// an axis is present where the scope forbids it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AxisMismatch {
     /// `@key.<scope>` requires the named axis but the template
@@ -35,8 +42,27 @@ pub enum AxisMismatch {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "ENC-TEMPLATE-AXIS-001";
 
+    /// Render the axis-mismatch message. Branches on
+    /// [`AxisMismatch`] to either name the missing axis or steer the
+    /// author to remove the forbidden one.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::encryption::template_axis::{Finding, AxisMismatch};
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("app.lzi"),
+    ///     scope: "@key.tenant".into(),
+    ///     template_literal: "CRYPT_KEY_TENANT".into(),
+    ///     reason: AxisMismatch::Missing("tenant_id"),
+    /// };
+    /// assert!(f.message().contains("{tenant_id}"));
+    /// ```
     pub fn message(&self) -> String {
         match &self.reason {
             AxisMismatch::Missing(axis) => format!(
@@ -53,6 +79,21 @@ impl Finding {
 
 // ── detection ─────────────────────────────────────────────────────────────────
 
+/// Run ENC-TEMPLATE-AXIS-001 against every binding in `app`. Walks
+/// each binding's source template and pairs the carried axes against
+/// the scope's expected one — fires `Missing` when the scope's axis is
+/// absent, `Forbidden` when `@key.app` smuggles an axis through.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::encryption::template_axis::check;
+/// use lazuli_ir::AppManifest;
+///
+/// let app: AppManifest = unimplemented!("load app manifest");
+/// let _ = check(&app, Path::new("app.lzi"));
+/// ```
 pub fn check(app: &AppManifest, path: &Path) -> Vec<Finding> {
     let mut findings = vec![];
 
