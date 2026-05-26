@@ -4,16 +4,38 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Feature, FileVisibility};
 
+/// One REPORT-SIGNED-TTL-MISSING-001 finding — a report with
+/// `visibility:signed` doesn't declare a `signed_ttl` lifetime.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the report was authored in.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
+    /// Report missing the TTL.
     pub report: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "REPORT-SIGNED-TTL-MISSING-001";
 
+    /// Render the "signed visibility without TTL" message naming the
+    /// report and suggesting a sample duration.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::report::report_signed_ttl_missing_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("sales.lzi"),
+    ///     feature: "sales".into(),
+    ///     report: "weekly_sales".into(),
+    /// };
+    /// assert!(f.message().contains("signed_ttl"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "report `{}` has `visibility:signed` but no `signed_ttl`. \
@@ -23,6 +45,19 @@ impl Finding {
     }
 }
 
+/// Walk every report in `feature` and emit a finding for each with
+/// `visibility:signed` that has no `signed_ttl`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::report::report_signed_ttl_missing_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a signed report missing signed_ttl");
+/// let _ = check(&feature, Path::new("sales.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     feature
         .reports

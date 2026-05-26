@@ -9,16 +9,39 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Feature, FileVisibility};
 
+/// One REPORT-SIGNED-NO-STORAGE-001 finding — a report declares
+/// `visibility:signed` but the package has no `object_storage`
+/// capability bound for the signed-URL backend.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the report was authored in.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
+    /// Report carrying the signed visibility without storage.
     pub report: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "REPORT-SIGNED-NO-STORAGE-001";
 
+    /// Render the "signed but no storage" message, naming the report
+    /// and steering the author to declare a capability or bind storage.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::report::report_signed_no_storage_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("sales.lzi"),
+    ///     feature: "sales".into(),
+    ///     report: "weekly_sales".into(),
+    /// };
+    /// assert!(f.message().contains("object_storage"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "report `{}` declares `visibility:signed` but the package has no \
@@ -29,6 +52,20 @@ impl Finding {
     }
 }
 
+/// Walk every report in `feature` and emit a finding for each with
+/// `visibility:signed` when `object_storage_caps` is empty (the
+/// package has bound no signed-URL backend).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::report::report_signed_no_storage_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a signed report and no storage");
+/// let _ = check(&feature, &[], Path::new("sales.lzi"));
+/// ```
 pub fn check(
     feature: &Feature,
     object_storage_caps: &[String],

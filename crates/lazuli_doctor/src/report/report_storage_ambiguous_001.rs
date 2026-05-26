@@ -5,17 +5,43 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::Feature;
 
+/// One REPORT-STORAGE-AMBIGUOUS-001 finding — a report omits its
+/// `storage` reference and the package declares a number of
+/// `object_storage` capabilities other than exactly one (so the
+/// implicit default is ambiguous).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the report was authored in.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
+    /// Report missing the storage reference.
     pub report: String,
+    /// Number of `object_storage` capabilities the package declares.
     pub cap_count: usize,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "REPORT-STORAGE-AMBIGUOUS-001";
 
+    /// Render the "report storage ambiguous" message, naming the
+    /// report and the count of candidates.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::report::report_storage_ambiguous_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("sales.lzi"),
+    ///     feature: "sales".into(),
+    ///     report: "weekly_sales".into(),
+    ///     cap_count: 2,
+    /// };
+    /// assert!(f.message().contains("object_storage"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "report `{}` omits `storage` and the package declares {} `object_storage` \
@@ -25,6 +51,20 @@ impl Finding {
     }
 }
 
+/// Walk every report in `feature` and emit a finding when storage is
+/// omitted but the package has any number of `object_storage`
+/// capabilities other than exactly one.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::report::report_storage_ambiguous_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with reports + multiple object_storage caps");
+/// let _ = check(&feature, &[], Path::new("sales.lzi"));
+/// ```
 pub fn check(
     feature: &Feature,
     object_storage_caps: &[String],

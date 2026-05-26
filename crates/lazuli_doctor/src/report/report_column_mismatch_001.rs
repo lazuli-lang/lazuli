@@ -15,19 +15,48 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Feature, Query, Record, ReportColumnSource, ReportSource, Resource, TypeRef};
 
+/// One REPORT-COLUMN-MISMATCH-001 finding — a report column references
+/// `row.<field>` but the source query's projection does not include
+/// that field.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the report was authored in.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
+    /// Report carrying the offending column.
     pub report: String,
+    /// Column whose `row.<field>` reference is dangling.
     pub column: String,
+    /// Field name the column tried to read but the projection lacks.
     pub unresolved_field: String,
+    /// Source query name (the `from <name>` reference).
     pub source_name: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "REPORT-COLUMN-MISMATCH-001";
 
+    /// Render the "row.field not in source projection" message, naming
+    /// the report, column, field, and source query.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::report::report_column_mismatch_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("sales.lzi"),
+    ///     feature: "sales".into(),
+    ///     report: "weekly_sales".into(),
+    ///     column: "Revenue".into(),
+    ///     unresolved_field: "revenue_cents".into(),
+    ///     source_name: "list_orders".into(),
+    /// };
+    /// assert!(f.message().contains("revenue_cents"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "report `{}` column `{}` references `row.{}` which is not in source `{}`'s projection.",
@@ -36,6 +65,21 @@ impl Finding {
     }
 }
 
+/// Walk every report in `feature` and emit a finding for each column
+/// whose `row.<field>` reference doesn't appear in the source query's
+/// resolved projection. Cross-feature / opaque-SQL sources are skipped
+/// (the rule prefers false negatives over false positives).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::report::report_column_mismatch_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a report referencing a missing column");
+/// let _ = check(&feature, Path::new("sales.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     for r in &feature.reports {

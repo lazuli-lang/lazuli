@@ -7,16 +7,37 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::Feature;
 
+/// One REPORT-COLUMNS-EMPTY-001 finding — a report has no entries in
+/// its `columns` block.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the report was authored in.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
+    /// Report that has no columns.
     pub report: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "REPORT-COLUMNS-EMPTY-001";
 
+    /// Render the "report has no columns" message naming the report.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::report::report_columns_empty_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("sales.lzi"),
+    ///     feature: "sales".into(),
+    ///     report: "weekly_sales".into(),
+    /// };
+    /// assert!(f.message().contains("weekly_sales"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "report `{}` declares no columns. A `columns` block with at least one entry is required.",
@@ -25,6 +46,19 @@ impl Finding {
     }
 }
 
+/// Walk every report in `feature` and emit a finding for each with an
+/// empty `columns` block.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::report::report_columns_empty_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with an empty-columns report");
+/// let _ = check(&feature, Path::new("sales.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     feature
         .reports

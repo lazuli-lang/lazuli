@@ -9,19 +9,49 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Feature, HttpMethod, ReportFormat};
 
+/// One REPORT-PATH-COLLISION-001 finding — a report's auto-mounted
+/// HTTP path collides with an explicit `api` route or agent
+/// `expose http` route in the same feature.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the report was authored in.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
+    /// Report whose auto-mount path collides.
     pub report: String,
+    /// Auto-mount path (`/api/reports/<name>.<format>`).
     pub mount_path: String,
+    /// Kind of authored construct that collides — `"api"` or
+    /// `"agent.expose"`.
     pub other_kind: &'static str,
+    /// Name of the colliding api/route construct.
     pub other_name: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "REPORT-PATH-COLLISION-001";
 
+    /// Render the "report mount path collides" message naming both
+    /// sides so the author can pick which one to rename.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::report::report_path_collision_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("sales.lzi"),
+    ///     feature: "sales".into(),
+    ///     report: "weekly_sales".into(),
+    ///     mount_path: "/api/reports/weekly_sales.csv".into(),
+    ///     other_kind: "api",
+    ///     other_name: "fetch_weekly_sales".into(),
+    /// };
+    /// assert!(f.message().contains("/api/reports/weekly_sales.csv"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "REPORT-PATH-COLLISION-001: report '{}' auto-mount path '{}' collides with {} '{}' at the same route.",
@@ -30,6 +60,20 @@ impl Finding {
     }
 }
 
+/// Walk every report mount path in `feature` and emit a finding for
+/// each collision with an authored HTTP route (api command or agent
+/// `expose http`).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::report::report_path_collision_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature where a report mount collides with an api");
+/// let _ = check(&feature, Path::new("sales.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 
