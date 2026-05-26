@@ -15,6 +15,7 @@
 
 mod contracts;
 mod format;
+mod routes;
 
 use lazuli_ir::{Auth, AuthOAuthProvider, AuthSessions, Feature};
 
@@ -25,7 +26,8 @@ use super::patterns::{PATTERN_AUTH_LOGIN, PATTERN_AUTH_REFRESH, emit_pattern_hea
 use super::printer::GoPrinter;
 
 use contracts::{emit_identity, emit_mfa, emit_oauth, emit_password, emit_sessions};
-use format::{escape_route_segment, escape_string, pascal_case, write_aligned_kv_rows, write_section_banner};
+use format::{pascal_case, write_section_banner};
+use routes::{auth_routes, emit_auth_routes, has_auth_routes};
 
 /// Emit `<feature>/auth.gen.go` for a feature, or `None` when the
 /// feature declares no auth block.
@@ -162,129 +164,6 @@ fn emit_session_resolver_register(
         p.line(&format!(
             "auth.RegisterRefreshContract({feature_pascal}AuthSessions)"
         ));
-    }
-    p.dedent();
-    p.line("}");
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct AuthRoute {
-    name_suffix: String,
-    method: &'static str,
-    path: String,
-    handler: &'static str,
-    verify_handler_name: bool,
-}
-
-fn has_auth_routes(auth_block: &Auth) -> bool {
-    auth_block.password.is_some() || auth_block.sessions.is_some() || !auth_block.oauth.is_empty()
-}
-
-fn auth_routes(auth_block: &Auth) -> Vec<AuthRoute> {
-    let mut routes = Vec::new();
-
-    if auth_block.password.is_some() {
-        routes.push(AuthRoute {
-            name_suffix: "login".to_owned(),
-            method: "lazuli.MethodPost",
-            path: "/auth/login".to_owned(),
-            handler: "auth.LoginHandler",
-            verify_handler_name: false,
-        });
-        routes.push(AuthRoute {
-            name_suffix: "signup".to_owned(),
-            method: "lazuli.MethodPost",
-            path: "/auth/signup".to_owned(),
-            handler: "auth.SignupHandler",
-            verify_handler_name: false,
-        });
-    }
-
-    if auth_block.password.is_some() || auth_block.sessions.is_some() {
-        routes.push(AuthRoute {
-            name_suffix: "logout".to_owned(),
-            method: "lazuli.MethodPost",
-            path: "/auth/logout".to_owned(),
-            handler: "auth.LogoutHandler",
-            verify_handler_name: false,
-        });
-    }
-
-    let mut oauth: Vec<&AuthOAuthProvider> = auth_block.oauth.iter().collect();
-    oauth.sort_by(|a, b| {
-        a.provider
-            .cmp(&b.provider)
-            .then_with(|| a.adapter.cmp(&b.adapter))
-    });
-    for provider in oauth {
-        let provider_path = escape_route_segment(&provider.provider);
-        routes.push(AuthRoute {
-            name_suffix: format!("oauth.{}", provider.provider),
-            method: "lazuli.MethodGet",
-            path: format!("/auth/oauth/{provider_path}"),
-            handler: "auth.OAuthHandler",
-            verify_handler_name: true,
-        });
-        routes.push(AuthRoute {
-            name_suffix: format!("oauth.{}.callback", provider.provider),
-            method: "lazuli.MethodGet",
-            path: format!("/auth/oauth/{provider_path}/callback"),
-            handler: "auth.OAuthCallbackHandler",
-            verify_handler_name: true,
-        });
-    }
-
-    routes
-}
-
-fn emit_auth_routes(
-    p: &mut GoPrinter,
-    feature: &Feature,
-    routes: &[AuthRoute],
-    emit_ctx: &EmitContext<'_>,
-) {
-    write_section_banner(
-        p,
-        &[
-            format!("Auth HTTP routes: {}", feature.name),
-            "  canonical auth auto-mounts".to_owned(),
-        ],
-    );
-    emit_pattern_header(p, PATTERN_AUTH_LOGIN);
-    p.line("func init() {");
-    p.indent();
-    for route in routes {
-        if route.verify_handler_name {
-            p.line("// TODO(runtime): handler name verification");
-        }
-        p.line("lazuli.RegisterApi(&lazuli.Api[any, any]{");
-        p.indent();
-        write_aligned_kv_rows(
-            p,
-            &[
-                (
-                    "Name:".to_owned(),
-                    format!(
-                        "\"{}.auth.{}\",",
-                        escape_string(&feature.name),
-                        escape_string(&route.name_suffix)
-                    ),
-                ),
-                (
-                    "Feature:".to_owned(),
-                    format!("\"{}\",", escape_string(&feature.name)),
-                ),
-                ("Method:".to_owned(), format!("{},", route.method)),
-                (
-                    "Path:".to_owned(),
-                    format!("\"{}\",", escape_string(&route.path)),
-                ),
-                ("Handler:".to_owned(), format!("{},", route.handler)),
-            ],
-        );
-        emit_ctx.emit_with_source_field(p, "auth", &route.name_suffix, None);
-        p.dedent();
-        p.line("})");
     }
     p.dedent();
     p.line("}");
