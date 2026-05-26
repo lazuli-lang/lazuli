@@ -31,8 +31,21 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "VOCAB-CONTEXT-NONGOALS-001";
 
+    /// Render the "declare at least one boundary" message, naming the
+    /// feature and pointing at the canonical-semantics doc.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::vocab_context_nongoals_001::Finding;
+    ///
+    /// let f = Finding { path: PathBuf::from("f.lzi"), feature: "billing".into() };
+    /// assert!(f.message().contains("non_goals"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "feature `{}` has no `non_goals` entries — declare at least one boundary so the \
@@ -51,6 +64,17 @@ impl Finding {
 ///
 /// `path` is the source `.lzi` file — used to anchor findings; no I/O
 /// is performed here.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::vocab::vocab_context_nongoals_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower any feature");
+/// let _ = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     if !feature.non_goals.is_empty() {
         return Vec::new();

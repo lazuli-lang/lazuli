@@ -32,8 +32,21 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "VOCAB-CONTEXT-PURPOSE-001";
 
+    /// Render the "no purpose line" message asking the author to add a
+    /// one-sentence intent statement.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::vocab_context_purpose_001::Finding;
+    ///
+    /// let f = Finding { path: PathBuf::from("f.lzi"), feature: "billing".into() };
+    /// assert!(f.message().contains("purpose"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "feature `{}` has no `purpose` line (or the line is empty) — add a one-sentence \
@@ -52,6 +65,17 @@ impl Finding {
 ///
 /// `path` is the source `.lzi` file — used to anchor findings; no I/O
 /// is performed here.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::vocab::vocab_context_purpose_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower any feature");
+/// let _ = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let missing = match feature.purpose.as_deref() {
         None => true,
