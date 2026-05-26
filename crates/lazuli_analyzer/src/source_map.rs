@@ -6,8 +6,12 @@
 
 use lazuli_ir::{FileId, SourceFile, SourceMap, SpanRef};
 
+/// Resolved (file, line, column) for a span — the human-readable form
+/// of a [`SpanRef`] used in codegen `//line` directives and `WithSource`
+/// context injection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedLoc {
+    /// Source file path (as recorded in [`SourceFile::path`]).
     pub file: String,
     /// 1-based line number.
     pub line: u32,
@@ -15,6 +19,24 @@ pub struct ResolvedLoc {
     pub column: u32,
 }
 
+/// Look up source positions for IR spans.
+///
+/// Implemented for [`SourceMap`] so callers can stay agnostic of the
+/// `SourceMap` struct's exact shape — they only need `resolve` + the
+/// `build_source_file` constructor.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_analyzer::source_map::SourceMapResolver;
+/// use lazuli_ir::{SourceMap, SpanRef};
+///
+/// let map = SourceMap {
+///     files: vec![SourceMap::build_source_file(1, "f.lzi", "a\nb")],
+/// };
+/// let loc = map.resolve(1, SpanRef { start: 2, end: 3 }).unwrap();
+/// assert_eq!(loc.line, 2);
+/// ```
 pub trait SourceMapResolver {
     /// Build a SourceFile entry from raw source text.
     /// Caller assigns a FileId.

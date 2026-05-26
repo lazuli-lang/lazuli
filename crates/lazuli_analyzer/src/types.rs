@@ -34,6 +34,18 @@ use lazuli_ir as ir;
 /// reuse the analyzer's `@cap.File(...)` typing pass without re-implementing
 /// the parser. The bare function stays private for the rest of the crate so
 /// future internal callers keep their existing access path.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_analyzer::type_ref_from_syntax_public;
+/// use lazuli_ir::{BuiltinType, TypeRef};
+///
+/// assert!(matches!(
+///     type_ref_from_syntax_public("Text"),
+///     TypeRef::Builtin(BuiltinType::Text)
+/// ));
+/// ```
 pub fn type_ref_from_syntax_public(ty: &str) -> ir::TypeRef {
     type_ref_from_syntax(ty)
 }
@@ -412,4 +424,25 @@ pub(crate) fn type_ref_from_text(text: &str) -> ir::TypeRef {
     // matched `"Json"` only, lost `"JSON"`; always lowered `@semantic.*`
     // to `SemanticEmail`). Delegating fixes both at the source.
     type_ref_from_syntax(text.trim())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn public_wrapper_lowers_text_builtin() {
+        assert!(matches!(
+            type_ref_from_syntax_public("Text"),
+            ir::TypeRef::Builtin(ir::BuiltinType::Text)
+        ));
+    }
+
+    #[test]
+    fn list_prefix_lowers_to_many() {
+        assert!(matches!(
+            type_ref_from_syntax("list Text"),
+            ir::TypeRef::Many(_)
+        ));
+    }
 }

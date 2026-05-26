@@ -42,9 +42,16 @@ use lazuli_ir::Module;
 /// and the codegen's default `go.mod` requirement move atomically.
 pub const LAZULI_GO_VERSION: &str = "v0.1.0";
 
+/// One file produced by the Go emitter.
+///
+/// The emitter never writes to disk — it returns the full file set so the
+/// CLI can dry-run, diff, or hash before commit. `path` is workspace-rooted
+/// (e.g. `dist/go/foo.gen.go`); `contents` is the final UTF-8 source.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GeneratedFile {
+    /// Workspace-rooted output path (forward slashes).
     pub path: String,
+    /// Final file contents — already formatted, ready to write.
     pub contents: String,
 }
 
@@ -54,12 +61,21 @@ pub struct GeneratedFile {
 /// crate.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LazuriteManifest {
+    /// Top-level Go module path (the `module ...` line in root `go.mod`).
     pub project_module: String,
+    /// Plugin entries keyed by Lazurite plugin name.
     pub plugins: BTreeMap<String, LazuritePlugin>,
+    /// `[generate.go]` block overrides, when present.
     pub generate_go: Option<LazuriteGenerateGo>,
+    /// `[dev]` overrides (local path replacements) for workspace mode.
     pub dev: Option<LazuriteDev>,
 }
 
+/// One plugin entry from `[plugins.*]` after CLI translation.
+///
+/// Carries enough to emit `_ "<go_module>"` side-effect imports in
+/// `main.go` so each plugin's `init()` runs before the first facade call;
+/// see the field docs for the sourcing rules.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LazuritePlugin {
     pub module: Option<String>,
@@ -88,16 +104,29 @@ pub struct LazuritePlugin {
     pub go_module: Option<String>,
 }
 
+/// `[generate.go]` block from `Lazurite.toml`.
+///
+/// Controls whether the emitter writes `main.go`, whether the generated
+/// tree is treated as a Go submodule, and the dev-only `replace`
+/// directives wired into `go.mod` / `go.work`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LazuriteGenerateGo {
+    /// When true the emitter writes `dist/go/main.go`; when false the
+    /// host project owns its own `main`.
     pub emit_main: bool,
+    /// When true the generated tree carries its own `go.mod`.
     pub submodule: bool,
+    /// Optional `replace lazuli.dev/runtime => <path>` directive for
+    /// non-workspace dev iteration.
     pub dev_replace: Option<String>,
+    /// Optional `use <path>` directive for `go.work` dev iteration.
     pub dev_work_replace: Option<String>,
 }
 
+/// `[dev]` overrides — local path replacements for plugins.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LazuriteDev {
+    /// Plugin name → local filesystem path.
     pub plugin_paths: BTreeMap<String, String>,
 }
 
@@ -153,6 +182,17 @@ impl Default for GoEmitOptions {
 /// per-kind walkers (E2-E4 + G1-G7) extend `emitter::module`
 /// downstream. Output: root `go.mod` plus one `.gen.go` stub per
 /// feature.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_ir::Module;
+/// use lazuli_codegen_go::{generate_v1, GoEmitOptions};
+///
+/// let module: Module = /* obtain from analyzer */ unimplemented!();
+/// let files = generate_v1(&module, &GoEmitOptions::default());
+/// assert!(files.iter().any(|f| f.path.ends_with("go.mod")));
+/// ```
 pub fn generate_v1(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFile> {
     generate_v1_with_manifest(module, options, None)
 }
@@ -160,6 +200,16 @@ pub fn generate_v1(module: &Module, options: &GoEmitOptions) -> Vec<GeneratedFil
 /// Lazurite-aware Go emitter entry point. When `manifest` is absent the
 /// output intentionally matches `generate_v1`'s legacy single-module
 /// behavior so bare projects and fixtures do not need a manifest.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_go::{generate_v1_with_manifest, GoEmitOptions, LazuriteManifest};
+/// let module = unimplemented!();
+/// let manifest: Option<&LazuriteManifest> = None;
+/// let files = generate_v1_with_manifest(&module, &GoEmitOptions::default(), manifest);
+/// assert!(!files.is_empty());
+/// ```
 pub fn generate_v1_with_manifest(
     module: &Module,
     options: &GoEmitOptions,
@@ -168,6 +218,23 @@ pub fn generate_v1_with_manifest(
     emitter::emit_module(module, options, manifest, None)
 }
 
+/// Source-aware variant of [`generate_v1_with_manifest`].
+///
+/// Threads a [`GoSourceContext`] (raw `.lzm` text + module name) through
+/// the emitter so generators that need to surface fragments of the
+/// original source (lint hints, error context) can do so. Used by the
+/// CLI's `lazuli generate go` command; plain library callers should
+/// prefer [`generate_v1_with_manifest`].
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_go::{generate_v1_with_manifest_and_source, GoEmitOptions, GoSourceContext};
+/// let module = unimplemented!();
+/// let src = GoSourceContext { source: "...", module_name: "demo" };
+/// let files = generate_v1_with_manifest_and_source(&module, &GoEmitOptions::default(), None, src);
+/// assert!(!files.is_empty());
+/// ```
 pub fn generate_v1_with_manifest_and_source(
     module: &Module,
     options: &GoEmitOptions,

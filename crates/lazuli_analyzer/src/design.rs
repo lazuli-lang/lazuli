@@ -65,6 +65,25 @@ use lazuli_syntax as syntax;
 //   * `extends` is reserved for Cut B — v0 always rejects.
 // =============================================================================
 
+/// Lower a parsed `design <Theme> ...` block onto its IR form.
+///
+/// Performs the cheapest validation per group (closed catalogs, hex,
+/// integer parses, multi-layer shadow rejection) and surfaces any
+/// shape mismatch as an [`AnalyzeError`]. Per-token helpers (color,
+/// weight, shadow, z, custom) stay `pub(crate)`; only this entry
+/// point is part of the analyzer's public ABI.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::lower_design;
+/// use lazuli_syntax::ast::DesignDeclAst;
+///
+/// let ast: DesignDeclAst = unimplemented!("from canonical-indent parse");
+/// let design = lower_design(&ast)?;
+/// assert!(design.colors.iter().all(|c| !c.states.is_empty()));
+/// # Ok::<(), lazuli_analyzer::AnalyzeError>(())
+/// ```
 pub fn lower_design(ast: &syntax::DesignDeclAst) -> Result<ir::Design, AnalyzeError> {
     if let Some(target) = ast.extends.as_deref() {
         return Err(AnalyzeError::DesignExtendsCutB {
@@ -304,4 +323,31 @@ pub(crate) fn lower_design_z(z: &syntax::ZTokenAst) -> Result<ir::ZToken, Analyz
         name: z.name.clone(),
         value: parsed,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn weight_token_parses_to_u16() {
+        let ast = syntax::WeightTokenAst {
+            name: "bold".into(),
+            value: "700".into(),
+        };
+        let lowered = lower_design_weight(&ast).expect("700 parses as u16");
+        assert_eq!(lowered.value, 700);
+    }
+
+    #[test]
+    fn weight_token_rejects_non_numeric() {
+        let ast = syntax::WeightTokenAst {
+            name: "bold".into(),
+            value: "heavy".into(),
+        };
+        assert!(matches!(
+            lower_design_weight(&ast),
+            Err(AnalyzeError::DesignWeightInvalid { .. })
+        ));
+    }
 }
