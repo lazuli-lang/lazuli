@@ -30,17 +30,30 @@ const PLUGIN_MANIFEST: &str = "manifest.toml";
 const PACKAGE_JSON: &str = "package.json";
 const FIXTURES_EXPORT: &str = "./fixtures";
 
+/// Severity bucket — scalar-fixtures findings are advisory and surface
+/// as warnings (never block the build).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
+    /// Visible in diagnostics-only mode; does not block the build.
     Warning,
 }
 
+/// One scalar-fixtures finding (plugin-coverage hint).
+///
+/// Carries the file path the finding belongs to so doctor / LSP can
+/// route it to the right document — most other check passes use a
+/// `SpanRef` alone, but here the source is a JS package, not a `.lzi`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
+    /// Stable diagnostic code.
     pub code: &'static str,
+    /// Severity bucket — currently always [`Severity::Warning`].
     pub severity: Severity,
+    /// File the finding belongs to (plugin manifest, `.lzi`, fixture).
     pub path: PathBuf,
+    /// Source span within `path` for IDE underlining; may be `None`.
     pub span: Option<SpanRef>,
+    /// Human-readable message — already formatted, no interpolation.
     pub message: String,
 }
 
@@ -86,6 +99,23 @@ struct ActivePlugin {
     semantic_types: Vec<SemanticTypeDecl>,
 }
 
+/// Walk `project_root` for scalar-fixture coverage gaps in active
+/// plugins declared by `Lazurite.toml`.
+///
+/// Reads the workspace manifest, resolves the active plugin set (with
+/// `[dev.plugin_paths]` overrides), and emits one [`Diagnostic`] per
+/// fixture file / plugin gap. The pass is filesystem-local: no
+/// network resolution, no global plugin discovery.
+///
+/// ## Examples
+///
+/// ```no_run
+/// use std::path::Path;
+/// use lazuli_analyzer::checks::scalar_fixtures;
+///
+/// let diags = scalar_fixtures::check(Path::new("."));
+/// assert!(diags.iter().all(|d| !d.code.is_empty()));
+/// ```
 pub fn check(project_root: &Path) -> Vec<Diagnostic> {
     let manifest = load_workspace_manifest(project_root);
     let active_plugins = manifest

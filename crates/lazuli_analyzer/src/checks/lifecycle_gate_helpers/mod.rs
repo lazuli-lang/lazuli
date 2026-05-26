@@ -33,6 +33,22 @@ pub(super) struct QueryHit<'a> {
     pub(super) resource: Option<&'a Resource>,
 }
 
+/// Helper module entry point — projects the module + app + features
+/// into a [`LifecycleGateInput`], runs [`check_input`], then attaches
+/// the resolved resume-target hints back onto `module` for codegen.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::checks::lifecycle_gate::check;
+/// use lazuli_ir::{AppManifest, ExperienceModule, Feature};
+///
+/// let mut module: ExperienceModule = unimplemented!();
+/// let app: Option<&AppManifest> = None;
+/// let features: Vec<Feature> = vec![];
+/// let diags = check(&mut module, app, &features);
+/// assert!(diags.iter().all(|d| !d.code.is_empty()));
+/// ```
 pub fn check(
     module: &mut ExperienceModule,
     app: Option<&AppManifest>,
@@ -44,6 +60,19 @@ pub fn check(
     diagnostics
 }
 
+/// Pre-projected helper — used by the parent module's `check_input`
+/// and exposed here so siblings (`views`, `resumes`, `cycles`) can
+/// drive the pass from their own tests.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::checks::lifecycle_gate::{check_input, LifecycleGateInput};
+///
+/// let input = LifecycleGateInput::default();
+/// let diags = check_input(&input, &[]);
+/// assert!(diags.is_empty());
+/// ```
 pub fn check_input(
     input: &LifecycleGateInput,
     features: &[Feature],

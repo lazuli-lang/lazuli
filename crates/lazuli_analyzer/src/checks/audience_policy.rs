@@ -9,19 +9,43 @@
 use lazuli_ir::{ExperienceModule, SpanRef};
 use serde_json::Value;
 
+/// Severity bucket — this pass currently emits only advisory `Info`
+/// findings (single-atom audience policy style hint).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
+    /// Advisory; never blocks the build.
     Info,
 }
 
+/// One audience-policy finding (stable code + optional span + message).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
+    /// Stable diagnostic code (e.g. `"AUDIENCE-POLICY-001"`).
     pub code: &'static str,
+    /// Severity bucket — currently always [`Severity::Info`].
     pub severity: Severity,
+    /// Source span for IDE underlining; may be `None`.
     pub span: Option<SpanRef>,
+    /// Human-readable message — already formatted, no interpolation.
     pub message: String,
 }
 
+/// Run the AP-DOCTOR-1 audience-policy pass over an [`ExperienceModule`].
+///
+/// Surfaces single-atom audience policies written in list form
+/// (`policy [@policy.x]`) so authors can drop the brackets. The check
+/// is structural and emits one [`Diagnostic`] per offending audience.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::checks::audience_policy;
+/// use lazuli_ir::ExperienceModule;
+///
+/// let module: ExperienceModule = unimplemented!();
+/// let diags = audience_policy::check(&module);
+/// assert!(diags.iter().all(|d| d.code == "AUDIENCE-POLICY-001"));
+/// ```
 pub fn check(module: &ExperienceModule) -> Vec<Diagnostic> {
     let Ok(value) = serde_json::to_value(module) else {
         return Vec::new();
