@@ -57,6 +57,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{PolicyRef, SpanRef, TypeRef, is_false};
 
+/// One `non_goals.<key> "<description>"` entry under a feature. Carries
+/// the boundary-key + prose pair the capsule's `delegated_to` /
+/// `out_of_scope` lists flatten into.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NonGoal {
     /// Boundary key. Canonical capsules group these under `delegated_to`
@@ -90,6 +93,9 @@ pub enum Tenancy {
     None,
 }
 
+/// Closed sum over resource-level constraint shapes. `Unique` flags
+/// uniqueness (with optional per-axis qualifier); `Index` declares
+/// secondary indexes with method + full-text flag.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum Constraint {
@@ -97,6 +103,8 @@ pub enum Constraint {
     Index(IndexConstraint),
 }
 
+/// `unique <fields> [per <axis>]` constraint. The `per` slot scopes
+/// uniqueness per-tenant / per-org / per-team etc.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UniqueConstraint {
     pub fields: Vec<String>,
@@ -105,6 +113,8 @@ pub struct UniqueConstraint {
     pub per: Option<String>,
 }
 
+/// `index <fields> [using <method>]` constraint. The `full_text` flag
+/// switches the emitted index to `to_tsvector('english', ...)` shape.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndexConstraint {
     pub fields: Vec<String>,
@@ -114,14 +124,22 @@ pub struct IndexConstraint {
     pub full_text: bool,
 }
 
+/// Closed catalog of Postgres index methods admitted in
+/// [`IndexConstraint`]. Adding entries requires a proposal so the
+/// migration emitter stays a closed set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum IndexMethod {
+    /// Default — B-tree index for equality + range queries.
     Btree,
+    /// GIN — inverted index for JSON / array / full-text columns.
     Gin,
+    /// GiST — generalized search tree for geometric / range types.
     Gist,
 }
 
+/// `validate <field> path "<...>"` declaration on a resource. Binds the
+/// named field to a validator file (extension contract).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FieldValidation {
     pub field: String,
@@ -174,13 +192,29 @@ pub struct PathRef {
     pub source: PathSource,
 }
 
+/// Closed catalog distinguishing convention-derived paths from
+/// author-supplied paths. Doctor uses this to surface "this is the
+/// conventional location; rename or supply an `at` clause" hints.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PathSource {
+    /// Derived from the extension name + contract kind via the
+    /// canonical convention table.
     Convention,
+    /// Explicit `at "..."` clause supplied by the author.
     Authored,
 }
 
 impl PathRef {
+    /// Build a [`PathRef`] whose path comes from the convention table.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::{PathRef, PathSource};
+    ///
+    /// let p = PathRef::convention("./client/foo.ts");
+    /// assert_eq!(p.source, PathSource::Convention);
+    /// ```
     pub fn convention(path: impl Into<String>) -> Self {
         Self {
             path: path.into(),
@@ -188,6 +222,16 @@ impl PathRef {
         }
     }
 
+    /// Build a [`PathRef`] whose path was authored explicitly with `at`.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::{PathRef, PathSource};
+    ///
+    /// let p = PathRef::authored("./custom.ts");
+    /// assert_eq!(p.source, PathSource::Authored);
+    /// ```
     pub fn authored(path: impl Into<String>) -> Self {
         Self {
             path: path.into(),
