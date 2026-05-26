@@ -66,6 +66,16 @@ use crate::{
 /// hover surfaces the **feature-level** resolution because that's the layer
 /// authors edit most. The complete resolution table is visible via
 /// `lazuli inspect --expand=error-resolution-table`.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::error_vocab_resolved_text;
+///
+/// // No feature-level override — falls back to the built-in English string.
+/// let text = error_vocab_resolved_text("", "billing", "not_found").unwrap();
+/// assert!(!text.is_empty());
+/// ```
 pub fn error_vocab_resolved_text(source: &str, feature_name: &str, code: &str) -> Option<String> {
     if let Some(key) = lookup_feature_error_key(source, feature_name, code) {
         if let Some(text) = lookup_translation_first_variant(source, feature_name, &key) {
@@ -204,6 +214,17 @@ pub(crate) fn lookup_translation_first_variant(
 /// 5. After `expose client 5xx ` — autocomplete `code`/`data` (no
 ///    `message`).
 /// 6. After `default ` inside `errors` — autocomplete `hide`/`expose`.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::error_vocab_completions;
+/// use tower_lsp::lsp_types::Position;
+///
+/// // Outside any error-vocab trigger context — no completions.
+/// let result = error_vocab_completions("feature billing\n", Position { line: 0, character: 0 });
+/// assert!(result.is_none());
+/// ```
 pub fn error_vocab_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
     let line = source.lines().nth(position.line as usize)?;
     let cursor = (position.character as usize).min(line.len());
@@ -396,6 +417,17 @@ pub fn error_vocab_completions(source: &str, position: Position) -> Option<Vec<C
 /// Returns `None` when the cursor is outside an `errors` block or when
 /// `word` is not one of the 12 codes. The rich-markdown one-liner for the
 /// codes ships through `keyword_description` instead.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::error_vocab_code_resolved_hover;
+/// use tower_lsp::lsp_types::Position;
+///
+/// // Word is not in the catalog — None.
+/// let hover = error_vocab_code_resolved_hover("", Position { line: 0, character: 0 }, "nonsense");
+/// assert!(hover.is_none());
+/// ```
 pub fn error_vocab_code_resolved_hover(
     source: &str,
     position: Position,
@@ -469,4 +501,32 @@ pub(crate) fn in_feature_errors_block(source: &str, position: Position) -> bool 
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tower_lsp::lsp_types::Position;
+
+    #[test]
+    fn resolved_text_falls_back_to_builtin() {
+        let text = error_vocab_resolved_text("", "billing", "not_found")
+            .expect("builtin fallback should resolve");
+        assert!(!text.is_empty());
+    }
+
+    #[test]
+    fn completions_return_none_outside_trigger_context() {
+        assert!(error_vocab_completions("feature x\n", Position { line: 0, character: 0 }).is_none());
+    }
+
+    #[test]
+    fn resolved_hover_rejects_unknown_word() {
+        let hover = error_vocab_code_resolved_hover(
+            "",
+            Position { line: 0, character: 0 },
+            "definitely_not_a_code",
+        );
+        assert!(hover.is_none());
+    }
 }
