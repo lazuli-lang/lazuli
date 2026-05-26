@@ -10,6 +10,74 @@ use lazuli_ir::AppManifest;
 
 use crate::doctor::{DoctorAppProfile, DoctorAppRegistry};
 
+pub(crate) fn enabled_pack_provided_features<'a>(
+    app: &'a AppManifest,
+    registry: Option<&'a DoctorAppRegistry>,
+) -> BTreeSet<&'a str> {
+    let mut features = BTreeSet::new();
+    let Some(registry) = registry else {
+        return features;
+    };
+
+    for pack_use in &app.packs {
+        let Some(pack_name) = pack_source_name(&pack_use.source) else {
+            continue;
+        };
+        let Some(pack) = registry
+            .manifest
+            .packs
+            .iter()
+            .find(|pack| pack.name == pack_name)
+        else {
+            continue;
+        };
+
+        for provide in &pack.provides {
+            if provide.kind == "feature" {
+                features.insert(provide.name.as_str());
+            }
+        }
+    }
+
+    features
+}
+
+pub(crate) fn enabled_pack_integration_requirements<'a>(
+    app: &'a AppManifest,
+    registry: Option<&'a DoctorAppRegistry>,
+) -> Vec<(&'a str, &'a str, &'a str)> {
+    let mut requirements = Vec::new();
+    let Some(registry) = registry else {
+        return requirements;
+    };
+
+    for pack_use in &app.packs {
+        let Some(pack_name) = pack_source_name(&pack_use.source) else {
+            continue;
+        };
+        let Some(pack) = registry
+            .manifest
+            .packs
+            .iter()
+            .find(|pack| pack.name == pack_name)
+        else {
+            continue;
+        };
+
+        for requirement in &pack.requirements {
+            if requirement.kind == "integration" {
+                requirements.push((
+                    pack_use.name.as_str(),
+                    requirement.name.as_str(),
+                    requirement.contract.as_str(),
+                ));
+            }
+        }
+    }
+
+    requirements
+}
+
 pub(crate) fn operational_integrations<'a>(
     app: &'a AppManifest,
     registry: Option<&'a DoctorAppRegistry>,
