@@ -64,6 +64,7 @@
 //!                 `emit_command_gate_prelude`, `emit_input_struct`).
 
 mod effects;
+mod effects_format;
 mod emit;
 mod file_emit;
 mod format;
