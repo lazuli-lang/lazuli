@@ -34,6 +34,12 @@ impl Finding {
     pub const CODE: &'static str = "auth_sessions_resource_unknown_001";
 
     /// Render the remediation message naming the missing resource.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let msg = finding.message();
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "auth.sessions.resource `{}` does not name a resource declared in feature `{}`.",

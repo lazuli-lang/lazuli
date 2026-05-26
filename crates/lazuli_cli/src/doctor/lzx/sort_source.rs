@@ -24,6 +24,12 @@ impl Finding {
     pub const CODE: &'static str = "lzx-sort-source-accepts";
 
     /// Render the canonical diagnostic message.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let msg = Finding::message(/* ... */);
+    /// ```
     pub fn message(view: &str, source_ref: &str, sort: &SortDecl) -> String {
         let fields = sort.allowed.join(", ");
         format!(

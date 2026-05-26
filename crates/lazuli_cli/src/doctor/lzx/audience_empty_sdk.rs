@@ -40,6 +40,12 @@ impl Finding {
     pub const CODE: &'static str = "lzx-audience-empty-sdk";
 
     /// Render the canonical diagnostic message.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let msg = Finding::message(/* ... */);
+    /// ```
     pub fn message(feature: &str, audience: &str, requires: &[String]) -> String {
         let req_list = if requires.is_empty() {
             "<none>".to_string()

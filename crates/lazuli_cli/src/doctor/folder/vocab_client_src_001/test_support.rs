@@ -16,12 +16,24 @@ use super::Finding;
 
 /// Create `path` and every intermediate parent directory. Panics on
 /// I/O error to keep test fixtures terse.
+///
+/// ## Examples
+///
+/// ```ignore
+/// // test-only helper; see sibling rule tests for usage
+/// ```
 pub fn mkdir_p(path: &Path) {
     fs::create_dir_all(path).unwrap();
 }
 
 /// Ensure `path` exists as an empty file, creating intermediate
 /// directories as needed.
+///
+/// ## Examples
+///
+/// ```ignore
+/// // test-only helper; see sibling rule tests for usage
+/// ```
 pub fn touch(path: &Path) {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).unwrap();
@@ -31,6 +43,12 @@ pub fn touch(path: &Path) {
 
 /// Project a list of findings into the set of their offending
 /// directory names. Tests use this for order-independent comparisons.
+///
+/// ## Examples
+///
+/// ```ignore
+/// // test-only helper; see sibling rule tests for usage
+/// ```
 pub fn names(findings: &[Finding]) -> BTreeSet<String> {
     findings
         .iter()

@@ -25,6 +25,12 @@ impl Finding {
     pub const CODE: &'static str = "lzx-cells-mixed-form";
 
     /// Render the canonical diagnostic message.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let msg = Finding::message(/* ... */);
+    /// ```
     pub fn message(view: &str) -> String {
         format!(
             "view list '{view}' declares both grid-cell slot (cells \

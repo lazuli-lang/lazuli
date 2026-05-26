@@ -194,6 +194,14 @@ struct DebounceBucket {
 
 impl DebounceBuffer {
     /// Construct an empty buffer. Equivalent to `Default::default()`.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_watch::DebounceBuffer;
+    /// let buf = DebounceBuffer::new();
+    /// assert!(buf.is_empty());
+    /// ```
     pub fn new() -> Self {
         Self::default()
     }
@@ -201,6 +209,16 @@ impl DebounceBuffer {
     /// Stage one `WatchEvent` in its layer's bucket, resetting the
     /// debounce timer for that bucket. New layers append a fresh
     /// bucket.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_watch::{DebounceBuffer, WatchEvent};
+    /// use lazuli_cli::cmd_test_types::Layer;
+    /// use std::path::PathBuf;
+    /// let mut buf = DebounceBuffer::new();
+    /// buf.push(WatchEvent { layer: Layer::Spec, path: PathBuf::from("app.lzi") });
+    /// ```
     pub fn push(&mut self, event: WatchEvent) {
         let now = Instant::now();
         if let Some(b) = self.buckets.iter_mut().find(|b| b.layer == event.layer) {
@@ -264,6 +282,13 @@ impl DebounceBuffer {
     }
 
     /// True when no layer has any pending changes staged.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_watch::DebounceBuffer;
+    /// assert!(DebounceBuffer::new().is_empty());
+    /// ```
     pub fn is_empty(&self) -> bool {
         self.buckets.is_empty()
     }

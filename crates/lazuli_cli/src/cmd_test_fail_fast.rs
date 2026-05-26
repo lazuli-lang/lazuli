@@ -32,6 +32,14 @@ pub struct FailFastCoordinator {
 impl FailFastCoordinator {
     /// Build a fresh coordinator. `enabled` should reflect
     /// `--fail-fast`.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_fail_fast::FailFastCoordinator;
+    /// let coord = FailFastCoordinator::new(false);
+    /// assert!(!coord.is_enabled());
+    /// ```
     pub fn new(enabled: bool) -> Self {
         Self {
             enabled,
@@ -73,11 +81,26 @@ impl FailFastCoordinator {
 
     /// True if any observed layer reported a `Fail` verdict, regardless
     /// of whether fail-fast is enabled.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_fail_fast::FailFastCoordinator;
+    /// let coord = FailFastCoordinator::new(true);
+    /// assert!(!coord.is_tripped());
+    /// ```
     pub fn is_tripped(&self) -> bool {
         self.tripped
     }
 
     /// Whether the coordinator was configured with `--fail-fast`.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_fail_fast::FailFastCoordinator;
+    /// assert!(FailFastCoordinator::new(true).is_enabled());
+    /// ```
     pub fn is_enabled(&self) -> bool {
         self.enabled
     }

@@ -56,6 +56,12 @@ impl Finding {
     pub const CODE: &'static str = "auth_identity_field_unknown_001";
 
     /// Render a remediation-flavored diagnostic message for the finding.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let msg = finding.message();
+    /// ```
     pub fn message(&self) -> String {
         match self.reason {
             Reason::ResourceNotFound => format!(
@@ -81,6 +87,12 @@ impl Finding {
 /// `Finding` per closed sub-case (resource missing / field missing /
 /// field not identity-shaped). Features without an `auth` block
 /// produce no findings.
+///
+/// ## Examples
+///
+/// ```ignore
+/// // let findings = check(&feature, std::path::Path::new("app.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let Some(auth) = feature.auth.as_ref() else {
         return Vec::new();

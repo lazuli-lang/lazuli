@@ -25,6 +25,12 @@ impl Finding {
     pub const CODE: &'static str = "lzx-command-input-mismatch";
 
     /// Render the canonical diagnostic message.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let msg = Finding::message(/* ... */);
+    /// ```
     pub fn message(feature: &str, view: &str, field: &str, command: &str) -> String {
         format!(
             "view `{view}` in feature `{feature}`: field `{field}` is not in the \

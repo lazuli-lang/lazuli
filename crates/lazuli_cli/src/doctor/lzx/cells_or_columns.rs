@@ -26,6 +26,12 @@ impl Finding {
     pub const CODE: &'static str = "lzx-list-cells-or-columns";
 
     /// Render the canonical diagnostic message.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let msg = Finding::message(/* ... */);
+    /// ```
     pub fn message(view: &str) -> String {
         format!(
             "view list '{view}' has neither 'columns <field>, ...' nor \

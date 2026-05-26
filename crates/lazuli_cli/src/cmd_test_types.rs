@@ -38,6 +38,13 @@ impl Layer {
 
     /// Stable lowercase identifier used in CLI flags, NDJSON events,
     /// and JSON output.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_types::Layer;
+    /// assert_eq!(Layer::Spec.as_str(), "spec");
+    /// ```
     pub fn as_str(self) -> &'static str {
         match self {
             Layer::Spec => "spec",
@@ -50,6 +57,14 @@ impl Layer {
 
     /// Inverse of `as_str`. Returns `None` for any value outside the
     /// closed catalog so the CLI surfaces a typed error.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_types::Layer;
+    /// assert_eq!(Layer::parse("ts"), Some(Layer::Ts));
+    /// assert_eq!(Layer::parse("nope"), None);
+    /// ```
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "spec" => Some(Layer::Spec),
@@ -204,6 +219,13 @@ pub struct CoverageReport {
 impl CoverageReport {
     /// Find a per-layer metric by its stable `id` (e.g. `handler_go`).
     /// Returns `None` when the layer did not report that metric.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_types::CoverageReport;
+    /// // let metric = report.metric("handler_go");
+    /// ```
     pub fn metric(&self, id: &str) -> Option<&CoverageMetric> {
         self.layers.iter().find(|m| m.id == id)
     }
@@ -311,6 +333,13 @@ impl RunAccumulator {
     /// returned summary picks `Fail` whenever any layer failed or any
     /// coverage metric blocked; otherwise `Pass`. `total_duration_ms`
     /// is the orchestrator's measured wall-clock.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_types::RunAccumulator;
+    /// let report = RunAccumulator::default().finalize(0);
+    /// ```
     pub fn finalize(self, total_duration_ms: u64) -> RunReport {
         let layers_run = self.layer_results.len() as u32;
         let layers_failed = self

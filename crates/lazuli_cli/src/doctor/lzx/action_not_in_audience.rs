@@ -28,6 +28,12 @@ impl Finding {
     pub const CODE: &'static str = "lzx-action-not-in-audience";
 
     /// Render the canonical diagnostic message.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let msg = Finding::message(/* ... */);
+    /// ```
     pub fn message(feature: &str, view: &str, audience: &str, command: &str) -> String {
         format!(
             "view `{view}` in feature `{feature}`: action `{command}` is not \

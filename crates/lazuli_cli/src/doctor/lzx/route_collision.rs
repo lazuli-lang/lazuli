@@ -36,6 +36,12 @@ impl Finding {
     pub const CODE: &'static str = "lzx-route-collision";
 
     /// Render the canonical diagnostic message.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let msg = Finding::message(/* ... */);
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "routes `{}` and `{}` both translate to `{}` under the {} router, \

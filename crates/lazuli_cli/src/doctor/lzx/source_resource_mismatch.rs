@@ -27,6 +27,12 @@ impl Finding {
     pub const CODE: &'static str = "lzx-source-resource-mismatch";
 
     /// Render the canonical diagnostic message.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let msg = Finding::message(/* ... */);
+    /// ```
     pub fn message(feature: &str, view: &str, clause: &str, field: &str, resource: &str) -> String {
         format!(
             "view `{view}` in feature `{feature}`: {clause} field `{field}` is not \

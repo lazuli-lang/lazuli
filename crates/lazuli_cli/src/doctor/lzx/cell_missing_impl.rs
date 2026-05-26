@@ -38,6 +38,12 @@ impl Finding {
     pub const CODE: &'static str = "lzx-cell-missing-impl";
 
     /// Render the canonical diagnostic message.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let msg = Finding::message(/* ... */);
+    /// ```
     pub fn message(&self) -> String {
         let mut msg = format!(
             "slot `@client.{}` referenced from {} surface, but {} does not exist.",

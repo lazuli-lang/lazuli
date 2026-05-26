@@ -41,6 +41,12 @@ impl Finding {
     pub const CODE: &'static str = "auth_password_algorithm_hash_mismatch_001";
 
     /// Render the remediation message naming both authored algorithms.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let msg = finding.message();
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "auth.password.algorithm `{}` must match `@cap.Hashed(algorithm:{})` \

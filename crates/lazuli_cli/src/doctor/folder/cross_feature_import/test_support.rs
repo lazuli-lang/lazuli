@@ -20,6 +20,12 @@ pub struct TempDir {
 
 impl TempDir {
     /// Allocate a fresh unique temp directory.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // test-only helper; see the sibling rule tests for usage
+    /// ```
     pub fn new() -> std::io::Result<Self> {
         let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
@@ -31,6 +37,12 @@ impl TempDir {
     }
 
     /// Borrow the allocated directory.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // test-only helper; see the sibling rule tests for usage
+    /// ```
     pub fn path(&self) -> &Path {
         &self.path
     }

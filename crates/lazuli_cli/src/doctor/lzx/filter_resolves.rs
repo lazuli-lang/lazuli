@@ -30,6 +30,12 @@ impl Finding {
     pub const CODE: &'static str = "lzx-filter-type-resolves";
 
     /// Render the canonical diagnostic message.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let msg = Finding::message(/* ... */);
+    /// ```
     pub fn message(filter: &str, type_ref: &str, resource: &str) -> String {
         format!(
             "filter '{filter}' type '{type_ref}' does not resolve to an enum on resource \

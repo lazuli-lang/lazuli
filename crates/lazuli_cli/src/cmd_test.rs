@@ -64,6 +64,14 @@ impl OutputFormat {
     /// Parse the textual `--format <value>` argument into a typed
     /// `OutputFormat`. Returns an `Err(String)` whose message names the
     /// closed catalog so the CLI surface can echo it directly.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test::OutputFormat;
+    /// assert_eq!(OutputFormat::parse("json"), Ok(OutputFormat::Json));
+    /// assert!(OutputFormat::parse("yaml").is_err());
+    /// ```
     pub fn parse(s: &str) -> Result<Self, String> {
         match s {
             "text" => Ok(Self::Text),

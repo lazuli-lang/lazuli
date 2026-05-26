@@ -26,6 +26,12 @@ impl Finding {
     pub const CODE: &'static str = "lzx-route-param-missing-binding";
 
     /// Render the canonical diagnostic message.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let msg = Finding::message(/* ... */);
+    /// ```
     pub fn message(feature: &str, view: &str, placeholder: &str, path: &str) -> String {
         format!(
             "view `{view}` in feature `{feature}`: path `{path}` contains \

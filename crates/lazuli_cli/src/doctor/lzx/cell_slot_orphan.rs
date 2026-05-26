@@ -32,6 +32,12 @@ impl Finding {
     pub const CODE: &'static str = "lzx-cell-slot-orphan";
 
     /// Render the canonical diagnostic message.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let msg = Finding::message(/* ... */);
+    /// ```
     pub fn message(
         feature: &str,
         view: &str,

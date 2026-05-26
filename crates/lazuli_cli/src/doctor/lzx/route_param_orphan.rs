@@ -26,6 +26,12 @@ impl Finding {
     pub const CODE: &'static str = "lzx-route-param-orphan";
 
     /// Render the canonical diagnostic message.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let msg = Finding::message(/* ... */);
+    /// ```
     pub fn message(feature: &str, view: &str, param: &str, path: &str) -> String {
         format!(
             "view `{view}` in feature `{feature}`: typed binding `route \

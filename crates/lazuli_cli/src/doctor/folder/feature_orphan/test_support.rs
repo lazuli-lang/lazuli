@@ -19,6 +19,12 @@ pub struct TempDir {
 
 impl TempDir {
     /// Allocate a fresh unique temp directory under the system temp.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // test-only helper; see the sibling rule tests for usage
+    /// ```
     pub fn new() -> std::io::Result<Self> {
         let mut path = std::env::temp_dir();
         let nanos = SystemTime::now()
@@ -34,6 +40,12 @@ impl TempDir {
     }
 
     /// Borrow the allocated directory.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // test-only helper; see the sibling rule tests for usage
+    /// ```
     pub fn path(&self) -> &Path {
         &self.path
     }

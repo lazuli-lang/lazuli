@@ -38,6 +38,12 @@ impl Finding {
     pub const CODE: &'static str = "auth_oauth_adapter_unbound_001";
 
     /// Render the remediation-flavored diagnostic message.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let msg = finding.message();
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "auth.oauth.`{}`.adapter `{}` is not declared in `extensions` of \
