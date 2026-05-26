@@ -14,6 +14,14 @@ use super::context::{
     in_view_or_audience_guard_context, route_guard_context_feature, RouteGuardViewBlock,
 };
 
+/// Public hover entry point for the IR Route-Guards LSP layer. Returns
+/// a Markdown string for tokens in route-guard contexts — `policy`,
+/// `on_unauthenticated`, `on_unauthorized`, `route_guard`,
+/// `actor_query`, `default_unauthenticated_redirect`,
+/// `default_unauthorized_redirect`, and resolved `policy.<name>`
+/// references that walk the document's `policies` block and compare
+/// the guard against any hosted backend's `policy` line. Returns
+/// `None` for any other token.
 pub fn route_guard_hover(source: &str, position: Position, word: &str) -> Option<String> {
     if word.starts_with("policy.") {
         if let Some(hover) = route_guard_policy_ref_hover(source, position, word) {
@@ -276,4 +284,23 @@ pub(crate) fn backend_policy_for_ref(source: &str, backend_ref: &str) -> Option<
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hover_for_route_guard_keyword() {
+        // `route_guard` itself is a context-free keyword hover — returns
+        // text even with no surrounding view block context.
+        let hover = route_guard_hover("", Position { line: 0, character: 0 }, "route_guard");
+        assert!(hover.is_some());
+        assert!(hover.unwrap().contains("route_guard"));
+    }
+
+    #[test]
+    fn returns_none_for_unrelated_word() {
+        assert!(route_guard_hover("", Position { line: 0, character: 0 }, "nonsense").is_none());
+    }
 }

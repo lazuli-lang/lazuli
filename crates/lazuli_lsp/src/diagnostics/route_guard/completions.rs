@@ -25,6 +25,20 @@ pub(crate) const ROUTE_GUARD_DEFAULT_CLAUSES: &[&str] = &[
 /// intentionally text-walk based, matching the existing LSP convention:
 /// it gives immediate editor help even before parser/analyzer cells know
 /// the new surface.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::route_guard_completions;
+/// use tower_lsp::lsp_types::Position;
+///
+/// // Outside any route-guard trigger — None.
+/// let result = route_guard_completions(
+///     "feature billing\n",
+///     Position { line: 0, character: 0 },
+/// );
+/// assert!(result.is_none());
+/// ```
 pub fn route_guard_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
     let line = source.lines().nth(position.line as usize)?;
     let before = line_prefix_at_position(line, position.character);
@@ -240,5 +254,25 @@ pub(crate) fn snippet_completion(label: &str, body: &str, detail: &str) -> Compl
         insert_text_format: Some(tower_lsp::lsp_types::InsertTextFormat::SNIPPET),
         documentation: Some(Documentation::String(detail.to_owned())),
         ..CompletionItem::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tower_lsp::lsp_types::Position;
+
+    #[test]
+    fn no_completions_outside_route_guard_trigger() {
+        assert!(route_guard_completions(
+            "feature billing\n",
+            Position { line: 0, character: 0 }
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn no_completions_for_empty_source() {
+        assert!(route_guard_completions("", Position { line: 0, character: 0 }).is_none());
     }
 }
