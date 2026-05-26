@@ -57,15 +57,35 @@ pub const AUTH_CATALOG_VALUES: &[&str] = &[
     "false",
 ];
 
+/// Canonical duration-literal completions surfaced after `access_ttl `
+/// inside an `auth.sessions` block. Soft suggestions (the parser
+/// accepts any well-formed duration literal); these match the
+/// hostpoint baseline and proposal `docs/proposals/auth-refresh-rotation.md`.
 pub const AUTH_REFRESH_ACCESS_DURATION_LITERALS: &[&str] = &["\"15 minutes\"", "\"1 hour\""];
+
+/// Canonical duration-literal completions surfaced after `refresh_ttl `
+/// inside an `auth.sessions.rotation` block. Soft suggestions.
 pub const AUTH_REFRESH_REFRESH_DURATION_LITERALS: &[&str] = &["\"30 days\"", "\"7 days\""];
+
+/// Canonical duration-literal completions surfaced after `grace `
+/// inside an `auth.sessions.rotation` block. Soft suggestions.
 pub const AUTH_REFRESH_GRACE_DURATION_LITERALS: &[&str] = &["\"30 seconds\"", "\"5 minutes\""];
+
+/// Closed catalog of `theft_detection_action` values, mirroring the
+/// corresponding IR enum. See [`auth_refresh_theft_action_detail`] for
+/// per-value hover copy.
 pub const AUTH_REFRESH_THEFT_ACTION_VALUES: &[&str] = &["revoke_session_family", "revoke_user"];
 
+/// Closed catalog of HTTP status codes that may carry an authored
+/// `error_page <status>` block. The list pins the user-meaningful
+/// statuses; the runtime renders a default error page for anything not
+/// authored. See [`error_page_status_detail`] for hover copy.
 pub const ERROR_PAGE_STATUS_VALUES: &[&str] = &[
     "400", "401", "403", "404", "405", "410", "422", "429", "500", "502", "503", "504",
 ];
 
+/// Closed catalog of `error_page audience <kind>` values. Mirrors the
+/// IR enum and gates which signed-in cohort the error page applies to.
 pub const ERROR_PAGE_AUDIENCE_VALUES: &[&str] = &["public", "authenticated", "admin"];
 
 /// Observability bucket cycle row 36 — closed-catalog values offered
@@ -172,6 +192,15 @@ pub const ERROR_VOCAB_DEFAULT_VALUES: &[&str] = &["hide", "expose"];
 // themselves because they share the same closed-set discipline:
 // adding a new value here without growing the catalog is incorrect.
 
+/// Hover/completion description for [`RESOURCE_LOCK_STRATEGY_VALUES`].
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::resource_lock_strategy_detail;
+/// assert!(resource_lock_strategy_detail("optimistic").unwrap().contains("compare-and-set"));
+/// assert!(resource_lock_strategy_detail("not-a-strategy").is_none());
+/// ```
 pub fn resource_lock_strategy_detail(value: &str) -> Option<&'static str> {
     match value {
         "optimistic" => Some(
@@ -187,6 +216,15 @@ pub fn resource_lock_strategy_detail(value: &str) -> Option<&'static str> {
     }
 }
 
+/// Hover/completion description for [`ERROR_PAGE_STATUS_VALUES`].
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::error_page_status_detail;
+/// assert_eq!(error_page_status_detail("404"), Some("Not Found custom error page."));
+/// assert!(error_page_status_detail("418").is_none());
+/// ```
 pub fn error_page_status_detail(value: &str) -> Option<&'static str> {
     match value {
         "400" => Some("Bad Request custom error page."),
@@ -205,7 +243,16 @@ pub fn error_page_status_detail(value: &str) -> Option<&'static str> {
     }
 }
 
-/// Hover/completion description for a closed-catalog value.
+/// Hover/completion description for a closed-catalog value in
+/// [`AUTH_CATALOG_VALUES`].
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::auth_catalog_detail;
+/// assert!(auth_catalog_detail("argon2id").unwrap().contains("hash"));
+/// assert!(auth_catalog_detail("bogus").is_none());
+/// ```
 pub fn auth_catalog_detail(value: &str) -> Option<&'static str> {
     match value {
         "argon2id" => Some("Password hash algorithm — recommended for v0."),
@@ -221,6 +268,15 @@ pub fn auth_catalog_detail(value: &str) -> Option<&'static str> {
     }
 }
 
+/// Hover/completion description for [`AUTH_REFRESH_THEFT_ACTION_VALUES`].
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::auth_refresh_theft_action_detail;
+/// assert!(auth_refresh_theft_action_detail("revoke_user").is_some());
+/// assert!(auth_refresh_theft_action_detail("ignore").is_none());
+/// ```
 pub fn auth_refresh_theft_action_detail(value: &str) -> Option<&'static str> {
     match value {
         "revoke_session_family" => Some(
@@ -235,6 +291,14 @@ pub fn auth_refresh_theft_action_detail(value: &str) -> Option<&'static str> {
 
 /// Hover/completion description for the observability closed-catalog
 /// values. Mirrors `auth_catalog_detail` shape.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::observability_catalog_detail;
+/// assert!(observability_catalog_detail("json").unwrap().contains("Log format"));
+/// assert!(observability_catalog_detail("yaml").is_none());
+/// ```
 pub fn observability_catalog_detail(value: &str) -> Option<&'static str> {
     match value {
         "debug" => Some("Log level — verbose tracing for local development."),
@@ -250,7 +314,16 @@ pub fn observability_catalog_detail(value: &str) -> Option<&'static str> {
 }
 
 /// Notifications expanded bucket cycle — hover/completion description
-/// for `notification.digest.template_strategy` closed-catalog values.
+/// for `notification.digest.template_strategy` closed-catalog values
+/// in [`NOTIFICATION_DIGEST_TEMPLATE_STRATEGY_VALUES`].
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::notification_digest_template_strategy_detail;
+/// assert!(notification_digest_template_strategy_detail("merge").is_some());
+/// assert!(notification_digest_template_strategy_detail("nope").is_none());
+/// ```
 pub fn notification_digest_template_strategy_detail(value: &str) -> Option<&'static str> {
     match value {
         "merge" => Some(
@@ -264,7 +337,16 @@ pub fn notification_digest_template_strategy_detail(value: &str) -> Option<&'sta
 }
 
 /// Hover/completion description for the deploy.strategy closed-catalog
-/// values. Mirrors `observability_catalog_detail` shape.
+/// values. Mirrors `observability_catalog_detail` shape. See
+/// [`DEPLOY_STRATEGY_VALUES`] for the canonical list.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::deploy_strategy_detail;
+/// assert!(deploy_strategy_detail("canary").unwrap().contains("Canary"));
+/// assert!(deploy_strategy_detail("yeet").is_none());
+/// ```
 pub fn deploy_strategy_detail(value: &str) -> Option<&'static str> {
     match value {
         "rolling" => Some(
@@ -291,6 +373,14 @@ pub fn deploy_strategy_detail(value: &str) -> Option<&'static str> {
 /// has no override (proposal §2.D, §7.2). Mirrors
 /// `runtime/go/lazuli/i18n/builtin.pt-BR.json`; the LSP keeps a copy here so
 /// hover stays self-contained (no filesystem read at hover time).
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::error_vocab_code_builtin_en_us;
+/// assert!(error_vocab_code_builtin_en_us("not_found").is_some());
+/// assert!(error_vocab_code_builtin_en_us("nonsense").is_none());
+/// ```
 pub fn error_vocab_code_builtin_en_us(code: &str) -> Option<&'static str> {
     match code {
         "policy_denied" => Some("You need to sign in to do this."),
@@ -313,9 +403,18 @@ pub fn error_vocab_code_builtin_en_us(code: &str) -> Option<&'static str> {
     }
 }
 
-/// One-line catalog-style hover/completion description for each of the 8
-/// closed-catalog error codes. Shown inline in completion lists and as a
-/// fallback hover (when no feature-level override is found in the document).
+/// One-line catalog-style hover/completion description for each of the
+/// closed-catalog error codes in [`ERROR_VOCAB_CODES`]. Shown inline in
+/// completion lists and as a fallback hover (when no feature-level
+/// override is found in the document).
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::error_vocab_code_detail;
+/// assert!(error_vocab_code_detail("rate_limited").unwrap().contains("Throttle"));
+/// assert!(error_vocab_code_detail("not_a_code").is_none());
+/// ```
 pub fn error_vocab_code_detail(code: &str) -> Option<&'static str> {
     match code {
         "policy_denied" => Some(
@@ -355,5 +454,77 @@ pub fn error_vocab_code_detail(code: &str) -> Option<&'static str> {
             "Database CHECK constraint tripped (Postgres SQLSTATE 23514). Maps to HTTP 400. A column value failed the table's declared check expression.",
         ),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_catalog_entry_has_a_detail_string() {
+        // Smoke test: every value in each closed catalog must yield a
+        // hover description. A catalog that grows without a matching
+        // detail arm is the exact regression this guards against.
+        for v in RESOURCE_LOCK_STRATEGY_VALUES {
+            assert!(
+                resource_lock_strategy_detail(v).is_some(),
+                "missing lock detail: {v}"
+            );
+        }
+        for v in ERROR_PAGE_STATUS_VALUES {
+            assert!(
+                error_page_status_detail(v).is_some(),
+                "missing error_page detail: {v}"
+            );
+        }
+        for v in AUTH_CATALOG_VALUES {
+            assert!(
+                auth_catalog_detail(v).is_some(),
+                "missing auth detail: {v}"
+            );
+        }
+        for v in AUTH_REFRESH_THEFT_ACTION_VALUES {
+            assert!(
+                auth_refresh_theft_action_detail(v).is_some(),
+                "missing theft action detail: {v}"
+            );
+        }
+        for v in OBSERVABILITY_CATALOG_VALUES {
+            assert!(
+                observability_catalog_detail(v).is_some(),
+                "missing observability detail: {v}"
+            );
+        }
+        for v in NOTIFICATION_DIGEST_TEMPLATE_STRATEGY_VALUES {
+            assert!(
+                notification_digest_template_strategy_detail(v).is_some(),
+                "missing notification digest detail: {v}"
+            );
+        }
+        for v in DEPLOY_STRATEGY_VALUES {
+            assert!(
+                deploy_strategy_detail(v).is_some(),
+                "missing deploy strategy detail: {v}"
+            );
+        }
+        for code in ERROR_VOCAB_CODES {
+            assert!(
+                error_vocab_code_detail(code).is_some(),
+                "missing error vocab detail: {code}"
+            );
+            assert!(
+                error_vocab_code_builtin_en_us(code).is_some(),
+                "missing error vocab builtin: {code}"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_values_resolve_to_none() {
+        assert!(resource_lock_strategy_detail("not-a-strategy").is_none());
+        assert!(error_page_status_detail("999").is_none());
+        assert!(auth_catalog_detail("nope").is_none());
+        assert!(error_vocab_code_detail("not_a_code").is_none());
     }
 }
