@@ -63,6 +63,15 @@ pub enum EncryptionSource {
 
 impl EncryptionSource {
     /// Borrow the underlying template, regardless of the source kind.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::encryption::{EncryptionSource, EncryptionTemplate};
+    ///
+    /// let src = EncryptionSource::Env(EncryptionTemplate::parse("CRYPT_KEY_APP"));
+    /// assert_eq!(src.template().literal, "CRYPT_KEY_APP");
+    /// ```
     pub fn template(&self) -> &EncryptionTemplate {
         match self {
             Self::Env(t) | Self::Secrets(t) => t,
@@ -88,6 +97,15 @@ impl EncryptionTemplate {
     /// Parse the authored literal into a typed template. Axes inside
     /// `{...}` braces are matched against the closed catalog; unknown
     /// names are skipped (doctor surfaces them as `ENC-TEMPLATE-AXIS-001`).
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::encryption::{EncryptionTemplate, EncryptionTemplateAxis};
+    ///
+    /// let t = EncryptionTemplate::parse("CRYPT_KEY_TENANT_{tenant_id}");
+    /// assert_eq!(t.axes, vec![EncryptionTemplateAxis::TenantId]);
+    /// ```
     pub fn parse(literal: &str) -> Self {
         let mut axes = Vec::new();
         let bytes = literal.as_bytes();
@@ -125,6 +143,17 @@ pub enum EncryptionTemplateAxis {
 }
 
 impl EncryptionTemplateAxis {
+    /// Parse a `{...}` brace name into its typed axis. Returns `None` for
+    /// names outside the closed catalog (doctor surfaces those).
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::encryption::EncryptionTemplateAxis;
+    ///
+    /// assert_eq!(EncryptionTemplateAxis::parse("tenant_id"), Some(EncryptionTemplateAxis::TenantId));
+    /// assert_eq!(EncryptionTemplateAxis::parse("nope"), None);
+    /// ```
     pub fn parse(name: &str) -> Option<Self> {
         match name {
             "tenant_id" => Some(Self::TenantId),
@@ -134,6 +163,15 @@ impl EncryptionTemplateAxis {
         }
     }
 
+    /// Canonical snake_case spelling used both in source and serialized IR.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::encryption::EncryptionTemplateAxis;
+    ///
+    /// assert_eq!(EncryptionTemplateAxis::TenantId.as_str(), "tenant_id");
+    /// ```
     pub fn as_str(self) -> &'static str {
         match self {
             Self::TenantId => "tenant_id",
@@ -152,6 +190,16 @@ pub enum EncryptionAlgorithm {
 }
 
 impl EncryptionAlgorithm {
+    /// Parse a source-level algorithm identifier. Returns `None` for any
+    /// name outside the closed v0 catalog.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::encryption::EncryptionAlgorithm;
+    ///
+    /// assert_eq!(EncryptionAlgorithm::parse("aes_256_gcm"), Some(EncryptionAlgorithm::Aes256Gcm));
+    /// ```
     pub fn parse(name: &str) -> Option<Self> {
         match name {
             "aes_256_gcm" => Some(Self::Aes256Gcm),
@@ -159,6 +207,15 @@ impl EncryptionAlgorithm {
         }
     }
 
+    /// Canonical snake_case spelling used both in source and serialized IR.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::encryption::EncryptionAlgorithm;
+    ///
+    /// assert_eq!(EncryptionAlgorithm::Aes256Gcm.as_str(), "aes_256_gcm");
+    /// ```
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Aes256Gcm => "aes_256_gcm",
@@ -175,6 +232,16 @@ pub enum EncryptionRotation {
 }
 
 impl EncryptionRotation {
+    /// Parse a source-level rotation strategy. Returns `None` for names
+    /// outside the closed v0 catalog (`KmsManaged` lands in Wave 2).
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::encryption::EncryptionRotation;
+    ///
+    /// assert_eq!(EncryptionRotation::parse("manual"), Some(EncryptionRotation::Manual));
+    /// ```
     pub fn parse(name: &str) -> Option<Self> {
         match name {
             "manual" => Some(Self::Manual),
@@ -182,6 +249,15 @@ impl EncryptionRotation {
         }
     }
 
+    /// Canonical snake_case spelling used both in source and serialized IR.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::encryption::EncryptionRotation;
+    ///
+    /// assert_eq!(EncryptionRotation::Manual.as_str(), "manual");
+    /// ```
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Manual => "manual",
@@ -203,6 +279,15 @@ pub enum EncryptionKeyScope {
 
 impl EncryptionKeyScope {
     /// Parse the verbatim `@key.<scope>` reference.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::encryption::EncryptionKeyScope;
+    ///
+    /// assert_eq!(EncryptionKeyScope::parse("@key.tenant"), Some(EncryptionKeyScope::Tenant));
+    /// assert_eq!(EncryptionKeyScope::parse("@key.bogus"), None);
+    /// ```
     pub fn parse(reference: &str) -> Option<Self> {
         let name = reference.strip_prefix("@key.")?;
         match name {
@@ -216,6 +301,15 @@ impl EncryptionKeyScope {
 
     /// Required template axis for this scope. `None` for `App` (the
     /// global key has no per-axis derivation).
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::encryption::{EncryptionKeyScope, EncryptionTemplateAxis};
+    ///
+    /// let scope = EncryptionKeyScope::parse("@key.tenant").unwrap();
+    /// assert_eq!(scope.required_axis(), Some(EncryptionTemplateAxis::TenantId));
+    /// ```
     pub fn required_axis(self) -> Option<EncryptionTemplateAxis> {
         match self {
             Self::App => None,
