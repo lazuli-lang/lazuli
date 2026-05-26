@@ -18,6 +18,12 @@ use super::printer::GoPrinter;
 /// - the feature has no `auth` block,
 /// - the `auth` block has no `sessions` declaration, or
 /// - the sessions resource has no extra columns (single-tenant).
+///
+/// ## Examples
+///
+/// ```ignore
+/// let go_src = emit_auth_session_file("auth.lzi", &feature);
+/// ```
 pub fn emit_auth_session_file(source_label: &str, feature: &Feature) -> Option<String> {
     let sessions = feature.auth.as_ref()?.sessions.as_ref()?;
     if sessions.extra_columns.is_empty() {
