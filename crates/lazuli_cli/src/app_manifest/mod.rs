@@ -22,6 +22,13 @@ mod registry;
 mod types;
 mod workspace;
 
+#[cfg(test)]
+mod contracts_tests;
+#[cfg(test)]
+mod profiles_tests;
+#[cfg(test)]
+mod workspace_tests;
+
 pub use contracts::parse_app_contracts;
 pub use manifest::parse_app_manifest;
 pub use profiles::parse_app_profiles;
@@ -31,10 +38,7 @@ pub use workspace::parse_app_workspace;
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        parse_app_contracts, parse_app_manifest, parse_app_profiles, parse_app_registry,
-        parse_app_workspace,
-    };
+    use super::{parse_app_manifest, parse_app_registry};
 
     #[test]
     fn parses_operational_manifest() {
@@ -218,112 +222,6 @@ app crm
         let observability = manifest.observability.expect("observability block");
         assert_eq!(observability.error_source, ["dev", "staging"]);
         assert!(!observability.panic_recover);
-    }
-
-    #[test]
-    fn parses_workspace_contract() {
-        let source = r#"
-workspace AcmeERP
-  apps
-    crm at "./apps/crm/app.lzi"
-    ai external contract "acme.ai.v1"
-  shared_registry "./registry.lzi"
-  boundaries
-    crm publishes customer.*
-    ai consumes customer.*
-  communication
-    propagate actor, tenant, trace_id, request_id
-    default sync internal rpc
-    default async event_bus
-  gateway public_api
-    route "/api/customers/*" to app crm
-      auth propagate
-      tenant propagate
-      timeout "5s"
-"#;
-
-        let workspace = parse_app_workspace(source).unwrap();
-
-        assert_eq!(workspace.name, "AcmeERP");
-        assert_eq!(workspace.apps[0].name, "crm");
-        assert_eq!(workspace.apps[0].kind, "local");
-        assert_eq!(
-            workspace.apps[0].path.as_deref(),
-            Some("./apps/crm/app.lzi")
-        );
-        assert_eq!(workspace.apps[1].name, "ai");
-        assert_eq!(workspace.apps[1].kind, "external");
-        assert_eq!(workspace.apps[1].contract.as_deref(), Some("acme.ai.v1"));
-        assert_eq!(workspace.shared_registry.as_deref(), Some("./registry.lzi"));
-        assert_eq!(workspace.boundaries[0].direction, "publishes");
-        assert_eq!(
-            workspace
-                .communication
-                .as_ref()
-                .and_then(|communication| communication.sync_default.as_deref()),
-            Some("internal rpc")
-        );
-        assert_eq!(workspace.gateways[0].name, "public_api");
-        assert_eq!(workspace.gateways[0].routes[0].path, "/api/customers/*");
-        assert_eq!(workspace.gateways[0].routes[0].target, "crm");
-        assert_eq!(
-            workspace.gateways[0].routes[0].auth.as_deref(),
-            Some("propagate")
-        );
-    }
-
-    #[test]
-    fn parses_external_contract() {
-        let source = r#"
-contract acme.ai.v1
-  purpose "AI inference service."
-  compatibility backward
-  import openapi "./contracts/ai.openapi.json"
-
-  record CustomerSummaryRequest
-    customer_id: ID required
-    email: @semantic.Email @pii.contact optional
-
-  record CustomerSummaryResult
-    summary: Text required
-    generated_at: DateTime required
-
-  operation summarize_customer
-    transport http
-    method POST
-    path "/v1/customer-summary"
-    input CustomerSummaryRequest
-    output CustomerSummaryResult
-    auth service
-    timeout "10s"
-
-  event summary_ready
-    topic "ai.summary_ready"
-    payload
-      customer_id: ID required
-      summary: Text required
-"#;
-
-        let contracts = parse_app_contracts(source);
-        let contract = &contracts[0];
-
-        assert_eq!(contract.name, "acme.ai.v1");
-        assert_eq!(contract.purpose.as_deref(), Some("AI inference service."));
-        assert_eq!(contract.compatibility.as_deref(), Some("backward"));
-        assert_eq!(contract.imports[0].format, "openapi");
-        assert_eq!(contract.records[0].name, "CustomerSummaryRequest");
-        assert_eq!(contract.records[0].fields[1].type_name, "@semantic.Email");
-        assert_eq!(contract.records[0].fields[1].markers, ["@pii.contact"]);
-        assert_eq!(contract.operations[0].transport.as_deref(), Some("http"));
-        assert_eq!(
-            contract.operations[0].path.as_deref(),
-            Some("/v1/customer-summary")
-        );
-        assert_eq!(
-            contract.events[0].topic.as_deref(),
-            Some("ai.summary_ready")
-        );
-        assert_eq!(contract.events[0].payload[0].name, "customer_id");
     }
 
     #[test]
@@ -538,67 +436,6 @@ registry
         assert_eq!(event.payload.len(), 2);
         assert_eq!(event.payload[1].capabilities, ["@pii.contact"]);
         assert!(!event.payload[1].required);
-    }
-
-    #[test]
-    fn parses_app_profiles() {
-        let source = r#"
-profile local
-  urls
-    web "http://localhost:3000"
-    api "http://localhost:8080"
-  bindings
-    customer_import.crm = integrations.fake_crm
-  integrations
-    crm environment sandbox
-    crm adapter @adapter.fake_crm
-  deploy
-    topology monolith
-    migrations before_deploy
-
-profile production
-  urls
-    web "https://app.acme.example"
-  integrations
-    crm environment production
-  deploy
-    topology split_services
-"#;
-
-        let profiles = parse_app_profiles(source);
-
-        assert_eq!(profiles.len(), 2);
-        assert_eq!(profiles[0].name, "local");
-        assert_eq!(profiles[0].urls[0].target, "web");
-        assert_eq!(profiles[0].bindings[0].target_feature, "customer_import");
-        assert_eq!(profiles[0].integrations[0].name, "crm");
-        assert_eq!(
-            profiles[0].integrations[0].environment.as_deref(),
-            Some("sandbox")
-        );
-        assert_eq!(
-            profiles[0].integrations[0].adapter.as_deref(),
-            Some("@adapter.fake_crm")
-        );
-        assert_eq!(
-            profiles[0].integrations[0].adapter_provenance.as_deref(),
-            Some("local")
-        );
-        assert_eq!(
-            profiles[0]
-                .deploy
-                .as_ref()
-                .and_then(|deploy| deploy.topology.as_deref()),
-            Some("monolith")
-        );
-        assert_eq!(profiles[1].name, "production");
-        assert_eq!(
-            profiles[1]
-                .deploy
-                .as_ref()
-                .and_then(|deploy| deploy.topology.as_deref()),
-            Some("split_services")
-        );
     }
 
     // Encryption bucket cycle — parses an `encryption` block with one
