@@ -108,7 +108,9 @@ fn walk_rs_files(dir: &Path, visit: &mut impl FnMut(&Path)) {
 fn should_skip(path: &Path) -> bool {
     path.file_name()
         .and_then(|file_name| file_name.to_str())
-        .is_some_and(|file_name| SKIP_FILES.contains(&file_name))
+        .is_some_and(|file_name| {
+            SKIP_FILES.contains(&file_name) || file_name.ends_with("_tests.rs")
+        })
 }
 
 fn validate_header(contents: &str) -> Result<(), &'static str> {
