@@ -18,6 +18,10 @@ use crate::{BuiltinType, QualifiedName, TypeRef};
 
 use super::EventField;
 
+/// One built-in trace event the runtime emits without author source.
+/// Lives in a small fixed catalog returned by [`built_in_trace_events`];
+/// the analyzer cross-checks this list to reject author attempts to
+/// redeclare any reserved name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BuiltInTraceEvent {
     pub name: String,
@@ -25,6 +29,9 @@ pub struct BuiltInTraceEvent {
     pub fires_per: TraceFiresPer,
 }
 
+/// Closed catalog distinguishing the firing site for each built-in
+/// trace event. Each variant pairs 1:1 with one reserved name in the
+/// catalog (`agent_run`, `command_run`, `job_run`, `webhook_run`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TraceFiresPer {
@@ -53,6 +60,15 @@ pub enum TraceFiresPer {
 /// A.8 pattern mechanically: a flat payload, no nested objects beyond
 /// `agent_run.tools[]`, and a stable `fires_per` discriminant. See
 /// `docs/proposals/bucket-observability-cycle.md` §3.5.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_ir::built_in_trace_events;
+///
+/// let events = built_in_trace_events();
+/// assert!(events.iter().any(|e| e.name == "command_run"));
+/// ```
 pub fn built_in_trace_events() -> Vec<BuiltInTraceEvent> {
     vec![
         BuiltInTraceEvent {
@@ -213,6 +229,15 @@ fn webhook_run_payload() -> Vec<EventField> {
 /// `ToolCall` exists (referenced by `agent_run.tools[]`). The records
 /// are surfaced via inspect alongside the events themselves so
 /// subscribers know the full schema without spelunking source.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_ir::built_in_trace_event_records;
+///
+/// let records = built_in_trace_event_records();
+/// assert!(records.iter().any(|r| r.name == "ToolCall"));
+/// ```
 pub fn built_in_trace_event_records() -> Vec<BuiltInTraceRecord> {
     use BuiltinType::*;
     let required = |name: &str, ty: BuiltinType| EventField {
@@ -237,6 +262,9 @@ pub fn built_in_trace_event_records() -> Vec<BuiltInTraceRecord> {
     }]
 }
 
+/// One inner record schema referenced from a built-in trace event
+/// payload (currently only `ToolCall`). Surfaced via inspect alongside
+/// the events.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BuiltInTraceRecord {
     pub name: String,
@@ -246,6 +274,15 @@ pub struct BuiltInTraceRecord {
 /// Whether `name` is reserved by a built-in trace event. Doctor calls
 /// this when validating author-side `event.trace <name>` and job-side
 /// `trigger event.trace <name>` references.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_ir::is_reserved_trace_event_name;
+///
+/// assert!(is_reserved_trace_event_name("agent_run"));
+/// assert!(!is_reserved_trace_event_name("user_authored"));
+/// ```
 pub fn is_reserved_trace_event_name(name: &str) -> bool {
     built_in_trace_events()
         .iter()
@@ -254,6 +291,15 @@ pub fn is_reserved_trace_event_name(name: &str) -> bool {
 
 /// Lookup a built-in trace event by name. Returns `None` for authored
 /// trace events (which live under each feature's `events` instead).
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_ir::built_in_trace_event;
+///
+/// assert!(built_in_trace_event("agent_run").is_some());
+/// assert!(built_in_trace_event("nope").is_none());
+/// ```
 pub fn built_in_trace_event(name: &str) -> Option<BuiltInTraceEvent> {
     built_in_trace_events()
         .into_iter()

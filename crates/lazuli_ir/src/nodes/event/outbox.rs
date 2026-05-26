@@ -25,9 +25,28 @@ impl Default for OutboxMode {
 }
 
 impl OutboxMode {
+    /// Returns `true` for the legacy best-effort dispatch path. Used by
+    /// `skip_serializing_if` so the default round-trips cleanly.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::OutboxMode;
+    ///
+    /// assert!(OutboxMode::None.is_none());
+    /// ```
     pub fn is_none(&self) -> bool {
         matches!(self, OutboxMode::None)
     }
+    /// Returns `true` when the event opted into the transactional outbox.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::OutboxMode;
+    ///
+    /// assert!(OutboxMode::Guaranteed.is_guaranteed());
+    /// ```
     pub fn is_guaranteed(&self) -> bool {
         matches!(self, OutboxMode::Guaranteed)
     }

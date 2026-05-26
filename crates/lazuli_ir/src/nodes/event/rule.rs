@@ -11,6 +11,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Predicate, QualifiedName, SpanRef, TestBlock};
 
+/// `rule "title" { denies … when … message … }` — declarative deny
+/// clause. Evaluated at the operation boundary; codegen emits it as a
+/// pre-execution gate that returns the rendered message on hit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rule {
     /// Author's prose title: `rule "archived customers cannot be reassigned"`.
@@ -32,6 +35,9 @@ pub struct Rule {
     pub span_ref: Option<SpanRef>,
 }
 
+/// `denies <resource>.<op>` reference resolved to a typed operation
+/// kind during lowering. Used by [`Rule`] to bind the deny clause to
+/// the right boundary (command vs lifecycle transition).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OperationRef {
     pub resource: QualifiedName,
@@ -39,10 +45,26 @@ pub struct OperationRef {
     pub kind: OperationKind,
 }
 
+/// Closed catalog of operations a rule can deny. `Unresolved` is the
+/// legacy lowering default for fixtures pre-dating resolution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OperationKind {
+    /// `<resource>.<command>` — a declarative write.
     Command,
+    /// `<resource>.<transition>` — a lifecycle transition.
     Transition,
     /// Resolution deferred to the analyzer; default for legacy lowering.
     Unresolved,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn operation_kind_round_trips() {
+        let s = serde_json::to_string(&OperationKind::Command).unwrap();
+        let back: OperationKind = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, OperationKind::Command);
+    }
 }

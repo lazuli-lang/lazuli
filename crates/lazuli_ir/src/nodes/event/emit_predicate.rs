@@ -57,6 +57,19 @@ impl EmitPredicate {
     /// catalog recognises one. Used by the doctor diagnostic
     /// `webhook_emit_predicate_field_unresolved_001` to anchor at the
     /// authored path.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::{EmitPredicate, EmitPredicateKind};
+    ///
+    /// let pred = EmitPredicate {
+    ///     kind: EmitPredicateKind::Equals { path: "type".into(), literal: "active".into() },
+    ///     raw: String::new(),
+    ///     span_ref: None,
+    /// };
+    /// assert_eq!(pred.payload_path(), Some("type"));
+    /// ```
     pub fn payload_path(&self) -> Option<&str> {
         match &self.kind {
             EmitPredicateKind::Equals { path, .. } => Some(path.as_str()),
