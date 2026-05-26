@@ -45,7 +45,7 @@ pub(crate) fn resource_policy_and_command_audit_hints(
                         severity: DoctorSeverity::Hint,
                         code: "command_without_audit_hint".to_owned(),
                         message: format!(
-                            "command `{}.{}` is write-effect but has no `audit default` declared — write actions without audit are invisible to compliance. Add `audit default` on the command or `audit_default` in feature defaults.",
+                            "command `{}.{}` is write-effect but has no `audit default` declared ÔÇö write actions without audit are invisible to compliance. Add `audit default` on the command or `audit_default` in feature defaults.",
                             feature.feature, command.name
                         ),
                         category: None,
@@ -97,7 +97,7 @@ pub(crate) fn resource_policy_and_command_audit_hints(
                 severity: DoctorSeverity::Hint,
                 code: "resource_without_policy_hint".to_owned(),
                 message: format!(
-                    "feature `{}` declares resource `{}` with no `policies` block — every write command implicitly gets the default policy. Add an explicit `policies` block to make access control auditable.",
+                    "feature `{}` declares resource `{}` with no `policies` block ÔÇö every write command implicitly gets the default policy. Add an explicit `policies` block to make access control auditable.",
                     feature.feature, resource
                 ),
                 category: None,
