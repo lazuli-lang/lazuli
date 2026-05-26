@@ -90,6 +90,8 @@ mod emit_effect_dispatch_tests;
 #[cfg(test)]
 mod owner_scope_sql_tests;
 #[cfg(test)]
+mod rate_limit_emit_tests;
+#[cfg(test)]
 mod scope_owner_tests;
 #[cfg(test)]
 mod scope_where_keys_tests;
