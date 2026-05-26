@@ -17,7 +17,7 @@ pub mod ir {
     };
 }
 
-#[path = "design_tokens_ts.rs"]
+#[path = "design_tokens_ts/mod.rs"]
 mod tokens_ts;
 
 #[path = "design_tokens_css.rs"]
