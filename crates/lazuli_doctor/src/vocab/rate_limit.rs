@@ -30,8 +30,11 @@ use std::path::PathBuf;
 //                          env catalog (production, staging, test, dev, local).
 // =============================================================================
 
+/// `in <env>` qualifier references an env outside the closed catalog.
+/// The analyzer's rate-limit pass emits this with a Levenshtein suggestion.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RateLimitUnknownEnvFinding {
+    /// Source `.lzi` file the offending `rate_limit` line lives in.
     pub path: PathBuf,
     /// `<feature>.<command>` (or `<feature>.<query>` / `<feature>.<api>`).
     pub feature_command: String,
@@ -43,8 +46,25 @@ pub struct RateLimitUnknownEnvFinding {
 }
 
 impl RateLimitUnknownEnvFinding {
+    /// Canonical diagnostic code emitted with this finding.
     pub const CODE: &'static str = "rate_limit_unknown_env";
 
+    /// Render the "did you mean" message naming the catalog + suggestion.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::rate_limit::RateLimitUnknownEnvFinding;
+    ///
+    /// let f = RateLimitUnknownEnvFinding {
+    ///     path: PathBuf::from("a.lzi"),
+    ///     feature_command: "a.r".into(),
+    ///     env: "statging".into(),
+    ///     suggestion: "staging".into(),
+    /// };
+    /// assert!(f.message().contains("Did you mean `staging`?"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "`rate_limit` on `{}` declares `in {}`, but `{}` is not in the closed catalog. \
@@ -60,8 +80,11 @@ impl RateLimitUnknownEnvFinding {
 //                           keyword). Catches typos like `"unlimted"`.
 // =============================================================================
 
+/// Spec literal doesn't parse as `N per UNIT per scope` (or the
+/// `unlimited` keyword). Catches typos like `"unlimted"`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RateLimitInvalidSpecFinding {
+    /// Source `.lzi` file the offending `rate_limit` literal lives in.
     pub path: PathBuf,
     /// `<feature>.<command>` (or `<feature>.<query>` / `<feature>.<api>`).
     pub feature_command: String,
@@ -70,8 +93,24 @@ pub struct RateLimitInvalidSpecFinding {
 }
 
 impl RateLimitInvalidSpecFinding {
+    /// Canonical diagnostic code emitted with this finding.
     pub const CODE: &'static str = "rate_limit_invalid_spec";
 
+    /// Render the "expected forms" message listing valid shapes.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::rate_limit::RateLimitInvalidSpecFinding;
+    ///
+    /// let f = RateLimitInvalidSpecFinding {
+    ///     path: PathBuf::from("a.lzi"),
+    ///     feature_command: "a.r".into(),
+    ///     literal: "unlimted".into(),
+    /// };
+    /// assert!(f.message().contains("N per UNIT per scope"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "`rate_limit` literal `{}` on `{}` doesn't parse as `N per UNIT per scope`. \
@@ -89,8 +128,11 @@ impl RateLimitInvalidSpecFinding {
 //                            ambiguous; author must dedupe.
 // =============================================================================
 
+/// Same env appears in two qualified `rate_limit` entries for one
+/// command. Resolution would be ambiguous; author must dedupe.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RateLimitDuplicateEnvFinding {
+    /// Source `.lzi` file the offending `rate_limit` lines live in.
     pub path: PathBuf,
     /// `<feature>.<command>` (or `<feature>.<query>` / `<feature>.<api>`).
     pub feature_command: String,
@@ -103,8 +145,26 @@ pub struct RateLimitDuplicateEnvFinding {
 }
 
 impl RateLimitDuplicateEnvFinding {
+    /// Canonical diagnostic code emitted with this finding.
     pub const CODE: &'static str = "rate_limit_duplicate_env";
 
+    /// Render the "duplicate env" message naming both source lines.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::rate_limit::RateLimitDuplicateEnvFinding;
+    ///
+    /// let f = RateLimitDuplicateEnvFinding {
+    ///     path: PathBuf::from("a.lzi"),
+    ///     feature_command: "a.r".into(),
+    ///     env: "staging".into(),
+    ///     first_line: 42,
+    ///     second_line: 44,
+    /// };
+    /// assert!(f.message().contains("lines 42 + 44"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "`{}` declares `rate_limit ... in {}` twice (lines {} + {}). Each env can appear \
@@ -120,16 +180,34 @@ impl RateLimitDuplicateEnvFinding {
 //                                one command. Only one default is allowed.
 // =============================================================================
 
+/// Two unqualified `rate_limit` lines appear on one command. Only one
+/// default is allowed; the second is ambiguous.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RateLimitDuplicateDefaultFinding {
+    /// Source `.lzi` file the offending `rate_limit` lines live in.
     pub path: PathBuf,
     /// `<feature>.<command>` (or `<feature>.<query>` / `<feature>.<api>`).
     pub feature_command: String,
 }
 
 impl RateLimitDuplicateDefaultFinding {
+    /// Canonical diagnostic code emitted with this finding.
     pub const CODE: &'static str = "rate_limit_duplicate_default";
 
+    /// Render the "two unqualified `rate_limit` lines" message.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::rate_limit::RateLimitDuplicateDefaultFinding;
+    ///
+    /// let f = RateLimitDuplicateDefaultFinding {
+    ///     path: PathBuf::from("a.lzi"),
+    ///     feature_command: "a.r".into(),
+    /// };
+    /// assert!(f.message().contains("two unqualified"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "`{}` declares two unqualified `rate_limit` lines. The first is the default; \
@@ -148,16 +226,34 @@ impl RateLimitDuplicateDefaultFinding {
 //                                              "no rate limit at all".
 // =============================================================================
 
+/// Only env-qualified `rate_limit` lines appear with no unqualified
+/// default — uncovered envs would have NO rate limit at all.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RateLimitNoDefaultWithQualificationsFinding {
+    /// Source `.lzi` file the offending `rate_limit` block lives in.
     pub path: PathBuf,
     /// `<feature>.<command>` (or `<feature>.<query>` / `<feature>.<api>`).
     pub feature_command: String,
 }
 
 impl RateLimitNoDefaultWithQualificationsFinding {
+    /// Canonical diagnostic code emitted with this finding.
     pub const CODE: &'static str = "rate_limit_no_default_with_qualifications";
 
+    /// Render the "missing default" message warning about uncovered envs.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::rate_limit::RateLimitNoDefaultWithQualificationsFinding;
+    ///
+    /// let f = RateLimitNoDefaultWithQualificationsFinding {
+    ///     path: PathBuf::from("a.lzi"),
+    ///     feature_command: "a.r".into(),
+    /// };
+    /// assert!(f.message().contains("NO rate limit"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "`{}` declares env-qualified `rate_limit` line(s) but no default. Requests in envs \
@@ -177,6 +273,15 @@ pub const RATE_LIMIT_ENV_CATALOG: &[&str] = &["production", "staging", "test", "
 /// Suggest the nearest closed-catalog env name for a typo'd identifier
 /// using a small Levenshtein-distance scan (cutoff = 2). Returns the
 /// best candidate or the first catalog entry as a defensive default.
+///
+/// ## Examples
+///
+/// ```no_run
+/// use lazuli_doctor::vocab::rate_limit::suggest_env;
+///
+/// assert_eq!(suggest_env("statging"), "staging");
+/// assert_eq!(suggest_env("zzzz"), "production");
+/// ```
 pub fn suggest_env(input: &str) -> &'static str {
     let lower = input.to_ascii_lowercase();
     let mut best: Option<(usize, &'static str)> = None;
