@@ -38,6 +38,14 @@ use super::{Column, ResourceSchema};
 /// - FK column type narrowing to `BIGINT` (needs `CrossFeatureIndex`).
 /// - Generated-as expressions for `derived from` fields (these
 ///   never participate in ALTER TABLE; A11 skips them).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_go::emitter::schema_diff::current_schema_from_ir;
+/// let schema = current_schema_from_ir(&resource);
+/// assert!(schema.columns.iter().any(|c| c.name == "id"));
+/// ```
 pub fn current_schema_from_ir(resource: &Resource) -> ResourceSchema {
     let mut columns = Vec::new();
 
