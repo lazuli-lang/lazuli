@@ -17,6 +17,12 @@
 mod contracts;
 mod manifest;
 mod parsers;
+mod parsers_app;
+mod parsers_common;
+mod parsers_contracts;
+mod parsers_profiles;
+mod parsers_registry;
+mod parsers_workspace;
 mod profiles;
 mod registry;
 mod types;
