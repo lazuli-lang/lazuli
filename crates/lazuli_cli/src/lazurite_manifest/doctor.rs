@@ -92,8 +92,28 @@ pub struct CoverageSection {
     pub aggregate_method: Option<String>,
 }
 
+/// One `[doctor.coverage.<layer>]` block — the hard threshold and the
+/// warn-band threshold for a single coverage layer.
 #[derive(Debug, Deserialize, Serialize, Clone, Copy)]
 pub struct LayerThresholdConfig {
+    /// Block the run (non-zero exit) when coverage drops below this
+    /// percentage.
     pub block_under: u32,
+    /// Surface a warning (but do not block) when coverage drops below
+    /// this percentage.
     pub warn_under: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn doctor_default_is_empty() {
+        let doctor = Doctor::default();
+        assert!(doctor.profile.is_none());
+        assert!(doctor.test_discipline.is_none());
+        assert!(doctor.coverage.is_none());
+        assert!(doctor.internal_hygiene.is_none());
+    }
 }
