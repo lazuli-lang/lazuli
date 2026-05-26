@@ -19,6 +19,16 @@ use super::{MCP_PROTOCOL_VERSION, SERVER_NAME, SERVER_VERSION};
 
 /// Entry point wired by `Commands::Mcp` in `main.rs`. Spins the
 /// stdio JSON-RPC loop until stdin closes or `shutdown` arrives.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::cmd_mcp::run_mcp_server;
+///
+/// // MCP agents spawn the binary; the loop terminates when stdin
+/// // closes or the client sends the `shutdown` method:
+/// // run_mcp_server()?;
+/// ```
 pub fn run_mcp_server() -> Result<()> {
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
@@ -108,4 +118,31 @@ pub(super) fn error_response(id: Value, code: i64, message: String) -> Value {
         "id": id,
         "error": { "code": code, "message": message }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn initialize_result_carries_protocol_version() {
+        let result = initialize_result();
+        assert_eq!(
+            result.get("protocolVersion").and_then(|v| v.as_str()),
+            Some(MCP_PROTOCOL_VERSION)
+        );
+    }
+
+    #[test]
+    fn error_response_envelopes_code_and_message() {
+        let response = error_response(Value::from(7), -32601, "method not found".into());
+        assert_eq!(response.get("jsonrpc").and_then(|v| v.as_str()), Some("2.0"));
+        assert_eq!(response.get("id"), Some(&Value::from(7)));
+        let error = response.get("error").expect("error envelope");
+        assert_eq!(error.get("code").and_then(|v| v.as_i64()), Some(-32601));
+        assert_eq!(
+            error.get("message").and_then(|v| v.as_str()),
+            Some("method not found")
+        );
+    }
 }

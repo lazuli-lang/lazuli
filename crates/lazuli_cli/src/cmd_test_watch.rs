@@ -31,6 +31,16 @@ use crate::cmd_test_types::Layer;
 
 /// Per-layer debounce window. Different layers need different windows
 /// because their runners have wildly different cycle times.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::cmd_test_watch::debounce_for;
+/// use lazuli_cli::cmd_test_types::Layer;
+/// use std::time::Duration;
+///
+/// assert_eq!(debounce_for(Layer::Handler), Duration::from_millis(400));
+/// ```
 pub fn debounce_for(layer: Layer) -> Duration {
     match layer {
         Layer::Spec | Layer::View => Duration::from_millis(500),
@@ -44,6 +54,17 @@ pub fn debounce_for(layer: Layer) -> Duration {
 ///
 /// Returns an empty vec for paths that no layer cares about (this is
 /// the common case for editor swap files, IDE caches, `target/`, etc.).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::cmd_test_watch::layers_for_path;
+/// use lazuli_cli::cmd_test_types::Layer;
+///
+/// let layers = layers_for_path(Path::new("/p/app.lzi"), Path::new("/p"));
+/// assert!(layers.contains(&Layer::Spec));
+/// ```
 pub fn layers_for_path(path: &Path, project_root: &Path) -> Vec<Layer> {
     if is_ignored(path) {
         return Vec::new();
@@ -106,6 +127,16 @@ fn is_ignored(path: &Path) -> bool {
 /// Watch driver. Spawns a `notify` watcher on `project_root` and
 /// dispatches debounced layer-tagged events via `tx`. Returns when
 /// the channel is closed (so the orchestrator can stop the loop).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::cmd_test_watch::{spawn_watcher, watch_channel};
+///
+/// let (tx, _rx) = watch_channel();
+/// // let _watcher = spawn_watcher(Path::new("."), tx)?;
+/// ```
 pub fn spawn_watcher(
     project_root: &Path,
     tx: Sender<WatchEvent>,
@@ -133,9 +164,17 @@ pub fn spawn_watcher(
     Ok(watcher)
 }
 
+/// One filesystem event tagged with the layer it affects.
+///
+/// Produced by `spawn_watcher` and consumed by `DebounceBuffer::push`.
+/// `path` is the absolute path of the touched file; `layer` is the
+/// single layer classification it maps to. Files affecting multiple
+/// layers produce one `WatchEvent` per layer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WatchEvent {
+    /// Which layer this change should re-run.
     pub layer: Layer,
+    /// Absolute path of the changed file.
     pub path: PathBuf,
 }
 
@@ -154,10 +193,14 @@ struct DebounceBucket {
 }
 
 impl DebounceBuffer {
+    /// Construct an empty buffer. Equivalent to `Default::default()`.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Stage one `WatchEvent` in its layer's bucket, resetting the
+    /// debounce timer for that bucket. New layers append a fresh
+    /// bucket.
     pub fn push(&mut self, event: WatchEvent) {
         let now = Instant::now();
         if let Some(b) = self.buckets.iter_mut().find(|b| b.layer == event.layer) {
@@ -174,6 +217,15 @@ impl DebounceBuffer {
 
     /// Drains layers whose debounce window has elapsed. Returns one
     /// `(layer, paths)` per layer.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_watch::DebounceBuffer;
+    ///
+    /// let mut buf = DebounceBuffer::new();
+    /// assert!(buf.drain_ready().is_empty());
+    /// ```
     pub fn drain_ready(&mut self) -> Vec<(Layer, Vec<PathBuf>)> {
         let now = Instant::now();
         let mut ready = Vec::new();
@@ -190,6 +242,15 @@ impl DebounceBuffer {
 
     /// Returns the smallest remaining debounce window — useful for
     /// `recv_timeout` so we wake up exactly when something is ready.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_watch::DebounceBuffer;
+    ///
+    /// let buf = DebounceBuffer::new();
+    /// assert!(buf.next_tick().is_none());
+    /// ```
     pub fn next_tick(&self) -> Option<Duration> {
         let now = Instant::now();
         self.buckets
@@ -202,6 +263,7 @@ impl DebounceBuffer {
             .min()
     }
 
+    /// True when no layer has any pending changes staged.
     pub fn is_empty(&self) -> bool {
         self.buckets.is_empty()
     }
@@ -222,6 +284,18 @@ impl<F: FnMut(Layer, &[PathBuf]) -> Result<()>> WatchDispatcher for F {
 
 /// Run the watch loop synchronously. Blocks until `rx` returns
 /// disconnect (Ctrl-C, or the watcher dropped).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::cmd_test_watch::{run_watch_loop, watch_channel};
+/// use lazuli_cli::cmd_test_types::Layer;
+/// use std::path::PathBuf;
+///
+/// let (_tx, rx) = watch_channel();
+/// // Dispatcher closure satisfies the WatchDispatcher trait.
+/// // run_watch_loop(rx, |_layer: Layer, _paths: &[PathBuf]| Ok(()))?;
+/// ```
 pub fn run_watch_loop<D: WatchDispatcher>(rx: Receiver<WatchEvent>, mut dispatch: D) -> Result<()> {
     let mut buf = DebounceBuffer::new();
     loop {
@@ -245,6 +319,14 @@ pub fn run_watch_loop<D: WatchDispatcher>(rx: Receiver<WatchEvent>, mut dispatch
 
 /// Convenience constructor for the runtime channel; isolated so tests
 /// can build their own.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::cmd_test_watch::watch_channel;
+///
+/// let (_tx, _rx) = watch_channel();
+/// ```
 pub fn watch_channel() -> (Sender<WatchEvent>, Receiver<WatchEvent>) {
     channel()
 }

@@ -5,12 +5,18 @@ use std::io::Write;
 
 use crate::cmd_test_types::{LayerVerdict, RunReport};
 
+/// Write the pretty-printed JSON projection of a [`RunReport`] to
+/// `out` followed by a trailing newline. Tooling consuming `--format
+/// json` reads exactly this shape.
 pub fn render_json<W: Write>(report: &RunReport, out: &mut W) -> std::io::Result<()> {
     let s = serde_json::to_string_pretty(report).map_err(std::io::Error::other)?;
     out.write_all(s.as_bytes())?;
     out.write_all(b"\n")
 }
 
+/// Write the human-facing text projection of a [`RunReport`] — one
+/// indented block per layer, the coverage table (when present), and an
+/// `Overall: …` summary line.
 pub fn render_text<W: Write>(report: &RunReport, out: &mut W) -> std::io::Result<()> {
     writeln!(out, "Running {} layer(s):", report.summary.layers_run)?;
     writeln!(out)?;
