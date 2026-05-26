@@ -36,6 +36,19 @@ use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind};
 ///
 /// Already-listed envs are filtered out so authors don't see
 /// duplicate offers (`rate_limit "..." in dev, |` skips `dev`).
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::rate_limit_env_completions;
+/// let items = rate_limit_env_completions("    rate_limit \"5/min\" in ").unwrap();
+/// let labels: Vec<&str> = items.iter().map(|c| c.label.as_str()).collect();
+/// assert!(labels.contains(&"production"));
+/// assert!(labels.contains(&"dev"));
+///
+/// // Outside the trigger context — no completions.
+/// assert!(rate_limit_env_completions("    let x = 1").is_none());
+/// ```
 pub fn rate_limit_env_completions(before_cursor: &str) -> Option<Vec<CompletionItem>> {
     let trimmed = before_cursor.trim_start();
     if !trimmed.starts_with("rate_limit") {
@@ -128,5 +141,37 @@ fn env_completion_detail(env: &str) -> &'static str {
         "dev" => "Developer-machine `pnpm dev`. `LAZULI_ENV=dev`.",
         "local" => "Equivalent alias for `dev`. `LAZULI_ENV=local`.",
         _ => "",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fires_after_in_keyword() {
+        let items = rate_limit_env_completions("    rate_limit \"5/min\" in ").unwrap();
+        let labels: Vec<&str> = items.iter().map(|c| c.label.as_str()).collect();
+        assert!(labels.contains(&"production"));
+        assert!(labels.contains(&"dev"));
+        assert_eq!(items.len(), crate::RATE_LIMIT_ENV_CATALOG.len());
+    }
+
+    #[test]
+    fn filters_already_listed_envs() {
+        let items = rate_limit_env_completions("    rate_limit \"5/min\" in dev, ").unwrap();
+        let labels: Vec<&str> = items.iter().map(|c| c.label.as_str()).collect();
+        assert!(!labels.contains(&"dev"));
+        assert!(labels.contains(&"production"));
+    }
+
+    #[test]
+    fn rejects_non_rate_limit_lines() {
+        assert!(rate_limit_env_completions("    let x = 1").is_none());
+    }
+
+    #[test]
+    fn rejects_when_spec_string_is_unclosed() {
+        assert!(rate_limit_env_completions("    rate_limit \"5/min in ").is_none());
     }
 }

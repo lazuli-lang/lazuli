@@ -51,6 +51,15 @@ pub const DESIGN_KEYWORDS: &[&str] = &[
     "dark",
 ];
 
+/// Every reserved word valid inside canonical (`.lzi`) sources. Drives
+/// the global completion list authors see when no narrower
+/// context-aware list fires, plus the hover one-liner table consumed
+/// by `keyword_description`.
+///
+/// The list is intentionally hand-curated — adding a keyword requires
+/// a deliberate cut so the LSP completion experience keeps pace with
+/// new sugar. See module docs for the `*.design.lzi`-only companion
+/// list [`DESIGN_KEYWORDS`].
 pub const KEYWORDS: &[&str] = &[
     "workspace",
     "app",
