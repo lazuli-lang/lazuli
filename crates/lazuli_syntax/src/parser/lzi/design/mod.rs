@@ -97,6 +97,18 @@ use typography::parse_design_typography;
 
 /// Entry point: parse a complete `design.lzi` source. Skips trivia,
 /// expects exactly one `design <name>` block at indent 0.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_syntax::parse_design_document;
+///
+/// let src = "design tokens\n  space\n    sm 4px\n    md 8px\n";
+/// let doc = parse_design_document(src).expect("parses");
+/// assert_eq!(doc.name, "tokens");
+/// assert_eq!(doc.spaces.len(), 2);
+/// assert_eq!(doc.spaces[0].name, "sm");
+/// ```
 pub fn parse_design_document(source: &str) -> Result<DesignDeclAst, ParseError> {
     let lines = source_lines(source);
     let mut i = 0;

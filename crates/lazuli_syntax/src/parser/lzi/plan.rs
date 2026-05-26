@@ -56,6 +56,17 @@ use crate::ast::{
 /// Validation of cross-plan references and feature catalog union is
 /// the analyzer's job; this parser only enforces the closed grammar
 /// (identifier shape, value types, single trial block per plan).
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_syntax::parse_plan_blocks;
+///
+/// let src = "plan starter\n  features customer\n  limits seats 5\n";
+/// let plans = parse_plan_blocks(src).expect("parses");
+/// assert_eq!(plans.len(), 1);
+/// assert_eq!(plans[0].name, "starter");
+/// ```
 pub fn parse_plan_blocks(source: &str) -> Result<Vec<PlanBlockAst>, ParseError> {
     let lines = source_lines(source);
     let mut plans = Vec::new();
@@ -328,6 +339,20 @@ fn is_plan_ident(s: &str) -> bool {
 /// callable header so a `gate ...` line indented under that header is
 /// attributed correctly. Gates outside any callable body are reported
 /// as a parse error.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_syntax::parse_feature_gates;
+///
+/// // Real fixture lives next to the analyzer's plan tests — gates only
+/// // make sense inside a full callable body, so a minimal `feature
+/// // <name>\n  command <name>\n    gate ...` string omits required
+/// // siblings and is rejected.
+/// let src = include_str!("../fixtures/feature_with_gates.lzi");
+/// let gates = parse_feature_gates(src).expect("parses");
+/// assert!(!gates.callables.is_empty());
+/// ```
 pub fn parse_feature_gates(source: &str) -> Result<FeatureGatesAst, ParseError> {
     let lines = source_lines(source);
     let mut callables: std::collections::BTreeMap<String, Vec<GateDirectiveAst>> =
@@ -451,5 +476,22 @@ fn parse_gate_directive_line(
             line,
             "`gate` directives are `gate behind plan.feature: <name>` or `gate quota plan.limit: <name>`",
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_plan_blocks_empty_source_returns_empty_vec() {
+        let plans = parse_plan_blocks("").expect("empty source parses");
+        assert!(plans.is_empty());
+    }
+
+    #[test]
+    fn parse_feature_gates_empty_source_returns_empty_map() {
+        let gates = parse_feature_gates("").expect("empty source parses");
+        assert!(gates.callables.is_empty());
     }
 }

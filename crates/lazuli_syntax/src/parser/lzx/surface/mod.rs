@@ -53,6 +53,18 @@ use view::parse_view_block;
 
 /// Parse a full `.lzx` ViewModel file. Expects exactly one
 /// `surface <feature> web|mobile` declaration at indent 0.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_syntax::{parse_surface_document, SurfaceTargetAst};
+///
+/// let src = "surface customer web\n  audience admin\n    requires @scope.admin\n";
+/// let doc = parse_surface_document(src).expect("parses");
+/// assert_eq!(doc.feature, "customer");
+/// assert_eq!(doc.target, SurfaceTargetAst::Web);
+/// assert_eq!(doc.audiences.len(), 1);
+/// ```
 pub fn parse_surface_document(source: &str) -> Result<SurfaceAst, ParseError> {
     let lines = source_lines(source);
     let mut i = 0;

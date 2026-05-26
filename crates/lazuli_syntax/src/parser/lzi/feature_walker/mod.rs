@@ -24,6 +24,18 @@ pub(crate) const AGENT_INDENT_GREAT_GRANDCHILD: usize = 8;
 /// Parse every `feature <name>` block in a `.lzi` source, returning a
 /// skeleton that lists only the agents inside each feature. Other feature
 /// children are not surfaced — Cut A intentionally narrows.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_syntax::parse_feature_skeletons;
+///
+/// let src = "feature customer\nfeature billing\n";
+/// let features = parse_feature_skeletons(src).expect("parses");
+/// assert_eq!(features.len(), 2);
+/// assert_eq!(features[0].name, "customer");
+/// assert_eq!(features[1].name, "billing");
+/// ```
 pub fn parse_feature_skeletons(source: &str) -> Result<Vec<FeatureSkeleton>, ParseError> {
     let lines = source_lines(source);
     let mut features = Vec::new();

@@ -39,6 +39,22 @@ pub(super) use view_guard::{
 mod error_page;
 use error_page::parse_lzx_error_page;
 
+/// Parse a complete `.lzx` document (app + routes + experiences + surfaces).
+///
+/// Top-level declarations sit at indent 0; their children at indent 2.
+/// Returns a single [`LzxDocument`] holding every top-level construct
+/// in source order.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_syntax::parse_lzx_document;
+///
+/// let src = "app demo\n  title \"Demo\"\n  targets web\n";
+/// let doc = parse_lzx_document(src).expect("parses");
+/// assert!(doc.app.is_some());
+/// assert_eq!(doc.app.as_ref().unwrap().name, "demo");
+/// ```
 pub fn parse_lzx_document(source: &str) -> Result<LzxDocument, ParseError> {
     let lines = super::super::common::source_lines(source);
     let mut app = None;
