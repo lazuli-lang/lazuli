@@ -91,3 +91,56 @@ pub(super) fn parse_auth_password(
         i,
     ))
 }
+
+#[cfg(test)]
+mod password_tests {
+    use super::super::super::parse_feature_skeletons;
+
+    #[test]
+    fn auth_password_without_algorithm_errors() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    password
+      hash @fn.h
+      verify @fn.v
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("algorithm"),
+            "error should require algorithm: {message}"
+        );
+    }
+
+    #[test]
+    fn auth_password_child_parses_with_rate_limit() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    password
+      algorithm argon2id
+      hash @fn.hash_customer_password
+      verify @fn.verify_customer_password
+      rate_limit "5 per 10 minutes"
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let password = features[0]
+            .auth
+            .as_ref()
+            .expect("auth")
+            .password
+            .as_ref()
+            .expect("password child");
+        assert_eq!(password.algorithm, "argon2id");
+        assert_eq!(password.hash, "@fn.hash_customer_password");
+        assert_eq!(password.verify, "@fn.verify_customer_password");
+        let rate_limit = password.rate_limit.as_ref().expect("password rate_limit");
+        assert_eq!(rate_limit.default.as_deref(), Some("5 per 10 minutes"));
+        assert!(rate_limit.by_env.is_empty());
+    }
+}

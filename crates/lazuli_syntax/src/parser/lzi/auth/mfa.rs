@@ -80,3 +80,51 @@ pub(super) fn parse_auth_mfa(
         i,
     ))
 }
+
+#[cfg(test)]
+mod mfa_tests {
+    use super::super::super::parse_feature_skeletons;
+
+    #[test]
+    fn auth_mfa_without_enroll_errors() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    mfa totp
+      verify @validator.totp
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("enroll"),
+            "error should require enroll: {message}"
+        );
+    }
+
+    #[test]
+    fn auth_mfa_child_parses_with_validator_verify() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    mfa totp
+      enroll @fn.enroll_customer_totp
+      verify @validator.verify_customer_totp
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let mfa = features[0]
+            .auth
+            .as_ref()
+            .expect("auth")
+            .mfa
+            .as_ref()
+            .expect("mfa child");
+        assert_eq!(mfa.method, "totp");
+        assert_eq!(mfa.enroll, "@fn.enroll_customer_totp");
+        assert_eq!(mfa.verify, "@validator.verify_customer_totp");
+        assert!(mfa.adapter.is_none());
+    }
+}

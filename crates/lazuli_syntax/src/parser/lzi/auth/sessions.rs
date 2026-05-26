@@ -233,3 +233,159 @@ fn parse_auth_theft_detection_action(
         )),
     }
 }
+
+#[cfg(test)]
+mod sessions_tests {
+    use super::super::super::parse_feature_skeletons;
+
+    #[test]
+    fn auth_sessions_child_parses_with_refresh_true() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    sessions
+      resource CustomerSession
+      ttl "30 days"
+      refresh true
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let sessions = features[0]
+            .auth
+            .as_ref()
+            .expect("auth")
+            .sessions
+            .as_ref()
+            .expect("sessions child");
+        assert_eq!(sessions.resource, "CustomerSession");
+        assert_eq!(sessions.ttl, "30 days");
+        assert!(sessions.refresh);
+        assert!(sessions.access_ttl.is_none());
+        assert!(sessions.rotation.is_none());
+    }
+
+    #[test]
+    fn auth_sessions_child_defaults_legacy_refresh_false_when_omitted() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let sessions = features[0]
+            .auth
+            .as_ref()
+            .expect("auth")
+            .sessions
+            .as_ref()
+            .expect("sessions child");
+        assert_eq!(sessions.resource, "CustomerSession");
+        assert_eq!(sessions.ttl, "7 days");
+        assert!(!sessions.refresh);
+        assert!(sessions.access_ttl.is_none());
+        assert!(sessions.rotation.is_none());
+    }
+
+    #[test]
+    fn auth_sessions_child_parses_nested_rotation_block() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+      access_ttl "15 minutes"
+      rotation
+        refresh_ttl "30 days"
+        grace "30 seconds"
+        theft_detection_action revoke_session_family
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let sessions = features[0]
+            .auth
+            .as_ref()
+            .expect("auth")
+            .sessions
+            .as_ref()
+            .expect("sessions child");
+        assert_eq!(
+            sessions.access_ttl.as_ref().map(|ttl| ttl.value.as_str()),
+            Some("15 minutes")
+        );
+        assert!(sessions.access_ttl.as_ref().unwrap().span.end > 0);
+
+        let rotation = sessions.rotation.as_ref().expect("rotation block");
+        assert!(rotation.span.end > rotation.span.start);
+        assert_eq!(
+            rotation.refresh_ttl.as_ref().map(|ttl| ttl.value.as_str()),
+            Some("30 days")
+        );
+        assert_eq!(
+            rotation.grace.as_ref().map(|grace| grace.value.as_str()),
+            Some("30 seconds")
+        );
+        assert_eq!(
+            rotation
+                .theft_detection_action
+                .as_ref()
+                .map(|action| action.action),
+            Some(crate::AuthTheftDetectionAction::RevokeSessionFamily)
+        );
+    }
+
+    #[test]
+    fn auth_sessions_child_parses_empty_rotation_block() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+      rotation
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let rotation = features[0]
+            .auth
+            .as_ref()
+            .expect("auth")
+            .sessions
+            .as_ref()
+            .expect("sessions child")
+            .rotation
+            .as_ref()
+            .expect("rotation block");
+        assert!(rotation.refresh_ttl.is_none());
+        assert!(rotation.grace.is_none());
+        assert!(rotation.theft_detection_action.is_none());
+    }
+
+    #[test]
+    fn auth_sessions_rotation_rejects_unknown_theft_action() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+      rotation
+        theft_detection_action quarantine_device
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("unknown `theft_detection_action`"),
+            "error should mention closed-catalog theft action: {message}"
+        );
+    }
+}

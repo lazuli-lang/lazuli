@@ -63,3 +63,30 @@ pub(super) fn parse_auth_oauth(
         i,
     ))
 }
+
+#[cfg(test)]
+mod oauth_tests {
+    use super::super::super::parse_feature_skeletons;
+
+    #[test]
+    fn auth_oauth_child_parses_multiple_providers() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    oauth google
+      adapter @adapter.google_oauth
+
+    oauth github
+      adapter @adapter.github_oauth
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let oauth = &features[0].auth.as_ref().expect("auth").oauth;
+        assert_eq!(oauth.len(), 2);
+        assert_eq!(oauth[0].provider, "google");
+        assert_eq!(oauth[0].adapter, "@adapter.google_oauth");
+        assert_eq!(oauth[1].provider, "github");
+        assert_eq!(oauth[1].adapter, "@adapter.github_oauth");
+    }
+}
