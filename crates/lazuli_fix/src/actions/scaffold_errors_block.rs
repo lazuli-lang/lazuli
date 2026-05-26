@@ -13,6 +13,14 @@ use anyhow::{Context, Result};
 use crate::actions::FixAction;
 use crate::{FixOutcome, FixRequest, FixResult};
 
+/// Fix action that appends a stub `errors` block to a feature
+/// missing its error vocabulary.
+///
+/// Idempotent — re-running on a feature that already declares an
+/// `errors` block (anywhere in source) returns
+/// [`FixOutcome::NoChange`]. The stub seeds three placeholder codes
+/// (`not_found`, `invalid_request`, `forbidden`) plus a `@TODO`
+/// reminding the author to land the canonical twelve.
 pub struct ScaffoldErrorsBlock;
 
 const RULE_CODE: &str = "ERROR-VOCAB-MISSING-001";
