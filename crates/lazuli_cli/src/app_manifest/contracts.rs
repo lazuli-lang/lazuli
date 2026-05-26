@@ -23,6 +23,25 @@ use super::parsers::{
     parse_contract_operation_error, unquote,
 };
 
+/// Walk an `App.lzi` `contracts/*.lzi` source body and emit every
+/// well-formed `contract <Name>` block as an [`AppContract`].
+///
+/// Lines that do not start at indent 0 with `contract ` are skipped, so
+/// the parser can be fed an entire `App.lzi` and still only pick up the
+/// contracts surface. Sub-blocks (`record` / `operation` / `event`) are
+/// delegated to `parse_app_contract_block`; malformed inner lines are
+/// silently dropped — doctor flags the shape errors downstream.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::app_manifest::contracts::parse_app_contracts;
+///
+/// let src = "contract Orders\n  purpose \"order operations\"\n";
+/// let contracts = parse_app_contracts(src);
+/// assert_eq!(contracts.len(), 1);
+/// assert_eq!(contracts[0].name, "Orders");
+/// ```
 pub fn parse_app_contracts(source: &str) -> Vec<AppContract> {
     let lines: Vec<_> = source.lines().collect();
     let mut contracts = Vec::new();
@@ -177,4 +196,25 @@ fn parse_app_contract_block(name: &str, lines: &[&str]) -> AppContract {
     }
 
     contract
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_minimal_contract_block() {
+        let src = "contract Orders\n  purpose \"order ops\"\n  compatibility v1\n";
+        let contracts = parse_app_contracts(src);
+        assert_eq!(contracts.len(), 1);
+        assert_eq!(contracts[0].name, "Orders");
+        assert_eq!(contracts[0].purpose.as_deref(), Some("order ops"));
+        assert_eq!(contracts[0].compatibility.as_deref(), Some("v1"));
+    }
+
+    #[test]
+    fn skips_indented_top_level_lines() {
+        let src = "  contract Hidden\n";
+        assert!(parse_app_contracts(src).is_empty());
+    }
 }

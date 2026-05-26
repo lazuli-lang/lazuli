@@ -21,6 +21,24 @@ use super::parsers::{
     parse_workspace_gateway_route, split_items, unquote, workspace_child,
 };
 
+/// Parse a `workspace.lzi` body and lift it into an [`AppWorkspace`].
+///
+/// Returns `None` only if the source lacks the top-level `workspace
+/// <name>` header — single-app projects skip the file entirely and the
+/// loader never calls this. Inner state machine handles `apps`,
+/// `boundaries`, `communication`, `shared_registry`, and `gateway`
+/// blocks (with their `route` children at indent-4 / indent-6).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::app_manifest::workspace::parse_app_workspace;
+///
+/// let src = "workspace Hostpoint\n  shared_registry \"acme\"\n";
+/// let ws = parse_app_workspace(src).expect("workspace header");
+/// assert_eq!(ws.name, "Hostpoint");
+/// assert_eq!(ws.shared_registry.as_deref(), Some("acme"));
+/// ```
 pub fn parse_app_workspace(source: &str) -> Option<AppWorkspace> {
     let lines: Vec<_> = source.lines().collect();
     let start = lines.iter().position(|line| {
@@ -144,4 +162,22 @@ pub fn parse_app_workspace(source: &str) -> Option<AppWorkspace> {
     }
 
     Some(workspace)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn returns_none_without_header() {
+        assert!(parse_app_workspace("# nothing\n").is_none());
+    }
+
+    #[test]
+    fn captures_shared_registry() {
+        let src = "workspace Hostpoint\n  shared_registry \"acme\"\n";
+        let ws = parse_app_workspace(src).expect("workspace header");
+        assert_eq!(ws.name, "Hostpoint");
+        assert_eq!(ws.shared_registry.as_deref(), Some("acme"));
+    }
 }
