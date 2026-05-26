@@ -76,3 +76,7 @@
     pub(super) fn codes(diagnostics: &[crate::doctor::DoctorDiagnostic]) -> std::collections::BTreeSet<&str> {
         diagnostics.iter().map(|d| d.code.as_str()).collect()
     }
+
+    pub(super) fn count_code(diagnostics: &[crate::doctor::DoctorDiagnostic], code: &str) -> usize {
+        diagnostics.iter().filter(|d| d.code == code).count()
+    }
