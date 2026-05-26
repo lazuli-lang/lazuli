@@ -35,8 +35,26 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "VOCAB-UNION-001";
 
+    /// Render the "discriminated union candidate" message naming the
+    /// kind field and the per-variant correlated optionals.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::vocab_union_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     resource: "Payment".into(),
+    ///     enum_field: "kind".into(),
+    ///     correlated: vec!["card_number".into(), "card_brand".into()],
+    /// };
+    /// assert!(f.message().contains("discriminated `union`"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "resource `{}` declares enum field `{}` plus {} optional field(s) ({}) \
@@ -55,6 +73,17 @@ impl Finding {
 ///
 /// `path` is the source `.lzi` file — used to anchor findings; no I/O is
 /// performed here.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::vocab::vocab_union_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with enum-tagged resources");
+/// let _ = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let variants = build_variant_map(&feature.enums);
     feature

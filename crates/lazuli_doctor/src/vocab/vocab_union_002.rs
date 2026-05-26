@@ -36,8 +36,28 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "VOCAB-UNION-002";
 
+    /// Render the long-form "enum + untyped FK" message, including the
+    /// suggested `union` block and per-variant typed-FK resource form.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::vocab_union_002::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     resource: "Notification".into(),
+    ///     discriminator_field: "target_kind".into(),
+    ///     fk_field: "target_id".into(),
+    ///     enum_name: "TargetKind".into(),
+    ///     variants: vec!["Post".into(), "Comment".into()],
+    /// };
+    /// assert!(f.message().contains("discriminated union"));
+    /// ```
     pub fn message(&self) -> String {
         let union_variants = self
             .variants
@@ -90,6 +110,17 @@ impl Finding {
 /// Run VOCAB-UNION-002 over one feature's resources.
 ///
 /// `path` is the source `.lzi` file; this rule performs no I/O.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::vocab::vocab_union_002::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with enum+id pairs");
+/// let _ = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let variants = build_variant_map(&feature.enums);
     feature

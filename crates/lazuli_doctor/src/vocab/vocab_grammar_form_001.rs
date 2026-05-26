@@ -78,8 +78,25 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "VOCAB-GRAMMAR-FORM-001";
 
+    /// Render the "deprecated form" message with old → new replacement
+    /// and a pointer to the canonical recipe.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::vocab_grammar_form_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     old: "validates".into(),
+    ///     new: "validate".into(),
+    /// };
+    /// assert!(f.message().contains("deprecated"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "deprecated form '{}'; use '{}'. Hint: see {} if present.",
@@ -96,6 +113,16 @@ impl Finding {
 /// and resource blocks, not package-wide regexes. Inline `previously` provenance
 /// is not preserved by the current AST; for that form we inspect the parsed
 /// resource and field header lines inside their spans.
+///
+/// ## Examples
+///
+/// ```no_run
+/// use std::path::Path;
+/// use lazuli_doctor::vocab::vocab_grammar_form_001::check;
+///
+/// let src = "feature billing\n  resource Order\n    validates id: ID\n";
+/// let _ = check(src, Path::new("billing.lzi"));
+/// ```
 pub fn check(source: &str, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 

@@ -74,8 +74,26 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "VOCAB-JSON-TYPED-001";
 
+    /// Render the "untyped JSON sibling enum" message and prompt for
+    /// either a discriminated union or a `record` to lift the contract.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::vocab_json_typed_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     resource: "Webhook".into(),
+    ///     json_field: "payload".into(),
+    ///     orphan_enum: "WebhookKind".into(),
+    /// };
+    /// assert!(f.message().contains("discriminated union"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "resource `{}` has untyped `{}: JSON` field with sibling enum `{}` \
@@ -93,6 +111,17 @@ impl Finding {
 ///
 /// `path` is the source `.lzi` file — used to anchor findings; no I/O is
 /// performed here.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::vocab::vocab_json_typed_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with JSON fields + enums");
+/// let _ = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let referenced_enums = collect_referenced_enums(feature);
     feature

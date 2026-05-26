@@ -35,8 +35,21 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "VOCAB-TESTS-MISSING-001";
 
+    /// Render the "feature has no inline test blocks" message and
+    /// point at the canonical `# doctor:allow` escape hatch.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::vocab_tests_missing_001::Finding;
+    ///
+    /// let f = Finding { path: PathBuf::from("f.lzi"), feature: "billing".into() };
+    /// assert!(f.message().contains("inline `test` blocks"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "feature `{}` declares resources or commands but has no inline `test` blocks \
@@ -55,6 +68,17 @@ impl Finding {
 /// `path` is the source `.lzi` file — used to anchor findings; no I/O is
 /// performed here.  The caller (doctor walker) maps each `Finding` into a
 /// `DoctorDiagnostic` and supplies the exact source line from feature facts.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::vocab::vocab_tests_missing_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with resources/commands");
+/// let _ = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     // TODO: opt-out wiring lands in a follow-up cell.
     if !has_subjects(feature) || has_any_test_block(feature) {

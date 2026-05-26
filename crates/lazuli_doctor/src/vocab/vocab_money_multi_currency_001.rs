@@ -28,15 +28,39 @@ use lazuli_ir::{BuiltinType, Feature, Resource, TypeRef};
 /// more Money fields and no explicit per-field currency overrides.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the offending resource lives in.
     pub path: PathBuf,
+    /// Feature owning the resource.
     pub feature: String,
+    /// Resource declaring multiple Money fields with no per-field
+    /// currency override.
     pub resource: String,
+    /// Number of Money-typed fields on the resource.
     pub money_field_count: usize,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "VOCAB-MONEY-MULTI-CURRENCY-001";
 
+    /// Render the "shared currency column" message asking the author
+    /// to declare per-field `<field>_currency: Currency` or annotate
+    /// the intent with `# doctor:allow`.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::vocab_money_multi_currency_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     feature: "billing".into(),
+    ///     resource: "Order".into(),
+    ///     money_field_count: 3,
+    /// };
+    /// assert!(f.message().contains("shared `currency` column"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "resource `{}` declares {} Money fields with no explicit \
@@ -52,6 +76,17 @@ impl Finding {
 }
 
 /// Run VOCAB-MONEY-MULTI-CURRENCY-001 across one feature's resources.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::vocab::vocab_money_multi_currency_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with Money fields");
+/// let _ = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     feature
         .resources

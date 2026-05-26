@@ -37,8 +37,26 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "VOCAB-HANDLER-HEAVY-001";
 
+    /// Render the "feature is >70% handler-routed" message and prompt
+    /// for declarative `updates` form on field-assignment commands.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::vocab_handler_heavy_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     feature: "billing".into(),
+    ///     handler_count: 8,
+    ///     total_commands: 10,
+    /// };
+    /// assert!(f.message().contains("@fn.<name>"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "feature `{}` has {}/{} commands routed through `@fn.<name>` handlers (>70%). \
@@ -57,6 +75,17 @@ impl Finding {
 ///
 /// `path` is the source `.lzi` file — used to anchor findings; no I/O is
 /// performed here. Returns at most one finding per feature.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::vocab::vocab_handler_heavy_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with >3 commands");
+/// let _ = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let total_commands = feature.commands.len();
     if total_commands < 3 {

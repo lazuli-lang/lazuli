@@ -35,8 +35,27 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "VOCAB-LIFECYCLE-001";
 
+    /// Render the "refactor to lifecycle block" message listing the
+    /// transition commands and pointing at the closed-catalog invariants.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::vocab_lifecycle_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     resource: "Order".into(),
+    ///     status_field: "status".into(),
+    ///     enum_name: "OrderStatus".into(),
+    ///     transition_commands: vec!["place_order".into(), "ship_order".into()],
+    /// };
+    /// assert!(f.message().contains("lifecycle"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "resource `{}` has {} transition command(s) ({}) advancing field `{}: {}` \
@@ -60,6 +79,17 @@ impl Finding {
 ///
 /// `path` is the source `.lzi` file — used to anchor findings; no I/O is
 /// performed here.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::vocab::vocab_lifecycle_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with status-driven commands");
+/// let _ = check(&feature, Path::new("orders.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let variants = build_variant_map(&feature.enums);
     feature
