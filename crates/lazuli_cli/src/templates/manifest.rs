@@ -18,6 +18,8 @@ out = "dist/ts-web"
 audiences = ["admin", "public"]
 "#;
 
+/// `[frontends.mobile]` snippet appended to a project's
+/// `Lazurite.toml` when `scaffold_frontend_mobile` runs.
 pub const FRONTEND_MANIFEST_MOBILE_SNIPPET: &str = r#"
 [frontends.mobile]
 target = "expo"

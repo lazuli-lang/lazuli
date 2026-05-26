@@ -4,12 +4,33 @@ use anyhow::{Result, bail};
 
 use crate::lazurite_manifest::Manifest;
 
+/// Compile-time Lazuli version baked in via `CARGO_PKG_VERSION`.
 pub const LAZULI_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// True when `declared` (trimmed) equals the compiled-in Lazuli
+/// version. Used by [`enforce_manifest_pin`] and the LSP version
+/// surface.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::version::{manifest_pin_matches, LAZULI_VERSION};
+/// assert!(manifest_pin_matches(LAZULI_VERSION));
+/// ```
 pub fn manifest_pin_matches(declared: &str) -> bool {
     declared.trim() == LAZULI_VERSION
 }
 
+/// Fail with a friendly remediation message when `manifest` carries a
+/// `[lazuli] runtime = …` that does not match this binary. Pilots
+/// pass `--allow-version-mismatch` to opt out.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::version::enforce_manifest_pin;
+/// // enforce_manifest_pin(manifest.as_ref())?;
+/// ```
 pub fn enforce_manifest_pin(manifest: Option<&Manifest>) -> Result<()> {
     let Some(manifest) = manifest else {
         return Ok(());

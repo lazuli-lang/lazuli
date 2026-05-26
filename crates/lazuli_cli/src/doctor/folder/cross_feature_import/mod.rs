@@ -40,6 +40,13 @@ impl Finding {
     /// Build the canonical diagnostic message for the rule. Lives on
     /// the impl so the walker can format the string before allocating
     /// a `Finding`.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::Path;
+    /// // let msg = Finding::message(Path::new("x.tsx"), "a", "b", "@app/...");
+    /// ```
     pub fn message(
         source_file: &Path,
         source_feature: &str,

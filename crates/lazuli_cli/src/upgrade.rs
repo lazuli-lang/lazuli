@@ -1,19 +1,41 @@
 use std::path::{Path, PathBuf};
 
+/// Front-matter parsed off the top of an upgrade recipe markdown
+/// file. Tells the runner which version pair the recipe targets and
+/// what authored shape (`kind`) it operates on.
 #[derive(Debug, serde::Deserialize)]
 pub struct RecipeMetadata {
+    /// Source Lazuli version the recipe migrates from.
     pub from_version: String,
+    /// Destination version it migrates to.
     pub to_version: String,
+    /// Recipe kind (the closed list of artifact rewrites).
     pub kind: String,
+    /// Human-readable summary surfaced in `lazuli upgrade` output.
     pub summary: String,
 }
 
+/// Outcome of an `upgrade` invocation — partitioned into recipes that
+/// applied cleanly and those that errored mid-run.
 #[derive(Debug)]
 pub struct UpgradeReport {
+    /// Recipe files that finished without error.
     pub applied: Vec<PathBuf>,
+    /// Recipe files that errored, paired with the error message.
     pub failed: Vec<(PathBuf, String)>,
 }
 
+/// Apply every upgrade recipe between `from` and `to` against
+/// `target` under `project_root`. `dry_run` previews without writing.
+/// Errors when no recipes exist for the version pair.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::upgrade::run_upgrade;
+/// // let report = run_upgrade(Path::new("."), "1.0", "1.1", Path::new("."), true)?;
+/// ```
 pub fn run_upgrade(
     project_root: &Path,
     from: &str,

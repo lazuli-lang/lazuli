@@ -92,6 +92,13 @@ pub struct DiffReport {
 impl DiffReport {
     /// True when there are no added, removed, or changed tokens. The
     /// CLI uses this as the CI-gate signal (zero exit when empty).
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_design::DiffReport;
+    /// assert!(DiffReport::default().is_empty());
+    /// ```
     pub fn is_empty(&self) -> bool {
         self.added.is_empty() && self.removed.is_empty() && self.changed.is_empty()
     }

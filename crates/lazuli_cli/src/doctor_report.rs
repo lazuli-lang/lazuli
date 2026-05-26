@@ -31,6 +31,13 @@ pub enum Severity {
 impl Severity {
     /// Stable lowercase identifier used in the JSON report's
     /// `severity` field and the `--fail-on <severity>` CLI flag.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::doctor_report::Severity;
+    /// assert_eq!(Severity::Error.as_str(), "error");
+    /// ```
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Error => "error",
@@ -53,6 +60,13 @@ pub enum ReportResult {
 impl ReportResult {
     /// Stable lowercase identifier emitted as the report's `result`
     /// field.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::doctor_report::ReportResult;
+    /// assert_eq!(ReportResult::Pass.as_str(), "pass");
+    /// ```
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Pass => "pass",
@@ -155,6 +169,14 @@ pub struct DoctorReport {
 impl DoctorReport {
     /// Build a fresh empty report with `result = "pass"` and zero
     /// findings. Used as the default before facts are accumulated.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::doctor_report::DoctorReport;
+    /// let report = DoctorReport::empty();
+    /// assert!(report.findings.is_empty());
+    /// ```
     pub fn empty() -> Self {
         Self {
             schema_version: SCHEMA_VERSION,
@@ -186,6 +208,12 @@ impl FindingBuilder {
     /// Lower the builder into a wire-shape [`FindingJson`]. Computes
     /// the grouping bucket from the construct kind + feature so callers
     /// don't have to thread the same data twice.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let finding = builder.build();
+    /// ```
     pub fn build(self) -> FindingJson {
         let group = Some(GroupJson {
             category: self.category.as_str().to_string(),
@@ -244,6 +272,13 @@ impl FailOnSpec {
     /// Closed catalog: bare `severity`, `category:<Cat>`, or
     /// `rule:<CODE>`. Returns an error message the CLI surfaces
     /// verbatim.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::doctor_report::FailOnSpec;
+    /// assert!(FailOnSpec::parse("warning").is_ok());
+    /// ```
     pub fn parse(input: &str) -> Result<Self, String> {
         if let Some(cat) = input.strip_prefix("category:") {
             return RuleCategory::parse(cat.trim())
@@ -266,6 +301,12 @@ impl FailOnSpec {
 
     /// True when `finding` matches this spec — exact severity match,
     /// exact category, or exact rule code, per variant.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let hit = spec.matches(&finding);
+    /// ```
     pub fn matches(&self, finding: &FindingJson) -> bool {
         match self {
             Self::Severity(s) => finding.severity == s.as_str(),

@@ -18,6 +18,13 @@ use crate::lazurite_manifest::{Manifest, TestingPlaywright};
 
 /// Probe `npx playwright --version`. Returns `None` if Playwright
 /// is not installed under the project's `node_modules`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::runners::playwright::probe;
+/// // let version = probe();
+/// ```
 pub fn probe() -> Option<String> {
     let output = Command::new("npx")
         .arg("playwright")
@@ -33,6 +40,14 @@ pub fn probe() -> Option<String> {
 /// Execute `npx playwright test --reporter=json` against the
 /// resolved e2e config and project. Surfaces a
 /// `LayerVerdict::Skip` when Playwright is absent.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::runners::playwright::run;
+/// // let result = run(manifest.as_ref(), Path::new("."))?;
+/// ```
 pub fn run(manifest: Option<&Manifest>, project_root: &Path) -> Result<LayerResult> {
     let started = Instant::now();
     // Frente 1 — resolve effective `[testing.playwright]` honoring
@@ -199,6 +214,13 @@ struct PwError {
 
 /// Parse Playwright's `--reporter=json` blob into a runner-agnostic
 /// `ParsedRun` shape. Invalid JSON returns a default (empty) run.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::runners::playwright::parse_playwright_json;
+/// let run = parse_playwright_json(b"{}");
+/// ```
 pub fn parse_playwright_json(stdout: &[u8]) -> ParsedRun {
     let report: PwReport = match serde_json::from_slice(stdout) {
         Ok(r) => r,

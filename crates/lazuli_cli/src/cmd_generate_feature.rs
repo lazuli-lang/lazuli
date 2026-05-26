@@ -204,6 +204,12 @@ mod tests {
         impl TempDir {
             /// Allocate a fresh temp directory rooted at the system
             /// temp dir.
+            ///
+            /// ## Examples
+            ///
+            /// ```ignore
+            /// // test-only helper
+            /// ```
             pub fn new() -> io::Result<Self> {
                 let suffix = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -218,6 +224,12 @@ mod tests {
             }
 
             /// Borrow the allocated directory.
+            ///
+            /// ## Examples
+            ///
+            /// ```ignore
+            /// // test-only helper
+            /// ```
             pub fn path(&self) -> &Path {
                 &self.path
             }

@@ -6,6 +6,13 @@ use serde_json::{Map, Value, json};
 /// feature, each carrying an `origin` (feature + 1-based line) and
 /// the lowered auth sub-blocks (`identity`, `password`, `sessions`,
 /// `mfa`, `oauth`). Features without an `auth` block are skipped.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::inspect::expand_auth::expand_auth;
+/// // let json = expand_auth(&module);
+/// ```
 pub fn expand_auth(module: &Module) -> Value {
     let features = module
         .features

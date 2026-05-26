@@ -189,6 +189,12 @@ pub enum View {
 
 impl View {
     /// Authored view name (`view list/detail/create <name>`).
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let n = view.name();
+    /// ```
     pub fn name(&self) -> &str {
         match self {
             View::List(v) => &v.name,
@@ -199,6 +205,12 @@ impl View {
 
     /// 1-based source line where the view header sits — used to anchor
     /// view-level findings.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let n = view.line();
+    /// ```
     pub fn line(&self) -> usize {
         match self {
             View::List(v) => v.line,
@@ -208,6 +220,12 @@ impl View {
     }
 
     /// Optional `at "<route>"` clause (some Wave-3 stub views omit it).
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let r = view.route();
+    /// ```
     pub fn route(&self) -> Option<&str> {
         match self {
             View::List(v) => v.at.as_deref(),

@@ -60,6 +60,12 @@ impl Drop for TempDir {
 
 /// Write `contents` to `root/rel`, creating any intermediate
 /// directories. Used by fixtures to stand up tiny project trees.
+///
+/// ## Examples
+///
+/// ```ignore
+/// // test-only helper
+/// ```
 pub fn write(root: &Path, rel: &str, contents: &str) {
     let path = root.join(rel);
     fs::create_dir_all(path.parent().unwrap()).unwrap();

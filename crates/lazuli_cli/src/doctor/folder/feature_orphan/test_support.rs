@@ -59,6 +59,12 @@ impl Drop for TempDir {
 
 /// Create an empty file at `root/rel`, ensuring intermediate parents
 /// exist. Used by the rule's fixtures to stand up tiny project trees.
+///
+/// ## Examples
+///
+/// ```ignore
+/// // test-only helper
+/// ```
 pub fn touch(root: &Path, rel: &str) {
     let path = root.join(rel);
     if let Some(parent) = path.parent() {

@@ -170,6 +170,12 @@ impl Manifest {
     /// when the manifest sets it; `None` otherwise — the loader
     /// ensures the field exists today, so callers can treat `None`
     /// as a corrupt-manifest signal).
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let v = manifest.lazuli_runtime_version();
+    /// ```
     pub fn lazuli_runtime_version(&self) -> Option<&str> {
         Some(self.lazuli.runtime.as_str())
     }
@@ -385,6 +391,12 @@ impl Manifest {
     ///
     /// Called by [`load`] before returning a manifest so callers never
     /// see an invalid `Manifest`.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // manifest.validate()?;
+    /// ```
     pub fn validate(&self) -> Result<(), ManifestError> {
         if self.project.schema != 1 {
             return Err(ManifestError::UnsupportedSchema(self.project.schema));
@@ -413,6 +425,12 @@ impl Manifest {
     /// [`InspectManifest`] shape consumed by `lazuli inspect
     /// --format=json`. Flattens the `plugins` + `frontends` maps so
     /// the JSON output stays stable across schema iterations.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let view = manifest.inspect_view();
+    /// ```
     pub fn inspect_view(&self) -> InspectManifest<'_> {
         InspectManifest {
             origin: MANIFEST_FILENAME,

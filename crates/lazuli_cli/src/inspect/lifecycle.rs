@@ -5,6 +5,13 @@ use lazuli_ir::{AuditSpec, Feature, HandlerRef, LifecycleStateKind, PolicyRef};
 /// Project the per-resource `lifecycle` blocks across `features` into
 /// the `lazuli inspect --lifecycle` JSON shape — one row per
 /// resource that declares a lifecycle.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::inspect::lifecycle::project_lifecycle;
+/// // let json = project_lifecycle(&module.features);
+/// ```
 pub fn project_lifecycle(features: &[Feature]) -> Value {
     let payload: Vec<Value> = features
         .iter()

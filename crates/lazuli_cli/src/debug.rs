@@ -3,33 +3,73 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+/// Wire shape of the runtime error envelope `lazuli debug` ingests.
+///
+/// Mirrors the JSON the Lazuli Go runtime emits on a typed-error or
+/// panic fallout. Every field is optional except the closed-catalog
+/// discriminators (`code`/`surface`/`capsule`/`feature`/`kind`/`op`)
+/// — the triage path needs those to look up the right IR slot.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ErrorEnvelopeInput {
+    /// Stable error code (e.g. `policy_denied`).
     pub code: String,
+    /// Where the error originated. Closed catalog: `user_dsl`,
+    /// `lib_internal`, `codegen_bug`, `adapter_runtime`.
     pub surface: String,
+    /// Capsule that hosted the failing op.
     pub capsule: String,
+    /// Feature the op lives under.
     pub feature: String,
+    /// Op kind (`command`/`query`/...).
     pub kind: String,
+    /// Op name.
     pub op: String,
+    /// Optional source-path hint (relative to the project root).
     pub source: Option<String>,
+    /// Optional human message captured at fault time.
     pub message: Option<String>,
+    /// Field name when the error narrows to one field.
     #[serde(default)]
     pub field: Option<String>,
+    /// HTTP path when the surface had one.
     #[serde(default)]
     pub path: Option<String>,
+    /// Author-facing reason override.
     #[serde(default)]
     pub reason: Option<String>,
 }
 
+/// Triage bundle returned by `run_debug`.
 #[derive(Debug, Serialize)]
 pub struct DebugBundle {
+    /// Original envelope (echoed verbatim for context).
     pub error: ErrorEnvelopeInput,
+    /// Recommended remediation phrase based on `error.surface`.
     pub recommended_action: String,
+    /// Snippet of the offending `.lzi` block, when located.
     pub lzi_block: Option<String>,
+    /// Slice of the IR around the failing op.
     pub ir_snippet: Option<serde_json::Value>,
+    /// Rough JSON-token estimate (size/4) for downstream LLM
+    /// quota budgeting.
     pub estimated_tokens: u32,
 }
 
+/// Build a [`DebugBundle`] for one runtime [`ErrorEnvelopeInput`].
+///
+/// Loads the project's IR, locates the failing op, extracts the
+/// relevant `.lzi` snippet (when the envelope carries a `source`
+/// pointer), and computes a token estimate so agents can budget their
+/// follow-up prompts.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::debug::{run_debug, ErrorEnvelopeInput};
+///
+/// // let bundle = run_debug(Path::new("."), envelope)?;
+/// ```
 pub fn run_debug(
     project_root: &Path,
     error_input: ErrorEnvelopeInput,
@@ -66,6 +106,16 @@ pub fn run_debug(
     })
 }
 
+/// Map the envelope's `surface` field to a short remediation
+/// sentence. The catalog mirrors the closed list in
+/// [`ErrorEnvelopeInput::surface`].
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::debug::recommended_action_for_surface;
+/// assert!(recommended_action_for_surface("user_dsl").contains(".lzi"));
+/// ```
 pub fn recommended_action_for_surface(surface: &str) -> &'static str {
     match surface {
         "user_dsl" => "Read the `.lzi` block above and the IR snippet. Modify the .lzi source.",
@@ -82,6 +132,16 @@ pub fn recommended_action_for_surface(surface: &str) -> &'static str {
     }
 }
 
+/// Rough token estimate for a serialized [`DebugBundle`] (bytes / 4).
+/// Good enough for "does this fit a prompt window?" heuristics; not a
+/// tokenizer.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::debug::estimate_tokens;
+/// // let count = estimate_tokens(&bundle);
+/// ```
 pub fn estimate_tokens(bundle: &DebugBundle) -> u32 {
     let json_str = serde_json::to_string(bundle).unwrap_or_default();
     (json_str.len() / 4) as u32
@@ -166,6 +226,18 @@ fn find_named_object<'a>(
         .find(|candidate| candidate.get("name").and_then(|v| v.as_str()) == Some(name))
 }
 
+/// Read the source file referenced by `source` (relative to
+/// `project_root`) and return its contents verbatim. Used to seed the
+/// `lzi_block` field of a [`DebugBundle`] so the agent sees the
+/// authored source alongside the error.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::debug::extract_lzi_block;
+/// // let src = extract_lzi_block(Path::new("."), "app.lzi");
+/// ```
 pub fn extract_lzi_block(
     project_root: &Path,
     source: &str,
@@ -292,6 +364,16 @@ fn indentation(line: &str) -> usize {
     line.chars().take_while(|ch| *ch == ' ').count()
 }
 
+/// Render a [`DebugBundle`] as the canonical human-readable markdown
+/// report (sections: Error, Recommended action, .lzi block, IR
+/// snippet, Estimated tokens).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::debug::format_markdown;
+/// // let md = format_markdown(&bundle);
+/// ```
 pub fn format_markdown(bundle: &DebugBundle) -> String {
     let mut out = String::new();
     out.push_str("# Lazuli Debug Bundle\n\n");

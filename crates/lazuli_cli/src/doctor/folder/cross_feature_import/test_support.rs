@@ -56,6 +56,12 @@ impl Drop for TempDir {
 
 /// Write `contents` to `root/rel`, creating any intermediate directories.
 /// Returns the absolute path to the new file.
+///
+/// ## Examples
+///
+/// ```ignore
+/// // test-only helper
+/// ```
 pub fn write_file(root: &Path, rel: &str, contents: &str) -> PathBuf {
     let path = root.join(rel);
     fs::create_dir_all(path.parent().unwrap()).unwrap();

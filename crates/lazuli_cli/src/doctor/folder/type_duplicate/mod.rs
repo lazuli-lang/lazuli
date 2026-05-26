@@ -40,6 +40,13 @@ impl Finding {
 
     /// Render the diagnostic naming the offending file and the
     /// generated origin to import from instead.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::Path;
+    /// // let msg = Finding::message("Foo", Path::new("a.ts"), Path::new("b.gen.ts"));
+    /// ```
     pub fn message(type_name: &str, user_file: &Path, generated_origin: &Path) -> String {
         format!(
             "`{}` redeclares type `{}` which is already exported from `{}`. \

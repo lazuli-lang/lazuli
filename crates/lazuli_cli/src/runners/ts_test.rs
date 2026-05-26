@@ -30,6 +30,13 @@ pub enum TsRunner {
 impl TsRunner {
     /// Parse `[testing.ts] runner` into the typed enum; errors carry
     /// the closed catalog name list verbatim.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::runners::ts_test::TsRunner;
+    /// assert_eq!(TsRunner::parse("vitest"), Ok(TsRunner::Vitest));
+    /// ```
     pub fn parse(s: &str) -> Result<Self, String> {
         match s {
             "vitest" => Ok(TsRunner::Vitest),
@@ -41,6 +48,13 @@ impl TsRunner {
     }
 
     /// Stable lowercase identifier — round-trips through `parse`.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::runners::ts_test::TsRunner;
+    /// assert_eq!(TsRunner::Vitest.as_str(), "vitest");
+    /// ```
     pub fn as_str(self) -> &'static str {
         match self {
             TsRunner::Vitest => "vitest",
@@ -51,6 +65,13 @@ impl TsRunner {
 
 /// Probe `npx <runner> --version`. Returns `None` when the runner is
 /// not installed under the project's `node_modules`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::runners::ts_test::{probe, TsRunner};
+/// // let version = probe(TsRunner::Vitest);
+/// ```
 pub fn probe(runner: TsRunner) -> Option<String> {
     let output = Command::new("npx")
         .arg(runner.as_str())
@@ -67,6 +88,14 @@ pub fn probe(runner: TsRunner) -> Option<String> {
 /// `[testing.ts]`. Returns a `LayerVerdict::Skip` when neither the
 /// manifest nor the canonical layout produces a config and discovery
 /// root.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::runners::ts_test::run;
+/// // let result = run(manifest.as_ref(), Path::new("."))?;
+/// ```
 pub fn run(manifest: Option<&Manifest>, project_root: &Path) -> Result<LayerResult> {
     let started = Instant::now();
     // Frente 1 — resolve effective `[testing.ts]` honoring authored
@@ -314,11 +343,25 @@ struct JsonAssertion {
 
 /// Parse Vitest's JSON reporter output. Shape is jest-compatible
 /// today; the dedicated entry point lets us swap if Vitest diverges.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::runners::ts_test::parse_vitest_json;
+/// let parsed = parse_vitest_json(b"{}");
+/// ```
 pub fn parse_vitest_json(stdout: &[u8]) -> ParsedRun {
     parse_jest_style(stdout)
 }
 
 /// Parse Jest's JSON reporter output.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::runners::ts_test::parse_jest_json;
+/// let parsed = parse_jest_json(b"{}");
+/// ```
 pub fn parse_jest_json(stdout: &[u8]) -> ParsedRun {
     parse_jest_style(stdout)
 }

@@ -30,6 +30,13 @@ impl Finding {
 
     /// Render the diagnostic for the suspect `path` and the matched
     /// bypass style.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::Path;
+    /// // let msg = Finding::message(Path::new("pages"), kind);
+    /// ```
     pub fn message(path: &Path, kind: BypassKind) -> String {
         let style = match kind {
             BypassKind::PagesDir => "Next.js Pages Router (`pages/` directory)",

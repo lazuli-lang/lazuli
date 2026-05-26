@@ -37,6 +37,14 @@ use super::types::{RegistryParseOutput, RegistryToolDefectReason, RegistryToolEn
 /// Backwards-compatible entry: returns just the well-formed registry IR.
 /// Doctor uses `parse_app_registry_with_defects` to also collect the
 /// `tool <name>` entries that lack an `effect` child.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::app_manifest::registry::parse_app_registry;
+///
+/// // let registry = parse_app_registry(src);
+/// ```
 pub fn parse_app_registry(source: &str) -> Option<AppRegistry> {
     parse_app_registry_with_defects(source).registry
 }

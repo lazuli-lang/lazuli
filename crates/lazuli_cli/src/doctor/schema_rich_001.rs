@@ -29,6 +29,15 @@ impl Finding {
 /// Walk every feature's command Zod schemas under
 /// `<project_root>/dist/ts-*` and emit a `Finding` for each slot that
 /// fell back to `z.unknown()` despite a typed axis being available.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::doctor::schema_rich_001::check;
+///
+/// // let findings = check(Path::new("."));
+/// ```
 pub fn check(project_root: &Path) -> Vec<Finding> {
     let Ok(module) = crate::build_module_from_path(project_root) else {
         return Vec::new();

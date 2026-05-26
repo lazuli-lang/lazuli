@@ -78,6 +78,13 @@ impl Finding {
 
     /// Render the remediation message naming the orphan path and the
     /// 7+6 closed catalog of canonical destinations.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::Path;
+    /// // let msg = Finding::message(Path::new("app/foo.tsx"));
+    /// ```
     pub fn message(path: &Path) -> String {
         format!(
             "`{}` is outside the canonical Lazurite frontend layout. \
