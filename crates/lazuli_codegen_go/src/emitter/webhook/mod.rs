@@ -12,17 +12,28 @@
 //! reuse `types::go_type_for` so cross-feature names render the same
 //! way as resource/command emitters.
 
-use lazuli_ir::{
-    BackoffStrategy, DlqSpec, EmitPredicate, EmitPredicateKind, Feature, Gate, PolicyRef,
-    ReplayMode, RetryPolicy, TypeRef, VerifyScheme, Webhook,
-};
+mod emit_bindings;
+mod format;
+mod specs;
+
+use lazuli_ir::{Feature, Gate, PolicyRef, Webhook};
 
 use super::cross_feature::CrossFeatureIndex;
 use super::imports::ImportSet;
 use super::module::EmitContext;
 use super::patterns::{PATTERN_WEBHOOK_RECEIVER, emit_pattern_header};
 use super::printer::GoPrinter;
-use super::types::{self, TypeCtx};
+use super::types::TypeCtx;
+
+use emit_bindings::format_emit_bindings;
+use format::{
+    emit_runtime_gaps, escape_string, format_policy_string, format_string_slice, pascal_case,
+    path_to_string, return_type_name, write_section_banner,
+};
+use specs::{
+    format_dlq_spec, format_payload_from, format_replay_spec, format_retry_policy,
+    format_verify_spec,
+};
 
 /// Emit `<feature>/webhook.gen.go` for a feature, or `None` when the
 /// feature declares no webhooks.
@@ -206,206 +217,8 @@ fn emit_webhook(
     emit_ctx.reset_line_directive(p, line_directive_emitted);
 }
 
-fn format_verify_spec(verify: &lazuli_ir::VerifySpec) -> String {
-    let scheme = match verify.scheme {
-        VerifyScheme::Hmac => "webhooks.VerifyHmac",
-    };
-    format!(
-        "webhooks.VerifySpec{{Scheme: {scheme}, Algorithm: \"{}\", SecretEnv: \"{}\", Header: \"{}\"}},",
-        escape_string(&verify.algorithm),
-        escape_string(&verify.secret_env),
-        escape_string(&verify.header),
-    )
-}
-
 fn effective_policy<'a>(feature: &'a Feature, webhook: &'a Webhook) -> Option<&'a PolicyRef> {
     webhook.policy.as_ref().or(feature.defaults.policy.as_ref())
-}
-
-fn format_policy_string(policy: &PolicyRef) -> Option<String> {
-    match policy {
-        PolicyRef::Local(name) => Some(format!("@policy.{}", name)),
-        PolicyRef::Atom(atom) => {
-            if atom.starts_with('@') {
-                Some(atom.clone())
-            } else {
-                Some(format!("@{}", atom))
-            }
-        }
-        PolicyRef::External { feature, name } => Some(format!("{}.policy.{}", feature, name)),
-        PolicyRef::Unresolved(raw) => Some(raw.clone()),
-        PolicyRef::None => None,
-    }
-}
-
-fn return_type_name(return_type: &TypeRef, ctx: &TypeCtx<'_>) -> String {
-    let (go_type, _import) = types::go_type_for(return_type, ctx);
-    go_type
-}
-
-fn format_string_slice(values: &[String]) -> String {
-    let entries: Vec<String> = values
-        .iter()
-        .map(|value| format!("\"{}\"", escape_string(value)))
-        .collect();
-    format!("[]string{{{}}},", entries.join(", "))
-}
-
-/// B5 framework gap 2 — render the `EmitBindings` slice on a
-/// `WebhookContract`. One entry per `emits` line; entries without a
-/// `when` predicate are emitted with `Kind: webhooks.EmitPredicateNone`
-/// so a single receiver walk-loop handles both branches without
-/// special-casing the absent-predicate slot.
-fn format_emit_bindings(emits: &[String], predicates: &[Option<EmitPredicate>]) -> String {
-    let mut out = String::from("[]webhooks.EmitBinding{\n");
-    for (idx, event) in emits.iter().enumerate() {
-        let predicate = predicates.get(idx).and_then(|p| p.as_ref());
-        let (kind_const, path, literal, literals_lit, raw) = match predicate {
-            None => (
-                "webhooks.EmitPredicateNone",
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-            ),
-            Some(p) => match &p.kind {
-                EmitPredicateKind::Equals { path, literal } => (
-                    "webhooks.EmitPredicateEquals",
-                    path.clone(),
-                    literal.clone(),
-                    String::new(),
-                    p.raw.clone(),
-                ),
-                EmitPredicateKind::In { path, literals } => {
-                    let entries: Vec<String> = literals
-                        .iter()
-                        .map(|v| format!("\"{}\"", escape_string(v)))
-                        .collect();
-                    (
-                        "webhooks.EmitPredicateIn",
-                        path.clone(),
-                        String::new(),
-                        format!("[]string{{{}}}", entries.join(", ")),
-                        p.raw.clone(),
-                    )
-                }
-                EmitPredicateKind::Other { raw } => (
-                    "webhooks.EmitPredicateOther",
-                    String::new(),
-                    String::new(),
-                    String::new(),
-                    raw.clone(),
-                ),
-            },
-        };
-        let mut fields = vec![format!("Event: \"{}\"", escape_string(event))];
-        fields.push(format!("Kind: {}", kind_const));
-        if !path.is_empty() {
-            fields.push(format!("Path: \"{}\"", escape_string(&path)));
-        }
-        if !literal.is_empty() {
-            fields.push(format!("Literal: \"{}\"", escape_string(&literal)));
-        }
-        if !literals_lit.is_empty() {
-            fields.push(format!("Literals: {}", literals_lit));
-        }
-        if !raw.is_empty() {
-            fields.push(format!("Raw: \"{}\"", escape_string(&raw)));
-        }
-        out.push_str(&format!("\t\t{{{}}},\n", fields.join(", ")));
-    }
-    out.push_str("\t},");
-    out
-}
-
-fn format_payload_from(payload_from: &lazuli_ir::WebhookEventRef) -> String {
-    format!(
-        "&webhooks.WebhookEventRef{{Name: \"{}\"}},",
-        escape_string(&payload_from.name)
-    )
-}
-
-fn format_replay_spec(replay: &lazuli_ir::ReplaySpec) -> String {
-    let mut fields = vec![format!("Mode: {}", replay_mode_const(replay.mode))];
-    if let Some(window) = &replay.within {
-        fields.push(format!("Window: \"{}\"", escape_string(window)));
-    }
-    format!("&webhooks.ReplaySpec{{{}}},", fields.join(", "))
-}
-
-fn replay_mode_const(mode: ReplayMode) -> &'static str {
-    match mode {
-        ReplayMode::Allow => "webhooks.ReplayAllow",
-        ReplayMode::Deny => "webhooks.ReplayDeny",
-    }
-}
-
-fn format_dlq_spec(dlq: &DlqSpec) -> String {
-    match dlq {
-        DlqSpec::Emit { event } => format!(
-            "&webhooks.DlqSpec{{Kind: webhooks.DlqEmit, Topic: \"{}\"}},",
-            escape_string(event)
-        ),
-        DlqSpec::Handler { path } => format!(
-            "&webhooks.DlqSpec{{Kind: webhooks.DlqHandler, Handler: \"{}\"}},",
-            escape_string(&path.path)
-        ),
-        DlqSpec::Drop { .. } => "&webhooks.DlqSpec{Kind: webhooks.DlqDrop},".to_owned(),
-    }
-}
-
-fn format_retry_policy(retry: &RetryPolicy) -> String {
-    format!(
-        "&jobs.RetryPolicy{{Count: {}, Backoff: {}}},",
-        retry.count,
-        backoff_const(retry.backoff)
-    )
-}
-
-fn backoff_const(backoff: BackoffStrategy) -> &'static str {
-    match backoff {
-        BackoffStrategy::Fixed => "jobs.BackoffFixed",
-        BackoffStrategy::Exponential => "jobs.BackoffExponential",
-    }
-}
-
-fn emit_runtime_gaps(p: &mut GoPrinter, webhook: &Webhook) {
-    if webhook.structured_verify.is_none() {
-        p.line(&format!(
-            "// TODO(runtime): legacy verifier path \"{}\" is not represented by WebhookContract v0.",
-            escape_string(&webhook.verify.path)
-        ));
-    }
-}
-
-fn path_to_string(path: &lazuli_ir::Path) -> String {
-    path.segments.join(".")
-}
-
-fn write_section_banner(p: &mut GoPrinter, lines: &[String]) {
-    let rule = "-".repeat(76);
-    p.line(&format!("// {rule}"));
-    for line in lines {
-        p.line(&format!("// {line}"));
-    }
-    p.line(&format!("// {rule}"));
-    p.blank();
-}
-
-fn pascal_case(s: &str) -> String {
-    super::casing::pascal_case(s)
-}
-
-fn escape_string(raw: &str) -> String {
-    let mut out = String::with_capacity(raw.len());
-    for ch in raw.chars() {
-        match ch {
-            '\\' => out.push_str("\\\\"),
-            '"' => out.push_str("\\\""),
-            _ => out.push(ch),
-        }
-    }
-    out
 }
 
 /// PG.C.2 — emit the `Prelude: []billing.GateRef{...}` field on a
@@ -442,7 +255,7 @@ mod feature_emit_tests {
     use lazuli_ir::{
         AppManifest, BackoffStrategy, Defaults, DlqSpec, Feature, IdempotencyKey, Module, Path,
         PathRef, Policies, QualifiedName, ReplayMode, ReplaySpec, RetryPolicy, TenantFromSpec,
-        TypeRef, VerifySpec, WebhookEventRef,
+        TypeRef, VerifyScheme, VerifySpec, WebhookEventRef,
     };
 
     fn base_feature(name: &str) -> Feature {
