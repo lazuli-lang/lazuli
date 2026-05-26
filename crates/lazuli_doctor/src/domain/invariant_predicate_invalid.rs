@@ -24,24 +24,40 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{EvalPredicate, Expr, Feature, Path as IrPath, Predicate, Resource};
 
+/// One INVARIANT-PREDICATE-INVALID finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` path that hosts the invariant.
     pub path: PathBuf,
+    /// Feature containing the resource or aggregate.
     pub feature: String,
+    /// Which carrier owns the invariant (resource vs aggregate).
     pub scope: InvariantScope,
+    /// Invariant name.
     pub invariant: String,
+    /// Bare field name (first path segment) that did not resolve.
     pub unresolved_field: String,
 }
 
+/// Whether an invariant is anchored at a resource or an aggregate.
+/// Aggregate scope is broader because it accepts the aggregate's `root`
+/// resource fields plus the names of `contains` members (and their
+/// snake-case-plural binding form).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InvariantScope {
+    /// Resource-scoped invariant; tuple holds the resource name.
     Resource(String),
+    /// Aggregate-scoped invariant; tuple holds the aggregate name.
     Aggregate(String),
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "INVARIANT-PREDICATE-INVALID";
 
+    /// Render the user-facing diagnostic body. The wording branches on
+    /// resource- vs aggregate-scope so the author sees the right hint
+    /// (resource field vs root + contains members).
     pub fn message(&self) -> String {
         match &self.scope {
             InvariantScope::Resource(r) => format!(
@@ -59,6 +75,23 @@ impl Finding {
     }
 }
 
+/// Run INVARIANT-PREDICATE-INVALID over one feature.
+///
+/// Walks resource-scoped and aggregate-scoped invariants. Unparsed
+/// predicates surface a `<unparseable: …>` sentinel field name so the
+/// author sees a hint rather than a silent skip.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::domain::invariant_predicate_invalid::check;
+///
+/// let findings = check(&feature, Path::new("billing.lzi"));
+/// for f in findings {
+///     eprintln!("{}: {}", f.invariant, f.unresolved_field);
+/// }
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 

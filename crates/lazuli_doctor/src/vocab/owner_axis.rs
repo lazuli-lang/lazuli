@@ -25,8 +25,11 @@ use std::path::PathBuf;
 //                        applied to a field whose type is not another resource.
 // =============================================================================
 
+/// `@owner_axis` was attached to a field whose type isn't a resource
+/// reference. Cell O1 (parser) builds this when validating annotations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnerAxisOnNonFkFinding {
+    /// Source `.lzi` file the offending annotation was authored in.
     pub path: PathBuf,
     /// Resource the offending field lives on.
     pub resource: String,
@@ -37,8 +40,25 @@ pub struct OwnerAxisOnNonFkFinding {
 }
 
 impl OwnerAxisOnNonFkFinding {
+    /// Canonical diagnostic code emitted with this finding.
     pub const CODE: &'static str = "owner_axis_on_non_fk";
 
+    /// Render the verbatim message string from §11.1 of the proposal.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::owner_axis::OwnerAxisOnNonFkFinding;
+    ///
+    /// let f = OwnerAxisOnNonFkFinding {
+    ///     path: PathBuf::from("catalog.lzi"),
+    ///     resource: "Property".into(),
+    ///     field: "name".into(),
+    ///     type_name: "Text".into(),
+    /// };
+    /// assert!(f.message().contains("not a foreign-key reference"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "Field `{}.{}` declares `@owner_axis`, but the field's type is `{}` — not a foreign-key \
@@ -55,8 +75,11 @@ impl OwnerAxisOnNonFkFinding {
 //                              target resource.
 // =============================================================================
 
+/// The `through:` column on `@owner_axis` doesn't exist on the FK target
+/// resource. Cell O2 (analyzer) emits this after walking the FK target.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnerAxisUnknownThroughFinding {
+    /// Source `.lzi` file the offending annotation was authored in.
     pub path: PathBuf,
     /// Resource the field lives on (for context in the error).
     pub resource: String,
@@ -70,8 +93,26 @@ pub struct OwnerAxisUnknownThroughFinding {
 }
 
 impl OwnerAxisUnknownThroughFinding {
+    /// Canonical diagnostic code emitted with this finding.
     pub const CODE: &'static str = "owner_axis_unknown_through";
 
+    /// Render the verbatim "did you mean" message string from §11.1.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::owner_axis::OwnerAxisUnknownThroughFinding;
+    ///
+    /// let f = OwnerAxisUnknownThroughFinding {
+    ///     path: PathBuf::from("catalog.lzi"),
+    ///     resource: "Host".into(),
+    ///     field: "host".into(),
+    ///     through_column: "usr".into(),
+    ///     suggestion: Some("user".into()),
+    /// };
+    /// assert!(f.message().contains("Did you mean `user`?"));
+    /// ```
     pub fn message(&self) -> String {
         let suggestion = self
             .suggestion
@@ -93,8 +134,12 @@ impl OwnerAxisUnknownThroughFinding {
 //                                     room for service-account ownership).
 // =============================================================================
 
+/// The `through:` column resolves to a resource without
+/// `user: User required unique`, so the ownership chain can't bottom out
+/// at an actor. Severity warning — service-account ownership stays viable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnerAxisThroughNotUserKeyedFinding {
+    /// Source `.lzi` file the offending annotation was authored in.
     pub path: PathBuf,
     /// Resource the offending field lives on.
     pub resource: String,
@@ -107,8 +152,26 @@ pub struct OwnerAxisThroughNotUserKeyedFinding {
 }
 
 impl OwnerAxisThroughNotUserKeyedFinding {
+    /// Canonical diagnostic code emitted with this finding.
     pub const CODE: &'static str = "owner_axis_through_not_user_keyed";
 
+    /// Render the verbatim message advising adding `user` to the target.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::owner_axis::OwnerAxisThroughNotUserKeyedFinding;
+    ///
+    /// let f = OwnerAxisThroughNotUserKeyedFinding {
+    ///     path: PathBuf::from("catalog.lzi"),
+    ///     resource: "Property".into(),
+    ///     field: "host".into(),
+    ///     through_column: "user".into(),
+    ///     target_resource: "Host".into(),
+    /// };
+    /// assert!(f.message().contains("cannot resolve"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "Field `{}` declares `@owner_axis(through: {})` referencing resource `{}`, but `{}` has \
@@ -133,8 +196,12 @@ impl OwnerAxisThroughNotUserKeyedFinding {
 //                                        another field. Severity: warning.
 // =============================================================================
 
+/// The resource declares both `user: User required unique` AND
+/// `@owner_axis(through: <col>)`. The synth would emit conflicting WHERE
+/// clauses, so doctor warns and asks the author to pick one mode.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnerAxisCollidesWithUniqueUserFinding {
+    /// Source `.lzi` file the offending annotation was authored in.
     pub path: PathBuf,
     /// The resource carrying both `user: User required unique` and
     /// `@owner_axis(through: ...)` on another field.
@@ -144,8 +211,24 @@ pub struct OwnerAxisCollidesWithUniqueUserFinding {
 }
 
 impl OwnerAxisCollidesWithUniqueUserFinding {
+    /// Canonical diagnostic code emitted with this finding.
     pub const CODE: &'static str = "owner_axis_collides_with_unique_user";
 
+    /// Render the verbatim message asking the author to pick one scope mode.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::owner_axis::OwnerAxisCollidesWithUniqueUserFinding;
+    ///
+    /// let f = OwnerAxisCollidesWithUniqueUserFinding {
+    ///     path: PathBuf::from("catalog.lzi"),
+    ///     resource: "Host".into(),
+    ///     through_column: "user".into(),
+    /// };
+    /// assert!(f.message().contains("conflicting WHERE clauses"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "Resource `{}` has both `user: User required unique` AND `@owner_axis(through: {})`. \

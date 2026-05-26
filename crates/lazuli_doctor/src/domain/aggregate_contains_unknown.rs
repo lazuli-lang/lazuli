@@ -16,17 +16,25 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::Feature;
 
+/// One AGGREGATE-CONTAINS-UNKNOWN finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` path that hosts the aggregate.
     pub path: PathBuf,
+    /// Feature containing the aggregate.
     pub feature: String,
+    /// Aggregate whose `contains` list is unresolved.
     pub aggregate: String,
+    /// Bare resource name that did not resolve in the same feature.
     pub unresolved_member: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "AGGREGATE-CONTAINS-UNKNOWN";
 
+    /// Render the user-facing diagnostic body — names the unknown
+    /// resource and prompts for either declaration or removal.
     pub fn message(&self) -> String {
         format!(
             "aggregate `{}` lists `contains {}` but no resource named `{}` \
@@ -37,6 +45,22 @@ impl Finding {
     }
 }
 
+/// Run AGGREGATE-CONTAINS-UNKNOWN over one feature.
+///
+/// Cross-feature `contains` entries (those with `member.feature.is_some()`)
+/// are skipped — they're handled by a separate cross-feature pass.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::domain::aggregate_contains_unknown::check;
+///
+/// let findings = check(&feature, Path::new("billing.lzi"));
+/// for f in findings {
+///     eprintln!("{}: contains {} (unknown)", f.aggregate, f.unresolved_member);
+/// }
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let resources: HashSet<&str> =
         feature.resources.iter().map(|r| r.name.as_str()).collect();

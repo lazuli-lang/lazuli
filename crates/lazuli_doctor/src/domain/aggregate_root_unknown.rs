@@ -15,17 +15,25 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::Feature;
 
+/// One AGGREGATE-ROOT-UNKNOWN finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` path that hosts the aggregate.
     pub path: PathBuf,
+    /// Feature containing the aggregate.
     pub feature: String,
+    /// Aggregate whose `root` did not resolve.
     pub aggregate: String,
+    /// Bare resource name claimed as `root` but not declared.
     pub unresolved_root: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "AGGREGATE-ROOT-UNKNOWN";
 
+    /// Render the user-facing diagnostic body — names the unknown root
+    /// and prompts for either declaration or repointing.
     pub fn message(&self) -> String {
         format!(
             "aggregate `{}` declares `root {}` but no resource named `{}` \
@@ -36,6 +44,10 @@ impl Finding {
     }
 }
 
+/// Run AGGREGATE-ROOT-UNKNOWN over one feature.
+///
+/// Cross-feature roots (those with `agg.root.feature.is_some()`) are
+/// skipped — they're handled by a separate cross-feature pass.
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let resources: HashSet<&str> =
         feature.resources.iter().map(|r| r.name.as_str()).collect();
