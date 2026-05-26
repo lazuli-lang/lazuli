@@ -77,6 +77,18 @@ mod test_support;
 mod tier4;
 mod wrap;
 
+// Test-host siblings for `scope.rs` — each owns a coherent sub-cluster
+// of the scope production code's tests. See `scope.rs` doc-comment for
+// the per-file coverage map. Wired here (not inside `scope.rs`) so the
+// `#[path]`-implicit child resolution picks up the sibling `.rs` files
+// at `command/<name>.rs` instead of `command/scope/<name>.rs`.
+#[cfg(test)]
+mod owner_scope_sql_tests;
+#[cfg(test)]
+mod scope_owner_tests;
+#[cfg(test)]
+mod scope_where_keys_tests;
+
 // Sibling emitters address command helpers via `super::command::<name>`.
 // The re-exports below keep that surface stable after the Rails-style
 // split moved each helper into a `command/*.rs` submodule. Visibility is

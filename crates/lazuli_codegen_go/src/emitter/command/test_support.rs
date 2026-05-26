@@ -17,7 +17,8 @@
 
 use lazuli_ir::{
     AppManifest, BuiltinType, Command, CommandEffect, CommandInput, CommandKind, Defaults, Feature,
-    Module, Policies, PolicyRef, QualifiedName, Resource, TypeRef, TypedSlot,
+    Field, FieldConstraints, Module, Policies, PolicyRef, QualifiedName, Resource, TypeRef,
+    TypedSlot,
 };
 
 use super::super::cross_feature::CrossFeatureIndex;
@@ -154,6 +155,30 @@ pub(super) fn simple_resource(name: &str) -> Resource {
         composite_key: None,
         conventions: Vec::new(),
         lifecycle_routes: None,
+    }
+}
+
+/// A minimal text `Field` used by the scope tests to push columns onto
+/// a `simple_resource()` so `@scope.*` / `owner_scope_sql` resolution
+/// has something to bind to. Lifted from the inline `scope::tests`
+/// helper so sibling test-host files (`scope_owner_tests.rs`,
+/// `scope_where_keys_tests.rs`, `owner_scope_sql_tests.rs`) can share
+/// it without each carrying a copy.
+pub(super) fn scope_field(name: &str) -> Field {
+    Field {
+        name: name.to_owned(),
+        type_ref: TypeRef::Builtin(BuiltinType::Text),
+        required: true,
+        unique: false,
+        slug: false,
+        default: None,
+        derived_from: None,
+        constraints: FieldConstraints::default(),
+        full_text: false,
+        previous_names: Vec::new(),
+        pii: None,
+        owner_axis: None,
+        span_ref: None,
     }
 }
 
