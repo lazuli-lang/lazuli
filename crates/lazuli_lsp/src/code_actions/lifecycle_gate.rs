@@ -45,6 +45,12 @@ use crate::{
     simple_edit_action, snake_case, view_has_requires_lifecycle,
 };
 
+/// Code actions for the IR Lifecycle Route-Gate contract. Returns the
+/// applicable quickfixes for the cursor position — `Add lifecycle gate`
+/// on a view header, `Remove stale arm` on a defunct `resume` arm,
+/// `Add missing state arms` for uncovered states, and `Convert to
+/// wildcard` for forward-compatibility. Returns an empty vector
+/// outside lifecycle-related lines.
 pub fn lifecycle_gate_code_actions(
     source: &str,
     uri: &Url,

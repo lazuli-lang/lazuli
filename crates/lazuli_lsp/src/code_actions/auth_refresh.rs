@@ -36,6 +36,13 @@ use crate::{
     position_at_line_start,
 };
 
+/// Code actions for the auth refresh-rotation contract. Returns the
+/// applicable quickfixes for the cursor position — `Promote
+/// single-token to rotation` (on a `sessions` slot lacking `rotation`)
+/// and `Scaffold rotation block` (on a `rotation` header with no
+/// children). Returns an empty vector outside auth blocks.
+///
+/// Pure text edits — no IR awareness. See module docs for the rationale.
 pub fn auth_refresh_code_actions(
     source: &str,
     uri: &Url,
