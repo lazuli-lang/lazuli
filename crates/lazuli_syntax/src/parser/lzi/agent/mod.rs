@@ -38,6 +38,8 @@
 //! - `docs/proposals/ai-primitives-v0-implementation.md` §3.3.
 //! - `lazuli_ir::nodes::agent` — typed lowering target.
 
+mod evals;
+
 use super::super::common::{SourceLine, is_trivia, line_error, unquote_lzx_value};
 use super::super::error::ParseError;
 use super::numerics::{
@@ -45,13 +47,13 @@ use super::numerics::{
 };
 use super::{
     AGENT_INDENT_AGENT_CHILD, AGENT_INDENT_FEATURE_CHILD, AGENT_INDENT_GRANDCHILD,
-    AGENT_INDENT_GREAT_GRANDCHILD,
 };
 use crate::ast::{
-    Agent, AgentEvalAssertion, AgentEvalCase, AgentEvalGolden, AgentEvalKind, AgentEvalPredicate,
-    AgentExpose, AgentExposeRouteSlot, AgentInputSlot, AgentOutput, AgentTool, ContainsRhs,
-    HttpMethod, RateLimitSpecAst, Span, ToolsCallsOp,
+    Agent, AgentExpose, AgentExposeRouteSlot, AgentInputSlot, AgentOutput, AgentTool, HttpMethod,
+    RateLimitSpecAst, Span,
 };
+
+use evals::parse_agent_evals;
 
 pub(super) fn parse_agent(
     lines: &[SourceLine<'_>],
@@ -465,277 +467,6 @@ fn parse_agent_tools(
     Ok((tools, i))
 }
 
-fn parse_agent_evals(
-    lines: &[SourceLine<'_>],
-    start: usize,
-) -> Result<(Vec<AgentEvalCase>, usize), ParseError> {
-    let mut cases = Vec::new();
-    let mut i = start + 1;
-
-    while i < lines.len() {
-        let line = &lines[i];
-        let trimmed = line.text.trim_start();
-
-        if is_trivia(trimmed) {
-            i += 1;
-            continue;
-        }
-
-        if line.indent <= AGENT_INDENT_AGENT_CHILD {
-            break;
-        }
-
-        if line.indent != AGENT_INDENT_GRANDCHILD {
-            return Err(line_error(
-                line,
-                "eval `case` headers use six-space indentation",
-            ));
-        }
-
-        let case_name = trimmed
-            .strip_prefix("case ")
-            .map(|rest| rest.trim().to_owned())
-            .ok_or_else(|| line_error(line, "eval children must be `case <name>` blocks"))?;
-        if case_name.is_empty() {
-            return Err(line_error(line, "`case` requires a name"));
-        }
-        let case_start = line.start;
-        let mut case_end = line.end;
-
-        let mut assertions = Vec::new();
-        let mut golden: Option<AgentEvalGolden> = None;
-        i += 1;
-        while i < lines.len() {
-            let inner = &lines[i];
-            let inner_trimmed = inner.text.trim_start();
-
-            if is_trivia(inner_trimmed) {
-                i += 1;
-                continue;
-            }
-
-            if inner.indent <= AGENT_INDENT_GRANDCHILD {
-                break;
-            }
-
-            if inner.indent != AGENT_INDENT_GREAT_GRANDCHILD {
-                return Err(line_error(
-                    inner,
-                    "eval case children use eight-space indentation",
-                ));
-            }
-
-            if let Some(rest) = inner_trimmed.strip_prefix("golden ") {
-                if golden.is_some() {
-                    return Err(line_error(
-                        inner,
-                        "`case` may declare at most one `golden` reference",
-                    ));
-                }
-                golden = Some(parse_eval_golden(inner, rest)?);
-            } else {
-                assertions.push(parse_eval_assertion(inner)?);
-            }
-            case_end = inner.end;
-            i += 1;
-        }
-
-        if assertions.is_empty() && golden.is_none() {
-            return Err(line_error(
-                line,
-                "`case <name>` must declare at least one `requires`/`forbids` assertion or a `golden \"./path\"` reference",
-            ));
-        }
-
-        cases.push(AgentEvalCase {
-            name: case_name,
-            assertions,
-            golden,
-            span: Span::new(case_start, case_end),
-        });
-    }
-
-    Ok((cases, i))
-}
-
-/// Parse `golden "./path.jsonl"` or `golden "./path.jsonl" min_score 0.85`.
-/// The path is required; `min_score` is optional and must parse as a
-/// float when present. Adapter convention defaults to 0.85 when
-/// omitted; the parser records `None` so authors can override at
-/// adapter level without language-side ambiguity.
-fn parse_eval_golden(line: &SourceLine<'_>, rest: &str) -> Result<AgentEvalGolden, ParseError> {
-    let trimmed = rest.trim();
-    if !trimmed.starts_with('"') {
-        return Err(line_error(
-            line,
-            "`golden` requires a quoted file path: `golden \"./path.jsonl\"`",
-        ));
-    }
-    // Find the closing quote without scanning past min_score.
-    let body = &trimmed[1..];
-    let Some(closing) = body.find('"') else {
-        return Err(line_error(line, "`golden` path is missing a closing quote"));
-    };
-    let path = body[..closing].to_owned();
-    let after = body[closing + 1..].trim();
-    let min_score = if after.is_empty() {
-        None
-    } else if let Some(score_text) = after.strip_prefix("min_score ") {
-        let value: f64 = score_text
-            .trim()
-            .parse()
-            .map_err(|_| line_error(line, "`min_score` must be a decimal between 0.0 and 1.0"))?;
-        if !(0.0..=1.0).contains(&value) {
-            return Err(line_error(
-                line,
-                "`min_score` must be in the range 0.0..=1.0",
-            ));
-        }
-        Some(value)
-    } else {
-        return Err(line_error(
-            line,
-            "trailing tokens after `golden \"./path\"` must be `min_score <N>`",
-        ));
-    };
-    Ok(AgentEvalGolden {
-        path,
-        min_score,
-        span: Span::new(line.start, line.end),
-    })
-}
-
-fn parse_eval_assertion(line: &SourceLine<'_>) -> Result<AgentEvalAssertion, ParseError> {
-    let trimmed = line.text.trim_start();
-    let (kind, body) = if let Some(rest) = trimmed.strip_prefix("requires ") {
-        (AgentEvalKind::Requires, rest.trim())
-    } else if let Some(rest) = trimmed.strip_prefix("forbids ") {
-        (AgentEvalKind::Forbids, rest.trim())
-    } else {
-        return Err(line_error(
-            line,
-            "eval assertions start with `requires` or `forbids`",
-        ));
-    };
-
-    if body.is_empty() {
-        return Err(line_error(line, "eval assertion requires a predicate"));
-    }
-
-    let predicate = parse_eval_predicate(line, body)?;
-    Ok(AgentEvalAssertion {
-        kind,
-        predicate,
-        span: Span::new(line.start, line.end),
-    })
-}
-
-fn parse_eval_predicate(
-    line: &SourceLine<'_>,
-    body: &str,
-) -> Result<AgentEvalPredicate, ParseError> {
-    let body = body.trim();
-
-    if let Some(rest) = body.strip_prefix("tools.calls ") {
-        let mut parts = rest.split_whitespace();
-        let op_token = parts.next().ok_or_else(|| {
-            line_error(
-                line,
-                "`tools.calls` requires `includes` or `excludes` followed by a tool reference",
-            )
-        })?;
-        let target = parts
-            .next()
-            .ok_or_else(|| line_error(line, "`tools.calls` requires a tool reference target"))?;
-        if parts.next().is_some() {
-            return Err(line_error(
-                line,
-                "`tools.calls <op> <ref>` accepts a single tool reference",
-            ));
-        }
-        let op = match op_token {
-            "includes" => ToolsCallsOp::Includes,
-            "excludes" => ToolsCallsOp::Excludes,
-            _ => {
-                return Err(line_error(
-                    line,
-                    "`tools.calls` operator must be `includes` or `excludes`",
-                ));
-            }
-        };
-        return Ok(AgentEvalPredicate::ToolsCalls {
-            op,
-            target: target.to_owned(),
-        });
-    }
-
-    if let Some(idx) = find_contains_keyword(body) {
-        let lhs = body[..idx].trim().to_owned();
-        let rhs = body[idx + " contains ".len()..].trim();
-        if lhs.is_empty() {
-            return Err(line_error(
-                line,
-                "`contains` predicate requires a left-hand reference",
-            ));
-        }
-        let rhs = parse_contains_rhs(line, rhs)?;
-        return Ok(AgentEvalPredicate::Contains { lhs, rhs });
-    }
-
-    Ok(AgentEvalPredicate::Closed {
-        text: body.to_owned(),
-    })
-}
-
-/// Locate the ` contains ` infix inside an eval predicate body. Returns the
-/// byte index of the leading space so callers can split lhs/rhs without
-/// re-scanning. Returns `None` when no `contains` keyword appears as a
-/// stand-alone token (we never match inside quoted strings).
-fn find_contains_keyword(body: &str) -> Option<usize> {
-    let bytes = body.as_bytes();
-    let mut in_quote = false;
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if b == b'"' {
-            in_quote = !in_quote;
-            i += 1;
-            continue;
-        }
-        if !in_quote && body[i..].starts_with(" contains ") {
-            return Some(i);
-        }
-        i += 1;
-    }
-    None
-}
-
-fn parse_contains_rhs(line: &SourceLine<'_>, rhs: &str) -> Result<ContainsRhs, ParseError> {
-    let rhs = rhs.trim();
-    if rhs.is_empty() {
-        return Err(line_error(line, "`contains` requires a right-hand value"));
-    }
-    if rhs.starts_with('"') {
-        let stripped = rhs
-            .strip_prefix('"')
-            .and_then(|r| r.strip_suffix('"'))
-            .ok_or_else(|| line_error(line, "`contains` string literal must be quoted"))?;
-        return Ok(ContainsRhs::Literal(stripped.to_owned()));
-    }
-    if rhs.starts_with("@semantic.") {
-        if rhs.split_whitespace().count() > 1 {
-            return Err(line_error(
-                line,
-                "`contains @semantic.<Type>` accepts a single semantic-type reference",
-            ));
-        }
-        return Ok(ContainsRhs::SemanticType(rhs.to_owned()));
-    }
-    Err(line_error(
-        line,
-        "`contains` rhs must be a quoted string literal or a `@semantic.<Type>` reference",
-    ))
-}
 
 fn split_policy_atoms(value: &str) -> Vec<String> {
     value
@@ -1056,7 +787,7 @@ feature customer
         // line-walker tolerates the actual indent pattern (2/4/6/8 spaces),
         // the comments and blank lines scattered through the file, and
         // every non-agent feature child it should skip.
-        let source = include_str!("../../../../../examples/full-capsule/full-capsule.lzi");
+        let source = include_str!("../../../../../../examples/full-capsule/full-capsule.lzi");
         let features = parse_feature_skeletons(source).expect("parses");
 
         // The fixture declares five features; the slice surfaces them all
