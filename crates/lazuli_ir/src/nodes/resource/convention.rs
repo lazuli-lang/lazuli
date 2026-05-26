@@ -65,6 +65,15 @@ pub enum ConventionOrigin {
 
 impl ConventionOrigin {
     /// The bundle that produced (or would have produced) this entry.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::{ConventionOrigin, ConventionRef};
+    ///
+    /// let o = ConventionOrigin::Synthesized(ConventionRef::Crud);
+    /// assert_eq!(o.convention(), ConventionRef::Crud);
+    /// ```
     pub fn convention(&self) -> ConventionRef {
         match self {
             ConventionOrigin::Synthesized(c) | ConventionOrigin::AuthorOverride(c) => *c,
@@ -73,7 +82,29 @@ impl ConventionOrigin {
 
     /// `true` when an author wrote a command/query with this name and the
     /// convention's synth for that name was skipped.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::{ConventionOrigin, ConventionRef};
+    ///
+    /// let o = ConventionOrigin::AuthorOverride(ConventionRef::Crud);
+    /// assert!(o.is_author_override());
+    /// ```
     pub fn is_author_override(&self) -> bool {
         matches!(self, ConventionOrigin::AuthorOverride(_))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn convention_origin_round_trips() {
+        let o = ConventionOrigin::Synthesized(ConventionRef::Crud);
+        let s = serde_json::to_string(&o).unwrap();
+        let back: ConventionOrigin = serde_json::from_str(&s).unwrap();
+        assert_eq!(o, back);
     }
 }

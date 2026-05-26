@@ -47,16 +47,29 @@ pub enum TypeRef {
     Capability(CapabilityRef),
 }
 
+/// Closed catalog of language-level builtin and semantic types.
+/// Expansion is additive: new entries land here as pilots demand them
+/// and proposals approve them. Plugin-contributed semantics enter via
+/// the `SemanticPluginType` variant rather than dedicated entries.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BuiltinType {
+    /// `ID` — primary-key identifier.
     Id,
+    /// `Text` — UTF-8 string.
     Text,
+    /// `Boolean` — true/false.
     Boolean,
+    /// `Integer` — 64-bit signed integer.
     Integer,
+    /// `Decimal` — arbitrary-precision decimal.
     Decimal,
+    /// `Date` — calendar date (no time).
     Date,
+    /// `DateTime` — instant with timezone.
     DateTime,
+    /// `Json` — opaque JSON blob.
     Json,
+    /// `@semantic.Email` — RFC-shaped email address.
     SemanticEmail,
     /// Per `docs/proposals/semantic-types-money-brazilian.md` v0.3 +
     /// MONEY-1 §3.2 of the hostpoint roadmap. Carries the declared ISO
@@ -156,6 +169,14 @@ impl CurrencyCode {
     /// Canonical 3-letter ISO 4217 form (`"BRL"`, `"USD"`...). Used by
     /// codegen to emit the `CHECK (<col> = '<ISO>')` constraint and by
     /// doctor diagnostics when interpolating into messages.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::CurrencyCode;
+    ///
+    /// assert_eq!(CurrencyCode::BRL.as_iso(), "BRL");
+    /// ```
     pub fn as_iso(&self) -> &'static str {
         match self {
             Self::BRL => "BRL",
@@ -170,6 +191,15 @@ impl CurrencyCode {
     /// Parse a 3-letter ISO 4217 code into the closed catalog. Returns
     /// `None` for unknown codes; the analyzer surfaces that as a typed
     /// diagnostic rather than silently accepting it.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::CurrencyCode;
+    ///
+    /// assert_eq!(CurrencyCode::from_iso("BRL"), Some(CurrencyCode::BRL));
+    /// assert_eq!(CurrencyCode::from_iso("XYZ"), None);
+    /// ```
     pub fn from_iso(raw: &str) -> Option<Self> {
         match raw {
             "BRL" => Some(Self::BRL),
@@ -180,5 +210,16 @@ impl CurrencyCode {
             "CHF" => Some(Self::CHF),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn currency_code_round_trips_iso() {
+        assert_eq!(CurrencyCode::from_iso("USD"), Some(CurrencyCode::USD));
+        assert_eq!(CurrencyCode::USD.as_iso(), "USD");
     }
 }

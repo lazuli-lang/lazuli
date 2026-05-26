@@ -144,6 +144,9 @@ pub struct LifecycleRoutes {
     pub span_ref: Option<SpanRef>,
 }
 
+/// One arm inside a [`LifecycleRoutes`] block — maps a lifecycle state
+/// (or the `none` / `*` sentinels) to the URL the route helper returns
+/// for actors in that state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LifecycleRouteArm {
     /// Match key — lifecycle state name, `none`, or `*`.
@@ -225,14 +228,22 @@ pub struct Record {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Closed catalog of retention-expiry actions. `Anonymize` strips PII
+/// in place; `Delete` removes the row; `Archive` moves it to cold
+/// storage (adapter-defined).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RetentionAction {
+    /// Strip PII fields, keep the row.
     Anonymize,
+    /// Remove the row entirely.
     Delete,
+    /// Move to cold storage (adapter-defined shape).
     Archive,
 }
 
+/// `enum <Name> { … }` declaration. Closed list of named variants;
+/// each variant may carry storage-value, label, and i18n metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EnumDecl {
     pub name: String,
@@ -245,6 +256,9 @@ pub struct EnumDecl {
     pub span_ref: Option<SpanRef>,
 }
 
+/// One variant inside an [`EnumDecl`]. Carries the storage value the
+/// runtime persists (or `None` to let codegen pick a default per target)
+/// and optional UI metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EnumVariant {
     pub name: String,
@@ -264,10 +278,15 @@ pub struct EnumVariant {
     pub previous_names: Vec<String>,
 }
 
+/// Closed catalog of authored enum storage values. `Integer` packs
+/// the variant as a tinyint column; `String` keeps the variant name
+/// as text.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum StorageValue {
+    /// `as 1` — store as integer.
     Integer(i64),
+    /// `as "active"` — store as the literal string.
     String(String),
 }
 
