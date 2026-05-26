@@ -19,6 +19,10 @@ use crate::{EmitPredicate, Path, PathRef, PolicyExpr, PolicyRef, SpanRef, Transl
 
 use super::shared::{IdempotencyKey, RetryPolicy, TenantFromSpec};
 
+/// Root IR node for a `webhook <name> { … }` block — one inbound HTTP
+/// delivery contract. Carries the route, verifier (legacy or typed),
+/// idempotency key, policy decorators, replay/DLQ shapes, retry
+/// policy, and the typed payload reference.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Webhook {
     pub name: String,
@@ -122,6 +126,9 @@ pub struct ReplaySpec {
     pub dedupe_by: Option<Path>,
 }
 
+/// Closed catalog of replay behaviours. `Allow` is the gate that lets
+/// providers safely retry within a window; `Deny` is the strict variant
+/// for non-idempotent flows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReplayMode {
@@ -174,9 +181,23 @@ pub struct VerifySpec {
     pub header: String,
 }
 
+/// Closed catalog of canonical-indent verifier schemes. v0 admits
+/// `Hmac` only — additional schemes require a proposal so the verifier
+/// runtime stays a closed set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum VerifyScheme {
     /// `verify hmac <alg>` — the canonical inbound verifier today.
     Hmac,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn replay_mode_round_trips() {
+        let s = serde_json::to_string(&ReplayMode::Deny).unwrap();
+        assert_eq!(s, "\"deny\"");
+    }
 }

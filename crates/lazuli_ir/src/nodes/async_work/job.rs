@@ -18,6 +18,11 @@ use crate::{
 
 use super::shared::{ExternalCallRef, FanoutSpec, IdempotencyKey, RetryPolicy, TenantFromSpec};
 
+/// Root IR node for a `job <name> { … }` block. The body is either
+/// handler-backed (`handler "./path"`) or declarative (typed
+/// `target` + `effect`). All cross-cutting decorators (`retry`,
+/// `timeout`, `idempotency`, `tenant_from`, `fanout`, `calls`,
+/// `policy`, `emits`) ride alongside.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Job {
     pub name: String,
@@ -68,6 +73,8 @@ pub struct Job {
     pub span_ref: Option<SpanRef>,
 }
 
+/// What kicks a [`Job`] off. `Event` fires reactively on an emitted
+/// event; `Schedule` fires on a cron timer. Closed catalog.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum JobTrigger {
@@ -96,6 +103,8 @@ pub enum JobBody {
     Declarative(JobDeclarative),
 }
 
+/// Handler-backed job body — points at an extension source file and
+/// optionally declares a typed return shape.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JobHandler {
     pub path: PathRef,
@@ -104,6 +113,9 @@ pub struct JobHandler {
     pub returns: Option<TypeRef>,
 }
 
+/// Declarative job body — mirrors the [`crate::Command`] effect shape so
+/// codegen + runtime can reuse the same write pipeline. `target` /
+/// `lets` / `effect` parallel the same slots on commands.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JobDeclarative {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -111,4 +123,19 @@ pub struct JobDeclarative {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub lets: Vec<LetBinding>,
     pub effect: CommandEffect,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn job_trigger_round_trips_schedule() {
+        let t = JobTrigger::Schedule {
+            cron: "0 2 * * *".into(),
+        };
+        let s = serde_json::to_string(&t).unwrap();
+        let back: JobTrigger = serde_json::from_str(&s).unwrap();
+        assert_eq!(t, back);
+    }
 }
