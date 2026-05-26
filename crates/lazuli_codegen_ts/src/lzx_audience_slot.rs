@@ -24,7 +24,7 @@
 #[path = "audience_sdk/mod.rs"]
 pub mod audience_sdk;
 
-#[path = "slot_interface.rs"]
+#[path = "slot_interface/mod.rs"]
 pub mod slot_interface;
 
 pub use audience_sdk::{
