@@ -53,6 +53,18 @@ use lazuli_syntax as syntax;
 /// derived from the webhook name (the legacy IR field is non-optional);
 /// `structured_verify` carries the real structured spec lifted by
 /// `parse_webhook_verify`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::events::lower_webhook;
+/// use lazuli_syntax::Webhook;
+///
+/// let webhook: Webhook = unimplemented!("from canonical-indent parse");
+/// let lowered = lower_webhook(&webhook)?;
+/// assert!(lowered.structured_verify.is_some());
+/// # Ok::<(), lazuli_analyzer::AnalyzeError>(())
+/// ```
 pub fn lower_webhook(webhook: &syntax::Webhook) -> Result<ir::Webhook, AnalyzeError> {
     let structured_verify = Some(ir::VerifySpec {
         scheme: match webhook.verify.scheme.as_str() {
@@ -209,6 +221,17 @@ fn extract_env_binding(raw: &str) -> String {
 /// (`TenantFromSpec`, `PolicyRef::Atom`, payload string verbatim).
 /// Doctor `CHANNEL-PAYLOAD-001` resolves the payload reference
 /// downstream.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::events::lower_channel;
+/// use lazuli_syntax::Channel;
+///
+/// let channel: Channel = unimplemented!("from canonical-indent parse");
+/// let lowered = lower_channel(&channel);
+/// assert!(!lowered.name.is_empty());
+/// ```
 pub fn lower_channel(channel: &syntax::Channel) -> ir::Channel {
     ir::Channel {
         name: channel.name.clone(),
@@ -225,6 +248,18 @@ pub fn lower_channel(channel: &syntax::Channel) -> ir::Channel {
 /// Phase L Tier 3 — lower a canonical-indent `notification` block into
 /// `ir::Notification`. Reuses `JobTrigger`, `IdempotencyKey`,
 /// `RetryPolicy`, `TenantFromSpec` from the job lowering helpers.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::events::lower_notification;
+/// use lazuli_syntax::Notification;
+///
+/// let notification: Notification = unimplemented!("from canonical-indent parse");
+/// let lowered = lower_notification("Billing", &notification)?;
+/// assert!(!lowered.name.is_empty());
+/// # Ok::<(), lazuli_analyzer::AnalyzeError>(())
+/// ```
 pub fn lower_notification(
     feature: &str,
     notification: &syntax::Notification,
@@ -274,6 +309,18 @@ pub fn lower_notification(
 /// MCP bucket cycle — lower a canonical-indent `mcp_server` block into
 /// `ir::MCPServerSpec`. Value-preserving except for the closed-catalog
 /// `transport` mapping, which rejects unknown literals at lower-time.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::events::lower_mcp_server;
+/// use lazuli_syntax::McpServer;
+///
+/// let server: McpServer = unimplemented!("from canonical-indent parse");
+/// let lowered = lower_mcp_server(&server)?;
+/// assert!(!lowered.metadata.name.is_empty());
+/// # Ok::<(), lazuli_analyzer::AnalyzeError>(())
+/// ```
 pub fn lower_mcp_server(server: &syntax::McpServer) -> Result<ir::MCPServerSpec, AnalyzeError> {
     let transport = match server.transport.as_str() {
         "stdio" => ir::MCPTransport::Stdio,
@@ -335,6 +382,17 @@ fn parse_mcp_auth(raw: &str) -> Option<ir::MCPAuth> {
 /// `ir::EventGroup`. The payload bag and authored events stay as raw
 /// strings; B5 framework gap 1 lifts the per-event typed payload
 /// blocks into `variants`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::events::lower_event_group;
+/// use lazuli_syntax::EventGroup;
+///
+/// let group: EventGroup = unimplemented!("from canonical-indent parse");
+/// let lowered = lower_event_group(&group);
+/// assert_eq!(lowered.events.len(), lowered.events_outbox.len());
+/// ```
 pub fn lower_event_group(group: &syntax::EventGroup) -> ir::EventGroup {
     // EVENT-OUTBOX §3.3 — lower the parallel bool vec into the typed
     // `OutboxMode` catalog. Index-paired with `events`; when the AST
@@ -427,6 +485,18 @@ pub fn lower_event_group(group: &syntax::EventGroup) -> ir::EventGroup {
 /// handler) and adds the `target tenants <axis>` slot. The lowering
 /// does **not** enforce that `idempotency` is authored; that is
 /// `TM-IDEMP-001`'s job downstream.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::events::lower_tenant_migration;
+/// use lazuli_syntax::TenantMigration;
+///
+/// let tm: TenantMigration = unimplemented!("from canonical-indent parse");
+/// let lowered = lower_tenant_migration(&tm)?;
+/// assert!(!lowered.name.is_empty());
+/// # Ok::<(), lazuli_analyzer::AnalyzeError>(())
+/// ```
 pub fn lower_tenant_migration(
     tm: &syntax::TenantMigration,
 ) -> Result<ir::TenantMigration, AnalyzeError> {
@@ -452,4 +522,24 @@ pub fn lower_tenant_migration(
         previous_names: Vec::new(),
         span_ref: Some(span_of(tm.span)),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_mcp_auth_lifts_bearer_env_form() {
+        let auth = parse_mcp_auth("bearer env.MCP_TOKEN").expect("bearer env. form parses");
+        match auth {
+            ir::MCPAuth::BearerEnvVar { env } => assert_eq!(env, "MCP_TOKEN"),
+            _ => panic!("expected BearerEnvVar"),
+        }
+    }
+
+    #[test]
+    fn parse_mcp_auth_rejects_malformed_shape() {
+        assert!(parse_mcp_auth("oauth client_id=x").is_none());
+        assert!(parse_mcp_auth("bearer env.").is_none());
+    }
 }
