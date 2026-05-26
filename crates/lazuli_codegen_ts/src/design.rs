@@ -29,7 +29,7 @@ mod tailwind_v3;
 #[path = "design_tailwind_v4.rs"]
 mod tailwind_v4;
 
-#[path = "design_tokens_mobile.rs"]
+#[path = "design_tokens_mobile/mod.rs"]
 mod tokens_mobile;
 
 #[path = "design_allowlist.rs"]
