@@ -761,3 +761,132 @@ fn parse_poller_retry_quirk(
         i,
     ))
 }
+
+// =============================================================================
+// L0 #8 — `poller` block parser tests (docs/proposals/poller-vocab.md §3)
+// =============================================================================
+#[cfg(test)]
+mod poller_parser_tests {
+    use super::super::parse_feature_skeletons;
+
+    #[test]
+    fn poller_block_parses_minimal() {
+        let source = "feature multi_bank\n  poller v8_consult_resolver\n    source V8PendingConsult\n    cursor\n      eligible_when next_check_at, resolved_at\n      attempts attempts\n    retry\n      max_attempts 30\n      backoff exponential base 30s cap 10m\n    states\n      pending initial\n      resolved terminal\n      failed terminal\n    resolve via @fn.poll_v8\n    idempotency by row.id, row.attempts\n";
+        let features = parse_feature_skeletons(source).unwrap();
+        assert_eq!(features.len(), 1);
+        let pollers = &features[0].pollers;
+        assert_eq!(pollers.len(), 1);
+        let p = &pollers[0];
+        assert_eq!(p.name, "v8_consult_resolver");
+        assert_eq!(p.source, "V8PendingConsult");
+        let cursor = p.cursor.as_ref().unwrap();
+        assert_eq!(cursor.next_at_field, "next_check_at");
+        assert_eq!(cursor.resolved_at_field, "resolved_at");
+        assert_eq!(cursor.attempts_field, "attempts");
+        let retry = p.retry.as_ref().unwrap();
+        assert_eq!(retry.max_attempts, 30);
+        assert_eq!(retry.backoff_strategy, "exponential");
+        assert_eq!(retry.backoff_base.as_deref(), Some("30s"));
+        assert_eq!(retry.backoff_cap.as_deref(), Some("10m"));
+        assert_eq!(p.states.len(), 3);
+        assert_eq!(p.states[0].name, "pending");
+        assert_eq!(p.states[0].kind_keyword.as_deref(), Some("initial"));
+        assert_eq!(p.resolve_handler.as_deref(), Some("poll_v8"));
+        assert_eq!(p.idempotency, vec!["row.id", "row.attempts"]);
+    }
+
+    #[test]
+    fn poller_block_parses_full_with_quirk() {
+        let source = "feature multi_bank\n  poller v8_consult_resolver\n    source V8PendingConsult\n    cursor\n      eligible_when next_check_at, resolved_at\n      attempts attempts\n    retry\n      max_attempts 30\n      backoff exponential base 30s cap 10m\n    states\n      pending initial\n      gender_ambiguous intermediate\n      resolved terminal\n      failed terminal\n    resolve via @fn.poll_v8\n    terminal_status_field final_status\n    terminal_result_field final_resultado\n    tick every 15s batch 100\n    tenant_from row.org_id\n    idempotency by row.id, row.attempts\n    audit default\n    emits v8_consult_resolved\n    emits v8_consult_failed\n    retry_quirk gender_flip_once\n      when row.status_v8 == \"gender_ambiguous\"\n      counter gender_retry_count\n      mutate row.gender = flip(row.gender)\n";
+        let features = parse_feature_skeletons(source).unwrap();
+        let p = &features[0].pollers[0];
+        assert_eq!(p.tick.as_ref().unwrap().every, "15s");
+        assert_eq!(p.tick.as_ref().unwrap().batch, Some(100));
+        assert_eq!(p.tenant_from.as_deref(), Some("row.org_id"));
+        assert_eq!(p.terminal_status_field.as_deref(), Some("final_status"));
+        assert_eq!(p.terminal_result_field.as_deref(), Some("final_resultado"));
+        assert_eq!(p.audit.as_deref(), Some("audit default"));
+        assert_eq!(p.emits.len(), 2);
+        assert_eq!(p.retry_quirks.len(), 1);
+        let q = &p.retry_quirks[0];
+        assert_eq!(q.kind, "gender_flip_once");
+        assert_eq!(q.counter_field, "gender_retry_count");
+        assert_eq!(q.mutate_field, "gender");
+        assert_eq!(q.mutate_transform, "flip(row.gender)");
+    }
+
+    #[test]
+    fn poller_requires_source() {
+        let source = "feature multi_bank\n  poller bad\n    cursor\n      eligible_when next_check_at, resolved_at\n      attempts attempts\n";
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(err.to_string().contains("source"));
+    }
+
+    #[test]
+    fn poller_states_min_two() {
+        let source =
+            "feature multi_bank\n  poller bad\n    source X\n    states\n      only_one terminal\n";
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(err.to_string().contains("at least 2"));
+    }
+
+    #[test]
+    fn poller_backoff_strategy_closed() {
+        let source = "feature multi_bank\n  poller bad\n    source X\n    retry\n      max_attempts 3\n      backoff weibull\n";
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(err.to_string().contains("fixed"));
+    }
+
+    #[test]
+    fn poller_tenant_from_requires_row_prefix() {
+        let source =
+            "feature multi_bank\n  poller bad\n    source X\n    tenant_from payload.org_id\n";
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(err.to_string().contains("row."));
+    }
+
+    // -----------------------------------------------------------------
+    // Realtime bucket cycle MVP — `channel` parser tests.
+    //
+    // Three cases per the cycle proposal: minimal happy path; rejects
+    // when a required child is missing; rejects unknown child key. The
+    // doctor diagnostic `CHANNEL-PAYLOAD-001` covers payload-resolution
+    // separately (in `lazuli_cli`'s doctor suite).
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn channel_parses_minimal() {
+        let source = "feature customer\n  channel customer_activity\n    tenant_from org\n    policy @policy.read\n    payload CustomerActivityEvent\n";
+        let features = parse_feature_skeletons(source).unwrap();
+        assert_eq!(features.len(), 1);
+        let channels = &features[0].channels;
+        assert_eq!(channels.len(), 1);
+        let c = &channels[0];
+        assert_eq!(c.name, "customer_activity");
+        assert_eq!(c.tenant_from, "org");
+        assert_eq!(c.policy, "@policy.read");
+        assert_eq!(c.payload, "CustomerActivityEvent");
+    }
+
+    #[test]
+    fn channel_rejects_missing_payload() {
+        let source = "feature customer\n  channel customer_activity\n    tenant_from org\n    policy @policy.read\n";
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(
+            err.to_string().contains("payload"),
+            "error should mention missing payload, got: {err}"
+        );
+    }
+
+    #[test]
+    fn channel_rejects_unknown_child_key() {
+        // `transport ws` is one of the explicitly rejected anti-proposals
+        // — transport is adapter-resolved, never authored on the channel.
+        let source = "feature customer\n  channel customer_activity\n    tenant_from org\n    policy @policy.read\n    payload CustomerActivityEvent\n    transport ws\n";
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(
+            err.to_string().contains("channel children"),
+            "error should mention closed catalog, got: {err}"
+        );
+    }
+}

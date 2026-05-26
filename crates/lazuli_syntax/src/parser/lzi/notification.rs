@@ -452,3 +452,79 @@ fn parse_notification_throttle(
         i,
     ))
 }
+
+// =============================================================================
+// Notifications expanded bucket cycle — digest/throttle parser tests.
+// =============================================================================
+#[cfg(test)]
+mod notification_digest_throttle_parser_tests {
+    use super::super::parse_feature_skeletons;
+
+    fn source_with_notification(children: &str) -> String {
+        format!(
+            "feature customer_outreach\n  notification booking_confirmed\n    channel email, push\n    recipient target.user.email\n    trigger event payments.transaction_completed\n    template \"./templates/booking_confirmed.<locale>.tmpl\"\n    policy @policy.dispatch\n{children}"
+        )
+    }
+
+    #[test]
+    fn notification_digest_parses_full_surface() {
+        let source = source_with_notification(
+            "    digest\n      every 1h\n      group_by payload.user_id\n      max_size 50\n      template_strategy merge\n",
+        );
+        let features = parse_feature_skeletons(&source).expect("parses");
+        let digest = features[0].notifications[0]
+            .digest
+            .as_ref()
+            .expect("digest");
+        assert_eq!(digest.every, "1h");
+        assert_eq!(digest.group_by.as_deref(), Some("payload.user_id"));
+        assert_eq!(digest.max_size, Some(50));
+        assert_eq!(digest.template_strategy.as_deref(), Some("merge"));
+    }
+
+    #[test]
+    fn notification_digest_requires_every() {
+        let source = source_with_notification(
+            "    digest\n      group_by payload.user_id\n      max_size 50\n",
+        );
+        let err = parse_feature_skeletons(&source).unwrap_err();
+        assert!(err.to_string().contains("every"), "{err}");
+    }
+
+    #[test]
+    fn notification_digest_rejects_unknown_child() {
+        let source = source_with_notification("    digest\n      every 1h\n      mode batch\n");
+        let err = parse_feature_skeletons(&source).unwrap_err();
+        assert!(err.to_string().contains("digest"), "{err}");
+    }
+
+    #[test]
+    fn notification_throttle_parses_full_surface() {
+        let source = source_with_notification(
+            "    throttle\n      per_recipient\n      per_channel\n      burst 3\n      max_per 1h\n",
+        );
+        let features = parse_feature_skeletons(&source).expect("parses");
+        let throttle = features[0].notifications[0]
+            .throttle
+            .as_ref()
+            .expect("throttle");
+        assert_eq!(throttle.max_per, "1h");
+        assert!(throttle.per_recipient);
+        assert!(throttle.per_channel);
+        assert_eq!(throttle.burst, Some(3));
+    }
+
+    #[test]
+    fn notification_throttle_requires_max_per() {
+        let source = source_with_notification("    throttle\n      per_recipient\n");
+        let err = parse_feature_skeletons(&source).unwrap_err();
+        assert!(err.to_string().contains("max_per"), "{err}");
+    }
+
+    #[test]
+    fn notification_throttle_rejects_unknown_child() {
+        let source = source_with_notification("    throttle\n      max_per 1h\n      per_user\n");
+        let err = parse_feature_skeletons(&source).unwrap_err();
+        assert!(err.to_string().contains("throttle"), "{err}");
+    }
+}

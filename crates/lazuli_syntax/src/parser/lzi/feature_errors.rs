@@ -225,3 +225,145 @@ pub(super) fn parse_feature_errors_decl(
         i,
     ))
 }
+
+// =============================================================================
+// IR Error-Vocab (Cell PARSE-1) — parser slice tests for the `errors` block
+// (`default`, `expose client <4xx|5xx>`, `<code> message @translation.<key>`).
+// =============================================================================
+#[cfg(test)]
+mod feature_errors_parser_tests {
+    use super::super::parse_feature_skeletons;
+
+    #[test]
+    fn feature_errors_block_lifts_default_exposure_and_messages() {
+        let source = r#"
+feature account
+  errors
+    default hide
+    expose client 4xx message, code
+    expose client 5xx code
+
+    policy_denied message @translation.account_signin_required
+    validation_failed message @translation.account_invalid_input
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let errors = features
+            .iter()
+            .find(|f| f.name == "account")
+            .and_then(|f| f.errors.as_ref())
+            .expect("errors block lifted");
+        assert_eq!(
+            errors.default,
+            Some(crate::ast::ErrorExposureDefaultAst::Hide)
+        );
+        assert_eq!(errors.exposure_4xx, vec!["message", "code"]);
+        assert_eq!(errors.exposure_5xx, vec!["code"]);
+        assert_eq!(errors.messages.len(), 2);
+        assert_eq!(errors.messages[0].code, "policy_denied");
+        assert_eq!(errors.messages[0].message.key, "account_signin_required");
+        assert_eq!(errors.messages[1].code, "validation_failed");
+        assert_eq!(errors.messages[1].message.key, "account_invalid_input");
+    }
+
+    #[test]
+    fn feature_errors_block_rejects_duplicate_block() {
+        let source = r#"
+feature account
+  errors
+    default hide
+  errors
+    default expose
+"#;
+        let err = parse_feature_skeletons(source).expect_err("duplicate errors block must reject");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("at most one `errors` block"),
+            "expected duplicate-block error, got {msg}"
+        );
+    }
+
+    #[test]
+    fn feature_errors_block_rejects_invalid_default() {
+        let source = r#"
+feature account
+  errors
+    default sometimes
+"#;
+        let err = parse_feature_skeletons(source).expect_err("invalid default must reject");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("`default hide` or `default expose`"),
+            "expected canonical default error, got {msg}"
+        );
+    }
+
+    #[test]
+    fn feature_errors_block_rejects_unknown_child() {
+        let source = r#"
+feature account
+  errors
+    splat ok
+"#;
+        let err = parse_feature_skeletons(source).expect_err("unknown errors child must reject");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("`errors` children are"),
+            "expected children-enumeration error, got {msg}"
+        );
+    }
+
+    #[test]
+    fn feature_errors_round_trip_via_full_capsule_fixture() {
+        // Smoke check that the canonical fixture (extended in Cell
+        // PARSE-1) still parses end-to-end and the new IR slots are
+        // populated for the `customer` feature.
+        let source = include_str!("../../../../../examples/full-capsule/full-capsule.lzi");
+        let features = parse_feature_skeletons(source).expect("parses");
+        let customer = features
+            .iter()
+            .find(|f| f.name == "customer")
+            .expect("customer feature");
+
+        // Per-policy when_denied: `update` category gained one in the
+        // PARSE-1 fixture extension.
+        let policies = customer.policies.as_ref().expect("policies block present");
+        let update = policies
+            .categories
+            .iter()
+            .find(|c| c.name == "update")
+            .expect("update category");
+        assert_eq!(
+            update.when_denied.as_ref().map(|k| k.key.as_str()),
+            Some("customer_update_admin_only")
+        );
+
+        // Per-command when_denied: `capture_lead` gained one.
+        let capture_lead = customer
+            .commands
+            .iter()
+            .find(|c| c.name == "capture_lead")
+            .expect("capture_lead command");
+        assert_eq!(
+            capture_lead
+                .policy_when_denied
+                .as_ref()
+                .map(|k| k.key.as_str()),
+            Some("capture_lead_signin_required")
+        );
+
+        // Feature-level errors block: two `<code> message
+        // @translation.<key>` rows + the pre-existing exposure rules.
+        let errors = customer.errors.as_ref().expect("errors block present");
+        assert_eq!(
+            errors.default,
+            Some(crate::ast::ErrorExposureDefaultAst::Hide)
+        );
+        assert!(errors.exposure_4xx.contains(&"message".to_owned()));
+        assert!(errors.exposure_4xx.contains(&"code".to_owned()));
+        assert!(errors.exposure_5xx.contains(&"code".to_owned()));
+        assert_eq!(errors.messages.len(), 2);
+        let codes: Vec<&str> = errors.messages.iter().map(|m| m.code.as_str()).collect();
+        assert!(codes.contains(&"policy_denied"));
+        assert!(codes.contains(&"validation_failed"));
+    }
+}

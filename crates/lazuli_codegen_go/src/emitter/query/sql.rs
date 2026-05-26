@@ -150,3 +150,146 @@ fn emit_sql_args_fn(p: &mut GoPrinter, args_struct: &str, params: &[TypedSlot]) 
     p.dedent();
     p.line("},");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_support::{base_feature, emit, qname, record, slot};
+    use lazuli_ir::{
+        BuiltinType, CacheTtl, Policies, PolicyRef, Query, QueryCache, SqlQuery, TypeRef,
+    };
+
+    #[test]
+    fn sql_query_emits_sql_path_returns_and_quoted_cache_todo() {
+        let mut feature = base_feature("customer");
+        feature.records.push(record("CustomerLtv"));
+        feature.queries.push(Query::Sql(SqlQuery {
+            name: "lifetime_value".to_owned(),
+            sql_kind: lazuli_ir::SqlQueryKind::Sql,
+            public_contract: None,
+            params: vec![slot(
+                "min_score",
+                TypeRef::Builtin(BuiltinType::Integer),
+                false,
+            )],
+            scope: Vec::new(),
+            scope_override: false,
+            returns: TypeRef::Many(Box::new(TypeRef::UserDefined(qname("CustomerLtv")))),
+            sql_path: "./queries/customer_lifetime_value.sql".to_owned(),
+            cache: Some(QueryCache {
+                key: "customer.ltv(params)".to_owned(),
+                ttl: CacheTtl::Quoted("5 minutes".to_owned()),
+                tags: Vec::new(),
+                namespace: None,
+                profile_ref: None,
+            }),
+            policy: PolicyRef::None,
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }));
+
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains("type LifetimeValueArgs struct {"));
+        assert!(out.contains("MinScore *int64 `json:\"min_score,omitempty\"`"));
+        assert!(
+            out.contains("var lifetimeValue = lazuli.Query[LifetimeValueArgs, []CustomerLtv]{")
+        );
+        assert!(out.contains("Kind:     lazuli.QuerySQL,"));
+        assert!(out.contains("SQL:     \"./queries/customer_lifetime_value.sql\","));
+        assert!(out.contains("Returns: \"CustomerLtv[]\","));
+        assert!(out.contains("// TODO(runtime): quoted QueryCache.ttl"));
+    }
+
+    #[test]
+    fn query_view_emits_typed_sql_runtime_binding() {
+        let mut feature = base_feature("host");
+        feature.records.push(record("HostHomeRow"));
+        feature.queries.push(Query::Sql(SqlQuery {
+            name: "host_home_view".to_owned(),
+            sql_kind: lazuli_ir::SqlQueryKind::View,
+            public_contract: None,
+            params: vec![slot("user_id", TypeRef::Builtin(BuiltinType::Id), true)],
+            scope: Vec::new(),
+            scope_override: false,
+            returns: TypeRef::Many(Box::new(TypeRef::UserDefined(qname("HostHomeRow")))),
+            sql_path: "app/features/host/queries/host_home_view.sql".to_owned(),
+            cache: None,
+            policy: PolicyRef::None,
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }));
+
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains("//   query.view host_home_view"));
+        assert!(out.contains("type HostHomeViewArgs struct {"));
+        assert!(out.contains("UserID lazuli.ID `json:\"user_id\"`"));
+        assert!(out.contains("var hostHomeView = lazuli.Query[HostHomeViewArgs, HostHomeRow]{"));
+        assert!(out.contains("Kind:     lazuli.QueryView,"));
+        assert!(out.contains("SQL:     \"app/features/host/queries/host_home_view.sql\","));
+        assert!(out.contains("Returns: \"HostHomeRow[]\","));
+        assert!(out.contains("SQLMany: true,"));
+        assert!(out.contains("SQLArgs: func(args HostHomeViewArgs) []any {"));
+        assert!(out.contains("args.UserID,"));
+    }
+
+    /// QUERY-POLICY-001 — when the query authors a `policy` AND the
+    /// feature also has a `defaults.policy`, the per-query authoring
+    /// wins (Command precedence parity).
+    #[test]
+    fn sql_query_authored_policy_overrides_feature_default() {
+        let mut feature = base_feature("customer");
+        feature.defaults.policy = Some(PolicyRef::Local("read".to_owned()));
+        feature.policies = Policies {
+            categories: vec![
+                lazuli_ir::PolicyCategory {
+                    name: "read".to_owned(),
+                    atoms: vec!["@scope.same_org".to_owned()],
+                    previous_names: Vec::new(),
+                    when_denied: None,
+                    when_denied_route: None,
+                },
+                lazuli_ir::PolicyCategory {
+                    name: "audit".to_owned(),
+                    atoms: vec!["@role.admin".to_owned()],
+                    previous_names: Vec::new(),
+                    when_denied: None,
+                    when_denied_route: None,
+                },
+            ],
+            fields: Vec::new(),
+            span_ref: None,
+        };
+        feature.records.push(record("AuditRow"));
+        feature.queries.push(Query::Sql(SqlQuery {
+            name: "audit_dump".to_owned(),
+            sql_kind: lazuli_ir::SqlQueryKind::Sql,
+            public_contract: None,
+            params: Vec::new(),
+            scope: Vec::new(),
+            scope_override: false,
+            returns: TypeRef::Many(Box::new(TypeRef::UserDefined(qname("AuditRow")))),
+            sql_path: "./queries/audit_dump.sql".to_owned(),
+            cache: None,
+            policy: PolicyRef::Local("audit".to_owned()),
+            policy_expr: None,
+            policy_when_denied: None,
+            previous_names: Vec::new(),
+            span_ref: None,
+        }));
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains(
+                "Policy:   lazuli.Policy{Name: \"@policy.audit\", Atoms: []lazuli.PolicyAtom{{Namespace: \"role\", Name: \"admin\"}}},"
+            ),
+            "per-query authored `policy` should beat feature-default; got:\n{out}"
+        );
+        assert!(
+            !out.contains("Name: \"@policy.read\""),
+            "feature-default policy should NOT leak when query authored its own; got:\n{out}"
+        );
+    }
+}

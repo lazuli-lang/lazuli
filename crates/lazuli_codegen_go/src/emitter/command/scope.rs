@@ -389,3 +389,66 @@ pub(super) fn command_policy_atoms(command: &Command, policies: &Policies) -> Ve
     }
     atoms
 }
+
+/// Test-host siblings — each owns a coherent sub-cluster of the scope
+/// production code, wired in from `command/mod.rs` as
+/// `#[cfg(test)] mod` so they compile only under `cargo test`:
+///
+/// - `scope_owner_tests` covers `@scope.owner` / `@scope.same_org`
+///   atom-driven auto-injection + traversal via relation.
+/// - `scope_where_keys_tests` covers `resolve_where_keys` (single-input
+///   alt-key, route slots, `@scope.self` ctx-as-key, bulk mode,
+///   composite multi-route, full-struct `Returns`).
+/// - `owner_scope_sql_tests` covers `Command.owner_scope_sql` projection
+///   into `FromCtxOwnedVia` + `CreatesWithOwnerCheck` (including the
+///   PascalCase → snake_case lowering and partial-write
+///   `FromInputOptional` behaviour).
+#[cfg(test)]
+mod tests {
+    //! Residual scope-adjacent inline test — `CommandEffect::None` +
+    //! `@fn.*` handler shape. Kept inline because it's a single
+    //! ~30-LOC test that doesn't fit any of the three sibling test-host
+    //! files' sub-concerns. Moving it solo would be churn, not clarity.
+    use super::super::test_support::{
+        base_command, base_feature, emit_with_customer_fallback as emit,
+    };
+    use lazuli_ir::{CommandEffect, CommandInput, HandlerRef};
+
+    /// `command logout` (no `returns`, `handler @fn.logout`) — the IR
+    /// lowers to `CommandEffect::None` with a handler ref. The Go
+    /// handler stub is generated as `(struct{}, error)`. The emitted
+    /// `ReturnsFromRegistry` Output generic MUST be `struct{}` so the
+    /// runtime's type-assert (`fn.(func(*Ctx, I) (O, error))`) matches.
+    /// Previously emitted `any`, which failed the assert and 500'd.
+    #[test]
+    fn none_effect_with_fn_handler_emits_struct_output_generic() {
+        let mut feature = base_feature("customer");
+        let mut cmd = base_command("logout");
+        cmd.input = CommandInput::Empty;
+        cmd.effect = CommandEffect::None;
+        cmd.handler = Some(HandlerRef {
+            namespace: "fn".to_owned(),
+            name: "logout".to_owned(),
+            span_ref: None,
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(
+            out.contains(
+                "Effect: lazuli.ReturnsFromRegistry[struct{}, struct{}](\"customer.logout\"),"
+            ),
+            "no-returns + @fn handler should emit O=struct{{}} (matches Go handler stub):\n{out}"
+        );
+        assert!(
+            !out.contains("ReturnsFromRegistry[struct{}, any]"),
+            "regression: O=any breaks the runtime type-assert against the registered (struct{{}}, error) handler:\n{out}"
+        );
+        assert!(
+            out.contains(
+                "// Wire Logout as `func(ctx *lazuli.Ctx, input struct{}) (struct{}, error)`"
+            ),
+            "handler signature comment should match the (struct{{}}, error) shape, got:\n{out}"
+        );
+    }
+}

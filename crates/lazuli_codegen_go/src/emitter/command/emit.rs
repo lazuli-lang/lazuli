@@ -477,3 +477,11 @@ fn emit_input_struct(
     p.dedent();
     p.line("}");
 }
+
+// Test-host siblings — `emit.rs`'s inline `mod tests` was 377 LOC of
+// integration tests that exercised `emit_command_file` through every
+// `CommandEffect` variant and every binding-source shape. Wave R8-2c
+// split them by sub-concern of the production code into two sibling
+// files (`emit_effect_dispatch_tests.rs` + `emit_bindings_and_handlers_tests.rs`),
+// wired in from `command/mod.rs`. See each sibling's `//!` header for
+// the per-file coverage map.

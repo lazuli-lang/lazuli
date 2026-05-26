@@ -335,3 +335,93 @@ pub(in crate::emitter) fn format_rate_limit_struct(
     out.push('}');
     out
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tier-4 field-emission tests — exercise the runtime struct-field
+    //! emission for `approval`, `external_calls`, `timeout`, `retry`,
+    //! `idempotency`, `deprecated`. Lifted out of `file_emit.rs` (wave
+    //! R8-2b) so the tier-4 concern owns its own behavioural tests.
+    //! The `rate_limit` literal sub-cluster moved to the sibling
+    //! `rate_limit_emit_tests.rs` (wave R8-2c) to keep this file under
+    //! the ≤500-LOC gold standard.
+    use super::super::test_support::{
+        base_command, base_feature, emit_with_customer_fallback as emit, local_qname,
+    };
+    use lazuli_ir::{
+        BackoffStrategy, CommandEffect, CreateEffect, DeprecationReplacement, IdempotencyKey,
+        Path, RetryPolicy, UpdateEffect,
+    };
+
+    #[test]
+    fn tier4_fields_emit_runtime_struct_fields() {
+        let mut feature = base_feature("customer");
+        let mut cmd = base_command("reassign");
+        cmd.effect = CommandEffect::Updates(UpdateEffect {
+            resource: local_qname("Customer"),
+            assignments: Vec::new(),
+        });
+        cmd.approval = Some(lazuli_ir::ApprovalSpec {
+            required_when: Some("target.tier = enterprise".to_owned()),
+            by: "@role.admin".to_owned(),
+            timeout: Some("24h".to_owned()),
+            then: lazuli_ir::ApprovalThen::Deny,
+        });
+        cmd.external_calls = vec![lazuli_ir::ExternalCallRef {
+            slot: "audit".to_owned(),
+            op: "log".to_owned(),
+            args: Vec::new(),
+            span_ref: None,
+        }];
+        cmd.timeout = Some("30s".to_owned());
+        cmd.retry = Some(RetryPolicy {
+            count: 3,
+            backoff: BackoffStrategy::Exponential,
+        });
+        cmd.idempotency = Some(IdempotencyKey {
+            by: Path::from_segments(["input", "external_id"]),
+        });
+        cmd.deprecated = Some(lazuli_ir::Deprecation {
+            since: Some("2026.04".to_owned()),
+            replacement: Some(DeprecationReplacement::LocalCommand(
+                "reassign_v2".to_owned(),
+            )),
+            sunset: Some("2026-12-31".to_owned()),
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(out.contains(
+            "Approval: &lazuli.ApprovalSpec{Then: \"deny\", By: \"@role.admin\", Reason: \"target.tier = enterprise\"},"
+        ));
+        assert!(out.contains("ExternalCalls: []lazuli.ExternalCallRef{"));
+        assert!(out.contains("{Slot: \"audit\", Operation: \"log\"},"));
+        assert!(out.contains("Timeout: \"30s\","));
+        assert!(out.contains("Retry: &lazuli.RetryPolicy{Count: 3, Backoff: \"exponential\"},"));
+        assert!(out.contains("Idempotency: &lazuli.IdempotencyKey{Path: \"input.external_id\"},"));
+        assert!(out.contains(
+            "Deprecation: &lazuli.Deprecation{Since: \"2026.04\", Replacement: \"customer.command.reassign_v2\", Sunset: \"2026-12-31\"},"
+        ));
+        assert!(!out.contains("TODO("));
+    }
+
+    #[test]
+    fn tier4_fields_omit_absent_slots() {
+        let mut feature = base_feature("customer");
+        let mut cmd = base_command("create");
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Customer"),
+            from_input: false,
+            assignments: Vec::new(),
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        assert!(!out.contains("Approval:"));
+        assert!(!out.contains("ExternalCalls:"));
+        assert!(!out.contains("Timeout:"));
+        assert!(!out.contains("Retry:"));
+        assert!(!out.contains("Idempotency:"));
+        assert!(!out.contains("Deprecation:"));
+    }
+}

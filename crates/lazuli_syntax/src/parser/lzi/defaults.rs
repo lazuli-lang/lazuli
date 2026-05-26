@@ -140,3 +140,107 @@ fn parse_defaults_policy_for(
         span: Span::new(line.start, line.end),
     })
 }
+
+// =============================================================================
+// Phase L Tier 4a — `defaults` block parser slice tests.
+// =============================================================================
+#[cfg(test)]
+mod defaults_parser_tests {
+    use super::super::parse_feature_skeletons;
+    use crate::DefaultsTenancy;
+
+    #[test]
+    fn defaults_full_block_parses() {
+        let source = r#"
+feature customer
+  defaults
+    tenancy org
+    timestamps
+    policy_for jobs, webhooks: @actor.system
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let defaults = features[0].defaults.as_ref().expect("defaults block");
+        assert!(matches!(defaults.tenancy, Some(DefaultsTenancy::Org)));
+        assert!(defaults.timestamps);
+        assert_eq!(defaults.policy_for.len(), 1);
+        assert_eq!(defaults.policy_for[0].kinds, vec!["jobs", "webhooks"]);
+        assert_eq!(defaults.policy_for[0].atom, "@actor.system");
+    }
+
+    #[test]
+    fn defaults_tenancy_only_parses() {
+        let source = r#"
+feature customer_auth
+  defaults
+    tenancy team
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let defaults = features[0].defaults.as_ref().expect("defaults block");
+        assert!(matches!(defaults.tenancy, Some(DefaultsTenancy::Team)));
+        assert!(!defaults.timestamps);
+        assert!(defaults.policy_for.is_empty());
+    }
+
+    #[test]
+    fn defaults_custom_tenancy_parses() {
+        let source = r#"
+feature workspace_pinned
+  defaults
+    tenancy workspace
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let defaults = features[0].defaults.as_ref().expect("defaults block");
+        match defaults.tenancy.as_ref().expect("axis") {
+            DefaultsTenancy::Custom(axis) => assert_eq!(axis, "workspace"),
+            other => panic!("expected custom axis, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn defaults_duplicate_block_errors() {
+        let source = r#"
+feature customer
+  defaults
+    tenancy org
+
+  defaults
+    tenancy team
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("at most one"),
+            "error should mention duplicate defaults: {message}"
+        );
+    }
+
+    #[test]
+    fn defaults_unknown_child_errors() {
+        let source = r#"
+feature customer
+  defaults
+    timestaps
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("tenancy"),
+            "error should list valid children: {message}"
+        );
+    }
+
+    #[test]
+    fn defaults_policy_for_without_colon_errors() {
+        let source = r#"
+feature customer
+  defaults
+    policy_for jobs @actor.system
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("<kinds>: <atom>"),
+            "error should require explicit `:` (got {message:?})"
+        );
+    }
+}
