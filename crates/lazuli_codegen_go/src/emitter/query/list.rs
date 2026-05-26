@@ -1,15 +1,11 @@
 //! Cell E4 — `query.list` emission. Walks a `ListQuery` and emits the
-//! typed `<List><Resource>Args` struct, the
-//! `lazuli.Query[Args, Resource]` value (with header, filters, order,
-//! paginate, cache), and the exported Go wrapper that lets internal
-//! Go callers invoke the list without going through the HTTP router.
+//! typed `<List><Resource>Args` struct, the `lazuli.Query[Args, Resource]`
+//! value (header, filters, order, paginate, cache), and the exported Go
+//! wrapper (see `list_wrapper.rs`).
 //!
-//! The args struct / var naming hugs two precedents:
-//! - Default `list` queries → `List<Resources>Args` / `list<Resources>`
-//!   (plural). Mirrors the canonical Rails `Resource.list` shape.
-//! - Named queries (`query.list active_users` or `list active_users`) →
-//!   `<Name>Args` / `<lowerCamelName>`. The query name carries its own
-//!   semantics so we keep it verbatim and don't bolt on the resource.
+//! Naming axis: default `list` queries → `List<Resources>Args` /
+//! `list<Resources>` (plural Rails shape); named queries
+//! (`query.list active_users`) → `<Name>Args` / `<lowerCamelName>`.
 
 use lazuli_ir::{Feature, ListQuery};
 
@@ -23,6 +19,7 @@ use super::filters::{emit_filters, emit_order};
 use super::header::{
     emit_gate_annotations, emit_query_header, emit_scope_gaps, query_policy_denied_key_for_parts,
 };
+use super::list_wrapper::emit_list_query_wrapper;
 use super::util::{
     lower_camel, pascal_case, plural_pascal, resource_for_query, write_section_banner,
 };
@@ -115,35 +112,6 @@ pub(super) fn emit_list_query(
     emit_ctx.reset_line_directive(p, line_directive_emitted);
     p.blank();
     emit_list_query_wrapper(p, &query.name, &var_name, &args_struct, &resource_type);
-}
-
-/// Emit an exported Go wrapper for a `query.list` value. Mirrors the
-/// command-side `Handle<Name>` convention so Go-internal callers can
-/// invoke the list without going through the HTTP router.
-fn emit_list_query_wrapper(
-    p: &mut GoPrinter,
-    query_name: &str,
-    var_name: &str,
-    args_struct: &str,
-    resource_type: &str,
-) {
-    let func_name = pascal_case(query_name);
-    emit_pattern_header(p, PATTERN_QUERY_PGX_LIST);
-    p.line(&format!(
-        "// {func_name} is the exported Go wrapper around the package-private"
-    ));
-    p.line(&format!(
-        "// `{var_name}` value. Mirrors the command-side Handle<Name> shape"
-    ));
-    p.line("// so Go-internal callers (other handlers, helpers, tests) can");
-    p.line("// invoke the list without going through the HTTP router.");
-    p.line(&format!(
-        "func {func_name}(ctx *lazuli.Ctx, args {args_struct}) ([]{resource_type}, error) {{"
-    ));
-    p.indent();
-    p.line(&format!("return {var_name}.RunList(ctx, args)"));
-    p.dedent();
-    p.line("}");
 }
 
 fn list_args_struct_name(query_name: &str, resource_pascal: &str) -> String {
@@ -311,47 +279,6 @@ mod tests {
         );
     }
 
-    /// Gap A — `query.list` values also carry an exported wrapper so
-    /// Go-internal callers can drive the list through the runtime.
-    #[test]
-    fn list_query_emits_exported_go_wrapper() {
-        let mut feature = base_feature("customer");
-        feature.resources.push(resource(
-            "Customer",
-            vec![field("name", TypeRef::Builtin(BuiltinType::Text), true)],
-        ));
-        feature.queries.push(Query::List(ListQuery {
-            name: "list".to_owned(),
-            public_contract: None,
-            params: Vec::new(),
-            scope: Vec::new(),
-            scope_override: false,
-            filters: Vec::new(),
-            order: Vec::new(),
-            paginate: None,
-            modifier: None,
-            cache: None,
-            policy: PolicyRef::None,
-            policy_expr: None,
-            policy_when_denied: None,
-            previous_names: Vec::new(),
-            span_ref: None,
-            owner_scope_sql: None,
-        }));
-
-        let out = emit(&feature).expect("must emit");
-        assert!(
-            out.contains(
-                "func List(ctx *lazuli.Ctx, args ListCustomersArgs) ([]Customer, error) {"
-            ),
-            "exported list wrapper missing:\n{out}"
-        );
-        assert!(
-            out.contains("return listCustomers.RunList(ctx, args)"),
-            "wrapper must delegate to RunList:\n{out}"
-        );
-    }
-
     #[test]
     fn query_with_policy_category_when_denied_emits_error_keys() {
         let mut feature = base_feature("account");
@@ -449,14 +376,10 @@ mod tests {
         );
     }
 
-    // -------------------------------------------------------------------------
-    // Owner-scope projection — cell `codegen-os-projection`. The analyzer
-    // composes `Query::List.owner_scope_sql` per spec
-    // `ir-resource-conventions-owner-scope.md` §7.3; this codegen cell
-    // appends the carrier to the runtime's existing FilterRule pipeline as
-    // a `FromCtxOwnedVia` entry so the emitted SQL matches §8.4 verbatim.
-    // -------------------------------------------------------------------------
-
+    // Owner-scope projection (cell `codegen-os-projection`) — analyzer
+    // composes `Query::List.owner_scope_sql` per
+    // `ir-resource-conventions-owner-scope.md` §7.3; codegen appends the
+    // carrier as a `FromCtxOwnedVia` FilterRule (matches §8.4 verbatim).
     fn owner_scope_sql_property() -> lazuli_ir::OwnerScopeSql {
         lazuli_ir::OwnerScopeSql {
             field_name: "host".to_owned(),

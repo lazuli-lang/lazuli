@@ -39,6 +39,8 @@ mod list;
 use list::emit_list_query;
 pub(super) use list::list_var_name;
 
+mod list_wrapper;
+
 mod lookup;
 use lookup::emit_lookup_query;
 pub(super) use lookup::lookup_var_name;
