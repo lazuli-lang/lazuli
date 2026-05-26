@@ -53,6 +53,26 @@ impl RuleCategory {
     /// The fallback is `Vocabulary` — the largest existing module — so
     /// unmigrated codes land in the broadest bucket rather than
     /// accidentally claiming a narrower category like `Security`.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::RuleCategory;
+    ///
+    /// assert_eq!(
+    ///     RuleCategory::from_code_prefix("TEST-MISSING-AUTHORED-001"),
+    ///     RuleCategory::TestDiscipline
+    /// );
+    /// assert_eq!(
+    ///     RuleCategory::from_code_prefix("INTERNAL-UNDOC-PUB-001"),
+    ///     RuleCategory::InternalHygiene
+    /// );
+    /// // Unknown prefix falls back to Vocabulary (auditor flags later).
+    /// assert_eq!(
+    ///     RuleCategory::from_code_prefix("unknown-code"),
+    ///     RuleCategory::Vocabulary
+    /// );
+    /// ```
     pub fn from_code_prefix(code: &str) -> Self {
         match code.split('-').next() {
             Some("TEST") | Some("DOCTOR") => Self::TestDiscipline,
@@ -77,6 +97,16 @@ impl RuleCategory {
     /// Wave 2.2 — parse a category name from CLI `--fail-on category:<name>`.
     /// Accepts both `snake_case` (canonical, matches `as_str()`) and
     /// `PascalCase` (matches the enum variant name) for ergonomics.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::RuleCategory;
+    ///
+    /// assert_eq!(RuleCategory::parse("test_discipline"), Some(RuleCategory::TestDiscipline));
+    /// assert_eq!(RuleCategory::parse("TestDiscipline"), Some(RuleCategory::TestDiscipline));
+    /// assert_eq!(RuleCategory::parse("nonsense"), None);
+    /// ```
     pub fn parse(input: &str) -> Option<Self> {
         match input.trim() {
             "vocabulary" | "Vocabulary" => Some(Self::Vocabulary),
@@ -98,6 +128,16 @@ impl RuleCategory {
 
     /// Stable snake_case identifier for JSON serialization and TOML
     /// override keys.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::RuleCategory;
+    ///
+    /// assert_eq!(RuleCategory::Vocabulary.as_str(), "vocabulary");
+    /// assert_eq!(RuleCategory::TestDiscipline.as_str(), "test_discipline");
+    /// assert_eq!(RuleCategory::InternalHygiene.as_str(), "internal_hygiene");
+    /// ```
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Vocabulary => "vocabulary",

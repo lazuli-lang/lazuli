@@ -23,6 +23,19 @@ impl ConfigNoiseMetrics {
     /// Rule fires strictly: `comment_lines > semantic_lines`. The
     /// boundary case (equal counts → 1:1 ratio) does NOT fire — the
     /// rule signals dominance, not parity.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::config_noise::ConfigNoiseMetrics;
+    ///
+    /// let dominant = ConfigNoiseMetrics { comment_lines: 5, semantic_lines: 3 };
+    /// assert!(dominant.fires());
+    ///
+    /// // Equal counts (1:1) — does NOT fire.
+    /// let parity = ConfigNoiseMetrics { comment_lines: 3, semantic_lines: 3 };
+    /// assert!(!parity.fires());
+    /// ```
     pub fn fires(&self) -> bool {
         self.comment_lines > self.semantic_lines
     }
@@ -30,6 +43,19 @@ impl ConfigNoiseMetrics {
     /// Comment / semantic ratio. When `semantic_lines == 0` returns
     /// `comment_lines as f64` (sentinel — caller renders it as
     /// "all-comment file"); avoids div-by-zero panics.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::config_noise::ConfigNoiseMetrics;
+    ///
+    /// let m = ConfigNoiseMetrics { comment_lines: 6, semantic_lines: 3 };
+    /// assert_eq!(m.ratio(), 2.0);
+    ///
+    /// // Sentinel ratio when there is no semantic content.
+    /// let only_comments = ConfigNoiseMetrics { comment_lines: 4, semantic_lines: 0 };
+    /// assert_eq!(only_comments.ratio(), 4.0);
+    /// ```
     pub fn ratio(&self) -> f64 {
         if self.semantic_lines == 0 {
             self.comment_lines as f64
@@ -53,6 +79,18 @@ impl ConfigNoiseMetrics {
 /// The trailing-`#` detection is intentionally naive: it does not
 /// account for `#` inside quoted strings, which is rare enough in TOML
 /// configs to be acceptable noise for a heuristic rule.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::config_noise::config_noise_metrics;
+///
+/// let body = "# header\nkey = 1\nkey2 = 2  # trailing\n";
+/// let m = config_noise_metrics(body);
+/// assert_eq!(m.comment_lines, 2); // 1 full-line + 1 trailing
+/// assert_eq!(m.semantic_lines, 2);
+/// assert!(!m.fires());
+/// ```
 pub fn config_noise_metrics(contents: &str) -> ConfigNoiseMetrics {
     let mut comment_lines = 0usize;
     let mut semantic_lines = 0usize;
