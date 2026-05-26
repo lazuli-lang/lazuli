@@ -32,6 +32,13 @@ use serde::{Deserialize, Serialize};
 
 use super::{CommandAudit, PolicyExprAst, RateLimitSpecAst, Span};
 
+/// `report <name>` block — declarative tabular export.
+///
+/// Lazuli's answer to the `api + opaque handler` pattern for
+/// static-column exports: authors name columns, pick a source query and
+/// formats, and the codegen emits the export pipeline. No Go file
+/// required for the canonical case. See module-level docs for the
+/// surface and `docs/proposals/report-vocab.md` for the rationale.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReportDecl {
     pub name: String,
@@ -95,4 +102,27 @@ pub enum ReportColumnSourceAst {
     /// `@fn.<name>(arg, arg, ...)` — call a user-defined or capability
     /// function. Args are captured verbatim (comma-split, trimmed).
     FnCall { name: String, args: Vec<String> },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn row_field_serde_token_is_kind_tagged() {
+        let v = serde_json::to_value(ReportColumnSourceAst::RowField("name".into())).unwrap();
+        assert_eq!(v["kind"], "RowField");
+        assert_eq!(v["value"], "name");
+    }
+
+    #[test]
+    fn fn_call_serde_carries_args() {
+        let s = ReportColumnSourceAst::FnCall {
+            name: "currency".into(),
+            args: vec!["row.total".into(), "BRL".into()],
+        };
+        let v = serde_json::to_value(&s).unwrap();
+        assert_eq!(v["kind"], "FnCall");
+        assert_eq!(v["value"]["args"][1], "BRL");
+    }
 }

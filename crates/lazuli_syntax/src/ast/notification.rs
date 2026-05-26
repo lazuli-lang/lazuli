@@ -21,6 +21,14 @@ use serde::{Deserialize, Serialize};
 
 use super::{JobRetry, JobTrigger, PolicyExprAst, Span};
 
+/// `notification <name>` block — outbound notification (email, in_app,
+/// push, ...).
+///
+/// Feature-scoped sibling of `Job` / `Channel` / `Poller`. Reuses Job's
+/// trigger/retry vocabulary so authors only learn one shape for
+/// background work. See module-level docs and
+/// `docs/proposals/bucket-notifications-expanded.md` for the `digest`
+/// and `throttle` sub-blocks specific to notifications.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Notification {
     pub name: String,
@@ -136,4 +144,42 @@ pub struct NotificationThrottle {
     /// `burst <N>` — optional.
     pub burst: Option<u32>,
     pub span: Span,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn channel_serde_roundtrips_closed_body() {
+        let c = Channel {
+            name: "realtime".into(),
+            tenant_from: "workspace".into(),
+            policy: "@policy.member".into(),
+            payload: "RealtimeUpdate".into(),
+            span: Span::new(0, 0),
+        };
+        let json = serde_json::to_string(&c).unwrap();
+        let back: Channel = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, c);
+    }
+
+    #[test]
+    fn cache_profile_decl_optional_fields_serde() {
+        let p = CacheProfileDecl {
+            name: "list_recent".into(),
+            key: "tenant".into(),
+            ttl: "5m".into(),
+            namespace: None,
+            tags: vec![],
+            stale_while_revalidate: None,
+            coalesce: None,
+            sliding: None,
+            span: Span::new(0, 0),
+        };
+        let s = serde_json::to_string(&p).unwrap();
+        // Empty optional fields elided thanks to `skip_serializing_if`.
+        assert!(!s.contains("namespace"));
+        assert!(!s.contains("tags"));
+    }
 }

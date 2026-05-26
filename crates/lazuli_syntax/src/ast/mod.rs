@@ -80,13 +80,37 @@ pub use surface::*;
 pub use tenant_migration::*;
 pub use webhook::*;
 
+/// Byte range into the original source file, attached to every AST node.
+///
+/// Spans are produced by the indentation parser and survive lowering so
+/// downstream tools (doctor, LSP, codegen error reports) can map an IR
+/// node back to its authored line. Two `usize` byte offsets — `start`
+/// inclusive, `end` exclusive — matching `&str[start..end]`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Span {
+    /// Inclusive byte offset.
     pub start: usize,
+    /// Exclusive byte offset.
     pub end: usize,
 }
 
 impl Span {
+    /// Build a [`Span`] from a raw byte range.
+    ///
+    /// The parser is the canonical builder; consumers (analyzer, doctor)
+    /// only ever construct via this constructor when synthesising spans
+    /// for inferred nodes (e.g. defaulted fields) so all spans flow
+    /// through one entry point.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_syntax::Span;
+    ///
+    /// let s = Span::new(10, 24);
+    /// assert_eq!(s.start, 10);
+    /// assert_eq!(s.end, 24);
+    /// ```
     pub fn new(start: usize, end: usize) -> Self {
         Self { start, end }
     }
@@ -127,13 +151,25 @@ pub struct RateLimitByEnvAst {
     pub span: Span,
 }
 
+/// Legacy brace-MVP module root.
+///
+/// Pre-canonical-indent parser shape kept for back-compat with the few
+/// remaining `.lz` fixtures that author `app { aggregate Foo { ... } }`.
+/// New work targets `FeatureSkeleton` / `PackageSkeleton` instead.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Document {
+    /// `app <name>` header, if any.
     pub app: Option<String>,
+    /// Aggregates declared at the top level.
     pub aggregates: Vec<Aggregate>,
     pub span: Span,
 }
 
+/// Legacy brace-MVP aggregate (pre-`resource <Name>` shape).
+///
+/// Bundles fields + commands + queries + surfaces under one `aggregate <Name>`
+/// block. Superseded by `ResourceDecl` + `CommandDecl` + `QueryDecl` at
+/// feature scope; retained for back-compat only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Aggregate {
     pub name: String,
@@ -144,41 +180,69 @@ pub struct Aggregate {
     pub span: Span,
 }
 
+/// Legacy brace-MVP field row inside an [`Aggregate`].
+///
+/// Modern code paths use `ResourceFieldDecl` (typed, with constraints).
+/// This type captures only name, raw type literal, and a closed-catalog
+/// modifier set.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Field {
     pub name: String,
+    /// Type literal verbatim (`Text`, `ID`, ...).
     pub ty: String,
     pub modifiers: Vec<FieldModifier>,
     pub span: Span,
 }
 
+/// Legacy brace-MVP field modifier — closed three-variant catalog.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum FieldModifier {
+    /// `required` modifier.
     Required,
+    /// `unique` modifier.
     Unique,
+    /// `default <value>` modifier — value captured verbatim.
     Default(String),
 }
 
+/// Legacy brace-MVP command (`command <name> { input ..., emits ..., }`).
+///
+/// Superseded by `CommandDecl` (Phase L Tier 4b) which adds policy
+/// expressions, the declarative spine, route slots, and audit blocks.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Command {
     pub name: String,
+    /// `input <field>, <field>` verbatim.
     pub input: Vec<String>,
+    /// `policy @policy.<name>`.
     pub policy: Option<String>,
+    /// `emits <event>, <event>` verbatim.
     pub emits: Vec<String>,
+    /// `triggers <event>, <event>` — events that drive this command.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub triggers: Vec<String>,
     pub span: Span,
 }
 
+/// Legacy brace-MVP query — superseded by `QueryDecl`.
+///
+/// Captures the bare `search`/`filters` line shape. Modern queries use
+/// the typed `query.list` / `query.lookup` / `query.sql` surface.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Query {
     pub name: String,
+    /// `search by <field>, <field>` verbatim.
     pub search: Vec<String>,
+    /// `filters by <field>, <field>` verbatim.
     pub filters: Vec<String>,
     pub span: Span,
 }
 
+/// Legacy brace-MVP surface — superseded by `ViewModelDecl` (`crate::ast::surface`).
+///
+/// Captures the bare `list`/`form`/`detail` column lists. Modern UI
+/// authoring goes through the per-target `.lzx` ViewModel pipeline.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Surface {
     pub name: String,

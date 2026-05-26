@@ -45,3 +45,26 @@ pub struct TenantMigration {
     pub handler: String,
     pub span: Span,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tenant_migration_axis_required_in_struct() {
+        // Smoke construction: legacy `target tenants <axis>` form leaves
+        // target_ref unset and still records the axis.
+        let m = TenantMigration {
+            name: "split_orders".into(),
+            target_ref: None,
+            target_axis: "workspace".into(),
+            idempotency_by: Some("by row.id".into()),
+            retry: None,
+            timeout: None,
+            handler: "./tenant/migrations/split_orders.go".into(),
+            span: Span::new(0, 0),
+        };
+        assert_eq!(m.target_axis, "workspace");
+        assert!(m.target_ref.is_none());
+    }
+}
