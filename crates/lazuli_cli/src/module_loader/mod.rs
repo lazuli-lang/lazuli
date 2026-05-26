@@ -1,27 +1,23 @@
 //! Lazuli source discovery and module loading.
 //!
-//! Carved out of `main.rs` as part of Wave R6-5 (Rails-style refactor).
-//! This module owns the file-system walkers and IR builders that turn a
-//! `.lzi` / `.lzx` file or directory into the typed module shapes that
-//! every `lazuli` subcommand consumes:
+//! Carved out of `main.rs` as part of Wave R6-5 (Rails-style refactor)
+//! and re-split in R9 into sibling files. This module owns the
+//! file-system walkers and IR builders that turn a `.lzi` / `.lzx`
+//! file or directory into the typed module shapes that every `lazuli`
+//! subcommand consumes:
 //!
-//! - **Discovery walkers**: [`collect_package_lzi_files`],
-//!   [`collect_package_lzx_files`] (recursive, skipping `.git`, `dist`,
-//!   `node_modules`, …).
-//! - **Source aggregation**: [`read_package_lzi_source`] concatenates
-//!   every `.lzi` in the package for `lazuli inspect`.
-//! - **Module builders**: [`build_module_from_path`] and
-//!   [`build_module_with_source_from_path`] lower the discovered files
+//! - **Discovery walkers** + **source aggregation** ([`collectors`]):
+//!   `collect_package_lzi_files`, `collect_package_lzx_files`,
+//!   `collect_lzx_experience_module`, `read_package_lzi_source`.
+//! - **`.lzx` bundling + surface attachment** ([`lzx_bundle`]):
+//!   `LzxBundle`, `collect_lzx_bundle`, `attach_lzx_surfaces`.
+//! - **Module builders** (this file): `build_module_from_path` and
+//!   `build_module_with_source_from_path` lower the discovered files
 //!   into `lazuli_ir::Module` (the source-map variant returns a
 //!   `lazuli_ir::SourceMap` and per-feature `FileId` table for codegen
 //!   `//line` directives).
-//! - **`.lzx` bundling**: [`collect_lzx_experience_module`] +
-//!   [`collect_lzx_bundle`] + [`LzxBundle`] lift app/route/experience/
-//!   surface IR out of `.lzx` files.
-//! - **Surface attachment**: [`attach_lzx_surfaces`] wires per-feature
-//!   `.web.lzx`/`.mobile.lzx` into the matching `lazuli_ir::Feature`.
-//! - **Project root resolution**: [`project_root_for_input`].
-//! - **Plan/gate aggregation**: [`collect_plan_gate_facts_for_generate`].
+//! - **Project root resolution + plan/gate aggregation** (this file):
+//!   `project_root_for_input`, `collect_plan_gate_facts_for_generate`.
 //!
 //! No behavior change vs. the pre-split build.
 
@@ -29,7 +25,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use lazuli_analyzer::source_map::SourceMapResolver as _;
 
 use crate::app_manifest;
@@ -37,138 +33,16 @@ use crate::lazurite_manifest;
 use crate::plugin_manifest;
 use crate::plugin_semantic_resolver;
 
-/// Recursively collect every `.lzi` file under a package root, skipping
-/// well-known noise directories (build output, vcs metadata, vendored
-/// deps). Honors the Lazurite convention (`features/<name>/<name>.lzi`)
-/// without requiring callers to enumerate features.
-pub(crate) fn collect_package_lzi_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
-    const SKIP: &[&str] = &[
-        ".git",
-        ".hg",
-        ".svn",
-        ".lazuli",
-        "dist",
-        "node_modules",
-        "target",
-    ];
-    let entries =
-        fs::read_dir(dir).with_context(|| format!("reading directory {}", dir.display()))?;
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            if SKIP.iter().any(|s| *s == name) {
-                continue;
-            }
-            collect_package_lzi_files(&path, out)?;
-        } else if path.extension().and_then(|s| s.to_str()) == Some("lzi") {
-            out.push(path);
-        }
-    }
-    Ok(())
-}
+mod collectors;
+mod lzx_bundle;
 
-pub(crate) fn collect_package_lzx_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
-    const SKIP: &[&str] = &[
-        ".git",
-        ".hg",
-        ".svn",
-        ".lazuli",
-        "dist",
-        "node_modules",
-        "target",
-    ];
-    let entries =
-        fs::read_dir(dir).with_context(|| format!("reading directory {}", dir.display()))?;
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            if SKIP.iter().any(|s| *s == name) {
-                continue;
-            }
-            collect_package_lzx_files(&path, out)?;
-        } else if path.extension().and_then(|s| s.to_str()) == Some("lzx") {
-            out.push(path);
-        }
-    }
-    Ok(())
-}
+pub(crate) use collectors::{
+    collect_lzx_experience_module, collect_package_lzi_files, collect_package_lzx_files,
+    read_package_lzi_source,
+};
+pub(crate) use lzx_bundle::{collect_lzx_bundle, LzxBundle};
 
-pub(crate) fn collect_lzx_experience_module(input: &Path) -> lazuli_ir::ExperienceModule {
-    let mut module = lazuli_ir::ExperienceModule {
-        app: None,
-        routes: Vec::new(),
-        experiences: Vec::new(),
-        surfaces: Vec::new(),
-    };
-    let mut files = Vec::new();
-    let result = if input.is_dir() {
-        collect_package_lzx_files(input, &mut files)
-    } else if input.extension().and_then(|s| s.to_str()) == Some("lzx") {
-        files.push(input.to_path_buf());
-        Ok(())
-    } else {
-        Ok(())
-    };
-    if let Err(err) = result {
-        eprintln!("lazuli: skipping .lzx route lift: {err:#}");
-        return module;
-    }
-    files.sort();
-    for path in files {
-        let source = match fs::read_to_string(&path) {
-            Ok(source) => source,
-            Err(err) => {
-                eprintln!("lazuli: skipping {}: {err}", path.display());
-                continue;
-            }
-        };
-        let parsed = match lazuli_syntax::parse_lzx_document(&source) {
-            Ok(parsed) => parsed,
-            Err(err) => {
-                eprintln!(
-                    "lazuli: skipping {}: lzx parse failed: {:?}",
-                    path.display(),
-                    err
-                );
-                continue;
-            }
-        };
-        let lowered = lazuli_analyzer::lower_lzx_document(&parsed);
-        if module.app.is_none() {
-            module.app = lowered.app;
-        }
-        module.routes.extend(lowered.routes);
-        module.experiences.extend(lowered.experiences);
-        module.surfaces.extend(lowered.surfaces);
-    }
-    module
-}
-
-pub(crate) fn read_package_lzi_source(dir: &Path) -> Result<String> {
-    let mut files = Vec::new();
-    collect_package_lzi_files(dir, &mut files)?;
-    files.sort();
-    if files.is_empty() {
-        bail!("{} contains no `.lzi` files to inspect", dir.display());
-    }
-
-    let mut source = String::new();
-    for path in files {
-        if !source.is_empty() {
-            source.push_str("\n\n");
-        }
-        source.push_str(
-            &fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?,
-        );
-    }
-    Ok(source)
-}
+use lzx_bundle::attach_lzx_surfaces;
 
 /// Build a `lazuli_ir::Module` from a `.lzi` file or directory by
 /// walking every `.lzi` file in the canonical fixture and lowering its
@@ -297,124 +171,6 @@ pub(crate) fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> 
     }
 
     Ok(module)
-}
-
-/// L0 #3 — look for `features/<feature>/<feature>.web.lzx` and
-/// `features/<feature>/<feature>.mobile.lzx` next to each parsed
-/// `Feature` and attach the lowered `Surface` records. Missing files
-/// are silently skipped; parse / lower errors are reported but do not
-/// fail the build.
-fn attach_lzx_surfaces(input: &Path, module: &mut lazuli_ir::Module) {
-    let features_root = input.join("features");
-    if !features_root.is_dir() {
-        return;
-    }
-    for feature in module.features.iter_mut() {
-        let feat_dir = features_root.join(&feature.name);
-        if !feat_dir.is_dir() {
-            continue;
-        }
-        for (target_label, parsed_target) in [
-            ("web", lazuli_syntax::SurfaceTargetAst::Web),
-            ("mobile", lazuli_syntax::SurfaceTargetAst::Mobile),
-        ] {
-            let path = feat_dir.join(format!("{}.{}.lzx", feature.name, target_label));
-            if !path.is_file() {
-                continue;
-            }
-            let source = match fs::read_to_string(&path) {
-                Ok(s) => s,
-                Err(err) => {
-                    eprintln!(
-                        "lazuli: skipping {}: read failed: {:?}",
-                        path.display(),
-                        err
-                    );
-                    continue;
-                }
-            };
-            let ast = match lazuli_syntax::parse_surface_document(&source) {
-                Ok(ast) => ast,
-                Err(err) => {
-                    eprintln!(
-                        "lazuli: skipping {}: surface parse failed: {:?}",
-                        path.display(),
-                        err
-                    );
-                    continue;
-                }
-            };
-            if ast.target != parsed_target {
-                eprintln!(
-                    "lazuli: skipping {}: surface target `{:?}` does not match filename target `{}`",
-                    path.display(),
-                    ast.target,
-                    target_label,
-                );
-                continue;
-            }
-            match lazuli_analyzer::lower_surface(&ast) {
-                Ok(surface) => feature.surfaces.push(surface),
-                Err(err) => eprintln!(
-                    "lazuli: skipping {}: surface lower failed: {:?}",
-                    path.display(),
-                    err
-                ),
-            }
-        }
-    }
-}
-
-#[derive(Default)]
-pub(crate) struct LzxBundle {
-    pub(crate) app: Option<lazuli_ir::AppManifest>,
-    pub(crate) routes: Vec<lazuli_ir::AppRoute>,
-    pub(crate) experiences: Vec<lazuli_ir::Experience>,
-    pub(crate) surfaces: Vec<lazuli_ir::PlatformSurface>,
-}
-
-pub(crate) fn collect_lzx_bundle(input: &Path) -> LzxBundle {
-    let mut files = Vec::new();
-    if input.is_dir() {
-        let _ = collect_package_lzx_files(input, &mut files);
-    } else if input.extension().and_then(|s| s.to_str()) == Some("lzx") {
-        files.push(input.to_path_buf());
-    }
-    files.sort();
-
-    let mut bundle = LzxBundle::default();
-    for path in files {
-        let source = match fs::read_to_string(&path) {
-            Ok(source) => source,
-            Err(err) => {
-                eprintln!(
-                    "lazuli: skipping {}: read failed: {:?}",
-                    path.display(),
-                    err
-                );
-                continue;
-            }
-        };
-        let document = match lazuli_syntax::parse_lzx_document(&source) {
-            Ok(document) => document,
-            Err(err) => {
-                eprintln!(
-                    "lazuli: skipping {}: lzx parse failed: {:?}",
-                    path.display(),
-                    err
-                );
-                continue;
-            }
-        };
-        let lowered = lazuli_analyzer::lower_lzx_document(&document);
-        if bundle.app.is_none() {
-            bundle.app = lowered.app;
-        }
-        bundle.routes.extend(lowered.routes);
-        bundle.experiences.extend(lowered.experiences);
-        bundle.surfaces.extend(lowered.surfaces);
-    }
-    bundle
 }
 
 pub(crate) fn build_module_with_source_from_path(
