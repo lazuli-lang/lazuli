@@ -86,6 +86,17 @@ pub struct PlanGateFacts {
 /// `None` when not declared. `tenancy_axis` is filled in `None`
 /// here; richer resolution requires the doctor's resource-tenancy
 /// table and lives downstream.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_analyzer::parse_subscription_anchor;
+///
+/// let src = "app Foo\n  subscription resource Billing.plan\n";
+/// let anchor = parse_subscription_anchor(src).expect("anchor parses");
+/// assert_eq!(anchor.feature, "Billing");
+/// assert_eq!(anchor.field, "plan");
+/// ```
 pub fn parse_subscription_anchor(app_lzi_source: &str) -> Option<ir::SubscriptionAnchor> {
     let mut in_app = false;
     let mut offset = 0usize;
@@ -145,6 +156,17 @@ pub fn parse_subscription_anchor(app_lzi_source: &str) -> Option<ir::Subscriptio
 ///   `FeatureGatesAst` produced by `parse_feature_gates(source)`.
 /// - `anchor` is the `SubscriptionAnchor` resolved from
 ///   `app.lzi subscription resource ...`.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_analyzer::aggregate_plan_gate_facts;
+///
+/// let facts = aggregate_plan_gate_facts(&[], &[], None);
+/// assert!(facts.catalog.is_none());
+/// assert!(facts.subscription_anchor.is_none());
+/// assert!(facts.gates.is_empty());
+/// ```
 pub fn aggregate_plan_gate_facts(
     plan_blocks: &[syntax::PlanBlockAst],
     feature_gates: &[(String, syntax::FeatureGatesAst)],
@@ -306,10 +328,14 @@ pub(crate) fn build_plan_catalog(plan_blocks: &[syntax::PlanBlockAst]) -> ir::Pl
     }
 }
 
-/// PG.B — closed catalog of plan-and-gate doctor diagnostic codes.
+/// PG.B — one plan-or-gate doctor diagnostic, carrying a closed
+/// [`PlanGateCode`] discriminant, a human-readable message, and a
+/// best-effort source span.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlanGateDiagnostic {
+    /// Closed-catalog code (see [`PlanGateCode`]).
     pub code: PlanGateCode,
+    /// Pre-formatted diagnostic message.
     pub message: String,
     /// Best-effort source-byte range of the offending construct. The
     /// `0..0` span indicates a package-wide issue (catalog absent,
@@ -317,6 +343,11 @@ pub struct PlanGateDiagnostic {
     pub span: syntax::Span,
 }
 
+/// Closed catalog of plan-and-gate diagnostic codes.
+///
+/// Each variant maps 1:1 to a stable string code (via [`Self::as_str`])
+/// that the doctor / codegen pipeline reads. Adding a variant requires
+/// updating the catalog table in `docs/proposals/plan-gate-doctor.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlanGateCode {
     /// `PLAN-FEATURE-UNDECLARED-001` — `gate behind plan.feature: <X>`
@@ -343,6 +374,15 @@ pub enum PlanGateCode {
 }
 
 impl PlanGateCode {
+    /// Stable string code consumed by the doctor / codegen pipeline.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_analyzer::PlanGateCode;
+    ///
+    /// assert_eq!(PlanGateCode::NoSubscription.as_str(), "PLAN-NO-SUBSCRIPTION-001");
+    /// ```
     pub fn as_str(self) -> &'static str {
         match self {
             PlanGateCode::FeatureUndeclared => "PLAN-FEATURE-UNDECLARED-001",
@@ -355,6 +395,24 @@ impl PlanGateCode {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_inputs_aggregate_into_empty_facts() {
+        let facts = aggregate_plan_gate_facts(&[], &[], None);
+        assert!(facts.catalog.is_none());
+        assert!(facts.subscription_anchor.is_none());
+        assert!(facts.gates.is_empty());
+    }
+
+    #[test]
+    fn missing_subscription_anchor_returns_none() {
+        assert!(parse_subscription_anchor("").is_none());
+        assert!(parse_subscription_anchor("app Foo\n  # nothing\n").is_none());
+    }
+}
 
 mod diagnostics;
 pub use diagnostics::diagnose_plan_gate_facts;

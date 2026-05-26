@@ -21,6 +21,15 @@ use super::{PlanGateCode, PlanGateDiagnostic, PlanGateFacts};
 /// children. The function scans for `gate ... ` lines appearing after
 /// the first `policy ` line to flag GATE-EVAL-ORDER-001. Callers that
 /// don't need eval-order checking can pass an empty slice.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_analyzer::{diagnose_plan_gate_facts, PlanGateFacts};
+///
+/// let facts = PlanGateFacts::default();
+/// assert!(diagnose_plan_gate_facts(&facts, &[]).is_empty());
+/// ```
 pub fn diagnose_plan_gate_facts(
     facts: &PlanGateFacts,
     sources_with_eval_order: &[(String, String, syntax::Span)],
@@ -198,4 +207,15 @@ pub fn diagnose_plan_gate_facts(
     }
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_facts_diagnose_clean() {
+        let facts = PlanGateFacts::default();
+        assert!(diagnose_plan_gate_facts(&facts, &[]).is_empty());
+    }
 }

@@ -248,6 +248,15 @@ fn nearest_field_name(target: &str, fields: &[ir::Field]) -> Option<String> {
 /// construct a synthetic `Field` + `Resource` and want to round-trip
 /// the SQL without running the whole `synthesize_conventions` pass.
 /// For real synth, use `resolve_owner_scope` via `synthesize_conventions`.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_analyzer::build_owner_scope_where_for_test;
+///
+/// let where_clause = build_owner_scope_where_for_test("customer_id", "Customer", "user_id");
+/// assert!(where_clause.contains("ctx.User.ID"));
+/// ```
 #[doc(hidden)]
 pub fn build_owner_scope_where_for_test(
     fk_col: &str,
@@ -264,6 +273,15 @@ pub fn build_owner_scope_where_for_test(
 
 /// §8.5.A — `pub` re-export of the CTE-INSERT prefix builder for
 /// direct test access. Same role as `build_owner_scope_where_for_test`.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_analyzer::build_owner_scope_cte_prefix_for_test;
+///
+/// let cte = build_owner_scope_cte_prefix_for_test("customer_id", "Customer", "user_id");
+/// assert!(cte.starts_with("WITH owner_check AS"));
+/// ```
 #[doc(hidden)]
 pub fn build_owner_scope_cte_prefix_for_test(
     fk_col: &str,
@@ -276,4 +294,22 @@ pub fn build_owner_scope_cte_prefix_for_test(
         fk_table = quoted_table(fk_target_resource),
         through = quoted_ident(through_column),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn where_clause_includes_chain_predicate() {
+        let s = build_owner_scope_where_for_test("customer_id", "Customer", "user_id");
+        assert!(s.contains("customer_id"));
+        assert!(s.contains("ctx.User.ID"));
+    }
+
+    #[test]
+    fn cte_prefix_starts_with_with_owner_check() {
+        let s = build_owner_scope_cte_prefix_for_test("customer_id", "Customer", "user_id");
+        assert!(s.starts_with("WITH owner_check AS"));
+    }
 }

@@ -85,6 +85,17 @@ use signature::{
 /// selects which IR node shape to emit. The emitted IR nodes contain
 /// zero control flow; downstream codegen lowers each to one fixed
 /// SQL per crud §7 / me §7.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::synthesize_conventions;
+/// use lazuli_ir::Feature;
+///
+/// let mut feature: Feature = unimplemented!("from analyzer pipeline");
+/// let diagnostics = synthesize_conventions(&mut feature);
+/// assert!(diagnostics.iter().all(|d| !format!("{d:?}").is_empty()));
+/// ```
 pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnostic> {
     let mut diagnostics: Vec<CrudSynthDiagnostic> = Vec::new();
     let mut to_add_commands: Vec<ir::Command> = Vec::new();
