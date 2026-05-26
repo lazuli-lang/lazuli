@@ -133,6 +133,10 @@ pub struct PolicyCategory {
     pub when_denied_route: Option<WhenDeniedRoute>,
 }
 
+/// `when_denied` block on a policy — declarative redirect routing
+/// when access is denied. Three arms: unauthenticated callers,
+/// role-mismatch arms (per-role redirect target), and the default
+/// fallback.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WhenDeniedRoute {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -145,6 +149,9 @@ pub struct WhenDeniedRoute {
     pub span_ref: Option<SpanRef>,
 }
 
+/// One role-keyed redirect arm inside [`WhenDeniedRoute`]. Codegen
+/// emits a runtime guard that checks the caller's role and routes
+/// to `target` on mismatch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RoleMismatchArm {
     pub role: String,
@@ -153,10 +160,14 @@ pub struct RoleMismatchArm {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Closed catalog of redirect targets in [`WhenDeniedRoute`].
+/// `View` names a typed experience view; `Path` is the literal URL.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum RouteRedirectTarget {
+    /// Typed view reference (`view <name>`).
     View(String),
+    /// Literal URL path (`"/login"`).
     Path(String),
 }
 
@@ -167,6 +178,9 @@ pub struct FieldPolicies {
     pub fields: Vec<FieldPolicy>,
 }
 
+/// Per-field read/write policy. `None` on either axis means inherit
+/// the feature-level read/write policy. Lives inside [`FieldPolicies`]
+/// per resource.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FieldPolicy {
     pub field: String,

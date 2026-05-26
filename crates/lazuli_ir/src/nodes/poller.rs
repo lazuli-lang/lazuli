@@ -44,6 +44,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{AuditSpec, HandlerRef, IdempotencyKey, SpanRef, TenantFromSpec};
 
+/// Root IR node for a `poller <name> { … }` block — declarative
+/// state-machine that walks a same-feature resource, advancing rows
+/// through a typed state space until they reach a terminal kind.
+/// Carries cursor + retry + tick wiring plus the resolve handler.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Poller {
     pub name: String,
@@ -83,6 +87,9 @@ pub struct Poller {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Cursor field bindings on a [`Poller`]. Names the three resource
+/// fields the poller updates: `next_at` (scheduled tick), `resolved_at`
+/// (terminal stamp), and `attempts` (retry counter).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PollerCursor {
     pub next_at_field: String,
@@ -92,6 +99,8 @@ pub struct PollerCursor {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Bounded retry policy on a [`Poller`]. Pairs an attempt cap with a
+/// typed [`PollerBackoff`] curve.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PollerRetry {
     pub max_attempts: u32,
@@ -110,6 +119,8 @@ pub enum PollerBackoff {
     Exponential { base: String, cap: Option<String> },
 }
 
+/// One declared state on a [`Poller`]. At least 2 states are required
+/// (with at least 1 terminal); doctor enforces.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PollerState {
     pub name: String,
@@ -118,14 +129,21 @@ pub struct PollerState {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Closed catalog of poller state kinds. `Initial` is where rows enter;
+/// `Terminal` ends the walk; everything else is `Intermediate`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PollerStateKind {
+    /// Entry state — rows start here.
     Initial,
+    /// Walk-through state.
     Intermediate,
+    /// Absorbing state — walk stops on entry.
     Terminal,
 }
 
+/// Tick cadence on a [`Poller`]. `every` is the verbatim duration
+/// literal the runtime parses; `batch` is the per-tick row budget.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PollerTick {
     /// Verbatim duration literal (`15s`, `1m`); runtime parses.

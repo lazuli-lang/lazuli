@@ -79,11 +79,29 @@ impl AppHeaders {
 
     /// Returns `true` when `value` is a known `Referrer-Policy` token.
     /// Used by doctor to validate the authored string.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::AppHeaders;
+    ///
+    /// assert!(AppHeaders::is_referrer_policy_known("strict-origin"));
+    /// assert!(!AppHeaders::is_referrer_policy_known("nope"));
+    /// ```
     pub fn is_referrer_policy_known(value: &str) -> bool {
         Self::REFERRER_POLICY_CATALOG.contains(&value)
     }
     /// Returns `true` when `value` is a known `X-Frame-Options` token.
     /// Accepts `DENY`, `SAMEORIGIN`, or `ALLOW-FROM <non-empty origin>`.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::AppHeaders;
+    ///
+    /// assert!(AppHeaders::is_x_frame_options_known("DENY"));
+    /// assert!(AppHeaders::is_x_frame_options_known("ALLOW-FROM https://x"));
+    /// ```
     pub fn is_x_frame_options_known(value: &str) -> bool {
         if Self::X_FRAME_OPTIONS_CATALOG.contains(&value) {
             return true;
@@ -95,6 +113,14 @@ impl AppHeaders {
     }
     /// Returns `true` when `value` is the only admitted
     /// `X-Content-Type-Options` token (`nosniff`).
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::AppHeaders;
+    ///
+    /// assert!(AppHeaders::is_x_content_type_options_known("nosniff"));
+    /// ```
     pub fn is_x_content_type_options_known(value: &str) -> bool {
         value == "nosniff"
     }

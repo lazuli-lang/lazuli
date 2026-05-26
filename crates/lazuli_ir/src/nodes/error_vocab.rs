@@ -140,6 +140,9 @@ pub struct FeatureErrors {
     pub span_ref: Option<SpanRef>,
 }
 
+/// One `expose <fields>` (optionally scoped to an audience) entry
+/// inside a feature's error vocabulary. Names which envelope fields
+/// are surfaced to which audience on error.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ErrorExposeRule {
     /// Optional audience target. `None` is the legacy client-wide
