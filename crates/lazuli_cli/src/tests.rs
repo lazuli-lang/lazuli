@@ -6,26 +6,10 @@
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        fs,
-        path::{Path, PathBuf},
-        time::{SystemTime, UNIX_EPOCH},
-    };
-
-    use clap::Parser;
-    use tempfile::TempDir;
-
-    use crate::cli_args::{DesignExportTarget, DesignImportFormat};
-use crate::go_work_io::add_missing_go_work_use_entries;
-use crate::{
-        Cli, Commands, DesignCommand, ExpandSet,
-        GenerateKind, MigrateCommand, REGISTRY_TEMPLATE,
-        app_template, default_module_name, emit_feature_barrel_ts, emit_feature_react_hooks_ts,
-        emit_feature_sdk_ts, expand_canonical_source, inspect_canonical_source, inspect_json_value,
-        new_command, parse_expand_set, pascal_case, pascal_case_project_name,
-        render_inspect_symbol_lazuli, scaffold_bare, scaffold_from_template, templates,
-        write_go_work_preserving_entries,
-    };
+    // Top-level imports were used by tests now extracted into sibling
+    // sub-modules under `tests/`. Each included file carries its own
+    // `use` lines; the parent only needs `test_support` for the
+    // shared-fixtures `pub(super)` re-export pattern.
 
     // NOTE: tests for `query_ident` / `strip_query_verb_prefix` (the
     // verb-prefix dedup added alongside the Hostpoint bug fix) cannot
@@ -43,7 +27,6 @@ use crate::{
     mod test_support {
         include!("tests/test_support.rs");
     }
-    use test_support::*;
 
     mod codegen_ts_enums {
         include!("tests/codegen_ts_enums.rs");
