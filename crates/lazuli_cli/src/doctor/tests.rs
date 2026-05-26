@@ -26,151 +26,15 @@ mod tests {
     use crate::doctor::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn temp_project_root(name: &str) -> PathBuf {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock after epoch")
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!("lazuli-{name}-{unique}"));
-        fs::create_dir_all(&root).expect("create temp project root");
-        root
+    mod test_support_core {
+        include!("tests/test_support_core.rs");
+    }
+    use test_support_core::*;
+
+    mod codegen_pattern {
+        include!("tests/codegen_pattern.rs");
     }
 
-    fn write_file(path: &Path, source: &str) {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).expect("create parent dirs");
-        }
-        fs::write(path, source).expect("write test file");
-    }
-
-    #[test]
-    fn codegen_wrap_001_fires_on_field_error_literal_in_bucket() {
-        let root = temp_project_root("codegen-wrap-fires");
-        write_file(
-            &root.join("runtime/go/lazuli/auth/password.go"),
-            "package auth\n\nfunc f() error { return &lazuli.FieldError{} }\n",
-        );
-
-        let diagnostics = check_codegen_wrap_001(&root);
-        fs::remove_dir_all(&root).ok();
-
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].code, "CODEGEN-WRAP-001");
-        assert_eq!(diagnostics[0].line, 3);
-    }
-
-    #[test]
-    fn codegen_wrap_001_ignores_top_level_runtime_files() {
-        let root = temp_project_root("codegen-wrap-top-level");
-        write_file(
-            &root.join("runtime/go/lazuli/error_field.go"),
-            "package lazuli\n\nvar _ = lazuli.FieldError{}\n",
-        );
-
-        let diagnostics = check_codegen_wrap_001(&root);
-        fs::remove_dir_all(&root).ok();
-
-        assert!(diagnostics.is_empty(), "got {diagnostics:?}");
-    }
-
-    #[test]
-    fn codegen_wrap_001_ignores_gen_files() {
-        let root = temp_project_root("codegen-wrap-gen");
-        write_file(
-            &root.join("runtime/go/lazuli/auth/password.gen.go"),
-            "package auth\n\nvar _ = lazuli.FieldError{}\n",
-        );
-
-        let diagnostics = check_codegen_wrap_001(&root);
-        fs::remove_dir_all(&root).ok();
-
-        assert!(diagnostics.is_empty(), "got {diagnostics:?}");
-    }
-
-    #[test]
-    fn codegen_wrap_001_ignores_test_files() {
-        let root = temp_project_root("codegen-wrap-test");
-        write_file(
-            &root.join("runtime/go/lazuli/auth/password_test.go"),
-            "package auth\n\nvar _ = lazuli.FieldError{}\n",
-        );
-
-        let diagnostics = check_codegen_wrap_001(&root);
-        fs::remove_dir_all(&root).ok();
-
-        assert!(diagnostics.is_empty(), "got {diagnostics:?}");
-    }
-
-    #[test]
-    fn pattern_draft_stale_001_skips_when_no_drafts() {
-        let root = temp_project_root("pattern-draft-no-drafts");
-        write_file(
-            &root.join("crates/lazuli_codegen_go/src/emitter/patterns.rs"),
-            "pub const PATTERN_COMMAND: (&str, &str) = (\"command\", \"v1\");\n",
-        );
-
-        let diagnostics = check_pattern_draft_stale_001_at(&root, 1_800_000_000);
-        fs::remove_dir_all(&root).ok();
-
-        assert!(diagnostics.is_empty(), "got {diagnostics:?}");
-    }
-
-    #[test]
-    fn pattern_draft_stale_001_skips_when_recent() {
-        let root = temp_project_root("pattern-draft-recent");
-        let pattern_file = root.join("crates/lazuli_codegen_go/src/emitter/patterns.rs");
-        write_file(
-            &pattern_file,
-            "pub const PATTERN_COMMAND: (&str, &str) = (\"command\", \"draft\");\n",
-        );
-        let recent = 1_800_000_000_u64;
-        if !init_git_repo_with_commit(&root, recent) {
-            fs::remove_dir_all(&root).ok();
-            return;
-        }
-
-        let diagnostics = check_pattern_draft_stale_001_at(&root, recent + 60);
-        fs::remove_dir_all(&root).ok();
-
-        assert!(diagnostics.is_empty(), "got {diagnostics:?}");
-    }
-
-    fn init_git_repo_with_commit(root: &Path, timestamp: u64) -> bool {
-        let init = std::process::Command::new("git")
-            .args(["init"])
-            .current_dir(root)
-            .output();
-        if !init.map(|output| output.status.success()).unwrap_or(false) {
-            return false;
-        }
-
-        for args in [
-            ["config", "user.email", "test@example.com"],
-            ["config", "user.name", "Lazuli Test"],
-        ] {
-            let _ = std::process::Command::new("git")
-                .args(args)
-                .current_dir(root)
-                .output();
-        }
-
-        let add = std::process::Command::new("git")
-            .args(["add", "."])
-            .current_dir(root)
-            .output();
-        if !add.map(|output| output.status.success()).unwrap_or(false) {
-            return false;
-        }
-
-        std::process::Command::new("git")
-            .args(["commit", "-m", "fixture"])
-            .env("GIT_AUTHOR_DATE", format!("@{timestamp} +0000"))
-            .env("GIT_COMMITTER_DATE", format!("@{timestamp} +0000"))
-            .current_dir(root)
-            .output()
-            .map(|output| output.status.success())
-            .unwrap_or(false)
-    }
 
     fn package_from_sources(sources: Vec<(&str, &str)>) -> DoctorPackage {
         let mut files = Vec::new();
@@ -2374,22 +2238,9 @@ contract acme.ai.v1
     // Cut A — cross-feature diagnostics (§5.3 snapshot pattern)
     // -------------------------------------------------------------------------
 
-    fn codes(diagnostics: &[DoctorDiagnostic]) -> BTreeSet<&str> {
-        diagnostics.iter().map(|d| d.code.as_str()).collect()
-    }
-
-    fn temp_project(name: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "lazuli-doctor-{name}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir_all(&path).unwrap();
-        path
-    }
+    // `codes` and `temp_project` helpers live in `tests/test_support_core.rs`
+    // and are re-exported via the `use test_support_core::*;` at the top of
+    // this module.
 
     // Z2 — `design-custom-*` doctor integration (3 rules over `design.lzi` IR).
     #[test]
