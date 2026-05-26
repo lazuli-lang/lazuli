@@ -84,6 +84,8 @@ mod wrap;
 // `command/<parent>/<name>.rs`. See each sibling's `//!` header for
 // the per-file coverage map.
 #[cfg(test)]
+mod emit_bindings_and_handlers_tests;
+#[cfg(test)]
 mod emit_effect_dispatch_tests;
 #[cfg(test)]
 mod owner_scope_sql_tests;
