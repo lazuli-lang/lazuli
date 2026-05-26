@@ -104,6 +104,17 @@ impl ConventionSynthDiagnostic {
     /// Stable doctor-style code for the variant (e.g.
     /// `"crud_synth_policy_not_found"`). Used by Cell C4 / M3 to look
     /// up the user-facing format string.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_analyzer::ConventionSynthDiagnostic;
+    ///
+    /// let d = ConventionSynthDiagnostic::PolicyNotFound {
+    ///     resource: "Customer".into(),
+    /// };
+    /// assert_eq!(d.diagnostic_code(), "crud_synth_policy_not_found");
+    /// ```
     pub fn diagnostic_code(&self) -> &'static str {
         match self {
             ConventionSynthDiagnostic::SignatureMismatch { .. } => {
@@ -128,6 +139,17 @@ impl ConventionSynthDiagnostic {
     /// Severity rendering ("warning" or "error") consumed by Cell C4 /
     /// M3. SignatureMismatch is warning-only because the override is
     /// honored; everything else is a hard error.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_analyzer::ConventionSynthDiagnostic;
+    ///
+    /// let d = ConventionSynthDiagnostic::NoRequiredFields {
+    ///     resource: "Customer".into(),
+    /// };
+    /// assert_eq!(d.severity(), "error");
+    /// ```
     pub fn severity(&self) -> &'static str {
         match self {
             ConventionSynthDiagnostic::SignatureMismatch { .. } => "warning",
