@@ -5,41 +5,24 @@
 //! wrapper preserves string-literal indentation for the existing tests.
 
 mod tests {
-    use crate::doctor::aggregators::auth::auth_diagnostics;
-    use crate::doctor::aggregators::cross_feature::{
-        APP_URLS_MISSING_MESSAGE, app_urls_missing_diagnostics, scope_owner_column_diagnostics,
-    };
-    use crate::doctor::aggregators::env_manifest::{
-        cap_file_policy_implicit_diagnostics, dedupe_env_contract_diagnostics,
-        manifest_required_diagnostics, suppress_env_schema_when_declared,
-    };
-    use crate::doctor::aggregators::field_health::{
-        collect_unresolved_field_refs, field_derived_from_unresolved_diagnostics,
-        resource_unique_qualifier_unknown_diagnostics, resource_validates_path_unknown_diagnostics,
-    };
-    use crate::doctor::aggregators::runtime_version::{
-        lazuli_version_001_diagnostics, lazuli_version_002_diagnostics, schema_rich_gap_diagnostics,
-    };
-    use crate::doctor::aggregators::ts_consumers::{
-        import_deprecated_alias_diagnostics, manual_param_coercion_diagnostics,
-    };
-    use crate::doctor::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    // Imports trimmed after the R10-A split: every `#[test]` body now lives in
+    // a sibling sub-module under `tests/` and carries its own `use` lines.
+    // The parent retains `test_support_core` + `test_support_packages` shim
+    // declarations so sub-modules can reach them via `super::*` and so the
+    // `mod` ordering keeps the existing test path
+    // `crate::doctor::tests::tests::<sub_module>::<test_fn>`.
 
     mod test_support_core {
         include!("tests/test_support_core.rs");
     }
-    use test_support_core::*;
-
-    mod codegen_pattern {
-        include!("tests/codegen_pattern.rs");
-    }
-
 
     mod test_support_packages {
         include!("tests/test_support_packages.rs");
     }
-    use test_support_packages::*;
+
+    mod codegen_pattern {
+        include!("tests/codegen_pattern.rs");
+    }
 
     mod manifest_plugin {
         include!("tests/manifest_plugin.rs");
