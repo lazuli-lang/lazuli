@@ -16,16 +16,24 @@ use std::path::PathBuf;
 
 use lazuli_ir::{AppManifest, Module};
 
+/// One CROSS-FEATURE-WORKFLOW-SPAN-001 finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Feature that declares the workflow.
     pub feature: String,
+    /// Workflow name.
     pub workflow: String,
+    /// All distinct feature owners (including the workflow's own feature)
+    /// whose resources the workflow touches; alphabetically ordered.
     pub spanned_features: Vec<String>,
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "CROSS-FEATURE-WORKFLOW-SPAN-001";
 
+    /// Render the user-facing diagnostic body, listing the spanned
+    /// features and pointing at the proposal's saga-coordinator advice.
     pub fn message(&self) -> String {
         format!(
             "workflow `{}` in feature `{}` touches resources owned by multiple features ({}). \
@@ -40,6 +48,21 @@ impl Finding {
     }
 }
 
+/// Run CROSS-FEATURE-WORKFLOW-SPAN-001 across a module.
+///
+/// Gated on `architecture mode microservices`. Returns `Vec::new()` for
+/// any other architecture mode (or when `app.architecture` is None).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_doctor::cross_feature::workflow_span_001::check;
+///
+/// let findings = check(&module, Some(&app));
+/// for f in findings {
+///     eprintln!("workflow {} spans {:?}", f.workflow, f.spanned_features);
+/// }
+/// ```
 pub fn check(module: &Module, app: Option<&AppManifest>) -> Vec<Finding> {
     if !is_microservices(app) {
         return Vec::new();
