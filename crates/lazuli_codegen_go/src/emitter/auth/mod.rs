@@ -31,6 +31,12 @@ use routes::{auth_routes, emit_auth_routes, emit_session_resolver_register, has_
 
 /// Emit `<feature>/auth.gen.go` for a feature, or `None` when the
 /// feature declares no auth block.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let go_src = emit_auth_file("auth.lzi", &feature, "demo", &cross_index, &emit_ctx);
+/// ```
 pub fn emit_auth_file(
     source_label: &str,
     feature: &Feature,

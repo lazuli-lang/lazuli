@@ -23,6 +23,25 @@ use super::parsers::{
     unquote,
 };
 
+/// Scan a `profiles.lzi` body and return every well-formed
+/// `profile <name>` block as an [`AppProfile`].
+///
+/// Skips lines that are not at indent 0 with a `profile ` prefix and
+/// rejects names that fail `is_identifier`. Inner sub-blocks (`urls` /
+/// `bindings` / `integrations` / `deploy`) are filled by
+/// `parse_app_profile_block`; malformed inner lines are dropped — the
+/// IR layer is additive and doctor surfaces shape errors.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::app_manifest::profiles::parse_app_profiles;
+///
+/// let src = "profile staging\n  urls\n    web \"https://staging.example.com\"\n";
+/// let profiles = parse_app_profiles(src);
+/// assert_eq!(profiles.len(), 1);
+/// assert_eq!(profiles[0].name, "staging");
+/// ```
 pub fn parse_app_profiles(source: &str) -> Vec<AppProfile> {
     let lines: Vec<_> = source.lines().collect();
     let mut profiles = Vec::new();
@@ -159,4 +178,24 @@ fn upsert_profile_integration<'a>(
     });
     let index = profile.integrations.len() - 1;
     &mut profile.integrations[index]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn skips_invalid_profile_name() {
+        let src = "profile 123bad\n  urls\n    web \"http://x\"\n";
+        assert!(parse_app_profiles(src).is_empty());
+    }
+
+    #[test]
+    fn captures_url_override() {
+        let src = "profile staging\n  urls\n    web \"https://staging.example.com\"\n";
+        let profiles = parse_app_profiles(src);
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].urls.len(), 1);
+        assert_eq!(profiles[0].urls[0].target, "web");
+    }
 }

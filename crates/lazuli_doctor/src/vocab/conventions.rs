@@ -30,8 +30,11 @@ use std::path::PathBuf;
 //                       `conventions [..]` is not in the closed catalog.
 // =============================================================================
 
+/// An identifier inside `conventions [..]` doesn't match the closed
+/// catalog. Cell C2 (parser) emits this once the closed-set check fails.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnknownConventionFinding {
+    /// Source `.lzi` file the offending convention was authored in.
     pub path: PathBuf,
     /// The identifier the author wrote inside `conventions [..]`.
     pub name: String,
@@ -42,8 +45,25 @@ pub struct UnknownConventionFinding {
 }
 
 impl UnknownConventionFinding {
+    /// Canonical diagnostic code emitted with this finding.
     pub const CODE: &'static str = "conventions_unknown";
 
+    /// Render the "did you mean" message; falls back to `crud` when no
+    /// nearest-match was attached.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::conventions::UnknownConventionFinding;
+    ///
+    /// let f = UnknownConventionFinding {
+    ///     path: PathBuf::from("feat.lzi"),
+    ///     name: "crd".into(),
+    ///     suggestion: Some("crud".into()),
+    /// };
+    /// assert!(f.message().contains("Did you mean `crud`?"));
+    /// ```
     pub fn message(&self) -> String {
         match &self.suggestion {
             Some(suggested) => format!(
@@ -61,16 +81,35 @@ impl UnknownConventionFinding {
 //                                 diverges from the canonical shape.
 // =============================================================================
 
+/// An author override of a `crud` synth name diverges from the canonical
+/// signature. Cell C3 (synth pass) emits this so the canonical contract
+/// stays stable across pilots.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CrudSynthSignatureMismatchFinding {
+    /// Source `.lzi` file the offending override was authored in.
     pub path: PathBuf,
     /// The author-written command name that shares a name with a `crud` synth.
     pub name: String,
 }
 
 impl CrudSynthSignatureMismatchFinding {
+    /// Canonical diagnostic code emitted with this finding.
     pub const CODE: &'static str = "crud_synth_signature_mismatch";
 
+    /// Render the verbatim "diverges from canonical shape" message.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::conventions::CrudSynthSignatureMismatchFinding;
+    ///
+    /// let f = CrudSynthSignatureMismatchFinding {
+    ///     path: PathBuf::from("customer.lzi"),
+    ///     name: "update_customer".into(),
+    /// };
+    /// assert!(f.message().contains("diverges from"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "Your `{}` command's signature diverges from the `crud` convention's canonical shape. \
@@ -87,16 +126,34 @@ impl CrudSynthSignatureMismatchFinding {
 //                               `authenticated` policy to inherit.
 // =============================================================================
 
+/// A resource opts into `conventions [crud]` but no `authenticated`
+/// policy exists in the feature for the synth to inherit. C3 emits this.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CrudSynthPolicyNotFoundFinding {
+    /// Source `.lzi` file the offending resource was authored in.
     pub path: PathBuf,
     /// Resource name whose `conventions [crud]` slot triggered the check.
     pub resource: String,
 }
 
 impl CrudSynthPolicyNotFoundFinding {
+    /// Canonical diagnostic code emitted with this finding.
     pub const CODE: &'static str = "crud_synth_policy_not_found";
 
+    /// Render the "missing `authenticated` policy" message.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::conventions::CrudSynthPolicyNotFoundFinding;
+    ///
+    /// let f = CrudSynthPolicyNotFoundFinding {
+    ///     path: PathBuf::from("customer.lzi"),
+    ///     resource: "Customer".into(),
+    /// };
+    /// assert!(f.message().contains("authenticated"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "Resource `{}` opts into `conventions [crud]`, but the feature has no `authenticated` \
@@ -113,16 +170,36 @@ impl CrudSynthPolicyNotFoundFinding {
 //                                 the synthesized `create_<r>.input` empty.
 // =============================================================================
 
+/// Every required field on a `conventions [crud]` resource is in the
+/// Tenant or Auto group, so the synthesized `create_<r>.input` would be
+/// empty. C3 emits this to avoid generating useless commands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CrudSynthNoRequiredFieldsFinding {
+    /// Source `.lzi` file the offending resource was authored in.
     pub path: PathBuf,
     /// Resource whose `create_<r>` synth would have an empty input.
     pub resource: String,
 }
 
 impl CrudSynthNoRequiredFieldsFinding {
+    /// Canonical diagnostic code emitted with this finding.
     pub const CODE: &'static str = "crud_synth_no_required_fields";
 
+    /// Render the "empty input" message asking the author to add a
+    /// non-tenant required field or drop `conventions [crud]`.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::conventions::CrudSynthNoRequiredFieldsFinding;
+    ///
+    /// let f = CrudSynthNoRequiredFieldsFinding {
+    ///     path: PathBuf::from("customer.lzi"),
+    ///     resource: "Customer".into(),
+    /// };
+    /// assert!(f.message().contains("empty input"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "Resource `{}`'s `create_{}` would have empty input — every required field is in the \
@@ -142,16 +219,36 @@ impl CrudSynthNoRequiredFieldsFinding {
 //                                See ir-resource-conventions-me.md §5.3.
 // =============================================================================
 
+/// A resource opts into `conventions [me]` but has no field the synth
+/// can use as the actor key. Cell M2 (synth pass) emits this when the
+/// owner-axis lookup chain (`user` / `org` / self-named `User`) yields
+/// nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MeSynthNoActorResolutionFinding {
+    /// Source `.lzi` file the offending resource was authored in.
     pub path: PathBuf,
     /// Resource name whose `conventions [me]` slot triggered the check.
     pub resource: String,
 }
 
 impl MeSynthNoActorResolutionFinding {
+    /// Canonical diagnostic code emitted with this finding.
     pub const CODE: &'static str = "me_synth_no_actor_resolution";
 
+    /// Render the "can't resolve actor" message listing the three escapes.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::conventions::MeSynthNoActorResolutionFinding;
+    ///
+    /// let f = MeSynthNoActorResolutionFinding {
+    ///     path: PathBuf::from("orders.lzi"),
+    ///     resource: "Order".into(),
+    /// };
+    /// assert!(f.message().contains("can't resolve an actor"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "Resource `{}` opts into `conventions [me]`, but its fields can't resolve an actor — \
@@ -171,8 +268,12 @@ impl MeSynthNoActorResolutionFinding {
 //                               crud_synth_signature_mismatch.
 // =============================================================================
 
+/// An author override of a `me` synth name diverges from the canonical
+/// signature (return type or route-param surface). Parallel to
+/// `crud_synth_signature_mismatch`; M2 emits this from the synth pass.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MeSynthSignatureMismatchFinding {
+    /// Source `.lzi` file the offending override was authored in.
     pub path: PathBuf,
     /// The resource snake-name suffix on the `lookup_my_<r>` query that
     /// shares a name with a `me` synth — used to interpolate the query
@@ -181,8 +282,24 @@ pub struct MeSynthSignatureMismatchFinding {
 }
 
 impl MeSynthSignatureMismatchFinding {
+    /// Canonical diagnostic code emitted with this finding.
     pub const CODE: &'static str = "me_synth_signature_mismatch";
 
+    /// Render the "diverges from canonical shape" message, naming the
+    /// expected return type by capitalising the snake suffix.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::conventions::MeSynthSignatureMismatchFinding;
+    ///
+    /// let f = MeSynthSignatureMismatchFinding {
+    ///     path: PathBuf::from("traveler.lzi"),
+    ///     resource_snake: "traveler".into(),
+    /// };
+    /// assert!(f.message().contains("lookup_my_traveler"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "Your `lookup_my_{}` query's signature diverges from the `me` convention's canonical \
@@ -215,6 +332,14 @@ pub const CONVENTIONS_CATALOG: &[&str] = &["crud", "me"];
 /// identifier. Returns the first catalog entry as a defensive default;
 /// authoritative nearest-match logic lives in the parser/analyzer
 /// (`conventions_unknown_suggestion`).
+///
+/// ## Examples
+///
+/// ```no_run
+/// use lazuli_doctor::vocab::conventions::suggest_convention;
+///
+/// assert_eq!(suggest_convention("xyz"), Some("crud"));
+/// ```
 pub fn suggest_convention(_input: &str) -> Option<&'static str> {
     CONVENTIONS_CATALOG.first().copied()
 }

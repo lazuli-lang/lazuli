@@ -31,6 +31,24 @@ use imports::write_imports;
 use spec::{write_column_assert, write_slot_interface, write_spec_const};
 
 /// Emit `dist/ts-<target>/<feat>/views/<audience>/<view-name>.gen.ts`.
+///
+/// Renders the full list-view artifact: imports, the spec const,
+/// column-existence asserts, the slot interface, and the hook. `app_name`
+/// becomes the `persist local` localStorage namespace prefix so two
+/// apps don't collide on the same view name (proposal §3.7); empty
+/// string falls back to the feature name.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::lzx_view_list::emit_view_list;
+/// use lazuli_ir::{Audience, Surface, ViewList};
+///
+/// let surface: Surface = /* … */ unimplemented!();
+/// let audience: Audience = /* … */ unimplemented!();
+/// let view: ViewList = /* … */ unimplemented!();
+/// let _src = emit_view_list(&surface, &audience, &view, "hostpoint");
+/// ```
 pub fn emit_view_list(
     surface: &Surface,
     audience: &Audience,

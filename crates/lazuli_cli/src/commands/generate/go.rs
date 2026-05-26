@@ -39,6 +39,20 @@ use crate::{
 };
 
 /// Handler for `GenerateKind::Go`.
+///
+/// Walks `generate_v1`/`generate_v1_with_manifest`, runs the §6.2.1
+/// closed error catalog as a pre-write gate, and writes the multi-file
+/// emitter output under `<out>/dist/go/`, `<out>/migrations/`, and the
+/// merged `go.work`. `check` short-circuits to enumerate-only mode.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::commands::generate::go::generate_go;
+///
+/// // generate_go(Path::new("."), Some(Path::new(".")), None, None, true, false, false)?;
+/// ```
 #[allow(clippy::too_many_arguments)]
 pub fn generate_go(
     input: &Path,
@@ -326,4 +340,23 @@ pub fn generate_go(
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_input_surfaces_error() {
+        let result = generate_go(
+            Path::new("__lazuli_no_such_input.lzi"),
+            Some(Path::new(".")),
+            None,
+            None,
+            true,
+            false,
+            false,
+        );
+        assert!(result.is_err());
+    }
 }

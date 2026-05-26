@@ -5,17 +5,42 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Feature, FileVisibility};
 
+/// One REPORT-SIGNED-TTL-FORBIDDEN-001 finding — a report sets
+/// `signed_ttl` but its `visibility` is `public` or `private`. The
+/// TTL knob only pairs with `visibility:signed`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the report was authored in.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
+    /// Report carrying the forbidden TTL.
     pub report: String,
+    /// The visibility token in effect (`"public"` or `"private"`).
     pub visibility: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "REPORT-SIGNED-TTL-FORBIDDEN-001";
 
+    /// Render the "signed_ttl on non-signed visibility" message,
+    /// naming the report and the actual visibility token.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::report::report_signed_ttl_forbidden_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("sales.lzi"),
+    ///     feature: "sales".into(),
+    ///     report: "weekly_sales".into(),
+    ///     visibility: "public".into(),
+    /// };
+    /// assert!(f.message().contains("public"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "report `{}` has `signed_ttl` but `visibility:{}`. `signed_ttl` only \
@@ -33,6 +58,19 @@ fn visibility_token(v: FileVisibility) -> &'static str {
     }
 }
 
+/// Walk every report in `feature` and emit a finding for each that
+/// sets `signed_ttl` on a non-signed visibility.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::report::report_signed_ttl_forbidden_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a public report carrying signed_ttl");
+/// let _ = check(&feature, Path::new("sales.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     feature
         .reports

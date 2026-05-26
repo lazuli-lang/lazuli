@@ -17,21 +17,46 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Feature, SpanRef, TranslationKeyRef};
 
+/// One ERR-VOCAB-002 finding — `@translation.<key>` doesn't resolve
+/// against the feature's own catalog or any feature it `uses`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyUnknownFinding {
+    /// Source `.lzi` file the offending reference lives in.
     pub path: PathBuf,
+    /// Feature owning the reference site.
     pub feature: String,
+    /// The bare translation key (without the `@translation.` prefix).
     pub key: String,
     /// Where the reference was authored — e.g. `command capture_lead.when_denied`,
     /// `policies update.when_denied`, `errors policy_denied`. Improves the
     /// rendered message.
     pub site: String,
+    /// Source span of the reference for IDE squiggles.
     pub span: Option<SpanRef>,
 }
 
 impl KeyUnknownFinding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "ERR-VOCAB-002";
 
+    /// Render the "does not resolve" message and list the declared
+    /// keys visible from the offending feature.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::error_vocab::error_vocab::rule_translation_key_unknown::KeyUnknownFinding;
+    ///
+    /// let f = KeyUnknownFinding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     feature: "billing".into(),
+    ///     key: "missing.key".into(),
+    ///     site: "errors `billing.policy_denied`".into(),
+    ///     span: None,
+    /// };
+    /// assert!(f.message(&[]).contains("does not resolve"));
+    /// ```
     pub fn message(&self, declared: &[&str]) -> String {
         let declared_text = if declared.is_empty() {
             "<none declared>".to_owned()
@@ -49,6 +74,19 @@ impl KeyUnknownFinding {
 /// Run ERR-VOCAB-002 over one feature. `keys_by_feature` maps every
 /// feature name to its declared translation key catalog so cross-feature
 /// `uses` lookup works without re-walking the package.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::collections::{BTreeMap, BTreeSet};
+/// use std::path::Path;
+/// use lazuli_doctor::error_vocab::error_vocab::rule_translation_key_unknown::check_translation_key_unknown;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with translation refs");
+/// let map: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+/// let _ = check_translation_key_unknown(&feature, Path::new("billing.lzi"), &map);
+/// ```
 pub fn check_translation_key_unknown(
     feature: &Feature,
     path: &Path,
@@ -117,6 +155,32 @@ fn ensure_resolves(
         site,
         span: reference.span_ref,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finding_code_is_stable() {
+        assert_eq!(KeyUnknownFinding::CODE, "ERR-VOCAB-002");
+    }
+
+    #[test]
+    fn message_renders_declared_keys_when_present() {
+        let f = KeyUnknownFinding {
+            path: PathBuf::from("billing.lzi"),
+            feature: "billing".to_owned(),
+            key: "missing.key".to_owned(),
+            site: "errors `billing.policy_denied`".to_owned(),
+            span: None,
+        };
+        let with_some = f.message(&["greeting", "farewell"]);
+        assert!(with_some.contains("greeting, farewell"));
+        let with_none = f.message(&[]);
+        assert!(with_none.contains("<none declared>"));
+        assert!(with_none.contains("missing.key"));
+    }
 }
 
 fn visible_translation_keys(

@@ -24,6 +24,12 @@ use super::printer::GoPrinter;
 
 /// Emit `<feature>/poller.gen.go` for a feature, or `None` when the
 /// feature declares no pollers.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let go_src = emit_poller_file("billing.lzi", &feature);
+/// ```
 pub fn emit_poller_file(source_label: &str, feature: &Feature) -> Option<String> {
     if feature.pollers.is_empty() {
         return None;

@@ -37,6 +37,15 @@ pub(super) fn default_error_code(name: &str) -> String {
 /// when the file is absent (a plugin without semantic-types is a valid
 /// shape — only Go adapter is required by the plugin-authoring
 /// contract). Read/parse failures surface as `Err`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::plugin_manifest::loader::load_plugin_manifest;
+///
+/// // let manifest = load_plugin_manifest(Path::new("plugins/foo"))?;
+/// ```
 pub fn load_plugin_manifest(
     plugin_root: &Path,
 ) -> Result<Option<PluginManifest>, PluginManifestError> {
@@ -65,6 +74,16 @@ pub fn load_plugin_manifest(
 /// and bail with `Ok(None)` if no local override exists — the proposal
 /// is explicit that module-mode plugins without local overrides skip
 /// the static manifest read entirely.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::plugin_manifest::loader::resolve_plugin_root;
+///
+/// // let root = resolve_plugin_root(&manifest, Path::new("."),
+/// //                                "@lazuli/plugin-foo");
+/// ```
 pub fn resolve_plugin_root(
     manifest: &Manifest,
     project_root: &Path,
@@ -90,5 +109,25 @@ pub(super) fn absolutise(project_root: &Path, candidate: &Path) -> PathBuf {
         candidate.to_path_buf()
     } else {
         project_root.join(candidate)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_error_code_strips_brazilian_prefix() {
+        assert_eq!(default_error_code("BrazilianCPF"), "cpf_invalid");
+        assert_eq!(default_error_code("Phone"), "phone_invalid");
+    }
+
+    #[test]
+    fn load_plugin_manifest_missing_file_returns_ok_none() {
+        let dir = std::env::temp_dir().join("lazuli-plugin-loader-test");
+        let _ = std::fs::create_dir_all(&dir);
+        let result = load_plugin_manifest(&dir).expect("ok none");
+        assert!(result.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

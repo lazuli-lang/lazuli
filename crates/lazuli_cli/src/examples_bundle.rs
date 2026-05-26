@@ -4,15 +4,34 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
+/// One row in the JSON-lines `examples_bundle.jsonl` shipped to the
+/// docs site, grader, and external auditors.
 #[derive(Debug, Serialize, PartialEq)]
 pub struct ExampleEntry {
+    /// Canonical name (`feature/example`).
     pub name: String,
+    /// One-sentence author-facing intent.
     pub intent: String,
+    /// Original `.lzi` source, verbatim.
     pub lzi_source: String,
+    /// Lifted IR snapshot for the example.
     pub ir_snippet: serde_json::Value,
+    /// Author-curated list of common authoring mistakes.
     pub common_errors: Vec<String>,
 }
 
+/// Walk `examples/curated/`, lift each entry to a [`ExampleEntry`],
+/// sort by name, and emit one JSON-line per entry to `out_path` (or
+/// stdout when `None`).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::examples_bundle::run_examples_bundle;
+///
+/// // run_examples_bundle(Path::new("."), None)?;
+/// ```
 pub fn run_examples_bundle(
     project_root: &Path,
     out_path: Option<&Path>,
@@ -37,6 +56,19 @@ pub fn run_examples_bundle(
     Ok(())
 }
 
+/// Re-lift every example under `examples/curated/` and validate the
+/// committed bundle against the current grammar. `check_decay`
+/// additionally flags entries that have not been re-lifted in a long
+/// time so the catalog stays close to the live language.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::examples_bundle::run_examples_validate;
+///
+/// // run_examples_validate(Path::new("."), true)?;
+/// ```
 pub fn run_examples_validate(
     project_root: &Path,
     check_decay: bool,

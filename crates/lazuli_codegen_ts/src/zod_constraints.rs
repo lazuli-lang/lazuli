@@ -31,6 +31,15 @@ use lazuli_ir::{BuiltinType, FieldConstraints};
 /// Decide whether the field is numeric (Integer / Decimal) so the
 /// caller can pick the right `z.string()` vs `z.number()` base and
 /// the right `.min` vs `.gte` semantic.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_ts::is_numeric;
+/// use lazuli_ir::BuiltinType;
+/// assert!(is_numeric(BuiltinType::Integer));
+/// assert!(!is_numeric(BuiltinType::Text));
+/// ```
 pub fn is_numeric(builtin: BuiltinType) -> bool {
     matches!(builtin, BuiltinType::Integer | BuiltinType::Decimal)
 }
@@ -50,6 +59,18 @@ pub fn is_numeric(builtin: BuiltinType) -> bool {
 /// preserve their existing `z.string()` prefix without rewriting.
 /// (Equivalent to swapping the base; the prefix-preserving variant
 /// keeps the public emitter shape simpler.)
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_ts::zod_constraint_chain;
+/// use lazuli_ir::FieldConstraints;
+///
+/// let mut constraints = FieldConstraints::default();
+/// constraints.min = Some(3);
+/// assert_eq!(zod_constraint_chain(&constraints, true), ".min(3)");
+/// assert_eq!(zod_constraint_chain(&constraints, false), ".gte(3)");
+/// ```
 pub fn zod_constraint_chain(
     constraints: &FieldConstraints,
     is_text_base: bool,
@@ -117,6 +138,14 @@ pub fn zod_constraint_chain(
 /// Emit `z.enum(["a", "b", "c"])` for a closed string-list. Caller
 /// uses this when it wants to REPLACE the base `z.string()` for the
 /// `in [...]` case (proposal §10.1).
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_ts::zod_enum_replacement;
+/// let values = vec!["draft".to_owned(), "published".to_owned()];
+/// assert_eq!(zod_enum_replacement(&values), "z.enum([\"draft\", \"published\"])");
+/// ```
 pub fn zod_enum_replacement(values: &[String]) -> String {
     let formatted: Vec<String> = values
         .iter()

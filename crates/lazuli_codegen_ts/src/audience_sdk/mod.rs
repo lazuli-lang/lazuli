@@ -78,6 +78,19 @@ impl AudienceProjection {
     /// `true` when the projection admits nothing. Used by the doctor
     /// rule `AUDIENCE-EMPTY-SDK` (§11) once it lands; also exposed
     /// for the deterministic-empty tests.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_codegen_ts::lzx_audience_slot::audience_sdk::AudienceProjection;
+    /// use std::collections::BTreeSet;
+    /// let empty = AudienceProjection {
+    ///     audiences: vec![],
+    ///     allowed_commands: BTreeSet::new(),
+    ///     allowed_queries: BTreeSet::new(),
+    /// };
+    /// assert!(empty.is_empty());
+    /// ```
     pub fn is_empty(&self) -> bool {
         self.allowed_commands.is_empty() && self.allowed_queries.is_empty()
     }
@@ -99,6 +112,19 @@ impl AudienceProjection {
 /// Walks `module.commands` and `module.queries`, intersecting each
 /// item's effective policy atom set against the union of every
 /// audience's `requires` set. Items with any overlap are admitted.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::lzx_audience_slot::audience_sdk::compute_audience_projection;
+/// use lazuli_ir::runtime::RuntimeFeature;
+/// use lazuli_ir::Audience;
+///
+/// let module: RuntimeFeature = /* … */ unimplemented!();
+/// let audiences: Vec<Audience> = vec![];
+/// let projection = compute_audience_projection(&module, &audiences);
+/// assert!(projection.is_empty());
+/// ```
 pub fn compute_audience_projection(
     module: &RuntimeFeature,
     audiences: &[Audience],
@@ -209,6 +235,21 @@ fn policy_atoms_for_query(query: &RuntimeQuery) -> Vec<String> {
 /// Filtering happens at the spec level (not via string editing) so
 /// determinism is preserved end-to-end: identical projections produce
 /// identical bytes regardless of the input feature's command order.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::lzx_audience_slot::audience_sdk::{
+///     compute_audience_projection, emit_feature_sdk_filtered,
+/// };
+/// use lazuli_ir::runtime::RuntimeFeature;
+/// use lazuli_ir::Audience;
+///
+/// let feature: RuntimeFeature = /* … */ unimplemented!();
+/// let audiences: Vec<Audience> = vec![];
+/// let projection = compute_audience_projection(&feature, &audiences);
+/// let _src = emit_feature_sdk_filtered(&feature, &projection);
+/// ```
 pub fn emit_feature_sdk_filtered(
     feature: &RuntimeFeature,
     projection: &AudienceProjection,

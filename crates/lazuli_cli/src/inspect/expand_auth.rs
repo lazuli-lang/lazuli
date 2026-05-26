@@ -1,6 +1,18 @@
 use lazuli_ir::{Auth, Feature, Module, SpanRef};
 use serde_json::{Map, Value, json};
 
+/// Project the `auth` block from every feature in `module` into the
+/// canonical `lazuli inspect --auth` JSON shape — one object per
+/// feature, each carrying an `origin` (feature + 1-based line) and
+/// the lowered auth sub-blocks (`identity`, `password`, `sessions`,
+/// `mfa`, `oauth`). Features without an `auth` block are skipped.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::inspect::expand_auth::expand_auth;
+/// // let json = expand_auth(&module);
+/// ```
 pub fn expand_auth(module: &Module) -> Value {
     let features = module
         .features

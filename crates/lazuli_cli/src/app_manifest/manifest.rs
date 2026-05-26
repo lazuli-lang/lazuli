@@ -28,6 +28,31 @@ use super::manifest_indent::{ManifestParseState, handle_indent6, handle_indent8}
 use super::manifest_indent4::handle_indent4;
 use super::parsers::{app_child, leading_spaces, line_span_ref, line_start_offsets, split_items, unquote};
 
+/// Drive the indented state machine that parses an `app.lzi` body into
+/// an [`AppManifest`].
+///
+/// Returns `None` only when the source does not contain a top-level
+/// `app <Name>` header — everything else (unknown indent-2 children,
+/// malformed indent-4 fields, etc.) is silently dropped so doctor can
+/// surface shape errors with full context downstream. The four indent
+/// tiers (2 / 4 / 6 / 8) are dispatched through the handlers in
+/// `manifest_indent` / `manifest_indent4`; cross-section cursors live on
+/// `ManifestParseState`.
+///
+/// If `route_guard` was never declared but `auth_failed_redirect` was,
+/// the function synthesizes a guard with `on_unauthenticated` set to
+/// preserve the legacy redirect contract.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::app_manifest::manifest::parse_app_manifest;
+///
+/// let src = "app Hostpoint\n  title \"Hostpoint\"\n  version \"1.0\"\n";
+/// let manifest = parse_app_manifest(src).expect("app header");
+/// assert_eq!(manifest.name, "Hostpoint");
+/// assert_eq!(manifest.title.as_deref(), Some("Hostpoint"));
+/// ```
 pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
     let lines: Vec<_> = source.lines().collect();
     let line_starts = line_start_offsets(source);
@@ -167,4 +192,23 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
     }
 
     Some(app)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn returns_none_when_no_app_header() {
+        assert!(parse_app_manifest("  not_an_app Foo\n").is_none());
+    }
+
+    #[test]
+    fn captures_identity_fields() {
+        let src = "app Hostpoint\n  title \"Hostpoint\"\n  version \"1.0\"\n";
+        let manifest = parse_app_manifest(src).expect("app header");
+        assert_eq!(manifest.name, "Hostpoint");
+        assert_eq!(manifest.title.as_deref(), Some("Hostpoint"));
+        assert_eq!(manifest.version.as_deref(), Some("1.0"));
+    }
 }

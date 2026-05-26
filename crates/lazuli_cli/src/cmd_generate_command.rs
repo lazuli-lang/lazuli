@@ -15,6 +15,19 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow};
 
 /// Run `lazuli generate command <feature>.<name>`.
+///
+/// Appends a `command` block (with seeded `tests` body and `@TODO
+/// authored:` markers) to `<app_dir>/features/<feature>/<feature>.lzi`.
+/// Existing entries with the same name error out rather than clobber.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::cmd_generate_command::run;
+///
+/// // run("post.publish", Path::new("."))?;
+/// ```
 pub fn run(ident: &str, project_root: &Path) -> Result<()> {
     let (feature, name) = parse_ident(ident)?;
     validate_part(&feature, "feature")?;

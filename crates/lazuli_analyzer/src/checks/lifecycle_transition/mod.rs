@@ -9,17 +9,25 @@ use lazuli_ir::{
     Command, CommandEffect, Feature, LifecycleTransition, QualifiedName, Resource, SpanRef,
 };
 
+/// Severity bucket for a lifecycle-transition [`Diagnostic`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
+    /// Hard rejection — build fails.
     Error,
+    /// Visible in diagnostics-only mode.
     Warning,
 }
 
+/// One lifecycle-transition finding (overlap, unknown trigger, etc.).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
+    /// Stable diagnostic code.
     pub code: &'static str,
+    /// Severity bucket — drives whether the build blocks.
     pub severity: Severity,
+    /// Human-readable message — already formatted, no interpolation.
     pub message: String,
+    /// Source span for IDE underlining; may be `None`.
     pub span: Option<SpanRef>,
 }
 
@@ -73,6 +81,20 @@ enum CommandEffectFacts {
     Other,
 }
 
+/// Run the lifecycle-transition pass over a feature module.
+///
+/// Validates that every `Command.triggers` clause names a transition
+/// declared on the command's target resource and that lifecycle
+/// transitions don't claim overlapping `from`/`to` pairs.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_analyzer::checks::lifecycle_transition;
+///
+/// let diags = lifecycle_transition::check(&[]);
+/// assert!(diags.is_empty());
+/// ```
 pub fn check(features: &[Feature]) -> Vec<Diagnostic> {
     check_input(&input_from_features(features))
 }

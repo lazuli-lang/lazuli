@@ -27,8 +27,26 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "LIFECYCLE-STATE-DUPLICATE";
 
+    /// Render the "state name repeated" message, naming the resource,
+    /// the offending state name, and how many times it appears.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::lifecycle::state_duplicate::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("publishing.lzi"),
+    ///     resource: "Publication".into(),
+    ///     state_name: "draft".into(),
+    ///     occurrences: 2,
+    /// };
+    /// assert!(f.message().contains("draft"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "lifecycle on resource `{}` declares state `{}` {} times — state names must be unique",
@@ -44,6 +62,17 @@ impl Finding {
 /// `path` is the source `.lzi` file — used to anchor findings; no I/O is
 /// performed here. The caller (doctor walker) maps each `Finding` into a
 /// `DoctorDiagnostic`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::lifecycle::state_duplicate::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a duplicate state name");
+/// let _ = check(&feature, Path::new("publishing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = vec![];
 

@@ -126,3 +126,15 @@ pub struct ResolvedPluginSemantic {
     pub ts_validator: String,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plugin_manifest_default_has_empty_collections() {
+        let manifest = PluginManifest::default();
+        assert!(manifest.plugin.is_none());
+        assert!(manifest.semantic_types.is_empty());
+    }
+}
+

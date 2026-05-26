@@ -5,6 +5,18 @@ use std::process::Command;
 
 type SeedResult<T> = Result<T, Box<dyn Error>>;
 
+/// Apply the project's seed blocks to the database. `only` restricts
+/// the run to seed names matching the pattern; `force` truncates the
+/// target tables first (otherwise the run is idempotent). Errors when
+/// no `Lazurite.toml` is present.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::seed::run_seed;
+/// // run_seed(Path::new("."), None, false)?;
+/// ```
 pub fn run_seed(project_root: &Path, only: Option<&str>, force: bool) -> SeedResult<()> {
     let manifest = crate::lazurite_manifest::load(project_root)?.ok_or_else(|| {
         io::Error::new(

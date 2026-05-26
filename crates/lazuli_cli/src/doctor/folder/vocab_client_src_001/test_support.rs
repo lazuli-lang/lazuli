@@ -14,10 +14,26 @@ use std::path::Path;
 
 use super::Finding;
 
+/// Create `path` and every intermediate parent directory. Panics on
+/// I/O error to keep test fixtures terse.
+///
+/// ## Examples
+///
+/// ```ignore
+/// // test-only helper; see sibling rule tests for usage
+/// ```
 pub fn mkdir_p(path: &Path) {
     fs::create_dir_all(path).unwrap();
 }
 
+/// Ensure `path` exists as an empty file, creating intermediate
+/// directories as needed.
+///
+/// ## Examples
+///
+/// ```ignore
+/// // test-only helper; see sibling rule tests for usage
+/// ```
 pub fn touch(path: &Path) {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).unwrap();
@@ -25,6 +41,14 @@ pub fn touch(path: &Path) {
     File::create(path).unwrap();
 }
 
+/// Project a list of findings into the set of their offending
+/// directory names. Tests use this for order-independent comparisons.
+///
+/// ## Examples
+///
+/// ```ignore
+/// // test-only helper; see sibling rule tests for usage
+/// ```
 pub fn names(findings: &[Finding]) -> BTreeSet<String> {
     findings
         .iter()
@@ -36,4 +60,24 @@ pub fn names(findings: &[Finding]) -> BTreeSet<String> {
                 .to_string()
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+
+    #[test]
+    fn names_collects_basenames() {
+        let dir = env::temp_dir().join("lazuli-vocab-names-test");
+        let _ = fs::remove_dir_all(&dir);
+        mkdir_p(&dir);
+        let findings = vec![Finding {
+            path: dir.join("foo"),
+            message: "x".into(),
+        }];
+        let bag = names(&findings);
+        assert!(bag.contains("foo"));
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

@@ -60,6 +60,14 @@ pub const APP_ERROR_RESOLUTION_PATH: &str = "app/error_resolution.gen.go";
 /// command-emitter consults this helper so the `lazuli.Command[...]`
 /// value can reference the same name — single source of truth, no
 /// drift.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_go::emitter::error_resolver::command_error_keys_var;
+/// let name = command_error_keys_var(&command);
+/// assert!(name.ends_with("ErrorKeys"));
+/// ```
 pub fn command_error_keys_var(command: &Command) -> String {
     let resource_pascal = effect_resource_pascal(&command.effect);
     let base = command_var_name(&command.name, &resource_pascal);
@@ -70,11 +78,26 @@ pub fn command_error_keys_var(command: &Command) -> String {
 /// literal. Direct per-command `policy_when_denied` wins; otherwise a
 /// named policy category's `when_denied` becomes the operation-level
 /// runtime key.
+///
+/// ## Examples
+///
+/// ```ignore
+/// if command_has_error_keys(&command, policies.as_ref()) {
+///     emit_command_error_keys(&mut p, &command, "billing", policies.as_ref());
+/// }
+/// ```
 pub fn command_has_error_keys(command: &Command, policies: Option<&Policies>) -> bool {
     command_policy_denied_key(command, policies).is_some()
 }
 
 /// Effective `policy_denied` message key for a command.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let key = command_policy_denied_key(&command, policies.as_ref());
+/// assert!(key.is_some() || command.policy_when_denied.is_none());
+/// ```
 pub fn command_policy_denied_key<'a>(
     command: &'a Command,
     policies: Option<&'a Policies>,
@@ -86,6 +109,19 @@ pub fn command_policy_denied_key<'a>(
     )
 }
 
+/// Generic resolver for the chain `operation_override` →
+/// `policy_categories.when_denied`.
+///
+/// Used by [`command_policy_denied_key`] and any other operation kind
+/// (query/job/...) that wants the same chain semantics without
+/// duplicating the precedence rule.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let key = policy_denied_key_for_policy(op_override, &policy, policies.as_ref());
+/// // Returns `op_override` when set, otherwise the named category's `when_denied`.
+/// ```
 pub fn policy_denied_key_for_policy<'a>(
     operation_override: Option<&'a TranslationKeyRef>,
     policy: &'a PolicyRef,
@@ -139,6 +175,13 @@ fn local_policy_name(policy: &PolicyRef) -> Option<&str> {
 /// as a `TranslationKeyRef`). Zero-valued (empty) `MessageRef` means
 /// "fall through to the per-feature / built-in catalog" — the runtime
 /// resolver handles the chain (proposal §2.E).
+///
+/// ## Examples
+///
+/// ```ignore
+/// let mut p = GoPrinter::new();
+/// emit_command_error_keys(&mut p, &command, "billing", policies.as_ref());
+/// ```
 pub fn emit_command_error_keys(
     p: &mut GoPrinter,
     command: &Command,
@@ -168,6 +211,19 @@ pub fn emit_command_error_keys(
     p.line("}");
 }
 
+/// Generic counterpart to [`emit_command_error_keys`] for non-command
+/// operations.
+///
+/// Same shape (`var <name> = lazuli.ErrorKeys{ ... }`) but the caller
+/// supplies the variable name, operation label (used only in the
+/// preceding comment), and the resolved `policy_denied` message key
+/// directly so query / job emitters can share the helper.
+///
+/// ## Examples
+///
+/// ```ignore
+/// emit_operation_error_keys(&mut p, "listFooErrorKeys", "billing.listFoo", "billing", &key);
+/// ```
 pub fn emit_operation_error_keys(
     p: &mut GoPrinter,
     var_name: &str,
@@ -205,6 +261,14 @@ pub fn emit_operation_error_keys(
 ///   }
 ///   type ErrorExposureDefault uint8
 ///   const ( ExposureHide ErrorExposureDefault = iota; ExposureExpose )
+///
+/// ## Examples
+///
+/// ```ignore
+/// if let Some(contents) = emit_feature_errors_file("billing.lzi", &feature) {
+///     /* write `billing/errors.gen.go` */
+/// }
+/// ```
 pub fn emit_feature_errors_file(source_label: &str, feature: &Feature) -> Option<String> {
     let errors = feature.errors.as_ref()?;
 
@@ -291,6 +355,13 @@ fn emit_feature_errors_body(p: &mut GoPrinter, errors: &FeatureErrors, feature_n
 /// The registry merges with the built-in PT-BR/en-US catalog
 /// (`runtime/go/lazuli/i18n/builtin.<locale>.json`, Cell RUNTIME-2)
 /// before serving requests.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let app_file = emit_app_error_resolution("app.lzi", &module, "demo");
+/// // None when no feature has `errors`; Some(go-source) otherwise.
+/// ```
 pub fn emit_app_error_resolution(
     source_label: &str,
     module: &Module,
@@ -345,6 +416,13 @@ pub fn emit_app_error_resolution(
 /// single call site. Returns a `Vec` so the orchestrator can extend its
 /// `files` vector verbatim. Includes per-feature `errors.gen.go` files
 /// AND the app-level `error_resolution.gen.go` when applicable.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let files = emit_error_vocab_files("app.lzi", &module, "demo");
+/// // Empty Vec when no feature carries errors block.
+/// ```
 pub fn emit_error_vocab_files(
     source_label: &str,
     module: &Module,

@@ -27,6 +27,10 @@ use crate::{DefaultValue, SpanRef, is_false};
 
 use super::type_ref::TypeRef;
 
+/// One named column on a [`super::Resource`]. Carries the resolved
+/// type, persistence flags (`required`, `unique`, `slug`,
+/// `full_text`), default value, inline constraints, PII tag, and
+/// owner-axis hop.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Field {
     pub name: String,
@@ -178,6 +182,9 @@ pub struct FieldConstraints {
     pub covers_pii: Option<String>,
 }
 
+/// Closed catalog of HTML sanitization profiles. Each profile picks a
+/// different cut-off between "strip everything" and "allow rich text"
+/// — codegen wires the matching adapter at runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SanitizeHtmlProfile {
@@ -197,6 +204,14 @@ impl FieldConstraints {
     /// `true` when no constraint is set. Used by serde to skip the
     /// whole struct from JSON output (keeps `Module` byte-for-byte
     /// stable for declarations without inline constraints).
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::FieldConstraints;
+    ///
+    /// assert!(FieldConstraints::default().is_empty());
+    /// ```
     pub fn is_empty(&self) -> bool {
         self.min.is_none()
             && self.max.is_none()
@@ -213,7 +228,26 @@ impl FieldConstraints {
 
     /// Convenience constructor used by tests and call sites that build
     /// the struct from scratch without serde.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::FieldConstraints;
+    ///
+    /// let c = FieldConstraints::new();
+    /// assert!(c.is_empty());
+    /// ```
     pub fn new() -> Self {
         Self::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn field_constraints_new_is_empty() {
+        assert!(FieldConstraints::new().is_empty());
     }
 }

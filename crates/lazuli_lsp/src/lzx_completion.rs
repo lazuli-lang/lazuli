@@ -11,6 +11,24 @@ use tower_lsp::lsp_types::{
     CompletionItem, CompletionItemKind, Documentation, InsertTextFormat, Position,
 };
 
+/// LSP completion entry point for `.lzx` documents. Returns the
+/// snippet set appropriate to the indent-walked context at `position`:
+/// top-level view declarations, inside a `view list` body, inside a
+/// `filters` block, inside a `search segmented` body, or inside a
+/// `selection` block. Returns an empty vector outside known contexts.
+///
+/// Lossy by design (no full parse) — see the module-level docstring.
+///
+/// ## Examples
+///
+/// ```ignore
+/// // Not re-exported at the crate root — example shape only.
+/// use lazuli_lsp::lzx_completion::completions_for_lzx;
+/// use tower_lsp::lsp_types::Position;
+///
+/// let items = completions_for_lzx("", Position { line: 0, character: 0 });
+/// assert!(items.iter().any(|c| c.label.contains("view list")));
+/// ```
 pub fn completions_for_lzx(source: &str, position: Position) -> Vec<CompletionItem> {
     let ctx = detect_context(source, position.line as usize);
     match ctx {

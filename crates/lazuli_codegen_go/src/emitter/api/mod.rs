@@ -28,6 +28,13 @@ use route_args::{emit_args_struct, route_args};
 
 /// Emit `<feature>/api.gen.go` for a feature, or `None` when the
 /// feature declares no APIs.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let go_src = emit_api_file("billing.lzi", &feature, "demo", &cross_index, &emit_ctx);
+/// // None when feature.apis is empty; Some(go-source) otherwise.
+/// ```
 pub fn emit_api_file(
     source_label: &str,
     feature: &Feature,

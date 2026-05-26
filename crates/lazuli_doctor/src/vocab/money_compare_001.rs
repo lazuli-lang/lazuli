@@ -31,20 +31,47 @@ use lazuli_ir::{
 /// sides resolve to Money fields with disagreeing currencies.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file that hosts the offending invariant.
     pub path: PathBuf,
+    /// Feature containing the resource.
     pub feature: String,
+    /// Resource declaring the offending invariant.
     pub resource: String,
     /// `<resource>.<field>` for the LHS so the message reads naturally.
     pub left: String,
     /// `<resource>.<field>` for the RHS.
     pub right: String,
+    /// Currency declared on the LHS Money field.
     pub left_currency: CurrencyCode,
+    /// Currency declared on the RHS Money field.
     pub right_currency: CurrencyCode,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "MONEY-COMPARE-001";
 
+    /// Render the user-facing "different currencies" message and prompt
+    /// for explicit conversion before comparing.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::money_compare_001::Finding;
+    /// use lazuli_ir::CurrencyCode;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("x.lzi"),
+    ///     feature: "payments".into(),
+    ///     resource: "Order".into(),
+    ///     left: "Order.subtotal".into(),
+    ///     right: "Order.tax".into(),
+    ///     left_currency: CurrencyCode::USD,
+    ///     right_currency: CurrencyCode::BRL,
+    /// };
+    /// assert!(f.message().contains("Money(USD)"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "Cannot compare `Money({})` with `Money({})` — different \
@@ -59,6 +86,20 @@ impl Finding {
 }
 
 /// Run MONEY-COMPARE-001 across one feature's resources.
+///
+/// Walks every `invariants` block and inspects each `Predicate::Comparison`
+/// for a Money/Money pair with disagreeing ISO codes. Path is metadata.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::vocab::money_compare_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a Money-bearing feature");
+/// let _ = check(&feature, Path::new("payments.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &FsPath) -> Vec<Finding> {
     feature
         .resources

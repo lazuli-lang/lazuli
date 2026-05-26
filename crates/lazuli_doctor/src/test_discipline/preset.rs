@@ -119,6 +119,15 @@ impl TestDisciplinePreset {
 
     /// Stable kebab-case identifier for round-trip serialization and
     /// JSON disclosure in `DoctorReport.coverage.preset`-style fields.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::test_discipline::preset::TestDisciplinePreset;
+    ///
+    /// assert_eq!(TestDisciplinePreset::TddIronHand.as_str(), "tdd-iron-hand");
+    /// assert_eq!(TestDisciplinePreset::Off.as_str(), "off");
+    /// ```
     pub fn as_str(self) -> &'static str {
         match self {
             Self::TddIronHand => "tdd-iron-hand",

@@ -20,6 +20,23 @@ use lazuli_syntax::{LzxExperience, LzxExperienceView, parse_lzx_document};
 
 use crate::PlaywrightTarget;
 
+/// Run `lazuli generate playwright --playwright-target=<…>`.
+///
+/// Writes the matching global emitter output to
+/// `{project_root}/e2e/_generated/<filename>.ts` and (per Wave 3.5)
+/// also seeds one per-view spec at `e2e/<experience>/<view>.spec.ts`
+/// for every `view` declared under any `.lzx` — idempotently, so
+/// authored tests survive subsequent regenerations.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::cmd_generate_playwright::run;
+/// use lazuli_cli::PlaywrightTarget;
+///
+/// // run(Path::new("."), PlaywrightTarget::ApiPolicy)?;
+/// ```
 pub fn run(input: &Path, target: PlaywrightTarget) -> Result<()> {
     let project_root = input;
     let out_dir = project_root.join("e2e").join("_generated");

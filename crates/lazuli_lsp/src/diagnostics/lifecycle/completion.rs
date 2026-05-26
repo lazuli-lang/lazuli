@@ -368,6 +368,20 @@ pub(crate) fn collect_lifecycle_view_names(
 /// completions when the cursor sits inside `requires_lifecycle ...`,
 /// `on_lifecycle_pending @resume ...`, a `resume <name>` block body,
 /// or a view slot that hasn't yet declared a lifecycle gate.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::lifecycle_gate_completions;
+/// use tower_lsp::lsp_types::Position;
+///
+/// // Outside any lifecycle trigger — None.
+/// let result = lifecycle_gate_completions(
+///     "feature billing\n",
+///     Position { line: 0, character: 0 },
+/// );
+/// assert!(result.is_none());
+/// ```
 pub fn lifecycle_gate_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
     let line = source.lines().nth(position.line as usize)?;
     let before = crate::line_prefix_at_position(line, position.character);
@@ -456,4 +470,26 @@ pub fn lifecycle_gate_completions(source: &str, position: Position) -> Option<Ve
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tower_lsp::lsp_types::Position;
+
+    #[test]
+    fn no_completions_outside_lifecycle_context() {
+        assert!(lifecycle_gate_completions(
+            "feature billing\n",
+            Position { line: 0, character: 0 }
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn no_completions_for_empty_source() {
+        assert!(
+            lifecycle_gate_completions("", Position { line: 0, character: 0 }).is_none()
+        );
+    }
 }

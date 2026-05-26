@@ -18,11 +18,20 @@ use registries::{
     declared_plugin_names, known_cap_ref, known_runtime_ref, known_semantic_ref, plugin_declared,
 };
 
+/// Undeclared `@lazuli/plugin-*` reference reached codegen.
 pub const CODE_PLUGIN: &str = "CODEGEN-GO-PLUGIN-001";
+/// `@runtime/*` reference outside the closed runtime catalog.
 pub const CODE_UNRESOLVED: &str = "CODEGEN-GO-UNRESOLVED-002";
+/// `@adapter.*` register-site that discovery could not confirm. Currently
+/// a no-op stub until extension discovery lands.
 pub const CODE_ADAPTER: &str = "CODEGEN-GO-ADAPTER-003";
+/// `@semantic.*` reference outside the closed semantic table.
 pub const CODE_SEMANTIC: &str = "CODEGEN-GO-SEMANTIC-004";
+/// `@cap.*` reference outside the closed capability set
+/// (Hashed/Encrypted/Token/File).
 pub const CODE_CAP: &str = "CODEGEN-GO-CAP-005";
+/// `@fn.*` extension stub that discovery could not confirm. Currently a
+/// no-op stub until extension discovery lands.
 pub const CODE_FN: &str = "CODEGEN-GO-FN-006";
 /// `TypeRef::Unresolved` with a non-`@` raw name reached the codegen.
 /// The analyzer could not resolve a record/resource/enum reference, so
@@ -38,18 +47,30 @@ pub const CODE_TYPE_UNRESOLVED: &str = "CODEGEN-GO-TYPE-007";
 /// with a real reference.
 pub(super) const UNRESOLVED_TYPE_PREFIX: &str = "__lazuli_type_unresolved__/";
 
+/// One diagnostic emitted by [`run_checks`].
+///
+/// `code` is a stable `CODEGEN-GO-…` identifier from the closed catalog
+/// above; the doctor consumer pivots on the code rather than the message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CheckIssue {
+    /// Stable diagnostic code (e.g. `CODEGEN-GO-PLUGIN-001`).
     pub code: &'static str,
+    /// Severity tier — currently only [`Severity::Error`] is emitted.
     pub severity: Severity,
+    /// Human-readable explanation including the offending reference.
     pub message: String,
+    /// Owning feature name, when the reference site is feature-scoped.
     pub feature: Option<String>,
+    /// In-source site (e.g. `query.list/where`) when known.
     pub site: Option<String>,
 }
 
+/// Diagnostic severity tier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
+    /// Hard failure — blocks `lazuli generate go`.
     Error,
+    /// Soft warning — reserved; not emitted today.
     Warning,
 }
 
@@ -60,6 +81,21 @@ pub(super) struct RefUse {
     pub(super) site: Option<String>,
 }
 
+/// Run every `lazuli generate go --check` codegen-local pass over the
+/// parsed [`Module`] and return the deduplicated issues.
+///
+/// Each reference site is checked against the closed catalogs in
+/// [`registries`] (private). `@adapter.*` and `@fn.*` discovery are
+/// recognized but emit nothing yet — see [`CODE_ADAPTER`] / [`CODE_FN`].
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_go::emitter::check::run_checks;
+/// let module = /* parsed via lazuli_analyzer */ unimplemented!();
+/// let issues = run_checks(&module);
+/// assert!(issues.iter().all(|i| !i.message.is_empty()));
+/// ```
 pub fn run_checks(module: &Module) -> Vec<CheckIssue> {
     let declared_plugins = declared_plugin_names(module);
     let mut refs = Vec::new();

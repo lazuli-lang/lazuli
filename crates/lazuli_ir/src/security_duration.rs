@@ -14,6 +14,16 @@
 /// Parse a duration literal like `90d` / `24h` / `0h` into seconds.
 /// Returns `None` when the literal is empty, has no unit, has an
 /// unknown unit, or overflows.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_ir::security_duration::duration_seconds;
+///
+/// assert_eq!(duration_seconds("30s"), Some(30));
+/// assert_eq!(duration_seconds("24h"), Some(24 * 60 * 60));
+/// assert_eq!(duration_seconds("1y"), None); // unknown unit
+/// ```
 pub fn duration_seconds(raw: &str) -> Option<u64> {
     let raw = raw.trim();
     if raw.is_empty() {

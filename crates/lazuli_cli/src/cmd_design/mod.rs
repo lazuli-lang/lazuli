@@ -90,11 +90,29 @@ pub struct DiffReport {
 }
 
 impl DiffReport {
+    /// True when there are no added, removed, or changed tokens. The
+    /// CLI uses this as the CI-gate signal (zero exit when empty).
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_design::DiffReport;
+    /// assert!(DiffReport::default().is_empty());
+    /// ```
     pub fn is_empty(&self) -> bool {
         self.added.is_empty() && self.removed.is_empty() && self.changed.is_empty()
     }
 
     /// Human-readable single-block summary written to stdout by `diff`.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_design::DiffReport;
+    ///
+    /// let report = DiffReport::default();
+    /// assert!(report.render().contains("equivalent"));
+    /// ```
     pub fn render(&self) -> String {
         let mut out = String::new();
         if self.is_empty() {
@@ -136,6 +154,16 @@ impl DiffReport {
 /// `out` (typically `design.lzi` at the project root). When `overwrite`
 /// is false and `out` already exists, prints a diff to stderr and
 /// returns `Err` so the CLI exits non-zero.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::cmd_design::{import, ImportFormat};
+///
+/// // import(Path::new("figma.json"), ImportFormat::Figma,
+/// //        Path::new("design.lzi"), true)?;
+/// ```
 pub fn import(from: &Path, format: ImportFormat, out: &Path, overwrite: bool) -> Result<()> {
     let raw = fs::read_to_string(from)
         .with_context(|| format!("reading external token catalog at {}", from.display()))?;
@@ -178,6 +206,15 @@ pub fn import(from: &Path, format: ImportFormat, out: &Path, overwrite: bool) ->
 /// catalog. Caller pre-loads the `Design` (orchestrator wiring will read
 /// `design.lzi` once Cell A's text surface lands; the test suite passes
 /// synthesised `Design` values directly).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::cmd_design::{export, ExportTarget, Design};
+///
+/// // export(Path::new("tokens.json"), ExportTarget::Figma, &design)?;
+/// ```
 pub fn export(out: &Path, target: ExportTarget, design: &Design) -> Result<()> {
     let value = match target {
         ExportTarget::Figma => design_to_figma(design),
@@ -201,12 +238,31 @@ pub fn export(out: &Path, target: ExportTarget, design: &Design) -> Result<()> {
 /// `design.lzi` lowered) and the external catalog at `against`. Format
 /// is sniffed by file extension and structural cues; explicit callers
 /// pass through `diff_with_format`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::cmd_design::{diff, Design};
+///
+/// // let report = diff(Path::new("figma.json"), &design)?;
+/// ```
 pub fn diff(against: &Path, design: &Design) -> Result<DiffReport> {
     let format = sniff_format(against)?;
     diff_with_format(against, format, design)
 }
 
 /// Diff with explicit format override (CLI `--format` flag forwarded).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::cmd_design::{diff_with_format, ImportFormat, Design};
+///
+/// // let report = diff_with_format(Path::new("tokens.json"),
+/// //                               ImportFormat::StyleDictionary, &design)?;
+/// ```
 pub fn diff_with_format(
     against: &Path,
     format: ImportFormat,
@@ -230,6 +286,15 @@ pub fn diff_with_format(
 /// Reads the `Design` IR from `path`. Today the file is JSON; Cell A
 /// will swap this to a `.lzi` text parser without touching the CLI
 /// surface.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::cmd_design::read_design;
+///
+/// // let design = read_design(Path::new("design.lzi"))?;
+/// ```
 pub fn read_design(path: &Path) -> Result<Design> {
     let raw = fs::read_to_string(path)
         .with_context(|| format!("reading design at {}", path.display()))?;
@@ -241,6 +306,15 @@ pub fn read_design(path: &Path) -> Result<Design> {
 /// Writes the `Design` IR to `path`. Sort-stable JSON for deterministic
 /// diffs; emission order inside the IR is preserved by the IR types
 /// themselves (Vec-of-token preserves authored order).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::cmd_design::{write_design, Design};
+///
+/// // write_design(Path::new("design.lzi"), &design)?;
+/// ```
 pub fn write_design(path: &Path, design: &Design) -> Result<()> {
     let pretty = serde_json::to_string_pretty(design).context("serialising Design IR to JSON")?;
     fs::write(path, pretty.as_bytes()).with_context(|| format!("writing {}", path.display()))?;
@@ -260,6 +334,16 @@ pub fn write_design(path: &Path, design: &Design) -> Result<()> {
 /// `Lazurite.toml [lazurite] app_dir` when present (default: project
 /// root). Exists for the orchestrator wire-up; the CLI parses `--out`
 /// / `--from` directly.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::cmd_design::default_design_path;
+///
+/// let path = default_design_path(Path::new("."));
+/// assert!(path.ends_with("design.lzi"));
+/// ```
 pub fn default_design_path(project_root: &Path) -> PathBuf {
     crate::lazurite_manifest::resolve_in_app_dir(project_root, "design.lzi")
 }

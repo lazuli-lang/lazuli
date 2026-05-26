@@ -39,6 +39,25 @@ struct RouteCtx {
     view: String,
 }
 
+/// Helper-module entry point for the route-guard pass.
+///
+/// Walks the module's routes, validates audience-policy presence,
+/// redirect resolution, and inherited app-level defaults, then folds
+/// every check sibling (`check_actor_query`,
+/// `check_when_denied_route_policy_use`, etc.) into one diagnostic list.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::checks::route_guard;
+/// use lazuli_ir::{AppManifest, ExperienceModule, Feature};
+///
+/// let mut module: ExperienceModule = unimplemented!();
+/// let app: Option<&AppManifest> = None;
+/// let features: Vec<Feature> = vec![];
+/// let diags = route_guard::check(&mut module, app, &features);
+/// assert!(diags.iter().all(|d| !d.code.is_empty()));
+/// ```
 pub fn check(
     module: &mut ExperienceModule,
     app_override: Option<&AppManifest>,

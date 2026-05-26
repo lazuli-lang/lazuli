@@ -24,6 +24,20 @@ mod conventions;
 mod error_vocab;
 mod security;
 
+/// Rich Markdown hover for the closed-catalog DSL kinds the LSP knows
+/// best (`command`, `query.*`, `policy`, `audit`, `errors`,
+/// `conventions`, ...).
+///
+/// Returns `None` for tokens without a rich entry; the caller falls
+/// back to [`crate::keyword_description`] (one-liner). First-match-wins
+/// across the four sub-modules — arms are exclusive.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::rich_keyword_hover;
+/// assert!(rich_keyword_hover("definitely_not_a_kind").is_none());
+/// ```
 pub fn rich_keyword_hover(keyword: &str) -> Option<String> {
     canonical_kinds::rich_canonical_kind_hover(keyword)
         .or_else(|| security::rich_security_hover(keyword))

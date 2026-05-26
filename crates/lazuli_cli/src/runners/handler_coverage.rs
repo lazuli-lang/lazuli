@@ -19,6 +19,15 @@ use crate::cmd_test_types::{CoverageMetric, CoverageVerdict};
 /// Parse a `go test -coverprofile` file and return a coverage metric
 /// keyed `handler_go`. Returns `None` when the file is missing or
 /// empty (zero statements).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::runners::handler_coverage::parse_coverprofile;
+///
+/// // let metric = parse_coverprofile(Path::new("cover.out"));
+/// ```
 pub fn parse_coverprofile(path: &Path) -> Option<CoverageMetric> {
     let contents = std::fs::read_to_string(path).ok()?;
     let (covered, total) = parse_coverprofile_str(&contents)?;
@@ -42,6 +51,14 @@ pub fn parse_coverprofile(path: &Path) -> Option<CoverageMetric> {
 
 /// Pure parser, separated for unit tests. Returns
 /// `(covered_statements, total_statements)`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::runners::handler_coverage::parse_coverprofile_str;
+///
+/// // let parsed = parse_coverprofile_str("mode: set\n...");
+/// ```
 pub fn parse_coverprofile_str(contents: &str) -> Option<(u64, u64)> {
     let mut total: u64 = 0;
     let mut covered: u64 = 0;
@@ -77,6 +94,15 @@ pub fn parse_coverprofile_str(contents: &str) -> Option<(u64, u64)> {
 /// Optional verification — shells `go tool cover -func=<file>` and
 /// returns its stdout summary. Used by `--verbose` diagnostics and
 /// CI logs; never the primary source of truth.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::runners::handler_coverage::tool_cover_summary;
+///
+/// // let summary = tool_cover_summary(Path::new("cover.out"));
+/// ```
 #[allow(dead_code)]
 pub fn tool_cover_summary(path: &Path) -> Option<String> {
     let output = Command::new("go")

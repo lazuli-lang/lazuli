@@ -7,46 +7,109 @@
 
 use lazuli_ir as ir;
 
+/// Classified diff between two IR snapshots.
+///
+/// Each operation lands in at most one of `added` / `removed` /
+/// `deprecated`, but `breaking` and `non_breaking` are orthogonal — a
+/// command can appear in both if it both added an optional field and
+/// removed a required one. The renderer ([`render_markdown`]) prints
+/// the buckets in `Removed → Added → Deprecated → Breaking → Non-breaking`
+/// order so the most urgent changes lead.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChangelogReport {
+    /// Operations present in the new module but not the old.
     pub added: Vec<OperationRef>,
+    /// Operations present in the old module but not the new.
     pub removed: Vec<OperationRef>,
+    /// Operations newly carrying a `deprecated` annotation.
     pub deprecated: Vec<DeprecatedEntry>,
+    /// Schema or contract changes that break existing callers.
     pub breaking: Vec<BreakingChange>,
+    /// Schema or contract changes that are safe for existing callers.
     pub non_breaking: Vec<NonBreakingChange>,
 }
 
+/// Stable identity of one HTTP-bearing operation across IR snapshots.
+///
+/// All `kind`/`method`/`path` fields are derived from the IR at diff
+/// time; only `feature` + `name` are the join key. Storing the derived
+/// fields means the rendered markdown does not need a second IR pass.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OperationRef {
+    /// Owning feature name (e.g. `"billing"`).
     pub feature: String,
+    /// IR operation flavour (`"command"`, `"api"`, etc.). Currently
+    /// only `"command"` is populated.
     pub kind: &'static str,
+    /// Operation name within the feature (e.g. `"reassign"`).
     pub name: String,
+    /// HTTP method derived from [`ir::CommandKind`].
     pub method: &'static str,
+    /// Full URL path including route slot placeholders (`{id}`).
     pub path: String,
 }
 
+/// One entry under the report's `Deprecated` section.
+///
+/// Carries the deprecation metadata verbatim from the new snapshot's
+/// `Command::deprecated` so the renderer can format `(since …,
+/// replacement …, sunset …)` without re-walking the IR.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeprecatedEntry {
+    /// The operation that became deprecated.
     pub op: OperationRef,
+    /// Calendar version the deprecation took effect (free-form).
     pub since: Option<String>,
+    /// Pre-rendered replacement reference (e.g. `"billing.command.reassign_v2"`).
     pub replacement: Option<String>,
+    /// Calendar date the deprecated form will be removed.
     pub sunset: Option<String>,
 }
 
+/// One entry under the report's `Breaking` section.
+///
+/// `reason` is a human-readable phrase suitable for changelog
+/// rendering — not a structured diff payload. Consumers that need
+/// machine-parsable detail should diff the IR directly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BreakingChange {
+    /// The affected operation.
     pub op: OperationRef,
+    /// One-sentence summary (e.g. `"removed input field \`amount\`"`).
     pub reason: String,
 }
 
+/// One entry under the report's `Non-breaking` section.
+///
+/// Same shape as [`BreakingChange`] but kept as a distinct type so the
+/// classifier can't accidentally route a breaking change into the
+/// non-breaking bucket via a field-name typo.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NonBreakingChange {
+    /// The affected operation.
     pub op: OperationRef,
+    /// One-sentence summary (e.g. `"added optional input field \`note\`"`).
     pub reason: String,
 }
 
-/// Diff two IR modules. Emits a `ChangelogReport` covering commands
-/// (HTTP-bearing commands across all features).
+/// Diff two IR modules into a classified [`ChangelogReport`].
+///
+/// Scope today: HTTP-bearing commands across all features, joined by
+/// `(feature.name, command.name)`. APIs, agent exposes, webhooks, and
+/// schema-level (resource / enum) changes are intentionally out of
+/// scope until the IR carries stable identity for them across renames.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_changelog::diff;
+/// use lazuli_ir::Module;
+///
+/// let old: Module = /* lazuli inspect --format=json @ HEAD~1 */ unimplemented!();
+/// let new: Module = /* lazuli inspect --format=json @ HEAD   */ unimplemented!();
+/// let report = diff(&old, &new);
+/// assert!(report.removed.is_empty(), "no command was deleted");
+/// ```
 pub fn diff(old: &ir::Module, new: &ir::Module) -> ChangelogReport {
     let mut added = Vec::new();
     let mut removed = Vec::new();
@@ -107,7 +170,27 @@ pub fn diff(old: &ir::Module, new: &ir::Module) -> ChangelogReport {
     }
 }
 
-/// Render the report as markdown.
+/// Render a [`ChangelogReport`] as a human-readable markdown document.
+///
+/// Sections appear in fixed order — `Removed`, `Added`, `Deprecated`,
+/// `Breaking`, `Non-breaking` — so reviewers see destructive changes
+/// first. Empty buckets are omitted entirely; an unchanged diff
+/// renders as just the `# API Changelog` title.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_changelog::{render_markdown, ChangelogReport};
+///
+/// let empty = ChangelogReport {
+///     added: vec![],
+///     removed: vec![],
+///     deprecated: vec![],
+///     breaking: vec![],
+///     non_breaking: vec![],
+/// };
+/// assert_eq!(render_markdown(&empty), "# API Changelog\n\n");
+/// ```
 pub fn render_markdown(report: &ChangelogReport) -> String {
     let mut out = String::with_capacity(2048);
     out.push_str("# API Changelog\n\n");

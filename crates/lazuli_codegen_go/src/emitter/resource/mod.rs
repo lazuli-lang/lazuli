@@ -54,6 +54,12 @@ use struct_emit::{emit_record, emit_resource};
 /// the `org` feature emits `*orggen.User` plus the corresponding
 /// `<module_name>/org` import). Callers in `module.rs` construct
 /// these once per `generate_v1` run.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let go_src = emit_resource_file("billing.lzi", &feature, "demo", &cross_index, &emit_ctx);
+/// ```
 pub fn emit_resource_file(
     source_label: &str,
     feature: &Feature,

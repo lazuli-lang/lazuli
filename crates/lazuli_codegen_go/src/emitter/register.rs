@@ -32,6 +32,12 @@ use super::query::{list_var_name, lookup_var_name, resource_for_query};
 /// nothing to register so the orchestrator can skip the file entirely
 /// (mirrors the resource / enum skip rule — output listing stays
 /// signal-rich).
+///
+/// ## Examples
+///
+/// ```ignore
+/// let go_src = emit_register_file("billing.lzi", &feature);
+/// ```
 pub fn emit_register_file(source_label: &str, feature: &Feature) -> Option<String> {
     let mut var_refs: Vec<String> = Vec::new();
 
@@ -100,4 +106,25 @@ fn resource_axis(feature: &Feature, query_name: &str) -> String {
     resource_for_query(feature, query_name)
         .map(|r| pascal_case(&r.name))
         .unwrap_or_else(|| "Result".to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resource_axis_falls_back_to_result_when_query_unknown() {
+        let source = "feature empty\n  defaults\n    tenancy org\n";
+        let parsed = lazuli_syntax::parse_feature_skeletons(source).expect("feature parses");
+        let feature = lazuli_analyzer::lower_feature_skeleton(&parsed[0]).expect("feature lowers");
+        assert_eq!(resource_axis(&feature, "does_not_exist"), "Result");
+    }
+
+    #[test]
+    fn emit_register_file_returns_none_for_empty_feature() {
+        let source = "feature empty\n  defaults\n    tenancy org\n";
+        let parsed = lazuli_syntax::parse_feature_skeletons(source).expect("feature parses");
+        let feature = lazuli_analyzer::lower_feature_skeleton(&parsed[0]).expect("feature lowers");
+        assert!(emit_register_file("test.lzi", &feature).is_none());
+    }
 }

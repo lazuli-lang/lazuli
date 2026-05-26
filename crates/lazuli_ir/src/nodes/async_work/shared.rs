@@ -12,21 +12,32 @@ use serde::{Deserialize, Serialize};
 
 use crate::{NamedArg, Path, SpanRef};
 
+/// `idempotency by <path>` key — names the field whose value the
+/// runtime hashes to dedupe re-runs of an async unit. Shared across
+/// jobs, webhooks, and notifications.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IdempotencyKey {
     /// Path expression: `envelope.id`, `payload.batch_id`, `payload.external_id`.
     pub by: Path,
 }
 
+/// `retry <count> backoff <strategy>` clause shared by every async
+/// primitive. `count` is the attempt cap; `backoff` selects the
+/// rescheduling curve.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RetryPolicy {
     pub count: u32,
     pub backoff: BackoffStrategy,
 }
 
+/// Closed catalog of retry backoff curves. `Fixed` reschedules at a
+/// constant delay; `Exponential` doubles after every attempt. Runtime
+/// adapters own the concrete timing constants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BackoffStrategy {
+    /// Constant delay between attempts.
     Fixed,
+    /// Exponentially-growing delay (doubling).
     Exponential,
 }
 
@@ -49,6 +60,9 @@ pub struct FanoutSpec {
     pub axis: String,
 }
 
+/// Closed catalog of fanout scopes. v0 supports `Tenants` only —
+/// one execution per tenant per fire. Extending the catalog requires
+/// a proposal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FanoutScope {
@@ -75,3 +89,20 @@ pub struct ExternalCallRef {
     pub span_ref: Option<SpanRef>,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backoff_strategy_round_trips() {
+        let s = serde_json::to_string(&BackoffStrategy::Exponential).unwrap();
+        let back: BackoffStrategy = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, BackoffStrategy::Exponential);
+    }
+
+    #[test]
+    fn fanout_scope_round_trips() {
+        let s = serde_json::to_string(&FanoutScope::Tenants).unwrap();
+        assert_eq!(s, "\"tenants\"");
+    }
+}

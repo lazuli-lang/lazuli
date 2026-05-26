@@ -65,10 +65,12 @@ pub struct Finding {
     /// Path of the offending directory (relative to the project root or
     /// absolute, as walked). Callers normalize via `doctor_rule_path`.
     pub path: PathBuf,
+    /// Pre-rendered diagnostic message.
     pub message: String,
 }
 
 impl Finding {
+    /// Stable doctor rule code surfaced to the user.
     pub const CODE: &'static str = "VOCAB-CLIENT-SRC-001";
 }
 
@@ -94,6 +96,15 @@ const TOP_LEVEL_SKIP: &[&str] = &["dist", "node_modules", ".lazuli", ".git", ".c
 
 /// Walk the project's client trees and return one finding per
 /// closed-catalog violation. See module docs for scope.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::doctor::folder::vocab_client_src_001::check;
+///
+/// // let findings = check(Path::new("."));
+/// ```
 pub fn check(root: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 

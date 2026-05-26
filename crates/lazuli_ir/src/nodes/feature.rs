@@ -182,9 +182,30 @@ pub struct Feature {
     pub span_ref: Option<SpanRef>,
 }
 
+/// One `requires <kind> <name> contract <X>` entry declared on a
+/// feature. Names a sibling feature / integration the host must
+/// provide for this feature to function, plus the contract id the
+/// host must satisfy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FeatureRequirement {
     pub kind: String,
     pub name: String,
     pub contract: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn feature_requirement_round_trips() {
+        let r = FeatureRequirement {
+            kind: "feature".into(),
+            name: "billing".into(),
+            contract: "v1".into(),
+        };
+        let s = serde_json::to_string(&r).unwrap();
+        let back: FeatureRequirement = serde_json::from_str(&s).unwrap();
+        assert_eq!(r, back);
+    }
 }

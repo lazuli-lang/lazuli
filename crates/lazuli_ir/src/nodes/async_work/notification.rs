@@ -147,3 +147,14 @@ pub struct NotificationThrottle {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub burst: Option<u32>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn digest_strategy_round_trips() {
+        let s = serde_json::to_string(&DigestStrategy::Append).unwrap();
+        assert_eq!(s, "\"append\"");
+    }
+}

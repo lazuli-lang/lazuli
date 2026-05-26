@@ -17,6 +17,29 @@ use lazuli_ir as ir;
 
 use crate::lzx::{banner, pascal_case};
 
+/// Emit the per-feature `.routes.gen.ts` parser file for one platform.
+///
+/// Collects every detail view declared for the target's surfaces,
+/// derives a typed `Params` interface and a pure validator per view,
+/// and returns the full file contents. Returns `None` if the feature
+/// has no detail views on that target — the caller should skip writing
+/// the file rather than emit an empty stub.
+///
+/// `target_prefix` must be either `"ts-web"` or `"ts-mobile"`; any
+/// other value is treated as "no matching surfaces" and yields `None`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::lzx_route_params::emit_route_params_ts;
+/// use lazuli_ir::{Feature, Module};
+///
+/// let module: Module = /* … */ unimplemented!();
+/// let feature: &Feature = &module.features[0];
+/// if let Some(src) = emit_route_params_ts(feature, &module, "ts-web") {
+///     assert!(src.contains("export"));
+/// }
+/// ```
 pub fn emit_route_params_ts(
     feature: &ir::Feature,
     module: &ir::Module,

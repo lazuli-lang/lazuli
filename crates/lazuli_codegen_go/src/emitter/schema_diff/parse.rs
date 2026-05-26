@@ -76,6 +76,15 @@ impl From<io::Error> for ParseError {
 /// — it shows up in the IR's projection too (see
 /// `current_schema_from_ir`), so symmetric capture keeps the diff
 /// from spuriously dropping it.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_codegen_go::emitter::schema_diff::parse_baseline_from_migration;
+/// let schema = parse_baseline_from_migration(Path::new("dist/go/migrations/0001_init.sql"))?;
+/// # Ok::<_, lazuli_codegen_go::emitter::schema_diff::ParseError>(())
+/// ```
 pub fn parse_baseline_from_migration(path: &Path) -> Result<ResourceSchema, ParseError> {
     let contents = fs::read_to_string(path)?;
     parse_baseline_from_str(&contents)
@@ -86,6 +95,15 @@ pub fn parse_baseline_from_migration(path: &Path) -> Result<ResourceSchema, Pars
 /// A11 emitter, the A12 doctor lint, integration tests) can avoid
 /// round-tripping through tempfiles when they already have the
 /// SQL in memory.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_go::emitter::schema_diff::parse_baseline_from_str;
+/// let sql = "CREATE TABLE IF NOT EXISTS foo (\n  id BIGSERIAL PRIMARY KEY\n);";
+/// let schema = parse_baseline_from_str(sql).unwrap();
+/// assert!(schema.columns.iter().any(|c| c.name == "id"));
+/// ```
 pub fn parse_baseline_from_str(sql: &str) -> Result<ResourceSchema, ParseError> {
     // Find the `CREATE TABLE` line. Be liberal: accept any
     // whitespace, optional `IF NOT EXISTS`, and the table ident

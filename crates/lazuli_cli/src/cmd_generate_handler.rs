@@ -23,6 +23,20 @@ use crate::signature_aware_stub::{StubContext, render_test_stub};
 
 /// Run `lazuli generate handler <ident>`.
 /// `ident` is `<feature>.<fn_name>`.
+///
+/// Creates `<app_dir>/features/<feature>/handlers/<fn>.go` for an
+/// `@fn.<fn>` reference declared in the feature `.lzi`. Signature
+/// inference uses [`lazuli_analyzer::lower_feature_skeleton`] and the
+/// handler walker so the stub already typechecks.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::cmd_generate_handler::run;
+///
+/// // run("post.publish_post", Path::new("."))?;
+/// ```
 pub fn run(ident: &str, project_root: &Path) -> Result<()> {
     let (feature, fn_name) = parse_ident(ident)?;
     validate_part(&feature, "feature")?;

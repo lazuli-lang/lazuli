@@ -58,6 +58,16 @@ pub enum DoctorSeverity {
 impl DoctorSeverity {
     /// Stable kebab-case identifier (matches the
     /// `severity = "..."` TOML field and JSON output `severity` field).
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::DoctorSeverity;
+    ///
+    /// assert_eq!(DoctorSeverity::Error.as_str(), "error");
+    /// assert_eq!(DoctorSeverity::Warning.as_str(), "warning");
+    /// assert_eq!(DoctorSeverity::Hint.as_str(), "hint");
+    /// ```
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Error => "error",
@@ -68,6 +78,16 @@ impl DoctorSeverity {
     }
 
     /// Parse the kebab-case identifier. Returns `None` on unknown input.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::DoctorSeverity;
+    ///
+    /// assert_eq!(DoctorSeverity::parse("warning"), Some(DoctorSeverity::Warning));
+    /// assert_eq!(DoctorSeverity::parse("  hint  "), Some(DoctorSeverity::Hint));
+    /// assert_eq!(DoctorSeverity::parse("blocker"), None);
+    /// ```
     pub fn parse(input: &str) -> Option<Self> {
         match input.trim() {
             "error" => Some(Self::Error),

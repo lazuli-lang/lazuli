@@ -32,6 +32,22 @@ use std::collections::HashSet;
 
 use tower_lsp::lsp_types::Position;
 
+/// Walk the source and return every `<feature>.query.<name>` reference
+/// it declares, in document order. De-duplicated. Used by completion
+/// providers that surface valid query refs (e.g. route-guard
+/// `actor_query` completion).
+///
+/// Lossy by design: only feature-scoped indent-2 query declarations
+/// register. Incomplete or malformed lines are silently skipped so the
+/// caller never crashes on a half-typed identifier.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::collect_query_refs;
+/// let refs = collect_query_refs("feature billing\n  query.lookup me\n");
+/// assert!(refs.contains(&"billing.query.me".to_owned()));
+/// ```
 pub fn collect_query_refs(source: &str) -> Vec<String> {
     let mut refs = Vec::new();
     let mut seen = HashSet::new();
@@ -69,6 +85,23 @@ pub fn collect_query_refs(source: &str) -> Vec<String> {
     refs
 }
 
+/// Walk the source and return the policy-category names declared
+/// inside the named feature's `policies` block. When `feature_hint` is
+/// `None`, returns categories from whatever feature the scanner is
+/// currently inside (caller is responsible for narrowing).
+///
+/// Powers the route-guard `@policy.<name>` completion provider — the
+/// category list is the closed completion set, scoped to the surrounding
+/// feature.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::collect_policy_categories_for_feature;
+/// let source = "feature billing\n  policies\n    admin: @user.is_admin\n";
+/// let cats = collect_policy_categories_for_feature(source, Some("billing"));
+/// assert!(cats.contains(&"admin".to_owned()));
+/// ```
 pub fn collect_policy_categories_for_feature(
     source: &str,
     feature_hint: Option<&str>,
@@ -125,6 +158,23 @@ pub fn collect_policy_categories_for_feature(
     names
 }
 
+/// Find the name of the `feature <name>` block enclosing `position`.
+/// Returns `None` if the cursor sits above the first feature header or
+/// inside a top-level block (`app`, `workspace`, `contract`, etc.).
+///
+/// Best-effort indent walk; safe in tight UI loops (completion / hover
+/// / code-action paths).
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::enclosing_feature_name;
+/// use tower_lsp::lsp_types::Position;
+///
+/// let source = "feature billing\n  query.lookup me\n";
+/// let name = enclosing_feature_name(source, Position { line: 1, character: 4 });
+/// assert_eq!(name, Some("billing".into()));
+/// ```
 pub fn enclosing_feature_name(source: &str, position: Position) -> Option<String> {
     let lines: Vec<&str> = source.lines().collect();
     let cursor_line_idx = (position.line as usize).min(lines.len().saturating_sub(1));
@@ -148,6 +198,22 @@ pub fn enclosing_feature_name(source: &str, position: Position) -> Option<String
     None
 }
 
+/// Walk the source and return every `key <name>` declared inside the
+/// named feature's `translation` block, in document order.
+/// De-duplicated.
+///
+/// Used by the error-vocab completion provider to surface valid
+/// `@translation.<key>` targets for `when_denied` and `errors.<code>
+/// message` slots.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::collect_translation_keys_for_feature;
+/// let source = "feature billing\n  translation\n    key invoice_paid\n";
+/// let keys = collect_translation_keys_for_feature(source, "billing");
+/// assert_eq!(keys, vec!["invoice_paid".to_owned()]);
+/// ```
 pub fn collect_translation_keys_for_feature(source: &str, feature_name: &str) -> Vec<String> {
     let mut keys: Vec<String> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
@@ -184,4 +250,73 @@ pub fn collect_translation_keys_for_feature(source: &str, feature_name: &str) ->
         }
     }
     keys
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collect_query_refs_picks_up_feature_scoped_queries() {
+        let source = "\
+feature accounts
+  query.lookup me
+  query.list active
+
+feature billing
+  query.sql month_summary
+";
+        let refs = collect_query_refs(source);
+        assert!(refs.contains(&"accounts.query.me".to_owned()));
+        assert!(refs.contains(&"accounts.query.active".to_owned()));
+        assert!(refs.contains(&"billing.query.month_summary".to_owned()));
+    }
+
+    #[test]
+    fn enclosing_feature_name_walks_back_to_header() {
+        let source = "feature billing\n  query.lookup me\n    policy admin\n";
+        let pos = Position {
+            line: 2,
+            character: 4,
+        };
+        assert_eq!(enclosing_feature_name(source, pos), Some("billing".into()));
+    }
+
+    #[test]
+    fn enclosing_feature_name_returns_none_above_features() {
+        assert_eq!(
+            enclosing_feature_name("# header\n", Position { line: 0, character: 0 }),
+            None
+        );
+    }
+
+    #[test]
+    fn collect_policy_categories_filters_by_feature() {
+        let source = "\
+feature billing
+  policies
+    admin: @user.is_admin
+    owner: @user.is_owner
+
+feature support
+  policies
+    agent: @user.is_agent
+";
+        let billing = collect_policy_categories_for_feature(source, Some("billing"));
+        assert!(billing.contains(&"admin".to_owned()));
+        assert!(billing.contains(&"owner".to_owned()));
+        assert!(!billing.contains(&"agent".to_owned()));
+    }
+
+    #[test]
+    fn collect_translation_keys_returns_named_keys() {
+        let source = "\
+feature billing
+  translation
+    key invoice_paid
+    key invoice_failed
+";
+        let keys = collect_translation_keys_for_feature(source, "billing");
+        assert_eq!(keys, vec!["invoice_paid", "invoice_failed"]);
+    }
 }

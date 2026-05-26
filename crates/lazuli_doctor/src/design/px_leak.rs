@@ -11,17 +11,37 @@ use std::path::{Path, PathBuf};
 
 use super::helpers::{is_allowed_by_escape_comment, iter_style_spans, walk_tsx_files};
 
+/// One DESIGN-TOKEN-PX-LEAK finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// `.tsx` file path that contains the leaked dimension.
     pub path: PathBuf,
+    /// 1-based line number where the literal was found.
     pub line: usize,
     /// The raw literal (e.g. `"12px"`, `"1.5rem"`).
     pub literal: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "design-token-px-leak";
 
+    /// Render the user-facing diagnostic body — surfaces the literal
+    /// and prompts for a declared `space`/Tailwind utility class.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::design::px_leak::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("App.tsx"),
+    ///     line: 12,
+    ///     literal: "12px".into(),
+    /// };
+    /// assert!(f.message().contains("12px"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "dimensional literal `{}` used in an inline style prop. \
@@ -31,6 +51,17 @@ impl Finding {
     }
 }
 
+/// Run DESIGN-TOKEN-PX-LEAK across every `.tsx` file under `root`.
+/// Zero-valued and `auto` literals are filtered before reporting.
+/// Results are stably sorted by `(path, line)`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::design::px_leak::check;
+/// let findings = check(Path::new("src"));
+/// ```
 pub fn check(root: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     for path in walk_tsx_files(root) {
@@ -44,6 +75,21 @@ pub fn check(root: &Path) -> Vec<Finding> {
     findings
 }
 
+/// Single-file variant of [`check`]; preferred entry point when the
+/// caller already has the file's content in memory (e.g. the LSP).
+/// Honors `lazuli-allow: design-token-px-leak` escape comments.
+///
+/// ## Examples
+///
+/// ```rust
+/// use std::path::Path;
+/// use lazuli_doctor::design::px_leak::check_file;
+///
+/// let body = r#"<div style={{ padding: "12px" }} />"#;
+/// let lines: Vec<&str> = body.lines().collect();
+/// let findings = check_file(Path::new("App.tsx"), body, &lines);
+/// assert!(!findings.is_empty());
+/// ```
 pub fn check_file(path: &Path, content: &str, lines: &[&str]) -> Vec<Finding> {
     let mut findings = Vec::new();
     for span in iter_style_spans(content, lines) {

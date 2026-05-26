@@ -29,8 +29,16 @@ use super::{
     PolicyExprAst, RateLimitSpecAst, Span,
 };
 
+/// `api <name>` block — explicit HTTP endpoint backed by a Go handler.
+///
+/// Used as the escape hatch for endpoints that can't fit
+/// `command` / `query` / `webhook` (file uploads, SSE streams, raw
+/// exports). The author commits to a method, path, output type, optional
+/// rate limit, and a handler reference; doctor + analyzer enforce the
+/// closed-children shape documented at the module level.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApiDecl {
+    /// `api <name>` — endpoint identifier.
     pub name: String,
     /// `method GET|POST|PUT|PATCH|DELETE`. Captured as a typed enum.
     pub method: HttpMethod,
@@ -64,4 +72,29 @@ pub struct ApiDecl {
     /// `deprecated` child block shared with commands.
     pub deprecated: Option<CommandDeprecatedDecl>,
     pub span: Span,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn api_decl_serde_roundtrip_minimal() {
+        let json = serde_json::json!({
+            "name": "export",
+            "method": "GET",
+            "path": "/api/export",
+            "output": "ExportPayload",
+            "policy": null,
+            "rate_limit": null,
+            "handler": "./api/export.go",
+            "locale_negotiate": null,
+            "deprecated": null,
+            "span": { "start": 0, "end": 10 }
+        });
+        let decl: ApiDecl = serde_json::from_value(json).expect("parses");
+        assert_eq!(decl.name, "export");
+        assert_eq!(decl.path, "/api/export");
+        assert_eq!(decl.handler.as_deref(), Some("./api/export.go"));
+    }
 }

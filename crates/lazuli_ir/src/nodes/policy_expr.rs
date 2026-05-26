@@ -56,3 +56,28 @@ pub enum PolicyExpr {
     /// `not <a>` — boolean negation.
     Not(Box<PolicyExpr>),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn policy_atom_round_trips() {
+        let a = PolicyAtom {
+            namespace: "scope".into(),
+            name: "workspace_admin".into(),
+            args: None,
+        };
+        let s = serde_json::to_string(&a).unwrap();
+        let back: PolicyAtom = serde_json::from_str(&s).unwrap();
+        assert_eq!(a, back);
+    }
+
+    #[test]
+    fn policy_expr_round_trips() {
+        let e = PolicyExpr::HasRole("editor".into());
+        let s = serde_json::to_string(&e).unwrap();
+        let back: PolicyExpr = serde_json::from_str(&s).unwrap();
+        assert_eq!(e, back);
+    }
+}

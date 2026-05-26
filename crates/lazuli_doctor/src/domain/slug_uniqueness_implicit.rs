@@ -17,17 +17,41 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::Feature;
 
+/// One SLUG-UNIQUENESS-IMPLICIT finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` path that hosts the resource.
     pub path: PathBuf,
+    /// Feature containing the resource.
     pub feature: String,
+    /// Resource that declares the slug field.
     pub resource: String,
+    /// Field name carrying `@slug` without `unique`.
     pub field: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "SLUG-UNIQUENESS-IMPLICIT";
 
+    /// Render the user-facing diagnostic body — explains the
+    /// URL-addressable contract and prompts for an explicit `unique`.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::domain::slug_uniqueness_implicit::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("blog.lzi"),
+    ///     feature: "blog".into(),
+    ///     resource: "Post".into(),
+    ///     field: "slug".into(),
+    /// };
+    /// assert!(f.message().contains("Post"));
+    /// assert!(f.message().contains("unique"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "field `{}` on resource `{}` is `@slug` but does not declare \
@@ -39,6 +63,20 @@ impl Finding {
     }
 }
 
+/// Run SLUG-UNIQUENESS-IMPLICIT over one feature. Reports every
+/// `@slug` field that did not also declare `unique`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::domain::slug_uniqueness_implicit::check;
+///
+/// let findings = check(&feature, Path::new("blog.lzi"));
+/// for f in findings {
+///     eprintln!("{}.{} should be unique", f.resource, f.field);
+/// }
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     for resource in &feature.resources {

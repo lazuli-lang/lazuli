@@ -17,6 +17,24 @@ use crate::lzx::lzx_router_adapter::{RouterTarget, router_useparams_import, tran
 
 /// Emit `dist/ts-<target>/<feat>/views/<audience>/<view-name>.gen.ts`
 /// for a `view detail` view.
+///
+/// Detail views resolve their record from the route's path params, so
+/// the target's `useParams` hook is imported via
+/// [`crate::lzx_router_adapter::router_useparams_import`]. The hook
+/// itself wires the typed `Params` interface against the bound query.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::lzx_view_detail::emit_view_detail;
+/// use lazuli_codegen_ts::lzx::lzx_router_adapter::RouterTarget;
+/// use lazuli_ir::{Audience, Surface, ViewDetail};
+///
+/// let surface: Surface = /* … */ unimplemented!();
+/// let audience: Audience = /* … */ unimplemented!();
+/// let view: ViewDetail = /* … */ unimplemented!();
+/// let _src = emit_view_detail(&surface, &audience, &view, RouterTarget::ViteReact);
+/// ```
 pub fn emit_view_detail(
     surface: &Surface,
     audience: &Audience,

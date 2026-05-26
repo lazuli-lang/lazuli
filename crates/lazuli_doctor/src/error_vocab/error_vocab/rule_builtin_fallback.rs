@@ -13,18 +13,46 @@ use lazuli_ir::{Command, Feature, PolicyCategory, PolicyExpr, PolicyRef, SpanRef
 
 use super::catalogs::has_policy_denied_catchall;
 
+/// One ERR-VOCAB-003 finding — command policy resolves to a category
+/// without `when_denied`, and the feature has no `policy_denied`
+/// catch-all, so the runtime built-in floor text wins.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuiltinFallbackFinding {
+    /// Source `.lzi` file the offending command lives in.
     pub path: PathBuf,
+    /// Feature owning the command.
     pub feature: String,
+    /// Command whose policy chain leaves runtime built-in text.
     pub command: String,
+    /// Label of the policy that lacks `when_denied` (e.g. `@policy.read`).
     pub policy: String,
+    /// Source span of the offending command for IDE squiggles.
     pub span: Option<SpanRef>,
 }
 
 impl BuiltinFallbackFinding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "ERR-VOCAB-003";
 
+    /// Render the "built-in floor text" message and prompt the author
+    /// to add either `when_denied @translation.<key>` to the policy or
+    /// a feature-level `policy_denied` catch-all.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::error_vocab::error_vocab::rule_builtin_fallback::BuiltinFallbackFinding;
+    ///
+    /// let f = BuiltinFallbackFinding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     feature: "billing".into(),
+    ///     command: "send_invoice".into(),
+    ///     policy: "@policy.read".into(),
+    ///     span: None,
+    /// };
+    /// assert!(f.message().contains("built-in localized message"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "command `{}.{}` is gated by policy `{}` which has no `when_denied`, and feature `{}` \
@@ -40,6 +68,17 @@ impl BuiltinFallbackFinding {
 /// Run ERR-VOCAB-003 over one feature. Per-command bypass: if the command
 /// already authors its own `policy_when_denied`, the chain resolves at
 /// step 1 and the warning is silent.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::error_vocab::error_vocab::rule_builtin_fallback::check_builtin_fallback;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with commands + policies");
+/// let _ = check_builtin_fallback(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check_builtin_fallback(feature: &Feature, path: &Path) -> Vec<BuiltinFallbackFinding> {
     if has_policy_denied_catchall(feature.errors.as_ref()) {
         return Vec::new();
@@ -125,4 +164,29 @@ fn resolve_local_policy_category<'a>(
         .iter()
         .find(|c| c.name == candidate)
         .map(|c| (format!("@policy.{}", candidate), c))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finding_code_is_stable() {
+        assert_eq!(BuiltinFallbackFinding::CODE, "ERR-VOCAB-003");
+    }
+
+    #[test]
+    fn message_names_command_and_policy() {
+        let f = BuiltinFallbackFinding {
+            path: PathBuf::from("billing.lzi"),
+            feature: "billing".to_owned(),
+            command: "send_invoice".to_owned(),
+            policy: "@policy.read".to_owned(),
+            span: None,
+        };
+        let msg = f.message();
+        assert!(msg.contains("send_invoice"));
+        assert!(msg.contains("@policy.read"));
+        assert!(msg.contains("when_denied"));
+    }
 }

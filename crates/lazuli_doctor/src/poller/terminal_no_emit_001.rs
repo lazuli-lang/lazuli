@@ -8,16 +8,38 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Feature, PollerStateKind};
 
+/// One POLLER-TERMINAL-NO-EMIT-001 finding — a poller has terminal
+/// states but emits no events on resolution. Downstream consumers
+/// wouldn't observe completion.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the poller was authored in.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
+    /// Poller that has terminals but no emits.
     pub poller: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "POLLER-TERMINAL-NO-EMIT-001";
 
+    /// Render the "terminal without emits" message naming the poller.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::poller::terminal_no_emit_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("messages.lzi"),
+    ///     feature: "messages".into(),
+    ///     poller: "deliver_pending".into(),
+    /// };
+    /// assert!(f.message().contains("terminal"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "POLLER-TERMINAL-NO-EMIT-001: poller '{}' has terminal states but emits no events on resolution; downstream consumers won't observe completion.",
@@ -26,6 +48,19 @@ impl Finding {
     }
 }
 
+/// Walk every poller in `feature` and emit a finding for each that
+/// has at least one terminal state but an empty `emits` list.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::poller::terminal_no_emit_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a poller that terminates without emitting");
+/// let _ = check(&feature, Path::new("messages.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     feature
         .pollers

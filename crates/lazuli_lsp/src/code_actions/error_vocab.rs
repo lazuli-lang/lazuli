@@ -40,6 +40,23 @@ use tower_lsp::lsp_types::{
 use crate::{ERROR_VOCAB_CODES, enclosing_feature_name, leading_spaces, position_at_line_start};
 
 /// IR Error-Vocab code actions — three actions per proposal §7.4.
+/// Returns the applicable quickfixes for the cursor position
+/// (`Scaffold errors block`, `Add when_denied (per-policy)`,
+/// `Add when_denied (per-command)`). Returns an empty vector outside
+/// error-vocab-related lines.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::error_vocab_code_actions;
+/// use tower_lsp::lsp_types::{Position, Url};
+///
+/// let uri = Url::parse("file:///example.lzi").unwrap();
+/// // Cursor on a `feature ...` header — should offer the scaffold action.
+/// let source = "feature billing\n  query.lookup me\n";
+/// let actions = error_vocab_code_actions(source, &uri, Position { line: 0, character: 0 });
+/// assert!(!actions.is_empty());
+/// ```
 pub fn error_vocab_code_actions(
     source: &str,
     uri: &Url,
@@ -474,4 +491,37 @@ pub(crate) fn enclosing_command_name(source: &str, line_idx: usize) -> Option<St
         return None;
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn uri() -> Url {
+        Url::parse("file:///example.lzi").expect("valid URI")
+    }
+
+    #[test]
+    fn scaffold_errors_offered_on_feature_header_without_errors_block() {
+        let source = "feature billing\n  query.lookup me\n";
+        let actions = error_vocab_code_actions(&source, &uri(), Position { line: 0, character: 0 });
+        assert!(
+            !actions.is_empty(),
+            "expected a scaffold action on the feature header"
+        );
+    }
+
+    #[test]
+    fn no_actions_outside_error_vocab_lines() {
+        let source = "feature billing\n  query.lookup me\n";
+        let actions = error_vocab_code_actions(
+            &source,
+            &uri(),
+            Position {
+                line: 1,
+                character: 6,
+            },
+        );
+        assert!(actions.is_empty());
+    }
 }

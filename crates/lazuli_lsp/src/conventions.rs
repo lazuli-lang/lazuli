@@ -31,6 +31,16 @@ use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind};
 ///
 /// `docs/proposals/ir-resource-conventions-crud.md` §4.4 + §12 row C4
 /// and `docs/proposals/ir-resource-conventions-me.md` §4.4 + §12 row M3.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::conventions_list_completions;
+/// let items = conventions_list_completions("  conventions [").unwrap();
+/// assert!(items.iter().any(|c| c.label == "crud"));
+/// assert!(items.iter().any(|c| c.label == "me"));
+/// assert!(conventions_list_completions("  conventions [crud]").is_none());
+/// ```
 pub fn conventions_list_completions(before: &str) -> Option<Vec<CompletionItem>> {
     // Locate the most recent unclosed `[` after a `conventions` keyword
     // on the same line. The slot is single-line per the parser spec
@@ -68,4 +78,27 @@ pub fn conventions_list_completions(before: &str) -> Option<Vec<CompletionItem>>
             })
             .collect(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fires_inside_open_bracket() {
+        let items = conventions_list_completions("  conventions [").unwrap();
+        let labels: Vec<_> = items.iter().map(|c| c.label.as_str()).collect();
+        assert!(labels.contains(&"crud"));
+        assert!(labels.contains(&"me"));
+    }
+
+    #[test]
+    fn rejects_closed_bracket() {
+        assert!(conventions_list_completions("  conventions [crud]").is_none());
+    }
+
+    #[test]
+    fn rejects_lines_without_conventions_keyword() {
+        assert!(conventions_list_completions("  policies [").is_none());
+    }
 }

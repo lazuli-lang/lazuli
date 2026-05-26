@@ -28,8 +28,24 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "VOCAB-EVENT-ORPHAN-001";
 
+    /// Render the "no command emits this event" message, naming the
+    /// event and offering the canonical fixes.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::vocab_event_orphan_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     event_name: "billing.cycle.completed".into(),
+    /// };
+    /// assert!(f.message().contains("Orphan events leak abstraction"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "event `{}` is declared but no command or job in this feature \
@@ -47,6 +63,17 @@ impl Finding {
 /// `payload none` is an explicit opt-out, so those events are silent. Trace
 /// events are also silent because the IR documents them as outside the feature
 /// reaction graph, for logs, audit streams, and external observers.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::vocab::vocab_event_orphan_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with events");
+/// let _ = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let emitted: HashSet<&str> = feature
         .commands

@@ -149,10 +149,35 @@ pub use rate_limit::rate_limit_env_completions;
 pub use source_scan::*;
 pub use types::SecurityProfile;
 
+/// The stable server identifier surfaced to LSP clients during
+/// initialization handshake. Hard-coded so the value can never drift
+/// between releases — VS Code / Helix bind their config keys to this
+/// exact string.
+///
+/// ## Examples
+///
+/// ```
+/// assert_eq!(lazuli_lsp::server_name(), "lazuli-lsp");
+/// ```
 pub fn server_name() -> &'static str {
     "lazuli-lsp"
 }
 
+/// Run the full LSP diagnostic pass against a single source string at
+/// the default [`SecurityProfile::Strict`] level.
+///
+/// This is the entry point external consumers (CLI doctor, scripts,
+/// integration tests) hit when they want "what would the editor
+/// underline?" without standing up a `tower-lsp` server. See
+/// [`diagnostics_for_source_with_profile`] for the profile-aware
+/// counterpart.
+///
+/// ## Examples
+///
+/// ```
+/// let diags = lazuli_lsp::diagnostics_for_source("");
+/// assert!(diags.is_empty(), "empty source has no diagnostics");
+/// ```
 pub fn diagnostics_for_source(source: &str) -> Vec<Diagnostic> {
     diagnostics_for_source_with_profile(source, SecurityProfile::Strict)
 }
@@ -167,6 +192,15 @@ pub fn diagnostics_for_source(source: &str) -> Vec<Diagnostic> {
 /// dispatch. The LSP backend (`Backend::did_open` / `did_change`) calls
 /// `diagnostics_for_uri` → `diagnostics_for` which DOES include them so
 /// editor squiggles still surface live.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::{diagnostics_for_source_with_profile, SecurityProfile};
+///
+/// let diags = diagnostics_for_source_with_profile("", SecurityProfile::Prototype);
+/// assert!(diags.is_empty());
+/// ```
 pub fn diagnostics_for_source_with_profile(
     source: &str,
     security_profile: SecurityProfile,

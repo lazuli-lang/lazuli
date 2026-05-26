@@ -29,6 +29,19 @@ use super::lifecycle::emit_lifecycle_machines;
 use super::semantic::semantic_validator_plugins;
 use super::wrap::command_wrap_buckets;
 
+/// Emit `<feature>/command.gen.go`, or `None` when the feature declares
+/// no commands.
+///
+/// Wires together every per-command sub-emitter (semantic validators,
+/// lifecycle machines, wrap-helper bucket selection) and feeds them
+/// through a single `GoPrinter`/`ImportSet` pair so callers get one
+/// fully-rendered file back.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let go_src = emit_command_file("billing.lzi", &feature, "demo", &cross_index, &emit_ctx);
+/// ```
 pub fn emit_command_file(
     source_label: &str,
     feature: &Feature,

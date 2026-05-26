@@ -38,6 +38,15 @@ use super::internals::{append_manifest_block, ensure_dir, write_if_absent};
 ///
 /// Appends `[frontends.mobile]` to `Lazurite.toml` if no such block
 /// exists.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::cmd_new_frontends::mobile::scaffold_frontend_mobile;
+///
+/// // scaffold_frontend_mobile(Path::new("."), "hostpoint")?;
+/// ```
 pub fn scaffold_frontend_mobile(project_root: &Path, _app_name: &str) -> Result<()> {
     ensure_dir(project_root)?;
 

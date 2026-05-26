@@ -59,8 +59,28 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "ROUTE-ID-UNUSED-IN-EFFECT-001";
 
+    /// Render the "URL parameter will be silently dropped" message
+    /// naming the route slot and the PascalCase input field expected.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::correctness::route_id_effect_consistency::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     feature: "billing".into(),
+    ///     command: "delete_invoice".into(),
+    ///     param_name: "id".into(),
+    ///     pascal_field: "ID".into(),
+    ///     effect_kind: "deletes",
+    /// };
+    /// assert!(f.message().contains("silently dropped"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "command '{}' declares 'route {}: …' but its {} effect does not \
@@ -78,6 +98,17 @@ impl Finding {
 /// is performed here. LSP-side entry point; mirrors the
 /// `check(feature, path)` shape used by the rest of the correctness
 /// catalog so `wire_feature_check!` picks it up uniformly.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::correctness::route_id_effect_consistency::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with route commands");
+/// let _ = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     check_commands(&feature.name, &feature.commands, path)
 }
@@ -86,6 +117,17 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
 /// of commands. `Tier3FeatureFacts` in `lazuli_cli` carries `commands:
 /// Vec<Command>` without rebuilding the parent `Feature`, so it calls
 /// this directly to avoid synthesizing one just for the check.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::correctness::route_id_effect_consistency::check_commands;
+/// use lazuli_ir::Command;
+///
+/// let cmds: Vec<Command> = vec![];
+/// let _ = check_commands("billing", &cmds, Path::new("billing.lzi"));
+/// ```
 pub fn check_commands(feature_name: &str, commands: &[Command], path: &Path) -> Vec<Finding> {
     let mut out = Vec::new();
 

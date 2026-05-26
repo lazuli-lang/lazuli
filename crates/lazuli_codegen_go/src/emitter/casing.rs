@@ -23,6 +23,13 @@
 /// them lets user handlers import generated types without creating a
 /// circular dependency. See `docs/project-structure.md` for the full
 /// rationale.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_go::emitter::casing::gen_package_name;
+/// assert_eq!(gen_package_name("billing"), "billinggen");
+/// ```
 pub fn gen_package_name(feature: &str) -> String {
     format!("{feature}gen")
 }
@@ -32,6 +39,14 @@ pub fn gen_package_name(feature: &str) -> String {
 /// letter of each segment. Recognised acronyms (`id`, `url`, …)
 /// uppercase entirely so `id_lookup` becomes `IDLookup` rather than
 /// `IdLookup`.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_go::emitter::casing::pascal_case;
+/// assert_eq!(pascal_case("customer_import_batch"), "CustomerImportBatch");
+/// assert_eq!(pascal_case("id_lookup"), "IDLookup");
+/// ```
 pub fn pascal_case(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for word in split_words(s) {
@@ -59,6 +74,14 @@ pub fn pascal_case(s: &str) -> String {
 /// canonical `customerImportBatch` form. The leading word is always
 /// fully lower-cased — even when it's an acronym — so `id_lookup`
 /// becomes `idLookup` rather than `iDLookup`.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_go::emitter::casing::lower_camel;
+/// assert_eq!(lower_camel("CustomerImportBatch"), "customerImportBatch");
+/// assert_eq!(lower_camel("id_lookup"), "idLookup");
+/// ```
 pub fn lower_camel(s: &str) -> String {
     let words = split_words(s);
     if words.is_empty() {
@@ -89,6 +112,14 @@ pub fn lower_camel(s: &str) -> String {
 /// (case-insensitive) preserve uppercase across pascal/camel
 /// conversion. Add entries as new acronyms surface in the DSL — the
 /// catalog is intentionally small to keep emitter output predictable.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_go::emitter::casing::is_acronym;
+/// assert!(is_acronym("id"));
+/// assert!(!is_acronym("foo"));
+/// ```
 pub fn is_acronym(word: &str) -> bool {
     matches!(
         word.to_ascii_lowercase().as_str(),

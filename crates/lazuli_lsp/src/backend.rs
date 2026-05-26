@@ -265,6 +265,24 @@ impl Backend {
     }
 }
 
+/// Run the LSP server over stdin/stdout. Blocks until the client
+/// closes the stream — the canonical wiring used by `lazuli lsp`
+/// (the CLI entry point) and by VS Code / Helix integrations that
+/// launch the server as a subprocess.
+///
+/// Owns the live `Backend` instance and the tower-lsp `Server` plumbing;
+/// no public API beyond this function — every diagnostic / completion /
+/// hover surface routes through the trait impl on `Backend`.
+///
+/// ## Examples
+///
+/// ```no_run
+/// // Run the LSP server over stdin/stdout. Blocks forever until the
+/// // client disconnects.
+/// # async fn run() {
+/// lazuli_lsp::serve_stdio().await;
+/// # }
+/// ```
 pub async fn serve_stdio() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();

@@ -27,9 +27,16 @@ use emit_group::emit_group_file;
 use parse_ir::collect_view_paths;
 use registry::emit_registry_file;
 
+/// Which platform the lifecycle-gate codegen is targeting.
+///
+/// Drives the `dist/` prefix and the `platform` filter applied to
+/// IR-declared gates, so a single feature can carry web + mobile gates
+/// without one polluting the other's output tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LifecycleGateTarget {
+    /// Emits under `dist/ts-web/`.
     Web,
+    /// Emits under `dist/ts-mobile/`.
     Mobile,
 }
 
@@ -49,9 +56,17 @@ impl LifecycleGateTarget {
     }
 }
 
+/// How the emitted gate plugs into the host router.
+///
+/// `TanStack` integrates with TanStack Router's loader/beforeLoad
+/// callbacks; `Hoc` wraps the view component in a higher-order
+/// `<Gate>` that handles redirect on its own. Pilots that don't use
+/// TanStack pick `Hoc` to stay portable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LifecycleGateIntegration {
+    /// TanStack Router `beforeLoad` integration.
     TanStack,
+    /// Component-level HOC integration (`withLifecycleGate(View)`).
     Hoc,
 }
 
@@ -125,8 +140,29 @@ struct ResumeRef {
     name: String,
 }
 
-/// Emit lifecycle-gate artifacts from the typed module. This is a no-op until
-/// the additive IR fields from LAZ-85/86/87 are present in serialized form.
+/// Emit lifecycle-gate artifacts from the typed module.
+///
+/// Currently a thin shim that serializes the module to JSON and delegates
+/// to [`emit_lifecycle_gate_artifacts_from_json`]; the indirection is
+/// deliberate while LAZ-85/86/87 land the strongly-typed IR fields in
+/// parallel cells. Returns an empty vector if the module declares no
+/// resume routers or gates.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::lifecycle_gate_emit::{
+///     emit_lifecycle_gate_artifacts, LifecycleGateTarget, LifecycleGateIntegration,
+/// };
+/// use lazuli_ir::Module;
+///
+/// let module: Module = /* obtain from analyzer */ unimplemented!();
+/// let files = emit_lifecycle_gate_artifacts(
+///     &module,
+///     LifecycleGateTarget::Web,
+///     LifecycleGateIntegration::TanStack,
+/// );
+/// ```
 pub fn emit_lifecycle_gate_artifacts(
     module: &Module,
     target: LifecycleGateTarget,
@@ -138,7 +174,29 @@ pub fn emit_lifecycle_gate_artifacts(
     emit_lifecycle_gate_artifacts_from_json(&value, target, integration)
 }
 
-/// Testable JSON entrypoint for the parallel IR-cell window.
+/// Same emitter, entered through a raw IR JSON value.
+///
+/// Exists so unit tests and the parallel IR-cell window can drive the
+/// emitter without going through `Module` (which may not yet carry the
+/// new fields). Production callers should prefer
+/// [`emit_lifecycle_gate_artifacts`].
+///
+/// ## Examples
+///
+/// ```no_run
+/// use lazuli_codegen_ts::lifecycle_gate_emit::{
+///     emit_lifecycle_gate_artifacts_from_json, LifecycleGateTarget, LifecycleGateIntegration,
+/// };
+/// use serde_json::json;
+///
+/// let root = json!({ "features": [] });
+/// let files = emit_lifecycle_gate_artifacts_from_json(
+///     &root,
+///     LifecycleGateTarget::Web,
+///     LifecycleGateIntegration::Hoc,
+/// );
+/// assert!(files.is_empty());
+/// ```
 pub fn emit_lifecycle_gate_artifacts_from_json(
     root: &Value,
     target: LifecycleGateTarget,

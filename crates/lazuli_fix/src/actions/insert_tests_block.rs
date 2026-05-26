@@ -13,6 +13,12 @@ use anyhow::{Context, Result};
 use crate::actions::FixAction;
 use crate::{FixOutcome, FixRequest, FixResult};
 
+/// Fix action that appends a stub `tests` sub-block beneath the
+/// flagged construct.
+///
+/// Idempotent — re-running on a construct that already has a `tests`
+/// child returns [`FixOutcome::NoChange`]. Indentation follows the
+/// construct's leading-space depth + 2 (matches the DSL formatter).
 pub struct InsertTestsBlock;
 
 const RULE_CODE: &str = "TEST-MISSING-AUTHORED-001";

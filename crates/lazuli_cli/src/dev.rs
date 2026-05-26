@@ -6,10 +6,17 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, anyhow};
 use notify::{Event, EventKind, RecursiveMode, Watcher};
 
+/// Typed options for [`run_dev`]. Each field maps 1:1 to a flag on
+/// the `lazuli dev` clap arm.
 pub struct DevOptions {
+    /// Directory the watcher monitors (project root by default).
     pub source_root: PathBuf,
+    /// Where regen writes its output (`dist/go` by default).
     pub out: PathBuf,
+    /// When `true`, the loop regenerates but never starts the Go
+    /// server child.
     pub no_run: bool,
+    /// Debounce window between filesystem events and a regen cycle.
     pub debounce: Duration,
 }
 
@@ -24,6 +31,16 @@ impl Default for DevOptions {
     }
 }
 
+/// Drive the `lazuli dev` loop — watch `source_root`, regenerate on
+/// change (with a [`DevOptions::debounce`] window), and (unless
+/// `no_run`) spawn the Go server child. Blocks until Ctrl-C.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::dev::{run_dev, DevOptions};
+/// // run_dev(DevOptions::default())?;
+/// ```
 pub fn run_dev(opts: DevOptions) -> Result<()> {
     validate_source(&opts.source_root)?;
 

@@ -25,6 +25,13 @@ use crate::LazuriteManifest;
 /// Emit the root `main.go` for the module. Always returns a file —
 /// even modules with zero features need a `main()` so `go build ./...`
 /// has a binary entry point.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let go_src = emit_main_go(&module, "demo", "app.lzi", None);
+/// assert!(go_src.contains("func main()"));
+/// ```
 pub fn emit_main_go(
     module: &Module,
     module_name: &str,
@@ -302,4 +309,29 @@ fn emit_main_imports(
     }
     p.dedent();
     p.line(")");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lazuli_ir::Module;
+
+    fn empty_module() -> Module {
+        Module {
+            workspace: None,
+            contracts: Vec::new(),
+            app: None,
+            registry: None,
+            profiles: Vec::new(),
+            design: None,
+            rbac: None,
+            features: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn empty_module_still_emits_main_func() {
+        let go = emit_main_go(&empty_module(), "demo", "app.lzi", None);
+        assert!(go.contains("func main()"));
+    }
 }

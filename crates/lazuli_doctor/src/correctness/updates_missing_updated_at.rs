@@ -24,16 +24,39 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{BuiltinType, CommandEffect, Feature, QualifiedName, Resource, TypeRef};
 
+/// One UPDATES-MISSING-UPDATED-AT-001 finding — a resource targeted
+/// by `updates` commands lacks an `updated_at: DateTime` column and
+/// the implicit `timestamps` slot is not enabled.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Feature owning the resource.
     pub feature: String,
+    /// Resource that lacks the `updated_at` column.
     pub resource: String,
+    /// Source `.lzi` file the resource lives in (diagnostic anchor).
     pub path: PathBuf,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "UPDATES-MISSING-UPDATED-AT-001";
 
+    /// Render the "per-row change timestamps unavailable for audit"
+    /// message naming the resource and offering both canonical fixes.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::correctness::updates_missing_updated_at::Finding;
+    ///
+    /// let f = Finding {
+    ///     feature: "billing".into(),
+    ///     resource: "Invoice".into(),
+    ///     path: PathBuf::from("billing.lzi"),
+    /// };
+    /// assert!(f.message().contains("updated_at"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "resource '{}.{}' is targeted by 'updates' commands but declares no \
@@ -46,6 +69,23 @@ impl Finding {
     }
 }
 
+/// Run UPDATES-MISSING-UPDATED-AT-001 over one feature.
+///
+/// Walks every `updates X` command and emits at most one finding per
+/// distinct target resource. Resources that opt into `timestamps`
+/// (either explicitly or via feature defaults) are skipped — the
+/// framework auto-stamps `updated_at` for those.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::correctness::updates_missing_updated_at::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with `updates` commands");
+/// let _ = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut seen_resources = BTreeSet::new();
     let mut findings = Vec::new();

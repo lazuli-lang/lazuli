@@ -50,6 +50,17 @@ pub enum HandlerSiteKind {
 }
 
 impl HandlerSiteKind {
+    /// Human-readable label rendered into doctor messages such as
+    /// `"command handler 'validate_title' is not implemented"`.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::handler_walker::HandlerSiteKind;
+    ///
+    /// assert_eq!(HandlerSiteKind::CommandHandler.describe(), "command handler");
+    /// assert_eq!(HandlerSiteKind::JobHandler.describe(), "job handler");
+    /// ```
     pub fn describe(self) -> &'static str {
         match self {
             Self::CommandHandler => "command handler",
@@ -83,6 +94,20 @@ pub struct HandlerSite {
 /// Walk every handler-reference site in `feature` and return them in
 /// declaration order. The caller filters by [`HandlerSite::handler_namespace`]
 /// or [`HandlerSiteKind`] as needed.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_doctor::handler_walker::{iter_handler_sites, HandlerSiteKind};
+///
+/// // Given an IR `Feature` parsed from a .lzi file:
+/// let sites = iter_handler_sites(&feature);
+/// for site in sites {
+///     if matches!(site.kind, HandlerSiteKind::CommandHandler) {
+///         println!("{}::{}", site.construct_name, site.handler_name);
+///     }
+/// }
+/// ```
 pub fn iter_handler_sites(feature: &Feature) -> Vec<HandlerSite> {
     let mut sites = Vec::new();
     let feature_name = feature.name.clone();

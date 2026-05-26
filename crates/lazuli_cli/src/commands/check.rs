@@ -31,6 +31,22 @@ use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 use crate::{lazurite_manifest, version};
 
 /// Handler for the `Commands::Check` clap arm.
+///
+/// Enforces the manifest pin (unless `allow_version_mismatch` is set),
+/// walks `input` for `.lzi`/`.lzx` files, runs the LSP diagnostic
+/// kernel under `security_profile`, and prints findings in the canonical
+/// `path:line:col: severity[code]: message` shape. Errors `bail!` non-zero.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_lsp::SecurityProfile;
+/// use lazuli_cli::commands::check::check_command;
+///
+/// // Run with `allow_version_mismatch = true` against a single file:
+/// // check_command(Path::new("app.lzx"), SecurityProfile::Strict, true)?;
+/// ```
 pub fn check_command(
     input: &Path,
     security_profile: SecurityProfile,
@@ -137,4 +153,17 @@ fn print_diagnostic(input: &Path, diagnostic: &Diagnostic) {
         diagnostic.range.start.character + 1,
         diagnostic.message
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn check_inputs_single_file_passes_through() {
+        // A non-directory path returns itself as the sole input.
+        let result = check_inputs(Path::new("Cargo.toml"))
+            .expect("non-dir path");
+        assert_eq!(result, vec![PathBuf::from("Cargo.toml")]);
+    }
 }

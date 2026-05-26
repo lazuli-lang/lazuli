@@ -27,6 +27,24 @@ use lazuli_syntax as syntax;
 
 use crate::helpers::span_of;
 
+/// Lower a parsed `.lzx` document into its [`ir::ExperienceModule`]
+/// counterpart.
+///
+/// One-shot entry point used by the analyzer pipeline. Walks the
+/// document's app / routes / experiences / surfaces slots; each child
+/// lowerer is private because nothing outside the walker has a use for
+/// the partial shapes.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::lzx::lower_lzx_document;
+/// use lazuli_syntax::LzxDocument;
+///
+/// let doc: LzxDocument = unimplemented!("parse from a .lzx file");
+/// let module = lower_lzx_document(&doc);
+/// assert!(module.routes.iter().count() >= 0);
+/// ```
 pub fn lower_lzx_document(document: &syntax::LzxDocument) -> ir::ExperienceModule {
     ir::ExperienceModule {
         app: document.app.as_ref().map(lower_lzx_app),
@@ -359,5 +377,26 @@ fn lower_route_guard_defaults(defaults: &syntax::LzxRouteGuardDefaults) -> ir::R
         on_unauthorized: defaults.on_unauthorized.clone(),
         skeleton: defaults.skeleton.clone(),
         span_ref: Some(span_of(defaults.span)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_document_lowers_to_empty_module() {
+        let doc = syntax::LzxDocument {
+            app: None,
+            routes: vec![],
+            experiences: vec![],
+            surfaces: vec![],
+            span: syntax::Span { start: 0, end: 0 },
+        };
+        let module = lower_lzx_document(&doc);
+        assert!(module.app.is_none());
+        assert!(module.routes.is_empty());
+        assert!(module.experiences.is_empty());
+        assert!(module.surfaces.is_empty());
     }
 }

@@ -20,28 +20,60 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Feature, PolicyRef, SpanRef};
 
+/// One ERR-VOCAB-WHEN-DENIED-NO-POLICY finding — a `when_denied`
+/// override was authored at a site where nothing can deny, so the
+/// override is dead code.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WhenDeniedNoPolicyFinding {
+    /// Source `.lzi` file the offending site lives in.
     pub path: PathBuf,
+    /// Feature owning the site.
     pub feature: String,
     /// Authoring site for the dead `when_denied`. Two shapes are
     /// reachable:
     ///  * `Command(<name>)` — per-command `policy_when_denied`.
     ///  * `Policy(<name>)`  — per-policy `PolicyCategory.when_denied`.
     pub site: WhenDeniedSite,
+    /// Bare translation key the override referenced.
     pub key: String,
+    /// Source span of the offending site for IDE squiggles.
     pub span: Option<SpanRef>,
 }
 
+/// Where the dead `when_denied` was authored — command-side override
+/// vs policy-category override.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WhenDeniedSite {
+    /// Per-command `policy_when_denied` with no gating policy.
     Command(String),
+    /// Per-policy `PolicyCategory.when_denied` with empty atom list.
     Policy(String),
 }
 
 impl WhenDeniedNoPolicyFinding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "ERR-VOCAB-WHEN-DENIED-NO-POLICY";
 
+    /// Render the per-site message — command vs policy-category dead
+    /// code — each pointing at the canonical fix.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::error_vocab::error_vocab::rule_when_denied_no_policy::{
+    ///     WhenDeniedNoPolicyFinding, WhenDeniedSite,
+    /// };
+    ///
+    /// let f = WhenDeniedNoPolicyFinding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     feature: "billing".into(),
+    ///     site: WhenDeniedSite::Command("send_invoice".into()),
+    ///     key: "denied".into(),
+    ///     span: None,
+    /// };
+    /// assert!(f.message().contains("Remove the `when_denied` line"));
+    /// ```
     pub fn message(&self) -> String {
         match &self.site {
             WhenDeniedSite::Command(command) => format!(
@@ -59,6 +91,21 @@ impl WhenDeniedNoPolicyFinding {
     }
 }
 
+/// Run ERR-VOCAB-WHEN-DENIED-NO-POLICY over one feature.
+///
+/// Walks per-command and per-policy `when_denied` sites and emits one
+/// finding per dead override.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::error_vocab::error_vocab::rule_when_denied_no_policy::check_when_denied_no_policy;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with `when_denied`");
+/// let _ = check_when_denied_no_policy(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check_when_denied_no_policy(
     feature: &Feature,
     path: &Path,
@@ -95,4 +142,45 @@ pub fn check_when_denied_no_policy(
         }
     }
     findings
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finding_code_is_stable() {
+        assert_eq!(
+            WhenDeniedNoPolicyFinding::CODE,
+            "ERR-VOCAB-WHEN-DENIED-NO-POLICY"
+        );
+    }
+
+    #[test]
+    fn command_site_message_prompts_remove_or_add_policy() {
+        let f = WhenDeniedNoPolicyFinding {
+            path: PathBuf::from("billing.lzi"),
+            feature: "billing".to_owned(),
+            site: WhenDeniedSite::Command("send_invoice".to_owned()),
+            key: "denied".to_owned(),
+            span: None,
+        };
+        let msg = f.message();
+        assert!(msg.contains("send_invoice"));
+        assert!(msg.contains("Remove the `when_denied` line"));
+    }
+
+    #[test]
+    fn policy_site_message_prompts_atom_or_remove() {
+        let f = WhenDeniedNoPolicyFinding {
+            path: PathBuf::from("billing.lzi"),
+            feature: "billing".to_owned(),
+            site: WhenDeniedSite::Policy("update".to_owned()),
+            key: "denied".to_owned(),
+            span: None,
+        };
+        let msg = f.message();
+        assert!(msg.contains("update"));
+        assert!(msg.contains("atom list is empty"));
+    }
 }

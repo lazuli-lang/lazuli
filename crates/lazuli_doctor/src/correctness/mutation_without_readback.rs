@@ -42,9 +42,30 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "MUTATION-WITHOUT-READBACK-001";
+    /// Author-facing rule ID used in `# doctor:allow` and prose docs.
     pub const ID: &'static str = "@correctness.mutation_without_readback";
 
+    /// Render the "no query reads it back" message and offer the
+    /// canonical readback shapes (`lookup_my_<r>` / `mine_<r>s`).
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::correctness::mutation_without_readback::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     feature: "customer".into(),
+    ///     command: "update_customer".into(),
+    ///     effect_kind: "updates",
+    ///     resource_snake: "customer".into(),
+    ///     resource_display: "Customer".into(),
+    /// };
+    /// assert!(f.message().contains("no Query reads it back"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "command '{}' mutates resource '{}' but no Query reads it back. \
@@ -62,6 +83,17 @@ impl Finding {
 ///
 /// Prefer [`check_with_neighbors`] from the CLI dispatch path, which
 /// also counts cross-feature read queries (per cycle decision).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::correctness::mutation_without_readback::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with commands + queries");
+/// let _ = check(&feature, Path::new("customer.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let no_neighbors: [&Feature; 0] = [];
     check_with_neighbors(feature, path, no_neighbors.iter().copied())
@@ -71,6 +103,18 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
 /// feature in the doctor package. A read query found in any neighbor
 /// (including this feature itself, which `neighbors` may legitimately
 /// include — duplicates are deduplicated by identity) counts.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::correctness::mutation_without_readback::check_with_neighbors;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature");
+/// let neighbors: Vec<&Feature> = vec![];
+/// let _ = check_with_neighbors(&feature, Path::new("customer.lzi"), neighbors);
+/// ```
 pub fn check_with_neighbors<'a, I>(feature: &Feature, path: &Path, neighbors: I) -> Vec<Finding>
 where
     I: IntoIterator<Item = &'a Feature>,
@@ -95,6 +139,18 @@ where
 /// commands, queries)` triples — matches the `Tier3FeatureFacts` shape so
 /// the CLI doctor can call this without re-materializing whole `Feature`
 /// values.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::correctness::mutation_without_readback::check_from_facts;
+/// use lazuli_ir::{Command, Query};
+///
+/// let cmds: Vec<Command> = vec![];
+/// let qs: Vec<Query> = vec![];
+/// let _ = check_from_facts("customer", &cmds, &qs, &[], Path::new("customer.lzi"));
+/// ```
 pub fn check_from_facts(
     feature_name: &str,
     commands: &[Command],

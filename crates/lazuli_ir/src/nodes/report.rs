@@ -42,6 +42,11 @@ use crate::{
     AuditSpec, FileVisibility, PolicyExpr, PolicyRef, QualifiedName, RateLimitSpec, SpanRef,
 };
 
+/// Root IR node for a `report <name> { … }` block — declarative
+/// extract pipeline (source query → typed columns → writer formats).
+/// Carries the storage adapter binding, visibility, signed-URL TTL,
+/// filename pattern, and the standard policy / audit / rate-limit
+/// decorators.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Report {
     pub name: String,
@@ -73,6 +78,8 @@ pub struct Report {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Closed catalog of report data sources. v0 supports `Query` only;
+/// adding a source requires a proposal so doctor stays a finite gate.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum ReportSource {
@@ -82,6 +89,8 @@ pub enum ReportSource {
     Query(QualifiedName),
 }
 
+/// One column emitted by a [`Report`]. Carries the column name, its
+/// data source, optional human label, and value format hint.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReportColumn {
     pub name: String,
@@ -128,6 +137,15 @@ pub enum ReportFormat {
 impl ReportFormat {
     /// Parse a token from `formats csv, xlsx`. Returns `None` outside
     /// the closed catalog — caller emits `REPORT-FORMAT-UNKNOWN-001`.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::ReportFormat;
+    ///
+    /// assert_eq!(ReportFormat::from_token("csv"), Some(ReportFormat::Csv));
+    /// assert_eq!(ReportFormat::from_token("nope"), None);
+    /// ```
     pub fn from_token(token: &str) -> Option<Self> {
         match token {
             "csv" => Some(Self::Csv),
@@ -137,6 +155,14 @@ impl ReportFormat {
     }
 
     /// Canonical lowercase token (`csv` / `xlsx`).
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::ReportFormat;
+    ///
+    /// assert_eq!(ReportFormat::Xlsx.token(), "xlsx");
+    /// ```
     pub fn token(&self) -> &'static str {
         match self {
             Self::Csv => "csv",

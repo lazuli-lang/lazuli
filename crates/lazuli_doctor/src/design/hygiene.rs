@@ -39,9 +39,14 @@ pub struct HygieneCatalog {
     pub class_to_token: HashMap<String, String>,
 }
 
+/// One color token entry inside [`HygieneCatalog::colors`]. Light is
+/// mandatory; dark and group are optional companions used by the
+/// `missing-dark` and `unused` hygiene checks.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ColorEntry {
+    /// Light-mode hex (or arbitrary string value).
     pub light: String,
+    /// Optional dark-mode override.
     #[serde(default)]
     pub dark: Option<String>,
     /// The semantic group this color belongs to (e.g. `background`,
@@ -51,6 +56,18 @@ pub struct ColorEntry {
     pub group: Option<String>,
 }
 
+/// Best-effort loader for `dist/ts-web/design/catalog.json`. Returns
+/// `None` when the file is missing or unparseable so the hygiene rules
+/// can degrade gracefully into "no findings" rather than failing the run.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::design::hygiene::read_catalog;
+///
+/// let catalog = read_catalog(Path::new("/proj"));
+/// ```
 pub fn read_catalog(root: &Path) -> Option<HygieneCatalog> {
     let path = root
         .join("dist")
@@ -63,14 +80,27 @@ pub fn read_catalog(root: &Path) -> Option<HygieneCatalog> {
 
 // ── unused (info) ────────────────────────────────────────────────────────────
 
+/// One DESIGN-TOKEN-UNUSED finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnusedFinding {
+    /// Token path (e.g. `colors.primary.base`) declared but never used.
     pub token_path: String,
 }
 
 impl UnusedFinding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "design-token-unused";
 
+    /// Render the user-facing diagnostic body — prompts for removal or
+    /// a documented "reserved" comment.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::design::hygiene::UnusedFinding;
+    /// let f = UnusedFinding { token_path: "colors.brand".into() };
+    /// assert!(f.message().contains("colors.brand"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "token `{}` is declared but never referenced by any `.tsx` file. \
@@ -80,6 +110,20 @@ impl UnusedFinding {
     }
 }
 
+/// Run DESIGN-TOKEN-UNUSED. Walks every `.tsx` under `root`, collects
+/// referenced class tokens, then reports catalog entries that no class
+/// reference resolves to. Returns empty when `catalog.class_to_token`
+/// is empty (catalog not yet emitted).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::design::hygiene::{check_unused, HygieneCatalog};
+///
+/// let catalog = HygieneCatalog::default();
+/// let findings = check_unused(Path::new("src"), &catalog);
+/// ```
 pub fn check_unused(root: &Path, catalog: &HygieneCatalog) -> Vec<UnusedFinding> {
     if catalog.class_to_token.is_empty() {
         return Vec::new();
@@ -125,15 +169,33 @@ pub fn check_unused(root: &Path, catalog: &HygieneCatalog) -> Vec<UnusedFinding>
 
 // ── duplicate-value (info) ───────────────────────────────────────────────────
 
+/// One DESIGN-TOKEN-DUPLICATE-VALUE finding — multiple tokens share
+/// the same literal value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DuplicateValueFinding {
+    /// The shared literal (lower-cased hex or other value).
     pub value: String,
+    /// Token paths that all resolve to `value`; alphabetically sorted.
     pub token_paths: Vec<String>,
 }
 
 impl DuplicateValueFinding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "design-token-duplicate-value";
 
+    /// Render the user-facing diagnostic body — surfaces the value and
+    /// the list of colliding tokens.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::design::hygiene::DuplicateValueFinding;
+    /// let f = DuplicateValueFinding {
+    ///     value: "#16a34a".into(),
+    ///     token_paths: vec!["success".into(), "green".into()],
+    /// };
+    /// assert!(f.message().contains("#16a34a"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "value `{}` is declared by {} tokens ({}) — consolidate or alias when Cut B lands.",
@@ -144,6 +206,18 @@ impl DuplicateValueFinding {
     }
 }
 
+/// Run DESIGN-TOKEN-DUPLICATE-VALUE. Buckets every catalog entry by
+/// its lower-cased value and reports buckets with two or more members.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::design::hygiene::{check_duplicate_value, HygieneCatalog};
+///
+/// let catalog = HygieneCatalog::default();
+/// let findings = check_duplicate_value(&catalog);
+/// assert!(findings.is_empty());
+/// ```
 pub fn check_duplicate_value(catalog: &HygieneCatalog) -> Vec<DuplicateValueFinding> {
     // Build value → [token_path]
     let mut by_value: HashMap<String, Vec<String>> = HashMap::new();
@@ -173,15 +247,33 @@ pub fn check_duplicate_value(catalog: &HygieneCatalog) -> Vec<DuplicateValueFind
 
 // ── missing-dark (info) ──────────────────────────────────────────────────────
 
+/// One DESIGN-TOKEN-MISSING-DARK finding — token sits in a group where
+/// at least one sibling declares `dark`, but this entry does not.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MissingDarkFinding {
+    /// Path of the token without a `dark` override.
     pub token_path: String,
+    /// The semantic group surface (e.g. `background`).
     pub group: String,
 }
 
 impl MissingDarkFinding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "design-token-missing-dark";
 
+    /// Render the user-facing diagnostic body — surfaces the gap and
+    /// suggests the `lazuli-allow` escape comment when intentional.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::design::hygiene::MissingDarkFinding;
+    /// let f = MissingDarkFinding {
+    ///     token_path: "background.muted".into(),
+    ///     group: "background".into(),
+    /// };
+    /// assert!(f.message().contains("background.muted"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "color `{}` lacks a `dark` variant but other tokens in group `{}` declare one. \
@@ -192,6 +284,18 @@ impl MissingDarkFinding {
     }
 }
 
+/// Run DESIGN-TOKEN-MISSING-DARK. Buckets color entries by `group`,
+/// fires when at least one sibling carries `dark` but the entry does
+/// not.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::design::hygiene::{check_missing_dark, HygieneCatalog};
+///
+/// let catalog = HygieneCatalog::default();
+/// assert!(check_missing_dark(&catalog).is_empty());
+/// ```
 pub fn check_missing_dark(catalog: &HygieneCatalog) -> Vec<MissingDarkFinding> {
     // Build group → (has_any_dark, [(path, has_dark)])
     let mut groups: HashMap<String, Vec<(String, bool)>> = HashMap::new();
@@ -239,6 +343,16 @@ pub enum HygieneFinding {
 }
 
 impl HygieneFinding {
+    /// Stable diagnostic code for the underlying variant.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::design::hygiene::{HygieneFinding, UnusedFinding};
+    ///
+    /// let f = HygieneFinding::Unused(UnusedFinding { token_path: "x".into() });
+    /// assert_eq!(f.code(), "design-token-unused");
+    /// ```
     pub fn code(&self) -> &'static str {
         match self {
             Self::Unused(_) => UnusedFinding::CODE,
@@ -250,6 +364,16 @@ impl HygieneFinding {
 
 /// Convenience aggregator: runs all three hygiene checks, returns a
 /// flattened Vec. Useful when the orchestrator wants one entry-point.
+/// Returns empty when the catalog is absent (no false positives).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::design::hygiene::check_all;
+///
+/// let findings = check_all(Path::new("/proj"), Path::new("/proj"));
+/// ```
 pub fn check_all(root: &Path, _ignored_path_anchor: &Path) -> Vec<HygieneFinding> {
     let Some(catalog) = read_catalog(root) else {
         return Vec::new();

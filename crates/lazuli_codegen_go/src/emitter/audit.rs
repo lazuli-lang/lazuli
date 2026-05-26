@@ -41,6 +41,14 @@ CREATE INDEX IF NOT EXISTS audit_log_org_time_idx ON audit_log (org_id, happened
 ///
 /// The returned path is relative to the generated Go output root, matching the
 /// migration emitter convention: `migrations/audit_log.sql`.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_go::emitter::audit::emit_audit_log_ddl;
+/// let file = emit_audit_log_ddl();
+/// assert!(file.path.ends_with("audit_log.sql"));
+/// ```
 pub fn emit_audit_log_ddl() -> GeneratedFile {
     GeneratedFile {
         path: AUDIT_LOG_PATH.to_owned(),
@@ -51,6 +59,14 @@ pub fn emit_audit_log_ddl() -> GeneratedFile {
 /// Walk module.features for commands with `audit default` and emit audit
 /// binding metadata (currently optional; could be lifted into the existing
 /// command.rs emit_command later).
+///
+/// ## Examples
+///
+/// ```ignore
+/// let files = emit_audit_metadata(&module);
+/// // Empty when no command opts into audit; otherwise one file per
+/// // emitting feature.
+/// ```
 pub fn emit_audit_metadata(module: &Module) -> Vec<GeneratedFile> {
     let mut features: Vec<(&Feature, Vec<&Command>)> = module
         .features

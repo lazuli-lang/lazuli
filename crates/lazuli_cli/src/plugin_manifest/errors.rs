@@ -96,3 +96,20 @@ impl std::fmt::Display for PluginManifestError {
 }
 
 impl std::error::Error for PluginManifestError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn conflict_renders_alias_and_plugins() {
+        let err = PluginManifestError::Conflict {
+            alias: "@semantic.Cpf".to_owned(),
+            plugins: vec!["@lazuli/plugin-a".to_owned(), "@lazuli/plugin-b".to_owned()],
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("@semantic.Cpf"));
+        assert!(msg.contains("plugin-a"));
+        assert!(msg.contains("plugin-b"));
+    }
+}

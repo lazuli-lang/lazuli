@@ -14,6 +14,15 @@ use anyhow::{Context, Result, anyhow};
 ///
 /// Looks for `<app_dir>/features/<feature>/<feature>.web.lzx`. Falls
 /// back to `<feature>.lzx` for non-frontend-specific surfaces.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::cmd_generate_view::run;
+///
+/// // run("post.list_published", Path::new("."))?;
+/// ```
 pub fn run(ident: &str, project_root: &Path) -> Result<()> {
     let (feature, name) = parse_ident(ident)?;
     validate_part(&feature, "feature")?;

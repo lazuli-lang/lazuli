@@ -18,18 +18,37 @@ use std::path::PathBuf;
 
 pub use lazuli_analyzer::rbac::RbacIssue;
 
+/// Doctor-side projection of an [`RbacIssue`] with full file
+/// coordinates resolved by the caller. The doctor command renders a
+/// uniform stream of these regardless of the analyzer pass that
+/// produced them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Stable doctor rule code (one of `RBAC-*` listed in the module
+    /// docs).
     pub code: String,
+    /// Pre-rendered diagnostic message.
     pub message: String,
+    /// Source `.lzi`/`.lzx` path the issue was emitted against.
     pub path: PathBuf,
+    /// 1-based line number.
     pub line: usize,
+    /// 1-based column number.
     pub column: usize,
 }
 
 /// Convert an analyzer-emitted `RbacIssue` into a doctor `Finding`.
 /// `path`/`line`/`column` come from the caller; the analyzer tracks
 /// byte spans only and doctor resolves to file coordinates upstream.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::doctor::rbac::{to_finding, RbacIssue};
+///
+/// // let finding = to_finding(&issue, Path::new("app.lzi"), 12);
+/// ```
 pub fn to_finding(issue: &RbacIssue, path: &std::path::Path, line: usize) -> Finding {
     Finding {
         code: issue.code.to_string(),

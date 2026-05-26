@@ -42,6 +42,8 @@ pub struct AppLocale {
     pub fallbacks: Vec<LocaleFallback>,
 }
 
+/// One `<from> -> <to>` fallback entry inside [`AppLocale`]. Resolves
+/// per-locale routing when the requested tag is unavailable.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocaleFallback {
     pub from: String,
@@ -79,6 +81,8 @@ pub struct Translation {
     pub keys: Vec<TranslationKey>,
 }
 
+/// One typed translation key inside a [`Translation`]. Carries the
+/// per-locale text variants and optional CLDR plural arms.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TranslationKey {
     pub name: String,
@@ -89,12 +93,16 @@ pub struct TranslationKey {
     pub plurals: Vec<TranslationPluralArm>,
 }
 
+/// One `<locale>: "<text>"` entry inside a [`TranslationKey`]. The
+/// locale is a BCP-47 tag; the text is the canonical translation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TranslationVariant {
     pub locale: String,
     pub text: String,
 }
 
+/// One CLDR plural arm under a [`TranslationKey`]. Carries the arm
+/// name and its per-locale text variants.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TranslationPluralArm {
     /// `zero` | `one` | `two` | `few` | `many` | `other` per CLDR.

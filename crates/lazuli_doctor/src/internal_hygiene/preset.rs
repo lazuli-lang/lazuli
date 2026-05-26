@@ -47,7 +47,21 @@ pub enum InternalHygienePreset {
 }
 
 impl InternalHygienePreset {
-    /// Parse a preset name. Returns `None` for unknown input.
+    /// Parse a preset name. Returns `None` for unknown input. The
+    /// caller surfaces unknowns as `Lazurite.toml` schema errors rather
+    /// than silently picking a default.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::internal_hygiene::preset::InternalHygienePreset;
+    ///
+    /// assert_eq!(
+    ///     InternalHygienePreset::parse("tdd-iron-hand"),
+    ///     Some(InternalHygienePreset::TddIronHand),
+    /// );
+    /// assert_eq!(InternalHygienePreset::parse("loose"), None);
+    /// ```
     pub fn parse(input: &str) -> Option<Self> {
         match input.trim() {
             "tdd-iron-hand" => Some(Self::TddIronHand),
@@ -58,7 +72,16 @@ impl InternalHygienePreset {
         }
     }
 
-    /// Stable kebab-case identifier.
+    /// Stable kebab-case identifier — the name authors write in
+    /// `Lazurite.toml`. Round-trips with [`parse`](Self::parse).
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::internal_hygiene::preset::InternalHygienePreset;
+    ///
+    /// assert_eq!(InternalHygienePreset::TddIronHand.as_str(), "tdd-iron-hand");
+    /// ```
     pub fn as_str(self) -> &'static str {
         match self {
             Self::TddIronHand => "tdd-iron-hand",

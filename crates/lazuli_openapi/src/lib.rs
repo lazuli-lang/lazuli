@@ -36,6 +36,12 @@ use crate::paths::{emit_agent_expose, emit_api, emit_command, emit_webhook};
 use crate::schemas::{emit_enum_schema, emit_record_schema, emit_resource_schema};
 use crate::yaml::YamlEmitter;
 
+/// Knobs the OpenAPI emitter exposes to its caller.
+///
+/// Kept deliberately small. Each new knob is a CLI flag commitment, so
+/// the bar is "the doctor / build pipeline cannot produce a correct
+/// spec without it". Anything stylistic belongs in a downstream
+/// formatter, not here.
 pub struct EmitOptions {
     /// API version reported in `info.version`. Defaults to "0.0.0".
     pub api_version: Option<String>,
@@ -53,6 +59,23 @@ impl Default for EmitOptions {
 }
 
 /// Emit OpenAPI 3.1.0 YAML from a Lazuli `Module`.
+///
+/// Single entry point. Walks every feature's commands, APIs, exposed
+/// agents, and webhooks, then materialises `components.schemas` from the
+/// feature's resources / records / enums. The output is text, not a
+/// typed `OpenApi` value, so downstream tooling (linting, bundling) sees
+/// the same bytes the pilot will publish.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_ir::Module;
+/// use lazuli_openapi::{emit, EmitOptions};
+///
+/// let module: Module = /* obtain via lazuli_analyzer */ unimplemented!();
+/// let yaml = emit(&module, EmitOptions::default());
+/// assert!(yaml.starts_with("openapi: 3.1.0"));
+/// ```
 pub fn emit(module: &ir::Module, opts: EmitOptions) -> String {
     let mut out = YamlEmitter::new();
     out.line("openapi: 3.1.0");

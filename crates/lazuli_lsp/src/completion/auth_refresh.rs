@@ -59,6 +59,17 @@ pub(crate) struct AuthRotationBlock {
 /// Completion provider for Cell LSP-1 of auth refresh rotation. This stays
 /// text/indent based to mirror the rest of this crate's lightweight LSP
 /// helpers and avoid touching parser, IR, codegen, or runtime layers.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::auth_refresh_completions;
+/// use tower_lsp::lsp_types::Position;
+///
+/// // Outside an auth block — no completions fire.
+/// let result = auth_refresh_completions("feature billing\n", Position { line: 0, character: 6 });
+/// assert!(result.is_none());
+/// ```
 pub fn auth_refresh_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
     let line = source.lines().nth(position.line as usize)?;
     let cursor = (position.character as usize).min(line.len());

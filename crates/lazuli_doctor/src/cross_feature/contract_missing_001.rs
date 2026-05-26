@@ -22,15 +22,38 @@ use lazuli_ir::{
 /// One CROSS-FEATURE-CONTRACT-MISSING-001 finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Feature whose declaration references the foreign symbol.
     pub consumer_feature: String,
+    /// Feature that declares `symbol` (and is missing the `public contract`).
     pub origin_feature: String,
+    /// Bare symbol name (no feature prefix) that triggered the finding.
     pub symbol: String,
+    /// Human-readable site such as `field \`status\` of resource \`Post\``.
     pub consumer_site: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "CROSS-FEATURE-CONTRACT-MISSING-001";
 
+    /// Render the user-facing diagnostic body. The remediation prefix
+    /// (`add \`public contract X as v1\``) is embedded in the message so
+    /// CLI and LSP show identical phrasing.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::cross_feature::contract_missing_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     consumer_feature: "billing".into(),
+    ///     origin_feature: "auth".into(),
+    ///     symbol: "User".into(),
+    ///     consumer_site: "field `user` of resource `Invoice`".into(),
+    /// };
+    /// assert!(f.message().contains("billing"));
+    /// assert!(f.message().contains("User"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "feature `{}` references `{}.{}` from `{}` but the origin lacks a `public contract` annotation \
@@ -54,6 +77,19 @@ impl Finding {
 ///
 /// Gated on `architecture mode microservices`. Returns `Vec::new()` for
 /// any other architecture mode (or when `app.architecture` is None).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_doctor::cross_feature::contract_missing_001::check;
+///
+/// // `module` and `app` come from the IR pipeline; the call is gated
+/// // internally on `app.architecture.mode == "microservices"`.
+/// let findings = check(&module, Some(&app));
+/// for f in findings {
+///     eprintln!("{}: {}", f.consumer_feature, f.message());
+/// }
+/// ```
 pub fn check(module: &Module, app: Option<&AppManifest>) -> Vec<Finding> {
     if !is_microservices(app) {
         return Vec::new();

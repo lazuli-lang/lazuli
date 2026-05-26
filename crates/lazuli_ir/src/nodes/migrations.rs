@@ -78,13 +78,18 @@ pub struct TenantMigrationTarget {
     pub axis: String,
 }
 
+/// Closed catalog of operations a [`TenantMigrationTarget`] can
+/// reference. The migration runtime re-issues the operation per-tenant
+/// during the migration window.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TenantMigrationTargetOperation {
+    /// `query.<kind> <name>` reference — read.
     Query {
         feature: Option<String>,
         name: String,
     },
+    /// `command <name>` reference — write.
     Command {
         feature: Option<String>,
         name: String,

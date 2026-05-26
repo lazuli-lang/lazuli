@@ -12,6 +12,8 @@ use super::ir_stub::{
 };
 use super::sort_findings;
 
+/// One occurrence of the rule's diagnostic, carrying the
+/// feature/view/line provenance needed to render the doctor surface.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
     pub feature: String,
@@ -21,6 +23,7 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable doctor rule code surfaced to the user.
     pub const CODE: &'static str = "lzx-drawer-source-shape";
 
     fn missing_input(drawer: &str, source_ref: &str, target: &str) -> String {
@@ -52,6 +55,18 @@ impl Finding {
     }
 }
 
+/// Run `lzx-drawer-source-shape` across every drawer-bearing list
+/// view. Flags missing inputs, ID-type mismatches, and host/drawer
+/// resource divergence.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::doctor::lzx::drawer_source::check;
+/// use lazuli_cli::doctor::lzx::ir_stub::Module;
+///
+/// // let findings = check(&module);
+/// ```
 pub fn check(module: &Module) -> Vec<Finding> {
     let mut out = Vec::new();
     for feature in &module.features {

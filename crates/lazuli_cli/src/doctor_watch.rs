@@ -19,6 +19,21 @@ use crate::doctor_report::{DoctorFormat, FailOnSpec};
 
 const DEBOUNCE_MS: u64 = 200;
 
+/// Handler for `lazuli doctor --watch`. Runs the doctor pipeline
+/// once at startup, then re-runs after every debounced
+/// `.lzi`/`.lzx` change, streaming findings in the chosen format.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_lsp::SecurityProfile;
+/// use lazuli_cli::doctor_report::DoctorFormat;
+/// use lazuli_cli::doctor_watch::doctor_watch_command;
+///
+/// // doctor_watch_command(Path::new("."), SecurityProfile::Strict, true,
+/// //                      DoctorFormat::Auto, Vec::new())?;
+/// ```
 pub fn doctor_watch_command(
     input: &Path,
     security_profile: SecurityProfile,
@@ -133,5 +148,18 @@ fn run_once(
         opts,
     ) {
         eprintln!("doctor run failed: {err}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Smoke pairing: `doctor_watch_command` blocks on a notify watcher
+    // and cannot be exercised in-process without a fixture. We just
+    // pin the public symbol so it does not disappear silently.
+    use super::doctor_watch_command;
+
+    #[test]
+    fn doctor_watch_command_is_callable() {
+        let _ = doctor_watch_command;
     }
 }

@@ -32,6 +32,25 @@ pub(crate) const LIFECYCLE_NONE_HOVER: &str =
 pub(crate) const LIFECYCLE_WILDCARD_HOVER: &str = "Catch-all arm. Matches any state not explicitly listed. Required when `resume` arms don't cover every state in the lifecycle, OR for forward-compatibility.";
 pub(crate) const LIFECYCLE_ARROW_HOVER: &str = "Arrow token mapping a lifecycle state arm to a target view in a `resume` block. Both Unicode `→` and ASCII `->` accepted.";
 
+/// Public hover entry point for the IR Lifecycle Route-Gate contract.
+/// Returns a Markdown string explaining the cursor's token in
+/// context — arrow / wildcard arms inside a `resume` block, the
+/// `source query.lookup` slot, the four keyword tokens
+/// (`requires_lifecycle`, `on_lifecycle_pending`, `resume`, `none`),
+/// or the resolved gate hover that prints the bound resource and
+/// declared states. Returns `None` for any token outside the
+/// lifecycle-gate surface.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::lifecycle_gate_hover;
+/// use tower_lsp::lsp_types::Position;
+///
+/// // Unrelated token — None.
+/// let hover = lifecycle_gate_hover("", Position { line: 0, character: 0 }, Some("unrelated"));
+/// assert!(hover.is_none());
+/// ```
 pub fn lifecycle_gate_hover(
     source: &str,
     position: Position,
@@ -117,4 +136,35 @@ pub(crate) fn lifecycle_resolved_gate_hover(
     Some(format!(
         "currently the view requires `{resource}.lifecycle_state = {state}`. On mismatch, redirects via `resume {resume_name}`. Lifecycle states declared: `{states}`."
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keyword_hover_for_requires_lifecycle_in_view_block() {
+        let source = "feature billing\n  view checkout\n    requires_lifecycle account = active\n";
+        let hover = lifecycle_gate_hover(
+            source,
+            Position {
+                line: 2,
+                character: 4,
+            },
+            Some("requires_lifecycle"),
+        );
+        assert!(hover.is_some());
+        assert!(hover.unwrap().contains("requires_lifecycle"));
+    }
+
+    #[test]
+    fn returns_none_for_unrelated_word() {
+        let source = "feature billing\n  view checkout\n    title \"Checkout\"\n";
+        assert!(lifecycle_gate_hover(
+            source,
+            Position { line: 2, character: 4 },
+            Some("title")
+        )
+        .is_none());
+    }
 }

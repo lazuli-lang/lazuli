@@ -21,6 +21,20 @@ use crate::lzx::{view_hook_name, view_spec_const};
 /// under an audience. Routes ending in a literal segment land at
 /// `<segment>/index.tsx`; routes ending in a `:name` placeholder become
 /// `<segment>/[name].tsx`. Returns the path relative to the project root.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_ts::mobile_view_scaffold::expo_app_file_path;
+/// assert_eq!(
+///     expo_app_file_path("admin", "/slugs"),
+///     "frontends/mobile/app/admin/slugs/index.tsx",
+/// );
+/// assert_eq!(
+///     expo_app_file_path("admin", "/slugs/:key"),
+///     "frontends/mobile/app/admin/slugs/[key].tsx",
+/// );
+/// ```
 pub fn expo_app_file_path(audience: &str, route: &str) -> String {
     let translated = translate_route_path(RouterTarget::Expo, route);
     let trimmed = translated.trim_matches('/');
@@ -44,6 +58,17 @@ pub fn expo_app_file_path(audience: &str, route: &str) -> String {
 /// shapes — list, detail, create — keyed off the IR view kind. Every
 /// body imports the matching generated hook and renders a minimal
 /// `<SafeAreaView>` placeholder the author replaces.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::mobile_view_scaffold::scaffold_body_for_view;
+/// use lazuli_ir::View;
+///
+/// let view: View = /* … */ unimplemented!();
+/// let body = scaffold_body_for_view("slug", "admin", &view);
+/// assert!(body.contains("SafeAreaView"));
+/// ```
 pub fn scaffold_body_for_view(
     feature_name: &str,
     audience: &str,

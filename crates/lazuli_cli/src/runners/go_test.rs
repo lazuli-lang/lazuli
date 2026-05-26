@@ -19,6 +19,8 @@ use serde::Deserialize;
 use crate::cmd_test_types::{Layer, LayerResult, LayerVerdict, TestFailure};
 use crate::lazurite_manifest::{Manifest, TestingGo};
 
+/// Per-call overrides for the Go test runner. Knobs that come from
+/// the CLI flag bag rather than the manifest live here.
 #[derive(Debug, Default)]
 pub struct GoRunOptions {
     /// Override the default `<app_dir>/features/...` package pattern.
@@ -31,6 +33,13 @@ pub struct GoRunOptions {
 }
 
 /// Probe `go version`. Returns `None` if Go is not on PATH.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::runners::go_test::probe;
+/// // let version = probe();
+/// ```
 pub fn probe() -> Option<String> {
     let output = Command::new("go").arg("version").output().ok()?;
     if !output.status.success() {
@@ -39,6 +48,20 @@ pub fn probe() -> Option<String> {
     String::from_utf8(output.stdout).ok()
 }
 
+/// Execute `go test -json` against the project's handler packages.
+/// Honors `[testing.go]` manifest knobs + the per-call `opts` for
+/// coverage, package pattern, and extra args. Surfaces a
+/// `LayerVerdict::Skip` when the Go toolchain is absent so the
+/// orchestrator can render a clean skip row.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::runners::go_test::{run, GoRunOptions};
+///
+/// // let result = run(manifest.as_ref(), Path::new("."), GoRunOptions::default())?;
+/// ```
 pub fn run(
     manifest: Option<&Manifest>,
     project_root: &Path,
@@ -197,6 +220,14 @@ struct GoTestEvent {
 
 /// Public for unit tests. Parses Go `-json` event stream — one JSON
 /// object per line, terminating events `pass`/`fail`/`skip` per test.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::runners::go_test::parse_go_test_json;
+///
+/// // let run = parse_go_test_json(stdout_bytes);
+/// ```
 pub fn parse_go_test_json(stdout: &[u8]) -> ParsedRun {
     parse_go_test_json_impl(stdout)
 }

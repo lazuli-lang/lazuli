@@ -9,17 +9,41 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Feature, Query, ReportSource};
 
+/// One REPORT-SOURCE-KIND-001 finding — a report's `source` resolves
+/// to a `query.lookup` (only `query.list` and `query.sql` are valid).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the report was authored in.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
+    /// Report whose source has the wrong kind.
     pub report: String,
+    /// Local-feature query name the report tried to use as source.
     pub source_name: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "REPORT-SOURCE-KIND-001";
 
+    /// Render the "report source resolves to query.lookup" message,
+    /// naming the report and the source query.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::report::report_source_kind_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("sales.lzi"),
+    ///     feature: "sales".into(),
+    ///     report: "weekly_sales".into(),
+    ///     source_name: "fetch_order".into(),
+    /// };
+    /// assert!(f.message().contains("query.lookup"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "report `{}` source `{}` resolves to `query.lookup`; only `query.list` and \
@@ -29,6 +53,20 @@ impl Finding {
     }
 }
 
+/// Walk every report in `feature` and emit a finding for each whose
+/// `source` resolves to a local `query.lookup`. Cross-feature sources
+/// are skipped (handled by the cross-feature doctor pass).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::report::report_source_kind_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a report sourced from query.lookup");
+/// let _ = check(&feature, Path::new("sales.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     for r in &feature.reports {

@@ -74,6 +74,14 @@ impl<'a> CrossFeatureIndex<'a> {
     /// and `EnumDecl.name` against its owning feature. Names declared
     /// in two or more features are tracked separately so the caller can
     /// emit a fallback warning instead of guessing.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_codegen_go::emitter::cross_feature::CrossFeatureIndex;
+    /// let index = CrossFeatureIndex::build(&module);
+    /// assert!(index.owner("UnknownThing").is_none());
+    /// ```
     pub fn build(module: &'a Module) -> Self {
         let mut map: BTreeMap<&'a str, (&'a str, DeclKind)> = BTreeMap::new();
         let mut ambiguous: BTreeMap<&'a str, Vec<&'a str>> = BTreeMap::new();
@@ -142,6 +150,14 @@ impl<'a> CrossFeatureIndex<'a> {
     /// Return the unique owning feature for `type_name`, or `None`
     /// when the name is unknown or ambiguous. Callers distinguish
     /// "unknown" from "ambiguous" via [`Self::is_ambiguous`].
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// if let Some(feature) = index.owner("Billing") {
+    ///     /* emit import path */
+    /// }
+    /// ```
     pub fn owner(&self, type_name: &str) -> Option<&'a str> {
         self.map.get(type_name).map(|(feature, _)| *feature)
     }
@@ -152,6 +168,16 @@ impl<'a> CrossFeatureIndex<'a> {
     /// `lazuli.ID` (the actual DB column shape) instead of the resource
     /// struct ref (which would fail `pgx.RowToStructByName` scan into
     /// a BIGINT FK column).
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_codegen_go::emitter::cross_feature::DeclKind;
+    /// match index.kind("Billing") {
+    ///     Some(DeclKind::Resource) => { /* FK column */ }
+    ///     _ => { /* struct/enum */ }
+    /// }
+    /// ```
     pub fn kind(&self, type_name: &str) -> Option<DeclKind> {
         self.map.get(type_name).map(|(_, kind)| *kind)
     }
@@ -159,6 +185,14 @@ impl<'a> CrossFeatureIndex<'a> {
     /// `true` when `type_name` is declared in two or more features.
     /// The emitter pairs this with a warning comment so a reviewer
     /// can spot the name collision.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// if index.is_ambiguous("Foo") {
+    ///     // emit a `// WARN: ambiguous cross-feature ref` comment
+    /// }
+    /// ```
     pub fn is_ambiguous(&self, type_name: &str) -> bool {
         self.ambiguous.contains_key(type_name)
     }

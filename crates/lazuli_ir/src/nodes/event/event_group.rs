@@ -105,6 +105,16 @@ pub enum EventVariantKind {
 }
 
 impl EventVariantKind {
+    /// Returns `true` for trace-only variants (observability stream).
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::EventVariantKind;
+    ///
+    /// assert!(EventVariantKind::Trace.is_trace());
+    /// assert!(!EventVariantKind::Committed.is_trace());
+    /// ```
     pub fn is_trace(&self) -> bool {
         matches!(self, EventVariantKind::Trace)
     }

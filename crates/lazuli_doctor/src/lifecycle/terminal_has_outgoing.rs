@@ -27,8 +27,26 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "LIFECYCLE-TERMINAL-HAS-OUTGOING-TRANSITION";
 
+    /// Render the "terminal state has outgoing transition" message,
+    /// naming the resource, terminal state, and offending transition.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::lifecycle::terminal_has_outgoing::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("publishing.lzi"),
+    ///     resource: "Publication".into(),
+    ///     terminal_state: "archived".into(),
+    ///     transition: "republish".into(),
+    /// };
+    /// assert!(f.message().contains("archived"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "lifecycle on `{}`: state `{}` is `terminal` but transition `{}` uses it as `from`. \
@@ -45,6 +63,17 @@ impl Finding {
 ///
 /// `path` is the source `.lzi` file used to anchor findings; no I/O is
 /// performed here.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::lifecycle::terminal_has_outgoing::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a terminal-state transition source");
+/// let _ = check(&feature, Path::new("publishing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = vec![];
 

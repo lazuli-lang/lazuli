@@ -23,8 +23,16 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable doctor rule code surfaced to the user.
     pub const CODE: &'static str = "lzx-source-resource-mismatch";
 
+    /// Render the canonical diagnostic message.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let msg = Finding::message(/* ... */);
+    /// ```
     pub fn message(feature: &str, view: &str, clause: &str, field: &str, resource: &str) -> String {
         format!(
             "view `{view}` in feature `{feature}`: {clause} field `{field}` is not \
@@ -36,6 +44,15 @@ impl Finding {
 }
 
 /// Run `lzx-source-resource-mismatch` across all `.lzx` surfaces in the module.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::doctor::lzx::source_resource_mismatch::check;
+/// use lazuli_cli::doctor::lzx::ir_stub::Module;
+///
+/// // let findings = check(&module);
+/// ```
 pub fn check(module: &Module) -> Vec<Finding> {
     let mut out = Vec::new();
     for feature in &module.features {

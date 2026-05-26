@@ -15,6 +15,23 @@ use crate::lzx::{
 
 /// Emit `dist/ts-<target>/<feat>/views/<audience>/<view-name>.gen.ts`
 /// for a `view create` view.
+///
+/// Renders the spec const, the slot interface, and the React hook
+/// (`useSlugCreate()` etc.) consumers compose with their handwritten
+/// form. The submit command is wired through the runtime client so the
+/// hook is target-agnostic.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::lzx_view_create::emit_view_create;
+/// use lazuli_ir::{Audience, Surface, ViewCreate};
+///
+/// let surface: Surface = /* … */ unimplemented!();
+/// let audience: Audience = /* … */ unimplemented!();
+/// let view: ViewCreate = /* … */ unimplemented!();
+/// let _src = emit_view_create(&surface, &audience, &view);
+/// ```
 pub fn emit_view_create(surface: &Surface, audience: &Audience, view: &ViewCreate) -> String {
     let mut s = String::new();
     s.push_str(banner());

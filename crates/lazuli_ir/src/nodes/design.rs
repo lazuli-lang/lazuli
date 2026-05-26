@@ -114,6 +114,9 @@ pub struct ColorToken {
     pub span_ref: Option<SpanRef>,
 }
 
+/// One state inside a [`ColorToken`] — pairs a state kind (`Base` /
+/// `Hover` / `Active` / `Foreground`) with the light-mode hex value and
+/// an optional `dark` companion.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ColorState {
     pub kind: ColorStateKind,
@@ -150,6 +153,8 @@ pub struct Typography {
     pub tracking: Vec<TrackingToken>,
 }
 
+/// One `families.<name>` entry under [`Typography`]. Pairs a token
+/// name with the CSS font stack string.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FamilyToken {
     pub name: String,
@@ -157,6 +162,8 @@ pub struct FamilyToken {
     pub value: String,
 }
 
+/// One `scale.<name>` entry under [`Typography`]. Pairs the font-size
+/// + line-height literals verbatim for emission.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextScaleToken {
     pub name: String,
@@ -166,12 +173,16 @@ pub struct TextScaleToken {
     pub line_height: String,
 }
 
+/// One `weights.<name>` entry under [`Typography`]. The numeric value
+/// follows the CSS font-weight catalog (100..=900).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WeightToken {
     pub name: String,
     pub value: u16,
 }
 
+/// One `tracking.<name>` entry under [`Typography`]. CSS letter-spacing
+/// literal preserved verbatim.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TrackingToken {
     pub name: String,
@@ -188,6 +199,8 @@ pub struct ScaleToken {
     pub value: String,
 }
 
+/// One `shadow.<name>` entry. CSS `box-shadow` literal for a single
+/// layer; multi-layer shadows are rejected at lowering.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShadowToken {
     pub name: String,
@@ -197,6 +210,8 @@ pub struct ShadowToken {
     pub value: String,
 }
 
+/// `motion { ... }` group inside [`Design`]. Splits into duration tokens
+/// (reused [`ScaleToken`] shape) and curve tokens ([`EasingToken`]).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Motion {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -205,6 +220,8 @@ pub struct Motion {
     pub easings: Vec<EasingToken>,
 }
 
+/// One `motion.easing.<name>` entry — easing curve. Value is either a
+/// `cubic-bezier(...)` string or a named CSS curve identifier.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EasingToken {
     pub name: String,
@@ -212,6 +229,8 @@ pub struct EasingToken {
     pub value: String,
 }
 
+/// One `z.<name>` entry under [`Design`]. CSS z-index value as a signed
+/// integer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ZToken {
     pub name: String,

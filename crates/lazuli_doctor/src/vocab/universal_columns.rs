@@ -30,6 +30,17 @@ use lazuli_ir::{
 /// `module` is the IR module (provides cross-feature peer-resource lookup
 /// for `uses <feature>` imports — `host: Host` in `catalog` resolves to the
 /// `host` feature's `Host` resource).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_doctor::vocab::universal_columns::is_universal_column;
+///
+/// // `created_at` is universal regardless of declaration context.
+/// // (Full call needs `&Field`, `&Feature`, `&Module` IR fixtures —
+/// // construct via parser/analyzer in tests.)
+/// let _ = is_universal_column;
+/// ```
 pub fn is_universal_column(
     field: &Field,
     declaration_name: &str,
@@ -96,6 +107,17 @@ pub fn is_universal_column(
 ///
 /// Heuristic: name ends in `View` / `Snapshot` / `Entry` / `Item` AND has a
 /// field of shape `<noun>_id: ID required` (the denormalised lookup column).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_doctor::vocab::universal_columns::is_view_projection_record;
+///
+/// // Records named `CustomerView`/`OrderSnapshot` etc. with `<noun>_id`
+/// // fields are recognised as projections. Construct a `Record` via the
+/// // parser/analyzer to exercise the predicate end-to-end.
+/// let _ = is_view_projection_record;
+/// ```
 pub fn is_view_projection_record(record: &Record) -> bool {
     let suffix_hit = record_name_has_projection_suffix(&record.name);
     if !suffix_hit {

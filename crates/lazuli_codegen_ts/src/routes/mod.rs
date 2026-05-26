@@ -1,3 +1,11 @@
+//! `app.routes.gen.ts` emitter — builds the per-audience route table the
+//! frontend router consumes.
+//!
+//! The IR carries the routes in their portable Express-style form; this
+//! module groups them by audience, resolves guard / lifecycle emit specs
+//! against the surrounding features, and renders one TS file per
+//! platform.
+
 use std::collections::BTreeMap;
 
 use lazuli_ir::{AppManifest, AppRoute, Experience, Feature, Platform, PlatformSurface};
@@ -13,9 +21,15 @@ use emit::emit_routes_file;
 use resolve::{resolve_guard_emit, resolve_lifecycle_emit};
 use spec::{LoaderEmit, RouteSpec};
 
+/// Which platform the routes emitter is rendering for.
+///
+/// Drives both the `dist/` prefix and the router-dialect translation
+/// (`$param` vs `[param]`) via [`Self::router_target`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RoutesTarget {
+    /// Web frontend — emits under `dist/ts-web/`, TanStack Router dialect.
     Web,
+    /// Mobile frontend — emits under `dist/ts-mobile/`, Expo Router dialect.
     Mobile,
 }
 
@@ -49,6 +63,22 @@ impl RoutesTarget {
     }
 }
 
+/// Emit one `app.routes.gen.ts` per audience for the given target.
+///
+/// Filters routes to those owned by the target platform, groups by
+/// audience, resolves each route's guard + lifecycle emission against
+/// the surrounding features, and renders the resulting TS files. Routes
+/// without a `path` are dropped silently — the analyzer is the
+/// authority on what counts as a valid route.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::routes::{emit_routes_artifacts, RoutesTarget};
+///
+/// let files = emit_routes_artifacts(None, &[], &[], &[], &[], RoutesTarget::Web);
+/// assert!(files.is_empty());
+/// ```
 pub fn emit_routes_artifacts(
     _app: Option<&AppManifest>,
     routes: &[AppRoute],

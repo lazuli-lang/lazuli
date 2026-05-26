@@ -9,17 +9,43 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::Feature;
 
+/// One REPORT-FILENAME-TOKEN-UNKNOWN-001 finding — the report's
+/// `filename` pattern carries a `{token}` outside the closed catalog
+/// `{format}`, `{ctx.now:<strftime>}`, `{ctx.user.id}`, `{ctx.tenant.id}`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the report was authored in.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
+    /// Report whose filename pattern uses the unknown token.
     pub report: String,
+    /// Verbatim token (the text between `{` and `}`).
     pub unknown_token: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "REPORT-FILENAME-TOKEN-UNKNOWN-001";
 
+    /// Render the "filename uses unknown token" message, naming the
+    /// report and the offending token. The catalog is enumerated in
+    /// the text so the author has a copy-paste set.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::report::report_filename_token_unknown_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("sales.lzi"),
+    ///     feature: "sales".into(),
+    ///     report: "weekly_sales".into(),
+    ///     unknown_token: "ctx.team".into(),
+    /// };
+    /// assert!(f.message().contains("ctx.team"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "report `{}` filename pattern uses `{{{}}}` which is not in the closed catalog \
@@ -29,6 +55,19 @@ impl Finding {
     }
 }
 
+/// Walk every report in `feature` and emit a finding for each unknown
+/// `{token}` placeholder discovered in the report's filename pattern.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::report::report_filename_token_unknown_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a report carrying an unknown filename token");
+/// let _ = check(&feature, Path::new("sales.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     for r in &feature.reports {

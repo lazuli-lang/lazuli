@@ -44,15 +44,34 @@ pub struct TestOptions {
     pub extra_args: Vec<String>,
 }
 
+/// Closed catalog of `--format` values accepted by `lazuli test`.
+///
+/// `Text` is the default and renders a colorized human report.
+/// `Json` is the snapshot shape consumed by tooling; `Ndjson` streams
+/// `cmd_test_ndjson` events one per line as the orchestrator runs.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum OutputFormat {
+    /// Colorized human report (default).
     #[default]
     Text,
+    /// Single-shot JSON snapshot at the end of the run.
     Json,
+    /// Streamed newline-delimited JSON events.
     Ndjson,
 }
 
 impl OutputFormat {
+    /// Parse the textual `--format <value>` argument into a typed
+    /// `OutputFormat`. Returns an `Err(String)` whose message names the
+    /// closed catalog so the CLI surface can echo it directly.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test::OutputFormat;
+    /// assert_eq!(OutputFormat::parse("json"), Ok(OutputFormat::Json));
+    /// assert!(OutputFormat::parse("yaml").is_err());
+    /// ```
     pub fn parse(s: &str) -> Result<Self, String> {
         match s {
             "text" => Ok(Self::Text),
@@ -66,6 +85,18 @@ impl OutputFormat {
 }
 
 /// Entry point called by `main.rs`.
+///
+/// Routes to `run_watch` when `opts.watch` is set, otherwise calls
+/// `run_once` and `std::process::exit`s with the returned exit code so
+/// the rendered output already on stdout/stderr stays intact.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::cmd_test::{run, TestOptions};
+///
+/// // run(TestOptions::default())?;
+/// ```
 pub fn run(opts: TestOptions) -> Result<()> {
     if opts.watch {
         return run_watch(opts);
@@ -82,6 +113,14 @@ pub fn run(opts: TestOptions) -> Result<()> {
 
 /// One full pass across layers. Returns the process exit code per
 /// proposal §Exit code matrix.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::cmd_test::{run_once, TestOptions};
+///
+/// // let code = run_once(&TestOptions::default())?;
+/// ```
 pub fn run_once(opts: &TestOptions) -> Result<i32> {
     let project_root = project_root_for(&opts.input);
     let manifest = lazurite_manifest::load(&project_root).with_context(|| {
@@ -215,6 +254,14 @@ pub fn run_once(opts: &TestOptions) -> Result<i32> {
 
 /// `--watch` mode. Runs one initial pass, then watches for changes
 /// and re-runs the affected layer(s).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::cmd_test::{run_watch, TestOptions};
+///
+/// // run_watch(TestOptions { watch: true, ..TestOptions::default() })?;
+/// ```
 pub fn run_watch(opts: TestOptions) -> Result<()> {
     let project_root = project_root_for(&opts.input);
     eprintln!("lazuli test --watch: watching {}", project_root.display());

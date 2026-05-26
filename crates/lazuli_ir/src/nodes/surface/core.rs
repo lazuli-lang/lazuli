@@ -26,10 +26,14 @@ pub struct Surface {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Closed catalog of surface platform targets. One [`Surface`] per
+/// target; codegen wires each variant to its own emitter pipeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SurfaceTarget {
+    /// `surface <feature> web` — React Web target.
     Web,
+    /// `surface <feature> mobile` — React Native target.
     Mobile,
 }
 
@@ -59,6 +63,15 @@ pub enum View {
 }
 
 impl View {
+    /// Return the authored view name regardless of which view kind this is.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// # use lazuli_ir::View;
+    /// # let view: View = unimplemented!();
+    /// let name = view.name();
+    /// ```
     pub fn name(&self) -> &str {
         match self {
             View::List(v) => &v.name,
@@ -67,6 +80,16 @@ impl View {
         }
     }
 
+    /// Return the optional `route` slot regardless of view kind. `None`
+    /// for embedded views (no own URL).
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// # use lazuli_ir::View;
+    /// # let view: View = unimplemented!();
+    /// let route = view.route();
+    /// ```
     pub fn route(&self) -> Option<&str> {
         match self {
             View::List(v) => v.route.as_deref(),
@@ -86,13 +109,31 @@ pub struct QueryRef {
     pub name: String,
 }
 
+/// Closed catalog distinguishing the four read shapes (mirrors the
+/// authored prefix on the query reference: `query.list`, `query.lookup`,
+/// `query.sql`, `query.view`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryKind {
+    /// `query.list <name>` — collection read.
     List,
+    /// `query.lookup <name>` — single-row read.
     Lookup,
+    /// `query.sql <name>` — hand-rolled SQL.
     Sql,
+    /// `query.sql.view <name>` — materialised view.
     View,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn surface_target_round_trips() {
+        let s = serde_json::to_string(&SurfaceTarget::Web).unwrap();
+        assert_eq!(s, "\"web\"");
+    }
 }
 
 /// Reference to a command. `feature` is set when the source uses the

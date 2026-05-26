@@ -26,6 +26,22 @@ use anyhow::{Result, bail};
 use crate::{cmd_test, cmd_test_types};
 
 /// Handler for the `Commands::Test` clap arm.
+///
+/// Parses `format` + `fail_on` into typed forms, gates the
+/// `coverage:aggregate=<N>` threshold on `--aggregate-method`, then
+/// hands the assembled `TestOptions` off to `cmd_test::run`. Layer
+/// translation already happens at the dispatch site so the function
+/// stays clap-free.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::PathBuf;
+/// use lazuli_cli::commands::test::test_command;
+///
+/// // test_command(PathBuf::from("."), vec![], "text".into(), false,
+/// //              vec![], false, false, None, vec![])?;
+/// ```
 pub fn test_command(
     input: PathBuf,
     layers: Vec<cmd_test_types::Layer>,
@@ -67,4 +83,26 @@ pub fn test_command(
         extra_args,
     };
     cmd_test::run(opts)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn aggregate_threshold_requires_method() {
+        let result = test_command(
+            PathBuf::from("."),
+            Vec::new(),
+            "text".to_owned(),
+            false,
+            vec!["coverage:aggregate=80".to_owned()],
+            false,
+            false,
+            None,
+            Vec::new(),
+        );
+        let err = result.expect_err("missing aggregate method should fail");
+        assert!(format!("{err}").contains("--aggregate-method"));
+    }
 }

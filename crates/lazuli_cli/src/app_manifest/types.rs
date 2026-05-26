@@ -31,9 +31,18 @@ pub struct RegistryToolEntryDefect {
     pub reason: RegistryToolDefectReason,
 }
 
+/// Why a `tool <name>` entry could not be lifted into the registry IR.
+///
+/// Each variant maps 1:1 to a doctor diagnostic surface — the splits
+/// matter because the remediation differs (`EffectMissing` wants the
+/// author to add an `effect` line; `EffectInvalid` wants them to fix a
+/// typo on an existing one).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegistryToolDefectReason {
+    /// The `tool` block did not declare any `effect` child.
     EffectMissing,
+    /// The `effect` child carried a value outside the closed set
+    /// (`read` / `write`).
     EffectInvalid,
 }
 
@@ -41,6 +50,29 @@ pub enum RegistryToolDefectReason {
 /// from the defect list so doctor can surface both.
 #[derive(Debug, Clone, Default)]
 pub struct RegistryParseOutput {
+    /// The well-formed registry IR, or `None` when the source lacked a
+    /// `registry` header.
     pub registry: Option<AppRegistry>,
+    /// Tool entries that exist in source but couldn't be lifted.
     pub tool_defects: Vec<RegistryToolEntryDefect>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defect_reason_variants_distinct() {
+        assert_ne!(
+            RegistryToolDefectReason::EffectMissing,
+            RegistryToolDefectReason::EffectInvalid
+        );
+    }
+
+    #[test]
+    fn output_default_is_empty() {
+        let out = RegistryParseOutput::default();
+        assert!(out.registry.is_none());
+        assert!(out.tool_defects.is_empty());
+    }
 }

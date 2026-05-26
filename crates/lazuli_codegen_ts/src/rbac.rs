@@ -15,6 +15,18 @@ use lazuli_ir::Module;
 
 /// Emit `dist/ts-<frontend>/rbac/rbac.gen.ts` content. Returns `None`
 /// when the module declares no `permission` / `role` catalog.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::rbac::emit_rbac_ts;
+/// use lazuli_ir::Module;
+///
+/// let module: Module = /* … */ unimplemented!();
+/// if let Some(src) = emit_rbac_ts(&module) {
+///     assert!(src.contains("export"));
+/// }
+/// ```
 pub fn emit_rbac_ts(module: &Module) -> Option<String> {
     let catalog = module.rbac.as_ref()?;
     if catalog.permissions.is_empty() && catalog.roles.is_empty() {

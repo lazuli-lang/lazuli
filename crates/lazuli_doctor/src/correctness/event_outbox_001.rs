@@ -31,8 +31,24 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "EVENT-OUTBOX-001";
 
+    /// Render the "payments-class event needs `outbox guaranteed`" message.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::correctness::event_outbox_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     feature: "billing".into(),
+    ///     event_name: "payment.captured".into(),
+    /// };
+    /// assert!(f.message().contains("outbox guaranteed"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "Payments-class event `{}` should declare `outbox guaranteed` to ensure \
@@ -54,6 +70,17 @@ fn is_payments_class(name: &str) -> bool {
 /// Run EVENT-OUTBOX-001 against one feature.
 ///
 /// `path` anchors findings. No I/O; the IR is the source of truth.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::correctness::event_outbox_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a payments-class feature");
+/// let _ = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     if !is_payments_class(&feature.name) {
         return Vec::new();

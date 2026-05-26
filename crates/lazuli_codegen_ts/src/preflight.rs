@@ -36,6 +36,21 @@ type ImportBuckets = BTreeMap<String, BTreeSet<String>>;
 /// every per-feature `preflight.gen.ts` so apps can `import
 /// "@app/sdk/preflight.gen"` once at startup and pick up every
 /// registration without going through each feature's barrel.
+///
+/// Returns `None` (so the file is omitted entirely) when no feature
+/// has an eligible command; the caller decides whether to write.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::preflight::emit_preflight_index_ts;
+/// use lazuli_ir::Module;
+///
+/// let module: Module = /* … */ unimplemented!();
+/// if let Some(barrel) = emit_preflight_index_ts(&module) {
+///     assert!(barrel.contains("preflight.gen.js"));
+/// }
+/// ```
 pub fn emit_preflight_index_ts(module: &Module) -> Option<String> {
     let mut features: Vec<&str> = module
         .features
@@ -61,6 +76,16 @@ pub fn emit_preflight_index_ts(module: &Module) -> Option<String> {
 /// Public predicate used by main.rs to decide whether to wire the
 /// barrel side-effect import. Kept in sync with `emit_preflight_ts`'s
 /// eligibility check.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::preflight::feature_has_eligible_command;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = /* … */ unimplemented!();
+/// let _ = feature_has_eligible_command(&feature);
+/// ```
 pub fn feature_has_eligible_command(feature: &Feature) -> bool {
     feature
         .commands
@@ -88,6 +113,23 @@ fn has_eligible_slot(command: &Command) -> bool {
     })
 }
 
+/// Emit `dist/<target>/<feature>/<feature>.preflight.gen.ts`.
+///
+/// Builds one `registerPreflight` call per command whose input carries
+/// at least one `@semantic.X`-typed slot with a TS validator. Returns
+/// `None` when the feature has zero eligible commands.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::preflight::emit_preflight_ts;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = /* … */ unimplemented!();
+/// if let Some(src) = emit_preflight_ts(&feature) {
+///     assert!(src.contains("registerPreflight"));
+/// }
+/// ```
 pub fn emit_preflight_ts(feature: &Feature) -> Option<String> {
     let mut imports: ImportBuckets = BTreeMap::new();
     let mut commands = Vec::new();
@@ -217,4 +259,66 @@ fn preflight_for_command(
         qualified_name: format!("{}.{}", feature.name, command.name),
         slots: out,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lazuli_ir::{Defaults, Feature, Policies};
+
+    fn empty_feature() -> Feature {
+        Feature {
+            name: "empty".to_owned(),
+            purpose: None,
+            non_goals: vec![],
+            context_path: None,
+            defaults: Defaults::default(),
+            uses: vec![],
+            uses_spans: vec![],
+            uses_versions: vec![],
+            requirements: vec![],
+            enums: vec![],
+            resources: vec![],
+            events: vec![],
+            rules: vec![],
+            policies: Policies::default(),
+            errors: None,
+            commands: vec![],
+            apis: vec![],
+            records: vec![],
+            queries: vec![],
+            resume_routers: vec![],
+            workflows: vec![],
+            jobs: vec![],
+            webhooks: vec![],
+            notifications: vec![],
+            event_groups: vec![],
+            tenant_migrations: vec![],
+            translation: None,
+            pollers: vec![],
+            auth: None,
+            surfaces: vec![],
+            extensions: vec![],
+            escape_routes: vec![],
+            agents: vec![],
+            reports: vec![],
+            channels: vec![],
+            caches: vec![],
+            aggregates: vec![],
+            mcp_servers: vec![],
+            previous_names: vec![],
+            synth_origins: std::collections::BTreeMap::new(),
+            span_ref: None,
+        }
+    }
+
+    #[test]
+    fn feature_with_no_commands_has_no_eligible_command() {
+        assert!(!feature_has_eligible_command(&empty_feature()));
+    }
+
+    #[test]
+    fn emit_preflight_ts_returns_none_for_empty_feature() {
+        assert!(emit_preflight_ts(&empty_feature()).is_none());
+    }
 }

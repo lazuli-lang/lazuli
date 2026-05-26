@@ -16,6 +16,13 @@
 
 use crate::cmd_test_types::{LayerResult, LayerVerdict};
 
+/// State machine that decides whether `lazuli test --fail-fast` should
+/// short-circuit the remaining layers.
+///
+/// `enabled` reflects the CLI flag; `tripped` flips on the first layer
+/// result whose verdict is `Fail`. The combination lets the caller
+/// observe both bits independently (the NDJSON layer wants to know the
+/// orchestrator gave up, even when fail-fast is off).
 #[derive(Debug, Default)]
 pub struct FailFastCoordinator {
     enabled: bool,
@@ -23,6 +30,16 @@ pub struct FailFastCoordinator {
 }
 
 impl FailFastCoordinator {
+    /// Build a fresh coordinator. `enabled` should reflect
+    /// `--fail-fast`.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_fail_fast::FailFastCoordinator;
+    /// let coord = FailFastCoordinator::new(false);
+    /// assert!(!coord.is_enabled());
+    /// ```
     pub fn new(enabled: bool) -> Self {
         Self {
             enabled,
@@ -31,22 +48,59 @@ impl FailFastCoordinator {
     }
 
     /// Returns true when the orchestrator should skip the next layer.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_fail_fast::FailFastCoordinator;
+    ///
+    /// let mut coord = FailFastCoordinator::new(true);
+    /// assert!(!coord.should_skip());
+    /// ```
     pub fn should_skip(&self) -> bool {
         self.enabled && self.tripped
     }
 
     /// Record one layer result; flips the coordinator to `tripped`
     /// when the layer failed.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_fail_fast::FailFastCoordinator;
+    /// use lazuli_cli::cmd_test_types::{LayerResult, LayerVerdict};
+    ///
+    /// // let mut coord = FailFastCoordinator::new(true);
+    /// // coord.observe(&fail_result);
+    /// ```
     pub fn observe(&mut self, layer: &LayerResult) {
         if layer.result == LayerVerdict::Fail {
             self.tripped = true;
         }
     }
 
+    /// True if any observed layer reported a `Fail` verdict, regardless
+    /// of whether fail-fast is enabled.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_fail_fast::FailFastCoordinator;
+    /// let coord = FailFastCoordinator::new(true);
+    /// assert!(!coord.is_tripped());
+    /// ```
     pub fn is_tripped(&self) -> bool {
         self.tripped
     }
 
+    /// Whether the coordinator was configured with `--fail-fast`.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_fail_fast::FailFastCoordinator;
+    /// assert!(FailFastCoordinator::new(true).is_enabled());
+    /// ```
     pub fn is_enabled(&self) -> bool {
         self.enabled
     }

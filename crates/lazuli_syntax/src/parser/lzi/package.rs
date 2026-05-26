@@ -59,6 +59,20 @@ use crate::ast::{PackageSkeleton, PermissionDeclAst, RoleDeclAst, RoleGrantsAst,
 /// Existing callers using `parse_feature_skeletons` directly continue
 /// to work (the function is unchanged); new callers wanting the
 /// catalog go through `parse_package_skeleton`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_syntax::parse_package_skeleton;
+///
+/// // Fixture string elided — the real authoring shape requires the
+/// // full indent + sibling structure across feature / permission /
+/// // role blocks. See the `parse_package_skeleton` unit tests for
+/// // ready-to-paste inputs.
+/// let src = include_str!("../fixtures/package.lzi");
+/// let pkg = parse_package_skeleton(src).expect("parses");
+/// assert!(!pkg.features.is_empty());
+/// ```
 pub fn parse_package_skeleton(source: &str) -> Result<PackageSkeleton, ParseError> {
     let features = parse_feature_skeletons(source)?;
     let (permissions, roles) = parse_rbac_catalog_decls(source)?;

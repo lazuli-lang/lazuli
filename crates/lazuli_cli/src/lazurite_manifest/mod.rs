@@ -57,10 +57,17 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
+/// Parsed `Lazurite.toml` — the single typed surface the CLI builds
+/// against. Every other module in the crate accepts an
+/// `Option<&Manifest>` so default-shaped projects keep working without
+/// a manifest file.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Manifest {
+    /// `[project]` block (name + version).
     pub project: Project,
+    /// `[lazuli]` runtime pin.
     pub lazuli: LazuliPin,
+    /// Optional `[lazurite]` block (app_dir + extras).
     pub lazurite: Option<Lazurite>,
     #[serde(default)]
     pub plugins: BTreeMap<String, Plugin>,
@@ -99,6 +106,18 @@ pub const MANIFEST_FILENAME: &str = "Lazurite.toml";
 /// reads it transparently; future `lazuli upgrade` step will rename.
 pub const LEGACY_MANIFEST_FILENAME: &str = "lazurite.toml";
 
+/// Read `Lazurite.toml` (or the legacy lowercase `lazurite.toml`)
+/// from `project_root`. Returns `Ok(None)` when no manifest exists —
+/// pilots without a manifest run with default-shaped behaviour.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::lazurite_manifest::load;
+///
+/// // let manifest = load(Path::new("."))?;
+/// ```
 pub fn load(project_root: &Path) -> Result<Option<Manifest>, ManifestError> {
     // Prefer the canonical capitalized name; fall back to the legacy
     // lowercase form. On filesystems that are case-insensitive (NTFS,
@@ -129,6 +148,16 @@ pub fn load(project_root: &Path) -> Result<Option<Manifest>, ManifestError> {
 /// Used by source-loaders (generate, inspect, doctor) that need to find
 /// `app.lzi`, `design.lzi`, or `registry.lzi` without each callsite
 /// re-implementing manifest-aware resolution.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::lazurite_manifest::resolve_in_app_dir;
+///
+/// let p = resolve_in_app_dir(Path::new("."), "app.lzi");
+/// assert!(p.ends_with("app.lzi"));
+/// ```
 pub fn resolve_in_app_dir(project_root: &Path, file: &str) -> std::path::PathBuf {
     match load(project_root).ok().flatten() {
         Some(manifest) => manifest.app_root(project_root).join(file),
@@ -137,6 +166,16 @@ pub fn resolve_in_app_dir(project_root: &Path, file: &str) -> std::path::PathBuf
 }
 
 impl Manifest {
+    /// Read the pinned `lazuli.runtime` version (`Some(version_str)`
+    /// when the manifest sets it; `None` otherwise — the loader
+    /// ensures the field exists today, so callers can treat `None`
+    /// as a corrupt-manifest signal).
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let v = manifest.lazuli_runtime_version();
+    /// ```
     pub fn lazuli_runtime_version(&self) -> Option<&str> {
         Some(self.lazuli.runtime.as_str())
     }
@@ -145,6 +184,15 @@ impl Manifest {
     /// and `registry.lzi`. Returns `project_root.join(app_dir)` when
     /// `[lazurite] app_dir` is set, otherwise `project_root` itself
     /// (backwards-compatible default).
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::Path;
+    /// use lazuli_cli::lazurite_manifest::Manifest;
+    ///
+    /// // let dir = manifest.app_root(Path::new("."));
+    /// ```
     pub fn app_root(&self, project_root: &Path) -> std::path::PathBuf {
         match self.lazurite.as_ref().and_then(|l| l.app_dir.as_deref()) {
             Some(subdir) => project_root.join(subdir),
@@ -155,18 +203,36 @@ impl Manifest {
     /// Frente 1 — resolve `[generate.go]` with canonical defaults
     /// applied when the block is omitted. Pilots that follow the
     /// canonical layout can skip the section entirely.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let go = manifest.generate_go_or_default();
+    /// ```
     pub fn generate_go_or_default(&self) -> GenerateGo {
         self.generate.go.clone().unwrap_or_default()
     }
 
     /// Frente 1 — resolve `[migrations]` with canonical defaults
     /// applied when the block is omitted.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let m = manifest.migrations_or_default();
+    /// ```
     pub fn migrations_or_default(&self) -> Migrations {
         self.migrations.clone().unwrap_or_default()
     }
 
     /// Frente 1 — resolve `[seeds]` with canonical defaults applied
     /// when the block is omitted.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let s = manifest.seeds_or_default();
+    /// ```
     pub fn seeds_or_default(&self) -> Seeds {
         self.seeds.clone().unwrap_or_default()
     }
@@ -182,6 +248,13 @@ impl Manifest {
     ///
     /// Returns `None` only when the project is neither in the canonical
     /// layout nor declares `[testing.ts]` (back-compat).
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::Path;
+    /// // let ts = manifest.testing_ts_resolved(Path::new("."));
+    /// ```
     pub fn testing_ts_resolved(&self, project_root: &Path) -> Option<TestingTs> {
         let authored = self.testing.as_ref().and_then(|t| t.ts.as_ref());
         let layout = self.detect_frontend_layout(project_root);
@@ -217,6 +290,13 @@ impl Manifest {
     /// - `config = "<layout>/playwright.config.ts"`
     /// - `discovery_root = "<layout>/e2e"`
     /// - `workers = Some(4)`
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::Path;
+    /// // let pw = manifest.testing_playwright_resolved(Path::new("."));
+    /// ```
     pub fn testing_playwright_resolved(&self, project_root: &Path) -> Option<TestingPlaywright> {
         let authored = self.testing.as_ref().and_then(|t| t.playwright.as_ref());
         let layout = self.detect_frontend_layout(project_root);
@@ -252,6 +332,12 @@ impl Manifest {
     /// Frente 1 — `[testing] default_layers` with canonical default
     /// `["handler_go", "view_extensibility"]` applied when the field
     /// (or the entire `[testing]` block) is missing.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let layers = manifest.testing_default_layers();
+    /// ```
     pub fn testing_default_layers(&self) -> Vec<String> {
         self.testing
             .as_ref()
@@ -267,6 +353,13 @@ impl Manifest {
     /// Used to apply default `[testing.ts]` / `[testing.playwright]`
     /// config + discovery_root paths so pilots on the canonical layout
     /// don't need to author either block.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::Path;
+    /// // let layout = manifest.detect_frontend_layout(Path::new("."));
+    /// ```
     pub fn detect_frontend_layout(&self, project_root: &Path) -> Option<String> {
         let singular = project_root.join("app").join("web");
         if singular.is_dir() {
@@ -291,6 +384,19 @@ impl Manifest {
         None
     }
 
+    /// Run the post-parse manifest invariants:
+    /// `project.schema == 1`, every `[plugins.<key>]` starts with the
+    /// `@lazuli/plugin-` namespace, and no two `[frontends.<name>]`
+    /// blocks share an `out` directory.
+    ///
+    /// Called by [`load`] before returning a manifest so callers never
+    /// see an invalid `Manifest`.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // manifest.validate()?;
+    /// ```
     pub fn validate(&self) -> Result<(), ManifestError> {
         if self.project.schema != 1 {
             return Err(ManifestError::UnsupportedSchema(self.project.schema));
@@ -315,6 +421,16 @@ impl Manifest {
         Ok(())
     }
 
+    /// Project the manifest into the borrow-friendly
+    /// [`InspectManifest`] shape consumed by `lazuli inspect
+    /// --format=json`. Flattens the `plugins` + `frontends` maps so
+    /// the JSON output stays stable across schema iterations.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let view = manifest.inspect_view();
+    /// ```
     pub fn inspect_view(&self) -> InspectManifest<'_> {
         InspectManifest {
             origin: MANIFEST_FILENAME,

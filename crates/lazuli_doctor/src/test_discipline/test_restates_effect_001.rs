@@ -17,19 +17,46 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Assignment, CommandEffect, Expr, Feature, Predicate, SpanRef, TestAssertion};
 
+/// One TEST-RESTATES-EFFECT-001 finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// `.lzi` source path that hosts the construct.
     pub path: PathBuf,
+    /// Feature containing the construct.
     pub feature: String,
+    /// Carrier kind (`command`, `workflow_transition`, …).
     pub construct_kind: String,
+    /// Construct name.
     pub construct: String,
+    /// Field name being restated.
     pub field: String,
+    /// Optional span pointer for editor jumps.
     pub span: Option<SpanRef>,
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "TEST-RESTATES-EFFECT-001";
 
+    /// Render the user-facing diagnostic body — names the restated
+    /// field and points at the runtime effect that already guarantees it.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::test_discipline::test_restates_effect_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("billing.lzi"),
+    ///     feature: "billing".into(),
+    ///     construct_kind: "command".into(),
+    ///     construct: "publish".into(),
+    ///     field: "status".into(),
+    ///     span: None,
+    /// };
+    /// assert!(f.message().contains("status"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "{} `{}` `allows when` assertion restates the construct's own effect on \
@@ -41,6 +68,18 @@ impl Finding {
     }
 }
 
+/// Run TEST-RESTATES-EFFECT-001 over a feature. Fires when an
+/// `allows when` assertion's predicate touches a field the construct
+/// is already known to write — the assertion adds no inference value.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::test_discipline::test_restates_effect_001::check;
+///
+/// let findings = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 

@@ -77,6 +77,15 @@ use ir_stub::{Audience, Command, Feature, QueryRef, Resource};
 /// Rationale: `lzx-source-resource-mismatch` (and the source-aware path of
 /// `lzx-cell-slot-orphan`) need the column-bearing resource shape; the
 /// connection is `View.source.query -> Query.backs_resource -> Resource.name`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::doctor::lzx::find_resource_for_query;
+/// use lazuli_cli::doctor::lzx::ir_stub::{Feature, QueryRef};
+///
+/// // let resource = find_resource_for_query(&feature, &query_ref);
+/// ```
 pub fn find_resource_for_query<'a>(
     feature: &'a Feature,
     query_ref: &QueryRef,
@@ -94,6 +103,17 @@ pub fn find_resource_for_query<'a>(
 ///
 /// Rationale: `lzx-route-param-missing-binding` and `lzx-route-param-orphan`
 /// both pivot on the placeholder set vs the `route ... from path` set.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::doctor::lzx::extract_path_placeholders;
+///
+/// assert_eq!(
+///     extract_path_placeholders("/orgs/:org/slugs/:slug"),
+///     vec!["org".to_string(), "slug".to_string()]
+/// );
+/// ```
 pub fn extract_path_placeholders(route: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for segment in route.split('/') {
@@ -126,6 +146,15 @@ pub fn extract_path_placeholders(route: &str) -> Vec<String> {
 /// Rationale: `lzx-action-not-in-audience` calls this to verify each entry in
 /// `view.actions` is reachable; `lzx-audience-empty-sdk` calls it to detect
 /// dead audiences.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::doctor::lzx::audience_reachable_commands;
+/// use lazuli_cli::doctor::lzx::ir_stub::{Audience, Feature};
+///
+/// // let reachable = audience_reachable_commands(&audience, &feature);
+/// ```
 pub fn audience_reachable_commands<'a>(
     audience: &Audience,
     feature: &'a Feature,
@@ -152,6 +181,15 @@ pub fn audience_reachable_commands<'a>(
 /// Each `Finding` type in this namespace exposes `feature`, `view`, `line`,
 /// plus a `CODE` const — the helper takes a `code` accessor that callers
 /// supply (typically `|_| T::CODE`).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::doctor::lzx::sort_findings;
+///
+/// // sort_findings(&mut findings, |f| (f.feature.clone(), f.view.clone(),
+/// //                                   "lzx-source-resource-mismatch", f.line));
+/// ```
 pub fn sort_findings<F, K>(findings: &mut [F], key: K)
 where
     K: Fn(&F) -> (String, String, &'static str, usize),

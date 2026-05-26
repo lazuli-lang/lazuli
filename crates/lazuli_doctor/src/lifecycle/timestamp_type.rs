@@ -29,8 +29,27 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "LIFECYCLE-TIMESTAMP-TYPE";
 
+    /// Render the "transition stamps a non-DateTime field" message,
+    /// naming the resource, transition, field, and the actual type.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::lifecycle::timestamp_type::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("publishing.lzi"),
+    ///     resource: "Publication".into(),
+    ///     transition: "publish".into(),
+    ///     field: "published_at".into(),
+    ///     actual_type: "Text".into(),
+    /// };
+    /// assert!(f.message().contains("DateTime"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "lifecycle on `{}`: transition `{}` stamps `{}` (declared as `{}`) — \
@@ -47,6 +66,17 @@ impl Finding {
 /// `path` is the source `.lzi` file used to anchor findings. No I/O is performed
 /// here. If the named timestamp field is absent, this rule intentionally stays
 /// silent because lifecycle lowering auto-emits that DateTime field.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::lifecycle::timestamp_type::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a transition stamping a non-DateTime field");
+/// let _ = check(&feature, Path::new("publishing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = vec![];
 

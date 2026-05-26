@@ -20,6 +20,19 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 /// Handler for the `Commands::Parse` clap arm.
+///
+/// Compiles `input` to IR via `build_module_from_path` and dumps the
+/// pretty-printed JSON to stdout. Errors propagate with the input path
+/// in their context message.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::commands::parse::parse_command;
+///
+/// // parse_command(Path::new("examples/crm.lzi"))?;
+/// ```
 pub fn parse_command(input: &Path) -> Result<()> {
     let app = compile_to_ir(input)?;
     println!("{}", serde_json::to_string_pretty(&app)?);
@@ -32,4 +45,15 @@ pub fn parse_command(input: &Path) -> Result<()> {
 /// caller already constructs the module directly.
 fn compile_to_ir(input: &Path) -> Result<lazuli_ir::Module> {
     crate::build_module_from_path(input).context("failed to compile .lzi file")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_command_errors_on_missing_input() {
+        let result = parse_command(Path::new("__lazuli_no_such_file.lzi"));
+        assert!(result.is_err());
+    }
 }

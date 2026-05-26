@@ -33,6 +33,10 @@ pub struct SourceMap {
     pub files: Vec<SourceFile>,
 }
 
+/// One file entry inside a [`SourceMap`]. Carries the stable id, the
+/// canonical relative path (forward slashes), and the line-offset
+/// table the IDE / diagnostic consumers use to translate byte spans
+/// into `(line, column)` pairs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceFile {
     pub id: FileId,
@@ -57,6 +61,10 @@ pub struct SymbolOriginIndex {
     pub imports: std::collections::BTreeMap<String, Vec<ImportEdge>>,
 }
 
+/// Resolved declaration site for one cross-feature symbol. Carries
+/// the feature/name pair, the symbol kind, the source location, any
+/// previous names (for rename tolerance), and the optional public
+/// contract version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SymbolOrigin {
     pub feature: String,
@@ -74,6 +82,9 @@ pub struct SymbolOrigin {
     pub contract_version: Option<u16>,
 }
 
+/// One import edge in the symbol-origin graph. Names the importing
+/// symbol, the imported symbol, and the source location of the
+/// import statement.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImportEdge {
     pub importer: String,
@@ -81,18 +92,42 @@ pub struct ImportEdge {
     pub uses_at: SourceLocation,
 }
 
+/// Closed catalog of symbol kinds tracked in the origin index. The
+/// closed set lets doctor + LSP cross-check kind-mismatched references
+/// without re-parsing every source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SymbolKind {
+    /// `enum <Name>` declaration.
     Enum,
+    /// `resource <Name>` declaration.
     Resource,
+    /// `record <Name>` declaration.
     Record,
-    Scalar,   // reserved; populated post-L0 #4 scalar aliases
-    Semantic, // closed catalog at docs/canonical-semantics.md (Email/Phone/Url/Uuid/Currency/GeoPoint/Money + plugin BrazilianCPF/CNPJ/CEP)
+    /// Scalar alias (reserved; populated post-L0 #4 scalar aliases).
+    Scalar,
+    /// Semantic type from canonical catalog (Email/Phone/Url/Uuid/
+    /// Currency/GeoPoint/Money + plugin BrazilianCPF/CNPJ/CEP).
+    Semantic,
+    /// `command <name>` declaration.
     Command,
+    /// `query.<kind> <name>` declaration.
     Query,
+    /// `event <name>` declaration.
     Event,
+    /// `aggregate <Name>` declaration.
     Aggregate,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn symbol_kind_round_trips() {
+        let s = serde_json::to_string(&SymbolKind::Command).unwrap();
+        assert_eq!(s, "\"command\"");
+    }
 }
 
 /// Where a symbol is defined. Discriminated by `source`:

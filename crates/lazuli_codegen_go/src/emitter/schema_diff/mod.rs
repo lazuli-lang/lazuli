@@ -55,13 +55,27 @@ pub use parse::{parse_baseline_from_migration, parse_baseline_from_str, ParseErr
 /// diff is shape-only.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Column {
+    /// Lower-case column name (e.g. `"created_at"`).
     pub name: String,
+    /// Upper-case Postgres type (e.g. `"TEXT"`, `"JSONB"`).
     pub sql_type: String,
+    /// `true` when the column is `NULL`-able (no NOT NULL clause).
     pub nullable: bool,
+    /// Verbatim `DEFAULT` literal when one was declared; `None` otherwise.
     pub default: Option<String>,
 }
 
 impl Column {
+    /// Construct a new column with no default.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_codegen_go::emitter::schema_diff::Column;
+    /// let c = Column::new("id", "BIGINT", false);
+    /// assert_eq!(c.name, "id");
+    /// assert!(!c.nullable);
+    /// ```
     pub fn new(name: impl Into<String>, sql_type: impl Into<String>, nullable: bool) -> Self {
         Self {
             name: name.into(),
@@ -71,6 +85,15 @@ impl Column {
         }
     }
 
+    /// Builder: attach a `DEFAULT` literal to the column.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_codegen_go::emitter::schema_diff::Column;
+    /// let c = Column::new("created_at", "TIMESTAMPTZ", false).with_default("NOW()");
+    /// assert_eq!(c.default.as_deref(), Some("NOW()"));
+    /// ```
     pub fn with_default(mut self, default: impl Into<String>) -> Self {
         self.default = Some(default.into());
         self
@@ -83,8 +106,11 @@ impl Column {
 /// struct is the dimension that matters for `ALTER COLUMN TYPE`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeChange {
+    /// Column whose SQL type changed.
     pub column: String,
+    /// Previous SQL type (from the baseline migration).
     pub old_type: String,
+    /// New SQL type (from current IR).
     pub new_type: String,
 }
 
@@ -94,10 +120,20 @@ pub struct TypeChange {
 /// by position. The diff itself is order-insensitive.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ResourceSchema {
+    /// Columns in declaration order.
     pub columns: Vec<Column>,
 }
 
 impl ResourceSchema {
+    /// Construct a schema from an ordered column list.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_codegen_go::emitter::schema_diff::{Column, ResourceSchema};
+    /// let s = ResourceSchema::new(vec![Column::new("id", "BIGINT", false)]);
+    /// assert_eq!(s.columns.len(), 1);
+    /// ```
     pub fn new(columns: Vec<Column>) -> Self {
         Self { columns }
     }
@@ -116,12 +152,24 @@ impl ResourceSchema {
 /// emitter, not here).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SchemaDiff {
+    /// Columns present in current IR but absent in the baseline.
     pub adds: Vec<Column>,
+    /// Columns present in the baseline but absent in current IR.
     pub drops: Vec<Column>,
+    /// Columns present in both whose SQL type changed.
     pub type_changes: Vec<TypeChange>,
 }
 
 impl SchemaDiff {
+    /// `true` when there are no adds, drops, or type changes — the
+    /// schemas are byte-equivalent at the column dimension.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_codegen_go::emitter::schema_diff::SchemaDiff;
+    /// assert!(SchemaDiff::default().is_empty());
+    /// ```
     pub fn is_empty(&self) -> bool {
         self.adds.is_empty() && self.drops.is_empty() && self.type_changes.is_empty()
     }
@@ -133,6 +181,20 @@ impl SchemaDiff {
 /// type names matching `migration_ddl::pg_type_for_builtin`, so a
 /// type mismatch is always a semantic shift (e.g. `TEXT` ↔ `JSONB`)
 /// rather than a `text` vs `TEXT` formatting drift.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_go::emitter::schema_diff::{Column, ResourceSchema, diff};
+/// let baseline = ResourceSchema::new(vec![Column::new("a", "TEXT", true)]);
+/// let current = ResourceSchema::new(vec![
+///     Column::new("a", "TEXT", true),
+///     Column::new("b", "JSONB", true),
+/// ]);
+/// let out = diff(&baseline, &current);
+/// assert_eq!(out.adds.len(), 1);
+/// assert_eq!(out.adds[0].name, "b");
+/// ```
 pub fn diff(baseline: &ResourceSchema, current: &ResourceSchema) -> SchemaDiff {
     let mut out = SchemaDiff::default();
 

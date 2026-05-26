@@ -30,6 +30,7 @@ pub const FRONTEND_WEB_INDEX_HTML: &str = r#"<!doctype html>
 </html>
 "#;
 
+/// `app/web/main.tsx` — entry-point seed written by `lazuli new`.
 pub const FRONTEND_WEB_MAIN_TSX: &str = r#"import React from "react";
 import ReactDOM from "react-dom/client";
 
@@ -69,6 +70,7 @@ export function App() {
 }
 "#;
 
+/// `app/web/shell/layout.tsx` — root layout component.
 pub const FRONTEND_WEB_LAYOUT_TSX: &str = r#"import { Outlet } from "@tanstack/react-router";
 
 /**
@@ -86,6 +88,8 @@ export default function Layout() {
 }
 "#;
 
+/// `app/web/shell/error_boundary.tsx` — top-level React error
+/// boundary seed.
 pub const FRONTEND_WEB_ERROR_BOUNDARY_TSX: &str = r#"import { Component } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 
@@ -131,11 +135,13 @@ export class ErrorBoundary extends Component<Props, State> {
 }
 "#;
 
+/// `app/web/theme/globals.css` — Tailwind layer + base reset.
 pub const FRONTEND_THEME_GLOBALS_CSS: &str = r#"@import "@generated/design/tokens.css";
 
 /* User-owned. Lazuli emits the tokens; how you globalize them is yours. */
 "#;
 
+/// `app/web/theme/theme_provider.tsx` — light/dark theme context.
 pub const FRONTEND_THEME_PROVIDER_TSX: &str = r#"import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
@@ -191,6 +197,7 @@ export function useTheme(): ThemeContextValue {
 }
 "#;
 
+/// `app/web/tailwind.config.ts` — canonical Tailwind v4 config seed.
 pub const FRONTEND_TAILWIND_CONFIG_TS: &str = r#"import { lazuliPreset } from "../../dist/ts-web/design/tailwind.gen";
 
 export default {
@@ -209,6 +216,8 @@ export default {
 };
 "#;
 
+/// `app/web/tsconfig.json` — strict-mode TypeScript config with path
+/// aliases for the canonical scaffold layout.
 pub const FRONTEND_TSCONFIG_JSON: &str = r#"{
   "compilerOptions": {
     "target": "ES2022",
@@ -241,6 +250,8 @@ pub const FRONTEND_TSCONFIG_JSON: &str = r#"{
 }
 "#;
 
+/// `app/web/vite.config.ts` — Vite config seed wired against the
+/// canonical scaffold + nativewind plugin guard.
 pub const FRONTEND_VITE_CONFIG_TS: &str = r#"import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
@@ -351,6 +362,9 @@ pub const FRONTEND_PACKAGE_JSON: &str = r#"{
 }
 "#;
 
+/// Project-root `.gitignore` additions written by the web scaffold
+/// (covers `dist/`, `node_modules/`, and the typical
+/// editor/build caches).
 pub const FRONTEND_GITIGNORE: &str = r#"node_modules/
 frontends/*/node_modules/
 .vite/

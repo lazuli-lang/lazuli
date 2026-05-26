@@ -72,6 +72,10 @@ pub enum CapabilityRef {
     Token(TokenCapability),
 }
 
+/// `@cap.PII(class: <X>, retention: ..., log_redact: ...)` payload.
+/// Marks a field as personal data, names the class for downstream
+/// catalog cross-checks, optionally pins a retention horizon, and
+/// controls observability redaction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PiiCapability {
     /// Free-form class name (`identity`, `contact`, `financial`,
@@ -133,6 +137,10 @@ pub enum TokenStore {
     Hashed,
 }
 
+/// `@cap.File(max_size: ..., accept: ..., visibility: ...)` payload.
+/// Declares a file field; the codegen + runtime emit upload handling
+/// (size cap, MIME filter, visibility scheme) without per-app
+/// boilerplate.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileCapability {
     pub max_size: FileSize,
@@ -159,6 +167,9 @@ pub struct FileCapability {
     pub auto_photo_policy: Option<String>,
 }
 
+/// Resolved file-size cap on a [`FileCapability`]. `bytes` is the
+/// canonical numeric value; `literal` preserves the authored token
+/// (`"5mb"`) for inspect round-trips.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileSize {
     pub bytes: u64,
@@ -166,11 +177,17 @@ pub struct FileSize {
     pub literal: FileSizeLiteral,
 }
 
+/// Closed catalog of source-level file-size literals. Each variant
+/// carries the authored amount; conversion to bytes uses binary
+/// prefixes (1 KB = 1024 bytes).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "unit", content = "amount")]
 pub enum FileSizeLiteral {
+    /// `<N>kb` — kilobytes.
     Kb(u32),
+    /// `<N>mb` — megabytes.
     Mb(u32),
+    /// `<N>gb` — gigabytes.
     Gb(u32),
 }
 
@@ -178,6 +195,14 @@ impl FileSizeLiteral {
     /// Convert the literal into a byte count. `kb` = 1024, `mb` = 1024*1024,
     /// `gb` = 1024*1024*1024 (binary prefixes, matching the LSP literal
     /// catalog `is_file_size_literal`).
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::FileSizeLiteral;
+    ///
+    /// assert_eq!(FileSizeLiteral::Mb(5).bytes(), 5 * 1024 * 1024);
+    /// ```
     pub fn bytes(self) -> u64 {
         match self {
             Self::Kb(n) => n as u64 * 1024,
@@ -187,6 +212,9 @@ impl FileSizeLiteral {
     }
 }
 
+/// One MIME-type entry inside [`FileCapability::accept`]. The
+/// `family/subtype` pair carries both authored wildcards (`*` /
+/// `*`) and concrete entries (`image/png`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MimeType {
     /// IANA top-level family (`text`, `image`, `application`, `audio`,
@@ -196,11 +224,17 @@ pub struct MimeType {
     pub subtype: String,
 }
 
+/// Closed catalog of file visibility modes. `Public` URLs work without
+/// auth; `Private` requires the caller's session; `Signed` issues a
+/// time-bound signed URL.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FileVisibility {
+    /// Anyone can fetch with the URL alone.
     Public,
+    /// Caller's session must match the file's scope.
     Private,
+    /// Time-bound signed URL.
     Signed,
 }
 

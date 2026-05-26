@@ -8,17 +8,41 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Feature, PollerRetryQuirk};
 
+/// One POLLER-QUIRK-CATALOG-MISMATCH-001 finding — a poller declares
+/// a `retry_quirk` kind outside the v0.1 closed catalog.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the poller was authored in.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
+    /// Poller carrying the unknown quirk.
     pub poller: String,
+    /// Quirk kind, verbatim, that's not in the catalog.
     pub kind: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "POLLER-QUIRK-CATALOG-MISMATCH-001";
 
+    /// Render the "retry_quirk not in catalog" message naming the
+    /// poller, the offending kind, and the catalog at v0.1.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::poller::quirk_catalog_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("messages.lzi"),
+    ///     feature: "messages".into(),
+    ///     poller: "deliver_pending".into(),
+    ///     kind: "swap_locale".into(),
+    /// };
+    /// assert!(f.message().contains("swap_locale"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "POLLER-QUIRK-CATALOG-MISMATCH-001: poller '{}' retry_quirk '{}' not in closed catalog. v0.1 supports: gender_flip_once.",
@@ -27,6 +51,19 @@ impl Finding {
     }
 }
 
+/// Walk every poller in `feature` and emit a finding for each
+/// `retry_quirk` whose kind is outside the v0.1 closed catalog.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::poller::quirk_catalog_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a poller using an unknown retry_quirk");
+/// let _ = check(&feature, Path::new("messages.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 

@@ -24,6 +24,13 @@
 use crate::helpers::conventions_levenshtein;
 use thiserror::Error;
 
+/// Closed catalog of analyzer-time failures.
+///
+/// Every per-slot lowering returns `Result<_, AnalyzeError>`; this enum
+/// is the shared rejection vocabulary the CLI, doctor, and LSP all
+/// consume. Variants carry the field names that appear in the
+/// `#[error("...")]` template so the formatted message round-trips
+/// without callsite interpolation.
 #[derive(Debug, Error)]
 pub enum AnalyzeError {
     #[error("invalid tool reference `{reference}`")]
@@ -284,6 +291,24 @@ pub enum AnalyzeError {
 }
 
 impl AnalyzeError {
+    /// Stable doctor-style code for the variant, when one exists.
+    ///
+    /// Most analyzer errors are surfaced via their `Display` message
+    /// alone (build-blocking), but a handful round-trip through the
+    /// doctor diagnostics pipeline and need a stable code attached.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_analyzer::AnalyzeError;
+    ///
+    /// let err = AnalyzeError::UnknownInvalidateTarget {
+    ///     cmd: "create".into(),
+    ///     target: "query.bogus".into(),
+    ///     target_feature: "Customer".into(),
+    /// };
+    /// assert_eq!(err.diagnostic_code(), Some("@correctness.unknown_invalidate_target"));
+    /// ```
     pub fn diagnostic_code(&self) -> Option<&'static str> {
         match self {
             AnalyzeError::UnknownInvalidateTarget { .. } => {
@@ -320,6 +345,15 @@ fn format_conventions_unknown(
 /// `ir-resource-conventions-me.md` §4.3.
 ///
 /// Sorted alphabetically for diff hygiene; keep new entries in order.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_analyzer::CONVENTION_CATALOG;
+///
+/// assert!(CONVENTION_CATALOG.contains(&"crud"));
+/// assert!(CONVENTION_CATALOG.windows(2).all(|w| w[0] < w[1]));
+/// ```
 pub const CONVENTION_CATALOG: &[&str] = &["crud", "me"];
 
 /// Resolve the closest catalog entry to a misspelled `conventions`
@@ -333,6 +367,15 @@ pub const CONVENTION_CATALOG: &[&str] = &["crud", "me"];
 /// Reused by the parser (Cell C2) when it sees `conventions [<ident>]`
 /// outside the catalog: the parser constructs
 /// `AnalyzeError::ConventionsUnknown { suggestion: conventions_unknown_suggestion(ident).map(str::to_owned), ... }`.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_analyzer::conventions_unknown_suggestion;
+///
+/// assert_eq!(conventions_unknown_suggestion("crd"), Some("crud"));
+/// assert_eq!(conventions_unknown_suggestion("xxxxxxx"), None);
+/// ```
 pub fn conventions_unknown_suggestion(identifier: &str) -> Option<&'static str> {
     let mut best: Option<(&'static str, usize)> = None;
     for &candidate in CONVENTION_CATALOG {
@@ -347,4 +390,20 @@ pub fn conventions_unknown_suggestion(identifier: &str) -> Option<&'static str> 
         }
     }
     best.map(|(name, _)| name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn conventions_unknown_suggestion_finds_typo() {
+        assert_eq!(conventions_unknown_suggestion("crd"), Some("crud"));
+        assert_eq!(conventions_unknown_suggestion("crue"), Some("crud"));
+    }
+
+    #[test]
+    fn conventions_unknown_suggestion_returns_none_for_far_misses() {
+        assert!(conventions_unknown_suggestion("absolutely-different").is_none());
+    }
 }

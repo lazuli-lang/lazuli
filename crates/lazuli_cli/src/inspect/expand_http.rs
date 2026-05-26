@@ -16,6 +16,14 @@ use serde_json::{Map, Value, json};
 /// Build the `http` projection from the lifted `AppManifest`. Returns
 /// `None` when none of cookie / proxy / limits is present — the
 /// caller's `Option<Value>` slot keeps the report stable.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::inspect::expand_http::expand_http;
+///
+/// // let http = expand_http(module.app.as_ref());
+/// ```
 pub fn expand_http(app: Option<&AppManifest>) -> Option<Value> {
     let app = app?;
     if app.cookie.is_none() && app.proxy.is_none() && app.limits.is_none() {

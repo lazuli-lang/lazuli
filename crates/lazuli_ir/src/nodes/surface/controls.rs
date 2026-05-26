@@ -18,6 +18,9 @@ use crate::SpanRef;
 
 use super::core::CommandRef;
 
+/// `filter <name>: <Type> [single|multi] from query` declaration.
+/// Surfaces one filter control on a list view; the `url_sync` flag
+/// controls whether filter state is reflected in the URL.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FilterDecl {
     pub name: String,
@@ -31,13 +34,20 @@ pub struct FilterDecl {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Closed catalog distinguishing single-value vs multi-value filters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FilterCardinality {
+    /// One selected value at a time.
     Single,
+    /// Multiple values selected concurrently.
     Multi,
 }
 
+/// `search { ... }` declaration on a list view. Mode picks the UI shape
+/// (one input across columns, or a segmented per-column control);
+/// `fields` lists the searchable columns; `free_text_target` binds a
+/// global free-text input to a specific filter or input.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchDecl {
     pub mode: SearchMode,
@@ -49,6 +59,8 @@ pub struct SearchDecl {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Closed catalog of search UI shapes. `Columns` lists explicit
+/// searchable columns; `Segmented` shows a per-column segmented control.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SearchMode {
@@ -56,9 +68,12 @@ pub enum SearchMode {
     Columns {
         columns: Vec<String>,
     },
+    /// Per-column segmented search control.
     Segmented,
 }
 
+/// One entry inside [`SearchDecl::fields`] — names the search key and
+/// binds it to a typed target (a filter or source input).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchField {
     pub key: String,
@@ -67,6 +82,7 @@ pub struct SearchField {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Closed catalog of binding targets a search/filter control can point at.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum BindingRef {
@@ -78,6 +94,8 @@ pub enum BindingRef {
     SelectionScalar,
 }
 
+/// `sort { allowed = [...], default = <field> asc|desc }` declaration.
+/// Closed list of orderable columns + the initial state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SortDecl {
     pub allowed: Vec<String>,
@@ -87,13 +105,19 @@ pub struct SortDecl {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Closed catalog of sort directions on a [`SortDecl`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SortDir {
+    /// Ascending (A → Z, 1 → 9).
     Asc,
+    /// Descending (Z → A, 9 → 1).
     Desc,
 }
 
+/// `selection { mode = ..., bulk_actions = [...] }` declaration.
+/// Names the selection cardinality and the commands invokable on the
+/// selected row set.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SelectionDecl {
     pub mode: SelectionMode,
@@ -103,10 +127,25 @@ pub struct SelectionDecl {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Closed catalog of selection cardinalities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SelectionMode {
+    /// Selection disabled.
     None,
+    /// Exactly one row may be selected.
     Single,
+    /// Multiple rows may be selected.
     Multi,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sort_dir_round_trips() {
+        let s = serde_json::to_string(&SortDir::Asc).unwrap();
+        assert_eq!(s, "\"asc\"");
+    }
 }

@@ -51,14 +51,36 @@ use crate::internal_hygiene::walker::RustSourceFile;
 /// One `pub fn` whose rustdoc lacks a runnable example.
 #[derive(Debug, Clone)]
 pub struct Finding {
+    /// Library `.rs` file that contains the offending `pub fn`.
     pub path: PathBuf,
+    /// 1-based line number of the `pub fn` declaration.
     pub line: usize,
+    /// Signature snippet (everything up to `{` / `(` / `<` / `;`) so the
+    /// message can name the function without ambiguity.
     pub fn_signature: String,
 }
 
 impl Finding {
+    /// Stable rule code surfaced in `DoctorDiagnostic.code` + JSON output.
     pub const CODE: &'static str = "INTERNAL-NO-EXAMPLE-001";
 
+    /// Human-readable message naming the file, line, and function whose
+    /// rustdoc is missing a runnable example.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::internal_hygiene::no_example_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("crates/lazuli_widget/src/lib.rs"),
+    ///     line: 42,
+    ///     fn_signature: "pub fn frobnicate".into(),
+    /// };
+    /// assert!(f.message().contains("## Examples"));
+    /// assert!(f.message().contains("frobnicate"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "{}:{} `{}` has rustdoc but no `## Examples` or `` ```rust `` block. \
@@ -71,6 +93,23 @@ impl Finding {
     }
 }
 
+/// Walk every library `.rs` file, emit findings for documented `pub fn`s
+/// whose docstring lacks a `## Examples` heading or a language-tagged
+/// fenced block. Files where `is_library_src` is `false` (tests, benches)
+/// are skipped — they're internal scaffolds, not part of the surface.
+///
+/// ## Examples
+///
+/// ```no_run
+/// use lazuli_doctor::internal_hygiene::no_example_001::check;
+/// use lazuli_doctor::internal_hygiene::walker::walk_workspace_rust_sources;
+/// use std::path::Path;
+///
+/// let files = walk_workspace_rust_sources(Path::new("c:/Users/lucas/lazuli"));
+/// let findings = check(&files);
+/// // After W5 sweep on lazuli_ir: ~0 findings remaining for that crate.
+/// eprintln!("undocumented examples: {}", findings.len());
+/// ```
 pub fn check(files: &[RustSourceFile]) -> Vec<Finding> {
     let mut findings = Vec::new();
     for file in files {
@@ -216,13 +255,7 @@ mod tests {
 
     #[test]
     fn rust_code_fence_alone_silences() {
-        let f = file(
-            "/// Quick example.\n\
-             /// ```rust\n\
-             /// foo();\n\
-             /// ```\n\
-             pub fn x() {}\n",
-        );
+        let f = file("/// Quick example.\n/// ```rust\n/// foo();\n/// ```\npub fn x() {}\n");
         assert!(check(&[f]).is_empty());
     }
 
@@ -256,13 +289,7 @@ mod tests {
     #[test]
     fn intervening_attribute_does_not_break_doc_detection() {
         let f = file(
-            "/// Doc.\n\
-             /// ```rust\n\
-             /// foo();\n\
-             /// ```\n\
-             #[inline]\n\
-             #[must_use]\n\
-             pub fn x() {}\n",
+            "/// Doc.\n/// ```rust\n/// foo();\n/// ```\n#[inline]\n#[must_use]\npub fn x() {}\n",
         );
         assert!(check(&[f]).is_empty());
     }

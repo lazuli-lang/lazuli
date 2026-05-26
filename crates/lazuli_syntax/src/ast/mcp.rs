@@ -101,3 +101,28 @@ pub struct McpParam {
     pub ty: String,
     pub required: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mcp_server_metadata_defaults_are_all_none() {
+        let m = McpServerMetadata::default();
+        assert!(m.name.is_none());
+        assert!(m.description.is_none());
+        assert!(m.version.is_none());
+    }
+
+    #[test]
+    fn mcp_param_required_flag_serde() {
+        let p = McpParam {
+            name: "limit".into(),
+            ty: "int".into(),
+            required: true,
+        };
+        let s = serde_json::to_string(&p).unwrap();
+        let back: McpParam = serde_json::from_str(&s).unwrap();
+        assert!(back.required);
+    }
+}

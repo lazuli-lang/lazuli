@@ -46,6 +46,17 @@ use resource::write_resource;
 
 /// Emit the canonical `<feature>.gen.ts` for a feature. The emitted source
 /// matches the layout of `dist/web/customer/src/customer.gen.ts`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::emit_feature_ts;
+/// use lazuli_ir::runtime::RuntimeFeature;
+///
+/// let feature: RuntimeFeature = /* … */ unimplemented!();
+/// let src = emit_feature_ts(&feature);
+/// assert!(src.contains("export"));
+/// ```
 pub fn emit_feature_ts(feature: &RuntimeFeature) -> String {
     let mut s = String::new();
     write_header(&mut s, feature);
@@ -67,6 +78,16 @@ pub fn emit_feature_ts(feature: &RuntimeFeature) -> String {
 /// The runtime-spec projection has not yet gained `Resource.lifecycle`; this
 /// helper keeps the TS lifecycle surface tied to the canonical IR shape and can
 /// be appended by the IR-backed SDK emitter when that projection is wired.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::runtime::emit_lifecycle_action_maps_ts;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = /* … */ unimplemented!();
+/// let _ = emit_lifecycle_action_maps_ts(&feature);
+/// ```
 pub fn emit_lifecycle_action_maps_ts(feature: &ir::Feature) -> String {
     let mut s = String::new();
     write_lifecycle_action_maps(&mut s, feature);
@@ -80,6 +101,18 @@ pub fn emit_lifecycle_action_maps_ts(feature: &ir::Feature) -> String {
 /// Routes that declared `requires_lifecycle X = <state>` with
 /// `on_lifecycle_pending dispatch_via X.lifecycle_route` consume this
 /// helper from routes.gen.tsx beforeLoad closures.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::emit_lifecycle_route_helpers_ts;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = /* … */ unimplemented!();
+/// if let Some(src) = emit_lifecycle_route_helpers_ts(&feature) {
+///     assert!(src.contains("function"));
+/// }
+/// ```
 pub fn emit_lifecycle_route_helpers_ts(feature: &ir::Feature) -> Option<String> {
     let resources: Vec<&ir::Resource> = feature
         .resources

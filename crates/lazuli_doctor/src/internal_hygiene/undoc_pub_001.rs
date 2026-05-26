@@ -57,8 +57,27 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with every finding.
     pub const CODE: &'static str = "INTERNAL-UNDOC-PUB-001";
 
+    /// Human-readable message naming the file, line, and offending
+    /// `pub` item — pre-formatted with the canonical "add a `///`
+    /// summary" remediation hint.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::internal_hygiene::undoc_pub_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("crates/lazuli_widget/src/lib.rs"),
+    ///     line: 7,
+    ///     item: "pub fn frobnicate".into(),
+    /// };
+    /// assert!(f.message().contains("frobnicate"));
+    /// assert!(f.message().contains("///"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "{}:{} `{}` is public but has no rustdoc. Add a `///` summary \
@@ -73,6 +92,19 @@ impl Finding {
 /// Walk every library `.rs` file, emit findings for undocumented `pub` items.
 /// Test/example/bench files are skipped — those are internal scaffolds, not
 /// part of the public surface.
+///
+/// ## Examples
+///
+/// ```no_run
+/// use lazuli_doctor::internal_hygiene::undoc_pub_001::check;
+/// use lazuli_doctor::internal_hygiene::walker::walk_workspace_rust_sources;
+/// use std::path::Path;
+///
+/// let files = walk_workspace_rust_sources(Path::new("c:/Users/lucas/lazuli"));
+/// for f in check(&files) {
+///     eprintln!("{}:{} {}", f.path.display(), f.line, f.item);
+/// }
+/// ```
 pub fn check(files: &[RustSourceFile]) -> Vec<Finding> {
     let mut findings = Vec::new();
     for file in files {

@@ -63,8 +63,26 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "VOCAB-CONTEXT-CTXMD-001";
 
+    /// Render the per-reason diagnostic — different prose for missing,
+    /// not-found, and stub-content cases.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::vocab::vocab_context_ctxmd_001::{Finding, FailureReason};
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     feature: "billing".into(),
+    ///     reason: FailureReason::Missing,
+    ///     attempted_path: None,
+    /// };
+    /// assert!(f.message().contains("attach_ctx"));
+    /// ```
     pub fn message(&self) -> String {
         match &self.reason {
             FailureReason::Missing => format!(
@@ -108,6 +126,17 @@ impl Finding {
 /// `.lzi` file. `project_root`, when supplied, is consulted as a
 /// fallback resolution base when `attach_ctx` is not found relative to
 /// the `.lzi` directory.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::vocab::vocab_context_ctxmd_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with attach_ctx");
+/// let _ = check(&feature, Path::new("billing.lzi"), None);
+/// ```
 pub fn check(feature: &Feature, lzi_path: &Path, project_root: Option<&Path>) -> Vec<Finding> {
     let Some(rel) = feature.context_path.as_deref() else {
         return vec![Finding {

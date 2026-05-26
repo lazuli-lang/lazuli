@@ -79,6 +79,10 @@ pub struct AuthIdentity {
     pub public_contract: Option<PublicContract>,
 }
 
+/// Password identity strategy under `auth.identity { password { ... } }`.
+/// Pins the KDF (Phase L requires `argon2id`), wires the
+/// hash/verify extension fns, and carries the declarative rate-limit
+/// throttle the auth adapter enforces.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthPassword {
     /// `algorithm argon2id` — required by Phase L. The runtime adapter
@@ -152,6 +156,11 @@ pub struct RotationConfig {
     pub span_ref: Option<SpanRef>,
 }
 
+/// `auth.sessions { ... }` block — names the session resource and
+/// declares the token lifetime + rotation discipline. The legacy
+/// single-token shape (`ttl`, `refresh: bool`) is preserved for
+/// back-compat; the typed `rotation` slot opts into the two-token
+/// access+refresh flow.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthSessions {
     /// `resource CustomerSession`
@@ -189,6 +198,16 @@ pub struct AuthSessions {
 impl AuthSessions {
     /// Returns `true` when the resolved configuration uses two-token
     /// rotation. Used by codegen + runtime to branch.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// # use lazuli_ir::AuthSessions;
+    /// # let sessions: AuthSessions = unimplemented!();
+    /// if sessions.is_rotation_enabled() {
+    ///     // two-token flow
+    /// }
+    /// ```
     pub fn is_rotation_enabled(&self) -> bool {
         self.rotation.is_some()
     }
@@ -196,6 +215,14 @@ impl AuthSessions {
     /// Resolved access TTL. Reads `access_ttl` if present; else the
     /// framework default when rotation is on (`"15 minutes"`); else
     /// `ttl` (legacy single-token).
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// # use lazuli_ir::AuthSessions;
+    /// # let sessions: AuthSessions = unimplemented!();
+    /// let ttl = sessions.resolved_access_ttl();
+    /// ```
     pub fn resolved_access_ttl(&self) -> &str {
         if let Some(t) = self.access_ttl.as_deref() {
             return t;
@@ -209,6 +236,14 @@ impl AuthSessions {
     /// Resolved refresh TTL. Reads `rotation.refresh_ttl` if present;
     /// else the framework default when rotation is on (`"30 days"`);
     /// else `None` (no refresh — single-token mode).
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// # use lazuli_ir::AuthSessions;
+    /// # let sessions: AuthSessions = unimplemented!();
+    /// let refresh = sessions.resolved_refresh_ttl();
+    /// ```
     pub fn resolved_refresh_ttl(&self) -> Option<&str> {
         self.rotation
             .as_ref()
@@ -218,6 +253,14 @@ impl AuthSessions {
     /// Resolved rotation grace. Reads `rotation.grace` if present; else
     /// the framework default when rotation is on (`"30 seconds"`); else
     /// `None`.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// # use lazuli_ir::AuthSessions;
+    /// # let sessions: AuthSessions = unimplemented!();
+    /// let grace = sessions.resolved_rotation_grace();
+    /// ```
     pub fn resolved_rotation_grace(&self) -> Option<&str> {
         self.rotation
             .as_ref()
@@ -227,6 +270,14 @@ impl AuthSessions {
     /// Resolved theft action. Reads explicit value if present; else
     /// framework default when rotation is on (`RevokeSessionFamily`);
     /// else `None`.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// # use lazuli_ir::AuthSessions;
+    /// # let sessions: AuthSessions = unimplemented!();
+    /// let action = sessions.resolved_theft_action();
+    /// ```
     pub fn resolved_theft_action(&self) -> Option<TheftAction> {
         self.rotation
             .as_ref()
@@ -251,6 +302,9 @@ pub struct SessionExtraColumn {
     pub required: bool,
 }
 
+/// `auth.mfa { ... }` block — second-factor strategy descriptor. The
+/// method id and enroll/verify references stay open-ended so adapters
+/// can extend the catalog without IR churn.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthMfa {
     /// MFA method id: `totp`, `sms`, `webauthn`. Adapter-specific beyond this.
@@ -268,6 +322,9 @@ pub struct AuthMfa {
     pub adapter: Option<String>,
 }
 
+/// One OAuth provider entry under `auth.oauth_providers { ... }`. Each
+/// entry binds a provider id to its runtime adapter; the adapter
+/// catalog is extensible per-app.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthOAuthProvider {
     /// Provider id: `google`, `github`, `microsoft`, etc.

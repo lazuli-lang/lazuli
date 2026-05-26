@@ -34,6 +34,15 @@ use crate::plugin_manifest::ResolvedPluginSemantic;
 /// Rewrite every `@semantic.<Name>` reference in `module` against the
 /// alias map. Idempotent (running twice is a no-op because matched
 /// references no longer surface as `UserDefined`).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::collections::BTreeMap;
+/// use lazuli_cli::plugin_semantic_resolver::apply_plugin_semantic_resolution;
+///
+/// // apply_plugin_semantic_resolution(&mut module, &alias_map);
+/// ```
 pub fn apply_plugin_semantic_resolution(
     module: &mut Module,
     alias_map: &BTreeMap<String, ResolvedPluginSemantic>,
@@ -93,6 +102,15 @@ fn rewrite_command_input(
 /// resolves through the alias map, replace it with a
 /// `Builtin(SemanticPluginType { ... })`. Recurses into `Many` so
 /// `@semantic.BrazilianCPF[]` (when authored) lifts correctly.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::collections::BTreeMap;
+/// use lazuli_cli::plugin_semantic_resolver::rewrite_type_ref;
+///
+/// // rewrite_type_ref(&mut field.type_ref, &alias_map);
+/// ```
 pub fn rewrite_type_ref(
     type_ref: &mut TypeRef,
     alias_map: &BTreeMap<String, ResolvedPluginSemantic>,

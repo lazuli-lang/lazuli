@@ -32,6 +32,15 @@ const CATALOG_SCHEMA_VERSION: u32 = 1;
 /// (alphabetical namespace order, alphabetical semantic-type order,
 /// alphabetical export order); regenerating with no plugin changes
 /// produces byte-identical output.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::plugin_catalog::emit_plugin_catalog;
+///
+/// // let json = emit_plugin_catalog(&manifest, Path::new("."));
+/// ```
 pub fn emit_plugin_catalog(manifest: &Manifest, project_root: &Path) -> Option<String> {
     let mut entries: Vec<CatalogPlugin> = Vec::new();
     for namespace in manifest.plugins.keys() {
@@ -381,4 +390,23 @@ struct CatalogPlugin {
 struct CatalogExports {
     go: Vec<String>,
     ts: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_go_export_skips_lowercase() {
+        assert_eq!(parse_go_export("func helper() {}"), None);
+        assert_eq!(parse_go_export("func PublicAPI()"), Some("PublicAPI".to_owned()));
+    }
+
+    #[test]
+    fn parse_ts_exports_captures_const_and_braces() {
+        let names = parse_ts_exports("export const Foo = 1;\nexport { Bar, Baz };\n");
+        assert!(names.contains(&"Foo".to_owned()));
+        assert!(names.contains(&"Bar".to_owned()));
+        assert!(names.contains(&"Baz".to_owned()));
+    }
 }

@@ -25,6 +25,20 @@ use anyhow::{Context, Result};
 use crate::build_module_from_path;
 
 /// Handler for `GenerateKind::Openapi`.
+///
+/// Compiles `input` to IR, runs `lazuli_openapi::emit`, and writes the
+/// YAML to `output` (creating the parent dir) or stdout. `api_version`
+/// overrides the `info.version` field; `strict_typed_only` stays false
+/// because doctor — not this emitter — gates typing completeness.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::commands::generate::openapi::generate_openapi;
+///
+/// // generate_openapi(Path::new("app.lzi"), None, Some("1.0.0"))?;
+/// ```
 pub fn generate_openapi(
     input: &Path,
     output: Option<&Path>,
@@ -52,4 +66,19 @@ pub fn generate_openapi(
         None => print!("{}", yaml),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_input_errors() {
+        let result = generate_openapi(
+            Path::new("__lazuli_no_such_input.lzi"),
+            None,
+            None,
+        );
+        assert!(result.is_err());
+    }
 }

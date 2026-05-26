@@ -37,10 +37,38 @@ use super::types::{RegistryParseOutput, RegistryToolDefectReason, RegistryToolEn
 /// Backwards-compatible entry: returns just the well-formed registry IR.
 /// Doctor uses `parse_app_registry_with_defects` to also collect the
 /// `tool <name>` entries that lack an `effect` child.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::app_manifest::registry::parse_app_registry;
+///
+/// // let registry = parse_app_registry(src);
+/// ```
 pub fn parse_app_registry(source: &str) -> Option<AppRegistry> {
     parse_app_registry_with_defects(source).registry
 }
 
+/// Parse a `registry.lzi` body and surface both the well-formed
+/// [`AppRegistry`] and the side-channel of [`RegistryToolEntryDefect`]
+/// for `tool <name>` entries that can't be represented in IR.
+///
+/// The defect channel exists because the closed catalog requires every
+/// `tool` to declare a valid `effect` — without it, the IR cannot keep
+/// the entry. Doctor uses the side channel to render `effect required`
+/// diagnostics with line numbers.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::app_manifest::registry::parse_app_registry_with_defects;
+///
+/// let src = "registry\n  tools\n    tool ping\n      effect read\n";
+/// let out = parse_app_registry_with_defects(src);
+/// let registry = out.registry.expect("registry");
+/// assert_eq!(registry.tools.len(), 1);
+/// assert!(out.tool_defects.is_empty());
+/// ```
 pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
     let lines: Vec<_> = source.lines().collect();
     let Some(start) = lines.iter().position(|line| {
@@ -462,5 +490,27 @@ fn pii_class_name(raw: &str) -> String {
         trimmed.to_owned()
     } else {
         format!("@pii.{trimmed}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_registry_header_yields_default() {
+        let out = parse_app_registry_with_defects("# nothing here\n");
+        assert!(out.registry.is_none());
+        assert!(out.tool_defects.is_empty());
+    }
+
+    #[test]
+    fn tool_without_effect_is_defective() {
+        let src = "registry\n  tools\n    tool stale\n";
+        let out = parse_app_registry_with_defects(src);
+        let registry = out.registry.expect("registry");
+        assert!(registry.tools.is_empty());
+        assert_eq!(out.tool_defects.len(), 1);
+        assert_eq!(out.tool_defects[0].name, "stale");
     }
 }

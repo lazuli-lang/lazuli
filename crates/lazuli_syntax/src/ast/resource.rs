@@ -25,6 +25,13 @@ use serde::{Deserialize, Serialize};
 
 use super::{DefaultsTenancy, PublicContractDeclAst, Span};
 
+/// `resource <Name>` block — Phase L Tier 4c record-shape declaration.
+///
+/// Lives under `domain`. Children span the full record contract:
+/// fields, `has_many`, `previously`, `soft_delete`, `timestamps`,
+/// `retention`, `validates`, `lifecycle`, `invariant`, `lock`,
+/// `composite_key`, `conventions`, `lifecycle_routes`, `index`,
+/// `unique`. See module-level docs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceDecl {
     pub name: String,
@@ -87,34 +94,50 @@ pub struct ResourceDecl {
     pub span: Span,
 }
 
+/// Closed two-arm catalog for resource-authored DDL constraints —
+/// `index` / `unique`. `fts on (...)` lifts into `ResourceIndexAst`
+/// with `full_text = true`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum ResourceConstraintAst {
+    /// `index on <field>` / `index on (<field>, ...) [using <method>]`.
     Index(ResourceIndexAst),
+    /// `unique (<field>, ...)`.
     Unique(ResourceUniqueAst),
 }
 
+/// One `index` row on a [`ResourceDecl`]. Drives DDL emission.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceIndexAst {
+    /// Column list verbatim, in source order.
     pub fields: Vec<String>,
+    /// `using <method>` — closed catalog (btree/gin/gist).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub method: Option<ResourceIndexMethodAst>,
+    /// `fts on (...)` shorthand sets this and implies `using gin`.
     #[serde(default, skip_serializing_if = "is_false_bool")]
     pub full_text: bool,
     pub span: Span,
 }
 
+/// One `unique (<field>, ...)` row on a [`ResourceDecl`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceUniqueAst {
+    /// Column list verbatim, in source order.
     pub fields: Vec<String>,
     pub span: Span,
 }
 
+/// Closed catalog of Postgres index methods authored via
+/// `using <method>` on a [`ResourceIndexAst`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResourceIndexMethodAst {
+    /// Default B-tree index (`using btree`).
     Btree,
+    /// GIN index (`using gin`) — required for `fts on (...)`.
     Gin,
+    /// GiST index (`using gist`).
     Gist,
 }
 
@@ -134,8 +157,11 @@ pub enum ResourceConventionAst {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum ResourceLock {
+    /// `lock optimistic version <field>` — version-column compare-and-swap.
     Optimistic { version_field: String },
+    /// `lock pessimistic` — explicit row lock per write.
     Pessimistic,
+    /// `lock row_level` — per-row lock acquired during the transaction.
     RowLevel,
 }
 
@@ -152,15 +178,20 @@ pub struct ResourceCompositeKey {
 
 /// router-w4 — `lifecycle_routes` block AST. Each arm pairs a
 /// lifecycle state name (or `none` / `*`) with a literal URL string.
+/// router-w4 — `lifecycle_routes` block container. Holds one arm per
+/// `<state> -> "<url>"` line authored on the resource.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceLifecycleRoutesAst {
     pub arms: Vec<ResourceLifecycleRouteArmAst>,
     pub span: Span,
 }
 
+/// One `<state> -> "<url>"` arm inside [`ResourceLifecycleRoutesAst`].
+/// `state` accepts `none` and `*` (wildcard) per the proposal.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceLifecycleRouteArmAst {
     pub state: String,
+    /// URL pattern verbatim (quotes stripped).
     pub url: String,
     pub span: Span,
 }
@@ -168,6 +199,10 @@ pub struct ResourceLifecycleRouteArmAst {
 /// CL.C.4 — `aggregate <Name>` declaration block. DDD consistency
 /// boundary: one `root` resource, a closed `contains` member list,
 /// and zero-or-more invariants whose predicates span the cluster.
+/// CL.C.4 `aggregate <Name>` block — DDD consistency boundary.
+///
+/// Pairs a single `root` resource with a closed `contains` member list
+/// and cluster-spanning invariants. Lowers to `ir::Aggregate`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AggregateDecl {
     pub name: String,
@@ -197,6 +232,12 @@ pub struct InvariantDecl {
     pub span: Span,
 }
 
+/// One field row inside a [`ResourceDecl`] / [`RecordDecl`](crate::ast::RecordDecl).
+///
+/// Captures the typed-name + modifier-chain shape `<name>: <Type>
+/// [required|optional|unique|@full_text|@slug] [= <default>] [derived
+/// from <expr>] [<constraints>]` plus any `@owner_axis(through: <ident>)`
+/// decorator the parser peels out of the raw type text.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceFieldDecl {
     pub name: String,
@@ -247,6 +288,7 @@ pub struct ResourceFieldDecl {
 /// parse error (per §7.1, the value is a syntactic identifier).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OwnerAxisAst {
+    /// Bare identifier inside the parens of `@owner_axis(through: <ident>)`.
     pub through_column: String,
 }
 
@@ -287,6 +329,21 @@ pub struct FieldConstraintsDecl {
 }
 
 impl FieldConstraintsDecl {
+    /// `true` when none of the constraint slots were authored. Used as
+    /// the `skip_serializing_if` guard so untouched fields don't ship
+    /// an empty constraints object in JSON.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_syntax::FieldConstraintsDecl;
+    ///
+    /// let empty = FieldConstraintsDecl::default();
+    /// assert!(empty.is_empty());
+    ///
+    /// let with_min = FieldConstraintsDecl { min: Some(0), ..Default::default() };
+    /// assert!(!with_min.is_empty());
+    /// ```
     pub fn is_empty(&self) -> bool {
         self.min.is_none()
             && self.max.is_none()
@@ -302,6 +359,7 @@ impl FieldConstraintsDecl {
     }
 }
 
+/// One `has_many <name>: <Resource> [inverse <field>]` row on a [`ResourceDecl`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceHasMany {
     pub name: String,
@@ -312,6 +370,7 @@ pub struct ResourceHasMany {
     pub span: Span,
 }
 
+/// `retention <duration> then <action>` row on a [`ResourceDecl`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceRetention {
     /// Duration literal, e.g. `7y`, `30d`. Captured verbatim.
@@ -321,10 +380,55 @@ pub struct ResourceRetention {
     pub span: Span,
 }
 
+/// Closed three-arm catalog for the `then <action>` clause of
+/// [`ResourceRetention`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResourceRetentionAction {
+    /// Strip PII fields, keep the row.
     Anonymize,
+    /// Hard-delete the row.
     Delete,
+    /// Move the row to cold storage / archive table.
     Archive,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn field_constraints_decl_default_is_empty() {
+        assert!(FieldConstraintsDecl::default().is_empty());
+    }
+
+    #[test]
+    fn resource_retention_action_serde_snake_case() {
+        assert_eq!(
+            serde_json::to_value(ResourceRetentionAction::Anonymize).unwrap(),
+            serde_json::json!("anonymize")
+        );
+    }
+
+    #[test]
+    fn resource_index_method_ast_serde_snake_case() {
+        assert_eq!(
+            serde_json::to_value(ResourceIndexMethodAst::Btree).unwrap(),
+            serde_json::json!("btree")
+        );
+        assert_eq!(
+            serde_json::to_value(ResourceIndexMethodAst::Gin).unwrap(),
+            serde_json::json!("gin")
+        );
+    }
+
+    #[test]
+    fn resource_lock_optimistic_carries_version_field() {
+        let l = ResourceLock::Optimistic {
+            version_field: "lock_version".into(),
+        };
+        let v = serde_json::to_value(&l).unwrap();
+        assert_eq!(v["kind"], "Optimistic");
+        assert_eq!(v["version_field"], "lock_version");
+    }
 }

@@ -26,6 +26,14 @@ use resource::write_resource;
 /// matches the layout of the hand-written runtime spike fixture: header
 /// banner, resource declaration, one section per command, one section per
 /// query, and a final `init()` with `lazuli.Register(...)`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_go::emit_feature_go;
+/// let go_src = emit_feature_go(&runtime_feature);
+/// assert!(go_src.contains("func init()"));
+/// ```
 pub fn emit_feature_go(feature: &RuntimeFeature) -> String {
     let needs_time = feature
         .queries

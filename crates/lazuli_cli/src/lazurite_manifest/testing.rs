@@ -23,32 +23,47 @@ pub struct Testing {
     pub spec: Option<TestingSpec>,
 }
 
+/// `[testing.go]` sub-block — `go test` flag bag + coverage shape.
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct TestingGo {
+    /// Extra `go test` flags appended to the invocation.
     #[serde(default)]
     pub flags: Vec<String>,
+    /// Whether `lazuli test --coverage` collects a Go coverprofile.
     #[serde(default)]
     pub coverage: bool,
+    /// Path the Go coverprofile is written to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coverage_out: Option<String>,
+    /// Restrict the runner to packages matching this Go pattern (e.g.
+    /// `./internal/...`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package_pattern: Option<String>,
 }
 
+/// `[testing.playwright]` sub-block — Playwright config and worker
+/// knobs.
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct TestingPlaywright {
+    /// Path to `playwright.config.ts`. When `None` the resolver
+    /// derives `<layout>/playwright.config.ts`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config: Option<String>,
+    /// Override the worker count.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workers: Option<u32>,
+    /// Restrict to one Playwright project (e.g. `"chromium"`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
+    /// Directory the runner discovers `.spec.ts` from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub discovery_root: Option<String>,
+    /// Extra Playwright CLI flags.
     #[serde(default)]
     pub flags: Vec<String>,
 }
 
+/// `[testing.ts]` sub-block — front-end test runner.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TestingTs {
     /// Frente 1 — defaults to `"vitest"` when omitted. Pilots that
@@ -67,8 +82,11 @@ pub struct TestingTs {
     pub coverage: bool,
 }
 
+/// `[testing.spec]` sub-block — placeholders for spec-runner config
+/// (today only the security `profile` override).
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct TestingSpec {
+    /// Override the security profile used by `lazuli check`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
 }
@@ -78,4 +96,19 @@ pub struct TestingSpec {
 /// must set `runner = "jest"` explicitly.
 pub(super) fn default_ts_runner() -> String {
     "vitest".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn testing_default_is_empty() {
+        let t = Testing::default();
+        assert!(t.default_layers.is_none());
+        assert!(t.go.is_none());
+        assert!(t.playwright.is_none());
+        assert!(t.ts.is_none());
+        assert!(t.spec.is_none());
+    }
 }

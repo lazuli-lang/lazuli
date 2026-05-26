@@ -27,8 +27,10 @@ use std::path::{Path, PathBuf};
 
 // ── output ────────────────────────────────────────────────────────────────────
 
+/// One TEST-STUB-001 finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source path (`.lzi`, `.lzx`, or `_test.go`).
     pub path: PathBuf,
     /// 1-indexed source line.
     pub line: usize,
@@ -39,9 +41,28 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "TEST-STUB-001";
+    /// Marker text emitted by `lazuli generate` test scaffolding.
     pub const MARKER: &'static str = "@TODO authored:";
 
+    /// Render the user-facing diagnostic body — surfaces the marker
+    /// line so the author can find the unresolved stub quickly.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::test_discipline::test_stub_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("post.lzi"),
+    ///     line: 12,
+    ///     column: 5,
+    ///     marker_text: "# @TODO authored: cover policy".into(),
+    /// };
+    /// assert!(f.message().contains("@TODO authored:"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "unresolved `@TODO authored:` stub from `lazuli generate` — replace with real \
@@ -55,6 +76,17 @@ impl Finding {
 
 /// Run TEST-STUB-001 over a `.lzi`, `.lzx`, or Go `_test.go` source.
 /// Returns one finding per marker occurrence (per line).
+///
+/// ## Examples
+///
+/// ```rust
+/// use std::path::Path;
+/// use lazuli_doctor::test_discipline::test_stub_001::check;
+///
+/// let source = "# @TODO authored: cover @policy.update predicate\n";
+/// let findings = check(source, Path::new("post.lzi"));
+/// assert_eq!(findings.len(), 1);
+/// ```
 pub fn check(source: &str, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     for (idx, line) in source.lines().enumerate() {

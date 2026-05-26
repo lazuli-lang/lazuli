@@ -18,19 +18,46 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Feature, PolicyRef, SpanRef, TestAssertion, TestBlock};
 
+/// One TEST-RESTATES-POLICY-001 finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// `.lzi` source path that hosts the construct.
     pub path: PathBuf,
+    /// Feature containing the construct.
     pub feature: String,
+    /// Carrier kind (`command`, `workflow_transition`, …).
     pub construct_kind: String,
+    /// Construct name.
     pub construct: String,
+    /// Actor literal (e.g. `@role.admin`) that the shadow assertion targets.
     pub actor: String,
+    /// Optional span pointer for editor jumps.
     pub span: Option<SpanRef>,
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "TEST-RESTATES-POLICY-001";
 
+    /// Render the user-facing diagnostic body — names the shadow actor
+    /// and points at the auto-generated permits/forbids matrix.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::test_discipline::test_restates_policy_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("billing.lzi"),
+    ///     feature: "billing".into(),
+    ///     construct_kind: "command".into(),
+    ///     construct: "delete".into(),
+    ///     actor: "@role.admin".into(),
+    ///     span: None,
+    /// };
+    /// assert!(f.message().contains("@role.admin"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "{} `{}` actor-only test (`as {}`) shadows the generated permits/forbids \
@@ -42,6 +69,18 @@ impl Finding {
     }
 }
 
+/// Run TEST-RESTATES-POLICY-001 over a feature. Fires when an
+/// actor-only assertion shadows a generator-emitted permits/forbids
+/// matrix; only carriers with a local policy are inspected.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::test_discipline::test_restates_policy_001::check;
+///
+/// let findings = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 

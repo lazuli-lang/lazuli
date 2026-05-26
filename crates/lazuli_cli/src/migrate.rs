@@ -11,9 +11,16 @@ use std::process::Command;
 
 const MIGRATIONS_TABLE: &str = "lazuli_schema_migrations";
 
+/// What `lazuli migrate` should do. Closed catalog; extended only by
+/// adding new variants.
 pub enum MigrateAction {
+    /// Apply pending migrations up to `target` (or all when `None`).
+    /// `yes` skips the destructive confirmation prompt.
     Up { target: Option<String>, yes: bool },
+    /// Roll back `steps` migrations. `yes` skips the destructive
+    /// confirmation prompt.
     Down { steps: u32, yes: bool },
+    /// Print applied / pending migrations without changing state.
     Status,
 }
 
@@ -24,6 +31,18 @@ struct MigrationFile {
     down: Option<PathBuf>,
 }
 
+/// Dispatch a [`MigrateAction`] against the SQL migration ledger at
+/// `<project_root>/dist/go/migrations/`. Requires a `Lazurite.toml`
+/// — pilots without a manifest get a friendly `NotFound` error.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::migrate::{run_migrate, MigrateAction};
+///
+/// // run_migrate(Path::new("."), MigrateAction::Status)?;
+/// ```
 pub fn run_migrate(
     project_root: &Path,
     action: MigrateAction,

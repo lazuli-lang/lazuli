@@ -37,7 +37,32 @@ pub struct RoleDeclAst {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum RoleGrantsAst {
+    /// `grants <perm>, <perm>` — explicit permission list.
     Explicit(Vec<String>),
+    /// `grants_all` — shorthand for every permission in the catalog.
     All,
+    /// No `grants*` block — grants come from the inheritance chain.
     InheritedOnly,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn role_grants_all_serializes_kind_tag() {
+        let g = RoleGrantsAst::All;
+        let v = serde_json::to_value(&g).unwrap();
+        assert_eq!(v["kind"], "All");
+    }
+
+    #[test]
+    fn permission_decl_carries_segments() {
+        let p = PermissionDeclAst {
+            name: "report:repasse:mark".into(),
+            segments: vec!["report".into(), "repasse".into(), "mark".into()],
+            span: Span::new(0, 0),
+        };
+        assert_eq!(p.segments.len(), 3);
+    }
 }

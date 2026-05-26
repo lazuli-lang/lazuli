@@ -259,3 +259,24 @@ pub(crate) fn doctor_rule_severity(security_profile: SecurityProfile) -> DoctorS
         &std::collections::BTreeMap::new(),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn severity_for_strict_vocabulary_is_warning_or_higher() {
+        let severity = doctor_severity_for(
+            "VOCAB-CLIENT-SRC-001",
+            RuleCategory::Vocabulary,
+            SecurityProfile::Strict,
+            &std::collections::BTreeMap::new(),
+        );
+        // Severity must be at least Warning under Strict — exact value
+        // depends on the closed catalog, but Hint is the wrong floor.
+        assert!(matches!(
+            severity,
+            DoctorSeverity::Error | DoctorSeverity::Warning
+        ));
+    }
+}

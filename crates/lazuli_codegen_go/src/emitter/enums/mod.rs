@@ -46,6 +46,12 @@ use super::printer::GoPrinter;
 /// Emit `<feature>/enum.gen.go` for a feature, or `None` when the
 /// feature declares no enums (so `module.rs` skips the file entirely
 /// — an empty package body carries no signal).
+///
+/// ## Examples
+///
+/// ```ignore
+/// let go_src = emit_enum_file("billing.lzi", &feature);
+/// ```
 pub fn emit_enum_file(source_label: &str, feature: &Feature) -> Option<String> {
     if feature.enums.is_empty() {
         return None;

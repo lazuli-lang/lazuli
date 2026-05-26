@@ -45,11 +45,17 @@ pub(crate) mod test_support;
 /// Top-level coverage report shape. Serialized into `DoctorReport.coverage`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoverageReport {
+    /// Wire-format version. Bumped only on breaking changes.
     pub schema_version: u32,
+    /// Per-layer coverage rolled up by layer name.
     pub layers: BTreeMap<String, LayerCoverage>,
+    /// Optional aggregate, opt-in only when the project explicitly
+    /// configures an `aggregate_method`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aggregate: Option<AggregateCoverage>,
+    /// Resolved thresholds (profile + manifest overrides).
     pub thresholds: Thresholds,
+    /// Final pass/warn/block roll-up plus the offending layer names.
     pub gate_result: GateResult,
 }
 
@@ -60,8 +66,12 @@ pub struct CoverageReport {
 /// non-obvious.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LayerCoverage {
+    /// Items the layer counts as exercised (branches, pairs, lines).
     pub covered: usize,
+    /// Total items the layer considers.
     pub total: usize,
+    /// `(covered / total) * 100`, or 100.0 when `total == 0`
+    /// (vacuous pass — degrades gracefully when nothing to measure).
     pub pct: f64,
     /// `"pass"` | `"warn"` | `"block"` — populated by `apply_thresholds`.
     pub verdict: String,
@@ -75,6 +85,19 @@ pub struct LayerCoverage {
 }
 
 impl LayerCoverage {
+    /// Build a layer with `covered`/`total` and a default `pending`
+    /// verdict; [`apply_thresholds`] later sets the verdict.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::coverage::LayerCoverage;
+    ///
+    /// let l = LayerCoverage::new(7, 10);
+    /// assert_eq!(l.pct, 70.0);
+    /// // Vacuous-pass when total is zero.
+    /// assert_eq!(LayerCoverage::new(0, 0).pct, 100.0);
+    /// ```
     pub fn new(covered: usize, total: usize) -> Self {
         let pct = if total == 0 {
             100.0
@@ -91,6 +114,17 @@ impl LayerCoverage {
         }
     }
 
+    /// Builder-style setter for the optional measurement-method label
+    /// surfaced in the JSON report's `source` field.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::coverage::LayerCoverage;
+    ///
+    /// let l = LayerCoverage::new(7, 10).with_source("ir-walk");
+    /// assert_eq!(l.source.as_deref(), Some("ir-walk"));
+    /// ```
     pub fn with_source(mut self, source: impl Into<String>) -> Self {
         self.source = Some(source.into());
         self
@@ -100,27 +134,44 @@ impl LayerCoverage {
 /// Aggregate. Optional. Always carries `method` disclosure.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AggregateCoverage {
+    /// Combined percentage across all layers under `method`.
     pub pct: f64,
+    /// Aggregation method (e.g. `"unweighted_mean"`).
     pub method: String,
+    /// Human-readable disclosure surfaced alongside the percentage.
     pub disclosure: String,
 }
 
+/// Snapshot of the thresholds the report was generated against —
+/// includes the resolved per-layer block/warn cut-offs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Thresholds {
+    /// Profile identifier — `"prototype"`, `"strict"`, or `"production"`.
     pub applied_profile: String,
+    /// Per-layer thresholds keyed by layer name.
     pub by_layer: BTreeMap<String, LayerThreshold>,
 }
 
+/// One block/warn cut-off pair. Layers fall below `block_under` to
+/// `"block"`, between `block_under` and `warn_under` to `"warn"`, and
+/// at or above `warn_under` to `"pass"`.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct LayerThreshold {
+    /// Percentage strictly below this lands the layer in `"block"`.
     pub block_under: u32,
+    /// Percentage strictly below this lands the layer in `"warn"`.
     pub warn_under: u32,
 }
 
+/// Final report gate roll-up. `verdict` collapses every layer's verdict
+/// into one pass/warn/block; `below_*` enumerate the offending layers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GateResult {
+    /// `"pass"` | `"warn"` | `"block"`.
     pub verdict: String,
+    /// Layer names that fell under their block threshold.
     pub below_block: Vec<String>,
+    /// Layer names that fell under their warn threshold.
     pub below_warn: Vec<String>,
 }
 
@@ -134,6 +185,19 @@ pub struct CoverageThresholds {
 }
 
 impl CoverageThresholds {
+    /// Return the threshold for `layer`, or `None` when the layer is
+    /// not registered (which the gate treats as a pass).
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::coverage::{CoverageThresholds, LayerThreshold};
+    ///
+    /// let mut t = CoverageThresholds::default();
+    /// t.per_layer.insert("handler_go".into(), LayerThreshold { block_under: 50, warn_under: 70 });
+    /// assert!(t.get("handler_go").is_some());
+    /// assert!(t.get("unknown").is_none());
+    /// ```
     pub fn get(&self, layer: &str) -> Option<LayerThreshold> {
         self.per_layer.get(layer).copied()
     }
@@ -143,6 +207,28 @@ impl CoverageThresholds {
     /// Aggregate method is overridden only when `Some` on the
     /// override side, so passing an empty override preserves the
     /// base aggregate method.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::collections::BTreeMap;
+    /// use lazuli_doctor::coverage::{CoverageThresholds, LayerThreshold};
+    ///
+    /// let mut base = CoverageThresholds::default();
+    /// base.per_layer.insert(
+    ///     "handler_go".into(),
+    ///     LayerThreshold { block_under: 50, warn_under: 70 },
+    /// );
+    ///
+    /// let mut overrides = CoverageThresholds::default();
+    /// overrides.per_layer.insert(
+    ///     "handler_go".into(),
+    ///     LayerThreshold { block_under: 60, warn_under: 80 },
+    /// );
+    ///
+    /// let merged = base.merge_overrides(overrides);
+    /// assert_eq!(merged.get("handler_go").unwrap().block_under, 60);
+    /// ```
     pub fn merge_overrides(mut self, overrides: CoverageThresholds) -> Self {
         for (layer, threshold) in overrides.per_layer {
             self.per_layer.insert(layer, threshold);
@@ -165,6 +251,21 @@ impl CoverageThresholds {
 /// `per_layer_overrides` is the raw `BTreeMap` from
 /// `CoverageSection::per_layer` (manifest sub-block form);
 /// `aggregate_method` passes through verbatim.
+///
+/// ## Examples
+///
+/// ```rust
+/// use std::collections::BTreeMap;
+/// use lazuli_doctor::coverage::{resolve_coverage_thresholds, CoverageProfile};
+///
+/// let resolved = resolve_coverage_thresholds(
+///     CoverageProfile::Strict,
+///     None,
+///     BTreeMap::new(),
+///     None,
+/// );
+/// assert!(resolved.get("spec_predicate").is_some());
+/// ```
 pub fn resolve_coverage_thresholds(
     profile: CoverageProfile,
     preset: Option<CoveragePreset>,
@@ -198,6 +299,18 @@ pub enum CoverageProfile {
 
 /// Profile-derived default thresholds. Used when no
 /// `[doctor.coverage]` section is present in the manifest.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::coverage::{profile_default_thresholds, CoverageProfile};
+///
+/// let strict = profile_default_thresholds(CoverageProfile::Strict);
+/// // Strict warns at 80% on spec_predicate but never blocks.
+/// let t = strict.get("spec_predicate").unwrap();
+/// assert_eq!(t.block_under, 0);
+/// assert_eq!(t.warn_under, 80);
+/// ```
 pub fn profile_default_thresholds(profile: CoverageProfile) -> CoverageThresholds {
     let layers: &[(&str, u32, u32)] = match profile {
         // Prototype: zeros mean "report only; never gate".
@@ -253,6 +366,17 @@ pub fn profile_default_thresholds(profile: CoverageProfile) -> CoverageThreshold
 /// `view_e2e_pair` degrade gracefully when external inputs are absent
 /// (coverprofile file missing, no project root provided, etc.) — they
 /// report `total = 0` and `pct = 100.0` (vacuous pass).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_doctor::coverage::{build_coverage_report, CoverageProfile};
+///
+/// let report = build_coverage_report(
+///     &features, &lzx_views, CoverageProfile::Strict, &thresholds, None,
+/// );
+/// println!("{}", report.gate_result.verdict);
+/// ```
 pub fn build_coverage_report(
     features: &[Feature],
     lzx_views: &[LzxViewRef],
@@ -274,6 +398,22 @@ pub fn build_coverage_report(
 /// discovery root (`[testing.playwright].discovery_root` in
 /// `Lazurite.toml`). Callers with manifest access pass it through
 /// here; the bare `build_coverage_report` shim keeps backwards-compat.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::coverage::{build_coverage_report_with_e2e_root, CoverageProfile};
+///
+/// let report = build_coverage_report_with_e2e_root(
+///     &features,
+///     &lzx_views,
+///     CoverageProfile::Production,
+///     &thresholds,
+///     Some(Path::new(".")),
+///     Some(Path::new("apps/web")),
+/// );
+/// ```
 pub fn build_coverage_report_with_e2e_root(
     features: &[Feature],
     lzx_views: &[LzxViewRef],
@@ -332,11 +472,31 @@ pub struct LzxViewRef {
     /// Used as the `<feature>` segment in
     /// `e2e/<feature>/<view>.spec.ts` per Wave 3.5.2 path convention.
     pub experience: String,
+    /// View name (e.g. `dashboard`) — the file stem of the e2e spec.
     pub view: String,
 }
 
 /// Mutate each `LayerCoverage` to set its `verdict` based on the
 /// per-layer threshold (or `"pass"` if no threshold registered).
+///
+/// ## Examples
+///
+/// ```rust
+/// use std::collections::BTreeMap;
+/// use lazuli_doctor::coverage::{apply_thresholds, CoverageThresholds, LayerCoverage, LayerThreshold};
+///
+/// let mut layers = BTreeMap::new();
+/// layers.insert("handler_go".to_string(), LayerCoverage::new(40, 100));
+///
+/// let mut thresholds = CoverageThresholds::default();
+/// thresholds.per_layer.insert(
+///     "handler_go".into(),
+///     LayerThreshold { block_under: 50, warn_under: 70 },
+/// );
+///
+/// apply_thresholds(&mut layers, &thresholds);
+/// assert_eq!(layers["handler_go"].verdict, "block");
+/// ```
 pub fn apply_thresholds(
     layers: &mut BTreeMap<String, LayerCoverage>,
     thresholds: &CoverageThresholds,

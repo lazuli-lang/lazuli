@@ -286,21 +286,36 @@ pub struct QualifiedName {
     pub name: String,
 }
 
+/// Literal default value attached to a field declaration. Covers the four
+/// primitive shapes the lowering accepts (`String`, `Integer`, `Boolean`,
+/// `EnumLiteral`) plus `Nil` for explicit `nil` defaults. Serialized as a
+/// tagged union (`kind` / `value`) so consumers can match without losing the
+/// type discriminator.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum DefaultValue {
+    /// String literal default (`"hello"`).
     String(String),
+    /// Integer literal default (`42`).
     Integer(i64),
+    /// Boolean literal default (`true` / `false`).
     Boolean(bool),
+    /// Enum literal default (`Color.Red`).
     EnumLiteral(EnumLiteral),
+    /// Explicit `nil` — distinct from a missing default.
     Nil,
 }
 
+/// One named enum variant reference used as a default value. The
+/// `type_name` is only populated when the literal is fully qualified
+/// (`Color.Red`); unqualified literals (`Red`) leave it `None` and rely on
+/// surrounding context to resolve the type.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EnumLiteral {
     /// `None` when the literal is unqualified and the type comes from context.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub type_name: Option<QualifiedName>,
+    /// The variant identifier (e.g. `"Red"`).
     pub variant: String,
 }
 

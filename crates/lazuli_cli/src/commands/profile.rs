@@ -18,6 +18,20 @@ use anyhow::{Result, bail};
 use crate::profile;
 
 /// Handler for the `Commands::Profile` clap arm.
+///
+/// Maps the `by` axis from a closed catalog into `ProfileAxis`, runs
+/// the pprof rollup, then emits either `format_report` text or a JSON
+/// payload of `top_ops` + `top_patterns`. Anything outside the closed
+/// catalogs is rejected with a typed error.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::commands::profile::profile_command;
+///
+/// // profile_command(Path::new("cpu.pprof"), 20, "cpu", "text")?;
+/// ```
 pub fn profile_command(profile_path: &Path, top: usize, by: &str, format: &str) -> Result<()> {
     let axis = match by {
         "cpu" => profile::ProfileAxis::Cpu,
@@ -41,5 +55,17 @@ pub fn profile_command(profile_path: &Path, top: usize, by: &str, format: &str) 
             Ok(())
         }
         other => bail!("unknown profile format `{other}`; expected text or json"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unknown_axis_rejected() {
+        let err = profile_command(Path::new("ignored"), 10, "wallclock", "text")
+            .expect_err("axis outside catalog should error");
+        assert!(format!("{err}").contains("wallclock"));
     }
 }

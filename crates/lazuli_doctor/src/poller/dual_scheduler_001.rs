@@ -14,18 +14,46 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Feature, JobBody, JobTrigger};
 
+/// One POLLER-DUAL-SCHEDULER-001 finding — the same feature declares
+/// both a `poller` and a `job trigger schedule` whose handler walks
+/// the same source resource. Two schedulers over the same cursor
+/// table race on the `attempts` counter.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the constructs were authored in.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
+    /// Poller in the suspected collision pair.
     pub poller: String,
+    /// Source resource both the poller and the job touch.
     pub source: String,
+    /// Scheduled job suspected of duplicating the poller's clock.
     pub colliding_job: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "POLLER-DUAL-SCHEDULER-001";
 
+    /// Render the "two clocks over one cursor" message naming the
+    /// poller, source resource, and colliding job.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::poller::dual_scheduler_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("messages.lzi"),
+    ///     feature: "messages".into(),
+    ///     poller: "deliver_pending".into(),
+    ///     source: "Message".into(),
+    ///     colliding_job: "send_messages".into(),
+    /// };
+    /// assert!(f.message().contains("Message"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "feature `{}` declares both `poller {}` (over `{}`) AND `job {} trigger schedule ...` whose handler touches `{}` — pick one clock. Two schedulers over the same cursor table race on the `attempts` counter.",
@@ -34,6 +62,21 @@ impl Finding {
     }
 }
 
+/// Walk pollers and scheduled jobs in `feature` and emit a finding
+/// for every pair whose handler file path mentions the poller's
+/// source resource (snake_case). Heuristic check — authors can
+/// suppress with the standard comment-suppression machinery.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::poller::dual_scheduler_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a poller + scheduled-job over same resource");
+/// let _ = check(&feature, Path::new("messages.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     for poller in &feature.pollers {

@@ -71,6 +71,9 @@ pub struct ExperienceModule {
     pub surfaces: Vec<PlatformSurface>,
 }
 
+/// `experience <name> { … }` block — one feature-scoped UX surface in
+/// the `.lzx` family. Collects the views, resume routers, and view
+/// extensions the feature contributes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Experience {
     pub name: String,
@@ -86,6 +89,10 @@ pub struct Experience {
     pub span_ref: Option<SpanRef>,
 }
 
+/// One view declared inside an [`Experience`]. Holds the routes that
+/// open into the view, the optional source/submit bindings, blocks +
+/// actions, declarative tests, and the resolved policy / lifecycle
+/// guards the analyzer caches for codegen.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExperienceView {
     pub name: String,
@@ -156,6 +163,15 @@ pub enum ViewTestAssertion {
 impl ViewTestAssertion {
     /// Returns the asserted feature name (the value to the right of
     /// `accepted by` / `rejected by`).
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::ViewTestAssertion;
+    ///
+    /// let a = ViewTestAssertion::AcceptedBy { feature: "checkout".into(), span_ref: None };
+    /// assert_eq!(a.feature(), "checkout");
+    /// ```
     pub fn feature(&self) -> &str {
         match self {
             ViewTestAssertion::AcceptedBy { feature, .. }
@@ -164,6 +180,15 @@ impl ViewTestAssertion {
     }
 
     /// Returns the source span for this assertion, when known.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::ViewTestAssertion;
+    ///
+    /// let a = ViewTestAssertion::AcceptedBy { feature: "checkout".into(), span_ref: None };
+    /// assert!(a.span_ref().is_none());
+    /// ```
     pub fn span_ref(&self) -> Option<&SpanRef> {
         match self {
             ViewTestAssertion::AcceptedBy { span_ref, .. }
@@ -172,6 +197,8 @@ impl ViewTestAssertion {
     }
 }
 
+/// One `actions.<name>` entry inside an [`ExperienceView`]. Names the
+/// command/api target the view exposes as an action.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExperienceAction {
     pub name: String,
@@ -180,6 +207,9 @@ pub struct ExperienceAction {
     pub span_ref: Option<SpanRef>,
 }
 
+/// One `view_extension <anchor>` block — a feature contributes blocks
+/// into another feature's view via the named anchor. Slots scope the
+/// contribution to specific named slots, platforms, audiences.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ViewExtension {
     pub anchor: String,
@@ -191,6 +221,9 @@ pub struct ViewExtension {
     pub span_ref: Option<SpanRef>,
 }
 
+/// One named slot inside a [`ViewExtension`]. Carries the blocks
+/// contributed, optional ordering constraint, and platform/audience
+/// filters.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ViewExtensionSlot {
     pub name: String,
@@ -206,6 +239,9 @@ pub struct ViewExtensionSlot {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Optional ordering constraint inside a [`ViewExtensionSlot`].
+/// `relation` is `"before"` / `"after"` / `"replace"`; `target` names
+/// the sibling block.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ViewExtensionOrder {
     pub relation: String,

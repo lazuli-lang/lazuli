@@ -25,6 +25,10 @@ use serde::{Deserialize, Serialize};
 use crate::SpanRef;
 use crate::nodes::app_manifest::locale::LocaleNegotiate;
 
+/// One `runtime.<name>` unit declaration — a logical process (server,
+/// worker, scheduler, lambda) the app exposes. Carries the typed
+/// audiences/jobs the unit serves, healthcheck/readiness wiring, and
+/// global locale-negotiation defaults.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppRuntimeUnit {
     pub name: String,
@@ -43,6 +47,11 @@ pub struct AppRuntimeUnit {
     pub locale_negotiate: Option<LocaleNegotiate>,
 }
 
+/// App-level `deploy { ... }` block — declarative deploy strategy.
+/// All slots optional so apps can adopt incrementally; the runtime
+/// adapter picks safe defaults for omitted knobs. Migrations,
+/// destructive-migration policy, rollout strategy, and lifecycle hooks
+/// all live here.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct AppDeploy {
     #[serde(default, skip_serializing_if = "Option::is_none")]

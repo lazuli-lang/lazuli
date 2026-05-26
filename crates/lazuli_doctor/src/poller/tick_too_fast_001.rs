@@ -10,17 +10,41 @@ use lazuli_ir::Feature;
 
 const RECOMMENDED_FLOOR_SECONDS: u64 = 5;
 
+/// One POLLER-TICK-TOO-FAST-001 finding — a poller's tick interval is
+/// below the recommended floor (5s), risking database hammering.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the poller was authored in.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
+    /// Poller carrying the too-fast tick.
     pub poller: String,
+    /// Verbatim `every` literal authored in `tick every <duration>`.
     pub every: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "POLLER-TICK-TOO-FAST-001";
 
+    /// Render the "tick interval below floor" message, naming the
+    /// poller and the actual interval.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::poller::tick_too_fast_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("messages.lzi"),
+    ///     feature: "messages".into(),
+    ///     poller: "deliver_pending".into(),
+    ///     every: "100ms".into(),
+    /// };
+    /// assert!(f.message().contains("100ms"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "{}: poller '{}' tick interval {} < 5s may hammer the database; recommended floor 5s.",
@@ -31,6 +55,19 @@ impl Finding {
     }
 }
 
+/// Walk every poller in `feature` and emit a finding for each whose
+/// `tick.every` parses to fewer than `RECOMMENDED_FLOOR_SECONDS`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::poller::tick_too_fast_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a poller ticking every 100ms");
+/// let _ = check(&feature, Path::new("messages.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     feature
         .pollers

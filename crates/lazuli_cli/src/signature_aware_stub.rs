@@ -44,6 +44,14 @@ pub struct StubContext<'a> {
 
 /// Render a table-driven Go test file body for the handler `site`.
 /// Returns valid Go source ready to write to disk.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::signature_aware_stub::{render_test_stub, StubContext};
+///
+/// // let go_src = render_test_stub(&ctx);
+/// ```
 pub fn render_test_stub(ctx: &StubContext) -> String {
     let pkg = format!("{}handlers", ctx.feature.name);
     let fn_pascal = pascal_case(&ctx.site.handler_name);
@@ -246,6 +254,16 @@ fn describe_signature(ctx: &StubContext) -> String {
     )
 }
 
+/// Convert a `snake_case` identifier to `PascalCase`. Lazuli Go
+/// codegen emits Pascal-cased handler/struct names, so this helper is
+/// shared across the stub renderer and the public surface.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::signature_aware_stub::pascal_case;
+/// assert_eq!(pascal_case("hello_world"), "HelloWorld");
+/// ```
 pub fn pascal_case(snake: &str) -> String {
     let mut out = String::new();
     for part in snake.split('_') {

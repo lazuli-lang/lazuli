@@ -54,6 +54,12 @@ use slots::{
 
 /// Emit `<feature>/job.gen.go` for a feature, or `None` when the
 /// feature declares no jobs.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let go_src = emit_job_file("billing.lzi", &feature, "demo", &cross_index, &emit_ctx);
+/// ```
 pub fn emit_job_file(
     source_label: &str,
     feature: &Feature,

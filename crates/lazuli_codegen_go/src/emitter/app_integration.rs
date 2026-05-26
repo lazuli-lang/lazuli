@@ -48,6 +48,14 @@ pub const APP_INTEGRATIONS_PATH: &str = "app/app_integrations.gen.go";
 /// integrations declared without a plugin binding (env-var-only
 /// credentials) are not facade-resolvable and would emit an
 /// `init()` that never wires anything.
+///
+/// ## Examples
+///
+/// ```ignore
+/// if let Some(go_src) = emit_app_integrations("app.lzi", &module) {
+///     /* write `app/app_integrations.gen.go` */
+/// }
+/// ```
 pub fn emit_app_integrations(source_label: &str, module: &Module) -> Option<String> {
     // Two sources carry adapter references today:
     //

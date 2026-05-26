@@ -10,15 +10,35 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Feature, LifecycleStateKind};
 
+/// One LIFECYCLE-NO-INITIAL-STATE finding — a resource lifecycle
+/// declares states but none are marked `initial`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the lifecycle is declared in.
     pub path: PathBuf,
+    /// Resource owning the lifecycle.
     pub resource: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "LIFECYCLE-NO-INITIAL-STATE";
 
+    /// Render the "no initial state" message, steering the author to
+    /// the `state <name> initial` syntax.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::lifecycle::no_initial_state::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("publishing.lzi"),
+    ///     resource: "Publication".into(),
+    /// };
+    /// assert!(f.message().contains("Publication"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "lifecycle on `{}` declares no `initial` state — exactly one state must be marked `initial` (e.g. `state draft initial`)",
@@ -27,6 +47,19 @@ impl Finding {
     }
 }
 
+/// Walk every resource lifecycle in `feature` and flag the ones whose
+/// `states` block lacks an `Initial` kind.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::lifecycle::no_initial_state::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a lifecycle lacking initial state");
+/// let _ = check(&feature, Path::new("publishing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = vec![];
     for r in &feature.resources {

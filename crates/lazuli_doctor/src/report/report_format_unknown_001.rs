@@ -8,17 +8,42 @@ use std::path::{Path, PathBuf};
 
 use lazuli_syntax::ReportDecl;
 
+/// One REPORT-FORMAT-UNKNOWN-001 finding — a report declares a
+/// `formats` token outside the closed `{csv, xlsx}` catalog.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the report was authored in.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
+    /// Report carrying the unknown format token.
     pub report: String,
+    /// Verbatim token authored in the `formats` list.
     pub unknown_format: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "REPORT-FORMAT-UNKNOWN-001";
 
+    /// Render the "report declares unknown format" message naming the
+    /// report and the offending token. The closed catalog is named in
+    /// the text so the author sees the allowed set inline.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::report::report_format_unknown_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("sales.lzi"),
+    ///     feature: "sales".into(),
+    ///     report: "weekly_sales".into(),
+    ///     unknown_format: "pdf".into(),
+    /// };
+    /// assert!(f.message().contains("pdf"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "report `{}` declares `formats {}` which is outside the closed catalog `csv | xlsx`.",
@@ -27,6 +52,20 @@ impl Finding {
     }
 }
 
+/// Scan AST report declarations directly (the IR drops unknown tokens
+/// at lowering) and emit a finding for each `formats` entry outside
+/// the closed `csv | xlsx` catalog.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::report::report_format_unknown_001::check;
+/// use lazuli_syntax::ReportDecl;
+///
+/// let reports: Vec<ReportDecl> = vec![];
+/// let _ = check("sales", &reports, Path::new("sales.lzi"));
+/// ```
 pub fn check(feature: &str, reports: &[ReportDecl], path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     for r in reports {

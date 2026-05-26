@@ -24,8 +24,28 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "COMMAND-INPUT-SHADOWS-FIELD-001";
 
+    /// Render the "input shadows resource field" message — name both
+    /// sides and ask the author to align types or rename the slot.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::correctness::command_input_shadows_field_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     command: "set_age".into(),
+    ///     field_name: "age".into(),
+    ///     resource: "User".into(),
+    ///     input_type_label: "Text".into(),
+    ///     field_type_label: "Integer".into(),
+    /// };
+    /// assert!(f.message().contains("silently narrow/widen"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "command `{}` accepts input `{}: {}` which shadows resource `{}` \
@@ -49,6 +69,17 @@ impl Finding {
 /// `path` is the source `.lzi` file - used to anchor findings; no I/O is
 /// performed here. Cross-feature resources are out of scope for v1 and are
 /// suppressed when the target resource is not present in `feature.resources`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::correctness::command_input_shadows_field_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with commands");
+/// let _ = check(&feature, Path::new("users.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut out = Vec::new();
 

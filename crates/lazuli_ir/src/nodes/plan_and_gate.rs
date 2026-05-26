@@ -54,6 +54,9 @@ pub struct PlanCatalog {
     pub limit_catalog: Vec<String>,
 }
 
+/// One `plan <name> { … }` declaration inside [`PlanCatalog`].
+/// Lists the closed feature set + limit map after cross-plan reference
+/// expansion, plus an optional trial revert policy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Plan {
     pub name: String,
@@ -69,19 +72,27 @@ pub struct Plan {
     pub span_ref: Option<SpanRef>,
 }
 
+/// One `limits.<name> = <value>` entry on a [`Plan`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlanLimit {
     pub name: String,
     pub value: PlanLimitValue,
 }
 
+/// Closed catalog of [`PlanLimit`] values. `Integer` for finite caps;
+/// `Unlimited` for the explicit no-cap sentinel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum PlanLimitValue {
+    /// `limit X = 100` — finite numeric cap.
     Integer(u64),
+    /// `limit X = unlimited` — explicit no-cap.
     Unlimited,
 }
 
+/// `trial { duration "<dur>" then <plan> }` block on a [`Plan`]. The
+/// runtime reverts the customer to `then_plan` after `duration`
+/// elapses from subscription start.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TrialPolicy {
     /// Raw duration literal (e.g. `"14d"`).
@@ -131,12 +142,19 @@ pub struct SynthesizedFromCapFile {
     pub role: AutoPhotoCommandRole,
 }
 
+/// Closed catalog of synthesized auto-photo command roles. One role
+/// per command in the 4-command auto-photo set FR-3a generates for
+/// each `@cap.File(...)` field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AutoPhotoCommandRole {
+    /// Upload-URL request (pre-flight).
     Request,
+    /// Upload-confirmation (post-flight).
     Confirm,
+    /// Clear the stored file.
     Clear,
+    /// Resolve a download URL (signed or direct).
     GetUrl,
 }
 

@@ -14,6 +14,13 @@ use super::printer::GoPrinter;
 /// - the feature has no `auth` block,
 /// - the auth block has no `sessions` declaration, or
 /// - `auth.sessions.rotation` is absent.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let go_src = emit_auth_refresh_file("auth.lzi", &feature);
+/// // None unless rotation is enabled.
+/// ```
 pub fn emit_auth_refresh_file(source_label: &str, feature: &Feature) -> Option<String> {
     let sessions = feature.auth.as_ref()?.sessions.as_ref()?;
     if !sessions.is_rotation_enabled() {
@@ -91,4 +98,14 @@ fn escape_string(raw: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::escape_string;
+
+    #[test]
+    fn escape_string_protects_quotes_and_backslashes() {
+        assert_eq!(escape_string(r#"a"b\c"#), r#"a\"b\\c"#);
+    }
 }

@@ -20,9 +20,12 @@ use lazuli_ir::{ExtensionContract, Feature};
 
 // ── output ────────────────────────────────────────────────────────────────────
 
+/// One unbound `auth oauth <provider> adapter @adapter.<X>` reference.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// `.lzi` path the offending declaration lives in.
     pub path: PathBuf,
+    /// Feature owning the OAuth provider entry.
     pub feature: String,
     /// `oauth <provider>` identifier.
     pub provider: String,
@@ -31,8 +34,16 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable doctor rule code surfaced to the user.
     pub const CODE: &'static str = "auth_oauth_adapter_unbound_001";
 
+    /// Render the remediation-flavored diagnostic message.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let msg = finding.message();
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "auth.oauth.`{}`.adapter `{}` is not declared in `extensions` of \
@@ -51,6 +62,17 @@ impl Finding {
 /// walker may suppress a finding by also checking
 /// `registry.integrations` — that's why the message says "consider":
 /// the finding is a local hint, not a verdict.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_ir::Feature;
+/// use lazuli_cli::doctor::auth::auth_oauth_adapter_unbound_001::check;
+///
+/// // let feature: Feature = /* lifted from .lzi */ unimplemented!();
+/// // let findings = check(&feature, Path::new("app.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let Some(auth) = feature.auth.as_ref() else {
         return Vec::new();

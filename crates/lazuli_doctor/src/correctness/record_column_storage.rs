@@ -56,8 +56,28 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "@info.record_column_jsonb";
 
+    /// Render the "stored as JSONB" informational message naming the
+    /// resource, field, and record type the column resolves to.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::correctness::record_column_storage::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     feature: "billing".into(),
+    ///     resource: "Invoice".into(),
+    ///     field: "metadata".into(),
+    ///     record_type: "InvoiceMeta".into(),
+    ///     many: false,
+    /// };
+    /// assert!(f.message().contains("JSONB"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "resource '{}' field '{}' is typed as record '{}'; stored as JSONB in the database.",
@@ -74,6 +94,17 @@ impl Finding {
 /// (`field: many Record`) forms.
 ///
 /// `path` anchors findings to the source `.lzi`; no I/O is performed.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::correctness::record_column_storage::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with record-typed columns");
+/// let _ = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     if feature.records.is_empty() || feature.resources.is_empty() {
         return Vec::new();

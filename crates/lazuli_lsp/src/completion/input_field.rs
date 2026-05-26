@@ -46,6 +46,20 @@ use crate::{leading_spaces, line_prefix_at_position};
 /// cursor sits inside a `command` block (any indent depth — covers both
 /// the `name = input.id` binding shape at indent 6 and any future
 /// `where (id = input.id)` expression on the command body at indent 4).
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::input_field_completions;
+/// use tower_lsp::lsp_types::Position;
+///
+/// // Cursor not at an `input.<...>` trigger — None.
+/// let result = input_field_completions(
+///     "feature billing\n",
+///     Position { line: 0, character: 6 },
+/// );
+/// assert!(result.is_none());
+/// ```
 pub fn input_field_completions(source: &str, position: Position) -> Option<Vec<CompletionItem>> {
     let line = source.lines().nth(position.line as usize)?;
     let before = line_prefix_at_position(line, position.character);
@@ -214,4 +228,31 @@ pub(crate) fn collect_command_input_and_route_params(
     }
 
     Some((route_params, input_fields))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dot_trigger_detects_partial() {
+        assert_eq!(input_dot_trigger("name = input.i"), Some("i"));
+        assert_eq!(input_dot_trigger("name = input."), Some(""));
+    }
+
+    #[test]
+    fn dot_trigger_rejects_non_input_dot() {
+        assert!(input_dot_trigger("name = thing.id").is_none());
+        // Word boundary guard — `payload_input.x` should NOT trigger.
+        assert!(input_dot_trigger("foo = payload_input.x").is_none());
+    }
+
+    #[test]
+    fn completions_return_none_outside_command_block() {
+        let result = input_field_completions(
+            "feature billing\n",
+            Position { line: 0, character: 6 },
+        );
+        assert!(result.is_none());
+    }
 }

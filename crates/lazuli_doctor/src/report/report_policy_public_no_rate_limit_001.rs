@@ -6,16 +6,39 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Feature, PolicyRef};
 
+/// One REPORT-POLICY-PUBLIC-NO-RATE-LIMIT-001 finding — a report's
+/// policy admits `@scope.public` without an explicit `rate_limit`.
+/// Public reports are an obvious DoS vector; a quota is mandatory.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the report was authored in.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
+    /// Report missing the rate limit.
     pub report: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "REPORT-POLICY-PUBLIC-NO-RATE-LIMIT-001";
 
+    /// Render the "public report without rate limit" message naming
+    /// the report. The text is short — the remediation is unambiguous.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::report::report_policy_public_no_rate_limit_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("sales.lzi"),
+    ///     feature: "sales".into(),
+    ///     report: "weekly_sales".into(),
+    /// };
+    /// assert!(f.message().contains("rate_limit"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "report `{}` policy includes `@scope.public` but no `rate_limit` is declared. \
@@ -36,6 +59,19 @@ fn is_public_policy(policy: &PolicyRef) -> bool {
     }
 }
 
+/// Walk every report in `feature` and emit a finding for each whose
+/// policy admits `@scope.public` but lacks a `rate_limit`.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::report::report_policy_public_no_rate_limit_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a public report without a rate limit");
+/// let _ = check(&feature, Path::new("sales.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     feature
         .reports

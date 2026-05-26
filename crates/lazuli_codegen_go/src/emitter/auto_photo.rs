@@ -1,3 +1,9 @@
+//! Auto-photo emitter — generates `<feature>/auto_photo.gen.go` from
+//! the four-command synth set produced by `@cap.File(...)` lowering
+//! (request/confirm/clear/get_url). Each site emits a single
+//! `lazuli.AutoPhotoSpec` value plus an `init()` that registers the
+//! framework handlers; the runtime owns the bodies.
+
 use super::casing::{gen_package_name, lower_camel, pascal_case};
 use super::command::effect_resource_pascal;
 use super::cross_feature::CrossFeatureIndex;
@@ -8,6 +14,14 @@ use lazuli_ir::{
     TypeRef,
 };
 use std::collections::BTreeMap;
+/// Emit `<feature>/auto_photo.gen.go`, or `None` when the feature has no
+/// `@cap.File`-synthesized commands.
+///
+/// ## Examples
+///
+/// ```ignore
+/// let go_src = emit_auto_photo_file("photoshare.lzi", &feature, "demo", &cross_index);
+/// ```
 pub fn emit_auto_photo_file(
     source_label: &str,
     feature: &Feature,

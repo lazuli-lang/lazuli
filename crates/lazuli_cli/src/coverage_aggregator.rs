@@ -27,6 +27,15 @@ use crate::runners::handler_coverage;
 ///     `json-summary` reporter writes `coverage/coverage-summary.json`).
 ///   - `spec_*` from the spec [`LayerResult.issues`] count + the
 ///     orchestrator's `spec_totals` hint (when provided).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::coverage_aggregator::build_coverage_report;
+///
+/// // let report = build_coverage_report(&layers, Path::new("."), None, None);
+/// ```
 pub fn build_coverage_report(
     layers: &[LayerResult],
     project_root: &Path,
@@ -102,6 +111,14 @@ pub fn build_coverage_report(
 /// an aggregate (caller must pass `--aggregate-method`). When asked to
 /// gate on aggregate without one, we mark a synthetic Block on the
 /// (absent) aggregate by returning an error from the caller.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::coverage_aggregator::apply_fail_on;
+///
+/// // let errs = apply_fail_on(&mut report, &specs);
+/// ```
 pub fn apply_fail_on(report: &mut CoverageReport, specs: &[FailOnSpec]) -> Vec<String> {
     let mut errors: Vec<String> = Vec::new();
 
@@ -149,11 +166,19 @@ pub fn apply_fail_on(report: &mut CoverageReport, specs: &[FailOnSpec]) -> Vec<S
     errors
 }
 
+/// Orchestrator-supplied hint for `spec_predicate` / `view_*` metrics
+/// when the spec runner doesn't expose raw counts. Each field
+/// defaults to 0 and the aggregator only emits the corresponding
+/// metric when `*_total > 0`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SpecTotals {
+    /// Spec predicates covered by tests.
     pub spec_covered: u64,
+    /// Total spec predicates in the run.
     pub spec_total: u64,
+    /// View constructs covered.
     pub view_covered: u64,
+    /// Total view constructs.
     pub view_total: u64,
 }
 

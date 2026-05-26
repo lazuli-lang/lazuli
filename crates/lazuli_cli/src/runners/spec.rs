@@ -21,6 +21,16 @@ use crate::cmd_test_types::{Layer, LayerResult, LayerVerdict, TestFailure};
 /// the orchestrator asks for `view`, the same diagnostics are run but
 /// the result is tagged with the requested layer so downstream
 /// renderers can keep them separate.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::cmd_test_types::Layer;
+/// use lazuli_cli::runners::spec::run;
+///
+/// // let result = run(Path::new("app.lzi"), Layer::Spec)?;
+/// ```
 pub fn run(input: &Path, layer: Layer) -> Result<LayerResult> {
     let started = Instant::now();
     // SecurityProfile::Strict mirrors the default `lazuli doctor` /
@@ -123,4 +133,18 @@ pub fn run(input: &Path, layer: Layer) -> Result<LayerResult> {
         runner_native_only: None,
         skip_reason: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::run;
+    use crate::cmd_test_types::Layer;
+    use std::path::Path;
+
+    #[test]
+    fn spec_runner_on_missing_input_does_not_panic() {
+        // We do not assert pass/fail because the doctor entry may
+        // error on a missing path; we just guard against panic.
+        let _ = run(Path::new("__lazuli_no_such_path.lzi"), Layer::Spec);
+    }
 }

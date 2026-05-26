@@ -59,8 +59,28 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code used by the dispatcher and JSON output.
     pub const CODE: &'static str = "TEST-VIEW-E2E-MISSING-001";
 
+    /// Render the user-facing diagnostic body — names the expected
+    /// spec path and suggests `lazuli generate playwright`.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::test_discipline::test_view_e2e_missing_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("shop.lzx"),
+    ///     line: 12,
+    ///     column: 3,
+    ///     experience: "customer".into(),
+    ///     view: "dashboard".into(),
+    ///     expected_spec: PathBuf::from("e2e/customer/dashboard.spec.ts"),
+    /// };
+    /// assert!(f.message().contains("dashboard.spec.ts"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "view `{}.{}` has no paired E2E spec at `{}`; run \
@@ -80,6 +100,16 @@ impl Finding {
 /// `lazuli_cli::cmd_generate_playwright` can use the same builder when
 /// it scaffolds files — drift between generator and lint would
 /// otherwise be silent.
+///
+/// ## Examples
+///
+/// ```rust
+/// use std::path::Path;
+/// use lazuli_doctor::test_discipline::test_view_e2e_missing_001::expected_spec_path;
+///
+/// let p = expected_spec_path(Path::new("/proj"), "customer", "dashboard");
+/// assert!(p.ends_with("e2e/customer/dashboard.spec.ts"));
+/// ```
 pub fn expected_spec_path(project_root: &Path, experience: &str, view: &str) -> PathBuf {
     project_root
         .join("e2e")
@@ -97,6 +127,18 @@ pub fn expected_spec_path(project_root: &Path, experience: &str, view: &str) -> 
 ///   each `view <name>` block from its byte span.
 /// * `project_root` — directory holding `e2e/`. The check resolves
 ///   spec paths relative to this root.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::test_discipline::test_view_e2e_missing_001::check;
+///
+/// let findings = check(&document, Path::new("shop.lzx"), &source, Path::new("/proj"));
+/// for f in findings {
+///     eprintln!("{}.{}: missing spec at {}", f.experience, f.view, f.expected_spec.display());
+/// }
+/// ```
 pub fn check(
     document: &LzxDocument,
     source_path: &Path,

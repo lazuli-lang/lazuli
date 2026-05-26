@@ -39,6 +39,18 @@ pub const PATTERN_ROUTE_GUARD: (&str, &str) = ("route_guard", "v1");
 pub const PATTERN_LIFECYCLE_GATE_METADATA: (&str, &str) =
     ("pattern_lifecycle_gate_metadata", "v1");
 
+/// Build the `//lazuli:pattern …` header line for route-guard emit.
+///
+/// The header is what `lazuli doctor` and downstream tools key on to
+/// recognise generated files; emitters must paste this verbatim at the
+/// top of each route-guard artifact.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_ts::lzx::lzx_router_adapter::route_guard_pattern_header;
+/// assert!(route_guard_pattern_header().starts_with("//lazuli:pattern route_guard "));
+/// ```
 pub fn route_guard_pattern_header() -> String {
     format!(
         "//lazuli:pattern {} {}\n",
@@ -46,6 +58,20 @@ pub fn route_guard_pattern_header() -> String {
     )
 }
 
+/// Build the `//lazuli:pattern …` header line for lifecycle-gate emit.
+///
+/// Counterpart to [`route_guard_pattern_header`] used by the lifecycle
+/// gate group/registry emitters.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_ts::lzx::lzx_router_adapter::lifecycle_gate_pattern_header;
+/// assert!(
+///     lifecycle_gate_pattern_header()
+///         .starts_with("//lazuli:pattern pattern_lifecycle_gate_metadata ")
+/// );
+/// ```
 pub fn lifecycle_gate_pattern_header() -> String {
     format!(
         "//lazuli:pattern {} {}\n",
@@ -57,6 +83,14 @@ pub fn lifecycle_gate_pattern_header() -> String {
 ///
 /// The returned slice ends with a newline; emitters can write it
 /// verbatim into the import block.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_ts::lzx::lzx_router_adapter::{router_useparams_import, RouterTarget};
+/// let line = router_useparams_import(RouterTarget::ViteReact);
+/// assert!(line.contains("@tanstack/react-router"));
+/// ```
 pub fn router_useparams_import(target: RouterTarget) -> &'static str {
     match target {
         RouterTarget::ViteReact | RouterTarget::Tauri => {
@@ -70,6 +104,19 @@ pub fn router_useparams_import(target: RouterTarget) -> &'static str {
 }
 
 /// Emit the import line for the target's search-param hook.
+///
+/// Mirrors [`router_useparams_import`] for `useSearchParams` /
+/// `useLocalSearchParams`; list views with URL-synced filters consume
+/// this to pull in the right hook for their target.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_ts::lzx::lzx_router_adapter::{router_usesearchparams_import, RouterTarget};
+/// assert!(
+///     router_usesearchparams_import(RouterTarget::NextJs).contains("next/navigation"),
+/// );
+/// ```
 pub fn router_usesearchparams_import(target: RouterTarget) -> &'static str {
     match target {
         RouterTarget::ViteReact | RouterTarget::Tauri => {
@@ -92,6 +139,20 @@ pub fn router_usesearchparams_import(target: RouterTarget) -> &'static str {
 /// | `tauri`      | `$param` (TanStack Router) |
 /// | `nextjs`     | `[param]` (App Router segment) |
 /// | `expo`       | `[param]` (Expo Router segment) |
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_ts::lzx::lzx_router_adapter::{translate_route_path, RouterTarget};
+/// assert_eq!(
+///     translate_route_path(RouterTarget::ViteReact, "/slugs/:key"),
+///     "/slugs/$key",
+/// );
+/// assert_eq!(
+///     translate_route_path(RouterTarget::NextJs, "/slugs/:key"),
+///     "/slugs/[key]",
+/// );
+/// ```
 pub fn translate_route_path(target: RouterTarget, route: &str) -> String {
     let mut out = String::with_capacity(route.len());
     let bytes = route.as_bytes();

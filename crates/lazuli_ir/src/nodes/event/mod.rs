@@ -70,6 +70,11 @@ pub use event_group::{EventGroup, EventVariant, EventVariantKind};
 pub use outbox::OutboxMode;
 pub use rule::{OperationKind, OperationRef, Rule};
 
+/// Concrete event declaration with a typed payload. One [`Event`] per
+/// authored `event <name> { … }` block; lives on `Feature.events`.
+/// The `kind` axis splits domain events (reaction graph) from trace
+/// events (observers only); the `outbox` axis chooses transactional
+/// vs best-effort dispatch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Event {
     pub name: String,
@@ -101,6 +106,9 @@ pub struct Event {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Closed axis splitting reaction-graph events from trace-only events.
+/// The split changes codegen + doctor wiring: `Trace` events never
+/// fan out to rules/jobs/workflows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EventKind {
     /// Standard domain event published into the feature reaction graph.
@@ -110,6 +118,8 @@ pub enum EventKind {
     Trace,
 }
 
+/// One typed payload entry on an [`Event`]. The `optional` flag
+/// controls whether the field is present on every emit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventField {
     pub name: String,

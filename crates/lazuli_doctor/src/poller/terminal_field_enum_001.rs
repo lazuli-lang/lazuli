@@ -8,18 +8,45 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{BuiltinType, Feature, QualifiedName, TypeRef};
 
+/// One POLLER-TERMINAL-FIELD-ENUM-001 finding — a poller's
+/// `terminal_status_field` references a source-resource field whose
+/// type is not an enum.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the poller was authored in.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
+    /// Poller carrying the offending terminal status reference.
     pub poller: String,
+    /// Source-resource field the poller pointed at.
     pub field: String,
+    /// Debug name of the actual type the field carries.
     pub found_type: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "POLLER-TERMINAL-FIELD-ENUM-001";
 
+    /// Render the "terminal_status_field must be an enum" message,
+    /// naming the poller, field, and actual type.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::poller::terminal_field_enum_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("messages.lzi"),
+    ///     feature: "messages".into(),
+    ///     poller: "deliver_pending".into(),
+    ///     field: "status".into(),
+    ///     found_type: "Text".into(),
+    /// };
+    /// assert!(f.message().contains("enum"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "POLLER-TERMINAL-FIELD-ENUM-001: poller '{}' terminal_status_field '{}' must be an enum field; found {}.",
@@ -28,6 +55,21 @@ impl Finding {
     }
 }
 
+/// Walk every poller in `feature` and emit a finding for each
+/// `terminal_status_field` that points at a source-resource field
+/// whose type is not an enum. Missing or cross-feature targets are
+/// handled by sibling rules.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::poller::terminal_field_enum_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a poller terminal_status_field on a Text column");
+/// let _ = check(&feature, Path::new("messages.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 

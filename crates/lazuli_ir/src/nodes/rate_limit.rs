@@ -50,6 +50,16 @@ impl RateLimitSpec {
     /// the new `RateLimitSpec` container. Call-sites that previously
     /// wrote `rate_limit: Some("X".to_owned())` swap to
     /// `rate_limit: Some(RateLimitSpec::from_default("X".to_owned()))`.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::RateLimitSpec;
+    ///
+    /// let r = RateLimitSpec::from_default("100 per 10 minutes".into());
+    /// assert_eq!(r.default, "100 per 10 minutes");
+    /// assert!(r.by_env.is_empty());
+    /// ```
     pub fn from_default(s: String) -> Self {
         Self {
             default: s,
@@ -99,6 +109,15 @@ impl EnvName {
     /// `None` for identifiers outside the catalog; callers (the parser
     /// today, Cell 3 doctor tomorrow) decide whether to surface a
     /// warning.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::EnvName;
+    ///
+    /// assert_eq!(EnvName::from_ident("production"), Some(EnvName::Production));
+    /// assert_eq!(EnvName::from_ident("nope"), None);
+    /// ```
     pub fn from_ident(ident: &str) -> Option<Self> {
         match ident {
             "production" => Some(EnvName::Production),
@@ -111,6 +130,14 @@ impl EnvName {
     }
 
     /// Canonical lowercase identifier (matches `LAZULI_ENV` strings).
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::EnvName;
+    ///
+    /// assert_eq!(EnvName::Production.as_str(), "production");
+    /// ```
     pub fn as_str(&self) -> &'static str {
         match self {
             EnvName::Production => "production",
@@ -119,5 +146,16 @@ impl EnvName {
             EnvName::Dev => "dev",
             EnvName::Local => "local",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn env_name_round_trips_ident() {
+        assert_eq!(EnvName::from_ident("production"), Some(EnvName::Production));
+        assert_eq!(EnvName::Production.as_str(), "production");
     }
 }

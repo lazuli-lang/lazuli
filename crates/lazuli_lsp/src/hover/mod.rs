@@ -55,6 +55,25 @@ mod surface;
 
 pub use rich::rich_keyword_hover;
 
+/// One-line hover description for a DSL keyword.
+///
+/// Used as the **fallback** when [`rich_keyword_hover`] returns `None`
+/// and as the `detail:` field on completion items so the LLM/human
+/// sees the contract inline in the completion popup. First-match-wins
+/// across the three concern-shaped sub-modules
+/// (`manifest`, `domain`, `surface`) — arms are exclusive.
+///
+/// Returns `None` for unrecognized tokens; callers should usually fall
+/// through to whatever generic hover the LSP would have otherwise
+/// emitted.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::keyword_description;
+/// assert!(keyword_description("workspace").is_some());
+/// assert!(keyword_description("definitely_not_a_keyword").is_none());
+/// ```
 pub fn keyword_description(keyword: &str) -> Option<&'static str> {
     manifest::keyword_description(keyword)
         .or_else(|| domain::keyword_description(keyword))

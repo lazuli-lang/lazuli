@@ -23,6 +23,11 @@ use serde::{Deserialize, Serialize};
 
 use super::Span;
 
+/// `design <name>` block — design-token surface (L0 #2).
+///
+/// Container for the nine design-token meta-groups. Every value stays
+/// as raw text so the analyzer can validate (hex shape, shadow
+/// composition, integer parsing) at lowering time.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DesignDeclAst {
     pub name: String,
@@ -55,6 +60,7 @@ pub struct CustomTokenAst {
     pub span: Span,
 }
 
+/// One named color token + its state expansion (`base`/`hover`/...).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ColorTokenAst {
     pub name: String,
@@ -62,6 +68,7 @@ pub struct ColorTokenAst {
     pub span: Span,
 }
 
+/// One state row inside a [`ColorTokenAst`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ColorStateAst {
     /// One of `base | hover | active | foreground`. The analyzer maps
@@ -73,6 +80,7 @@ pub struct ColorStateAst {
     pub dark: Option<String>,
 }
 
+/// Typography meta-group sub-tree inside [`DesignDeclAst`].
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct TypographyAst {
     pub families: Vec<FamilyTokenAst>,
@@ -81,19 +89,25 @@ pub struct TypographyAst {
     pub tracking: Vec<TrackingTokenAst>,
 }
 
+/// One font-family stack row inside [`TypographyAst`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FamilyTokenAst {
     pub name: String,
+    /// Comma-joined family stack literal verbatim.
     pub value: String,
 }
 
+/// One type-scale row inside [`TypographyAst`] (size + line-height pair).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextScaleTokenAst {
     pub name: String,
+    /// Size literal verbatim (e.g. `1rem`, `14px`).
     pub size: String,
+    /// Line-height literal verbatim.
     pub line_height: String,
 }
 
+/// One weight token row inside [`TypographyAst`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WeightTokenAst {
     pub name: String,
@@ -101,39 +115,81 @@ pub struct WeightTokenAst {
     pub value: String,
 }
 
+/// One letter-tracking row inside [`TypographyAst`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TrackingTokenAst {
     pub name: String,
+    /// Tracking literal verbatim (e.g. `0.02em`).
     pub value: String,
 }
 
+/// One scalar token (space / radius / breakpoint / motion duration).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScaleTokenAst {
     pub name: String,
+    /// Scalar literal verbatim (e.g. `4px`, `0.25rem`).
     pub value: String,
 }
 
+/// One shadow row inside [`DesignDeclAst`]. Single-layer enforcement
+/// lives in the analyzer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShadowTokenAst {
     pub name: String,
+    /// CSS shadow literal verbatim.
     pub value: String,
 }
 
+/// Motion meta-group sub-tree inside [`DesignDeclAst`] (durations + easings).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct MotionAst {
     pub durations: Vec<ScaleTokenAst>,
     pub easings: Vec<EasingTokenAst>,
 }
 
+/// One easing token row inside [`MotionAst`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EasingTokenAst {
     pub name: String,
+    /// Cubic-bezier or keyword easing string verbatim.
     pub value: String,
 }
 
+/// One z-index row inside [`DesignDeclAst`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ZTokenAst {
     pub name: String,
     /// Integer literal as text (lowering parses to i32).
     pub value: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn typography_ast_default_is_all_empty() {
+        let t = TypographyAst::default();
+        assert!(t.families.is_empty());
+        assert!(t.scale.is_empty());
+    }
+
+    #[test]
+    fn custom_token_dark_optional_elides() {
+        let c = CustomTokenAst {
+            name: "brand-glow".into(),
+            value: "#7c3aed".into(),
+            dark: None,
+            span: Span::new(0, 0),
+        };
+        let s = serde_json::to_string(&c).unwrap();
+        assert!(!s.contains("dark"));
+    }
+
+    #[test]
+    fn motion_ast_default_construct() {
+        let m = MotionAst::default();
+        assert!(m.durations.is_empty());
+        assert!(m.easings.is_empty());
+    }
 }

@@ -43,6 +43,26 @@ use crate::{
     simple_edit_action,
 };
 
+/// Code actions for the route-guard contract. Returns the applicable
+/// quickfixes for the cursor position — view-level `Add route guard
+/// policy and redirects`, `Promote <path> to app.route_guard default`,
+/// `Scaffold app.route_guard defaults`, and `Insert actor_query stub`.
+/// Returns an empty vector outside route-guard-related lines.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::route_guard_code_actions;
+/// use tower_lsp::lsp_types::{Position, Url};
+///
+/// let uri = Url::parse("file:///example.lzi").unwrap();
+/// let actions = route_guard_code_actions(
+///     "feature billing\n",
+///     &uri,
+///     Position { line: 0, character: 0 },
+/// );
+/// assert!(actions.is_empty());
+/// ```
 pub fn route_guard_code_actions(
     source: &str,
     uri: &Url,
@@ -333,4 +353,35 @@ pub(crate) fn route_guard_default_redirects(source: &str) -> (Option<String>, Op
         }
     }
     (unauthenticated, unauthorized)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn uri() -> Url {
+        Url::parse("file:///example.lzi").expect("valid URI")
+    }
+
+    #[test]
+    fn no_actions_on_empty_source() {
+        let actions = route_guard_code_actions("", &uri(), Position { line: 0, character: 0 });
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn no_actions_outside_view_or_app_blocks() {
+        let source = "feature billing\n  query.lookup me\n";
+        let actions = route_guard_code_actions(
+            source,
+            &uri(),
+            Position {
+                line: 1,
+                character: 6,
+            },
+        );
+        // No view header, no app block, no on_unauthenticated line — should
+        // produce no quickfix offers.
+        assert!(actions.is_empty());
+    }
 }

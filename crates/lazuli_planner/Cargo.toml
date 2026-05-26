@@ -9,3 +9,6 @@ authors.workspace = true
 lazuli_ir = { path = "../lazuli_ir" }
 serde.workspace = true
 
+[dev-dependencies]
+serde_json.workspace = true
+

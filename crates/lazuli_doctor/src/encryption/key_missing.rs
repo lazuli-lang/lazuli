@@ -16,6 +16,7 @@ use lazuli_ir::{AppManifest, CapabilityRef, Feature, TypeRef};
 /// not declared in `app.encryption_bindings`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the offending field was authored in.
     pub path: PathBuf,
     /// Resource declaring the field.
     pub resource: String,
@@ -28,8 +29,27 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "ENC-KEY-MISSING-001";
 
+    /// Render the "no matching `encryption.key` binding" message naming
+    /// the resource, field, and the `@key.<scope>` the field referenced.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::encryption::key_missing::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("customer.lzi"),
+    ///     resource: "Customer".into(),
+    ///     field: "external_id".into(),
+    ///     key_scope: "@key.tenant".into(),
+    ///     capability: "@cap.Encrypted",
+    /// };
+    /// assert!(f.message().contains("@key.tenant"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "field `{}.{}` declares `{}(key:{})` but the app declares no `encryption.key {}` binding — add a binding in `app.lzi` (or `registry.lzi`)",
@@ -42,6 +62,18 @@ impl Finding {
 
 /// Run ENC-KEY-MISSING-001 for all `@cap.Encrypted` / `@cap.E2ee`
 /// fields in one feature, joined against the app's binding catalog.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::encryption::key_missing::check;
+/// use lazuli_ir::{AppManifest, Feature};
+///
+/// let app: AppManifest = unimplemented!("load app manifest");
+/// let feature: Feature = unimplemented!("lower a feature with @cap.Encrypted on a field");
+/// let _ = check(&feature, &app, Path::new("customer.lzi"));
+/// ```
 pub fn check(feature: &Feature, app: &AppManifest, path: &Path) -> Vec<Finding> {
     let declared: HashSet<&str> = app
         .encryption_bindings

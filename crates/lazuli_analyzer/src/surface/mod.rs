@@ -84,6 +84,18 @@ use list_decls::{
 
 /// Lower a `SurfaceAst` (parser output) into the canonical `ir::Surface`
 /// per `docs/proposals/lzx-integration-codegen.md` §5 + §5.2.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::surface::lower_surface;
+/// use lazuli_syntax::SurfaceAst;
+///
+/// let ast: SurfaceAst = unimplemented!("from canonical-indent parse");
+/// let lowered = lower_surface(&ast)?;
+/// assert!(!lowered.feature.is_empty());
+/// # Ok::<(), lazuli_analyzer::AnalyzeError>(())
+/// ```
 pub fn lower_surface(ast: &syntax::SurfaceAst) -> Result<ir::Surface, AnalyzeError> {
     let target = match ast.target {
         syntax::SurfaceTargetAst::Web => ir::SurfaceTarget::Web,

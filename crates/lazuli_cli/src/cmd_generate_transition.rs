@@ -11,6 +11,19 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow};
 
 /// Run `lazuli generate transition <feature>.<workflow>.<name>`.
+///
+/// Appends a `transition <name>` block inside an existing `workflow
+/// <workflow>` (creating the workflow shell when absent). The seeded
+/// `tests` body carries `@TODO authored:` markers.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::cmd_generate_transition::run;
+///
+/// // run("post.publishing.draft_to_published", Path::new("."))?;
+/// ```
 pub fn run(ident: &str, project_root: &Path) -> Result<()> {
     let (feature, workflow, name) = parse_ident(ident)?;
     validate_part(&feature, "feature")?;

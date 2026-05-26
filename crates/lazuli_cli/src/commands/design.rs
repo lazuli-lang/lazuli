@@ -27,6 +27,20 @@ use anyhow::{Context, Result, bail};
 use crate::cmd_design;
 
 /// Handler for `DesignCommand::Import`.
+///
+/// Resolves the project root and the canonical `design.lzi` path, then
+/// delegates to [`cmd_design::import`] with the chosen external format
+/// and overwrite policy.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::cmd_design::ImportFormat;
+/// use lazuli_cli::commands::design::import_command;
+///
+/// // import_command(Path::new("figma-export.json"), ImportFormat::Figma, false)?;
+/// ```
 pub fn import_command(
     from: &Path,
     format: cmd_design::ImportFormat,
@@ -38,6 +52,19 @@ pub fn import_command(
 }
 
 /// Handler for `DesignCommand::Export`.
+///
+/// Reads `design.lzi` from the resolved project root and writes its
+/// serialization to `out` in the requested `target` format.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::cmd_design::ExportTarget;
+/// use lazuli_cli::commands::design::export_command;
+///
+/// // export_command(ExportTarget::StyleDictionary, Path::new("tokens.json"))?;
+/// ```
 pub fn export_command(target: cmd_design::ExportTarget, out: &Path) -> Result<()> {
     let project_root = std::env::current_dir().context("failed to determine current directory")?;
     let design_path = cmd_design::default_design_path(&project_root);
@@ -46,6 +73,19 @@ pub fn export_command(target: cmd_design::ExportTarget, out: &Path) -> Result<()
 }
 
 /// Handler for `DesignCommand::Diff`.
+///
+/// Diffs the project's `design.lzi` against an external snapshot at
+/// `against`, prints the rendered report, and `bail!`s non-zero when
+/// the report is non-empty so CI can gate on drift.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::commands::design::diff_command;
+///
+/// // diff_command(Path::new("figma-export.json"))?;
+/// ```
 pub fn diff_command(against: &Path) -> Result<()> {
     let project_root = std::env::current_dir().context("failed to determine current directory")?;
     let design_path = cmd_design::default_design_path(&project_root);
@@ -56,5 +96,18 @@ pub fn diff_command(against: &Path) -> Result<()> {
         Ok(())
     } else {
         bail!("design diff found changes")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn diff_against_missing_path_errors() {
+        // No `design.lzi` next to the test cwd should surface as an error
+        // rather than panic.
+        let result = diff_command(Path::new("__lazuli_no_such_external.json"));
+        assert!(result.is_err());
     }
 }

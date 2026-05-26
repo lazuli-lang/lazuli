@@ -7,37 +7,61 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::process::Command;
 
+/// Closed catalog of pprof axes `lazuli profile` rolls up by.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProfileAxis {
+    /// CPU samples.
     Cpu,
+    /// Allocated-bytes samples.
     Alloc,
+    /// Blocking samples.
     Block,
 }
 
+/// Full report emitted by `run_profile` — `top_ops` and
+/// `top_patterns` are pre-sorted by `percent` / `total`.
 #[derive(Debug)]
 pub struct ProfileReport {
+    /// Top ops by share of the chosen axis.
     pub top_ops: Vec<OpFrame>,
+    /// Top semantic patterns aggregated across ops.
     pub top_patterns: Vec<PatternFrame>,
 }
 
+/// One op-level pprof row keyed by the closed
+/// `capsule.feature.kind.op` ladder.
 #[derive(Debug, serde::Serialize)]
 pub struct OpFrame {
+    /// Capsule the op lives in.
     pub capsule: String,
+    /// Feature.
     pub feature: String,
+    /// Op kind (`command`/`query`/...).
     pub kind: String,
+    /// Op name.
     pub op: String,
+    /// Semantic pattern observed (e.g. `n_plus_one`).
     pub pattern: String,
+    /// Pattern catalog version.
     pub pattern_version: String,
+    /// Share of the axis total.
     pub percent: f64,
+    /// Axis unit (`samples`, `bytes`, …).
     pub units: String,
 }
 
+/// One pattern-level rollup across ops.
 #[derive(Debug, serde::Serialize)]
 pub struct PatternFrame {
+    /// Pattern name.
     pub pattern: String,
+    /// Catalog version.
     pub version: String,
+    /// Total of the axis attributed to this pattern.
     pub total: f64,
+    /// Axis unit.
     pub units: String,
+    /// Number of distinct ops contributing to the pattern.
     pub op_count: usize,
 }
 
@@ -48,6 +72,19 @@ struct Accum {
     version: String,
 }
 
+/// Shell `go tool pprof -raw` on `profile_path`, parse the stable
+/// text form, and roll up the samples by the chosen axis into the
+/// closed `(capsule, feature, kind, op)` ladder. Returns the top-N
+/// ops + the cross-op pattern aggregation.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::profile::{run_profile, ProfileAxis};
+///
+/// // let report = run_profile(Path::new("cpu.pprof"), 20, ProfileAxis::Cpu)?;
+/// ```
 pub fn run_profile(
     profile_path: &Path,
     top_n: usize,
@@ -68,6 +105,17 @@ pub fn run_profile(
     Ok(report_from_raw(&raw, top_n, axis))
 }
 
+/// Render a [`ProfileReport`] as the canonical text projection: two
+/// sections (`Top ops:` then `Top patterns:`), one indented line per
+/// entry. JSON output bypasses this and ships `top_ops` /
+/// `top_patterns` directly.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::profile::format_report;
+/// // let text = format_report(&report);
+/// ```
 pub fn format_report(report: &ProfileReport) -> String {
     let mut out = String::new();
     out.push_str("Top ops:\n");

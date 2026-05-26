@@ -21,6 +21,12 @@ use serde::{Deserialize, Serialize};
 use super::super::Span;
 use super::policy::TranslationKeyRefAst;
 
+/// Feature-scope `errors` block — closed-catalog error envelope contract.
+///
+/// Holds the per-feature defaults and overrides for how framework errors
+/// surface to the client / audience layers. Lowered to
+/// `ir::FeatureErrors`; see module-level docs for the closed-children
+/// layout enforced by the analyzer / doctor.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FeatureErrorsDecl {
     /// `default hide` | `default expose`. `None` defers to the runtime
@@ -45,20 +51,30 @@ pub struct FeatureErrorsDecl {
     pub span: Span,
 }
 
+/// One `expose to @audience <name> <comma-list>` row inside a
+/// [`FeatureErrorsDecl`]. Targets a specific audience (e.g. `@audience.support`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FeatureErrorExposeRuleDecl {
+    /// Verbatim audience identifier (without `@audience.` prefix), or `None`
+    /// for the default audience.
     pub audience: Option<String>,
+    /// Envelope-field names to expose.
     pub fields: Vec<String>,
     pub span: Span,
 }
 
+/// `default hide` / `default expose` catalog on [`FeatureErrorsDecl`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorExposureDefaultAst {
+    /// `default hide` — internal errors stay opaque to the client.
     Hide,
+    /// `default expose` — internal errors are surfaced to the client.
     Expose,
 }
 
+/// One `<code> message @translation.<key>` row inside a
+/// [`FeatureErrorsDecl`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FeatureErrorMessageDecl {
     /// Verbatim error code identifier (e.g. `policy_denied`). Closed-
@@ -67,4 +83,36 @@ pub struct FeatureErrorMessageDecl {
     /// The `@translation.<key>` reference.
     pub message: TranslationKeyRefAst,
     pub span: Span,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_exposure_default_serde_is_snake_case() {
+        assert_eq!(
+            serde_json::to_value(ErrorExposureDefaultAst::Hide).unwrap(),
+            serde_json::json!("hide")
+        );
+        assert_eq!(
+            serde_json::to_value(ErrorExposureDefaultAst::Expose).unwrap(),
+            serde_json::json!("expose")
+        );
+    }
+
+    #[test]
+    fn feature_errors_decl_empty_struct_is_constructible() {
+        let d = FeatureErrorsDecl {
+            default: None,
+            exposure_4xx: vec![],
+            exposure_5xx: vec![],
+            audience_exposure: vec![],
+            redact_patterns: vec![],
+            messages: vec![],
+            span: Span::new(0, 0),
+        };
+        assert!(d.default.is_none());
+        assert!(d.messages.is_empty());
+    }
 }

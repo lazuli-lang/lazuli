@@ -33,6 +33,18 @@ struct CapFileCommands {
 ///
 /// Returns `None` when the feature has no complete synthesized
 /// `@cap.File` command group.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_ts::cap_file_hooks::emit_cap_file_hooks_ts;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = /* … */ unimplemented!();
+/// if let Some(src) = emit_cap_file_hooks_ts(&feature) {
+///     assert!(src.contains("export"));
+/// }
+/// ```
 pub fn emit_cap_file_hooks_ts(feature: &ir::Feature) -> Option<String> {
     let sites = collect_cap_file_hook_sites(feature);
     if sites.is_empty() {

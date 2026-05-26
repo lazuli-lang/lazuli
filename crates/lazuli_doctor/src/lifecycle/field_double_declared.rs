@@ -24,8 +24,27 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "LIFECYCLE-FIELD-DOUBLE-DECLARED";
 
+    /// Render the "discriminator declared twice" message naming the
+    /// resource and field. The lifecycle owns the discriminator field;
+    /// the explicit declaration in the `fields` block must go.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::lifecycle::field_double_declared::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("publishing.lzi"),
+    ///     resource: "Publication".into(),
+    ///     discriminator_field: "status".into(),
+    /// };
+    /// assert!(f.message().contains("Publication"));
+    /// assert!(f.message().contains("status"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "lifecycle on `{}` declares discriminator `{}` but the resource's `fields` also \
@@ -41,6 +60,17 @@ impl Finding {
 ///
 /// `path` is the source `.lzi` file — used to anchor findings; no I/O is
 /// performed here.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::lifecycle::field_double_declared::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature where lifecycle discriminator is also in fields");
+/// let _ = check(&feature, Path::new("publishing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = vec![];
 

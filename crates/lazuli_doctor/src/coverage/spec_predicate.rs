@@ -27,6 +27,20 @@ use lazuli_ir::{
 
 use super::LayerCoverage;
 
+/// Compute the `spec_predicate` layer for `features`. Each leaf inside
+/// `requires`/`rule`/lifecycle `when` clauses counts as one branch; a
+/// branch is covered when the construct's tests carry at least one
+/// `AllowsWhen` AND one `DeniesWhen` touching the same root identifier.
+/// Always emits `source = "ir-walk"`.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::coverage::spec_predicate::compute;
+///
+/// let layer = compute(&[]);
+/// assert_eq!(layer.total, 0);
+/// ```
 pub fn compute(features: &[Feature]) -> LayerCoverage {
     let mut total = 0usize;
     let mut covered = 0usize;

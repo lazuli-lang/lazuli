@@ -19,6 +19,20 @@
 //! contract is already pinned by Phase 2.
 
 /// MCP server identifier published in the LSP-style initialise handshake.
+///
+/// Returned verbatim in the `serverInfo.name` field of the MCP
+/// `initialize` response so external orchestrators (Claude Code, IDE
+/// shells) can pin which Lazuli build is on the other end of the pipe.
+/// A constant fn rather than a static so the symbol survives even if a
+/// future cut decodes the name from build metadata.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_mcp::server_name;
+///
+/// assert_eq!(server_name(), "lazuli-mcp");
+/// ```
 pub fn server_name() -> &'static str {
     "lazuli-mcp"
 }

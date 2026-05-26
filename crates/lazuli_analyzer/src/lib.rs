@@ -251,11 +251,39 @@ pub(crate) fn lower_route_redirect_target(
 /// intentionally module-scoped: same-feature refs were normalized during
 /// per-feature lowering, but cross-feature refs can only be validated once
 /// all feature IR is present.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::resolve_invalidates_targets;
+/// use lazuli_ir::Module;
+///
+/// let mut module: Module = unimplemented!("obtain from analyzer pipeline");
+/// resolve_invalidates_targets(&mut module)?;
+/// # Ok::<(), lazuli_analyzer::AnalyzeError>(())
+/// ```
 pub fn resolve_invalidates_targets(module: &mut ir::Module) -> Result<(), AnalyzeError> {
     normalize_legacy_invalidates_targets(&mut module.features);
     validate_invalidates_targets(&module.features)
 }
 
+/// Module-level validation that every `Command.invalidates` target
+/// names a query that actually exists on the referenced feature.
+///
+/// Called by [`resolve_invalidates_targets`] after the legacy-form
+/// normalization pass; exposed publicly so the doctor/inspect CLIs can
+/// run validation on already-normalized IR without re-walking.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_analyzer::validate_invalidates_targets;
+/// use lazuli_ir::Feature;
+///
+/// let features: Vec<Feature> = vec![];
+/// validate_invalidates_targets(&features)?;
+/// # Ok::<(), lazuli_analyzer::AnalyzeError>(())
+/// ```
 pub fn validate_invalidates_targets(features: &[ir::Feature]) -> Result<(), AnalyzeError> {
     let index = InvalidatesQueryIndex::from_features(features);
     for feature in features {

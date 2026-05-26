@@ -10,12 +10,18 @@ use lazuli_ir::ExternalCallRef;
 use super::patterns::{PATTERN_ERROR_WRAP_HELPER, emit_pattern_header};
 use super::printer::GoPrinter;
 
+/// Typed envelope shape a sentinel error wraps into at the handler
+/// boundary. The wrap-helper switch in [`emit_wrap_helper_named`] emits
+/// one arm per [`WrapShape`] variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WrapShape {
     /// Wrap into *lazuli.FieldError with given Field name + Reason.
     Field {
+        /// Field name carried in the FieldError (e.g. `"password"`).
         field: &'static str,
+        /// Reason discriminator emitted as a `lazuli.FieldReason*` const.
         reason: FieldReason,
+        /// `InputType` tag (e.g. `"string"`, `"@cap.Token"`).
         input_type: &'static str,
     },
     /// Wrap into *lazuli.PolicyError with placeholder Rule (codegen fills from policy DSL).
@@ -28,16 +34,35 @@ pub enum WrapShape {
     Generic,
 }
 
+/// Reason discriminator for [`WrapShape::Field`] envelopes.
+///
+/// Matches the closed set of `lazuli.FieldReason*` Go constants the
+/// runtime exports; new variants here must land on the runtime side
+/// first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FieldReason {
+    /// Field is missing.
     Required,
+    /// Field present but malformed.
     InvalidFormat,
+    /// Field present but outside the accepted range.
     OutOfRange,
+    /// Field present but disagrees with a counterpart (passwords etc.).
     Mismatch,
+    /// Field present but the value is outside the enum's accepted set.
     UnknownEnum,
 }
 
 impl FieldReason {
+    /// Map the variant to its emitted `lazuli.FieldReason*` Go constant
+    /// identifier.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_codegen_go::emitter::error_envelope::FieldReason;
+    /// assert_eq!(FieldReason::Required.go_const(), "lazuli.FieldReasonRequired");
+    /// ```
     pub fn go_const(self) -> &'static str {
         match self {
             FieldReason::Required => "lazuli.FieldReasonRequired",
@@ -50,7 +75,10 @@ impl FieldReason {
 }
 
 /// Sentinel Go identifier (fully qualified) -> wrap shape.
-/// Populated from existing runtime/go/lazuli/<bucket>/ sentinels.
+///
+/// Closed catalog: every sentinel exported by `runtime/go/lazuli/<bucket>/`
+/// must appear here so the handler boundary emits a typed envelope rather
+/// than `errors.New("unknown")`. New runtime sentinels land here.
 pub const SENTINEL_MAPPINGS: &[(&str, WrapShape)] = &[
     // auth bucket
     (
@@ -123,6 +151,18 @@ pub const SENTINEL_MAPPINGS: &[(&str, WrapShape)] = &[
     ),
 ];
 
+/// Resolve a bucket-qualified sentinel identifier (e.g.
+/// `auth.ErrPasswordMismatch`) to its [`WrapShape`].
+///
+/// Returns [`WrapShape::Generic`] when the sentinel is not in the closed
+/// [`SENTINEL_MAPPINGS`] catalog so the helper always has a wrap arm.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_go::emitter::error_envelope::{lookup_wrap_shape, WrapShape};
+/// assert_eq!(lookup_wrap_shape("auth.ErrUnknown"), WrapShape::Generic);
+/// ```
 pub fn lookup_wrap_shape(sentinel_path: &str) -> WrapShape {
     SENTINEL_MAPPINGS
         .iter()
@@ -131,6 +171,20 @@ pub fn lookup_wrap_shape(sentinel_path: &str) -> WrapShape {
         .unwrap_or(WrapShape::Generic)
 }
 
+/// Collect the distinct bucket names referenced by a slice of
+/// `ExternalCallRef`s.
+///
+/// Used by the handler emitter to scope which sentinel arms the
+/// wrap-helper needs — a handler that only calls `auth/*` doesn't need
+/// arms for buckets it never touches.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_codegen_go::emitter::error_envelope::bucket_names_for_external_calls;
+/// let buckets = bucket_names_for_external_calls(&[]);
+/// assert!(buckets.is_empty());
+/// ```
 pub fn bucket_names_for_external_calls(calls: &[ExternalCallRef]) -> BTreeSet<&str> {
     calls
         .iter()
@@ -138,6 +192,21 @@ pub fn bucket_names_for_external_calls(calls: &[ExternalCallRef]) -> BTreeSet<&s
         .collect()
 }
 
+/// Intersect the requested `buckets` with buckets that own sentinels.
+///
+/// Returns the set of buckets in `buckets` for which at least one
+/// sentinel exists in [`SENTINEL_MAPPINGS`]. Lets the caller skip
+/// emitting a wrap helper for buckets that have no typed envelopes.
+///
+/// ## Examples
+///
+/// ```
+/// use std::collections::BTreeSet;
+/// use lazuli_codegen_go::emitter::error_envelope::sentinel_buckets;
+/// let mut req = BTreeSet::new();
+/// req.insert("auth");
+/// assert!(sentinel_buckets(&req).contains("auth"));
+/// ```
 pub fn sentinel_buckets(buckets: &BTreeSet<&str>) -> BTreeSet<&'static str> {
     SENTINEL_MAPPINGS
         .iter()
@@ -148,10 +217,46 @@ pub fn sentinel_buckets(buckets: &BTreeSet<&str>) -> BTreeSet<&'static str> {
         .collect()
 }
 
+/// Emit the canonical `wrapErrorForHandler` helper.
+///
+/// Convenience wrapper over [`emit_wrap_helper_named`] using the default
+/// helper name handlers expect.
+///
+/// ## Examples
+///
+/// ```
+/// use std::collections::BTreeSet;
+/// use lazuli_codegen_go::emitter::error_envelope::emit_wrap_helper;
+/// use lazuli_codegen_go::emitter::printer::GoPrinter;
+/// let mut p = GoPrinter::new();
+/// let mut buckets = BTreeSet::new();
+/// buckets.insert("auth");
+/// emit_wrap_helper(&mut p, &buckets);
+/// assert!(p.finish().contains("wrapErrorForHandler"));
+/// ```
 pub fn emit_wrap_helper(p: &mut GoPrinter, buckets: &BTreeSet<&str>) {
     emit_wrap_helper_named(p, "wrapErrorForHandler", buckets);
 }
 
+/// Emit a typed wrap helper with the caller-supplied name.
+///
+/// Walks [`SENTINEL_MAPPINGS`] restricted to `buckets`, sorts arms
+/// deterministically, and emits a `switch { ... default: ... }` with one
+/// `errors.Is` arm per sentinel and a generic default. Returns early
+/// (emits nothing) when no sentinels match the requested buckets so
+/// callers don't have to gate the call.
+///
+/// ## Examples
+///
+/// ```
+/// use std::collections::BTreeSet;
+/// use lazuli_codegen_go::emitter::error_envelope::emit_wrap_helper_named;
+/// use lazuli_codegen_go::emitter::printer::GoPrinter;
+/// let mut p = GoPrinter::new();
+/// let buckets: BTreeSet<&str> = BTreeSet::new();
+/// emit_wrap_helper_named(&mut p, "wrapFoo", &buckets);
+/// assert_eq!(p.finish(), String::new()); // no buckets -> no output
+/// ```
 pub fn emit_wrap_helper_named(p: &mut GoPrinter, helper_name: &str, buckets: &BTreeSet<&str>) {
     let mut cases: Vec<(&str, WrapShape)> = SENTINEL_MAPPINGS
         .iter()

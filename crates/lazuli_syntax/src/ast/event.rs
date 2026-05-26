@@ -21,6 +21,12 @@ use serde::{Deserialize, Serialize};
 
 use super::Span;
 
+/// A glob-pattern-grouped set of `event <name>` declarations.
+///
+/// The IR-level shape — a single `event_group <pattern>` block ties
+/// together every `event <name>` that matches the glob, plus parallel
+/// arrays for outbox guarantees and per-variant payload contracts. See
+/// module-level docs for the parallel-arrays layout convention.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventGroup {
     /// `customer_*` glob pattern.
@@ -88,4 +94,35 @@ pub struct EventVariantFieldDecl {
     /// `optional` modifier authored.
     pub optional: bool,
     pub span: Span,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn committed_serde_token_is_snake_case() {
+        let v = serde_json::to_value(EventVariantKindAst::Committed).unwrap();
+        assert_eq!(v, serde_json::json!("committed"));
+    }
+
+    #[test]
+    fn trace_serde_token_is_snake_case() {
+        let v = serde_json::to_value(EventVariantKindAst::Trace).unwrap();
+        assert_eq!(v, serde_json::json!("trace"));
+    }
+
+    #[test]
+    fn event_variant_field_decl_required_flag_roundtrips() {
+        let f = EventVariantFieldDecl {
+            name: "amount".into(),
+            type_text: "@semantic.Money".into(),
+            required: true,
+            optional: false,
+            span: Span::new(0, 0),
+        };
+        let json = serde_json::to_string(&f).unwrap();
+        let back: EventVariantFieldDecl = serde_json::from_str(&json).unwrap();
+        assert!(back.required && !back.optional);
+    }
 }

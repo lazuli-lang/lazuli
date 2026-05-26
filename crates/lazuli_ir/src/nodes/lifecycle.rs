@@ -57,6 +57,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{AuditSpec, PolicyRef, QualifiedName, SpanRef, TestBlock, TranslationKeyRef};
 
+/// Pre-lifecycle workflow declaration (legacy `workflow <name>` form).
+/// Carries the discriminator field, default policy/emits, and the
+/// list of [`Transition`]s. The richer typed [`Lifecycle`] shape
+/// supersedes this for new authoring.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Workflow {
     pub name: String,
@@ -79,6 +83,10 @@ pub struct Workflow {
     pub span_ref: Option<SpanRef>,
 }
 
+/// `lifecycle <field>` declaration on a resource — the typed
+/// state-machine spine. Auto-generates the enum type, enumerates
+/// states + transitions, and pins invariants (terminal immutability,
+/// scope uniqueness, etc.) the runtime enforces.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Lifecycle {
     /// Name of the discriminator field on the parent Resource.
@@ -112,6 +120,8 @@ pub struct Lifecycle {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Typed `@<namespace>.<name>` extension reference (e.g. `@fn.<name>`).
+/// Used by invariant handlers and other extension hooks.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HandlerRef {
     /// Extension namespace, e.g. `fn` for `@fn.<name>`.
@@ -121,6 +131,9 @@ pub struct HandlerRef {
     pub span_ref: Option<SpanRef>,
 }
 
+/// One `state <name> [initial|terminal]` entry inside [`Lifecycle`].
+/// Order is preserved from source so doctor can reason about linear
+/// progression invariants.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LifecycleState {
     pub name: String,
@@ -129,14 +142,23 @@ pub struct LifecycleState {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Closed catalog of lifecycle state roles. `Initial` is the starting
+/// state; `Terminal` is the final / absorbing state; everything else
+/// is `Intermediate`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LifecycleStateKind {
+    /// Starting state for newly-created rows.
     Initial,
+    /// Standard intermediate state.
     Intermediate,
+    /// Absorbing final state.
     Terminal,
 }
 
+/// One `transition <name> ... ` entry inside [`Lifecycle`]. Carries the
+/// `from`/`to` states (multi-`from` = fan-in), policy/audit overrides,
+/// optional timestamp field, emitted events, and inline tests.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LifecycleTransition {
     pub name: String,
@@ -185,12 +207,17 @@ pub enum LifecycleInvariant {
     NoJumpMoreThanOne,
 }
 
+/// Typed `<resource>.<field>` reference, used by [`Workflow::on`] to
+/// name the lifecycle discriminator field.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FieldRef {
     pub resource: QualifiedName,
     pub field: String,
 }
 
+/// One transition entry inside a legacy [`Workflow`]. Carries the
+/// from/to state names + the standard policy/emit decorators. Newer
+/// authoring uses [`LifecycleTransition`] instead.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Transition {
     pub name: String,

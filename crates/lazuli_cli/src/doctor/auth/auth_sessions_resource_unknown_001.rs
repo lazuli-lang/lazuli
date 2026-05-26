@@ -18,17 +18,28 @@ use lazuli_ir::Feature;
 
 // ── output ────────────────────────────────────────────────────────────────────
 
+/// One unresolved `auth sessions resource <X>` reference.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// `.lzi` path the offending declaration lives in.
     pub path: PathBuf,
+    /// Feature owning the broken reference.
     pub feature: String,
     /// Resource name authored in `auth sessions resource <X>`.
     pub session_resource: String,
 }
 
 impl Finding {
+    /// Stable doctor rule code surfaced to the user.
     pub const CODE: &'static str = "auth_sessions_resource_unknown_001";
 
+    /// Render the remediation message naming the missing resource.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let msg = finding.message();
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "auth.sessions.resource `{}` does not name a resource declared in feature `{}`.",
@@ -45,6 +56,16 @@ impl Finding {
 /// per feature) when the resource name does not resolve locally. Empty
 /// otherwise — same-feature resolution; `uses`-relative resolution is
 /// handled by the integration walker.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_ir::Feature;
+/// use lazuli_cli::doctor::auth::auth_sessions_resource_unknown_001::check;
+///
+/// // let findings = check(&feature, Path::new("app.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let Some(auth) = feature.auth.as_ref() else {
         return Vec::new();

@@ -22,6 +22,9 @@ use crate::PolicyAtom;
 use crate::SpanRef;
 use crate::nodes::experience::guard::ViewGuard;
 
+/// Root projection of one [`crate::Experience`] onto one platform
+/// target. Carries the platform discriminator, optional `uses
+/// <experience>` reference, and the per-audience surface entries.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlatformSurface {
     pub experience: String,
@@ -34,13 +37,20 @@ pub struct PlatformSurface {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Closed catalog of `.lzx` platform targets. `Web` and `Mobile`
+/// each get their own codegen pipeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Platform {
+    /// React Web target.
     Web,
+    /// React Native mobile target.
     Mobile,
 }
 
+/// One audience entry inside a [`PlatformSurface`]. Carries the
+/// scope qualifiers, the views the audience sees, and an optional
+/// audience-level [`ViewGuard`] default that nested views can inherit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AudienceSurface {
     pub name: String,
@@ -56,6 +66,9 @@ pub struct AudienceSurface {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Platform-specific shape for one view inside an audience. Carries
+/// columns / fields / sections / search / filter / cells / actions /
+/// blocks plus the optional per-view guard.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlatformView {
     pub name: String,

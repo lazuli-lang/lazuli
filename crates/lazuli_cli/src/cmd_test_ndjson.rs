@@ -21,15 +21,38 @@ use serde_json::Value;
 
 use crate::cmd_test_types::{CoverageMetric, Layer, LayerResult, LayerVerdict, RunReport};
 
+/// Streaming NDJSON event emitter — one JSON object per line, flushed
+/// on every event so consumers reading line-by-line see events as they
+/// happen. Wraps any `Write` so tests can capture output into a buffer.
 pub struct NdjsonEmitter<W: Write> {
     out: W,
 }
 
 impl<W: Write> NdjsonEmitter<W> {
+    /// Build an emitter around the destination writer (typically
+    /// `std::io::stdout()` for `--format ndjson`).
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_ndjson::NdjsonEmitter;
+    /// let emitter = NdjsonEmitter::new(Vec::new());
+    /// let _ = emitter.into_inner();
+    /// ```
     pub fn new(out: W) -> Self {
         Self { out }
     }
 
+    /// Recover the underlying writer (consuming the emitter). Tests
+    /// use this to assert on the captured byte stream.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_ndjson::NdjsonEmitter;
+    /// let bytes = NdjsonEmitter::new(Vec::new()).into_inner();
+    /// assert!(bytes.is_empty());
+    /// ```
     pub fn into_inner(self) -> W {
         self.out
     }
@@ -45,6 +68,17 @@ impl<W: Write> NdjsonEmitter<W> {
         }
     }
 
+    /// Emit `layer_start`. `command` is the shell command the runner
+    /// will execute (or `None` when the runner is in-process).
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_ndjson::NdjsonEmitter;
+    /// use lazuli_cli::cmd_test_types::Layer;
+    /// let mut emitter = NdjsonEmitter::new(Vec::new());
+    /// emitter.layer_start(Layer::Spec, "lazuli-doctor", None);
+    /// ```
     pub fn layer_start(&mut self, layer: Layer, runner: &str, command: Option<&str>) {
         let mut obj = serde_json::json!({
             "event": "layer_start",
@@ -58,6 +92,16 @@ impl<W: Write> NdjsonEmitter<W> {
         self.write_event(obj);
     }
 
+    /// Emit `layer_complete` carrying the test counts, issue count,
+    /// verdict, and wallclock duration.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_ndjson::NdjsonEmitter;
+    /// // let mut emitter = NdjsonEmitter::new(Vec::new());
+    /// // emitter.layer_complete(&layer_result);
+    /// ```
     pub fn layer_complete(&mut self, layer: &LayerResult) {
         self.write_event(serde_json::json!({
             "event": "layer_complete",
@@ -72,6 +116,17 @@ impl<W: Write> NdjsonEmitter<W> {
         }));
     }
 
+    /// Emit `runner_skip` when a layer's runner declines to execute
+    /// (e.g., missing toolchain). `reason` is a short authored string.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_ndjson::NdjsonEmitter;
+    /// use lazuli_cli::cmd_test_types::Layer;
+    /// let mut emitter = NdjsonEmitter::new(Vec::new());
+    /// emitter.runner_skip(Layer::E2e, "playwright", "missing browser");
+    /// ```
     pub fn runner_skip(&mut self, layer: Layer, runner: &str, reason: &str) {
         self.write_event(serde_json::json!({
             "event": "runner_skip",
@@ -81,6 +136,17 @@ impl<W: Write> NdjsonEmitter<W> {
         }));
     }
 
+    /// Emit `finding` — one diagnostic produced by a runner. `line` is
+    /// optional because some runners only know the file.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_ndjson::NdjsonEmitter;
+    /// use lazuli_cli::cmd_test_types::Layer;
+    /// let mut emitter = NdjsonEmitter::new(Vec::new());
+    /// emitter.finding(Layer::Spec, "POLICY-001", "app.lzi", Some(12), "missing");
+    /// ```
     pub fn finding(
         &mut self,
         layer: Layer,
@@ -102,6 +168,16 @@ impl<W: Write> NdjsonEmitter<W> {
         self.write_event(obj);
     }
 
+    /// Emit `coverage` — one metric, its counts/percentage, and the
+    /// verdict against the configured gate.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_ndjson::NdjsonEmitter;
+    /// // let mut emitter = NdjsonEmitter::new(Vec::new());
+    /// // emitter.coverage(&metric);
+    /// ```
     pub fn coverage(&mut self, metric: &CoverageMetric) {
         self.write_event(serde_json::json!({
             "event": "coverage",
@@ -118,6 +194,16 @@ impl<W: Write> NdjsonEmitter<W> {
         }));
     }
 
+    /// Emit `summary` — closes the stream with the run-level counts
+    /// and overall verdict.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use lazuli_cli::cmd_test_ndjson::NdjsonEmitter;
+    /// // let mut emitter = NdjsonEmitter::new(Vec::new());
+    /// // emitter.summary(&report);
+    /// ```
     pub fn summary(&mut self, report: &RunReport) {
         self.write_event(serde_json::json!({
             "event": "summary",

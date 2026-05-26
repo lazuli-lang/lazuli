@@ -39,6 +39,14 @@ pub use rate_limit::format_rate_limit_suffix;
 ///
 /// Features without any `conventions` slot still appear, so the
 /// rendering is stable across whether `crud` is opted into or not.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::inspect::features_summary::render_features_summary;
+///
+/// // let text = render_features_summary(&module.features);
+/// ```
 pub fn render_features_summary(features: &[Feature]) -> String {
     let mut out = String::new();
     for (idx, feature) in features.iter().enumerate() {

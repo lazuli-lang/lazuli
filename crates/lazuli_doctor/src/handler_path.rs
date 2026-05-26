@@ -22,6 +22,16 @@ use std::path::{Path, PathBuf};
 /// `app_root` is the directory containing `features/` — usually
 /// `<project_root>/app` when `Lazurite.toml [lazurite] app_dir = "app"`,
 /// or `<project_root>` itself when no `app_dir` is set.
+///
+/// ## Examples
+///
+/// ```rust
+/// use std::path::Path;
+/// use lazuli_doctor::handler_path::resolve;
+///
+/// let go = resolve(Path::new("/proj/app"), "post", "validate_title");
+/// assert!(go.ends_with("features/post/handlers/validate_title.go"));
+/// ```
 pub fn resolve(app_root: &Path, feature: &str, handler_name: &str) -> PathBuf {
     app_root
         .join("features")
@@ -32,6 +42,16 @@ pub fn resolve(app_root: &Path, feature: &str, handler_name: &str) -> PathBuf {
 
 /// Resolve the canonical handler `_test.go` paired path. Same convention
 /// as [`resolve`] but with the Go test suffix.
+///
+/// ## Examples
+///
+/// ```rust
+/// use std::path::Path;
+/// use lazuli_doctor::handler_path::resolve_test;
+///
+/// let test = resolve_test(Path::new("/proj/app"), "post", "validate_title");
+/// assert!(test.ends_with("features/post/handlers/validate_title_test.go"));
+/// ```
 pub fn resolve_test(app_root: &Path, feature: &str, handler_name: &str) -> PathBuf {
     app_root
         .join("features")
@@ -42,6 +62,16 @@ pub fn resolve_test(app_root: &Path, feature: &str, handler_name: &str) -> PathB
 
 /// The `handlers/` directory for a feature. Useful when the generator
 /// needs to `create_dir_all` before writing files.
+///
+/// ## Examples
+///
+/// ```rust
+/// use std::path::Path;
+/// use lazuli_doctor::handler_path::handlers_dir;
+///
+/// let dir = handlers_dir(Path::new("/proj/app"), "auth");
+/// assert!(dir.ends_with("features/auth/handlers"));
+/// ```
 pub fn handlers_dir(app_root: &Path, feature: &str) -> PathBuf {
     app_root.join("features").join(feature).join("handlers")
 }

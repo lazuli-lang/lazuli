@@ -3,6 +3,21 @@
 
 use std::fmt;
 
+/// Walk a rendered Go file and reject any `func ` line that is not
+/// preceded (across leading comment lines) by a `//lazuli:pattern <id>
+/// <version>` header.
+///
+/// The pre-write lint guarantees that every emitted function carries an
+/// entry in the closed pattern catalog ([`crate::emitter::patterns`]),
+/// so an audit can map every line of generated Go to a known emitter.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_go::emitter::lint::check_pattern_annotations;
+/// let src = "package foo\n//lazuli:pattern auth_login v1\nfunc Login() {}\n";
+/// check_pattern_annotations(src, "foo.gen.go").unwrap();
+/// ```
 pub fn check_pattern_annotations(rendered: &str, file_path: &str) -> Result<(), LintError> {
     let lines: Vec<&str> = rendered.lines().collect();
     for (i, line) in lines.iter().enumerate() {
@@ -31,6 +46,17 @@ pub fn check_pattern_annotations(rendered: &str, file_path: &str) -> Result<(), 
     Ok(())
 }
 
+/// Run every relevant lint over a rendered generated file before
+/// writing it to disk. Today: pattern-header check on `.go` files; other
+/// extensions short-circuit to `Ok(())`.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_codegen_go::emitter::lint::check_generated_file;
+/// // Non-Go files always pass.
+/// check_generated_file("anything", "go.mod").unwrap();
+/// ```
 pub fn check_generated_file(rendered: &str, file_path: &str) -> Result<(), LintError> {
     if file_path.ends_with(".go") {
         check_pattern_annotations(rendered, file_path)?;
@@ -38,9 +64,17 @@ pub fn check_generated_file(rendered: &str, file_path: &str) -> Result<(), LintE
     Ok(())
 }
 
+/// Lint failure surfaced by [`check_generated_file`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LintError {
-    MissingPattern { file: String, line: usize },
+    /// `func ` declaration missing the preceding `//lazuli:pattern`
+    /// header.
+    MissingPattern {
+        /// File path of the rendered output.
+        file: String,
+        /// 1-based line number of the offending `func` line.
+        line: usize,
+    },
 }
 
 impl fmt::Display for LintError {

@@ -15,14 +15,28 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// One `pages-bypass` finding — a filesystem path that bypasses the
+/// Lazurite typed-routing contract.
 pub struct Finding {
+    /// Suspect directory.
     pub path: PathBuf,
+    /// Pre-rendered diagnostic message.
     pub message: String,
 }
 
 impl Finding {
+    /// Stable doctor rule code surfaced to the user.
     pub const CODE: &'static str = "pages-bypass";
 
+    /// Render the diagnostic for the suspect `path` and the matched
+    /// bypass style.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::Path;
+    /// // let msg = Finding::message(Path::new("pages"), kind);
+    /// ```
     pub fn message(path: &Path, kind: BypassKind) -> String {
         let style = match kind {
             BypassKind::PagesDir => "Next.js Pages Router (`pages/` directory)",
@@ -39,9 +53,12 @@ impl Finding {
     }
 }
 
+/// Style of routing bypass detected at the project root.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BypassKind {
+    /// Next.js Pages Router — `pages/` directory at the project root.
     PagesDir,
+    /// Next.js App Router route group — `app/(<group>)/` directory.
     AppRouteGroup,
 }
 
@@ -50,6 +67,15 @@ pub enum BypassKind {
 ///
 /// Does NOT recurse into the suspect dir — one Finding per bypass kind
 /// per location keeps output noise-free.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::doctor::folder::pages_bypass::check;
+///
+/// // let findings = check(Path::new("."));
+/// ```
 pub fn check(root: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 

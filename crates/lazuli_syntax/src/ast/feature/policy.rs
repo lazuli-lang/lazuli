@@ -64,6 +64,11 @@ pub enum PolicyExprAst {
     Not(Box<PolicyExprAst>),
 }
 
+/// Feature-scope `policies` block — closed-children container.
+///
+/// Holds named category atoms ([`PolicyCategoryDecl`]) and per-resource
+/// field overrides ([`FieldPoliciesDecl`]). At most one `policies` block
+/// per feature; doctor enforces that elsewhere.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PoliciesDecl {
     pub categories: Vec<PolicyCategoryDecl>,
@@ -71,6 +76,8 @@ pub struct PoliciesDecl {
     pub span: Span,
 }
 
+/// One named-category row inside a [`PoliciesDecl`] block, e.g.
+/// `create: @role.admin, @role.sales`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PolicyCategoryDecl {
     pub name: String,
@@ -90,28 +97,39 @@ pub struct PolicyCategoryDecl {
     pub span: Span,
 }
 
+/// Route-redirect sidecar on a [`PolicyCategoryDecl`] — drives the
+/// frontend `when_denied route { ... }` block. Decides where the UI
+/// sends an actor who fails the policy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WhenDeniedRouteAst {
+    /// `unauthenticated -> <target>` — actor has no session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unauthenticated: Option<RouteRedirectTargetAst>,
+    /// `role_mismatch <role> -> <target>` arms, in source order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub role_mismatch: Vec<RoleMismatchArmAst>,
+    /// `default -> <target>` — fallback when no other arm matches.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<RouteRedirectTargetAst>,
     pub span: Span,
 }
 
+/// One `role_mismatch <role> -> <target>` arm inside [`WhenDeniedRouteAst`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RoleMismatchArmAst {
+    /// Role name (sans `@role.` prefix).
     pub role: String,
     pub target: RouteRedirectTargetAst,
     pub span: Span,
 }
 
+/// Closed-catalog target of a `when_denied` redirect arm.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum RouteRedirectTargetAst {
+    /// `route view <ViewName>` — declared surface view.
     View(String),
+    /// `route path "/login"` — raw path string.
     Path(String),
 }
 
@@ -128,6 +146,9 @@ pub struct TranslationKeyRefAst {
     pub span: Span,
 }
 
+/// Per-resource field-policy override block inside a [`PoliciesDecl`].
+/// Authored as `fields <Resource>` with one [`FieldPolicyDecl`] per
+/// named field below.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FieldPoliciesDecl {
     /// `fields <Resource>` — captured verbatim (qualifier-free identifier
@@ -137,10 +158,48 @@ pub struct FieldPoliciesDecl {
     pub span: Span,
 }
 
+/// One field override row inside a [`FieldPoliciesDecl`].
+///
+/// `read` / `write` are independent allow-lists of policy atoms; either
+/// can be absent (inherit the category default).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FieldPolicyDecl {
     pub field: String,
+    /// `read: @role.x, @scope.y` allow-list, if authored.
     pub read: Option<Vec<String>>,
+    /// `write: @role.x, @scope.y` allow-list, if authored.
     pub write: Option<Vec<String>>,
     pub span: Span,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn policy_expr_atom_serde_token_tagged() {
+        let e = PolicyExprAst::Authenticated;
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["kind"], "Authenticated");
+    }
+
+    #[test]
+    fn route_redirect_target_view_serde_snake_case() {
+        let r = RouteRedirectTargetAst::View("Login".into());
+        let v = serde_json::to_value(&r).unwrap();
+        assert_eq!(v["kind"], "view");
+        assert_eq!(v["value"], "Login");
+    }
+
+    #[test]
+    fn field_policy_decl_optional_allowlists() {
+        let p = FieldPolicyDecl {
+            field: "email".into(),
+            read: Some(vec!["@role.admin".into()]),
+            write: None,
+            span: Span::new(0, 0),
+        };
+        assert!(p.write.is_none());
+        assert_eq!(p.read.as_ref().unwrap()[0], "@role.admin");
+    }
 }

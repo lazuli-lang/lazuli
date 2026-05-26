@@ -8,17 +8,42 @@ use std::path::{Path, PathBuf};
 
 use lazuli_ir::{ExtensionContract, Feature};
 
+/// One POLLER-HANDLER-ORPHAN-001 finding — a poller's `resolve via
+/// @fn.<name>` reference doesn't match any `fn` extension declared on
+/// the feature.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
+    /// Source `.lzi` file the poller was authored in.
     pub path: PathBuf,
+    /// Feature name (mirrors the `.lzi` feature header).
     pub feature: String,
+    /// Poller carrying the dangling handler reference.
     pub poller: String,
+    /// Handler name the poller tried to resolve.
     pub handler: String,
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "POLLER-HANDLER-ORPHAN-001";
 
+    /// Render the "no matching `fn` extension" message naming the
+    /// poller, handler, and the expected scaffold form.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::poller::handler_orphan_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("messages.lzi"),
+    ///     feature: "messages".into(),
+    ///     poller: "deliver_pending".into(),
+    ///     handler: "send_message".into(),
+    /// };
+    /// assert!(f.message().contains("@fn.send_message"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "poller `{}` references handler `@fn.{}` but no `fn {}: Function[..., ...]` extension is declared in feature `{}`",
@@ -27,6 +52,20 @@ impl Finding {
     }
 }
 
+/// Walk every poller in `feature` and emit a finding for each whose
+/// `resolve via @fn.<name>` reference is not paired with an `fn`
+/// extension declaration on the same feature.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::poller::handler_orphan_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with a poller resolving a missing handler");
+/// let _ = check(&feature, Path::new("messages.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let declared: std::collections::HashSet<&str> = feature
         .extensions

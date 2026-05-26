@@ -33,8 +33,26 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "HOOK-TARGET-001";
 
+    /// Render the "hook target not declared" message naming the hook,
+    /// the missing target, and the feature it was expected in.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::correctness::hook_target_001::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("f.lzi"),
+    ///     feature: "billing".into(),
+    ///     hook_name: "after_charge".into(),
+    ///     unresolved_target: "MissingCommand".into(),
+    /// };
+    /// assert!(f.message().contains("Hook["));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "hook `{}: Hook[{}]` references `{}` but no command/query/job/record/event/resource \
@@ -55,6 +73,17 @@ impl Finding {
 /// `path` is the source `.lzi` file; no I/O is performed here. Cross-feature
 /// hook targets (`other_feature.Foo`) are intentionally skipped because this
 /// rule only checks same-feature resolution.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::correctness::hook_target_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with extension hooks");
+/// let _ = check(&feature, Path::new("billing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let declared = collect_declared_names(feature);
 

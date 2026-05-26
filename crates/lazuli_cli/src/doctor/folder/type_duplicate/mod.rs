@@ -21,16 +21,32 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// One `type-duplicate` finding — a user-authored type that shadows a
+/// generated one.
 pub struct Finding {
+    /// User file containing the duplicating declaration.
     pub user_file: PathBuf,
+    /// Type name that collides.
     pub type_name: String,
+    /// Generated file that already exports the type.
     pub generated_origin: PathBuf,
+    /// Pre-rendered diagnostic message.
     pub message: String,
 }
 
 impl Finding {
+    /// Stable doctor rule code surfaced to the user.
     pub const CODE: &'static str = "type-duplicate";
 
+    /// Render the diagnostic naming the offending file and the
+    /// generated origin to import from instead.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::Path;
+    /// // let msg = Finding::message("Foo", Path::new("a.ts"), Path::new("b.gen.ts"));
+    /// ```
     pub fn message(type_name: &str, user_file: &Path, generated_origin: &Path) -> String {
         format!(
             "`{}` redeclares type `{}` which is already exported from `{}`. \
@@ -45,6 +61,15 @@ impl Finding {
 
 /// Walk `root`, collect generated type names from `dist/ts-web/` and
 /// `dist/ts-mobile/`, scan user code for redeclarations, emit Findings.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_cli::doctor::folder::type_duplicate::check;
+///
+/// // let findings = check(Path::new("."));
+/// ```
 pub fn check(root: &Path) -> Vec<Finding> {
     let generated = collect_generated_types(root);
     if generated.is_empty() {

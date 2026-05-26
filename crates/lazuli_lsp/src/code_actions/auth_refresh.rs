@@ -36,6 +36,29 @@ use crate::{
     position_at_line_start,
 };
 
+/// Code actions for the auth refresh-rotation contract. Returns the
+/// applicable quickfixes for the cursor position — `Promote
+/// single-token to rotation` (on a `sessions` slot lacking `rotation`)
+/// and `Scaffold rotation block` (on a `rotation` header with no
+/// children). Returns an empty vector outside auth blocks.
+///
+/// Pure text edits — no IR awareness. See module docs for the rationale.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_lsp::auth_refresh_code_actions;
+/// use tower_lsp::lsp_types::{Position, Url};
+///
+/// let uri = Url::parse("file:///example.lzi").unwrap();
+/// // Cursor on a feature header — no auth context, no actions.
+/// let actions = auth_refresh_code_actions(
+///     "feature billing\n",
+///     &uri,
+///     Position { line: 0, character: 0 },
+/// );
+/// assert!(actions.is_empty());
+/// ```
 pub fn auth_refresh_code_actions(
     source: &str,
     uri: &Url,
