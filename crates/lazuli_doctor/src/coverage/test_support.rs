@@ -12,6 +12,9 @@ use lazuli_ir::{
     TestBlock,
 };
 
+/// Construct a minimal `Command` for coverage calculator tests with the
+/// given name, policy ref, and optional tests block. Every other field
+/// is defaulted to a value the calculators never inspect.
 pub fn cmd_with_policy(name: &str, policy: PolicyRef, tests: Option<TestBlock>) -> Command {
     Command {
         name: name.to_string(),
@@ -46,6 +49,9 @@ pub fn cmd_with_policy(name: &str, policy: PolicyRef, tests: Option<TestBlock>) 
     }
 }
 
+/// Construct a minimal `Feature` with the given name and every collection
+/// empty. Useful as a baseline for coverage calculator tests that then
+/// push the few items they want exercised.
 pub fn empty_feature(name: &str) -> Feature {
     Feature {
         name: name.into(),

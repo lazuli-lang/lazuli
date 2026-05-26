@@ -20,6 +20,10 @@ use lazuli_ir::{Command, Feature, PolicyCategory, PolicyRef, TestAssertion, Test
 
 use super::LayerCoverage;
 
+/// Compute the `spec_actor_matrix` layer for `features`. Counts each
+/// `(construct, actor)` pair as one denominator unit and as covered
+/// when the construct's `tests` block names the actor in any allow/deny
+/// assertion. Always emits `source = "ir-walk"`.
 pub fn compute(features: &[Feature]) -> LayerCoverage {
     let mut total = 0usize;
     let mut covered = 0usize;

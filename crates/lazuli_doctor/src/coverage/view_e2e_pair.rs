@@ -28,6 +28,11 @@ use std::path::Path;
 
 use super::{LayerCoverage, LzxViewRef};
 
+/// Compute the `view_e2e_pair` layer. For every view, probes nested
+/// and flat Playwright spec paths under the resolved discovery root and
+/// counts the view as covered when any candidate resolves to an existing
+/// file. Without a project root, returns a vacuous-pass layer with
+/// `source = "filesystem"`.
 pub fn compute(
     views: &[LzxViewRef],
     project_root: Option<&Path>,

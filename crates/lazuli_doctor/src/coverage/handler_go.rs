@@ -33,6 +33,10 @@ use super::LayerCoverage;
 /// `[doctor.coverage].handler_go_coverprofile` in a future iteration.
 pub const DEFAULT_COVERPROFILE: &str = "coverage.out";
 
+/// Compute the `handler_go` coverage layer. When no project root is
+/// supplied or no coverprofile is found, returns a vacuous-pass layer
+/// (`total = 0`) with `source = "go-coverprofile"` so the disclosure
+/// remains honest.
 pub fn compute(project_root: Option<&Path>) -> LayerCoverage {
     let Some(root) = project_root else {
         return LayerCoverage::new(0, 0).with_source("go-coverprofile");
@@ -64,6 +68,19 @@ pub fn compute(project_root: Option<&Path>) -> LayerCoverage {
 
 /// Parses Go's coverprofile format. Returns `(covered_statements,
 /// total_statements)`.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::coverage::handler_go::parse_coverprofile;
+///
+/// let body = "mode: set\n\
+///     github.com/x/foo.go:1.0,3.0 5 1\n\
+///     github.com/x/foo.go:4.0,6.0 3 0\n";
+/// let (covered, total) = parse_coverprofile(body);
+/// assert_eq!(total, 8);
+/// assert_eq!(covered, 5);
+/// ```
 pub fn parse_coverprofile(contents: &str) -> (usize, usize) {
     let mut total = 0usize;
     let mut covered = 0usize;

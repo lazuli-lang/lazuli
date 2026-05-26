@@ -30,8 +30,11 @@ use super::LayerCoverage;
 /// calculator stays IR-version-agnostic.
 #[derive(Debug, Clone)]
 pub struct ViewSnapshot {
+    /// Experience surface that hosts the view.
     pub experience: String,
+    /// View name as authored in `.lzx`.
     pub view: String,
+    /// `true` when the view declares an `extensible_by` hint.
     pub extensible: bool,
     /// `accepted by <feature>` / `rejected by <feature>` assertion
     /// text, verbatim from `.lzx`.
@@ -42,6 +45,18 @@ pub struct ViewSnapshot {
 /// Kept for parity with the other calculators; in practice the doctor
 /// caller passes a pre-built `Vec<ViewSnapshot>` since `.lzx`
 /// experiences are parsed outside the per-feature lower step.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::coverage::view_extensibility::compute;
+///
+/// // The IR slot isn't populated by current pipelines, so the
+/// // calculator returns a vacuous-pass layer until `.lzx` walking
+/// // lifts views into `Feature.surfaces`.
+/// let layer = compute(&[]);
+/// assert_eq!(layer.total, 0);
+/// ```
 pub fn compute(features: &[Feature]) -> LayerCoverage {
     let _ = features; // legacy lowering leaves the IR slot empty
     // Doctor wires the calculator via `compute_from_snapshots` once
@@ -49,6 +64,10 @@ pub fn compute(features: &[Feature]) -> LayerCoverage {
     LayerCoverage::new(0, 0).with_source("ir-walk")
 }
 
+/// Compute the layer from a pre-built snapshot vec. Only `extensible`
+/// snapshots enter the denominator; coverage counts when any test
+/// string starts with `accepted by ` or `rejected by `. Emits
+/// `source = "lzx-walk"`.
 pub fn compute_from_snapshots(snapshots: &[ViewSnapshot]) -> LayerCoverage {
     let mut total = 0usize;
     let mut covered = 0usize;

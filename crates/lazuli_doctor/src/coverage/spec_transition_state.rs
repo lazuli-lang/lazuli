@@ -15,6 +15,11 @@ use lazuli_ir::{Feature, TestAssertion, TestBlock};
 
 use super::LayerCoverage;
 
+/// Compute the `spec_transition_state` layer for `features`. Each
+/// `from <state>` source on a workflow or lifecycle transition counts;
+/// a source is covered when the transition's tests carry at least one
+/// `AllowsFrom`/`AllowsFromAs` naming that state. Always emits
+/// `source = "ir-walk"`.
 pub fn compute(features: &[Feature]) -> LayerCoverage {
     let mut total = 0usize;
     let mut covered = 0usize;
