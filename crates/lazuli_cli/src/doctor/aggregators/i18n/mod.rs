@@ -33,23 +33,14 @@
 //! 15-rule closed catalog and per-rule rationale.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
 
 use crate::doctor::{
     DoctorAppManifest, DoctorDiagnostic, DoctorFile, DoctorSeverity, Tier3FeatureFacts,
 };
 
-const LOCALE_NEGOTIATE_SOURCES: &[&str] = &[
-    "accept_language",
-    "query_param",
-    "cookie",
-    "user_profile",
-    "subdomain",
-];
+mod locale_negotiate;
 
-const LOCALE_NEGOTIATE_STRATEGIES: &[&str] = &["best_match", "prefix_match", "exact_match"];
-
-const CLDR_PLURAL_ARMS: &[&str] = &["zero", "one", "two", "few", "many", "other"];
+use locale_negotiate::{check_locale_negotiate, CLDR_PLURAL_ARMS};
 
 /// Aggregate every i18n finding into the canonical `DoctorDiagnostic`
 /// envelope. Returns an empty vec when no `app.lzi` is loaded (the rules
@@ -460,79 +451,4 @@ pub(crate) fn diagnostics(
     }
 
     diagnostics
-}
-
-/// i18n bucket cycle helper — validate a `LocaleNegotiate` block.
-/// Emits `locale_negotiate_source_invalid`,
-/// `locale_negotiate_strategy_invalid`, and reuses
-/// `app_locale_fallback_unknown_dest` when the fallback tag is missing.
-fn check_locale_negotiate(
-    ln: &lazuli_ir::LocaleNegotiate,
-    supported: &BTreeSet<String>,
-    path: &Path,
-    line: usize,
-    diagnostics: &mut Vec<DoctorDiagnostic>,
-) {
-    if let Some(source) = &ln.source {
-        if !LOCALE_NEGOTIATE_SOURCES.contains(&source.as_str()) {
-            diagnostics.push(DoctorDiagnostic {
-                path: path.to_path_buf(),
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: "locale_negotiate_source_invalid".to_owned(),
-                message: format!(
-                    "`locale_negotiate.source` `{}` must be one of: {}.",
-                    source,
-                    LOCALE_NEGOTIATE_SOURCES.join(", ")
-                ),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-    }
-    if let Some(strategy) = &ln.strategy {
-        if !LOCALE_NEGOTIATE_STRATEGIES.contains(&strategy.as_str()) {
-            diagnostics.push(DoctorDiagnostic {
-                path: path.to_path_buf(),
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: "locale_negotiate_strategy_invalid".to_owned(),
-                message: format!(
-                    "`locale_negotiate.strategy` `{}` must be one of: {}.",
-                    strategy,
-                    LOCALE_NEGOTIATE_STRATEGIES.join(", ")
-                ),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-    }
-    if let Some(fallback) = &ln.fallback {
-        if !supported.is_empty() && !supported.contains(fallback) {
-            diagnostics.push(DoctorDiagnostic {
-                path: path.to_path_buf(),
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: "app_locale_fallback_unknown_dest".to_owned(),
-                message: format!(
-                    "`locale_negotiate.fallback` `{}` is not in `app.locale.supported`.",
-                    fallback
-                ),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
-    }
 }
