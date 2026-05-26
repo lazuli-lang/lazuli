@@ -31,12 +31,14 @@
 use serde::Serialize;
 use std::collections::BTreeMap;
 
+mod agent;
 mod auth;
 mod storage;
 
 // Re-export at the `report_types` namespace so the existing glob in
 // `commands/inspect/mod.rs` (`pub(in crate::commands::inspect) use
 // report_types::*;`) keeps picking these up unchanged.
+pub(in crate::commands::inspect) use agent::*;
 pub(in crate::commands::inspect) use auth::*;
 pub(in crate::commands::inspect) use storage::*;
 
@@ -203,63 +205,6 @@ pub(crate) struct InspectFeature {
     /// vectors empty) when the block exists but has no overrides.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) errors: Option<lazuli_ir::FeatureErrors>,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectBuiltInTraceEvent {
-    pub(super) name: String,
-    pub(super) fires_per: String,
-    pub(super) payload: Vec<InspectBuiltInTraceField>,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectBuiltInTraceField {
-    pub(super) name: String,
-    #[serde(rename = "type")]
-    pub(super) type_text: String,
-    pub(super) optional: bool,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectExposeEntry {
-    /// `agent` or `api` — the kind of declaration that produced the route.
-    pub(super) kind: &'static str,
-    /// `<feature>.<kind>.<name>` for stable cross-references.
-    pub(super) origin: String,
-    pub(super) method: String,
-    pub(super) path: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(super) route_slots: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) audience: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) rate_limit_override: Option<String>,
-}
-
-/// One per agent in the file. Carries every tool reference the agent
-/// dispatches plus the local categorisation (kind, scope). Cross-feature
-/// resolution lives in doctor; the projection records the symbol shape
-/// so consumers can compose either path.
-#[derive(Debug, Serialize)]
-pub(super) struct InspectAgentToolsEntry {
-    pub(super) agent: String,
-    pub(super) tools: Vec<InspectAgentToolBinding>,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectAgentToolBinding {
-    /// Canonical reference exactly as the author wrote it.
-    pub(super) reference: String,
-    /// Local-categorisation of the reference: `query.list`, `query.lookup`,
-    /// `query.sql`, `query`, `command`, `api`, `adapter`. Cross-feature
-    /// resolution narrows `query` to one of the three subkinds.
-    pub(super) kind: &'static str,
-    /// `local`, `cross_feature`, or `adapter` — the resolution scope.
-    pub(super) scope: &'static str,
-    /// `read` / `write` / `unknown`. Adapter references rely on the
-    /// registry; local kinds map directly (`command` is always `write`,
-    /// queries default to `read`).
-    pub(super) derived_effect: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -486,70 +431,6 @@ pub(super) struct InspectNotificationThrottle {
     pub(super) per_channel: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) burst: Option<u32>,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectAgent {
-    pub(super) name: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(super) inputs: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) context: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) policy: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) rate_limit: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) output: Option<String>,
-    /// Cut A — `text` / `stream` / `discriminated_enum` /
-    /// `discriminated_record`. Derived from the `output` declaration.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) output_kind: Option<&'static str>,
-    /// Cut A — the enum or record name the discriminator points at,
-    /// when `output_kind` resolves to a discriminated form.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) output_discriminator: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) model: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) temperature: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) max_tokens: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) top_p: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) seed: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) prompt: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(super) tools: Vec<String>,
-    /// Cut A — eval `case <name>` headers under this agent.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(super) evals: Vec<String>,
-    /// Cut A — `pinned` when both `temperature 0` and `seed <int>` are
-    /// declared (cases gate CI); `nondeterministic` otherwise (cases
-    /// run as informational).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) eval_determinism: Option<&'static str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) safety: Option<String>,
-    /// Cut A.7 — `expose http` block summary. Always-on field
-    /// (file-local; no cross-feature resolution).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) expose_http: Option<InspectAgentExpose>,
-    pub(super) origin: &'static str,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectAgentExpose {
-    pub(super) method: String,
-    pub(super) path: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(super) route_slots: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) audience: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) rate_limit_override: Option<String>,
 }
 
 // -----------------------------------------------------------------------------
