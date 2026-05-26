@@ -21,6 +21,10 @@ use crate::SpanRef;
 use crate::nodes::experience::guard::ViewGuard;
 use crate::nodes::surface::RouteParam;
 
+/// One `route <name> { … }` declaration in the app's `.lzx`. Carries
+/// the path pattern, typed route params, optional view/surface
+/// audience binding, lazy/prerender flags, guard policy, and loader
+/// references.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppRoute {
     pub name: String,

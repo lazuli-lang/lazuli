@@ -48,6 +48,9 @@ pub struct AppHeaders {
     pub span_ref: Option<SpanRef>,
 }
 
+/// `headers.hsts { ... }` sub-block — HSTS pin shape. `max_age` is
+/// seconds; `include_subdomains` / `preload` are the standard HSTS
+/// extension flags.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppHsts {
     pub max_age: u64,
@@ -58,6 +61,8 @@ pub struct AppHsts {
 }
 
 impl AppHeaders {
+    /// Closed catalog of admitted values for the `Referrer-Policy`
+    /// header. Mirrors the W3C catalog one-to-one.
     pub const REFERRER_POLICY_CATALOG: &'static [&'static str] = &[
         "no-referrer",
         "no-referrer-when-downgrade",
@@ -68,11 +73,17 @@ impl AppHeaders {
         "strict-origin-when-cross-origin",
         "unsafe-url",
     ];
+    /// Closed catalog of admitted `X-Frame-Options` values. `ALLOW-FROM
+    /// <url>` is admitted dynamically via `is_x_frame_options_known`.
     pub const X_FRAME_OPTIONS_CATALOG: &'static [&'static str] = &["DENY", "SAMEORIGIN"];
 
+    /// Returns `true` when `value` is a known `Referrer-Policy` token.
+    /// Used by doctor to validate the authored string.
     pub fn is_referrer_policy_known(value: &str) -> bool {
         Self::REFERRER_POLICY_CATALOG.contains(&value)
     }
+    /// Returns `true` when `value` is a known `X-Frame-Options` token.
+    /// Accepts `DENY`, `SAMEORIGIN`, or `ALLOW-FROM <non-empty origin>`.
     pub fn is_x_frame_options_known(value: &str) -> bool {
         if Self::X_FRAME_OPTIONS_CATALOG.contains(&value) {
             return true;
@@ -82,6 +93,8 @@ impl AppHeaders {
             .map(|tail| !tail.trim().is_empty())
             .unwrap_or(false)
     }
+    /// Returns `true` when `value` is the only admitted
+    /// `X-Content-Type-Options` token (`nosniff`).
     pub fn is_x_content_type_options_known(value: &str) -> bool {
         value == "nosniff"
     }
@@ -109,6 +122,8 @@ pub struct AppCookie {
     pub span_ref: Option<SpanRef>,
 }
 
+/// One named cookie hygiene profile under [`AppCookie`]. Each axis is
+/// optional so profiles compose against the reserved `default` profile.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CookieProfile {
     pub name: String,
@@ -181,6 +196,8 @@ pub struct AppCors {
     pub span_ref: Option<SpanRef>,
 }
 
+/// One `allow_origins <env> "<origin>"...` line inside [`AppCors`].
+/// Multiple entries per environment merge.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppCorsOriginRule {
     pub environment: String,
