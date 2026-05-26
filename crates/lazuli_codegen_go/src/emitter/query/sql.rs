@@ -153,7 +153,7 @@ fn emit_sql_args_fn(p: &mut GoPrinter, args_struct: &str, params: &[TypedSlot]) 
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_support::{base_feature, emit, qname, record, resource, slot};
+    use super::super::test_support::{base_feature, emit, qname, record, slot};
     use lazuli_ir::{
         BuiltinType, CacheTtl, Policies, PolicyRef, Query, QueryCache, SqlQuery, TypeRef,
     };

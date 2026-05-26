@@ -156,7 +156,7 @@ pub(super) fn register_imports_for_query(
         }
         Query::Lookup(q) => {
             let resource = resource_for_query(feature, &q.name);
-            for slot in super::lookup::lookup_args(q, resource) {
+            for slot in super::lookup_args::lookup_args(q, resource) {
                 register_imports_for_query_arg_type(&slot.type_ref, ctx, imports);
             }
         }
