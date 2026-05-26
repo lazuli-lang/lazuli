@@ -34,8 +34,10 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable doctor rule code surfaced to the user.
     pub const CODE: &'static str = "lzx-cell-missing-impl";
 
+    /// Render the canonical diagnostic message.
     pub fn message(&self) -> String {
         let mut msg = format!(
             "slot `@client.{}` referenced from {} surface, but {} does not exist.",
@@ -65,6 +67,15 @@ impl Finding {
 /// `project_root` is `None` (e.g., unit tests that don't have a real
 /// filesystem), the rule is a no-op — the filesystem check is the
 /// trigger, and there's nothing to assert without it.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::doctor::lzx::cell_missing_impl::check;
+/// use lazuli_cli::doctor::lzx::ir_stub::Module;
+///
+/// // let findings = check(&module);
+/// ```
 pub fn check(module: &Module, project_root: Option<&Path>) -> Vec<Finding> {
     let Some(project_root) = project_root else {
         return Vec::new();

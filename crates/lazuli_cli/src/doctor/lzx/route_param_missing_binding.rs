@@ -22,8 +22,10 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable doctor rule code surfaced to the user.
     pub const CODE: &'static str = "lzx-route-param-missing-binding";
 
+    /// Render the canonical diagnostic message.
     pub fn message(feature: &str, view: &str, placeholder: &str, path: &str) -> String {
         format!(
             "view `{view}` in feature `{feature}`: path `{path}` contains \
@@ -36,6 +38,15 @@ impl Finding {
 }
 
 /// Run `lzx-route-param-missing-binding` across all `.lzx` surfaces.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::doctor::lzx::route_param_missing_binding::check;
+/// use lazuli_cli::doctor::lzx::ir_stub::Module;
+///
+/// // let findings = check(&module);
+/// ```
 pub fn check(module: &Module) -> Vec<Finding> {
     let mut out = Vec::new();
     for feature in &module.features {

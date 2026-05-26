@@ -28,8 +28,10 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable doctor rule code surfaced to the user.
     pub const CODE: &'static str = "lzx-cell-slot-orphan";
 
+    /// Render the canonical diagnostic message.
     pub fn message(
         feature: &str,
         view: &str,
@@ -48,6 +50,15 @@ impl Finding {
 }
 
 /// Run `lzx-cell-slot-orphan` across all `.lzx` surfaces.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::doctor::lzx::cell_slot_orphan::check;
+/// use lazuli_cli::doctor::lzx::ir_stub::Module;
+///
+/// // let findings = check(&module);
+/// ```
 pub fn check(module: &Module) -> Vec<Finding> {
     let mut out = Vec::new();
     for feature in &module.features {

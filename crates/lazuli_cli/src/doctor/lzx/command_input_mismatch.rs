@@ -21,8 +21,10 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable doctor rule code surfaced to the user.
     pub const CODE: &'static str = "lzx-command-input-mismatch";
 
+    /// Render the canonical diagnostic message.
     pub fn message(feature: &str, view: &str, field: &str, command: &str) -> String {
         format!(
             "view `{view}` in feature `{feature}`: field `{field}` is not in the \
@@ -34,6 +36,15 @@ impl Finding {
 }
 
 /// Run `lzx-command-input-mismatch` across all `.lzx` surfaces.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::doctor::lzx::command_input_mismatch::check;
+/// use lazuli_cli::doctor::lzx::ir_stub::Module;
+///
+/// // let findings = check(&module);
+/// ```
 pub fn check(module: &Module) -> Vec<Finding> {
     let mut out = Vec::new();
     for feature in &module.features {

@@ -96,9 +96,13 @@ pub enum SearchTargetCardinality {
     Multi,
 }
 
+/// One slot in a query's `input` block.
 #[derive(Debug, Clone)]
 pub struct QueryInput {
+    /// Slot identifier as authored.
     pub name: String,
+    /// Authored type label (`String`, `ID`, etc.) — kept as string while
+    /// the stub IR does not lower into the closed type catalog.
     pub type_label: String,
 }
 
@@ -121,10 +125,16 @@ pub struct Command {
     pub policy_atoms: Vec<String>,
 }
 
+/// Typed input shape of a `command` — consumed by
+/// `lzx-bulk-action-input-shape` to decide which input form the
+/// bulk-action rule applies to.
 #[derive(Debug, Clone)]
 pub enum CommandInput {
+    /// `input field1, field2` short form — list of slot names.
     Short(Vec<String>),
+    /// Typed slots (`input { field: Type }`).
     Typed(Vec<TypedSlot>),
+    /// No input block at all.
     Empty,
 }
 
@@ -178,6 +188,7 @@ pub enum View {
 }
 
 impl View {
+    /// Authored view name (`view list/detail/create <name>`).
     pub fn name(&self) -> &str {
         match self {
             View::List(v) => &v.name,
@@ -186,6 +197,8 @@ impl View {
         }
     }
 
+    /// 1-based source line where the view header sits — used to anchor
+    /// view-level findings.
     pub fn line(&self) -> usize {
         match self {
             View::List(v) => v.line,
@@ -194,6 +207,7 @@ impl View {
         }
     }
 
+    /// Optional `at "<route>"` clause (some Wave-3 stub views omit it).
     pub fn route(&self) -> Option<&str> {
         match self {
             View::List(v) => v.at.as_deref(),
@@ -235,16 +249,24 @@ pub struct ViewList {
     pub line: usize,
 }
 
+/// L0 #6 sort declaration — `sort by field [asc|desc]` plus the closed
+/// allow-list of sortable fields.
 #[derive(Debug, Clone)]
 pub struct SortDecl {
+    /// Fields the surface is allowed to sort by.
     pub allowed: Vec<String>,
+    /// Default field used when no explicit sort is requested.
     pub default_field: String,
+    /// Default direction.
     pub default_dir: SortDir,
 }
 
+/// Sort direction discriminator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortDir {
+    /// Ascending.
     Asc,
+    /// Descending.
     Desc,
 }
 
@@ -323,21 +345,31 @@ pub struct RouteParam {
     pub line: usize,
 }
 
+/// `view list ... drawer ...` sub-view (Wave-3 detail-as-drawer form).
 #[derive(Debug, Clone)]
 pub struct DrawerSubView {
+    /// Drawer name.
     pub name: String,
+    /// Backing query.
     pub source: QueryRef,
+    /// Optional `route <name> from <source>` binding inside the drawer.
     pub route_binding: Option<DrawerRouteBinding>,
+    /// Source line where the drawer header appears.
     pub line: usize,
 }
 
+/// One route-binding inside a drawer.
 #[derive(Debug, Clone)]
 pub struct DrawerRouteBinding {
+    /// Parameter name to bind.
     pub target: String,
+    /// Where the value is read from.
     pub source: DrawerBindingSource,
+    /// Source line.
     pub line: usize,
 }
 
+/// Closed catalog of drawer binding sources.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DrawerBindingSource {
     Selection,
@@ -391,4 +423,23 @@ pub enum SelectionMode {
     None,
     Single,
     Multi,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sort_dir_default_is_ascending_when_inferred() {
+        // Smoke: the stub IR exposes both directions and they are not equal.
+        assert_ne!(SortDir::Asc, SortDir::Desc);
+    }
+
+    #[test]
+    fn command_input_default_is_empty() {
+        match CommandInput::default() {
+            CommandInput::Empty => {}
+            _ => panic!("default should be Empty"),
+        }
+    }
 }

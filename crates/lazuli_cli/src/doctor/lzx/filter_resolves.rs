@@ -26,8 +26,10 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable doctor rule code surfaced to the user.
     pub const CODE: &'static str = "lzx-filter-type-resolves";
 
+    /// Render the canonical diagnostic message.
     pub fn message(filter: &str, type_ref: &str, resource: &str) -> String {
         format!(
             "filter '{filter}' type '{type_ref}' does not resolve to an enum on resource \
@@ -37,6 +39,15 @@ impl Finding {
 }
 
 /// Run `lzx-filter-type-resolves` across all `.lzx` surfaces in the module.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::doctor::lzx::filter_resolves::check;
+/// use lazuli_cli::doctor::lzx::ir_stub::Module;
+///
+/// // let findings = check(&module);
+/// ```
 pub fn check(module: &Module) -> Vec<Finding> {
     let mut out = Vec::new();
     for feature in &module.features {

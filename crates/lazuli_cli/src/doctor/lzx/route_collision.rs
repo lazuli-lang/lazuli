@@ -32,8 +32,10 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable doctor rule code surfaced to the user.
     pub const CODE: &'static str = "lzx-route-collision";
 
+    /// Render the canonical diagnostic message.
     pub fn message(&self) -> String {
         format!(
             "routes `{}` and `{}` both translate to `{}` under the {} router, \
@@ -60,6 +62,15 @@ impl Finding {
 /// translated route. Two views with the same translated route in the
 /// same tuple emit findings (one per duplicate view, anchored at the
 /// later declaration).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::doctor::lzx::route_collision::check;
+/// use lazuli_cli::doctor::lzx::ir_stub::Module;
+///
+/// // let findings = check(&module);
+/// ```
 pub fn check(module: &Module) -> Vec<Finding> {
     let mut out = Vec::new();
     for feature in &module.features {

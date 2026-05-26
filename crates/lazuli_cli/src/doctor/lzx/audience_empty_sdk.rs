@@ -36,8 +36,10 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable doctor rule code surfaced to the user.
     pub const CODE: &'static str = "lzx-audience-empty-sdk";
 
+    /// Render the canonical diagnostic message.
     pub fn message(feature: &str, audience: &str, requires: &[String]) -> String {
         let req_list = if requires.is_empty() {
             "<none>".to_string()
@@ -55,6 +57,15 @@ impl Finding {
 }
 
 /// Run `lzx-audience-empty-sdk` across all `.lzx` surfaces.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::doctor::lzx::audience_empty_sdk::check;
+/// use lazuli_cli::doctor::lzx::ir_stub::Module;
+///
+/// // let findings = check(&module);
+/// ```
 pub fn check(module: &Module) -> Vec<Finding> {
     let mut out = Vec::new();
     for feature in &module.features {

@@ -23,9 +23,12 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Doctor rule code for unbound search targets.
     pub const BINDS_TARGET_EXISTS: &'static str = "lzx-search-binds-target-exists";
+    /// Doctor rule code for missing-cardinality search bindings.
     pub const FIELD_MULTI_CARDINALITY: &'static str = "lzx-search-field-multi-cardinality";
 
+    /// Render the diagnostic for an unbound search target.
     pub fn missing_target_message(key: &str, binding: &BindingRef) -> String {
         format!(
             "search field '{key}' binds to '{}' which is not declared on the view",
@@ -33,6 +36,8 @@ impl Finding {
         )
     }
 
+    /// Render the diagnostic when a search target binds without
+    /// cardinality metadata.
     pub fn missing_cardinality_message(key: &str, binding: &BindingRef) -> String {
         format!(
             "search field '{key}' binds to '{}' but the target has no cardinality metadata",
@@ -42,6 +47,15 @@ impl Finding {
 }
 
 /// Run the segmented-search binding checks across all `.lzx` surfaces.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::doctor::lzx::search_binds::check;
+/// use lazuli_cli::doctor::lzx::ir_stub::Module;
+///
+/// // let findings = check(&module);
+/// ```
 pub fn check(module: &Module) -> Vec<Finding> {
     let mut out = Vec::new();
     for feature in &module.features {

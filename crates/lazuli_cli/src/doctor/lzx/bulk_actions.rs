@@ -9,6 +9,8 @@ use super::ir_stub::{
 };
 use super::sort_findings;
 
+/// One occurrence of the rule's diagnostic, carrying the
+/// feature/view/line provenance needed to render the doctor surface.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
     pub feature: String,
@@ -19,7 +21,10 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Doctor rule code for input-shape mismatches.
     pub const INPUT_SHAPE_CODE: &'static str = "lzx-bulk-action-input-shape";
+    /// Doctor rule code for bulk actions declared without `selection
+    /// multi`.
     pub const REQUIRE_MULTI_CODE: &'static str = "lzx-bulk-actions-require-multi";
 
     fn require_multi_message(view: &str, mode: SelectionMode) -> String {
@@ -36,6 +41,20 @@ impl Finding {
     }
 }
 
+/// Run `lzx-bulk-action-input-shape` and
+/// `lzx-bulk-actions-require-multi` across every list view in
+/// `module`. Bulk actions are only valid when the view declares
+/// `selection multi` AND the targeted command's input is the closed
+/// shape `{ ids: ID[] }` (or `{ <feature>_ids: ID[] }`).
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::doctor::lzx::bulk_actions::check;
+/// use lazuli_cli::doctor::lzx::ir_stub::Module;
+///
+/// // let findings = check(&module);
+/// ```
 pub fn check(module: &Module) -> Vec<Finding> {
     let mut out = Vec::new();
     for feature in &module.features {

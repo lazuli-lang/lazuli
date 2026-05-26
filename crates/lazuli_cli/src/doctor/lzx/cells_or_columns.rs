@@ -22,8 +22,10 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Stable doctor rule code surfaced to the user.
     pub const CODE: &'static str = "lzx-list-cells-or-columns";
 
+    /// Render the canonical diagnostic message.
     pub fn message(view: &str) -> String {
         format!(
             "view list '{view}' has neither 'columns <field>, ...' nor \
@@ -33,6 +35,15 @@ impl Finding {
 }
 
 /// Run `lzx-list-cells-or-columns` across all lowered `.lzx` surfaces.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use lazuli_cli::doctor::lzx::cells_or_columns::check;
+/// use lazuli_cli::doctor::lzx::ir_stub::Module;
+///
+/// // let findings = check(&module);
+/// ```
 pub fn check(module: &Module) -> Vec<Finding> {
     let mut out = Vec::new();
     for feature in &module.features {
