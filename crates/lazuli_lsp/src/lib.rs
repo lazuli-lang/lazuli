@@ -307,5 +307,5 @@ pub(crate) fn is_lower_ident(token: &str) -> bool {
 }
 
 #[cfg(test)]
-#[path = "lib_tests.rs"]
+#[path = "lib_tests/mod.rs"]
 mod tests;
