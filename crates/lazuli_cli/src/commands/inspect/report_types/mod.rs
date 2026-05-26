@@ -31,6 +31,13 @@
 use serde::Serialize;
 use std::collections::BTreeMap;
 
+mod storage;
+
+// Re-export at the `report_types` namespace so the existing glob in
+// `commands/inspect/mod.rs` (`pub(in crate::commands::inspect) use
+// report_types::*;`) keeps picking these up unchanged.
+pub(in crate::commands::inspect) use storage::*;
+
 #[derive(Debug, Serialize)]
 pub(crate) struct InspectReport {
     pub(super) schema: &'static str,
@@ -194,49 +201,6 @@ pub(crate) struct InspectFeature {
     /// vectors empty) when the block exists but has no overrides.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) errors: Option<lazuli_ir::FeatureErrors>,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectStorage {
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(super) fields: Vec<InspectStorageField>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(super) api_outputs: Vec<InspectStorageApiOutput>,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectStorageField {
-    pub(super) resource: String,
-    pub(super) field: String,
-    pub(super) file_capability: InspectFileCapability,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectStorageApiOutput {
-    pub(super) api: String,
-    pub(super) file_capability: InspectFileCapability,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectFileCapability {
-    pub(super) max_size: InspectFileSize,
-    pub(super) accept: Vec<InspectMimeType>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) visibility: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) signed_ttl: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectFileSize {
-    pub(super) bytes: u64,
-    pub(super) literal: String,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectMimeType {
-    pub(super) family: String,
-    pub(super) subtype: String,
 }
 
 #[derive(Debug, Serialize)]
