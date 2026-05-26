@@ -14,8 +14,11 @@
 //! values produced by the analyzer + C3's synthesis pass. Tests below
 //! exercise the §8 Customer + §9 worked-override examples verbatim.
 
-use lazuli_ir::{ConventionOrigin, ConventionRef, EnvName, Feature, RateLimitSpec, Resource};
-use std::collections::BTreeMap;
+use lazuli_ir::{ConventionOrigin, ConventionRef, EnvName, Feature, RateLimitSpec};
+
+mod owner_scope;
+
+use owner_scope::{build_owner_scope_lookup, origin_owner_scope};
 
 /// Render a `lazuli inspect features` text digest for one or more
 /// lowered features. The output shape matches the boxed listings in
@@ -92,52 +95,6 @@ fn render_one_feature(feature: &Feature, out: &mut String) {
             out.push_str(&render_name_row(query.name(), width, &annotation));
         }
     }
-}
-
-/// Map of `<Resource.name> -> has_any_owner_axis_field`. Built once per
-/// feature; queried by both the resource-header renderer and the
-/// command/query origin renderer so the `owner-scope` suffix is
-/// surfaced consistently. The map only includes resources whose fields
-/// actually carry `@owner_axis` — absence is treated as `false` (default
-/// tenant-only scope, per the owner-scope proposal §7.2).
-fn build_owner_scope_lookup(resources: &[Resource]) -> BTreeMap<&str, bool> {
-    let mut map = BTreeMap::new();
-    for resource in resources {
-        let has_owner_axis = resource
-            .fields
-            .iter()
-            .any(|field| field.owner_axis.is_some());
-        map.insert(resource.name.as_str(), has_owner_axis);
-    }
-    map
-}
-
-/// Resolve the owner-scope flag for a single command/query origin.
-/// Synth-origin entries inherit the flag from the resource the synth
-/// pass attaches the bundle to — for crud and me, that's the resource
-/// whose `conventions [..]` slot drives the synth. Author-overridden
-/// or pure-author entries always render without the suffix.
-fn origin_owner_scope(
-    origin: Option<&ConventionOrigin>,
-    resources: &[Resource],
-    owner_scope_by_resource: &BTreeMap<&str, bool>,
-) -> bool {
-    let Some(ConventionOrigin::Synthesized(_)) = origin else {
-        return false;
-    };
-    // The synth pass attaches one bundle per resource opted-in via
-    // `conventions [..]`. There is at most one resource per feature
-    // (in the current pilot) — we surface owner-scope iff any
-    // opted-in resource on the feature carries `@owner_axis`.
-    resources
-        .iter()
-        .filter(|r| !r.conventions.is_empty())
-        .any(|r| {
-            owner_scope_by_resource
-                .get(r.name.as_str())
-                .copied()
-                .unwrap_or(false)
-        })
 }
 
 /// Render one `<indent><name><pad>[<annotation>]` row, omitting the
