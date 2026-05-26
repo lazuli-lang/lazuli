@@ -36,6 +36,7 @@ mod aggregate;
 mod auth;
 mod job;
 mod notification;
+mod security;
 mod storage;
 mod webhook;
 
@@ -47,6 +48,7 @@ pub(in crate::commands::inspect) use aggregate::*;
 pub(in crate::commands::inspect) use auth::*;
 pub(in crate::commands::inspect) use job::*;
 pub(in crate::commands::inspect) use notification::*;
+pub(in crate::commands::inspect) use security::*;
 pub(in crate::commands::inspect) use storage::*;
 pub(in crate::commands::inspect) use webhook::*;
 
@@ -314,78 +316,6 @@ pub(super) struct InspectDependency {
     pub(super) from: String,
     pub(super) to: String,
     pub(super) origin: String,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectSecurity {
-    pub(super) fields: Vec<InspectSecurityField>,
-    pub(super) event_payloads: Vec<InspectSecurityEventPayload>,
-    pub(super) operations: Vec<InspectSecurityOperation>,
-    pub(super) webhooks: Vec<InspectSecurityWebhook>,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectSecurityField {
-    pub(super) resource: String,
-    pub(super) field: String,
-    pub(super) markers: Vec<String>,
-    pub(super) origin: &'static str,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectSecurityEventPayload {
-    pub(super) event: String,
-    pub(super) field: String,
-    pub(super) markers: Vec<String>,
-    pub(super) origin: &'static str,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectSecurityOperation {
-    pub(super) subject: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) policy: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) tenant_from: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) scope_reason: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(super) rate_limits: Vec<String>,
-    pub(super) scope_override: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) audit: Option<InspectAudit>,
-    pub(super) origin: &'static str,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectAudit {
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(super) fields: Vec<String>,
-    /// Observability bucket cycle row 37 — `audit ... emit_to <X>`
-    /// destination. `None` means "runtime falls back to the reserved
-    /// `audit_log` stream".
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) emit_to: Option<String>,
-    pub(super) origin: &'static str,
-}
-
-// -----------------------------------------------------------------------------
-// Phase L Tier 3 — inspect projections for jobs / webhooks / event_groups.
-//
-// `--expand=jobs`, `--expand=webhooks`, and `--expand=event_groups` produce
-// these per-feature arrays. The shape mirrors `InspectAgent` /
-// `InspectNotification` so a consumer (LLM or human) can read the full
-// `notification`/`job`/`webhook` triple cold without joining tables.
-// Row 32 of `docs/next-checklist.md`.
-// -----------------------------------------------------------------------------
-
-#[derive(Debug, Serialize)]
-pub(super) struct InspectSecurityWebhook {
-    pub(super) webhook: String,
-    pub(super) verify: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(super) secrets: Vec<String>,
-    pub(super) origin: &'static str,
 }
 
 #[derive(Debug, Serialize)]
