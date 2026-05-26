@@ -1,6 +1,12 @@
 #![allow(unexpected_cfgs)]
 
 #[cfg(feature = "smoke_e2e")]
+mod audit;
+
+#[cfg(feature = "smoke_e2e")]
+mod migration;
+
+#[cfg(feature = "smoke_e2e")]
 mod smoke_e2e {
     use std::env;
     use std::fs::{self, OpenOptions};
@@ -10,6 +16,9 @@ mod smoke_e2e {
     use std::process::{Child, Command, Output, Stdio};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+    use super::audit::{AuditRow, latest_login_audit_row};
+    use super::migration::MIGRATION_HELPER;
 
     static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -86,9 +95,14 @@ mod smoke_e2e {
 
         match latest_login_audit_row(tempdir.path(), &db_url) {
             Ok(Some(row)) => {
-                assert_eq!(row.actor_kind, "anonymous", "audit actor_kind");
-                assert_eq!(row.command_name, "auth.login", "audit command_name");
-                assert_eq!(row.result_status, "error", "audit result_status");
+                let AuditRow {
+                    actor_kind,
+                    command_name,
+                    result_status,
+                } = row;
+                assert_eq!(actor_kind, "anonymous", "audit actor_kind");
+                assert_eq!(command_name, "auth.login", "audit command_name");
+                assert_eq!(result_status, "error", "audit result_status");
             }
             Ok(None) => eprintln!(
                 "smoke_e2e: audit_log contained no auth.login row; skipping optional audit assertion"
@@ -411,54 +425,6 @@ mod smoke_e2e {
         rest.strip_prefix(':')
     }
 
-    struct AuditRow {
-        actor_kind: String,
-        command_name: String,
-        result_status: String,
-    }
-
-    fn latest_login_audit_row(out_dir: &Path, db_url: &str) -> Result<Option<AuditRow>, String> {
-        let helper_dir = out_dir.join("smoke_audit_query");
-        fs::create_dir_all(&helper_dir)
-            .map_err(|err| format!("creating {}: {err}", helper_dir.display()))?;
-        fs::write(helper_dir.join("main.go"), AUDIT_QUERY_HELPER)
-            .map_err(|err| format!("writing audit query helper: {err}"))?;
-
-        let query = Command::new("go")
-            .current_dir(out_dir)
-            .env("GOFLAGS", "-mod=mod")
-            .env("LAZULI_DB", db_url)
-            .args(["run", "./smoke_audit_query"])
-            .output()
-            .map_err(|err| format!("running audit query helper: {err}"))?;
-        if !query.status.success() {
-            return Err(format!(
-                "audit query helper failed with status {}\nstdout:\n{}\nstderr:\n{}",
-                query.status,
-                String::from_utf8_lossy(&query.stdout),
-                String::from_utf8_lossy(&query.stderr)
-            ));
-        }
-
-        let stdout = String::from_utf8_lossy(&query.stdout);
-        let line = stdout.trim();
-        if line.is_empty() {
-            return Ok(None);
-        }
-        let mut parts = line.split('\t');
-        let actor_kind = parts.next().unwrap_or_default().to_owned();
-        let command_name = parts.next().unwrap_or_default().to_owned();
-        let result_status = parts.next().unwrap_or_default().to_owned();
-        if actor_kind.is_empty() || command_name.is_empty() || result_status.is_empty() {
-            return Err(format!("malformed audit query output: {line:?}"));
-        }
-        Ok(Some(AuditRow {
-            actor_kind,
-            command_name,
-            result_status,
-        }))
-    }
-
     fn unused_local_port() -> u16 {
         let listener = TcpListener::bind("127.0.0.1:0").expect("binding ephemeral port");
         listener
@@ -506,118 +472,4 @@ mod smoke_e2e {
             String::from_utf8_lossy(&output.stderr)
         )
     }
-
-    const MIGRATION_HELPER: &str = r#"package main
-
-import (
-	"context"
-	"fmt"
-	"os"
-	"path/filepath"
-	"sort"
-	"strings"
-	"time"
-
-	"github.com/jackc/pgx/v5"
-)
-
-func main() {
-	dbURL := os.Getenv("LAZULI_DB")
-	if dbURL == "" {
-		panic("LAZULI_DB is required")
-	}
-	migrationsDir := os.Getenv("LAZULI_MIGRATIONS")
-	if migrationsDir == "" {
-		panic("LAZULI_MIGRATIONS is required")
-	}
-	smokeEmail := os.Getenv("LAZULI_SMOKE_EMAIL")
-	if smokeEmail == "" {
-		panic("LAZULI_SMOKE_EMAIL is required")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	conn, err := pgx.Connect(ctx, dbURL)
-	if err != nil {
-		panic(fmt.Sprintf("connect postgres: %v", err))
-	}
-	defer conn.Close(context.Background())
-
-	entries, err := os.ReadDir(migrationsDir)
-	if err != nil {
-		panic(fmt.Sprintf("read migrations: %v", err))
-	}
-
-	files := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".sql") || strings.HasSuffix(name, ".down.sql") {
-			continue
-		}
-		files = append(files, filepath.Join(migrationsDir, name))
-	}
-	sort.Strings(files)
-
-	for _, file := range files {
-		sql, err := os.ReadFile(file)
-		if err != nil {
-			panic(fmt.Sprintf("read %s: %v", file, err))
-		}
-		if _, err := conn.Exec(ctx, string(sql)); err != nil {
-			panic(fmt.Sprintf("apply %s: %v", file, err))
-		}
-	}
-
-	_, _ = conn.Exec(ctx, `DELETE FROM audit_log WHERE command_name IN ('auth.login', 'account.login')`)
-	_, _ = conn.Exec(ctx, `DELETE FROM "Session"`)
-	_, _ = conn.Exec(ctx, `DELETE FROM "session"`)
-	_, _ = conn.Exec(ctx, `DELETE FROM "User" WHERE email = $1`, smokeEmail)
-	_, _ = conn.Exec(ctx, `DELETE FROM "user" WHERE email = $1`, smokeEmail)
-}
-"#;
-
-    const AUDIT_QUERY_HELPER: &str = r#"package main
-
-import (
-	"context"
-	"fmt"
-	"os"
-	"time"
-
-	"github.com/jackc/pgx/v5"
-)
-
-func main() {
-	dbURL := os.Getenv("LAZULI_DB")
-	if dbURL == "" {
-		panic("LAZULI_DB is required")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	conn, err := pgx.Connect(ctx, dbURL)
-	if err != nil {
-		panic(fmt.Sprintf("connect postgres: %v", err))
-	}
-	defer conn.Close(context.Background())
-
-	var actorKind, commandName, resultStatus string
-	err = conn.QueryRow(ctx, `
-		SELECT actor_kind, command_name, result_status
-		FROM audit_log
-		WHERE command_name = 'auth.login'
-		ORDER BY happened_at DESC, id DESC
-		LIMIT 1
-	`).Scan(&actorKind, &commandName, &resultStatus)
-	if err == pgx.ErrNoRows {
-		return
-	}
-	if err != nil {
-		panic(fmt.Sprintf("query audit_log: %v", err))
-	}
-	fmt.Printf("%s\t%s\t%s\n", actorKind, commandName, resultStatus)
-}
-"#;
 }
