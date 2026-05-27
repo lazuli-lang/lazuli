@@ -111,10 +111,53 @@ impl Finding {
 /// assert!(p.ends_with("e2e/customer/dashboard.spec.ts"));
 /// ```
 pub fn expected_spec_path(project_root: &Path, experience: &str, view: &str) -> PathBuf {
-    project_root
-        .join("e2e")
-        .join(experience)
-        .join(format!("{view}.spec.ts"))
+    expected_spec_path_with_root(project_root, None, experience, view)
+}
+
+/// Same as [`expected_spec_path`] but lets the caller override the `e2e/`
+/// root via `[testing.playwright].discovery_root` (multi-client pilots
+/// like `app/clients/<name>/e2e/`). When `discovery_root` is `None`,
+/// falls back to `<project_root>/e2e/` (original behavior).
+///
+/// 2026-05-27 — added so multi-client layouts (where e2e lives under
+/// `app/clients/<name>/e2e/`) stop emitting false `TEST-VIEW-E2E-
+/// MISSING-001` findings pointing at the bare `./e2e/` path that
+/// doesn't exist. The sibling `coverage::view_e2e_pair` already
+/// honored discovery_root; this brings the diagnostic version into
+/// parity.
+///
+/// ## Examples
+///
+/// ```rust
+/// use std::path::Path;
+/// use lazuli_doctor::test_discipline::test_view_e2e_missing_001::expected_spec_path_with_root;
+///
+/// // Default: project_root/e2e/<experience>/<view>.spec.ts
+/// let default_p = expected_spec_path_with_root(
+///     Path::new("/proj"), None, "customer", "dashboard");
+/// assert!(default_p.ends_with("e2e/customer/dashboard.spec.ts"));
+///
+/// // Override: <discovery_root>/<experience>/<view>.spec.ts
+/// let override_p = expected_spec_path_with_root(
+///     Path::new("/proj"),
+///     Some(Path::new("app/clients/web/e2e")),
+///     "customer",
+///     "dashboard",
+/// );
+/// assert!(override_p.ends_with("app/clients/web/e2e/customer/dashboard.spec.ts"));
+/// ```
+pub fn expected_spec_path_with_root(
+    project_root: &Path,
+    discovery_root: Option<&Path>,
+    experience: &str,
+    view: &str,
+) -> PathBuf {
+    let base: PathBuf = match discovery_root {
+        Some(rel) if rel.is_absolute() => rel.to_path_buf(),
+        Some(rel) => project_root.join(rel),
+        None => project_root.join("e2e"),
+    };
+    base.join(experience).join(format!("{view}.spec.ts"))
 }
 
 /// Run TEST-VIEW-E2E-MISSING-001 against one parsed `.lzx` document.
@@ -145,13 +188,66 @@ pub fn check(
     source: &str,
     project_root: &Path,
 ) -> Vec<Finding> {
+    check_with_discovery_root(document, source_path, source, project_root, None)
+}
+
+/// Same as [`check`] but accepts an optional discovery_root override
+/// from `[testing.playwright].discovery_root`. Also probes flat
+/// fallback paths (`<root>/<view>.spec.ts`,
+/// `<root>/<feature>-<view>.spec.ts`) before declaring a view
+/// uncovered — mirrors `coverage::view_e2e_pair::view_has_spec` so the
+/// diagnostic and coverage views stay aligned.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::test_discipline::test_view_e2e_missing_001::check_with_discovery_root;
+///
+/// // Multi-client pilot: spec files live under app/clients/web/e2e/
+/// // Without the discovery_root override, the rule would falsely flag
+/// // every view as missing because ./e2e/ doesn't exist.
+/// let findings = check_with_discovery_root(
+///     &document,
+///     Path::new("shop.lzx"),
+///     &source,
+///     Path::new("/proj"),
+///     Some(Path::new("app/clients/web/e2e")),
+/// );
+/// ```
+pub fn check_with_discovery_root(
+    document: &LzxDocument,
+    source_path: &Path,
+    source: &str,
+    project_root: &Path,
+    discovery_root: Option<&Path>,
+) -> Vec<Finding> {
+    let scan_root: PathBuf = match discovery_root {
+        Some(rel) if rel.is_absolute() => rel.to_path_buf(),
+        Some(rel) => project_root.join(rel),
+        None => project_root.join("e2e"),
+    };
     let mut findings = Vec::new();
     for experience in &document.experiences {
         for view in &experience.views {
-            let spec_path = expected_spec_path(project_root, &experience.name, &view.name);
-            if spec_path.exists() {
+            // Probe nested + flat (snake) + flat (kebab) + flat
+            // (<experience>-<view>) — same set the coverage layer
+            // accepts. ANY match = covered.
+            let view_snake = &view.name;
+            let view_kebab = view_snake.replace('_', "-");
+            let candidates = [
+                scan_root.join(&experience.name).join(format!("{view_snake}.spec.ts")),
+                scan_root.join(format!("{view_snake}.spec.ts")),
+                scan_root.join(format!("{view_kebab}.spec.ts")),
+                scan_root.join(format!("{}-{view_snake}.spec.ts", experience.name)),
+                scan_root.join(format!("{}-{view_kebab}.spec.ts", experience.name)),
+            ];
+            if candidates.iter().any(|p| p.exists()) {
                 continue;
             }
+            let spec_path = scan_root
+                .join(&experience.name)
+                .join(format!("{view_snake}.spec.ts"));
             let (line, column) = span_line_col(source, view.span.start);
             findings.push(Finding {
                 path: source_path.to_path_buf(),

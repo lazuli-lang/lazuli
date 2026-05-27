@@ -75,11 +75,22 @@ fn fire_view_test_discipline(
     // NOT invoke Playwright; only Path::exists().
     let view_e2e_code =
         lazuli_doctor::test_discipline::test_view_e2e_missing_001::Finding::CODE;
-    for finding in lazuli_doctor::test_discipline::test_view_e2e_missing_001::check(
+    // 2026-05-27 — honor `[testing.playwright].discovery_root` from
+    // Lazurite.toml so multi-client pilots (app/clients/<name>/e2e/)
+    // stop emitting false missing-spec warnings pointing at the bare
+    // ./e2e/ path that doesn't exist in their layout.
+    let playwright_discovery_root: Option<std::path::PathBuf> = ctx
+        .lazurite_manifest
+        .as_ref()
+        .and_then(|m| m.testing_playwright_resolved(&ctx.project_root))
+        .and_then(|pw| pw.discovery_root)
+        .map(std::path::PathBuf::from);
+    for finding in lazuli_doctor::test_discipline::test_view_e2e_missing_001::check_with_discovery_root(
         document,
         &file.path,
         &file.source,
         &ctx.project_root,
+        playwright_discovery_root.as_deref(),
     ) {
         let message = finding.message();
         file.local_diagnostics.push(DoctorDiagnostic {
