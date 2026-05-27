@@ -34,4 +34,4 @@ does not care about the UI sign-in flow.
 Every helper keeps an override for the corresponding app-level escape hatch:
 `storageKey`, `apiUrl`, `commandNamespace`, and `ignorablePatterns`.
 
-Design context: `c:/Users/lucas/lazuli-ops/docs/proposals/playwright-plugin.md`.
+Design context: `external-ops/docs/proposals/playwright-plugin.md`.

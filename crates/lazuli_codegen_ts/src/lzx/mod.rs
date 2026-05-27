@@ -116,7 +116,7 @@ pub(crate) fn banner() -> &'static str {
 /// use lazuli_ir::Surface;
 ///
 /// let surface: Surface = /* … */ unimplemented!();
-/// let files = emit_surface_views(&surface, RouterTarget::ViteReact, "hostpoint");
+/// let files = emit_surface_views(&surface, RouterTarget::ViteReact, "the canonical pilot");
 /// assert!(files.iter().all(|f| f.path.ends_with(".gen.ts")));
 /// ```
 pub fn emit_surface_views(

@@ -61,7 +61,7 @@ pub(crate) fn dedupe_env_contract_diagnostics(
 /// LSP emits `env-schema-reference` per file because the per-file rule can't
 /// see the registry. Doctor has cross-package visibility (it loads
 /// `registry.lzi` and `app.lzi`), so it can suppress those warnings for envs
-/// that ARE declared. Closes the false-positive surfaced by the hostpoint
+/// that ARE declared. Closes the false-positive surfaced by the the canonical pilot
 /// pilot port (2026-05-16): `env.MERCADOPAGO_WEBHOOK_SECRET` was correctly
 /// declared in `registry.env` but the LSP warning was inherited verbatim.
 ///

@@ -18,7 +18,7 @@ use super::test_support::{touch, TempDir};
 // ---------------------------------------------------------------
 
 /// Fixture: a full 7+6-canon plural client tree (mirroring the
-/// hostpoint pilot's `app/clients/hostpoint-app/` shape). Mirrors
+/// the canonical pilot's `app/clients/the canonical pilot-app/` shape). Mirrors
 /// the `vocab_client_src_001` fixture-A pattern.
 #[test]
 fn post_wave_h_plural_client_full_canon_is_silent() {

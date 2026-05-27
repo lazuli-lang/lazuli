@@ -7,7 +7,7 @@
 //! lifecycle / trigger backing on the `status` field.
 //!
 //! Wave 4 widening (TDD/BDD-first proposal §7.1). The rule catches bug
-//! #11 from the Hostpoint integration-suite pass 2 (`leave_host_reply`
+//! #11 from the the canonical pilot integration-suite pass 2 (`leave_host_reply`
 //! handler ignored a `policy denies when target.status = removed`
 //! declaration because the handler's WHERE clause only matched
 //! `host_reply IS NULL`).

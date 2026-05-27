@@ -35,7 +35,7 @@
 //! use lazuli_doctor::internal_hygiene::walker::walk_workspace_rust_sources;
 //! use std::path::Path;
 //!
-//! let files = walk_workspace_rust_sources(Path::new("c:/Users/lucas/lazuli"));
+//! let files = walk_workspace_rust_sources(Path::new("/path/to/lazuli"));
 //! let findings = check(&files);
 //! for f in &findings {
 //!     println!("{}:{} {}::{}", f.path.display(), f.line, f.enum_name, f.variant_name);

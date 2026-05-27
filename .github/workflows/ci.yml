@@ -17,7 +17,6 @@
 #   - any TEST-* / DOCTOR-* rule finding from test_discipline category
 #
 # Refs:
-#   - C:/Users/lucas/.claude/plans/investiga-lazuli-e-bora-hashed-bengio.md
 #   - Lazurite.toml (workspace root)
 
 name: Lazuli CI

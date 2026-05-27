@@ -161,7 +161,7 @@ pub fn emit_module(
     // declaration to the runtime adapter registry via
     // `lazuli.RegisterAppIntegration`. Skipped when no integration
     // carries an adapter (legacy env-var-only entries do not need a
-    // facade binding). See docs/proposals/hostpoint-complete-roadmap-2026-05-18.md §3.5.
+    // facade binding). See docs/proposals/the canonical pilot-complete-roadmap-2026-05-18.md §3.5.
     if let Some(contents) =
         crate::emitter::app_integration::emit_app_integrations(&source_label, module)
     {

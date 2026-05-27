@@ -41,10 +41,10 @@ mod tests {
     #[test]
     fn purpose_text_preserved_verbatim() {
         let p = LziFeaturePurpose {
-            text: "Ship hostpoint reservations".into(),
+            text: "Ship the canonical pilot reservations".into(),
             span: Span::new(0, 0),
         };
-        assert!(p.text.contains("hostpoint"));
+        assert!(p.text.contains("the canonical pilot"));
     }
 
     #[test]

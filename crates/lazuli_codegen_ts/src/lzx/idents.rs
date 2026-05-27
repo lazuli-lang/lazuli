@@ -259,7 +259,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Verb-prefix dedup — covers Hostpoint bug where `conventions [crud, me]`
+    // Verb-prefix dedup — covers the canonical pilot bug where `conventions [crud, me]`
     // synth produced `lookupHostByLookupMyHost` / `listListTravelersTravelers`
     // because the synth's `lookup_my_<r>` / `list_<r>s` query names already
     // carry the verb and got double-prefixed by the legacy hook-name shape.

@@ -1,7 +1,7 @@
 //! Integration test for `lazuli inspect --format=lazuli` rendering the
 //! `conventions [<bundle>, ...]` resource-level slot.
 //!
-//! Closes the parser gap reported by the Hostpoint traveler
+//! Closes the parser gap reported by the the canonical pilot traveler
 //! conventions-adoption swarm: the canonical-indent slice now lifts the
 //! conventions opt-in into IR and the `--format=lazuli` text projection
 //! runs Cell C4's `render_features_summary` so each opted-in resource

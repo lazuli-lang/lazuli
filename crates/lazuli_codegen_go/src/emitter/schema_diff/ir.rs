@@ -208,7 +208,7 @@ CREATE TABLE IF NOT EXISTS "host" (
 
     #[test]
     fn current_schema_emits_profile_photo_jsonb_for_jsonb_field() {
-        // Concrete hostpoint regression case: a `profile_photo: Json`
+        // Concrete the canonical pilot regression case: a `profile_photo: Json`
         // field MUST project to a `JSONB` column so the A11
         // ALTER emitter doesn't loop adding/dropping the same column.
         let mut resource = empty_resource(

@@ -30,7 +30,7 @@
 //! use lazuli_doctor::internal_hygiene::walker::walk_workspace_rust_sources;
 //! use std::path::Path;
 //!
-//! let files = walk_workspace_rust_sources(Path::new("c:/Users/lucas/lazuli"));
+//! let files = walk_workspace_rust_sources(Path::new("/path/to/lazuli"));
 //! let findings = check(&files);
 //! // At W3 landing: ~5 files > 10k LOC, all flagged at Error tier.
 //! for f in &findings {
@@ -128,7 +128,7 @@ impl Finding {
 /// use lazuli_doctor::internal_hygiene::walker::walk_workspace_rust_sources;
 /// use std::path::Path;
 ///
-/// let files = walk_workspace_rust_sources(Path::new("c:/Users/lucas/lazuli"));
+/// let files = walk_workspace_rust_sources(Path::new("/path/to/lazuli"));
 /// for f in check(&files) {
 ///     eprintln!("{} {} LOC", f.path.display(), f.loc_count);
 /// }

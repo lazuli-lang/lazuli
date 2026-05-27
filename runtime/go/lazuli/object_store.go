@@ -13,7 +13,7 @@ import (
 // directly — the runtime owns the wiring; the plugin owns the
 // implementation.
 //
-// Spec: docs/proposals/hostpoint-complete-roadmap-2026-05-18.md §3.5.
+// Spec: docs/proposals/the canonical pilot-complete-roadmap-2026-05-18.md §3.5.
 //
 // Returns `ErrAppIntegrationMissing` when no
 // `RegisterAppIntegration(<name>, ...)` ran at boot (codegen emits
@@ -22,7 +22,7 @@ import (
 // that means the bound plugin does not satisfy the object-store
 // contract and the operator must rebind.
 //
-// Example (hostpoint traveler photo upload):
+// Example (the canonical pilot traveler photo upload):
 //
 //	store, err := lazuli.ObjectStore("object_store")
 //	if err != nil { return travelergen.TravelerPhotoUploadIntent{}, err }

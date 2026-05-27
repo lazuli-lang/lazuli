@@ -3,7 +3,7 @@
 //! Covers both the plural topology (`app/clients/<name>/src/...`) and
 //! the singular topology (`app/web/...`) defined by
 //! `[[client_src_canonical_architecture_2026-05-17]]` §3 — mirrors the
-//! hostpoint pilot redeclaration shapes.
+//! the canonical pilot redeclaration shapes.
 //!
 //! Pre-Wave-H legacy coverage lives in `tests_basic.rs`; Wave S2
 //! import-block awareness in `tests_import_blocks.rs`.
@@ -14,7 +14,7 @@ use super::*;
 use super::test_support::{write, TempDir};
 
 /// Wave H canon shape: `app/clients/<name>/src/cells/<feature>/...`
-/// redeclaring a generated type fires. Mirrors the hostpoint pilot
+/// redeclaring a generated type fires. Mirrors the the canonical pilot
 /// `cells/messaging/ChatExperience.tsx` redeclaring `Chat`.
 #[test]
 fn post_wave_h_plural_cell_redeclaration_fires() {

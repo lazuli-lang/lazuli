@@ -150,7 +150,7 @@ preset = "tdd-iron-hand"
 
 [error_handling.severity_override.INTERNAL-PANIC-UNWRAP-001]
 severity = "warning"
-reason = "transition period — escalate after Hostpoint adoption"
+reason = "transition period — escalate after pilot adoption"
 "#;
         let doctor: Doctor = toml::from_str(toml_input).expect("deserialize");
         let eh = doctor.error_handling.expect("error_handling block");

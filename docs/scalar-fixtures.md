@@ -57,7 +57,7 @@ export const fixtures: ScalarFixtures = {
 ## Reference example
 
 `@plugin/scalars-br` at
-`c:/Users/lucas/dev/lazuli-plugin-scalars-br/` is the reference plugin.
+``@plugin/scalars-br`` is the reference plugin.
 
 Its `src/fixtures.ts` currently mirrors the runtime contract locally and
 exports `fixtures: ScalarFixtures`. The map keys match the plugin manifest's

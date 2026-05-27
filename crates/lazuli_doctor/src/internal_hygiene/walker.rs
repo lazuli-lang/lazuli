@@ -25,7 +25,7 @@
 //! use lazuli_doctor::internal_hygiene::walker::walk_workspace_rust_sources;
 //! use std::path::Path;
 //!
-//! let root = Path::new("c:/Users/lucas/lazuli");
+//! let root = Path::new("/path/to/lazuli");
 //! let files = walk_workspace_rust_sources(root);
 //! for f in &files {
 //!     println!("{:>20} {}", f.crate_name, f.relative_path.display());
@@ -84,7 +84,7 @@ pub struct RustSourceFile {
 /// use lazuli_doctor::internal_hygiene::walker::walk_workspace_rust_sources;
 /// use std::path::Path;
 ///
-/// let files = walk_workspace_rust_sources(Path::new("c:/Users/lucas/lazuli"));
+/// let files = walk_workspace_rust_sources(Path::new("/path/to/lazuli"));
 /// // 333 files at the time of W3 landing.
 /// assert!(files.len() > 100);
 /// ```

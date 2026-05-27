@@ -14,7 +14,7 @@ feature host
 
 fn fixture_app() -> AppManifest {
     serde_json::from_value(serde_json::json!({
-        "name": "HostPoint",
+        "name": "Acme",
         "route_guard": {
             "default_policy": "@scope.authenticated",
             "on_unauthenticated": "/sign-in",
@@ -140,7 +140,7 @@ fn route_guard_emit_matches_golden() {
 #[test]
 fn route_guard_emit_noops_without_guards_or_app_defaults() {
     let app: AppManifest = serde_json::from_value(serde_json::json!({
-        "name": "HostPoint",
+        "name": "Acme",
         "actor_query": "account.query.me"
     }))
     .expect("valid app manifest");

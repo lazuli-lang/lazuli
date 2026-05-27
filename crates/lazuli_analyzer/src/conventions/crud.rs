@@ -97,7 +97,7 @@ pub(crate) fn build_update_command(
 /// `update_<R>` / `delete_<R>` command. Without this list, clients
 /// (TS `useLazuliCommand`) never refresh `lookup_<R>` and
 /// `list_<R>s` after a mutation — the cached query result is shown
-/// until next manual reload. The 2026-05-22 hostpoint settings save
+/// until next manual reload. The 2026-05-22 the canonical pilot settings save
 /// outage surfaced exactly this: after the partial-update bug was
 /// fixed, users still saw stale data on re-entering the panel
 /// because every synth command shipped with `invalidates: []`.

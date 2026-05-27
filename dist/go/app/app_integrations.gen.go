@@ -13,7 +13,7 @@ import (
 // `lazuli.PaymentGateway`, ...) resolve through this registry, so
 // handlers reach `lazuli.ObjectStore("object_store")` instead of
 // reading `S3_ENDPOINT` env vars directly. See
-// docs/proposals/hostpoint-complete-roadmap-2026-05-18.md §3.5.
+// docs/proposals/registry-bindings-and-app-integrations.md §3.5.
 //lazuli:pattern app_integration_register v1
 func init() {
 	lazuli.RegisterAppIntegration("crm", "@adapter.crm")

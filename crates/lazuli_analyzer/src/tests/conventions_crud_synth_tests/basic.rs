@@ -134,7 +134,7 @@
     /// written by hand. Without these the Go codegen emits an empty
     /// `lazuli.Bindings{}` body and every dispatch tripped the runtime
     /// guard "updates effect requires Bind bindings" (PG 500 at first
-    /// call). Regression for the 2026-05-22 hostpoint /settings save
+    /// call). Regression for the 2026-05-22 the canonical pilot /settings save
     /// outage; pairs with `create_<R>` having the same gap.
     #[test]
     fn synth_create_and_update_populate_assignments_from_input() {

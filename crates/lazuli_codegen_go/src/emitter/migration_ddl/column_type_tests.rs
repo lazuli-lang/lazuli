@@ -154,7 +154,7 @@ fn inline_unique_field_on_org_tenancy_emits_composite_unique() {
     );
     assert!(module.features[0].resources[0].fields[0].unique);
 
-    let files = emit_migrations(&module, "hostpoint");
+    let files = emit_migrations(&module, "the canonical pilot");
     let sql = files
         .iter()
         .find(|file| file.path == "migrations/001_account_user.sql")
@@ -179,7 +179,7 @@ fn inline_unique_field_on_non_tenant_resource_emits_plain_unique() {
     );
     assert!(module.features[0].resources[0].fields[0].unique);
 
-    let files = emit_migrations(&module, "hostpoint");
+    let files = emit_migrations(&module, "the canonical pilot");
     let sql = files
         .iter()
         .find(|file| file.path == "migrations/001_account_user.sql")

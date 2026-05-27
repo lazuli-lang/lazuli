@@ -283,7 +283,7 @@ pub struct ResourceFieldDecl {
 
 /// `ir-resource-conventions-owner-scope` §7.1 — AST-level mirror of
 /// `ir::OwnerAxis`. `through_column` carries the bare identifier the
-/// author wrote between the parens (e.g. `user` for Hostpoint's
+/// author wrote between the parens (e.g. `user` for the canonical pilot's
 /// `Property → Host → User` chain). String-literal arguments are a
 /// parse error (per §7.1, the value is a syntactic identifier).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

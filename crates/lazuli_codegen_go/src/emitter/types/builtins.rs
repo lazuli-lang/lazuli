@@ -188,7 +188,7 @@ mod tests {
         // the carrier's Go type (v1 closed catalog: `String` → `string`,
         // no import). The validate-tag emission lives in `resource.rs`
         // and is golden-tested via `plugin_semantic_validate_tag` plus
-        // the hostpoint pipeline.
+        // the the canonical pilot pipeline.
         // See `docs/proposals/semantic-types-plugin-locales.md` §Codegen.
         let module = cross_ref_module();
         let index = crate::emitter::cross_feature::CrossFeatureIndex::build(&module);

@@ -21,7 +21,7 @@
 //! ## ABI guarantee
 //!
 //! All catalogs are re-exported from the crate root via `pub use
-//! catalogs::*;` so external consumers (Hostpoint VSCode extension,
+//! catalogs::*;` so external consumers (the canonical pilot VSCode extension,
 //! `lazuli_cli::doctor`) keep importing them from the same path
 //! (`lazuli_lsp::ERROR_VOCAB_CODES`, etc.).
 
@@ -60,7 +60,7 @@ pub const AUTH_CATALOG_VALUES: &[&str] = &[
 /// Canonical duration-literal completions surfaced after `access_ttl `
 /// inside an `auth.sessions` block. Soft suggestions (the parser
 /// accepts any well-formed duration literal); these match the
-/// hostpoint baseline and proposal `docs/proposals/auth-refresh-rotation.md`.
+/// the canonical pilot baseline and proposal `docs/proposals/auth-refresh-rotation.md`.
 pub const AUTH_REFRESH_ACCESS_DURATION_LITERALS: &[&str] = &["\"15 minutes\"", "\"1 hour\""];
 
 /// Canonical duration-literal completions surfaced after `refresh_ttl `

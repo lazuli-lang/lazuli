@@ -28,7 +28,7 @@
 //! use lazuli_doctor::internal_hygiene::walker::walk_workspace_rust_sources;
 //! use std::path::Path;
 //!
-//! let files = walk_workspace_rust_sources(Path::new("c:/Users/lucas/lazuli"));
+//! let files = walk_workspace_rust_sources(Path::new("/path/to/lazuli"));
 //! let findings = check(&files);
 //! // At W3 landing: lazuli_ir.rs ~370 undocumented pub items.
 //! for f in &findings {
@@ -100,7 +100,7 @@ impl Finding {
 /// use lazuli_doctor::internal_hygiene::walker::walk_workspace_rust_sources;
 /// use std::path::Path;
 ///
-/// let files = walk_workspace_rust_sources(Path::new("c:/Users/lucas/lazuli"));
+/// let files = walk_workspace_rust_sources(Path::new("/path/to/lazuli"));
 /// for f in check(&files) {
 ///     eprintln!("{}:{} {}", f.path.display(), f.line, f.item);
 /// }

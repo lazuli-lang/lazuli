@@ -2,7 +2,7 @@
 //! different declared currencies.
 //!
 //! Per `docs/proposals/semantic-types-money-brazilian.md` v0.3 + MONEY-1
-//! §3.2 of the hostpoint roadmap. Carrying the ISO 4217 code on the
+//! §3.2 of the the canonical pilot roadmap. Carrying the ISO 4217 code on the
 //! `SemanticMoney` IR variant lets us reject mixed-currency comparisons
 //! at analyse time without re-walking surface text.
 //!

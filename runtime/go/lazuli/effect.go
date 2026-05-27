@@ -52,7 +52,7 @@ const (
 // owner column. Composed by [FromCtxOwnedVia]; consumed by the SQL
 // builder in `applyUpdates` / `applyDeletes`.
 //
-// Closes the relation-traversal gap surfaced by the hostpoint Phase 4
+// Closes the relation-traversal gap surfaced by the the canonical pilot Phase 4
 // capability audit 2026-05-17 (the 8 BLOCKED handlers that needed
 // `<fk> IN (SELECT id FROM <related> WHERE <related>.<owner> = $N)`).
 type ownedViaSubquery struct {
@@ -100,7 +100,7 @@ func FromConst(value any) Source { return Source{kind: sourceConst, value: value
 // Codegen emits this for `@scope.owner` policies on resources that
 // reference an owner via a relation (e.g. `property.host → host.user_id`)
 // rather than directly. Closes the relation-traversal half of the
-// hostpoint 2026-05-17 capability matrix.
+// the canonical pilot 2026-05-17 capability matrix.
 //
 //	// property has `host: Host required` — Host owns the row's
 //	// user via `Host.user_id`.

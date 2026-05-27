@@ -16,7 +16,7 @@
 
     #[test]
     fn go_work_preserve_adds_dist_go_without_dropping_runtime() {
-        let original = "go 1.26.0\n\nuse (\n\t.\n\tc:/Users/lucas/lazuli/runtime/go\n)\n";
+        let original = "go 1.26.0\n\nuse (\n\t.\n\t/path/to/lazuli/runtime/go\n)\n";
         let generated = "go 1.26.0\n\nuse (\n\t.\n\t./dist/go\n)\n";
         let updated = add_missing_go_work_use_entries(
             original,
@@ -25,7 +25,7 @@
 
         assert!(updated.contains("\t.\n"));
         assert!(updated.contains("\t./dist/go\n"));
-        assert!(updated.contains("\tc:/Users/lucas/lazuli/runtime/go\n"));
+        assert!(updated.contains("\t/path/to/lazuli/runtime/go\n"));
         assert_eq!(updated.matches("./dist/go").count(), 1);
     }
 

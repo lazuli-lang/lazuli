@@ -224,7 +224,7 @@ pub fn generate_go(
     fs::create_dir_all(out_dir)
         .with_context(|| format!("creating output directory {}", out_dir.display()))?;
 
-    // Hostpoint deploy 2026-05-25 surfaced this: previous codegen runs
+    // the canonical pilot deploy 2026-05-25 surfaced this: previous codegen runs
     // emitted resource X at sequence 001; a later run with new
     // dependency edges moved X to sequence 005. The new file landed
     // (005_*.sql), but the stale 001_*.sql kept sitting on disk — the

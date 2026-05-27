@@ -1,7 +1,7 @@
 //! MONEY-ARITHMETIC-001 — arithmetic on `Money` values requires a
 //! same-currency operand or an explicit cast.
 //!
-//! Per MONEY-1 §3.2 of the hostpoint roadmap (close to proposal
+//! Per MONEY-1 §3.2 of the the canonical pilot roadmap (close to proposal
 //! `semantic-types-money-brazilian.md` v0.3). Two surface arithmetic
 //! patterns are unambiguous bugs:
 //!

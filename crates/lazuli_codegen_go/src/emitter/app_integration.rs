@@ -29,7 +29,7 @@
 //! Skipped entirely when the module declares no `integrations`
 //! carrying an adapter, so the output listing stays signal-rich.
 //!
-//! Spec: docs/proposals/hostpoint-complete-roadmap-2026-05-18.md §3.5.
+//! Spec: docs/proposals/registry-bindings-and-app-integrations.md §3.5.
 
 use std::collections::BTreeMap;
 
@@ -104,7 +104,7 @@ pub fn emit_app_integrations(source_label: &str, module: &Module) -> Option<Stri
     p.line("// `lazuli.PaymentGateway`, ...) resolve through this registry, so");
     p.line("// handlers reach `lazuli.ObjectStore(\"object_store\")` instead of");
     p.line("// reading `S3_ENDPOINT` env vars directly. See");
-    p.line("// docs/proposals/hostpoint-complete-roadmap-2026-05-18.md §3.5.");
+    p.line("// docs/proposals/registry-bindings-and-app-integrations.md §3.5.");
     p.line("//lazuli:pattern app_integration_register v1");
     p.line("func init() {");
     p.indent();
@@ -267,7 +267,7 @@ mod tests {
     fn integration_from_registry_emits_register_call() {
         // The B1 `bindings` sugar in `registry.lzi` lowers into
         // `module.registry.integrations` (with adapter_provenance
-        // = "plugin"). The emitter must surface those too — hostpoint
+        // = "plugin"). The emitter must surface those too — the canonical pilot
         // wires its plugin bindings exclusively through registry.lzi.
         let module = module_with_registry(vec![integration(
             "object_store",

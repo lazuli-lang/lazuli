@@ -23,7 +23,7 @@ use super::resources::{find_resource, is_resource_ref, resource_ts_name, ts_type
 /// `mine_properties` → "property" + "properties" → Property. Without
 /// this, `mine_properties` fell through to `feature.resources.first()`
 /// which in `catalog.lzi` happens to be `UploadedAsset` — emitting
-/// the wrong TS return type. Hostpoint workaround was an explicit
+/// the wrong TS return type. the canonical pilot workaround was an explicit
 /// `as unknown as Property[]` cast in HostHome.tsx.
 pub(crate) fn pick_query_resource_ts(
     feature: &lazuli_ir::Feature,

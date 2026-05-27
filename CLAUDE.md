@@ -222,7 +222,7 @@ The framework's own Rust source follows Rails ActiveRecord layout, not just Rail
 
 `mod.rs` is a re-exporter, not a kitchen sink. If a file is growing past ~300 LOC and you've already pulled the obvious helpers, that's the signal to split, not to keep packing.
 
-**ABI strictly additive when splitting**: never delete or rename a `pub` / `pub(crate)` / `pub(super)` / `pub(in crate::xxx)` symbol. When you move an item to a sibling file, restore visibility at the parent via `pub use sibling::Item;`. Downstream consumers (Hostpoint LSP extension, codegen, doctor dispatch tables) must keep resolving every original path. The `cargo public-api --diff` invariant from R4.2 still holds: zero public removal across any refactor commit.
+**ABI strictly additive when splitting**: never delete or rename a `pub` / `pub(crate)` / `pub(super)` / `pub(in crate::xxx)` symbol. When you move an item to a sibling file, restore visibility at the parent via `pub use sibling::Item;`. Downstream consumers (the downstream LSP extension, codegen, doctor dispatch tables) must keep resolving every original path. The `cargo public-api --diff` invariant from R4.2 still holds: zero public removal across any refactor commit.
 
 **Inline-test rule**: tests stay co-located with the production code they exercise. When a single `#[cfg(test)] mod tests { ... }` block alone exceeds 500 LOC, split it into sibling `*_tests.rs` files where each sibling is a coherent sub-concern (not a numeric chunk). The canonical pattern, which preserves raw-string indents byte-for-byte:
 

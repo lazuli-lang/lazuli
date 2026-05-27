@@ -2,7 +2,7 @@
 // capability. This file declares the vendor-neutral `Provider`
 // contract that `lazuli.ObjectStore("<binding>")` resolves at runtime.
 //
-// Spec: docs/proposals/hostpoint-complete-roadmap-2026-05-18.md §3.5.
+// Spec: docs/proposals/the canonical pilot-complete-roadmap-2026-05-18.md §3.5.
 // Boundary discipline: this file never names S3, MinIO, R2, Tigris,
 // GCS, or any concrete provider. The S3-specific implementation lives
 // in the `@lazuli/plugin-object-store` adapter package; this contract is the

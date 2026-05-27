@@ -118,7 +118,7 @@ Every handler ships with its paired `_test.go` in the same `app/features/<name>/
 
 ### `app/testsupport/` — shared harness
 
-Cross-handler fixtures (DB pool, org/user seed, role-specific actors) live in `app/testsupport/`. The framework ships a starter `harness.go` mirroring Hostpoint's reference (`app/testsupport/harness.go`, committed 2026-05-24). Pilots extend it with project-specific seed helpers (e.g. `SeedHostProperty`, `SeedTransaction`) — never re-invent fixture seeding inside each handler test.
+Cross-handler fixtures (DB pool, org/user seed, role-specific actors) live in `app/testsupport/`. The framework ships a starter `harness.go` mirroring the canonical pilot's reference (`app/testsupport/harness.go`, committed 2026-05-24). Pilots extend it with project-specific seed helpers (e.g. `SeedHostProperty`, `SeedTransaction`) — never re-invent fixture seeding inside each handler test.
 
 Discipline rules baked into the harness:
 
@@ -127,7 +127,7 @@ Discipline rules baked into the harness:
 - **Self-cleanup.** Each `Seed*` helper either rolls up under an org-level cascade or returns a cleanup closure the test defers. No row leakage between runs.
 - **Unique fixture identifiers.** Names/slugs/emails carry `RandomToken()` suffixes so parallel `go test -p N` never collides on a unique-constraint.
 
-Reference: Hostpoint's `app/testsupport/harness.go` is the canonical extension target; the scaffolded version is the structural minimum.
+Reference: the canonical pilot's `app/testsupport/harness.go` is the canonical extension target; the scaffolded version is the structural minimum.
 
 ## Namespace policy
 

@@ -24,7 +24,7 @@
         );
         write_file(
             &root.join("design.lzi"),
-            r##"design hostpoint
+            r##"design the canonical pilot
   color
     brand-blue "#28bbdd"
   custom
@@ -69,7 +69,7 @@
         );
         write_file(
             &root.join("design.lzi"),
-            r##"design hostpoint
+            r##"design the canonical pilot
   color
     primary "#28bbdd"
   custom

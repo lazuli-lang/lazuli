@@ -17,7 +17,7 @@
 //! ## ABI guarantee
 //!
 //! Both functions are re-exported from the crate root via `pub use
-//! hover::*;` so external consumers (Hostpoint VSCode extension,
+//! hover::*;` so external consumers (the canonical pilot VSCode extension,
 //! `lazuli_cli::doctor`) keep importing them from the same path
 //! (`lazuli_lsp::keyword_description`, `lazuli_lsp::rich_keyword_hover`).
 //!

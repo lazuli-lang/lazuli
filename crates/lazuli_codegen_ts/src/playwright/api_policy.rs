@@ -49,7 +49,7 @@ pub fn emit_playwright_api_policy(commands: &[Command]) -> String {
     writeln!(out).ok();
     writeln!(
         out,
-        "const apiURL = process.env.HOSTPOINT_API_URL ?? 'http://localhost:8080';"
+        "const apiURL = process.env.APP_API_URL ?? 'http://localhost:8080';"
     )
     .ok();
     writeln!(out).ok();

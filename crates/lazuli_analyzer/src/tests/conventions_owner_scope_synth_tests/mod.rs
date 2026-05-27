@@ -119,7 +119,7 @@ mod emit;
         })
     }
 
-    /// Build the Hostpoint pilot's `Host` resource (the FK target with
+    /// Build the the canonical pilot's `Host` resource (the FK target with
     /// the `user: User required unique` actor key). Used to back the
     /// owner-chain in fixtures.
     pub(super) fn host_resource() -> ir::Resource {

@@ -42,7 +42,7 @@ pub(in crate::emitter) fn format_policy_with_expr_public(
 /// flagged this, but we degrade gracefully to a Name-only emit at the
 /// caller).
 ///
-/// Atom decomposition mirrors hostpoint's hand-written `patchPolicy()`
+/// Atom decomposition mirrors the canonical pilot's hand-written `patchPolicy()`
 /// workaround (commit 700e95b): each `@<ns>.<name>` string in
 /// `PolicyCategory.atoms` parses into `{Namespace, Name}`; when the
 /// category carries 2+ atoms, the list is wrapped in infix form

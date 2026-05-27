@@ -1,4 +1,4 @@
-app HostPoint
+app Acme
   actor_query account.query.me
   uses account
 

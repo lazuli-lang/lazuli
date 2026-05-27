@@ -43,7 +43,7 @@ pub(super) struct WhereKeyBinding {
 ///    key (every slot becomes one `<col> = FromInput(...)` binding).
 /// 2. Single typed input slot — `input { endpoint: Text required }`
 ///    treats `endpoint` as the WHERE key. Closes the "alt-key WHERE"
-///    gap from the hostpoint Phase 4 audit 2026-05-17.
+///    gap from the the canonical pilot Phase 4 audit 2026-05-17.
 /// 3. Legacy fallback — `{"id": FromInput("ID")}` for commands that
 ///    declare neither route nor a single-slot input. Mirrors pre-Wave-8
 ///    behaviour.
@@ -171,7 +171,7 @@ pub(super) fn command_pascal_to_snake(s: &str) -> String {
 /// to the `Updates` / `Deletes` `Where` map; the runtime then
 /// composes `WHERE id = $1 AND <column> = <ctx_path>`.
 ///
-/// Closed-catalog axes (closes the hostpoint 2026-05-17 SHIP-NOW gap):
+/// Closed-catalog axes (closes the the canonical pilot 2026-05-17 SHIP-NOW gap):
 ///
 /// | Atom              | Column priority                                   | Ctx path           |
 /// |-------------------|---------------------------------------------------|--------------------|
@@ -258,7 +258,7 @@ pub(super) fn resolve_scope_bindings(command: &Command, feature: &Feature) -> Ve
             }
             "@scope.self" => {
                 // The acting user IS the target row. Closes the
-                // ctx-as-key codegen gap surfaced by the hostpoint
+                // ctx-as-key codegen gap surfaced by the the canonical pilot
                 // Phase 4 audit (e.g. `account.choose_role` updates
                 // the row whose `id` equals `ctx.user.id`). Only
                 // meaningful when the resource is `User`-like — every

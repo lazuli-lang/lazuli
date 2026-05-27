@@ -14,7 +14,7 @@
 //! multi-line `import { ... } from "..."` block are skipped so that named
 //! type imports written as `type Foo` (TS 4.5+ syntax) are not mistaken
 //! for local re-declarations. Wave F01 surfaced this false positive on
-//! the hostpoint canonical pilot: 20 of 31 reported diagnostics were
+//! the the canonical pilot canonical pilot: 20 of 31 reported diagnostics were
 //! framework noise from multi-line SDK imports of generated types.
 
 use std::collections::HashMap;
@@ -231,7 +231,7 @@ fn should_skip_dir(name: &str) -> bool {
 /// Import-block aware: lines inside `import { ... } from "..."` blocks
 /// (whether single-line or multi-line) are skipped so that the TS 4.5+
 /// inline-`type` named-import syntax (`import { type Foo, ... }`) is not
-/// misread as a local re-declaration. See Wave F01 on the hostpoint pilot.
+/// misread as a local re-declaration. See Wave F01 on the the canonical pilot.
 fn extract_declared_type_names(source: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut in_import_block = false;

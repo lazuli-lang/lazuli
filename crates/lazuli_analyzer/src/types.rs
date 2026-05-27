@@ -143,7 +143,7 @@ pub(crate) fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
         "@semantic.Uuid" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticUuid),
         "@semantic.Currency" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticCurrency),
         "@semantic.GeoPoint" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticGeoPoint),
-        // Bare `@semantic.Money` (no args) is Hostpoint-pilot reality:
+        // Bare `@semantic.Money` (no args) is canonical-pilot reality:
         // single-currency app, defaults to BRL.
         "@semantic.Money" => {
             return ir::TypeRef::Builtin(ir::BuiltinType::SemanticMoney {
@@ -160,7 +160,7 @@ pub(crate) fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
         "Decimal" | "Float" => ir::TypeRef::Builtin(ir::BuiltinType::Decimal),
         // Per proposal `semantic-types-money-brazilian.md` v0.3, `Money`
         // is the currency-aware semantic type, NOT a Decimal alias.
-        // Default currency is BRL (Hostpoint-pilot reality); authors
+        // Default currency is BRL (canonical-pilot reality); authors
         // override per-field via `@semantic.Money(currency:<ISO>)`.
         // Codegen emits `<field>_currency` with a CHECK constraint
         // pinned to the declared currency; doctor lint VOCAB-MONEY-002

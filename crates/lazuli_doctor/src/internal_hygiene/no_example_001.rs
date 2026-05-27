@@ -10,7 +10,7 @@
 //! Default severity: `Info`. Under `tdd-iron-hand` preset: `Error`.
 //! The default is intentionally soft because W5 is a sweep wave —
 //! flooding the developer with errors during the sweep would block
-//! Hostpoint work. After W5 sweep completes per-crate, the temporary
+//! the canonical pilot work. After W5 sweep completes per-crate, the temporary
 //! `severity_override` is removed and the preset takes the rule to
 //! `Error` (cf. W6 in the plan).
 //!
@@ -32,7 +32,7 @@
 //! use lazuli_doctor::internal_hygiene::walker::walk_workspace_rust_sources;
 //! use std::path::Path;
 //!
-//! let files = walk_workspace_rust_sources(Path::new("c:/Users/lucas/lazuli"));
+//! let files = walk_workspace_rust_sources(Path::new("/path/to/lazuli"));
 //! let findings = check(&files);
 //! // After W5 sweep on lazuli_ir: this count drops to ~0 for that crate.
 //! ```
@@ -105,7 +105,7 @@ impl Finding {
 /// use lazuli_doctor::internal_hygiene::walker::walk_workspace_rust_sources;
 /// use std::path::Path;
 ///
-/// let files = walk_workspace_rust_sources(Path::new("c:/Users/lucas/lazuli"));
+/// let files = walk_workspace_rust_sources(Path::new("/path/to/lazuli"));
 /// let findings = check(&files);
 /// // After W5 sweep on lazuli_ir: ~0 findings remaining for that crate.
 /// eprintln!("undocumented examples: {}", findings.len());

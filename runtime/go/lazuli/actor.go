@@ -8,7 +8,7 @@ import (
 // handler that needs an authenticated user or a role check. The
 // payoff is two-fold:
 //
-//  1. LOC reduction: ~80 hostpoint handlers today open with
+//  1. LOC reduction: ~80 the canonical pilot handlers today open with
 //     `if ctx.User == nil { return X{}, errors.New("not_authenticated") }`.
 //     Each migration drops 3 lines and the stringly-typed error.
 //

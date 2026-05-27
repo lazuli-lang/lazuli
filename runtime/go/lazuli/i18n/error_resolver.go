@@ -171,7 +171,7 @@ func (r *DefaultResolver) lookup(key, locale string) (string, bool) {
 //     overlays per-feature contracts on top.
 //
 // Boot wiring installs the result via `SetDefaultResolver`; that
-// single call is what closes the hostpoint field incident
+// single call is what closes the the canonical pilot field incident
 // (proposal §1.1) on every zero-authoring app.
 func NewDefaultResolver() *DefaultResolver {
 	return &DefaultResolver{

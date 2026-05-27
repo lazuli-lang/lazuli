@@ -38,7 +38,7 @@ command at `.claude/commands/lazuli-grade.md` reference this file.
   Prisma-trap runbook (4 probes P-A..P-D); added §Vocab Governance
   Rules (RULE-VOCAB-01..04); added 3 new boundary-violation lines.
   Purely additive — no weight redistribution, no past PASS retroactive
-  BLOCK. Triggered by hostpoint vocab-saturation analysis. Source
+  BLOCK. Triggered by the canonical pilot vocab-saturation analysis. Source
   proposal: `grader-vocab-governance.md`.
 - **2026-05-18** — Added Criterion 11 (framework error message
   contract, 6%) per proposal `grader-error-message-criterion.md`;
@@ -338,9 +338,8 @@ zero-hits state) do not count toward 8.5 — they are observations,
 not assertions of existence. The audit's table header or row prose
 must make this clear (e.g. "exact-match grep → 0 hits" in the row).
 
-Closes the false-negative-by-naming pattern surfaced 2026-05-17.
-Audit: `c:/Users/lucas/lazuli-ops/.claude/swarm/reports/mgr-rule-naming-reconciliation-2026-05-17.md`.
-Proposal: `c:/Users/lucas/lazuli-ops/docs/proposals/naming-reconciliation-2026-05-17.md`.
+Closes the false-negative-by-naming pattern surfaced 2026-05-17 during
+the framework's internal naming-reconciliation audit.
 
 ### Criterion 11 — Framework error message contract (runbook)
 
@@ -400,8 +399,8 @@ False-positive carve-outs (Criterion 11 does NOT fire on):
   intentional introspection aids for tooling. C11 only constrains the
   `message` field.
 
-Triggered by the hostpoint PWA framework-string leak (2026-05-18). See
-proposal `c:/Users/lucas/lazuli-ops/docs/proposals/grader-error-message-criterion.md`
+Triggered by the the canonical pilot PWA framework-string leak (2026-05-18). See
+proposal internal review notes
 for the full provenance, audit table, and fixture-list expectations.
 
 ### Criterion 12 — Test discipline + per-layer coverage (runbook)
@@ -570,8 +569,8 @@ policies declarative, or error-handling primitives?
 - Any rejected construct → STOP. Reject the proposal at acceptance
   time per RULE-VOCAB-03. Grading does not proceed.
 
-Triggered by the hostpoint vocab-saturation analysis (2026-05-20). See
-proposal `c:/Users/lucas/lazuli-ops/docs/proposals/grader-vocab-governance.md`
+Triggered by the the canonical pilot vocab-saturation analysis (2026-05-20). See
+proposal internal review notes
 for full probe details, worked examples, and the four Vocab Governance
 Rules that gate acceptance.
 
@@ -663,15 +662,14 @@ Notable changes:
   PASS verdicts unaffected; one past APPROVE (`ai-primitives-v0`
   second pass) annotated retroactively as "deferred Cut B would have
   failed RULE-VOCAB-03; the deferral was correct." Triggered by
-  hostpoint vocab-saturation analysis (72 handlers, ~50% absorbable
+  the canonical pilot vocab-saturation analysis (72 handlers, ~50% absorbable
   by safe vocab; line drawn at `flow`). Source proposal:
-  `c:/Users/lucas/lazuli-ops/docs/proposals/grader-vocab-governance.md`.
 - **2026-05-18 — Criterion 11 inserted (Framework error message
   contract, 6%); weights redistributed (C1 −1, C2 −1, C3 −1, C7 −1,
-  C10 −2).** Sum stays at 100%. Triggered by the hostpoint PWA
+  C10 −2).** Sum stays at 100%. Triggered by the the canonical pilot PWA
   field incident (`runtime/go/lazuli/policy.go:138,146`) where the
   framework's English diagnostic string reached the end user. Source
-  proposal: `c:/Users/lucas/lazuli-ops/docs/proposals/grader-error-message-criterion.md`
+  proposal: internal review notes
   (self-graded PASS 9.16; architect re-grade pending). Forward-only
   hardening: no past PASS retroactively becomes BLOCK. Past PASS
   verdicts at the boundary (e.g., the 9.02 from Wave R) may degrade
@@ -681,7 +679,6 @@ Notable changes:
   open-questions section.
 - **2026-05-17 — Criterion 8.5 inserted; AI-first weight 14% → 11%.**
   Architect grade PASS 8.9/10 per
-  `c:/Users/lucas/lazuli-ops/.claude/swarm/reports/architect-grade-naming-reconciliation-2026-05-17.md`.
   The 3% redirect from Criterion 10 to 8.5 stays within the AI-first
   axis (Criterion 2 + 8.5 + 10 = 32%, invariant before/after);
   Criterion 10 still owns the subjective AI-first signal while 8.5
@@ -733,7 +730,7 @@ Notable changes:
 
 The Criterion 11 insertion is **forward-only hardening**: no past
 PASS verdict retroactively flips to BLOCK. The source proposal
-(`c:/Users/lucas/lazuli-ops/docs/proposals/grader-error-message-criterion.md`,
+(internal review notes,
 §5) lists the following past PASS verdicts that *may* degrade to
 "PASS with notes" once C11 is applied retroactively for record-keeping:
 

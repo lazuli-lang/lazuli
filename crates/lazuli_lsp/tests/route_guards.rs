@@ -49,7 +49,7 @@ fn labels(source: &str, position: Position) -> Vec<String> {
 
 fn fixture() -> String {
     [
-        "app HostPoint",
+        "app Acme",
         "  actor_query ",
         "  route_guard",
         "    default_policy @scope.authenticated",
@@ -133,7 +133,7 @@ fn completion_after_actor_query_offers_feature_query_refs() {
 
 #[test]
 fn completion_inside_app_route_guard_offers_three_default_clauses() {
-    let source = "app HostPoint\n  route_guard\n    \n";
+    let source = "app Acme\n  route_guard\n    \n";
     let items = route_guard_completions(
         source,
         Position {
@@ -175,7 +175,7 @@ fn hover_on_view_policy_ref_shows_atoms_and_backend_alignment() {
 
 #[test]
 fn code_action_inserts_actor_query_stub_when_route_guard_has_no_actor_query() {
-    let source = "app HostPoint\n  route_guard\n    default_policy @scope.authenticated\n";
+    let source = "app Acme\n  route_guard\n    default_policy @scope.authenticated\n";
     let uri = Url::parse("file:///app.lzi").unwrap();
     let actions = route_guard_code_actions(
         source,

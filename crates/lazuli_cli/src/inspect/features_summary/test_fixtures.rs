@@ -165,7 +165,7 @@ pub(super) fn lookup_query(name: &str) -> Query {
 
 /// Build a `host: Host required` FK field carrying
 /// `@owner_axis(through: user)`. Pattern lifted verbatim from the
-/// Hostpoint pilot's `Property.host` field (§1.5).
+/// the canonical pilot's `Property.host` field (§1.5).
 pub(super) fn owner_axis_host_field() -> Field {
     Field {
         name: "host".to_owned(),

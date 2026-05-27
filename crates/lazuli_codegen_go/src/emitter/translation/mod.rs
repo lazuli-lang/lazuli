@@ -15,9 +15,9 @@
 //!      .lzi `translation` block reaches the L1/L2 resolver layers
 //!      end-to-end (proposal §2.E, §5.1).
 //!
-//! Wave 3.5 closes the codegen ↔ runtime sync gap noted in hostpoint
+//! Wave 3.5 closes the codegen ↔ runtime sync gap noted in the canonical pilot
 //! `docs/error-vocab-adoption.md` (the "Known follow-up" paragraph): the
-//! 124 per-feature translation keys hostpoint authored in c96343d now
+//! 124 per-feature translation keys the canonical pilot authored in c96343d now
 //! reach the wire. Before Wave 3.5 codegen emitted a `_placeholder.json`
 //! + a `Catalog` literal that was never read by the runtime; after Wave
 //! 3.5 the resolver L1/L2 hits authored text.

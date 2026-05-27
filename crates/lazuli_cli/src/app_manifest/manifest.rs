@@ -48,10 +48,10 @@ use super::parsers::{app_child, leading_spaces, line_span_ref, line_start_offset
 /// ```ignore
 /// use lazuli_cli::app_manifest::manifest::parse_app_manifest;
 ///
-/// let src = "app Hostpoint\n  title \"Hostpoint\"\n  version \"1.0\"\n";
+/// let src = "app Acme\n  title \"Acme\"\n  version \"1.0\"\n";
 /// let manifest = parse_app_manifest(src).expect("app header");
-/// assert_eq!(manifest.name, "Hostpoint");
-/// assert_eq!(manifest.title.as_deref(), Some("Hostpoint"));
+/// assert_eq!(manifest.name, "Acme");
+/// assert_eq!(manifest.title.as_deref(), Some("Acme"));
 /// ```
 pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
     let lines: Vec<_> = source.lines().collect();
@@ -205,10 +205,10 @@ mod tests {
 
     #[test]
     fn captures_identity_fields() {
-        let src = "app Hostpoint\n  title \"Hostpoint\"\n  version \"1.0\"\n";
+        let src = "app Acme\n  title \"Acme\"\n  version \"1.0\"\n";
         let manifest = parse_app_manifest(src).expect("app header");
-        assert_eq!(manifest.name, "Hostpoint");
-        assert_eq!(manifest.title.as_deref(), Some("Hostpoint"));
+        assert_eq!(manifest.name, "Acme");
+        assert_eq!(manifest.title.as_deref(), Some("Acme"));
         assert_eq!(manifest.version.as_deref(), Some("1.0"));
     }
 }

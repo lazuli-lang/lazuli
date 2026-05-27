@@ -17,7 +17,7 @@
 //! ## ABI guarantee
 //!
 //! All four functions are re-exported from the crate root via `pub use
-//! source_scan::*;` so external consumers (Hostpoint VSCode extension,
+//! source_scan::*;` so external consumers (the canonical pilot VSCode extension,
 //! `lazuli_cli::doctor`) keep importing them from the same path
 //! (`lazuli_lsp::collect_query_refs`, etc.).
 //!

@@ -53,7 +53,7 @@ use super::internals::{append_manifest_block, ensure_dir, write_if_absent};
 /// use std::path::Path;
 /// use lazuli_cli::cmd_new_frontends::web::scaffold_frontend_web;
 ///
-/// // scaffold_frontend_web(Path::new("."), "hostpoint")?;
+/// // scaffold_frontend_web(Path::new("."), "the canonical pilot")?;
 /// ```
 pub fn scaffold_frontend_web(project_root: &Path, _app_name: &str) -> Result<()> {
     ensure_dir(project_root)?;

@@ -230,6 +230,6 @@ feature customer
     // SCOPE-OWNER-COLUMN-001 — warn when @scope.owner / @scope.same_org
     // policy is declared but the targeted resource has no matching column.
     // Mirrors the codegen-side silent-skip so authors see the gap at design
-    // time. (Hostpoint pilot 2026-05-17 evidence.)
+    // time. (the canonical pilot 2026-05-17 evidence.)
     // -------------------------------------------------------------------------
 

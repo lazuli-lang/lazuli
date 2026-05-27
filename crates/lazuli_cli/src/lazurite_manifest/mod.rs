@@ -536,7 +536,7 @@ runtime = "0.1.0"
     #[test]
     fn detect_frontend_layout_single_client() {
         let tmp = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(tmp.path().join("app").join("clients").join("hostpoint-app"))
+        std::fs::create_dir_all(tmp.path().join("app").join("clients").join("the canonical pilot-app"))
             .unwrap();
         let manifest = parse_manifest(
             r#"
@@ -552,7 +552,7 @@ runtime = "0.1.0"
         .unwrap();
         assert_eq!(
             manifest.detect_frontend_layout(tmp.path()),
-            Some("app/clients/hostpoint-app".to_string())
+            Some("app/clients/the canonical pilot-app".to_string())
         );
     }
 

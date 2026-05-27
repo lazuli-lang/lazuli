@@ -26,4 +26,4 @@ disallowed-methods = [
 
 # Allow longer docstring example blocks (Rails-style docs have multi-step
 # `## Examples` that compile via `cargo test --doc`).
-doc-valid-idents = ["Lazuli", "Lazurite", "Hostpoint", "Rails", "Basecamp", "ActiveRecord", "rustdoc", "rust-analyzer", "RDoc"]
+doc-valid-idents = ["Lazuli", "Lazurite", "Rails", "Basecamp", "ActiveRecord", "rustdoc", "rust-analyzer", "RDoc"]

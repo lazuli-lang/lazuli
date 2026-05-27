@@ -1,5 +1,5 @@
-app HostPoint
-  title "HostPoint"
+app Acme
+  title "Acme"
   version "0.1.0"
   targets
     backend go
