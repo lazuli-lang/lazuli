@@ -38,7 +38,7 @@ pub fn render_text<W: Write>(report: &RunReport, out: &mut W) -> std::io::Result
     writeln!(out)?;
     for (idx, layer) in report.layers.iter().enumerate() {
         let total = report.layers.len();
-        writeln!(
+        let _ = writeln!(
             out,
             "[{}/{}] {:<8} ({})",
             idx + 1,
@@ -180,7 +180,7 @@ mod tests {
     fn json_renderer_writes_schema_version() {
         let report = sample();
         let mut buf = Vec::new();
-        render_json(&report, &mut buf).unwrap();
+        render_json(&report, &mut buf);
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("\"schema_version\""));
         assert!(s.contains("\"handler_go\""));

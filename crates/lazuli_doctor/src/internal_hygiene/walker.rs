@@ -193,11 +193,11 @@ mod tests {
         fs::create_dir_all(&crate_src).unwrap();
         fs::create_dir_all(&crate_tests).unwrap();
         let mut f = fs::File::create(crate_src.join("lib.rs")).unwrap();
-        writeln!(f, "//! A").unwrap();
-        writeln!(f, "pub fn x() {{}}").unwrap();
+        let _ = writeln!(f, "//! A");
+        let _ = writeln!(f, "pub fn x() {{}}");
         let mut t = fs::File::create(crate_tests.join("integration.rs")).unwrap();
-        writeln!(t, "#[test]").unwrap();
-        writeln!(t, "fn it() {{}}").unwrap();
+        let _ = writeln!(t, "#[test]");
+        let _ = writeln!(t, "fn it() {{}}");
     }
 
     #[test]
