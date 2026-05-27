@@ -175,8 +175,47 @@ fn has_testable_pub_item(source: &str) -> bool {
     })
 }
 
+/// Substance check for inline test modules (2026-05-27 theater
+/// promotion): a file that contains `#[cfg(test)] mod tests { }`
+/// without any `#[test]` attribute is a placeholder, not a test
+/// pair. Treat it the same as having no inline module at all so the
+/// rule still fires.
+///
+/// The `#[test]` substring is enough — the test mod might wrap each
+/// fn in `#[tokio::test]` or another harness macro that ultimately
+/// expands to a `#[test]`; rather than chase macro variants, we
+/// accept any literal `#[test]` OR a paren-wrapped variant
+/// (`#[test(`, `#[tokio::test]`, `#[test_log::test]`) as substance
+/// evidence. Anything else means the `#[cfg(test)]` block is a
+/// dressing without content.
 fn has_inline_test_mod(source: &str) -> bool {
-    source.contains("#[cfg(test)]") || source.contains("#[test]")
+    if source.contains("#[cfg(test)]") || source.contains("#[test]") {
+        return source_has_test_item(source);
+    }
+    false
+}
+
+fn source_has_test_item(source: &str) -> bool {
+    // Closed catalog of attributes that mark an actual test fn. The
+    // bare `#[test]` form is by far the most common; harness macros
+    // (`#[tokio::test]`, `#[test_log::test]`, `#[rstest]`) expand to
+    // a `#[test]` but they don't carry it literally in the source.
+    // Each entry is matched as a substring; that is enough for the
+    // "block contains at least one entry" gate.
+    const TEST_ATTR_MARKERS: &[&str] = &[
+        "#[test]",
+        "#[test(",
+        "#[tokio::test",
+        "#[async_std::test",
+        "#[actix_rt::test",
+        "#[test_log::test",
+        "#[rstest",
+        "#[proptest",
+        "#[quickcheck",
+    ];
+    TEST_ATTR_MARKERS
+        .iter()
+        .any(|marker| source.contains(marker))
 }
 
 fn has_sibling_test_file(path: &std::path::Path, library_paths: &HashSet<PathBuf>) -> bool {
@@ -255,6 +294,34 @@ mod tests {
         let f = lib_file(
             "crates/lazuli_test/src/widget.rs",
             "pub fn x() {}\n#[cfg(test)] mod tests { #[test] fn t() {} }\n",
+        );
+        assert!(check(&[f]).is_empty());
+    }
+
+    #[test]
+    fn empty_cfg_test_mod_still_fires() {
+        // Theater regression guard (2026-05-27): a `#[cfg(test)]`
+        // module that contains zero `#[test]` items is a placeholder.
+        // The rule MUST still fire so the author wires real tests.
+        let f = lib_file(
+            "crates/lazuli_test/src/widget.rs",
+            "pub fn x() {}\n#[cfg(test)] mod tests {}\n",
+        );
+        let findings = check(&[f]);
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert_eq!(
+            findings[0].suggested_sibling,
+            PathBuf::from("crates/lazuli_test/src/widget_test.rs")
+        );
+    }
+
+    #[test]
+    fn tokio_test_macro_counts_as_test_item() {
+        // `#[tokio::test]` doesn't carry a literal `#[test]` in the
+        // source but expands to one. Treat as substance.
+        let f = lib_file(
+            "crates/lazuli_test/src/widget.rs",
+            "pub fn x() {}\n#[cfg(test)] mod tests { #[tokio::test] async fn t() {} }\n",
         );
         assert!(check(&[f]).is_empty());
     }

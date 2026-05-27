@@ -135,10 +135,23 @@ impl DoctorPackage {
         // into the doctor dispatch so `lazuli doctor` reaches every
         // diagnostic the crate carries (the 11 sibling rules that until
         // now only fired in their `#[cfg(test)] mod tests`).
+        // Resolve handler `app_root` from the manifest the same way
+        // `load_lzi.rs` does for the per-feature test-discipline loop.
+        // `HANDLER-SIGNATURE-MISMATCH-001` reads from
+        // `<app_root>/features/<f>/handlers/`; defaults to
+        // `project_root` when manifest absent or `[lazurite].app_dir`
+        // unset (handler-walking rules gracefully return empty when
+        // the resolved path doesn't exist).
+        let correctness_app_root = self
+            .lazurite_manifest
+            .as_ref()
+            .map(|m| m.app_root(&self.project_root))
+            .unwrap_or_else(|| self.project_root.clone());
         diagnostics.extend(aggregators::correctness::diagnostics(
             &self.tier3_facts,
             self.registry.as_ref().map(|reg| &reg.manifest),
             &self.project_root,
+            &correctness_app_root,
             self.security_profile,
             self.single_file_input,
         ));
@@ -443,6 +456,17 @@ impl DoctorPackage {
             &self.files,
             self.app.as_ref(),
             &self.tier3_facts,
+        ));
+
+        // Workspace-wide Go-handler rules: HANDLER-* error-handling
+        // family + HANDLER-SQL-COLUMN-DRIFT-001 +
+        // TEST-FAILURE-ONLY-COVERAGE-001. All three share the same
+        // `walk_workspace_go_handlers` walker so they live in one
+        // aggregator.
+        diagnostics.extend(aggregators::error_handling_handlers::diagnostics(
+            &correctness_app_root,
+            self.lazurite_manifest.as_ref(),
+            self.security_profile,
         ));
 
         diagnostics.extend(aggregators::folder::diagnostics(

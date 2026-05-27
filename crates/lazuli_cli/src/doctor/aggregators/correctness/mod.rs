@@ -44,6 +44,7 @@ pub(crate) fn diagnostics(
     facts: &[Tier3FeatureFacts],
     registry: Option<&lazuli_ir::AppRegistry>,
     project_root: &Path,
+    app_root: &Path,
     security_profile: SecurityProfile,
     skip_project_migration_check: bool,
 ) -> Vec<DoctorDiagnostic> {
@@ -54,6 +55,26 @@ pub(crate) fn diagnostics(
     let webhook_events: Vec<lazuli_ir::WebhookEvent> = registry
         .map(|r| r.webhook_events.clone())
         .unwrap_or_default();
+
+    // Severity policy resolver for the three new "history-blind" /
+    // signature-drift rules wired below. Per the proposals each is:
+    //   - prototype   → info / warning (downgraded per rule),
+    //   - strict      → warning,
+    //   - production  → error.
+    let migration_severity = match security_profile {
+        SecurityProfile::Prototype => DoctorSeverity::Info,
+        SecurityProfile::Strict => DoctorSeverity::Warning,
+        SecurityProfile::Production => DoctorSeverity::Error,
+    };
+    let handler_sig_severity = match security_profile {
+        SecurityProfile::Prototype | SecurityProfile::Strict => DoctorSeverity::Warning,
+        SecurityProfile::Production => DoctorSeverity::Error,
+    };
+
+    // Codegen root holding `<dist_root>/go/<feature>/command.gen.go`.
+    // Resolved relative to `project_root` because codegen always writes
+    // into `<project_root>/dist`, regardless of where `app_root` points.
+    let dist_root = project_root.join("dist");
 
     for fact in facts {
         let feature = make_synthetic_feature_for_correctness(fact);
@@ -276,6 +297,83 @@ pub(crate) fn diagnostics(
                     group: None,
                 });
             }
+
+            // MIGRATION-ALTER-MISSING-001 — per-feature. Detects IR
+            // additions that no ALTER TABLE migration applies. Skipped
+            // in single-file mode for the same reason
+            // `schema_migration_present` is: there is no project
+            // migration tree to compare against.
+            for finding in correctness::migration_alter_missing_001::check(
+                &feature,
+                &fact.path,
+                project_root,
+            ) {
+                diagnostics.push(DoctorDiagnostic {
+                    message: finding.message(),
+                    path: finding.path,
+                    line: fact.feature_line,
+                    column: 1,
+                    severity: migration_severity,
+                    code: correctness::migration_alter_missing_001::Finding::CODE.to_owned(),
+                    category: None,
+                    feature_name: Some(finding.feature),
+                    construct: None,
+                    fix: None,
+                    group: None,
+                });
+            }
+        }
+
+        // HANDLER-SIGNATURE-MISMATCH-001 — per-feature. Detects drift
+        // between hand-written handler Go signatures and codegen-emitted
+        // `Command[I, O]`. Needs `app_root` to locate handler files and
+        // `dist_root` to locate the codegen artifacts.
+        for finding in correctness::handler_signature_mismatch_001::check(
+            &feature,
+            &fact.path,
+            app_root,
+            &dist_root,
+        ) {
+            let line = fact
+                .command_lines
+                .get(&finding.command)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: handler_sig_severity,
+                code: correctness::handler_signature_mismatch_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: Some(finding.feature),
+                construct: None,
+                fix: None,
+                group: None,
+            });
+        }
+    }
+
+    // MIGRATION-IDEMPOTENT-CREATE-001 — once per project. Walks
+    // `<project_root>/dist/go/migrations/` for non-baseline
+    // `CREATE TABLE IF NOT EXISTS` clauses. Skipped in single-file
+    // mode where no project migration tree exists.
+    if !skip_project_migration_check {
+        for finding in correctness::migration_idempotent_create_001::check(project_root) {
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line: 1,
+                column: 1,
+                severity: migration_severity,
+                code: correctness::migration_idempotent_create_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            });
         }
     }
 

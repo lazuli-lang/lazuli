@@ -26,6 +26,17 @@ use lazuli_ir::Feature;
 use crate::handler_path;
 use crate::handler_walker::{HandlerSite, HandlerSiteKind, iter_handler_sites};
 
+/// Why the test-pairing rule fired for a given handler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MissingKind {
+    /// `_test.go` is absent on disk. Original v0 behavior.
+    FileAbsent,
+    /// `_test.go` exists but declares zero `func Test*` functions
+    /// (empty stub file, package-only, or helpers-only). Hardened
+    /// 2026-05-27: a bare file is no longer enough to clear the rule.
+    NoTestFunctions,
+}
+
 /// One TEST-HANDLER-MISSING-001 finding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
@@ -45,6 +56,10 @@ pub struct Finding {
     pub handler_path: PathBuf,
     /// Canonical `_test.go` path the rule expects to exist.
     pub expected_test_path: PathBuf,
+    /// Why the rule fired — distinguishes "no file" from "file but
+    /// empty of `Test*` functions". Surfaced in the diagnostic so the
+    /// author knows whether to create the file or fill in a real test.
+    pub missing_kind: MissingKind,
 }
 
 impl Finding {
@@ -70,20 +85,34 @@ impl Finding {
     ///     handler_name: "validate_title".into(),
     ///     handler_path: PathBuf::from("validate_title.go"),
     ///     expected_test_path: PathBuf::from("validate_title_test.go"),
+    ///     missing_kind: lazuli_doctor::test_discipline::test_handler_missing_001::MissingKind::FileAbsent,
     /// };
     /// assert!(f.message().contains("validate_title"));
     /// ```
     pub fn message(&self) -> String {
-        format!(
-            "@{}.{} handler exists at {} but its paired test is missing at {}. \
-             Author a `func Test{}` (table-driven, per the IR contract) or delete \
-             the handler.",
-            self.handler_namespace,
-            self.handler_name,
-            self.handler_path.display(),
-            self.expected_test_path.display(),
-            pascal_case(&self.handler_name),
-        )
+        match self.missing_kind {
+            MissingKind::FileAbsent => format!(
+                "@{}.{} handler exists at {} but its paired test is missing at {}. \
+                 Author a `func Test{}` (table-driven, per the IR contract) or delete \
+                 the handler.",
+                self.handler_namespace,
+                self.handler_name,
+                self.handler_path.display(),
+                self.expected_test_path.display(),
+                pascal_case(&self.handler_name),
+            ),
+            MissingKind::NoTestFunctions => format!(
+                "@{}.{} handler exists at {} and its paired file at {} exists but \
+                 declares zero `func Test*` functions. A bare file does not satisfy \
+                 the pairing — author a real `func Test{}` (table-driven, per the IR \
+                 contract) or delete the empty test file.",
+                self.handler_namespace,
+                self.handler_name,
+                self.handler_path.display(),
+                self.expected_test_path.display(),
+                pascal_case(&self.handler_name),
+            ),
+        }
     }
 }
 
@@ -110,7 +139,20 @@ pub fn check(feature: &Feature, lzi_path: &Path, app_root: &Path) -> Vec<Finding
         // Twin-rule discipline: only fire when the handler itself
         // exists. Otherwise HANDLER-MISSING-001 covers the diagnostic
         // and demanding a test for a missing file would double-fire.
-        if go_path.exists() && !test_path.exists() {
+        if !go_path.exists() {
+            continue;
+        }
+        let missing_kind = if !test_path.exists() {
+            Some(MissingKind::FileAbsent)
+        } else if !test_file_has_test_function(&test_path) {
+            // Theater promotion: the file exists but contains zero
+            // `func Test*` definitions — a package-only stub, a
+            // helpers-only file, or just whitespace. Treat as missing.
+            Some(MissingKind::NoTestFunctions)
+        } else {
+            None
+        };
+        if let Some(missing_kind) = missing_kind {
             findings.push(Finding {
                 path: lzi_path.to_path_buf(),
                 feature: feature.name.clone(),
@@ -120,10 +162,57 @@ pub fn check(feature: &Feature, lzi_path: &Path, app_root: &Path) -> Vec<Finding
                 handler_name: site.handler_name,
                 handler_path: go_path,
                 expected_test_path: test_path,
+                missing_kind,
             });
         }
     }
     findings
+}
+
+/// Return `true` when the test file declares at least one `func Test*`
+/// function. Files we cannot read degrade to `true` (we already know
+/// the file exists; a read failure is not the rule's concern — fall
+/// through to silence rather than spam a finding on a transient I/O
+/// error).
+fn test_file_has_test_function(test_path: &Path) -> bool {
+    match std::fs::read_to_string(test_path) {
+        Ok(source) => source_has_test_function(&source),
+        Err(_) => true,
+    }
+}
+
+/// Look for `func Test<Name>(` at the start of a line (after optional
+/// whitespace) — the canonical Go test entrypoint shape. Skips
+/// comments and lines inside string literals via a cheap heuristic:
+/// the marker must appear in a line whose first non-whitespace token
+/// is `func`. That is enough to reject empty files, helper-only
+/// files, and `package` declarations without taking a Go-parser
+/// dependency.
+fn source_has_test_function(source: &str) -> bool {
+    for raw in source.lines() {
+        let line = raw.trim_start();
+        if !line.starts_with("func ") {
+            continue;
+        }
+        let rest = &line["func ".len()..];
+        // `func TestFoo(` or `func TestFoo (` — a leading `Test` and an
+        // eventual `(`. Reject `TestifyHelper`-style false positives by
+        // requiring `Test` to be immediately followed by either an
+        // uppercase letter / digit / `_` (Go test convention) OR the
+        // opening paren itself.
+        let after_test = match rest.strip_prefix("Test") {
+            Some(r) => r,
+            None => continue,
+        };
+        let next = match after_test.chars().next() {
+            Some(c) => c,
+            None => continue,
+        };
+        if next.is_ascii_uppercase() || next.is_ascii_digit() || next == '_' || next == '(' {
+            return true;
+        }
+    }
+    false
 }
 
 /// Mirror of [`crate::correctness::handler_missing_001`]'s scope —
@@ -258,8 +347,57 @@ mod tests {
         let findings = check(&feature, Path::new("features/post/post.lzi"), tmp.path());
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].handler_name, "validate_title");
+        assert_eq!(findings[0].missing_kind, MissingKind::FileAbsent);
         assert!(findings[0].message().contains("TestValidateTitle"));
         assert_eq!(Finding::CODE, "TEST-HANDLER-MISSING-001");
+    }
+
+    #[test]
+    fn positive_test_file_without_test_function_fires() {
+        // Theater regression guard (2026-05-27): a bare `_test.go`
+        // file that declares only `package posthandlers` MUST NOT
+        // clear the rule. Authors who scaffold the file but never
+        // fill in a `Test*` get the same finding shape they would
+        // have gotten if the file were absent — just under
+        // `MissingKind::NoTestFunctions`.
+        let tmp = TempDir::new().unwrap();
+        let dir = handler_path::handlers_dir(tmp.path(), "post");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("validate_title.go"), "package posthandlers").unwrap();
+        fs::write(
+            dir.join("validate_title_test.go"),
+            "package posthandlers\n\n// TODO: real tests\n",
+        )
+        .unwrap();
+
+        let feature = mk_feature(vec![mk_cmd_with_handler("create_post", "validate_title")]);
+        let findings = check(&feature, Path::new("features/post/post.lzi"), tmp.path());
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].missing_kind, MissingKind::NoTestFunctions);
+        let msg = findings[0].message();
+        assert!(msg.contains("zero `func Test*`"));
+        assert!(msg.contains("TestValidateTitle"));
+    }
+
+    #[test]
+    fn negative_test_file_with_helper_only_still_fires() {
+        // `func setUpFixture(t *testing.T) { ... }` is a helper, not
+        // a Test entrypoint — the rule must still fire because the
+        // pair's purpose is to verify the handler.
+        let tmp = TempDir::new().unwrap();
+        let dir = handler_path::handlers_dir(tmp.path(), "post");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("validate_title.go"), "package posthandlers").unwrap();
+        fs::write(
+            dir.join("validate_title_test.go"),
+            "package posthandlers\n\nfunc setUpFixture(t *testing.T) {}\n",
+        )
+        .unwrap();
+
+        let feature = mk_feature(vec![mk_cmd_with_handler("create_post", "validate_title")]);
+        let findings = check(&feature, Path::new("features/post/post.lzi"), tmp.path());
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].missing_kind, MissingKind::NoTestFunctions);
     }
 
     #[test]

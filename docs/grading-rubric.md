@@ -14,6 +14,27 @@ command at `.claude/commands/lazuli-grade.md` reference this file.
 
 ## Changelog
 
+- **2026-05-27** — Added Criterion 13 (Generated-runtime contract
+  honesty, 6%) per proposal `grader-anti-theater-hardening.md`.
+  Weights redistributed (C1 −1, C3 −1, C8 −1, C10 −1, C12 −2). Sum
+  stays at 100%. AI-first ceiling (C2 + C8.5 + C10 + C11 =
+  17 + 3 + 7 + 6 = 33%) unchanged in shape — C10's −1 stays inside
+  the AI-first cluster, preserving the 35% ceiling discipline
+  (cluster previously at 34%, now at 33%; ceiling never crossed).
+  C12 extended with `spec_polarity` layer + Probes Q-E/Q-F +
+  `TEST-STUB-ASSERTION-001` / `TEST-PINS-STUB-VOCAB-001` auto-BLOCK
+  escalation. C8.5 runbook extended with migration-safety anchor
+  citing `MIGRATION-IDEMPOTENT-CREATE-001`. C8 runbook extended
+  with the operational schema evolution sub-anchor. New
+  boundary-violation line: codegen-emitted contracts must not
+  silently disagree with hand-authored Go (fires automatically when
+  `HANDLER-SIGNATURE-MISMATCH-001` or `HANDLER-SQL-COLUMN-DRIFT-001`
+  is emitted). **Forward-only hardening — no past PASS retroactively
+  becomes BLOCK.** Triggered by the canonical pilot-A 2026-05-27
+  incident (Google sign-in production break under green-doctor
+  iron-hand). Cross-validation subsection added under §"How the
+  rubric is enforced" mapping each of the five staged bug classes
+  to the refined-rubric verdict.
 - **2026-05-24** — Added Criterion 12 (Test discipline + per-layer
   coverage, 5%) per proposal `tdd-bdd-first-2026-05-23.md` Wave 6.
   The proposal text named the new criterion "Criterion 11" but slot
@@ -88,19 +109,20 @@ Sum of weights = 100%.
 
 | # | Criterion | Weight | What you're measuring |
 |---|---|---|---|
-| 1 | Legibility (cold human read) | 11% | Can a senior dev read 1000+ lines of fixture top-to-bottom without backtracking or doc-lookup? |
+| 1 | Legibility (cold human read) | 10% | Can a senior dev read 1000+ lines of fixture top-to-bottom without backtracking or doc-lookup? |
 | 2 | Semantic density for LLM | 17% | Are `@policy.*`, `@cap.*`, `@semantic.*`, `@actor.*`, `@pii.*`, `@key.*`, `@llm.*`, `@tool.*` namespaces tight, closed, and unambiguous? |
-| 3 | Token efficiency | 8% | Is there gordura recorrente? Count tokens of repeated boilerplate × number of repetitions. |
+| 3 | Token efficiency | 7% | Is there gordura recorrente? Count tokens of repeated boilerplate × number of repetitions. |
 | 4 | Escape hatches | 8% | Can authors drop to `handler "./..."`, `validates resource "./..."`, custom Go without polluting source? Are the hatches minimal and visible? |
 | 5 | Determinism (one way to say each thing) | 10% | If the same intent has two surface forms with no rule for choosing, that's a deduction. |
 | 6 | Composability | 8% | Do `extends @anchor.*`, `extensible_by`, `packs`, `has_many`, `event_group` combine cleanly? |
 | 7 | Multi-target fit (Go/React/Expo) | 7% | Are surface projections (`.web.lzx` / `.mobile.lzx`) clean? Does any contract leak transport mechanics? |
-| 8 | Operational coverage | 6% | Do `runtime`, `deploy`, `profiles`, `services`, `architecture` cover real production needs without becoming Kubernetes config? |
+| 8 | Operational coverage | 5% | Do `runtime`, `deploy`, `profiles`, `services`, `architecture` cover real production needs without becoming Kubernetes config? Includes the **operational schema evolution** sub-anchor — see §"Criterion 8 — Operational schema evolution sub-anchor (runbook)" below. |
 | 8.5 | Diagnostic identifier truthfulness | 3% | For every diagnostic code named in a proposal's acceptance lists: does the code (a) exist in `crates/lazuli_cli/src/doctor.rs` or `crates/lazuli_lsp/src/lib.rs`, or (b) explicitly appear under a `## New diagnostics` heading as net-new? Mechanical grep check. See §"How the rubric is enforced" for the runbook. |
 | 9 | Declarative testability | 6% | Are `tests` blocks expressive enough for rules / transitions / anchors / commands without becoming a mock framework? |
-| 10 | AI-first readiness | 8% | Does the language treat LLMs as first-class consumers (`agent`, namespaces, inspect contracts, doctor messages)? |
+| 10 | AI-first readiness | 7% | Does the language treat LLMs as first-class consumers (`agent`, namespaces, inspect contracts, doctor messages)? |
 | 11 | Framework error message contract | 6% | Are framework-emitted runtime errors (anything that reaches the HTTP wire without passing through an authored `rule "..." message @translation.<key>` block) keyed by a translation identifier under `@translation.<key>` (or equivalent message-namespace identifier), negotiated against the active locale, and override-able by app or feature surface? Hardcoded English in `Message:` fields of `&Error{...}` constructors in the runtime is an automatic 0. See §"Criterion 11 — Framework error message contract (runbook)" below. |
-| 12 | Test discipline (per-layer coverage) | 5% | Does `lazuli doctor --coverage` emit a per-layer report (six layers: `spec_predicate`, `spec_actor_matrix`, `spec_transition_state`, `view_extensibility`, `view_e2e_pair`, `handler_go`) with profile-aware thresholds (prototype reports only; strict warns; production blocks)? Per-layer thresholds are canonical; any aggregate is opt-in only with method disclosure. Auto-BLOCK if any layer is below its `block_under` under the active profile, OR if `TEST-FIXTURE-LITERAL-001` errors are present (Wave 1). See §"Criterion 12 — Test discipline + per-layer coverage (runbook)" below. |
+| 12 | Test discipline (per-layer coverage + polarity) | 3% | Does `lazuli doctor --coverage` emit a per-layer report (seven layers: `spec_predicate`, `spec_actor_matrix`, `spec_transition_state`, `view_extensibility`, `view_e2e_pair`, `handler_go`, **`spec_polarity`**) with profile-aware thresholds (prototype reports only; strict warns; production blocks)? Per-layer thresholds are canonical; any aggregate is opt-in only with method disclosure. Auto-BLOCK if any layer is below its `block_under` under the active profile, OR if `TEST-FIXTURE-LITERAL-001` / `TEST-STUB-ASSERTION-001` / `TEST-PINS-STUB-VOCAB-001` errors are present. See §"Criterion 12 — Test discipline + per-layer coverage (runbook)" below. |
+| 13 | Generated-runtime contract honesty | 6% | Does every contract the codegen *emits* stand up to runtime usage? For each command/resource pair in the IR, do the codegen-emitted artifacts (struct shapes, `Command[I, O]` generic instantiations, `db:"..."` tags, migration SQL) verifiably match the hand-authored Go that consumes them? See §"Criterion 13 — Generated-runtime contract honesty (runbook)" below. |
 
 ## Scoring scale
 
@@ -172,6 +194,18 @@ boundary violation is any of:
   using `handler @fn.X` when an equivalent vocab path also exists.
   The escape hatch is first-class; positioning vocab as "preferred"
   and handler as "legacy" inverts the relationship.
+- Codegen-emitted contracts (struct shapes, generic instantiations
+  like `Command[I, O]`, `db:"..."` tags, migration SQL) that
+  silently disagree with the hand-authored Go that consumes them.
+  Codegen contracts cannot disagree silently with Go authoral. The
+  doctor must reject the drift at `lazuli doctor` time, before the
+  runtime's first invocation. **Operational trigger:** if the
+  dispatcher (or `lazuli doctor` static walk) emits
+  `HANDLER-SIGNATURE-MISMATCH-001` or `HANDLER-SQL-COLUMN-DRIFT-001`,
+  that is an automatic boundary violation regardless of the active
+  severity profile. The principle is symmetric to the
+  "framework runtime must not leak prose to the wire" line above:
+  the codegen must not leak unverified contracts to the handler tree.
 
 A boundary violation is a *deletion*, not a *deferral*. Reject in
 line; do not log as a tracked cut.
@@ -188,7 +222,8 @@ line; do not log as a tracked cut.
 | ... |
 | 10 | AI-first readiness | 8.7 | path:line | path:line |
 | 11 | Framework error message contract | 7.0 | path:line | path:line |
-| 12 | Test discipline (per-layer coverage) | 7.0 | path:line | path:line |
+| 12 | Test discipline (per-layer coverage + polarity) | 7.0 | path:line | path:line |
+| 13 | Generated-runtime contract honesty | 7.0 | path:line | path:line |
 
 ### Top atritos
 - path:line — 1-line description — affects criterion N.
@@ -305,6 +340,53 @@ Three enforcement points:
    proposing a cut, reviewing a PR, or auditing the language.
    Anchor scores with `path:line`. Same gate applies.
 
+### Criterion 8 — Operational schema evolution sub-anchor (runbook)
+
+Added 2026-05-27 per `grader-anti-theater-hardening.md` §5.6. C8
+historically scoped to `runtime`, `deploy`, `profiles`, `services`,
+`architecture` — the operational outer ring. The pilot-A incident
+(Bug C.1 — migration ALTER missing) surfaced that **schema evolution
+across the lifetime of a deployed database** sits inside C8's outer
+ring but was not named as a positive requirement; C8 read as if it
+excluded migrations (the exclusion of "Kubernetes config" was being
+generalized too broadly).
+
+The sub-anchor makes the requirement explicit: every proposal whose
+scope touches migration emission (anywhere under
+`crates/lazuli_codegen_go/src/emitter/`, or any proposal naming
+`migrations/` in its body) MUST satisfy the following probes:
+
+- Does the proposal name `CREATE TABLE IF NOT EXISTS` as a footgun
+  when used outside the first migration for a table? (The footgun is
+  silent re-emission becoming a no-op against pre-existing tables
+  with drifted schemas.)
+- Does the proposal require ALTER-discipline — forward column adds
+  via `ALTER TABLE ADD COLUMN`, never via baseline rewrite of the
+  original `CREATE TABLE` migration?
+- Does the proposal cite `MIGRATION-IDEMPOTENT-CREATE-001` (or a
+  named-equivalent diagnostic) when the migration emission surface
+  is in scope? `MIGRATION-IDEMPOTENT-CREATE-001` is the operational-
+  discipline finding (runtime behaviour of the migration tool
+  against pre-existing schema); its codegen-contract companion
+  `MIGRATION-ALTER-MISSING-001` lives under Criterion 13 Probe R-C.
+  Citing one does not exempt the proposal from the other.
+
+**Carve-outs:**
+
+- Proposals that don't touch migration emission are vacuously
+  satisfied (same shape as C13's per-target carve-outs).
+- Greenfield projects with zero `migrations/` history are vacuously
+  satisfied — the first emission is legitimately a `CREATE TABLE`;
+  the footgun only fires from the second migration forward.
+
+The sub-anchor is the operational-discipline complement to C13's
+codegen-contract framing of the same root incident. The two
+criteria measure different surfaces — C8 the outer operational
+ring (does the proposal reason about already-deployed databases?),
+C13 the inner codegen ring (does codegen emit ALTER when it
+should?) — and the two findings are filed under their respective
+homes rather than duplicated.
+
 ### Criterion 8.5 — Diagnostic identifier truthfulness (runbook)
 
 For every diagnostic identifier (anything matching `*_diagnostics`,
@@ -340,6 +422,35 @@ must make this clear (e.g. "exact-match grep → 0 hits" in the row).
 
 Closes the false-negative-by-naming pattern surfaced 2026-05-17 during
 the framework's internal naming-reconciliation audit.
+
+**Migration-safety sub-anchor (added 2026-05-27).** When a proposal
+touches **migration emission** — anything under
+`crates/lazuli_codegen_go/src/emitter/` that produces `.sql` files,
+or any proposal whose body references `CREATE TABLE` /
+`IF NOT EXISTS` / `ALTER TABLE` shapes — the grader runs an
+additional probe alongside the standard diagnostic-ID grep:
+
+```bash
+# Verify the proposal acknowledges either:
+# 1. Idempotent re-emission is safe in its scope (carve-out), OR
+# 2. ALTER-after-CREATE discipline is enforced by a named diagnostic.
+rg -n 'IF NOT EXISTS|CREATE TABLE' <cited codegen path>
+rg -n 'MIGRATION-IDEMPOTENT-CREATE-001|MIGRATION-ALTER-MISSING-001|@correctness\.migration_out_of_sync|ALTER TABLE' \
+   crates/lazuli_doctor/src/correctness/ crates/lazuli_codegen_go/src/emitter/
+```
+
+If the proposal touches migration emission AND fails to name a
+diagnostic that catches re-emission as a no-op against drifted
+prod tables (`MIGRATION-IDEMPOTENT-CREATE-001` is the canonical
+named diagnostic for the codegen-side footgun;
+`MIGRATION-ALTER-MISSING-001` is its codegen-contract companion),
+C8.5 caps ≤ 5. This is the operational-discipline complement to
+C13's codegen-contract framing of the same bug class (Bug C.1 in
+the canonical pilot-A incident): the two findings come from one
+root incident but live in different rubric homes — C8.5 grades
+diagnostic naming honesty, C13 grades codegen-contract honesty.
+Carve-out: proposals that don't touch migration emission are
+vacuously satisfied (no additional probe runs).
 
 ### Criterion 11 — Framework error message contract (runbook)
 
@@ -416,7 +527,7 @@ paradigm is weak. The aggregate is permitted only with explicit
 method disclosure (`weighted-by-construct-count`, `weighted-by-LOC`,
 `unweighted-mean`), and never as the gate.
 
-**Layer catalog (canonical six):**
+**Layer catalog (canonical seven):**
 
 | Layer | Denominator | Numerator | Source |
 |---|---|---|---|
@@ -426,10 +537,24 @@ method disclosure (`weighted-by-construct-count`, `weighted-by-LOC`,
 | `view_extensibility` | Views with `extensible_by` | Views with ≥1 `accepted by` / `rejected by` | `.lzx` walk |
 | `view_e2e_pair` | Declared views | Views with `e2e/<feature>/<view>.spec.ts` present | filesystem |
 | `handler_go` | Statements in `app/features/<f>/handlers/*.go` (excluding `_test.go`) | Statements with `count > 0` in `coverage.out` | `go test -coverprofile` parse |
+| `spec_polarity` | Constructs with a `tests` block | Constructs with ≥1 `allows*` (positive) AND ≥1 `denies*` (negative) assertion | IR walk |
 
-Layers 1–4 are pure-IR (zero runtime, zero flakiness). Layers 5–6 are
-filesystem / external-tool integrations that degrade gracefully when
-their inputs are absent (vacuous pass with disclosure in `raw_file`).
+Layers 1–4 and layer 7 (`spec_polarity`) are pure-IR (zero runtime,
+zero flakiness). Layers 5–6 are filesystem / external-tool integrations
+that degrade gracefully when their inputs are absent (vacuous pass
+with disclosure in `raw_file`).
+
+The seventh layer (`spec_polarity`) was added 2026-05-27 per
+`grader-anti-theater-hardening.md` §4.2 to close the gap surfaced by
+pilot-A's bug E: the original six layers measure presence and coverage
+but are silent on assertion polarity. A test suite that asserts only
+failure paths can satisfy `handler_go ≥ block_under` at strict and
+production profiles while the happy path is never exercised. The
+`spec_polarity` layer is the IR-side complement to Probe R-D
+(`_test.go` polarity balance) under Criterion 13. Carve-out: pure
+validators (no happy-path return value to assert), pure denials (e.g.,
+kill-switch constructs that always error), and pure reads (queries
+with no `Creates`/`Updates` effect) are vacuously satisfied.
 
 **Gate matrix (default profile-derived thresholds):**
 
@@ -477,6 +602,65 @@ aggregate_method    = "weighted-by-construct-count"
 
 - **Probe Q-D — Aggregate disclosure.** If the proposal opts into an aggregate, the `aggregate.method` field MUST be set to one of `weighted-by-construct-count` / `weighted-by-LOC` / `unweighted-mean` (or another method disclosed verbatim). Naked aggregates without method are an auto-BLOCK.
 
+- **Probe Q-E — Assertion polarity balance (spec_polarity layer).**
+  Walks every construct with a `tests` block in the IR and verifies
+  that at least one positive assertion (`allows when` / `permitted as`)
+  AND at least one negative assertion (`denies when` / `forbidden as`)
+  exists. Grader runs (against the canonical fixture):
+  ```bash
+  lazuli doctor <fixture> --coverage --format json \
+    | jq '.coverage.layers.spec_polarity | {covered, total, pct, verdict}'
+  ```
+  Per-layer threshold defaults: prototype 0/0, strict warn_under=80,
+  production block_under=50. The layer's verdict carries the same
+  block / warn / pass semantics as the other six. A construct that
+  satisfies a carve-out (pure validator, pure denial, pure read) is
+  removed from the denominator before pct is computed; carve-out
+  application is logged under `coverage.layers.spec_polarity.carve_outs`
+  for cold-read auditability.
+
+- **Probe Q-F — Stub-state literal sniff (TEST-STUB-ASSERTION-001).**
+  Walks every `_test.go` companion in `app/features/<f>/handlers/`
+  and flags any assertion (`assert.Contains(t, err.Error(), <lit>)`,
+  `require.EqualError(t, err, <lit>)`, equivalent shapes) where
+  `<lit>` matches a known stub-state catalog: `"not implemented"`,
+  `"not yet implemented"`, `"todo:"`, `"TODO:"`, `"stub"`,
+  `"placeholder"`, `"unimplemented"`. The diagnostic
+  `TEST-STUB-ASSERTION-001` (paired with the broader
+  `TEST-PINS-STUB-VOCAB-001` rule that extends the catalog beyond
+  `@TODO authored:` markers) emits at `error` severity at strict AND
+  production profiles, `warning` at prototype. The rule is
+  independent of `TEST-STUB-001` (which scans `@TODO authored:`
+  comments — author-facing); Q-F scans for asserted-on stub-state
+  strings — production-facing. Diagnostic must say:
+  > `TEST-STUB-ASSERTION-001`: `<path>:<line>` asserts against the
+  > literal `<lit>` — this matches a stub-state error message no
+  > longer returned by the implementation. Either update the
+  > assertion to cover the current contract OR delete the test and
+  > re-scaffold via `lazuli generate handler test`.
+
+**Auto-BLOCK escalation (refined 2026-05-27).** The C12 auto-BLOCK
+list is extended beyond the original `TEST-FIXTURE-LITERAL-001`
+trigger:
+
+- Any layer below `block_under` under the active profile (unchanged).
+- Any `TEST-FIXTURE-LITERAL-001` error (Wave 1, unchanged).
+- Any `spec_polarity` layer below `block_under` under the active
+  profile (new; via Probe Q-E).
+- Any `TEST-STUB-ASSERTION-001` error (new; via Probe Q-F — escalated
+  from warning to auto-BLOCK because the author cleared the
+  `@TODO authored:` marker but forgot to clean the assertion, which
+  is materially worse than a never-cleared marker because it implies
+  the author *thought* they were done).
+- Any `TEST-PINS-STUB-VOCAB-001` error (new; companion diagnostic
+  to Q-F covering the broader stub vocabulary catalog).
+
+The escalation reflects the proposal §5.5 cross-validation finding
+that "presence is not substance" — a test file that exists, runs,
+and asserts is still theater if its assertion is pinned to a stale
+implementation state. BLOCK is the correct severity once the
+stub-state shape is mechanically detectable.
+
 **False-positive carve-outs (Criterion 12 does NOT fire on):**
 
 - Proposals that touch no testable construct (e.g. pure observability,
@@ -505,7 +689,209 @@ only consumes the resulting artifacts.
 present, zero enforcement. Wave 6 closes the loop by making the
 coverage observable + gateable + reportable in the same JSON shape
 agents and CI already consume. Provenance:
-`docs/proposals/tdd-bdd-first-2026-05-23.md` Wave 6.
+`docs/proposals/tdd-bdd-first-2026-05-23.md` Wave 6. The
+2026-05-27 refinement (Probes Q-E + Q-F, `spec_polarity` layer,
+auto-BLOCK escalation) is provenance:
+`docs/proposals/grader-anti-theater-hardening.md` §4.2 — closes
+the polarity-blind + stub-state-pinned gaps surfaced by the
+canonical pilot-A incident (bugs D + E).
+
+### Criterion 13 — Generated-runtime contract honesty (runbook)
+
+Scope: every proposal that introduces, extends, or generalises a
+codegen-emitted artifact consumed by hand-authored Go in
+`app/features/<f>/handlers/`. Filed by
+`grader-anti-theater-hardening.md` (2026-05-27).
+
+**Load-bearing invariant.** For every command/resource pair in the
+IR, the codegen contract artifact (struct, generic instantiation,
+migration SQL, tag set) MUST be a verifiable predicate over the
+hand-authored Go that consumes it. The doctor must be able to make
+this check **without running the code**. Codegen contracts cannot
+disagree silently with Go authoral.
+
+**Probes (mechanical):**
+
+- **Probe R-A — Handler signature parity.** For every command `C`
+  in the IR with effect `Returns @fn.X`, the grader runs:
+  ```bash
+  # 1. The codegen instantiation. Captures Command[I, O].
+  rg -n 'lazuli\.Command\[[^,]+,\s*[^]]+\]' \
+     dist/go/<feature>/command.gen.go
+  # 2. The handler signature.
+  rg -n 'func\s+\w+\(ctx\s+\*lazuli\.Ctx,\s*\w+\s+\w+\)\s+\([^,]+,\s*error\)' \
+     app/features/<feature>/handlers/<name>.go
+  ```
+  Both anchors must resolve. The output type (second slot of
+  `Command[I, O]`) of the codegen MUST equal the return type (first
+  slot of `(_, error)`) of the handler — `struct{}` is NOT a valid
+  match for `string`, `Token`, or any non-void return. The named
+  diagnostic is `HANDLER-SIGNATURE-MISMATCH-001`. Until the
+  diagnostic ships, Criterion 13 caps ≤ 4 on this probe.
+
+  - 0 disagreements: R-A passes.
+  - 1+ disagreements: cap C13 ≤ 4 until `HANDLER-SIGNATURE-MISMATCH-001` ships.
+  - Diagnostic ships and fires on the candidate: cap removed AND
+    boundary violation fires per §"Quality gate" (auto-BLOCK).
+
+- **Probe R-B — Handler effect surface parity.** For every command
+  `C` with effect `Creates @Resource` or `Updates @Resource`, the
+  grader runs:
+  ```bash
+  # 1. Columns the resource struct declares.
+  rg -n 'db:"[a-z_]+"' dist/go/<feature>/resource.gen.go
+  # 2. Columns the handler's INSERT/UPDATE mentions.
+  rg -n 'INSERT INTO|UPDATE\s+\w+\s+SET' \
+     app/features/<feature>/handlers/<command>.go
+  ```
+  The intersection of (NOT NULL columns in IR) and (columns the
+  handler ignores in its emitted SQL) MUST be empty. The named
+  diagnostic is `HANDLER-SQL-COLUMN-DRIFT-001`. Until the diagnostic
+  ships, Criterion 13 caps ≤ 5 on this probe.
+
+  Carve-out: if the resource has `timestamps` enabled and the
+  missing column is `created_at` / `updated_at`, no finding — the
+  framework injects those automatically at emit time. Probe R-B
+  walks the same `timestamps`-aware predicate as
+  `UPDATES-MISSING-UPDATED-AT-001`
+  (`crates/lazuli_doctor/src/correctness/updates_missing_updated_at.rs`).
+
+- **Probe R-C — Migration ALTER-after-CREATE discipline.** When
+  the IR has a column for a resource AND a `CREATE TABLE`
+  migration for that resource already exists on disk with a column
+  set that differs, codegen MUST emit a new `ALTER TABLE ADD
+  COLUMN` (or `DROP COLUMN`) migration file rather than rewriting
+  the original `CREATE TABLE`. Grader runs:
+  ```bash
+  # Detect re-emitted CREATE TABLE for a resource that already has one.
+  ls migrations/*<feature>*<resource>*.sql | wc -l
+  # If > 1 file matches, at most ONE may contain `CREATE TABLE`; all
+  # others MUST be `ALTER TABLE` statements.
+  rg -c '^\s*CREATE TABLE' migrations/*<feature>*<resource>*.sql
+  ```
+  The named diagnostics are `MIGRATION-ALTER-MISSING-001` (codegen
+  forgot the ALTER follow-up) paired with
+  `MIGRATION-IDEMPOTENT-CREATE-001` (codegen re-emitted a
+  `CREATE TABLE IF NOT EXISTS` against a table whose deployed
+  schema may have drifted). Both ship together; either alone is
+  insufficient evidence.
+
+  - At most one `CREATE TABLE` per resource across all migration
+    files: R-C passes.
+  - Multiple `CREATE TABLE IF NOT EXISTS` for the same table,
+    indicating re-emission instead of incremental ALTER: cap
+    C13 ≤ 4 until both diagnostics ship.
+  - Codegen also re-emits without bumping the migration number:
+    boundary violation per §"Quality gate" — BLOCK regardless of
+    score.
+
+- **Probe R-D — `_test.go` polarity balance.** For every
+  `handlers/<command>_test.go`, the grader runs:
+  ```bash
+  # Failure-path assertions.
+  rg -c 'require\.Error\(t,|assert\.Error\(t,' \
+     app/features/<feature>/handlers/<command>_test.go
+  # Happy-path assertions.
+  rg -c 'require\.NoError\(t,|assert\.NoError\(t,' \
+     app/features/<feature>/handlers/<command>_test.go
+  ```
+  Both counts must be ≥ 1 unless the construct is a pure validator
+  (no happy-path return value to assert) OR the construct is
+  `denies`-only by design (e.g., a kill-switch that always errors).
+  The named diagnostic is `TEST-FAILURE-ONLY-COVERAGE-001`. Until
+  it ships, C13 caps ≤ 5 on this probe; once shipped, the cap is
+  removed.
+
+  R-D is the `_test.go`-side complement of C12's `spec_polarity`
+  layer (Probe Q-E). The two probes are paired: Q-E walks the IR's
+  `tests` block; R-D walks the Go file companion. They are kept
+  in separate criteria because R-D belongs with its
+  codegen-contract siblings (R-A/R-B/R-C) for coherence — but the
+  C12 runbook cross-references R-D explicitly.
+
+**Tier-1 / Tier-2 stratification (per §5.5.1 of source proposal):**
+
+| Probe | Tier | Block behaviour | Cap-lift trigger |
+|---|---|---|---|
+| R-A — Handler signature parity | **Tier 1** | Single-probe violation auto-BLOCKs (after `HANDLER-SIGNATURE-MISMATCH-001` ships). | `HANDLER-SIGNATURE-MISMATCH-001` lands in `crates/lazuli_doctor/`. |
+| R-B — Handler effect surface parity | Tier 2 | Violation contributes to BLOCK *only* in conjunction with ≥1 other Tier-2 violation (R-C OR R-D). | `HANDLER-SQL-COLUMN-DRIFT-001` lands. |
+| R-C — Migration ALTER-after-CREATE | Tier 2 | Same — collective Tier-2 BLOCK. | `MIGRATION-ALTER-MISSING-001` + `MIGRATION-IDEMPOTENT-CREATE-001` land as a pair. |
+| R-D — `_test.go` polarity balance | Tier 2 | Same. | `TEST-FAILURE-ONLY-COVERAGE-001` + paired `TEST-PINS-STUB-VOCAB-001` / `TEST-STUB-ASSERTION-001` land. |
+
+Tier 1 is ship-first: the runtime registry literally documents the
+gap (signature mismatches detected at dispatch, not at registration),
+the evidence hierarchy is highest, and the false-positive rate is
+lowest (Lazuli's codegen makes string-compare on idents sufficient).
+Tier 2 probes (R-B/R-C/R-D) have legitimate edge cases (framework
+helpers; greenfield databases; negative-only test suites) that
+justify warning-default with collective BLOCK only when multiple
+fire — a single Tier-2 violation is a tracked cut, not a ship-stop.
+
+**Scoring anchors:**
+
+| Score | What the grader sees in the candidate |
+|---|---|
+| 0 | Codegen-emitted artifact silently disagrees with hand-authored consumer and the doctor cannot detect it (e.g., `Command[I, struct{}]` vs. handler returning `string`). Auto-BLOCK per the boundary violation if a migration design is not documented. |
+| 3 | One of R-A/R-B/R-C/R-D probes passes with diagnostic-shaped wiring in the doctor; the other three are tracked-cut deferrals. |
+| 5 | Two probes pass with diagnostic-shaped wiring; remaining two are tracked-cut deferrals. |
+| 7 | Three probes pass with diagnostic-shaped wiring AND the wired diagnostics are emitted at `error` severity under `production` profile, `warning` at `strict`. The fourth probe is documented and tracked. |
+| 9 | All four probes pass with diagnostic-shaped wiring at `production` severity; LSP completes the corrective hints. `lazuli inspect` JSON projects the parity status under a `contract_parity` key. |
+| 10 | All of the above **plus** the doctor emits the diagnostics on the canonical anti-theater regression fixture (see §"Regression fixture" in the source proposal), which the grader runs as a smoke test before assigning ≥ 9. |
+
+**False-positive carve-outs (Criterion 13 does NOT fire on):**
+
+- Handler files outside the canonical
+  `app/features/<f>/handlers/` layout. The doctor's handler-path
+  resolution (`crates/lazuli_doctor/src/handler_path.rs`) is the
+  authority; paths outside that contract are not graded.
+- Validator handlers (`@validator.X` references) where the runtime
+  contract is `(ctx, input) error` (no output type to drift).
+  R-A is vacuously satisfied; R-B / R-D still apply.
+- Pure read-side handlers attached to `query` constructs — they
+  have no `Creates`/`Updates` effect to drift against; R-B is
+  vacuously satisfied.
+- Greenfield projects with no `migrations/` directory yet. R-C is
+  vacuously satisfied; the first `lazuli generate go .`
+  legitimately emits one `CREATE TABLE`.
+- Non-Go targets (once they ship). The principle is target-agnostic
+  but Probe R-A's grep target becomes language-conditional
+  (`dist/<target>/<feature>/` and
+  `app/features/<feature>/handlers/<name>.<target_ext>`). Capture
+  in C13 when the second runtime ships.
+
+**Cross-validation against the canonical pilot-A incident (§5.5
+of source proposal).** The five staged bug classes from the
+incident are reproduced here as the canonical anti-theater set;
+each row shows how the refined rubric flips the verdict from
+"passes under prior rubric" → "BLOCK under refined rubric":
+
+| Bug | Prior rubric verdict | Refined rubric verdict | Anchor |
+|---|---|---|---|
+| A — handler signature mismatch (`Command[Input, struct{}]` vs handler `(string, error)`) | PASS — no criterion budges; C9 passes (file-existence), C12 `handler_go` reports 100% statement coverage. | **BLOCK** — C13 Probe R-A fires; `HANDLER-SIGNATURE-MISMATCH-001` is a tier-1 single-probe BLOCK trigger; the new boundary-violation line fires automatically. | C13 R-A + boundary §"Quality gate". |
+| B — handler INSERT omits NOT NULL `updated_at` while resource struct declares it | PASS — `UPDATES-MISSING-UPDATED-AT-001` only catches the IR-side gap; handler-side gap is silent; C9 + C12 `handler_go` both pass. | **BLOCK** — C13 Probe R-B fires; `HANDLER-SQL-COLUMN-DRIFT-001` is a tier-2 BLOCK trigger when combined with any other tier-2 violation, OR a boundary-violation single-probe BLOCK trigger per the dispatcher-emission rule. | C13 R-B + boundary §"Quality gate". |
+| C.1 — codegen forgot ALTER follow-up after column added; `CREATE TABLE IF NOT EXISTS` re-emits as no-op against drifted prod table | PASS — C8 implicitly excluded migration safety; boundary list silent; `@correctness.migration_out_of_sync` is informational only. | **BLOCK** — C13 Probe R-C fires; `MIGRATION-ALTER-MISSING-001` + `MIGRATION-IDEMPOTENT-CREATE-001` ship as a pair and contribute to tier-2 collective BLOCK; C8 sub-anchor also caps if the proposal doesn't acknowledge the footgun; C8.5 migration-safety sub-anchor caps ≤ 5 if the proposal touches emission without naming the diagnostics. | C13 R-C + C8 sub-anchor + C8.5 sub-anchor. |
+| D — `_test.go` pins literal `"not implemented"` after handler implemented | PASS — `TEST-STUB-001` clears (no `@TODO authored:`); `TEST-HANDLER-MISSING-001` clears (file exists); `handler_go` reports 100% statement coverage. | **BLOCK** — C12 Probe Q-F fires `TEST-STUB-ASSERTION-001`; the auto-BLOCK escalation makes this a hard BLOCK (escalated from warning); `TEST-PINS-STUB-VOCAB-001` covers the broader catalog; C13 Probe R-D additionally fires `TEST-FAILURE-ONLY-COVERAGE-001` when the same test asserts only failures. | C12 Q-F auto-BLOCK + C13 R-D. |
+| E — failure-only test coverage (no happy-path `require.NoError`) | PASS — `handler_go` reports `covered=N` because failure path runs every statement; no layer measures polarity. | **BLOCK** — C12 Probe Q-E (`spec_polarity` layer) fires when the IR-side `tests` block lacks `allows*` assertion; C13 Probe R-D fires when the `_test.go` companion lacks `require.NoError`; either path is sufficient for auto-BLOCK. | C12 Q-E + C13 R-D. |
+
+The cross-validation is **documentation, not a criterion change**.
+It exists to make the rubric's anti-theater intent concrete: a
+green doctor under `iron-hand` no longer equals shipping safety;
+the refined rubric requires green C12 (with `spec_polarity` +
+stub-state) AND green C13 (with all four probes) before the gate
+returns PASS. The five rows above are the canonical regression set
+the rubric is hardened against.
+
+**Triggered by:** the canonical pilot-A 2026-05-27 incident
+(Google sign-in production break under green-doctor iron-hand).
+Provenance: `docs/proposals/grader-anti-theater-hardening.md` v0.2
+(self-graded 8.75 PASS strict). The five bug classes map 1:1 to
+the architect-wave proposals
+(`HANDLER-SIGNATURE-MISMATCH-001`, `HANDLER-SQL-COLUMN-DRIFT-001`,
+`MIGRATION-ALTER-MISSING-001` + `MIGRATION-IDEMPOTENT-CREATE-001`,
+`TEST-PINS-STUB-VOCAB-001`, `TEST-FAILURE-ONLY-COVERAGE-001`),
+each of which is the diagnostic implementation that lifts the
+corresponding C13 probe cap from "score capped at ≤ 4/5" to
+"score uncapped, mandatory auto-BLOCK on violation."
 
 ### Criterion 4 — Escape hatches (Prisma-trap runbook)
 
@@ -655,6 +1041,34 @@ History of changes lives in `git log -- docs/grading-rubric.md`.
 
 Notable changes:
 
+- **2026-05-27 — Criterion 13 inserted (Generated-runtime contract
+  honesty, 6%); weights redistributed (C1 −1, C3 −1, C8 −1, C10 −1,
+  C12 −2).** Sum stays at 100%. AI-first cluster (C2 + C8.5 + C10 +
+  C11) moves from 34% to 33% — well inside the 35% ceiling. C12
+  extended with `spec_polarity` layer (seventh layer in the
+  canonical catalog) + Probes Q-E / Q-F + auto-BLOCK escalation on
+  `TEST-STUB-ASSERTION-001` / `TEST-PINS-STUB-VOCAB-001`. C8.5
+  runbook extended with migration-safety sub-anchor citing
+  `MIGRATION-IDEMPOTENT-CREATE-001`. C8 runbook extended with the
+  operational schema evolution sub-anchor. New boundary-violation
+  line: codegen-emitted contracts must not silently disagree with
+  hand-authored Go; the boundary fires automatically when
+  `HANDLER-SIGNATURE-MISMATCH-001` or `HANDLER-SQL-COLUMN-DRIFT-001`
+  is emitted. Cross-validation subsection added inside the C13
+  runbook mapping each of the five canonical pilot-A bug classes
+  (A/B/C.1/D/E) from "PASS under prior rubric" to "BLOCK under
+  refined rubric" with anchored evidence. **Forward-only hardening
+  — no past PASS retroactively becomes BLOCK.** Triggered by the
+  canonical pilot-A 2026-05-27 incident (Google sign-in production
+  break under green-doctor iron-hand preset). Source proposal:
+  `c:/Users/lucas/lazuli-ops/docs/proposals/grader-anti-theater-hardening.md`
+  v0.2 (self-graded 8.75 PASS strict). The five bug classes map
+  1:1 to the architect-wave diagnostic proposals shipping under
+  cells in `crates/lazuli_doctor/`; the rubric refinement and the
+  diagnostic implementations converged independently on the same
+  five failure classes, which is the strongest evidence available
+  that the failure classes are real and the rubric's anchors are
+  the right ones.
 - **2026-05-20 — Criterion 4 (Escape hatches) Prisma-trap runbook
   added; Vocab Governance Rules section added; three new
   boundary-violation lines.** No weight redistribution — purely
@@ -692,15 +1106,19 @@ Notable changes:
   (determinism — by ensuring there's one canonical form,
   migrations stay simple). Real product pressure may justify a
   dedicated axis. Defer until ≥ 3 cuts produce migration debt.
-- **Should the AI-first weight grow?** Currently 9% (Criterion
+- **Should the AI-first weight grow?** Currently 7% (Criterion
   10) plus 17% on semantic density (Criterion 2) plus 3% on
-  Criterion 8.5 plus 6% on Criterion 11 = 35% weighted on AI-first
-  concerns. The thesis of Lazuli is AI-first, but pushing past 35%
+  Criterion 8.5 plus 6% on Criterion 11 = 33% weighted on AI-first
+  concerns (was 35% before the 2026-05-27 redistribution to fund
+  C13; C10 paid 1pp into C13 but the cluster stayed inside its 35%
+  ceiling). The thesis of Lazuli is AI-first, but pushing past 35%
   would flatten the human-cold-read criterion. The 2026-05-18
   insertion of Criterion 11 took the axis exactly to the 35%
-  ceiling; future AI-first additions must reclaim weight from
-  inside the axis rather than expand it. Defer growth; revisit if
-  real LLM-author tests show systemic gaps the rubric misses.
+  ceiling; the 2026-05-27 redistribution stepped 1pp back down (now
+  at 33%, with 2pp of headroom). Future AI-first additions must
+  reclaim weight from inside the axis rather than expand past 35%.
+  Defer growth; revisit if real LLM-author tests show systemic
+  gaps the rubric misses.
 - **Should the rubric be per-construct?** Today it grades the
   whole language. Per-construct grading would let proposals
   target specific axes. Plausible after Cut A's IR migration

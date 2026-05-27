@@ -104,25 +104,44 @@ fn has_subjects(feature: &Feature) -> bool {
 }
 
 fn has_any_test_block(feature: &Feature) -> bool {
-    feature.commands.iter().any(|cmd| cmd.tests.is_some())
-        || feature.rules.iter().any(|rule| rule.tests.is_some())
+    feature
+        .commands
+        .iter()
+        .any(|cmd| block_has_substance(cmd.tests.as_ref()))
+        || feature
+            .rules
+            .iter()
+            .any(|rule| block_has_substance(rule.tests.as_ref()))
         || feature.workflows.iter().any(|workflow| {
             workflow
                 .transitions
                 .iter()
-                .any(|transition| transition.tests.is_some())
+                .any(|transition| block_has_substance(transition.tests.as_ref()))
         })
         || feature.resources.iter().any(|resource| {
             resource.lifecycle.as_ref().map_or(false, |lifecycle| {
                 lifecycle
                     .transitions
                     .iter()
-                    .any(|transition| transition.tests.is_some())
+                    .any(|transition| block_has_substance(transition.tests.as_ref()))
             })
         })
     // Note: modern `Surface`/`Audience`/`View` (lzx grammar) carry no
     // `tests` field; view kinds (List/Detail/Create) deliberately leave
     // tests to commands. No surface-walk branch needed here.
+}
+
+/// Theater promotion (2026-05-27): a `tests { }` block on a command
+/// or transition is only "real" coverage when it carries at least
+/// one assertion. An empty `tests { }` body declares intent without
+/// content; we treat it as if no block were present so the
+/// feature-level lint still fires and the author wires real
+/// `allows when` / `denies when` / `permits` assertions.
+fn block_has_substance(block: Option<&lazuli_ir::TestBlock>) -> bool {
+    match block {
+        Some(b) => !b.assertions.is_empty(),
+        None => false,
+    }
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────
@@ -133,7 +152,7 @@ mod tests {
 
     use lazuli_ir::{
         Command, CommandEffect, CommandInput, CommandKind, Defaults, Policies, PolicyRef, Resource,
-        TestBlock,
+        TestAssertion, TestBlock,
     };
 
     fn mk_cmd(name: &str, tests: Option<TestBlock>) -> Command {
@@ -194,6 +213,19 @@ mod tests {
     }
 
     fn mk_test_block() -> TestBlock {
+        // Substance-bearing block — one real assertion. After the
+        // 2026-05-27 hardening, an empty `tests { }` no longer clears
+        // the rule, so the "good citizen" fixture has to carry at
+        // least one entry.
+        TestBlock {
+            assertions: vec![TestAssertion::PolicyAllow {
+                actors: vec!["@role.admin".into()],
+            }],
+            span_ref: None,
+        }
+    }
+
+    fn mk_empty_test_block() -> TestBlock {
         TestBlock {
             assertions: vec![],
             span_ref: None,
@@ -285,6 +317,21 @@ mod tests {
             check(&feature, Path::new("features/empty/empty.lzi")).is_empty(),
             "empty features are not subject to VOCAB-TESTS-MISSING-001"
         );
+    }
+
+    #[test]
+    fn empty_test_block_still_fires() {
+        // Theater regression guard (2026-05-27): a `tests { }` block
+        // with zero assertions does NOT clear the rule. Authors who
+        // type the keyword without filling in `permits` / `allows
+        // when` get the same finding as if they had no block.
+        let feature = mk_feature(
+            vec![mk_resource("Post")],
+            vec![mk_cmd("publish", Some(mk_empty_test_block()))],
+        );
+        let findings = check(&feature, Path::new("features/post/post.lzi"));
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert_eq!(findings[0].feature, "test_feat");
     }
 
     #[test]
