@@ -23,7 +23,7 @@
 //! use lazuli_doctor::error_handling::walker::walk_workspace_go_handlers;
 //! use std::path::Path;
 //!
-//! let root = Path::new("c:/Users/lucas/hostpoint");
+//! let root = Path::new("/path/to/app");
 //! let files = walk_workspace_go_handlers(root);
 //! for f in &files {
 //!     println!("{} ({}): {} LOC", f.relative_path.display(), f.feature_name, f.loc_count);
@@ -69,7 +69,7 @@ pub struct GoHandlerSourceFile {
 /// use lazuli_doctor::error_handling::walker::walk_workspace_go_handlers;
 /// use std::path::Path;
 ///
-/// let files = walk_workspace_go_handlers(Path::new("c:/Users/lucas/hostpoint"));
+/// let files = walk_workspace_go_handlers(Path::new("/path/to/app"));
 /// assert!(files.iter().all(|f| f.relative_path.extension().unwrap() == "go"));
 /// ```
 pub fn walk_workspace_go_handlers(workspace_root: &Path) -> Vec<GoHandlerSourceFile> {

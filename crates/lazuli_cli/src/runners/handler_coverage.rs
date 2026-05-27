@@ -126,9 +126,9 @@ mod tests {
     use super::*;
 
     const SAMPLE: &str = "mode: set
-hostpoint/app/features/post/handlers/create.go:10.20,15.2 4 1
-hostpoint/app/features/post/handlers/create.go:17.20,20.2 2 0
-hostpoint/app/features/post/handlers/update.go:5.20,8.2 3 1
+the canonical pilot/app/features/post/handlers/create.go:10.20,15.2 4 1
+the canonical pilot/app/features/post/handlers/create.go:17.20,20.2 2 0
+the canonical pilot/app/features/post/handlers/update.go:5.20,8.2 3 1
 ";
 
     #[test]

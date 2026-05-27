@@ -11,8 +11,9 @@
 #
 # Refs:
 #   - docs/proposals/tdd-bdd-first-2026-05-23.md (Wave 0.5 + Wave 6)
-#   - C:/Users/lucas/.claude/plans/investiga-lazuli-e-bora-hashed-bengio.md
-#   - Hostpoint = Lazuli's Basecamp (canonical app shape)
+#   - The canonical pilot app serves the same role Basecamp serves for
+#     Rails — concrete shape the framework optimizes for; not vendored
+#     into the public repo.
 
 [project]
 name = "lazuli"

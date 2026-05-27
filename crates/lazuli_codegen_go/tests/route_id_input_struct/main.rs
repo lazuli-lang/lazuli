@@ -4,7 +4,7 @@
 //! `Bindings{"id": FromInput("ID")}` resolves against nothing and the
 //! runtime returns 400 bad_request for every dispatch.
 //!
-//! Bug origin: hostpoint Phase L playwright sweep 2026-05-21 surfaced
+//! Bug origin: the canonical pilot Phase L playwright sweep 2026-05-21 surfaced
 //! the gap on `SaveTravelerTravelerVehicleInput` (dist/go/traveler/
 //! command.gen.go:1023) and four sibling structs. The cycle proposal
 //! `codegen-correctness-cycle-2026-05-21.md` §3.A1 mandates the field
@@ -102,7 +102,7 @@ fn traveler_fixture() -> Module {
 /// `Save` + `TravelerVehicle` + `TravelerVehicle` + `Input` (the resource
 /// pascal name is repeated because the modifier words spell out the
 /// same identifier). The shape mirrors `SaveTravelerTravelerVehicleInput`
-/// from the canonical hostpoint pilot bug.
+/// from the canonical the canonical pilot bug.
 #[test]
 fn route_id_lands_on_input_struct_for_save_command() {
     let module = traveler_fixture();

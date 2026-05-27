@@ -90,7 +90,7 @@ func TestClassifyDBErrorPreservesInternalFallbackForUnclassified(t *testing.T) {
 // full HTTP boundary on a `23505` to prove the wire client sees the
 // localized layperson message — NEVER the raw Postgres SQLSTATE,
 // constraint name, or the `code:"internal"` legacy shape. This is
-// the exit-criteria scenario for the hostpoint duplicate-email
+// the exit-criteria scenario for the the canonical pilot duplicate-email
 // field incident.
 func TestClassifyDBErrorUniqueViolationWireBodyIsLocalized(t *testing.T) {
 	installZeroAuthoringFixture(t)

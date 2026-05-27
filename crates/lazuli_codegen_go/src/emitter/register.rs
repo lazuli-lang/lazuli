@@ -2,7 +2,7 @@
 //! `lazuli.Register(...)` for every Resource, Command, and Query declared
 //! on the feature.
 //!
-//! Closes the first half of `WAR-RUNTIME-COMMAND-01` (hostpoint port
+//! Closes the first half of `WAR-RUNTIME-COMMAND-01` (the canonical pilot port
 //! audit, 2026-05-16). Before this emitter existed, codegen produced
 //! `var <cmd> = lazuli.Command[...]{...}` declarations but never invoked
 //! `lazuli.Register(&cmd)` — every app had to ship a hand-written

@@ -25,7 +25,7 @@
 /// session table is private), `request_profile_photo_upload` (mints a
 /// presigned URL but has no `triggers`). Trusting only the IR's empty
 /// side-effect set produced false positives (W0-5 surfaced this:
-/// hostpoint app failed to typecheck because login + photo-upload
+/// the canonical pilot app failed to typecheck because login + photo-upload
 /// commands shipped as `defineQuery`, breaking existing
 /// `useLazuliCommand` callsites). The name-prefix gate makes the
 /// classification conservative — false negatives (a read that doesn't

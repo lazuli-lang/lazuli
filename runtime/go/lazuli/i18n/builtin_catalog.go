@@ -7,7 +7,7 @@
 // of the resolver chain (§2.E) is dark and the runtime falls all the
 // way through to the empty pair — restoring the pre-RUNTIME-1 wire
 // jargon ("no policy atom matches…"). That regression is the
-// hostpoint field incident this whole vocab cycle exists to close.
+// the canonical pilot field incident this whole vocab cycle exists to close.
 //
 // Format: flat `key → text` JSON, one file per locale, embedded via
 // `embed.FS` so the runtime binary carries the strings without a

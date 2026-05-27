@@ -1,4 +1,4 @@
-app HostPoint
+app Acme
   route_guard
     default_policy @policy.authenticated
     on_unauthenticated redirect "/sign-in"

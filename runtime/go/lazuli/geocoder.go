@@ -21,7 +21,7 @@ import (
 // that means the bound plugin does not satisfy the geocoder
 // contract and the operator must rebind.
 //
-// Example (hostpoint property pin confirmation):
+// Example (the canonical pilot property pin confirmation):
 //
 //	geo, err := lazuli.Geocoder("geocoder")
 //	if err != nil { return Result{}, err }

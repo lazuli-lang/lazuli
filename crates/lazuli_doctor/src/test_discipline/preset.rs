@@ -158,7 +158,7 @@ impl TestDisciplinePreset {
 ///   `TEST-RESTATES-EFFECT-001` / `TEST-RESTATES-POLICY-001` /
 ///   `TEST-FIXTURE-LITERAL-001` — Wave 1 TDD/BDD catalog.
 /// - `MIGRATION-DSL-UNIQUE-001` / `RUNTIME-UPDATE-BUILDER-JSONB-001` —
-///   bug-driven rules from Hostpoint §7.1.
+///   bug-driven rules from the canonical pilot §7.1.
 /// - `DOCTOR-OVERRIDE-NEEDS-REASON-001` — Wave 0.5 meta-rule.
 /// - `TEST-STUB-001` — Wave 3 scaffold marker rule.
 /// - `TEST-VIEW-E2E-MISSING-001` / `TEST-VIEW-EXTENSIBILITY-001` /

@@ -1,5 +1,5 @@
 // WHERE-clause shape tests for the new sourceCtxOwnedVia kind.
-// Closes the relation-traversal arm of @scope.owner per the hostpoint
+// Closes the relation-traversal arm of @scope.owner per the the canonical pilot
 // Phase 4 capability audit (2026-05-17).
 package lazuli
 
@@ -50,7 +50,7 @@ func TestWhereConditionFragmentRefusesUnsafeIdent(t *testing.T) {
 // used the raw `quoteIdent(res.Name)` which produced quoted PascalCase
 // — case-sensitive in Postgres and failing with 42P01 against the
 // snake_case migrated tables. The 3 fixtures cover the shapes that
-// surfaced during the hostpoint booking-flow validation:
+// surfaced during the the canonical pilot booking-flow validation:
 //   - single-word resource (`User` → `user`)
 //   - multi-word PascalCase (`UserSession` → `user_session`)
 //   - 3+ words for completeness (`ServiceTransaction` → `service_transaction`).

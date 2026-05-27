@@ -12,7 +12,7 @@ mod tests {
     // shared-fixtures `pub(super)` re-export pattern.
 
     // NOTE: tests for `query_ident` / `strip_query_verb_prefix` (the
-    // verb-prefix dedup added alongside the Hostpoint bug fix) cannot
+    // verb-prefix dedup added alongside the the canonical pilot bug fix) cannot
     // live here because the `lazuli_cli` test binary currently fails to
     // compile on this branch's base (pre-existing `doctor::lzx::ir_stub`
     // field mismatches, unrelated to this change — see `cargo test -p

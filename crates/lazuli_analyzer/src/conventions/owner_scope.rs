@@ -120,7 +120,7 @@ pub(crate) fn resolve_owner_scope(
         // target in the feature's resource list.
         //
         // Cross-feature note: the FK target may live in another
-        // feature (Hostpoint's catalog.Property → host.Host is the
+        // feature (the canonical pilot's catalog.Property → host.Host is the
         // motivating case). Synth runs per-feature without a Module
         // handle, so we can only validate the through-column when the
         // target is in the SAME feature. For cross-feature targets we

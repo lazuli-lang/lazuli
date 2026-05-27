@@ -161,7 +161,7 @@ mod tests {
     #[test]
     fn discovery_root_override_is_honored() {
         let tmp = tempfile::tempdir().unwrap();
-        let custom = Path::new("app/clients/hostpoint-app/e2e");
+        let custom = Path::new("app/clients/the canonical pilot-app/e2e");
         write_spec(&tmp.path().join(custom), "host-property-edit.spec.ts");
         let views = vec![LzxViewRef {
             experience: "catalog".to_string(),

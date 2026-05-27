@@ -48,7 +48,7 @@ pub(crate) fn keyword_description(keyword: &str) -> Option<&'static str> {
             Some("Declares public app URLs used by clients, CORS, emails, callbacks, and webhooks.")
         }
         "bindings" => Some(
-            "Two shapes by context. (1) Under `app` / `profile`: binds abstract feature requirements to concrete integration entries (`<feature>.<slot> = integrations.<name>`). (2) Under `registry`: sugar alias for `integrations`, with the simplified `endpoint env.<NAME>` / `auth keys env.<ID> env.<SECRET>` child surface for adapter credential wiring (B1 — see W3-blockers + hostpoint-complete-roadmap §3.5).",
+            "Two shapes by context. (1) Under `app` / `profile`: binds abstract feature requirements to concrete integration entries (`<feature>.<slot> = integrations.<name>`). (2) Under `registry`: sugar alias for `integrations`, with the simplified `endpoint env.<NAME>` / `auth keys env.<ID> env.<SECRET>` child surface for adapter credential wiring (B1 — see W3-blockers + the canonical pilot-complete-roadmap §3.5).",
         ),
         "packs" => Some(
             "Declares Lazuli pack catalog entries in `registry.lzi` or enabled pack references in `app.lzi`.",

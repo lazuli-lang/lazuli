@@ -24,7 +24,7 @@ type AutoPhotoSpec struct {
 	// lower-snake of Resource (e.g., `host`, `traveler`).
 	Table string
 	// `lazuli.ObjectStore(<binding>)` lookup key. Conventionally
-	// `"object_store"` for hostpoint pilots.
+	// `"object_store"` for the canonical pilot pilots.
 	StoreBinding string
 	// Logical bucket label per `registry.capabilities
 	// object_storage <slot>`. Conventionally `"media"`.

@@ -320,7 +320,7 @@ pub(crate) fn quoted_table(resource_name: &str) -> String {
 /// §7.3 — quote an identifier when codegen will paste it inside an
 /// SQL fragment. Postgres treats `"user"` and `user` differently
 /// (the latter is a reserved keyword in many positions); the
-/// hand-rolled handlers in the trigger pilot (`hostpoint/.../delete_service.go`
+/// hand-rolled handlers in the trigger pilot (`the canonical pilot/.../delete_service.go`
 /// §1.1) quote both sides. We match that shape.
 pub(crate) fn quoted_ident(ident: &str) -> String {
     format!("\"{}\"", ident)

@@ -2344,7 +2344,7 @@ another feature's policy category, use a feature-qualified policy reference.
 `app.lzi` may declare an app fallback with `actor_query` and `route_guard`:
 
 ```lazuli
-app HostPoint
+app Acme
   actor_query account.query.me
   route_guard
     default_policy @scope.authenticated
@@ -2383,7 +2383,7 @@ Until `crates/lazuli_cli/tests/fixtures/route-guard/happy.lzx` exists, this
 example follows the shipped proposal/parser grammar:
 
 ```lazuli
-app HostPoint
+app Acme
   actor_query account.query.me
   route_guard
     default_policy @scope.authenticated

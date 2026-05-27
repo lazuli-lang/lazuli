@@ -35,7 +35,7 @@ Every `LZIR_SCHEMA` bump must ship a paired
 
 - **Codegen-correctness cycle 3
   (`codegen-correctness-cycle-3-2026-05-21`) — 4 LAZ items closed.**
-  Hostpoint stayed at **95/95 pass, 0 skip**, but now with **0
+  Acme stayed at **95/95 pass, 0 skip**, but now with **0
   retained workarounds**: cycle 3 removed every workaround cycle 2 had
   to keep. Atelier moved from "generated Go does not build" to
   **compiles + binary builds** (`atelier-api.exe`, 34.5 MB) with
@@ -49,11 +49,11 @@ Every `LZIR_SCHEMA` bump must ship a paired
     `baseScopeConditions`, preventing placeholder collisions between
     `SET`, tenant/policy scope, and explicit `WHERE` loops. Regression
     coverage now locks apply-delete soft delete, list, lookup,
-    multi-SET + multi-WHERE, and no-tenant idempotency paths. Hostpoint
+    multi-SET + multi-WHERE, and no-tenant idempotency paths. Acme
     reverted the cycle-2 traveler sub-step `@fn` handler workaround and
     returned to generated `updates Traveler { ... }` plus authored
     `invalidates query.lookup_my_traveler`. (`84fa169` + `b9b0c2e`;
-    hostpoint `b4a47f9`)
+    acme `b4a47f9`)
   - **LAZ-ATELIER-COMPILE** (AE1/AE2/AE3): audit reduced 12 build
     failures to two root causes: missing generated handler-import gates
     and a generated `go.mod` that replaced but did not require
@@ -66,23 +66,23 @@ Every `LZIR_SCHEMA` bump must ship a paired
     now have full module headers with severity and fires/warns
     coverage, and `tests/module_headers.rs` self-enforces the header
     contract across 38 modules. (`1ae45c6` + `e56f066`)
-  - **LAZ-HOSTPOINT-WORKAROUNDS-LINGER** (WO1/WO2/WO3): hostpoint's
+  - **LAZ-PILOT-WORKAROUNDS-LINGER** (WO1/WO2/WO3): acme's
     `bumpLifecycle` SQL fallback is gone, `progressTravelerTo` uses the
     traveler API end-to-end, the stale-time audit found 0 retained
     `staleTime: 0` workaround sites, and parser support now accepts
     canonical `triggers transition a, b`, legacy `triggers a, b`, and
-    block-form triggers. (hostpoint `5ef022b`; `8f87d7f`)
+    block-form triggers. (acme `5ef022b`; `8f87d7f`)
 
 - **Codegen-correctness cycle 2
   (`codegen-correctness-cycle-2-2026-05-21`) — 5 LAZ items plus
-  doctor/docs polish closed.** Hostpoint moved from 94/95 with 1 skip
+  doctor/docs polish closed.** Acme moved from 94/95 with 1 skip
   to **95/95 pass, 0 skip** after regen and traveler happy-path
-  unskip (hostpoint `5df6d6f`, `61394ea`, `31e992d`). Cycle 2 has
+  unskip (acme `5df6d6f`, `61394ea`, `31e992d`). Cycle 2 has
   **no breaking changes**; the query wire-name rename from cycle 1
   remains the last breaking change in this area. New gap inherited by
   cycle 3: `WAR-LAZ-RU-TENANT-UPDATE-OFFSET-01`, where generated
   tenant-scoped `updates Traveler` SQL collides placeholders after SET
-  bindings; hostpoint temporarily reroutes traveler sub-step commands
+  bindings; acme temporarily reroutes traveler sub-step commands
   through `@fn` handlers. Closures:
   - **LAZ-RU-UPDATED-AT** (RU1/RU2/RU3): runtime `applyUpdates` and
     `applyDeletes` no longer append `"updated_at" = now()` to
@@ -108,10 +108,10 @@ Every `LZIR_SCHEMA` bump must ship a paired
     now catalogs 103 diagnostic rules.
 
 - **Codegen-correctness cycle (5 LAZ gaps closed, 20 cells, 3 waves).**
-  Closed the codegen gaps surfaced by the hostpoint playwright sweep
+  Closed the codegen gaps surfaced by the acme playwright sweep
   (`docs/proposals/codegen-correctness-cycle-2026-05-21.md` —
   proposal lives in the `lazuli-ops` companion repo). Pilot evidence:
-  hostpoint 94/95 pre-cycle → 95/95 post-cycle once C1 unskips the
+  acme 94/95 pre-cycle → 95/95 post-cycle once C1 unskips the
   traveler happy path. Five closures:
   - **LAZ-route-id-codegen** (A1/A2/A3/A4): `command save_X route id: ID`
     now lowers to an emitted Go input-struct field (`Id ID
@@ -121,7 +121,7 @@ Every `LZIR_SCHEMA` bump must ship a paired
     slot redeclared in input with a divergent type). LSP completion for
     `input.<>` inside `effect.bindings` now suggests route params.
     Deletes the `bumpLifecycle` SQL-bump workaround in
-    `hostpoint-app/e2e/helpers/onboarding-progress.ts`. (`bd33755`
+    `acme-app/e2e/helpers/onboarding-progress.ts`. (`bd33755`
     + `a69d9c9` + `cf9db79` + `7d7789d` + `0718de0`)
   - **LAZ-invalidates-codegen** (A5/A6/A7): codegen-ts now derives
     `invalidates` from feature queries for any `Creates` / `Updates` /
@@ -133,7 +133,7 @@ Every `LZIR_SCHEMA` bump must ship a paired
     `spec.invalidates` and calling
     `queryClient.invalidateQueries({ queryKey: ["lazuli", name] })`.
     Unblocks reverting the `staleTime: 0` workaround in
-    `hostpoint-app/src/shell/App.tsx`. (`a69d9c9` + `e69c2a1`)
+    `acme-app/src/shell/App.tsx`. (`a69d9c9` + `e69c2a1`)
   - **LAZ-record-column-jsonb** (A8/A9): record-typed resource columns
     now lower to `JSONB` (and `Many<UserDefined<Record>>` to a single
     `JSONB`, not `JSONB[]`, avoiding the pgx scan trap). Doctor
@@ -159,8 +159,8 @@ Every `LZIR_SCHEMA` bump must ship a paired
     runtime registry + cache contract literals. Runtime integration
     test (`runtime/go/lazuli/http_query_mount_test.go`) locks the new
     mount path `/api/v1/q/<feature>.<query>` and asserts 404 on the
-    legacy `.query.` form. Hostpoint URL probe sweep done in B3 (see
-    hostpoint commit `9530fe2`). (`38c7683` + `9222283`)
+    legacy `.query.` form. Acme URL probe sweep done in B3 (see
+    acme commit `9530fe2`). (`38c7683` + `9222283`)
 
 - **Roadmap §1 vertical audit (Wave 5) — 38 `[x]` flips + 11 partial
   clarifications.** Evolve manager-probe cycle
@@ -186,7 +186,7 @@ Every `LZIR_SCHEMA` bump must ship a paired
   column priorities: `@scope.owner` resolves `user_id` > `user` >
   `owner_id` > `owner` → `ctx.user.id`; `@scope.same_org` resolves
   `org_id` > `org` > `tenant_id` > `tenant` → `ctx.user.org_id`.
-  Closes the SHIP-NOW row-ownership gap surfaced by the hostpoint
+  Closes the SHIP-NOW row-ownership gap surfaced by the acme
   pilot 2026-05-17 capability matrix. Resources without a matching
   column silently skip (defense-in-depth opt-in). (`c0a4609`)
 - **`resource_unique_qualifier_unknown` + `resource_validates_path_unknown`
@@ -203,7 +203,7 @@ Every `LZIR_SCHEMA` bump must ship a paired
   `@scope.self`, codegen binds the row's `id` directly to
   `ctx.user.id` (the acting user IS the target row). Suppresses the
   route/input id binding to avoid double-binding. Unblocks
-  `account.choose_role` per the hostpoint Phase 4 audit. (`14e2642`)
+  `account.choose_role` per the acme Phase 4 audit. (`14e2642`)
 - **Bulk-delete mode for `@scope.*` policies.** When a `deletes`
   command has NO route and `Command.input` is `Empty` AND a scope
   atom is present, codegen drops the legacy `{"id": FromInput("ID")}`
@@ -222,7 +222,7 @@ Every `LZIR_SCHEMA` bump must ship a paired
   `Command.route` (composite key for multi-route commands) OR a
   single typed input slot, falling back to `{"id": FromInput("ID")}`
   for routeless / multi-input commands. Closes the hardcoded
-  `"id": FromInput("ID")` assumption surfaced by the hostpoint Phase 4
+  `"id": FromInput("ID")` assumption surfaced by the acme Phase 4
   audit. Unblocks 2 more SHIP-NOW handlers (`unregister_web_push`,
   `dev_auto_approve_charge`); the other 6 still gate on status-guards
   / ctx-as-key / bulk-delete / negation / INSERT-with-constants
@@ -237,7 +237,7 @@ Every `LZIR_SCHEMA` bump must ship a paired
   tenancy WHERE clauses. One-hop only; deeper chains gate on a 3rd
   pilot. New runtime `sourceCtxOwnedVia` Source kind +
   `ownedViaSubquery` payload; new `whereConditionFragment` SQL
-  helper. Unblocks the 8 BLOCKED hostpoint handlers per the Phase 4
+  helper. Unblocks the 8 BLOCKED acme handlers per the Phase 4
   capability audit. (`11fc4af`)
 - **`SCOPE-OWNER-COLUMN-001` doctor warning.** Companion to the
   codegen lowering: fires when a command's policy includes
@@ -405,12 +405,12 @@ Every `LZIR_SCHEMA` bump must ship a paired
 ### Known gaps
 
 - **Codegen-correctness cycle Wave C (pilot regens) not yet closed at
-  cycle-close time.** C1 (hostpoint regen + unskip
+  cycle-close time.** C1 (acme regen + unskip
   `onboarding-traveler-flow.spec.ts:19` + revert `staleTime: 0` +
   drop `bumpLifecycle` SQL workaround → 95/95 playwright pass), C2
   (pleiades regen verify), C3 (atelier regen verify), and C4
-  (erudito + hostpoint-OS regen verify) remain in flight. Pilot pass
-  count stays at hostpoint 94/95 with one skip until C1 lands. See
+  (erudito + acme-OS regen verify) remain in flight. Pilot pass
+  count stays at acme 94/95 with one skip until C1 lands. See
   `docs/proposals/codegen-correctness-cycle-2026-05-21-close.md`
   (lazuli-ops repo) for the per-cell status table and any deferred
   items surfaced by the cycle.

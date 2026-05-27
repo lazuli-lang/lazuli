@@ -34,7 +34,7 @@ use lazuli_ir::{
 // Alt-key WHERE binding (Wave 8). When a delete/update command has no
 // `route` and a single typed input slot whose name is NOT `id`, the
 // codegen now uses that slot as the WHERE key (column + Go input
-// field). Closes the hostpoint Phase 4 codegen gap surfaced 2026-05-17.
+// field). Closes the the canonical pilot Phase 4 codegen gap surfaced 2026-05-17.
 // -------------------------------------------------------------------------
 
 #[test]
@@ -123,7 +123,7 @@ fn updates_with_route_slot_uses_route_as_where_key() {
 }
 
 // -------------------------------------------------------------------------
-// @scope.self — ctx-as-key WHERE binding (Wave 9 / hostpoint codegen gap G).
+// @scope.self — ctx-as-key WHERE binding (Wave 9 / the canonical pilot codegen gap G).
 // Closes `account.choose_role` UPDATE WHERE id = ctx.user.id.
 // -------------------------------------------------------------------------
 
@@ -172,7 +172,7 @@ fn updates_with_scope_self_uses_ctx_user_id_as_where_key() {
 
 // -------------------------------------------------------------------------
 // Bulk delete — @scope.owner with no route AND no typed input
-// (Wave 9 / hostpoint codegen gap H). Closes `account.logout` etc.
+// (Wave 9 / the canonical pilot codegen gap H). Closes `account.logout` etc.
 // -------------------------------------------------------------------------
 
 #[test]

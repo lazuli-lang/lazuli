@@ -339,7 +339,7 @@
     fn err_vocab_code_unknown_silent_for_db_integrity_codes() {
         // DB-INTEGRITY-CATALOG-EXT regression guard: the 4 new
         // db-integrity codes must parse cleanly in `errors` blocks so
-        // hostpoint can author `errors unique_violation message
+        // the canonical pilot can author `errors unique_violation message
         // @translation.account_email_already_registered`.
         let mut f = mk_feature("account");
         f.errors = Some(FeatureErrors {

@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 /// the planner-side reconciliation test.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Design {
-    /// Catalog identifier (e.g. `"hostpoint"`).
+    /// Catalog identifier (e.g. `"the canonical pilot"`).
     pub name: String,
     /// Optional name of a parent catalog this one extends.
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -85,7 +85,7 @@ pub(crate) fn emit_feature_sdk_ts(
 
     // router-w4 — per-resource lifecycle_route helpers. Appended at
     // the tail so feature SDK consumers can `import { hostLifecycleRoute }
-    // from '@hostpoint/sdk/host/host.gen'` and the routes.gen.tsx
+    // from '@the canonical pilot/sdk/host/host.gen'` and the routes.gen.tsx
     // beforeLoad closures can call the helper via the same path.
     if let Some(helpers) = lazuli_codegen_ts::emit_lifecycle_route_helpers_ts(feature) {
         writeln!(s).ok();

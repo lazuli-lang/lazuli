@@ -17,7 +17,7 @@ use super::{CoverageThresholds, LayerThreshold};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoveragePreset {
     /// Block `handler_go` strictly (90/95); warn-only on the spec
-    /// and view layers. Mirrors the historical hostpoint tuning and
+    /// and view layers. Mirrors the historical the canonical pilot tuning and
     /// the scaffold-default expectation: handler tests are the
     /// non-negotiable TDD pair, the other layers are aspirational
     /// while specs/view-e2e ramp up.

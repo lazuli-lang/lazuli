@@ -32,7 +32,7 @@ use lazuli_ir::{
 };
 
 fn owner_scope_sql_property() -> lazuli_ir::OwnerScopeSql {
-    // Mirrors the analyzer's cell-O2 output for Hostpoint's
+    // Mirrors the analyzer's cell-O2 output for the canonical pilot's
     // `Property.host: Host required @owner_axis(through: user)`.
     lazuli_ir::OwnerScopeSql {
         field_name: "host".to_owned(),
@@ -174,7 +174,7 @@ fn update_with_owner_scope_sql_emits_owned_via_binding() {
 /// required + optional slots must emit `FromInput` for the
 /// required ones and `FromInputOptional` for the optional ones, so
 /// the runtime keeps the existing column value when the wire
-/// payload omits an optional field. Regression for the hostpoint
+/// payload omits an optional field. Regression for the the canonical pilot
 /// 2026-05-22 settings-save outage.
 #[test]
 fn update_emits_from_input_optional_for_optional_input_slots() {

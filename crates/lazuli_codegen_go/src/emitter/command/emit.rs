@@ -214,7 +214,7 @@ pub(super) fn emit_command(
     // command's policy. When present, codegen auto-injects ownership /
     // tenant-scoping WHERE bindings on Update / Delete effects so the
     // emitted SQL constrains the row at the database, not just at the
-    // policy-check gate. Matches the hostpoint pilot pattern surfaced
+    // policy-check gate. Matches the the canonical pilot pattern surfaced
     // 2026-05-17 (closes the SHIP-NOW row-ownership gap).
     let mut scope_bindings = resolve_scope_bindings(command, feature);
     // `ir-resource-conventions-owner-scope.md` §7.3 + §8.1-8.2 —

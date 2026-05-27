@@ -34,9 +34,9 @@ use super::parsers::{
 /// ```ignore
 /// use lazuli_cli::app_manifest::workspace::parse_app_workspace;
 ///
-/// let src = "workspace Hostpoint\n  shared_registry \"acme\"\n";
+/// let src = "workspace the canonical pilot\n  shared_registry \"acme\"\n";
 /// let ws = parse_app_workspace(src).expect("workspace header");
-/// assert_eq!(ws.name, "Hostpoint");
+/// assert_eq!(ws.name, "the canonical pilot");
 /// assert_eq!(ws.shared_registry.as_deref(), Some("acme"));
 /// ```
 pub fn parse_app_workspace(source: &str) -> Option<AppWorkspace> {
@@ -175,9 +175,9 @@ mod tests {
 
     #[test]
     fn captures_shared_registry() {
-        let src = "workspace Hostpoint\n  shared_registry \"acme\"\n";
+        let src = "workspace acme\n  shared_registry \"acme\"\n";
         let ws = parse_app_workspace(src).expect("workspace header");
-        assert_eq!(ws.name, "Hostpoint");
+        assert_eq!(ws.name, "acme");
         assert_eq!(ws.shared_registry.as_deref(), Some("acme"));
     }
 }

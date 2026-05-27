@@ -73,7 +73,7 @@ fn is_lazuli_runtime_dir(candidate: &Path) -> bool {
 /// Path discipline: relative when project and runtime share a common
 /// ancestor (the canonical sibling layout), absolute otherwise (e.g.
 /// different Windows drives). Avoids baking machine-specific paths
-/// like `c:/Users/lucas/lazuli/...` into the scaffold output — those
+/// like `<workspace-root>/...` into the scaffold output — those
 /// would leak the scaffolder's filesystem layout into every new
 /// project and break cross-developer builds on day one.
 ///

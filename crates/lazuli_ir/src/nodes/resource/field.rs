@@ -95,7 +95,7 @@ pub struct Field {
 /// `ir-resource-conventions-owner-scope` §7.2 — typed payload for the
 /// `@owner_axis(through: <column>)` field annotation. `through_column`
 /// is the column on the FK target resource that holds the actor key
-/// (`user` for Hostpoint's Property → Host chain). Multi-hop chains
+/// (`user` for the canonical pilot's Property → Host chain). Multi-hop chains
 /// are deferred per §13; v0 captures one hop.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct OwnerAxis {
@@ -116,7 +116,7 @@ pub struct OwnerAxis {
 pub struct OwnerScopeSql {
     /// Field name on the resource that bears `@owner_axis`. Stored for
     /// inspect annotations (O3) and to support multi-axis composition
-    /// in future cycles. Example: `"host"` for Hostpoint Property.
+    /// in future cycles. Example: `"host"` for the canonical pilot Property.
     pub field_name: String,
     /// FK target resource name (PascalCase). Codegen lowers this to
     /// the snake-cased table identifier. Example: `"Host"`.

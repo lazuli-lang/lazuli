@@ -1,7 +1,7 @@
 //! Wave S2 — import-block awareness (false-positive fix) for
 //! `type_duplicate`.
 //!
-//! Wave F01 surfaced that the canonical hostpoint pilot raised 31
+//! Wave F01 surfaced that the canonical the canonical pilot raised 31
 //! type-duplicate diagnostics, but 20 were framework noise from
 //! multi-line `import { type X, ... } from "..."` blocks being misread
 //! as local re-declarations. These tests lock the fix in.
@@ -16,7 +16,7 @@ use super::test_support::{write, TempDir};
 
 /// A multi-line `import { type Foo, type Bar } from "..."` block
 /// must not produce type-duplicate diagnostics for `Foo`/`Bar`.
-/// Mirrors the hostpoint `HostHome.tsx` real-world false positive.
+/// Mirrors the the canonical pilot `HostHome.tsx` real-world false positive.
 #[test]
 fn import_block_type_keyword_not_flagged() {
     let dir = TempDir::new().unwrap();
@@ -32,7 +32,7 @@ fn import_block_type_keyword_not_flagged() {
         "import {\n  \
            type Chat,\n  \
            type ChatMessage,\n\
-         } from \"@hostpoint/sdk/messaging/messaging.gen\";\n\
+         } from \"@the canonical pilot/sdk/messaging/messaging.gen\";\n\
          \n\
          export function ChatExperience() { return null }\n",
     );
@@ -59,7 +59,7 @@ fn import_block_with_aliases_not_flagged() {
         "app/clients/web-app/src/routes/HostHome.tsx",
         "import {\n  \
            type HostHomePending as SdkHostHomePending,\n\
-         } from \"@hostpoint/sdk/host/host.gen\";\n\
+         } from \"@the canonical pilot/sdk/host/host.gen\";\n\
          \n\
          export function HostHome() { return null }\n",
     );
@@ -84,7 +84,7 @@ fn single_line_import_type_not_flagged() {
     write(
         dir.path(),
         "app/clients/web-app/src/cells/messaging/ChatExperience.tsx",
-        "import { type Chat, type ChatMessage } from \"@hostpoint/sdk/messaging/messaging.gen\";\n\
+        "import { type Chat, type ChatMessage } from \"@the canonical pilot/sdk/messaging/messaging.gen\";\n\
          export function ChatExperience() { return null }\n",
     );
 
@@ -112,7 +112,7 @@ fn local_type_after_import_still_flagged() {
         "import {\n  \
            getHostHome,\n  \
            type HostHomeSnapshot,\n\
-         } from \"@hostpoint/sdk/host/host.gen\";\n\
+         } from \"@the canonical pilot/sdk/host/host.gen\";\n\
          \n\
          type HostHomePending = { local: true };\n\
          \n\
@@ -129,7 +129,7 @@ fn local_type_after_import_still_flagged() {
     assert_eq!(findings[0].type_name, "HostHomePending");
 }
 
-/// Regression: hostpoint pilot pattern — a mix of legitimate
+/// Regression: the canonical pilot pattern — a mix of legitimate
 /// SDK type imports (must be silent) and legitimate local
 /// re-declarations (must fire) in the same file. The 7 + 4
 /// remaining pilot bugs after the false-positive fix should
@@ -151,7 +151,7 @@ fn regression_existing_legitimate_redeclaration() {
         "import {\n  \
            type Chat,\n  \
            type ChatMessage as SdkChatMessage,\n\
-         } from \"@hostpoint/sdk/messaging/messaging.gen\";\n\
+         } from \"@the canonical pilot/sdk/messaging/messaging.gen\";\n\
          \n\
          // Legitimate redeclaration — drift-prone, should fire.\n\
          interface ChatMessage { body: string }\n\

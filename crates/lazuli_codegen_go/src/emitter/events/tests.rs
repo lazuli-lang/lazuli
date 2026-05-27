@@ -278,7 +278,7 @@ fn standalone_typed_event_emits_payload_struct_without_group_literal() {
 /// variants the emitter writes per-variant payload struct shapes
 /// straight from `EventGroup.variants[i].fields`, no longer
 /// requiring `Feature.events` to be populated. This is the
-/// hostpoint failure mode: the legacy lookup returned the
+/// the canonical pilot failure mode: the legacy lookup returned the
 /// envelope-only struct.
 #[test]
 fn typed_variants_under_group_drive_per_variant_payload_shapes() {

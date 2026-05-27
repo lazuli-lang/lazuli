@@ -24,7 +24,7 @@
 //!   fixture-shape literal (CPF/email/phone/UUID), Jest-creep vector.
 //! - `migration_dsl_unique_001` (error) — `.lzi` field declares `unique`
 //!   but the resource's `*.sql` migration does NOT carry `UNIQUE (<col>)`.
-//!   Catches LAZ-MIGRATION-DSL-UNIQUE (Hostpoint pass-2 bug §7.1).
+//!   Catches LAZ-MIGRATION-DSL-UNIQUE (the canonical pilot pass-2 bug §7.1).
 //! - `runtime_update_builder_jsonb_001` (warning) — `UpdateEffect` writes a
 //!   JSONB-typed field that codegen will lower to `SetIfNotNilSlice`.
 //!   Catches LAZ-RUNTIME-SETSLICE-JSONB.

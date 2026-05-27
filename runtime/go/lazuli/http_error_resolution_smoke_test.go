@@ -37,7 +37,7 @@ func installZeroAuthoringFixture(t *testing.T) {
 }
 
 // TestZeroAuthoringPolicyDeniedEmitsBuiltinPTBR is the regression
-// guard for the hostpoint field incident (proposal §1.1). A
+// guard for the the canonical pilot field incident (proposal §1.1). A
 // freshly-scaffolded app with ZERO `.lzi` error-vocab authoring —
 // no `errors` block, no `when_denied`, no feature contract
 // registered — must still emit the layperson PT-BR message

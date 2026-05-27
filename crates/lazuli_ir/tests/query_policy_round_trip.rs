@@ -10,7 +10,7 @@
 //!   3. `PolicyRef::None` defaults still round-trip, so legacy fixtures
 //!      stay backward-compatible.
 //!
-//! Field evidence — hostpoint pilot stack reported
+//! Field evidence — the canonical pilot stack reported
 //! `command/query registered with empty policy` for every authored
 //! `policy @policy.traveler_only` line on `query.lookup` decls. Closing
 //! the IR gap requires the field to exist *and* survive serialization.

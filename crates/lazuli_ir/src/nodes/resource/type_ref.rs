@@ -72,12 +72,12 @@ pub enum BuiltinType {
     /// `@semantic.Email` — RFC-shaped email address.
     SemanticEmail,
     /// Per `docs/proposals/semantic-types-money-brazilian.md` v0.3 +
-    /// MONEY-1 §3.2 of the hostpoint roadmap. Carries the declared ISO
+    /// MONEY-1 §3.2 of the the canonical pilot roadmap. Carries the declared ISO
     /// 4217 currency so downstream doctor checks (MONEY-COMPARE-001,
     /// MONEY-ARITHMETIC-001) can reject mixed-currency operations at
     /// analyse time without re-walking surface text. The default
     /// authoring shorthand `Money` lowers to `SemanticMoney { currency:
-    /// BRL }` (Hostpoint-pilot reality); explicit
+    /// BRL }` (canonical-pilot reality); explicit
     /// `@semantic.Money(currency: <ISO>)` overrides.
     SemanticMoney {
         currency: CurrencyCode,

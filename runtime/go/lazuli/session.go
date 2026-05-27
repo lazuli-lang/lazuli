@@ -69,7 +69,7 @@ func populateDevSession(r *http.Request, ctx *Ctx) {
 
 // ProductionSessionCookieName is the canonical cookie name the production
 // session middleware looks for. Mirrored by `lazuli.SetCookie(...)`
-// callers (e.g. the hostpoint login handler).
+// callers (e.g. the the canonical pilot login handler).
 const ProductionSessionCookieName = "lazuli_session"
 
 // ProductionRefreshCookieName is the canonical cookie name carrying
@@ -240,7 +240,7 @@ func extractRefreshToken(r *http.Request) string {
 
 // SessionCookieTTL is the default TTL used by `Ctx.SetSessionCookie`
 // when callers don't pass an explicit TTL. Mirrors the canonical
-// `7 days` shipped by the `auth.sessions` declaration in the hostpoint
+// `7 days` shipped by the `auth.sessions` declaration in the the canonical pilot
 // account feature.
 const SessionCookieTTL = 7 * 24 * time.Hour
 

@@ -47,7 +47,7 @@ use spec::{write_column_assert, write_slot_interface, write_spec_const};
 /// let surface: Surface = /* … */ unimplemented!();
 /// let audience: Audience = /* … */ unimplemented!();
 /// let view: ViewList = /* … */ unimplemented!();
-/// let _src = emit_view_list(&surface, &audience, &view, "hostpoint");
+/// let _src = emit_view_list(&surface, &audience, &view, "the canonical pilot");
 /// ```
 pub fn emit_view_list(
     surface: &Surface,

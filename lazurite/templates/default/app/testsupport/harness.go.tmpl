@@ -3,7 +3,7 @@
 //
 // Lazuli framework reference scaffold — pilots EXTEND this file with
 // project-specific seed helpers (SeedHost, SeedTraveler, etc.). The
-// shape comes from Hostpoint's `app/testsupport/harness.go`
+// shape comes from the canonical pilot's `app/testsupport/harness.go`
 // (committed 2026-05-24, commit `d1aae4f`).
 //
 // Design discipline:
@@ -112,7 +112,7 @@ func SharedPool(ctx context.Context) (*pgxpool.Pool, error) {
 //	}
 //
 // Pilots that need role-specific actors layer a SetupAs(t, "host") or
-// equivalent on top — see Hostpoint's `app/testsupport/harness.go`
+// equivalent on top — see the canonical pilot's `app/testsupport/harness.go`
 // for the role-parametric reference.
 func Setup(t *testing.T) (*lazuli.Ctx, func()) {
 	t.Helper()
@@ -123,7 +123,7 @@ func Setup(t *testing.T) (*lazuli.Ctx, func()) {
 		return nil, func() {}
 	}
 	// @TODO authored: replace with real org/user seed logic for the
-	// project. The Hostpoint reference performs:
+	// project. The the canonical pilot reference performs:
 	//   1. INSERT INTO "org" (...)
 	//   2. INSERT INTO "user" (...)
 	//   3. Optional role-specific INSERT (host/traveler/operator/...)

@@ -17,7 +17,7 @@
 //!   override is declared we skip the lookup (the plugin's manifest is
 //!   not on the local filesystem). Module-mode resolution is intentionally
 //!   conservative in v1 — pilots universally use `path` while the
-//!   ecosystem matures (Hostpoint reality: every plugin is local).
+//!   ecosystem matures (the canonical pilot reality: every plugin is local).
 //!
 //! ## Determinism
 //!

@@ -172,7 +172,7 @@
     // Tailwind allows `bg-X/N` for alpha; `ring-N` is a width built-in;
     // `ring-offset-N` is the offset-width built-in; `ring-offset-<color>`
     // shares the `ring` color palette. These tests pin the doctor-side
-    // routing so the final 5 hostpoint residuals resolve.
+    // routing so the final 5 the canonical pilot residuals resolve.
 
     #[test]
     fn opacity_slash_modifier_stripped_for_color_lookup() {

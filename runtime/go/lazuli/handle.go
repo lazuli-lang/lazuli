@@ -749,7 +749,7 @@ func applyCreates[I, O any](ctx *Ctx, tx pgx.Tx, eff CreatesEffect, input I) (O,
 // is the 1-based position for the `$N` reference.
 //
 // Closes the relation-traversal arm of `@scope.owner` per the
-// hostpoint Phase 4 capability audit (2026-05-17).
+// the canonical pilot Phase 4 capability audit (2026-05-17).
 func whereConditionFragment(col string, src Source, placeholderIdx int) string {
 	if src.kind == sourceCtxOwnedVia && src.subquery != nil {
 		return fmt.Sprintf(

@@ -331,7 +331,7 @@ design example
     #[test]
     fn lower_design_lifts_custom_group_with_base_and_dark() {
         let source = r##"
-design hostpoint
+design the canonical pilot
   custom
     chat-bubble-mine "#dcf8c6" dark "#005c4b"
     chat-bubble-other "#ffffff"
@@ -352,7 +352,7 @@ design hostpoint
         // doctor's `design-custom-invalid-value` rule does the proposal-
         // pending validation. See `docs/proposals/design-tokens-custom.md` §4.
         let source = r##"
-design hostpoint
+design the canonical pilot
   custom
     oops "not-a-color"
     chat-bubble "#dcf8c6" dark "rgb(5,5,5)"

@@ -13,7 +13,7 @@
 //! ## ABI guarantee
 //!
 //! `SecurityProfile` is re-exported from the crate root via `pub use
-//! types::SecurityProfile;` so external consumers (notably the Hostpoint
+//! types::SecurityProfile;` so external consumers (notably the the canonical pilot
 //! VSCode extension and `lazuli_cli::doctor`) continue to import it as
 //! `lazuli_lsp::SecurityProfile` exactly as before.
 

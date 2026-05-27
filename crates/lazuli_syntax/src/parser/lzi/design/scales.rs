@@ -174,7 +174,7 @@ design example
     #[test]
     fn design_custom_group_parses_flat_entries() {
         let source = r##"
-design hostpoint
+design the canonical pilot
   custom
     chat-bubble-mine "#dcf8c6"
     chat-bubble-other "#ffffff"
@@ -192,7 +192,7 @@ design hostpoint
     #[test]
     fn design_custom_entry_captures_dark_suffix() {
         let source = r##"
-design hostpoint
+design the canonical pilot
   custom
     chat-bubble-mine "#dcf8c6" dark "#005c4b"
     chat-bubble-other "#ffffff" dark "#202c33"
@@ -207,7 +207,7 @@ design hostpoint
     #[test]
     fn design_custom_group_coexists_with_color_group() {
         let source = r##"
-design hostpoint
+design the canonical pilot
   color
     primary "#28bbdd"
   custom
@@ -223,7 +223,7 @@ design hostpoint
     #[test]
     fn design_custom_entry_requires_value() {
         let source = r##"
-design hostpoint
+design the canonical pilot
   custom
     chat-bubble
 "##;
@@ -237,7 +237,7 @@ design hostpoint
         // `custom` header with no children should not crash; the field
         // remains an empty Vec.
         let source = r##"
-design hostpoint
+design the canonical pilot
   custom
   color
     primary "#28bbdd"
