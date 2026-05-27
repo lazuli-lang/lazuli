@@ -200,6 +200,30 @@ pub(super) fn doctor_self_command(input: &Path, opts: &DoctorRuntimeOptions) -> 
         });
     }
 
+    // INTERNAL-ERROR-NON-EXHAUSTIVE-001 — default Warning. Pub error
+    // enums deriving `thiserror::Error` without `#[non_exhaustive]`.
+    for finding in lazuli_doctor::error_handling::error_non_exhaustive_001::check(&files) {
+        let severity = resolve_error_handling_severity(
+            DoctorSeverity::Warning,
+            lazuli_doctor::error_handling::error_non_exhaustive_001::Finding::CODE,
+            error_handling_preset,
+        );
+        let message = finding.message();
+        diagnostics.push(DoctorDiagnostic {
+            path: finding.path,
+            line: finding.line,
+            column: 1,
+            severity,
+            code: lazuli_doctor::error_handling::error_non_exhaustive_001::Finding::CODE.to_owned(),
+            message,
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
+        });
+    }
+
     let has_error = diagnostics
         .iter()
         .any(|d| d.severity == DoctorSeverity::Error);
