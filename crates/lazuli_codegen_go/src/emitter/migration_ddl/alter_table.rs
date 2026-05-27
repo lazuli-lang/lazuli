@@ -337,8 +337,7 @@ fn render_alter_up(
         "-- alter for {}.{}",
         comment_value(feature),
         comment_value(resource),
-    )
-    .unwrap();
+    );
 
     // Optional warning header — surfaces when either drops are
     // commented out (no `--allow-drops`) or type changes are unsafe.
@@ -356,21 +355,18 @@ fn render_alter_up(
             let _ = writeln!(
                 sql,
                 "--   DROP COLUMN statements are COMMENTED OUT. Re-run `lazuli generate go --allow-drops`",
-            )
-            .unwrap();
-            writeln!(sql, "--   to emit them as live SQL.");
+            );
+            let _ = writeln!(sql, "--   to emit them as live SQL.");
         }
         if unsafe_present {
             let _ = writeln!(
                 sql,
                 "--   Some ALTER COLUMN TYPE casts are NOT in the safe catalog and are commented out.",
-            )
-            .unwrap();
-            writeln!(
+            );
+            let _ = writeln!(
                 sql,
                 "--   Review the cast manually, write a backfill if needed, then uncomment.",
-            )
-            .unwrap();
+            );
         }
     }
     writeln!(sql);
@@ -434,8 +430,7 @@ fn render_alter_down(
         "-- rollback for {}.{} alter",
         comment_value(feature),
         comment_value(resource),
-    )
-    .unwrap();
+    );
     writeln!(sql);
 
     if !diff.type_changes.is_empty() {

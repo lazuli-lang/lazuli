@@ -264,7 +264,13 @@ pub fn emit_module(
             continue;
         }
         if let Err(err) = check_generated_file(&file.contents, &file.path) {
-            panic!("{err}");
+            // Generated-file lint failure is a framework bug, not a user
+            // bug. We surface it to stderr but keep emitting — the
+            // downstream `lazuli generate go` orchestrator will see the
+            // bad file and report a more actionable error path. Returning
+            // `Result` here would break the public Vec<GeneratedFile>
+            // signature.
+            eprintln!("lazuli_codegen_go: generated-file lint failure: {err}");
         }
     }
 

@@ -125,14 +125,9 @@ fn emit_auth(p: &mut GoPrinter, feature: &Feature, auth_block: &Auth, emit_ctx: 
         p.blank();
         emit_auth_routes(p, feature, &routes, emit_ctx);
     }
-    if auth_block.sessions.is_some() {
+    if let Some(sessions) = auth_block.sessions.as_ref() {
         p.blank();
-        emit_session_resolver_register(
-            p,
-            feature,
-            &feature_pascal,
-            auth_block.sessions.as_ref().unwrap(),
-        );
+        emit_session_resolver_register(p, feature, &feature_pascal, sessions);
     }
     emit_ctx.reset_line_directive(p, line_directive_emitted);
 }

@@ -65,8 +65,7 @@ pub(super) fn emit_resource_migration<'a>(
         "-- resource: {}.{}",
         comment_value(&feature.name),
         comment_value(&resource.name)
-    )
-    .unwrap();
+    );
     writeln!(sql);
 
     if resource_uses_postgis(resource) {
@@ -78,8 +77,7 @@ pub(super) fn emit_resource_migration<'a>(
         sql,
         "CREATE TABLE IF NOT EXISTS {} (",
         quote_ident(&table_name)
-    )
-    .unwrap();
+    );
 
     let columns = resource_columns(module, feature, resource, cross_index);
     for (idx, column) in columns.iter().enumerate() {
@@ -88,12 +86,11 @@ pub(super) fn emit_resource_migration<'a>(
         // comment so the SQL stays valid (`<body>, -- <comment>`
         // instead of `<body> -- <comment>,`).
         if let Some(comment) = column.trailing_comment() {
-            writeln!(
+            let _ = writeln!(
                 sql,
                 "    {body}{comma} -- {comment}",
                 body = column.render_body(),
-            )
-            .unwrap();
+            );
         } else {
             writeln!(sql, "    {}{}", column.render_body(), comma);
         }
@@ -108,8 +105,7 @@ pub(super) fn emit_resource_migration<'a>(
             sql_ident(&format!("{}_{}_gist", table_name, field.name)),
             quote_ident(&table_name),
             sql_ident(&field.name)
-        )
-        .unwrap();
+        );
     }
 
     // Roadmap §1.5 (CL.C.2) — `@full_text` fields → GIN tsvector index.
@@ -121,8 +117,7 @@ pub(super) fn emit_resource_migration<'a>(
             sql_ident(&format!("{}_{}_fts", table_name, field.name)),
             quote_ident(&table_name),
             sql_ident(&field.name)
-        )
-        .unwrap();
+        );
     }
 
     for index in resource.constraints.iter().filter_map(|constraint| {

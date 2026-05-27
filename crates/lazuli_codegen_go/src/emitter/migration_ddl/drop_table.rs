@@ -44,37 +44,32 @@ pub(super) fn emit_resource_down_migration(feature: &Feature, resource: &Resourc
         "-- rollback for {}.{}",
         comment_value(&feature.name),
         comment_value(&resource.name)
-    )
-    .unwrap();
-    writeln!(sql);
+    );
+    let _ = writeln!(sql);
     let _ = writeln!(sql, "DROP TABLE IF EXISTS {};", quote_ident(&table_name));
     let _ = writeln!(
         sql,
         "-- Note: cross-feature FK columns rely on parent feature's down migration"
-    )
-    .unwrap();
-    writeln!(
+    );
+    let _ = writeln!(
         sql,
         "-- to drop their target. Run rollbacks in reverse order if cascading."
-    )
-    .unwrap();
+    );
 
     if !geo_fields.is_empty() {
-        writeln!(sql);
+        let _ = writeln!(sql);
         for field in geo_fields {
             let _ = writeln!(
                 sql,
                 "-- DROP INDEX {};",
                 sql_ident(&format!("{}_{}_gist", table_name, field.name))
-            )
-            .unwrap();
+            );
         }
-        writeln!(
+        let _ = writeln!(
             sql,
             "-- Note: `CREATE EXTENSION postgis` is NOT dropped here \u{2014} extension"
-        )
-        .unwrap();
-        writeln!(sql, "-- removal is operational, not migration-driven.");
+        );
+        let _ = writeln!(sql, "-- removal is operational, not migration-driven.");
     }
 
     // Roadmap §1.5 (CL.C.2) — emit commented `DROP INDEX` for each
@@ -88,8 +83,7 @@ pub(super) fn emit_resource_down_migration(feature: &Feature, resource: &Resourc
                 sql,
                 "-- DROP INDEX {};",
                 sql_ident(&format!("{}_{}_fts", table_name, field.name))
-            )
-            .unwrap();
+            );
         }
     }
 

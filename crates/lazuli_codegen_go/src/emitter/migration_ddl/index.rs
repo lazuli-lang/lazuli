@@ -103,13 +103,11 @@ pub(super) fn emit_session_rotation_indexes(sql: &mut String, table: &str) {
         sql,
         "CREATE INDEX ON {} (parent_session_id) WHERE parent_session_id IS NOT NULL;",
         quote_ident(table)
-    )
-    .unwrap();
-    writeln!(sql);
-    writeln!(
+    );
+    let _ = writeln!(sql);
+    let _ = writeln!(
         sql,
         "CREATE INDEX ON {} (refresh_token_hash) WHERE refresh_token_hash != '';",
         quote_ident(table)
-    )
-    .unwrap();
+    );
 }
