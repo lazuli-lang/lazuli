@@ -377,6 +377,17 @@ fn should_skip_dir(name: &str) -> bool {
             | ".next"
             | ".expo"
             | ".cache"
+            // 2026-05-27 — Playwright/Vitest/Cypress test trees are
+            // infrastructure, not page-level frontend code. The 7+6
+            // canonical layout is about runtime app surface; e2e
+            // helpers + tests + storybooks live outside that scope.
+            | "e2e"
+            | "tests"
+            | "__tests__"
+            | "playwright"
+            | "cypress"
+            | "storybook"
+            | ".storybook"
             | "coverage"
     )
 }

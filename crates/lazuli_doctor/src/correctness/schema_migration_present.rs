@@ -145,15 +145,30 @@ pub fn check(feature: &Feature, feature_path: &Path, root: &Path) -> Vec<Finding
     let migrations_dir = root.join("dist").join("go").join("migrations");
     let entries = list_migration_entries(&migrations_dir);
 
+    // 2026-05-27 — pre-compute the longest-prefix-winner resource per
+    // migration entry. Without this, `account.User` (prefix
+    // `account_user`) was claiming `008_account_user_session.sql` as
+    // its latest, because both User and UserSession's filters matched
+    // via the loose `stem.starts_with(prefix_)` rule. The longer match
+    // (account_user_session for UserSession) is the canonical owner.
+    let feature_slug = lower_snake(&feature.name);
+    let resource_slugs: Vec<String> =
+        feature.resources.iter().map(|r| lower_snake(&r.name)).collect();
+    let owner_for_entry: Vec<Option<usize>> = entries
+        .iter()
+        .map(|entry| best_resource_for_stem(&entry.stem, &feature_slug, &resource_slugs))
+        .collect();
+
     let mut out = Vec::new();
-    for resource in &feature.resources {
-        let resource_slug = lower_snake(&resource.name);
-        let feature_slug = lower_snake(&feature.name);
+    for (resource_idx, resource) in feature.resources.iter().enumerate() {
+        let resource_slug = &resource_slugs[resource_idx];
         let prefix = format!("{feature_slug}_{resource_slug}");
 
         let latest = entries
             .iter()
-            .filter(|entry| migration_matches(&entry.stem, &feature_slug, &resource_slug))
+            .enumerate()
+            .filter(|(i, _entry)| owner_for_entry[*i] == Some(resource_idx))
+            .map(|(_, entry)| entry)
             .max_by_key(|entry| entry.number);
 
         match latest {
@@ -241,6 +256,34 @@ fn list_migration_entries(dir: &Path) -> Vec<MigrationEntry> {
         });
     }
     out
+}
+
+/// Pick the resource (by index into `resource_slugs`) that owns this
+/// migration `stem` via the LONGEST matching `<feature>_<resource>`
+/// prefix. Resolves the `account.User` vs `account.UserSession` ambiguity
+/// — the longer prefix wins, so `account_user_session` belongs to
+/// UserSession (len 19), not User (len 12).
+///
+/// Returns `None` when no resource's prefix matches.
+fn best_resource_for_stem(
+    stem: &str,
+    feature_slug: &str,
+    resource_slugs: &[String],
+) -> Option<usize> {
+    let mut best: Option<(usize, usize)> = None;
+    for (idx, slug) in resource_slugs.iter().enumerate() {
+        let prefix = format!("{feature_slug}_{slug}");
+        let matches =
+            stem == prefix || stem.strip_prefix(&format!("{prefix}_")).is_some_and(|r| !r.is_empty());
+        if !matches {
+            continue;
+        }
+        let len = prefix.len();
+        if best.is_none_or(|(_, best_len)| best_len < len) {
+            best = Some((idx, len));
+        }
+    }
+    best.map(|(idx, _)| idx)
 }
 
 fn migration_matches(stem: &str, feature_slug: &str, resource_slug: &str) -> bool {

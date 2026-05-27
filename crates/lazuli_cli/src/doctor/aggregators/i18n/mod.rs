@@ -356,10 +356,25 @@ pub(crate) fn diagnostics(
             .map(|f| f.source.clone())
             .or_else(|| std::fs::read_to_string(&feature.path).ok());
         if let Some(text) = source {
+            // 2026-05-27 — broadened from strip_prefix("message @translation.")
+            // to any occurrence of `@translation.<key>` anywhere in the line.
+            // The narrow walker missed the canonical `<binding_name> message
+            // @translation.<key>` form used in `errors` blocks (where the
+            // binding name precedes `message`), producing false-positive
+            // `translation_key_unused` warnings for every key referenced
+            // from an errors block. The wider walker captures both forms
+            // without dropping the original semantics.
             for line in text.lines() {
-                let trimmed = line.trim_start();
-                if let Some(rest) = trimmed.strip_prefix("message @translation.") {
-                    let key = rest.split_whitespace().next().unwrap_or("");
+                let mut rest = line;
+                while let Some(pos) = rest.find("@translation.") {
+                    let after = &rest[pos + "@translation.".len()..];
+                    // Stop at first non-identifier char (matches the previous
+                    // split_whitespace behavior plus snake_case boundary chars
+                    // common in templates: ., ,, ), space, tab, etc).
+                    let key_end = after
+                        .find(|c: char| !c.is_alphanumeric() && c != '_')
+                        .unwrap_or(after.len());
+                    let key = &after[..key_end];
                     if !key.is_empty() {
                         referenced.insert(key.to_owned());
                         if !declared.contains(key) {
@@ -387,6 +402,7 @@ pub(crate) fn diagnostics(
                             });
                         }
                     }
+                    rest = &after[key_end..];
                 }
             }
         }

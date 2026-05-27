@@ -220,7 +220,21 @@ fn has_web_or_mobile_component(path: &Path) -> bool {
 fn should_skip_dir(name: &str) -> bool {
     matches!(
         name,
-        "dist" | "node_modules" | "target" | ".git" | ".lazuli" | ".next" | ".expo"
+        "dist"
+            | "node_modules"
+            | "target"
+            | ".git"
+            | ".lazuli"
+            | ".next"
+            | ".expo"
+            // 2026-05-27 — Playwright/Vitest/Cypress test trees may locally
+            // redeclare types for typed mocks etc; skip to avoid false-
+            // positive type-duplicate findings.
+            | "e2e"
+            | "tests"
+            | "__tests__"
+            | "playwright"
+            | "cypress"
     )
 }
 

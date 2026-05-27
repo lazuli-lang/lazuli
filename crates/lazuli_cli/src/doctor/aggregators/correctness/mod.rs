@@ -290,12 +290,28 @@ pub(crate) fn diagnostics(
 pub(crate) fn make_synthetic_feature_for_correctness(
     fact: &Tier3FeatureFacts,
 ) -> lazuli_ir::Feature {
+    // 2026-05-27 — synthesize defaults from the fact bundle (tenancy_axis
+    // + defaults_timestamps). Without this, correctness rules see every
+    // feature as tenancy=None / timestamps=false, which breaks rules like
+    // `@correctness.migration_out_of_sync` that expect `org_id` in the
+    // emitted column set for tenancy=Org resources.
+    let synth_defaults = lazuli_ir::Defaults {
+        tenancy: fact.tenancy_axis.as_deref().map(|axis| match axis {
+            "org" => lazuli_ir::Tenancy::Org,
+            "team" => lazuli_ir::Tenancy::Team,
+            "none" => lazuli_ir::Tenancy::None,
+            custom => lazuli_ir::Tenancy::Custom(custom.to_owned()),
+        }),
+        policy: fact.defaults_policy.clone(),
+        timestamps: fact.defaults_timestamps,
+        ..lazuli_ir::Defaults::default()
+    };
     lazuli_ir::Feature {
         name: fact.feature.clone(),
         purpose: None,
         non_goals: Vec::new(),
         context_path: None,
-        defaults: lazuli_ir::Defaults::default(),
+        defaults: synth_defaults,
         uses: Vec::new(),
         uses_spans: Vec::new(),
         uses_versions: Vec::new(),
