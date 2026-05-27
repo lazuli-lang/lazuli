@@ -182,10 +182,7 @@ fn expr_money_currency(resource: &Resource, expr: &Expr) -> Option<(String, Curr
 /// we accept both.
 fn leaf_field_name(path: &Path) -> Option<String> {
     let segments = &path.segments;
-    if segments.is_empty() {
-        return None;
-    }
-    let last = segments.last().unwrap();
+    let last = segments.last()?;
     if segments.len() == 1
         || segments.first().map(String::as_str) == Some("self")
             && segments.len() == 2
