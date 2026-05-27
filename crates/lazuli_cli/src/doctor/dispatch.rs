@@ -107,6 +107,23 @@ impl DoctorPackage {
             self.security_profile,
         ));
 
+        // `VOCAB-*` rule catalog dispatch — closes the deferred wiring
+        // cell documented in `docs/proposals/doctor-vocabulary-lints.md`
+        // §"Implementation status (post-wave)". Fifteen rules surface
+        // from one Tier 3 walk plus a sidecar text-walker for
+        // `VOCAB-CAP-MISSING-001` (the IR drops `@pii.*` decorators).
+        // `Prototype` profile suppresses the whole family (vocabulary
+        // refactors are opt-in at prototype); `Strict` -> Warning;
+        // `Production` -> Error.
+        diagnostics.extend(aggregators::vocab::diagnostics(
+            &self.tier3_facts,
+            self.security_profile,
+        ));
+        diagnostics.extend(aggregators::vocab::cap_missing_diagnostics(
+            &self.files,
+            self.security_profile,
+        ));
+
         diagnostics.extend(lazuli_version_001_diagnostics(
             self.app.as_ref(),
             LZIR_SCHEMA,

@@ -59,7 +59,15 @@ pub(super) use rule_bridges::{
     check_pattern_draft_stale_001_at, collect_codegen_wrap_001, collect_issue_session_callsites,
     git_blame_author_time, is_bucket_go_source, is_pattern_draft_line,
     money_arithmetic_001_diagnostics, money_compare_001_diagnostics,
-    vocab_grammar_form_diagnostics, vocab_tests_missing_001_diagnostics,
+    vocab_audit_001_diagnostics, vocab_audit_002_diagnostics,
+    vocab_cap_missing_001_diagnostics, vocab_derived_read_001_diagnostics,
+    vocab_event_orphan_001_diagnostics, vocab_event_payload_001_diagnostics,
+    vocab_event_producer_001_diagnostics, vocab_grammar_form_diagnostics,
+    vocab_handler_heavy_001_diagnostics, vocab_json_typed_001_diagnostics,
+    vocab_money_multi_currency_001_diagnostics,
+    vocab_resource_wide_cluster_001_diagnostics, vocab_shadow_record_001_diagnostics,
+    vocab_tests_missing_001_diagnostics, vocab_union_001_diagnostics,
+    vocab_union_002_diagnostics,
 };
 pub(crate) use rule_bridges::{doctor_rule_path, read_design_ir};
 

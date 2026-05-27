@@ -33,6 +33,7 @@ use std::path::{Path, PathBuf};
 use lazuli_doctor::{RuleCategory, vocab};
 use lazuli_lsp::SecurityProfile;
 
+use crate::doctor::diagnostic::DoctorSeverityOverride;
 use super::parsers::is_lzi_path;
 use super::{
     AuthFacts, DoctorDiagnostic, DoctorFile, DoctorSeverity, doctor_rule_severity,
@@ -173,6 +174,584 @@ pub(crate) fn money_arithmetic_001_diagnostics(
                 code: money_arithmetic_001::Finding::CODE.to_owned(),
                 message,
                 category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            }
+        })
+        .collect()
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// VOCAB-* bridges — wire the remaining vocab rule modules that ship under
+// `lazuli_doctor::vocab` but have no dispatcher entry. Each bridge mirrors
+// the shape of `vocab_tests_missing_001_diagnostics` above: take the
+// already-loaded Feature (+ Path + line anchor + SecurityProfile), forward
+// to the rule's `check()`, and wrap every `Finding` in the canonical
+// `DoctorDiagnostic` envelope under `RuleCategory::Vocabulary`.
+//
+// Severity policy: defer to `doctor_severity_for` which honors any user
+// override in `[doctor.<category>].severity_override.<CODE>` and otherwise
+// returns the legacy mapping (Strict/Prototype → Warning, Production →
+// Error). `SecurityProfile::Prototype` suppresses the entire family —
+// vocabulary-fitness lints are opt-in at prototype profile (you sketch
+// the feature first, vocabulary refactors come when you promote it).
+//
+// See `docs/proposals/doctor-vocabulary-lints.md` §"Implementation status
+// (post-wave)" for the deferred wiring cell this closes.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Build the empty-override map the new vocab bridges pass into
+/// `doctor_severity_for`. No `[doctor.vocab]` TOML section ships today;
+/// when one lands the caller threads the parsed overrides in here.
+fn empty_overrides() -> std::collections::BTreeMap<String, DoctorSeverityOverride> {
+    std::collections::BTreeMap::new()
+}
+
+/// VOCAB-AUDIT-001 — `invalidate_session` command without an authored
+/// audit record. See `docs/proposals/doctor-vocabulary-lints.md`.
+pub(crate) fn vocab_audit_001_diagnostics(
+    path: &Path,
+    feature: &lazuli_ir::Feature,
+    feature_header_line: usize,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    if security_profile == SecurityProfile::Prototype {
+        return Vec::new();
+    }
+    let severity = doctor_severity_for(
+        vocab::vocab_audit_001::Finding::CODE,
+        RuleCategory::Vocabulary,
+        security_profile,
+        &empty_overrides(),
+    );
+    vocab::vocab_audit_001::check(feature, path)
+        .into_iter()
+        .map(|finding| {
+            let message = finding.message();
+            DoctorDiagnostic {
+                path: finding.path,
+                line: feature_header_line.max(1),
+                column: 1,
+                severity,
+                code: vocab::vocab_audit_001::Finding::CODE.to_owned(),
+                message,
+                category: Some(RuleCategory::Vocabulary),
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            }
+        })
+        .collect()
+}
+
+/// VOCAB-AUDIT-002 — `invalidate_session` over a session that carries
+/// sensitive capability-tagged fields without `audit { ... }`.
+pub(crate) fn vocab_audit_002_diagnostics(
+    path: &Path,
+    feature: &lazuli_ir::Feature,
+    feature_header_line: usize,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    if security_profile == SecurityProfile::Prototype {
+        return Vec::new();
+    }
+    let severity = doctor_severity_for(
+        vocab::vocab_audit_002::Finding::CODE,
+        RuleCategory::Vocabulary,
+        security_profile,
+        &empty_overrides(),
+    );
+    vocab::vocab_audit_002::check(feature, path)
+        .into_iter()
+        .map(|finding| {
+            let message = finding.message();
+            DoctorDiagnostic {
+                path: finding.path,
+                line: feature_header_line.max(1),
+                column: 1,
+                severity,
+                code: vocab::vocab_audit_002::Finding::CODE.to_owned(),
+                message,
+                category: Some(RuleCategory::Vocabulary),
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            }
+        })
+        .collect()
+}
+
+/// VOCAB-CAP-MISSING-001 — `@pii.*` field with no `@cap.*` wrapper.
+/// Sources from the raw `.lzi` text (`check_source`) because the IR
+/// lowering currently drops trailing `@pii.*` decorators.
+pub(crate) fn vocab_cap_missing_001_diagnostics(
+    path: &Path,
+    source: &str,
+    feature_header_line: usize,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    if security_profile == SecurityProfile::Prototype {
+        return Vec::new();
+    }
+    let severity = doctor_severity_for(
+        vocab::vocab_cap_missing_001::Finding::CODE,
+        RuleCategory::Vocabulary,
+        security_profile,
+        &empty_overrides(),
+    );
+    vocab::vocab_cap_missing_001::check_source(source, path)
+        .into_iter()
+        .map(|finding| {
+            let message = finding.message();
+            DoctorDiagnostic {
+                path: finding.path,
+                line: feature_header_line.max(1),
+                column: 1,
+                severity,
+                code: vocab::vocab_cap_missing_001::Finding::CODE.to_owned(),
+                message,
+                category: Some(RuleCategory::Vocabulary),
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            }
+        })
+        .collect()
+}
+
+/// VOCAB-DERIVED-READ-001 — handler-computed read-only field that should
+/// use the `derived from` primitive instead.
+pub(crate) fn vocab_derived_read_001_diagnostics(
+    path: &Path,
+    feature: &lazuli_ir::Feature,
+    feature_header_line: usize,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    if security_profile == SecurityProfile::Prototype {
+        return Vec::new();
+    }
+    let severity = doctor_severity_for(
+        vocab::vocab_derived_read_001::Finding::CODE,
+        RuleCategory::Vocabulary,
+        security_profile,
+        &empty_overrides(),
+    );
+    vocab::vocab_derived_read_001::check(feature, path)
+        .into_iter()
+        .map(|finding| {
+            let message = finding.message();
+            DoctorDiagnostic {
+                path: finding.path,
+                line: feature_header_line.max(1),
+                column: 1,
+                severity,
+                code: vocab::vocab_derived_read_001::Finding::CODE.to_owned(),
+                message,
+                category: Some(RuleCategory::Vocabulary),
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            }
+        })
+        .collect()
+}
+
+/// VOCAB-EVENT-ORPHAN-001 — feature-level event with no producer command.
+pub(crate) fn vocab_event_orphan_001_diagnostics(
+    path: &Path,
+    feature: &lazuli_ir::Feature,
+    feature_header_line: usize,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    if security_profile == SecurityProfile::Prototype {
+        return Vec::new();
+    }
+    let severity = doctor_severity_for(
+        vocab::vocab_event_orphan_001::Finding::CODE,
+        RuleCategory::Vocabulary,
+        security_profile,
+        &empty_overrides(),
+    );
+    vocab::vocab_event_orphan_001::check(feature, path)
+        .into_iter()
+        .map(|finding| {
+            let message = finding.message();
+            DoctorDiagnostic {
+                path: finding.path,
+                line: feature_header_line.max(1),
+                column: 1,
+                severity,
+                code: vocab::vocab_event_orphan_001::Finding::CODE.to_owned(),
+                message,
+                category: Some(RuleCategory::Vocabulary),
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            }
+        })
+        .collect()
+}
+
+/// VOCAB-EVENT-PAYLOAD-001 — event without a typed payload contract.
+pub(crate) fn vocab_event_payload_001_diagnostics(
+    path: &Path,
+    feature: &lazuli_ir::Feature,
+    feature_header_line: usize,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    if security_profile == SecurityProfile::Prototype {
+        return Vec::new();
+    }
+    let severity = doctor_severity_for(
+        vocab::vocab_event_payload_001::Finding::CODE,
+        RuleCategory::Vocabulary,
+        security_profile,
+        &empty_overrides(),
+    );
+    vocab::vocab_event_payload_001::check(feature, path)
+        .into_iter()
+        .map(|finding| {
+            let message = finding.message();
+            DoctorDiagnostic {
+                path: finding.path,
+                line: feature_header_line.max(1),
+                column: 1,
+                severity,
+                code: vocab::vocab_event_payload_001::Finding::CODE.to_owned(),
+                message,
+                category: Some(RuleCategory::Vocabulary),
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            }
+        })
+        .collect()
+}
+
+/// VOCAB-EVENT-PRODUCER-001 — command emits an event that has no
+/// matching feature-level event declaration.
+pub(crate) fn vocab_event_producer_001_diagnostics(
+    path: &Path,
+    feature: &lazuli_ir::Feature,
+    feature_header_line: usize,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    if security_profile == SecurityProfile::Prototype {
+        return Vec::new();
+    }
+    let severity = doctor_severity_for(
+        vocab::vocab_event_producer_001::Finding::CODE,
+        RuleCategory::Vocabulary,
+        security_profile,
+        &empty_overrides(),
+    );
+    vocab::vocab_event_producer_001::check(feature, path)
+        .into_iter()
+        .map(|finding| {
+            let message = finding.message();
+            DoctorDiagnostic {
+                path: finding.path,
+                line: feature_header_line.max(1),
+                column: 1,
+                severity,
+                code: vocab::vocab_event_producer_001::Finding::CODE.to_owned(),
+                message,
+                category: Some(RuleCategory::Vocabulary),
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            }
+        })
+        .collect()
+}
+
+/// VOCAB-HANDLER-HEAVY-001 — too many handler-only commands; feature
+/// should refactor toward declarative vocabulary.
+pub(crate) fn vocab_handler_heavy_001_diagnostics(
+    path: &Path,
+    feature: &lazuli_ir::Feature,
+    feature_header_line: usize,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    if security_profile == SecurityProfile::Prototype {
+        return Vec::new();
+    }
+    let severity = doctor_severity_for(
+        vocab::vocab_handler_heavy_001::Finding::CODE,
+        RuleCategory::Vocabulary,
+        security_profile,
+        &empty_overrides(),
+    );
+    vocab::vocab_handler_heavy_001::check(feature, path)
+        .into_iter()
+        .map(|finding| {
+            let message = finding.message();
+            DoctorDiagnostic {
+                path: finding.path,
+                line: feature_header_line.max(1),
+                column: 1,
+                severity,
+                code: vocab::vocab_handler_heavy_001::Finding::CODE.to_owned(),
+                message,
+                category: Some(RuleCategory::Vocabulary),
+                feature_name: Some(finding.feature),
+                construct: None,
+                fix: None,
+                group: None,
+            }
+        })
+        .collect()
+}
+
+/// VOCAB-JSON-TYPED-001 — untyped JSON field paired with an orphan
+/// same-feature enum that should be the field's type.
+pub(crate) fn vocab_json_typed_001_diagnostics(
+    path: &Path,
+    feature: &lazuli_ir::Feature,
+    feature_header_line: usize,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    if security_profile == SecurityProfile::Prototype {
+        return Vec::new();
+    }
+    let severity = doctor_severity_for(
+        vocab::vocab_json_typed_001::Finding::CODE,
+        RuleCategory::Vocabulary,
+        security_profile,
+        &empty_overrides(),
+    );
+    vocab::vocab_json_typed_001::check(feature, path)
+        .into_iter()
+        .map(|finding| {
+            let message = finding.message();
+            DoctorDiagnostic {
+                path: finding.path,
+                line: feature_header_line.max(1),
+                column: 1,
+                severity,
+                code: vocab::vocab_json_typed_001::Finding::CODE.to_owned(),
+                message,
+                category: Some(RuleCategory::Vocabulary),
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            }
+        })
+        .collect()
+}
+
+// NOTE: `VOCAB-LIFECYCLE-001` deliberately NOT wired here. The rule
+// module exists at `crates/lazuli_doctor/src/vocab/vocab_lifecycle_001.rs`
+// with passing tests, but `crates/lazuli_doctor/src/vocab/mod.rs` does
+// NOT publish `pub mod vocab_lifecycle_001` — the rule is the
+// "lifecycle vocabulary doesn't ship until v0.2" case the proposal
+// explicitly defers (`docs/proposals/doctor-vocabulary-lints.md`
+// §VOCAB-LIFECYCLE-001). When the lifecycle primitive lands and the
+// module is exported, copy the `vocab_X_diagnostics` template and add
+// the call in `aggregators::vocab::diagnostics` per the existing 14
+// wired rules. The task constraints (audit follow-up cell) forbid
+// editing rule modules in `crates/lazuli_doctor/src/`.
+
+/// VOCAB-MONEY-MULTI-CURRENCY-001 — resource declares multiple Money
+/// fields without per-field currency override.
+pub(crate) fn vocab_money_multi_currency_001_diagnostics(
+    path: &Path,
+    feature: &lazuli_ir::Feature,
+    feature_header_line: usize,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    if security_profile == SecurityProfile::Prototype {
+        return Vec::new();
+    }
+    let severity = doctor_severity_for(
+        vocab::vocab_money_multi_currency_001::Finding::CODE,
+        RuleCategory::Vocabulary,
+        security_profile,
+        &empty_overrides(),
+    );
+    vocab::vocab_money_multi_currency_001::check(feature, path)
+        .into_iter()
+        .map(|finding| {
+            let message = finding.message();
+            DoctorDiagnostic {
+                path: finding.path,
+                line: feature_header_line.max(1),
+                column: 1,
+                severity,
+                code: vocab::vocab_money_multi_currency_001::Finding::CODE.to_owned(),
+                message,
+                category: Some(RuleCategory::Vocabulary),
+                feature_name: Some(finding.feature),
+                construct: None,
+                fix: None,
+                group: None,
+            }
+        })
+        .collect()
+}
+
+/// VOCAB-RESOURCE-WIDE-CLUSTER-001 — resource whose field set clusters
+/// around a shared token (e.g. `shipping_*` cluster) hinting at a
+/// sub-resource extraction.
+///
+/// Module dependency: this rule walks across features to resolve FK
+/// types via `is_universal_column`. Callers synthesize a single-feature
+/// `Module` from the Tier3 facts so cross-feature FK resolution falls
+/// back to "unresolved → not universal", which is the correct default
+/// when only the current feature's IR is in hand.
+pub(crate) fn vocab_resource_wide_cluster_001_diagnostics(
+    path: &Path,
+    feature: &lazuli_ir::Feature,
+    module: &lazuli_ir::Module,
+    feature_header_line: usize,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    if security_profile == SecurityProfile::Prototype {
+        return Vec::new();
+    }
+    let severity = doctor_severity_for(
+        vocab::vocab_resource_wide_cluster_001::Finding::CODE,
+        RuleCategory::Vocabulary,
+        security_profile,
+        &empty_overrides(),
+    );
+    vocab::vocab_resource_wide_cluster_001::check(feature, module, path)
+        .into_iter()
+        .map(|finding| {
+            let message = finding.message();
+            DoctorDiagnostic {
+                path: finding.path,
+                line: feature_header_line.max(1),
+                column: 1,
+                severity,
+                code: vocab::vocab_resource_wide_cluster_001::Finding::CODE.to_owned(),
+                message,
+                category: Some(RuleCategory::Vocabulary),
+                feature_name: Some(finding.feature),
+                construct: None,
+                fix: None,
+                group: None,
+            }
+        })
+        .collect()
+}
+
+/// VOCAB-SHADOW-RECORD-001 — record/resource pair that mirrors columns.
+/// Same `Module` synthesis note as `vocab_resource_wide_cluster_001`.
+pub(crate) fn vocab_shadow_record_001_diagnostics(
+    path: &Path,
+    feature: &lazuli_ir::Feature,
+    module: &lazuli_ir::Module,
+    feature_header_line: usize,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    if security_profile == SecurityProfile::Prototype {
+        return Vec::new();
+    }
+    let severity = doctor_severity_for(
+        vocab::vocab_shadow_record_001::Finding::CODE,
+        RuleCategory::Vocabulary,
+        security_profile,
+        &empty_overrides(),
+    );
+    vocab::vocab_shadow_record_001::check(feature, module, path)
+        .into_iter()
+        .map(|finding| {
+            let message = finding.message();
+            DoctorDiagnostic {
+                path: finding.path,
+                line: feature_header_line.max(1),
+                column: 1,
+                severity,
+                code: vocab::vocab_shadow_record_001::Finding::CODE.to_owned(),
+                message,
+                category: Some(RuleCategory::Vocabulary),
+                feature_name: Some(finding.feature),
+                construct: None,
+                fix: None,
+                group: None,
+            }
+        })
+        .collect()
+}
+
+/// VOCAB-UNION-001 — enum-tag + correlated-optional-fields. Suggests
+/// the discriminated `union` vocabulary.
+pub(crate) fn vocab_union_001_diagnostics(
+    path: &Path,
+    feature: &lazuli_ir::Feature,
+    feature_header_line: usize,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    if security_profile == SecurityProfile::Prototype {
+        return Vec::new();
+    }
+    let severity = doctor_severity_for(
+        vocab::vocab_union_001::Finding::CODE,
+        RuleCategory::Vocabulary,
+        security_profile,
+        &empty_overrides(),
+    );
+    vocab::vocab_union_001::check(feature, path)
+        .into_iter()
+        .map(|finding| {
+            let message = finding.message();
+            DoctorDiagnostic {
+                path: finding.path,
+                line: feature_header_line.max(1),
+                column: 1,
+                severity,
+                code: vocab::vocab_union_001::Finding::CODE.to_owned(),
+                message,
+                category: Some(RuleCategory::Vocabulary),
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            }
+        })
+        .collect()
+}
+
+/// VOCAB-UNION-002 — enum discriminator + untyped FK sibling that
+/// should be expressed as a discriminated union.
+pub(crate) fn vocab_union_002_diagnostics(
+    path: &Path,
+    feature: &lazuli_ir::Feature,
+    feature_header_line: usize,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    if security_profile == SecurityProfile::Prototype {
+        return Vec::new();
+    }
+    let severity = doctor_severity_for(
+        vocab::vocab_union_002::Finding::CODE,
+        RuleCategory::Vocabulary,
+        security_profile,
+        &empty_overrides(),
+    );
+    vocab::vocab_union_002::check(feature, path)
+        .into_iter()
+        .map(|finding| {
+            let message = finding.message();
+            DoctorDiagnostic {
+                path: finding.path,
+                line: feature_header_line.max(1),
+                column: 1,
+                severity,
+                code: vocab::vocab_union_002::Finding::CODE.to_owned(),
+                message,
+                category: Some(RuleCategory::Vocabulary),
                 feature_name: None,
                 construct: None,
                 fix: None,

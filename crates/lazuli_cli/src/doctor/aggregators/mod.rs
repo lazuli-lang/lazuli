@@ -58,4 +58,5 @@ pub(crate) mod semantic_type;
 pub(crate) mod test_discipline;
 pub(crate) mod tier3;
 pub(crate) mod ts_consumers;
+pub(crate) mod vocab;
 pub(crate) mod webhook_event_registry;

@@ -274,7 +274,17 @@
             .diagnostics()
             .into_iter()
             .filter(|d| {
-                !d.code.starts_with("VOCAB-CONTEXT-") && d.code != "CAP-FILE-POLICY-IMPLICIT"
+                // `VOCAB-*` rules are vocabulary-fitness lints
+                // (aspirational, not correctness errors). The vocab
+                // wiring follow-up (2026-05-27) closed the deferred
+                // dispatch cell from
+                // `docs/proposals/doctor-vocabulary-lints.md`, so the
+                // auth_refresh happy fixture now legitimately surfaces
+                // VOCAB-DERIVED-READ-001 against fields the auth
+                // system populates outside user commands. Filter the
+                // whole vocabulary family so this test keeps its
+                // "happy = zero correctness diagnostics" contract.
+                !d.code.starts_with("VOCAB-") && d.code != "CAP-FILE-POLICY-IMPLICIT"
             })
             .collect();
         assert!(

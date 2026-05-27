@@ -14,6 +14,22 @@ command at `.claude/commands/lazuli-grade.md` reference this file.
 
 ## Changelog
 
+- **2026-05-27** — Reaffirmed Criterion 11 (Framework error message
+  contract, 6%) per proposal
+  `c:/Users/lucas/lazuli-ops/docs/proposals/grader-error-message-criterion.md`
+  AND Criterion 4 Prisma-trap runbook + Vocab Governance Rules per
+  proposal
+  `c:/Users/lucas/lazuli-ops/docs/proposals/grader-vocab-governance.md`
+  as a single co-shipped revision. Both proposals were already
+  structurally landed (2026-05-18 and 2026-05-20 respectively) but
+  carried dangling "Source proposal:" references and "internal review
+  notes" placeholders from prior changelog edits; this revision restores
+  the full proposal-path provenance and consolidates the two as a single
+  co-cited revision in §"Notable changes." No weight redistribution; no
+  criterion text changes; no probe changes. Composes cleanly with the
+  2026-05-27 C13 / C12 / C8 / C8.5 hardening above (none of the touched
+  runbook bodies overlap with C11 or C4). **Forward-only — no past PASS
+  retroactively becomes BLOCK.**
 - **2026-05-27** — Added Criterion 13 (Generated-runtime contract
   honesty, 6%) per proposal `grader-anti-theater-hardening.md`.
   Weights redistributed (C1 −1, C3 −1, C8 −1, C10 −1, C12 −2). Sum
@@ -510,8 +526,8 @@ False-positive carve-outs (Criterion 11 does NOT fire on):
   intentional introspection aids for tooling. C11 only constrains the
   `message` field.
 
-Triggered by the the canonical pilot PWA framework-string leak (2026-05-18). See
-proposal internal review notes
+Triggered by the canonical pilot PWA framework-string leak (2026-05-18). See
+proposal `c:/Users/lucas/lazuli-ops/docs/proposals/grader-error-message-criterion.md`
 for the full provenance, audit table, and fixture-list expectations.
 
 ### Criterion 12 — Test discipline + per-layer coverage (runbook)
@@ -955,8 +971,8 @@ policies declarative, or error-handling primitives?
 - Any rejected construct → STOP. Reject the proposal at acceptance
   time per RULE-VOCAB-03. Grading does not proceed.
 
-Triggered by the the canonical pilot vocab-saturation analysis (2026-05-20). See
-proposal internal review notes
+Triggered by the canonical pilot vocab-saturation analysis (2026-05-20). See
+proposal `c:/Users/lucas/lazuli-ops/docs/proposals/grader-vocab-governance.md`
 for full probe details, worked examples, and the four Vocab Governance
 Rules that gate acceptance.
 
@@ -1078,12 +1094,14 @@ Notable changes:
   failed RULE-VOCAB-03; the deferral was correct." Triggered by
   the canonical pilot vocab-saturation analysis (72 handlers, ~50% absorbable
   by safe vocab; line drawn at `flow`). Source proposal:
+  `c:/Users/lucas/lazuli-ops/docs/proposals/grader-vocab-governance.md`.
 - **2026-05-18 — Criterion 11 inserted (Framework error message
   contract, 6%); weights redistributed (C1 −1, C2 −1, C3 −1, C7 −1,
   C10 −2).** Sum stays at 100%. Triggered by the the canonical pilot PWA
   field incident (`runtime/go/lazuli/policy.go:138,146`) where the
   framework's English diagnostic string reached the end user. Source
-  proposal: internal review notes
+  proposal:
+  `c:/Users/lucas/lazuli-ops/docs/proposals/grader-error-message-criterion.md`
   (self-graded PASS 9.16; architect re-grade pending). Forward-only
   hardening: no past PASS retroactively becomes BLOCK. Past PASS
   verdicts at the boundary (e.g., the 9.02 from Wave R) may degrade
@@ -1148,7 +1166,7 @@ Notable changes:
 
 The Criterion 11 insertion is **forward-only hardening**: no past
 PASS verdict retroactively flips to BLOCK. The source proposal
-(internal review notes,
+(`c:/Users/lucas/lazuli-ops/docs/proposals/grader-error-message-criterion.md`,
 §5) lists the following past PASS verdicts that *may* degrade to
 "PASS with notes" once C11 is applied retroactively for record-keeping:
 
