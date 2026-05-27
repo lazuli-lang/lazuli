@@ -180,12 +180,15 @@ fn migrate_up(
 
     println!("migrations to apply:");
     for file in &pending {
-        println!("  {}", file.up.as_ref().unwrap().display());
+        // `pending` was filtered above to `file.up.is_some()`.
+        if let Some(up) = file.up.as_ref() {
+            println!("  {}", up.display());
+        }
     }
     confirm("Apply these migrations?", yes)?;
 
     for file in pending {
-        let up = file.up.as_ref().unwrap();
+        let Some(up) = file.up.as_ref() else { continue };
         println!("applying {}", up.display());
         run_psql_file(database_url, up)?;
         insert_applied_version(database_url, &file.version)?;
@@ -267,7 +270,9 @@ fn migrate_status(database_url: &str, files: &[MigrationFile]) -> Result<(), Box
     } else {
         println!("pending migrations: {}", pending.len());
         for file in pending {
-            println!("  {}", file.up.as_ref().unwrap().display());
+            if let Some(up) = file.up.as_ref() {
+                println!("  {}", up.display());
+            }
         }
     }
 

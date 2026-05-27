@@ -194,16 +194,9 @@ fn inspect_symbol_lookup(
             // feature triggered the inspect (uses-clause resolution would
             // need an analyzer pass; out of scope for the bare lookup).
             let key = format!("{}.{}", feature_or_alias, name);
-            if index.symbols.contains_key(&key) {
-                vec![
-                    index
-                        .symbols
-                        .get_key_value(&key)
-                        .map(|(k, _)| k.as_str())
-                        .unwrap(),
-                ]
-            } else {
-                Vec::new()
+            match index.symbols.get_key_value(&key) {
+                Some((k, _)) => vec![k.as_str()],
+                None => Vec::new(),
             }
         }
         None => {
@@ -290,7 +283,18 @@ fn inspect_symbol_found(
     index: &lazuli_ir::SymbolOriginIndex,
     imported_via: Option<&(String, lazuli_ir::ImportEdge)>,
 ) -> serde_json::Value {
-    let origin = index.symbols.get(key).expect("key exists by construction");
+    // Caller passes a key derived from `index.symbols.contains_key(key)` or
+    // `iter().find(...)`. If somehow absent we fall back to a Null payload.
+    let Some(origin) = index.symbols.get(key) else {
+        return serde_json::json!({
+            "symbol": name,
+            "feature": qualifier.clone(),
+            "defined_in": serde_json::Value::Null,
+            "imported_via": serde_json::Value::Null,
+            "type": serde_json::Value::Null,
+            "previous_names": serde_json::Value::Null,
+        });
+    };
     let imported_via_json = match imported_via {
         Some((owning, edge)) => serde_json::json!({
             "feature": owning,

@@ -152,7 +152,9 @@ pub(crate) fn diagnostics(
                     stack.pop();
                     continue;
                 }
-                stack.last_mut().unwrap().1 = idx + 1;
+                if let Some(top) = stack.last_mut() {
+                    top.1 = idx + 1;
+                }
                 let next = nbrs[idx].clone();
                 if on_stack.contains(&next) {
                     found_cycle = Some(format!(

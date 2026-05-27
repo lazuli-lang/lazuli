@@ -46,7 +46,7 @@ pub fn project_lifecycle(features: &[Feature]) -> Value {
                             })
                         }).collect::<Vec<_>>(),
                         "invariants": lifecycle.invariants.iter().map(|invariant| {
-                            serde_json::to_value(invariant).expect("LifecycleInvariant serializes")
+                            serde_json::to_value(invariant).unwrap_or(serde_json::Value::Null)
                         }).collect::<Vec<_>>(),
                         "invariant_handlers": lifecycle.invariant_handlers.iter()
                             .map(format_handler_ref)

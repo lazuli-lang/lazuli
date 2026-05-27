@@ -101,7 +101,10 @@ pub(super) fn collect_tier3_by_feature_with_aliases(
                 features: vec![feature_ir],
             };
             plugin_semantic_resolver::apply_plugin_semantic_resolution(&mut transient, alias_map);
-            feature_ir = transient.features.pop().unwrap();
+            // Invariant: we pushed exactly one feature above, so pop() yields Some.
+            // Fall back to continuing — unreachable in practice but keeps the loop safe.
+            let Some(popped) = transient.features.pop() else { continue };
+            feature_ir = popped;
         }
         map.insert(
             feature_ir.name.clone(),

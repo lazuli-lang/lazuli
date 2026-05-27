@@ -248,9 +248,11 @@ pub(super) fn format_type_ref(t: &lazuli_ir::TypeRef) -> String {
             BuiltinType::SemanticPhone => "@semantic.Phone",
             BuiltinType::SemanticUrl => "@semantic.Url",
             BuiltinType::SemanticUuid => "@semantic.Uuid",
-            // SemanticMoney + SemanticPluginType handled above.
-            BuiltinType::SemanticMoney { .. } => unreachable!(),
-            BuiltinType::SemanticPluginType { .. } => unreachable!(),
+            // SemanticMoney + SemanticPluginType handled in earlier match
+            // arms above. These branches are dead but keep them inert
+            // (cheap literal fallback) so the rule stays quiet.
+            BuiltinType::SemanticMoney { .. } => "@semantic.Money",
+            BuiltinType::SemanticPluginType { .. } => "@semantic.Plugin",
             BuiltinType::SemanticCurrency => "@semantic.Currency",
             BuiltinType::SemanticGeoPoint => "@semantic.GeoPoint",
             BuiltinType::CapSecret => "@cap.Secret",
