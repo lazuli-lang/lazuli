@@ -135,9 +135,30 @@ pub fn check(files: &[RustSourceFile]) -> Vec<Finding> {
         if !file.is_library_src {
             continue;
         }
+        if is_rails_test_file(&file.relative_path) {
+            // Rails-style test siblings (`<name>_tests.rs`) and any file
+            // under `src/tests/` are test code. The rule's existing
+            // `#[cfg(test)] mod` depth tracking handles inline `mod tests
+            // { ... }` blocks; this skip handles the W5-era pattern where
+            // a whole sibling file IS the test module, included by a
+            // parent via `include!()`.
+            continue;
+        }
         scan_file(&file.relative_path, &file.source, &mut findings);
     }
     findings
+}
+
+/// Returns `true` for files conventionally containing test code:
+/// - File name ends with `_tests.rs` (W5 Rails-style sibling test files).
+/// - Path contains `/src/tests/` or `\src\tests\` (rails-style test subtree).
+fn is_rails_test_file(path: &std::path::Path) -> bool {
+    let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+    if name.ends_with("_tests.rs") || name == "tests.rs" {
+        return true;
+    }
+    let s = path.to_string_lossy().replace('\\', "/");
+    s.contains("/src/tests/")
 }
 
 fn scan_file(path: &Path, source: &str, out: &mut Vec<Finding>) {
@@ -416,6 +437,35 @@ mod tests {
         let mut f = file("pub fn x() { panic!() }\n");
         f.is_library_src = false;
         assert!(check(&[f]).is_empty());
+    }
+
+    #[test]
+    fn rails_test_sibling_files_are_skipped() {
+        // Files named `<name>_tests.rs` are Rails-style sibling test
+        // modules included from a parent via `include!()`. The rule's
+        // `#[cfg(test)] mod` depth tracking can't see the parent, so we
+        // skip these whole files.
+        let mut f = file("pub fn x() { panic!() }\n");
+        f.relative_path = PathBuf::from("crates/lazuli_test/src/foo_tests.rs");
+        assert!(check(&[f]).is_empty());
+    }
+
+    #[test]
+    fn files_under_src_tests_are_skipped() {
+        // Rails-style: tests live under `src/tests/...` next to the
+        // module they exercise. Whole sub-tree is test code.
+        let mut f = file("pub fn x() { panic!() }\n");
+        f.relative_path = PathBuf::from("crates/lazuli_test/src/tests/core/workflow.rs");
+        assert!(check(&[f]).is_empty());
+    }
+
+    #[test]
+    fn plain_src_file_still_fires() {
+        // Regression guard: `tests` substring in a file path that isn't
+        // a sibling test file or under `src/tests/` should still fire.
+        let mut f = file("pub fn x() { panic!() }\n");
+        f.relative_path = PathBuf::from("crates/lazuli_test/src/contests/mod.rs");
+        assert_eq!(check(&[f]).len(), 1);
     }
 
     #[test]
