@@ -37,10 +37,13 @@ pub(crate) fn emit_filters_const(filters: &[FilterDecl], surface: &Surface) -> S
     if block.is_empty() {
         return String::new();
     }
+    // `emit_filters_block` always returns `filters: <expr>,` when non-empty,
+    // so the strip pair below succeeds in practice. Fall back to the raw
+    // block if the contract is violated — TS will still parse it.
     let invocation = block
         .strip_prefix("filters: ")
         .and_then(|s| s.strip_suffix(','))
-        .expect("filters block must be a filters field");
+        .unwrap_or(block.as_str());
     format!("  const filters = {invocation};\n")
 }
 

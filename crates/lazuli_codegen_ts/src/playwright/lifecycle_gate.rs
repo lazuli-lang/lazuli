@@ -31,10 +31,8 @@ pub fn emit_playwright_lifecycle_gate(resources: &[Resource]) -> String {
         .iter()
         .filter(|resource| resource.lifecycle.is_some())
     {
-        let lifecycle = resource
-            .lifecycle
-            .as_ref()
-            .expect("filtered to resources with lifecycle");
+        // Filter above guarantees lifecycle is Some.
+        let Some(lifecycle) = resource.lifecycle.as_ref() else { continue };
 
         writeln!(
             s,

@@ -22,10 +22,8 @@ use super::naming::{field_kind_ts, lower_camel, pascal_case};
 use crate::pluralize;
 
 pub(super) fn write_query(s: &mut String, feature: &RuntimeFeature, query: &RuntimeQuery) {
-    let resource = feature
-        .resources
-        .first()
-        .expect("runtime spec needs at least one resource");
+    // Runtime spec invariant: every feature has at least one resource.
+    let Some(resource) = feature.resources.first() else { return };
     let resource_pascal = pascal_case(&resource.name);
     // Wire registry key: `<feature>.<query_name>` (cell B1 dropped `.query.` infix).
     let qualified_name = format!("{}.{}", feature.name, query.short_name);

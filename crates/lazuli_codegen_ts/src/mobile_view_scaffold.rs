@@ -74,21 +74,20 @@ pub fn scaffold_body_for_view(
     audience: &str,
     view: &View,
 ) -> String {
-    let (view_name, kind) = match view {
-        View::List(v) => (v.name.as_str(), "list"),
-        View::Detail(v) => (v.name.as_str(), "detail"),
-        View::Create(v) => (v.name.as_str(), "create"),
+    let view_name = match view {
+        View::List(v) => v.name.as_str(),
+        View::Detail(v) => v.name.as_str(),
+        View::Create(v) => v.name.as_str(),
     };
 
     let hook = view_hook_name(audience, view_name);
     let spec = view_spec_const(audience, view_name);
     let import_path = format!("@/dist/ts-mobile/{}/views/{}/{}.gen", feature_name, audience, view_name);
 
-    match kind {
-        "list" => list_body(&hook, &spec, &import_path, view_name),
-        "detail" => detail_body(&hook, &spec, &import_path, view_name),
-        "create" => create_body(&hook, &spec, &import_path, view_name),
-        _ => unreachable!(),
+    match view {
+        View::List(_) => list_body(&hook, &spec, &import_path, view_name),
+        View::Detail(_) => detail_body(&hook, &spec, &import_path, view_name),
+        View::Create(_) => create_body(&hook, &spec, &import_path, view_name),
     }
 }
 

@@ -38,10 +38,8 @@ pub(super) fn write_lifecycle_action_maps(s: &mut String, feature: &ir::Feature)
     .ok();
 
     for resource in lifecycle_resources {
-        let lifecycle = resource
-            .lifecycle
-            .as_ref()
-            .expect("filtered lifecycle resources have lifecycle");
+        // `lifecycle_resources` was filtered to entries with Some(lifecycle).
+        let Some(lifecycle) = resource.lifecycle.as_ref() else { continue };
         let resource_pascal = lzx_pascal_case(&resource.name);
         let object_name = resource.name.to_ascii_lowercase();
         writeln!(s, "export const {object_name} = {{").ok();

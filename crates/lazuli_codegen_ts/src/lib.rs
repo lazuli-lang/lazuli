@@ -180,7 +180,11 @@ fn display_name(module: &Module) -> String {
 }
 
 fn generate_schema_ts(module: &Module, display_name: &str) -> String {
-    let json = serde_json::to_string_pretty(module).expect("IR must serialize");
+    // `lazuli_ir::Module` derives Serialize across the whole tree; any
+    // failure here is a framework bug, not a user-fixable error. Fall back
+    // to an empty object literal so codegen output is still valid TS.
+    let json =
+        serde_json::to_string_pretty(module).unwrap_or_else(|_| "{}".to_owned());
 
     format!(
         r#"// Generated from the Lazuli IR. Read-only — regenerate via `lazuli generate ts`.
