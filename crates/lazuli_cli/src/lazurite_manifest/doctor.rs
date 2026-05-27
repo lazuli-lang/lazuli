@@ -23,6 +23,30 @@ pub struct Doctor {
     /// source under `lazuli doctor --self`. Mirrors test_discipline shape.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub internal_hygiene: Option<InternalHygieneDoctor>,
+    /// Iron-hand 4th dimension — `[doctor.error_handling]` block.
+    /// Governs `INTERNAL-PANIC-*` / `INTERNAL-ERROR-*` / `ERROR-*` /
+    /// `HANDLER-*` rules. Under `preset = "tdd-iron-hand"` every rule
+    /// fires at `Error` regardless of profile — editorial veto for the
+    /// framework's own CI plus user-app error contract.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_handling: Option<ErrorHandlingDoctor>,
+}
+
+/// `[doctor.error_handling]` block — iron-hand 4th dimension.
+///
+/// Covers framework Rust source (`INTERNAL-PANIC-*`, `INTERNAL-ERROR-*`),
+/// user `.lzi`/`.lzx` contract (`ERROR-*`), and user Go handlers
+/// (`HANDLER-*`). Mirrors the shape of [`InternalHygieneDoctor`] and
+/// [`TestDisciplineDoctor`].
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct ErrorHandlingDoctor {
+    /// Preset name. Parsed by
+    /// `lazuli_doctor::error_handling::preset::ErrorHandlingPreset::parse`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
+    /// Per-rule severity overrides keyed by canonical code.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub severity_override: BTreeMap<String, SeverityOverride>,
 }
 
 /// W3 — `[doctor.internal_hygiene]` block.
@@ -115,5 +139,27 @@ mod tests {
         assert!(doctor.test_discipline.is_none());
         assert!(doctor.coverage.is_none());
         assert!(doctor.internal_hygiene.is_none());
+        assert!(doctor.error_handling.is_none());
+    }
+
+    #[test]
+    fn error_handling_block_deserializes_from_toml() {
+        let toml_input = r#"
+[error_handling]
+preset = "tdd-iron-hand"
+
+[error_handling.severity_override.INTERNAL-PANIC-UNWRAP-001]
+severity = "warning"
+reason = "transition period — escalate after Hostpoint adoption"
+"#;
+        let doctor: Doctor = toml::from_str(toml_input).expect("deserialize");
+        let eh = doctor.error_handling.expect("error_handling block");
+        assert_eq!(eh.preset.as_deref(), Some("tdd-iron-hand"));
+        let ov = eh
+            .severity_override
+            .get("INTERNAL-PANIC-UNWRAP-001")
+            .expect("override");
+        assert_eq!(ov.severity, "warning");
+        assert!(ov.reason.is_some());
     }
 }

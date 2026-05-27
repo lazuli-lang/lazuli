@@ -38,6 +38,16 @@ pub enum RuleCategory {
     /// audit user `.lzi`/`.lzx` source; `InternalHygiene` is the
     /// dogfooding counterpart for the framework's own code.
     InternalHygiene,
+    /// Iron-hand 4th dimension — error-handling discipline across the
+    /// three layers Lazuli owns: framework Rust source (no `.unwrap()`,
+    /// named error types, `#[non_exhaustive]` pub error enums), `.lzi`
+    /// contract (exhaustive `errors:`, messageKey, HTTP status, retriable
+    /// classification, audit emit), `.lzx` UX (on_error wiring, empty
+    /// states, field validation mapping), and Go handlers (no `panic`,
+    /// no string errors, `%w` chain preservation). Fires under both
+    /// `lazuli doctor` (user `.lzi`/`.lzx`/handlers) and `--self`
+    /// (framework Rust + bridged Go).
+    ErrorHandling,
 }
 
 impl RuleCategory {
@@ -84,12 +94,24 @@ impl RuleCategory {
             Some("LIFECYCLE") => Self::Lifecycle,
             Some("DOMAIN") => Self::Domain,
             Some("CROSS") => Self::CrossFeature,
-            Some("ERROR") => Self::ErrorVocab,
+            // Existing error-vocabulary rules use the `ERR-VOCAB-*` prefix
+            // (live codes: ERR-VOCAB-001..003, ERR-VOCAB-CODE-UNKNOWN, etc.).
+            Some("ERR") => Self::ErrorVocab,
+            // Iron-hand 4th dimension — `.lzi` / `.lzx` / Go handler error
+            // contract rules.
+            Some("ERROR") => Self::ErrorHandling,
             Some("POLLER") => Self::Poller,
             Some("REPORT") => Self::Report,
             Some("DESIGN") => Self::Design,
             Some("ENCRYPTION") | Some("ENCRYPT") => Self::Encryption,
-            Some("INTERNAL") => Self::InternalHygiene,
+            Some("INTERNAL") => match code.split('-').nth(1) {
+                // INTERNAL-PANIC-* / INTERNAL-ERROR-* belong to error_handling,
+                // not the rails-style hygiene bucket. Discriminator on the
+                // second segment.
+                Some("PANIC") | Some("ERROR") => Self::ErrorHandling,
+                _ => Self::InternalHygiene,
+            },
+            Some("HANDLER") => Self::ErrorHandling,
             _ => Self::Vocabulary, // safe fallback; auditor flags
         }
     }
@@ -122,6 +144,7 @@ impl RuleCategory {
             "poller" | "Poller" => Some(Self::Poller),
             "report" | "Report" => Some(Self::Report),
             "internal_hygiene" | "InternalHygiene" => Some(Self::InternalHygiene),
+            "error_handling" | "ErrorHandling" => Some(Self::ErrorHandling),
             _ => None,
         }
     }
@@ -153,6 +176,7 @@ impl RuleCategory {
             Self::Poller => "poller",
             Self::Report => "report",
             Self::InternalHygiene => "internal_hygiene",
+            Self::ErrorHandling => "error_handling",
         }
     }
 }
@@ -194,6 +218,52 @@ mod tests {
         assert_eq!(
             RuleCategory::from_code_prefix("INTERNAL-UNDOC-PUB-001"),
             RuleCategory::InternalHygiene
+        );
+    }
+
+    #[test]
+    fn error_handling_prefix_routing() {
+        // Live error-vocab catalog stays in ErrorVocab.
+        assert_eq!(
+            RuleCategory::from_code_prefix("ERR-VOCAB-001"),
+            RuleCategory::ErrorVocab
+        );
+        // New iron-hand 4th-dimension prefixes route to ErrorHandling.
+        assert_eq!(
+            RuleCategory::from_code_prefix("ERROR-DECLARED-EXHAUSTIVE-001"),
+            RuleCategory::ErrorHandling
+        );
+        assert_eq!(
+            RuleCategory::from_code_prefix("HANDLER-NO-PANIC-001"),
+            RuleCategory::ErrorHandling
+        );
+        // INTERNAL-PANIC-* and INTERNAL-ERROR-* are error_handling, not
+        // internal_hygiene — they cover error-handling discipline on the
+        // framework Rust source.
+        assert_eq!(
+            RuleCategory::from_code_prefix("INTERNAL-PANIC-UNWRAP-001"),
+            RuleCategory::ErrorHandling
+        );
+        assert_eq!(
+            RuleCategory::from_code_prefix("INTERNAL-ERROR-NAMING-001"),
+            RuleCategory::ErrorHandling
+        );
+        // Other INTERNAL-* prefixes (rails-style hygiene) stay put.
+        assert_eq!(
+            RuleCategory::from_code_prefix("INTERNAL-UNDOC-PUB-001"),
+            RuleCategory::InternalHygiene
+        );
+    }
+
+    #[test]
+    fn error_handling_parses_both_cases() {
+        assert_eq!(
+            RuleCategory::parse("error_handling"),
+            Some(RuleCategory::ErrorHandling)
+        );
+        assert_eq!(
+            RuleCategory::parse("ErrorHandling"),
+            Some(RuleCategory::ErrorHandling)
         );
     }
 

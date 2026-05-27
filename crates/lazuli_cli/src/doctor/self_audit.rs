@@ -13,7 +13,10 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 
-use super::helpers::{parse_doctor_format, parse_fail_on_specs, resolve_internal_hygiene_severity};
+use super::helpers::{
+    parse_doctor_format, parse_fail_on_specs, resolve_error_handling_severity,
+    resolve_internal_hygiene_severity,
+};
 use super::runtime_options::DoctorRuntimeOptions;
 use super::{DoctorDiagnostic, DoctorSeverity};
 use crate::lazurite_manifest;
@@ -37,6 +40,12 @@ pub(super) fn doctor_self_command(input: &Path, opts: &DoctorRuntimeOptions) -> 
         .and_then(|d| d.internal_hygiene.as_ref())
         .and_then(|ih| ih.preset.as_deref())
         .and_then(InternalHygienePreset::parse);
+    let error_handling_preset = manifest
+        .as_ref()
+        .and_then(|m| m.doctor.as_ref())
+        .and_then(|d| d.error_handling.as_ref())
+        .and_then(|eh| eh.preset.as_deref())
+        .and_then(lazuli_doctor::error_handling::preset::ErrorHandlingPreset::parse);
 
     let files = walk_workspace_rust_sources(&workspace_root);
     if files.is_empty() {
@@ -142,6 +151,31 @@ pub(super) fn doctor_self_command(input: &Path, opts: &DoctorRuntimeOptions) -> 
         });
     }
 
+    // INTERNAL-PANIC-UNWRAP-001 — default Warning. Iron-hand 4th
+    // dimension. Scans framework Rust source for panic-prone constructs
+    // outside test contexts.
+    for finding in lazuli_doctor::error_handling::panic_unwrap_001::check(&files) {
+        let severity = resolve_error_handling_severity(
+            DoctorSeverity::Warning,
+            lazuli_doctor::error_handling::panic_unwrap_001::Finding::CODE,
+            error_handling_preset,
+        );
+        let message = finding.message();
+        diagnostics.push(DoctorDiagnostic {
+            path: finding.path,
+            line: finding.line,
+            column: 1,
+            severity,
+            code: lazuli_doctor::error_handling::panic_unwrap_001::Finding::CODE.to_owned(),
+            message,
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
+        });
+    }
+
     let has_error = diagnostics
         .iter()
         .any(|d| d.severity == DoctorSeverity::Error);
@@ -172,7 +206,7 @@ pub(super) fn doctor_self_command(input: &Path, opts: &DoctorRuntimeOptions) -> 
                 "errors": by_severity.0,
                 "warnings": by_severity.1,
                 "infos": by_severity.2,
-                "by_category": { "internal_hygiene": diagnostics.len() },
+                "by_category": by_category_counts(&diagnostics),
                 "by_rule": by_rule,
             },
             "findings": diagnostics.iter().map(|d| serde_json::json!({
@@ -211,14 +245,14 @@ pub(super) fn doctor_self_command(input: &Path, opts: &DoctorRuntimeOptions) -> 
         );
     }
 
-    // --fail-on category:internal_hygiene gate.
+    // --fail-on category:<name> gate (internal_hygiene + error_handling).
     let specs =
         parse_fail_on_specs(&opts.fail_on).map_err(|e| anyhow::anyhow!("--fail-on: {e}"))?;
     let gate_fail = !specs.is_empty()
         && specs.iter().any(|s| match s {
-            crate::doctor_report::FailOnSpec::Category(c) => {
-                *c == lazuli_doctor::RuleCategory::InternalHygiene && !diagnostics.is_empty()
-            }
+            crate::doctor_report::FailOnSpec::Category(c) => diagnostics
+                .iter()
+                .any(|d| lazuli_doctor::RuleCategory::from_code_prefix(&d.code) == *c),
             crate::doctor_report::FailOnSpec::Rule(r) => diagnostics.iter().any(|d| &d.code == r),
             crate::doctor_report::FailOnSpec::Severity(_) => has_error,
             _ => false,
@@ -226,10 +260,23 @@ pub(super) fn doctor_self_command(input: &Path, opts: &DoctorRuntimeOptions) -> 
 
     if has_error || gate_fail {
         bail!(
-            "{} failed Lazuli doctor self-audit (internal_hygiene category)",
+            "{} failed Lazuli doctor self-audit (internal_hygiene + error_handling)",
             workspace_root.display()
         );
     }
 
     Ok(())
+}
+
+/// Bucket findings into a `{ category: count }` map for the JSON
+/// summary. Each diagnostic's category is derived from its rule code
+/// prefix via [`lazuli_doctor::RuleCategory::from_code_prefix`].
+fn by_category_counts(diagnostics: &[DoctorDiagnostic]) -> serde_json::Value {
+    let mut counts: std::collections::BTreeMap<&'static str, usize> =
+        std::collections::BTreeMap::new();
+    for d in diagnostics {
+        let cat = lazuli_doctor::RuleCategory::from_code_prefix(&d.code).as_str();
+        *counts.entry(cat).or_insert(0) += 1;
+    }
+    serde_json::to_value(counts).unwrap_or_else(|_| serde_json::json!({}))
 }
