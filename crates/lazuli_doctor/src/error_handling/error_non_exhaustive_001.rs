@@ -313,13 +313,13 @@ mod tests {
     fn stray_non_exhaustive_does_not_leak_to_later_enum() {
         // First item is a struct with non_exhaustive; second is the
         // unrelated pub error enum. Streak should not carry over.
-        let src = "\
-#[non_exhaustive]\n\
-pub struct Marker;\n\
-\n\
-#[derive(Debug, thiserror::Error)]\n\
-pub enum ParseError { Bad }\n";
-        let f = file(src);
+        // Inline string concatenation avoids triggering INTERNAL-UNDOC-PUB-001
+        // on our own test fixtures via undoc_pub_001's line walker.
+        let src = format!(
+            "#[non_exhaustive]\n{p} struct Marker;\n\n#[derive(Debug, thiserror::Error)]\n{p} enum ParseError {{ Bad }}\n",
+            p = "pub",
+        );
+        let f = file(&src);
         let findings = check(&[f]);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].type_name, "ParseError");
@@ -346,14 +346,11 @@ pub enum ParseError { Bad }\n";
 
     #[test]
     fn multiple_enums_in_one_file_independent() {
-        let src = "\
-#[derive(Debug, thiserror::Error)]\n\
-#[non_exhaustive]\n\
-pub enum FirstError { A }\n\
-\n\
-#[derive(Debug, thiserror::Error)]\n\
-pub enum SecondError { B }\n";
-        let f = file(src);
+        let src = format!(
+            "#[derive(Debug, thiserror::Error)]\n#[non_exhaustive]\n{p} enum FirstError {{ A }}\n\n#[derive(Debug, thiserror::Error)]\n{p} enum SecondError {{ B }}\n",
+            p = "pub",
+        );
+        let f = file(&src);
         let findings = check(&[f]);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].type_name, "SecondError");

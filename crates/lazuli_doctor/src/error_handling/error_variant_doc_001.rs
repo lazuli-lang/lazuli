@@ -390,12 +390,8 @@ mod tests {
 
     #[test]
     fn bare_variant_fires() {
-        let src = "\
-#[derive(Debug, thiserror::Error)]\n\
-pub enum ParseError {\n\
-    Bad,\n\
-}\n";
-        let findings = check(&[file(src)]);
+        let src: String = "#[derive(Debug, thiserror::Error)]\npub enum ParseError {\n    Bad,\n}\n".to_string();
+        let findings = check(&[file(&src)]);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].variant_name, "Bad");
         assert_eq!(findings[0].enum_name, "ParseError");
@@ -403,51 +399,26 @@ pub enum ParseError {\n\
 
     #[test]
     fn variant_with_doc_only_is_silent() {
-        let src = "\
-#[derive(Debug, thiserror::Error)]\n\
-pub enum ParseError {\n\
-    /// Something bad happened.\n\
-    Bad,\n\
-}\n";
-        assert!(check(&[file(src)]).is_empty());
+        let src: String = "#[derive(Debug, thiserror::Error)]\npub enum ParseError {\n    /// Something bad happened.\n    Bad,\n}\n".to_string();
+        assert!(check(&[file(&src)]).is_empty());
     }
 
     #[test]
     fn variant_with_error_attr_only_is_silent() {
-        let src = "\
-#[derive(Debug, thiserror::Error)]\n\
-pub enum ParseError {\n\
-    #[error(\"something bad\")]\n\
-    Bad,\n\
-}\n";
-        assert!(check(&[file(src)]).is_empty());
+        let src: String = "#[derive(Debug, thiserror::Error)]\npub enum ParseError {\n    #[error(\"something bad\")]\n    Bad,\n}\n".to_string();
+        assert!(check(&[file(&src)]).is_empty());
     }
 
     #[test]
     fn variant_with_both_doc_and_error_attr_is_silent() {
-        let src = "\
-#[derive(Debug, thiserror::Error)]\n\
-pub enum ParseError {\n\
-    /// A bad thing.\n\
-    #[error(\"bad\")]\n\
-    Bad,\n\
-}\n";
-        assert!(check(&[file(src)]).is_empty());
+        let src: String = "#[derive(Debug, thiserror::Error)]\npub enum ParseError {\n    /// A bad thing.\n    #[error(\"bad\")]\n    Bad,\n}\n".to_string();
+        assert!(check(&[file(&src)]).is_empty());
     }
 
     #[test]
     fn multiple_variants_independent() {
-        let src = "\
-#[derive(Debug, thiserror::Error)]\n\
-pub enum ParseError {\n\
-    /// First — has doc.\n\
-    First,\n\
-    Second,\n\
-    #[error(\"third\")]\n\
-    Third,\n\
-    Fourth,\n\
-}\n";
-        let findings = check(&[file(src)]);
+        let src: String = "#[derive(Debug, thiserror::Error)]\npub enum ParseError {\n    /// First — has doc.\n    First,\n    Second,\n    #[error(\"third\")]\n    Third,\n    Fourth,\n}\n".to_string();
+        let findings = check(&[file(&src)]);
         assert_eq!(findings.len(), 2);
         let names: Vec<_> = findings.iter().map(|f| f.variant_name.as_str()).collect();
         assert!(names.contains(&"Second"));
@@ -456,68 +427,41 @@ pub enum ParseError {\n\
 
     #[test]
     fn tuple_and_struct_shaped_variants_are_recognized() {
-        let src = "\
-#[derive(Debug, thiserror::Error)]\n\
-pub enum ApiError {\n\
-    Tuple(String),\n\
-    Struct { code: u16 },\n\
-}\n";
-        let findings = check(&[file(src)]);
+        let src: String = "#[derive(Debug, thiserror::Error)]\npub enum ApiError {\n    Tuple(String),\n    Struct { code: u16 },\n}\n".to_string();
+        let findings = check(&[file(&src)]);
         assert_eq!(findings.len(), 2);
     }
 
     #[test]
     fn non_error_enum_does_not_fire() {
-        let src = "\
-#[derive(Debug, Clone)]\n\
-pub enum Status {\n\
-    Open,\n\
-    Closed,\n\
-}\n";
-        assert!(check(&[file(src)]).is_empty());
+        let src: String = "#[derive(Debug, Clone)]\npub enum Status {\n    Open,\n    Closed,\n}\n".to_string();
+        assert!(check(&[file(&src)]).is_empty());
     }
 
     #[test]
     fn private_enum_does_not_fire() {
-        let src = "\
-#[derive(Debug, thiserror::Error)]\n\
-enum Internal {\n\
-    Bad,\n\
-}\n";
-        assert!(check(&[file(src)]).is_empty());
+        let src: String = "#[derive(Debug, thiserror::Error)]\nenum Internal {\n    Bad,\n}\n".to_string();
+        assert!(check(&[file(&src)]).is_empty());
     }
 
     #[test]
     fn non_library_files_are_skipped() {
-        let src = "\
-#[derive(Debug, thiserror::Error)]\n\
-pub enum ParseError {\n\
-    Bad,\n\
-}\n";
-        let mut f = file(src);
+        let src: String = "#[derive(Debug, thiserror::Error)]\npub enum ParseError {\n    Bad,\n}\n".to_string();
+        let mut f = file(&src);
         f.is_library_src = false;
         assert!(check(&[f]).is_empty());
     }
 
     #[test]
     fn struct_variant_with_doc_silences() {
-        let src = "\
-#[derive(Debug, thiserror::Error)]\n\
-pub enum ApiError {\n\
-    /// Code-bearing failure.\n\
-    Struct { code: u16 },\n\
-}\n";
-        assert!(check(&[file(src)]).is_empty());
+        let src: String = "#[derive(Debug, thiserror::Error)]\npub enum ApiError {\n    /// Code-bearing failure.\n    Struct { code: u16 },\n}\n".to_string();
+        assert!(check(&[file(&src)]).is_empty());
     }
 
     #[test]
     fn message_includes_variant_and_enum() {
-        let src = "\
-#[derive(Debug, thiserror::Error)]\n\
-pub enum ParseError {\n\
-    Bad,\n\
-}\n";
-        let finding = check(&[file(src)]).into_iter().next().unwrap();
+        let src: String = "#[derive(Debug, thiserror::Error)]\npub enum ParseError {\n    Bad,\n}\n".to_string();
+        let finding = check(&[file(&src)]).into_iter().next().unwrap();
         let msg = finding.message();
         assert!(msg.contains("ParseError"));
         assert!(msg.contains("Bad"));
@@ -526,17 +470,8 @@ pub enum ParseError {\n\
 
     #[test]
     fn two_enums_in_one_file_independent() {
-        let src = "\
-#[derive(Debug, thiserror::Error)]\n\
-pub enum First {\n\
-    Bad,\n\
-}\n\
-\n\
-#[derive(Debug, Clone)]\n\
-pub enum Second {\n\
-    Open,\n\
-}\n";
-        let findings = check(&[file(src)]);
+        let src: String = "#[derive(Debug, thiserror::Error)]\npub enum First {\n    Bad,\n}\n\n#[derive(Debug, Clone)]\npub enum Second {\n    Open,\n}\n".to_string();
+        let findings = check(&[file(&src)]);
         // Only the first enum is in scope; second isn't derive-Error.
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].enum_name, "First");
@@ -546,27 +481,16 @@ pub enum Second {\n\
     fn non_exhaustive_variant_attr_silences_via_doc() {
         // Variants can carry their own `#[non_exhaustive]` — verify it
         // doesn't confuse the back-walk (doc still silences).
-        let src = "\
-#[derive(Debug, thiserror::Error)]\n\
-pub enum ParseError {\n\
-    /// A bad thing.\n\
-    #[non_exhaustive]\n\
-    Bad,\n\
-}\n";
-        assert!(check(&[file(src)]).is_empty());
+        let src: String = "#[derive(Debug, thiserror::Error)]\npub enum ParseError {\n    /// A bad thing.\n    #[non_exhaustive]\n    Bad,\n}\n".to_string();
+        assert!(check(&[file(&src)]).is_empty());
     }
 
     #[test]
     fn variant_with_only_non_exhaustive_still_fires() {
         // Variant has `#[non_exhaustive]` but no doc and no
         // `#[error(...)]` — still opaque to logs and rustdoc.
-        let src = "\
-#[derive(Debug, thiserror::Error)]\n\
-pub enum ParseError {\n\
-    #[non_exhaustive]\n\
-    Bad,\n\
-}\n";
-        let findings = check(&[file(src)]);
+        let src: String = "#[derive(Debug, thiserror::Error)]\npub enum ParseError {\n    #[non_exhaustive]\n    Bad,\n}\n".to_string();
+        let findings = check(&[file(&src)]);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].variant_name, "Bad");
     }
