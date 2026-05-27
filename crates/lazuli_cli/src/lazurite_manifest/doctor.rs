@@ -30,6 +30,30 @@ pub struct Doctor {
     /// framework's own CI plus user-app error contract.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_handling: Option<ErrorHandlingDoctor>,
+    /// `[doctor.lzi_hygiene]` block — user-side `.lzi` source-shape
+    /// hygiene. Governs `LZI-FILE-SIZE-001`,
+    /// `LZI-FEATURE-NAMING-MATCHES-FILE-001`,
+    /// `LZI-FEATURE-COHESION-001`. Mirrors `[doctor.internal_hygiene]`
+    /// shape; under `preset = "tdd-iron-hand"` every `LZI-*` rule
+    /// fires at `Error`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lzi_hygiene: Option<LziHygieneDoctor>,
+}
+
+/// `[doctor.lzi_hygiene]` block — user-side `.lzi` shape rules.
+///
+/// Mirrors [`InternalHygieneDoctor`] / [`ErrorHandlingDoctor`]: an
+/// optional preset name and per-rule severity overrides keyed by
+/// canonical code.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct LziHygieneDoctor {
+    /// Preset name. Parsed by
+    /// `lazuli_doctor::lzi_hygiene::preset::LziHygienePreset::parse`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
+    /// Per-rule severity overrides keyed by canonical code.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub severity_override: BTreeMap<String, SeverityOverride>,
 }
 
 /// `[doctor.error_handling]` block — iron-hand 4th dimension.

@@ -28,6 +28,7 @@ pub mod handler_path;
 pub mod handler_walker;
 pub mod internal_hygiene;
 pub mod lifecycle;
+pub mod lzi_hygiene;
 pub mod poller;
 pub mod report;
 pub mod rule_category;

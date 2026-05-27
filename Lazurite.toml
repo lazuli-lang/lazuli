@@ -74,3 +74,22 @@ preset = "tdd-iron-hand"
 # `tests_*.rs`, `test_support*.rs`, or path under `tests/` / `lib_tests/`).
 [doctor.error_handling]
 preset = "tdd-iron-hand"
+
+# `.lzi` source-shape hygiene — three rules covering file size,
+# file/feature name alignment, and multi-feature cohesion. Architect
+# review (2026-05-27) rejected the broader "1 feature per file" rule
+# in favor of `LZI-FEATURE-COHESION-001` which lets cohesive bundles
+# pass (features sharing a domain prefix or resource anchor).
+#
+# Preset starts at `tdd-strict` (warn) — the canonical fixture
+# `examples/full-capsule/full-capsule.lzi` currently fires all three
+# rules (992 LOC, 6 mixed-prefix features, stem doesn't match feature
+# names). Promote to `tdd-iron-hand` after either refactoring the
+# fixture to per-feature files or accepting that pilot apps will
+# normally land smaller and pass the rules.
+#
+# This block governs user .lzi files via `lazuli doctor <path>`. The
+# framework workspace itself has no .lzi files so the rules are silent
+# under `--self`.
+[doctor.lzi_hygiene]
+preset = "tdd-strict"

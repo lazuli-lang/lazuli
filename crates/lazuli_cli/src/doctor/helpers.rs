@@ -90,6 +90,25 @@ pub(super) fn resolve_internal_hygiene_severity(
     default
 }
 
+/// `.lzi` hygiene severity resolver — mirror of
+/// `resolve_internal_hygiene_severity` for `LZI-*` rules. Under
+/// `tdd-iron-hand`, every `LZI-*` rule escalates to `Error`; otherwise
+/// the per-rule default stands.
+pub(super) fn resolve_lzi_hygiene_severity(
+    default: DoctorSeverity,
+    code: &str,
+    preset: Option<lazuli_doctor::lzi_hygiene::preset::LziHygienePreset>,
+) -> DoctorSeverity {
+    if let Some(preset) = preset {
+        if let Some(override_sev) =
+            lazuli_doctor::lzi_hygiene::preset::preset_rule_severity(preset, code)
+        {
+            return override_sev.into();
+        }
+    }
+    default
+}
+
 /// Iron-hand 4th-dimension severity resolver — mirror of
 /// `resolve_internal_hygiene_severity` for error-handling rules
 /// (`INTERNAL-PANIC-*`, `INTERNAL-ERROR-*`, `ERROR-*`, `HANDLER-*`).

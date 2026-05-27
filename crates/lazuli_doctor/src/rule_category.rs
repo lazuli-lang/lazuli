@@ -48,6 +48,13 @@ pub enum RuleCategory {
     /// `lazuli doctor` (user `.lzi`/`.lzx`/handlers) and `--self`
     /// (framework Rust + bridged Go).
     ErrorHandling,
+    /// `.lzi` source-shape hygiene — file size warnings, file/feature
+    /// name alignment, and cohesion-based multi-feature gating. Catches
+    /// patterns that hurt AI-first cold-read without forcing the
+    /// 1-feature-per-file dogma (cohesion-aware: bundles of related
+    /// features sharing anchor/resource/domain pass). Fires under
+    /// `lazuli doctor <path>` (user .lzi source), never under `--self`.
+    LziHygiene,
 }
 
 impl RuleCategory {
@@ -112,6 +119,7 @@ impl RuleCategory {
                 _ => Self::InternalHygiene,
             },
             Some("HANDLER") => Self::ErrorHandling,
+            Some("LZI") => Self::LziHygiene,
             _ => Self::Vocabulary, // safe fallback; auditor flags
         }
     }
@@ -145,6 +153,7 @@ impl RuleCategory {
             "report" | "Report" => Some(Self::Report),
             "internal_hygiene" | "InternalHygiene" => Some(Self::InternalHygiene),
             "error_handling" | "ErrorHandling" => Some(Self::ErrorHandling),
+            "lzi_hygiene" | "LziHygiene" => Some(Self::LziHygiene),
             _ => None,
         }
     }
@@ -177,6 +186,7 @@ impl RuleCategory {
             Self::Report => "report",
             Self::InternalHygiene => "internal_hygiene",
             Self::ErrorHandling => "error_handling",
+            Self::LziHygiene => "lzi_hygiene",
         }
     }
 }
@@ -265,6 +275,34 @@ mod tests {
             RuleCategory::parse("ErrorHandling"),
             Some(RuleCategory::ErrorHandling)
         );
+    }
+
+    #[test]
+    fn lzi_hygiene_prefix_and_parse() {
+        // LZI-* codes route to the new LziHygiene category.
+        assert_eq!(
+            RuleCategory::from_code_prefix("LZI-FILE-SIZE-001"),
+            RuleCategory::LziHygiene
+        );
+        assert_eq!(
+            RuleCategory::from_code_prefix("LZI-FEATURE-NAMING-MATCHES-FILE-001"),
+            RuleCategory::LziHygiene
+        );
+        assert_eq!(
+            RuleCategory::from_code_prefix("LZI-FEATURE-COHESION-001"),
+            RuleCategory::LziHygiene
+        );
+        // Both casings round-trip through parse().
+        assert_eq!(
+            RuleCategory::parse("lzi_hygiene"),
+            Some(RuleCategory::LziHygiene)
+        );
+        assert_eq!(
+            RuleCategory::parse("LziHygiene"),
+            Some(RuleCategory::LziHygiene)
+        );
+        // Serde snake_case round-trip.
+        assert_eq!(RuleCategory::LziHygiene.as_str(), "lzi_hygiene");
     }
 
     #[test]

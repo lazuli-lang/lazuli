@@ -142,6 +142,18 @@ impl DoctorPackage {
             self.security_profile,
             self.single_file_input,
         ));
+        // `.lzi` hygiene — file size, file/feature name alignment,
+        // and multi-feature cohesion. Reads
+        // `[doctor.lzi_hygiene].preset` from the workspace manifest.
+        {
+            let manifest = crate::lazurite_manifest::load(&self.project_root)
+                .ok()
+                .flatten();
+            diagnostics.extend(aggregators::lzi_hygiene::lzi_hygiene_diagnostics(
+                &self.project_root,
+                manifest.as_ref(),
+            ));
+        }
         diagnostics.extend(returns_list_001::diagnostics(
             &self.tier3_facts,
             &self.project_root,
