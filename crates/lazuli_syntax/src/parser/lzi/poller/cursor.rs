@@ -87,7 +87,11 @@ pub(super) fn parse_poller_cursor(
 
     let next_at_field = next_at_field
         .ok_or_else(|| line_error(header, "`cursor` requires an `eligible_when` child"))?;
-    let resolved_at_field = resolved_at_field.expect("resolved_at parsed alongside next_at");
+    // `eligible_when` sets both fields together at line 58-59 above, so if
+    // next_at survived the check above, resolved_at is also Some. Treat
+    // an inconsistency as the same eligible_when shape error for safety.
+    let resolved_at_field = resolved_at_field
+        .ok_or_else(|| line_error(header, "`cursor` requires an `eligible_when` child"))?;
     let attempts_field = attempts_field
         .ok_or_else(|| line_error(header, "`cursor` requires an `attempts <field>` child"))?;
 

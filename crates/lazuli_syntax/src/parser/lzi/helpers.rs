@@ -19,11 +19,8 @@ use super::super::error::ParseError;
 use crate::ast::{Span, TargetArgDecl};
 
 pub(in crate::parser) fn is_policy_identifier(text: &str) -> bool {
-    if text.is_empty() {
-        return false;
-    }
     let mut chars = text.chars();
-    let first = chars.next().unwrap();
+    let Some(first) = chars.next() else { return false };
     if !(first.is_ascii_alphabetic() || first == '_') {
         return false;
     }

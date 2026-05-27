@@ -236,7 +236,15 @@ pub(super) fn parse_poller_retry_quirk(
             "`retry_quirk` requires a `mutate <field> = <transform>` child",
         )
     })?;
-    let mutate_transform = mutate_transform.expect("transform parsed alongside field");
+    // `mutate` populates both fields together above, so if mutate_field
+    // is Some, mutate_transform is also Some. Defensive fallback uses the
+    // same mutate-shape error.
+    let mutate_transform = mutate_transform.ok_or_else(|| {
+        line_error(
+            header,
+            "`retry_quirk` requires a `mutate <field> = <transform>` child",
+        )
+    })?;
 
     Ok((
         PollerRetryQuirkAst {

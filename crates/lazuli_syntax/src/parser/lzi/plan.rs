@@ -309,7 +309,7 @@ fn is_valid_trial_duration(s: &str) -> bool {
     if s.len() < 2 {
         return false;
     }
-    let last = s.chars().last().unwrap();
+    let Some(last) = s.chars().last() else { return false };
     if !matches!(last, 's' | 'm' | 'h' | 'd') {
         return false;
     }
