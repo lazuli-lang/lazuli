@@ -125,6 +125,15 @@ pub(crate) fn namespace_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     for (line_index, line) in source.lines().enumerate() {
+        // 2026-05-27 — skip comment lines. The rule looks for typed
+        // `@<ns>.<x>` refs that the IR will resolve at lower time;
+        // those have semantic meaning. Comments (including the
+        // canonical `# doctor:allow @info.<code>` opt-out) carry rule
+        // CODES as documentation, not as IR refs, so an `@info.x` in
+        // a comment is documentation, not a real namespace ref.
+        if line.trim_start().starts_with('#') {
+            continue;
+        }
         for namespace in namespace_references(line) {
             if !is_allowed_reference_namespace(namespace) {
                 diagnostics.push(simple_canonical_diagnostic(

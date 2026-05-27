@@ -67,6 +67,17 @@ fn check_value(module: &Value) -> Vec<Diagnostic> {
             let Some(atom) = single_atom_list_form(guard.get("policy")) else {
                 continue;
             };
+            // 2026-05-27 — Skip the advisory when the audience is the
+            // canonical SYNTHESIZED single-atom shape: an audience named
+            // after a role (`host` / `traveler` / `operator`) whose
+            // single atom is the matching `@policy.role.<name>`. These
+            // audiences are inferred by the IR from view source queries,
+            // not authored — the author has no `[` to drop in the .lzx.
+            // Emitting the advisory here just adds noise; the existing
+            // 3-atom + author-bracketed cases still fire.
+            if atom == format!("@policy.role.{}", name) {
+                continue;
+            }
             out.push(Diagnostic {
                 code: "AUDIENCE-POLICY-001",
                 severity: Severity::Info,

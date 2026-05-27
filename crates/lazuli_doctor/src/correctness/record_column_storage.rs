@@ -110,6 +110,14 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
         return Vec::new();
     }
 
+    // 2026-05-27 — honor `# doctor:allow @info.record_column_jsonb`
+    // on the feature .lzi. The rule is purely informational ("this
+    // record-typed field stores as JSONB") and authors who knowingly
+    // chose JSONB storage can opt out of the per-field FYI.
+    if crate::allow_comment::file_contains_doctor_allow(path, Finding::CODE) {
+        return Vec::new();
+    }
+
     let record_names: HashSet<&str> = feature
         .records
         .iter()

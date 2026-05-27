@@ -277,6 +277,21 @@ pub(crate) fn rbac_catalog_missing_diagnostics(
     // Surface a single hint on the first `.lzi` file that mentions a
     // role. Severity is `Info` mapped to LSP Hint.
     let role_names: Vec<String> = implicit.into_iter().collect();
+    // 2026-05-27 — honor `# doctor:allow RBAC-CATALOG-MISSING-001` in
+    // ANY .lzi file. Pilots that legitimately rely on the legacy
+    // implicit-role-set (no RBAC catalog yet, migration tracked
+    // elsewhere) can opt out of the migration-hint advisory.
+    for file in files {
+        if !is_lzi_path(&file.path) {
+            continue;
+        }
+        if lazuli_doctor::allow_comment::source_contains_doctor_allow(
+            &file.source,
+            "RBAC-CATALOG-MISSING-001",
+        ) {
+            return Vec::new();
+        }
+    }
     for file in files {
         if !is_lzi_path(&file.path) {
             continue;

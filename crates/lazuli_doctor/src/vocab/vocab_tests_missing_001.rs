@@ -86,10 +86,8 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     // 2026-05-27 — opt-out wiring: honor the `# doctor:allow VOCAB-TESTS-
     // MISSING-001 — reason "..."` comment that the rule's own message
     // tells authors to use. Without this, the message advertises an
-    // escape hatch that doesn't exist (rule TODO was dormant). We scan
-    // the source file once for the canonical comment shape; if found
-    // anywhere in the feature, suppress the finding.
-    if file_contains_doctor_allow(path, Finding::CODE) {
+    // escape hatch that doesn't exist (rule TODO was dormant).
+    if crate::allow_comment::file_contains_doctor_allow(path, Finding::CODE) {
         return Vec::new();
     }
 
@@ -97,26 +95,6 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
         path: path.to_path_buf(),
         feature: feature.name.clone(),
     }]
-}
-
-/// Return `true` when `path` contains a line shaped like
-/// `# doctor:allow <CODE>` (optional reason tail). Read failures
-/// degrade silently to `false` (no opt-out applied).
-fn file_contains_doctor_allow(path: &Path, code: &str) -> bool {
-    let Ok(source) = std::fs::read_to_string(path) else {
-        return false;
-    };
-    let needle_lower = format!("doctor:allow {}", code.to_ascii_lowercase());
-    for line in source.lines() {
-        let trimmed = line.trim_start();
-        if !trimmed.starts_with('#') {
-            continue;
-        }
-        if trimmed.to_ascii_lowercase().contains(&needle_lower) {
-            return true;
-        }
-    }
-    false
 }
 
 // ── internals ─────────────────────────────────────────────────────────────────

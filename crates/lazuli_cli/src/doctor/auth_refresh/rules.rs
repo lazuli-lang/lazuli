@@ -134,7 +134,21 @@ fn rule_008_auto_refresh(
     fact: &super::super::AuthFacts,
     markers: &ProjectMarkers,
 ) -> Option<Finding> {
-    (!markers.enable_auto_refresh).then(|| finding(fact, AuthRefreshDiagnostic::AutoRefreshNotSurfaced, format!(
+    if markers.enable_auto_refresh {
+        return None;
+    }
+    // 2026-05-27 — honor `# doctor:allow AUTH-REFRESH-008` on the
+    // authoring .lzi (typically the account feature). Pilots that
+    // intentionally surface auto-refresh in a custom client (not via
+    // the canonical enableAutoRefresh marker) can opt out without
+    // tripping this info-level advisory.
+    if lazuli_doctor::allow_comment::file_contains_doctor_allow(
+        &fact.path,
+        "AUTH-REFRESH-008",
+    ) {
+        return None;
+    }
+    Some(finding(fact, AuthRefreshDiagnostic::AutoRefreshNotSurfaced, format!(
         "auth.sessions.rotation on feature `{}` generated a refresh contract, but no audience client surfaces enableAutoRefresh.",
         fact.feature
     )))

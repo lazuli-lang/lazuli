@@ -52,6 +52,17 @@ pub(crate) fn schema_rich_gap_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<Do
                 if !suggests_files {
                     continue;
                 }
+                // 2026-05-27 — honor `# doctor:allow SCHEMA-RICH-GAP`
+                // in the feature .lzi (per the rule message's own
+                // promise of "future @opaque annotation"). Until the
+                // @opaque sigil lands, the doctor:allow comment is
+                // the canonical opt-out.
+                if lazuli_doctor::allow_comment::file_contains_doctor_allow(
+                    &feature.path,
+                    "SCHEMA-RICH-GAP",
+                ) {
+                    continue;
+                }
                 diagnostics.push(DoctorDiagnostic {
                     path: feature.path.clone(),
                     line: feature.feature_line,
