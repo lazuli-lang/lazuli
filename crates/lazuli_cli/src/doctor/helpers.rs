@@ -90,6 +90,26 @@ pub(super) fn resolve_internal_hygiene_severity(
     default
 }
 
+/// Iron-hand 4th-dimension severity resolver — mirror of
+/// `resolve_internal_hygiene_severity` for error-handling rules
+/// (`INTERNAL-PANIC-*`, `INTERNAL-ERROR-*`, `ERROR-*`, `HANDLER-*`).
+/// Under `tdd-iron-hand`, every error-handling code escalates to
+/// `Error`; otherwise the per-rule default stands.
+pub(super) fn resolve_error_handling_severity(
+    default: DoctorSeverity,
+    code: &str,
+    preset: Option<lazuli_doctor::error_handling::preset::ErrorHandlingPreset>,
+) -> DoctorSeverity {
+    if let Some(preset) = preset {
+        if let Some(override_sev) =
+            lazuli_doctor::error_handling::preset::preset_rule_severity(preset, code)
+        {
+            return override_sev.into();
+        }
+    }
+    default
+}
+
 /// Parse a TOML override string (`"warning"`, `"error"`, …) into a
 /// `DoctorSeverity`. Returns `None` for unrecognized strings; callers
 /// fall back to the category default in that case.

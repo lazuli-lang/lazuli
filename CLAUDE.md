@@ -177,6 +177,29 @@ Three conventions:
 
 ---
 
+## Error handling discipline — iron-hand 4th dimension
+
+The framework enforces `error_handling` as a category in `[doctor.error_handling]`, mirroring `coverage` / `test_discipline` / `internal_hygiene`. Rules span three layers Lazuli owns:
+
+**Framework Rust** (`crates/lazuli_*/src/`, fires under `lazuli doctor --self`):
+- `INTERNAL-PANIC-UNWRAP-001` — `.unwrap()` / `.expect()` / `panic!` / `todo!` / `unimplemented!` / `unreachable!` in non-test code. Test-context detection via `#[cfg(test)] mod tests` depth tracking. False positives in raw-string fixtures are suppressed with `severity_override` carrying `reason`.
+- `INTERNAL-ERROR-NAMING-001` — types deriving `thiserror::Error` should end in `Error` (e.g. `ParseError`, not `ParseFail`).
+- `INTERNAL-ERROR-NON-EXHAUSTIVE-001` — pub error enums deriving `thiserror::Error` need `#[non_exhaustive]` for SemVer safety.
+- `INTERNAL-ERROR-VARIANT-DOC-001` — each variant of a pub error enum needs `///` doc OR `#[error("...")]` attr (either silences; both is best).
+
+**Go handlers** (user app's `features/<f>/{handlers,domain,jobs,integrations}/`, fires via the standard `lazuli doctor <path>` flow once the W7 aggregator-wiring lands):
+- `HANDLER-NO-PANIC-001` — literal `panic(...)` in non-test `.go` files.
+- `HANDLER-NO-STRING-ERROR-001` — `errors.New(...)` inside function bodies (sentinel package-level `var Err... = errors.New(...)` is allowed). Also flags `fmt.Errorf` with no `%w`/`%v` (pure string formatting).
+- `HANDLER-ERROR-WRAP-001` — `fmt.Errorf("... %v ...", err)` should use `%w` to preserve the error chain.
+
+**`.lzi` contract + `.lzx` UX** — planned (`ERROR-DECLARED-EXHAUSTIVE-001`, `ERROR-MESSAGE-KEY-001`, `ERROR-HTTP-STATUS-MAP-001`, `ERROR-RETRIABLE-CLASS-001`, `ERROR-AUDIT-EMIT-001`, `ERROR-VIEW-ON-ERROR-001`, `ERROR-VIEW-EMPTY-STATE-001`, `ERROR-FIELD-VALIDATION-001`). These need IR-aware walkers; reserved for a follow-up wave. Code prefix `ERROR-*` is already wired into `RuleCategory::ErrorHandling`.
+
+**Posture**: `[doctor.error_handling]` is currently `tdd-strict` (warn-only) at workspace root, not `tdd-iron-hand`. The initial scan surfaces ~1250 panic-prone constructs in the framework that pre-date the rule — most are provably safe (`.unwrap()` after `.is_some()`) or load-bearing diagnostics (`.expect("invariant")`). Promote to `tdd-iron-hand` after a W7 sweep round reduces the count to ~0.
+
+**Out of scope**: emitted `dist/go/` Go (covered by emitter test suites) and frontend `.tsx`/`.ts` in arbitrary slots (surface too narrow for a generic lint rule).
+
+---
+
 ## Rails-style source layout — every `.rs` ≤ 500 LOC
 
 The framework's own Rust source follows Rails ActiveRecord layout, not just Rails docstring style. Every refactor between 2026-05-15 and 2026-05-26 enforced this; new work inherits the discipline.

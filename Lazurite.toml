@@ -53,3 +53,22 @@ preset = "tdd-iron-hand"
 # [doctor.internal_hygiene.severity_override.INTERNAL-NO-EXAMPLE-001]
 # severity = "info"
 # reason = "W5 docstring sweep in progress for lazuli_ir; restore to preset-default after sweep completes (target: rails-style-refactor branch)"
+
+# Iron-hand 4th dimension — error-handling discipline across framework
+# Rust (INTERNAL-PANIC-*, INTERNAL-ERROR-*), user .lzi/.lzx (ERROR-*,
+# planned in a follow-up), and Go handlers (HANDLER-*).
+#
+# Currently set to `tdd-strict` (warn) — NOT `tdd-iron-hand` — because
+# the initial scan surfaces ~1250 panic-prone constructs (.unwrap(),
+# .expect(), panic!) in framework code that pre-date this rule. Each
+# is either:
+#   - provably safe (after .is_some() / .ok_or() check) — fine but
+#     should migrate to `?` with .context(...)
+#   - load-bearing diagnostic via .expect("invariant message") — fine
+#   - a true latent panic — must be fixed
+#
+# Promote to `tdd-iron-hand` after a sweep round (W7) reduces the count
+# to ~0. Each remaining one then needs a `severity_override` with
+# `reason` per DOCTOR-OVERRIDE-NEEDS-REASON-001.
+[doctor.error_handling]
+preset = "tdd-strict"
