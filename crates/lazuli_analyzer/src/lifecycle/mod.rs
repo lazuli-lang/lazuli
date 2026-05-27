@@ -226,6 +226,10 @@ fn lower_transition_command(
         previous_names: transition.previously.clone(),
         owner_scope_sql: None,
         span_ref: Some(span_of(transition.span)),
+        derived_from: Some(ir::DerivedFrom::Lifecycle {
+            resource: resource_name.to_owned(),
+            transition: transition.name.clone(),
+        }),
     }
 }
 
@@ -245,7 +249,7 @@ fn lower_lifecycle(
         invariants: lifecycle_ast
             .invariants
             .iter()
-            .map(|inv| lower_invariant(&inv.raw))
+            .map(|inv| lower_invariant_form(&inv.form))
             .collect(),
         invariant_handlers: lifecycle_ast
             .invariant_handlers
@@ -285,22 +289,27 @@ fn lower_transition(transition: &syntax::LifecycleTransitionAst) -> ir::Lifecycl
     }
 }
 
-fn lower_invariant(raw: &str) -> ir::LifecycleInvariant {
-    let trimmed = raw.trim();
-    if trimmed == "terminal_immutable" {
-        return ir::LifecycleInvariant::TerminalImmutable;
+/// Map the parser's typed [`syntax::LifecycleInvariantForm`] (closed
+/// catalog, parser-validated per `docs/proposals/lifecycle-vocab.md` §3.4)
+/// into the IR's [`ir::LifecycleInvariant`]. The parser rejects unknown
+/// forms before this code runs — there is intentionally no fallback arm.
+/// Rule Zero: any out-of-catalog form fails at the parser boundary, never
+/// reaches the analyzer.
+fn lower_invariant_form(form: &syntax::LifecycleInvariantForm) -> ir::LifecycleInvariant {
+    match form {
+        syntax::LifecycleInvariantForm::TerminalImmutable => {
+            ir::LifecycleInvariant::TerminalImmutable
+        }
+        syntax::LifecycleInvariantForm::NoJumpMoreThanOne => {
+            ir::LifecycleInvariant::NoJumpMoreThanOne
+        }
+        syntax::LifecycleInvariantForm::SingleStatePerScope { state, scope_field } => {
+            ir::LifecycleInvariant::SingleStatePerScope {
+                state: state.clone(),
+                scope_field: scope_field.clone(),
+            }
+        }
     }
-    if trimmed == "no_jump_more_than_one" {
-        return ir::LifecycleInvariant::NoJumpMoreThanOne;
-    }
-    let parts: Vec<&str> = trimmed.split_whitespace().collect();
-    if parts.len() == 4 && parts[0] == "single" && parts[2] == "per" {
-        return ir::LifecycleInvariant::SingleStatePerScope {
-            state: parts[1].to_owned(),
-            scope_field: parts[3].to_owned(),
-        };
-    }
-    ir::LifecycleInvariant::TerminalImmutable
 }
 
 fn lower_handler_ref(raw: &str, span: syntax::Span) -> ir::HandlerRef {

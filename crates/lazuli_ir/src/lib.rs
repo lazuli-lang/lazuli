@@ -59,8 +59,8 @@ pub use nodes::capability::{
 pub use nodes::command::{
     ApprovalSpec, ApprovalThen, Assignment, AuditSpec, Command, CommandEffect, CommandInput,
     CommandKind, CommandWriteWindow, CreateEffect, DeleteEffect, Deprecation,
-    DeprecationReplacement, InvalidatesSpec, LetBinding, NamedArg, PolicyRef, ReturnsEffect,
-    RouteSlot, RouteSlotKind, TargetExpr, TypedSlot, UpdateEffect,
+    DeprecationReplacement, DerivedFrom, InvalidatesSpec, LetBinding, NamedArg, PolicyRef,
+    ReturnsEffect, RouteSlot, RouteSlotKind, TargetExpr, TypedSlot, UpdateEffect,
 };
 pub use nodes::design::{
     ColorState, ColorStateKind, ColorToken, CustomToken, Design, EasingToken, FamilyToken, Motion,

@@ -321,6 +321,7 @@ pub(crate) fn build_auto_photo_command(
             role,
         }),
         owner_scope_sql: None,
+        derived_from: None,
     }
 }
 

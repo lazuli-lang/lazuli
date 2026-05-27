@@ -7,7 +7,7 @@
 
 #![cfg(test)]
 
-use super::super::parse_feature_skeletons;
+use super::super::{LifecycleInvariantForm, parse_feature_skeletons};
 
 #[test]
 fn parses_minimal_lifecycle_block() {
@@ -101,7 +101,10 @@ feature publication
         Some("terminal")
     );
     assert_eq!(lifecycle.invariants.len(), 1);
-    assert_eq!(lifecycle.invariants[0].raw, "terminal_immutable");
+    assert_eq!(
+        lifecycle.invariants[0].form,
+        LifecycleInvariantForm::TerminalImmutable
+    );
 }
 
 #[test]
@@ -173,6 +176,94 @@ feature publication
         message.contains("at most one"),
         "error should reject duplicate lifecycle blocks: {message}"
     );
+}
+
+#[test]
+fn lifecycle_rejects_unknown_invariant_form_at_parse_time() {
+    // Closed-catalog discipline (`docs/proposals/lifecycle-vocab.md` §3.4):
+    // `invariant <head>` must name a catalog form; ad-hoc identifiers like
+    // `my_custom_rule` are rejected at parse time, NOT silently coerced
+    // into `TerminalImmutable` downstream. This locks Cell B's parser
+    // wiring — if the parser stops calling `parse_invariant_form`, the
+    // analyzer's old silent fallback resurfaces and this test fires.
+    let source = r#"
+feature publication
+  domain
+    resource Publication
+      lifecycle status
+        state scheduled
+        state published terminal
+        transition publish
+          from scheduled
+          to published
+        invariant my_custom_rule
+"#;
+    let err = parse_feature_skeletons(source).unwrap_err();
+    let message = format!("{err}");
+
+    assert!(
+        message.contains("closed catalog"),
+        "error should reject unknown invariant form via closed-catalog message: {message}"
+    );
+    assert!(
+        message.contains("my_custom_rule"),
+        "error should name the offending form: {message}"
+    );
+}
+
+#[test]
+fn lifecycle_rejects_predicate_style_invariant_at_parse_time() {
+    // Per §3.4, no `where` clause is allowed — invariants are catalog-only,
+    // no predicate sublanguage. Verifies the parser refuses to swallow a
+    // workflow-style predicate expression.
+    let source = r#"
+feature publication
+  domain
+    resource Publication
+      lifecycle status
+        state scheduled
+        state published
+        transition publish
+          from scheduled
+          to published
+        invariant single gold where item_id = parent.id
+"#;
+    let err = parse_feature_skeletons(source).unwrap_err();
+    let message = format!("{err}");
+    assert!(
+        message.contains("closed catalog"),
+        "error should reject predicate-style invariants: {message}"
+    );
+}
+
+#[test]
+fn lifecycle_parses_single_state_per_scope_invariant() {
+    // Positive cell B test: `single <state> per <scope_field>` parses
+    // into the typed `SingleStatePerScope` AST variant (no raw text).
+    let source = r#"
+feature pleiades
+  domain
+    resource ItemVersion
+      lifecycle status
+        state draft
+        state gold
+        transition approve
+          from draft
+          to gold
+        invariant single gold per item_id
+"#;
+    let features = parse_feature_skeletons(source).unwrap();
+    let lifecycle = features[0].resources[0]
+        .lifecycle
+        .as_ref()
+        .expect("lifecycle");
+    match &lifecycle.invariants[0].form {
+        LifecycleInvariantForm::SingleStatePerScope { state, scope_field } => {
+            assert_eq!(state, "gold");
+            assert_eq!(scope_field, "item_id");
+        }
+        other => panic!("expected SingleStatePerScope, got {:?}", other),
+    }
 }
 
 #[test]

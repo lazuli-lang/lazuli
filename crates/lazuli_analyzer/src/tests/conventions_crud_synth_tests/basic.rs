@@ -278,6 +278,7 @@
             triggers: Vec::new(),
             synthesized_from_cap_file: None,
             owner_scope_sql: None,
+            derived_from: None,
         };
         feature.commands.push(author_update);
 

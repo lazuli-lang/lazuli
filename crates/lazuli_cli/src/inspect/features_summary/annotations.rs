@@ -13,7 +13,7 @@
 //! to `lazuli_ir::ConventionRef` is a load-bearing compile-time
 //! failure here.
 
-use lazuli_ir::{ConventionOrigin, ConventionRef};
+use lazuli_ir::{ConventionOrigin, ConventionRef, DerivedFrom};
 
 /// Render one `<indent><name><pad>[<annotation>]` row, omitting the
 /// trailing space + bracket when the annotation is empty (pure
@@ -85,5 +85,20 @@ pub(super) fn convention_name(c: &ConventionRef) -> &'static str {
     match c {
         ConventionRef::Crud => "crud",
         ConventionRef::Me => "me",
+    }
+}
+
+/// Bracketed `derived_from` annotation for a command. Surfaces the
+/// provenance stamp the analyzer set when synthesizing the command
+/// from a higher-level vocabulary (today: lifecycle transitions).
+/// Empty when the command carries no `derived_from` (author-written).
+/// See `docs/proposals/lifecycle-vocab.md` §4.2 + audit Cell G.
+pub(super) fn format_derived_from_annotation(derived_from: Option<&DerivedFrom>) -> String {
+    match derived_from {
+        None => String::new(),
+        Some(DerivedFrom::Lifecycle {
+            resource,
+            transition,
+        }) => format!("[derived_from:lifecycle {resource}.{transition}]"),
     }
 }

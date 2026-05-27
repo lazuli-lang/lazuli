@@ -550,17 +550,48 @@ pub(crate) fn vocab_json_typed_001_diagnostics(
         .collect()
 }
 
-// NOTE: `VOCAB-LIFECYCLE-001` deliberately NOT wired here. The rule
-// module exists at `crates/lazuli_doctor/src/vocab/vocab_lifecycle_001.rs`
-// with passing tests, but `crates/lazuli_doctor/src/vocab/mod.rs` does
-// NOT publish `pub mod vocab_lifecycle_001` — the rule is the
-// "lifecycle vocabulary doesn't ship until v0.2" case the proposal
-// explicitly defers (`docs/proposals/doctor-vocabulary-lints.md`
-// §VOCAB-LIFECYCLE-001). When the lifecycle primitive lands and the
-// module is exported, copy the `vocab_X_diagnostics` template and add
-// the call in `aggregators::vocab::diagnostics` per the existing 14
-// wired rules. The task constraints (audit follow-up cell) forbid
-// editing rule modules in `crates/lazuli_doctor/src/`.
+/// VOCAB-LIFECYCLE-001 — resource still spells a lifecycle as N transition
+/// commands plus a status enum. Suggests refactoring into a resource-local
+/// `lifecycle` block. Lifecycle IR shipped in v0.2 and the rule module is
+/// now published by `crates/lazuli_doctor/src/vocab/mod.rs:45`; this
+/// bridge closes the wiring gap flagged by
+/// `docs/proposals/lifecycle-vocab-architect-audit-2026-05-27.md` §"Cell
+/// A".
+pub(crate) fn vocab_lifecycle_001_diagnostics(
+    path: &Path,
+    feature: &lazuli_ir::Feature,
+    feature_header_line: usize,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    if security_profile == SecurityProfile::Prototype {
+        return Vec::new();
+    }
+    let severity = doctor_severity_for(
+        vocab::vocab_lifecycle_001::Finding::CODE,
+        RuleCategory::Vocabulary,
+        security_profile,
+        &empty_overrides(),
+    );
+    vocab::vocab_lifecycle_001::check(feature, path)
+        .into_iter()
+        .map(|finding| {
+            let message = finding.message();
+            DoctorDiagnostic {
+                path: finding.path,
+                line: feature_header_line.max(1),
+                column: 1,
+                severity,
+                code: vocab::vocab_lifecycle_001::Finding::CODE.to_owned(),
+                message,
+                category: Some(RuleCategory::Vocabulary),
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            }
+        })
+        .collect()
+}
 
 /// VOCAB-MONEY-MULTI-CURRENCY-001 — resource declares multiple Money
 /// fields without per-field currency override.

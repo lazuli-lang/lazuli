@@ -83,13 +83,33 @@ pub struct LifecycleTransitionAst {
     pub span: Span,
 }
 
-/// One `invariant ...` row inside a [`LifecycleBlockAst`]. Raw text is
-/// tokenized at lowering time against the closed predicate catalog.
+/// One `invariant ...` row inside a [`LifecycleBlockAst`]. Parsed at
+/// parse time against the closed catalog (`docs/proposals/lifecycle-vocab.md`
+/// §3.4) so unknown forms reject at the parser boundary — never silently
+/// coerced downstream.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct LifecycleInvariantAst {
-    /// Raw tail after `invariant `; lowering tokenizes the closed catalog.
-    pub raw: String,
+    /// Typed closed-catalog form; the parser rejects everything outside
+    /// the catalog before this AST is constructed.
+    pub form: LifecycleInvariantForm,
     pub span: Span,
+}
+
+/// Closed catalog of lifecycle invariant forms (`docs/proposals/lifecycle-vocab.md`
+/// §3.4). The variants mirror `ir::nodes::lifecycle::LifecycleInvariant`
+/// 1:1 so the analyzer can map without inspecting raw text.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum LifecycleInvariantForm {
+    /// `invariant terminal_immutable`
+    TerminalImmutable,
+    /// `invariant single <state> per <scope_field>`
+    SingleStatePerScope {
+        state: String,
+        scope_field: String,
+    },
+    /// `invariant no_jump_more_than_one`
+    NoJumpMoreThanOne,
 }
 
 // ---------------------------------------------------------------------------

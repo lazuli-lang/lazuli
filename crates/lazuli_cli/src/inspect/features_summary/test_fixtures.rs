@@ -121,6 +121,7 @@ pub(super) fn minimal_command(name: &str) -> Command {
         triggers: Vec::new(),
         synthesized_from_cap_file: None,
         owner_scope_sql: None,
+        derived_from: None,
     }
 }
 

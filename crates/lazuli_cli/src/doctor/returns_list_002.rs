@@ -198,6 +198,7 @@ mod tests {
             triggers: vec![],
             synthesized_from_cap_file: None,
             owner_scope_sql: None,
+            derived_from: None,
         }
     }
 

@@ -36,6 +36,7 @@ use crate::completion::input_field::input_field_completions;
 use crate::completion::owner_axis::owner_axis_through_completions;
 use crate::completion_items::{completion_items_for_uri, merge_completion_items};
 use crate::diagnostics::lifecycle::lifecycle_gate_completions;
+use crate::diagnostics::lifecycle_block::lifecycle_block_completions;
 use crate::diagnostics::route_guard::route_guard_completions;
 use crate::format::canonical::format_canonical_source;
 use crate::{
@@ -163,10 +164,16 @@ impl LanguageServer for Backend {
             if let Some(source) = documents.get(&uri) {
                 let lifecycle_items = lifecycle_gate_completions(source, position);
                 let route_guard_items = route_guard_completions(source, position);
-                if lifecycle_items.is_some() || route_guard_items.is_some() {
+                let lifecycle_block_items = lifecycle_block_completions(source, position);
+                if lifecycle_items.is_some()
+                    || route_guard_items.is_some()
+                    || lifecycle_block_items.is_some()
+                {
+                    let merged =
+                        merge_completion_items(lifecycle_items, route_guard_items);
                     return Ok(Some(CompletionResponse::Array(merge_completion_items(
-                        lifecycle_items,
-                        route_guard_items,
+                        Some(merged),
+                        lifecycle_block_items,
                     ))));
                 }
                 return Ok(Some(CompletionResponse::Array(
@@ -178,6 +185,13 @@ impl LanguageServer for Backend {
 
         let documents = self.documents.read().await;
         if let Some(source) = documents.get(&uri) {
+            // Lifecycle-block child / closed-invariant-catalog
+            // completions inside a `lifecycle <field>` resource child.
+            // Fires only when the cursor sits inside an enclosing
+            // lifecycle block, so it's safe to check first.
+            if let Some(items) = lifecycle_block_completions(source, position) {
+                return Ok(Some(CompletionResponse::Array(items)));
+            }
             // `@cap.File(...)` value completion fires first because
             // it is the narrowest context (cursor inside the
             // capability parenthesised body on a single line).

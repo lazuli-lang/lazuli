@@ -283,6 +283,7 @@ fn extracts_function_ref_from_path_encoded_call_expression() {
         owner_scope_sql: None,
         previous_names: Vec::new(),
         span_ref: None,
+        derived_from: None,
     });
     feature.extensions.push(extension(
         "risk_score",
@@ -386,6 +387,7 @@ fn command_returns_stub_uses_generated_input_and_output_types() {
         owner_scope_sql: None,
         previous_names: Vec::new(),
         span_ref: None,
+        derived_from: None,
     });
     let module = module_with_features(vec![feature]);
 

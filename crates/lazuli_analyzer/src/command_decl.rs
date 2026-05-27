@@ -219,6 +219,7 @@ pub(crate) fn lower_command_decl(
         owner_scope_sql: None,
         previous_names: c.previously.clone(),
         span_ref: Some(span_of(c.span)),
+        derived_from: None,
     })
 }
 

@@ -57,7 +57,7 @@ use crate::doctor::{
     vocab_derived_read_001_diagnostics, vocab_event_orphan_001_diagnostics,
     vocab_event_payload_001_diagnostics, vocab_event_producer_001_diagnostics,
     vocab_handler_heavy_001_diagnostics, vocab_json_typed_001_diagnostics,
-    vocab_money_multi_currency_001_diagnostics,
+    vocab_lifecycle_001_diagnostics, vocab_money_multi_currency_001_diagnostics,
     vocab_resource_wide_cluster_001_diagnostics, vocab_shadow_record_001_diagnostics,
     vocab_union_001_diagnostics, vocab_union_002_diagnostics,
 };
@@ -131,12 +131,17 @@ pub(crate) fn diagnostics(
             header_line,
             security_profile,
         ));
-        // VOCAB-LIFECYCLE-001 is deliberately NOT dispatched here. The
-        // rule module exists with passing tests but is not published by
-        // `crates/lazuli_doctor/src/vocab/mod.rs` — the "lifecycle
-        // primitive doesn't ship until v0.2" case the proposal flags
-        // (`docs/proposals/doctor-vocabulary-lints.md`
-        // §VOCAB-LIFECYCLE-001). Wire it when the module is exported.
+        // VOCAB-LIFECYCLE-001 — lifecycle IR shipped in v0.2 and the
+        // rule module is now published (`vocab/mod.rs:45`). Wired
+        // 2026-05-27 per
+        // `docs/proposals/lifecycle-vocab-architect-audit-2026-05-27.md`
+        // §"Cell A".
+        out.extend(vocab_lifecycle_001_diagnostics(
+            path,
+            &feature,
+            header_line,
+            security_profile,
+        ));
         out.extend(vocab_money_multi_currency_001_diagnostics(
             path,
             &feature,

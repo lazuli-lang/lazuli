@@ -38,7 +38,9 @@
 //! - `try_parse_policy_expr` / `looks_like_policy_expr` /
 //!   `parse_policy_atom` live in `lzx.rs` and carry `pub(super)` so
 //!   every `.lzi` `policy <expr>` parser can call them.
-//! - `parse_invariant_form` is `pub(crate)` and used by `lazuli_lsp`.
+//! - `parse_invariant_form` lives in `lzi/helpers.rs` and is `pub(crate)`;
+//!   the lifecycle parser calls it to reject unknown invariant forms at
+//!   parse time (closed catalog per `docs/proposals/lifecycle-vocab.md` §3.4).
 //!
 //! ## Public ABI
 //!
@@ -61,9 +63,9 @@ mod lzx;
 
 pub use error::ParseError;
 pub use lzi::{
-    LifecycleBlockAst, LifecycleInvariantAst, LifecycleStateAst, LifecycleTransitionAst,
-    PollerBlockAst, PollerCursorAst, PollerRetryAst, PollerRetryQuirkAst, PollerStateAst,
-    PollerTickAst, parse_design_document, parse_feature_gates, parse_feature_skeletons,
-    parse_package_skeleton, parse_plan_blocks,
+    LifecycleBlockAst, LifecycleInvariantAst, LifecycleInvariantForm, LifecycleStateAst,
+    LifecycleTransitionAst, PollerBlockAst, PollerCursorAst, PollerRetryAst, PollerRetryQuirkAst,
+    PollerStateAst, PollerTickAst, parse_design_document, parse_feature_gates,
+    parse_feature_skeletons, parse_package_skeleton, parse_plan_blocks,
 };
 pub use lzx::{parse_lzx_document, parse_surface_document};

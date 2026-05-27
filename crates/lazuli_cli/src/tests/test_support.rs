@@ -201,6 +201,7 @@
             lazuli_ir::CommandInput::Typed(slots),
             lazuli_ir::CommandEffect::None,
         )
+        derived_from: None,
     }
 
     pub(super) fn command(
@@ -239,6 +240,7 @@
             previous_names: vec![],
             span_ref: None,
             owner_scope_sql: None,
+            derived_from: None,
         }
     }
 
@@ -274,6 +276,7 @@
                 ))),
             }),
         )
+        derived_from: None,
     }
 
     pub(super) fn local_qn(name: &str) -> lazuli_ir::QualifiedName {

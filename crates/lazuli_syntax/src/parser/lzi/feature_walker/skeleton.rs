@@ -3,8 +3,8 @@
 //! `feature_walker/mod.rs`, which keeps the public entry
 //! `parse_feature_skeletons` plus the indent constants Rails-thin.
 
-use super::super::super::common::{SourceLine, is_trivia, line_error};
-use super::super::super::error::ParseError;
+use super::super::super::common::{SourceLine, is_trivia, line_error, line_error_owned};
+use super::super::super::error::{E_WORKFLOW_RETIRED, ParseError};
 
 use crate::ast::{
     AggregateDecl, ApiDecl, Auth, CacheProfileDecl, Channel, CommandDecl, EnumDeclAst, EventGroup,
@@ -428,14 +428,22 @@ pub(super) fn parse_feature_skeleton(
         // at feature level; the new canonical form is a `lifecycle <field>`
         // block child of the resource itself. Detect the legacy keyword
         // explicitly so cold-readers see one form, not two.
+        //
+        // Coded as `E-WORKFLOW-RETIRED` per audit Cell I + §2.1.4 +
+        // §5 last row of the lifecycle-vocab proposal. The leading
+        // `[E-WORKFLOW-RETIRED]` tag on the message is the stable
+        // marker downstream tooling reads to populate the diagnostic
+        // `code` field.
         if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("workflow ") {
-            return Err(line_error(
+            return Err(line_error_owned(
                 line,
-                "the `workflow` keyword was retired in favor of `lifecycle` \
-                 (proposal: docs/proposals/lifecycle-vocab.md). Refactor to a \
-                 `lifecycle <field>` block inside the targeted `resource`. \
-                 Each transition lifts 1:1: `name: from -> to emits X` becomes \
-                 `transition name\\n  from <state>\\n  to <state>\\n  emits X`.",
+                format!(
+                    "[{E_WORKFLOW_RETIRED}] the `workflow` keyword was retired in favor of \
+                     `lifecycle` (proposal: docs/proposals/lifecycle-vocab.md). Refactor to a \
+                     `lifecycle <field>` block inside the targeted `resource`. Each transition \
+                     lifts 1:1: `name: from -> to emits X` becomes \
+                     `transition name\\n  from <state>\\n  to <state>\\n  emits X`.",
+                ),
             ));
         }
 

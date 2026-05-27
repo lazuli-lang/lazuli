@@ -220,6 +220,40 @@ pub(crate) fn wire_lifecycle(
         synthetic_path,
         lazuli_doctor::lifecycle::unreachable_state
     );
+    // Cell D additions — closed-invariant-catalog + policy-required
+    // surface drift wired into the LSP per lifecycle-vocab.md §5.
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::lifecycle::policy_required
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::lifecycle::no_jump_needs_linear
+    );
+    // LIFECYCLE-INITIAL-AMBIGUOUS is severity=warning per the proposal
+    // table (3+ states, implicit initial — cold-reader clarity, not a
+    // hard error).
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::lifecycle::initial_ambiguous,
+        DiagnosticSeverity::WARNING
+    );
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::lifecycle::invariant_catalog_mismatch
+    );
 }
 
 pub(crate) fn wire_vocab(

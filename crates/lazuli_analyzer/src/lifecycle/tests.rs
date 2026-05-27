@@ -186,6 +186,60 @@ fn invariant_terminal_immutable_lowers_to_enum_variant() {
 }
 
 #[test]
+fn invariant_single_state_per_scope_lowers_to_typed_variant() {
+    // Cell B contract: the analyzer maps the parser's typed
+    // `LifecycleInvariantForm::SingleStatePerScope` directly into the IR
+    // — no string sniffing, no silent fallback. If the parser ever loses
+    // the typed form (regressing to raw text), this test still pins the
+    // analyzer's typed-only signature; if the analyzer regrows the old
+    // string-based `lower_invariant`, this assertion stops matching the
+    // scope_field tail.
+    let feature = lower(&minimal_source(
+        r#"      lifecycle status
+        state draft
+        state gold
+        transition approve
+          from draft
+          to gold
+        invariant single gold per item_id"#,
+    ));
+    let lifecycle = feature.resources[0].lifecycle.as_ref().expect("lifecycle");
+    assert_eq!(
+        lifecycle.invariants,
+        vec![ir::LifecycleInvariant::SingleStatePerScope {
+            state: "gold".to_owned(),
+            scope_field: "item_id".to_owned(),
+        }]
+    );
+}
+
+#[test]
+fn invariant_unknown_form_never_silently_coerces() {
+    // Rule Zero pin: the architect audit found the analyzer used to
+    // silently coerce ANY unknown invariant form to `TerminalImmutable`.
+    // Cell B closed the gap by rejecting unknown forms at parse time —
+    // so a `.lzi` with `invariant my_custom_rule` must fail BEFORE
+    // reaching the analyzer. If it ever parses, the lifecycle will NOT
+    // carry a `TerminalImmutable` invariant for the bogus input.
+    let source = minimal_source(
+        r#"      lifecycle status
+        state draft
+        state published
+        transition publish
+          from draft
+          to published
+        invariant my_custom_rule"#,
+    );
+    let result = lazuli_syntax::parse_feature_skeletons(&source);
+    let err = result.expect_err("unknown invariant form must reject at parse time");
+    let message = format!("{err}");
+    assert!(
+        message.contains("closed catalog"),
+        "parser must reject via closed-catalog message: {message}"
+    );
+}
+
+#[test]
 fn state_kind_intermediate_default() {
     let feature = lower(&minimal_source(
         r#"      lifecycle status

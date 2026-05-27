@@ -34,8 +34,8 @@ use tower_lsp::lsp_types::{
 use crate::{
     auth_refresh_code_actions, convention_bundle_hover, design_keyword_description,
     error_vocab_code_actions, error_vocab_code_resolved_hover, is_design_lzi_uri,
-    keyword_description, lifecycle_gate_code_actions, lifecycle_gate_hover, make_symbol,
-    range_from_span, rich_keyword_hover, route_guard_code_actions, route_guard_hover,
+    keyword_description, lifecycle_block_hover, lifecycle_gate_code_actions, lifecycle_gate_hover,
+    make_symbol, range_from_span, rich_keyword_hover, route_guard_code_actions, route_guard_hover,
     word_at_position,
 };
 
@@ -53,6 +53,9 @@ pub(crate) fn hover_markdown_for_position(
 ) -> Option<String> {
     let word = word_at_position(source, position);
     if !is_design_lzi_uri(uri) {
+        if let Some(markdown) = lifecycle_block_hover(source, position, word.as_deref()) {
+            return Some(markdown);
+        }
         if let Some(markdown) = lifecycle_gate_hover(source, position, word.as_deref()) {
             return Some(markdown);
         }

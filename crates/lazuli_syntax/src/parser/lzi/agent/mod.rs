@@ -231,6 +231,26 @@ feature customer
     }
 
     #[test]
+    fn workflow_keyword_emits_e_workflow_retired_code() {
+        // Audit Cell I + lifecycle-vocab.md §2.1.4 + §5 last row —
+        // the parser-level `workflow` rejection ships with the stable
+        // `E-WORKFLOW-RETIRED` code prefix on the diagnostic message
+        // so the analyzer / LSP / downstream tooling can recognise it
+        // by code, not by free-text search.
+        let source = r#"
+feature customer
+  workflow lifecycle on Customer.status
+    activate: lead -> active
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("E-WORKFLOW-RETIRED"),
+            "expected E-WORKFLOW-RETIRED code prefix in message, got: {msg}"
+        );
+    }
+
+    #[test]
     fn feature_with_no_agents_yields_empty_skeleton() {
         // Non-agent feature children (resources, queries, commands, ...) are
         // skipped silently by the slice; the legacy pipeline owns them.

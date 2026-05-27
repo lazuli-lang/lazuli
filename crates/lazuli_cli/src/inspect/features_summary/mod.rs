@@ -24,7 +24,8 @@ mod rate_limit;
 mod test_fixtures;
 
 use annotations::{
-    format_origin_annotation, format_resource_conventions, render_name_row,
+    format_derived_from_annotation, format_origin_annotation, format_resource_conventions,
+    render_name_row,
 };
 use owner_scope::{build_owner_scope_lookup, origin_owner_scope};
 
@@ -94,7 +95,16 @@ fn render_one_feature(feature: &Feature, out: &mut String) {
             let origin = feature.synth_origins.get(command.name.as_str());
             let owner_scope =
                 origin_owner_scope(origin, &feature.resources, &owner_scope_by_resource);
-            let annotation = format_origin_annotation(origin, owner_scope);
+            let mut annotation = format_origin_annotation(origin, owner_scope);
+            let derived = format_derived_from_annotation(command.derived_from.as_ref());
+            if !derived.is_empty() {
+                if annotation.is_empty() {
+                    annotation = derived;
+                } else {
+                    annotation.push(' ');
+                    annotation.push_str(&derived);
+                }
+            }
             out.push_str(&render_name_row(&command.name, width, &annotation));
         }
     }

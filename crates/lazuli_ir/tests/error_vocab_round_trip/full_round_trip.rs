@@ -74,6 +74,7 @@ fn feature_with_all_error_vocab_fields_round_trips() {
         owner_scope_sql: None,
         previous_names: Vec::new(),
         span_ref: None,
+        derived_from: None,
     });
 
     // Api.policy_when_denied

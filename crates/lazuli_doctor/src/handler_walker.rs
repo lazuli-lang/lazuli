@@ -260,6 +260,7 @@ mod tests {
             previous_names: vec![],
             span_ref: None,
             owner_scope_sql: None,
+            derived_from: None,
         }
     }
 

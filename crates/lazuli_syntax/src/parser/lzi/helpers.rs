@@ -157,7 +157,6 @@ pub(in crate::parser) fn take_quoted_string<'a>(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
 pub(crate) enum InvariantForm {
     TerminalImmutable,
     SingleStatePerScope { state: String, scope_field: String },
@@ -167,7 +166,11 @@ pub(crate) enum InvariantForm {
 /// Parses the closed-catalog invariant form from the raw tail after `invariant `.
 /// Whitespace is significant only as a token separator; leading/trailing whitespace
 /// is trimmed before matching.
-#[allow(dead_code)]
+///
+/// Called from the lifecycle block parser (`super::lifecycle::parse_lifecycle_block`)
+/// to enforce closed-catalog discipline at parse time — unknown forms are
+/// rejected here, never silently coerced downstream
+/// (`docs/proposals/lifecycle-vocab.md` §3.4).
 pub(crate) fn parse_invariant_form(
     line: &SourceLine<'_>,
     raw: &str,

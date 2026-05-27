@@ -31,7 +31,10 @@
 //!
 //! - `parse_invalidates_entry` and `parse_translation_key_token` are
 //!   `pub(super)` so `lzx.rs`'s `parse_on_success_block` can call them.
-//! - `parse_invariant_form` is `pub(crate)` for `lazuli_lsp`.
+//! - `parse_invariant_form` / `InvariantForm` live in `helpers.rs` and
+//!   are `pub(crate)`; the lifecycle parser calls them at parse time to
+//!   enforce the closed catalog from `docs/proposals/lifecycle-vocab.md`
+//!   §3.4 — no silent coercion downstream.
 //!
 //! ## Grammar source-of-truth
 //!
@@ -85,8 +88,6 @@ pub(super) use helpers::{
     is_policy_identifier, parse_named_args, split_call_signature, split_first_token,
     split_top_level_commas, take_identifier, take_quoted_string,
 };
-#[cfg(test)]
-pub(super) use helpers::{InvariantForm, parse_invariant_form};
 
 pub(super) use command::parse_invalidates_entry;
 pub(super) use defaults::parse_defaults_tenancy;
@@ -106,8 +107,8 @@ pub use design::parse_design_document;
 pub use package::parse_package_skeleton;
 pub use plan::{parse_feature_gates, parse_plan_blocks};
 pub use types::{
-    LifecycleBlockAst, LifecycleInvariantAst, LifecycleStateAst, LifecycleTransitionAst,
-    PollerBlockAst, PollerCursorAst, PollerRetryAst, PollerRetryQuirkAst, PollerStateAst,
-    PollerTickAst,
+    LifecycleBlockAst, LifecycleInvariantAst, LifecycleInvariantForm, LifecycleStateAst,
+    LifecycleTransitionAst, PollerBlockAst, PollerCursorAst, PollerRetryAst, PollerRetryQuirkAst,
+    PollerStateAst, PollerTickAst,
 };
 

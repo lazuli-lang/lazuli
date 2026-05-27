@@ -258,6 +258,7 @@ fn mk_cmd(name: &str, effect: CommandEffect, tests: Option<TestBlock>) -> Comman
         owner_scope_sql: None,
         previous_names: vec![],
         span_ref: None,
+        derived_from: None,
     }
 }
 

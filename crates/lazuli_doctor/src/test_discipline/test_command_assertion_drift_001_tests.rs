@@ -38,6 +38,7 @@
             owner_scope_sql: None,
             previous_names: vec![],
             span_ref: None,
+            derived_from: None,
         }
     }
 

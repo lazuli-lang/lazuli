@@ -74,6 +74,8 @@ pub(crate) use diagnostics::field::*;
 pub(crate) use diagnostics::http_headers::*;
 pub(crate) use diagnostics::lifecycle::*;
 pub use diagnostics::lifecycle::{lifecycle_gate_completions, lifecycle_gate_hover};
+pub(crate) use diagnostics::lifecycle_block::*;
+pub use diagnostics::lifecycle_block::{lifecycle_block_completions, lifecycle_block_hover};
 pub(crate) use diagnostics::lzx::*;
 pub(crate) use diagnostics::notification::*;
 pub(crate) use diagnostics::policy::*;

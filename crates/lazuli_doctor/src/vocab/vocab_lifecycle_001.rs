@@ -299,6 +299,11 @@ mod tests {
             previous_names: vec![],
             span_ref: None,
             lifecycle,
+            invariants: vec![],
+            lock: None,
+            composite_key: None,
+            conventions: vec![],
+            lifecycle_routes: None,
         }
     }
 
@@ -363,6 +368,7 @@ mod tests {
                 }],
             }),
             policy: PolicyRef::None,
+            policy_expr: None,
             policy_when_denied: None,
             emits: vec![],
             rate_limit: None,
@@ -373,10 +379,16 @@ mod tests {
             timeout: None,
             retry: None,
             idempotency: None,
+            write_window: None,
             deprecated: None,
+            handler: None,
             tests: None,
             previous_names: vec![],
             span_ref: None,
+            triggers: vec![],
+            synthesized_from_cap_file: None,
+            owner_scope_sql: None,
+            derived_from: None,
         }
     }
 

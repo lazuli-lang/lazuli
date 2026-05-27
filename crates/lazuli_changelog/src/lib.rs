@@ -397,6 +397,7 @@ mod tests {
             owner_scope_sql: None,
             previous_names: Vec::new(),
             span_ref: None,
+            derived_from: None,
         }
     }
 

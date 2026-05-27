@@ -37,6 +37,12 @@ pub mod vocab_event_producer_001;
 pub mod vocab_grammar_form_001;
 pub mod vocab_handler_heavy_001;
 pub mod vocab_json_typed_001;
+// VOCAB-LIFECYCLE-001 — was deferred per the original proposal note
+// "until the lifecycle vocabulary actually exists". Lifecycle IR has
+// shipped (`crates/lazuli_ir/src/nodes/lifecycle.rs`), so the rule
+// now activates. Wired into the dispatcher via `rule_bridges.rs` +
+// `aggregators/vocab.rs` 2026-05-27.
+pub mod vocab_lifecycle_001;
 pub mod vocab_money_multi_currency_001;
 pub mod vocab_resource_wide_cluster_001;
 pub mod vocab_shadow_record_001;

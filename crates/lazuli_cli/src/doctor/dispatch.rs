@@ -124,6 +124,19 @@ impl DoctorPackage {
             self.security_profile,
         ));
 
+        // LIFECYCLE-* rule catalog dispatch — closes the wiring gap
+        // flagged by
+        // `docs/proposals/lifecycle-vocab-architect-audit-2026-05-27.md`
+        // §"Cell A". Ten resource-lifecycle structural checks ship in
+        // `lazuli_doctor::lifecycle::*` with passing unit tests but no
+        // dispatcher entry. `Prototype` profile suppresses the whole
+        // family (lifecycle is opt-in vocabulary); `Strict` -> Warning;
+        // `Production` -> Error.
+        diagnostics.extend(aggregators::lifecycle::diagnostics(
+            &self.tier3_facts,
+            self.security_profile,
+        ));
+
         diagnostics.extend(lazuli_version_001_diagnostics(
             self.app.as_ref(),
             LZIR_SCHEMA,

@@ -138,6 +138,7 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
         previous_names: Vec::new(),
         span_ref: None,
         owner_scope_sql: None,
+        derived_from: None,
     });
 
     let files = generate_v1(&module, &GoEmitOptions::default());

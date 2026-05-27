@@ -84,6 +84,51 @@ feature widget
 }
 
 #[test]
+fn doctor_lifecycle_no_initial_state_surfaces_through_lsp() {
+    // Cell F mirror — a lifecycle with declared states but none marked
+    // `initial` is the textbook LIFECYCLE-NO-INITIAL-STATE trigger.
+    // `lower_feature_skeleton` lowers `resource.lifecycle` fully, so
+    // this rule round-trips through the doctor_local wire-up wired in
+    // `trees::wire_lifecycle`. Note: parser lowers the first state as
+    // implicit-initial unless we force the "no initial anywhere" shape
+    // through programmatic IR, which we can't do via canonical source.
+    // Instead we lean on `policy_required` (another Cell D rule wired
+    // here) as the diagnostic-mirror check: a transition with no
+    // `policy` AND no `defaults.policy` fires LIFECYCLE-POLICY-REQUIRED.
+    let source = r#"
+feature publication
+  domain
+    resource Publication
+      lifecycle status
+        state scheduled initial
+        state published terminal
+        transition publish
+          from scheduled
+          to published
+"#;
+    let diags = diagnostics_for(source);
+    let hits = doctor_diagnostics_with_code(&diags, "LIFECYCLE-POLICY-REQUIRED");
+    assert!(
+        !hits.is_empty(),
+        "LIFECYCLE-POLICY-REQUIRED should fire through the LSP; got codes: {:?}",
+        diags
+            .iter()
+            .filter_map(|d| d.code.as_ref())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        hits[0].source.as_deref(),
+        Some("lazuli-doctor"),
+        "doctor-sourced diagnostics must carry source=lazuli-doctor"
+    );
+    assert!(
+        hits[0].message.contains("publish"),
+        "policy_required message must name the offending transition; got `{}`",
+        hits[0].message
+    );
+}
+
+#[test]
 fn doctor_clean_feature_emits_no_unexpected_doctor_diagnostics() {
     // A feature with no extensions / lifecycle / pollers / reports /
     // events and a write-command that explicitly opts out of audit

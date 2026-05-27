@@ -180,6 +180,7 @@ fn lifecycle_command(name: &str, input: ir::CommandInput) -> ir::Command {
         owner_scope_sql: None,
         previous_names: Vec::new(),
         span_ref: None,
+        derived_from: None,
     }
 }
 

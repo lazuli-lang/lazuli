@@ -158,6 +158,32 @@ pub struct Command {
     /// — there is no runtime branching. See Cell O2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner_scope_sql: Option<OwnerScopeSql>,
+    /// `docs/proposals/lifecycle-vocab.md` §4.2 + audit Cell G —
+    /// provenance marker the analyzer stamps when the command was
+    /// synthesized from a higher-level vocabulary (today: lifecycle
+    /// transitions). `None` for author-written commands. Cold-readers
+    /// tracing a lifecycle-emitted command see the source
+    /// `resource.lifecycle.<transition>` here via `lazuli inspect
+    /// --expand=commands`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derived_from: Option<DerivedFrom>,
+}
+
+/// Provenance marker for commands the analyzer synthesized from a
+/// higher-level vocabulary. Closed catalog — today only the lifecycle
+/// vocab uses it (one variant per origin shape); future synth passes
+/// add new variants.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum DerivedFrom {
+    /// Command was emitted by `lazuli_analyzer::lifecycle::lower_transition_command`
+    /// for a `transition` declared inside `resource.<resource>.lifecycle`.
+    Lifecycle {
+        /// Resource owning the lifecycle.
+        resource: String,
+        /// Transition name (e.g. `publish` for `transition publish`).
+        transition: String,
+    },
 }
 
 /// `write_window by <path> within <duration>` — restricts repeated writes

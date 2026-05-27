@@ -236,6 +236,7 @@
             triggers: Vec::new(),
             synthesized_from_cap_file: None,
             owner_scope_sql: None,
+            derived_from: None,
         });
 
         let diags = synthesize_conventions(&mut feature);

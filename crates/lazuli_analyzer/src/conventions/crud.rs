@@ -271,6 +271,7 @@ pub(crate) fn default_synth_command(rate_limit: &str) -> ir::Command {
         // `synthesize_conventions`). The default keeps tenant-only
         // shape stable for command IR not produced by the synth pass.
         owner_scope_sql: None,
+        derived_from: None,
     }
 }
 

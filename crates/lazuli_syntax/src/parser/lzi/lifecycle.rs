@@ -40,8 +40,10 @@
 
 use super::super::common::{SourceLine, is_trivia, line_error, line_error_owned, split_lzx_list};
 use super::super::error::ParseError;
+use super::helpers::{InvariantForm, parse_invariant_form};
 use super::types::{
-    LifecycleBlockAst, LifecycleInvariantAst, LifecycleStateAst, LifecycleTransitionAst,
+    LifecycleBlockAst, LifecycleInvariantAst, LifecycleInvariantForm, LifecycleStateAst,
+    LifecycleTransitionAst,
 };
 
 use crate::ast::Span;
@@ -110,8 +112,13 @@ pub(super) fn parse_lifecycle_block(
             last_end = line.end;
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("invariant ") {
+            // Closed-catalog discipline (`docs/proposals/lifecycle-vocab.md` §3.4):
+            // reject unknown invariant forms at parse time — no silent
+            // coercion downstream. `parse_invariant_form` owns the closed
+            // catalog, this is its only non-test caller in the workspace.
+            let form = parse_invariant_form(line, rest.trim())?;
             invariants.push(LifecycleInvariantAst {
-                raw: rest.trim().to_owned(),
+                form: invariant_form_to_ast(form),
                 span: Span::new(line.start, line.end),
             });
             last_end = line.end;
@@ -336,6 +343,20 @@ fn ensure_lifecycle_once(
         ));
     }
     Ok(())
+}
+
+/// Lift the parser-internal [`InvariantForm`] into the public AST
+/// [`LifecycleInvariantForm`]. They are 1:1 by construction; the split
+/// exists because `InvariantForm` is `pub(crate)` (LSP completion-only),
+/// while the AST variant ships across the workspace.
+fn invariant_form_to_ast(form: InvariantForm) -> LifecycleInvariantForm {
+    match form {
+        InvariantForm::TerminalImmutable => LifecycleInvariantForm::TerminalImmutable,
+        InvariantForm::NoJumpMoreThanOne => LifecycleInvariantForm::NoJumpMoreThanOne,
+        InvariantForm::SingleStatePerScope { state, scope_field } => {
+            LifecycleInvariantForm::SingleStatePerScope { state, scope_field }
+        }
+    }
 }
 
 fn parse_lifecycle_single_identifier(

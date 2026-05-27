@@ -51,7 +51,6 @@
     { "include": "#aggregate-block" },
     { "include": "#event-group-block" },
     { "include": "#event-trace-block" },
-    { "include": "#workflow-block" },
     { "include": "#operation-block" },
     { "include": "#view-block" },
     { "include": "#experience-block" },
@@ -153,7 +152,6 @@
         { "include": "#aggregate-block" },
         { "include": "#event-group-block" },
         { "include": "#event-trace-block" },
-        { "include": "#workflow-block" },
         { "include": "#operation-block" },
         { "include": "#view-block" },
         { "include": "#experience-block" },
@@ -372,7 +370,7 @@
         { "include": "#tests-block" },
         {
           "name": "keyword.control.statement.lazuli",
-          "match": "^\\s+(state|transition|from|to|requires|emits|policy|previously|migrated|alias|initial|terminal)\\b"
+          "match": "^\\s+(state|transition|from|to|requires|emits|policy|previously|migrated|alias|initial|terminal|audit|timestamps|invariant|invariant_handler|tests)\\b"
         },
         { "include": "#references" },
         { "include": "#types" },
@@ -2044,26 +2042,6 @@
       ]
     },
 
-    "workflow-block": {
-      "begin": "^(\\s+)(workflow)\\s+([a-z_][a-z0-9_]*)\\b",
-      "beginCaptures": {
-        "2": { "name": "keyword.control.declaration.structural.lazuli" },
-        "3": { "name": "entity.name.function.named-block.lazuli" }
-      },
-      "end": "^(?!\\1\\s)(?=\\s*\\S)",
-      "patterns": [
-        { "include": "#comments" },
-        { "include": "#strings" },
-        {
-          "name": "keyword.control.statement.lazuli",
-          "match": "^\\s+(state|transition|from|to|requires|emits|policy|initial|terminal|on|when)\\b"
-        },
-        { "include": "#references" },
-        { "include": "#types" },
-        { "include": "#constants" },
-        { "include": "#punctuation" }
-      ]
-    },
     "operation-block": {
       "begin": "^(\\s+)(operation)\\s+([a-z_][a-z0-9_]*)\\b",
       "beginCaptures": {

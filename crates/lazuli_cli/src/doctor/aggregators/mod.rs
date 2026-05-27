@@ -49,6 +49,7 @@ pub(crate) mod headers_secrets;
 pub(crate) mod http_hygiene;
 pub(crate) mod i18n;
 pub(crate) mod lazurite_manifest;
+pub(crate) mod lifecycle;
 pub(crate) mod migrations;
 pub(crate) mod observability;
 pub(crate) mod rbac_catalog;

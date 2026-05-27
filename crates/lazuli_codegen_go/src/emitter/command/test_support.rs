@@ -255,5 +255,6 @@ pub(super) fn base_command(name: &str) -> Command {
         previous_names: Vec::new(),
         span_ref: None,
         owner_scope_sql: None,
+        derived_from: None,
     }
 }

@@ -6,10 +6,26 @@
 //! where we have no useful span to attach. Callers should treat both as
 //! user-facing for now — the analyzer crate is what upgrades these into
 //! diagnostics with codes.
+//!
+//! Codified parser-error constants ship as `pub const E_*` strings here so
+//! the analyzer and downstream tooling can recognise them by prefix on the
+//! `Pest.message` field — see `E_WORKFLOW_RETIRED` below. The convention is
+//! `[<CODE>] <message>` so a plain text search for `E-FOO-BAR` finds the
+//! coded diagnostic across the parser and the upgraded analyzer diagnostic.
 
 use thiserror::Error;
 
 use crate::ast::Span;
+
+/// `E-WORKFLOW-RETIRED` — emitted when a `.lzi` author still uses the
+/// retired `workflow <name>` feature-child keyword. Replacement: a
+/// `lifecycle <field>` block nested inside the targeted `resource`
+/// (proposal: `docs/proposals/lifecycle-vocab.md` §2.1, §2.1.4 + §5
+/// last row). The parser carries this constant as the leading
+/// `[E-WORKFLOW-RETIRED]` tag on the `ParseError::Pest.message`; the
+/// analyzer's diagnostic upgrade reads the prefix to populate the
+/// stable diagnostic `code` field.
+pub const E_WORKFLOW_RETIRED: &str = "E-WORKFLOW-RETIRED";
 
 /// Single error type returned by every parser entry point.
 ///

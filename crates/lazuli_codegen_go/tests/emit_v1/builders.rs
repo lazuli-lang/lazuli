@@ -156,6 +156,7 @@ pub fn empty_command(name: &str, span_ref: Option<SpanRef>) -> Command {
         previous_names: Vec::new(),
         span_ref,
         owner_scope_sql: None,
+        derived_from: None,
     }
 }
 
