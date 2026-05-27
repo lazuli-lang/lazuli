@@ -81,11 +81,13 @@ pub mod walker;
 pub mod error_naming_001;
 pub mod error_non_exhaustive_001;
 pub mod handler_no_panic_001;
+pub mod handler_no_string_error_001;
 pub mod panic_unwrap_001;
 
 pub use error_naming_001::Finding as ErrorNamingFinding;
 pub use error_non_exhaustive_001::Finding as ErrorNonExhaustiveFinding;
 pub use handler_no_panic_001::Finding as HandlerNoPanicFinding;
+pub use handler_no_string_error_001::Finding as HandlerNoStringErrorFinding;
 pub use panic_unwrap_001::Finding as PanicUnwrapFinding;
 pub use preset::{ErrorHandlingPreset, preset_rule_severity};
 pub use walker::{GoHandlerSourceFile, walk_workspace_go_handlers};
