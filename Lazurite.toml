@@ -59,17 +59,18 @@ preset = "tdd-iron-hand"
 # Rust (INTERNAL-PANIC-*, INTERNAL-ERROR-*), user .lzi/.lzx (ERROR-*,
 # planned in a follow-up), and Go handlers (HANDLER-*).
 #
-# Currently set to `tdd-strict` (warn) — NOT `tdd-iron-hand` — because
-# the initial scan surfaces ~1250 panic-prone constructs (.unwrap(),
-# .expect(), panic!) in framework code that pre-date this rule. Each
-# is either:
-#   - provably safe (after .is_some() / .ok_or() check) — fine but
-#     should migrate to `?` with .context(...)
-#   - load-bearing diagnostic via .expect("invariant message") — fine
-#   - a true latent panic — must be fixed
+# W7 sweep completed 2026-05-26: framework code reduced from ~1250
+# panic-prone constructs to 0. Common patterns:
+#   - `writeln!(String).unwrap()` → `let _ = writeln!(...)` (infallible)
+#   - `Option::unwrap()` after `is_some()` → `if let Some(x) = ...`
+#   - `.expect("invariant")` in stable pub ABI → `unwrap_or(default)`
+#     where the fallback keeps output syntactically valid
+#   - `unreachable!()` match arms → restructured or defensive parse-error
 #
-# Promote to `tdd-iron-hand` after a sweep round (W7) reduces the count
-# to ~0. Each remaining one then needs a `severity_override` with
-# `reason` per DOCTOR-OVERRIDE-NEEDS-REASON-001.
+# Preset promoted to `tdd-iron-hand` — any new .unwrap() / .expect() /
+# panic! / todo! / unimplemented! / unreachable! in non-test framework
+# code now blocks merge. Test code is exempted via the rule's
+# `is_rails_test_file` heuristic (any `tests.rs`, `*_tests.rs`,
+# `tests_*.rs`, `test_support*.rs`, or path under `tests/` / `lib_tests/`).
 [doctor.error_handling]
-preset = "tdd-strict"
+preset = "tdd-iron-hand"
