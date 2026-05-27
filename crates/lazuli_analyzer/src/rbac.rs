@@ -159,7 +159,7 @@ pub fn analyze_rbac_catalog(pkg: &PackageSkeleton) -> (Option<ir::RbacCatalog>, 
                             chain.join(" -> "),
                             name
                         ),
-                        span: Some((r.span_ref.unwrap().start, r.span_ref.unwrap().end)),
+                        span: r.span_ref.map(|s| (s.start, s.end)),
                     });
                 }
                 break;
