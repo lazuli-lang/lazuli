@@ -327,6 +327,12 @@ pub(crate) fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnost
                     // the closed-catalog validation; the LSP just
                     // needs to NOT fire the generic six-space
                     // warning here.
+                } else if current_app_child == Some("locale") {
+                    // 2026-05-27 — `locale fallbacks` body: each line is
+                    // `<from-locale>: <to-locale>` (e.g. `pt-BR: en-US`).
+                    // Validated by `parse_app_manifest` via the i18n
+                    // bucket cycle; the LSP just needs to NOT fire the
+                    // generic six-space warning here.
                 } else {
                     diagnostics.push(simple_canonical_diagnostic(
                         line_index,

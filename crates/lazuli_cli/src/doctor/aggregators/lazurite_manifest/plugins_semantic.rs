@@ -216,10 +216,37 @@ pub(super) fn check_plugin_unused(
     manifest: &Manifest,
     package: &DoctorPackage,
 ) -> Vec<DoctorDiagnostic> {
-    let used: BTreeSet<String> = collect_package_plugin_references(package)
+    let mut used: BTreeSet<String> = collect_package_plugin_references(package)
         .into_iter()
         .map(|reference| reference.reference)
         .collect();
+
+    // 2026-05-27 — `@semantic.<X>` references that resolve via the
+    // plugin alias_map count as usage of the providing plugin.
+    // Without this, semantic-scalar-only plugins (scalars-br, viacep)
+    // were always flagged PLUGIN-UNUSED even when every pilot form
+    // used `@semantic.BrazilianCEP`, `@semantic.Money`, etc — the
+    // plugin alias_map is the canonical source of truth for which
+    // plugin provides which semantic alias.
+    if let Ok(alias_map) =
+        crate::plugin_manifest::build_alias_map(Some(manifest), &package.project_root)
+    {
+        for file in &package.files {
+            if !is_lzi_path(&file.path) {
+                continue;
+            }
+            for reference in collect_at_references_in_source(&file.path, &file.source) {
+                let Some(rest) = reference.reference.strip_prefix("@semantic.") else {
+                    continue;
+                };
+                let head = rest.split('(').next().unwrap_or(rest);
+                let alias = format!("@semantic.{}", head);
+                if let Some(resolved) = alias_map.get(&alias) {
+                    used.insert(resolved.plugin_namespace.clone());
+                }
+            }
+        }
+    }
 
     manifest
         .plugins

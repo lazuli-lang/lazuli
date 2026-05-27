@@ -41,6 +41,14 @@ pub(crate) fn validate_app_capability_line(
                 | "secret_provider"
                 | "payment_gateway"
                 | "credit_bureau"
+                // 2026-05-27 — auth-refresh capability axis. Used by
+                // pilots that opt into the framework's refresh-token
+                // runtime helpers: `on_refresh_failure @fn.<name>`,
+                // `refresh_token_storage cookie|header`,
+                // `cookie_domain ".example.com"`.
+                | "on_refresh_failure"
+                | "refresh_token_storage"
+                | "cookie_domain"
         )
     {
         diagnostics.push(simple_canonical_diagnostic(

@@ -51,7 +51,13 @@ pub(crate) fn file_capability_contract_diagnostics(source: &str) -> Vec<Diagnost
             // recognised by the analyzer (`type_ref_from_syntax`); add
             // them to the canonical set so the LSP no longer warns on
             // the canonical authoring form.
-            &["max_size", "accept", "visibility", "signed_ttl"],
+            //
+            // 2026-05-27 — `auto_photo_policy` adicionado pra cobrir o
+            // auto-photo helper (lazuli runtime AutoPhoto*): quando o
+            // arg está presente, codegen sintetiza request/confirm/
+            // clear/get_photo_url commands com a policy informada.
+            // Hostpoint usa em Host.profile_photo + Traveler.profile_photo.
+            &["max_size", "accept", "visibility", "signed_ttl", "auto_photo_policy"],
         );
 
         if !args.iter().any(|(key, _)| key == "max_size") {
