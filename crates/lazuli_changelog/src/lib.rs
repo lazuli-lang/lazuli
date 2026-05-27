@@ -135,14 +135,15 @@ pub fn diff(old: &ir::Module, new: &ir::Module) -> ChangelogReport {
                     });
                 }
                 // Deprecation flagged in new but not old?
-                if new_cmd.deprecated.is_some() && old_cmd.deprecated.is_none() {
-                    let dep = new_cmd.deprecated.as_ref().unwrap();
-                    deprecated.push(DeprecatedEntry {
-                        op: operation_ref(&key.0, new_cmd),
-                        since: dep.since.clone(),
-                        replacement: dep.replacement.as_ref().map(render_replacement),
-                        sunset: dep.sunset.clone(),
-                    });
+                if old_cmd.deprecated.is_none() {
+                    if let Some(dep) = new_cmd.deprecated.as_ref() {
+                        deprecated.push(DeprecatedEntry {
+                            op: operation_ref(&key.0, new_cmd),
+                            since: dep.since.clone(),
+                            replacement: dep.replacement.as_ref().map(render_replacement),
+                            sunset: dep.sunset.clone(),
+                        });
+                    }
                 }
                 // Added optional input field is non-breaking.
                 if let Some(reason) = input_non_breaking_change(&old_cmd.input, &new_cmd.input) {

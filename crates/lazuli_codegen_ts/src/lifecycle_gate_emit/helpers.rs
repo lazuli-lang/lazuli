@@ -150,7 +150,10 @@ pub(super) fn route_const_name(name: &str) -> String {
 }
 
 pub(super) fn ts_string(value: &str) -> String {
-    serde_json::to_string(value).expect("string literal serializes")
+    // `serde_json::to_string(&str)` only fails on non-UTF8 byte sequences,
+    // which Rust `&str` cannot hold. Empty-literal fallback keeps output
+    // syntactically valid TS even on the impossible-error path.
+    serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_owned())
 }
 
 pub(super) fn canonical(value: &str) -> String {

@@ -135,9 +135,46 @@ pub fn check(files: &[RustSourceFile]) -> Vec<Finding> {
         if !file.is_library_src {
             continue;
         }
+        if is_rails_test_file(&file.relative_path) {
+            // Rails-style test siblings (`<name>_tests.rs`) and any file
+            // under `src/tests/` are test code. The rule's existing
+            // `#[cfg(test)] mod` depth tracking handles inline `mod tests
+            // { ... }` blocks; this skip handles the W5-era pattern where
+            // a whole sibling file IS the test module, included by a
+            // parent via `include!()`.
+            continue;
+        }
         scan_file(&file.relative_path, &file.source, &mut findings);
     }
     findings
+}
+
+/// Returns `true` for files conventionally containing test code:
+/// - File name is `tests.rs`, `*_tests.rs`, `tests_*.rs`, or `*_test.rs`
+///   (W5 Rails-style sibling test files; W3-era underscore-prefix variant
+///   also seen in `doctor/folder/<rule>/tests_basic.rs` etc.).
+/// - Any path component equals `tests` or `lib_tests` (rails-style test
+///   sub-tree, including the LSP's `src/lib_tests/group_NN_*.rs` split).
+fn is_rails_test_file(path: &std::path::Path) -> bool {
+    let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+    if name == "tests.rs" {
+        return true;
+    }
+    if name.ends_with("_tests.rs")
+        || name.ends_with("_test.rs")
+        || (name.starts_with("tests_") && name.ends_with(".rs"))
+        || name == "test_support.rs"
+        || (name.starts_with("test_support") && name.ends_with(".rs"))
+    {
+        return true;
+    }
+    let s = path.to_string_lossy().replace('\\', "/");
+    for component in s.split('/') {
+        if component == "tests" || component == "lib_tests" {
+            return true;
+        }
+    }
+    false
 }
 
 fn scan_file(path: &Path, source: &str, out: &mut Vec<Finding>) {
@@ -254,6 +291,9 @@ fn count_braces(line: &str) -> (usize, usize) {
 /// panic-prone construct. Order matters: `unimplemented!` must be
 /// checked before `unwrap` (the latter doesn't appear in it, but a
 /// regression could).
+///
+/// String literals are stripped before pattern matching — `line.contains
+/// ("panic!(")` in a rule implementation's source should NOT self-fire.
 fn detect_panic_construct(line: &str) -> Option<&'static str> {
     // Skip lines that ARE a const-decl naming a constant containing one
     // of these tokens (e.g. `pub const UNWRAP_DOC: &str = "...unwrap..."`).
@@ -274,33 +314,109 @@ fn detect_panic_construct(line: &str) -> Option<&'static str> {
         return None;
     }
 
+    // Strip string-literal content so e.g. `line.contains("panic!(")`
+    // in a rule's own implementation doesn't self-trigger.
+    let stripped = strip_string_literals(line);
+
     // Order: most specific first, to avoid `expect` matching `expect_err`.
-    if line.contains("panic!(") {
+    if stripped.contains("panic!(") {
         return Some("panic!(...)");
     }
-    if line.contains("unimplemented!(") {
+    if stripped.contains("unimplemented!(") {
         return Some("unimplemented!(...)");
     }
-    if line.contains("unreachable!(") {
+    if stripped.contains("unreachable!(") {
         return Some("unreachable!(...)");
     }
-    if line.contains("todo!(") {
+    if stripped.contains("todo!(") {
         return Some("todo!(...)");
     }
-    if let Some(idx) = line.find(".unwrap()") {
+    if let Some(idx) = stripped.find(".unwrap()") {
         // Discriminate from `.unwrap_or()`, `.unwrap_or_else()`,
         // `.unwrap_or_default()`, etc. — those are explicit fallbacks
         // and not panic-prone.
-        let after = &line[idx + ".unwrap".len()..];
+        let after = &stripped[idx + ".unwrap".len()..];
         if after.starts_with("()") {
             return Some(".unwrap()");
         }
     }
-    if line.contains(".expect(") && !line.contains(".expect_err(") {
+    if stripped.contains(".expect(") && !stripped.contains(".expect_err(") {
         return Some(".expect(...)");
     }
 
     None
+}
+
+/// Replace every `"..."` and raw-string body on a single line with spaces
+/// so substring-detection ignores string-literal content. This is a
+/// pragmatic line-local heuristic — multi-line strings (continuation `\`
+/// or unclosed raw strings) aren't tracked here. The caller's `scan_file`
+/// state machine already silences entire `#[cfg(test)] mod tests`
+/// blocks, which is where multi-line fixture strings typically live.
+fn strip_string_literals(line: &str) -> String {
+    let bytes = line.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        // Detect raw string start: `r"..."` or `r#"..."#` (one or more `#`).
+        if c == b'r' && i + 1 < bytes.len() && (bytes[i + 1] == b'"' || bytes[i + 1] == b'#') {
+            let mut j = i + 1;
+            let mut hash_count = 0;
+            while j < bytes.len() && bytes[j] == b'#' {
+                hash_count += 1;
+                j += 1;
+            }
+            if j < bytes.len() && bytes[j] == b'"' {
+                // Skip the body; replace with spaces up to closing
+                // `"` followed by hash_count `#`s.
+                out.extend(std::iter::repeat(b' ').take(j - i + 1));
+                let mut k = j + 1;
+                while k < bytes.len() {
+                    if bytes[k] == b'"' {
+                        let mut h = 0;
+                        while h < hash_count && k + 1 + h < bytes.len() && bytes[k + 1 + h] == b'#' {
+                            h += 1;
+                        }
+                        if h == hash_count {
+                            out.extend(std::iter::repeat(b' ').take(1 + hash_count));
+                            k += 1 + hash_count;
+                            break;
+                        }
+                    }
+                    out.push(b' ');
+                    k += 1;
+                }
+                i = k;
+                continue;
+            }
+        }
+        // Regular string literal: `"..."` with backslash escapes.
+        if c == b'"' {
+            out.push(b' ');
+            let mut j = i + 1;
+            while j < bytes.len() {
+                if bytes[j] == b'\\' && j + 1 < bytes.len() {
+                    out.push(b' ');
+                    out.push(b' ');
+                    j += 2;
+                    continue;
+                }
+                if bytes[j] == b'"' {
+                    out.push(b' ');
+                    j += 1;
+                    break;
+                }
+                out.push(b' ');
+                j += 1;
+            }
+            i = j;
+            continue;
+        }
+        out.push(c);
+        i += 1;
+    }
+    String::from_utf8(out).unwrap_or_else(|_| line.to_owned())
 }
 
 #[cfg(test)]
@@ -416,6 +532,35 @@ mod tests {
         let mut f = file("pub fn x() { panic!() }\n");
         f.is_library_src = false;
         assert!(check(&[f]).is_empty());
+    }
+
+    #[test]
+    fn rails_test_sibling_files_are_skipped() {
+        // Files named `<name>_tests.rs` are Rails-style sibling test
+        // modules included from a parent via `include!()`. The rule's
+        // `#[cfg(test)] mod` depth tracking can't see the parent, so we
+        // skip these whole files.
+        let mut f = file("pub fn x() { panic!() }\n");
+        f.relative_path = PathBuf::from("crates/lazuli_test/src/foo_tests.rs");
+        assert!(check(&[f]).is_empty());
+    }
+
+    #[test]
+    fn files_under_src_tests_are_skipped() {
+        // Rails-style: tests live under `src/tests/...` next to the
+        // module they exercise. Whole sub-tree is test code.
+        let mut f = file("pub fn x() { panic!() }\n");
+        f.relative_path = PathBuf::from("crates/lazuli_test/src/tests/core/workflow.rs");
+        assert!(check(&[f]).is_empty());
+    }
+
+    #[test]
+    fn plain_src_file_still_fires() {
+        // Regression guard: `tests` substring in a file path that isn't
+        // a sibling test file or under `src/tests/` should still fire.
+        let mut f = file("pub fn x() { panic!() }\n");
+        f.relative_path = PathBuf::from("crates/lazuli_test/src/contests/mod.rs");
+        assert_eq!(check(&[f]).len(), 1);
     }
 
     #[test]

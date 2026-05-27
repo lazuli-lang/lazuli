@@ -221,14 +221,14 @@ pub(super) const WEB_UI_SUBDIRS: &[&str] = &[
 ];
 
 #[cfg(test)]
-mod invariants;
+mod invariants_tests;
 
 #[cfg(test)]
 mod tests {
     use std::fs;
 
     use super::*;
-    use super::super::testing::tempdir;
+    use super::super::test_support::tempdir;
 
     #[test]
     fn scaffold_web_creates_all_expected_files() {

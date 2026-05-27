@@ -37,7 +37,7 @@ pub fn expand_http(app: Option<&AppManifest>) -> Option<Value> {
         block.insert(
             "cookie".to_owned(),
             with_origin(
-                serde_json::to_value(cookie).expect("AppCookie serializes"),
+                serde_json::to_value(cookie).unwrap_or(Value::Null),
                 app.name.as_str(),
                 cookie.span_ref,
             ),
@@ -48,7 +48,7 @@ pub fn expand_http(app: Option<&AppManifest>) -> Option<Value> {
         block.insert(
             "proxy".to_owned(),
             with_origin(
-                serde_json::to_value(proxy).expect("AppProxy serializes"),
+                serde_json::to_value(proxy).unwrap_or(Value::Null),
                 app.name.as_str(),
                 proxy.span_ref,
             ),
@@ -59,7 +59,7 @@ pub fn expand_http(app: Option<&AppManifest>) -> Option<Value> {
         block.insert(
             "limits".to_owned(),
             with_origin(
-                serde_json::to_value(limits).expect("AppLimits serializes"),
+                serde_json::to_value(limits).unwrap_or(Value::Null),
                 app.name.as_str(),
                 limits.span_ref,
             ),

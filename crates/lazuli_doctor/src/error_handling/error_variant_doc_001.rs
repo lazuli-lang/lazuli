@@ -257,15 +257,42 @@ fn scan_enum_body(path: &Path, lines: &[&str], body: &EnumBody, out: &mut Vec<Fi
         };
 
         // Look upward through preceding doc/attr lines (and blanks);
-        // stop at the first non-doc, non-attr line.
+        // stop at the first non-doc, non-attr line. Handles multi-line
+        // attributes like
+        //
+        //   #[error(
+        //       "long message ..."
+        //   )]
+        //   VariantName { ... }
+        //
+        // by tracking attribute-bracket depth: a closing `)]` / `]` line
+        // opens an attribute body that may span multiple physical lines.
         let mut has_doc = false;
         let mut has_error_attr = false;
+        let mut attr_depth: i32 = 0; // count of `]` we've seen waiting for `#[`
         let mut k = i;
         while k > body.body_start {
             k -= 1;
             let prev_stripped = strip_line_comments(lines[k]);
             let prev_trimmed = prev_stripped.trim_start();
             if prev_trimmed.is_empty() {
+                continue;
+            }
+            // Multi-line attribute body continuation. Each line ending
+            // in `]` (likely `)]`) opens a back-walk through the attr
+            // body until we see the matching `#[` line.
+            if attr_depth > 0 {
+                if prev_trimmed.starts_with("#[error(") {
+                    has_error_attr = true;
+                    attr_depth -= 1;
+                    continue;
+                }
+                if prev_trimmed.starts_with("#[") {
+                    attr_depth -= 1;
+                    continue;
+                }
+                // Still inside the attribute body (string literal line,
+                // etc.) — keep walking.
                 continue;
             }
             if prev_trimmed.starts_with("///") {
@@ -280,6 +307,13 @@ fn scan_enum_body(path: &Path, lines: &[&str], body: &EnumBody, out: &mut Vec<Fi
                 continue;
             }
             if prev_trimmed.starts_with("#[") {
+                continue;
+            }
+            // Closing bracket of a multi-line attribute, or a comma-only
+            // continuation of a previous variant — descend into attr-body
+            // mode.
+            if prev_trimmed.ends_with("]") || prev_trimmed.ends_with(")]") {
+                attr_depth += 1;
                 continue;
             }
             break;

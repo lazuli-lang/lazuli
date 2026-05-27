@@ -161,11 +161,8 @@ pub(crate) fn parse_lzx_bool(value: &str) -> Option<bool> {
 /// both pass; anything else (PascalCase, spaces, leading digit, etc.)
 /// rejects.
 pub(crate) fn is_kebab_or_snake_ident(s: &str) -> bool {
-    if s.is_empty() {
-        return false;
-    }
     let mut chars = s.chars();
-    let first = chars.next().unwrap();
+    let Some(first) = chars.next() else { return false };
     if !first.is_ascii_lowercase() {
         return false;
     }
@@ -181,11 +178,8 @@ pub(crate) fn is_kebab_or_snake_ident(s: &str) -> bool {
 /// with alphanumerics / `_`. Looser than `is_kebab_or_snake_ident`
 /// because some LZX slots accept PascalCase as well as snake_case.
 pub(crate) fn is_lzx_bare_ident(s: &str) -> bool {
-    if s.is_empty() {
-        return false;
-    }
     let mut chars = s.chars();
-    let first = chars.next().unwrap();
+    let Some(first) = chars.next() else { return false };
     if !first.is_ascii_alphabetic() {
         return false;
     }

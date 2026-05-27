@@ -105,10 +105,10 @@ pub(crate) fn cors_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                     ),
                 ));
             }
-        } else if trimmed.starts_with("max_age ") {
+        } else if let Some(rest_raw) = trimmed.strip_prefix("max_age ") {
             // max_age shape is adapter-parseable; LSP just confirms
             // the token is present + quoted.
-            let rest = trimmed.strip_prefix("max_age ").unwrap().trim();
+            let rest = rest_raw.trim();
             if !rest.starts_with('"') {
                 diagnostics.push(simple_canonical_diagnostic(
                     line_index,
@@ -210,8 +210,8 @@ pub(crate) fn headers_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                         ),
                     ));
                 }
-            } else if trimmed.starts_with("csp ") {
-                let rest = trimmed.strip_prefix("csp ").unwrap().trim();
+            } else if let Some(rest_raw) = trimmed.strip_prefix("csp ") {
+                let rest = rest_raw.trim();
                 if !rest.starts_with('"') {
                     diagnostics.push(simple_canonical_diagnostic(
                         line_index,
@@ -221,8 +221,8 @@ pub(crate) fn headers_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                         "`app.headers csp` requires a quoted policy string (e.g. `csp \"default-src 'self'\"`).",
                     ));
                 }
-            } else if trimmed.starts_with("permissions_policy ") {
-                let rest = trimmed.strip_prefix("permissions_policy ").unwrap().trim();
+            } else if let Some(rest_raw) = trimmed.strip_prefix("permissions_policy ") {
+                let rest = rest_raw.trim();
                 if !rest.starts_with('"') {
                     diagnostics.push(simple_canonical_diagnostic(
                         line_index,

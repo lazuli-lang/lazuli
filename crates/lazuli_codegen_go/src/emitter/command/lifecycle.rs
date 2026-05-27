@@ -139,7 +139,8 @@ pub(super) fn emit_lifecycle_machines(p: &mut GoPrinter, feature: &Feature) -> b
         if idx > 0 {
             p.blank();
         }
-        let lifecycle = resource.lifecycle.as_ref().expect("filtered above");
+        // Filter at line 131 guarantees lifecycle is Some.
+        let Some(lifecycle) = resource.lifecycle.as_ref() else { continue };
         let enum_name = pascal_case(&lifecycle.generated_enum);
         let initial = initial_lifecycle_state(lifecycle)
             .map(|state| enum_variant_name(&enum_name, state))

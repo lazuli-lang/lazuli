@@ -93,7 +93,17 @@ fn run_seed_file(file: &Path) -> SeedResult<()> {
             command.arg("run").arg(file);
             command
         }
-        _ => unreachable!("seed discovery only returns supported extensions"),
+        other => {
+            // Defensive: `discover_seed_files` filters to {sh, sql, go}, so
+            // this branch should not be reachable. If it ever fires, return
+            // a clear error rather than aborting the process.
+            return Err(io::Error::other(format!(
+                "unsupported seed extension {:?} for {}",
+                other,
+                file.display()
+            ))
+            .into());
+        }
     };
 
     let status = command.status()?;

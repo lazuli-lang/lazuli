@@ -118,7 +118,7 @@ mod tests {
     use std::fs;
 
     use super::*;
-    use super::super::testing::tempdir;
+    use super::super::test_support::tempdir;
 
     #[test]
     fn scaffold_mobile_creates_expected_files_and_appends_manifest() {

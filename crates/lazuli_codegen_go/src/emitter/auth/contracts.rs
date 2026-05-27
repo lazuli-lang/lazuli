@@ -85,16 +85,15 @@ pub(super) fn emit_sessions(p: &mut GoPrinter, feature_pascal: &str, sessions: &
     if sessions.is_rotation_enabled() {
         let (access_ttl, access_ttl_todo) =
             duration_expr_for(sessions.resolved_access_ttl(), "AuthSessions.access_ttl");
+        // Invariant: `is_rotation_enabled()` returned true above, so these
+        // resolvers return Some. If a future regression breaks that, fall
+        // back to the empty literal — `duration_expr_for` emits a TODO row.
         let (refresh_ttl, refresh_ttl_todo) = duration_expr_for(
-            sessions
-                .resolved_refresh_ttl()
-                .expect("rotation-enabled sessions must resolve refresh_ttl"),
+            sessions.resolved_refresh_ttl().unwrap_or(""),
             "AuthSessions.rotation.refresh_ttl",
         );
         let (rotation_grace, rotation_grace_todo) = duration_expr_for(
-            sessions
-                .resolved_rotation_grace()
-                .expect("rotation-enabled sessions must resolve rotation grace"),
+            sessions.resolved_rotation_grace().unwrap_or(""),
             "AuthSessions.rotation.grace",
         );
         rows.push(("AccessTTL:".to_owned(), format!("{access_ttl},")));
@@ -105,11 +104,7 @@ pub(super) fn emit_sessions(p: &mut GoPrinter, feature_pascal: &str, sessions: &
             "TheftDetectionAction:".to_owned(),
             format!(
                 "{},",
-                theft_action_expr(
-                    sessions
-                        .resolved_theft_action()
-                        .expect("rotation-enabled sessions must resolve theft action"),
-                )
+                theft_action_expr(sessions.resolved_theft_action().unwrap_or_default()),
             ),
         ));
         rows.push(("Refresh:".to_owned(), "true,".to_owned()));

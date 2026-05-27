@@ -56,7 +56,7 @@ impl SourceMapResolver for SourceMap {
             }
         }
 
-        let source_len = u32::try_from(source.len()).expect("source file length exceeds u32::MAX");
+        let source_len = u32::try_from(source.len()).unwrap_or(u32::MAX);
         if offsets.last().copied() != Some(source_len) {
             offsets.push(source_len);
         }

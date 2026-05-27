@@ -98,7 +98,8 @@ pub(crate) fn command_statement_unknown_diagnostics(source: &str) -> Vec<Diagnos
             continue;
         }
 
-        let (_header_indent, body_indent) = current_command.unwrap();
+        // `current_command.is_none()` continued the loop above, so this is Some.
+        let Some((_header_indent, body_indent)) = current_command else { continue };
         if leading != body_indent {
             continue;
         }
@@ -181,7 +182,8 @@ pub(crate) fn query_statement_unknown_diagnostics(source: &str) -> Vec<Diagnosti
             continue;
         }
 
-        let (_header_indent, body_indent) = current_query.unwrap();
+        // `current_query.is_none()` continued the loop above, so this is Some.
+        let Some((_header_indent, body_indent)) = current_query else { continue };
         if leading != body_indent {
             continue;
         }
@@ -248,7 +250,8 @@ pub(crate) fn audience_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic>
             continue;
         }
 
-        let (_header_indent, body_indent) = current_audience.unwrap();
+        // `current_audience.is_none()` continued the loop above, so this is Some.
+        let Some((_header_indent, body_indent)) = current_audience else { continue };
         if leading != body_indent {
             continue;
         }

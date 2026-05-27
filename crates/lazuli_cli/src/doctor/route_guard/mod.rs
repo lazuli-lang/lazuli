@@ -47,15 +47,15 @@ pub(super) fn diagnostics(
 
     let mut out = Vec::new();
     for finding in run_checks(&mut module, app.map(|a| &a.manifest), &features) {
-        let path = match finding.origin {
+        // Invariant: we returned early above if `lzx_path.is_none()`, so
+        // at least one of (app, lzx_path) is Some on every iteration.
+        let path_opt = match finding.origin {
             RouteGuardOrigin::App => app
                 .map(|a| a.path.clone())
-                .or_else(|| lzx_path.clone())
-                .expect("route guard diagnostics require a .lzx path"),
-            RouteGuardOrigin::Lzx => lzx_path
-                .clone()
-                .expect("route guard diagnostics require a .lzx path"),
+                .or_else(|| lzx_path.clone()),
+            RouteGuardOrigin::Lzx => lzx_path.clone(),
         };
+        let Some(path) = path_opt else { continue };
         let line = super::span_line(files, &path, finding.span, 1);
         out.push(DoctorDiagnostic {
             path,

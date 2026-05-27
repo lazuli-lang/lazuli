@@ -38,7 +38,7 @@ fn expand_auth_block(feature_name: &str, auth: &Auth) -> Value {
     block.insert(
         "identity".to_owned(),
         with_origin(
-            serde_json::to_value(&auth.identity).expect("AuthIdentity serializes"),
+            serde_json::to_value(&auth.identity).unwrap_or(Value::Null),
             feature_name,
             auth.span_ref,
         ),
@@ -48,7 +48,7 @@ fn expand_auth_block(feature_name: &str, auth: &Auth) -> Value {
         block.insert(
             "password".to_owned(),
             with_origin(
-                serde_json::to_value(password).expect("AuthPassword serializes"),
+                serde_json::to_value(password).unwrap_or(Value::Null),
                 feature_name,
                 auth.span_ref,
             ),
@@ -59,7 +59,7 @@ fn expand_auth_block(feature_name: &str, auth: &Auth) -> Value {
         block.insert(
             "sessions".to_owned(),
             with_origin(
-                serde_json::to_value(sessions).expect("AuthSessions serializes"),
+                serde_json::to_value(sessions).unwrap_or(Value::Null),
                 feature_name,
                 auth.span_ref,
             ),
@@ -70,7 +70,7 @@ fn expand_auth_block(feature_name: &str, auth: &Auth) -> Value {
         block.insert(
             "mfa".to_owned(),
             with_origin(
-                serde_json::to_value(mfa).expect("AuthMfa serializes"),
+                serde_json::to_value(mfa).unwrap_or(Value::Null),
                 feature_name,
                 auth.span_ref,
             ),
@@ -85,7 +85,7 @@ fn expand_auth_block(feature_name: &str, auth: &Auth) -> Value {
                     .iter()
                     .map(|provider| {
                         with_origin(
-                            serde_json::to_value(provider).expect("AuthOAuthProvider serializes"),
+                            serde_json::to_value(provider).unwrap_or(Value::Null),
                             feature_name,
                             auth.span_ref,
                         )

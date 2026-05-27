@@ -122,13 +122,9 @@ pub fn emit_lazuli_app_gen(module: &Module, source_label: &str) -> Option<String
         maybe_blank(&mut p, &mut first_block);
         emit_encryption_bindings(&mut p, &manifest.encryption_bindings);
     }
-    if emit_cors_todo {
+    if let Some(cors) = manifest.cors.as_ref().filter(|_| emit_cors_todo) {
         maybe_blank(&mut p, &mut first_block);
-        emit_cors_contract(
-            &mut p,
-            manifest.cors.as_ref().expect("cors guarded"),
-            manifest.locale.is_some(),
-        );
+        emit_cors_contract(&mut p, cors, manifest.locale.is_some());
     }
     if emit_routes_todo {
         maybe_blank(&mut p, &mut first_block);

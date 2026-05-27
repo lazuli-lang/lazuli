@@ -24,7 +24,7 @@ mod mobile;
 mod web;
 
 #[cfg(test)]
-mod testing;
+mod test_support;
 
 pub use mobile::scaffold_frontend_mobile;
 pub use web::scaffold_frontend_web;
@@ -34,7 +34,7 @@ mod tests {
     use std::fs;
 
     use super::*;
-    use super::testing::tempdir;
+    use super::test_support::tempdir;
     use crate::templates;
 
     #[test]

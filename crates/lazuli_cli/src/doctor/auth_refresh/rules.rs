@@ -62,6 +62,7 @@ fn rule_003_columns(
     fact: &super::super::AuthFacts,
 ) -> Option<Finding> {
     let resource = session_resource(ctx, fact)?;
+    let sessions = fact.auth.sessions.as_ref()?;
     let missing: Vec<&str> = REQUIRED_COLUMNS
         .iter()
         .copied()
@@ -69,7 +70,7 @@ fn rule_003_columns(
         .collect();
     (!missing.is_empty()).then(|| finding(fact, AuthRefreshDiagnostic::MissingRotationColumns, format!(
         "session resource `{}` lacks required columns for rotation: `{}`. Run `lazuli migrate` to add them, or remove `rotation` if the rotation discipline is not desired.",
-        fact.auth.sessions.as_ref().unwrap().resource.name,
+        sessions.resource.name,
         missing.join("`, `")
     )))
 }

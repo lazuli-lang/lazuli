@@ -67,5 +67,8 @@ pub(super) struct RouteRegistryEntry {
 /// embedded quotes, backslashes, and control chars exactly the way TS
 /// expects.
 pub(super) fn ts_string(value: &str) -> String {
-    serde_json::to_string(value).expect("string literal must serialize")
+    // `serde_json::to_string(&str)` only fails on non-UTF8 byte sequences,
+    // which Rust `&str` cannot hold. Fall back to a quoted empty literal
+    // rather than panicking if the impossible happens.
+    serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_owned())
 }

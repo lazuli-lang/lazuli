@@ -313,7 +313,15 @@ pub(super) fn parse_view_block(
                 span,
             })
         }
-        _ => unreachable!(),
+        // `kind` was set to `"list" | "detail" | "create"` at line 73-78
+        // and is unchanged since; this arm is dead. Treat it defensively as
+        // a malformed view header rather than panicking.
+        _ => {
+            return Err(line_error(
+                header,
+                "view header is `view list|detail|create <name> [at \"<path>\"]`",
+            ));
+        }
     };
     Ok((view, i))
 }

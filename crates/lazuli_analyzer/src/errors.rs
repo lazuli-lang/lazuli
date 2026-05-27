@@ -32,6 +32,7 @@ use thiserror::Error;
 /// `#[error("...")]` template so the formatted message round-trips
 /// without callsite interpolation.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum AnalyzeError {
     #[error("invalid tool reference `{reference}`")]
     InvalidToolRef { reference: String },

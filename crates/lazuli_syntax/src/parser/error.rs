@@ -18,6 +18,7 @@ use crate::ast::Span;
 /// should be unreachable" failures with no useful span. The analyzer
 /// upgrades these into diagnostics with codes downstream.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum ParseError {
     /// Span-anchored authoring error (unknown keyword, bad indent, ...).
     #[error("{message}")]

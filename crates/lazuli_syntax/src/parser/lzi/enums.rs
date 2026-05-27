@@ -247,7 +247,9 @@ fn parse_enum_metadata_key(
     if kind == "label" || kind == "hint" {
         Ok(token.to_owned())
     } else {
-        unreachable!("metadata key kind is restricted by parser callers")
+        // Callers gate `kind` to {"label", "hint"}. Surface as a parse
+        // error rather than a panic if a future regression breaks that.
+        Err(line_error(line, "unsupported enum metadata kind"))
     }
 }
 

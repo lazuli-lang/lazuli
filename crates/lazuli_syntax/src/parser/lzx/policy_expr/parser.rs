@@ -182,10 +182,11 @@ impl<'a, 'src> PolicyExprParser<'a, 'src> {
         while self.consume_keyword("or") {
             terms.push(self.parse_and()?);
         }
-        Ok(if terms.len() == 1 {
-            terms.into_iter().next().unwrap()
-        } else {
-            PolicyExprAst::Or(terms)
+        Ok(match terms.len() {
+            // `parse_and` always pushed at least one term above.
+            0 => PolicyExprAst::Or(terms),
+            1 => terms.swap_remove(0),
+            _ => PolicyExprAst::Or(terms),
         })
     }
 
@@ -194,10 +195,10 @@ impl<'a, 'src> PolicyExprParser<'a, 'src> {
         while self.consume_keyword("and") {
             terms.push(self.parse_unary()?);
         }
-        Ok(if terms.len() == 1 {
-            terms.into_iter().next().unwrap()
-        } else {
-            PolicyExprAst::And(terms)
+        Ok(match terms.len() {
+            0 => PolicyExprAst::And(terms),
+            1 => terms.swap_remove(0),
+            _ => PolicyExprAst::And(terms),
         })
     }
 
@@ -279,11 +280,8 @@ fn is_valid_permission_ref(s: &str) -> bool {
         return false;
     }
     for seg in segments {
-        if seg.is_empty() {
-            return false;
-        }
         let mut chars = seg.chars();
-        let first = chars.next().unwrap();
+        let Some(first) = chars.next() else { return false };
         if !first.is_ascii_lowercase() {
             return false;
         }
