@@ -109,6 +109,13 @@ pub(crate) fn lower_command_decl(
         record_before: a.record_before,
         record_after: a.record_after,
         retain_for: a.retain_for.clone(),
+        // GAP-AUDIT-01 — carry the `materialize @feature.<f>.<R>` target
+        // through to IR. Cross-feature reachability + append_only invariant
+        // are enforced by doctor `AUDIT-MATERIALIZE-TARGET-001`.
+        materialize: a.materialize.as_ref().map(|m| ir::AuditMaterialize {
+            feature: m.feature.clone(),
+            resource: m.resource.clone(),
+        }),
     });
     let approval = c.approval.as_ref().map(|a| {
         // W4 GAP-06 — carry the ordered approver chain + `sequential` flag.

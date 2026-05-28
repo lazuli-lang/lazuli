@@ -10,7 +10,7 @@ use super::super::super::common::{SourceLine, is_kebab_or_snake_ident, is_trivia
 use super::super::super::error::ParseError;
 use super::super::{AGENT_INDENT_AGENT_CHILD, AGENT_INDENT_GRANDCHILD};
 
-use crate::ast::{CommandAudit, Span};
+use crate::ast::{AuditMaterializeAst, CommandAudit, Span};
 
 pub(in crate::parser::lzi) fn parse_command_audit(
     lines: &[SourceLine<'_>],
@@ -45,6 +45,7 @@ pub(in crate::parser::lzi) fn parse_command_audit(
     }
     let mut emit_to: Option<String> = None;
     let mut data_subject: Option<String> = None;
+    let mut materialize: Option<AuditMaterializeAst> = None;
     let mut i = start + 1;
     while i < lines.len() {
         let line = &lines[i];
@@ -88,6 +89,16 @@ pub(in crate::parser::lzi) fn parse_command_audit(
             }
             data_subject = Some(subject_field.to_owned());
             i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("materialize ") {
+            // GAP-AUDIT-01 — `materialize @feature.<feature>.<Resource>`.
+            if materialize.is_some() {
+                return Err(line_error(
+                    line,
+                    "`audit materialize` may be declared at most once",
+                ));
+            }
+            materialize = Some(parse_audit_materialize_ref(line, rest.trim())?);
+            i += 1;
         } else if trimmed == "before" {
             record_before = true;
             i += 1;
@@ -110,7 +121,7 @@ pub(in crate::parser::lzi) fn parse_command_audit(
         } else {
             return Err(line_error(
                 line,
-                "`audit` children are `emit_to <event_group>`, `data_subject <field>`, `before`, `after`, or `retain <duration>` only",
+                "`audit` children are `emit_to <event_group>`, `data_subject <field>`, `materialize @feature.<feature>.<Resource>`, `before`, `after`, or `retain <duration>` only",
             ));
         }
     }
@@ -122,8 +133,42 @@ pub(in crate::parser::lzi) fn parse_command_audit(
             record_before,
             record_after,
             retain_for,
+            materialize,
             span: Span::new(header.start, header.end),
         },
         i,
     ))
+}
+
+/// GAP-AUDIT-01 — peel `materialize @feature.<feature>.<Resource>` into a
+/// typed [`AuditMaterializeAst`]. Mirrors the GAP-12 cross-feature target
+/// grammar (`resource/field.rs::extract_cross_feature_target`): the
+/// reference is exactly the `@feature.` prefix plus two dot-separated
+/// identifier segments (the owning feature + the OperationLog resource).
+/// Cross-feature reachability + the `append_only` invariant are enforced
+/// downstream by doctor `AUDIT-MATERIALIZE-TARGET-001`.
+fn parse_audit_materialize_ref(
+    line: &SourceLine<'_>,
+    reference: &str,
+) -> Result<AuditMaterializeAst, ParseError> {
+    let Some(qualified) = reference.strip_prefix("@feature.") else {
+        return Err(line_error(
+            line,
+            "`audit materialize` requires `@feature.<feature>.<Resource>`",
+        ));
+    };
+    let mut segments = qualified.split('.');
+    let feature = segments.next().unwrap_or("").trim();
+    let resource = segments.next().unwrap_or("").trim();
+    if feature.is_empty() || resource.is_empty() || segments.next().is_some() {
+        return Err(line_error(
+            line,
+            "`audit materialize @feature.<feature>.<Resource>` requires exactly a feature \
+             and a resource segment",
+        ));
+    }
+    Ok(AuditMaterializeAst {
+        feature: feature.to_owned(),
+        resource: resource.to_owned(),
+    })
 }

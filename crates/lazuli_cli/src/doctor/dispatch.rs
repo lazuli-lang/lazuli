@@ -583,6 +583,68 @@ impl DoctorPackage {
             }
         }
 
+        // GAP-AUDIT-01 — AUDIT-MATERIALIZE-TARGET-001. Every command
+        // `audit materialize @feature.<f>.<R>` target must resolve to a
+        // reachable resource (same feature or a `uses` dependency) AND
+        // that resource must be `append_only` (W4 modifier). Reuses the
+        // GAP-12 `uses`-as-Dependencies resolution model; anchors at the
+        // command header.
+        {
+            use lazuli_doctor::cross_feature::audit_materialize_target_001 as amt;
+            let views: Vec<amt::FeatureAuditMaterializeView> = self
+                .tier3_facts
+                .iter()
+                .map(|fact| {
+                    let mut sites = Vec::new();
+                    for command in &fact.commands {
+                        if let Some(audit) = &command.audit {
+                            if let Some(m) = &audit.materialize {
+                                sites.push(amt::AuditMaterializeSite {
+                                    command: command.name.clone(),
+                                    target_feature: m.feature.clone(),
+                                    target_resource: m.resource.clone(),
+                                });
+                            }
+                        }
+                    }
+                    amt::FeatureAuditMaterializeView {
+                        feature: fact.feature.clone(),
+                        path: fact.path.clone(),
+                        uses: fact.uses.clone(),
+                        resources: fact
+                            .resources
+                            .iter()
+                            .map(|r| amt::ResourceAppendOnly {
+                                name: r.name.clone(),
+                                append_only: r.append_only,
+                            })
+                            .collect(),
+                        materialize_sites: sites,
+                    }
+                })
+                .collect();
+            for finding in amt::check(&views) {
+                let fact = self.tier3_facts.iter().find(|f| f.feature == finding.feature);
+                let line = fact
+                    .and_then(|f| f.command_lines.get(&finding.command).copied())
+                    .or_else(|| fact.map(|f| f.feature_line))
+                    .unwrap_or(1);
+                diagnostics.push(DoctorDiagnostic {
+                    path: doctor_rule_path(&self.project_root, finding.path.clone()),
+                    line,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: amt::Finding::CODE.to_owned(),
+                    message: finding.message(),
+                    category: None,
+                    feature_name: Some(finding.feature.clone()),
+                    construct: None,
+                    fix: None,
+                    group: None,
+                });
+            }
+        }
+
         // IR Error-Vocab (Cell ANALYZE-1) — 7 typed `ERR-VOCAB-*` codes
         // per `docs/proposals/ir-error-messages-vocab.md` §6. Operates
         // on the lowered IR carried in `tier3_facts`; `files` is passed

@@ -86,6 +86,9 @@ pub(crate) fn lower_report_decl(
         record_before: a.record_before,
         record_after: a.record_after,
         retain_for: a.retain_for.clone(),
+        // GAP-AUDIT-01 — `materialize` is command-only; reports never
+        // materialize an OperationLog row.
+        materialize: None,
     });
 
     let policy_expr = r.policy_expr.as_ref().map(lower_policy_expr);

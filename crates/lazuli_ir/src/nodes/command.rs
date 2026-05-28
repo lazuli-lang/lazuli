@@ -265,6 +265,31 @@ pub struct AuditSpec {
     /// `None` = use feature/registry default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retain_for: Option<String>,
+    /// GAP-AUDIT-01 — `materialize @feature.<feature>.<Resource>` clause.
+    /// When present, the runtime writes the assembled audit record into
+    /// the named (append_only) OperationLog resource *in addition to* the
+    /// `emit_to` event — same record, two sinks. The target resolves like
+    /// a GAP-12 cross-feature reference (`uses`-as-Dependencies) and must
+    /// be an `append_only` resource (doctor `AUDIT-MATERIALIZE-TARGET-001`).
+    /// `None` = audit emits the event only (today's behaviour). Additive:
+    /// pre-GAP-AUDIT-01 snapshots deserialize with `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub materialize: Option<AuditMaterialize>,
+}
+
+/// GAP-AUDIT-01 — typed payload for the `materialize
+/// @feature.<feature>.<Resource>` clause on an `audit` block. Names the
+/// feature that owns the OperationLog resource + the resource itself. The
+/// reference resolves like a GAP-12 cross-feature target (same feature or
+/// a `uses`-listed dependency); doctor `AUDIT-MATERIALIZE-TARGET-001`
+/// additionally enforces the resolved resource is `append_only`. Mirrors
+/// `lazuli_syntax::AuditMaterializeAst`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct AuditMaterialize {
+    /// Owning feature name (segment after `@feature.`).
+    pub feature: String,
+    /// Target OperationLog resource name (PascalCase).
+    pub resource: String,
 }
 
 /// Phase L Tier 4b — Cut A.9 `approval` block lifted into IR.

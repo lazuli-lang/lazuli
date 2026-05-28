@@ -51,6 +51,8 @@ mod slots;
 #[cfg(test)]
 mod deprecated_tests;
 #[cfg(test)]
+mod gap_audit01_tests;
+#[cfg(test)]
 mod w4_tests;
 
 pub(in crate::parser::lzi) use audit::parse_command_audit;

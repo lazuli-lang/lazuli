@@ -57,8 +57,8 @@ pub use nodes::capability::{
     HashAlgorithm, HashedCapability, MimeType, PiiCapability, TokenCapability, TokenStore,
 };
 pub use nodes::command::{
-    ApprovalSpec, ApprovalThen, Assignment, AuditSpec, Command, CommandEffect, CommandInput,
-    CommandKind, CommandWriteWindow, CreateEffect, DeleteEffect, Deprecation,
+    ApprovalSpec, ApprovalThen, Assignment, AuditMaterialize, AuditSpec, Command, CommandEffect,
+    CommandInput, CommandKind, CommandWriteWindow, CreateEffect, DeleteEffect, Deprecation,
     DeprecationReplacement, DerivedFrom, InvalidatesSpec, LetBinding, NamedArg, PolicyRef,
     ReorderEffect, ReturnsEffect, RouteSlot, RouteSlotKind, TargetExpr, TypedSlot, UpdateEffect,
 };
