@@ -16,6 +16,12 @@
 //! - `LZX-VIEW-MODE-001` — each `view_mode` keyword must parse to a known
 //!   render mode (`RenderMode::parse`); `inline_table on_change` must
 //!   reference a declared command whose target resource matches the view's.
+//! - `LZX-BOARD-LANES-001` (GAP-UX-05) — `view.board lanes derived_from
+//!   <field>`: the lane source must be a declared enum field (one lane per
+//!   variant) or a has_many relation on the view's bound resource.
+//! - `LZX-REPEATABLE-SUM-001` (GAP-UX-05) — `repeatable input … validates
+//!   sum(<f>) = <n>`: the summed field must be a numeric field declared in the
+//!   group (the parser guarantees `<n>` is a number literal).
 //!
 //! All operate on the real `lazuli_ir::Module`. Unknown source queries /
 //! resources are suppressed (those belong to the source-resource rules).
@@ -51,6 +57,14 @@ pub const WIZARD_STEPS_CODE: &str = "LZX-WIZARD-STEPS-EXPR-001";
 pub const TAB_GROUP_CASE_CODE: &str = "LZX-TAB-GROUP-CASE-001";
 pub const TAB_VIEW_REF_CODE: &str = "LZX-TAB-VIEW-REF-001";
 pub const VIEW_MODE_CODE: &str = "LZX-VIEW-MODE-001";
+/// GAP-UX-05 — `view.board lanes derived_from <field>`: the lane source must
+/// be a declared enum field (one lane per variant) or a has_many relation on
+/// the view's bound resource.
+pub const BOARD_LANES_CODE: &str = "LZX-BOARD-LANES-001";
+/// GAP-UX-05 — `repeatable input … validates sum(<f>) = <n>`: the summed
+/// field must be a numeric field declared in the group (the parser already
+/// guarantees `<n>` is a number literal).
+pub const REPEATABLE_SUM_CODE: &str = "LZX-REPEATABLE-SUM-001";
 
 /// Run all four W6 surface UX rules across the module.
 pub fn check(module: &Module) -> Vec<Finding> {
@@ -210,6 +224,87 @@ fn check_view_ux(
             });
         }
     }
+
+    // ── LZX-BOARD-LANES-001 ────────────────────────────────────────────────
+    // `view.board lanes derived_from <field>` — the lane source must be a
+    // declared enum field (one lane per variant) OR a has_many relation
+    // (`TypeRef::Many`) on the view's bound resource.
+    if let Some(board) = &ux.board {
+        let line = board.span_ref.map(|s| s.start).unwrap_or(0);
+        let field = resource.and_then(|(_, r)| field_on(r, &board.lanes_source));
+        let valid = matches!(
+            field.map(|f| &f.type_ref),
+            Some(TypeRef::EnumRef(_)) | Some(TypeRef::Many(_))
+        );
+        if !valid {
+            out.push(Finding {
+                code: BOARD_LANES_CODE,
+                severity: Severity::Error,
+                feature: feature.name.clone(),
+                view: view_name.to_owned(),
+                line,
+                message: format!(
+                    "view.board `lanes derived_from {}` must reference a declared enum field or has_many relation on the bound resource",
+                    board.lanes_source
+                ),
+            });
+        }
+    }
+
+    // ── LZX-REPEATABLE-SUM-001 ─────────────────────────────────────────────
+    // `repeatable input … validates sum(<f>) = <n>` — the summed field must
+    // be a numeric field declared inside the group. The parser already
+    // guarantees the `<n>` target is a number literal.
+    for group in &ux.repeatable_groups {
+        let line = group.span_ref.map(|s| s.start).unwrap_or(0);
+        match group.fields.iter().find(|f| f.name == group.sum_field) {
+            None => out.push(Finding {
+                code: REPEATABLE_SUM_CODE,
+                severity: Severity::Error,
+                feature: feature.name.clone(),
+                view: view_name.to_owned(),
+                line,
+                message: format!(
+                    "repeatable input `{}` sums `{}`, which is not a field declared in the group",
+                    group.name, group.sum_field
+                ),
+            }),
+            Some(field) if !is_numeric_type_name(&field.type_name) => out.push(Finding {
+                code: REPEATABLE_SUM_CODE,
+                severity: Severity::Error,
+                feature: feature.name.clone(),
+                view: view_name.to_owned(),
+                line,
+                message: format!(
+                    "repeatable input `{}` sums non-numeric field `{}` (type `{}`); sum requires a numeric field",
+                    group.name, group.sum_field, field.type_name
+                ),
+            }),
+            Some(_) => {}
+        }
+    }
+}
+
+/// Find field `name` on `resource`.
+fn field_on<'a>(resource: &'a Resource, name: &str) -> Option<&'a Field> {
+    resource.fields.iter().find(|f| f.name == name)
+}
+
+/// True when a repeatable-group field's type keyword names a numeric type the
+/// `sum(...)` constraint can aggregate. Accepts the closed numeric builtins
+/// (`Integer`/`Int`, `Decimal`, `Float`) plus the numeric semantics
+/// (`Money`, `Percentage`). Matching is on the authored type keyword (the
+/// repeatable group carries its fields verbatim, not as resolved `TypeRef`);
+/// the leading `@semantic.` namespace, if present, is stripped first.
+fn is_numeric_type_name(type_name: &str) -> bool {
+    let bare = type_name
+        .trim()
+        .strip_prefix("@semantic.")
+        .unwrap_or(type_name.trim());
+    matches!(
+        bare,
+        "Int" | "Integer" | "Decimal" | "Float" | "Number" | "Money" | "Percentage"
+    )
 }
 
 /// `LZX-TAB-VIEW-REF-001` — tab/wizard refs resolve to a declared view in the

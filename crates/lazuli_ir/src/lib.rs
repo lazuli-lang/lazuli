@@ -132,12 +132,12 @@ pub use nodes::source_map::{
     SymbolOriginIndex,
 };
 pub use nodes::surface::{
-    Audience, AudienceUx, BindingRef, CellBinding, CommandRef, DrawerBindingSource,
+    Audience, AudienceUx, BindingRef, Board, CellBinding, CommandRef, DrawerBindingSource,
     DrawerRouteBinding, DrawerSubView, DrawerTrigger, FilterCardinality, FilterDecl, FlashSpec,
-    InlineTable, ListRender, OnSuccessSpec, QueryKind, QueryRef, RenderMode, RouteParam,
-    SearchDecl, SearchField, SearchMode, SelectionDecl, SelectionMode, SettingDecl,
-    SettingPersistence, SettingValueSpace, SortDecl, SortDir, Surface, SurfaceTarget, TabEntry,
-    TabGroup, TabGroupCase, Tabs, View, ViewCreate, ViewDetail, ViewList, ViewUx, Wizard,
+    InlineTable, ListRender, OnSuccessSpec, QueryKind, QueryRef, RenderMode, RepeatableField,
+    RepeatableGroup, RouteParam, SearchDecl, SearchField, SearchMode, SelectionDecl, SelectionMode,
+    SettingDecl, SettingPersistence, SettingValueSpace, SortDecl, SortDir, Surface, SurfaceTarget,
+    TabEntry, TabGroup, TabGroupCase, Tabs, View, ViewCreate, ViewDetail, ViewList, ViewUx, Wizard,
     WizardStep, WizardSteps,
 };
 pub use nodes::test_and_policy::{

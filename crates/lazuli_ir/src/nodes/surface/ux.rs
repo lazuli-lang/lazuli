@@ -34,16 +34,28 @@ pub struct ViewUx {
     /// (GAP-UX-04).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inline_table: Option<InlineTable>,
+    /// `view.board <name> / lanes derived_from <field>` — kanban-style board
+    /// whose lanes are derived from an enum field or has_many relation on the
+    /// bound resource (GAP-UX-05).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board: Option<Board>,
+    /// `repeatable input <name> group { … } validates sum(<f>) = <n>` —
+    /// repeatable field-array control with a cross-row sum constraint
+    /// (GAP-UX-05).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub repeatable_groups: Vec<RepeatableGroup>,
 }
 
 impl ViewUx {
-    /// True when no W6 primitive is declared — codegen can skip the whole
-    /// surface.
+    /// True when no W6/GAP-UX-05 primitive is declared — codegen can skip the
+    /// whole surface.
     pub fn is_empty(&self) -> bool {
         self.wizard_steps.is_none()
             && self.tab_group.is_none()
             && self.view_modes.is_empty()
             && self.inline_table.is_none()
+            && self.board.is_none()
+            && self.repeatable_groups.is_empty()
     }
 }
 
@@ -191,6 +203,50 @@ pub struct InlineTable {
     pub span_ref: Option<SpanRef>,
 }
 
+/// `view.board <name> / lanes derived_from <field>` — a kanban-style board
+/// whose lanes come from an enum field (one lane per variant) or a has_many
+/// relation on the view's bound resource (GAP-UX-05).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Board {
+    /// Optional board name (from the `view.board <name>` header). Empty when
+    /// the header omits a name.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    /// `lanes derived_from <field>` — the enum field or has_many relation
+    /// whose value set defines the board's lanes.
+    pub lanes_source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// `repeatable input <name> group { <fields> } validates sum(<field>) = <n>`
+/// — a repeatable group of input rows with a cross-row sum constraint
+/// (e.g. installment percentages must total 100) (GAP-UX-05).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepeatableGroup {
+    /// The group's identifier (`repeatable input <name>`).
+    pub name: String,
+    /// The fields declared inside `group { … }`, in source order.
+    pub fields: Vec<RepeatableField>,
+    /// `sum(<field>)` — the group field aggregated across rows.
+    pub sum_field: String,
+    /// `= <n>` — the numeric literal the sum must equal, kept verbatim (the
+    /// parser guarantees it parses as a number; stored as the source string so
+    /// the IR node stays `Eq`/`Hash`-friendly and codegen emits it as authored).
+    pub sum_target: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
+/// One `<name>: <Type>` field inside a [`RepeatableGroup`]'s `group { … }`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepeatableField {
+    pub name: String,
+    /// The declared type keyword (`Int`, `Decimal`, `Text`, …), kept verbatim;
+    /// doctor `LZX-REPEATABLE-SUM-001` checks the summed field is numeric.
+    pub type_name: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -215,5 +271,44 @@ mod tests {
     #[test]
     fn audience_ux_default_is_empty() {
         assert!(AudienceUx::default().is_empty());
+    }
+
+    #[test]
+    fn board_marks_view_ux_non_empty_and_serializes() {
+        let ux = ViewUx {
+            board: Some(Board {
+                name: "activity_board".to_owned(),
+                lanes_source: "status".to_owned(),
+                span_ref: None,
+            }),
+            ..Default::default()
+        };
+        assert!(!ux.is_empty());
+        let json = serde_json::to_value(&ux).unwrap();
+        assert_eq!(json["board"]["lanes_source"], serde_json::json!("status"));
+    }
+
+    #[test]
+    fn repeatable_group_marks_view_ux_non_empty() {
+        let ux = ViewUx {
+            repeatable_groups: vec![RepeatableGroup {
+                name: "installments".to_owned(),
+                fields: vec![
+                    RepeatableField {
+                        name: "days".to_owned(),
+                        type_name: "Int".to_owned(),
+                    },
+                    RepeatableField {
+                        name: "percentage".to_owned(),
+                        type_name: "Decimal".to_owned(),
+                    },
+                ],
+                sum_field: "percentage".to_owned(),
+                sum_target: "100".to_owned(),
+                span_ref: None,
+            }],
+            ..Default::default()
+        };
+        assert!(!ux.is_empty());
     }
 }

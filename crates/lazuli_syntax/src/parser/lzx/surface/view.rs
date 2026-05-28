@@ -54,9 +54,10 @@ use super::super::super::common::{
 };
 use super::super::super::error::ParseError;
 use super::{
-    ViewBodyState, parse_drawer_block, parse_filters_block, parse_inline_table_line,
-    parse_on_success_block, parse_tab_group_block, parse_view_mode_block, parse_view_search_decl,
-    parse_view_settings_block, parse_view_sort_block, parse_wizard_steps_line, view_body_handlers,
+    ViewBodyState, parse_board_block, parse_drawer_block, parse_filters_block,
+    parse_inline_table_line, parse_on_success_block, parse_repeatable_group_line,
+    parse_tab_group_block, parse_view_mode_block, parse_view_search_decl, parse_view_settings_block,
+    parse_view_sort_block, parse_wizard_steps_line, view_body_handlers,
 };
 use crate::ast::{
     SelectionDeclAst, SelectionModeAst, Span, ViewAst, ViewCreateAst, ViewDetailAst, ViewListAst,
@@ -256,6 +257,28 @@ pub(super) fn parse_view_block(
             continue;
         }
 
+        // GAP-UX-05 — kanban board (list-only) and repeatable input group
+        // (valid in any view kind that hosts inputs/lists).
+        if trimmed.starts_with("view.board ") || trimmed == "view.board" {
+            if kind != "list" {
+                return Err(line_error(
+                    line,
+                    "`view.board` is only valid in `view list` bodies",
+                ));
+            }
+            let rest = trimmed.strip_prefix("view.board").unwrap_or("").trim();
+            let (next, block_end) = parse_board_block(lines, i, body_indent, rest, &mut state)?;
+            last_end = block_end;
+            i = next;
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("repeatable input ") {
+            parse_repeatable_group_line(line, rest.trim(), &mut state)?;
+            last_end = line.end;
+            i += 1;
+            continue;
+        }
+
         let mut matched = false;
         for (prefix, handler) in view_body_handlers() {
             if let Some(rest) = trimmed.strip_prefix(prefix) {
@@ -343,7 +366,7 @@ pub(super) fn parse_view_block(
             if !state.ux.is_empty() {
                 return Err(line_error(
                     header,
-                    "`wizard_steps` / `tab_group` / `view_mode` / `view.inline_table` are not valid in `view create`",
+                    "`wizard_steps` / `tab_group` / `view_mode` / `view.inline_table` / `view.board` / `repeatable input` are not valid in `view create`",
                 ));
             }
             ViewAst::Create(ViewCreateAst {
