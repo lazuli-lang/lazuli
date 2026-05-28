@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use lazuli_ir::{CommandInput, Feature, Module, TypeRef};
 
 use super::universal_columns::{is_universal_column, is_view_projection_record};
+use crate::allow_comment::file_contains_doctor_allow;
 
 /// Minimum cluster size for a finding. Authors can override via
 /// `Lazurite.toml [doctor.vocab.shadow_record].min_cluster_fields`.
@@ -186,6 +187,14 @@ pub fn check_with_config(
     min_cluster_fields: usize,
     min_cluster_ratio: f64,
 ) -> Vec<Finding> {
+    // Whole-file opt-out — silence ALL findings from this `.lzi` when
+    // the canonical allow comment is present. Mirrors the pattern used
+    // by `migration_alter_missing_001` and the lifecycle rules; closes
+    // the gap where the rule's own message advertised the opt-out but
+    // never honored it.
+    if file_contains_doctor_allow(path, Finding::CODE) {
+        return Vec::new();
+    }
     let views = collect_declaration_views(feature, module);
     let mut findings = Vec::new();
     for i in 0..views.len() {

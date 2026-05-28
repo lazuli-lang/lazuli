@@ -47,6 +47,7 @@
 
 use std::path::Path;
 
+use lazuli_doctor::allow_comment::file_contains_doctor_allow;
 use lazuli_doctor::{RuleCategory, lifecycle};
 use lazuli_lsp::SecurityProfile;
 
@@ -174,6 +175,17 @@ fn enum_duplicate_findings(
     header_line: usize,
     security_profile: SecurityProfile,
 ) -> Vec<DoctorDiagnostic> {
+    // 2026-05-27 — Honor `# doctor:allow LIFECYCLE-ENUM-DUPLICATE` at
+    // the source-file level. The underlying detector reads only the
+    // synthesized IR (which has no source comments), so the canonical
+    // escape hatch must be applied here. Until the analyzer records a
+    // `synth_origins` entry for lifecycle-emitted enums, every authored
+    // `lifecycle <field>` block trips the rule against its own auto-
+    // emission — this opt-out lets pilots silence the false positive
+    // with a reasoned comment while the framework-side fix lands.
+    if file_contains_doctor_allow(path, lifecycle::enum_duplicate::Finding::CODE) {
+        return Vec::new();
+    }
     let severity = doctor_severity_for(
         lifecycle::enum_duplicate::Finding::CODE,
         RuleCategory::Lifecycle,
@@ -204,6 +216,15 @@ fn field_double_declared_findings(
     header_line: usize,
     security_profile: SecurityProfile,
 ) -> Vec<DoctorDiagnostic> {
+    // 2026-05-27 — Honor `# doctor:allow LIFECYCLE-FIELD-DOUBLE-DECLARED`
+    // at the source-file level. Same root cause as enum_duplicate above:
+    // analyzer auto-emits the discriminator field into resource.fields,
+    // then the detector flags it against its own emission. Pilots can
+    // silence with a reasoned comment until the framework-side fix lands
+    // (detector should consult `feature.synth_origins`).
+    if file_contains_doctor_allow(path, lifecycle::field_double_declared::Finding::CODE) {
+        return Vec::new();
+    }
     let severity = doctor_severity_for(
         lifecycle::field_double_declared::Finding::CODE,
         RuleCategory::Lifecycle,

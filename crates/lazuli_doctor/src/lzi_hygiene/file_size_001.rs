@@ -130,9 +130,19 @@ impl Finding {
 /// assert_eq!(findings.len(), 1);
 /// ```
 pub fn check(files: &[LziSourceFile]) -> Vec<Finding> {
+    use crate::allow_comment::source_contains_doctor_allow;
     let mut out = Vec::new();
     for file in files {
         if file.loc_count <= WARN_SOFT_LOC {
+            continue;
+        }
+        // Whole-file opt-out — silence the LOC-threshold advisory when
+        // the `.lzi` carries the canonical allow comment. The rule's
+        // message advertises the `# doctor:allow` opt-out; this honors
+        // it. Use case: features whose cohesion genuinely warrants
+        // staying together (cross-feature splits would harm cold-read
+        // more than the LOC tax).
+        if source_contains_doctor_allow(&file.source, Finding::CODE) {
             continue;
         }
         let tier = if file.loc_count > WARN_HARD_LOC {

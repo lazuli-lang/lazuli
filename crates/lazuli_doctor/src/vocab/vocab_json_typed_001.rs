@@ -58,6 +58,8 @@ use lazuli_ir::{
     TypeRef, TypedSlot,
 };
 
+use crate::allow_comment::file_contains_doctor_allow;
+
 // ── output ───────────────────────────────────────────────────────────────────
 
 /// One VOCAB-JSON-TYPED-001 finding: a JSON bag with an orphan enum catalog.
@@ -123,6 +125,14 @@ impl Finding {
 /// let _ = check(&feature, Path::new("billing.lzi"));
 /// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
+    // Whole-file opt-out — silence ALL findings from this `.lzi` when
+    // the canonical allow comment is present. Mirrors the pattern used
+    // by `migration_alter_missing_001` and the lifecycle rules; closes
+    // the gap where the rule's own message advertised the opt-out but
+    // never honored it.
+    if file_contains_doctor_allow(path, Finding::CODE) {
+        return Vec::new();
+    }
     let referenced_enums = collect_referenced_enums(feature);
     feature
         .resources

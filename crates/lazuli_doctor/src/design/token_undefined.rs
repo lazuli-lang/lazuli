@@ -92,6 +92,31 @@ fn extra_buckets_for(bucket_key: &str) -> &'static [&'static str] {
     }
 }
 
+/// `true` when `(prefix, suffix)` denotes a CSS color keyword on a
+/// color-bucket prefix (`text-current`, `bg-transparent`, `border-inherit`).
+/// These are CSS-defined globals (`currentColor`, `transparent`, `inherit`),
+/// NOT design tokens — they resolve at the browser layer with no design
+/// system involvement. Doctor short-circuits them before the bucket lookup
+/// so authors don't have to declare them as pseudo-tokens.
+fn is_css_color_keyword(prefix: &str, suffix: &str) -> bool {
+    const COLOR_PREFIXES: &[&str] = &[
+        "text-", "bg-", "border-", "ring-", "ring-offset-",
+        "divide-", "outline-", "fill-", "stroke-", "shadow-",
+        "accent-", "caret-", "placeholder-", "from-", "to-", "via-",
+        "decoration-",
+    ];
+    const COLOR_KEYWORDS: &[&str] = &[
+        "current",     // currentColor
+        "transparent", // transparent
+        "inherit",     // CSS inherit keyword
+        "initial",     // CSS initial keyword
+        "unset",       // CSS unset keyword
+        "revert",      // CSS revert keyword
+        "none",        // for fill/stroke that accept `none`
+    ];
+    COLOR_PREFIXES.contains(&prefix) && COLOR_KEYWORDS.contains(&suffix)
+}
+
 /// `true` when `(prefix, suffix)` denotes a Tailwind ring-width or
 /// ring-offset-width built-in (`ring-2`, `ring-inherit`, `ring-offset-4`,
 /// `ring-offset-inherit`, etc). These are NOT design-token color
@@ -241,6 +266,12 @@ pub fn check_file(path: &Path, lines: &[&str], allowlist: &Allowlist) -> Vec<Fin
                 // (`ring-2`, `ring-inherit`, `ring-offset-4`) are NOT
                 // color references — short-circuit them here.
                 if is_ring_width_builtin(prefix, suffix) {
+                    continue;
+                }
+                // CSS color keywords (`text-current`, `bg-transparent`,
+                // `border-inherit`) resolve at the browser layer with
+                // no design system involvement — short-circuit them too.
+                if is_css_color_keyword(prefix, suffix) {
                     continue;
                 }
                 // Empty suffix on a "bare" class (`rounded`, `shadow`) →
