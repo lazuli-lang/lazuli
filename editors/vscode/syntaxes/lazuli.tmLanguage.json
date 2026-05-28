@@ -1434,7 +1434,7 @@
         { "include": "#strings" },
         {
           "name": "entity.name.function.statement.audit.lazuli",
-          "match": "^\\s+(emit_to)\\b"
+          "match": "^\\s+(emit_to|materialize|before|after|data_subject|retain_for)\\b"
         },
         { "include": "#references" },
         { "include": "#constants" },
@@ -2601,7 +2601,7 @@
       "patterns": [
         {
           "comment": "Parameterized decorator with named args, e.g. `@cap.File(max_size: \"10mb\", accept: \"png\")`. Uses begin/end so arg-keys inside parens can be highlighted as `variable.parameter`.",
-          "begin": "(@(?:semantic|cap|pii|key|policy|scope|fn|hook|validator|adapter|client|query_modifier|llm|tool|anchor|actor|role|runtime|plugin|slug|full_text|translation|template)\\.)([A-Z][A-Za-z0-9_]*)\\s*(\\()",
+          "begin": "(@(?:semantic|cap|pii|key|policy|scope|fn|hook|validator|adapter|client|query_modifier|llm|tool|anchor|actor|role|runtime|plugin|slug|owner_axis|full_text|translation|template)\\.)([A-Z][A-Za-z0-9_]*)\\s*(\\()",
           "beginCaptures": {
             "1": { "name": "entity.name.tag.lazuli" },
             "2": { "name": "entity.name.tag.lazuli" },
@@ -2629,12 +2629,12 @@
         {
           "comment": "Non-parameterized decorator with a Name suffix, e.g. `@semantic.GeoPoint`.",
           "name": "entity.name.tag.lazuli",
-          "match": "@(?:semantic|cap|pii|key|slug|full_text|llm|tool|adapter|policy|scope|role|actor|anchor|client|fn|hook|validator|query_modifier|translation|template)\\.[A-Z][A-Za-z0-9_]*\\b"
+          "match": "@(?:semantic|cap|pii|key|slug|owner_axis|full_text|llm|tool|adapter|policy|scope|role|actor|anchor|client|fn|hook|validator|query_modifier|translation|template)\\.[A-Z][A-Za-z0-9_]*\\b"
         },
         {
           "comment": "Bare decorator namespace (no `.Name`), e.g. `@cap` standalone.",
           "name": "entity.name.tag.lazuli",
-          "match": "@(?:semantic|cap|pii|key|slug|full_text|llm|tool|adapter|policy|scope|role|actor|anchor|client|fn|hook|validator|query_modifier|translation|template)\\b"
+          "match": "@(?:semantic|cap|pii|key|slug|owner_axis|full_text|llm|tool|adapter|policy|scope|role|actor|anchor|client|fn|hook|validator|query_modifier|translation|template)\\b"
         }
       ]
     },

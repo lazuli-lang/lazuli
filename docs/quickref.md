@@ -352,6 +352,31 @@ command policies (`LZX-POL-001`).
 [v0] `.lzx` has no cascade or partial override. Do not write
 `columns += score`; redeclare the whole view for that audience/tenant.
 
+## Surface Primitives (`.lzx`)
+
+Inspectable surface constructs (see `grammar.lzx.md` §7a for full grammar):
+
+```lazuli
+view.list customers
+  filter created: date_range          # paired from/to picker -> created_from / created_to
+  view_mode { table; kanban }         # user-toggleable render modes
+  view.inline_table on_change @command.update_row   # inline-editable rows
+  wizard_steps 3 current registration_step          # step indicator bound to an enum field
+  tab_group derived_from vehicle_type {             # runtime-data-driven tabs
+    case TV, RADIO -> tab "Broadcast"
+    case PRINT     -> tab "Print"
+  }
+
+view.board activity_board
+  lanes derived_from status           # kanban lanes per enum variant
+
+repeatable input installments group { days: Int; percentage: @semantic.Percentage }
+  validates sum(percentage) = 100     # repeatable row group with cross-row sum guard
+```
+
+Static `tabs { tab "Name" -> view X }` and `wizard <name> steps { step 1: <ref> }`
+containers also exist (`grammar.lzx.md`).
+
 ## Policy Vocabulary
 
 Lazuli has three distinct policy concepts. Do not collapse them:
