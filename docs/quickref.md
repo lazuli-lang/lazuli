@@ -316,11 +316,14 @@ surface ping web
 
 ```txt
 meta -> defaults -> uses -> refs? -> domain -> policies -> errors -> auth
--> command -> api -> workflow -> job -> webhook -> surface -> extensions
+-> command -> api -> report -> job -> webhook -> surface -> extensions
 -> escape_route
 ```
 
-`meta` means `purpose`, `non_goals`, and `context`.
+`meta` means `purpose`, `non_goals`, `attach_ctx`, and `context`.
+[v0] `workflow` is retired (parser hard-errors `E-WORKFLOW-RETIRED`). Express
+lifecycle via the resource `lifecycle <field>` block plus the command
+`triggers transition <name>` clause.
 `refs` is optional and documentary. Do not author it just to list core
 `@role.*`/`@scope.*`/`@policy.*` namespaces; use
 `lazuli inspect --expand=refs` for that generated manifest.
@@ -359,7 +362,7 @@ Lazuli has three distinct policy concepts. Do not collapse them:
 | `policy ...` statement | construct references one category | `policy @policy.update` |
 | policy atom | terminal auth predicate/executor/role | `@role.admin`, `@scope.same_org`, `@actor.system` |
 
-[v0] Commands, workflows, and queries with local policy should reference
+[v0] Commands and queries with local policy should reference
 `@policy.*`, not raw `@role.*` or `@scope.*`. Defaults and escape routes may
 still use atoms directly when they are the actual authority boundary.
 
@@ -410,11 +413,11 @@ namespaces. Unknown namespaces are errors unless the spec adds them.
 | schedule job | `schedule.*`, `ctx.*` |
 | webhook | `payload.*`, `ctx.*` |
 | rule | `self`, `ctx.*` |
-| workflow transition tests | `self`, `ctx.*` |
+| lifecycle transition tests | `self`, `ctx.*` |
 | command tests | `target`, `ctx.*` |
 
 `target` is the immutable entity loaded by a command or declarative job.
-`self` is the snapshot evaluated by rules and workflow predicates.
+`self` is the snapshot evaluated by rules and lifecycle transition predicates.
 
 ## Name Resolution
 
@@ -562,6 +565,62 @@ record CustomerLtv
 query.sql lifetime_value
   returns CustomerLtv[]
   sql "./queries/customer_lifetime_value.sql"
+```
+
+## Domain Primitives
+
+Resource-body modifiers, relations, and field decorators beyond the basics:
+
+| Construct | Meaning | Example |
+|-----------|---------|---------|
+| `append_only` | insert-only resource; rejects update/delete commands | `append_only` |
+| `many_through <J> to <P> { … }` | M:N junction carrying payload metadata | `many_through JobMember to User` |
+| `polymorphic_ref <type> <id> targets [A, B]` | polymorphic FK over a target set | `polymorphic_ref entity_type entity_id targets [Job, Activity]` |
+| `unique <field> when <pred>` | partial/conditional unique index | `unique is_default when is_default = true` |
+| `<f>: ID target @feature.<feat>.<Res>` | cross-feature FK annotation (needs `uses`) | `dept_id: ID target @feature.org.Department` |
+| `@slug` | auto-unique URL slug column | `slug: Text @slug` |
+| `@full_text` | tsvector source for `fts on (...)` | `body: Text @full_text` |
+| `@owner_axis(through: <col>)` | ownership-scope projection FK | `host: Host @owner_axis(through: org_id)` |
+| `computed_date from <base> offset <n>` | derived `Date` = base field + days | `due: Date computed_date from start offset 30` |
+| `schedule_rule from @fn.<r>(<arg>) offset <n>` | rule-driven derived `Date` | `due: Date schedule_rule from @fn.rule(input.kind) offset 7` |
+
+```lazuli
+resource Job
+  title: Text @slug required
+  many_through JobMember to User
+    role_in_job: Text required
+  polymorphic_ref entity_type entity_id targets [Customer, Activity]
+  unique (org, title) when archived = false
+```
+
+`@semantic.HexColor` (Text-backed `#RRGGBB`/`#RGB`) and `@semantic.Percentage`
+(Decimal-backed, `0..=100`) join the closed `@semantic.*` scalar catalog:
+
+```lazuli
+brand_color: @semantic.HexColor required
+completion: @semantic.Percentage = 0
+```
+
+## Reports
+
+`report <name>` projects a `query.*` source through a closed `columns` catalog
+into one or more `formats`. `source` + a non-empty `formats` list are required;
+`input` threads request-time params to the source query.
+
+```lazuli
+report monthly_audit
+  input
+    period_start: Date required
+  source customer.query.list
+  columns
+    id from row.id
+    ltv from @fn.lifetime_value(row.id) label "Valor de vida"
+  formats csv, xlsx
+  storage object_storage.files
+  visibility signed
+  signed_ttl 1h
+  policy @policy.global_read
+  audit actor, ctx.now
 ```
 
 ## Agents (Cut A)
@@ -725,9 +784,21 @@ command reassign
     owner = resolved_owner
 ```
 
-Required children: `by` (one or more `@role.<name>`), `timeout`
-(duration string), `then` (`deny` or `proceed`). Optional:
-`required_when` (closed predicate; omission means "always required").
+Required children: `by` (single `@role.<name>`) OR `chain` (ordered
+approvers — not both), and `then` (`deny`, `allow`, or `escalate`).
+Optional: `required_when` (closed predicate; omission means "always
+required"), `timeout` (duration string), `sequential`.
+
+For a multi-approver chain, use `chain [@role.a, @role.b]` with an
+optional trailing `sequential` to enforce strict order:
+
+```lazuli
+approval
+  required_when target.amount > 10000
+  chain [@role.manager, @role.finance_admin] sequential
+  timeout "48h"
+  then escalate
+```
 
 Three guards now satisfy `agent_tool_write_unguarded_diagnostics`:
 - agent `safety @validator.<name>` (Cut A baseline)
@@ -738,6 +809,24 @@ The three are not subsets of each other — `safety` is pre-flight
 input scrub, `approval` is runtime gating, `idempotency` is replay-
 safety. Pick by the threat shape, not by which is fewer keystrokes.
 
+## Command Verbs (effects)
+
+Beyond `creates`/`updates`/`deletes`, two more effect verbs:
+
+- `reorder <Resource> by <position_field>` — batch position update; rewrites
+  the integer position column across rows in one statement (`<Resource>` may
+  be feature-qualified). Cardinality 0..1 per command.
+- `audit ... materialize @feature.<f>.<OperationLog>` — sink the audit record
+  into an `append_only` resource in another feature (reachable via `uses`).
+
+```lazuli
+command reorder_steps
+  policy @policy.update
+  reorder JobStep by position
+  audit actor, ctx.now
+    materialize @feature.audit.OperationLog
+```
+
 ## Tests
 
 Tests are inline IR assertions. They are optional by default and strict in
@@ -746,7 +835,7 @@ Tests are inline IR assertions. They are optional by default and strict in
 | Construct | Verbs | Binding |
 |-----------|-------|---------|
 | command | authored: `allows`/`denies when <predicate>`; generated: `permits`/`forbids <actor>` from `policy @policy.*` | `target` |
-| workflow transition | `allows`/`denies from <state>`; `allows`/`denies as <actor>`; combined | `self` |
+| lifecycle transition | `allows`/`denies from <state>`; `allows`/`denies as <actor>`; combined | `self` |
 | rule | `allows`/`denies when <predicate>` | `self` |
 | extensible view | `accepted`/`rejected by <feature>` | none |
 
@@ -867,6 +956,19 @@ non_goals
 `delegated_to` entries document ownership by another feature and may be
 validated as feature ids. `out_of_scope` entries document design boundaries
 that are not semantic dependencies. Direct keys and `anti_pattern.*` are legacy.
+
+## Attach Context
+
+[v0] `attach_ctx "<path>"` is a feature-header directive (alongside `purpose`
+/ `non_goals`) that points the feature at a sidecar markdown context file the
+agent / strict profile reads as authoring guidance. Quoted relative path,
+cardinality 0..1.
+
+```lazuli
+feature catalog
+  purpose "Discover and book lodging."
+  attach_ctx "./ctx.md"
+```
 
 ## Inspect Context Pack
 

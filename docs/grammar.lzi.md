@@ -85,27 +85,28 @@ Reserved words are recognized by `IDENT_LOWER` matching the closed
 list. Any `IDENT_LOWER` not on this list is a user identifier.
 
 ```
-access_ttl agent api at audience auth backoff budget by cache calls case channel
-chunk client command commands compatibility constraints context contract
+access_ttl agent api append_only approval at attach_ctx audience auth backoff
+budget by cache calls case chain channel
+chunk client command commands compatibility computed_date constraints context contract
 context_files cost creates default defaults delegated_to deletes deny
 denies discriminator domain emits enum env environment environments
 errors error escape_route event event_group evals expose extends
 extensible_by extensions fanout feature field fields filter filters
 flow fn forbids from grace group handler has hash has_many hook idempotency
 identity in input integration integrations job key keys knowledge
-let lookup max_tokens method migrations migration_lock model modifier
-multi_tenant mfa non_goals notification of on on_delete oauth optional
+let lifecycle lookup many_through materialize max_tokens method migrations migration_lock model modifier
+multi_tenant mfa non_goals notification of offset on on_delete oauth optional
 order otherwise out_of_scope output owner packs paginate params parent
-password path pii platform policies policy policy_for prompt provides
+password path pii platform polymorphic_ref policies policy policy_for prompt provides
 public publishes purpose query query.list query.lookup query.sql rate_limit
-read record recipient refs registry relation required requires resource
-refresh_ttl restrict retention retry returns role rotation route rule run schedule scope
-search seed self service services session sessions soft_delete source
-sql step submit subscribes surface tags target template temperature
+read record recipient refs registry relation reorder report required requires resource
+refresh_ttl restrict retention retry returns role rotation route rule run schedule schedule_rule scope
+search seed self sequential service services session sessions soft_delete source
+sql state step submit subscribes surface tags target targets template temperature
 tenancy tenant tenant_from terminate test tests then through timeouts
-theft_detection_action timeout timestamps to tools top top_p totp trace trigger ttl type
+theft_detection_action timeout timestamps to tools top top_p totp trace transition trigger triggers ttl type
 uniques unique uses using validates validator value verify view views
-webhook when when_denied window_function with workflow workspace write
+webhook when when_denied window_function with workspace write
 ```
 
 (Names in this list are recognized as keywords only inside their
@@ -134,7 +135,7 @@ feature_body      = ( meta_block
                     | webhook_block
                     | job_block
                     | notification_block
-                    | workflow_block
+                    | report_block
                     | rule_block
                     | event_block
                     | event_group_block
@@ -156,9 +157,15 @@ in `docs/canonical-semantics.md §Quick Reference`, not by the grammar.
 
 ```ebnf
 meta_block        = purpose_stmt
-                  | non_goals_block ;
+                  | non_goals_block
+                  | attach_ctx_stmt ;
 
 purpose_stmt      = "purpose" STRING NEWLINE ;
+
+(* Iron-hand context directive. Points the feature at a sidecar context
+   file (markdown) the agent / strict-profile reads as authoring guidance.
+   Cardinality 0..1; the quoted path is relative to the feature file. *)
+attach_ctx_stmt   = "attach_ctx" STRING NEWLINE ;     (* attach_ctx "./ctx.md" *)
 
 non_goals_block   = "non_goals" NEWLINE
                     INDENT
@@ -222,11 +229,14 @@ resource_body     = ( previously_clause
                     | tenancy_decl
                     | timestamps_decl
                     | soft_delete_decl
+                    | append_only_decl
                     | retention_decl
                     | audit_decl
                     | field_decl
                     | has_many_decl
                     | many_decl
+                    | many_through_decl
+                    | polymorphic_ref_decl
                     | validates_decl
                     | constraints_block
                     | uniques_block
@@ -242,7 +252,9 @@ previously_clause = "previously" ( "migrated" | "alias" ) IDENT_LOWER NEWLINE ;
 public_contract_clause = "public" "contract" IDENT_PASCAL "as" "v" INTEGER NEWLINE ;
 
 field_decl        = IDENT_LOWER previously_clause? ":" type_expr field_marker*
-                    presence? relation_modifier? NEWLINE ;
+                    cross_feature_target? presence?
+                    ( computed_date_clause | schedule_rule_clause )?
+                    relation_modifier? NEWLINE ;
 
 type_expr         = scalar_type
                   | semantic_type
@@ -253,6 +265,14 @@ type_expr         = scalar_type
 scalar_type       = "ID" | "Text" | "Boolean" | "Integer" | "Decimal"
                   | "Date" | "DateTime" | "JSON" ;
 semantic_type     = "@semantic." IDENT_UPPER ;
+
+(* Closed `@semantic.*` catalog (doctor-enforced, not EBNF). Beyond the
+   established scalars (`Email`, `Slug`, `Url`, `Money`, `Phone`, ...) the
+   wave added `@semantic.HexColor` (Text-backed CSS colour, validated
+   `^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$`) and `@semantic.Percentage`
+   (Decimal-backed ratio bounded `0..=100`). *)
+(* e.g. brand_color: @semantic.HexColor required *)
+(* e.g. completion: @semantic.Percentage = 0 *)
 cap_type          = "@cap." IDENT_UPPER ( "(" cap_args ")" )? ;
 cap_args          = cap_arg ( "," cap_arg )* ;
 cap_arg           = IDENT_LOWER ":" cap_arg_value ;
@@ -264,7 +284,16 @@ resource_ref      = IDENT_UPPER ;                   (* parser-resolved *)
 field_marker      = "@pii." IDENT_LOWER
                   | "@key." IDENT_LOWER
                   | "@adapter." IDENT_LOWER
+                  | "@slug"                              (* auto-unique URL slug column *)
+                  | "@full_text"                         (* tsvector source for `fts on (...)` *)
+                  | owner_axis_marker                    (* ownership-chain projection FK *)
                   | "discriminator" ;
+
+(* `ir-resource-conventions-owner-scope` §7.1 — names the FK column the
+   ownership scope projects through. `<ident>` is a bare snake_case
+   column; string literals are rejected. *)
+owner_axis_marker = "@owner_axis" "(" "through" ":" IDENT_LOWER ")" ;
+(* e.g. host: Host required @owner_axis(through: organization_id) *)
 
 presence          = "required"
                   | "optional"
@@ -274,10 +303,48 @@ default_value     = STRING | INTEGER | DECIMAL | "true" | "false"
 
 relation_modifier = "on_delete" ( "restrict" | "cascade" | "nullify" ) ;
 
+(* GAP-12 — cross-feature FK annotation. Meaningful only on `ID` fields;
+   the named feature must appear in the declaring feature's `uses`. *)
+cross_feature_target = "target" "@feature." feature_ref "." IDENT_UPPER ;
+(* e.g. default_department_id: ID target @feature.department.Department *)
+
+(* W3 GAP-03 — computed `Date` field: `<base_field> + <offset>` days. The
+   base is a sibling `Date` field; the offset is an `Integer` field name
+   or an integer literal (days). Mutually exclusive with `derived from`. *)
+computed_date_clause = "computed_date" "from" IDENT_LOWER
+                       "offset" ( IDENT_LOWER | INTEGER ) ;
+(* e.g. due_date: Date computed_date from campaign_start offset offset_days *)
+
+(* W4 GAP-08 — rule-driven computed `Date`. The base `Date` is selected by
+   a binding fn `@fn.<rule>(<arg>)`; `<offset>` is days (field or literal). *)
+schedule_rule_clause = "schedule_rule" "from"
+                       "@fn." IDENT_LOWER "(" expr ")"
+                       "offset" ( IDENT_LOWER | INTEGER ) ;
+(* e.g. due_date: Date schedule_rule from @fn.date_rule(input.rule) offset 7 *)
+
 has_many_decl     = "has_many" IDENT_LOWER ":" IDENT_UPPER
                     ( "inverse" IDENT_LOWER )? NEWLINE ;
 
 many_decl         = IDENT_LOWER ":" "many" IDENT_UPPER NEWLINE ;
+
+(* GAP-AUDIT-02 — `append_only` resource modifier (bare line, like
+   `soft_delete`). Insert-only resource; doctor `RESOURCE-APPEND-ONLY-001`
+   rejects update/delete commands targeting it. *)
+append_only_decl  = "append_only" NEWLINE ;
+
+(* GAP-07 — M:N junction carrying its own payload metadata. The junction
+   name + `to <Partner>` endpoint sit on the header; at least one payload
+   field is required (a metadata-free junction is a plain `has_many`). *)
+many_through_decl = "many_through" IDENT_UPPER "to" IDENT_UPPER NEWLINE
+                    INDENT field_decl+ DEDENT ;
+(* e.g. many_through JobMember to User
+          role_in_job: Text required *)
+
+(* GAP-13 — polymorphic FK: a type-discriminator field + an id field that
+   may point at any resource in the bracketed target list. *)
+polymorphic_ref_decl = "polymorphic_ref" IDENT_LOWER IDENT_LOWER
+                       "targets" "[" IDENT_UPPER ( "," IDENT_UPPER )* "]" NEWLINE ;
+(* e.g. polymorphic_ref entity_type entity_id targets [Job, Activity] *)
 
 tenancy_decl      = "tenancy" tenancy_value NEWLINE ;
 timestamps_decl   = "timestamps" ( ident_list )? NEWLINE ;
@@ -293,6 +360,16 @@ validates_decl    = "validates" ( "field" IDENT_LOWER )?
 constraints_block = "constraints" NEWLINE
                     INDENT constraint_entry+ DEDENT ;
 constraint_entry  = "unique" ident_list ( "per" "record" )? NEWLINE ;
+
+(* GAP-NEW-001 — DDL `unique` resource constraint (authored at resource
+   child indent, alongside `index on`/`fts on`). The parenthesized field
+   list is a table UNIQUE constraint; an optional trailing `when
+   <predicate>` lowers to a PostgreSQL partial unique index. A bare
+   single-field head is legal ONLY when `when` follows. *)
+unique_constraint = "unique" ( "(" ident_list ")" | IDENT_LOWER )
+                    ( "when" predicate )? NEWLINE ;
+(* e.g. unique (workspace, email) *)
+(* e.g. unique is_default when is_default = true *)
 
 uniques_block     = "uniques" NEWLINE
                     INDENT unique_entry+ DEDENT ;
@@ -400,6 +477,7 @@ command_body      = ( previously_clause
                     | creates_clause
                     | updates_clause
                     | deletes_clause
+                    | reorder_clause
                     | emits_clause
                     | returns_clause
                     | invalidates_clause
@@ -407,9 +485,16 @@ command_body      = ( previously_clause
                     | policy_clause
                     | rate_limit_clause
                     | idempotency_clause
+                    | approval_block
                     | audit_clause
                     | tests_block
                     )+ ;
+
+(* GAP-REORDER-01 — batch position update. Rewrites the integer
+   `<position_field>` column across the named resource's rows in one
+   statement. `<Resource>` may be feature-qualified. Cardinality 0..1. *)
+reorder_clause    = "reorder" IDENT_UPPER "by" IDENT_LOWER NEWLINE ;
+(* e.g. reorder JobStep by position *)
 
 route_slots       = "route" NEWLINE INDENT route_slot+ DEDENT ;
 route_slot        = IDENT_LOWER ":" type_ref NEWLINE ;
@@ -466,8 +551,43 @@ idempotency_source = ( "input" | "envelope" | "payload" | "schedule"
                      | "tenant" | "ctx" ) "." IDENT_LOWER
                    ( "." IDENT_LOWER )* ;
 
+(* W4 GAP-06 — conditional human sign-off. Supply approvers via either
+   `by @role.<name>` (single approver) OR `chain [...]` (ordered roles);
+   not both. A trailing `sequential` on the chain enforces strict order.
+   `then` (the outcome on timeout / denial) is required. *)
+approval_block    = "approval" NEWLINE
+                    INDENT approval_child+ DEDENT ;
+approval_child    = "required_when" expr NEWLINE
+                  | "by" policy_atom NEWLINE
+                  | approval_chain
+                  | "sequential" NEWLINE
+                  | "timeout" duration_literal NEWLINE
+                  | "then" ( "deny" | "allow" | "escalate" ) NEWLINE ;
+approval_chain    = "chain" "[" policy_atom ( "," policy_atom )* "]"
+                    "sequential"? NEWLINE ;
+(* e.g. approval
+          chain [@role.manager, @role.admin] sequential
+          then deny *)
+
+(* GAP-AUDIT-01 — the audit envelope also accepts a block form whose
+   children include `materialize @feature.<f>.<OperationLog>`, sinking the
+   audit record into an `append_only` resource in another feature. The
+   target feature must be reachable via `uses`; doctor
+   `AUDIT-MATERIALIZE-TARGET-001` enforces the append-only invariant. *)
 audit_clause      = "audit" ( "none" | "field" IDENT_LOWER
-                            | "target" IDENT_UPPER )+ NEWLINE ;
+                            | "target" IDENT_UPPER )+ NEWLINE
+                  | "audit" audit_subject_list NEWLINE
+                    ( INDENT audit_child+ DEDENT )? ;
+audit_subject_list = audit_subject ( "," audit_subject )* ;
+audit_subject     = ref | "before" | "after" | "retain" DURATION ;
+audit_child       = "emit_to" IDENT_LOWER NEWLINE
+                  | "data_subject" IDENT_LOWER NEWLINE
+                  | "materialize" "@feature." feature_ref "." IDENT_UPPER NEWLINE
+                  | "before" NEWLINE
+                  | "after" NEWLINE
+                  | "retain" DURATION NEWLINE ;
+(* e.g. audit actor, target.id
+          materialize @feature.audit.OperationLog *)
 ```
 
 A command-level `when_denied` is the highest-precedence step in the error
@@ -569,32 +689,50 @@ channel_list      = channel ( "," channel )* ;
 channel           = "email" | "push" | "sms" | "in_app" ;
 ```
 
-## 11. Workflows, rules, events
+## 11. Reports, rules, events
+
+**`workflow` is retired.** The feature-level `workflow ... on <Resource>.<field>`
+block no longer parses — the parser hard-errors with `E-WORKFLOW-RETIRED`.
+Lifecycle is now expressed two ways: the resource-level `lifecycle <field>`
+block (declares `state` / `transition` edges on the discriminator field), and
+the command-level `triggers transition <name>[, <name>]` clause (binds a
+command's write to a lifecycle edge). See `docs/lifecycle-transitions.md`.
 
 ```ebnf
-workflow_block    = "workflow" IDENT_LOWER "on" qualified_field_ref NEWLINE
-                    INDENT workflow_body DEDENT ;
-qualified_field_ref = IDENT_UPPER "." IDENT_LOWER ;
-
-workflow_body     = ( "policy" policy_atom_list NEWLINE
-                    | "emits" IDENT_LOWER assignment_block? NEWLINE
-                    | transition_decl
-                    )+ ;
-
-transition_decl   = IDENT_LOWER ":" enum_value "->" enum_value
-                    transition_inline?
-                    NEWLINE
-                    ( INDENT transition_child+ DEDENT )? ;
-
-transition_inline = ( "requires" policy_atom_list )?
-                    ( "emits" IDENT_LOWER )? ;
-
-transition_child  = previously_clause
-                  | "requires" policy_atom_list NEWLINE
-                  | "emits" IDENT_LOWER assignment_block? NEWLINE
-                  | tests_block ;
-
 enum_value        = IDENT_LOWER ;
+
+(* Report vocab — generated-document feature child. Projects a `query.*`
+   `source` through a closed `columns` catalog into one or more output
+   `formats`. `input` (W5 GAP-REPORT-01) threads request-time params to the
+   source query, reusing the command input-slot grammar. `source` and a
+   non-empty `formats` list are required. *)
+report_block      = "report" IDENT_LOWER NEWLINE
+                    INDENT report_body DEDENT ;
+report_body       = ( input_block
+                    | "source" query_ref NEWLINE
+                    | report_columns_block
+                    | "formats" ident_list NEWLINE
+                    | "storage" IDENT_LOWER NEWLINE
+                    | "visibility" IDENT_LOWER NEWLINE
+                    | "signed_ttl" DURATION NEWLINE
+                    | "filename" STRING NEWLINE
+                    | "policy" policy_atom_list NEWLINE
+                    | rate_limit_clause
+                    | audit_clause
+                    )+ ;
+query_ref         = ( feature_ref "." )? "query" ( "." query_kind )? "." IDENT_LOWER ;
+report_columns_block = "columns" NEWLINE INDENT report_column+ DEDENT ;
+report_column     = IDENT_LOWER "from" report_column_source
+                    ( "label" STRING )? ( "format" STRING )? NEWLINE ;
+report_column_source = "row" "." IDENT_LOWER
+                  | "@fn." IDENT_LOWER "(" ( expr ( "," expr )* )? ")" ;
+(* e.g. report monthly_audit
+          input
+            period_start: Date required
+          source customer.query.list
+          columns
+            ltv from @fn.lifetime_value(row.id) label "Valor"
+          formats csv, xlsx *)
 
 rule_block        = "rule" IDENT_LOWER NEWLINE
                     INDENT rule_body DEDENT ;
