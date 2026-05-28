@@ -225,10 +225,7 @@ mod tests {
 
     #[test]
     fn case_mismatch_silent() {
-        let f = file(
-            "features/Billing/Billing.lzi",
-            "feature billing\n",
-        );
+        let f = file("features/Billing/Billing.lzi", "feature billing\n");
         assert!(check(&[f]).is_empty());
     }
 
@@ -242,10 +239,7 @@ mod tests {
 
     #[test]
     fn message_includes_stem_and_features() {
-        let f = file(
-            "features/billing/payments.lzi",
-            "feature subscription\n",
-        );
+        let f = file("features/billing/payments.lzi", "feature subscription\n");
         let finding = check(&[f]).into_iter().next().unwrap();
         let msg = finding.message();
         assert!(msg.contains("payments"));

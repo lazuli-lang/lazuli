@@ -14,9 +14,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{BuiltinType, QualifiedName, TypeRef};
-
 use super::EventField;
+use crate::{BuiltinType, QualifiedName, TypeRef};
 
 /// One built-in trace event the runtime emits without author source.
 /// Lives in a small fixed catalog returned by [`built_in_trace_events`];

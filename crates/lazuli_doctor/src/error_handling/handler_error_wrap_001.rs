@@ -165,13 +165,7 @@ pub fn check(files: &[GoHandlerSourceFile]) -> Vec<Finding> {
     findings
 }
 
-fn scan_file(
-    path: &Path,
-    feature: &str,
-    bucket: &str,
-    source: &str,
-    out: &mut Vec<Finding>,
-) {
+fn scan_file(path: &Path, feature: &str, bucket: &str, source: &str, out: &mut Vec<Finding>) {
     let mut block_depth: usize = 0;
 
     for (idx, raw_line) in source.lines().enumerate() {
@@ -392,9 +386,8 @@ mod tests {
     #[test]
     fn pure_string_does_not_fire_here() {
         // Covered by HANDLER-NO-STRING-ERROR-001, not this rule.
-        let f = handler_file(
-            "package jobs\n\nfunc Run() error {\n  return fmt.Errorf(\"oops\")\n}\n",
-        );
+        let f =
+            handler_file("package jobs\n\nfunc Run() error {\n  return fmt.Errorf(\"oops\")\n}\n");
         assert!(check(&[f]).is_empty());
     }
 

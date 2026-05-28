@@ -239,8 +239,9 @@ pub struct Transition {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn lifecycle_state_kind_serializes_snake_case() {

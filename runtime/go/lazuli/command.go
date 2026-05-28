@@ -24,10 +24,26 @@ const (
 )
 
 // ApprovalSpec is the lowered command approval contract.
+//
+// W4 GAP-06 widened the single approver (`By`) to an ordered approval chain
+// (`Chain`) with an optional `Sequential` flag. `By` is retained for
+// back-compat and always equals `Chain[0]`; the runtime gate requires each
+// approver in `Chain` (in order when `Sequential`).
 type ApprovalSpec struct {
-	Then   ApprovalThen
-	By     string
-	Reason string
+	Then       ApprovalThen
+	By         string
+	Reason     string
+	Chain      []string
+	Sequential bool
+}
+
+// Approvers returns the ordered approver atoms — `Chain` when populated,
+// otherwise the single `By` approver (pre-W4 single-approver shape).
+func (s ApprovalSpec) Approvers() []string {
+	if len(s.Chain) == 0 {
+		return []string{s.By}
+	}
+	return s.Chain
 }
 
 // IdempotencyKey is the lowered `idempotency by <path>` directive.

@@ -107,7 +107,12 @@ fn type_ref_ts(type_ref: &ir::TypeRef) -> &'static str {
     match type_ref {
         ir::TypeRef::Builtin(ir::BuiltinType::Id) => "ID",
         ir::TypeRef::Builtin(ir::BuiltinType::Boolean) => "boolean",
-        ir::TypeRef::Builtin(ir::BuiltinType::Integer | ir::BuiltinType::Decimal) => "number",
+        ir::TypeRef::Builtin(
+            ir::BuiltinType::Integer
+            | ir::BuiltinType::Decimal
+            // W1 GAP-05 — Percentage is Decimal-backed; wire shape is number.
+            | ir::BuiltinType::SemanticPercentage,
+        ) => "number",
         ir::TypeRef::Builtin(
             ir::BuiltinType::Text
             | ir::BuiltinType::Date
@@ -117,7 +122,9 @@ fn type_ref_ts(type_ref: &ir::TypeRef) -> &'static str {
             | ir::BuiltinType::SemanticUrl
             | ir::BuiltinType::SemanticUuid
             | ir::BuiltinType::SemanticCurrency
-            | ir::BuiltinType::SemanticGeoPoint,
+            | ir::BuiltinType::SemanticGeoPoint
+            // W1 GAP-04 — HexColor is a text carrier; wire shape is string.
+            | ir::BuiltinType::SemanticHexColor,
         ) => "string",
         ir::TypeRef::Builtin(ir::BuiltinType::SemanticMoney { .. }) => "string",
         // B3 — plugin-contributed `@semantic.<Name>` resolves through

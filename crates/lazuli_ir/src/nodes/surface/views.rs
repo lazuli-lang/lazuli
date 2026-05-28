@@ -10,13 +10,11 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::controls::{FilterDecl, SearchDecl, SelectionDecl, SortDecl};
+use super::core::{CellBinding, CommandRef, QueryRef, RouteParam};
+use super::settings_and_drawer::{DrawerSubView, SettingDecl};
+use super::ux::ViewUx;
 use crate::{InvalidatesSpec, SpanRef, TranslationKeyRef, is_false};
-
-use super::{
-    controls::{FilterDecl, SearchDecl, SelectionDecl, SortDecl},
-    core::{CellBinding, CommandRef, QueryRef, RouteParam},
-    settings_and_drawer::{DrawerSubView, SettingDecl},
-};
 
 /// `view list <name> { … }` — concrete shape of a list view. Pulls
 /// data from a query, renders via [`ListRender`], and composes the
@@ -52,6 +50,10 @@ pub struct ViewList {
     /// must mask before emission. Codegen emits a redaction wrapper.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub redacted_fields: Vec<String>,
+    /// Wave-W6 presentation primitives (`wizard_steps`, `tab_group`,
+    /// `view_mode`, `view.inline_table`). Empty by default.
+    #[serde(default, skip_serializing_if = "ViewUx::is_empty")]
+    pub ux: ViewUx,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
@@ -78,6 +80,10 @@ pub struct ViewDetail {
     /// must mask before emission. Codegen emits a redaction wrapper.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub redacted_fields: Vec<String>,
+    /// Wave-W6 presentation primitives (`wizard_steps`, `tab_group`).
+    /// Empty by default.
+    #[serde(default, skip_serializing_if = "ViewUx::is_empty")]
+    pub ux: ViewUx,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }
@@ -141,13 +147,9 @@ pub struct FlashSpec {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ListRender {
     /// Columnar table — `columns` lists field names in render order.
-    Table {
-        columns: Vec<String>,
-    },
+    Table { columns: Vec<String> },
     /// Grid form: slot identifier after `@client.`.
-    Cells {
-        slot: String,
-    },
+    Cells { slot: String },
 }
 
 #[cfg(test)]

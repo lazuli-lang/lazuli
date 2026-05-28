@@ -159,7 +159,11 @@ pub fn check(files: &[RustSourceFile]) -> Vec<Finding> {
 /// `true` if the file's preamble identifies it as generated. Conservative
 /// detection — only the first ~200 bytes are scanned.
 fn is_generated(source: &str) -> bool {
-    let head = source.chars().take(200).collect::<String>().to_ascii_lowercase();
+    let head = source
+        .chars()
+        .take(200)
+        .collect::<String>()
+        .to_ascii_lowercase();
     head.contains("@generated") || head.contains("auto-generated")
 }
 

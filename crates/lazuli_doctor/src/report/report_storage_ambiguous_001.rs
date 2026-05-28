@@ -65,11 +65,7 @@ impl Finding {
 /// let feature: Feature = unimplemented!("lower a feature with reports + multiple object_storage caps");
 /// let _ = check(&feature, &[], Path::new("sales.lzi"));
 /// ```
-pub fn check(
-    feature: &Feature,
-    object_storage_caps: &[String],
-    path: &Path,
-) -> Vec<Finding> {
+pub fn check(feature: &Feature, object_storage_caps: &[String], path: &Path) -> Vec<Finding> {
     if object_storage_caps.len() == 1 {
         return Vec::new();
     }
@@ -128,7 +124,7 @@ mod tests {
             extensions: vec![],
             escape_routes: vec![],
             agents: vec![],
-        pollers: vec![],
+            pollers: vec![],
             reports,
             channels: vec![],
             caches: vec![],
@@ -143,6 +139,7 @@ mod tests {
     fn mk_report(storage: Option<&str>) -> Report {
         Report {
             name: "r".into(),
+            input: vec![],
             source: ReportSource::Query(QualifiedName {
                 feature: None,
                 name: "list".into(),

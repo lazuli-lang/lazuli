@@ -435,13 +435,20 @@ pub enum ToolsCallsOp {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn http_method_serializes_uppercase() {
-        assert_eq!(serde_json::to_value(HttpMethod::Post).unwrap(), json!("POST"));
-        assert_eq!(serde_json::to_value(HttpMethod::Patch).unwrap(), json!("PATCH"));
+        assert_eq!(
+            serde_json::to_value(HttpMethod::Post).unwrap(),
+            json!("POST")
+        );
+        assert_eq!(
+            serde_json::to_value(HttpMethod::Patch).unwrap(),
+            json!("PATCH")
+        );
     }
 
     #[test]

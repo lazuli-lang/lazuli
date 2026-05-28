@@ -63,6 +63,16 @@ pub(super) fn emit_effect(
             scope_bindings,
         ),
         CommandEffect::Deletes(delete) => emit_deletes_effect(p, command, delete, scope_bindings),
+        // W4 GAP-REORDER-01 — `reorder <Resource> by <position>`. Wire-thin:
+        // the runtime `Reorder` builder composes a single batch UPDATE of the
+        // position column from the ordered id list.
+        CommandEffect::Reorders(reorder) => {
+            let resource_var = resource_var_for_qname(&reorder.resource);
+            p.line(&format!(
+                "Effect: lazuli.Reorder(&{resource_var}, \"{}\"),",
+                escape_string(&reorder.position_field),
+            ));
+        }
         CommandEffect::Returns(ret) => {
             // Resolve the Output generic via the return-position resolver
             // so resource refs (`returns User`) render as the full struct

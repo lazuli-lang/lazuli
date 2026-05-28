@@ -220,7 +220,11 @@ mod tests {
         assert!(lib.loc_count >= 2);
 
         let test = files.iter().find(|f| !f.is_library_src).unwrap();
-        assert!(test.relative_path.to_string_lossy().contains("integration.rs"));
+        assert!(
+            test.relative_path
+                .to_string_lossy()
+                .contains("integration.rs")
+        );
     }
 
     #[test]

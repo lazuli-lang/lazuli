@@ -21,8 +21,9 @@
 //! `lazuli_analyzer::conventions_unknown_suggestion` all re-export from
 //! this module.
 
-use crate::helpers::conventions_levenshtein;
 use thiserror::Error;
+
+use crate::helpers::conventions_levenshtein;
 
 /// Closed catalog of analyzer-time failures.
 ///
@@ -124,6 +125,14 @@ pub enum AnalyzeError {
         "LZX-ROUTE-PARAM-ORPHAN: view `{view}` declared route param `{param}` but the `at` path has no `:{param}` placeholder"
     )]
     LzxRouteParamOrphan { view: String, param: String },
+
+    /// GAP-UX-04 `LZX-VIEW-MODE-001` (lowering half) — a `view_mode` entry
+    /// is not a member of the closed `RenderMode` catalog
+    /// (`table | kanban | calendar | gallery`).
+    #[error(
+        "LZX-VIEW-MODE-001: view `{view}` declares unknown render mode `{mode}` (expected one of table, kanban, calendar, gallery)"
+    )]
+    LzxUnknownRenderMode { view: String, mode: String },
 
     /// L0 #2 — a `shadow <name> "<value>"` entry carried a top-level
     /// comma, indicating multi-layer composition. Closed v0 grammar
@@ -308,7 +317,10 @@ impl AnalyzeError {
     ///     target: "query.bogus".into(),
     ///     target_feature: "Customer".into(),
     /// };
-    /// assert_eq!(err.diagnostic_code(), Some("@correctness.unknown_invalidate_target"));
+    /// assert_eq!(
+    ///     err.diagnostic_code(),
+    ///     Some("@correctness.unknown_invalidate_target")
+    /// );
     /// ```
     pub fn diagnostic_code(&self) -> Option<&'static str> {
         match self {

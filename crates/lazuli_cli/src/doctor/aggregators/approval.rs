@@ -247,17 +247,21 @@ pub(crate) fn approval_diagnostics(
                 }
             }
 
-            // Role resolution. `by` is a single `@role.<name>` atom.
-            let role_ref = approval.by.as_str();
-            let Some(suffix) = role_ref.strip_prefix("@role.") else {
+            // W4 GAP-06 — APPROVAL-CHAIN-ORDER-001. Validate the ordered
+            // approver chain: it must be non-empty, and every entry must be a
+            // declared `@role.<name>` (closed catalog). Single-approver `by`
+            // forms lift to a 1-element chain via `approvers()`, so this one
+            // walk covers both shapes.
+            let approvers = approval.approvers();
+            if approvers.is_empty() {
                 diagnostics.push(DoctorDiagnostic {
                     path: feature.path.clone(),
                     line,
                     column: 1,
                     severity: DoctorSeverity::Error,
-                    code: "approval_role_unresolved_diagnostics".to_owned(),
+                    code: "APPROVAL-CHAIN-ORDER-001".to_owned(),
                     message: format!(
-                        "command `{}.{}` approval `by {role_ref}` is not a `@role.<name>` reference; approvers are roles, not scopes.",
+                        "command `{}.{}` approval `chain` is empty; declare at least one `@role.<name>` approver.",
                         feature.feature, command.name,
                     ),
                     category: None,
@@ -267,24 +271,45 @@ pub(crate) fn approval_diagnostics(
                     group: None,
                 });
                 continue;
-            };
-            if !known_roles.contains(suffix) {
-                diagnostics.push(DoctorDiagnostic {
-                    path: feature.path.clone(),
-                    line,
-                    column: 1,
-                    severity: DoctorSeverity::Error,
-                    code: "approval_role_unresolved_diagnostics".to_owned(),
-                    message: format!(
-                        "command `{}.{}` approval `by @role.{suffix}` references a role that no `policies` block or `app.lzi` `policy_for` declares.",
-                        feature.feature, command.name,
-                    ),
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                });
+            }
+            for role_ref in &approvers {
+                let Some(suffix) = role_ref.strip_prefix("@role.") else {
+                    diagnostics.push(DoctorDiagnostic {
+                        path: feature.path.clone(),
+                        line,
+                        column: 1,
+                        severity: DoctorSeverity::Error,
+                        code: "APPROVAL-CHAIN-ORDER-001".to_owned(),
+                        message: format!(
+                            "command `{}.{}` approval approver `{role_ref}` is not a `@role.<name>` reference; approvers are roles, not scopes.",
+                            feature.feature, command.name,
+                        ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
+                    });
+                    continue;
+                };
+                if !known_roles.contains(suffix) {
+                    diagnostics.push(DoctorDiagnostic {
+                        path: feature.path.clone(),
+                        line,
+                        column: 1,
+                        severity: DoctorSeverity::Error,
+                        code: "APPROVAL-CHAIN-ORDER-001".to_owned(),
+                        message: format!(
+                            "command `{}.{}` approval approver `@role.{suffix}` references a role that no `policies` block or `app.lzi` `policy_for` declares.",
+                            feature.feature, command.name,
+                        ),
+                        category: None,
+                        feature_name: None,
+                        construct: None,
+                        fix: None,
+                        group: None,
+                    });
+                }
             }
         }
     }

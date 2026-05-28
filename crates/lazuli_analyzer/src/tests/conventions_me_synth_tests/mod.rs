@@ -81,11 +81,13 @@ mod modes;
             slug: false,
             default: None,
             derived_from: None,
+            computed_date: None,
             constraints: ir::FieldConstraints::default(),
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         }
     }
@@ -125,5 +127,7 @@ mod modes;
             composite_key: None,
             conventions: vec![ir::ConventionRef::Me],
             lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            append_only: false,
         }
     }

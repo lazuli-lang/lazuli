@@ -10,9 +10,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{PolicyAtom, SpanRef};
-
+use super::ux::AudienceUx;
 use super::views::{ViewCreate, ViewDetail, ViewList};
+use crate::{PolicyAtom, SpanRef};
 
 /// Lzx ViewModel surface lowered from one `<feat>.<target>.lzx` file.
 /// Carried on `Feature.surfaces`; one entry per platform target.
@@ -48,6 +48,9 @@ pub struct Audience {
     /// `requires @scope.<name>` lines (one or more).
     pub requires: Vec<PolicyAtom>,
     pub views: Vec<View>,
+    /// Wave-W6 audience-level containers (`tabs`, `wizard`). Empty by default.
+    #[serde(default, skip_serializing_if = "AudienceUx::is_empty")]
+    pub ux: AudienceUx,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
 }

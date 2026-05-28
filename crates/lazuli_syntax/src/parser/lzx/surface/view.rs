@@ -48,18 +48,18 @@
 //! (`parse_view_header_tail`) live here too — they're internal to
 //! the view dispatcher.
 
-use crate::ast::{
-    SelectionDeclAst, SelectionModeAst, Span, ViewAst, ViewCreateAst, ViewDetailAst, ViewListAst,
-};
-
 use super::super::super::common::{
     SourceLine, find_top_level_token, is_kebab_or_snake_ident, is_trivia, line_error,
     line_error_owned, strip_inline_comment, unquote_lzx_value,
 };
 use super::super::super::error::ParseError;
 use super::{
-    ViewBodyState, parse_drawer_block, parse_filters_block, parse_on_success_block,
-    parse_view_search_decl, parse_view_settings_block, parse_view_sort_block, view_body_handlers,
+    ViewBodyState, parse_drawer_block, parse_filters_block, parse_inline_table_line,
+    parse_on_success_block, parse_tab_group_block, parse_view_mode_block, parse_view_search_decl,
+    parse_view_settings_block, parse_view_sort_block, parse_wizard_steps_line, view_body_handlers,
+};
+use crate::ast::{
+    SelectionDeclAst, SelectionModeAst, Span, ViewAst, ViewCreateAst, ViewDetailAst, ViewListAst,
 };
 
 /// Parse one of `view list`, `view detail`, `view create` blocks.
@@ -215,6 +215,47 @@ pub(super) fn parse_view_block(
             ));
         }
 
+        // Wave-W6 view-level UX primitives. `wizard_steps` / `tab_group`
+        // attach to list+detail; `view_mode` / `view.inline_table` are
+        // list-only (they shape a tabular surface).
+        if let Some(rest) = trimmed.strip_prefix("wizard_steps ") {
+            parse_wizard_steps_line(line, rest.trim(), &mut state)?;
+            last_end = line.end;
+            i += 1;
+            continue;
+        }
+        if trimmed.starts_with("tab_group ") || trimmed == "tab_group" {
+            let rest = trimmed.strip_prefix("tab_group").unwrap_or("").trim();
+            let (next, block_end) = parse_tab_group_block(lines, i, body_indent, rest, &mut state)?;
+            last_end = block_end;
+            i = next;
+            continue;
+        }
+        if trimmed == "view_mode" {
+            if kind != "list" {
+                return Err(line_error(
+                    line,
+                    "`view_mode` is only valid in `view list` bodies",
+                ));
+            }
+            let (next, block_end) = parse_view_mode_block(lines, i, body_indent, &mut state)?;
+            last_end = block_end;
+            i = next;
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("view.inline_table ") {
+            if kind != "list" {
+                return Err(line_error(
+                    line,
+                    "`view.inline_table` is only valid in `view list` bodies",
+                ));
+            }
+            parse_inline_table_line(line, rest.trim(), &mut state)?;
+            last_end = line.end;
+            i += 1;
+            continue;
+        }
+
         let mut matched = false;
         for (prefix, handler) in view_body_handlers() {
             if let Some(rest) = trimmed.strip_prefix(prefix) {
@@ -267,6 +308,7 @@ pub(super) fn parse_view_block(
                 settings: state.settings,
                 actions: state.actions,
                 redacted_fields: state.redacted_fields,
+                ux: state.ux,
                 span,
             })
         }
@@ -292,11 +334,18 @@ pub(super) fn parse_view_block(
                 cells: state.cells,
                 actions: state.actions,
                 redacted_fields: state.redacted_fields,
+                ux: state.ux,
                 span,
             })
         }
         "create" => {
             reject_list_only_view_body(header, &state, "view create")?;
+            if !state.ux.is_empty() {
+                return Err(line_error(
+                    header,
+                    "`wizard_steps` / `tab_group` / `view_mode` / `view.inline_table` are not valid in `view create`",
+                ));
+            }
             ViewAst::Create(ViewCreateAst {
                 name,
                 route,

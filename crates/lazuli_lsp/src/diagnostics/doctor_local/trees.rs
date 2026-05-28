@@ -142,6 +142,50 @@ pub(crate) fn wire_domain(
         lazuli_doctor::domain::slug_uniqueness_implicit,
         DiagnosticSeverity::WARNING
     );
+    // GAP-NEW-001 — conditional `unique ... when` predicate / column
+    // field-reference check.
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::domain::constraint_unique_when_invalid
+    );
+    // W3 GAP-03 — `computed_date from <base> offset <offset>` base/offset
+    // type-check.
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::domain::computed_date_expr_invalid
+    );
+    // W4 GAP-08 — `schedule_rule from @fn.<name>(<arg>) offset <offset>`
+    // binding-fn / rule-arg / offset type-check.
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::domain::schedule_rule_invalid
+    );
+    // W4 GAP-AUDIT-02 — `command` updates/deletes an `append_only` resource.
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::domain::resource_append_only_invalid
+    );
+    // W4 GAP-REORDER-01 — `reorder <Resource> by <field>` position-field
+    // type-check.
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::domain::reorder_position_field_invalid
+    );
 }
 
 pub(crate) fn wire_lifecycle(
@@ -450,7 +494,7 @@ pub(crate) fn wire_report(
     feature: &lazuli_ir::Feature,
     synthetic_path: &std::path::Path,
 ) {
-    // 8 of 11 — signed_no_storage / storage_ambiguous / format_unknown
+    // 9 of 12 — signed_no_storage / storage_ambiguous / format_unknown
     // need registry / AST context not available here.
     wire_feature_check!(
         source,
@@ -458,6 +502,15 @@ pub(crate) fn wire_report(
         feature,
         synthetic_path,
         lazuli_doctor::report::report_column_mismatch_001
+    );
+    // W5 GAP-REPORT-01 — REPORT-INPUT-UNBOUND-001 (warning).
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::report::report_input_unbound_001,
+        DiagnosticSeverity::WARNING
     );
     wire_feature_check!(
         source,

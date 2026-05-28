@@ -342,7 +342,11 @@ mod tests {
         let cmd = mk_cmd_emits("archive_post", vec!["post.archived"]);
         let feature = mk_feature(vec![cmd], vec![]);
         let findings = check(&feature, Path::new("features/post/post.lzi"));
-        assert_eq!(findings.len(), 1, "expected one finding for undeclared event");
+        assert_eq!(
+            findings.len(),
+            1,
+            "expected one finding for undeclared event"
+        );
         assert_eq!(findings[0].event_name, "post.archived");
         assert_eq!(findings[0].kind, FindingKind::Undeclared);
         assert_eq!(Finding::CODE, "VOCAB-EVENT-PAYLOAD-001");

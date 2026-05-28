@@ -130,7 +130,9 @@ fn check_guard(
         .collect()
 }
 
-fn build_states_index(features: &[Feature]) -> std::collections::BTreeMap<String, BTreeSet<String>> {
+fn build_states_index(
+    features: &[Feature],
+) -> std::collections::BTreeMap<String, BTreeSet<String>> {
     let mut out: std::collections::BTreeMap<String, BTreeSet<String>> =
         std::collections::BTreeMap::new();
     for feature in features {
@@ -203,6 +205,8 @@ mod tests {
                 composite_key: None,
                 conventions: Vec::new(),
                 lifecycle_routes: None,
+                polymorphic_refs: Vec::new(),
+                append_only: false,
             }],
             events: Vec::new(),
             rules: Vec::new(),

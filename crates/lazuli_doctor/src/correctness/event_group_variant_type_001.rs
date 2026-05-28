@@ -15,9 +15,7 @@
 
 use std::path::{Path, PathBuf};
 
-use lazuli_ir::{
-    EventVariant, Feature, QualifiedName, Resource, TypeRef,
-};
+use lazuli_ir::{EventVariant, Feature, QualifiedName, Resource, TypeRef};
 
 /// One EVENT-GROUP-VARIANT-TYPE-001 finding — an `event_group` variant
 /// field type doesn't resolve to a known resource/record/enum.
@@ -164,7 +162,7 @@ fn qname_string(qname: &QualifiedName) -> String {
 mod tests {
     use super::*;
     use lazuli_ir::{
-        BuiltinType, EventField, EventVariant, EventVariantKind, EventGroup, Feature, OutboxMode,
+        BuiltinType, EventField, EventGroup, EventVariant, EventVariantKind, Feature, OutboxMode,
         Policies, QualifiedName, TypeRef,
     };
     use std::path::PathBuf;

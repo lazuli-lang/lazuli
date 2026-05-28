@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 use lazuli_ir::Feature;
 
 use crate::handler_path;
-use crate::handler_walker::{iter_handler_sites, HandlerSite, HandlerSiteKind};
+use crate::handler_walker::{HandlerSite, HandlerSiteKind, iter_handler_sites};
 
 /// One HANDLER-MISSING-001 finding — an `@fn.* / @validator.* / @job.*`
 /// reference points at a handler file that doesn't exist on disk.

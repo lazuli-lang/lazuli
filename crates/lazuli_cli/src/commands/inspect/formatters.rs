@@ -189,6 +189,9 @@ pub(super) fn inspect_command_effect_to_string(e: &lazuli_ir::CommandEffect) -> 
             &u.assignments,
         ),
         lazuli_ir::CommandEffect::Deletes(d) => format!("deletes {}", format_qname(&d.resource)),
+        lazuli_ir::CommandEffect::Reorders(r) => {
+            format!("reorder {} by {}", format_qname(&r.resource), r.position_field)
+        }
         lazuli_ir::CommandEffect::Returns(r) => {
             format!("returns {}", type_ref_to_string(&r.return_type))
         }
@@ -255,6 +258,8 @@ pub(super) fn format_type_ref(t: &lazuli_ir::TypeRef) -> String {
             BuiltinType::SemanticPluginType { .. } => "@semantic.Plugin",
             BuiltinType::SemanticCurrency => "@semantic.Currency",
             BuiltinType::SemanticGeoPoint => "@semantic.GeoPoint",
+            BuiltinType::SemanticHexColor => "@semantic.HexColor",
+            BuiltinType::SemanticPercentage => "@semantic.Percentage",
             BuiltinType::CapSecret => "@cap.Secret",
             BuiltinType::CapFile => "@cap.File",
         }

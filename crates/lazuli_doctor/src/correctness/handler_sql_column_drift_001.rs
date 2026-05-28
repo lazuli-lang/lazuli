@@ -452,14 +452,8 @@ fn extract_statements_from_raw(raw: &str, open_line: usize, out: &mut Vec<SqlSta
     while let Some(rel) = upper[search_start..].find("UPDATE ") {
         let kw_pos = search_start + rel;
         // Guard: avoid matching "FOR UPDATE", "ON UPDATE", etc.
-        let preceding = raw[..kw_pos]
-            .chars()
-            .rev()
-            .find(|c| !c.is_whitespace());
-        let is_real_update = matches!(
-            preceding,
-            None | Some(';') | Some('(') | Some(')')
-        );
+        let preceding = raw[..kw_pos].chars().rev().find(|c| !c.is_whitespace());
+        let is_real_update = matches!(preceding, None | Some(';') | Some('(') | Some(')'));
         if is_real_update {
             let kw_line = open_line + raw[..kw_pos].matches('\n').count();
             let after = &raw[kw_pos + "UPDATE ".len()..];
@@ -702,18 +696,15 @@ fn parse_resource_structs(source: &str) -> Vec<ParsedResource> {
         let pos = start + rel;
         // Require the match to be at start-of-line (token-style) so
         // we don't hit `prototype `, `// type X is ...`, etc.
-        let preceded_ok = pos == 0
-            || matches!(bytes.get(pos - 1).copied(), Some(b'\n') | Some(b'\r'));
+        let preceded_ok =
+            pos == 0 || matches!(bytes.get(pos - 1).copied(), Some(b'\n') | Some(b'\r'));
         if !preceded_ok {
             start = pos + needle.len();
             continue;
         }
         let after = &source[pos + needle.len()..];
         // Parse `<Name> struct {`
-        let Some((name_end_rel, _)) = after
-            .char_indices()
-            .find(|(_, c)| c.is_whitespace())
-        else {
+        let Some((name_end_rel, _)) = after.char_indices().find(|(_, c)| c.is_whitespace()) else {
             start = pos + needle.len();
             continue;
         };
@@ -965,7 +956,10 @@ func Insert() {
 }
 "#;
         let (_tmp, findings) = run_against(src, "insert_user.go");
-        assert!(findings.is_empty(), "got unexpected findings: {findings:#?}");
+        assert!(
+            findings.is_empty(),
+            "got unexpected findings: {findings:#?}"
+        );
     }
 
     /// String-concatenated SQL (`"INSERT INTO " + tableName + ...`):
@@ -986,14 +980,18 @@ func Insert() {
         // The first raw string is "INSERT INTO " — no table, no
         // column list → Unreadable.
         assert!(
-            findings.iter().any(|f| matches!(f.kind, FindingKind::SqlUnreadable { .. })),
+            findings
+                .iter()
+                .any(|f| matches!(f.kind, FindingKind::SqlUnreadable { .. })),
             "expected SqlUnreadable finding, got: {findings:#?}",
         );
         // And NOT a Missing finding (no false positive on the
         // concatenated form — the catalog can't resolve a partial
         // table name).
         assert!(
-            !findings.iter().any(|f| matches!(f.kind, FindingKind::Missing { .. })),
+            !findings
+                .iter()
+                .any(|f| matches!(f.kind, FindingKind::Missing { .. })),
             "did not expect Missing finding on concatenated SQL, got: {findings:#?}",
         );
     }
@@ -1056,7 +1054,10 @@ func Insert() {
 }
 "#;
         let (_tmp, findings) = run_against(src, "insert_user.go");
-        assert!(findings.is_empty(), "allow comment should silence; got: {findings:#?}");
+        assert!(
+            findings.is_empty(),
+            "allow comment should silence; got: {findings:#?}"
+        );
     }
 
     /// UPDATE statements (v0.1 deferred) MUST NOT false-positive.
@@ -1071,7 +1072,10 @@ func Touch() {
 }
 "#;
         let (_tmp, findings) = run_against(src, "touch.go");
-        assert!(findings.is_empty(), "UPDATE must not fire in v0.1; got: {findings:#?}");
+        assert!(
+            findings.is_empty(),
+            "UPDATE must not fire in v0.1; got: {findings:#?}"
+        );
     }
 
     /// `*_test.go` files are skipped — Go test convention uses
@@ -1085,7 +1089,10 @@ func TestInsert(t *testing.T) {
 }
 "#;
         let (_tmp, findings) = run_against(src, "register_with_google_test.go");
-        assert!(findings.is_empty(), "test files must be silent; got: {findings:#?}");
+        assert!(
+            findings.is_empty(),
+            "test files must be silent; got: {findings:#?}"
+        );
     }
 
     // ── fine-grained parser tests ───────────────────────────────────────────
@@ -1114,7 +1121,10 @@ func TestInsert(t *testing.T) {
 
     #[test]
     fn parse_db_tag_handles_omitempty() {
-        assert_eq!(extract_db_tag("db:\"phone,omitempty\" json:\"phone\""), Some("phone".into()));
+        assert_eq!(
+            extract_db_tag("db:\"phone,omitempty\" json:\"phone\""),
+            Some("phone".into())
+        );
     }
 
     #[test]
@@ -1134,8 +1144,16 @@ func TestInsert(t *testing.T) {
         let parsed = parse_resource_structs(USER_RESOURCE_GEN_GO);
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].resource_name, "User");
-        assert!(parsed[0].required_columns.contains(&"updated_at".to_owned()));
-        assert!(parsed[0].required_columns.contains(&"created_at".to_owned()));
+        assert!(
+            parsed[0]
+                .required_columns
+                .contains(&"updated_at".to_owned())
+        );
+        assert!(
+            parsed[0]
+                .required_columns
+                .contains(&"created_at".to_owned())
+        );
         // Pointer-typed fields (Phone, Role) are NOT in the required
         // set — they're nullable.
         assert!(!parsed[0].required_columns.contains(&"phone".to_owned()));

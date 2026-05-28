@@ -14,9 +14,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::SpanRef;
-
 use super::core::CommandRef;
+use crate::SpanRef;
 
 /// `filter <name>: <Type> [single|multi] from query` declaration.
 /// Surfaces one filter control on a list view; the `url_sync` flag
@@ -34,7 +33,8 @@ pub struct FilterDecl {
     pub span_ref: Option<SpanRef>,
 }
 
-/// Closed catalog distinguishing single-value vs multi-value filters.
+/// Closed catalog distinguishing single-value, multi-value, and
+/// date-range filters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FilterCardinality {
@@ -42,6 +42,9 @@ pub enum FilterCardinality {
     Single,
     /// Multiple values selected concurrently.
     Multi,
+    /// Paired from/to date picker (GAP-UX-07). Lowers to two query params
+    /// `<name>_from` / `<name>_to`; the backing field must be Date / DateTime.
+    DateRange,
 }
 
 /// `search { ... }` declaration on a list view. Mode picks the UI shape
@@ -65,9 +68,7 @@ pub struct SearchDecl {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SearchMode {
     /// v1 behavior already represented by `ViewList.search` today.
-    Columns {
-        columns: Vec<String>,
-    },
+    Columns { columns: Vec<String> },
     /// Per-column segmented search control.
     Segmented,
 }

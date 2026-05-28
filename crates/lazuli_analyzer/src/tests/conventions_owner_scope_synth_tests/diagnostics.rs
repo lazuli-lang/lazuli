@@ -149,6 +149,8 @@
             composite_key: None,
             conventions: vec![ir::ConventionRef::Crud],
             lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            append_only: false,
         };
         feature.resources.push(property);
 

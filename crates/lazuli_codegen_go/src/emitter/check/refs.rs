@@ -232,7 +232,8 @@ fn collect_command_effect_refs(
                 collect_expr_refs(&assignment.value, feature, site, refs);
             }
         }
-        CommandEffect::Deletes(_) | CommandEffect::None => {}
+        // W4 GAP-REORDER-01 — reorder carries no expression operands.
+        CommandEffect::Deletes(_) | CommandEffect::Reorders(_) | CommandEffect::None => {}
         CommandEffect::Returns(effect) => {
             collect_type_ref(&effect.return_type, feature, site, refs);
         }

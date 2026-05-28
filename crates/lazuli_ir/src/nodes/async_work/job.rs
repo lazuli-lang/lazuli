@@ -11,12 +11,11 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::shared::{ExternalCallRef, FanoutSpec, IdempotencyKey, RetryPolicy, TenantFromSpec};
 use crate::{
     CommandEffect, LetBinding, PathRef, PolicyExpr, PolicyRef, SpanRef, TargetExpr,
     TranslationKeyRef, TypeRef,
 };
-
-use super::shared::{ExternalCallRef, FanoutSpec, IdempotencyKey, RetryPolicy, TenantFromSpec};
 
 /// Root IR node for a `job <name> { … }` block. The body is either
 /// handler-backed (`handler "./path"`) or declarative (typed

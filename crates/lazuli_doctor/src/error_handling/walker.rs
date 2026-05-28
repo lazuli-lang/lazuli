@@ -161,10 +161,30 @@ mod tests {
 
     fn make_mock_app(root: &Path) {
         for (feature, bucket, file, body) in [
-            ("auth", "handlers", "login.go", "package handlers\n\nfunc Login() {}\n"),
-            ("auth", "handlers", "login_test.go", "package handlers\n\nfunc TestLogin(t *T) {}\n"),
-            ("billing", "domain", "invoice.go", "package domain\n\nfunc Invoice() {}\n"),
-            ("billing", "jobs", "reconcile.go", "package jobs\n\nfunc Reconcile() {}\n"),
+            (
+                "auth",
+                "handlers",
+                "login.go",
+                "package handlers\n\nfunc Login() {}\n",
+            ),
+            (
+                "auth",
+                "handlers",
+                "login_test.go",
+                "package handlers\n\nfunc TestLogin(t *T) {}\n",
+            ),
+            (
+                "billing",
+                "domain",
+                "invoice.go",
+                "package domain\n\nfunc Invoice() {}\n",
+            ),
+            (
+                "billing",
+                "jobs",
+                "reconcile.go",
+                "package jobs\n\nfunc Reconcile() {}\n",
+            ),
         ] {
             let dir = root.join(format!("features/{feature}/{bucket}"));
             fs::create_dir_all(&dir).unwrap();
@@ -186,7 +206,10 @@ mod tests {
         let files = walk_workspace_go_handlers(tmp.path());
         assert_eq!(files.len(), 4);
 
-        let login = files.iter().find(|f| f.relative_path.ends_with("login.go")).unwrap();
+        let login = files
+            .iter()
+            .find(|f| f.relative_path.ends_with("login.go"))
+            .unwrap();
         assert_eq!(login.feature_name, "auth");
         assert_eq!(login.bucket, "handlers");
         assert!(!login.is_test);

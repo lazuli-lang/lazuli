@@ -31,10 +31,7 @@ fn all_six_layers_present_in_report() {
         "view_e2e_pair",
         "handler_go",
     ] {
-        assert!(
-            report.layers.contains_key(layer),
-            "missing layer {layer}"
-        );
+        assert!(report.layers.contains_key(layer), "missing layer {layer}");
     }
 }
 

@@ -110,8 +110,8 @@ mod tests {
     use super::*;
     use lazuli_ir::{
         BuiltinType, Defaults, Feature, Field, FieldConstraints, HandlerRef, IdempotencyKey,
-        Path as IrPath, Poller, PollerBackoff, PollerCursor, PollerRetry, PollerState,
-        PollerStateKind, PollerTick, Policies, Resource, TypeRef,
+        Path as IrPath, Policies, Poller, PollerBackoff, PollerCursor, PollerRetry, PollerState,
+        PollerStateKind, PollerTick, Resource, TypeRef,
     };
 
     fn mk_poller(src: &str, next_at: &str, resolved_at: &str, attempts: &str) -> Poller {
@@ -165,11 +165,13 @@ mod tests {
             slug: false,
             default: None,
             derived_from: None,
+            computed_date: None,
             constraints: FieldConstraints::default(),
             full_text: false,
             previous_names: vec![],
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         }
     }
@@ -207,6 +209,8 @@ mod tests {
                 composite_key: None,
                 conventions: Vec::new(),
                 lifecycle_routes: None,
+                polymorphic_refs: Vec::new(),
+                append_only: false,
             }],
             events: vec![],
             rules: vec![],

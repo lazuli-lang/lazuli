@@ -100,11 +100,7 @@ fn count_rule(rule: &Rule, total: &mut usize, covered: &mut usize) {
     }
 }
 
-fn count_transition_requires(
-    t: &lazuli_ir::Transition,
-    total: &mut usize,
-    covered: &mut usize,
-) {
+fn count_transition_requires(t: &lazuli_ir::Transition, total: &mut usize, covered: &mut usize) {
     // `Transition.requires: Option<String>` is the policy-bar form, not
     // a predicate. Its branch space is captured by `spec_actor_matrix`.
     // The `tests` block under a transition may still carry

@@ -167,7 +167,11 @@ mod tests {
         Policies, PolicyExpr, PolicyRef, Predicate, QualifiedName, Rule, TestBlock,
     };
 
-    fn mk_command(name: &str, policy_expr: Option<PolicyExpr>, tests: Option<TestBlock>) -> Command {
+    fn mk_command(
+        name: &str,
+        policy_expr: Option<PolicyExpr>,
+        tests: Option<TestBlock>,
+    ) -> Command {
         Command {
             name: name.to_owned(),
             public_contract: None,
@@ -270,11 +274,7 @@ mod tests {
 
     #[test]
     fn command_with_policy_expr_no_tests_fires() {
-        let cmd = mk_command(
-            "create",
-            Some(PolicyExpr::Authenticated),
-            None,
-        );
+        let cmd = mk_command("create", Some(PolicyExpr::Authenticated), None);
         let feature = mk_feature(vec![cmd], vec![]);
         let findings = check(&feature, Path::new("f.lzi"));
         assert_eq!(findings.len(), 1);

@@ -266,8 +266,7 @@ fn extract_test_bodies(source: &str) -> Vec<TestBody> {
         // start of a line (after optional whitespace). Skips `func`
         // appearing inside string literals / comments / nested
         // closures.
-        let line_start = i == 0
-            || bytes[i.saturating_sub(1)] == b'\n';
+        let line_start = i == 0 || bytes[i.saturating_sub(1)] == b'\n';
         if !line_start {
             i += 1;
             continue;
@@ -300,10 +299,7 @@ fn extract_test_bodies(source: &str) -> Vec<TestBody> {
         // Validate next char after `Test` — reject `TestifyHelper`.
         let post_test = name_start + b"Test".len();
         if let Some(next) = bytes.get(post_test).copied() {
-            if !(next.is_ascii_uppercase()
-                || next.is_ascii_digit()
-                || next == b'_'
-                || next == b'(')
+            if !(next.is_ascii_uppercase() || next.is_ascii_digit() || next == b'_' || next == b'(')
             {
                 i = name_end;
                 continue;
@@ -619,10 +615,7 @@ func TestFoo_RejectsBad(t *testing.T) {
     #[test]
     fn negative_reject_suffix_silent() {
         let src = "package h\n\nfunc TestFoo(t *testing.T) {\n  require.Error(t, err)\n}\n";
-        let f = mk_file(
-            "features/account/handlers/validate_reject_test.go",
-            src,
-        );
+        let f = mk_file("features/account/handlers/validate_reject_test.go", src);
         assert!(check(&[f]).is_empty());
     }
 

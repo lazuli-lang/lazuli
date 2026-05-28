@@ -42,7 +42,13 @@ pub fn compute(features: &[Feature]) -> LayerCoverage {
             continue;
         }
         for cmd in &feature.commands {
-            count_for_command(cmd, &feature.policies.categories, &role_atoms, &mut total, &mut covered);
+            count_for_command(
+                cmd,
+                &feature.policies.categories,
+                &role_atoms,
+                &mut total,
+                &mut covered,
+            );
         }
         for workflow in &feature.workflows {
             for t in &workflow.transitions {
@@ -162,7 +168,9 @@ fn actors_for_policy_ref_str(
     // `@policy.<name>` text. We resolve it through the same closed
     // catalog as the policy ref above; unresolved forms fall back to
     // any `@role.*` substring we can spot.
-    let Some(text) = requires else { return Vec::new() };
+    let Some(text) = requires else {
+        return Vec::new();
+    };
     if let Some(category_name) = text.strip_prefix("@policy.") {
         for cat in categories {
             if cat.name == category_name {
@@ -218,8 +226,11 @@ mod tests {
             }],
             span_ref: None,
         };
-        f.commands
-            .push(cmd_with_policy("c", PolicyRef::Local("update".to_string()), Some(tests)));
+        f.commands.push(cmd_with_policy(
+            "c",
+            PolicyRef::Local("update".to_string()),
+            Some(tests),
+        ));
         let layer = compute(&[f]);
         assert_eq!(layer.total, 2);
         assert_eq!(layer.covered, 1);

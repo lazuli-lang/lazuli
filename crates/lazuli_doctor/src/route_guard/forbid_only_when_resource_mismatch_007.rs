@@ -59,10 +59,7 @@ impl Finding {
     pub fn message(&self) -> String {
         format!(
             "{} declares `forbid_when {} ... only_when lifecycle {} = ...` but the rest of the guard targets `{}`. Confirm the cross-resource composition is intentional, or align the `only_when` resource.",
-            self.owner,
-            self.forbid_atom,
-            self.only_when_resource,
-            self.guard_primary_resource,
+            self.owner, self.forbid_atom, self.only_when_resource, self.guard_primary_resource,
         )
     }
 }

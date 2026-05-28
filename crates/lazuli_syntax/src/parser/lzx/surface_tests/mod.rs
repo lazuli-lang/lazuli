@@ -18,6 +18,8 @@ mod filters;
 mod search;
 #[cfg(test)]
 mod sort_selection_settings;
+#[cfg(test)]
+mod ux;
 
 #[cfg(test)]
 mod surface_parser_tests {

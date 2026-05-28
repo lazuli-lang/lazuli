@@ -17,7 +17,7 @@ use crate::doctor::{DoctorDiagnostic, DoctorSeverity, line_col_for_offset};
 pub(crate) const SEMANTIC_TYPE_UNKNOWN_CODE: &str = "semantic_type_unknown";
 
 pub(super) const SEMANTIC_TYPE_CATALOG: &str =
-    "EMAIL, PHONE, URL, UUID, DATE, CURRENCY, MONEY, JSON, GEOPOINT";
+    "EMAIL, PHONE, URL, UUID, DATE, CURRENCY, MONEY, JSON, GEOPOINT, HEXCOLOR, PERCENTAGE";
 
 pub(crate) fn push_unknown_semantic_type(
     path: &Path,
@@ -109,6 +109,9 @@ pub(crate) fn is_known_semantic_type_name(name: &str) -> bool {
             | "JSON"
             | "Json"
             | "GeoPoint"
+            // W1 GAP-04/05 — colour + ratio scalars join the closed catalog.
+            | "HexColor"
+            | "Percentage"
     )
 }
 

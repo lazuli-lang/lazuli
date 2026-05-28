@@ -424,7 +424,8 @@ mod tests {
 
     #[test]
     fn bare_variant_fires() {
-        let src: String = "#[derive(Debug, thiserror::Error)]\npub enum ParseError {\n    Bad,\n}\n".to_string();
+        let src: String =
+            "#[derive(Debug, thiserror::Error)]\npub enum ParseError {\n    Bad,\n}\n".to_string();
         let findings = check(&[file(&src)]);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].variant_name, "Bad");
@@ -468,19 +469,22 @@ mod tests {
 
     #[test]
     fn non_error_enum_does_not_fire() {
-        let src: String = "#[derive(Debug, Clone)]\npub enum Status {\n    Open,\n    Closed,\n}\n".to_string();
+        let src: String =
+            "#[derive(Debug, Clone)]\npub enum Status {\n    Open,\n    Closed,\n}\n".to_string();
         assert!(check(&[file(&src)]).is_empty());
     }
 
     #[test]
     fn private_enum_does_not_fire() {
-        let src: String = "#[derive(Debug, thiserror::Error)]\nenum Internal {\n    Bad,\n}\n".to_string();
+        let src: String =
+            "#[derive(Debug, thiserror::Error)]\nenum Internal {\n    Bad,\n}\n".to_string();
         assert!(check(&[file(&src)]).is_empty());
     }
 
     #[test]
     fn non_library_files_are_skipped() {
-        let src: String = "#[derive(Debug, thiserror::Error)]\npub enum ParseError {\n    Bad,\n}\n".to_string();
+        let src: String =
+            "#[derive(Debug, thiserror::Error)]\npub enum ParseError {\n    Bad,\n}\n".to_string();
         let mut f = file(&src);
         f.is_library_src = false;
         assert!(check(&[f]).is_empty());
@@ -494,7 +498,8 @@ mod tests {
 
     #[test]
     fn message_includes_variant_and_enum() {
-        let src: String = "#[derive(Debug, thiserror::Error)]\npub enum ParseError {\n    Bad,\n}\n".to_string();
+        let src: String =
+            "#[derive(Debug, thiserror::Error)]\npub enum ParseError {\n    Bad,\n}\n".to_string();
         let finding = check(&[file(&src)]).into_iter().next().unwrap();
         let msg = finding.message();
         assert!(msg.contains("ParseError"));

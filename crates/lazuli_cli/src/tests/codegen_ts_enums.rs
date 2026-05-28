@@ -104,6 +104,16 @@
             ),
             (lazuli_ir::BuiltinType::SemanticUuid, "z.string().uuid()"),
             (lazuli_ir::BuiltinType::SemanticUrl, "z.string().url()"),
+            // W1 GAP-04 — HexColor emits the `#RRGGBB`/`#RGB` regex.
+            (
+                lazuli_ir::BuiltinType::SemanticHexColor,
+                "z.string().regex(/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/)",
+            ),
+            // W1 GAP-05 — Percentage emits the 0..=100 range guard.
+            (
+                lazuli_ir::BuiltinType::SemanticPercentage,
+                "z.number().min(0).max(100)",
+            ),
         ];
 
         for (builtin, expected) in cases {

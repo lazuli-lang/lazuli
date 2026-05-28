@@ -104,7 +104,7 @@ fn is_internal_kind(kind: &EventKind) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{check, Finding};
+    use super::{Finding, check};
     use std::path::Path;
 
     use lazuli_ir::{

@@ -187,6 +187,8 @@ pub(super) fn simple_resource(name: &str) -> Resource {
         composite_key: None,
         conventions: Vec::new(),
         lifecycle_routes: None,
+        polymorphic_refs: Vec::new(),
+        append_only: false,
     }
 }
 

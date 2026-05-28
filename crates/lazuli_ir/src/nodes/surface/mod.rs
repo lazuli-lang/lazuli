@@ -41,23 +41,33 @@
 pub mod controls;
 pub mod core;
 pub mod settings_and_drawer;
+pub mod ux;
 pub mod views;
+
+pub use core::{
+    Audience, CellBinding, CommandRef, QueryKind, QueryRef, RouteParam, Surface, SurfaceTarget,
+    View,
+};
 
 pub use controls::{
     BindingRef, FilterCardinality, FilterDecl, SearchDecl, SearchField, SearchMode, SelectionDecl,
     SelectionMode, SortDecl, SortDir,
 };
-pub use core::{Audience, CellBinding, CommandRef, QueryKind, QueryRef, RouteParam, Surface, SurfaceTarget, View};
 pub use settings_and_drawer::{
     DrawerBindingSource, DrawerRouteBinding, DrawerSubView, DrawerTrigger, SettingDecl,
     SettingPersistence, SettingValueSpace,
+};
+pub use ux::{
+    AudienceUx, InlineTable, RenderMode, TabEntry, TabGroup, TabGroupCase, Tabs, ViewUx, Wizard,
+    WizardStep, WizardSteps,
 };
 pub use views::{FlashSpec, ListRender, OnSuccessSpec, ViewCreate, ViewDetail, ViewList};
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn surface_target_serializes_snake_case() {
@@ -89,6 +99,7 @@ mod tests {
             selection: None,
             settings: vec![],
             redacted_fields: vec![],
+            ux: Default::default(),
             span_ref: None,
         });
         let value = serde_json::to_value(&v).unwrap();
@@ -110,7 +121,11 @@ mod tests {
 
     #[test]
     fn selection_mode_round_trips() {
-        for m in [SelectionMode::None, SelectionMode::Single, SelectionMode::Multi] {
+        for m in [
+            SelectionMode::None,
+            SelectionMode::Single,
+            SelectionMode::Multi,
+        ] {
             let value = serde_json::to_value(m).unwrap();
             let back: SelectionMode = serde_json::from_value(value).unwrap();
             assert_eq!(back, m);
@@ -152,6 +167,9 @@ mod tests {
         };
         let v = serde_json::to_value(&os).unwrap();
         let obj = v.as_object().unwrap();
-        assert!(obj.is_empty(), "OnSuccessSpec with all-default fields must serialize empty");
+        assert!(
+            obj.is_empty(),
+            "OnSuccessSpec with all-default fields must serialize empty"
+        );
     }
 }

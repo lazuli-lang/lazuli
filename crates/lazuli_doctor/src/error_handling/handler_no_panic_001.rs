@@ -165,13 +165,7 @@ pub fn check(files: &[GoHandlerSourceFile]) -> Vec<Finding> {
     findings
 }
 
-fn scan_file(
-    path: &Path,
-    feature: &str,
-    bucket: &str,
-    source: &str,
-    out: &mut Vec<Finding>,
-) {
+fn scan_file(path: &Path, feature: &str, bucket: &str, source: &str, out: &mut Vec<Finding>) {
     let mut block_comment_depth: usize = 0;
 
     for (idx, raw_line) in source.lines().enumerate() {
@@ -213,7 +207,11 @@ fn strip_block_comments(line: &str, mut depth: usize) -> (String, usize) {
             // Look for `/*` opener — but only outside a string literal.
             // Cheap heuristic: if we're inside a `"..."` literal on this
             // line, treat `/*` as content.
-            if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' && !in_string_at(line, i) {
+            if i + 1 < bytes.len()
+                && bytes[i] == b'/'
+                && bytes[i + 1] == b'*'
+                && !in_string_at(line, i)
+            {
                 depth += 1;
                 out.push(' ');
                 out.push(' ');
@@ -430,10 +428,7 @@ mod tests {
 
     #[test]
     fn message_includes_path_and_line() {
-        let f = handler_file(
-            "package handlers\n\nfunc A() { panic(1) }\n",
-            false,
-        );
+        let f = handler_file("package handlers\n\nfunc A() { panic(1) }\n", false);
         let finding = check(&[f]).into_iter().next().unwrap();
         let msg = finding.message();
         assert!(msg.contains("login.go"));

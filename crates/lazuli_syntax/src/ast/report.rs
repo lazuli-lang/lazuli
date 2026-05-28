@@ -30,7 +30,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{CommandAudit, PolicyExprAst, RateLimitSpecAst, Span};
+use super::{CommandAudit, CommandInputSlot, PolicyExprAst, RateLimitSpecAst, Span};
 
 /// `report <name>` block — declarative tabular export.
 ///
@@ -42,6 +42,14 @@ use super::{CommandAudit, PolicyExprAst, RateLimitSpecAst, Span};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReportDecl {
     pub name: String,
+    /// `input { <field>: <Type> [required|optional] ... }` block —
+    /// request-time parameters threaded to the `source` query (W5
+    /// GAP-REPORT-01). Empty when the report declares no `input` block.
+    /// Reuses the command-input slot grammar verbatim so the field
+    /// declaration, type text, required-ness and inline constraints all
+    /// flow through the same parser / analyzer / codegen paths.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub input: Vec<CommandInputSlot>,
     /// `source <qualified_query_ref>` — required. Captured verbatim
     /// (`customer.query.list`, `query.list`). Analyzer resolves.
     pub source: String,

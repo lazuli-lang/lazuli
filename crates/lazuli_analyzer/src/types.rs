@@ -143,6 +143,10 @@ pub(crate) fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
         "@semantic.Uuid" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticUuid),
         "@semantic.Currency" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticCurrency),
         "@semantic.GeoPoint" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticGeoPoint),
+        "@semantic.HexColor" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticHexColor),
+        "@semantic.Percentage" => {
+            return ir::TypeRef::Builtin(ir::BuiltinType::SemanticPercentage);
+        }
         // Bare `@semantic.Money` (no args) is canonical-pilot reality:
         // single-currency app, defaults to BRL.
         "@semantic.Money" => {

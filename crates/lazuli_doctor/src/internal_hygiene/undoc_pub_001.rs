@@ -257,9 +257,8 @@ mod tests {
 
     #[test]
     fn doc_comment_with_intervening_attribute_still_silences() {
-        let f = file(
-            "/// Does the thing.\n#[inline]\n#[must_use]\npub fn frobnicate() -> u32 { 0 }\n",
-        );
+        let f =
+            file("/// Does the thing.\n#[inline]\n#[must_use]\npub fn frobnicate() -> u32 { 0 }\n");
         assert!(check(&[f]).is_empty());
     }
 

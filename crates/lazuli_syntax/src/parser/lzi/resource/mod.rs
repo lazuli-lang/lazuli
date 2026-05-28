@@ -108,6 +108,15 @@ pub(super) fn parse_resource_decl(
             i += 1;
             continue;
         }
+        // GAP-AUDIT-02 — `append_only` resource modifier. Bare line like
+        // `soft_delete` / `timestamps`. Makes the resource insert-only;
+        // doctor `RESOURCE-APPEND-ONLY-001` rejects update/delete commands.
+        if trimmed == "append_only" {
+            state.append_only = true;
+            last_end = line.end;
+            i += 1;
+            continue;
+        }
         if trimmed == "lifecycle" {
             return Err(line_error(
                 line,
@@ -257,7 +266,7 @@ pub(super) fn parse_resource_decl(
         if !matched {
             return Err(line_error(
                 line,
-                "`resource` children are `previously`, `tenancy`, `soft_delete`, `timestamps`, `retention`, `validates`, `has_many`, `lifecycle`, `conventions`, `index on`, `unique (...)`, `fts on (...)`, or `<field>: <Type>`",
+                "`resource` children are `previously`, `tenancy`, `soft_delete`, `timestamps`, `append_only`, `retention`, `validates`, `has_many`, `lifecycle`, `conventions`, `index on`, `unique (...)`, `fts on (...)`, or `<field>: <Type>`",
             ));
         }
     }
@@ -280,6 +289,8 @@ pub(super) fn parse_resource_decl(
             composite_key: state.composite_key,
             conventions: state.conventions,
             constraints: state.constraints,
+            polymorphic_refs: state.polymorphic_refs,
+            append_only: state.append_only,
             lifecycle_routes: state.lifecycle_routes,
             span: Span::new(header.start, last_end),
         },
@@ -364,6 +375,31 @@ feature customer
                 .type_text
                 .starts_with("@cap.Encrypted(key:@key.tenant)")
         );
+    }
+
+    #[test]
+    fn resource_append_only_modifier_parses() {
+        // W4 GAP-AUDIT-02 — bare `append_only` resource modifier.
+        let source = r#"
+feature ledger
+  resource Entry
+    amount: Integer required
+    append_only
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let entry = &features[0].resources[0];
+        assert!(entry.append_only, "`append_only` should lift onto the flag");
+    }
+
+    #[test]
+    fn resource_without_append_only_defaults_false() {
+        let source = r#"
+feature ledger
+  resource Entry
+    amount: Integer required
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        assert!(!features[0].resources[0].append_only);
     }
 
     #[test]

@@ -16,7 +16,9 @@
 
 use std::fmt::Write;
 
-use lazuli_ir::{BuiltinType, Feature, Record, Resource, Tenancy, TypeRef};
+use lazuli_ir::{
+    BuiltinType, ComputedDateBase, ComputedDateOffset, Feature, Record, Resource, Tenancy, TypeRef,
+};
 
 use crate::emitter::casing::{lower_camel, pascal_case};
 use crate::emitter::printer::GoPrinter;
@@ -297,6 +299,99 @@ pub(super) fn emit_resource(
     }
     p.dedent();
     p.line("}");
+
+    // W3 GAP-03 — emit a `Compute<Field>` helper per `computed_date`
+    // field. The runtime calls it before INSERT/UPDATE so the stored
+    // `DATE` column carries `base + offset days`. Date math is wire-thin:
+    // parse the base via `time.Parse`, `time.Time.AddDate(0, 0, offset)`,
+    // re-format. See `docs/proposals/ir-pauta-gaps-bundle-2026-05-28.md`.
+    emit_computed_date_helpers(p, &pascal, resource);
+}
+
+/// W3 GAP-03 — emit `Compute<Field>` methods for every `computed_date`
+/// field on the resource. Each method recomputes the field in place via
+/// `time.Time.AddDate(0, 0, <offset>)` (Go stdlib) so persistence carries
+/// `base + (offset days)`. Wire-thin: parse + AddDate + format, no
+/// homegrown calendar math. Emits nothing when no field is a
+/// `computed_date` — resources without one stay free of the helper.
+fn emit_computed_date_helpers(p: &mut GoPrinter, pascal: &str, resource: &Resource) {
+    for field in &resource.fields {
+        let Some(cd) = &field.computed_date else {
+            continue;
+        };
+        let method = format!("Compute{}", pascal_case(&field.name));
+        let dst = pascal_case(&field.name);
+        let offset_expr = match &cd.offset {
+            ComputedDateOffset::Field(name) => format!("int(m.{})", pascal_case(name)),
+            ComputedDateOffset::Literal(n) => n.to_string(),
+        };
+        match &cd.base {
+            // W3 GAP-03 — base is a same-resource `Date` field: parse it.
+            ComputedDateBase::Field(base_field) => {
+                let base = pascal_case(base_field);
+                p.line("");
+                p.line(&format!(
+                    "// {method} recomputes {dst} as {base} + ({} days) — the",
+                    offset_label(&cd.offset),
+                ));
+                p.line("// `computed_date` field kind. Wire-thin: time.Parse + AddDate + Format.");
+                p.line(&format!("func (m *{pascal}) {method}() {{"));
+                p.indent();
+                // `lazuli.Date` is a string alias (RFC 3339 `YYYY-MM-DD`);
+                // parse to time.Time for the arithmetic, then re-format.
+                p.line(&format!(
+                    "base, err := time.Parse(\"2006-01-02\", string(m.{base}))"
+                ));
+                p.line("if err != nil {");
+                p.indent();
+                p.line("return");
+                p.dedent();
+                p.line("}");
+                p.line(&format!(
+                    "m.{dst} = lazuli.Date(base.AddDate(0, 0, {offset_expr}).Format(\"2006-01-02\"))"
+                ));
+                p.dedent();
+                p.line("}");
+            }
+            // W4 GAP-08 — base is selected by a bound `@fn` (the
+            // `schedule_rule` form). The `@fn` returns the base `Date`
+            // chosen by the rule arg; then the same AddDate arithmetic
+            // applies. Wire-thin: registry lookup + AddDate + Format.
+            ComputedDateBase::Rule { rule, fn_ref } => {
+                p.line("");
+                p.line(&format!(
+                    "// {method} recomputes {dst} as @fn.{fn_ref}({rule}) + ({} days)",
+                    offset_label(&cd.offset),
+                ));
+                p.line("// — the `schedule_rule` field kind. Wire-thin: bound @fn picks");
+                p.line("// the base Date, then AddDate + Format.");
+                p.line(&format!("func (m *{pascal}) {method}(rule string) {{"));
+                p.indent();
+                p.line(&format!(
+                    "base, err := lazuli.ScheduleRuleDate(\"{fn_ref}\", rule)"
+                ));
+                p.line("if err != nil {");
+                p.indent();
+                p.line("return");
+                p.dedent();
+                p.line("}");
+                p.line(&format!(
+                    "m.{dst} = lazuli.Date(base.AddDate(0, 0, {offset_expr}).Format(\"2006-01-02\"))"
+                ));
+                p.dedent();
+                p.line("}");
+            }
+        }
+    }
+}
+
+/// Human-readable label for the offset operand, used in the helper's doc
+/// comment.
+fn offset_label(offset: &ComputedDateOffset) -> String {
+    match offset {
+        ComputedDateOffset::Field(name) => name.clone(),
+        ComputedDateOffset::Literal(n) => n.to_string(),
+    }
 }
 
 /// Walk a `Record` — typed struct only, no resource value. Records

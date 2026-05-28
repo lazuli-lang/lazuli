@@ -206,9 +206,7 @@ fn inline_column_match(before: &str, col: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lazuli_ir::{
-        BuiltinType, Defaults, Field, Policies, Resource, TypeRef,
-    };
+    use lazuli_ir::{BuiltinType, Defaults, Field, Policies, Resource, TypeRef};
     use tempfile::tempdir;
 
     fn mk_resource_with_unique_field(field_name: &str) -> Resource {
@@ -226,11 +224,13 @@ mod tests {
                 slug: false,
                 default: None,
                 derived_from: None,
+                computed_date: None,
                 constraints: Default::default(),
                 full_text: false,
                 previous_names: vec![],
                 pii: None,
                 owner_axis: None,
+                cross_feature_target: None,
                 span_ref: None,
             }],
             constraints: vec![],
@@ -245,6 +245,8 @@ mod tests {
             composite_key: None,
             conventions: Vec::new(),
             lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            append_only: false,
         }
     }
 

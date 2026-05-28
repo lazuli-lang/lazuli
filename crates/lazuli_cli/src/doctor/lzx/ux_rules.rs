@@ -1,0 +1,304 @@
+//! Wave-W6 surface UX doctor rules (GAP-UX-01..04).
+//!
+//! Four sibling checks share this module because they walk the same
+//! `Surface -> Audience -> View` tree and lean on the same enum-field /
+//! view / command resolution helpers:
+//!
+//! - `LZX-WIZARD-STEPS-EXPR-001` — `wizard_steps <N> current <field>`: the
+//!   `current` field must be a declared enum field on the bound resource; the
+//!   total must be positive (parser guarantees) and should match the enum's
+//!   variant count (warn on mismatch — surfaced as a `kind = Warn` finding).
+//! - `LZX-TAB-GROUP-CASE-001` — `tab_group derived_from <field>`: the field
+//!   must be a declared enum field; every `case` value must be a variant of
+//!   that enum; non-exhaustive coverage is a `kind = Warn` finding.
+//! - `LZX-TAB-VIEW-REF-001` — each `tab -> view X` and each wizard `step`
+//!   must reference a view declared in the same audience.
+//! - `LZX-VIEW-MODE-001` — each `view_mode` keyword must parse to a known
+//!   render mode (`RenderMode::parse`); `inline_table on_change` must
+//!   reference a declared command whose target resource matches the view's.
+//!
+//! All operate on the real `lazuli_ir::Module`. Unknown source queries /
+//! resources are suppressed (those belong to the source-resource rules).
+
+use std::collections::BTreeSet;
+
+use lazuli_ir::{
+    Audience, EnumDecl, Feature, Field, Module, QueryRef, Resource, TypeRef, View, ViewUx,
+};
+
+use super::sort_findings;
+
+/// Severity of a UX-rule finding. `Error` blocks; `Warn` is advisory
+/// (non-exhaustive coverage, variant-count mismatch).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    Error,
+    Warn,
+}
+
+/// One finding from any of the four W6 UX rules.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Finding {
+    pub code: &'static str,
+    pub severity: Severity,
+    pub feature: String,
+    pub view: String,
+    pub line: usize,
+    pub message: String,
+}
+
+pub const WIZARD_STEPS_CODE: &str = "LZX-WIZARD-STEPS-EXPR-001";
+pub const TAB_GROUP_CASE_CODE: &str = "LZX-TAB-GROUP-CASE-001";
+pub const TAB_VIEW_REF_CODE: &str = "LZX-TAB-VIEW-REF-001";
+pub const VIEW_MODE_CODE: &str = "LZX-VIEW-MODE-001";
+
+/// Run all four W6 surface UX rules across the module.
+pub fn check(module: &Module) -> Vec<Finding> {
+    let mut out = Vec::new();
+    for feature in &module.features {
+        for surface in &feature.surfaces {
+            for audience in &surface.audiences {
+                check_audience_tabs(module, feature, audience, &mut out);
+                for view in &audience.views {
+                    let (view_name, source, ux) = match view {
+                        View::List(v) => (v.name.as_str(), Some(&v.source), Some(&v.ux)),
+                        View::Detail(v) => (v.name.as_str(), Some(&v.source), Some(&v.ux)),
+                        View::Create(_) => continue,
+                    };
+                    let Some(ux) = ux else { continue };
+                    let resource = source
+                        .and_then(|s| resolve_resource(module, &feature.name, s))
+                        .map(|(feat, res)| (feat, res));
+                    check_view_ux(feature, view_name, ux, resource, &mut out);
+                }
+            }
+        }
+    }
+    sort_findings(&mut out, |f| {
+        (f.feature.clone(), f.view.clone(), f.code, f.line)
+    });
+    out
+}
+
+fn check_view_ux(
+    feature: &Feature,
+    view_name: &str,
+    ux: &ViewUx,
+    resource: Option<(&Feature, &Resource)>,
+    out: &mut Vec<Finding>,
+) {
+    // ── LZX-WIZARD-STEPS-EXPR-001 ──────────────────────────────────────────
+    if let Some(steps) = &ux.wizard_steps {
+        let line = steps.span_ref.map(|s| s.start).unwrap_or(0);
+        match resource.and_then(|(f, r)| enum_for_field(f, r, &steps.current_field)) {
+            None => out.push(Finding {
+                code: WIZARD_STEPS_CODE,
+                severity: Severity::Error,
+                feature: feature.name.clone(),
+                view: view_name.to_owned(),
+                line,
+                message: format!(
+                    "wizard_steps `current {}` must reference a declared enum field on the bound resource",
+                    steps.current_field
+                ),
+            }),
+            Some(decl) if decl.variants.len() as u32 != steps.total => out.push(Finding {
+                code: WIZARD_STEPS_CODE,
+                severity: Severity::Warn,
+                feature: feature.name.clone(),
+                view: view_name.to_owned(),
+                line,
+                message: format!(
+                    "wizard_steps total {} does not match enum `{}` variant count {}",
+                    steps.total,
+                    decl.name,
+                    decl.variants.len()
+                ),
+            }),
+            Some(_) => {}
+        }
+    }
+
+    // ── LZX-TAB-GROUP-CASE-001 ─────────────────────────────────────────────
+    if let Some(group) = &ux.tab_group {
+        let line = group.span_ref.map(|s| s.start).unwrap_or(0);
+        match resource.and_then(|(f, r)| enum_for_field(f, r, &group.derived_from)) {
+            None => out.push(Finding {
+                code: TAB_GROUP_CASE_CODE,
+                severity: Severity::Error,
+                feature: feature.name.clone(),
+                view: view_name.to_owned(),
+                line,
+                message: format!(
+                    "tab_group `derived_from {}` must reference a declared enum field on the bound resource",
+                    group.derived_from
+                ),
+            }),
+            Some(decl) => {
+                let variants: BTreeSet<&str> =
+                    decl.variants.iter().map(|v| v.name.as_str()).collect();
+                let mut covered: BTreeSet<&str> = BTreeSet::new();
+                for case in &group.cases {
+                    let case_line = case.span_ref.map(|s| s.start).unwrap_or(line);
+                    for v in &case.variants {
+                        if !variants.contains(v.as_str()) {
+                            out.push(Finding {
+                                code: TAB_GROUP_CASE_CODE,
+                                severity: Severity::Error,
+                                feature: feature.name.clone(),
+                                view: view_name.to_owned(),
+                                line: case_line,
+                                message: format!(
+                                    "tab_group case `{}` is not a variant of enum `{}`",
+                                    v, decl.name
+                                ),
+                            });
+                        } else {
+                            covered.insert(v.as_str());
+                        }
+                    }
+                }
+                let missing: Vec<&str> =
+                    variants.difference(&covered).copied().collect();
+                if !missing.is_empty() {
+                    out.push(Finding {
+                        code: TAB_GROUP_CASE_CODE,
+                        severity: Severity::Warn,
+                        feature: feature.name.clone(),
+                        view: view_name.to_owned(),
+                        line,
+                        message: format!(
+                            "tab_group over enum `{}` is non-exhaustive: missing {}",
+                            decl.name,
+                            missing.join(", ")
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
+    // ── LZX-VIEW-MODE-001 (inline_table command target) ────────────────────
+    // The `view_mode` keyword closed-catalog check happens at analyzer
+    // lowering (unknown keywords raise `AnalyzeError::LzxUnknownRenderMode`);
+    // by the time the IR carries `Vec<RenderMode>`, every mode is valid. The
+    // doctor half of `LZX-VIEW-MODE-001` enforces the `inline_table` command
+    // target.
+    if let Some(inline) = &ux.inline_table {
+        let line = inline.span_ref.map(|s| s.start).unwrap_or(0);
+        let cmd_feature = inline.on_change.feature.as_str();
+        let cmd_name = inline.on_change.name.as_str();
+        // The command must be declared (on its own feature). When the inline
+        // table's view binds a resource, the command should target it — but
+        // command→resource targeting is not carried on `CommandRef`, so we
+        // verify existence here and leave deeper target matching to the
+        // command-routing rules.
+        let cmd_known = (cmd_feature == feature.name
+            && feature.commands.iter().any(|c| c.name == cmd_name))
+            || cmd_feature != feature.name; // cross-feature: trust resolution
+        if !cmd_known {
+            out.push(Finding {
+                code: VIEW_MODE_CODE,
+                severity: Severity::Error,
+                feature: feature.name.clone(),
+                view: view_name.to_owned(),
+                line,
+                message: format!(
+                    "view.inline_table on_change references unknown command `{}`",
+                    cmd_name
+                ),
+            });
+        }
+    }
+}
+
+/// `LZX-TAB-VIEW-REF-001` — tab/wizard refs resolve to a declared view in the
+/// same audience.
+fn check_audience_tabs(
+    _module: &Module,
+    feature: &Feature,
+    audience: &Audience,
+    out: &mut Vec<Finding>,
+) {
+    let view_names: BTreeSet<&str> = audience.views.iter().map(|v| v.name()).collect();
+    for tabs in &audience.ux.tabs {
+        for entry in &tabs.entries {
+            if !view_names.contains(entry.view.as_str()) {
+                out.push(Finding {
+                    code: TAB_VIEW_REF_CODE,
+                    severity: Severity::Error,
+                    feature: feature.name.clone(),
+                    view: entry.view.clone(),
+                    line: entry.span_ref.map(|s| s.start).unwrap_or(0),
+                    message: format!(
+                        "tab \"{}\" references view `{}` not declared in audience `{}`",
+                        entry.label, entry.view, audience.name
+                    ),
+                });
+            }
+        }
+    }
+    for wizard in &audience.ux.wizards {
+        for step in &wizard.steps {
+            if !view_names.contains(step.ref_name.as_str()) {
+                out.push(Finding {
+                    code: TAB_VIEW_REF_CODE,
+                    severity: Severity::Error,
+                    feature: feature.name.clone(),
+                    view: step.ref_name.clone(),
+                    line: step.span_ref.map(|s| s.start).unwrap_or(0),
+                    message: format!(
+                        "wizard `{}` step {} references view/form `{}` not declared in audience `{}`",
+                        wizard.name, step.index, step.ref_name, audience.name
+                    ),
+                });
+            }
+        }
+    }
+}
+
+/// Resolve the resource backing a view's source query. Returns the owning
+/// feature + resource so the enum lookup can reach the feature's enum decls.
+fn resolve_resource<'a>(
+    module: &'a Module,
+    owning_feature: &str,
+    source: &QueryRef,
+) -> Option<(&'a Feature, &'a Resource)> {
+    let source_feature_name = if source.feature.is_empty() {
+        owning_feature
+    } else {
+        source.feature.as_str()
+    };
+    let feature = module
+        .features
+        .iter()
+        .find(|f| f.name == source_feature_name)?;
+    // Single-resource features resolve unambiguously; multi-resource features
+    // need a SQL `returns` hint. Mirror `filter_resolves::find_resource_for_query`.
+    if feature.resources.len() == 1 {
+        return Some((feature, feature.resources.first()?));
+    }
+    None
+}
+
+/// Find the enum declaration backing field `field_name` on `resource`.
+fn enum_for_field<'a>(
+    feature: &'a Feature,
+    resource: &Resource,
+    field_name: &str,
+) -> Option<&'a EnumDecl> {
+    let field = resource.fields.iter().find(|f| f.name == field_name)?;
+    let enum_name = enum_type_name(field)?;
+    feature.enums.iter().find(|e| e.name == enum_name)
+}
+
+fn enum_type_name(field: &Field) -> Option<&str> {
+    match &field.type_ref {
+        TypeRef::EnumRef(qname) | TypeRef::UserDefined(qname) => Some(qname.name.as_str()),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+#[path = "ux_rules_tests.rs"]
+mod tests;

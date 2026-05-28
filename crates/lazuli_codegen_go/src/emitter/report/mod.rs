@@ -12,8 +12,8 @@
 //! See `docs/proposals/report-vocab.md` v0.2.
 
 use lazuli_ir::{
-    Feature, FileVisibility, PolicyAtom, PolicyExpr, PolicyRef, Report, ReportColumnSource,
-    ReportFormat, ReportSource,
+    BuiltinType, Feature, FileVisibility, PolicyAtom, PolicyExpr, PolicyRef, Report,
+    ReportColumnSource, ReportFormat, ReportSource, TypeRef,
 };
 
 use super::casing::pascal_case;
@@ -180,6 +180,24 @@ fn emit_report(p: &mut GoPrinter, feature: &Feature, report: &Report) {
         p.line(&format!("RateLimit: {:?},", rate_limit.default));
     }
 
+    // W5 GAP-REPORT-01 — emit the declared `input { … }` params so the
+    // auto-mount route can parse + validate them off the request query
+    // string and thread them to the SourceFn via the request context.
+    if !report.input.is_empty() {
+        p.line("Inputs: []report.Input{");
+        p.indent();
+        for slot in &report.input {
+            p.line(&format!(
+                "{{Name: {:?}, Type: {:?}, Required: {}}},",
+                slot.name,
+                input_type_token(&slot.type_ref),
+                slot.required
+            ));
+        }
+        p.dedent();
+        p.line("},");
+    }
+
     p.dedent();
     p.line("}");
 
@@ -279,6 +297,47 @@ fn format_const(format: ReportFormat) -> &'static str {
     match format {
         ReportFormat::Csv => "CSV",
         ReportFormat::Xlsx => "XLSX",
+    }
+}
+
+/// Render a report input param's [`TypeRef`] into the verbatim authoring
+/// token carried on `report.Input.Type`. The runtime treats this as an
+/// opaque hint (required-ness is enforced from the bool; coercion stays
+/// in the SourceFn), so the token mirrors the authored spelling rather
+/// than a Go type. Builtins map to their canonical names; user-defined /
+/// enum / unresolved references pass their terminal name through.
+fn input_type_token(ty: &TypeRef) -> String {
+    match ty {
+        TypeRef::Builtin(b) => builtin_token(b).to_owned(),
+        TypeRef::UserDefined(qn) | TypeRef::EnumRef(qn) => qn.name.clone(),
+        TypeRef::Unresolved(s) => s.clone(),
+        TypeRef::Many(inner) => format!("Many<{}>", input_type_token(inner)),
+        TypeRef::Capability(_) => "Capability".to_owned(),
+    }
+}
+
+fn builtin_token(b: &BuiltinType) -> &'static str {
+    match b {
+        BuiltinType::Id => "ID",
+        BuiltinType::Text => "Text",
+        BuiltinType::Boolean => "Boolean",
+        BuiltinType::Integer => "Integer",
+        BuiltinType::Decimal => "Decimal",
+        BuiltinType::Date => "Date",
+        BuiltinType::DateTime => "DateTime",
+        BuiltinType::Json => "Json",
+        BuiltinType::SemanticEmail => "@semantic.Email",
+        BuiltinType::SemanticMoney { .. } => "@semantic.Money",
+        BuiltinType::SemanticPhone => "@semantic.Phone",
+        BuiltinType::SemanticUrl => "@semantic.Url",
+        BuiltinType::SemanticUuid => "@semantic.Uuid",
+        BuiltinType::SemanticCurrency => "@semantic.Currency",
+        BuiltinType::SemanticGeoPoint => "@semantic.GeoPoint",
+        BuiltinType::SemanticHexColor => "@semantic.HexColor",
+        BuiltinType::SemanticPercentage => "@semantic.Percentage",
+        BuiltinType::SemanticPluginType { .. } => "@semantic.Plugin",
+        BuiltinType::CapSecret => "@cap.Secret",
+        BuiltinType::CapFile => "@cap.File",
     }
 }
 

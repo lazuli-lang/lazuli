@@ -66,6 +66,34 @@ mod filters_tests {
     }
 
     #[test]
+    fn filters_date_range_bare_defaults_to_date() {
+        let source = "surface item web\n  audience admin\n    view list a\n      source item.query.search\n      columns key\n      filters\n        created: date_range\n";
+        let surface = parse_surface_document(source).expect("parses date_range");
+        let view = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(view.filters[0].name, "created");
+        assert_eq!(view.filters[0].type_ref, "Date");
+        assert_eq!(view.filters[0].cardinality, FilterCardinalityAst::DateRange);
+        assert!(!view.filters[0].url_sync);
+    }
+
+    #[test]
+    fn filters_date_range_explicit_type_and_from_query() {
+        let source = "surface item web\n  audience admin\n    view list a\n      source item.query.search\n      columns key\n      filters\n        created: date_range DateTime from query\n";
+        let surface = parse_surface_document(source).expect("parses date_range");
+        let view = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            _ => unreachable!(),
+        };
+        assert_eq!(view.filters[0].name, "created");
+        assert_eq!(view.filters[0].type_ref, "DateTime");
+        assert_eq!(view.filters[0].cardinality, FilterCardinalityAst::DateRange);
+        assert!(view.filters[0].url_sync);
+    }
+
+    #[test]
     fn filters_rejects_from_path() {
         let source = "surface item web\n  audience admin\n    view list a\n      source item.query.search\n      columns key\n      filters\n        slug: Text from path\n";
         let err = parse_surface_document(source).unwrap_err();

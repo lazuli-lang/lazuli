@@ -89,6 +89,8 @@ fn host_resource() -> lazuli_ir::Resource {
             ],
             span_ref: None,
         }),
+        polymorphic_refs: Vec::new(),
+        append_only: false,
     }
 }
 

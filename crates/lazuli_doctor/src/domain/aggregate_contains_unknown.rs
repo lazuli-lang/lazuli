@@ -78,8 +78,7 @@ impl Finding {
 /// }
 /// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
-    let resources: HashSet<&str> =
-        feature.resources.iter().map(|r| r.name.as_str()).collect();
+    let resources: HashSet<&str> = feature.resources.iter().map(|r| r.name.as_str()).collect();
     let mut findings = Vec::new();
 
     for agg in &feature.aggregates {
@@ -128,6 +127,8 @@ mod tests {
             composite_key: None,
             conventions: Vec::new(),
             lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            append_only: false,
         }
     }
 
@@ -198,7 +199,11 @@ mod tests {
     fn positive_unknown_member_fires() {
         let feature = mk_feature(
             vec![mk_resource("Order"), mk_resource("OrderLine")],
-            vec![mk_aggregate("OrderBoundary", "Order", &["OrderLine", "Ghost"])],
+            vec![mk_aggregate(
+                "OrderBoundary",
+                "Order",
+                &["OrderLine", "Ghost"],
+            )],
         );
         let findings = check(&feature, Path::new("f.lzi"));
         assert_eq!(findings.len(), 1);

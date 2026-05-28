@@ -21,6 +21,38 @@
         ));
     }
 
+    // W1 GAP-04 — `@semantic.HexColor` lifts to the text-backed colour
+    // builtin (mirror of the SemanticUrl/SemanticCurrency wiring).
+    #[test]
+    fn type_ref_from_syntax_lifts_semantic_hexcolor() {
+        let ty = type_ref_from_syntax("@semantic.HexColor");
+        assert!(matches!(
+            ty,
+            ir::TypeRef::Builtin(ir::BuiltinType::SemanticHexColor)
+        ));
+    }
+
+    // W1 GAP-05 — `@semantic.Percentage` lifts to the Decimal-backed ratio
+    // builtin.
+    #[test]
+    fn type_ref_from_syntax_lifts_semantic_percentage() {
+        let ty = type_ref_from_syntax("@semantic.Percentage");
+        assert!(matches!(
+            ty,
+            ir::TypeRef::Builtin(ir::BuiltinType::SemanticPercentage)
+        ));
+    }
+
+    // Negative/closed-catalog guard — an unknown `@semantic.<Name>` does
+    // NOT lift to a builtin; it falls through to `UserDefined` so the
+    // doctor `semantic_type_unknown` rule can surface it. Confirms the new
+    // arms are additive, not catch-all.
+    #[test]
+    fn type_ref_from_syntax_unknown_semantic_falls_through() {
+        let ty = type_ref_from_syntax("@semantic.Nonsense");
+        assert!(matches!(ty, ir::TypeRef::UserDefined(_)));
+    }
+
     #[test]
     fn lower_feature_without_auth_keeps_field_none() {
         let source = r#"

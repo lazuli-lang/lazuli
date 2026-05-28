@@ -130,7 +130,15 @@ pub(super) fn check_semantic_plugin_unresolved(
     // analyzer's `type_ref_from_syntax` match arm. Authors writing one
     // of these never hit the plugin path.
     const BUILT_IN_SEMANTIC: &[&str] = &[
-        "Email", "Phone", "Url", "Uuid", "Currency", "GeoPoint", "Money",
+        "Email",
+        "Phone",
+        "Url",
+        "Uuid",
+        "Currency",
+        "GeoPoint",
+        "Money",
+        "HexColor",
+        "Percentage",
     ];
 
     let mut diagnostics = Vec::new();

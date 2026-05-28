@@ -367,6 +367,8 @@ fn is_builtin_semantic(name: &str) -> bool {
             | "JSON"
             | "Json"
             | "GeoPoint"
+            | "HexColor"
+            | "Percentage"
     )
 }
 

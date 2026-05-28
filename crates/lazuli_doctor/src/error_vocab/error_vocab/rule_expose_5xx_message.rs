@@ -91,7 +91,10 @@ mod tests {
 
     #[test]
     fn finding_code_is_stable() {
-        assert_eq!(Expose5xxMessageFinding::CODE, "ERR-VOCAB-EXPOSE-5XX-MESSAGE");
+        assert_eq!(
+            Expose5xxMessageFinding::CODE,
+            "ERR-VOCAB-EXPOSE-5XX-MESSAGE"
+        );
     }
 
     #[test]

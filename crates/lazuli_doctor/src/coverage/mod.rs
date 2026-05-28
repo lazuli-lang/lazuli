@@ -37,7 +37,7 @@ pub mod spec_transition_state;
 pub mod view_e2e_pair;
 pub mod view_extensibility;
 
-pub use presets::{preset_severity_overrides, preset_thresholds, CoveragePreset};
+pub use presets::{CoveragePreset, preset_severity_overrides, preset_thresholds};
 
 #[cfg(test)]
 pub(crate) mod test_support;

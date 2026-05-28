@@ -124,10 +124,7 @@ impl InternalHygienePreset {
 ///     None,
 /// );
 /// ```
-pub fn preset_rule_severity(
-    preset: InternalHygienePreset,
-    code: &str,
-) -> Option<DoctorSeverity> {
+pub fn preset_rule_severity(preset: InternalHygienePreset, code: &str) -> Option<DoctorSeverity> {
     if !is_internal_hygiene_code(code) {
         return None;
     }
@@ -155,7 +152,10 @@ mod tests {
             InternalHygienePreset::TddMature,
             InternalHygienePreset::Off,
         ] {
-            assert_eq!(InternalHygienePreset::parse(variant.as_str()), Some(variant));
+            assert_eq!(
+                InternalHygienePreset::parse(variant.as_str()),
+                Some(variant)
+            );
         }
     }
 

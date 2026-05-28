@@ -196,11 +196,7 @@ mod tests {
         Experience, ExperienceModule, ExperienceView, ViewExtension, ViewTestAssertion,
     };
 
-    fn mk_view(
-        name: &str,
-        anchor: Option<&str>,
-        tests: Vec<ViewTestAssertion>,
-    ) -> ExperienceView {
+    fn mk_view(name: &str, anchor: Option<&str>, tests: Vec<ViewTestAssertion>) -> ExperienceView {
         ExperienceView {
             name: name.into(),
             anchor: anchor.map(Into::into),

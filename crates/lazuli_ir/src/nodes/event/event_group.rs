@@ -8,9 +8,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::SpanRef;
-
 use super::{EventField, OutboxMode};
+use crate::SpanRef;
 
 /// Phase L Tier 3 — `event_group <pattern> on <Resource>` declaration.
 ///
@@ -122,8 +121,9 @@ impl EventVariantKind {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn event_variant_kind_serializes_snake_case() {

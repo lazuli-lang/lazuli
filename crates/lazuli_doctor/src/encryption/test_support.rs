@@ -113,7 +113,7 @@ pub fn empty_feature(name: &str) -> Feature {
         apis: vec![],
         records: vec![],
         queries: vec![],
-            resume_routers: vec![],
+        resume_routers: vec![],
         workflows: vec![],
         jobs: vec![],
         webhooks: vec![],
@@ -129,9 +129,9 @@ pub fn empty_feature(name: &str) -> Feature {
         pollers: vec![],
         reports: vec![],
         channels: vec![],
-            caches: vec![],
+        caches: vec![],
         aggregates: vec![],
-            mcp_servers: vec![],
+        mcp_servers: vec![],
         previous_names: vec![],
         synth_origins: std::collections::BTreeMap::new(),
         span_ref: None,
@@ -157,11 +157,13 @@ pub fn encrypted_field(name: &str, key_scope: &str) -> Field {
         slug: false,
         default: None,
         derived_from: None,
+        computed_date: None,
         constraints: FieldConstraints::default(),
         full_text: false,
         previous_names: vec![],
         pii: None,
         owner_axis: None,
+        cross_feature_target: None,
         span_ref: None,
     }
 }
@@ -185,11 +187,13 @@ pub fn e2ee_field(name: &str, key_scope: &str) -> Field {
         slug: false,
         default: None,
         derived_from: None,
+        computed_date: None,
         constraints: FieldConstraints::default(),
         full_text: false,
         previous_names: vec![],
         pii: None,
         owner_axis: None,
+        cross_feature_target: None,
         span_ref: None,
     }
 }
@@ -225,6 +229,8 @@ pub fn resource_with_fields(name: &str, fields: Vec<Field>) -> Resource {
         composite_key: None,
         conventions: Vec::new(),
         lifecycle_routes: None,
+        polymorphic_refs: Vec::new(),
+        append_only: false,
     }
 }
 

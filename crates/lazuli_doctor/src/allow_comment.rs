@@ -141,6 +141,9 @@ mod tests {
         // Codes like `@info.record_column_jsonb` round-trip via the
         // case-insensitive substring match.
         let src = "# doctor:allow @info.record_column_jsonb\n";
-        assert!(source_contains_doctor_allow(src, "@info.record_column_jsonb"));
+        assert!(source_contains_doctor_allow(
+            src,
+            "@info.record_column_jsonb"
+        ));
     }
 }

@@ -133,10 +133,7 @@ fn check_resource(
 }
 
 /// Returns `true` if the field should NOT trigger the diagnostic.
-fn should_skip(
-    field: &ir::Field,
-    written_fields: Option<&BTreeSet<String>>,
-) -> bool {
+fn should_skip(field: &ir::Field, written_fields: Option<&BTreeSet<String>>) -> bool {
     // Primary key — runtime-managed, never a derived candidate.
     if field.name == "id" {
         return true;
@@ -185,10 +182,7 @@ fn collect_write_sites(
     written
 }
 
-fn add_effect_writes(
-    effect: &CommandEffect,
-    written: &mut BTreeMap<String, BTreeSet<String>>,
-) {
+fn add_effect_writes(effect: &CommandEffect, written: &mut BTreeMap<String, BTreeSet<String>>) {
     match effect {
         CommandEffect::Creates(c) => {
             let entry = written.entry(c.resource.name.clone()).or_default();
@@ -207,7 +201,10 @@ fn add_effect_writes(
                 entry.insert(a.field.clone());
             }
         }
-        CommandEffect::Deletes(_) | CommandEffect::Returns(_) | CommandEffect::None => {}
+        CommandEffect::Deletes(_)
+        | CommandEffect::Reorders(_)
+        | CommandEffect::Returns(_)
+        | CommandEffect::None => {}
     }
 }
 

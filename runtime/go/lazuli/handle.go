@@ -560,9 +560,81 @@ func applyEffect[I, O any](ctx *Ctx, tx pgx.Tx, effect Effect, input I) (O, erro
 		return applyDeletes[I, O](ctx, tx, eff, input)
 	case ReturnsEffect:
 		return applyReturns[I, O](ctx, eff, input)
+	case ReorderEffect:
+		return applyReorder[I, O](ctx, tx, eff, input)
 	default:
 		return zero, &Error{Status: 500, Code: CodeInternal,
 			Message: fmt.Sprintf("unknown effect kind: %T", effect)}
+	}
+}
+
+// applyReorder runs a `reorder <Resource> by <position>` command (W4
+// GAP-REORDER-01). It reads the ordered id list from the request input
+// (field "ids" — a slice of ids in the desired order) and emits a single
+// batch UPDATE that sets the position column to each id's index in the list
+// via a `VALUES (id, position)` join. Wire-thin: one statement, no
+// per-row round trips, no homegrown ordering. Returns the zero output value
+// (reorder commands are side-effecting; O is typically `struct{}`).
+func applyReorder[I, O any](ctx *Ctx, tx pgx.Tx, eff ReorderEffect, input I) (O, error) {
+	var zero O
+	idsRaw, err := readPath(reflect.ValueOf(input), "ids")
+	if err != nil {
+		return zero, &Error{Status: 400, Code: CodeBadRequest,
+			Message: "reorder command requires an ordered `ids` list"}
+	}
+	ids, ok := toAnySlice(idsRaw)
+	if !ok {
+		return zero, &Error{Status: 400, Code: CodeBadRequest,
+			Message: "reorder `ids` must be a list"}
+	}
+	if len(ids) == 0 {
+		return zero, nil
+	}
+
+	// Build a single `UPDATE <table> SET <pos> = data.position
+	// FROM (VALUES ($1,0),($2,1),...) AS data(id, position) WHERE
+	// <table>.id = data.id` statement. The VALUES rows pair each id with
+	// its 0-based ordinal in the supplied order.
+	values := make([]any, 0, len(ids))
+	tuples := make([]string, 0, len(ids))
+	for i, id := range ids {
+		values = append(values, id)
+		tuples = append(tuples, fmt.Sprintf("($%d, %d)", len(values), i))
+	}
+	sql := fmt.Sprintf(
+		`UPDATE %s SET %s = data.position FROM (VALUES %s) AS data(id, position) WHERE %s.id = data.id`,
+		quoteResourceTable(eff.Resource.Name),
+		quoteIdent(eff.PositionColumn),
+		strings.Join(tuples, ", "),
+		quoteResourceTable(eff.Resource.Name),
+	)
+	if _, err := tx.Exec(ctx, sql, values...); err != nil {
+		return zero, classifyDBError("reorder", err)
+	}
+	return zero, nil
+}
+
+// toAnySlice coerces a `readPath` result into a `[]any` so the reorder
+// effect can iterate the ordered ids regardless of the concrete slice type
+// the JSON decoder produced.
+func toAnySlice(v any) ([]any, bool) {
+	switch s := v.(type) {
+	case []any:
+		return s, true
+	case []string:
+		out := make([]any, len(s))
+		for i, e := range s {
+			out[i] = e
+		}
+		return out, true
+	case []int64:
+		out := make([]any, len(s))
+		for i, e := range s {
+			out[i] = e
+		}
+		return out, true
+	default:
+		return nil, false
 	}
 }
 

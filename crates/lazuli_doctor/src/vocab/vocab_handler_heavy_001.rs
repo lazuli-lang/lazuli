@@ -142,7 +142,10 @@ fn effect_contains_fn_ref(effect: &CommandEffect) -> bool {
             .assignments
             .iter()
             .any(|assignment| expr_contains_fn_ref(&assignment.value)),
-        CommandEffect::Deletes(_) | CommandEffect::Returns(_) | CommandEffect::None => false,
+        CommandEffect::Deletes(_)
+        | CommandEffect::Reorders(_)
+        | CommandEffect::Returns(_)
+        | CommandEffect::None => false,
     }
 }
 
@@ -228,6 +231,7 @@ mod tests {
             CommandEffect::Creates(_) => CommandKind::Create,
             CommandEffect::Updates(_) => CommandKind::Update,
             CommandEffect::Deletes(_) => CommandKind::Delete,
+            CommandEffect::Reorders(_) => CommandKind::Reorder,
             CommandEffect::Returns(_) | CommandEffect::None => CommandKind::Returns,
         };
         Command {

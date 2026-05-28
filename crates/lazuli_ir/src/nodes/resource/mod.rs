@@ -40,7 +40,10 @@ mod convention;
 pub use convention::{ConventionOrigin, ConventionRef};
 
 mod field;
-pub use field::{Field, FieldConstraints, OwnerAxis, OwnerScopeSql, SanitizeHtmlProfile};
+pub use field::{
+    ComputedDate, ComputedDateBase, ComputedDateOffset, CrossFeatureTarget, Field,
+    FieldConstraints, OwnerAxis, OwnerScopeSql, SanitizeHtmlProfile,
+};
 
 mod type_ref;
 pub use type_ref::{BuiltinType, CurrencyCode, TypeRef};
@@ -125,6 +128,41 @@ pub struct Resource {
     /// X.lifecycle_route` against a resource that doesn't have one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lifecycle_routes: Option<LifecycleRoutes>,
+    /// GAP-13 — `polymorphic_ref <type_field> <id_field> targets [...]`
+    /// declarations. Each models a discriminated FK (the `type_field`
+    /// column names the target resource; `id_field` holds its row id).
+    /// Codegen emits the two columns + a CHECK over the target names +
+    /// a composite index — never a single hard FK (it would point at
+    /// multiple tables). Doctor `REF-POLYMORPHIC-TARGET-001` verifies
+    /// every target resolves (same-feature or cross-feature via `uses`).
+    /// Additive: pre-GAP-13 fixtures deserialize with an empty vec.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub polymorphic_refs: Vec<PolymorphicRef>,
+    /// GAP-AUDIT-02 — `append_only` resource modifier. When `true`, rows
+    /// of this resource may only be inserted, never updated or deleted
+    /// (an audit-log / ledger discipline). Doctor
+    /// `RESOURCE-APPEND-ONLY-001` rejects any `command` whose effect
+    /// `updates` or `deletes` this resource; codegen omits the
+    /// update/delete handlers. Additive: pre-W4 fixtures deserialize with
+    /// `append_only == false`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub append_only: bool,
+}
+
+/// GAP-13 — one polymorphic (discriminated) foreign key on a [`Resource`].
+/// Lowered from `polymorphic_ref <type_field> <id_field> targets [A, B,
+/// C]`. The `type_field` is an enum over `targets`; the `id_field` is the
+/// row id of whichever target the discriminator names. No single DB FK
+/// can express the multi-table referent, so codegen emits the columns + a
+/// CHECK + a composite index. Mirrors `lazuli_syntax::ResourcePolymorphicRefAst`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolymorphicRef {
+    /// Discriminator field name (e.g. `entity_type`).
+    pub type_field: String,
+    /// FK id field name (e.g. `entity_id`).
+    pub id_field: String,
+    /// Closed list of target resource names, in source order.
+    pub targets: Vec<String>,
 }
 
 /// router-w4 — `lifecycle_routes` block on a Resource. Maps every

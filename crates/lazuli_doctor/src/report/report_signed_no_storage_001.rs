@@ -66,20 +66,14 @@ impl Finding {
 /// let feature: Feature = unimplemented!("lower a feature with a signed report and no storage");
 /// let _ = check(&feature, &[], Path::new("sales.lzi"));
 /// ```
-pub fn check(
-    feature: &Feature,
-    object_storage_caps: &[String],
-    path: &Path,
-) -> Vec<Finding> {
+pub fn check(feature: &Feature, object_storage_caps: &[String], path: &Path) -> Vec<Finding> {
     if !object_storage_caps.is_empty() {
         return Vec::new();
     }
     feature
         .reports
         .iter()
-        .filter(|r| {
-            matches!(r.visibility, FileVisibility::Signed) && r.storage.is_none()
-        })
+        .filter(|r| matches!(r.visibility, FileVisibility::Signed) && r.storage.is_none())
         .map(|r| Finding {
             path: path.to_path_buf(),
             feature: feature.name.clone(),
@@ -130,7 +124,7 @@ mod tests {
             extensions: vec![],
             escape_routes: vec![],
             agents: vec![],
-        pollers: vec![],
+            pollers: vec![],
             reports,
             channels: vec![],
             caches: vec![],
@@ -145,6 +139,7 @@ mod tests {
     fn mk_signed_report() -> Report {
         Report {
             name: "r".into(),
+            input: vec![],
             source: ReportSource::Query(QualifiedName {
                 feature: None,
                 name: "list".into(),

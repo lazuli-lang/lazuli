@@ -149,7 +149,39 @@ Operational dispatching (orchestration, slash commands, multi-agent coordination
 
 7. **Magic discovery requires visibility.** If a filename convention, prefix, or directory rule resolves into language semantics, it must surface in `lazuli inspect`, `lazuli doctor`, and LSP. No silent runtime behavior.
 
+8. **A keyword has many faces — change them together.** Adding, renaming, removing, or aliasing any `.lzi`/`.lzx`/manifest keyword, sub-keyword, closed-value catalog, or `@`-sigil is *not done* when the parser accepts it. It is done when the parser, IR lowering, LSP (completion + hover + typo catalogs), VS Code syntax highlighting, docs (grammar + quickref + canonical-semantics), the Lazurite scaffold, and the canonical `examples/` **all agree**. Partial updates drift silently — see the "Language-surface parity" section below for the surface map + definition-of-done.
+
 When you spot a violation: reject in line. Do not merge into a checklist for "later." The boundary is enforced through deletion, not migration.
+
+---
+
+## Language-surface parity — every keyword has many faces
+
+A keyword the *parser* accepts is not "shipped." It is shipped when every surface an author or AI touches agrees on it. Lazuli has **no single generated keyword catalog** — each surface is hand-maintained, so they drift independently and *silently* (the feature-level walker skips unknown children with no error). The 2026-05 `attach_ctx` incident is the cautionary tale: the live keyword `attach_ctx` was invisible (no highlight, no LSP completion, absent from `grammar.lzi.md`) while the **dead** feature-level `context "@…"` form was highlighted, documented, and used in `examples/full-capsule/` — where the parser silently drops it (`context_path` never populates). Result: freshly-scaffolded pilots *looked* wrong while being correct, and the blessed example was actually broken. Tooling that highlights the broken form and not the working one is worse than no tooling.
+
+**The rule:** any change to a `.lzi`/`.lzx`/manifest keyword, sub-keyword, closed-value catalog, or `@`-sigil — add, rename, remove, or alias — lands in **one change that touches every face below**. Partial = drift.
+
+**The faces of a keyword** (paths verified 2026-05-28):
+
+| Face | Where | Failure mode if skipped |
+|---|---|---|
+| Recognition (parser) | `crates/lazuli_syntax/src/parser/lzi/…` (feature children dispatch in `feature_walker/skeleton.rs`); app-manifest keys in `crates/lazuli_cli/src/app_manifest/manifest.rs` | keyword unparseable, or silently dropped at the lenient feature-level fall-through |
+| Lowering (IR) | `crates/lazuli_analyzer/src/feature.rs`, `crates/lazuli_ir/` | parses but never reaches codegen. Note: `lazuli parse` emits the *skeleton* AST (analyzer-only blocks like `extensions` show empty there) — verify with `lazuli inspect` / `generate … --check`, **not** `parse` |
+| Completion + hover (LSP) | `crates/lazuli_lsp/src/keywords.rs` (`KEYWORDS`, hand-curated) + hover tables | no autocomplete, no hover doc — author/AI can't discover the keyword |
+| Typo catalogs (LSP) | `…/diagnostics/canonical_kinds/sections/blocks.rs` (`*_BODY_KINDS`) + `statements.rs` | false "did you mean" squiggle, or a real typo silently slips through |
+| Syntax highlighting | `editors/vscode/syntaxes/lazuli.tmLanguage.json` + `editors/vscode/SCOPES.md`; regenerate `editors/vscode/tests/grammar/*.snap` | renders as plain text → "looks like a syntax error" |
+| Reference grammar | `docs/grammar.lzi.md` (reserved-word list **and** the production rule), `docs/grammar.app.md` for manifest keys | a cold-reading AI authors the wrong spelling |
+| Teaching docs | `docs/quickref.md`, `docs/canonical-semantics.md`, `docs/invariants.md` | contradicts the grammar; the most-read surface lies |
+| Scaffold + canon | `lazurite/templates/default/**`, `examples/**` (esp. `examples/full-capsule/`) | every new project and every cold-read inherits the stale form |
+| Migration recipe (rename/remove only) | `lazuli upgrade` recipes in `crates/lazuli_cli` | existing pilots can't auto-migrate off the old spelling |
+
+**Definition of done** for a keyword change:
+1. `grep` the OLD spelling across `docs/`, `examples/`, `lazurite/`, `editors/`, `crates/lazuli_lsp/` → **zero** stray hits (only the migration recipe may still name it).
+2. `grep` the NEW spelling → present in parser, LSP `KEYWORDS`, tmLanguage, grammar doc, quickref, and scaffold/example.
+3. The canonical example actually round-trips: `lazuli inspect examples/full-capsule` (or `generate … --check`) shows the construct **populated**, not silently dropped.
+4. `editors/vscode` grammar snapshot tests regenerated and committed.
+
+If you cannot touch every face in this change, do not change the keyword — file it and do it whole. The bar is parity, not "the parser accepts it." (A future `lazuli doctor --self` parity rule could automate steps 1–2; until it exists, this checklist is the gate.)
 
 ---
 

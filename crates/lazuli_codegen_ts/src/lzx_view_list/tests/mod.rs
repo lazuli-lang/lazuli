@@ -30,6 +30,7 @@ fn minimal_view_list() -> ViewList {
         selection: None,
         settings: vec![],
         redacted_fields: Vec::new(),
+        ux: Default::default(),
         span_ref: None,
     }
 }
@@ -39,6 +40,7 @@ fn minimal_audience(view: ViewList) -> Audience {
         name: "viewer".to_owned(),
         requires: vec![],
         views: vec![View::List(view)],
+        ux: Default::default(),
         span_ref: None,
     }
 }
@@ -156,6 +158,7 @@ fn generates_correct_hook_name_with_kebab_audience() {
         name: "workspace-admin".to_owned(),
         requires: vec![],
         views: vec![View::List(view.clone())],
+        ux: Default::default(),
         span_ref: None,
     };
     let surface = Surface {

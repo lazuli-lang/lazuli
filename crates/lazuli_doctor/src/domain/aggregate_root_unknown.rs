@@ -76,8 +76,7 @@ impl Finding {
 /// }
 /// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
-    let resources: HashSet<&str> =
-        feature.resources.iter().map(|r| r.name.as_str()).collect();
+    let resources: HashSet<&str> = feature.resources.iter().map(|r| r.name.as_str()).collect();
 
     feature
         .aggregates
@@ -122,6 +121,8 @@ mod tests {
             composite_key: None,
             conventions: Vec::new(),
             lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            append_only: false,
         }
     }
 

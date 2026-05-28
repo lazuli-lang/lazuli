@@ -55,11 +55,13 @@ fn emit_go_mod_with_geopoint_resource_adds_postgis_require() {
             slug: false,
             default: None,
             derived_from: None,
+            computed_date: None,
             constraints: FieldConstraints::default(),
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         }],
         constraints: Vec::new(),
@@ -74,6 +76,8 @@ fn emit_go_mod_with_geopoint_resource_adds_postgis_require() {
         composite_key: None,
         conventions: Vec::new(),
         lifecycle_routes: None,
+        polymorphic_refs: Vec::new(),
+        append_only: false,
     });
 
     let files = generate_v1(&module, &GoEmitOptions::default());

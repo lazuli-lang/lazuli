@@ -31,9 +31,7 @@ pub const DEFAULT_MIN_CLUSTER_FIELDS: usize = 4;
 /// Tokens excluded from cluster matching. These are domain-universal name
 /// fragments that would otherwise cluster spuriously (`*_id`, `*_at`,
 /// `*_by`, etc.).
-pub const DEFAULT_EXCLUDED_TOKENS: &[&str] = &[
-    "id", "at", "by", "count", "total", "org", "tenant",
-];
+pub const DEFAULT_EXCLUDED_TOKENS: &[&str] = &["id", "at", "by", "count", "total", "org", "tenant"];
 
 /// Position of the shared snake-case token inside the clustered field
 /// names — drives the prose in the diagnostic message.

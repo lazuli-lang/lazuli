@@ -110,11 +110,13 @@ mod tests {
             slug,
             default: None,
             derived_from: None,
+            computed_date: None,
             constraints: FieldConstraints::default(),
             full_text: false,
             previous_names: vec![],
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         }
     }
@@ -141,6 +143,8 @@ mod tests {
             composite_key: None,
             conventions: Vec::new(),
             lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            append_only: false,
         }
     }
 
@@ -192,7 +196,10 @@ mod tests {
 
     #[test]
     fn positive_slug_without_unique_fires() {
-        let feature = mk_feature(vec![mk_resource("Post", vec![mk_field("slug", true, false)])]);
+        let feature = mk_feature(vec![mk_resource(
+            "Post",
+            vec![mk_field("slug", true, false)],
+        )]);
         let findings = check(&feature, Path::new("f.lzi"));
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].resource, "Post");
@@ -202,13 +209,19 @@ mod tests {
 
     #[test]
     fn negative_slug_with_unique_does_not_fire() {
-        let feature = mk_feature(vec![mk_resource("Post", vec![mk_field("slug", true, true)])]);
+        let feature = mk_feature(vec![mk_resource(
+            "Post",
+            vec![mk_field("slug", true, true)],
+        )]);
         assert!(check(&feature, Path::new("f.lzi")).is_empty());
     }
 
     #[test]
     fn negative_non_slug_field_does_not_fire() {
-        let feature = mk_feature(vec![mk_resource("Post", vec![mk_field("name", false, false)])]);
+        let feature = mk_feature(vec![mk_resource(
+            "Post",
+            vec![mk_field("name", false, false)],
+        )]);
         assert!(check(&feature, Path::new("f.lzi")).is_empty());
     }
 }

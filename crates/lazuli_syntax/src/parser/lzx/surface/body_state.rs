@@ -11,15 +11,15 @@
 //! Handlers MUST be idempotent against missing siblings: structural
 //! validity (required `source` etc.) is the caller's job.
 
-use crate::ast::{
-    CellBindingAst, DrawerSubViewAst, FilterDeclAst, OnSuccessSpecAst, RouteParamAst,
-    SearchDeclAst, SelectionDeclAst, SelectionModeAst, SettingDeclAst, SortDeclAst, Span,
-};
-
 use super::super::super::common::{
     SourceLine, is_kebab_or_snake_ident, line_error, line_error_owned, split_lzx_list,
 };
 use super::super::super::error::ParseError;
+use crate::ast::{
+    CellBindingAst, DrawerSubViewAst, FilterDeclAst, OnSuccessSpecAst, RouteParamAst,
+    SearchDeclAst, SelectionDeclAst, SelectionModeAst, SettingDeclAst, SortDeclAst, Span,
+    ViewUxAst,
+};
 
 #[derive(Default)]
 pub(in crate::parser::lzx) struct ViewBodyState {
@@ -44,6 +44,9 @@ pub(in crate::parser::lzx) struct ViewBodyState {
     pub(in crate::parser::lzx) bulk_actions_seen: bool,
     pub(in crate::parser::lzx) settings: Vec<SettingDeclAst>,
     pub(in crate::parser::lzx) redacted_fields: Vec<String>,
+    /// Wave-W6 view-level UX primitives (`wizard_steps`, `tab_group`,
+    /// `view_mode`, `view.inline_table`).
+    pub(in crate::parser::lzx) ux: ViewUxAst,
 }
 
 type ViewBodyLineHandler =

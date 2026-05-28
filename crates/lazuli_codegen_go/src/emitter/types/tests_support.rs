@@ -148,6 +148,8 @@ pub(super) fn make_resource(name: &str) -> Resource {
         composite_key: None,
         conventions: Vec::new(),
         lifecycle_routes: None,
+        polymorphic_refs: Vec::new(),
+        append_only: false,
     }
 }
 

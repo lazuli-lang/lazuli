@@ -21,12 +21,11 @@
 //! references; it stays inside this module because no other surface
 //! sub-construct currently consumes it.
 
-use crate::ast::{BindingRefAst, SearchDeclAst, SearchFieldAst, SearchModeAst, Span};
-
 use super::super::super::common::{
     SourceLine, is_trivia, line_error, line_error_owned, split_lzx_list, strip_inline_comment,
 };
 use super::super::super::error::ParseError;
+use crate::ast::{BindingRefAst, SearchDeclAst, SearchFieldAst, SearchModeAst, Span};
 
 pub(crate) fn parse_view_search_decl(
     lines: &[SourceLine<'_>],

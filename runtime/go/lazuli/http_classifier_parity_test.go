@@ -11,17 +11,18 @@ import (
 )
 
 // §A1 COMMAND-WIRE-CLASSIFIER-SYNC — refuses to compile if the
-// Rust-side `READ_VERB_PREFIXES` array in `lazuli_cli/src/main.rs`
-// diverges from the Go-side `pureReadCommandPrefixes`. Both lists
+// Rust-side `READ_VERB_PREFIXES` array in
+// `lazuli_cli/src/commands/generate/ts/types/pure_read.rs` diverges
+// from the Go-side `pureReadCommandPrefixes`. Both lists
 // drive routing decisions (TS codegen emits `defineQuery` for
 // names matching the Rust list → /q/; Go runtime mirrors those at
 // /q/ for the same names). Drift between them re-opens the silent
 // 404 class that closed in lazuli 7976c3ec.
 //
 // The test reads the Rust source as text — fragile against radical
-// refactors of main.rs, but the prefix-array shape has been stable
-// since the classifier landed and a refactor that breaks this test
-// is exactly the moment to update both sides.
+// refactors of pure_read.rs, but the prefix-array shape has been
+// stable since the classifier landed and a refactor that breaks
+// this test is exactly the moment to update both sides.
 
 func TestPureReadClassifierParity(t *testing.T) {
 	rustPath := locateRustClassifierSource(t)
@@ -37,15 +38,16 @@ func TestPureReadClassifierParity(t *testing.T) {
 
 	if !equalStringSlices(goPrefixes, rustPrefixes) {
 		t.Fatalf(
-			"COMMAND-WIRE-CLASSIFIER-SYNC drift:\n  Go (runtime/go/lazuli/http.go) : %v\n  Rust (crates/lazuli_cli/src/main.rs::READ_VERB_PREFIXES) : %v\n\nA new pure-read prefix must be added to BOTH or removed from BOTH so the wire-routing stays consistent.",
+			"COMMAND-WIRE-CLASSIFIER-SYNC drift:\n  Go (runtime/go/lazuli/http.go) : %v\n  Rust (crates/lazuli_cli/src/commands/generate/ts/types/pure_read.rs::READ_VERB_PREFIXES) : %v\n\nA new pure-read prefix must be added to BOTH or removed from BOTH so the wire-routing stays consistent.",
 			goPrefixes, rustPrefixes,
 		)
 	}
 }
 
 // locateRustClassifierSource finds the canonical Rust source. The
-// runtime tests run from `runtime/go/lazuli`, and the crate sits at
-// `../../../crates/lazuli_cli/src/main.rs` (sibling to runtime/).
+// runtime tests run from `runtime/go/lazuli`, and the const sits at
+// `../../../crates/lazuli_cli/src/commands/generate/ts/types/pure_read.rs`
+// (sibling to runtime/) after the R9 split relocated it out of main.rs.
 func locateRustClassifierSource(t *testing.T) string {
 	t.Helper()
 	_, here, _, ok := runtime.Caller(0)
@@ -53,7 +55,9 @@ func locateRustClassifierSource(t *testing.T) string {
 		t.Fatal("runtime.Caller failed — can't locate Rust source from test binary")
 	}
 	root := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(here))))
-	candidate := filepath.Join(root, "crates", "lazuli_cli", "src", "main.rs")
+	candidate := filepath.Join(
+		root, "crates", "lazuli_cli", "src", "commands", "generate", "ts", "types", "pure_read.rs",
+	)
 	if _, err := os.Stat(candidate); err != nil {
 		t.Skipf("Rust source not found at %s (sibling crates/ dir missing) — skipping parity check", candidate)
 	}

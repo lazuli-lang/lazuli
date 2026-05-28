@@ -154,7 +154,10 @@ fn command_writes(effect: &CommandEffect) -> BTreeSet<String> {
                 writes.insert(field.clone());
             }
         }
-        CommandEffect::Deletes(_) | CommandEffect::Returns(_) | CommandEffect::None => {}
+        CommandEffect::Deletes(_)
+        | CommandEffect::Reorders(_)
+        | CommandEffect::Returns(_)
+        | CommandEffect::None => {}
     }
     writes
 }
@@ -190,9 +193,7 @@ fn collect(predicate: &Predicate, writes: &BTreeSet<String>, out: &mut Vec<Strin
 fn leaf_self_field(expr: &Expr) -> Option<String> {
     if let Expr::Path(p) = expr {
         let segments = &p.segments;
-        if segments.len() == 2
-            && (segments[0] == "self" || segments[0] == "target")
-        {
+        if segments.len() == 2 && (segments[0] == "self" || segments[0] == "target") {
             return Some(segments[1].clone());
         }
     }
@@ -202,11 +203,7 @@ fn leaf_self_field(expr: &Expr) -> Option<String> {
 fn is_literal(expr: &Expr) -> bool {
     matches!(
         expr,
-        Expr::String(_)
-            | Expr::Integer(_)
-            | Expr::Boolean(_)
-            | Expr::Enum(_)
-            | Expr::Nil,
+        Expr::String(_) | Expr::Integer(_) | Expr::Boolean(_) | Expr::Enum(_) | Expr::Nil,
     )
 }
 
@@ -214,8 +211,8 @@ fn is_literal(expr: &Expr) -> bool {
 mod tests {
     use super::*;
     use lazuli_ir::{
-        CompareOp, Defaults, Field, Lifecycle, LifecycleStateKind, LifecycleState,
-        LifecycleTransition, Policies, Resource, TestBlock, TypeRef, BuiltinType,
+        BuiltinType, CompareOp, Defaults, Field, Lifecycle, LifecycleState, LifecycleStateKind,
+        LifecycleTransition, Policies, Resource, TestBlock, TypeRef,
     };
 
     fn mk_resource_with_transition(transition: LifecycleTransition) -> Resource {
@@ -233,11 +230,13 @@ mod tests {
                 slug: false,
                 default: None,
                 derived_from: None,
+                computed_date: None,
                 constraints: Default::default(),
                 full_text: false,
                 previous_names: vec![],
                 pii: None,
                 owner_axis: None,
+                cross_feature_target: None,
                 span_ref: None,
             }],
             constraints: vec![],
@@ -272,6 +271,8 @@ mod tests {
             composite_key: None,
             conventions: Vec::new(),
             lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            append_only: false,
         }
     }
 

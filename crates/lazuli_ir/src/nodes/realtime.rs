@@ -66,9 +66,10 @@ pub struct Channel {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
     use crate::Path;
-    use serde_json::json;
 
     fn sample() -> Channel {
         Channel {

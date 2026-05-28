@@ -123,7 +123,9 @@ fn extract_fontfamily_strings(segment: &str) -> Vec<String> {
     while let Some(rel) = segment[start..].find(key) {
         let pos = start + rel;
         // Require preceding char to be non-identifier or boundary.
-        let preceding_ok = match pos.checked_sub(1).and_then(|p| segment.as_bytes().get(p).copied())
+        let preceding_ok = match pos
+            .checked_sub(1)
+            .and_then(|p| segment.as_bytes().get(p).copied())
         {
             None => true,
             Some(b) => !is_ident_byte(b),
@@ -213,10 +215,7 @@ mod tests {
     #[test]
     fn allow_declared_token_name() {
         let allowlist = al(&["sans", "mono"]);
-        let f = run(
-            &[r#"<div style={{ fontFamily: "sans" }} />"#],
-            &allowlist,
-        );
+        let f = run(&[r#"<div style={{ fontFamily: "sans" }} />"#], &allowlist);
         assert!(f.is_empty(), "found: {:?}", f);
     }
 

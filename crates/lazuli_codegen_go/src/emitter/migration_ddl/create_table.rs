@@ -26,9 +26,13 @@ use lazuli_ir::{
 
 use super::super::cross_feature::CrossFeatureIndex;
 use super::constraint::{
-    composite_key_sql, foreign_key_constraints, inline_unique_constraint_sql, unique_constraint_sql,
+    composite_key_sql, foreign_key_constraints, inline_unique_constraint_sql,
+    polymorphic_ref_columns, unique_constraint_sql,
 };
-use super::index::{authored_index_sql, emit_session_rotation_indexes};
+use super::index::{
+    authored_index_sql, cross_feature_target_indexes, emit_session_rotation_indexes,
+    partial_unique_index_sql, polymorphic_ref_indexes,
+};
 use super::sql_builder::{
     comment_value, effective_tenancy, is_direct_geo_point, lower_snake, quote_ident,
     resource_uses_postgis, sql_ident, uses_timestamps,
@@ -126,6 +130,33 @@ pub(super) fn emit_resource_migration<'a>(
         };
         authored_index_sql(&table_name, index)
     }) {
+        writeln!(sql);
+        let _ = writeln!(sql, "{index}");
+    }
+
+    // GAP-NEW-001 — conditional `unique (...) when <predicate>` constraints
+    // emit a partial UNIQUE INDEX (Postgres can't carry `WHERE` on a table
+    // UNIQUE clause). Unconditional uniques stay inline via `constraint.rs`.
+    for index in resource.constraints.iter().filter_map(|constraint| {
+        let Constraint::Unique(unique) = constraint else {
+            return None;
+        };
+        partial_unique_index_sql(&table_name, unique)
+    }) {
+        writeln!(sql);
+        let _ = writeln!(sql, "{index}");
+    }
+
+    // GAP-12 — cross-feature `target @feature.X.Y` FK fields get a logical
+    // btree index (no hard DB FK across migration-set boundaries).
+    for index in cross_feature_target_indexes(&table_name, resource) {
+        writeln!(sql);
+        let _ = writeln!(sql, "{index}");
+    }
+
+    // GAP-13 — polymorphic_ref discriminated FKs get a composite
+    // (type_field, id_field) index for fast discriminated lookups.
+    for index in polymorphic_ref_indexes(&table_name, resource) {
         writeln!(sql);
         let _ = writeln!(sql, "{index}");
     }
@@ -259,6 +290,11 @@ pub(super) fn resource_columns<'a>(
         resource,
         cross_index,
     ));
+
+    // GAP-13 — polymorphic_ref declarations contribute their own
+    // discriminator + id columns (+ a CHECK over the target names). They
+    // are NOT in `resource.fields`, so they're appended here.
+    columns.extend(polymorphic_ref_columns(resource));
 
     columns
 }

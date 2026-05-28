@@ -134,8 +134,11 @@ mod tests {
             }],
             span_ref: None,
         };
-        f.workflows
-            .push(workflow_with(vec![transition("publish", "draft", Some(tests))]));
+        f.workflows.push(workflow_with(vec![transition(
+            "publish",
+            "draft",
+            Some(tests),
+        )]));
         let l = compute(&[f]);
         assert_eq!(l.total, 1);
         assert_eq!(l.covered, 1);
@@ -150,8 +153,11 @@ mod tests {
             }],
             span_ref: None,
         };
-        f.workflows
-            .push(workflow_with(vec![transition("publish", "draft", Some(tests))]));
+        f.workflows.push(workflow_with(vec![transition(
+            "publish",
+            "draft",
+            Some(tests),
+        )]));
         let l = compute(&[f]);
         assert_eq!(l.total, 1);
         assert_eq!(l.covered, 0);

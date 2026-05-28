@@ -40,6 +40,9 @@ pub mod lzx_filters;
 #[path = "../lzx_search.rs"]
 pub mod lzx_search;
 
+#[path = "../lzx_ux.rs"]
+pub mod lzx_ux;
+
 #[path = "../lzx_view_list/mod.rs"]
 pub mod lzx_view_list;
 
@@ -80,6 +83,8 @@ pub mod ir {
         SortDecl, SortDir, SelectionDecl, SelectionMode, SettingDecl,
         SettingValueSpace, SettingPersistence, OnSuccessSpec, FlashSpec,
         InvalidatesSpec, TranslationKeyRef, QualifiedName,
+        ViewUx, AudienceUx, WizardSteps, TabGroup, TabGroupCase, Tabs, TabEntry,
+        Wizard, WizardStep, RenderMode, InlineTable,
     };
 }
 

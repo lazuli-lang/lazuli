@@ -265,9 +265,7 @@ mod tests {
 
     #[test]
     fn struct_without_error_suffix_fires() {
-        let f = file(
-            "#[derive(Debug, thiserror::Error)]\npub struct ApiProblem { code: u16 }\n",
-        );
+        let f = file("#[derive(Debug, thiserror::Error)]\npub struct ApiProblem { code: u16 }\n");
         let findings = check(&[f]);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].type_name, "ApiProblem");
@@ -282,9 +280,8 @@ mod tests {
 
     #[test]
     fn struct_with_error_suffix_is_silent() {
-        let f = file(
-            "#[derive(Debug, thiserror::Error)]\npub struct ConfigError { msg: String }\n",
-        );
+        let f =
+            file("#[derive(Debug, thiserror::Error)]\npub struct ConfigError { msg: String }\n");
         assert!(check(&[f]).is_empty());
     }
 
@@ -357,9 +354,7 @@ mod tests {
 
     #[test]
     fn pub_crate_visibility_also_fires() {
-        let f = file(
-            "#[derive(Debug, thiserror::Error)]\npub(crate) enum LoadFail { Bad }\n",
-        );
+        let f = file("#[derive(Debug, thiserror::Error)]\npub(crate) enum LoadFail { Bad }\n");
         let findings = check(&[f]);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].type_name, "LoadFail");
@@ -369,9 +364,8 @@ mod tests {
     fn unrelated_pub_item_after_derive_resets_streak() {
         // `#[derive(...Error)]` then a `fn` (not struct/enum) — no fire,
         // and the streak resets so a later naked enum is silent.
-        let f = file(
-            "#[derive(Debug, thiserror::Error)]\npub fn weird() {}\npub enum NotErr { A }\n",
-        );
+        let f =
+            file("#[derive(Debug, thiserror::Error)]\npub fn weird() {}\npub enum NotErr { A }\n");
         assert!(check(&[f]).is_empty());
     }
 }

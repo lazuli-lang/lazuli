@@ -22,5 +22,10 @@
 
 pub mod aggregate_contains_unknown;
 pub mod aggregate_root_unknown;
+pub mod computed_date_expr_invalid;
+pub mod constraint_unique_when_invalid;
 pub mod invariant_predicate_invalid;
+pub mod reorder_position_field_invalid;
+pub mod resource_append_only_invalid;
+pub mod schedule_rule_invalid;
 pub mod slug_uniqueness_implicit;

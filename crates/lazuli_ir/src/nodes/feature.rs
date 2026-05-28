@@ -20,9 +20,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Aggregate, Agent, Api, Auth, CacheProfile, Channel, Command, ConventionOrigin, Defaults,
+    Agent, Aggregate, Api, Auth, CacheProfile, Channel, Command, ConventionOrigin, Defaults,
     EnumDecl, EscapeRoute, Event, EventGroup, Extension, FeatureErrors, Job, MCPServerSpec,
-    NonGoal, Notification, Poller, Policies, Query, Record, Report, Resource, ResumeRouter, Rule,
+    NonGoal, Notification, Policies, Poller, Query, Record, Report, Resource, ResumeRouter, Rule,
     SpanRef, Surface, TenantMigration, Translation, Webhook, Workflow,
 };
 

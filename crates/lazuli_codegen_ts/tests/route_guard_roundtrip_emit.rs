@@ -73,6 +73,8 @@ feature host
             ],
             span_ref: None,
         }),
+        polymorphic_refs: Vec::new(),
+        append_only: false,
     });
     feature
 }

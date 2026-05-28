@@ -110,6 +110,35 @@ fn emits_generated_always_stored_for_derived_field() {
 }
 
 #[test]
+fn computed_date_field_emits_plain_stored_date_column() {
+    // W3 GAP-03 — a `computed_date` field is materialized in Go at write
+    // time (the `Compute<Field>` helper), so its DDL column is a PLAIN
+    // stored `DATE` column — NOT a Postgres `GENERATED ALWAYS AS` column.
+    use lazuli_ir::{ComputedDate, ComputedDateBase, ComputedDateOffset};
+    let mut feature = base_feature("campaign");
+    let mut due = builtin("due_date", BuiltinType::Date, true);
+    due.computed_date = Some(ComputedDate {
+        base: ComputedDateBase::Field("campaign_start".to_owned()),
+        offset: ComputedDateOffset::Literal(30),
+    });
+    feature.resources.push(resource(
+        "Campaign",
+        vec![builtin("campaign_start", BuiltinType::Date, true), due],
+    ));
+
+    let files = emit_migrations(&base_module(vec![feature]), "marketing");
+    let sql = &files[0].contents;
+
+    assert!(sql.contains("campaign_start DATE NOT NULL"));
+    // Plain stored column — present in DDL, no GENERATED clause.
+    assert!(sql.contains("due_date DATE NOT NULL"));
+    assert!(
+        !sql.contains("due_date DATE NOT NULL GENERATED"),
+        "computed_date column must NOT be a Postgres generated column; got:\n{sql}"
+    );
+}
+
+#[test]
 fn emits_org_tenancy_and_timestamps_from_effective_settings() {
     let mut feature = base_feature("customer");
     feature.defaults.tenancy = Some(Tenancy::Org);

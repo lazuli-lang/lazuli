@@ -23,9 +23,7 @@
 
 use std::path::{Path as FsPath, PathBuf};
 
-use lazuli_ir::{
-    BuiltinType, CurrencyCode, Expr, Feature, Path, Predicate, Resource, TypeRef,
-};
+use lazuli_ir::{BuiltinType, CurrencyCode, Expr, Feature, Path, Predicate, Resource, TypeRef};
 
 /// One MONEY-COMPARE-001 finding: a `Predicate::Comparison` whose two
 /// sides resolve to Money fields with disagreeing currencies.
@@ -169,9 +167,7 @@ fn expr_money_currency(resource: &Resource, expr: &Expr) -> Option<(String, Curr
     let field_name = leaf_field_name(path)?;
     let field = resource.fields.iter().find(|f| f.name == field_name)?;
     match field.type_ref {
-        TypeRef::Builtin(BuiltinType::SemanticMoney { currency }) => {
-            Some((field_name, currency))
-        }
+        TypeRef::Builtin(BuiltinType::SemanticMoney { currency }) => Some((field_name, currency)),
         _ => None,
     }
 }
@@ -184,8 +180,7 @@ fn leaf_field_name(path: &Path) -> Option<String> {
     let segments = &path.segments;
     let last = segments.last()?;
     if segments.len() == 1
-        || segments.first().map(String::as_str) == Some("self")
-            && segments.len() == 2
+        || segments.first().map(String::as_str) == Some("self") && segments.len() == 2
     {
         Some(last.clone())
     } else {
@@ -209,11 +204,13 @@ mod tests {
             slug: false,
             default: None,
             derived_from: None,
+            computed_date: None,
             constraints: FieldConstraints::default(),
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         }
     }
@@ -251,6 +248,8 @@ mod tests {
             composite_key: None,
             conventions: Vec::new(),
             lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            append_only: false,
         }
     }
 
@@ -308,7 +307,12 @@ mod tests {
                 money_field("total", CurrencyCode::BRL),
                 money_field("tax", CurrencyCode::BRL),
             ],
-            vec![comparison_invariant("tax_below_total", "tax", CompareOp::Le, "total")],
+            vec![comparison_invariant(
+                "tax_below_total",
+                "tax",
+                CompareOp::Le,
+                "total",
+            )],
         )]);
         let findings = check(&feature, FsPath::new("features/payments/payments.lzi"));
         assert!(findings.is_empty(), "got: {:?}", findings);
@@ -322,7 +326,12 @@ mod tests {
                 money_field("total", CurrencyCode::BRL),
                 money_field("paid", CurrencyCode::USD),
             ],
-            vec![comparison_invariant("paid_matches_total", "paid", CompareOp::Eq, "total")],
+            vec![comparison_invariant(
+                "paid_matches_total",
+                "paid",
+                CompareOp::Eq,
+                "total",
+            )],
         )]);
         let findings = check(&feature, FsPath::new("features/payments/payments.lzi"));
         assert_eq!(findings.len(), 1);
@@ -372,15 +381,22 @@ mod tests {
                     slug: false,
                     default: None,
                     derived_from: None,
+                    computed_date: None,
                     constraints: FieldConstraints::default(),
                     full_text: false,
                     previous_names: Vec::new(),
                     pii: None,
                     owner_axis: None,
+                    cross_feature_target: None,
                     span_ref: None,
                 },
             ],
-            vec![comparison_invariant("trivia", "total", CompareOp::Eq, "label")],
+            vec![comparison_invariant(
+                "trivia",
+                "total",
+                CompareOp::Eq,
+                "label",
+            )],
         )]);
         assert!(check(&feature, FsPath::new("x.lzi")).is_empty());
     }

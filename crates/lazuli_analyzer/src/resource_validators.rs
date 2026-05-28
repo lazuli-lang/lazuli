@@ -126,6 +126,9 @@ pub(crate) fn validate_constraint_type_compatibility(
             | B::SemanticUrl
             | B::SemanticUuid
             | B::SemanticCurrency
+            // W1 GAP-04 — HexColor carries text, so inline string
+            // constraints (`pattern`, `length`, `min`/`max`) apply.
+            | B::SemanticHexColor
     ) || matches!(
         &builtin,
         // B3 — a plugin-contributed semantic with a text carrier
@@ -134,7 +137,10 @@ pub(crate) fn validate_constraint_type_compatibility(
         // here yet (loader enforces `carrier_type = "String"` only).
         B::SemanticPluginType { carrier, .. } if matches!(**carrier, B::Text)
     );
-    let is_numeric = matches!(builtin, B::Integer | B::Decimal);
+    // W1 GAP-05 — Percentage is Decimal-backed, so numeric inline
+    // constraints (`between`, `min`/`max`) apply on top of its built-in
+    // 0..=100 range guard.
+    let is_numeric = matches!(builtin, B::Integer | B::Decimal | B::SemanticPercentage);
     let is_min_max_compatible = is_text_like || is_numeric;
     let is_in_compatible = is_text_like || is_numeric;
 

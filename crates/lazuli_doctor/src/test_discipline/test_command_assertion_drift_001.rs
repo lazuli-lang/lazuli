@@ -134,7 +134,9 @@ impl Finding {
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut out = Vec::new();
     for command in &feature.commands {
-        let Some(tests) = &command.tests else { continue };
+        let Some(tests) = &command.tests else {
+            continue;
+        };
         let target_resource = effect_resource(&command.effect);
         for assertion in &tests.assertions {
             let TestAssertion::DeniesWhen { predicate } = assertion else {
@@ -169,7 +171,10 @@ fn effect_resource(effect: &CommandEffect) -> Option<&str> {
     match effect {
         CommandEffect::Updates(u) => Some(u.resource.name.as_str()),
         CommandEffect::Deletes(d) => Some(d.resource.name.as_str()),
-        CommandEffect::Creates(_) | CommandEffect::Returns(_) | CommandEffect::None => None,
+        CommandEffect::Creates(_)
+        | CommandEffect::Reorders(_)
+        | CommandEffect::Returns(_)
+        | CommandEffect::None => None,
     }
 }
 
@@ -268,11 +273,7 @@ fn backing_guard_exists(
         return true;
     };
 
-    let Some(resource) = feature
-        .resources
-        .iter()
-        .find(|r| r.name == resource_name)
-    else {
+    let Some(resource) = feature.resources.iter().find(|r| r.name == resource_name) else {
         // Resource lives in a different feature — out of scope for the
         // v0.1 rule. Future widening can take a `Module` instead of a
         // `Feature`.
@@ -306,8 +307,7 @@ fn invariant_mentions_field(inv: &lazuli_ir::Invariant, field: &str) -> bool {
     // here through the serialized form. Cheap, conservative, and good
     // enough for the v0.1 rule — a deeper EvalPredicate walker lands
     // when Wave 0.5 / Wave 1 ships the shared predicate visitor.
-    let serialized =
-        serde_json::to_string(&inv.when).unwrap_or_default();
+    let serialized = serde_json::to_string(&inv.when).unwrap_or_default();
     serialized.contains(&format!("\"{field}\""))
 }
 

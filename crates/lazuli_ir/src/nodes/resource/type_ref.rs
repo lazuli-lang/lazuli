@@ -101,6 +101,19 @@ pub enum BuiltinType {
     /// `postgis.Point` in generated Go + drive the `GIST` index
     /// emission in DDL migrations.
     SemanticGeoPoint,
+    /// W1 GAP-04 — `@semantic.HexColor`. Text-backed CSS-style colour
+    /// literal (`#RRGGBB` or `#RGB`, case-insensitive hex). Mirrors the
+    /// other text semantics (`SemanticUrl`, `SemanticEmail`): TEXT column,
+    /// string wire shape. Codegen emits a server-side regex guard
+    /// (`^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$`) via the `lazuli.HexColor`
+    /// runtime type's `UnmarshalJSON`.
+    SemanticHexColor,
+    /// W1 GAP-05 — `@semantic.Percentage`. Decimal-backed ratio bounded to
+    /// `0 <= value <= 100`. Mirrors `Decimal` for the numeric wire shape
+    /// (NUMERIC column, `number`/`float64`) but carries a built-in range
+    /// guard the other semantics lack. Codegen emits the bounds check via
+    /// the `lazuli.Percentage` runtime type's `UnmarshalJSON`.
+    SemanticPercentage,
     /// B3 — plugin-contributed `@semantic.<Name>` resolved through a
     /// plugin's `manifest.toml`. The IR layer is locale-agnostic: it
     /// knows only the declaring plugin namespace (`@lazuli/plugin-scalars-br`),

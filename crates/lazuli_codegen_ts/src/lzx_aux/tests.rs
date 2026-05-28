@@ -34,6 +34,7 @@ fn view() -> ViewList {
         selection: None,
         settings: vec![],
         redacted_fields: Vec::new(),
+        ux: Default::default(),
         span_ref: None,
     }
 }

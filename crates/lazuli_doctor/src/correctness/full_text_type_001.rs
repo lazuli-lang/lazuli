@@ -115,6 +115,10 @@ fn is_text_like(type_ref: &TypeRef) -> bool {
                 | BuiltinType::SemanticUrl
                 | BuiltinType::SemanticUuid
                 | BuiltinType::SemanticCurrency
+                // W1 GAP-04 — HexColor is a text carrier, so a GIN
+                // full-text index is admissible (Percentage is numeric and
+                // intentionally omitted).
+                | BuiltinType::SemanticHexColor
         )
     )
 }
@@ -218,6 +222,8 @@ mod tests {
             composite_key: None,
             conventions: Vec::new(),
             lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            append_only: false,
         }
     }
 
@@ -230,11 +236,13 @@ mod tests {
             slug: false,
             default: None,
             derived_from: None,
+            computed_date: None,
             constraints: FieldConstraints::default(),
             full_text,
             previous_names: vec![],
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         }
     }

@@ -90,27 +90,13 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
 
     for cmd in &feature.commands {
         if let Some(tests) = &cmd.tests {
-            visit(
-                tests,
-                feature,
-                path,
-                "command",
-                &cmd.name,
-                &mut findings,
-            );
+            visit(tests, feature, path, "command", &cmd.name, &mut findings);
         }
     }
 
     for rule in &feature.rules {
         if let Some(tests) = &rule.tests {
-            visit(
-                tests,
-                feature,
-                path,
-                "rule",
-                &rule.title,
-                &mut findings,
-            );
+            visit(tests, feature, path, "rule", &rule.title, &mut findings);
         }
     }
 
@@ -195,7 +181,10 @@ fn walk(predicate: &Predicate, out: &mut Vec<(String, &'static str)>) {
                 walk(p, out);
             }
         }
-        Predicate::Has { collection, element } => {
+        Predicate::Has {
+            collection,
+            element,
+        } => {
             check_expr(collection, out);
             check_expr(element, out);
         }

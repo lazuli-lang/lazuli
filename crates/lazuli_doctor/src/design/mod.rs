@@ -65,9 +65,17 @@ export function MultiViolation() {
         );
         buckets.insert(
             "p".to_string(),
-            vec!["1".to_string(), "2".to_string(), "3".to_string(), "4".to_string()],
+            vec![
+                "1".to_string(),
+                "2".to_string(),
+                "3".to_string(),
+                "4".to_string(),
+            ],
         );
-        buckets.insert("font".to_string(), vec!["sans".to_string(), "mono".to_string()]);
+        buckets.insert(
+            "font".to_string(),
+            vec!["sans".to_string(), "mono".to_string()],
+        );
         Allowlist { buckets }
     }
 
@@ -128,7 +136,8 @@ export function MultiViolation() {
         let total = token_undefined::check_file(Path::new("x.tsx"), &lines, &al).len()
             + hex_leak::check_file(Path::new("x.tsx"), MULTI_VIOLATION_TSX, &lines).len()
             + px_leak::check_file(Path::new("x.tsx"), MULTI_VIOLATION_TSX, &lines).len()
-            + fontfamily_leak::check_file(Path::new("x.tsx"), MULTI_VIOLATION_TSX, &lines, &al).len()
+            + fontfamily_leak::check_file(Path::new("x.tsx"), MULTI_VIOLATION_TSX, &lines, &al)
+                .len()
             + shadow_leak::check_file(Path::new("x.tsx"), MULTI_VIOLATION_TSX, &lines).len();
         assert_eq!(total, 5, "expected exactly one finding per rule");
     }

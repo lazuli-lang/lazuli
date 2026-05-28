@@ -100,9 +100,22 @@ fn extra_buckets_for(bucket_key: &str) -> &'static [&'static str] {
 /// so authors don't have to declare them as pseudo-tokens.
 fn is_css_color_keyword(prefix: &str, suffix: &str) -> bool {
     const COLOR_PREFIXES: &[&str] = &[
-        "text-", "bg-", "border-", "ring-", "ring-offset-",
-        "divide-", "outline-", "fill-", "stroke-", "shadow-",
-        "accent-", "caret-", "placeholder-", "from-", "to-", "via-",
+        "text-",
+        "bg-",
+        "border-",
+        "ring-",
+        "ring-offset-",
+        "divide-",
+        "outline-",
+        "fill-",
+        "stroke-",
+        "shadow-",
+        "accent-",
+        "caret-",
+        "placeholder-",
+        "from-",
+        "to-",
+        "via-",
         "decoration-",
     ];
     const COLOR_KEYWORDS: &[&str] = &[
@@ -276,11 +289,7 @@ pub fn check_file(path: &Path, lines: &[&str], allowlist: &Allowlist) -> Vec<Fin
                 }
                 // Empty suffix on a "bare" class (`rounded`, `shadow`) →
                 // check the `DEFAULT` slot in the bucket.
-                let lookup_suffix = if suffix.is_empty() {
-                    "DEFAULT"
-                } else {
-                    suffix
-                };
+                let lookup_suffix = if suffix.is_empty() { "DEFAULT" } else { suffix };
                 let bucket_key = prefix.trim_end_matches('-');
                 // Candidate buckets: the primary one parsed from the prefix,
                 // plus any ambiguous-overload buckets (e.g. `text-` → also

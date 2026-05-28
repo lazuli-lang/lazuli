@@ -116,7 +116,9 @@ fn mutated_resource(cmd: &Command) -> Option<&str> {
         CommandEffect::Creates(effect) => Some(effect.resource.name.as_str()),
         CommandEffect::Updates(effect) => Some(effect.resource.name.as_str()),
         CommandEffect::Deletes(effect) => Some(effect.resource.name.as_str()),
-        CommandEffect::Returns(_) | CommandEffect::None => None,
+        // W4 GAP-REORDER-01 — reorder is a batch UPDATE; not treated as an
+        // event-producing single-row mutation by this heuristic.
+        CommandEffect::Reorders(_) | CommandEffect::Returns(_) | CommandEffect::None => None,
     }
 }
 

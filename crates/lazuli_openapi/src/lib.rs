@@ -314,6 +314,8 @@ mod tests {
         command.approval = Some(ir::ApprovalSpec {
             required_when: Some("target.tier = enterprise".to_owned()),
             by: "@role.admin".to_owned(),
+            chain: vec!["@role.admin".to_owned()],
+            sequential: false,
             timeout: Some("24h".to_owned()),
             then: ir::ApprovalThen::Deny,
         });

@@ -112,11 +112,13 @@ fn cap_file_field_keeps_json_tag() {
             slug: false,
             default: None,
             derived_from: None,
+            computed_date: None,
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         }],
     );

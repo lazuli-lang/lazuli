@@ -122,6 +122,14 @@ pub(crate) fn zod_base_for_type_ref(
             lazuli_ir::BuiltinType::Integer
             | lazuli_ir::BuiltinType::Decimal
             | lazuli_ir::BuiltinType::SemanticMoney { .. } => "z.number()".to_owned(),
+            // W1 GAP-05 — Percentage is Decimal-backed with a built-in
+            // 0..=100 range guard mirrored into the Zod base.
+            lazuli_ir::BuiltinType::SemanticPercentage => "z.number().min(0).max(100)".to_owned(),
+            // W1 GAP-04 — HexColor emits the `#RRGGBB`/`#RGB` regex (RE2
+            // common subset, valid in both Go's regexp and JS RegExp).
+            lazuli_ir::BuiltinType::SemanticHexColor => {
+                "z.string().regex(/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/)".to_owned()
+            }
             lazuli_ir::BuiltinType::SemanticEmail => "z.string().email()".to_owned(),
             lazuli_ir::BuiltinType::SemanticPhone => {
                 "/* TODO(@semantic.Phone): replace with pluggable locale-aware validator */ z.string().min(10).max(15)".to_owned()
@@ -252,6 +260,9 @@ fn zod_is_text_base(type_ref: &lazuli_ir::TypeRef) -> bool {
                 | lazuli_ir::BuiltinType::SemanticUrl
                 | lazuli_ir::BuiltinType::SemanticUuid
                 | lazuli_ir::BuiltinType::SemanticCurrency
+                // W1 GAP-04 — HexColor is a text base (Percentage is
+                // numeric and intentionally omitted here).
+                | lazuli_ir::BuiltinType::SemanticHexColor
                 | lazuli_ir::BuiltinType::SemanticPluginType { .. }
                 | lazuli_ir::BuiltinType::CapSecret
         ) | lazuli_ir::TypeRef::EnumRef(_)

@@ -54,8 +54,9 @@ impl OutboxMode {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn outbox_mode_default_is_none() {

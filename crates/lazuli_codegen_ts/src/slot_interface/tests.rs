@@ -92,6 +92,7 @@ fn slug_list_view(cells: Vec<CellBinding>) -> View {
         selection: None,
         settings: vec![],
         redacted_fields: Vec::new(),
+        ux: Default::default(),
         span_ref: None,
     })
 }
@@ -113,6 +114,7 @@ fn slug_detail_view(cells: Vec<CellBinding>, sections: Vec<String>) -> View {
         cells,
         actions: vec![],
         redacted_fields: Vec::new(),
+        ux: Default::default(),
         span_ref: None,
     })
 }
@@ -142,6 +144,7 @@ fn admin_audience_with_views(views: Vec<View>) -> Audience {
             args: None,
         }],
         views,
+        ux: Default::default(),
         span_ref: None,
     }
 }
@@ -318,8 +321,10 @@ fn missing_source_resource_resolves_gracefully() {
                 selection: None,
                 settings: vec![],
                 redacted_fields: Vec::new(),
+                ux: Default::default(),
                 span_ref: None,
             })],
+            ux: Default::default(),
             span_ref: None,
         }],
         span_ref: None,

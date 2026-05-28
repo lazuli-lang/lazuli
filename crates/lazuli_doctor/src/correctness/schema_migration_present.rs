@@ -37,9 +37,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use lazuli_ir::{
-    BuiltinType, CapabilityRef, Feature, Resource, Tenancy, TypeRef,
-};
+use lazuli_ir::{BuiltinType, CapabilityRef, Feature, Resource, Tenancy, TypeRef};
 
 // ── output ───────────────────────────────────────────────────────────────────
 
@@ -98,7 +96,11 @@ impl Finding {
     /// ```
     pub fn message(&self) -> String {
         match &self.kind {
-            FindingKind::Drift { migration, adds, drops } => format!(
+            FindingKind::Drift {
+                migration,
+                adds,
+                drops,
+            } => format!(
                 "resource '{feature}.{resource}' has IR columns not present in the \
                  latest migration ({path}). Run 'lazuli generate go .' to emit an \
                  ALTER migration. Missing columns: [{adds}]. Unexpected migration-only \
@@ -152,8 +154,11 @@ pub fn check(feature: &Feature, feature_path: &Path, root: &Path) -> Vec<Finding
     // via the loose `stem.starts_with(prefix_)` rule. The longer match
     // (account_user_session for UserSession) is the canonical owner.
     let feature_slug = lower_snake(&feature.name);
-    let resource_slugs: Vec<String> =
-        feature.resources.iter().map(|r| lower_snake(&r.name)).collect();
+    let resource_slugs: Vec<String> = feature
+        .resources
+        .iter()
+        .map(|r| lower_snake(&r.name))
+        .collect();
     let owner_for_entry: Vec<Option<usize>> = entries
         .iter()
         .map(|entry| best_resource_for_stem(&entry.stem, &feature_slug, &resource_slugs))
@@ -273,8 +278,10 @@ fn best_resource_for_stem(
     let mut best: Option<(usize, usize)> = None;
     for (idx, slug) in resource_slugs.iter().enumerate() {
         let prefix = format!("{feature_slug}_{slug}");
-        let matches =
-            stem == prefix || stem.strip_prefix(&format!("{prefix}_")).is_some_and(|r| !r.is_empty());
+        let matches = stem == prefix
+            || stem
+                .strip_prefix(&format!("{prefix}_"))
+                .is_some_and(|r| !r.is_empty());
         if !matches {
             continue;
         }
@@ -326,10 +333,7 @@ fn migration_matches(stem: &str, feature_slug: &str, resource_slug: &str) -> boo
 fn expected_columns_for(feature: &Feature, resource: &Resource) -> BTreeSet<String> {
     let mut cols = BTreeSet::new();
 
-    let composite_primary = resource
-        .composite_key
-        .as_ref()
-        .is_some_and(|ck| ck.primary);
+    let composite_primary = resource.composite_key.as_ref().is_some_and(|ck| ck.primary);
     if !composite_primary {
         cols.insert("id".to_string());
     }
@@ -347,13 +351,8 @@ fn expected_columns_for(feature: &Feature, resource: &Resource) -> BTreeSet<Stri
         .fields
         .iter()
         .filter_map(|f| {
-            if matches!(
-                f.type_ref,
-                TypeRef::Builtin(BuiltinType::SemanticCurrency)
-            ) {
-                f.name
-                    .strip_suffix("_currency")
-                    .map(|stem| stem.to_owned())
+            if matches!(f.type_ref, TypeRef::Builtin(BuiltinType::SemanticCurrency)) {
+                f.name.strip_suffix("_currency").map(|stem| stem.to_owned())
             } else {
                 None
             }
@@ -366,7 +365,10 @@ fn expected_columns_for(feature: &Feature, resource: &Resource) -> BTreeSet<Stri
         // declared field name. False negatives here are acceptable
         // (the warning is a hint, not a contract); A10's diff is the
         // authoritative source once it lands.
-        if matches!(field.type_ref, TypeRef::Capability(CapabilityRef::File { .. })) {
+        if matches!(
+            field.type_ref,
+            TypeRef::Capability(CapabilityRef::File { .. })
+        ) {
             cols.insert(field.name.clone());
             continue;
         }
@@ -503,10 +505,7 @@ fn push_column_name(segment: &str, cols: &mut BTreeSet<String>) {
 /// Returns `(adds, drops)` where `adds` are names in `ir` but not in
 /// `migration`, and `drops` are names in `migration` but not in `ir`.
 /// Both vectors are sorted ASCII-ascending.
-fn column_diff(
-    ir: &BTreeSet<String>,
-    migration: &BTreeSet<String>,
-) -> (Vec<String>, Vec<String>) {
+fn column_diff(ir: &BTreeSet<String>, migration: &BTreeSet<String>) -> (Vec<String>, Vec<String>) {
     let adds: Vec<String> = ir.difference(migration).cloned().collect();
     let drops: Vec<String> = migration.difference(ir).cloned().collect();
     (adds, drops)

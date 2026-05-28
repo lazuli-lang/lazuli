@@ -172,7 +172,9 @@ pub(crate) fn emit_command(out: &mut YamlEmitter, feature: &str, cmd: &ir::Comma
             out.dedent();
             out.dedent();
         }
-        ir::CommandEffect::None => {
+        // W4 GAP-REORDER-01 — reorder is a side-effecting batch UPDATE with
+        // no response body; mirror the no-effect `'200': ok` shape.
+        ir::CommandEffect::Reorders(_) | ir::CommandEffect::None => {
             out.line("'200':");
             out.indent();
             out.line("description: ok");
@@ -384,6 +386,8 @@ fn command_method(cmd: &ir::Command) -> &'static str {
         ir::CommandKind::Update => "patch",
         ir::CommandKind::Delete => "delete",
         ir::CommandKind::Returns => "post",
+        // W4 GAP-REORDER-01 — batch position update over a list of ids.
+        ir::CommandKind::Reorder => "patch",
     }
 }
 

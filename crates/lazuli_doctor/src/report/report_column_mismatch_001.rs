@@ -162,11 +162,7 @@ mod tests {
         PolicyRef, QualifiedName, Report, ReportColumn, ReportColumnSource, ReportFormat,
     };
 
-    fn mk_feature(
-        resources: Vec<Resource>,
-        queries: Vec<Query>,
-        reports: Vec<Report>,
-    ) -> Feature {
+    fn mk_feature(resources: Vec<Resource>, queries: Vec<Query>, reports: Vec<Report>) -> Feature {
         Feature {
             name: "customer".into(),
             purpose: None,
@@ -200,7 +196,7 @@ mod tests {
             extensions: vec![],
             escape_routes: vec![],
             agents: vec![],
-        pollers: vec![],
+            pollers: vec![],
             reports,
             channels: vec![],
             caches: vec![],
@@ -221,11 +217,13 @@ mod tests {
             slug: false,
             default: None,
             derived_from: None,
+            computed_date: None,
             constraints: FieldConstraints::default(),
             full_text: false,
             previous_names: vec![],
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         }
     }
@@ -252,6 +250,8 @@ mod tests {
             composite_key: None,
             conventions: Vec::new(),
             lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            append_only: false,
         }
     }
 
@@ -279,6 +279,7 @@ mod tests {
     fn mk_report(src: &str, columns: Vec<(&str, &str)>) -> Report {
         Report {
             name: "r".into(),
+            input: vec![],
             source: ReportSource::Query(QualifiedName {
                 feature: None,
                 name: src.into(),

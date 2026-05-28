@@ -304,18 +304,9 @@ mod tests {
     #[test]
     fn is_exempt_path_matches_canonical_carve_outs() {
         assert!(is_exempt_path(Path::new("app.lzi"), "app.lzi"));
-        assert!(is_exempt_path(
-            Path::new("registry.lzi"),
-            "registry.lzi"
-        ));
-        assert!(is_exempt_path(
-            Path::new("workspace.lzi"),
-            "workspace.lzi"
-        ));
-        assert!(is_exempt_path(
-            Path::new("profiles.lzi"),
-            "profiles.lzi"
-        ));
+        assert!(is_exempt_path(Path::new("registry.lzi"), "registry.lzi"));
+        assert!(is_exempt_path(Path::new("workspace.lzi"), "workspace.lzi"));
+        assert!(is_exempt_path(Path::new("profiles.lzi"), "profiles.lzi"));
         assert!(is_exempt_path(
             Path::new("contracts/billing.lzi"),
             "billing.lzi"

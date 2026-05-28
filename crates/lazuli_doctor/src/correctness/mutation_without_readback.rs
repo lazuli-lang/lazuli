@@ -244,7 +244,8 @@ fn effect_resource(effect: &CommandEffect) -> Option<(&'static str, &QualifiedNa
         CommandEffect::Creates(e) => Some(("creates", &e.resource)),
         CommandEffect::Updates(e) => Some(("updates", &e.resource)),
         CommandEffect::Deletes(e) => Some(("deletes", &e.resource)),
-        CommandEffect::Returns(_) | CommandEffect::None => None,
+        // W4 GAP-REORDER-01 — reorder's batch UPDATE has no per-row read-back.
+        CommandEffect::Reorders(_) | CommandEffect::Returns(_) | CommandEffect::None => None,
     }
 }
 

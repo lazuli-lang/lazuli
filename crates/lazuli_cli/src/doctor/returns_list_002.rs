@@ -160,6 +160,7 @@ mod tests {
             CommandEffect::Creates(_) => CommandKind::Create,
             CommandEffect::Updates(_) => CommandKind::Update,
             CommandEffect::Deletes(_) => CommandKind::Delete,
+            CommandEffect::Reorders(_) => CommandKind::Reorder,
             CommandEffect::Returns(_) => CommandKind::Returns,
             CommandEffect::None => CommandKind::Returns,
         };

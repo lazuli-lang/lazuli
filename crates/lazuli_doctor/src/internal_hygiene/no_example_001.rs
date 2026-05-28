@@ -195,8 +195,10 @@ fn doc_block_has_example(doc_lines: &[String]) -> bool {
             // Detect the language tag right after the fence opener.
             if !in_fenced_block {
                 let lang = rest.trim();
-                if matches!(lang, "rust" | "no_run" | "compile_fail" | "ignore" | "should_panic")
-                    || lang.starts_with("rust,")
+                if matches!(
+                    lang,
+                    "rust" | "no_run" | "compile_fail" | "ignore" | "should_panic"
+                ) || lang.starts_with("rust,")
                     || lang.starts_with("no_run,")
                 {
                     return true;

@@ -58,9 +58,7 @@ pub fn is_universal_column(
     // Implicit row identity. The `id: Id` column is auto-emitted when the
     // resource has no `composite_key`. Authored `id: Id` declarations are
     // unusual but still universal.
-    if field.name == "id"
-        && matches!(field.type_ref, TypeRef::Builtin(BuiltinType::Id))
-    {
+    if field.name == "id" && matches!(field.type_ref, TypeRef::Builtin(BuiltinType::Id)) {
         return true;
     }
 
@@ -77,7 +75,12 @@ pub fn is_universal_column(
         let tenancy_field_name = tenancy_field_name(tenancy);
         if let Some(expected) = tenancy_field_name.as_deref() {
             if field.name == expected
-                && type_resolves_to_resource(&field.type_ref, expected_resource_name(tenancy).as_deref(), feature, module)
+                && type_resolves_to_resource(
+                    &field.type_ref,
+                    expected_resource_name(tenancy).as_deref(),
+                    feature,
+                    module,
+                )
             {
                 return true;
             }

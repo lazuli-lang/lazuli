@@ -127,7 +127,7 @@ mod tests {
             extensions: vec![],
             escape_routes: vec![],
             agents: vec![],
-        pollers: vec![],
+            pollers: vec![],
             reports,
             channels: vec![],
             caches: vec![],
@@ -142,6 +142,7 @@ mod tests {
     fn mk_report(vis: FileVisibility, ttl: Option<&str>) -> Report {
         Report {
             name: "r".into(),
+            input: vec![],
             source: ReportSource::Query(lazuli_ir::QualifiedName {
                 feature: None,
                 name: "list".into(),

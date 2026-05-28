@@ -256,7 +256,9 @@ fn is_valid_hex(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lazuli_ir::{ColorState, ColorStateKind, ColorToken, CustomToken, Design, Motion, Typography};
+    use lazuli_ir::{
+        ColorState, ColorStateKind, ColorToken, CustomToken, Design, Motion, Typography,
+    };
 
     fn design_with(colors: Vec<ColorToken>, custom: Vec<CustomToken>) -> Design {
         Design {
@@ -318,10 +320,7 @@ mod tests {
 
     #[test]
     fn invalid_value_flags_non_hex_base() {
-        let d = design_with(
-            vec![],
-            vec![custom("oops", "not-a-color", None)],
-        );
+        let d = design_with(vec![], vec![custom("oops", "not-a-color", None)]);
         let f = check_invalid_value(&d);
         assert_eq!(f.len(), 1);
         assert_eq!(f[0].name, "oops");

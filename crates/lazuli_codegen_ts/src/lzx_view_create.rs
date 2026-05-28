@@ -247,6 +247,7 @@ mod tests {
             name: "viewer".to_owned(),
             requires: vec![],
             views: vec![View::Create(view)],
+            ux: Default::default(),
             span_ref: None,
         }
     }
@@ -335,6 +336,7 @@ mod tests {
             name: "workspace-admin".to_owned(),
             requires: vec![],
             views: vec![View::Create(view.clone())],
+            ux: Default::default(),
             span_ref: None,
         };
         let surface = minimal_surface(audience.clone());

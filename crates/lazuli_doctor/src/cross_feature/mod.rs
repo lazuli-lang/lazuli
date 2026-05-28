@@ -18,5 +18,7 @@
 //!   touch resources owned by multiple features.
 
 pub mod contract_missing_001;
+pub mod polymorphic_target_001;
+pub mod ref_unknown_001;
 pub mod version_drift_001;
 pub mod workflow_span_001;

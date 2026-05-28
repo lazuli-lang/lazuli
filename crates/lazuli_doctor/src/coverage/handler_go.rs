@@ -102,7 +102,9 @@ pub fn parse_coverprofile(contents: &str) -> (usize, usize) {
         // `file:Lstart.Cstart,Lend.Cend numstmt count`
         let mut iter = trimmed.split_ascii_whitespace();
         let Some(_span) = iter.next() else { continue };
-        let Some(num_stmt_s) = iter.next() else { continue };
+        let Some(num_stmt_s) = iter.next() else {
+            continue;
+        };
         let Some(count_s) = iter.next() else { continue };
         let Ok(num_stmt) = num_stmt_s.parse::<usize>() else {
             continue;

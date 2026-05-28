@@ -128,6 +128,7 @@ pub(crate) fn write_effect_resource(
         lazuli_ir::CommandEffect::Creates(effect) => Some(&effect.resource),
         lazuli_ir::CommandEffect::Updates(effect) => Some(&effect.resource),
         lazuli_ir::CommandEffect::Deletes(effect) => Some(&effect.resource),
+        lazuli_ir::CommandEffect::Reorders(effect) => Some(&effect.resource),
         lazuli_ir::CommandEffect::Returns(_) | lazuli_ir::CommandEffect::None => None,
     }
 }

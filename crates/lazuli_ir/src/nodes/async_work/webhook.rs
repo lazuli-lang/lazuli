@@ -15,9 +15,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{EmitPredicate, Path, PathRef, PolicyExpr, PolicyRef, SpanRef, TranslationKeyRef, TypeRef};
-
 use super::shared::{IdempotencyKey, RetryPolicy, TenantFromSpec};
+use crate::{
+    EmitPredicate, Path, PathRef, PolicyExpr, PolicyRef, SpanRef, TranslationKeyRef, TypeRef,
+};
 
 /// Root IR node for a `webhook <name> { … }` block — one inbound HTTP
 /// delivery contract. Carries the route, verifier (legacy or typed),

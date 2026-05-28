@@ -105,6 +105,13 @@ pub fn emit_resource_file(
         for field in &resource.fields {
             register_imports_for_type(&field.type_ref, &type_ctx, &mut imports);
         }
+        // W3 GAP-03 — `computed_date` fields emit a `Compute<Field>`
+        // helper that parses the base via `time.Parse` and calls
+        // `time.Time.AddDate`. Register the stdlib `time` package only
+        // when the resource declares at least one such field.
+        if resource.fields.iter().any(|f| f.computed_date.is_some()) {
+            imports.add("time");
+        }
         // Encryption helpers (`Encrypt<Resource>` / `Decrypt<Resource>`)
         // call into `encryption.ForCtx`; register the runtime package
         // only when the resource actually has at least one
@@ -202,11 +209,13 @@ mod feature_emit_tests {
                     slug: false,
                     default: None,
                     derived_from: None,
+                    computed_date: None,
                     constraints: lazuli_ir::FieldConstraints::default(),
                     full_text: false,
                     previous_names: Vec::new(),
                     pii: None,
                     owner_axis: None,
+                    cross_feature_target: None,
                     span_ref: None,
                 }],
                 constraints: Vec::new(),
@@ -221,6 +230,8 @@ mod feature_emit_tests {
                 composite_key: None,
                 conventions: Vec::new(),
                 lifecycle_routes: None,
+                polymorphic_refs: Vec::new(),
+                append_only: false,
             }],
             events: Vec::new(),
             rules: Vec::new(),

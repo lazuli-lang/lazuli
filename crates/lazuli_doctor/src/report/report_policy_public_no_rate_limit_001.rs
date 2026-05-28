@@ -127,7 +127,7 @@ mod tests {
             extensions: vec![],
             escape_routes: vec![],
             agents: vec![],
-        pollers: vec![],
+            pollers: vec![],
             reports,
             channels: vec![],
             caches: vec![],
@@ -142,6 +142,7 @@ mod tests {
     fn mk_report(policy: PolicyRef, rate_limit: Option<&str>) -> Report {
         Report {
             name: "r".into(),
+            input: vec![],
             source: ReportSource::Query(QualifiedName {
                 feature: None,
                 name: "list".into(),
@@ -189,10 +190,7 @@ mod tests {
 
     #[test]
     fn non_public_policy_skipped() {
-        let feature = mk_feature(vec![mk_report(
-            PolicyRef::Atom("@role.admin".into()),
-            None,
-        )]);
+        let feature = mk_feature(vec![mk_report(PolicyRef::Atom("@role.admin".into()), None)]);
         assert!(check(&feature, Path::new("f.lzi")).is_empty());
     }
 }

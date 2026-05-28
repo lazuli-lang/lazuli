@@ -139,6 +139,29 @@ pub(crate) fn report_diagnostics(
                 group: None,
             });
         }
+        // W5 GAP-REPORT-01 — REPORT-INPUT-UNBOUND-001. Warning: a
+        // declared `input` param the local source query never consumes
+        // is suspicious but does not break codegen.
+        for finding in report::report_input_unbound_001::check(&feature_for_rules, &fact.path) {
+            let line = fact
+                .report_lines
+                .get(&finding.report)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Warning,
+                code: report::report_input_unbound_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            });
+        }
         for finding in
             report::report_policy_public_no_rate_limit_001::check(&feature_for_rules, &fact.path)
         {

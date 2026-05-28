@@ -112,6 +112,7 @@ mod tests {
             selection: None,
             settings: vec![],
             redacted_fields: Vec::new(),
+            ux: Default::default(),
             span_ref: None,
         })
     }
@@ -162,6 +163,7 @@ mod tests {
                         name: "admin".into(),
                         requires: vec![],
                         views,
+                        ux: Default::default(),
                         span_ref: None,
                     }],
                     span_ref: None,

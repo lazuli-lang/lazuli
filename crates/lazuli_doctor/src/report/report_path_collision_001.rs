@@ -195,6 +195,7 @@ mod tests {
     fn mk_report(name: &str, formats: Vec<ReportFormat>) -> Report {
         Report {
             name: name.into(),
+            input: vec![],
             source: ReportSource::Query(QualifiedName {
                 feature: None,
                 name: "list".into(),

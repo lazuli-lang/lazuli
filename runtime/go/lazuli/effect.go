@@ -17,6 +17,7 @@ const (
 	effectUpdates
 	effectDeletes
 	effectReturns
+	effectReorder
 )
 
 // Bindings maps a target field (resource column or input field) to the
@@ -234,6 +235,25 @@ func (DeletesEffect) effectKind() effectKind { return effectDeletes }
 // Deletes builds a DeletesEffect. `where` selects the row(s) to remove.
 func Deletes[T any](r *Resource[T], where Bindings) DeletesEffect {
 	return DeletesEffect{Resource: r.erased(), Where: where}
+}
+
+// ReorderEffect is the effect for a `reorder <Resource> by <position>`
+// command (W4 GAP-REORDER-01). The command accepts an ordered list of row
+// ids; the runtime composes a single batch UPDATE that rewrites the
+// PositionColumn from a `VALUES (id, position)` join — wire-thin SQL, no
+// homegrown ordering logic. The caller supplies the ordered ids; positions
+// are the 0-based (or `Base`) index in that order.
+type ReorderEffect struct {
+	Resource       *resourceErased
+	PositionColumn string
+}
+
+func (ReorderEffect) effectKind() effectKind { return effectReorder }
+
+// Reorder builds a ReorderEffect for `reorder <Resource> by <position>`.
+// `positionColumn` is the integer column the batch UPDATE rewrites.
+func Reorder[T any](r *Resource[T], positionColumn string) ReorderEffect {
+	return ReorderEffect{Resource: r.erased(), PositionColumn: positionColumn}
 }
 
 // ReturnsEffect carries a pure handler that produces an output without

@@ -213,6 +213,149 @@ Used by `extensible_by` anchors to verify which extension features
 the host accepts. The `accepted by` / `rejected by` shape is
 distinct from `.lzi` `tests` (which uses `allows` / `denies`).
 
+## 7a. Surface-dialect UX primitives (wave W6)
+
+The per-feature surface dialect (`<feature>.web.lzx` /
+`<feature>.mobile.lzx`, parsed by `parser/lzx/surface/`) carries
+richer presentation primitives than the abstract experience grammar
+above. These close pauta UX gaps GAP-UX-01..07. Bodies indent two
+spaces per level, like the rest of `.lzx`.
+
+### 7a.1 Typed `filters` block — `date_range` cardinality (GAP-UX-07)
+
+```ebnf
+filters_block     = "filters" NEWLINE
+                    INDENT filter_decl+ DEDENT ;
+
+filter_decl       = IDENT_LOWER ":" filter_cardinality
+                    ( "from" "query" )? NEWLINE ;
+
+filter_cardinality = ( "list" "of" )? type_ref      (* single | multi *)
+                   | "date_range" type_ref?         (* paired from/to picker *)
+                   ;
+```
+
+`date_range` lowers to a paired from/to date picker that surfaces two
+query params `<name>_from` / `<name>_to`. The backing type defaults to
+`Date`; an explicit `date_range DateTime` overrides it. `from query`
+URL-syncs both params.
+
+```
+filters
+  created: date_range                 # defaults to Date
+  effective: date_range DateTime from query
+```
+
+Doctor `LZX-DATE-RANGE-001`: the filtered field (`<name>`) must be a
+`Date` / `DateTime` field on the resource backing the view's `source`.
+
+### 7a.2 Wizard step indicator — `wizard_steps` (GAP-UX-01)
+
+```ebnf
+wizard_steps_decl = "wizard_steps" INTEGER "current" expr NEWLINE ;
+```
+
+Renders a step indicator inside a view. `current` is an expression —
+typically an enum field — selecting the active step.
+
+```
+view detail registration at "/registration"
+  source onboarding.query.detail
+  wizard_steps 3 current registration_step
+```
+
+Doctor `LZX-WIZARD-STEPS-EXPR-001`: `current` must validate against a
+declared enum field; the total must be a positive integer literal and
+should match the enum's variant count (warn on mismatch).
+
+### 7a.3 Runtime-derived tab group — `tab_group` (GAP-UX-02)
+
+```ebnf
+tab_group_decl    = "tab_group" "derived_from" IDENT_LOWER NEWLINE
+                    INDENT tab_group_case+ DEDENT ;
+
+tab_group_case    = "case" enum_variant_list "->" "tab" STRING NEWLINE ;
+enum_variant_list = IDENT_UPPER ( "," IDENT_UPPER )* ;
+```
+
+Tabs whose set depends on a field's value at runtime. `derived_from`
+names an enum field; each `case` maps one or more enum variants to a
+tab label.
+
+```
+tab_group derived_from vehicle_type
+  case TV, RADIO -> tab "Broadcast"
+  case PRINT -> tab "Print"
+```
+
+Doctor `LZX-TAB-GROUP-CASE-001`: `derived_from` must be a declared
+enum field; every `case` value must be a variant of that enum; warn on
+non-exhaustive variant coverage.
+
+### 7a.4 Static tabs + multi-step wizard container (GAP-UX-03)
+
+```ebnf
+tabs_decl         = "tabs" NEWLINE
+                    INDENT tab_entry+ DEDENT ;
+
+tab_entry         = "tab" STRING "->" "view" IDENT_LOWER
+                    ( "audience" IDENT_LOWER )? NEWLINE ;
+
+wizard_decl       = "wizard" IDENT_LOWER "steps" NEWLINE
+                    INDENT wizard_step+ DEDENT ;
+
+wizard_step       = "step" INTEGER ":" view_or_form_ref NEWLINE ;
+view_or_form_ref  = IDENT_LOWER ;
+```
+
+`tabs` is a static tab container; each tab points at a declared view
+(optionally audience-scoped). `wizard <name> steps` is the multi-step
+container (distinct from `wizard_steps`, §7a.2, which is the
+indicator) — each `step` references a declared form/view.
+
+```
+tabs
+  tab "Details" -> view detail
+  tab "History" -> view history audience admin
+
+wizard job_create steps
+  step 1: job_basics
+  step 2: job_targeting
+```
+
+Doctor `LZX-TAB-VIEW-REF-001`: each `tab -> view X` must reference a
+declared view; each wizard step must reference a declared form/view.
+
+### 7a.5 View-mode toggle + inline-editable table (GAP-UX-04)
+
+```ebnf
+view_mode_decl    = "view_mode" NEWLINE
+                    INDENT render_mode+ DEDENT ;
+
+render_mode       = ( "table" | "kanban" | "calendar" | "gallery" ) NEWLINE ;
+
+inline_table_decl = "view" "." "inline_table" "on_change"
+                    "@command." IDENT_LOWER NEWLINE ;
+```
+
+`view_mode` declares a user-toggleable set of render modes for a list
+view. `view.inline_table on_change @command.X` makes table rows
+inline-editable, binding edits to an update command.
+
+```
+view list jobs at "/jobs"
+  source jobs.query.list
+  columns title, status
+  view_mode
+    table
+    kanban
+  view.inline_table on_change @command.update_row
+```
+
+Doctor `LZX-VIEW-MODE-001`: each mode must be a known render mode;
+`inline_table on_change` must reference a declared command whose target
+resource matches the view's resource.
+
 ## 8. Validations not in this grammar
 
 Doctor and LSP enforce beyond what EBNF can express:

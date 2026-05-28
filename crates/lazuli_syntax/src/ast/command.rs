@@ -52,6 +52,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::resource::is_false_bool;
 use super::{
     FieldConstraintsDecl, JobExternalCall, JobHandler, JobRetry, PolicyExprAst,
     PublicContractDeclAst, RateLimitSpecAst, Span, TranslationKeyRefAst,
@@ -115,6 +116,12 @@ pub struct CommandDecl {
     /// `returns <TypeRef>` for pure request/response commands. Mutually
     /// exclusive with `effect`.
     pub returns: Option<String>,
+    /// W4 GAP-REORDER-01 — `reorder <Resource> by <position_field>` body.
+    /// A batch-reorder verb: the command accepts an ordered list of ids and
+    /// emits a single batch UPDATE of the position column. Mutually
+    /// exclusive with `effect` / `returns`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reorder: Option<CommandReorderDecl>,
     /// `handler "./..."` escape hatch — verbatim path literal. Mutually
     /// exclusive with the declarative body.
     pub handler: Option<JobHandler>,
@@ -144,6 +151,21 @@ pub struct CommandDecl {
     pub tests: Vec<String>,
     /// OpenAPI bucket cycle — `deprecated [since ".." replacement <ref> sunset ".."]`.
     pub deprecated: Option<CommandDeprecatedDecl>,
+    pub span: Span,
+}
+
+/// W4 GAP-REORDER-01 — `reorder <Resource> by <position_field>` body on a
+/// [`CommandDecl`]. The command takes an ordered list of row ids (or
+/// `[{id, position}]`) and emits a single batch UPDATE of the position
+/// column. The position field must be a declared `Integer` field on the
+/// target resource (doctor `REORDER-POSITION-FIELD-001`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandReorderDecl {
+    /// Target resource name. May be qualified (`feature.Resource`); the
+    /// analyzer resolves against the local feature first.
+    pub resource: String,
+    /// `by <field>` — the integer position column to batch-update.
+    pub position_field: String,
     pub span: Span,
 }
 
@@ -270,12 +292,25 @@ pub struct CommandAudit {
 
 /// Cut A.9 `approval` block — declarative human approval gate on a
 /// [`CommandDecl`].
+///
+/// W4 GAP-06 added the ordered-chain form
+/// (`approval chain [@role.manager, @role.admin] sequential timeout 24h then
+/// deny`). The single-approver `by` form lifts to a 1-element `chain` with
+/// `by == chain[0]`; the `chain` form populates `chain` directly.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandApproval {
     /// `required_when <predicate>` — verbatim predicate text.
     pub required_when: Option<String>,
-    /// `by @role.<name>` or `by @actor.<name>` — single approver atom.
+    /// `by @role.<name>` or `by @actor.<name>` — the first approver atom
+    /// (always equals `chain[0]`).
     pub by: String,
+    /// W4 GAP-06 — ordered approver chain. Single-approver forms produce a
+    /// 1-element chain.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chain: Vec<String>,
+    /// W4 GAP-06 — `sequential` flag (chain order is enforced).
+    #[serde(default, skip_serializing_if = "is_false_bool")]
+    pub sequential: bool,
     /// `timeout "24h"` — duration literal (quotes stripped).
     pub timeout: Option<String>,
     /// `then deny | allow | escalate`.

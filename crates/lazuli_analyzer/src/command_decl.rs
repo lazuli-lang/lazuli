@@ -57,6 +57,8 @@ pub(crate) fn lower_command_decl(
         Some(syntax::CommandEffectKindDecl::Creates) => ir::CommandKind::Create,
         Some(syntax::CommandEffectKindDecl::Updates) => ir::CommandKind::Update,
         Some(syntax::CommandEffectKindDecl::Deletes) => ir::CommandKind::Delete,
+        // W4 GAP-REORDER-01 — a `reorder` body lowers to its own kind.
+        None if c.reorder.is_some() => ir::CommandKind::Reorder,
         None => ir::CommandKind::Returns,
     };
     let route = c
@@ -73,33 +75,20 @@ pub(crate) fn lower_command_decl(
         syntax::CommandInputDecl::Empty => ir::CommandInput::Empty,
         syntax::CommandInputDecl::Short(name) => ir::CommandInput::Short(vec![name.clone()]),
         syntax::CommandInputDecl::Typed(slots) => {
-            // L0 #3 §10.2 — apply combination + default-compat checks
-            // to each typed input slot too. Wave-B-CL4 — also run the
-            // range / type-compatibility / pattern-compile checks so
-            // command inputs aren't a back door past the resource-side
-            // diagnostics.
-            let mut lifted = Vec::with_capacity(slots.len());
-            for s in slots {
-                validate_constraint_combinations(&s.name, &s.constraints)?;
-                validate_constraint_range_invariant(&s.name, &s.constraints)?;
-                let (cleaned, vskip) = strip_validate_skip(&s.type_text);
-                validate_constraint_type_compatibility(&s.name, &cleaned, &s.constraints)?;
-                validate_constraint_pattern_compile(&s.name, &s.constraints)?;
-                lifted.push(ir::TypedSlot {
-                    name: s.name.clone(),
-                    type_ref: type_ref_from_text(&cleaned),
-                    required: s.required,
-                    constraints: lift_field_constraints(&s.name, &s.constraints)?,
-                    validate_skip: vskip,
-                });
-            }
-            ir::CommandInput::Typed(lifted)
+            ir::CommandInput::Typed(lower_typed_input_slots(slots)?)
         }
     };
     let target = c.target.as_ref().map(lower_target_expr);
     let lets = c.lets.iter().map(lower_let_binding).collect();
     let effect = if let Some(e) = c.effect.as_ref() {
         lower_command_effect(e)
+    } else if let Some(reorder) = c.reorder.as_ref() {
+        // W4 GAP-REORDER-01 — `reorder <Resource> by <position>`. The
+        // position field is validated by doctor REORDER-POSITION-FIELD-001.
+        ir::CommandEffect::Reorders(ir::ReorderEffect {
+            resource: crate::expr::lower_qualified_name(&reorder.resource),
+            position_field: reorder.position_field.clone(),
+        })
     } else if let Some(returns) = c.returns.as_deref() {
         ir::CommandEffect::Returns(ir::ReturnsEffect {
             return_type: type_ref_from_text(returns),
@@ -121,15 +110,26 @@ pub(crate) fn lower_command_decl(
         record_after: a.record_after,
         retain_for: a.retain_for.clone(),
     });
-    let approval = c.approval.as_ref().map(|a| ir::ApprovalSpec {
-        required_when: a.required_when.clone(),
-        by: a.by.clone(),
-        timeout: a.timeout.clone(),
-        then: match a.then {
-            syntax::ApprovalThenDecl::Deny => ir::ApprovalThen::Deny,
-            syntax::ApprovalThenDecl::Allow => ir::ApprovalThen::Allow,
-            syntax::ApprovalThenDecl::Escalate => ir::ApprovalThen::Escalate,
-        },
+    let approval = c.approval.as_ref().map(|a| {
+        // W4 GAP-06 — carry the ordered approver chain + `sequential` flag.
+        // The parser guarantees `chain` is non-empty and `by == chain[0]`.
+        let chain = if a.chain.is_empty() {
+            vec![a.by.clone()]
+        } else {
+            a.chain.clone()
+        };
+        ir::ApprovalSpec {
+            required_when: a.required_when.clone(),
+            by: a.by.clone(),
+            chain,
+            sequential: a.sequential,
+            timeout: a.timeout.clone(),
+            then: match a.then {
+                syntax::ApprovalThenDecl::Deny => ir::ApprovalThen::Deny,
+                syntax::ApprovalThenDecl::Allow => ir::ApprovalThen::Allow,
+                syntax::ApprovalThenDecl::Escalate => ir::ApprovalThen::Escalate,
+            },
+        }
     });
     let invalidates = c
         .invalidates
@@ -221,6 +221,36 @@ pub(crate) fn lower_command_decl(
         span_ref: Some(span_of(c.span)),
         derived_from: None,
     })
+}
+
+/// Lower a typed `input` slot list into IR [`ir::TypedSlot`]s, running
+/// the same four constraint gates command inputs get. Shared by the
+/// `command input` block and the W5 `report input` block (GAP-REPORT-01)
+/// so report params receive identical constraint validation and the same
+/// Zod / Go-validator / OpenAPI schema treatment as command inputs.
+///
+/// L0 #3 §10.2 + Wave-B-CL4 — combination, range, type-compatibility,
+/// and pattern-compile checks run per slot so neither command nor report
+/// inputs are a back door past the resource-side diagnostics.
+pub(crate) fn lower_typed_input_slots(
+    slots: &[syntax::CommandInputSlot],
+) -> Result<Vec<ir::TypedSlot>, AnalyzeError> {
+    let mut lifted = Vec::with_capacity(slots.len());
+    for s in slots {
+        validate_constraint_combinations(&s.name, &s.constraints)?;
+        validate_constraint_range_invariant(&s.name, &s.constraints)?;
+        let (cleaned, vskip) = strip_validate_skip(&s.type_text);
+        validate_constraint_type_compatibility(&s.name, &cleaned, &s.constraints)?;
+        validate_constraint_pattern_compile(&s.name, &s.constraints)?;
+        lifted.push(ir::TypedSlot {
+            name: s.name.clone(),
+            type_ref: type_ref_from_text(&cleaned),
+            required: s.required,
+            constraints: lift_field_constraints(&s.name, &s.constraints)?,
+            validate_skip: vskip,
+        });
+    }
+    Ok(lifted)
 }
 
 #[derive(Clone, Copy)]

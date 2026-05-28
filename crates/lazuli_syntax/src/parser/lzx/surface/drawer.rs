@@ -22,10 +22,6 @@
 //! to the same parsers the parent view uses, so a drawer is a
 //! sub-view contract, not a separate dialect.
 
-use crate::ast::{
-    DrawerBindingSourceAst, DrawerRouteBindingAst, DrawerSubViewAst, DrawerTriggerAst, Span,
-};
-
 use super::super::super::common::{
     SourceLine, is_kebab_or_snake_ident, is_trivia, line_error, line_error_owned,
     strip_inline_comment,
@@ -34,6 +30,9 @@ use super::super::super::error::ParseError;
 use super::{
     ViewBodyState, parse_view_actions_line, parse_view_cells_line, parse_view_sections_line,
     parse_view_source_line,
+};
+use crate::ast::{
+    DrawerBindingSourceAst, DrawerRouteBindingAst, DrawerSubViewAst, DrawerTriggerAst, Span,
 };
 
 pub(crate) fn parse_drawer_block(

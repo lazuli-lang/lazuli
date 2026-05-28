@@ -176,9 +176,9 @@ pub fn shares_token_prefix(names: &[String]) -> bool {
         return false;
     }
     let first_tok = &first[0];
-    token_lists[1..].iter().all(|toks| {
-        toks.first().map(|t| t == first_tok).unwrap_or(false)
-    })
+    token_lists[1..]
+        .iter()
+        .all(|toks| toks.first().map(|t| t == first_tok).unwrap_or(false))
 }
 
 #[cfg(test)]
@@ -242,10 +242,7 @@ mod tests {
 
     #[test]
     fn two_features_no_shared_prefix_fires() {
-        let f = file(
-            "features/x/x.lzi",
-            "feature billing\nfeature reports\n",
-        );
+        let f = file("features/x/x.lzi", "feature billing\nfeature reports\n");
         assert_eq!(check(&[f]).len(), 1);
     }
 
@@ -270,10 +267,7 @@ mod tests {
 
     #[test]
     fn message_includes_path_and_feature_count() {
-        let f = file(
-            "features/mixed/mixed.lzi",
-            "feature alpha\nfeature beta\n",
-        );
+        let f = file("features/mixed/mixed.lzi", "feature alpha\nfeature beta\n");
         let finding = check(&[f]).into_iter().next().unwrap();
         let msg = finding.message();
         assert!(msg.contains("mixed.lzi"));
