@@ -33,7 +33,11 @@ pub(super) struct LifecycleCommand<'a> {
 }
 
 pub(super) struct TransitionAdvanceLiteral<'a> {
-    pub(super) from: &'a str,
+    /// All declared `from` states for this transition (fan-in / MULTI-SOURCE).
+    /// `from[0]` is the primary state retained on the runtime `From` field for
+    /// back-compat; the full set is emitted on `FromAny` for the membership
+    /// guard. Always non-empty for a well-formed transition.
+    pub(super) from: Vec<&'a str>,
     pub(super) to: &'a str,
 }
 
@@ -95,8 +99,9 @@ pub(super) fn transition_advances_for_triggers<'a>(
                 .transitions
                 .iter()
                 .find(|transition| transition.name == *trigger)?;
+            let from: Vec<&str> = transition.from.iter().map(String::as_str).collect();
             Some(TransitionAdvanceLiteral {
-                from: transition.from.first().map(String::as_str).unwrap_or(""),
+                from: if from.is_empty() { vec![""] } else { from },
                 to: transition.to.as_str(),
             })
         })
@@ -114,9 +119,18 @@ pub(super) fn emit_transition_advances(
     p.line("Transitions: []lazuli.TransitionAdvance{");
     p.indent();
     for transition in transitions {
+        // `From` keeps the primary state for back-compat; `FromAny` carries
+        // the full fan-in set the runtime membership guard checks against.
+        let primary = transition.from.first().copied().unwrap_or("");
+        let from_any = transition
+            .from
+            .iter()
+            .map(|state| format!("\"{}\"", escape_string(state)))
+            .collect::<Vec<_>>()
+            .join(", ");
         p.line(&format!(
-            "{{From: \"{}\", To: \"{}\"}},",
-            escape_string(transition.from),
+            "{{From: \"{}\", FromAny: []string{{{from_any}}}, To: \"{}\"}},",
+            escape_string(primary),
             escape_string(transition.to)
         ));
     }
@@ -345,14 +359,81 @@ mod tests {
         let out = p.finish();
 
         assert!(out.contains("Transitions: []lazuli.TransitionAdvance{"));
-        let first = "{From: \"basic_details_pending\", To: \"address_pending\"},";
-        let second = "{From: \"address_pending\", To: \"review_pending\"},";
+        let first = "{From: \"basic_details_pending\", FromAny: []string{\"basic_details_pending\"}, To: \"address_pending\"},";
+        let second = "{From: \"address_pending\", FromAny: []string{\"address_pending\"}, To: \"review_pending\"},";
         assert!(out.contains(first), "first trigger pair missing:\n{out}");
         assert!(out.contains(second), "second trigger pair missing:\n{out}");
         assert!(
             out.find(first) < out.find(second),
             "trigger order should be preserved:\n{out}"
         );
+    }
+
+    #[test]
+    fn multi_source_trigger_emits_all_from_states() {
+        // GAP-R1: a transition with `from A, B` (fan-in) must emit BOTH
+        // states on `FromAny`, with the primary on `From` for back-compat.
+        let mut feature = base_feature("publication");
+        let mut resource = simple_resource("Publication");
+        resource.lifecycle = Some(Lifecycle {
+            discriminator_field: "lifecycle_state".to_owned(),
+            generated_enum: "PublicationState".to_owned(),
+            states: vec![
+                LifecycleState {
+                    name: "draft".to_owned(),
+                    kind: LifecycleStateKind::Initial,
+                    span_ref: None,
+                },
+                LifecycleState {
+                    name: "scheduled".to_owned(),
+                    kind: LifecycleStateKind::Intermediate,
+                    span_ref: None,
+                },
+                LifecycleState {
+                    name: "published".to_owned(),
+                    kind: LifecycleStateKind::Terminal,
+                    span_ref: None,
+                },
+            ],
+            transitions: vec![LifecycleTransition {
+                name: "publish".to_owned(),
+                from: vec!["draft".to_owned(), "scheduled".to_owned()],
+                to: "published".to_owned(),
+                policy: None,
+                audit: None,
+                timestamps: None,
+                emits: Vec::new(),
+                requires: None,
+                tests: None,
+                previous_names: Vec::new(),
+                span_ref: None,
+            }],
+            invariants: Vec::new(),
+            invariant_handlers: Vec::new(),
+            previous_names: Vec::new(),
+            span_ref: None,
+        });
+        feature.resources.push(resource);
+
+        let mut cmd = base_command("publish");
+        cmd.kind = CommandKind::Update;
+        cmd.effect = CommandEffect::Updates(UpdateEffect {
+            resource: local_qname("Publication"),
+            assignments: Vec::new(),
+        });
+        let triggers = vec!["publish".to_owned()];
+
+        let transitions = transition_advances_for_triggers(&feature, &cmd.effect, &triggers);
+        assert_eq!(transitions.len(), 1);
+        assert_eq!(transitions[0].from, vec!["draft", "scheduled"]);
+
+        let mut p = GoPrinter::new();
+        emit_transition_advances(&mut p, &transitions);
+        let out = p.finish();
+
+        let expected =
+            "{From: \"draft\", FromAny: []string{\"draft\", \"scheduled\"}, To: \"published\"},";
+        assert!(out.contains(expected), "fan-in from-set missing:\n{out}");
     }
 
     #[test]

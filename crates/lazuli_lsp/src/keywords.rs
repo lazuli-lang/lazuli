@@ -180,6 +180,7 @@ pub const KEYWORDS: &[&str] = &[
     "experience",
     "surface",
     "requires_lifecycle",
+    "requires_lifecycle_in",
     "on_lifecycle_pending",
     "resume",
     "imports",

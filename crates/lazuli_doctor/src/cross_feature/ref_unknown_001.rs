@@ -40,10 +40,33 @@ pub struct FeatureCrossRefView {
     pub cross_feature_targets: Vec<CrossFeatureTargetRef>,
 }
 
+/// Where a `target @feature` annotation was declared — a persisted
+/// `resource` field or a typed `record` field. GAP-R5 added record-field
+/// support; the resolver is identical, but the rendered message names the
+/// right container kind ("resource" vs "record").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Origin {
+    /// Declared on a `resource <Name>` field.
+    Resource,
+    /// Declared on a `record <Name>` field (GAP-R5). The cross-feature ID
+    /// is logical-only — nested in JSONB, so no migration index is emitted.
+    Record,
+}
+
+impl Origin {
+    /// Lower-case container noun for diagnostic messages.
+    fn noun(self) -> &'static str {
+        match self {
+            Origin::Resource => "resource",
+            Origin::Record => "record",
+        }
+    }
+}
+
 /// One `target @feature.<feature>.<Resource>` annotation site.
 #[derive(Debug, Clone)]
 pub struct CrossFeatureTargetRef {
-    /// Resource declaring the FK field.
+    /// Resource or record declaring the FK field.
     pub resource: String,
     /// FK field name.
     pub field: String,
@@ -51,6 +74,8 @@ pub struct CrossFeatureTargetRef {
     pub target_feature: String,
     /// Named target resource.
     pub target_resource: String,
+    /// Whether the declaring container is a `resource` or a `record`.
+    pub origin: Origin,
 }
 
 /// What about the reference failed to resolve.
@@ -77,6 +102,8 @@ pub struct Finding {
     pub target_feature: String,
     /// Named target resource.
     pub target_resource: String,
+    /// Whether the declaring container is a `resource` or a `record`.
+    pub origin: Origin,
     /// Why it failed.
     pub reason: Reason,
 }
@@ -92,7 +119,7 @@ impl Finding {
     ///
     /// ```rust
     /// use std::path::PathBuf;
-    /// use lazuli_doctor::cross_feature::ref_unknown_001::{Finding, Reason};
+    /// use lazuli_doctor::cross_feature::ref_unknown_001::{Finding, Origin, Reason};
     ///
     /// let f = Finding {
     ///     path: PathBuf::from("agency.lzi"),
@@ -101,17 +128,20 @@ impl Finding {
     ///     field: "default_department_id".into(),
     ///     target_feature: "department".into(),
     ///     target_resource: "Department".into(),
+    ///     origin: Origin::Resource,
     ///     reason: Reason::FeatureNotInDependencies,
     /// };
     /// assert!(f.message().contains("department"));
     /// assert!(f.message().contains("uses"));
     /// ```
     pub fn message(&self) -> String {
+        let container = self.origin.noun();
         match self.reason {
             Reason::FeatureNotInDependencies => format!(
-                "field `{}` of resource `{}` targets `@feature.{}.{}`, but feature `{}` \
+                "field `{}` of {} `{}` targets `@feature.{}.{}`, but feature `{}` \
                  does not declare `uses {}` — add it to the feature's Dependencies.",
                 self.field,
+                container,
                 self.resource,
                 self.target_feature,
                 self.target_resource,
@@ -119,9 +149,10 @@ impl Finding {
                 self.target_feature,
             ),
             Reason::ResourceNotInFeature => format!(
-                "field `{}` of resource `{}` targets `@feature.{}.{}`, but feature `{}` \
+                "field `{}` of {} `{}` targets `@feature.{}.{}`, but feature `{}` \
                  declares no resource named `{}`.",
                 self.field,
+                container,
                 self.resource,
                 self.target_feature,
                 self.target_resource,
@@ -189,6 +220,7 @@ fn make_finding(
         field: target.field.clone(),
         target_feature: target.target_feature.clone(),
         target_resource: target.target_resource.clone(),
+        origin: target.origin,
         reason,
     }
 }
@@ -212,6 +244,24 @@ pub fn views_from_features(
                             field: field.name.clone(),
                             target_feature: t.feature.clone(),
                             target_resource: t.resource.clone(),
+                            origin: Origin::Resource,
+                        });
+                    }
+                }
+            }
+            // GAP-R5 — a `target @feature.<f>.<R>` annotation may also sit
+            // on a `record <Name>` field. The cross-feature ID is nested in
+            // JSONB (logical-only, no migration index), but the reference
+            // must still resolve: same `uses` + resource-exists check.
+            for record in &feature.records {
+                for field in &record.fields {
+                    if let Some(t) = &field.cross_feature_target {
+                        targets.push(CrossFeatureTargetRef {
+                            resource: record.name.clone(),
+                            field: field.name.clone(),
+                            target_feature: t.feature.clone(),
+                            target_resource: t.resource.clone(),
+                            origin: Origin::Record,
                         });
                     }
                 }
@@ -237,6 +287,16 @@ mod tests {
         resources: &[&str],
         targets: &[(&str, &str, &str, &str)],
     ) -> FeatureCrossRefView {
+        view_with_origin(feature, uses, resources, targets, Origin::Resource)
+    }
+
+    fn view_with_origin(
+        feature: &str,
+        uses: &[&str],
+        resources: &[&str],
+        targets: &[(&str, &str, &str, &str)],
+        origin: Origin,
+    ) -> FeatureCrossRefView {
         FeatureCrossRefView {
             feature: feature.into(),
             path: PathBuf::from(format!("{feature}.lzi")),
@@ -249,6 +309,7 @@ mod tests {
                     field: (*f).into(),
                     target_feature: (*tf).into(),
                     target_resource: (*tr).into(),
+                    origin,
                 })
                 .collect(),
         }
@@ -307,6 +368,74 @@ mod tests {
         let findings = check(&[agency, department]);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].reason, Reason::ResourceNotInFeature);
+        assert_eq!(findings[0].target_resource, "Ghost");
+    }
+
+    // ---- GAP-R5: `target @feature.<f>.<R>` on a RECORD field ----
+
+    #[test]
+    fn record_positive_feature_in_deps_resource_exists_passes() {
+        // `agency` has a record (snapshot bag) whose field targets
+        // `@feature.department.Department`, declares `uses department`,
+        // and the resource exists → clean.
+        let agency = view_with_origin(
+            "agency",
+            &["department"],
+            &["Agency"],
+            &[(
+                "AgencySnapshot",
+                "department_id",
+                "department",
+                "Department",
+            )],
+            Origin::Record,
+        );
+        let department = view("department", &[], &["Department"], &[]);
+        assert!(check(&[agency, department]).is_empty());
+    }
+
+    #[test]
+    fn record_negative_feature_not_in_dependencies_fires() {
+        // Record field references `@feature.department.Department` but the
+        // declaring feature never declares `uses department`.
+        let agency = view_with_origin(
+            "agency",
+            &[],
+            &["Agency"],
+            &[(
+                "AgencySnapshot",
+                "department_id",
+                "department",
+                "Department",
+            )],
+            Origin::Record,
+        );
+        let department = view("department", &[], &["Department"], &[]);
+        let findings = check(&[agency, department]);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].reason, Reason::FeatureNotInDependencies);
+        assert_eq!(findings[0].origin, Origin::Record);
+        assert_eq!(findings[0].resource, "AgencySnapshot");
+        assert!(findings[0].message().contains("record `AgencySnapshot`"));
+        assert!(findings[0].message().contains("uses department"));
+    }
+
+    #[test]
+    fn record_negative_unknown_resource_in_dependency_fires() {
+        // Feature is a declared dependency, but the named resource does
+        // not exist in it.
+        let agency = view_with_origin(
+            "agency",
+            &["department"],
+            &["Agency"],
+            &[("AgencySnapshot", "ghost_id", "department", "Ghost")],
+            Origin::Record,
+        );
+        let department = view("department", &[], &["Department"], &[]);
+        let findings = check(&[agency, department]);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].reason, Reason::ResourceNotInFeature);
+        assert_eq!(findings[0].origin, Origin::Record);
         assert_eq!(findings[0].target_resource, "Ghost");
     }
 }

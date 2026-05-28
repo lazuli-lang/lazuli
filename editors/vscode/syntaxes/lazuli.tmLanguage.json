@@ -71,6 +71,7 @@
     { "include": "#profile-decl" },
     { "include": "#experience-decl" },
     { "include": "#route-decl" },
+    { "include": "#lzx-route-guard" },
     { "include": "#surface-decl" },
     { "include": "#uses-experience-decl" },
     { "include": "#bare-block-opener" },
@@ -242,6 +243,13 @@
       "captures": {
         "2": { "name": "keyword.control.declaration.structural.lazuli" },
         "3": { "name": "entity.name.function.route.lazuli" }
+      }
+    },
+    "lzx-route-guard": {
+      "comment": "`.lzx` route/view guard sub-clauses — the `route_guard` defaults block and the per-route/per-view `policy <ref>` guard children. The lifecycle gate keywords `requires_lifecycle <Resource> = <state>` and `requires_lifecycle_in <Resource> [s1, s2]` tie a route to a domain `lifecycle` state (doctor: ROUTE-GUARD-LIFECYCLE-*-001/2/3). Parser: crates/lazuli_syntax/src/parser/lzx/app/view_guard.rs. These children fall through from the single-line `route-decl`/`policy` headers, so they are highlighted here rather than inside a begin/end block.",
+      "match": "^\\s+(route_guard|default_policy|skeleton|on_unauthenticated|on_unauthorized|requires_lifecycle_in|requires_lifecycle|on_lifecycle_pending|forbid_when)\\b",
+      "captures": {
+        "1": { "name": "keyword.control.statement.lazuli" }
       }
     },
     "surface-decl": {

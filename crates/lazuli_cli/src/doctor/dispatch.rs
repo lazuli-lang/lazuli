@@ -488,6 +488,23 @@ impl DoctorPackage {
                                     field: field.name.clone(),
                                     target_feature: t.feature.clone(),
                                     target_resource: t.resource.clone(),
+                                    origin: ref_unknown_001::Origin::Resource,
+                                });
+                            }
+                        }
+                    }
+                    // GAP-R5 — `target @feature.<f>.<R>` may also sit on a
+                    // `record <Name>` field (logical-only ID nested in JSONB,
+                    // no migration index). Same resolution as resources.
+                    for record in &fact.records {
+                        for field in &record.fields {
+                            if let Some(t) = &field.cross_feature_target {
+                                targets.push(ref_unknown_001::CrossFeatureTargetRef {
+                                    resource: record.name.clone(),
+                                    field: field.name.clone(),
+                                    target_feature: t.feature.clone(),
+                                    target_resource: t.resource.clone(),
+                                    origin: ref_unknown_001::Origin::Record,
                                 });
                             }
                         }

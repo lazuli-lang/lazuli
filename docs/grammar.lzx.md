@@ -25,8 +25,8 @@ Identical to `docs/grammar.lzi.md §1`. Re-uses `INDENT`/`DEDENT`/
 action anchor at audience block columns detail experience extends
 extensible_by filter form imports lazy lookup mobile mode
 on_unauthenticated on_unauthorized opens params path platforms
-platform policy redirect route search slot source submit surface tests
-to view web
+platform policy redirect requires_lifecycle requires_lifecycle_in
+route search slot source submit surface tests to view web
 ```
 
 These are recognized as keywords only inside their parent
@@ -125,9 +125,15 @@ target_query_call = feature_ref "." "query" ( "." IDENT_LOWER )?
 target_command_call = feature_ref "." "command" "." IDENT_LOWER
                       ( "(" arg_list_view ")" )? ;
 view_guard_decl  = "policy" policy_ref NEWLINE
-                    ( INDENT route_guard_redirect+ DEDENT )? ;
+                    ( INDENT route_guard_child+ DEDENT )? ;
+route_guard_child = route_guard_redirect
+                  | route_guard_lifecycle ;
 route_guard_redirect = ( "on_unauthenticated" | "on_unauthorized" )
                        "redirect" STRING NEWLINE ;
+route_guard_lifecycle =
+                    "requires_lifecycle" IDENT_UPPER "=" IDENT_LOWER NEWLINE
+                  | "requires_lifecycle_in" IDENT_UPPER
+                       "[" IDENT_LOWER ( "," IDENT_LOWER )* "]" NEWLINE ;
 policy_ref        = "@policy." IDENT_LOWER
                   | "@scope." IDENT_LOWER
                   | "@role." IDENT_LOWER
@@ -180,6 +186,47 @@ audience. Top-level `view_decl` children of a surface apply to all audiences.
 `policy` has cardinality 0..1 per `view` and 0..1 per `audience`.
 `on_unauthenticated` and `on_unauthorized` are optional redirect children of a
 `policy` guard; each has cardinality 0..1.
+
+### Lifecycle route guards
+
+A `policy` guard MAY also gate a route/view on a domain **lifecycle**
+state, so the view only paints once the actor's row has advanced far
+enough. Two forms (mutually exclusive on the same guard —
+`ROUTE-GUARD-LIFECYCLE-EXCLUSIVE-001`):
+
+```lzx
+route onboarding_step
+  path "/onboarding/profile"
+  to host.view.profile
+  surface host web
+  audience host
+  policy @policy.authenticated
+    on_unauthenticated redirect "/sign-in"
+    requires_lifecycle Host = onboarded            # exact-match form
+    # — or —
+    requires_lifecycle_in Host [basic_pending, address_pending]  # allow-list form
+```
+
+- `requires_lifecycle <Resource> = <state>` — exact-match: the view
+  paints only when `<Resource>`'s resolved lifecycle state equals
+  `<state>`. `<Resource>` is the PascalCase resource name; `<state>`
+  is a bare lifecycle state declared in that resource's `lifecycle`.
+- `requires_lifecycle_in <Resource> [s1, s2, …]` — allow-list: the
+  view paints when the resolved state is **any** of the listed states.
+  This is the canonical, grep-friendly form for any list shape; doctor
+  steers projects toward it when the shorthand is used at scale or the
+  two shapes are mixed (`ROUTE-LIFECYCLE-CANONICAL-FORM-001`). An empty
+  allow-list (`[]`) makes the view unreachable
+  (`ROUTE-GUARD-LIFECYCLE-IN-EMPTY-002`); a state not declared on the
+  resource's lifecycle is rejected
+  (`ROUTE-GUARD-LIFECYCLE-IN-UNKNOWN-003`).
+
+When the gate fails the runtime dispatches via the resource's
+`lifecycle_routes` helper (or the optional `on_lifecycle_pending
+@resume <name>` router). Each lifecycle guard has cardinality 0..1 per
+`policy`. These keywords were added by the route-guard escape-hatch
+work; they are parser- and LSP-recognized and round-trip through the
+IR (`ViewGuard.requires_lifecycle` / `requires_lifecycle_in`).
 
 ## 6. Cross-feature view extension
 
