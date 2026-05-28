@@ -78,8 +78,11 @@ pub(crate) const REGISTRY_BODY_KINDS: &[&str] = &[
 /// Closed catalog of view-body keywords. Mirrors `view_body_handlers`
 /// in `lazuli_syntax/src/parser.rs` plus the standalone block handlers
 /// (`drawer`, `filters`, `search`, `sort`, `selection`, `bulk_actions`,
-/// `settings`) and the route/extends/anchor/audience scaffolding from
-/// the L0 #6 grammar.
+/// `settings`, `on_success`) and the route/extends/anchor/audience
+/// scaffolding from the L0 #6 grammar. Surface-sync WT-2 added the
+/// Wave-W6 / GAP-UX primitives (`wizard_steps`, `tab_group`,
+/// `view_mode`, `view.inline_table`, `view.board`, `repeatable`,
+/// `tabs`, `wizard`).
 pub(crate) const VIEW_BODY_KINDS: &[&str] = &[
     "actions",
     "anchor",
@@ -95,8 +98,10 @@ pub(crate) const VIEW_BODY_KINDS: &[&str] = &[
     "filter",
     "filters",
     "lazy",
+    "on_success",
     "policy",
     "prerender",
+    "repeatable",
     "route",
     "search",
     "sections",
@@ -106,6 +111,13 @@ pub(crate) const VIEW_BODY_KINDS: &[&str] = &[
     "sort",
     "source",
     "submit",
+    "tab_group",
+    "tabs",
+    "view.board",
+    "view.inline_table",
+    "view_mode",
+    "wizard",
+    "wizard_steps",
 ];
 
 /// Closed catalog of indent-2 child kinds inside `surface X <platform>`
@@ -281,7 +293,7 @@ pub(crate) fn view_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
                 format!("unknown view body kind `{first}`. Did you mean `{suggested}`?")
             }
             None => format!(
-                "unknown view body kind `{first}`. Valid kinds: source / submit / columns / fields / sections / cells / route / actions / search / filter / filters / drawer / sort / selection / bulk_actions / settings / block / slot / extends / extensible_by / anchor / audience / lazy / prerender."
+                "unknown view body kind `{first}`. Valid kinds: source / submit / on_success / columns / fields / sections / cells / route / actions / search / filter / filters / drawer / sort / selection / bulk_actions / settings / block / slot / extends / extensible_by / anchor / audience / lazy / prerender / wizard_steps / tab_group / tabs / wizard / view_mode / view.inline_table / view.board / repeatable."
             ),
         };
         diagnostics.push(simple_canonical_diagnostic(

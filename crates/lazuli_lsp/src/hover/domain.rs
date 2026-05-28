@@ -69,6 +69,45 @@ pub(crate) fn keyword_description(keyword: &str) -> Option<&'static str> {
         "version_field" => Some(
             "On `lock optimistic`, names the integer column carrying the row's monotonic version. Doctor: `RESOURCE-LOCK-CONTRACT-001` rejects unknown / non-Integer fields.",
         ),
+        // Surface-sync WT-2 — resource decorators + relations.
+        "append_only" => Some(
+            "Bare resource modifier (sibling of `soft_delete` / `timestamps`). Makes the resource insert-only — doctor `RESOURCE-APPEND-ONLY-001` rejects any `update`/`delete` command targeting it. The canonical sink for `audit materialize` (an immutable operation log).",
+        ),
+        "many_through" => Some(
+            "Declares an M:N relation carrying payload: `many_through <Junction> to <Partner>` with at least one payload field at grandchild indent. Desugars into a synthesized junction resource holding the two endpoint FKs plus the payload columns. A payload-free junction is a plain `has_many` pair, not a `many_through` (GAP-07).",
+        ),
+        "polymorphic_ref" => Some(
+            "Declares a polymorphic foreign key: `polymorphic_ref <type_field> <id_field> targets [A, B, ...]`. The `<type_field>` discriminates the row's referent among the bracketed PascalCase resource list; `<id_field>` carries the target row id (GAP-13).",
+        ),
+        "computed_date" => Some(
+            "Read-time computed Date field: `<name>: Date computed_date from <base_field> offset <field|integer>`. The base is another field on the resource; the offset is a sibling Integer field or an integer-day literal. Not persisted — the clause is stripped from the column type (W3 GAP-03).",
+        ),
+        "schedule_rule" => Some(
+            "Rule-driven computed Date field: `<name>: Date schedule_rule from @fn.<name>(<arg>) offset <field|integer>`. Like `computed_date` but the base is a `@fn.<name>(<arg>)` rule call rather than a bare field. The `@fn` base is mandatory; a bare-field base is a parse error (W4 GAP-08).",
+        ),
+        // Surface-sync WT-2 — command-side verbs + approval-chain vocab.
+        "reorder" => Some(
+            "Command mutating verb: `reorder <Resource> by <position_field>`. Batch position update — the runtime rewrites the position column of the target resource in one transaction. The `by <field>` clause is required (W4 GAP-REORDER-01).",
+        ),
+        "materialize" => Some(
+            "Inside `audit`: `materialize @feature.<feature>.<Resource>` routes the audit record to an `append_only` resource (an immutable operation log) in the named feature. Cross-feature reachability and the `append_only` invariant are enforced by doctor `AUDIT-MATERIALIZE-TARGET-001` (GAP-AUDIT-01).",
+        ),
+        "chain" => Some(
+            "Inside `approval`: declares a multi-approver chain, `chain [@role.a, @role.b, ...]` optionally followed by `sequential`. Mutually exclusive with the single-approver `by @role.<name>` form (which lifts to a one-element chain). The first chain element becomes `approval.by` (W4 GAP-06).",
+        ),
+        "sequential" => Some(
+            "Inside `approval`: marks a `chain [...]` as ordered — approvers must sign off in declared order rather than in parallel. Without `sequential`, any-order approval is accepted (W4 GAP-06).",
+        ),
+        // Surface-sync WT-2 — iron-hand feature context vocabulary.
+        "purpose" => Some(
+            "Feature-context directive (at most once per feature): `purpose \"<one sentence>\"`. A single-sentence statement of intent for cold readers (humans and LLMs). Doctor `VOCAB-CONTEXT-PURPOSE-001` fires when missing or empty; escalated to error under the `tdd-iron-hand` coverage preset.",
+        ),
+        "non_goals" => Some(
+            "Feature-context block (at most once per feature): boundary statements naming what the feature explicitly does NOT do. Simple form is a list of quoted strings; the partitioned form nests `delegated_to` / `out_of_scope`. Doctor `VOCAB-CONTEXT-NONGOALS-001` fires when empty.",
+        ),
+        "attach_ctx" => Some(
+            "Feature-context directive (at most once per feature): `attach_ctx \"<relative-path>\"` points at a markdown sidecar (e.g. `./ctx.md`) resolved against the `.lzi` directory then the project root. Doctor `VOCAB-CONTEXT-CTXMD-001` fires when absent, missing on disk, or under 100 non-whitespace characters.",
+        ),
         "paginate" => Some("Declares the positive default page size for a `query.list`."),
         "surface" => Some("Declares UI projections for list, form, and detail views."),
         "input" => Some("Lists fields accepted by a command."),

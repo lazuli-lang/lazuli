@@ -179,9 +179,10 @@ A keyword the *parser* accepts is not "shipped." It is shipped when every surfac
 1. `grep` the OLD spelling across `docs/`, `examples/`, `lazurite/`, `editors/`, `crates/lazuli_lsp/` → **zero** stray hits (only the migration recipe may still name it).
 2. `grep` the NEW spelling → present in parser, LSP `KEYWORDS`, tmLanguage, grammar doc, quickref, and scaffold/example.
 3. The canonical example actually round-trips: `lazuli inspect examples/full-capsule` (or `generate … --check`) shows the construct **populated**, not silently dropped.
-4. `editors/vscode` grammar snapshot tests regenerated and committed.
+4. `editors/vscode` grammar snapshot tests regenerated and committed (`cd editors/vscode && npx vscode-tmgrammar-snap -g ./syntaxes/lazuli.tmLanguage.json "./tests/grammar/**/*.lzi" "./tests/grammar/**/*.lzx"`).
+5. Register the keyword's token in `crates/lazuli_lsp/tests/keyword_surface_parity.rs` — add it to `CANONICAL` (statement/modifier/surface keywords) or `SEMANTIC_VALUES` (`@semantic` scalars), retired forms to `RETIRED_FEATURE_KEYWORDS` — then `cargo test -p lazuli_lsp --test keyword_surface_parity`.
 
-If you cannot touch every face in this change, do not change the keyword — file it and do it whole. The bar is parity, not "the parser accepts it." (A future `lazuli doctor --self` parity rule could automate steps 1–2; until it exists, this checklist is the gate.)
+If you cannot touch every face in this change, do not change the keyword — file it and do it whole. The bar is parity, not "the parser accepts it." **Enforcement (added 2026-05-28):** `crates/lazuli_lsp/tests/keyword_surface_parity.rs` is now a mechanical CI gate — for every token in `CANONICAL`/`SEMANTIC_VALUES` it asserts presence in the LSP catalog, `tmLanguage.json`, the grammar docs, and `quickref.md`, and asserts retired forms are gone from the feature catalog. It fails the build on drift, so it automates steps 2 + the surface-presence sweep. This checklist remains the human/AI companion for the faces a substring test cannot verify (lowering/IR, grammar-snapshot regen, migration recipes).
 
 ---
 

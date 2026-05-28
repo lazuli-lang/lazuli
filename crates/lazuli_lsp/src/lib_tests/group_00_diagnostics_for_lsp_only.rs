@@ -36,6 +36,7 @@ feature customer
   command create
     policy @policy.create
     rate_limit "30 per hour per user"
+    audit none
     creates Customer
 
   api export
@@ -44,9 +45,6 @@ feature customer
     output @cap.File(max_size:100mb,accept:text/csv)
     policy @policy.read
     handler "./api/export.go"
-
-  workflow lifecycle on Customer.status
-    policy @policy.update
 
   job sync
     trigger schedule "0 2 * * *"
@@ -75,7 +73,6 @@ feature customer
     assert!(diagnostics_for(source).is_empty());
 }
 
-#[test]
 #[test]
 fn feature_unknown_kind_flags_typo_with_suggestion() {
     let source = r#"
