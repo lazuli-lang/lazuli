@@ -27,6 +27,19 @@ use crate::ast::Span;
 /// stable diagnostic `code` field.
 pub const E_WORKFLOW_RETIRED: &str = "E-WORKFLOW-RETIRED";
 
+/// `E-CONTEXT-RETIRED` — emitted when a `.lzi` author writes a
+/// feature-header-level `context "<path>"` line. That form was never a
+/// recognised parser branch, so it used to be silently dropped (zero
+/// `context_path` in the IR), violating inviolable rule #7 (no silent
+/// runtime behaviour). The canonical context-attach vocabulary is
+/// `attach_ctx "<path>"`. Mirrors `E-WORKFLOW-RETIRED`: the parser
+/// carries this constant as the leading `[E-CONTEXT-RETIRED]` tag on the
+/// `ParseError::Pest.message` so downstream tooling recognises it by
+/// code. NOTE: this is scoped to the feature-header `context "<string>"`
+/// form only — the live agent-body `context <expr>` keyword and
+/// `context:` map keys are unaffected.
+pub const E_CONTEXT_RETIRED: &str = "E-CONTEXT-RETIRED";
+
 /// Single error type returned by every parser entry point.
 ///
 /// Two flavours: `Pest` carries a span-anchored authoring error (the

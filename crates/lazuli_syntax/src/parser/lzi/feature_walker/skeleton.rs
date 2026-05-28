@@ -4,7 +4,7 @@
 //! `parse_feature_skeletons` plus the indent constants Rails-thin.
 
 use super::super::super::common::{SourceLine, is_trivia, line_error, line_error_owned};
-use super::super::super::error::{E_WORKFLOW_RETIRED, ParseError};
+use super::super::super::error::{E_CONTEXT_RETIRED, E_WORKFLOW_RETIRED, ParseError};
 
 use crate::ast::{
     AggregateDecl, ApiDecl, Auth, CacheProfileDecl, Channel, CommandDecl, EnumDeclAst, EventGroup,
@@ -190,6 +190,38 @@ pub(super) fn parse_feature_skeleton(
             last_end = line.end;
             i += 1;
             continue;
+        }
+
+        // Retired dead form — a feature-header-level `context "<path>"`
+        // line never had a parser branch, so it used to be silently
+        // dropped (zero `context_path` in the IR), violating inviolable
+        // rule #7 (no silent runtime behaviour). The canonical
+        // context-attach vocabulary is `attach_ctx "<path>"`. We
+        // special-case the known dead form ONLY — a `context ` line whose
+        // argument is a quoted string literal — so this stays scoped and
+        // does not over-reject other unknown children (which remain in
+        // the legacy text-pattern doctor pipeline). The live agent-body
+        // `context <expr>` keyword lives inside `parse_agent` at indent 4
+        // and is untouched.
+        //
+        // Coded as `E-CONTEXT-RETIRED`; mirrors `E-WORKFLOW-RETIRED`
+        // exactly. The leading `[E-CONTEXT-RETIRED]` tag on the message
+        // is the stable marker downstream tooling reads to populate the
+        // diagnostic `code` field.
+        if line.indent == AGENT_INDENT_FEATURE_CHILD
+            && let Some(rest) = trimmed.strip_prefix("context ")
+            && rest.trim_start().starts_with('"')
+        {
+            return Err(line_error_owned(
+                line,
+                format!(
+                    "[{E_CONTEXT_RETIRED}] feature-level `context \"...\"` is not \
+                     recognized; use `attach_ctx \"<path>\"`. The bare `context` \
+                     form was never wired into the parser and was silently \
+                     dropped (no context_path in the IR); `attach_ctx` is the \
+                     canonical feature context-attach vocabulary.",
+                ),
+            ));
         }
 
         if line.indent == AGENT_INDENT_FEATURE_CHILD && trimmed.starts_with("job ") {

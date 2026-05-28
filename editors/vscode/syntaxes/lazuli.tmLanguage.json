@@ -2490,7 +2490,7 @@
       "patterns": [
         {
           "name": "entity.name.function.statement.feature-meta.lazuli",
-          "match": "^\\s+(purpose|context|imports|uses|requires|to|owner|owns|exposes|publishes|consumes|service|provides)\\b(?=\\s+\\S)"
+          "match": "^\\s+(purpose|attach_ctx|context|imports|uses|requires|to|owner|owns|exposes|publishes|consumes|service|provides)\\b(?=\\s+\\S)"
         }
       ]
     },

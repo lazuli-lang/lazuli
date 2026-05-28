@@ -284,11 +284,11 @@ non_goals
 
 Referenced features under `delegated_to` are validated as feature ids, but they do not count as `uses`. `out_of_scope` entries are intentionally not feature references. These entries document boundaries; they are not semantic dependencies. Earlier drafts used direct keys and `anti_pattern.*`; canonical v0 groups entries explicitly so humans and agents do not need to infer which keys are feature references.
 
-`context` is only an override when the convention is not enough:
+`attach_ctx` is only an override when the convention is not enough:
 
 ```lazuli
 feature customer
-  context "@docs/customer/customer.ctx.md"
+  attach_ctx "@docs/customer/customer.ctx.md"
 ```
 
 The compiler may validate that the referenced file exists and `lazuli inspect` may aggregate it, but Lazuli should not rewrite the markdown file.
