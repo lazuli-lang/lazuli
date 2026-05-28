@@ -25,7 +25,7 @@ use crate::emitter::printer::GoPrinter;
 use crate::emitter::types::{self, TypeCtx};
 
 use super::attributes::{
-    db_col_for, effective_tenancy, is_secret_capability, plugin_semantic_validate_tag,
+    db_col_for, effective_tenancy, field_validate_tag, is_secret_capability,
     retention_action_const, tenancy_const, uses_timestamps,
 };
 use super::encryption::{
@@ -121,13 +121,13 @@ pub(super) fn emit_resource(
             field.name.clone()
         };
         let db_col = db_col_for(field, &field.type_ref);
-        // B3 — plugin-contributed `@semantic.<Name>` carries the
-        // declaring plugin + validator function; surface as a
-        // `validate:"<plugin.name>.<validator>"` tag clause. The
-        // validator key is decoded by the runtime dispatcher to
-        // invoke the plugin adapter at write/read boundaries. See
-        // `docs/proposals/semantic-types-plugin-locales.md` §Codegen.
-        let validate = plugin_semantic_validate_tag(&field.type_ref);
+        // B3 + GAP-R2 — merge the plugin-semantic dispatch key with the
+        // inline `FieldConstraints` (min/max/pattern/…) + `required` flag.
+        // Plugin-contributed `@semantic.<Name>` surfaces
+        // `<plugin.name>.<validator>` for the runtime adapter dispatcher;
+        // constraints project to `go-playground/validator` keywords. Both
+        // ride the same `validate:"…"` clause. See `field_validate_tag`.
+        let validate = field_validate_tag(field);
         tagged.push(TaggedField {
             name: pascal_case(&field.name),
             go_type: final_type,
@@ -440,11 +440,15 @@ pub(super) fn emit_record(p: &mut GoPrinter, record: &Record, ctx: &TypeCtx<'_>)
             field.name.clone()
         };
         let db_col = db_col_for(field, &field.type_ref);
-        // B3 — record fields participate in the same plugin-semantic
-        // validate-tag emission as resource fields. The shape carries
-        // through (the Go validator runtime reads identical tags from
-        // any struct).
-        let validate = plugin_semantic_validate_tag(&field.type_ref);
+        // B3 + GAP-R2 — record fields participate in the SAME merged
+        // validate-tag emission as resource fields: plugin-semantic
+        // dispatch key + inline `FieldConstraints` + `required`. A
+        // `Many<Record>` JSONB collection thus carries per-element field
+        // validation (e.g. `percentage: @semantic.Percentage` enforces
+        // 0..=100 via the `lazuli.Percentage` carrier; `min`/`max`
+        // constraints ride the `validate:"…"` tag). The Go validator
+        // runtime reads identical tags from any struct.
+        let validate = field_validate_tag(field);
         tagged.push(TaggedField {
             name: pascal_case(&field.name),
             go_type: final_type,
@@ -461,6 +465,36 @@ pub(super) fn emit_record(p: &mut GoPrinter, record: &Record, ctx: &TypeCtx<'_>)
     p.line(&format!("type {pascal} struct {{"));
     p.indent();
     write_struct_rows(p, &tagged);
+    p.dedent();
+    p.line("}");
+    p.blank();
+
+    // GAP-R2 — emit a `Validate()` method that runs each field's own
+    // `Validate()` (semantic carriers like `lazuli.Percentage`/`HexColor`
+    // + nested records), recursing into `Many<Record>` slices. This is the
+    // explicit validation path the parent wires when a record value is
+    // constructed in Go (not via the wire `UnmarshalJSON` decode boundary,
+    // which already fires the carriers). Wire-thin: a single reflection
+    // call into `lazuli.ValidateValue`.
+    emit_record_validate(p, &pascal);
+}
+
+/// GAP-R2 — emit the record's `Validate() error` method. Delegates to the
+/// runtime's reflection-thin `lazuli.ValidateValue`, which walks the struct
+/// fields and invokes any `interface{ Validate() error }` it finds —
+/// including the W1 semantic-scalar carriers and elements of `Many<Record>`
+/// slices. Founding principle: the generated method is one wire call, the
+/// traversal lives in the runtime (`runtime/go/lazuli/nested_validate.go`).
+fn emit_record_validate(p: &mut GoPrinter, pascal: &str) {
+    p.line(&format!(
+        "// Validate runs nested field validation for {pascal} — each field that"
+    ));
+    p.line("// carries its own `Validate() error` (semantic carriers, nested records,");
+    p.line("// and elements of `Many<Record>` slices) is checked. Wire-thin: the");
+    p.line("// traversal lives in `lazuli.ValidateValue`.");
+    p.line(&format!("func (m {pascal}) Validate() error {{"));
+    p.indent();
+    p.line("return lazuli.ValidateValue(m)");
     p.dedent();
     p.line("}");
 }
