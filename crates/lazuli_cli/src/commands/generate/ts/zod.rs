@@ -157,9 +157,22 @@ pub(crate) fn zod_base_for_type_ref(
             format!("z.array({})", zod_base_for_type_ref(inner, module))
         }
         lazuli_ir::TypeRef::EnumRef(name) => zod_base_for_enum_ref(module, name),
-        lazuli_ir::TypeRef::UserDefined(name) => find_enum_decl(module, name)
-            .map(zod_base_for_enum_decl)
-            .unwrap_or_else(|| "z.unknown()".to_owned()),
+        // GAP-R2 — a `UserDefined` that names a `record` lifts to a typed
+        // `z.object({...})` mirroring the record's `{field: <zod>}` shape so
+        // a `Many<Record>` embedded value-object collection validates each
+        // element's fields + per-field constraints client-side (e.g.
+        // `percentage: @semantic.Percentage` → `z.number().min(0).max(100)`),
+        // instead of accepting any `z.unknown()`. Enums keep their
+        // `z.enum([...])` shape; unknown names fall back to `z.unknown()`.
+        lazuli_ir::TypeRef::UserDefined(name) => {
+            if let Some(enum_decl) = find_enum_decl(module, name) {
+                zod_base_for_enum_decl(enum_decl)
+            } else if let Some(record) = find_record_decl(module, name) {
+                zod_object_for_record(record, module)
+            } else {
+                "z.unknown()".to_owned()
+            }
+        }
         lazuli_ir::TypeRef::Unresolved(raw) => {
             if !raw.starts_with('@') {
                 let synthetic = lazuli_ir::QualifiedName {
@@ -169,10 +182,56 @@ pub(crate) fn zod_base_for_type_ref(
                 if let Some(enum_decl) = find_enum_decl(module, &synthetic) {
                     return zod_base_for_enum_decl(enum_decl);
                 }
+                if let Some(record) = find_record_decl(module, &synthetic) {
+                    return zod_object_for_record(record, module);
+                }
             }
             "z.unknown()".to_owned()
         }
     }
+}
+
+/// GAP-R2 — find a `record` declaration by (optionally feature-qualified)
+/// name. Mirrors [`find_enum_decl`] but over `feature.records`. Records are
+/// the JSONB embedded value-object carriers that `Many<Record>` lowers to;
+/// the Zod array references this shape so nested fields validate client-side.
+fn find_record_decl<'a>(
+    module: &'a lazuli_ir::Module,
+    name: &lazuli_ir::QualifiedName,
+) -> Option<&'a lazuli_ir::Record> {
+    module
+        .features
+        .iter()
+        .filter(|feature| {
+            name.feature
+                .as_ref()
+                .is_none_or(|owner| owner == &feature.name)
+        })
+        .flat_map(|feature| feature.records.iter())
+        .find(|record| record.name.eq_ignore_ascii_case(&name.name))
+}
+
+/// GAP-R2 — emit `z.object({ <field>: <zodExpr>, … })` for a record. Each
+/// field reuses the same per-slot base + constraint chain + `.optional()`
+/// machinery as command input slots, so a nested `@semantic.Percentage`
+/// carries its `.min(0).max(100)` guard and inline `min`/`max`/`pattern`
+/// constraints ride along. Keys use the camelCase SDK convention to match
+/// the typed interfaces the wire boundary rekeys.
+fn zod_object_for_record(record: &lazuli_ir::Record, module: &lazuli_ir::Module) -> String {
+    let mut fields: Vec<String> = Vec::with_capacity(record.fields.len());
+    for field in &record.fields {
+        // `derived from` columns live server-side only — they are not part
+        // of the client-submitted value-object shape.
+        if field.derived_from.is_some() {
+            continue;
+        }
+        fields.push(format!(
+            "{}: {}",
+            lazuli_codegen_ts::lower_camel_export(&field.name),
+            zod_expr_for_slot(&field.type_ref, &field.constraints, !field.required, module)
+        ));
+    }
+    format!("z.object({{ {} }})", fields.join(", "))
 }
 
 fn zod_base_for_enum_ref(module: &lazuli_ir::Module, name: &lazuli_ir::QualifiedName) -> String {

@@ -122,6 +122,9 @@ pub fn emit_resource_file(
         }
     }
     for record in &records {
+        // GAP-R2 — every record now emits a `Validate()` method that calls
+        // `lazuli.ValidateValue`, so the runtime package is always needed.
+        imports.add("lazuli.dev/runtime/lazuli");
         for field in &record.fields {
             register_imports_for_type(&field.type_ref, &type_ctx, &mut imports);
         }

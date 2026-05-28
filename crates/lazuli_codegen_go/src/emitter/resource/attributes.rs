@@ -132,6 +132,38 @@ fn is_geo_point(type_ref: &TypeRef) -> bool {
     matches!(type_ref, TypeRef::Builtin(BuiltinType::SemanticGeoPoint))
 }
 
+/// GAP-R2 — compute the merged `validate:"…"` tag body for one struct
+/// field (resource OR record). Two contributions, joined deterministically
+/// with the plugin-semantic dispatch key first:
+///
+/// 1. `plugin_semantic_validate_tag` — plugin-contributed `@semantic.<Name>`
+///    fields surface `<plugin-short>.<validator>` so the runtime adapter
+///    dispatcher fires (B3).
+/// 2. `validator_tag_body` — the inline `FieldConstraints` (`min`/`max`/
+///    `pattern`/`between`/`length`/`in`) plus the `required` flag projected
+///    to `go-playground/validator` keywords (L0 #3 §10).
+///
+/// Built-in semantic carriers (`@semantic.Percentage` → `lazuli.Percentage`,
+/// `@semantic.HexColor` → `lazuli.HexColor`) carry their range/regex guard in
+/// the typed Go carrier's `UnmarshalJSON` (W1 `semantic_scalars.go`), so they
+/// need no validate-tag keyword here — the carrier validates at the decode
+/// boundary including inside a `Many<Record>` element (stdlib recurses into
+/// slice + struct fields).
+///
+/// Returns `None` when neither contribution produces output (no plugin
+/// semantic, no constraints, not required) so the caller can elide the
+/// `validate:` slot entirely and keep tag rows byte-stable for plain fields.
+pub(super) fn field_validate_tag(field: &lazuli_ir::Field) -> Option<String> {
+    let plugin = plugin_semantic_validate_tag(&field.type_ref);
+    let constraints = crate::emitter::validator_tag_body(&field.constraints, field.required);
+    match (plugin, constraints.is_empty()) {
+        (Some(p), true) => Some(p),
+        (Some(p), false) => Some(format!("{p},{constraints}")),
+        (None, false) => Some(constraints),
+        (None, true) => None,
+    }
+}
+
 /// True for capability-typed fields whose value the wire must never
 /// carry: password hashes, encrypted/E2EE blobs, tokens, and the legacy
 /// `@cap.Secret` builtin. Drives the `json:"-"` carve-out so a generic

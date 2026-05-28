@@ -61,11 +61,12 @@ fn single_resource_emits_struct_and_resource_value() {
 
 #[test]
 fn semantic_plugin_type_field_emits_validate_tag() {
-    // B3 — `@semantic.BrazilianCPF` lowers to
+    // B3 + GAP-R2 — `@semantic.BrazilianCPF` lowers to
     // `SemanticPluginType { plugin: "@lazuli/plugin-scalars-br", name:
     // "BrazilianCPF", carrier: Text, validator: "ValidateCPF" }`.
-    // The emitted struct field must carry the `string` carrier
-    // Go type plus a `validate:"scalars-br.ValidateCPF"` tag clause.
+    // The emitted struct field must carry the `string` carrier Go type
+    // plus a `validate:"…"` tag whose body merges the plugin dispatch key
+    // `scalars-br.ValidateCPF` with the field's `required` flag.
     // See `docs/proposals/semantic-types-plugin-locales.md` §Codegen.
     let mut feature = base_feature("host");
     let plugin_field = Field {
@@ -102,10 +103,11 @@ fn semantic_plugin_type_field_emits_validate_tag() {
 
     // Carrier is `Text` → Go `string`.
     assert!(out.contains("Cpf string"));
-    // Validate tag uses the plugin short name + validator function.
+    // Validate tag merges the plugin short name + validator function with
+    // the `required` flag (GAP-R2: constraints + plugin key share the tag).
     assert!(
-        out.contains("validate:\"scalars-br.ValidateCPF\""),
-        "expected validate tag, got: {out}"
+        out.contains("validate:\"scalars-br.ValidateCPF,required\""),
+        "expected merged validate tag, got: {out}"
     );
     // db + json tags preserved alongside validate.
     assert!(out.contains("db:\"cpf\""));
@@ -136,6 +138,109 @@ fn record_emits_struct_without_resource_value() {
     assert!(!out.contains("lazuli.Resource"));
     assert!(out.contains("CustomerID lazuli.ID"));
     assert!(out.contains("Amount     lazuli.Money"));
+}
+
+#[test]
+fn record_field_emits_semantic_and_constraint_validate_tags_and_validate_method() {
+    // GAP-R2 — a `record Installment { days: Integer (min 1 max 36),
+    // percentage: @semantic.Percentage }` used as a `Many<Installment>`
+    // JSONB value-object must carry per-field validation on the nested
+    // struct:
+    //   - `percentage` resolves to the W1 `lazuli.Percentage` carrier whose
+    //     UnmarshalJSON enforces 0..=100 (no validate-tag keyword needed).
+    //   - `days` carries its `min`/`max` constraints as a `validate:"…"` tag.
+    // Plus the record gets a `Validate()` method delegating to
+    // `lazuli.ValidateValue` for the explicit (construction-time) path.
+    let mut feature = base_feature("billing");
+    let mut days = simple_field("days", BuiltinType::Integer, true);
+    days.constraints = lazuli_ir::FieldConstraints {
+        min: Some(1),
+        max: Some(36),
+        ..lazuli_ir::FieldConstraints::default()
+    };
+    feature.records.push(Record {
+        name: "Installment".to_owned(),
+        public_contract: None,
+        fields: vec![
+            days,
+            simple_field("percentage", BuiltinType::SemanticPercentage, true),
+        ],
+        discriminator_field: None,
+        span_ref: None,
+    });
+    let out = emit(&feature).expect("must emit");
+
+    // Nested struct shape: typed carrier for the percentage field.
+    assert!(out.contains("type Installment struct {"));
+    assert!(
+        out.contains("Percentage lazuli.Percentage"),
+        "expected Percentage carrier on the nested record field; got:\n{out}"
+    );
+    // `days` carries its min/max + required as a go-playground validator tag.
+    assert!(
+        out.contains("validate:\"required,min=1,max=36\""),
+        "expected merged constraint validate tag on the record field; got:\n{out}"
+    );
+    // The record exposes a Validate() method wired to the runtime walker.
+    assert!(
+        out.contains("func (m Installment) Validate() error {"),
+        "expected record Validate() method; got:\n{out}"
+    );
+    assert!(
+        out.contains("return lazuli.ValidateValue(m)"),
+        "expected Validate() to delegate to lazuli.ValidateValue; got:\n{out}"
+    );
+}
+
+#[test]
+fn many_record_field_on_resource_emits_jsonb_slice_with_typed_element() {
+    // GAP-R2 — a resource field `installments: Many<Installment>` lowers the
+    // Go field to `[]Installment` (a JSONB document at the DDL layer). The
+    // element type is the typed record struct, so `json.Unmarshal` of the
+    // command input fires each element's `Percentage.UnmarshalJSON` carrier.
+    let mut feature = base_feature("billing");
+    feature.records.push(Record {
+        name: "Installment".to_owned(),
+        public_contract: None,
+        fields: vec![
+            simple_field("days", BuiltinType::Integer, true),
+            simple_field("percentage", BuiltinType::SemanticPercentage, true),
+        ],
+        discriminator_field: None,
+        span_ref: None,
+    });
+    let resource = simple_resource(
+        "plan",
+        vec![Field {
+            name: "installments".to_owned(),
+            type_ref: TypeRef::Many(Box::new(TypeRef::UserDefined(lazuli_ir::QualifiedName {
+                feature: None,
+                name: "Installment".to_owned(),
+            }))),
+            required: true,
+            unique: false,
+            slug: false,
+            default: None,
+            derived_from: None,
+            computed_date: None,
+            constraints: lazuli_ir::FieldConstraints::default(),
+            full_text: false,
+            previous_names: Vec::new(),
+            pii: None,
+            owner_axis: None,
+            cross_feature_target: None,
+            span_ref: None,
+        }],
+    );
+    feature.resources.push(resource);
+    let out = emit(&feature).expect("must emit");
+
+    assert!(
+        out.contains("Installments []Installment"),
+        "expected typed slice element for Many<Record>; got:\n{out}"
+    );
+    // The nested record's percentage field keeps the typed carrier.
+    assert!(out.contains("Percentage lazuli.Percentage"));
 }
 
 #[test]

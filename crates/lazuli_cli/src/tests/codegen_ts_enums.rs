@@ -212,6 +212,118 @@
     }
 
     #[test]
+    fn rich_zod_base_emits_typed_object_for_record() {
+        // GAP-R2 — a `UserDefined` naming a `record` must lift to a typed
+        // `z.object({...})` (not `z.unknown()`), so embedded value-objects
+        // validate their nested fields + per-field constraints client-side.
+        let (_feature, mut module) = enum_sdk_fixture(false, false);
+        // Add an `Installment` record with a constrained Integer + a
+        // built-in-semantic `@semantic.Percentage` field.
+        module.features[0].records.push(record_installment());
+
+        let schema = crate::zod_base_for_type_ref(
+            &lazuli_ir::TypeRef::UserDefined(local_qn("Installment")),
+            &module,
+        );
+
+        // Percentage carries its 0..=100 range guard; days carries min/max.
+        assert_eq!(
+            schema,
+            "z.object({ days: z.number().gte(1).lte(36), percentage: z.number().min(0).max(100) })",
+            "expected typed record object schema, got: {schema}"
+        );
+        assert!(
+            !schema.contains("z.unknown()"),
+            "record must not fall back to z.unknown(), got: {schema}"
+        );
+    }
+
+    #[test]
+    fn rich_zod_base_emits_typed_array_for_many_record() {
+        // GAP-R2 — `Many<Record>` must lift to `z.array(z.object({...}))`
+        // (not `z.array(z.unknown())`), so each element of the embedded
+        // value-object collection is validated client-side.
+        let (_feature, mut module) = enum_sdk_fixture(false, false);
+        module.features[0].records.push(record_installment());
+
+        let many = lazuli_ir::TypeRef::Many(Box::new(lazuli_ir::TypeRef::UserDefined(local_qn(
+            "Installment",
+        ))));
+        let schema = crate::zod_base_for_type_ref(&many, &module);
+
+        assert_eq!(
+            schema,
+            "z.array(z.object({ days: z.number().gte(1).lte(36), percentage: z.number().min(0).max(100) }))",
+            "expected typed array of record object, got: {schema}"
+        );
+        assert!(
+            !schema.contains("unknown"),
+            "Many<Record> must not emit any unknown shape, got: {schema}"
+        );
+    }
+
+    #[test]
+    fn feature_zod_emits_typed_array_for_many_record_command_slot() {
+        // GAP-R2 — end-to-end: a command input slot typed `Many<Installment>`
+        // emits a typed `z.array(z.object({...}))` schema in the feature's
+        // zod file.
+        let (mut feature, mut module) = enum_sdk_fixture(false, false);
+        feature.records.push(record_installment());
+        feature.commands.push(command_with_typed_input(
+            "createPlan",
+            vec![typed_slot(
+                "installments",
+                lazuli_ir::TypeRef::Many(Box::new(lazuli_ir::TypeRef::UserDefined(local_qn(
+                    "Installment",
+                )))),
+                true,
+            )],
+        ));
+        module.features = vec![feature.clone()];
+
+        let output = crate::emit_feature_zod_ts(&feature, &module);
+
+        assert!(
+            output.contains(
+                "installments: z.array(z.object({ days: z.number().gte(1).lte(36), percentage: z.number().min(0).max(100) }))"
+            ),
+            "expected typed Many<Record> zod array in feature schema, got:\n{output}"
+        );
+        assert!(
+            !output.contains("z.array(z.unknown())"),
+            "Many<Record> must not degrade to z.array(z.unknown()), got:\n{output}"
+        );
+    }
+
+    /// GAP-R2 fixture — `record Installment { days: Integer (min 1 max 36),
+    /// percentage: @semantic.Percentage }`. The embedded value-object used
+    /// by the `Many<Record>` zod tests.
+    fn record_installment() -> lazuli_ir::Record {
+        let mut days = field(
+            "days",
+            lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::Integer),
+        );
+        days.constraints = lazuli_ir::FieldConstraints {
+            min: Some(1),
+            max: Some(36),
+            ..lazuli_ir::FieldConstraints::default()
+        };
+        lazuli_ir::Record {
+            name: "Installment".to_owned(),
+            public_contract: None,
+            fields: vec![
+                days,
+                field(
+                    "percentage",
+                    lazuli_ir::TypeRef::Builtin(lazuli_ir::BuiltinType::SemanticPercentage),
+                ),
+            ],
+            discriminator_field: None,
+            span_ref: None,
+        }
+    }
+
+    #[test]
     fn negative_unreferenced_enum_not_emitted() {
         let (feature, module) = enum_sdk_fixture(true, false);
         let output = emit_feature_sdk_ts(&feature, &module);
