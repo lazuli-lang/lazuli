@@ -6,8 +6,50 @@
 #![cfg(test)]
 
 use super::emit_migrations;
-use super::test_support::{base_feature, base_module, builtin, resource};
+use super::test_support::{base_feature, base_module, builtin, parsed_module, resource};
 use lazuli_ir::{BuiltinType, Tenancy};
+
+#[test]
+fn many_through_synthesizes_junction_table_with_fk_pair_and_unique() {
+    // GAP-07 — `many_through JobMember to User` on `Job` desugars into a
+    // synthesized `JobMember` junction table carrying both endpoint FKs
+    // (`job_id`, `user_id`), the payload column (`role_in_job`), and a
+    // composite `UNIQUE (job_id, user_id)` on the endpoint pair.
+    let source = "\
+feature staffing
+  resource Job
+    title: Text required
+    many_through JobMember to User
+      role_in_job: Text required
+  resource User
+    name: Text required
+";
+    let module = parsed_module(source);
+    let files = emit_migrations(&module, "staffing");
+
+    let junction = files
+        .iter()
+        .find(|f| f.path.ends_with("_staffing_job_member.sql"))
+        .expect("synthesized JobMember junction migration should be emitted");
+    let sql = &junction.contents;
+
+    assert!(sql.contains("CREATE TABLE IF NOT EXISTS \"job_member\""), "junction table: {sql}");
+    assert!(sql.contains("job_id BIGINT NOT NULL"), "declaring FK column: {sql}");
+    assert!(sql.contains("user_id BIGINT NOT NULL"), "partner FK column: {sql}");
+    assert!(sql.contains("role_in_job TEXT NOT NULL"), "payload column: {sql}");
+    assert!(
+        sql.contains("FOREIGN KEY (job_id) REFERENCES \"job\" (id)"),
+        "declaring FK constraint: {sql}"
+    );
+    assert!(
+        sql.contains("FOREIGN KEY (user_id) REFERENCES \"user\" (id)"),
+        "partner FK constraint: {sql}"
+    );
+    assert!(
+        sql.contains("UNIQUE (job_id, user_id)"),
+        "composite unique on endpoint pair: {sql}"
+    );
+}
 
 #[test]
 fn emits_audit_log_down_for_modules_without_resources() {

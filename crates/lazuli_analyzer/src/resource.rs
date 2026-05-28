@@ -137,6 +137,26 @@ pub(crate) fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resour
             targets: pr.targets.clone(),
         })
         .collect();
+    // GAP-07 — lower `many_through <Junction> to <Partner>` declarations.
+    // Each payload field reuses the resource field lowering so it carries
+    // the full typed-field surface; the synthesized junction resource is
+    // assembled in `feature.rs` (it needs the declaring resource's name).
+    let many_through = r
+        .many_through
+        .iter()
+        .map(|mt| {
+            let payload = mt
+                .payload
+                .iter()
+                .map(lower_resource_field)
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(ir::ManyThrough {
+                junction: mt.name.clone(),
+                partner: mt.partner.clone(),
+                payload,
+            })
+        })
+        .collect::<Result<Vec<_>, AnalyzeError>>()?;
     let lifecycle_routes = r.lifecycle_routes.as_ref().map(|lr| ir::LifecycleRoutes {
         arms: lr
             .arms
@@ -175,7 +195,93 @@ pub(crate) fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resour
         // GAP-AUDIT-02 — insert-only marker. Doctor RESOURCE-APPEND-ONLY-001
         // rejects commands that update/delete this resource.
         append_only: r.append_only,
+        // GAP-07 — M:N-with-metadata relationships. The junction resources
+        // they desugar into are synthesized in `feature.rs`.
+        many_through,
     })
+}
+
+/// GAP-07 — synthesize the junction `ir::Resource` for one `many_through`
+/// declaration. The junction carries:
+///   - `<declaring>_id: ID` — a same-feature FK to the declaring resource,
+///   - `<partner>_id: ID` — an FK to the partner resource,
+///   - one column per payload field (lowered already, on `ManyThrough`), and
+///   - a composite `UNIQUE (<declaring>_id, <partner>_id)` so the endpoint
+///     pair is a set, not a bag.
+///
+/// FK column naming: `pascal_to_snake(<Resource>) + "_id"`. The FK fields
+/// are `TypeRef::UserDefined` so the migration emitter raises a real DB
+/// `FOREIGN KEY` when the endpoint table is in the same module (and a plain
+/// `BIGINT` column otherwise — e.g. a partner owned by another feature's
+/// migration set, mirroring the cross-feature FK posture).
+pub(crate) fn synthesize_junction_resource(
+    declaring_resource: &str,
+    mt: &ir::ManyThrough,
+) -> ir::Resource {
+    let declaring_fk = format!("{}_id", crate::helpers::pascal_to_snake(declaring_resource));
+    let partner_fk = format!("{}_id", crate::helpers::pascal_to_snake(&mt.partner));
+
+    let mut fields = vec![
+        junction_fk_field(&declaring_fk, declaring_resource),
+        junction_fk_field(&partner_fk, &mt.partner),
+    ];
+    fields.extend(mt.payload.iter().cloned());
+
+    ir::Resource {
+        name: mt.junction.clone(),
+        public_contract: None,
+        tenancy: None,
+        soft_delete: false,
+        timestamps: None,
+        fields,
+        constraints: vec![ir::Constraint::Unique(ir::UniqueConstraint {
+            fields: vec![declaring_fk, partner_fk],
+            per: None,
+            when: None,
+        })],
+        validate: None,
+        validates: Vec::new(),
+        retention: None,
+        previous_names: Vec::new(),
+        span_ref: None,
+        lifecycle: None,
+        invariants: Vec::new(),
+        lock: None,
+        composite_key: None,
+        conventions: Vec::new(),
+        lifecycle_routes: None,
+        polymorphic_refs: Vec::new(),
+        append_only: false,
+        // A synthesized junction declares no `many_through` of its own.
+        many_through: Vec::new(),
+    }
+}
+
+/// GAP-07 — build one endpoint FK field on a synthesized junction. The
+/// field type is a same-feature `UserDefined` reference to the endpoint
+/// resource (`feature: None`); the migration emitter resolves it to a
+/// `BIGINT` FK column. `required` so neither endpoint can dangle.
+fn junction_fk_field(name: &str, target_resource: &str) -> ir::Field {
+    ir::Field {
+        name: name.to_owned(),
+        type_ref: ir::TypeRef::UserDefined(ir::QualifiedName {
+            feature: None,
+            name: target_resource.to_owned(),
+        }),
+        required: true,
+        unique: false,
+        slug: false,
+        default: None,
+        derived_from: None,
+        computed_date: None,
+        constraints: ir::FieldConstraints::default(),
+        full_text: false,
+        previous_names: Vec::new(),
+        pii: None,
+        owner_axis: None,
+        cross_feature_target: None,
+        span_ref: None,
+    }
 }
 
 pub(crate) fn lower_resource_constraint(

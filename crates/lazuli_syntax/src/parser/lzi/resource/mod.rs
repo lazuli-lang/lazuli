@@ -55,7 +55,7 @@ use super::super::common::{SourceLine, is_trivia, line_error};
 use super::super::error::ParseError;
 use super::lifecycle;
 
-use crate::ast::{ResourceDecl, Span};
+use crate::ast::{ManyThroughAst, ResourceDecl, Span};
 
 pub(super) fn parse_resource_decl(
     lines: &[SourceLine<'_>],
@@ -142,6 +142,24 @@ pub(super) fn parse_resource_decl(
             i = next;
             continue;
         }
+        // GAP-07 — `many_through <Junction> to <Partner>` block. Payload
+        // fields live at grandchild indent and reuse the resource field
+        // parser. The block desugars (in the analyzer) into a synthesized
+        // junction resource carrying the two endpoint FKs + payload columns.
+        if trimmed == "many_through" {
+            return Err(line_error(
+                line,
+                "`many_through` requires `<JunctionName> to <PartnerResource>` (e.g. `many_through JobMember to User`)",
+            ));
+        }
+        if let Some(rest) = trimmed.strip_prefix("many_through ") {
+            let (mt, next) = parse_resource_many_through(lines, i, rest, grandchild_indent)?;
+            state.many_through.push(mt);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+            continue;
+        }
+
         // router-w4 — `lifecycle_routes` block.
         if trimmed == "lifecycle_routes" {
             if state.lifecycle_routes.is_some() {
@@ -291,7 +309,96 @@ pub(super) fn parse_resource_decl(
             constraints: state.constraints,
             polymorphic_refs: state.polymorphic_refs,
             append_only: state.append_only,
+            many_through: state.many_through,
             lifecycle_routes: state.lifecycle_routes,
+            span: Span::new(header.start, last_end),
+        },
+        i,
+    ))
+}
+
+/// GAP-07 — parse a `many_through <Junction> to <Partner>` block. The
+/// header line carries the junction name and the explicit `to <Partner>`
+/// endpoint; payload fields live one indentation level deeper and reuse
+/// `parse_resource_field_decl` (so they support the full field surface).
+/// At least one payload field is required — a junction with no metadata is
+/// a plain `has_many`/`has_many inverse` pair, not a `many_through`.
+fn parse_resource_many_through(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    rest: &str,
+    grandchild_indent: usize,
+) -> Result<(ManyThroughAst, usize), ParseError> {
+    let header = &lines[start];
+    let rest = rest.trim();
+    let Some(to_idx) = rest.find(" to ") else {
+        return Err(line_error(
+            header,
+            "`many_through` requires `<JunctionName> to <PartnerResource>` (e.g. `many_through JobMember to User`)",
+        ));
+    };
+    let name = rest[..to_idx].trim();
+    let partner = rest[to_idx + " to ".len()..].trim();
+    if name.is_empty() || name.split_whitespace().count() != 1 {
+        return Err(line_error(
+            header,
+            "`many_through` junction name must be a single identifier before `to` (e.g. `many_through JobMember to User`)",
+        ));
+    }
+    if partner.is_empty() || partner.split_whitespace().count() != 1 {
+        return Err(line_error(
+            header,
+            "`many_through ... to` requires exactly one partner resource name (e.g. `to User`)",
+        ));
+    }
+
+    let mut payload: Vec<crate::ast::ResourceFieldDecl> = Vec::new();
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let trimmed = line.text.trim_start();
+        if is_trivia(trimmed) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= header.indent {
+            break;
+        }
+        if line.indent != grandchild_indent {
+            return Err(line_error(
+                line,
+                "`many_through` payload fields use one indentation level deeper than the header",
+            ));
+        }
+        if !trimmed.contains(':') {
+            return Err(line_error(
+                line,
+                "`many_through` children are payload field declarations `<name>: <Type> [modifiers]`",
+            ));
+        }
+        // Payload field grandchildren may carry their own `previously`
+        // great-grandchild lines; the field parser consumes them and
+        // returns the next unconsumed line index.
+        let (field, next) = parse_resource_field_decl(lines, i, grandchild_indent + 2)?;
+        payload.push(field);
+        last_end = lines[next.saturating_sub(1).max(i)].end;
+        i = next;
+    }
+
+    if payload.is_empty() {
+        return Err(line_error(
+            header,
+            "`many_through` requires at least one payload field — a junction with no metadata is a plain `has_many`",
+        ));
+    }
+
+    Ok((
+        ManyThroughAst {
+            name: name.to_owned(),
+            partner: partner.to_owned(),
+            payload,
             span: Span::new(header.start, last_end),
         },
         i,
@@ -417,6 +524,74 @@ feature customer
             message.contains("anonymize"),
             "error should list valid actions: {message}"
         );
+    }
+
+    #[test]
+    fn many_through_block_parses_with_partner_and_payload() {
+        // GAP-07 — `many_through <Junction> to <Partner>` block with a
+        // single payload field at grandchild indent.
+        let source = r#"
+feature staffing
+  resource Job
+    title: Text required
+    many_through JobMember to User
+      role_in_job: Text required
+"#;
+        let features = parse_feature_skeletons(source).unwrap();
+        let job = &features[0].resources[0];
+        assert_eq!(job.many_through.len(), 1);
+        let mt = &job.many_through[0];
+        assert_eq!(mt.name, "JobMember");
+        assert_eq!(mt.partner, "User");
+        assert_eq!(mt.payload.len(), 1);
+        assert_eq!(mt.payload[0].name, "role_in_job");
+        assert_eq!(mt.payload[0].type_text, "Text");
+        assert!(mt.payload[0].required);
+    }
+
+    #[test]
+    fn many_through_round_trips_through_serde() {
+        // GAP-07 — AST serde round-trip preserves the junction + payload.
+        let source = r#"
+feature staffing
+  resource Job
+    title: Text required
+    many_through JobMember to User
+      role_in_job: Text required
+      rate: Integer optional
+"#;
+        let job = parse_feature_skeletons(source).unwrap().remove(0).resources.remove(0);
+        let json = serde_json::to_string(&job).unwrap();
+        let back: crate::ast::ResourceDecl = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.many_through, job.many_through);
+        assert_eq!(back.many_through[0].payload.len(), 2);
+    }
+
+    #[test]
+    fn many_through_without_to_errors() {
+        let source = r#"
+feature staffing
+  resource Job
+    title: Text required
+    many_through JobMember
+      role_in_job: Text required
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(format!("{err}").contains("to <PartnerResource>"));
+    }
+
+    #[test]
+    fn many_through_without_payload_errors() {
+        // A junction with no metadata is a plain `has_many`, not a
+        // `many_through`.
+        let source = r#"
+feature staffing
+  resource Job
+    title: Text required
+    many_through JobMember to User
+"#;
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(format!("{err}").contains("at least one payload field"));
     }
 
 }

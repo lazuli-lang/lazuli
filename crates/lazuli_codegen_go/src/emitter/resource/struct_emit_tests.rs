@@ -502,6 +502,7 @@ fn cross_feature_user_defined_field_emits_qualified_ref_and_import() {
         conventions: Vec::new(),
         lifecycle_routes: None,
         polymorphic_refs: Vec::new(),
+        many_through: Vec::new(),
         append_only: false,
     });
 

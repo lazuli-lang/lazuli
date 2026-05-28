@@ -128,6 +128,7 @@ mod modes;
             conventions: vec![ir::ConventionRef::Me],
             lifecycle_routes: None,
             polymorphic_refs: Vec::new(),
+            many_through: Vec::new(),
             append_only: false,
         }
     }

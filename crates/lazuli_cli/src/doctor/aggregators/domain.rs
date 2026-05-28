@@ -44,6 +44,11 @@ pub(crate) fn diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> 
                 matches!(c, lazuli_ir::Constraint::Unique(u) if u.when.is_some())
             })
         });
+        // GAP-07 — `many_through` declarations also gate the domain rules.
+        let has_many_through = fact
+            .resources
+            .iter()
+            .any(|r| !r.many_through.is_empty());
         if fact.aggregates.is_empty()
             && fact.resources.iter().all(|r| r.invariants.is_empty())
             && fact
@@ -51,6 +56,7 @@ pub(crate) fn diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> 
                 .iter()
                 .all(|r| r.fields.iter().all(|f| !f.slug))
             && !has_conditional_unique
+            && !has_many_through
         {
             continue;
         }
@@ -219,6 +225,23 @@ pub(crate) fn diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> 
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: domain::reorder_position_field_invalid::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            });
+        }
+        // MANY-THROUGH-ENDPOINT-001 — GAP-07 — `many_through <Junction> to
+        // <Partner>` partner-endpoint resolution + payload-type legality. Error.
+        for finding in domain::many_through_endpoint_001::check(&feature, &fact.path) {
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line: fact.feature_line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: domain::many_through_endpoint_001::Finding::CODE.to_owned(),
                 category: None,
                 feature_name: None,
                 construct: None,

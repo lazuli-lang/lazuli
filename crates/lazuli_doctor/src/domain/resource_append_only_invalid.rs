@@ -171,6 +171,7 @@ mod tests {
             lifecycle_routes: None,
             polymorphic_refs: Vec::new(),
             append_only,
+            many_through: Vec::new(),
         }
     }
 

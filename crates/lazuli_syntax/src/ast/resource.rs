@@ -102,6 +102,48 @@ pub struct ResourceDecl {
     /// `RESOURCE-APPEND-ONLY-001` rejects `command`s that update/delete it.
     #[serde(default, skip_serializing_if = "is_false_bool")]
     pub append_only: bool,
+    /// GAP-07 — `many_through <JunctionName> to <PartnerResource>` block
+    /// declarations. Each declares an M:N relationship whose junction
+    /// resource carries extra payload fields beyond the two endpoint FKs.
+    /// The analyzer desugars each into a synthesized junction `ir::Resource`
+    /// (`<declaring>_id`, `<partner>_id`, payload columns, composite unique
+    /// on the pair). Lowered to `ir::ManyThrough`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub many_through: Vec<ManyThroughAst>,
+    pub span: Span,
+}
+
+/// GAP-07 — one `many_through <JunctionName> to <PartnerResource>` block on
+/// a [`ResourceDecl`]. Models an M:N relationship with metadata: the
+/// junction resource named `name` carries an FK to the declaring resource,
+/// an FK to `partner`, plus the `payload` fields authored under the block.
+///
+/// Surface (canonical-indent block form):
+///
+/// ```text
+/// resource Job
+///   many_through JobMember to User
+///     role_in_job: Text
+/// ```
+///
+/// The partner endpoint is **explicit and required** via the `to
+/// <PartnerResource>` clause — the clearest closed form. Inference from the
+/// junction name (e.g. stripping the declaring-resource prefix) is
+/// unreliable (`JobMember` → `Member` ≠ `User`), so the partner is named
+/// outright and doctor `MANY-THROUGH-ENDPOINT-001` verifies it resolves.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ManyThroughAst {
+    /// Junction resource name (PascalCase), e.g. `JobMember`.
+    pub name: String,
+    /// Partner endpoint resource name (PascalCase) from `to <Resource>`,
+    /// e.g. `User`.
+    pub partner: String,
+    /// Payload fields authored under the block — extra columns the
+    /// junction carries beyond the two endpoint FKs. Reuses the shared
+    /// resource field parser, so each supports the full field surface
+    /// (`<name>: <Type> [modifiers]`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub payload: Vec<ResourceFieldDecl>,
     pub span: Span,
 }
 

@@ -138,6 +138,7 @@
             conventions: vec![ir::ConventionRef::Crud],
             lifecycle_routes: None,
             polymorphic_refs: Vec::new(),
+            many_through: Vec::new(),
             append_only: false,
         });
 
@@ -216,6 +217,7 @@
             conventions: vec![ir::ConventionRef::Crud],
             lifecycle_routes: None,
             polymorphic_refs: Vec::new(),
+            many_through: Vec::new(),
             append_only: false,
         });
 
