@@ -310,6 +310,14 @@ surface ping web
       columns message, created_at
 ```
 
+A `policy` route/view guard may also gate on a domain **lifecycle**
+state (mutually exclusive forms; see `grammar.lzx.md` §4):
+`requires_lifecycle <Resource> = <state>` (exact match) or
+`requires_lifecycle_in <Resource> [s1, s2]` (allow-list, the canonical
+grep-friendly form). On failure the runtime dispatches via the
+resource's `lifecycle_routes`/`@resume` router (doctor:
+`ROUTE-GUARD-LIFECYCLE-*-001/2/3`).
+
 ## Canonical Order
 
 `.lzi` feature block order:
@@ -608,6 +616,13 @@ Resource-body modifiers, relations, and field decorators beyond the basics:
 | `@owner_axis(through: <col>)` | ownership-scope projection FK | `host: Host @owner_axis(through: org_id)` |
 | `computed_date from <base> offset <n>` | derived `Date` = base field + days | `due: Date computed_date from start offset 30` |
 | `schedule_rule from @fn.<r>(<arg>) offset <n>` | rule-driven derived `Date` | `due: Date schedule_rule from @fn.rule(input.kind) offset 7` |
+
+> `computed_date from <field>` anchors on a **same-row** field only.
+> **Cross-row** date anchors (e.g. a `StepEnd` due date that depends on a
+> *sibling/previous* row's `completed_at`) use `schedule_rule from
+> @fn.<rule>(...)`: the registered `@fn` resolves the base date from the
+> related rows. There is no `prev(order).field` primitive — cross-row
+> recalc lives in the binding `@fn`, not core syntax.
 
 ```lazuli
 resource Job

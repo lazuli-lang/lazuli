@@ -57,6 +57,9 @@ const CANONICAL: &[(&str, bool)] = &[
     ("inline_table", true),
     ("date_range", true),
     ("repeatable", true),
+    // ── route/view guard lifecycle gates (.lzx) ──
+    ("requires_lifecycle", true),
+    ("requires_lifecycle_in", true),
 ];
 
 /// Tokens that must NOT appear as live, highlighted feature-header keywords —

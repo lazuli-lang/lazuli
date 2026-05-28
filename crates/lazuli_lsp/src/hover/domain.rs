@@ -190,6 +190,9 @@ pub(crate) fn keyword_description(keyword: &str) -> Option<&'static str> {
             "App-level route guard defaults. Children: `default_policy`, `default_unauthenticated_redirect`, and `default_unauthorized_redirect`.",
         ),
         "requires_lifecycle" => Some(crate::LIFECYCLE_REQUIRES_HOVER),
+        "requires_lifecycle_in" => Some(
+            "Allow-list lifecycle route guard: `requires_lifecycle_in <Resource> [s1, s2]` paints the view only when the resolved lifecycle state is any of the listed states. Canonical, grep-friendly form; mutually exclusive with `requires_lifecycle <R> = <state>` on the same guard. Empty list = unreachable view (ROUTE-GUARD-LIFECYCLE-IN-EMPTY-002).",
+        ),
         "on_lifecycle_pending" => Some(crate::LIFECYCLE_PENDING_HOVER),
         "resume" => Some(crate::LIFECYCLE_RESUME_HOVER),
         "actor_query" => Some(
