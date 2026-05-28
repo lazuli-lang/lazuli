@@ -160,6 +160,70 @@ func TestEvalPolicyOrPredicateAcceptsEitherBranch(t *testing.T) {
 	}
 }
 
+// --- GAP-09: input-value-predicate policy atoms -----------------------
+
+type whenInput struct {
+	Scope string
+	Count int64
+}
+
+func TestEvalPolicyInputGuardedAtomGrantsWhenPredicateHolds(t *testing.T) {
+	// create: @role.admin when input.scope = "production"
+	p := Policy{Name: "@policy.create", Atoms: []PolicyAtom{
+		{Namespace: "role", Name: "admin", When: &PolicyWhen{Path: "input.scope", Op: "=", Value: "production"}},
+	}}
+	ctx := &Ctx{Actor: ActorUser, User: &User{ID: 1, Roles: []string{"admin"}}}
+
+	if err := EvalPolicyInput(ctx, p, whenInput{Scope: "production"}); err != nil {
+		t.Fatalf("admin in production scope should pass, got %v", err)
+	}
+}
+
+func TestEvalPolicyInputGuardedAtomSkippedWhenPredicateFails(t *testing.T) {
+	// Two mutually-exclusive predicate-gated atoms:
+	//   @role.admin   when input.scope = "production"
+	//   @role.manager when input.scope = "media"
+	p := Policy{Name: "@policy.create", Atoms: []PolicyAtom{
+		{Namespace: "role", Name: "admin", When: &PolicyWhen{Path: "input.scope", Op: "=", Value: "production"}},
+		{Namespace: "role", Name: "manager", When: &PolicyWhen{Path: "input.scope", Op: "=", Value: "media"}},
+	}}
+
+	// manager actor + media scope → manager atom applies, admin atom skipped.
+	mgr := &Ctx{Actor: ActorUser, User: &User{ID: 2, Roles: []string{"manager"}}}
+	if err := EvalPolicyInput(mgr, p, whenInput{Scope: "media"}); err != nil {
+		t.Fatalf("manager in media scope should pass, got %v", err)
+	}
+
+	// manager actor + production scope → manager atom skipped (wrong scope),
+	// admin atom requires admin role manager lacks → 403.
+	err := EvalPolicyInput(mgr, p, whenInput{Scope: "production"})
+	var le *Error
+	if !errors.As(err, &le) || le.Status != 403 {
+		t.Fatalf("manager in production scope should be denied, got %v", err)
+	}
+}
+
+func TestEvalPolicyInputGuardSkippedWithNilInputFailsClosed(t *testing.T) {
+	// EvalPolicy (input-less) cannot test the guard → atom fails closed.
+	p := Policy{Name: "@policy.create", Atoms: []PolicyAtom{
+		{Namespace: "role", Name: "admin", When: &PolicyWhen{Path: "input.scope", Op: "=", Value: "production"}},
+	}}
+	ctx := &Ctx{Actor: ActorUser, User: &User{ID: 1, Roles: []string{"admin"}}}
+	if err := EvalPolicy(ctx, p); err == nil {
+		t.Fatalf("guarded atom with nil input must fail closed")
+	}
+}
+
+func TestPolicyWhenOrderedComparison(t *testing.T) {
+	w := &PolicyWhen{Path: "input.count", Op: ">", Value: int64(5)}
+	if !w.holds(whenInput{Count: 10}) {
+		t.Fatalf("10 > 5 should hold")
+	}
+	if w.holds(whenInput{Count: 3}) {
+		t.Fatalf("3 > 5 should not hold")
+	}
+}
+
 func TestRegisterRbacIgnoresNilCheckers(t *testing.T) {
 	prevRole := rbacHasRole
 	prevPerm := rbacHasPermission

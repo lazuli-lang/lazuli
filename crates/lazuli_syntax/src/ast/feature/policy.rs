@@ -84,7 +84,17 @@ pub struct PolicyCategoryDecl {
     /// Verbatim atom literals (`@role.admin`, `@scope.same_org`, ...).
     /// Atoms not prefixed with `@` are dropped silently — matches the
     /// retired `collect_policy_atoms` walker.
+    ///
+    /// Unconditional atoms only; predicate-gated atoms
+    /// (`@policy.admin when input.scope = "production"`) live in
+    /// [`Self::conditional_atoms`] (GAP-09).
     pub atoms: Vec<String>,
+    /// GAP-09 — input-value-predicate atoms. Each carries the atom literal
+    /// plus the verbatim `when` predicate text (lowered through the shared
+    /// `parse_closed_predicate` entry point analyzer-side). Empty in the
+    /// common case so existing fixtures round-trip unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conditional_atoms: Vec<PolicyConditionalAtomAst>,
     /// IR Error-Vocab (Cell PARSE-1) — optional `when_denied
     /// @translation.<key>` child at indent 6 declaring the per-policy
     /// default message for `policy_denied`. Lowered into
@@ -94,6 +104,21 @@ pub struct PolicyCategoryDecl {
     pub when_denied: Option<TranslationKeyRefAst>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub when_denied_route: Option<WhenDeniedRouteAst>,
+    pub span: Span,
+}
+
+/// GAP-09 — one input-value-predicate atom inside a
+/// [`PolicyCategoryDecl`]: `@policy.admin when input.scope = "production"`.
+/// `atom` is the verbatim atom literal; `when` is the raw predicate text
+/// after the `when` keyword, lowered analyzer-side via the shared
+/// `parse_closed_predicate` entry point (same machinery as
+/// `unique ... when` / `invariant when`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolicyConditionalAtomAst {
+    /// Verbatim atom literal (`@policy.admin`, `@role.host`, ...).
+    pub atom: String,
+    /// Raw predicate text after `when` (`input.scope = "production"`).
+    pub when: String,
     pub span: Span,
 }
 

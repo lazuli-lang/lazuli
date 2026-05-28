@@ -16,6 +16,7 @@
             categories: vec![lazuli_ir::PolicyCategory {
                 name: "update".to_owned(),
                 atoms: vec!["@role.admin".to_owned(), "@role.sales".to_owned()],
+                conditional_atoms: vec![],
                 previous_names: vec![],
                 when_denied: None,
                 when_denied_route: None,

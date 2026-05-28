@@ -26,6 +26,7 @@ pub mod computed_date_expr_invalid;
 pub mod constraint_unique_when_invalid;
 pub mod invariant_predicate_invalid;
 pub mod many_through_endpoint_001;
+pub mod policy_predicate_invalid;
 pub mod reorder_position_field_invalid;
 pub mod resource_append_only_invalid;
 pub mod schedule_rule_invalid;

@@ -235,6 +235,7 @@
         feature.policies.categories.push(PolicyCategory {
             name: "global_read".to_owned(),
             atoms: vec!["@role.admin".to_owned(), "@scope.same_org".to_owned()],
+            conditional_atoms: Vec::new(),
             previous_names: Vec::new(),
             when_denied: None,
             when_denied_route: None,
@@ -255,6 +256,7 @@
         feature.policies.categories.push(PolicyCategory {
             name: "global_read".to_owned(),
             atoms: vec!["@role.admin".to_owned()],
+            conditional_atoms: Vec::new(),
             previous_names: Vec::new(),
             when_denied: None,
             when_denied_route: None,
@@ -274,6 +276,7 @@
         feature.policies.categories.push(PolicyCategory {
             name: "global_read".to_owned(),
             atoms: vec!["@role.admin".to_owned()],
+            conditional_atoms: Vec::new(),
             previous_names: Vec::new(),
             when_denied: None,
             when_denied_route: None,

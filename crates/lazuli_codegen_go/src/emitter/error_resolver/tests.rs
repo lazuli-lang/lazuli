@@ -152,6 +152,7 @@
             categories: vec![PolicyCategory {
                 name: "authenticated".to_owned(),
                 atoms: vec!["@scope.authenticated".to_owned()],
+                conditional_atoms: Vec::new(),
                 previous_names: Vec::new(),
                 when_denied: Some(TranslationKeyRef {
                     key: "account_signin".to_owned(),

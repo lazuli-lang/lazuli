@@ -216,6 +216,7 @@ mod tests {
         f.policies.categories.push(PolicyCategory {
             name: "update".to_string(),
             atoms: vec!["@role.admin".to_string(), "@role.editor".to_string()],
+            conditional_atoms: Vec::new(),
             previous_names: Vec::new(),
             when_denied: None,
             when_denied_route: None,
@@ -242,6 +243,7 @@ mod tests {
         f.policies.categories.push(PolicyCategory {
             name: "_dummy".to_string(),
             atoms: vec!["@role.viewer".to_string()],
+            conditional_atoms: Vec::new(),
             previous_names: Vec::new(),
             when_denied: None,
             when_denied_route: None,
@@ -270,6 +272,7 @@ mod tests {
         f.policies.categories.push(PolicyCategory {
             name: "create".to_string(),
             atoms: vec!["@role.admin".to_string(), "@role.editor".to_string()],
+            conditional_atoms: Vec::new(),
             previous_names: Vec::new(),
             when_denied: None,
             when_denied_route: None,

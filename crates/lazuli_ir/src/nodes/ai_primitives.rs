@@ -388,8 +388,22 @@ pub enum EvalAssertionKind {
 /// `Contains` / `ToolsCalls` variants cover eval-specific shapes;
 /// `Unparsed` is the lowering fallback for shapes the parser has not
 /// yet been taught.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind")]
+///
+/// `Eq` (alongside `PartialEq`): every member type (`Predicate`, `Path`,
+/// `EvalContainsRhs`, `QualifiedToolRef`, `ToolsCallsOp`, `String`) is
+/// already `Eq`, and GAP-09's `ConditionalPolicyAtom` embeds an
+/// `EvalPredicate` inside the `Eq`-deriving `PolicyCategory`.
+///
+/// Serde uses adjacent tagging (`tag = "kind", content = "value"`).
+/// Internal tagging (`tag = "kind"` alone) cannot serialize the
+/// `Closed(Predicate)` newtype variant (its inner `Predicate` is itself
+/// `kind`-tagged → duplicate-`kind` collision) nor the `Unparsed(String)`
+/// newtype-of-primitive variant — both fail at runtime. Adjacent tagging
+/// nests the payload under `value` so all four variants round-trip.
+/// GAP-09 needs this because the canonical predicate (`input.scope =
+/// "production"`) lowers to `Closed`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
 pub enum EvalPredicate {
     /// The closed predicate sublanguage. Lowering parses simple `<path>
     /// <op> <literal>` forms; richer shapes hit `Unparsed` until a future

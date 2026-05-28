@@ -56,8 +56,9 @@ func rateLimitGloballyDisabled() bool {
 func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 	var zero O
 
-	// 1. policy
-	if err := EvalPolicy(ctx, c.Policy); err != nil {
+	// 1. policy — pass the typed input so GAP-09 input-value-predicate
+	// atoms (`@policy.x when input.y = "z"`) can test their `When` guard.
+	if err := EvalPolicyInput(ctx, c.Policy, input); err != nil {
 		return zero, err
 	}
 

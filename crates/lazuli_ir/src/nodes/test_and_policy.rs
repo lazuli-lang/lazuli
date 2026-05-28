@@ -54,7 +54,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Predicate, QualifiedName, SpanRef, TranslationKeyRef};
+use crate::{EvalPredicate, Predicate, QualifiedName, SpanRef, TranslationKeyRef};
 
 /// Inline declarative assertions about IR shape. A `TestBlock` is the last
 /// child of a command, workflow transition, rule, or extensible view. See
@@ -115,7 +115,23 @@ pub struct PolicyCategory {
     pub name: String,
     /// Atom names like `@role.admin`, `@scope.same_org`, `@actor.system`. The
     /// analyzer validates that each atom resolves through the registry.
+    ///
+    /// Unconditional atoms only — atoms guarded by a `when <predicate>`
+    /// clause live in [`Self::conditional_atoms`] instead (GAP-09). This
+    /// keeps every existing reader of `atoms` (codegen, doctor, inspect)
+    /// behaviour-identical while the new predicate-gated form rides on a
+    /// strictly additive slot.
     pub atoms: Vec<String>,
+    /// GAP-09 — input-value-predicate policy atoms. Each entry pairs an
+    /// atom (`@policy.admin`, `@role.host`, ...) with a closed predicate
+    /// over `input.*` fields of the consuming command. The atom only
+    /// applies when the predicate holds; codegen emits a `When` guard on
+    /// the runtime `PolicyAtom`, and `EvalPolicyInput` evaluates the
+    /// predicate against the command input before counting the atom.
+    /// Empty in the common (unconditional) case so legacy serde shape is
+    /// unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conditional_atoms: Vec<ConditionalPolicyAtom>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_names: Vec<String>,
     /// IR Error-Vocab — per-policy default error message. When `Some`,
@@ -131,6 +147,24 @@ pub struct PolicyCategory {
     /// this policy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub when_denied_route: Option<WhenDeniedRoute>,
+}
+
+/// GAP-09 — one input-value-predicate policy atom: `@policy.admin when
+/// input.scope = "production"`. The `atom` is a normal policy atom
+/// string (same vocabulary as [`PolicyCategory::atoms`]); the
+/// `when` predicate is a closed predicate over the consuming command's
+/// `input.*` fields. The atom is only enforced when the predicate holds
+/// against the request input — when it does not hold the atom is
+/// skipped (neither grant nor deny), so a category may carry several
+/// mutually-exclusive predicate-gated atoms.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConditionalPolicyAtom {
+    /// The guarded atom literal (`@policy.admin`, `@role.host`, ...).
+    pub atom: String,
+    /// Closed predicate over `input.*`. Lowered from the verbatim `when`
+    /// text through the shared `parse_closed_predicate` entry point so it
+    /// shares the `unique ... when` / `invariant when` predicate shape.
+    pub when: EvalPredicate,
 }
 
 /// `when_denied` block on a policy — declarative redirect routing
@@ -259,12 +293,66 @@ mod tests {
         let cat = PolicyCategory {
             name: "create".into(),
             atoms: vec!["@role.admin".into()],
+            conditional_atoms: vec![],
             previous_names: vec![],
             when_denied: None,
             when_denied_route: None,
         };
         let s = serde_json::to_string(&cat).unwrap();
         assert!(!s.contains("when_denied"));
+        // GAP-09 — empty conditional_atoms is omitted from the wire so the
+        // legacy serde shape stays byte-identical.
+        assert!(!s.contains("conditional_atoms"));
+        let back: PolicyCategory = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, cat);
+    }
+
+    // GAP-09 — a `ConditionalPolicyAtom` carrying the canonical closed
+    // predicate (`input.scope = "production"`) round-trips through serde.
+    // This exercises the adjacent-tagged `EvalPredicate` fix that lets the
+    // `Closed(Predicate)` variant survive JSON (it could not under the
+    // previous internal tagging).
+    #[test]
+    fn policy_category_conditional_atom_round_trips() {
+        use crate::{CompareOp, Expr, Path, Predicate};
+        let cat = PolicyCategory {
+            name: "create".into(),
+            atoms: vec![],
+            conditional_atoms: vec![ConditionalPolicyAtom {
+                atom: "@policy.admin".into(),
+                when: EvalPredicate::Closed(Predicate::Comparison {
+                    left: Expr::Path(Path::from_segments(["input", "scope"])),
+                    op: CompareOp::Eq,
+                    right: Expr::String("production".into()),
+                }),
+            }],
+            previous_names: vec![],
+            when_denied: None,
+            when_denied_route: None,
+        };
+        let s = serde_json::to_string(&cat).unwrap();
+        assert!(s.contains("conditional_atoms"));
+        assert!(s.contains("@policy.admin"));
+        let back: PolicyCategory = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, cat);
+    }
+
+    // GAP-09 — the `Unparsed` fallback variant also round-trips (it could
+    // not serialize at all under the previous internal tagging).
+    #[test]
+    fn policy_category_unparsed_predicate_atom_round_trips() {
+        let cat = PolicyCategory {
+            name: "create".into(),
+            atoms: vec![],
+            conditional_atoms: vec![ConditionalPolicyAtom {
+                atom: "@policy.admin".into(),
+                when: EvalPredicate::Unparsed("scope and weird".into()),
+            }],
+            previous_names: vec![],
+            when_denied: None,
+            when_denied_route: None,
+        };
+        let s = serde_json::to_string(&cat).unwrap();
         let back: PolicyCategory = serde_json::from_str(&s).unwrap();
         assert_eq!(back, cat);
     }

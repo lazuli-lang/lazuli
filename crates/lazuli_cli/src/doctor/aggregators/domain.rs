@@ -49,6 +49,13 @@ pub(crate) fn diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> 
             .resources
             .iter()
             .any(|r| !r.many_through.is_empty());
+        // GAP-09 — any policy category carrying a predicate-gated atom puts
+        // this feature in scope for POLICY-PREDICATE-001.
+        let has_conditional_policy = fact
+            .policies
+            .categories
+            .iter()
+            .any(|c| !c.conditional_atoms.is_empty());
         if fact.aggregates.is_empty()
             && fact.resources.iter().all(|r| r.invariants.is_empty())
             && fact
@@ -57,10 +64,17 @@ pub(crate) fn diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> 
                 .all(|r| r.fields.iter().all(|f| !f.slug))
             && !has_conditional_unique
             && !has_many_through
+            && !has_conditional_policy
         {
             continue;
         }
-        let feature = make_synthetic_feature_for_reports(fact);
+        let mut feature = make_synthetic_feature_for_reports(fact);
+        // GAP-09 — POLICY-PREDICATE-001 walks `feature.policies` and
+        // cross-checks each predicate's `input.*` refs against the
+        // commands that consume the category. The report-shaped synthetic
+        // feature drops both slots, so re-attach them from the fact.
+        feature.policies = fact.policies.clone();
+        feature.commands = fact.commands.clone();
 
         // AGGREGATE-ROOT-UNKNOWN
         for finding in domain::aggregate_root_unknown::check(&feature, &fact.path) {
@@ -157,6 +171,23 @@ pub(crate) fn diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> 
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: domain::constraint_unique_when_invalid::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            });
+        }
+        // POLICY-PREDICATE-001 — GAP-09 input-value-predicate policy atom
+        // `input.*` field-reference + atom-namespace check. Error.
+        for finding in domain::policy_predicate_invalid::check(&feature, &fact.path) {
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line: fact.feature_line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: domain::policy_predicate_invalid::Finding::CODE.to_owned(),
                 category: None,
                 feature_name: None,
                 construct: None,
