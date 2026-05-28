@@ -60,12 +60,42 @@ type Deprecation struct {
 
 // TransitionAdvance is one edge in a lifecycle transition chain.
 // Set on Command[I, O].Transitions when the .lzi declares
-// `triggers transition <...>`. Runtime validates the first From
-// matches the current state (FOR UPDATE), runs the mutation, then
-// updates lifecycle_state to the last To.
+// `triggers transition <...>`. Runtime validates the current state
+// is a member of the transition's from-set (FOR UPDATE), runs the
+// mutation, then updates lifecycle_state to the last To.
+//
+// GAP-R1 (MULTI-SOURCE / fan-in): a transition may declare multiple
+// `from` states (`from A, B`). `FromAny` carries the full declared
+// set; the runtime guard is a MEMBERSHIP check against it. `From`
+// retains the primary state (FromAny[0]) for back-compat and for the
+// mismatch envelope's `expected_state`. A single-`from` transition is
+// just a 1-element set; older codegen that only set `From` still works
+// because the guard falls back to `From` when `FromAny` is empty.
 type TransitionAdvance struct {
-	From string
-	To   string
+	From    string
+	FromAny []string
+	To      string
+}
+
+// froms returns the declared from-set for the transition's pre-guard.
+// Prefers FromAny (fan-in); falls back to the single From for
+// back-compat with codegen that predates the fan-in field.
+func (t TransitionAdvance) froms() []string {
+	if len(t.FromAny) > 0 {
+		return t.FromAny
+	}
+	return []string{t.From}
+}
+
+// allowsFrom reports whether `state` is a member of the transition's
+// from-set (the MULTI-SOURCE membership guard).
+func (t TransitionAdvance) allowsFrom(state string) bool {
+	for _, from := range t.froms() {
+		if from == state {
+			return true
+		}
+	}
+	return false
 }
 
 // Command is a write operation declared by the DSL. Type parameter I is the

@@ -263,10 +263,14 @@ func lockLifecycleTransition(
 		}
 		return classifyDBError("lifecycle transition guard", err)
 	}
-	expected := transitions[0].From
-	if actual != expected {
+	// MULTI-SOURCE (fan-in) guard: the resource's current lifecycle_state
+	// must be a MEMBER of the entry transition's from-set, not equal to a
+	// single state. A single-`from` transition is a 1-element set, so this
+	// stays back-compatible.
+	if !transitions[0].allowsFrom(actual) {
 		return &LifecycleStateMismatchError{
-			Expected:    expected,
+			Expected:    transitions[0].From,
+			ExpectedAny: transitions[0].froms(),
 			Actual:      actual,
 			Transitions: transitionChainNames(transitions),
 		}
@@ -295,7 +299,13 @@ func advanceLifecycleTransition(
 func transitionChainNames(transitions []TransitionAdvance) []string {
 	names := make([]string, 0, len(transitions))
 	for _, t := range transitions {
-		names = append(names, t.From+"->"+t.To)
+		// Render the full from-set for fan-in transitions
+		// (`{A|B}->C`); single-from stays `A->C`.
+		from := strings.Join(t.froms(), "|")
+		if len(t.froms()) > 1 {
+			from = "{" + from + "}"
+		}
+		names = append(names, from+"->"+t.To)
 	}
 	return names
 }

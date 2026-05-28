@@ -63,6 +63,81 @@ func TestCommandTransitionMismatchReturnsTypedError(t *testing.T) {
 	}
 }
 
+// TestMultiSourceTransitionGuardMembership proves GAP-R1: a transition
+// declaring `from A, B` (fan-in) passes the pre-transition guard from
+// BOTH A and B, and is rejected (409 lifecycle_state_mismatch) from C.
+func TestMultiSourceTransitionGuardMembership(t *testing.T) {
+	transitions := []TransitionAdvance{
+		{From: "A", FromAny: []string{"A", "B"}, To: "C"},
+	}
+	target := lifecycleTransitionTarget{
+		Resource: &resourceErased{Name: "LifecycleThing"},
+		IDColumn: "id",
+		IDValue:  int64(7),
+	}
+
+	for _, allowed := range []string{"A", "B"} {
+		tx := &commandTransitionTxStub{lifecycleState: allowed}
+		err := lockLifecycleTransition(
+			&Ctx{Context: context.Background(), Actor: ActorAnonymous},
+			tx, target, transitions,
+		)
+		if err != nil {
+			t.Fatalf("guard from %q = %v, want nil (fan-in member must pass)", allowed, err)
+		}
+	}
+
+	// Rejected from a non-member state.
+	tx := &commandTransitionTxStub{lifecycleState: "C"}
+	err := lockLifecycleTransition(
+		&Ctx{Context: context.Background(), Actor: ActorAnonymous},
+		tx, target, transitions,
+	)
+	if err == nil {
+		t.Fatal("guard from \"C\" = nil, want lifecycle mismatch")
+	}
+	if !errors.Is(err, ErrLifecycleStateMismatch) {
+		t.Fatalf("errors.Is(err, ErrLifecycleStateMismatch) = false; err = %v", err)
+	}
+	var mismatch *LifecycleStateMismatchError
+	if !errors.As(err, &mismatch) {
+		t.Fatalf("error type = %T, want *LifecycleStateMismatchError", err)
+	}
+	if mismatch.Actual != "C" {
+		t.Fatalf("mismatch.Actual = %q, want C", mismatch.Actual)
+	}
+	if got, want := mismatch.expectedStates(), []string{"A", "B"}; !equalStrings(got, want) {
+		t.Fatalf("mismatch.expectedStates() = %v, want %v", got, want)
+	}
+	// 409 envelope carries the full accepted set.
+	var wireErr *Error
+	if !errors.As(err, &wireErr) {
+		t.Fatalf("errors.As(*Error) = false; err = %v", err)
+	}
+	if wireErr.Status != 409 {
+		t.Fatalf("status = %d, want 409", wireErr.Status)
+	}
+	data, ok := wireErr.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("envelope Data type = %T, want map[string]any", wireErr.Data)
+	}
+	if states, ok := data["expected_states"].([]string); !ok || !equalStrings(states, []string{"A", "B"}) {
+		t.Fatalf("envelope expected_states = %#v, want [A B]", data["expected_states"])
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 type commandTransitionTxStub struct {
 	lifecycleState string
 	queryRowSQL    string

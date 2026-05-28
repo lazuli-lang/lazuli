@@ -246,13 +246,30 @@ func tenantRequiredError() error {
 var ErrLifecycleStateMismatch = errors.New("lifecycle_state_mismatch")
 
 type LifecycleStateMismatchError struct {
-	Expected    string
+	Expected string
+	// ExpectedAny is the full accepted from-set for the entry transition
+	// (MULTI-SOURCE / fan-in). For a single-`from` transition it is the
+	// 1-element set {Expected}. Surfaced as `expected_states` in the
+	// JSON envelope so clients see every state that would have been valid.
+	ExpectedAny []string
 	Actual      string
 	Transitions []string // names of the chain (for the JSON envelope)
 }
 
 func (e *LifecycleStateMismatchError) Error() string {
+	if len(e.ExpectedAny) > 1 {
+		return fmt.Sprintf("lifecycle_state mismatch: expected one of %v, got %q", e.ExpectedAny, e.Actual)
+	}
 	return fmt.Sprintf("lifecycle_state mismatch: expected %q, got %q", e.Expected, e.Actual)
+}
+
+// expectedStates returns the accepted from-set, falling back to the single
+// Expected state when ExpectedAny was not populated (back-compat).
+func (e *LifecycleStateMismatchError) expectedStates() []string {
+	if len(e.ExpectedAny) > 0 {
+		return e.ExpectedAny
+	}
+	return []string{e.Expected}
 }
 
 func (e *LifecycleStateMismatchError) Is(target error) bool {
@@ -269,9 +286,10 @@ func (e *LifecycleStateMismatchError) As(target any) bool {
 		Code:    CodeLifecycleStateMismatch,
 		Message: e.Error(),
 		Data: map[string]any{
-			"expected_state": e.Expected,
-			"actual_state":   e.Actual,
-			"transitions":    e.Transitions,
+			"expected_state":  e.Expected,
+			"expected_states": e.expectedStates(),
+			"actual_state":    e.Actual,
+			"transitions":     e.Transitions,
 		},
 		Base: ErrorBase{
 			Status:  409,
