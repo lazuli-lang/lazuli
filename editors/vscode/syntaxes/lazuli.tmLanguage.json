@@ -344,7 +344,7 @@
         },
         {
           "name": "entity.name.function.statement.resource.lazuli",
-          "match": "^\\s+(tenancy|soft_delete|timestamps|no_timestamps|retention|validates|validate|unique|index|on_delete|derived|has_many|inverse|previously|migrated|alias|composite_key|lock|invariant|invariants)\\b"
+          "match": "^\\s+(tenancy|soft_delete|timestamps|no_timestamps|retention|validates|validate|unique|index|on_delete|derived|has_many|inverse|previously|migrated|alias|composite_key|lock|invariant|invariants|append_only|many_through|polymorphic_ref|computed_date|schedule_rule|conventions)\\b"
         },
         { "include": "#feature-retention-line" },
         { "include": "#field-decl" },
@@ -1358,8 +1358,8 @@
         { "include": "#tests-block" },
         { "include": "#deprecated-sub-block" },
         {
-          "comment": "Effect verbs (creates/updates/deletes/returns) followed by a Resource/Record name. Captures the verb + entity.",
-          "match": "^\\s+(creates|updates|deletes)\\s+([A-Z][A-Za-z0-9_]*)\\b",
+          "comment": "Effect verbs (creates/updates/deletes/reorder/returns) followed by a Resource/Record name. Captures the verb + entity.",
+          "match": "^\\s+(creates|updates|deletes|reorder)\\s+([A-Z][A-Za-z0-9_]*)\\b",
           "captures": {
             "1": { "name": "keyword.control.statement.lazuli" },
             "2": { "name": "support.type.domain.lazuli" }
@@ -1409,7 +1409,7 @@
         },
         {
           "name": "keyword.control.statement.lazuli",
-          "match": "^\\s+(input|policy|policy_for|requires|integration|calls|invalidates|on|from|permits|forbids|allows|deny|denies|accepted|rejected|as|error|status|expose|write_window|audit|rate_limit|validate|previously|deprecated|gate|idempotency|approval|handler|emit_to)\\b"
+          "match": "^\\s+(input|policy|policy_for|requires|integration|calls|invalidates|on|from|permits|forbids|allows|deny|denies|accepted|rejected|as|error|status|expose|write_window|audit|rate_limit|validate|previously|deprecated|gate|idempotency|approval|handler|emit_to|triggers|retry|timeout)\\b"
         },
         { "include": "#references" },
         { "include": "#types" },
@@ -1487,7 +1487,7 @@
         { "include": "#strings" },
         {
           "name": "entity.name.function.statement.approval.lazuli",
-          "match": "^\\s+(required_when|by|timeout|then|deny|allow)\\b"
+          "match": "^\\s+(required_when|by|timeout|then|deny|allow|chain|sequential|escalate)\\b"
         },
         { "include": "#references" },
         { "include": "#operators" },
@@ -2116,8 +2116,13 @@
           }
         },
         {
+          "comment": "Wave-W6 dotted view UX render-mode keywords: `view.inline_table on_change @command.<x>` and `view.board <name>`. Dotted form follows the `query.list` convention.",
           "name": "keyword.control.statement.lazuli",
-          "match": "^\\s+(source|submit|columns|fields|sections|actions|opens|search|filter|block|slot|platforms|anchor|item|title|badges|by|panel|extensible_by|cells|drawer|filters|sort|selection|bulk_actions|settings|action|extends|lazy|prerender|audience)\\b"
+          "match": "^\\s+(view\\.(?:inline_table|board))\\b"
+        },
+        {
+          "name": "keyword.control.statement.lazuli",
+          "match": "^\\s+(source|submit|columns|fields|sections|actions|opens|search|filter|block|slot|platforms|anchor|item|title|badges|by|panel|extensible_by|cells|drawer|filters|sort|selection|bulk_actions|settings|action|extends|lazy|prerender|audience|wizard_steps|tab_group|view_mode|repeatable|tabs|wizard|on_success)\\b"
         },
         { "include": "#references" },
         { "include": "#types" },
@@ -2271,6 +2276,11 @@
             "1": { "name": "support.function.type-constructor.lazuli" },
             "2": { "name": "storage.modifier.lazuli" }
           }
+        },
+        {
+          "comment": "GAP-UX-07 — `date_range` closed cardinality keyword: `<name>: date_range [Type]` (bare defaults backing type to Date).",
+          "name": "support.function.type-constructor.lazuli",
+          "match": "\\b(date_range)\\b"
         },
         { "include": "#field-decl" },
         { "include": "#references" },
@@ -2486,11 +2496,11 @@
       ]
     },
     "statements-feature-meta": {
-      "comment": "Feature-scoped metadata that requires a same-line value (kills bare over-color). F4/F7 (R1.A audit): dropped duplicates of `context` and `model`, plus dropped keywords already covered by their dedicated blocks (`trigger`/`schedule`/`queue` → job/notification, `prompt`/`safety`/`stream`/`temperature`/`max_tokens`/`top_p`/`seed`/`tools` → agent, `template` → notification/error_page, `catalog`/`namespace`/`sql`/`topic` → translation/cache/query.sql/event, `tenant_from`/`target`/`targets`/`tenant`/`reason` → command/job/scope). Kept `to` (used in route bodies which lack a dedicated block) and the genuine feature-meta directives.",
+      "comment": "Feature-scoped metadata that requires a same-line value (kills bare over-color). Surface-sync WT-3: dropped the dead feature-level `context` keyword and replaced it with `attach_ctx` (the live agent-body `context` keeps its own dedicated agent-block rule). F4/F7 (R1.A audit): dropped duplicates of `model`, plus dropped keywords already covered by their dedicated blocks (`trigger`/`schedule`/`queue` → job/notification, `prompt`/`safety`/`stream`/`temperature`/`max_tokens`/`top_p`/`seed`/`tools` → agent, `template` → notification/error_page, `catalog`/`namespace`/`sql`/`topic` → translation/cache/query.sql/event, `tenant_from`/`target`/`targets`/`tenant`/`reason` → command/job/scope). Kept `to` (used in route bodies which lack a dedicated block) and the genuine feature-meta directives.",
       "patterns": [
         {
           "name": "entity.name.function.statement.feature-meta.lazuli",
-          "match": "^\\s+(purpose|context|imports|uses|requires|to|owner|owns|exposes|publishes|consumes|service|provides)\\b(?=\\s+\\S)"
+          "match": "^\\s+(purpose|attach_ctx|imports|uses|requires|to|owner|owns|exposes|publishes|consumes|service|provides)\\b(?=\\s+\\S)"
         }
       ]
     },
@@ -2665,7 +2675,7 @@
       "patterns": [
         {
           "name": "support.type.primitive.lazuli",
-          "match": "(?:@(?:semantic|cap|pii|key)\\.)?\\b(ID|Text|String|Email|Url|Boolean|Bool|Int|Integer|Float|Decimal|Numeric|Money|Date|DateTime|Json|JSON|File|Secret|Hashed|Encrypted|E2ee|Token|Slug|Uuid|Phone|Currency|GeoPoint)\\b"
+          "match": "(?:@(?:semantic|cap|pii|key)\\.)?\\b(ID|Text|String|Email|Url|Boolean|Bool|Int|Integer|Float|Decimal|Numeric|Money|Date|DateTime|Json|JSON|File|Secret|Hashed|Encrypted|E2ee|Token|Slug|Uuid|Phone|Currency|GeoPoint|HexColor|Percentage)\\b"
         },
         {
           "comment": "Phase 4.4 — UI component-type catalog. Added `Modal` and `Stepper` per HIGHLIGHTING-CHECKLIST §4.4 (catalog completeness). Other entries unchanged.",
