@@ -15,7 +15,7 @@ feature customer
       customer_import: "CSV import and external CRM ingestion"
       billing: "invoicing"
 
-  context "@docs/customer/customer.ctx.md"
+  attach_ctx "@docs/customer/customer.ctx.md"
 
   defaults
     tenancy org

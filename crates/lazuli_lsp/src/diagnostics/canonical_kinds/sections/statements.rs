@@ -35,6 +35,7 @@ pub(crate) const COMMAND_STATEMENT_KINDS: &[&str] = &[
     "policy",
     "previously",
     "rate_limit",
+    "reorder",
     "retry",
     "returns",
     "route",
@@ -136,7 +137,7 @@ pub(crate) fn command_statement_unknown_diagnostics(source: &str) -> Vec<Diagnos
                 format!("unknown command statement `{first}`. Did you mean `{suggested}`?")
             }
             None => format!(
-                "unknown command statement `{first}`. Valid statements: previously / route / input / policy / rate_limit / audit / approval / target / let / validate / creates / updates / deletes / returns / handler / emits / invalidates / calls / timeout / retry / idempotency / write_window / tests / deprecated / gate."
+                "unknown command statement `{first}`. Valid statements: previously / route / input / policy / rate_limit / audit / approval / target / let / validate / creates / updates / deletes / reorder / returns / handler / emits / invalidates / calls / timeout / retry / idempotency / write_window / tests / deprecated / gate."
             ),
         };
         diagnostics.push(simple_canonical_diagnostic(

@@ -14,9 +14,14 @@ use crate::{leading_spaces, simple_canonical_diagnostic};
 
 /// 2026-05-15 — Closed catalog of indent-2 kind keywords that may
 /// child of `feature X`. Used by `feature_unknown_kind_diagnostics`
-/// to detect typos like `comand` (command) / `quiery` (query) /
-/// `wokflow` (workflow) — surfaced 2026-05-15 when Lucas wrote
-/// `comand move` and the LSP stayed silent.
+/// to detect typos like `comand` (command) / `quiery` (query) —
+/// surfaced 2026-05-15 when Lucas wrote `comand move` and the LSP
+/// stayed silent.
+///
+/// Surface-sync WT-2 dropped the dead feature-level `context` form and
+/// the retired `workflow` kind (now `E-WORKFLOW-RETIRED`) — neither is
+/// a valid feature-body keyword, so leaving them here would suppress
+/// the typo squiggle on those exact words.
 ///
 /// Keep this list aligned with the parser's accepted feature-body
 /// vocabulary. Sorted alphabetically for diff hygiene.
@@ -30,7 +35,6 @@ pub(crate) const FEATURE_BODY_KINDS: &[&str] = &[
     "channel",
     "command",
     "compatibility",
-    "context",
     "defaults",
     "delegated_to",
     "domain",
@@ -77,7 +81,6 @@ pub(crate) const FEATURE_BODY_KINDS: &[&str] = &[
     "view",
     "webhook",
     "webhook_event",
-    "workflow",
 ];
 
 /// 2026-05-15 — file-local diagnostic that flags any indent-2 word
@@ -127,7 +130,7 @@ pub(crate) fn feature_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> 
                 format!("unknown feature block kind `{first}`. Did you mean `{suggested}`?")
             }
             None => format!(
-                "unknown feature block kind `{first}`. Valid kinds: command / api / query.list / query.lookup / query.sql / query.view / view / webhook / job / agent / notification / poller / report / channel / cache / aggregate / events / event_group / event.trace / workflow / surface / extensions / tests / auth / errors / policies / domain / defaults / uses / purpose / context / non_goals / role / permission / etc."
+                "unknown feature block kind `{first}`. Valid kinds: command / api / query.list / query.lookup / query.sql / query.view / view / webhook / job / agent / notification / poller / report / channel / cache / aggregate / events / event_group / event.trace / surface / extensions / tests / auth / errors / policies / domain / defaults / uses / purpose / attach_ctx / non_goals / role / permission / etc."
             ),
         };
         // ERROR not WARNING: an unknown kind keyword causes the
