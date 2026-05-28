@@ -60,6 +60,21 @@ impl Finding {
     /// Render the "non-linear machine" message, naming the resource and
     /// the specific branching reason so authors know which edge to
     /// flatten (or drop the invariant for).
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::lifecycle::no_jump_needs_linear::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("publishing.lzi"),
+    ///     resource: "Publication".into(),
+    ///     reason: "state `publishing` has fan-out 2 (more than one outgoing transition)".into(),
+    /// };
+    /// assert!(f.message().contains("Publication"));
+    /// assert!(f.message().contains("linear chain"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "lifecycle on `{}`: `invariant no_jump_more_than_one` requires a single linear \
@@ -76,6 +91,17 @@ impl Finding {
 ///
 /// Honors `# doctor:allow LIFECYCLE-NO-JUMP-NEEDS-LINEAR` on the source
 /// file: when present, the rule short-circuits to an empty finding list.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::lifecycle::no_jump_needs_linear::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with NoJumpMoreThanOne invariant");
+/// let _ = check(&feature, Path::new("publishing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     if crate::allow_comment::file_contains_doctor_allow(path, Finding::CODE) {
         return Vec::new();

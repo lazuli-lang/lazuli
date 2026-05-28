@@ -575,7 +575,15 @@ fn parse_alter_add_columns(sql: &str, table_name: &str) -> AlterParseResult {
         }
 
         // Single-column ADD COLUMN — extract the column identifier.
-        let add_col_pos = stmt_lower.find("add column").unwrap();
+        // SAFETY: `add_col_count` was checked to be exactly 1 above
+        // (`stmt_lower.matches("add column").count()` returned 1), so
+        // `stmt_lower.find("add column")` MUST return Some here.
+        let Some(add_col_pos) = stmt_lower.find("add column") else {
+            // Defensive: if the invariant were ever violated we treat
+            // the statement as unrecognised rather than panicking.
+            let snippet = first_line(stmt).to_owned();
+            return AlterParseResult::Unrecognised(snippet);
+        };
         let mut after = &stmt[add_col_pos + "add column".len()..];
         after = after.trim_start();
         // Optional `IF NOT EXISTS`.

@@ -66,6 +66,21 @@ impl Finding {
 
     /// Render the "catalog mismatch" message, steering the author back
     /// to the closed catalog spec.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::lifecycle::invariant_catalog_mismatch::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("publishing.lzi"),
+    ///     resource: "Publication".into(),
+    ///     reason: "`single <state> per <scope_field>` has empty state name".into(),
+    /// };
+    /// assert!(f.message().contains("Publication"));
+    /// assert!(f.message().contains("closed catalog"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "lifecycle on `{}`: invariant entry is malformed — {} (closed catalog: \
@@ -82,6 +97,17 @@ impl Finding {
 /// Honors `# doctor:allow LIFECYCLE-INVARIANT-CATALOG-MISMATCH` on the
 /// source file: when present, the rule short-circuits to an empty
 /// finding list.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::lifecycle::invariant_catalog_mismatch::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with lifecycle invariants");
+/// let _ = check(&feature, Path::new("publishing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     if crate::allow_comment::file_contains_doctor_allow(path, Finding::CODE) {
         return Vec::new();

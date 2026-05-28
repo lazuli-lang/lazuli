@@ -12,11 +12,15 @@
 //! - Lives under `crates/lazuli_*/src/`
 //! - Is NOT `lib.rs`, `main.rs`, or `mod.rs` (those are wiring; tests
 //!   for their contents live in the modules they re-export)
+//! - Is NOT a test-support utility file (see `TEST_SUPPORT_BASENAMES`
+//!   below — by definition test infra, not source needing its own tests)
 //! - Contains at least one `pub fn` / `pub struct` / `pub enum` /
 //!   `pub trait` (something testable; pure type definitions without
 //!   methods are exempted)
 //! - Does NOT contain `#[cfg(test)]` anywhere
-//! - Does NOT have a sibling `<name>_test.rs` in the same dir
+//! - Does NOT have a sibling `<name>_test.rs` OR `<name>_tests.rs` in
+//!   the same dir (plural form is the framework convention; singular
+//!   accepted for compatibility)
 //! - Does NOT have a corresponding `crates/<crate>/tests/<name>.rs`
 //!
 //! Default severity: `Warning`. Under `tdd-iron-hand` preset: `Error`.
@@ -51,6 +55,21 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use crate::internal_hygiene::walker::RustSourceFile;
+
+/// Closed list of file basenames that are by definition test-support
+/// utilities (fixtures, builders, helper modules used only from `#[cfg(test)]`
+/// callers). They legitimately export `pub` items so the test code can call
+/// them, but they are not first-class source modules requiring their own
+/// tests — testing test-helpers would create a regression treadmill. The
+/// framework's existing convention is `test_support.rs`; we leave room for
+/// `test_helpers.rs` / `fixtures.rs` if future code adopts those names.
+const TEST_SUPPORT_BASENAMES: &[&str] = &[
+    "test_support.rs",
+    "test_helpers.rs",
+    "test_utils.rs",
+    "test_util.rs",
+    "fixtures.rs",
+];
 
 /// One `.rs` library file with `pub` items but no associated tests.
 #[derive(Debug, Clone)]
@@ -137,6 +156,9 @@ pub fn check(files: &[RustSourceFile]) -> Vec<Finding> {
         if matches!(name, "lib.rs" | "main.rs" | "mod.rs") {
             continue;
         }
+        if TEST_SUPPORT_BASENAMES.contains(&name) {
+            continue;
+        }
         if !has_testable_pub_item(&file.source) {
             continue;
         }
@@ -218,6 +240,11 @@ fn source_has_test_item(source: &str) -> bool {
         .any(|marker| source.contains(marker))
 }
 
+/// Accepts BOTH `<stem>_test.rs` (singular) and `<stem>_tests.rs` (plural)
+/// as a valid sibling. Plural is the framework convention — many rules
+/// keep their tests in `<rule>_tests.rs` and `include!` them from a
+/// `#[cfg(test)] mod tests` block inside the rule file. Singular is kept
+/// for compatibility with the original Rails-style mirror.
 fn has_sibling_test_file(path: &std::path::Path, library_paths: &HashSet<PathBuf>) -> bool {
     let parent = match path.parent() {
         Some(p) => p,
@@ -227,8 +254,9 @@ fn has_sibling_test_file(path: &std::path::Path, library_paths: &HashSet<PathBuf
         Some(s) => s,
         None => return false,
     };
-    let sibling = parent.join(format!("{}_test.rs", stem));
-    library_paths.contains(&sibling)
+    let singular = parent.join(format!("{}_test.rs", stem));
+    let plural = parent.join(format!("{}_tests.rs", stem));
+    library_paths.contains(&singular) || library_paths.contains(&plural)
 }
 
 fn has_integration_test_file(
@@ -331,6 +359,57 @@ mod tests {
         let f = lib_file("crates/lazuli_test/src/widget.rs", "pub fn x() {}\n");
         let sibling = lib_file("crates/lazuli_test/src/widget_test.rs", "");
         assert!(check(&[f, sibling]).is_empty());
+    }
+
+    #[test]
+    fn sibling_tests_plural_file_silences() {
+        // Framework convention: tests live in `<stem>_tests.rs` (plural)
+        // and are `include!`-d from a `#[cfg(test)] mod tests` block in
+        // the rule file. The rule MUST treat the plural form as a valid
+        // pairing or every rule using the include-pattern false-fires.
+        let f = lib_file("crates/lazuli_test/src/widget.rs", "pub fn x() {}\n");
+        let sibling = lib_file("crates/lazuli_test/src/widget_tests.rs", "");
+        assert!(
+            check(&[f, sibling]).is_empty(),
+            "_tests.rs (plural) sibling MUST clear the rule"
+        );
+    }
+
+    #[test]
+    fn test_support_files_exempted() {
+        // `test_support.rs` is by definition a test-helper module — it
+        // exports `pub` items so test code can use them, but tests for
+        // the helpers themselves would create a regression treadmill.
+        // The rule MUST skip these basenames entirely.
+        let files = [
+            lib_file(
+                "crates/lazuli_test/src/coverage/test_support.rs",
+                "pub fn build_fixture() {}\n",
+            ),
+            lib_file(
+                "crates/lazuli_test/src/encryption/test_support.rs",
+                "pub struct Helper;\n",
+            ),
+        ];
+        assert!(check(&files).is_empty());
+    }
+
+    #[test]
+    fn no_sibling_and_no_inline_tests_still_fires() {
+        // Regression guard: hardening the sibling check (plural + skiplist)
+        // must NOT silence the base case. A file with `pub` items, no
+        // inline `#[cfg(test)]`, and neither singular nor plural sibling
+        // still fires.
+        let f = lib_file(
+            "crates/lazuli_test/src/widget.rs",
+            "pub fn x() {}\npub struct Y;\n",
+        );
+        let findings = check(&[f]);
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert_eq!(
+            findings[0].suggested_sibling,
+            PathBuf::from("crates/lazuli_test/src/widget_test.rs")
+        );
     }
 
     #[test]

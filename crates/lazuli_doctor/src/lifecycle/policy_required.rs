@@ -50,6 +50,21 @@ impl Finding {
     /// Render the "no policy" message, steering the author either to a
     /// per-transition `policy @policy.<name>` clause or a feature-level
     /// `defaults` block.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::lifecycle::policy_required::Finding;
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("publishing.lzi"),
+    ///     resource: "Publication".into(),
+    ///     transition: "publish".into(),
+    /// };
+    /// assert!(f.message().contains("publish"));
+    /// assert!(f.message().contains("defaults.policy"));
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "lifecycle on `{}`: transition `{}` declares no `policy` and the feature has no \
@@ -67,6 +82,17 @@ impl Finding {
 ///
 /// Honors `# doctor:allow LIFECYCLE-POLICY-REQUIRED` on the source file:
 /// when present, the rule short-circuits to an empty finding list.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::lifecycle::policy_required::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with lifecycle transitions");
+/// let _ = check(&feature, Path::new("publishing.lzi"));
+/// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     if crate::allow_comment::file_contains_doctor_allow(path, Finding::CODE) {
         return Vec::new();

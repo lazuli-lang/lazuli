@@ -158,11 +158,10 @@ pub fn check(root: &Path) -> Vec<Finding> {
         let creates = parse_create_table_clauses(&sql);
 
         for (table, idempotent) in creates {
-            let baseline_for_table = first_seen.get(&table).cloned();
-            if baseline_for_table.is_none() {
+            let Some(baseline_for_table) = first_seen.get(&table).cloned() else {
                 first_seen.insert(table.clone(), entry.path.clone());
                 continue; // first sighting — legitimate baseline
-            }
+            };
             // Re-CREATE in a non-first position. We fire ONLY when the
             // shape is the idempotent IF NOT EXISTS (per proposal —
             // bare CREATE TABLE in non-first position is a different
@@ -176,7 +175,7 @@ pub fn check(root: &Path) -> Vec<Finding> {
             out.push(Finding {
                 path: entry.path.clone(),
                 table,
-                earlier_migration: baseline_for_table.unwrap(),
+                earlier_migration: baseline_for_table,
             });
         }
     }

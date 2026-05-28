@@ -50,6 +50,17 @@ pub enum TestBodyKind {
 impl TestBodyKind {
     /// Stable kebab-case name used in the diagnostic body so the
     /// author can read which functions tripped the rule.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::test_discipline::test_failure_only_coverage_001::TestBodyKind;
+    ///
+    /// assert_eq!(TestBodyKind::HasSuccessAssertion.as_str(), "HasSuccessAssertion");
+    /// assert_eq!(TestBodyKind::ErrorOnly.as_str(), "ErrorOnly");
+    /// assert_eq!(TestBodyKind::Skip.as_str(), "Skip");
+    /// assert_eq!(TestBodyKind::Empty.as_str(), "Empty");
+    /// ```
     pub fn as_str(self) -> &'static str {
         match self {
             Self::HasSuccessAssertion => "HasSuccessAssertion",
@@ -76,6 +87,21 @@ impl Finding {
     pub const CODE: &'static str = "TEST-FAILURE-ONLY-COVERAGE-001";
 
     /// Render the user-facing diagnostic body.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::test_discipline::test_failure_only_coverage_001::{Finding, TestBodyKind};
+    ///
+    /// let f = Finding {
+    ///     relative_path: PathBuf::from("features/account/handlers/foo_test.go"),
+    ///     absolute_path: PathBuf::from("/abs/features/account/handlers/foo_test.go"),
+    ///     body_kinds: vec![("TestFoo".into(), TestBodyKind::ErrorOnly)],
+    /// };
+    /// assert!(f.message().contains("TestFoo"));
+    /// assert!(f.message().contains("ErrorOnly"));
+    /// ```
     pub fn message(&self) -> String {
         let mut body = format!(
             "{}: test file declares {} `func Test*` function(s), none of which exercise the handler's success path. Per-function shape:",

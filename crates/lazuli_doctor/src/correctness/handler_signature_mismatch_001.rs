@@ -125,6 +125,27 @@ impl Finding {
     /// load-bearing per the proposal §Diagnostic shape — agents
     /// reading the diagnostic should be able to jump to the runtime
     /// type-assertion site to verify the claim.
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// use std::path::PathBuf;
+    /// use lazuli_doctor::correctness::handler_signature_mismatch_001::{Diff, Finding};
+    ///
+    /// let f = Finding {
+    ///     path: PathBuf::from("account.lzi"),
+    ///     feature: "account".into(),
+    ///     command: "login_with_google".into(),
+    ///     handler_name: "login_with_google".into(),
+    ///     handler_path: PathBuf::from("features/account/handlers/login_with_google.go"),
+    ///     gen_path: PathBuf::from("dist/go/account/command.gen.go"),
+    ///     diff: Diff::OutputMismatch {
+    ///         expected: "struct{}".into(),
+    ///         found: "string".into(),
+    ///     },
+    /// };
+    /// assert!(f.message().contains("handler_registry.go:89"));
+    /// ```
     pub fn message(&self) -> String {
         let suffix = format!(
             " The signature mismatch will cause a 500 `wrong signature` \
@@ -215,6 +236,22 @@ impl Finding {
 /// - handler file missing (delegated to HANDLER-MISSING-001),
 /// - signatures match,
 /// - `# doctor:allow HANDLER-SIGNATURE-MISMATCH-001` opt-out present.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_doctor::correctness::handler_signature_mismatch_001::check;
+/// use lazuli_ir::Feature;
+///
+/// let feature: Feature = unimplemented!("lower a feature with @fn handler refs");
+/// let _ = check(
+///     &feature,
+///     Path::new("account.lzi"),
+///     Path::new("/app"),
+///     Path::new("/app/dist"),
+/// );
+/// ```
 pub fn check(
     feature: &Feature,
     lzi_path: &Path,
