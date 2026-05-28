@@ -28,6 +28,12 @@ pub(super) struct RouteSpec {
     /// gate with a lifecycle fetch + dispatch via the per-resource
     /// helper.
     pub(super) lifecycle_emit: Option<LifecycleEmit>,
+    /// `ir-route-guard-escape-hatch-2026-05-28` §5 Cell B-1 — row-field
+    /// predicate gates resolved against `lookup_my_<resource>` queries.
+    /// Each entry emits a `fetchQuery + redirect-on-mismatch` branch
+    /// chained after the lifecycle gate; reuses `__row` only when its
+    /// `lookup_export` matches the lifecycle gate's (same query).
+    pub(super) field_gates: Vec<FieldGateEmit>,
     /// router-w5 — declarative loaders. Each entry prefetches a
     /// feature-level zero-arg query via TanStack Query's
     /// `ensureQueryData`. Multiple loaders run in parallel.
@@ -81,6 +87,25 @@ pub(super) struct ForbidEmit {
     pub(super) atom_namespace: String,
     pub(super) atom_name: String,
     pub(super) dispatch_to: String,
+    /// `ir-route-guard-escape-hatch-2026-05-28` §5 Cell B-1 — when the
+    /// authored `forbid_when` slot composed an `only_when lifecycle <R>
+    /// = <state>` sub-slot, codegen wraps the atom-match redirect in a
+    /// `if (lifecycleState === <state>) { … }` so the dispatch fires
+    /// ONLY when BOTH the atom is satisfied AND the lifecycle state
+    /// matches. None ⇒ legacy unconditional behavior.
+    pub(super) only_when_lifecycle: Option<OnlyWhenLifecycleEmit>,
+}
+
+/// `ir-route-guard-escape-hatch-2026-05-28` §5 Cell B-1 — resolved
+/// `only_when lifecycle <R> = <state>` sub-slot for `forbid_when`.
+/// Carries the lifecycle gate references so the conditional branch
+/// can fetch the lookup query if no top-level lifecycle gate already
+/// did so on this route.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct OnlyWhenLifecycleEmit {
+    pub(super) feature: String,
+    pub(super) lookup_export: String,
+    pub(super) required_state: String,
 }
 
 /// W3 Tier 2 + W4 — lifecycle dispatch payload. Carries the
@@ -98,6 +123,37 @@ pub(super) struct LifecycleEmit {
     pub(super) helper_export: String,
     /// Required lifecycle state. The route renders only when the
     /// actor's row reports this state; any other state triggers a
-    /// redirect via the helper.
+    /// redirect via the helper. Empty when [`Self::allowed_states`]
+    /// is set (the two forms are mutually exclusive per IR doctor rule
+    /// `ROUTE-GUARD-LIFECYCLE-EXCLUSIVE-001`).
     pub(super) required_state: String,
+    /// `ir-route-guard-escape-hatch-2026-05-28` §5 Cell B-1 —
+    /// allow-list lifecycle states. When `Some`, codegen emits an
+    /// `Array.includes` check against the listed states instead of the
+    /// equality check against [`Self::required_state`]. Mutually
+    /// exclusive with the exact-match form: when set, `required_state`
+    /// is the empty string. The IR's authored order is preserved so
+    /// the emitted array is diff-stable.
+    pub(super) allowed_states: Option<Vec<String>>,
+}
+
+/// `ir-route-guard-escape-hatch-2026-05-28` §5 Cell B-1 — resolved
+/// `requires <feature>.lookup_my.<field> = <literal> on_unmet redirect
+/// <path>` row-field predicate. Each entry knows the feature's
+/// `lookup_my_<resource>` query export, the field to read, the
+/// pre-rendered TS literal for the expected value, and the redirect
+/// URL fired when the field doesn't match.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct FieldGateEmit {
+    /// snake_case feature name (used for the SDK import path).
+    pub(super) feature: String,
+    /// camelCase export name of the lookup_my_<resource> query.
+    pub(super) lookup_export: String,
+    /// Field name read off the fetched row.
+    pub(super) field: String,
+    /// Pre-rendered TS literal for the expected value (e.g. `"true"`,
+    /// `"\"approved\""`, `"42"`).
+    pub(super) expected_literal_ts: String,
+    /// Redirect URL fired when `row.<field> !== <expected>`.
+    pub(super) on_unmet_redirect: String,
 }

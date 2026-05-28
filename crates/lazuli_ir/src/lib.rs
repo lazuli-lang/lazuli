@@ -79,9 +79,10 @@ pub use nodes::event::{
 pub use nodes::feature::{Feature, FeatureRequirement};
 pub use nodes::experience::{
     AppRoute, AudienceSurface, Experience, ExperienceAction, ExperienceModule, ExperienceView,
-    ForbidWhen, Platform, PlatformSurface, PlatformView, RequiresLifecycle, ResolvedLifecycleGate,
-    ResumeArm, ResumeArmKind, ResumeRouter, RouteGuardDefaults, RouteLoader, ViewExtension,
-    ViewExtensionOrder, ViewExtensionSlot, ViewGuard, ViewTestAssertion,
+    ForbidWhen, Platform, PlatformSurface, PlatformView, RequiresField, RequiresLifecycle,
+    RequiresLifecycleIn, ResolvedLifecycleGate, ResumeArm, ResumeArmKind, ResumeRouter,
+    RouteGuardDefaults, RouteLoader, ViewExtension, ViewExtensionOrder, ViewExtensionSlot,
+    ViewGuard, ViewTestAssertion,
 };
 pub use nodes::feature_defaults::{
     Constraint, Defaults, EscapeRoute, Extension, ExtensionContract, FieldValidation,

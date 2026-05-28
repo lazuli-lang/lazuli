@@ -18,7 +18,9 @@ mod resolve;
 mod spec;
 
 use emit::emit_routes_file;
-use resolve::{resolve_guard_emit, resolve_lifecycle_emit};
+use resolve::{
+    resolve_field_gate_emit, resolve_guard_emit, resolve_lifecycle_emit, resolve_lifecycle_in_emit,
+};
 use spec::{LoaderEmit, RouteSpec};
 
 /// Which platform the routes emitter is rendering for.
@@ -106,11 +108,30 @@ pub fn emit_routes_artifacts(
                 .guard
                 .as_ref()
                 .and_then(|g| resolve_guard_emit(g, features)),
-            lifecycle_emit: route
+            lifecycle_emit: route.guard.as_ref().and_then(|g| {
+                // `ir-route-guard-escape-hatch-2026-05-28` §5 Cell B-1
+                // — exact-match wins when both shapes are authored
+                // (doctor `ROUTE-GUARD-LIFECYCLE-EXCLUSIVE-001` rejects
+                // the conflict at lint time; codegen prefers the
+                // shipped form for byte-identical legacy emit).
+                if let Some(rl) = &g.requires_lifecycle {
+                    resolve_lifecycle_emit(rl, features)
+                } else if let Some(rli) = &g.requires_lifecycle_in {
+                    resolve_lifecycle_in_emit(rli, features)
+                } else {
+                    None
+                }
+            }),
+            field_gates: route
                 .guard
                 .as_ref()
-                .and_then(|g| g.requires_lifecycle.as_ref())
-                .and_then(|rl| resolve_lifecycle_emit(rl, features)),
+                .map(|g| {
+                    g.requires_field
+                        .iter()
+                        .filter_map(|rf| resolve_field_gate_emit(rf, features))
+                        .collect()
+                })
+                .unwrap_or_default(),
             loaders: route
                 .loaders
                 .iter()

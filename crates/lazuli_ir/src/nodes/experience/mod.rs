@@ -41,7 +41,9 @@ pub mod lifecycle_gate;
 pub mod route;
 pub mod surface;
 
-pub use guard::{ForbidWhen, RouteGuardDefaults, ViewGuard};
+pub use guard::{
+    ForbidWhen, RequiresField, RequiresLifecycleIn, RouteGuardDefaults, ViewGuard,
+};
 pub use lifecycle_gate::{
     RequiresLifecycle, ResolvedLifecycleGate, ResumeArm, ResumeArmKind, ResumeRouter,
 };

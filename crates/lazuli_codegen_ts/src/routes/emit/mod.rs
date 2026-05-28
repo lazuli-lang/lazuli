@@ -43,10 +43,21 @@ pub(super) fn emit_routes_file(specs: &[RouteSpec]) -> String {
     // and the router instance is not assignable to RouterProvider).
     let any_ir_guard = specs.iter().any(|s| s.guard_emit.is_some());
     let any_lifecycle = specs.iter().any(|s| s.lifecycle_emit.is_some());
+    let any_field_gates = specs.iter().any(|s| !s.field_gates.is_empty());
     let any_forbid_when = specs.iter().any(|s| {
         s.guard_emit
             .as_ref()
             .is_some_and(|g| !g.forbid_when.is_empty())
+    });
+    // `ir-route-guard-escape-hatch-2026-05-28` §5 Cell B-1 — forbid_when
+    // with `only_when lifecycle` needs the same `queryKeyFor` + lookup
+    // import surface the lifecycle gate uses.
+    let any_forbid_only_when = specs.iter().any(|s| {
+        s.guard_emit.as_ref().is_some_and(|g| {
+            g.forbid_when
+                .iter()
+                .any(|fw| fw.only_when_lifecycle.is_some())
+        })
     });
     s.push_str("import { createElement, type FunctionComponent, type ReactElement } from \"@lazuli/runtime/react\";\n");
     let any_lazy = specs.iter().any(|s| s.lazy);
@@ -69,6 +80,11 @@ pub(super) fn emit_routes_file(specs: &[RouteSpec]) -> String {
         // codegen-emitted lifecycle gates call it for the fetchQuery key.
         s.push_str("import { queryKeyFor } from \"@lazuli/runtime/react\";\n");
         s.push_str("import { isLazuliError } from \"@lazuli/runtime\";\n");
+    } else if any_field_gates || any_forbid_only_when {
+        // Field gates and forbid_when-with-only_when_lifecycle reuse
+        // the same fetchQuery machinery but don't go through the
+        // lifecycle gate's 404 redirect — they only need queryKeyFor.
+        s.push_str("import { queryKeyFor } from \"@lazuli/runtime/react\";\n");
     }
     if any_forbid_when {
         // evaluatePolicy is the closed-catalog policy verdict helper;
@@ -83,13 +99,31 @@ pub(super) fn emit_routes_file(specs: &[RouteSpec]) -> String {
         s.push_str("import { queryKeyFor } from \"@lazuli/runtime/react\";\n");
     }
     // Per-feature SDK imports for every lifecycle gate's
-    // lookup_my_<resource> query + helper, plus every loader query.
+    // lookup_my_<resource> query + helper, plus every loader query,
+    // plus every field-gate lookup query and every
+    // forbid_when-only_when_lifecycle lookup query.
     let mut feature_imports: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for spec in specs {
         if let Some(lc) = &spec.lifecycle_emit {
             let bucket = feature_imports.entry(lc.feature.clone()).or_default();
             bucket.insert(lc.lookup_export.clone());
             bucket.insert(lc.helper_export.clone());
+        }
+        for fg in &spec.field_gates {
+            feature_imports
+                .entry(fg.feature.clone())
+                .or_default()
+                .insert(fg.lookup_export.clone());
+        }
+        if let Some(guard) = &spec.guard_emit {
+            for fw in &guard.forbid_when {
+                if let Some(only) = &fw.only_when_lifecycle {
+                    feature_imports
+                        .entry(only.feature.clone())
+                        .or_default()
+                        .insert(only.lookup_export.clone());
+                }
+            }
         }
         for loader in &spec.loaders {
             feature_imports

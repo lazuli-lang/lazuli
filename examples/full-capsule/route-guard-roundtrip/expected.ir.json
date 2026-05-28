@@ -1,0 +1,94 @@
+{
+  "ir": {
+    "expand": [],
+    "features": [],
+    "routes": [
+      {
+        "audience": "host",
+        "guard": {
+          "forbid_when": [
+            {
+              "atom": {
+                "name": "guest",
+                "namespace": "role"
+              },
+              "atom_ref": "@role.guest",
+              "dispatch_to": "/demo/welcome",
+              "only_when_lifecycle": {
+                "resource": "Host",
+                "span_ref": {
+                  "end": 472,
+                  "start": 431
+                },
+                "state": "complete"
+              },
+              "span_ref": {
+                "end": 472,
+                "start": 375
+              }
+            }
+          ],
+          "on_unauthenticated": "/sign-in",
+          "policy": [
+            "@policy.authenticated"
+          ],
+          "requires_field": [
+            {
+              "expected": {
+                "kind": "Boolean",
+                "value": true
+              },
+              "feature": "user",
+              "field": "is_phone_verified",
+              "on_unmet_redirect": "/demo/phone-verify",
+              "span_ref": {
+                "end": 374,
+                "start": 277
+              }
+            }
+          ],
+          "requires_lifecycle_in": {
+            "allowed_states": [
+              "basic_details_pending",
+              "address_pending"
+            ],
+            "resource": "Host",
+            "span_ref": {
+              "end": 276,
+              "start": 205
+            }
+          },
+          "span_ref": {
+            "end": 472,
+            "start": 131
+          }
+        },
+        "name": "roundtrip_canonical_demo",
+        "path": "/demo/roundtrip",
+        "span_ref": {
+          "end": 472,
+          "start": 0
+        },
+        "surface": "host web",
+        "to": "host.view.roundtrip_canonical_demo"
+      }
+    ],
+    "schema": "lazuli.inspect.v0",
+    "source": "examples/full-capsule/route-guard-roundtrip/fixture.lzx"
+  },
+  "manifest": {
+    "frontends": [],
+    "generate": {},
+    "lazuli": {
+      "runtime": "0.1.0"
+    },
+    "origin": "Lazurite.toml",
+    "plugins": [],
+    "project": {
+      "module": "github.com/lazuli-lang/example-full-capsule",
+      "name": "full-capsule",
+      "schema": 1
+    }
+  },
+  "plugin_semantic_types": []
+}

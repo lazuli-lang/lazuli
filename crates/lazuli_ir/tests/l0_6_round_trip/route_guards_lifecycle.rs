@@ -21,7 +21,34 @@ fn view_guard_round_trips_with_all_slots() {
         requires_lifecycle: None,
         on_lifecycle_pending: None,
         forbid_when: Vec::new(),
+        requires_lifecycle_in: None,
+        requires_field: Vec::new(),
         span_ref: Some(SpanRef { start: 1, end: 50 }),
+    });
+}
+
+#[test]
+fn view_guard_round_trips_with_new_escape_hatch_slots() {
+    use lazuli_ir::{DefaultValue, RequiresField, RequiresLifecycleIn};
+
+    round_trip(&ViewGuard {
+        policy: vec!["@policy.authenticated".to_string()],
+        requires_lifecycle_in: Some(RequiresLifecycleIn {
+            resource: "Host".to_string(),
+            allowed_states: vec![
+                "basic_details_pending".to_string(),
+                "address_pending".to_string(),
+            ],
+            span_ref: None,
+        }),
+        requires_field: vec![RequiresField {
+            feature: "user".to_string(),
+            field: "is_phone_verified".to_string(),
+            expected: DefaultValue::Boolean(true),
+            on_unmet_redirect: "/onboarding/host/phone-verification".to_string(),
+            span_ref: None,
+        }],
+        ..ViewGuard::default()
     });
 }
 
@@ -34,6 +61,8 @@ fn view_guard_round_trips_with_only_policy() {
         requires_lifecycle: None,
         on_lifecycle_pending: None,
         forbid_when: Vec::new(),
+        requires_lifecycle_in: None,
+        requires_field: Vec::new(),
         span_ref: None,
     });
 }
@@ -52,6 +81,8 @@ fn view_guard_round_trips_with_lifecycle_slots() {
         }),
         on_lifecycle_pending: Some("host_onboarding".to_string()),
         forbid_when: Vec::new(),
+        requires_lifecycle_in: None,
+        requires_field: Vec::new(),
         span_ref: None,
     });
 }
@@ -65,6 +96,8 @@ fn view_guard_omits_none_redirects_in_serialized_form() {
         requires_lifecycle: None,
         on_lifecycle_pending: None,
         forbid_when: Vec::new(),
+        requires_lifecycle_in: None,
+        requires_field: Vec::new(),
         span_ref: None,
     };
     let v = serde_json::to_value(&g).unwrap();
@@ -91,6 +124,8 @@ fn lifecycle_route_gate_ir_round_trips_with_all_slots() {
         requires_lifecycle: Some(requires.clone()),
         on_lifecycle_pending: Some("host_onboarding".to_string()),
         forbid_when: Vec::new(),
+        requires_lifecycle_in: None,
+        requires_field: Vec::new(),
         span_ref: Some(SpanRef { start: 1, end: 60 }),
     };
     let resolved = ResolvedLifecycleGate {

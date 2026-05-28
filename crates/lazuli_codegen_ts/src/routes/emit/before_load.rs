@@ -33,7 +33,10 @@ use super::super::spec::RouteSpec;
 /// the consumer's guard is never reached because TanStack's
 /// beforeLoad slot is single-valued.
 pub(super) fn emit_before_load(out: &mut String, spec: &RouteSpec) {
-    if spec.guard_emit.is_none() && spec.lifecycle_emit.is_none() {
+    if spec.guard_emit.is_none()
+        && spec.lifecycle_emit.is_none()
+        && spec.field_gates.is_empty()
+    {
         writeln!(
             out,
             "    beforeLoad: options.guards?.{},",
@@ -49,19 +52,70 @@ pub(super) fn emit_before_load(out: &mut String, spec: &RouteSpec) {
         // is checked against the closed-catalog evaluatePolicy helper.
         // A signed-out actor short-circuits to the policy gate
         // (signed-out users can't satisfy a role/scope atom).
+        //
+        // `ir-route-guard-escape-hatch-2026-05-28` §5 Cell B-1 — when
+        // a forbid_when slot composed `only_when lifecycle <R> =
+        // <state>`, the conditional fetches the relevant lookup_my_<r>
+        // row (cached via `__forbid_lifecycle_row_<feature>`) and
+        // wraps the redirect in a state-equality check so the
+        // dispatch fires only when BOTH the atom matches AND the
+        // lifecycle state matches.
         if !guard.forbid_when.is_empty() {
             out.push_str("      const __forbidActor = await options.client.resolveActor();\n");
             out.push_str("      if (__forbidActor) {\n");
+            // Hoist per-feature lifecycle-row fetches so multiple
+            // forbid_when arms targeting the same resource don't
+            // refetch. Authored order in the IR drives emit order.
+            let mut emitted_lc_features: std::collections::BTreeSet<String> =
+                std::collections::BTreeSet::new();
+            for fw in &guard.forbid_when {
+                if let Some(only) = &fw.only_when_lifecycle {
+                    if emitted_lc_features.insert(only.feature.clone()) {
+                        let cache_var = forbid_lc_row_var(&only.feature);
+                        out.push_str(&format!(
+                            "        const {cache} = await params.context.queryClient.fetchQuery({{\n",
+                            cache = cache_var,
+                        ));
+                        out.push_str(&format!(
+                            "          queryKey: queryKeyFor({}, {{}}),\n",
+                            only.lookup_export
+                        ));
+                        out.push_str(&format!(
+                            "          queryFn: () => params.context.client.runQuery({}, {{}}),\n",
+                            only.lookup_export
+                        ));
+                        out.push_str("        });\n");
+                        out.push_str(&format!(
+                            "        const {state} = ({cache} as {{ lifecycleState?: string }}).lifecycleState ?? null;\n",
+                            state = forbid_lc_state_var(&only.feature),
+                            cache = cache_var,
+                        ));
+                    }
+                }
+            }
             for fw in &guard.forbid_when {
                 out.push_str(&format!(
                     "        if (evaluatePolicy(__forbidActor, {{ name: \"@{ns}.{name}\", atoms: [{{ namespace: {ns:?}, name: {name:?} }}] }}) === \"authorized\") {{\n",
                     ns = fw.atom_namespace,
                     name = fw.atom_name,
                 ));
-                out.push_str(&format!(
-                    "          throw redirect({{ to: {:?} }});\n",
-                    fw.dispatch_to
-                ));
+                if let Some(only) = &fw.only_when_lifecycle {
+                    out.push_str(&format!(
+                        "          if ({state} === {required:?}) {{\n",
+                        state = forbid_lc_state_var(&only.feature),
+                        required = only.required_state,
+                    ));
+                    out.push_str(&format!(
+                        "            throw redirect({{ to: {:?} }});\n",
+                        fw.dispatch_to
+                    ));
+                    out.push_str("          }\n");
+                } else {
+                    out.push_str(&format!(
+                        "          throw redirect({{ to: {:?} }});\n",
+                        fw.dispatch_to
+                    ));
+                }
                 out.push_str("        }\n");
             }
             out.push_str("      }\n");
@@ -116,17 +170,102 @@ pub(super) fn emit_before_load(out: &mut String, spec: &RouteSpec) {
         out.push_str("        throw err;\n");
         out.push_str("      }\n");
         out.push_str("      const __state = (__row as { lifecycleState?: string }).lifecycleState ?? null;\n");
+        // `ir-route-guard-escape-hatch-2026-05-28` §5 Cell B-1 —
+        // allow-list lifecycle (`requires_lifecycle_in <R> [s1, ...]`)
+        // emits an `Array.includes` check instead of equality. Author
+        // order is preserved so the emitted array is diff-stable.
+        if let Some(allowed) = &lc.allowed_states {
+            let literal = allowed
+                .iter()
+                .map(|s| format!("{:?}", s))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push_str(&format!(
+                "      const __allowedStates = [{}] as const;\n",
+                literal
+            ));
+            out.push_str(
+                "      if (__state === null || !__allowedStates.includes(__state as typeof __allowedStates[number])) {\n",
+            );
+            out.push_str(&format!(
+                "        throw redirect({{ to: {}(__state) }});\n",
+                lc.helper_export
+            ));
+            out.push_str("      }\n");
+        } else {
+            out.push_str(&format!(
+                "      if (__state !== {:?}) {{\n",
+                lc.required_state
+            ));
+            out.push_str(&format!(
+                "        throw redirect({{ to: {}(__state) }});\n",
+                lc.helper_export
+            ));
+            out.push_str("      }\n");
+        }
+    }
+    // `ir-route-guard-escape-hatch-2026-05-28` §5 Cell B-1 —
+    // row-field predicate gates (`requires <feature>.lookup_my.<field>
+    // = <literal> on_unmet redirect <path>`). Each gate fetches the
+    // named lookup query (or reuses the lifecycle gate's `__row` when
+    // the lookup export matches — same query, no extra round-trip)
+    // and throws a redirect on field-value mismatch. Emitted in
+    // authored order.
+    for (idx, fg) in spec.field_gates.iter().enumerate() {
+        let row_var = format!("__fieldRow{}", idx);
+        let reuses_lifecycle_row = spec
+            .lifecycle_emit
+            .as_ref()
+            .is_some_and(|lc| lc.lookup_export == fg.lookup_export);
+        if reuses_lifecycle_row {
+            out.push_str(&format!(
+                "      const {row} = __row as {{ {field}?: unknown }};\n",
+                row = row_var,
+                field = fg.field
+            ));
+        } else {
+            out.push_str(&format!(
+                "      const {row} = await params.context.queryClient.fetchQuery({{\n",
+                row = row_var
+            ));
+            out.push_str(&format!(
+                "        queryKey: queryKeyFor({}, {{}}),\n",
+                fg.lookup_export
+            ));
+            out.push_str(&format!(
+                "        queryFn: () => params.context.client.runQuery({}, {{}}),\n",
+                fg.lookup_export
+            ));
+            out.push_str("      }) as { ");
+            out.push_str(&fg.field);
+            out.push_str("?: unknown };\n");
+        }
         out.push_str(&format!(
-            "      if (__state !== {:?}) {{\n",
-            lc.required_state
+            "      if ({row}.{field} !== {expected}) {{\n",
+            row = row_var,
+            field = fg.field,
+            expected = fg.expected_literal_ts,
         ));
         out.push_str(&format!(
-            "        throw redirect({{ to: {}(__state) }});\n",
-            lc.helper_export
+            "        throw redirect({{ to: {:?} }});\n",
+            fg.on_unmet_redirect
         ));
         out.push_str("      }\n");
     }
     out.push_str("    },\n");
+}
+
+/// `ir-route-guard-escape-hatch-2026-05-28` §5 Cell B-1 — per-feature
+/// cache variable holding the lookup_my_<r> row fetched on behalf of a
+/// `forbid_when ... only_when lifecycle` arm. Multiple arms targeting
+/// the same feature share one fetch.
+fn forbid_lc_row_var(feature: &str) -> String {
+    format!("__forbidLcRow_{}", feature.replace('-', "_"))
+}
+
+/// Companion to [`forbid_lc_row_var`] — the cached `lifecycleState`.
+fn forbid_lc_state_var(feature: &str) -> String {
+    format!("__forbidLcState_{}", feature.replace('-', "_"))
 }
 
 /// router-w8 — build the comma-joined `routeTree` children list,

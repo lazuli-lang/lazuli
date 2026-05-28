@@ -410,12 +410,7 @@ mod tests {
             prerender: None,
             guard: Some(ViewGuard {
                 policy: vec!["@policy.host_only".to_string()],
-                on_unauthenticated: None,
-                on_unauthorized: None,
-                requires_lifecycle: None,
-                on_lifecycle_pending: None,
-                forbid_when: Vec::new(),
-                span_ref: None,
+                ..ViewGuard::default()
             }),
             loaders: Vec::new(),
             pending_view: None,

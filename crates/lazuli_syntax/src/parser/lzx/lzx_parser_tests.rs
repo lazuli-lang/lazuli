@@ -9,7 +9,7 @@
 //! declaration in `mod.rs`.
 
 use super::parse_lzx_document;
-use crate::{LzxPlatform, LzxViewTestAssertion};
+use crate::{LzxPlatform, LzxScalarLiteral, LzxViewTestAssertion};
 
 /// Wave 4 — parser must lift view `tests` into the typed
 /// `LzxViewTestAssertion` enum. `accepted by` / `rejected by` are
@@ -464,4 +464,217 @@ experience customer_tags
             .map(|order| (order.relation.as_str(), order.target.as_str())),
             Some(("after", "activity_timeline"))
         );
+}
+
+// =============================================================================
+// ir-route-guard-escape-hatch-2026-05-28 §4.1 — escape-hatch surface tests.
+// Cell A: parser must accept `requires_lifecycle_in`, the composed
+// `forbid_when ... only_when lifecycle ...` shape, and the
+// `requires <feature>.lookup_my.<field> = <literal> on_unmet redirect "..."`
+// row-field predicate.
+// =============================================================================
+
+#[test]
+fn parses_lzx_requires_lifecycle_in_allow_list() {
+    let source = r#"
+route host_basic_details
+  path "/onboarding/host/basic-details"
+  policy @policy.authenticated
+    on_unauthenticated redirect "/sign-in"
+    requires_lifecycle_in Host [basic_details_pending, address_pending, languages_pending]
+"#;
+
+    let document = parse_lzx_document(source).expect("parse");
+    let guard = document.routes[0].guard.as_ref().expect("guard");
+    let allow_list = guard
+        .requires_lifecycle_in
+        .as_ref()
+        .expect("requires_lifecycle_in");
+    assert_eq!(allow_list.resource, "Host");
+    assert_eq!(
+        allow_list.allowed_states,
+        vec!["basic_details_pending", "address_pending", "languages_pending"]
+    );
+    // Existing requires_lifecycle slot stays None.
+    assert!(guard.requires_lifecycle.is_none());
+}
+
+#[test]
+fn parses_lzx_requires_lifecycle_in_with_single_element_list() {
+    // Single-element list is admissible — doctor flags the
+    // canonical-form preference but parser accepts it.
+    let source = r#"
+route phone_verification
+  path "/onboarding/phone"
+  policy @policy.authenticated
+    requires_lifecycle_in Host [phone_verification_pending]
+"#;
+
+    let document = parse_lzx_document(source).expect("parse");
+    let allow_list = document.routes[0]
+        .guard
+        .as_ref()
+        .and_then(|g| g.requires_lifecycle_in.as_ref())
+        .expect("requires_lifecycle_in");
+    assert_eq!(allow_list.allowed_states, vec!["phone_verification_pending"]);
+}
+
+#[test]
+fn rejects_lzx_requires_lifecycle_in_with_lowercase_resource() {
+    let source = r#"
+route bad_resource
+  path "/x"
+  policy @policy.authenticated
+    requires_lifecycle_in host [pending]
+"#;
+    let err = parse_lzx_document(source).expect_err("lowercase resource must fail");
+    assert!(err.to_string().contains("requires_lifecycle_in"));
+}
+
+#[test]
+fn parses_lzx_forbid_when_with_only_when_lifecycle() {
+    let source = r#"
+route choose_role
+  path "/choose-role"
+  policy @policy.authenticated
+    on_unauthenticated redirect "/sign-in"
+    forbid_when @role.host dispatch_to "/host"
+      only_when lifecycle Host = complete
+    forbid_when @role.traveler dispatch_to "/explore"
+      only_when lifecycle Traveler = complete
+"#;
+
+    let document = parse_lzx_document(source).expect("parse");
+    let guard = document.routes[0].guard.as_ref().expect("guard");
+    assert_eq!(guard.forbid_when.len(), 2);
+
+    let host_fw = &guard.forbid_when[0];
+    assert_eq!(host_fw.atom_ref, "@role.host");
+    assert_eq!(host_fw.dispatch_to, "/host");
+    let owl = host_fw
+        .only_when_lifecycle
+        .as_ref()
+        .expect("host only_when_lifecycle");
+    assert_eq!(owl.resource, "Host");
+    assert_eq!(owl.state, "complete");
+
+    let traveler_fw = &guard.forbid_when[1];
+    let owl = traveler_fw
+        .only_when_lifecycle
+        .as_ref()
+        .expect("traveler only_when_lifecycle");
+    assert_eq!(owl.resource, "Traveler");
+}
+
+#[test]
+fn parses_lzx_forbid_when_without_only_when_stays_back_compat() {
+    let source = r#"
+route choose_role
+  path "/choose-role"
+  policy @policy.authenticated
+    forbid_when @role.host dispatch_to "/host"
+"#;
+
+    let document = parse_lzx_document(source).expect("parse");
+    let fw = &document.routes[0]
+        .guard
+        .as_ref()
+        .expect("guard")
+        .forbid_when[0];
+    assert!(fw.only_when_lifecycle.is_none());
+    assert_eq!(fw.atom_ref, "@role.host");
+}
+
+#[test]
+fn parses_lzx_requires_field_boolean_predicate() {
+    let source = r#"
+route host_address
+  path "/onboarding/host/address"
+  policy @policy.authenticated
+    on_unauthenticated redirect "/sign-in"
+    requires user.lookup_my.is_phone_verified = true
+      on_unmet redirect "/onboarding/host/phone-verification"
+"#;
+
+    let document = parse_lzx_document(source).expect("parse");
+    let guard = document.routes[0].guard.as_ref().expect("guard");
+    assert_eq!(guard.requires_field.len(), 1);
+    let rf = &guard.requires_field[0];
+    assert_eq!(rf.feature, "user");
+    assert_eq!(rf.field, "is_phone_verified");
+    assert_eq!(rf.expected, LzxScalarLiteral::Boolean(true));
+    assert_eq!(rf.on_unmet_redirect, "/onboarding/host/phone-verification");
+}
+
+#[test]
+fn parses_lzx_requires_field_string_literal() {
+    let source = r#"
+route preferred_locale
+  path "/locale"
+  policy @policy.authenticated
+    requires traveler_profile.lookup_my.preferred_language = "pt-BR"
+      on_unmet redirect "/locale"
+"#;
+
+    let document = parse_lzx_document(source).expect("parse");
+    let rf = &document.routes[0]
+        .guard
+        .as_ref()
+        .expect("guard")
+        .requires_field[0];
+    assert_eq!(rf.feature, "traveler_profile");
+    assert_eq!(rf.field, "preferred_language");
+    assert_eq!(rf.expected, LzxScalarLiteral::String("pt-BR".to_owned()));
+}
+
+#[test]
+fn parses_lzx_requires_field_null_literal() {
+    let source = r#"
+route kyc_gate
+  path "/kyc"
+  policy @policy.authenticated
+    requires user.lookup_my.kyc_passed_at = null
+      on_unmet redirect "/onboarding/kyc"
+"#;
+
+    let document = parse_lzx_document(source).expect("parse");
+    let rf = &document.routes[0]
+        .guard
+        .as_ref()
+        .expect("guard")
+        .requires_field[0];
+    assert_eq!(rf.expected, LzxScalarLiteral::Null);
+}
+
+#[test]
+fn rejects_lzx_requires_field_with_missing_lookup_my_literal() {
+    // Per §4.1.1 — `lookup_my` is a parser-LITERAL, NOT a free
+    // IDENT_LOWER. The LLM failure mode of skipping the segment
+    // (`user.is_phone_verified`) MUST be structurally impossible.
+    let source = r#"
+route bad
+  path "/bad"
+  policy @policy.authenticated
+    requires user.is_phone_verified = true
+      on_unmet redirect "/x"
+"#;
+    let err = parse_lzx_document(source).expect_err("missing lookup_my must fail");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("3 dot-separated segments") || msg.contains("lookup_my"),
+        "diagnostic should name the path-segment grammar; got: {msg}"
+    );
+}
+
+#[test]
+fn rejects_lzx_requires_field_with_wrong_middle_segment() {
+    let source = r#"
+route bad
+  path "/bad"
+  policy @policy.authenticated
+    requires user.lookup.is_phone_verified = true
+      on_unmet redirect "/x"
+"#;
+    let err = parse_lzx_document(source).expect_err("wrong middle segment must fail");
+    assert!(err.to_string().contains("lookup_my"));
 }

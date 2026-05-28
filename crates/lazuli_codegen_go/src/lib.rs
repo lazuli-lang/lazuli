@@ -1,5 +1,39 @@
 //! Go code generation for Lazuli.
 //!
+//! ## Route-guard escape hatch (`ir-route-guard-escape-hatch-2026-05-28`) — no Go-side emit
+//!
+//! The escape-hatch proposal added three optional slots to `ViewGuard`
+//! (`requires_lifecycle_in`, `requires_field`, and
+//! `ForbidWhen::only_when_lifecycle`). All three are **fully
+//! client-driven gates** — the TS codegen at
+//! `crates/lazuli_codegen_ts/src/routes/emit/before_load.rs` emits the
+//! guard logic; the Go server has **no companion endpoint or runtime
+//! responsibility for the route guard itself**.
+//!
+//! For the slot-3 field predicate
+//! (`requires <feature>.lookup_my.<field> = <lit>`) specifically, the
+//! Go contribution is **already covered by the existing
+//! `query.lookup` + `resource` emitters**: the client's `beforeLoad`
+//! calls the same `lookup_my_<resource>` query the lifecycle gate
+//! already fetches, reads `<field>` off the returned struct, and
+//! redirects on mismatch. The field appears on the Go struct via the
+//! normal resource-field path (`emitter/resource/struct_emit.rs`); the
+//! lookup query exposes the full resource type via the normal
+//! `query.lookup` path (`emitter/query/lookup.rs`).
+//!
+//! In other words: **no new Go emit branch was needed for any of the
+//! three new slots**. `Module` does not even carry `ExperienceModule`,
+//! so the Go pipeline never observes a `ViewGuard`. Defense-in-depth
+//! for shape-C is enforced separately by the doctor rule
+//! `ROUTE-GUARD-FIELD-MISSING-SERVER-PAIR-001`, which checks for a
+//! paired SQL trigger or `requires_field "<field>"` policy on a
+//! related command — also not a Go-codegen concern.
+//!
+//! Regression coverage: `tests/route_guard_field_lookup_my_exposes_field.rs`
+//! asserts that a `lookup_my_<resource>` query whose resource declares
+//! the field referenced by a hypothetical Shape-C guard exposes that
+//! field on both the generated Go struct and the typed query helper.
+//!
 //! ## Cut A acknowledgment (acknowledged, not yet generated)
 //!
 //! Cut A introduces `Agent` / `ToolBinding` / `EvalCase` to the IR

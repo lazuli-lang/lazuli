@@ -331,21 +331,59 @@ fn lower_view_guard(guard: &syntax::LzxViewGuard) -> ir::ViewGuard {
         policy: guard.policy.clone(),
         on_unauthenticated: guard.on_unauthenticated.clone(),
         on_unauthorized: guard.on_unauthorized.clone(),
-        requires_lifecycle: guard.requires_lifecycle.as_ref().map(|requires| {
-            ir::RequiresLifecycle {
-                resource: requires.resource.clone(),
-                state: requires.state.clone(),
-                substep: requires.substep.clone(),
-                span_ref: Some(span_of(requires.span)),
-            }
-        }),
+        requires_lifecycle: guard
+            .requires_lifecycle
+            .as_ref()
+            .map(lower_requires_lifecycle),
         on_lifecycle_pending: guard.on_lifecycle_pending.clone(),
         forbid_when: guard
             .forbid_when
             .iter()
             .filter_map(lower_forbid_when)
             .collect(),
+        // ir-route-guard-escape-hatch-2026-05-28 §4.2 — Cell A IR slots.
+        requires_lifecycle_in: guard.requires_lifecycle_in.as_ref().map(|rli| {
+            ir::RequiresLifecycleIn {
+                resource: rli.resource.clone(),
+                allowed_states: rli.allowed_states.clone(),
+                span_ref: Some(span_of(rli.span)),
+            }
+        }),
+        requires_field: guard
+            .requires_field
+            .iter()
+            .map(|rf| ir::RequiresField {
+                feature: rf.feature.clone(),
+                field: rf.field.clone(),
+                expected: lower_scalar_literal(&rf.expected),
+                on_unmet_redirect: rf.on_unmet_redirect.clone(),
+                span_ref: Some(span_of(rf.span)),
+            })
+            .collect(),
         span_ref: Some(span_of(guard.span)),
+    }
+}
+
+fn lower_requires_lifecycle(requires: &syntax::LzxRequiresLifecycle) -> ir::RequiresLifecycle {
+    ir::RequiresLifecycle {
+        resource: requires.resource.clone(),
+        state: requires.state.clone(),
+        substep: requires.substep.clone(),
+        span_ref: Some(span_of(requires.span)),
+    }
+}
+
+/// ir-route-guard-escape-hatch-2026-05-28 §4.2 — lift the parser
+/// scalar-literal enum (`LzxScalarLiteral`) into the IR's
+/// [`ir::DefaultValue`] envelope. Enum-literal defaults are not
+/// emitted by route-guard parses (the surface admits only primitive
+/// scalars per §4.1.1).
+fn lower_scalar_literal(lit: &syntax::LzxScalarLiteral) -> ir::DefaultValue {
+    match lit {
+        syntax::LzxScalarLiteral::String(s) => ir::DefaultValue::String(s.clone()),
+        syntax::LzxScalarLiteral::Integer(n) => ir::DefaultValue::Integer(*n),
+        syntax::LzxScalarLiteral::Boolean(b) => ir::DefaultValue::Boolean(*b),
+        syntax::LzxScalarLiteral::Null => ir::DefaultValue::Nil,
     }
 }
 
@@ -366,6 +404,8 @@ fn lower_forbid_when(fw: &syntax::LzxForbidWhen) -> Option<ir::ForbidWhen> {
             args: None,
         },
         dispatch_to: fw.dispatch_to.clone(),
+        // ir-route-guard-escape-hatch-2026-05-28 §4.2 — Cell A IR slot.
+        only_when_lifecycle: fw.only_when_lifecycle.as_ref().map(lower_requires_lifecycle),
         span_ref: Some(span_of(fw.span)),
     })
 }

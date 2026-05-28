@@ -150,7 +150,6 @@ mod smoke {
             return command;
         }
         panic!("TypeScript smoke test requires tsc 5+ on PATH, or npx that can run `npx tsc`");
-        derived_from: None,
     }
 
     fn command_succeeds(program: &str, args: &[&str]) -> bool {

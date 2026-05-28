@@ -201,7 +201,6 @@
             lazuli_ir::CommandInput::Typed(slots),
             lazuli_ir::CommandEffect::None,
         )
-        derived_from: None,
     }
 
     pub(super) fn command(
@@ -276,7 +275,6 @@
                 ))),
             }),
         )
-        derived_from: None,
     }
 
     pub(super) fn local_qn(name: &str) -> lazuli_ir::QualifiedName {

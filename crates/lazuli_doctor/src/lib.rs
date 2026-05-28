@@ -31,6 +31,7 @@ pub mod lifecycle;
 pub mod lzi_hygiene;
 pub mod poller;
 pub mod report;
+pub mod route_guard;
 pub mod rule_category;
 pub mod severity;
 pub mod test_discipline;

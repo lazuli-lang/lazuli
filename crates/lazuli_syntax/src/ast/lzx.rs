@@ -124,6 +124,15 @@ pub struct LzxViewGuard {
     /// children. Ordered; codegen emits checks in source order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub forbid_when: Vec<LzxForbidWhen>,
+    /// `ir-route-guard-escape-hatch-2026-05-28` §4.1 — allow-list
+    /// variant of `requires_lifecycle`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requires_lifecycle_in: Option<LzxRequiresLifecycleIn>,
+    /// `ir-route-guard-escape-hatch-2026-05-28` §4.1 — row-field
+    /// predicate slots; one per `requires <feature>.lookup_my.<field>
+    /// = <literal> on_unmet redirect "<path>"` declaration.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub requires_field: Vec<LzxRequiresField>,
     pub span: Span,
 }
 
@@ -135,7 +144,47 @@ pub struct LzxForbidWhen {
     pub atom_ref: String,
     /// `dispatch_to "<url>"` — redirect target verbatim.
     pub dispatch_to: String,
+    /// `ir-route-guard-escape-hatch-2026-05-28` §4.1 — optional
+    /// `only_when lifecycle <R> = <state>` sub-slot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub only_when_lifecycle: Option<LzxRequiresLifecycle>,
     pub span: Span,
+}
+
+/// `requires_lifecycle_in <Resource> [<state>, ...]` — allow-list
+/// lifecycle gate per `ir-route-guard-escape-hatch-2026-05-28.md`
+/// §4.1.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LzxRequiresLifecycleIn {
+    pub resource: String,
+    pub allowed_states: Vec<String>,
+    pub span: Span,
+}
+
+/// `requires <feature>.lookup_my.<field> = <literal> on_unmet redirect
+/// "<path>"` row-field predicate per
+/// `ir-route-guard-escape-hatch-2026-05-28.md` §4.1.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LzxRequiresField {
+    pub feature: String,
+    pub field: String,
+    pub expected: LzxScalarLiteral,
+    pub on_unmet_redirect: String,
+    pub span: Span,
+}
+
+/// Scalar literal accepted on the right-hand side of `requires
+/// <feature>.lookup_my.<field> = <literal>`. Mirrors the IR's
+/// [`lazuli_ir::DefaultValue`] (minus enum literals — the route-guard
+/// surface admits only primitive scalars per §4.1.1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum LzxScalarLiteral {
+    String(String),
+    Integer(i64),
+    Boolean(bool),
+    /// Explicit `null` — distinct from a missing literal.
+    Null,
 }
 
 /// router-w5 — `loader <feature>.<query>` slot under a route block.
