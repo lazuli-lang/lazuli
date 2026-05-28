@@ -141,8 +141,8 @@ pub use nodes::surface::{
     WizardStep, WizardSteps,
 };
 pub use nodes::test_and_policy::{
-    FieldPolicies, FieldPolicy, Policies, PolicyCategory, RoleMismatchArm, RouteRedirectTarget,
-    TestAssertion, TestBlock, WhenDeniedRoute,
+    ConditionalPolicyAtom, FieldPolicies, FieldPolicy, Policies, PolicyCategory, RoleMismatchArm,
+    RouteRedirectTarget, TestAssertion, TestBlock, WhenDeniedRoute,
 };
 pub use nodes::workspace::{
     AppWorkspace, WorkspaceApp, WorkspaceBoundary, WorkspaceCommunication, WorkspaceGateway,

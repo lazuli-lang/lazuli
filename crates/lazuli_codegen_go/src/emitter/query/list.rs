@@ -290,6 +290,7 @@ mod tests {
             categories: vec![lazuli_ir::PolicyCategory {
                 name: "authenticated".to_owned(),
                 atoms: vec!["@scope.authenticated".to_owned()],
+                conditional_atoms: Vec::new(),
                 previous_names: Vec::new(),
                 when_denied: Some(lazuli_ir::TranslationKeyRef {
                     key: "account_signin".to_owned(),

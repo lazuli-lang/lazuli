@@ -185,6 +185,19 @@ pub(crate) fn lower_policies_decl(decl: &syntax::PoliciesDecl) -> ir::Policies {
         .map(|c| ir::PolicyCategory {
             name: c.name.clone(),
             atoms: c.atoms.clone(),
+            // GAP-09 — lower each predicate-gated atom's verbatim `when`
+            // text through the shared closed-predicate entry point (same
+            // machinery as `unique ... when` / `invariant when`). The atom
+            // string passes through verbatim; doctor cross-checks the
+            // predicate `input.*` refs against the consuming command.
+            conditional_atoms: c
+                .conditional_atoms
+                .iter()
+                .map(|ca| ir::ConditionalPolicyAtom {
+                    atom: ca.atom.clone(),
+                    when: agent::parse_closed_predicate(&ca.when),
+                })
+                .collect(),
             previous_names: Vec::new(),
             // IR Error-Vocab (Cell PARSE-1) — lower the optional
             // `when_denied @translation.<key>` child onto the typed IR

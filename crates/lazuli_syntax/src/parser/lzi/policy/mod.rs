@@ -48,12 +48,34 @@ use super::is_policy_identifier;
 use super::parse_translation_key_token;
 
 use crate::ast::{
-    FieldPoliciesDecl, PoliciesDecl, PolicyCategoryDecl, Span, TranslationKeyRefAst,
-    WhenDeniedRouteAst,
+    FieldPoliciesDecl, PoliciesDecl, PolicyCategoryDecl, PolicyConditionalAtomAst, Span,
+    TranslationKeyRefAst, WhenDeniedRouteAst,
 };
 
 use field_policies::parse_field_policies_block;
 use route_block::parse_when_denied_route_block;
+
+/// GAP-09 — split a single policy-category entry into `(atom, predicate)`
+/// when it carries a ` when ` tail, else `None`. The split point is the
+/// first whitespace-delimited `when` token; the atom is everything before
+/// it and the predicate everything after. A trailing/empty predicate or
+/// empty atom yields `None` so a malformed `@x when` degrades to a plain
+/// (unconditional) atom rather than a phantom predicate.
+fn split_when_clause(entry: &str) -> Option<(&str, &str)> {
+    // Match a standalone ` when ` token (space-delimited) to avoid
+    // splitting inside an atom name or a quoted literal.
+    let mut search = 0;
+    while let Some(rel) = entry[search..].find(" when ") {
+        let idx = search + rel;
+        let atom = entry[..idx].trim();
+        let when = entry[idx + " when ".len()..].trim();
+        if !atom.is_empty() && !when.is_empty() {
+            return Some((atom, when));
+        }
+        search = idx + " when ".len();
+    }
+    None
+}
 
 pub(super) fn parse_policies_decl(
     lines: &[SourceLine<'_>],
@@ -114,12 +136,28 @@ pub(super) fn parse_policies_decl(
                 i += 1;
                 continue;
             }
-            let atoms = atoms_text
-                .split(',')
-                .map(str::trim)
-                .filter(|atom| atom.starts_with('@'))
-                .map(str::to_owned)
-                .collect();
+            // GAP-09 — each comma-separated entry is either a bare atom
+            // (`@role.admin`) or a predicate-gated atom
+            // (`@policy.admin when input.scope = "production"`). Split the
+            // optional ` when ` tail off each entry; predicate-gated atoms
+            // land in `conditional_atoms`, unconditional atoms in `atoms`,
+            // so every existing reader of `atoms` stays behaviour-identical.
+            let mut atoms: Vec<String> = Vec::new();
+            let mut conditional_atoms: Vec<PolicyConditionalAtomAst> = Vec::new();
+            for entry in atoms_text.split(',').map(str::trim) {
+                if !entry.starts_with('@') {
+                    continue;
+                }
+                if let Some((atom, when)) = split_when_clause(entry) {
+                    conditional_atoms.push(PolicyConditionalAtomAst {
+                        atom: atom.to_owned(),
+                        when: when.to_owned(),
+                        span: Span::new(line.start, line.end),
+                    });
+                } else {
+                    atoms.push(entry.to_owned());
+                }
+            }
             let category_header_line = line;
             let category_header_end = line.end;
             let mut category_last_end = category_header_end;
@@ -184,6 +222,7 @@ pub(super) fn parse_policies_decl(
             categories.push(PolicyCategoryDecl {
                 name: name.to_owned(),
                 atoms,
+                conditional_atoms,
                 when_denied,
                 when_denied_route,
                 span: Span::new(category_header_line.start, category_last_end),
@@ -361,6 +400,51 @@ feature account
                 "/welcome".to_string()
             ))
         );
+    }
+
+    #[test]
+    fn policy_category_input_predicate_lifts_conditional_atoms() {
+        // GAP-09 — canonical syntax: predicate-gated atoms split off into
+        // `conditional_atoms`, leaving `atoms` empty for this category.
+        let source = r#"
+feature account
+  policies
+    create: @policy.admin when input.scope = "production", @policy.manager when input.scope = "media"
+"#;
+        let features = super::super::parse_feature_skeletons(source).expect("parses");
+        let policies = features[0].policies.as_ref().expect("policies block");
+        let create = policies
+            .categories
+            .iter()
+            .find(|c| c.name == "create")
+            .expect("create category");
+        assert!(create.atoms.is_empty(), "predicate atoms must not land in `atoms`");
+        assert_eq!(create.conditional_atoms.len(), 2);
+        assert_eq!(create.conditional_atoms[0].atom, "@policy.admin");
+        assert_eq!(create.conditional_atoms[0].when, "input.scope = \"production\"");
+        assert_eq!(create.conditional_atoms[1].atom, "@policy.manager");
+        assert_eq!(create.conditional_atoms[1].when, "input.scope = \"media\"");
+    }
+
+    #[test]
+    fn policy_category_mixes_conditional_and_unconditional_atoms() {
+        let source = r#"
+feature account
+  policies
+    create: @role.owner, @policy.admin when input.scope = "production"
+"#;
+        let features = super::super::parse_feature_skeletons(source).expect("parses");
+        let create = features[0]
+            .policies
+            .as_ref()
+            .unwrap()
+            .categories
+            .iter()
+            .find(|c| c.name == "create")
+            .unwrap();
+        assert_eq!(create.atoms, vec!["@role.owner".to_owned()]);
+        assert_eq!(create.conditional_atoms.len(), 1);
+        assert_eq!(create.conditional_atoms[0].atom, "@policy.admin");
     }
 
     #[test]

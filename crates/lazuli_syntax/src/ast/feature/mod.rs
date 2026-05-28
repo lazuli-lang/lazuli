@@ -49,8 +49,8 @@ pub use errors::{
 };
 pub use policy::{
     FieldPoliciesDecl, FieldPolicyDecl, PoliciesDecl, PolicyAtomAst, PolicyCategoryDecl,
-    PolicyExprAst, RoleMismatchArmAst, RouteRedirectTargetAst, TranslationKeyRefAst,
-    WhenDeniedRouteAst,
+    PolicyConditionalAtomAst, PolicyExprAst, RoleMismatchArmAst, RouteRedirectTargetAst,
+    TranslationKeyRefAst, WhenDeniedRouteAst,
 };
 pub use rbac::{PermissionDeclAst, RoleDeclAst, RoleGrantsAst};
 pub use translation::{

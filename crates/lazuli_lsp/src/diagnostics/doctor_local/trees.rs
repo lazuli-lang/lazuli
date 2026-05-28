@@ -151,6 +151,15 @@ pub(crate) fn wire_domain(
         synthetic_path,
         lazuli_doctor::domain::constraint_unique_when_invalid
     );
+    // GAP-09 — input-value-predicate policy atom `input.*` field-reference
+    // + atom-namespace check.
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::domain::policy_predicate_invalid
+    );
     // W3 GAP-03 — `computed_date from <base> offset <offset>` base/offset
     // type-check.
     wire_feature_check!(

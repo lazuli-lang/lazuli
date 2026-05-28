@@ -346,6 +346,7 @@ mod tests {
             categories: vec![lazuli_ir::PolicyCategory {
                 name: "traveler_only".to_owned(),
                 atoms: vec!["@actor.traveler".to_owned()],
+                conditional_atoms: Vec::new(),
                 previous_names: Vec::new(),
                 when_denied: None,
                 when_denied_route: None,
