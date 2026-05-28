@@ -1,10 +1,11 @@
 //! Tests for the Wave-W6 surface UX doctor rules (`ux_rules.rs`).
 
 use lazuli_ir::{
-    AudienceUx, BuiltinType, CommandRef, Defaults, EnumDecl, EnumVariant, FieldConstraints,
+    AudienceUx, Board, BuiltinType, CommandRef, Defaults, EnumDecl, EnumVariant, FieldConstraints,
     InlineTable, ListQuery, ListRender, Policies, PolicyRef, QualifiedName, QueryKind, QueryRef,
-    Resource, SpanRef, Surface, SurfaceTarget, TabEntry, TabGroup, TabGroupCase, Tabs, ViewDetail,
-    ViewList, ViewUx, Wizard, WizardStep, WizardSteps,
+    RepeatableField, RepeatableGroup, Resource, SpanRef, Surface, SurfaceTarget, TabEntry,
+    TabGroup, TabGroupCase, Tabs, TypeRef, ViewDetail, ViewList, ViewUx, Wizard, WizardStep,
+    WizardSteps,
 };
 
 use super::*;
@@ -529,4 +530,142 @@ fn inline_table_unknown_command_errors() {
     assert_eq!(f.len(), 1);
     assert_eq!(f[0].code, VIEW_MODE_CODE);
     assert!(f[0].message.contains("update_row"));
+}
+
+// ── LZX-BOARD-LANES-001 (GAP-UX-05) ────────────────────────────────────────
+
+fn many_field(name: &str) -> Field {
+    field(name, TypeRef::Many(Box::new(TypeRef::Builtin(BuiltinType::Id))))
+}
+
+fn board_ux(lanes_source: &str) -> ViewUx {
+    ViewUx {
+        board: Some(Board {
+            name: "activity_board".to_owned(),
+            lanes_source: lanes_source.to_owned(),
+            span_ref: Some(SpanRef { start: 40, end: 42 }),
+        }),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn board_lanes_enum_field_is_clean() {
+    let m = module(
+        vec![enum_field("status", "Status")],
+        vec![enum_decl("Status", &["OPEN", "DONE"])],
+        vec![list_view("v", board_ux("status"))],
+        AudienceUx::default(),
+        vec![],
+    );
+    assert!(check(&m).is_empty());
+}
+
+#[test]
+fn board_lanes_has_many_relation_is_clean() {
+    let m = module(
+        vec![many_field("tasks")],
+        vec![],
+        vec![list_view("v", board_ux("tasks"))],
+        AudienceUx::default(),
+        vec![],
+    );
+    assert!(check(&m).is_empty());
+}
+
+#[test]
+fn board_lanes_non_enum_non_relation_field_errors() {
+    let m = module(
+        vec![text_field("status")],
+        vec![],
+        vec![list_view("v", board_ux("status"))],
+        AudienceUx::default(),
+        vec![],
+    );
+    let f = check(&m);
+    assert_eq!(f.len(), 1);
+    assert_eq!(f[0].code, BOARD_LANES_CODE);
+    assert_eq!(f[0].severity, Severity::Error);
+    assert!(f[0].message.contains("status"));
+}
+
+#[test]
+fn board_lanes_unknown_field_errors() {
+    let m = module(
+        vec![text_field("title")],
+        vec![],
+        vec![list_view("v", board_ux("ghost"))],
+        AudienceUx::default(),
+        vec![],
+    );
+    let f = check(&m);
+    assert_eq!(f.len(), 1);
+    assert_eq!(f[0].code, BOARD_LANES_CODE);
+}
+
+// ── LZX-REPEATABLE-SUM-001 (GAP-UX-05) ─────────────────────────────────────
+
+fn repeatable_ux(sum_field: &str, fields: &[(&str, &str)]) -> ViewUx {
+    ViewUx {
+        repeatable_groups: vec![RepeatableGroup {
+            name: "installments".to_owned(),
+            fields: fields
+                .iter()
+                .map(|(n, t)| RepeatableField {
+                    name: (*n).to_owned(),
+                    type_name: (*t).to_owned(),
+                })
+                .collect(),
+            sum_field: sum_field.to_owned(),
+            sum_target: "100".to_owned(),
+            span_ref: Some(SpanRef { start: 50, end: 51 }),
+        }],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn repeatable_sum_numeric_field_is_clean() {
+    let m = module(
+        vec![text_field("title")],
+        vec![],
+        vec![list_view(
+            "v",
+            repeatable_ux("percentage", &[("days", "Int"), ("percentage", "Decimal")]),
+        )],
+        AudienceUx::default(),
+        vec![],
+    );
+    assert!(check(&m).is_empty());
+}
+
+#[test]
+fn repeatable_sum_unknown_field_errors() {
+    let m = module(
+        vec![text_field("title")],
+        vec![],
+        vec![list_view("v", repeatable_ux("ghost", &[("percentage", "Decimal")]))],
+        AudienceUx::default(),
+        vec![],
+    );
+    let f = check(&m);
+    assert_eq!(f.len(), 1);
+    assert_eq!(f[0].code, REPEATABLE_SUM_CODE);
+    assert!(f[0].message.contains("not a field declared in the group"));
+}
+
+#[test]
+fn repeatable_sum_non_numeric_field_errors() {
+    let m = module(
+        vec![text_field("title")],
+        vec![],
+        vec![list_view("v", repeatable_ux("label", &[("label", "Text")]))],
+        AudienceUx::default(),
+        vec![],
+    );
+    let f = check(&m);
+    assert_eq!(f.len(), 1);
+    assert_eq!(f[0].code, REPEATABLE_SUM_CODE);
+    assert_eq!(f[0].severity, Severity::Error);
+    assert!(f[0].message.contains("non-numeric"));
 }

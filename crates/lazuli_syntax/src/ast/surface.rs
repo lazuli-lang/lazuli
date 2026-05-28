@@ -469,15 +469,24 @@ pub struct ViewUxAst {
     /// `view.inline_table on_change @command.X` (GAP-UX-04).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inline_table: Option<InlineTableAst>,
+    /// `view.board <name> / lanes derived_from <field>` (GAP-UX-05).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board: Option<BoardAst>,
+    /// `repeatable input <name> group { … } validates sum(<f>) = <n>`
+    /// (GAP-UX-05).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub repeatable_groups: Vec<RepeatableGroupAst>,
 }
 
 impl ViewUxAst {
-    /// True when no W6 view primitive is declared.
+    /// True when no W6/GAP-UX-05 view primitive is declared.
     pub fn is_empty(&self) -> bool {
         self.wizard_steps.is_none()
             && self.tab_group.is_none()
             && self.view_modes.is_empty()
             && self.inline_table.is_none()
+            && self.board.is_none()
+            && self.repeatable_groups.is_empty()
     }
 }
 
@@ -562,6 +571,35 @@ pub struct WizardStepAst {
 pub struct InlineTableAst {
     pub on_change: String,
     pub span: Span,
+}
+
+/// `view.board <name>` + `lanes derived_from <field>` (GAP-UX-05).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BoardAst {
+    /// Optional board name from the header (`view.board <name>`); empty when
+    /// omitted.
+    pub name: String,
+    /// `lanes derived_from <field>` — the enum field / has_many relation.
+    pub lanes_source: String,
+    pub span: Span,
+}
+
+/// `repeatable input <name> group { <fields> } validates sum(<f>) = <n>`
+/// (GAP-UX-05). The `sum_target` is kept verbatim (parser-validated numeric).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepeatableGroupAst {
+    pub name: String,
+    pub fields: Vec<RepeatableFieldAst>,
+    pub sum_field: String,
+    pub sum_target: String,
+    pub span: Span,
+}
+
+/// One `<name>: <Type>` field inside a [`RepeatableGroupAst`]'s `group { … }`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepeatableFieldAst {
+    pub name: String,
+    pub type_name: String,
 }
 
 #[cfg(test)]

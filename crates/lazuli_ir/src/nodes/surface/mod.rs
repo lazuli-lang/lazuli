@@ -58,8 +58,8 @@ pub use settings_and_drawer::{
     SettingPersistence, SettingValueSpace,
 };
 pub use ux::{
-    AudienceUx, InlineTable, RenderMode, TabEntry, TabGroup, TabGroupCase, Tabs, ViewUx, Wizard,
-    WizardStep, WizardSteps,
+    AudienceUx, Board, InlineTable, RenderMode, RepeatableField, RepeatableGroup, TabEntry,
+    TabGroup, TabGroupCase, Tabs, ViewUx, Wizard, WizardStep, WizardSteps,
 };
 pub use views::{FlashSpec, ListRender, OnSuccessSpec, ViewCreate, ViewDetail, ViewList};
 

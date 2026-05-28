@@ -32,8 +32,8 @@ use super::super::super::common::{
 use super::super::super::error::ParseError;
 use super::ViewBodyState;
 use crate::ast::{
-    InlineTableAst, Span, TabEntryAst, TabGroupAst, TabGroupCaseAst, TabsAst, WizardAst,
-    WizardStepAst, WizardStepsAst,
+    BoardAst, InlineTableAst, RepeatableFieldAst, RepeatableGroupAst, Span, TabEntryAst,
+    TabGroupAst, TabGroupCaseAst, TabsAst, WizardAst, WizardStepAst, WizardStepsAst,
 };
 
 // ===========================================================================
@@ -297,6 +297,211 @@ fn parse_tab_group_case(line: &SourceLine<'_>, value: &str) -> Result<TabGroupCa
         label,
         span: Span::new(line.start, line.end),
     })
+}
+
+/// `view.board [<name>]` block — a single child line `lanes derived_from
+/// <field>`. GAP-UX-05. Returns the first unconsumed index + the block end
+/// offset.
+pub(super) fn parse_board_block(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    body_indent: usize,
+    header_rest: &str,
+    state: &mut ViewBodyState,
+) -> Result<(usize, usize), ParseError> {
+    let header = &lines[start];
+    if state.ux.board.is_some() {
+        return Err(line_error(header, "view declares `view.board` at most once"));
+    }
+    // Optional `<name>` on the header line. Must be a bare identifier.
+    let name = header_rest.trim();
+    if !name.is_empty() && !is_kebab_or_snake_ident(name) {
+        return Err(line_error_owned(
+            header,
+            format!("`view.board` name `{}` must be a kebab/snake identifier", name),
+        ));
+    }
+
+    let child_indent = body_indent + 2;
+    let mut lanes_source: Option<String> = None;
+    let mut last_end = header.end;
+    let mut i = start + 1;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let raw = line.text.trim_start();
+        if is_trivia(raw) {
+            i += 1;
+            continue;
+        }
+        if line.indent <= body_indent {
+            break;
+        }
+        if line.indent != child_indent {
+            return Err(line_error(
+                line,
+                "`view.board` body uses one indentation level deeper than the header",
+            ));
+        }
+        let trimmed = strip_inline_comment(raw).trim();
+        let field = trimmed.strip_prefix("lanes derived_from ").ok_or_else(|| {
+            line_error(
+                line,
+                "`view.board` body line is `lanes derived_from <field>`",
+            )
+        })?;
+        let field = field.trim();
+        if !is_kebab_or_snake_ident(field) {
+            return Err(line_error_owned(
+                line,
+                format!(
+                    "`view.board lanes derived_from` field `{}` must be a kebab/snake identifier",
+                    field
+                ),
+            ));
+        }
+        if lanes_source.is_some() {
+            return Err(line_error(
+                line,
+                "`view.board` declares `lanes derived_from` exactly once",
+            ));
+        }
+        lanes_source = Some(field.to_owned());
+        last_end = line.end;
+        i += 1;
+    }
+
+    let lanes_source = lanes_source.ok_or_else(|| {
+        line_error(
+            header,
+            "`view.board` requires a `lanes derived_from <field>` line",
+        )
+    })?;
+    state.ux.board = Some(BoardAst {
+        name: name.to_owned(),
+        lanes_source,
+        span: Span::new(header.start, last_end),
+    });
+    Ok((i, last_end))
+}
+
+/// `repeatable input <name> group { <f>: <T>; … } validates sum(<f>) = <n>`
+/// — single line. GAP-UX-05.
+pub(super) fn parse_repeatable_group_line(
+    line: &SourceLine<'_>,
+    rest: &str,
+    state: &mut ViewBodyState,
+) -> Result<(), ParseError> {
+    // `<name> group { … } validates sum(<f>) = <n>`
+    let (name_raw, after_name) = rest.split_once(" group ").ok_or_else(|| {
+        line_error(
+            line,
+            "`repeatable input` is `repeatable input <name> group { <f>: <T>; … } validates sum(<f>) = <n>`",
+        )
+    })?;
+    let name = name_raw.trim().to_owned();
+    if !is_kebab_or_snake_ident(&name) {
+        return Err(line_error_owned(
+            line,
+            format!("`repeatable input` name `{}` must be a kebab/snake identifier", name),
+        ));
+    }
+    if state.ux.repeatable_groups.iter().any(|g| g.name == name) {
+        return Err(line_error_owned(
+            line,
+            format!("duplicate `repeatable input` group `{}`", name),
+        ));
+    }
+
+    // Split the `{ … }` body from the trailing `validates …` clause.
+    let after_name = after_name.trim_start();
+    if !after_name.starts_with('{') {
+        return Err(line_error(
+            line,
+            "`repeatable input <name> group` must be followed by `{ <f>: <T>; … }`",
+        ));
+    }
+    let close = after_name.find('}').ok_or_else(|| {
+        line_error(line, "`repeatable input` group body is missing a closing `}`")
+    })?;
+    let body = &after_name[1..close];
+    let tail = after_name[close + 1..].trim();
+
+    let mut fields: Vec<RepeatableFieldAst> = Vec::new();
+    for entry in body.split(';') {
+        let entry = entry.trim();
+        if entry.is_empty() {
+            continue;
+        }
+        let (fname, ftype) = entry.split_once(':').ok_or_else(|| {
+            line_error(line, "`repeatable input` group fields are `<name>: <Type>`")
+        })?;
+        let fname = fname.trim().to_owned();
+        let ftype = ftype.trim().to_owned();
+        if !is_kebab_or_snake_ident(&fname) {
+            return Err(line_error_owned(
+                line,
+                format!("`repeatable input` field `{}` must be a kebab/snake identifier", fname),
+            ));
+        }
+        if ftype.is_empty() {
+            return Err(line_error_owned(
+                line,
+                format!("`repeatable input` field `{}` is missing a type", fname),
+            ));
+        }
+        fields.push(RepeatableFieldAst {
+            name: fname,
+            type_name: ftype,
+        });
+    }
+    if fields.is_empty() {
+        return Err(line_error(
+            line,
+            "`repeatable input` group requires at least one `<name>: <Type>` field",
+        ));
+    }
+
+    // `validates sum(<f>) = <n>`
+    let validates = tail.strip_prefix("validates ").ok_or_else(|| {
+        line_error(
+            line,
+            "`repeatable input` group requires a `validates sum(<f>) = <n>` clause",
+        )
+    })?;
+    let validates = validates.trim();
+    let sum_inner = validates
+        .strip_prefix("sum(")
+        .and_then(|s| {
+            let end = s.find(')')?;
+            Some((s[..end].trim().to_owned(), s[end + 1..].trim()))
+        })
+        .ok_or_else(|| line_error(line, "`repeatable input validates` must be `sum(<field>) = <n>`"))?;
+    let (sum_field, after_paren) = sum_inner;
+    if !is_kebab_or_snake_ident(&sum_field) {
+        return Err(line_error_owned(
+            line,
+            format!("`repeatable input` sum field `{}` must be a kebab/snake identifier", sum_field),
+        ));
+    }
+    let target_raw = after_paren.strip_prefix('=').map(str::trim).ok_or_else(|| {
+        line_error(line, "`repeatable input validates sum(<f>)` must be followed by `= <n>`")
+    })?;
+    if target_raw.is_empty() || target_raw.parse::<f64>().is_err() {
+        return Err(line_error_owned(
+            line,
+            format!("`repeatable input` sum target `{}` must be a number literal", target_raw),
+        ));
+    }
+
+    state.ux.repeatable_groups.push(RepeatableGroupAst {
+        name,
+        fields,
+        sum_field,
+        sum_target: target_raw.to_owned(),
+        span: Span::new(line.start, line.end),
+    });
+    Ok(())
 }
 
 // ===========================================================================

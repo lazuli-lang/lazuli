@@ -84,7 +84,7 @@ pub mod ir {
         SettingValueSpace, SettingPersistence, OnSuccessSpec, FlashSpec,
         InvalidatesSpec, TranslationKeyRef, QualifiedName,
         ViewUx, AudienceUx, WizardSteps, TabGroup, TabGroupCase, Tabs, TabEntry,
-        Wizard, WizardStep, RenderMode, InlineTable,
+        Wizard, WizardStep, RenderMode, InlineTable, Board, RepeatableGroup, RepeatableField,
     };
 }
 

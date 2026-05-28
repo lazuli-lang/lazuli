@@ -190,4 +190,107 @@ mod ux_tests {
         let err = parse_surface_document(source).unwrap_err();
         assert!(err.to_string().contains("wizard <name> steps"));
     }
+
+    // ── GAP-UX-05: view.board ──────────────────────────────────────────────
+
+    #[test]
+    fn view_board_lanes_derived_from() {
+        let source = r#"surface activity web
+  audience admin
+    view list activity at "/activity"
+      source activity.query.list
+      columns title, status
+      view.board activity_board
+        lanes derived_from status
+"#;
+        let surface = parse_surface_document(source).expect("parses view.board");
+        let list = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            other => panic!("expected list, got {other:?}"),
+        };
+        let board = list.ux.board.as_ref().expect("board");
+        assert_eq!(board.name, "activity_board");
+        assert_eq!(board.lanes_source, "status");
+    }
+
+    #[test]
+    fn view_board_rejected_in_detail() {
+        let source = "surface a web\n  audience admin\n    view detail d at \"/d/:id\"\n      source a.query.by_id\n      route id: Text from path\n      view.board b\n        lanes derived_from status\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("only valid in `view list`"));
+    }
+
+    #[test]
+    fn view_board_requires_lanes_line() {
+        let source = "surface a web\n  audience admin\n    view list v\n      source a.query.l\n      columns k\n      view.board b\n      actions x\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("lanes derived_from"));
+    }
+
+    // ── GAP-UX-05: repeatable input group ──────────────────────────────────
+
+    #[test]
+    fn repeatable_input_group_with_sum_validation() {
+        let source = r#"surface billing web
+  audience admin
+    view list plans at "/plans"
+      source billing.query.list
+      columns title
+      repeatable input installments group { days: Int; percentage: Decimal } validates sum(percentage) = 100
+"#;
+        let surface = parse_surface_document(source).expect("parses repeatable input");
+        let list = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            other => panic!("expected list, got {other:?}"),
+        };
+        assert_eq!(list.ux.repeatable_groups.len(), 1);
+        let g = &list.ux.repeatable_groups[0];
+        assert_eq!(g.name, "installments");
+        assert_eq!(g.fields.len(), 2);
+        assert_eq!(g.fields[0].name, "days");
+        assert_eq!(g.fields[0].type_name, "Int");
+        assert_eq!(g.fields[1].name, "percentage");
+        assert_eq!(g.fields[1].type_name, "Decimal");
+        assert_eq!(g.sum_field, "percentage");
+        assert_eq!(g.sum_target, "100");
+    }
+
+    #[test]
+    fn repeatable_input_requires_group_block() {
+        let source = "surface a web\n  audience admin\n    view list v\n      source a.query.l\n      columns k\n      repeatable input installments validates sum(percentage) = 100\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("group"));
+    }
+
+    #[test]
+    fn repeatable_input_requires_numeric_sum_target() {
+        let source = "surface a web\n  audience admin\n    view list v\n      source a.query.l\n      columns k\n      repeatable input g group { percentage: Decimal } validates sum(percentage) = whole\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("number literal"));
+    }
+
+    #[test]
+    fn repeatable_input_requires_validates_clause() {
+        let source = "surface a web\n  audience admin\n    view list v\n      source a.query.l\n      columns k\n      repeatable input g group { percentage: Decimal }\n";
+        let err = parse_surface_document(source).unwrap_err();
+        assert!(err.to_string().contains("validates"));
+    }
+
+    #[test]
+    fn repeatable_input_on_detail_view_is_allowed() {
+        let source = r#"surface billing web
+  audience admin
+    view detail plan at "/plan/:id"
+      source billing.query.by_id
+      route id: Text from path
+      repeatable input fees group { amount: Decimal } validates sum(amount) = 50
+"#;
+        let surface = parse_surface_document(source).expect("parses on detail");
+        let detail = match &surface.audiences[0].views[0] {
+            ViewAst::Detail(v) => v,
+            other => panic!("expected detail, got {other:?}"),
+        };
+        assert_eq!(detail.ux.repeatable_groups.len(), 1);
+        assert_eq!(detail.ux.repeatable_groups[0].sum_target, "50");
+    }
 }

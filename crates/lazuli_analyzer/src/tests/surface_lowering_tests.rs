@@ -468,6 +468,28 @@
     }
 
     #[test]
+    fn lowers_board_and_repeatable_group() {
+        let surface = parse(
+            "surface item web\n  audience admin\n    view list a\n      source item.query.search\n      columns key\n      view.board activity_board\n        lanes derived_from status\n      repeatable input installments group { days: Int; percentage: Decimal } validates sum(percentage) = 100\n",
+        );
+        let view = match &surface.audiences[0].views[0] {
+            ir::View::List(v) => v,
+            _ => unreachable!(),
+        };
+        let board = view.ux.board.as_ref().expect("board");
+        assert_eq!(board.name, "activity_board");
+        assert_eq!(board.lanes_source, "status");
+        assert_eq!(view.ux.repeatable_groups.len(), 1);
+        let g = &view.ux.repeatable_groups[0];
+        assert_eq!(g.name, "installments");
+        assert_eq!(g.fields.len(), 2);
+        assert_eq!(g.fields[1].name, "percentage");
+        assert_eq!(g.fields[1].type_name, "Decimal");
+        assert_eq!(g.sum_field, "percentage");
+        assert_eq!(g.sum_target, "100");
+    }
+
+    #[test]
     fn unknown_view_mode_is_lowering_error() {
         let ast = parse_surface_document(
             "surface item web\n  audience admin\n    view list a\n      source item.query.search\n      columns key\n      view_mode\n        hologram\n",

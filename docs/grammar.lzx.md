@@ -356,6 +356,47 @@ Doctor `LZX-VIEW-MODE-001`: each mode must be a known render mode;
 `inline_table on_change` must reference a declared command whose target
 resource matches the view's resource.
 
+### 7a.6 Board view + repeatable input group (GAP-UX-05)
+
+```ebnf
+board_decl        = "view" "." "board" IDENT_LOWER? NEWLINE
+                    INDENT board_lanes DEDENT ;
+
+board_lanes       = "lanes" "derived_from" IDENT_LOWER NEWLINE ;
+
+repeatable_decl   = "repeatable" "input" IDENT_LOWER "group"
+                    "{" group_field ( ";" group_field )* "}"
+                    "validates" "sum" "(" IDENT_LOWER ")" "=" NUMBER NEWLINE ;
+
+group_field       = IDENT_LOWER ":" TYPE_NAME ;
+```
+
+`view.board` is a kanban-style board (list-only) whose lanes are derived
+from an enum field (one lane per variant) or a `has_many` relation on the
+view's bound resource. `repeatable input <name> group { … }` is a
+repeatable group of input rows with a cross-row `sum(<field>) = <n>`
+constraint (e.g. installment percentages must total 100); it is valid in
+`view list` and `view detail` bodies (not `view create`).
+
+```
+view list activity at "/activity"
+  source activity.query.list
+  columns title, status
+  view.board activity_board
+    lanes derived_from status
+
+view list plans at "/plans"
+  source billing.query.list
+  columns title
+  repeatable input installments group { days: Int; percentage: Decimal } validates sum(percentage) = 100
+```
+
+Doctor `LZX-BOARD-LANES-001`: `lanes derived_from <field>` must reference
+a declared enum field or a has_many relation on the bound resource.
+Doctor `LZX-REPEATABLE-SUM-001`: the `sum(<field>)` field must be a
+numeric field declared inside the group; the parser guarantees the `= <n>`
+target is a number literal.
+
 ## 8. Validations not in this grammar
 
 Doctor and LSP enforce beyond what EBNF can express:

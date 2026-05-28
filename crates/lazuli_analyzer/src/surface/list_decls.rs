@@ -214,6 +214,29 @@ pub(super) fn lower_view_ux(
         }),
         view_modes,
         inline_table,
+        board: ast.board.as_ref().map(|b| ir::Board {
+            name: b.name.clone(),
+            lanes_source: b.lanes_source.clone(),
+            span_ref: Some(span_of(b.span)),
+        }),
+        repeatable_groups: ast
+            .repeatable_groups
+            .iter()
+            .map(|g| ir::RepeatableGroup {
+                name: g.name.clone(),
+                fields: g
+                    .fields
+                    .iter()
+                    .map(|f| ir::RepeatableField {
+                        name: f.name.clone(),
+                        type_name: f.type_name.clone(),
+                    })
+                    .collect(),
+                sum_field: g.sum_field.clone(),
+                sum_target: g.sum_target.clone(),
+                span_ref: Some(span_of(g.span)),
+            })
+            .collect(),
     })
 }
 
