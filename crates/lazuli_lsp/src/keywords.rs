@@ -337,6 +337,60 @@ pub const KEYWORDS: &[&str] = &[
     "@full_text",
     "version_field",
     "primary",
+    // Surface-sync WT-2 — parser primitives the hand-curated catalog
+    // was missing. Grouped by concern. `target` / `@full_text` /
+    // `targets` already live above; not duplicated here.
+    //
+    // Domain / resource decorators + relations (GAP-07/13, GAP-AUDIT-02,
+    // W3 GAP-03, W4 GAP-08).
+    "append_only",
+    "many_through",
+    "polymorphic_ref",
+    "computed_date",
+    "schedule_rule",
+    "@slug",
+    "@owner_axis",
+    // Command-side verbs + approval-chain vocab (W4 GAP-REORDER-01 /
+    // GAP-06, GAP-AUDIT-01).
+    "reorder",
+    "materialize",
+    "approval",
+    "chain",
+    "sequential",
+    // Feature kinds + iron-hand context vocabulary.
+    "report",
+    "poller",
+    "attach_ctx",
+    "purpose",
+    "non_goals",
+    // Surface (`.lzx`) view / create / UX primitives. `view list`
+    // projections, the `view create` submit + post-submit contract, and
+    // the Wave-W6 / GAP-UX UX primitives.
+    "source",
+    "submit",
+    "on_success",
+    "drawer",
+    "sort",
+    "selection",
+    "bulk_actions",
+    "settings",
+    "persist",
+    "flash",
+    "replace",
+    "back",
+    "redirect",
+    "tabs",
+    "tab",
+    "tab_group",
+    "wizard",
+    "wizard_steps",
+    "view_mode",
+    "inline_table",
+    "date_range",
+    "board",
+    "lanes",
+    "repeatable",
+    "step",
 ];
 
 /// Rich hover detail strings for every token in [`DESIGN_KEYWORDS`].

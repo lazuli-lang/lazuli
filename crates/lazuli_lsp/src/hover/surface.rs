@@ -302,6 +302,80 @@ pub(crate) fn keyword_description(keyword: &str) -> Option<&'static str> {
         "@owner_axis" | "owner_axis" => Some(
             "Field-level annotation: `@owner_axis(through: <column>)`. Marks the field as the FK that anchors the resource's ownership chain. The crud / me synth passes use this to emit ownership-restricted WHERE clauses (the row's owner is resolved through the chain to `ctx.User.ID` rather than just the tenant). See `docs/proposals/ir-resource-conventions-owner-scope.md` §7.",
         ),
+        // Surface-sync WT-2 — `.lzx` view / create / UX primitives.
+        "submit" => Some(
+            "On `view create`: `submit <feature>.command.<name>` binds the form to the command it dispatches. Required for a create view (the dual of `source <query>` on list/detail views).",
+        ),
+        "on_success" => Some(
+            "On `view create`: post-submit navigation/feedback block. Children (each at most once): `back`, `redirect \"<path>\"`, `flash <success|error|info> @translation.<key>`, `invalidates query.<name>`, `replace`. Valid only in submit-backed create bodies.",
+        ),
+        "back" => Some(
+            "Inside `on_success`: navigate to the previous route after a successful submit. Mutually composable with `flash` / `invalidates`; declared at most once.",
+        ),
+        "redirect" => Some(
+            "Inside `on_success`: `redirect \"<path>\"` navigates to an explicit quoted path after a successful submit. Declared at most once.",
+        ),
+        "flash" => Some(
+            "Inside `on_success`: `flash <success|error|info> @translation.<key>` raises a toast/notice after submit. Kind is a closed catalog; the message references a `@translation.<key>`.",
+        ),
+        "replace" => Some(
+            "Inside `on_success`: switches the post-submit navigation transition from push to replace (the new route replaces the current history entry). Flag, declared at most once.",
+        ),
+        "drawer" => Some(
+            "On `view list`: `drawer <name> on select` mounts a side panel opened when a row is selected. List-only; declared at most once.",
+        ),
+        "sort" => Some(
+            "On `view list`: sort contract block. `by <field>, ...` lists sortable columns; `default <field> asc|desc` sets the initial order. List-only; declared at most once.",
+        ),
+        "selection" => Some(
+            "On `view list`: row-selection mode. Closed catalog: `single` / `multi` / `none`. Pairs with `bulk_actions` to enable batch operations over the selected set. List-only.",
+        ),
+        "bulk_actions" => Some(
+            "On `view list`: comma-separated action names enabled over the current row selection (`bulk_actions archive, delete`). Implies a selection set even without an explicit `selection` line. List-only.",
+        ),
+        "settings" => Some(
+            "On `view list`: per-view user-adjustable preferences block (e.g. `density: Enum [comfortable, compact] default comfortable`). Each entry may carry `persist` to retain the choice across sessions. List-only; declared at most once.",
+        ),
+        "persist" => Some(
+            "Inside a `settings` declaration: marks a view setting as persisted across sessions (stored per-user) rather than reset on reload. Valid only as a `settings` child.",
+        ),
+        // Wave-W6 / GAP-UX view-level + audience-level UX primitives.
+        "wizard_steps" => Some(
+            "View-level UX primitive (list/detail): `wizard_steps <total> current <field>`. Renders a multi-step progress affordance; `<total>` is a positive integer and `current` names the step-tracking field. Declared at most once (GAP-UX-01).",
+        ),
+        "tab_group" => Some(
+            "View-level UX primitive (list/detail): `tab_group derived_from <field>` with `case <V1, V2> -> tab \"<label>\"` arms. Groups the view into tabs chosen by the discriminant field's value (GAP-UX-02).",
+        ),
+        "view_mode" => Some(
+            "View-level UX primitive (`view list` only): block of bare render-mode keywords (e.g. `table`, `kanban`) the list can toggle between. Declared at most once (GAP-UX-04).",
+        ),
+        "inline_table" => Some(
+            "View-level UX primitive (`view list` only): `view.inline_table on_change @command.<name>` enables inline row editing that dispatches the named command on change. Declared at most once (GAP-UX-04).",
+        ),
+        "board" => Some(
+            "View-level UX primitive (`view list` only): `view.board [<name>]` renders a kanban board. Requires a `lanes derived_from <field>` body line (GAP-UX-05).",
+        ),
+        "lanes" => Some(
+            "Inside `view.board`: `lanes derived_from <field>` names the field whose values become the board's columns/lanes. Declared exactly once per board (GAP-UX-05).",
+        ),
+        "repeatable" => Some(
+            "View-level UX primitive: `repeatable input <name> group { <f>: <T>; ... } [validates sum(<f>) = <n>]` declares a repeatable input group with an optional aggregate validation constraint (GAP-UX-05).",
+        ),
+        "tabs" => Some(
+            "Audience-level UX primitive (sibling to `view`): `tabs` block of `tab \"<label>\" -> view <name> [audience <a>]` entries. Groups several views behind a tabbed navigation (GAP-UX-03).",
+        ),
+        "tab" => Some(
+            "Inside `tabs` or a `tab_group` case: `tab \"<label>\" -> view <name> [audience <a>]` (audience tabs) or `case ... -> tab \"<label>\"` (view tab groups). Names one tab and its target view/label.",
+        ),
+        "wizard" => Some(
+            "Audience-level UX primitive (sibling to `view`): `wizard <name> steps` with `step <n>: <view>` children. Sequences several views into an ordered multi-step flow (GAP-UX-03).",
+        ),
+        "step" => Some(
+            "Inside an audience-level `wizard`: `step <n>: <view>` binds one ordinal step to a view. Steps are ordered by `<n>` (GAP-UX-03).",
+        ),
+        "date_range" => Some(
+            "Filter cardinality on a `view list` `filters` entry: `<name>: date_range [<Date|DateTime>] [from query]`. Surfaces a paired from/to date picker bound to two query params (`<name>_from` / `<name>_to`) over a single Date/DateTime field (GAP-UX-07).",
+        ),
         _ => None,
     }
 }
