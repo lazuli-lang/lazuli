@@ -165,6 +165,7 @@
             conventions: vec![ir::ConventionRef::Crud, ir::ConventionRef::Me],
             lifecycle_routes: None,
             polymorphic_refs: Vec::new(),
+            many_through: Vec::new(),
             append_only: false,
         };
         // Sanity: not user-keyed (no `user: User required unique`).

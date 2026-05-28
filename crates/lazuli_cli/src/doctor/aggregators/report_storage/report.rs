@@ -318,7 +318,11 @@ pub(crate) fn make_synthetic_feature_for_reports(fact: &Tier3FeatureFacts) -> la
         non_goals: Vec::new(),
         context_path: None,
         defaults: lazuli_ir::Defaults::default(),
-        uses: Vec::new(),
+        // GAP-07 — carry the feature's `uses` so MANY-THROUGH-ENDPOINT-001
+        // can resolve cross-feature partner endpoints (a `many_through`
+        // partner living in a dependency feature). Previously dropped; other
+        // domain rules don't read `uses`, so this is additive.
+        uses: fact.uses.clone(),
         uses_spans: Vec::new(),
         uses_versions: Vec::new(),
         requirements: Vec::new(),

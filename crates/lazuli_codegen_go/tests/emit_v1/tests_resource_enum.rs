@@ -54,6 +54,7 @@ fn resource_kind_emits_typed_struct_and_resource_value() {
         conventions: Vec::new(),
         lifecycle_routes: None,
         polymorphic_refs: Vec::new(),
+        many_through: Vec::new(),
         append_only: false,
     };
     module.features[0].resources.push(resource);

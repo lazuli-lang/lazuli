@@ -167,6 +167,7 @@ fn resource_with_field(type_ref: TypeRef) -> Resource {
         conventions: Vec::new(),
         lifecycle_routes: None,
         polymorphic_refs: Vec::new(),
+        many_through: Vec::new(),
         append_only: false,
     }
 }

@@ -186,6 +186,15 @@ pub(crate) fn wire_domain(
         synthetic_path,
         lazuli_doctor::domain::reorder_position_field_invalid
     );
+    // GAP-07 — `many_through <Junction> to <Partner>` partner-endpoint
+    // resolution + payload-type legality.
+    wire_feature_check!(
+        source,
+        diagnostics,
+        feature,
+        synthetic_path,
+        lazuli_doctor::domain::many_through_endpoint_001
+    );
 }
 
 pub(crate) fn wire_lifecycle(

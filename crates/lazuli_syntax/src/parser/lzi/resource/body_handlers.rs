@@ -14,7 +14,7 @@ use super::has_many::parse_resource_has_many;
 use super::index::{parse_parenthesized_field_list_with_trailing, parse_resource_index_target};
 use super::retention::parse_resource_retention;
 use crate::ast::{
-    DefaultsTenancy, InvariantDecl, ResourceCompositeKey, ResourceConstraintAst,
+    DefaultsTenancy, InvariantDecl, ManyThroughAst, ResourceCompositeKey, ResourceConstraintAst,
     ResourceConventionAst, ResourceFieldDecl, ResourceHasMany, ResourceIndexAst,
     ResourceIndexMethodAst, ResourceLifecycleRoutesAst, ResourceLock, ResourcePolymorphicRefAst,
     ResourceRetention, ResourceUniqueAst, Span,
@@ -46,6 +46,8 @@ pub(super) struct ResourceBodyState {
     pub(super) constraints: Vec<ResourceConstraintAst>,
     /// GAP-13 — `polymorphic_ref <type> <id> targets [...]` declarations.
     pub(super) polymorphic_refs: Vec<ResourcePolymorphicRefAst>,
+    /// GAP-07 — `many_through <Junction> to <Partner>` block declarations.
+    pub(super) many_through: Vec<ManyThroughAst>,
     /// router-w4 — `lifecycle_routes` block.
     pub(super) lifecycle_routes: Option<ResourceLifecycleRoutesAst>,
 }

@@ -147,6 +147,39 @@ pub struct Resource {
     /// `append_only == false`.
     #[serde(default, skip_serializing_if = "is_false")]
     pub append_only: bool,
+    /// GAP-07 — `many_through <Junction> to <Partner>` declarations on the
+    /// declaring resource. Each models an M:N relationship with metadata.
+    /// The analyzer **desugars** every entry into a synthesized junction
+    /// `ir::Resource` appended to the same feature (two endpoint FK columns
+    /// + payload columns + a composite UNIQUE on the endpoint pair); these
+    /// entries are retained on the declaring resource as the IR record of
+    /// the relationship so doctor `MANY-THROUGH-ENDPOINT-001` can verify
+    /// both endpoints resolve and the payload field types are legal.
+    /// Additive: pre-GAP-07 fixtures deserialize with an empty vec.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub many_through: Vec<ManyThrough>,
+}
+
+/// GAP-07 — one M:N-with-metadata relationship declared via
+/// `many_through <Junction> to <Partner>` on a [`Resource`]. The junction
+/// resource named `junction` is synthesized by the analyzer with:
+///   - `<declaring>_id: ID` — FK to the declaring resource,
+///   - `<partner>_id: ID` — FK to the `partner` resource,
+///   - one column per `payload` field, and
+///   - a composite `UNIQUE (<declaring>_id, <partner>_id)` so the pair is
+///     unique (the relationship is a set, not a bag).
+/// The partner endpoint is explicit (the `to <Partner>` clause); doctor
+/// `MANY-THROUGH-ENDPOINT-001` verifies both endpoints resolve. Mirrors
+/// `lazuli_syntax::ManyThroughAst` minus the spans.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ManyThrough {
+    /// Junction resource name (PascalCase), e.g. `JobMember`.
+    pub junction: String,
+    /// Partner endpoint resource name (PascalCase), e.g. `User`.
+    pub partner: String,
+    /// Payload columns the junction carries beyond the two endpoint FKs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub payload: Vec<Field>,
 }
 
 /// GAP-13 — one polymorphic (discriminated) foreign key on a [`Resource`].
@@ -396,5 +429,67 @@ mod tests {
         let v = StorageValue::String("x".into());
         let s = serde_json::to_string(&v).expect("serialize");
         assert_eq!(s, "{\"kind\":\"String\",\"value\":\"x\"}");
+    }
+
+    #[test]
+    fn many_through_round_trips_via_serde() {
+        // GAP-07 — `ManyThrough` (junction + partner + payload) serde round-trip.
+        let mt = ManyThrough {
+            junction: "JobMember".into(),
+            partner: "User".into(),
+            payload: vec![Field {
+                name: "role_in_job".into(),
+                type_ref: TypeRef::Builtin(BuiltinType::Text),
+                required: true,
+                unique: false,
+                slug: false,
+                default: None,
+                derived_from: None,
+                computed_date: None,
+                constraints: FieldConstraints::default(),
+                full_text: false,
+                previous_names: vec![],
+                pii: None,
+                owner_axis: None,
+                cross_feature_target: None,
+                span_ref: None,
+            }],
+        };
+        let s = serde_json::to_string(&mt).expect("serialize");
+        let back: ManyThrough = serde_json::from_str(&s).expect("deserialize");
+        assert_eq!(mt, back);
+        assert_eq!(back.junction, "JobMember");
+        assert_eq!(back.partner, "User");
+        assert_eq!(back.payload.len(), 1);
+    }
+
+    #[test]
+    fn resource_empty_many_through_is_omitted_from_json() {
+        // Additive: pre-GAP-07 fixtures (empty vec) don't ship the field.
+        let r = Resource {
+            name: "Plain".into(),
+            public_contract: None,
+            tenancy: None,
+            soft_delete: false,
+            timestamps: None,
+            fields: vec![],
+            constraints: vec![],
+            validate: None,
+            validates: vec![],
+            retention: None,
+            previous_names: vec![],
+            span_ref: None,
+            lifecycle: None,
+            invariants: vec![],
+            lock: None,
+            composite_key: None,
+            conventions: Vec::new(),
+            lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            append_only: false,
+            many_through: Vec::new(),
+        };
+        let s = serde_json::to_string(&r).expect("serialize");
+        assert!(!s.contains("many_through"), "empty many_through omitted: {s}");
     }
 }

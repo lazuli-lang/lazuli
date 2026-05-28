@@ -83,6 +83,7 @@ fn resource(fields: Vec<Field>) -> Resource {
         lifecycle: None,
         lifecycle_routes: None,
         polymorphic_refs: Vec::new(),
+        many_through: Vec::new(),
         append_only: false,
         invariants: vec![],
         lock: None,
