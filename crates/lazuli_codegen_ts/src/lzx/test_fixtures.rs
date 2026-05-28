@@ -89,6 +89,7 @@ pub fn slug_list_view() -> ViewList {
         selection: None,
         settings: vec![],
         redacted_fields: Vec::new(),
+        ux: Default::default(),
         span_ref: None,
     }
 }
@@ -133,6 +134,7 @@ pub fn slug_detail_view() -> ViewDetail {
             },
         ],
         redacted_fields: Vec::new(),
+        ux: Default::default(),
         span_ref: None,
     }
 }
@@ -206,6 +208,7 @@ pub fn public_slug_list_view() -> ViewList {
         selection: None,
         settings: vec![],
         redacted_fields: Vec::new(),
+        ux: Default::default(),
         span_ref: None,
     }
 }
@@ -233,6 +236,7 @@ pub fn admin_audience() -> Audience {
             View::Detail(slug_detail_view()),
             View::Create(slug_create_view()),
         ],
+        ux: Default::default(),
         span_ref: None,
     }
 }
@@ -256,6 +260,7 @@ pub fn public_audience() -> Audience {
             args: None,
         }],
         views: vec![View::List(public_slug_list_view())],
+        ux: Default::default(),
         span_ref: None,
     }
 }

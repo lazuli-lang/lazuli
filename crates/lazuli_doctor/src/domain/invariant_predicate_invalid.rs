@@ -114,8 +114,7 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
 
     // Resource-scoped invariants
     for resource in &feature.resources {
-        let fields: HashSet<&str> =
-            resource.fields.iter().map(|f| f.name.as_str()).collect();
+        let fields: HashSet<&str> = resource.fields.iter().map(|f| f.name.as_str()).collect();
         for inv in &resource.invariants {
             for missing in unresolved_top_fields(&inv.when, &fields) {
                 findings.push(Finding {
@@ -133,10 +132,8 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     // declared fields plus the bare names of `contains` members
     // (whose deeper field access is deferred to a follow-up rule).
     for agg in &feature.aggregates {
-        let root_resource: Option<&Resource> = feature
-            .resources
-            .iter()
-            .find(|r| r.name == agg.root.name);
+        let root_resource: Option<&Resource> =
+            feature.resources.iter().find(|r| r.name == agg.root.name);
         let mut scope: HashSet<String> = HashSet::new();
         if let Some(r) = root_resource {
             for f in &r.fields {
@@ -197,17 +194,16 @@ fn unresolved_top_fields(pred: &EvalPredicate, known_fields: &HashSet<&str>) -> 
     out
 }
 
-fn collect_pred_paths(
-    pred: &Predicate,
-    known_fields: &HashSet<&str>,
-    out: &mut Vec<String>,
-) {
+fn collect_pred_paths(pred: &Predicate, known_fields: &HashSet<&str>, out: &mut Vec<String>) {
     match pred {
         Predicate::Comparison { left, right, .. } => {
             check_expr(left, known_fields, out);
             check_expr(right, known_fields, out);
         }
-        Predicate::Has { collection, element } => {
+        Predicate::Has {
+            collection,
+            element,
+        } => {
             check_expr(collection, known_fields, out);
             check_expr(element, known_fields, out);
         }
@@ -259,8 +255,8 @@ mod tests {
     use super::*;
     use lazuli_ir::{
         Aggregate, BuiltinType, CompareOp, Defaults, EvalPredicate, Expr, Feature, Field,
-        FieldConstraints, Invariant, Path as IrPath, Policies, Predicate, QualifiedName,
-        Resource, TypeRef,
+        FieldConstraints, Invariant, Path as IrPath, Policies, Predicate, QualifiedName, Resource,
+        TypeRef,
     };
 
     fn mk_field(name: &str) -> Field {
@@ -272,11 +268,13 @@ mod tests {
             slug: false,
             default: None,
             derived_from: None,
+            computed_date: None,
             constraints: FieldConstraints::default(),
             full_text: false,
             previous_names: vec![],
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         }
     }
@@ -301,6 +299,9 @@ mod tests {
             composite_key: None,
             conventions: Vec::new(),
             lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            many_through: Vec::new(),
+            append_only: false,
         }
     }
 
@@ -409,10 +410,7 @@ mod tests {
                 name: "Order".into(),
             },
             contains: vec![],
-            invariants: vec![mk_invariant(
-                "weird",
-                cmp("ghost_field", CompareOp::Eq, 0),
-            )],
+            invariants: vec![mk_invariant("weird", cmp("ghost_field", CompareOp::Eq, 0))],
             span_ref: None,
         };
         let feature = mk_feature(vec![order], vec![aggregate]);

@@ -22,14 +22,14 @@ pub use encryption::{
     EncryptionSource, EncryptionTemplate, EncryptionTemplateAxis,
 };
 pub use nodes::aggregate::{Aggregate, Invariant};
-pub use nodes::app_contract::{
-    AppContract, ContractEvent, ContractField, ContractImport, ContractOperation,
-    ContractOperationError, ContractRecord,
-};
 pub use nodes::ai_primitives::{
     Agent, AgentOutputKind, Api, DiscriminatorRef, EvalAssertion, EvalAssertionKind, EvalCase,
     EvalContainsRhs, EvalPredicate, GoldenSpec, HttpExposure, HttpMethod, QualifiedToolRef,
     ToolBinding, ToolEffect, ToolKind, ToolsCallsOp,
+};
+pub use nodes::app_contract::{
+    AppContract, ContractEvent, ContractField, ContractImport, ContractOperation,
+    ContractOperationError, ContractRecord,
 };
 pub use nodes::app_manifest::{
     AppArchitecture, AppBinding, AppCapability, AppCommunication, AppCookie, AppCors,
@@ -57,10 +57,10 @@ pub use nodes::capability::{
     HashAlgorithm, HashedCapability, MimeType, PiiCapability, TokenCapability, TokenStore,
 };
 pub use nodes::command::{
-    ApprovalSpec, ApprovalThen, Assignment, AuditSpec, Command, CommandEffect, CommandInput,
-    CommandKind, CommandWriteWindow, CreateEffect, DeleteEffect, Deprecation,
+    ApprovalSpec, ApprovalThen, Assignment, AuditMaterialize, AuditSpec, Command, CommandEffect,
+    CommandInput, CommandKind, CommandWriteWindow, CreateEffect, DeleteEffect, Deprecation,
     DeprecationReplacement, DerivedFrom, InvalidatesSpec, LetBinding, NamedArg, PolicyRef,
-    ReturnsEffect, RouteSlot, RouteSlotKind, TargetExpr, TypedSlot, UpdateEffect,
+    ReorderEffect, ReturnsEffect, RouteSlot, RouteSlotKind, TargetExpr, TypedSlot, UpdateEffect,
 };
 pub use nodes::design::{
     ColorState, ColorStateKind, ColorToken, CustomToken, Design, EasingToken, FamilyToken, Motion,
@@ -76,7 +76,6 @@ pub use nodes::event::{
     Rule, TraceFiresPer, built_in_trace_event, built_in_trace_event_records, built_in_trace_events,
     is_reserved_trace_event_name,
 };
-pub use nodes::feature::{Feature, FeatureRequirement};
 pub use nodes::experience::{
     AppRoute, AudienceSurface, Experience, ExperienceAction, ExperienceModule, ExperienceView,
     ForbidWhen, Platform, PlatformSurface, PlatformView, RequiresField, RequiresLifecycle,
@@ -84,6 +83,7 @@ pub use nodes::experience::{
     RouteGuardDefaults, RouteLoader, ViewExtension, ViewExtensionOrder, ViewExtensionSlot,
     ViewGuard, ViewTestAssertion,
 };
+pub use nodes::feature::{Feature, FeatureRequirement};
 pub use nodes::feature_defaults::{
     Constraint, Defaults, EscapeRoute, Extension, ExtensionContract, FieldValidation,
     IndexConstraint, IndexMethod, NonGoal, PathRef, PathSource, Tenancy, UniqueConstraint,
@@ -108,20 +108,12 @@ pub use nodes::poller::{
     Poller, PollerBackoff, PollerCursor, PollerRetry, PollerRetryQuirk, PollerState,
     PollerStateKind, PollerTick,
 };
-pub use nodes::rate_limit::{EnvName, RateLimitByEnv, RateLimitSpec};
-pub use nodes::source_map::{
-    ImportEdge, PublicContract, SourceFile, SourceLocation, SourceMap, SymbolKind, SymbolOrigin,
-    SymbolOriginIndex,
-};
-pub use nodes::workspace::{
-    AppWorkspace, WorkspaceApp, WorkspaceBoundary, WorkspaceCommunication, WorkspaceGateway,
-    WorkspaceGatewayRoute,
-};
 pub use nodes::query::{
     CacheProfile, CacheTtl, CacheTtlLiteral, CompareOp, Expr, Filter, FnCallExpr, KeyClause,
     ListQuery, LookupQuery, OrderBy, OrderDir, Path, Predicate, Query, QueryCache, SqlQuery,
     SqlQueryKind,
 };
+pub use nodes::rate_limit::{EnvName, RateLimitByEnv, RateLimitSpec};
 pub use nodes::rbac::{PermissionEntry, RbacCatalog, RoleEntry, RoleGrants};
 pub use nodes::realtime::Channel;
 pub use nodes::report::{
@@ -129,21 +121,32 @@ pub use nodes::report::{
     ReportFormat, ReportSource,
 };
 pub use nodes::resource::{
-    BuiltinType, CompositeKey, ConventionOrigin, ConventionRef, CurrencyCode, EnumDecl,
-    EnumVariant, Field, FieldConstraints, LifecycleRouteArm, LifecycleRoutes, LockSpec,
-    OwnerAxis, OwnerScopeSql, Record, Resource, RetentionAction, RetentionSpec,
+    BuiltinType, CompositeKey, ComputedDate, ComputedDateBase, ComputedDateOffset,
+    ConventionOrigin, ConventionRef, CrossFeatureTarget, CurrencyCode, EnumDecl, EnumVariant,
+    Field, FieldConstraints, LifecycleRouteArm, LifecycleRoutes, LockSpec, ManyThrough, OwnerAxis,
+    OwnerScopeSql, PolymorphicRef, Record, Resource, RetentionAction, RetentionSpec,
     SanitizeHtmlProfile, StorageValue, TypeRef,
 };
+pub use nodes::source_map::{
+    ImportEdge, PublicContract, SourceFile, SourceLocation, SourceMap, SymbolKind, SymbolOrigin,
+    SymbolOriginIndex,
+};
 pub use nodes::surface::{
-    Audience, BindingRef, CellBinding, CommandRef, DrawerBindingSource, DrawerRouteBinding,
-    DrawerSubView, DrawerTrigger, FilterCardinality, FilterDecl, FlashSpec, ListRender,
-    OnSuccessSpec, QueryKind, QueryRef, RouteParam, SearchDecl, SearchField, SearchMode,
-    SelectionDecl, SelectionMode, SettingDecl, SettingPersistence, SettingValueSpace, SortDecl,
-    SortDir, Surface, SurfaceTarget, View, ViewCreate, ViewDetail, ViewList,
+    Audience, AudienceUx, BindingRef, Board, CellBinding, CommandRef, DrawerBindingSource,
+    DrawerRouteBinding, DrawerSubView, DrawerTrigger, FilterCardinality, FilterDecl, FlashSpec,
+    InlineTable, ListRender, OnSuccessSpec, QueryKind, QueryRef, RenderMode, RepeatableField,
+    RepeatableGroup, RouteParam, SearchDecl, SearchField, SearchMode, SelectionDecl, SelectionMode,
+    SettingDecl, SettingPersistence, SettingValueSpace, SortDecl, SortDir, Surface, SurfaceTarget,
+    TabEntry, TabGroup, TabGroupCase, Tabs, View, ViewCreate, ViewDetail, ViewList, ViewUx, Wizard,
+    WizardStep, WizardSteps,
 };
 pub use nodes::test_and_policy::{
-    FieldPolicies, FieldPolicy, Policies, PolicyCategory, RoleMismatchArm, RouteRedirectTarget,
-    TestAssertion, TestBlock, WhenDeniedRoute,
+    ConditionalPolicyAtom, FieldPolicies, FieldPolicy, Policies, PolicyCategory, RoleMismatchArm,
+    RouteRedirectTarget, TestAssertion, TestBlock, WhenDeniedRoute,
+};
+pub use nodes::workspace::{
+    AppWorkspace, WorkspaceApp, WorkspaceBoundary, WorkspaceCommunication, WorkspaceGateway,
+    WorkspaceGatewayRoute,
 };
 
 /// LZIR_SCHEMA — version of the IR JSON ABI. Bumped to 0.16.0 by
@@ -258,7 +261,6 @@ pub struct Module {
 // rails-style split. Re-exported at the crate root above to preserve the
 // ABI surface.
 // =============================================================================
-
 
 // =============================================================================
 // Resource family — `resource <Name>`, `record <Name>`, `enum <Name>`, type refs.

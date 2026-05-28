@@ -388,7 +388,15 @@ fn inspect_type_ref(
             }
         }
         TypeRef::Many(inner) => {
-            inspect_type_ref(consumer, pins, inner, consumer_site, contracts, symbols, out);
+            inspect_type_ref(
+                consumer,
+                pins,
+                inner,
+                consumer_site,
+                contracts,
+                symbols,
+                out,
+            );
         }
         TypeRef::Builtin(_) | TypeRef::Unresolved(_) | TypeRef::Capability(_) => {}
     }

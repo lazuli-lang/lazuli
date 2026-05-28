@@ -114,10 +114,7 @@ impl OwnerAxisUnknownThroughFinding {
     /// assert!(f.message().contains("Did you mean `user`?"));
     /// ```
     pub fn message(&self) -> String {
-        let suggestion = self
-            .suggestion
-            .as_deref()
-            .unwrap_or(&self.through_column);
+        let suggestion = self.suggestion.as_deref().unwrap_or(&self.through_column);
         format!(
             "Field `{}` declares `@owner_axis(through: {})`, but `{}` is not a column on resource \
              `{}`. Did you mean `{}`? Or remove the annotation.",

@@ -151,7 +151,10 @@ impl EncryptionTemplateAxis {
     /// ```
     /// use lazuli_ir::encryption::EncryptionTemplateAxis;
     ///
-    /// assert_eq!(EncryptionTemplateAxis::parse("tenant_id"), Some(EncryptionTemplateAxis::TenantId));
+    /// assert_eq!(
+    ///     EncryptionTemplateAxis::parse("tenant_id"),
+    ///     Some(EncryptionTemplateAxis::TenantId)
+    /// );
     /// assert_eq!(EncryptionTemplateAxis::parse("nope"), None);
     /// ```
     pub fn parse(name: &str) -> Option<Self> {
@@ -198,7 +201,10 @@ impl EncryptionAlgorithm {
     /// ```
     /// use lazuli_ir::encryption::EncryptionAlgorithm;
     ///
-    /// assert_eq!(EncryptionAlgorithm::parse("aes_256_gcm"), Some(EncryptionAlgorithm::Aes256Gcm));
+    /// assert_eq!(
+    ///     EncryptionAlgorithm::parse("aes_256_gcm"),
+    ///     Some(EncryptionAlgorithm::Aes256Gcm)
+    /// );
     /// ```
     pub fn parse(name: &str) -> Option<Self> {
         match name {
@@ -240,7 +246,10 @@ impl EncryptionRotation {
     /// ```
     /// use lazuli_ir::encryption::EncryptionRotation;
     ///
-    /// assert_eq!(EncryptionRotation::parse("manual"), Some(EncryptionRotation::Manual));
+    /// assert_eq!(
+    ///     EncryptionRotation::parse("manual"),
+    ///     Some(EncryptionRotation::Manual)
+    /// );
     /// ```
     pub fn parse(name: &str) -> Option<Self> {
         match name {
@@ -285,7 +294,10 @@ impl EncryptionKeyScope {
     /// ```
     /// use lazuli_ir::encryption::EncryptionKeyScope;
     ///
-    /// assert_eq!(EncryptionKeyScope::parse("@key.tenant"), Some(EncryptionKeyScope::Tenant));
+    /// assert_eq!(
+    ///     EncryptionKeyScope::parse("@key.tenant"),
+    ///     Some(EncryptionKeyScope::Tenant)
+    /// );
     /// assert_eq!(EncryptionKeyScope::parse("@key.bogus"), None);
     /// ```
     pub fn parse(reference: &str) -> Option<Self> {
@@ -308,7 +320,10 @@ impl EncryptionKeyScope {
     /// use lazuli_ir::encryption::{EncryptionKeyScope, EncryptionTemplateAxis};
     ///
     /// let scope = EncryptionKeyScope::parse("@key.tenant").unwrap();
-    /// assert_eq!(scope.required_axis(), Some(EncryptionTemplateAxis::TenantId));
+    /// assert_eq!(
+    ///     scope.required_axis(),
+    ///     Some(EncryptionTemplateAxis::TenantId)
+    /// );
     /// ```
     pub fn required_axis(self) -> Option<EncryptionTemplateAxis> {
         match self {
@@ -359,19 +374,27 @@ mod tests {
     #[test]
     fn key_scope_required_axes() {
         assert_eq!(
-            EncryptionKeyScope::parse("@key.tenant").unwrap().required_axis(),
+            EncryptionKeyScope::parse("@key.tenant")
+                .unwrap()
+                .required_axis(),
             Some(EncryptionTemplateAxis::TenantId)
         );
         assert_eq!(
-            EncryptionKeyScope::parse("@key.user").unwrap().required_axis(),
+            EncryptionKeyScope::parse("@key.user")
+                .unwrap()
+                .required_axis(),
             Some(EncryptionTemplateAxis::UserId)
         );
         assert_eq!(
-            EncryptionKeyScope::parse("@key.record").unwrap().required_axis(),
+            EncryptionKeyScope::parse("@key.record")
+                .unwrap()
+                .required_axis(),
             Some(EncryptionTemplateAxis::RecordId)
         );
         assert_eq!(
-            EncryptionKeyScope::parse("@key.app").unwrap().required_axis(),
+            EncryptionKeyScope::parse("@key.app")
+                .unwrap()
+                .required_axis(),
             None
         );
         assert!(EncryptionKeyScope::parse("@key.bogus").is_none());

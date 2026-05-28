@@ -254,14 +254,13 @@ fn parse_create_table_clauses(sql: &str) -> Vec<(String, bool)> {
         }
         let after = &sql[pos + "create table".len()..];
         let after_lower = after.to_ascii_lowercase();
-        let (idempotent, name_after) =
-            if after_lower.trim_start().starts_with("if not exists") {
-                let trimmed_left = after.trim_start();
-                let consumed = after.len() - trimmed_left.len();
-                (true, &after[consumed + "if not exists".len()..])
-            } else {
-                (false, after)
-            };
+        let (idempotent, name_after) = if after_lower.trim_start().starts_with("if not exists") {
+            let trimmed_left = after.trim_start();
+            let consumed = after.len() - trimmed_left.len();
+            (true, &after[consumed + "if not exists".len()..])
+        } else {
+            (false, after)
+        };
 
         let table = first_ident(name_after);
         if !table.is_empty() {
@@ -354,9 +353,11 @@ mod tests {
         assert_eq!(findings.len(), 1, "{findings:?}");
         assert_eq!(findings[0].path, offending);
         assert_eq!(findings[0].table, "user");
-        assert!(findings[0]
-            .earlier_migration
-            .ends_with("004_account_user.sql"));
+        assert!(
+            findings[0]
+                .earlier_migration
+                .ends_with("004_account_user.sql")
+        );
         assert_eq!(Finding::CODE, "MIGRATION-IDEMPOTENT-CREATE-001");
         assert_eq!(Finding::default_severity(), DoctorSeverity::Warning);
     }
@@ -439,12 +440,10 @@ mod tests {
 
     #[test]
     fn parser_picks_quoted_and_bare_with_idempotent_flag() {
-        let v =
-            parse_create_table_clauses("CREATE TABLE IF NOT EXISTS \"a\" (id INT); CREATE TABLE b (id INT);");
-        assert_eq!(
-            v,
-            vec![("a".to_string(), true), ("b".to_string(), false)],
+        let v = parse_create_table_clauses(
+            "CREATE TABLE IF NOT EXISTS \"a\" (id INT); CREATE TABLE b (id INT);",
         );
+        assert_eq!(v, vec![("a".to_string(), true), ("b".to_string(), false)],);
     }
 
     #[test]
@@ -456,8 +455,7 @@ mod tests {
     #[test]
     fn parser_ignores_word_boundary_collision() {
         // `recreate_table` is NOT a CREATE TABLE statement.
-        let v =
-            parse_create_table_clauses("-- comment recreate_table\nCREATE TABLE foo (id INT);");
+        let v = parse_create_table_clauses("-- comment recreate_table\nCREATE TABLE foo (id INT);");
         assert_eq!(v, vec![("foo".to_string(), false)]);
     }
 

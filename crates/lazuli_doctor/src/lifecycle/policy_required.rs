@@ -111,10 +111,7 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
         };
 
         for transition in &lifecycle.transitions {
-            let transition_has_policy = transition
-                .policy
-                .as_ref()
-                .is_some_and(|p| !p.is_none());
+            let transition_has_policy = transition.policy.as_ref().is_some_and(|p| !p.is_none());
             if !transition_has_policy && !feature_has_default_policy {
                 findings.push(Finding {
                     path: path.to_path_buf(),
@@ -196,6 +193,9 @@ mod tests {
             composite_key: None,
             conventions: Vec::new(),
             lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            many_through: Vec::new(),
+            append_only: false,
         };
         Feature {
             name: "test_feat".into(),

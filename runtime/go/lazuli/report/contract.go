@@ -77,6 +77,26 @@ type Contract struct {
 	// declaration omits the slot. The auto-mount route wraps the
 	// handler with `RateLimiter` when this is non-empty.
 	RateLimit string
+
+	// Inputs is the declared `report input { … }` param list, in author
+	// order (W5 GAP-REPORT-01). The auto-mount route reads each param
+	// from the request query string, validates required-ness, and
+	// stashes the parsed values into the request context via
+	// `WithParams` so the bound `SourceFn` can filter the source query
+	// (e.g. `period_start` / `period_end`). Empty when the report
+	// declares no `input` block.
+	Inputs []Input
+}
+
+// Input is one declared `report input` param. `Name` is the request
+// query key; `Type` is the verbatim authored type token (e.g. "Date",
+// "CSV"); `Required` mirrors the `required` modifier. The runtime keeps
+// validation wire-thin: required → present + non-empty. Type coercion is
+// the SourceFn's responsibility (it knows the query's column types).
+type Input struct {
+	Name     string
+	Type     string
+	Required bool
 }
 
 // PolicyAtom mirrors `lazuli.PolicyAtom` inside the report package so

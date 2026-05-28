@@ -132,11 +132,13 @@ pub fn simple_field(name: &str, type_ref: TypeRef) -> Field {
         slug: false,
         default: None,
         derived_from: None,
+        computed_date: None,
         constraints: FieldConstraints::default(),
         full_text: false,
         previous_names: Vec::new(),
         pii: None,
         owner_axis: None,
+        cross_feature_target: None,
         span_ref: None,
     }
 }
@@ -161,6 +163,9 @@ pub fn resource_with(name: &str, field_name: &str, field_ty: TypeRef) -> Resourc
         composite_key: None,
         conventions: Vec::new(),
         lifecycle_routes: None,
+        polymorphic_refs: Vec::new(),
+        many_through: Vec::new(),
+        append_only: false,
     }
 }
 

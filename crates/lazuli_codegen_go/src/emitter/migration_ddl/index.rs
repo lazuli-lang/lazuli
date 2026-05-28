@@ -18,7 +18,10 @@
 
 use std::fmt::Write;
 
-use lazuli_ir::{IndexConstraint, IndexMethod};
+use lazuli_ir::{
+    CompareOp, EvalPredicate, Expr, IndexConstraint, IndexMethod, Predicate, Resource,
+    UniqueConstraint,
+};
 
 use super::sql_builder::{lower_snake, quote_ident, sql_ident};
 
@@ -85,12 +88,157 @@ pub(super) fn authored_index_name(table_name: &str, index: &IndexConstraint) -> 
     Some(format!("{}_{}_{}", table_name, field_slug, suffix))
 }
 
+/// GAP-NEW-001 — emit a PARTIAL unique index for a `unique (...) when
+/// <predicate>` constraint. Postgres supports the `WHERE` qualifier only
+/// on indexes (not table `UNIQUE` constraints), so the conditional form
+/// lowers to `CREATE UNIQUE INDEX ... WHERE <predicate>`.
+///
+/// Returns `None` for the unconditional form (`when == None`) — that case
+/// stays a table-level `UNIQUE (...)` clause emitted by `constraint.rs`.
+/// Predicate shapes the renderer can't lower (`Unparsed`, non-comparison)
+/// degrade gracefully: the index is still emitted over the columns and the
+/// unsupported predicate is dropped into a trailing `-- WHERE` comment so
+/// `go build` / `psql` never see invalid SQL.
+pub(super) fn partial_unique_index_sql(
+    table_name: &str,
+    unique: &UniqueConstraint,
+) -> Option<String> {
+    let when = unique.when.as_ref()?;
+    if unique.fields.is_empty() {
+        return None;
+    }
+    let field_slug = unique
+        .fields
+        .iter()
+        .map(|field| lower_snake(field))
+        .collect::<Vec<_>>()
+        .join("_");
+    let name = format!("{}_{}_uidx", table_name, field_slug);
+    let columns = unique
+        .fields
+        .iter()
+        .map(|field| sql_ident(field))
+        .collect::<Vec<_>>()
+        .join(", ");
+    match eval_predicate_sql(when) {
+        Some(predicate_sql) => Some(format!(
+            "CREATE UNIQUE INDEX {} ON {} ({}) WHERE {};",
+            sql_ident(&name),
+            quote_ident(table_name),
+            columns,
+            predicate_sql,
+        )),
+        None => Some(format!(
+            "CREATE UNIQUE INDEX {} ON {} ({}); -- WHERE clause unsupported (predicate not lowerable)",
+            sql_ident(&name),
+            quote_ident(table_name),
+            columns,
+        )),
+    }
+}
+
+/// Render an [`EvalPredicate`] into a SQL boolean expression for a
+/// partial-index `WHERE` clause. Only the closed `Comparison` shape over
+/// a column path and a literal is lowered today (`is_default = true`,
+/// `status != 'archived'`); richer shapes (`And`/`Or`/`Has`/`Contains`/
+/// `Unparsed`) return `None` so the caller degrades to a non-partial
+/// index plus a comment. Kept wire-thin: no expression engine, just a
+/// direct projection of the closed catalog.
+fn eval_predicate_sql(pred: &EvalPredicate) -> Option<String> {
+    let EvalPredicate::Closed(Predicate::Comparison { left, op, right }) = pred else {
+        return None;
+    };
+    let lhs = expr_sql(left)?;
+    let rhs = expr_sql(right)?;
+    Some(format!("{} {} {}", lhs, compare_op_sql(*op), rhs))
+}
+
+fn compare_op_sql(op: CompareOp) -> &'static str {
+    match op {
+        CompareOp::Eq => "=",
+        CompareOp::Ne => "!=",
+        CompareOp::Lt => "<",
+        CompareOp::Le => "<=",
+        CompareOp::Gt => ">",
+        CompareOp::Ge => ">=",
+    }
+}
+
+/// Project a predicate [`Expr`] leaf into SQL. A single-segment path is a
+/// column reference (quoted via `sql_ident`); string/int/bool literals
+/// render as SQL literals. Multi-segment paths, enum constants, nil, and
+/// `@fn(...)` calls aren't valid in a static partial-index predicate, so
+/// they return `None` (caller drops to a non-partial index).
+fn expr_sql(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Path(path) if path.segments.len() == 1 => Some(sql_ident(&path.segments[0])),
+        Expr::String(s) => Some(format!("'{}'", s.replace('\'', "''"))),
+        Expr::Integer(n) => Some(n.to_string()),
+        Expr::Boolean(b) => Some(if *b { "true".into() } else { "false".into() }),
+        _ => None,
+    }
+}
+
 pub(super) fn index_method_sql(method: IndexMethod) -> &'static str {
     match method {
         IndexMethod::Btree => "BTREE",
         IndexMethod::Gin => "GIN",
         IndexMethod::Gist => "GIST",
     }
+}
+
+/// GAP-12 — emit a btree index per `target @feature.<feature>.<Resource>`
+/// cross-feature FK field. The reference is *logical*: codegen does NOT
+/// emit a hard `FOREIGN KEY` because the target table is owned by another
+/// feature's migration set (the topo-sorted FK ordering in `topo.rs` only
+/// guarantees ordering for same-module same-set FKs). A btree index keeps
+/// the join column fast and documents the logical reference via a comment;
+/// referential integrity across the boundary is the runtime's concern (and
+/// becomes a hard FK only once the target migration set is co-ordered).
+pub(super) fn cross_feature_target_indexes(table_name: &str, resource: &Resource) -> Vec<String> {
+    resource
+        .fields
+        .iter()
+        .filter_map(|field| {
+            let target = field.cross_feature_target.as_ref()?;
+            let name = format!("{}_{}_fkidx", table_name, lower_snake(&field.name));
+            Some(format!(
+                "CREATE INDEX {} ON {} ({}); -- logical FK -> {}.{} (cross-feature; no hard constraint)",
+                sql_ident(&name),
+                quote_ident(table_name),
+                sql_ident(&field.name),
+                target.feature,
+                target.resource,
+            ))
+        })
+        .collect()
+}
+
+/// GAP-13 — emit a composite btree index on `(type_field, id_field)` per
+/// `polymorphic_ref` declaration so discriminated-FK lookups (`WHERE
+/// entity_type = $1 AND entity_id = $2`) stay fast. No hard FK is emitted
+/// (the referent is one of N tables); the discriminator CHECK lives on the
+/// `type_field` column (see `constraint::polymorphic_ref_columns`).
+pub(super) fn polymorphic_ref_indexes(table_name: &str, resource: &Resource) -> Vec<String> {
+    resource
+        .polymorphic_refs
+        .iter()
+        .map(|pref| {
+            let name = format!(
+                "{}_{}_{}_pidx",
+                table_name,
+                lower_snake(&pref.type_field),
+                lower_snake(&pref.id_field),
+            );
+            format!(
+                "CREATE INDEX {} ON {} ({}, {});",
+                sql_ident(&name),
+                quote_ident(table_name),
+                sql_ident(&pref.type_field),
+                sql_ident(&pref.id_field),
+            )
+        })
+        .collect()
 }
 
 /// Emit the two `CREATE INDEX` lines that session-rotation tables

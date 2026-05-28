@@ -81,7 +81,8 @@ pub(crate) fn command_output_type(effect: &CommandEffect, ctx: &TypeCtx<'_>) -> 
             let (ty, _import) = types::go_return_type_for(&r.return_type, ctx);
             ty
         }
-        CommandEffect::None => "struct{}".to_owned(),
+        // W4 GAP-REORDER-01 — reorder is side-effecting; no typed output row.
+        CommandEffect::Reorders(_) | CommandEffect::None => "struct{}".to_owned(),
     }
 }
 
@@ -92,6 +93,7 @@ pub(crate) fn effect_resource_pascal(effect: &CommandEffect) -> String {
         CommandEffect::Creates(c) => pascal_case(&c.resource.name),
         CommandEffect::Updates(u) => pascal_case(&u.resource.name),
         CommandEffect::Deletes(d) => pascal_case(&d.resource.name),
+        CommandEffect::Reorders(r) => pascal_case(&r.resource.name),
         CommandEffect::Returns(r) => match &r.return_type {
             lazuli_ir::TypeRef::UserDefined(q) | lazuli_ir::TypeRef::EnumRef(q) => {
                 pascal_case(&q.name)
@@ -110,6 +112,9 @@ pub(crate) fn effect_resource_var(effect: &CommandEffect) -> Option<String> {
         CommandEffect::Creates(c) => Some(resource_var_for_qname(&c.resource)),
         CommandEffect::Updates(u) => Some(resource_var_for_qname(&u.resource)),
         CommandEffect::Deletes(d) => Some(resource_var_for_qname(&d.resource)),
+        // W4 GAP-REORDER-01 — reorder is resource-bound (the batch UPDATE
+        // targets the resource's table).
+        CommandEffect::Reorders(r) => Some(resource_var_for_qname(&r.resource)),
         CommandEffect::Returns(_) | CommandEffect::None => None,
     }
 }

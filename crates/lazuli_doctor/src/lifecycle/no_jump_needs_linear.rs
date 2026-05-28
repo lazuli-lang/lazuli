@@ -144,11 +144,7 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
 fn non_linear_reason(lifecycle: &Lifecycle) -> Option<String> {
     // Multi-source `from` clause = fan-in, fail fast with a precise
     // pointer.
-    if let Some(transition) = lifecycle
-        .transitions
-        .iter()
-        .find(|t| t.from.len() > 1)
-    {
+    if let Some(transition) = lifecycle.transitions.iter().find(|t| t.from.len() > 1) {
         return Some(format!(
             "transition `{}` has {} source states (multi-`from` fan-in)",
             transition.name,
@@ -254,6 +250,9 @@ mod tests {
             composite_key: None,
             conventions: Vec::new(),
             lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            many_through: Vec::new(),
+            append_only: false,
         };
         Feature {
             name: "test_feat".into(),

@@ -144,11 +144,13 @@ pub(super) fn simple_field(name: &str, builtin: BuiltinType, required: bool) -> 
         slug: false,
         default: None,
         derived_from: None,
+        computed_date: None,
         constraints: lazuli_ir::FieldConstraints::default(),
         full_text: false,
         previous_names: Vec::new(),
         pii: None,
         owner_axis: None,
+        cross_feature_target: None,
         span_ref: None,
     }
 }
@@ -175,6 +177,9 @@ pub(super) fn simple_resource(name: &str, fields: Vec<Field>) -> Resource {
         composite_key: None,
         conventions: Vec::new(),
         lifecycle_routes: None,
+        polymorphic_refs: Vec::new(),
+        many_through: Vec::new(),
+        append_only: false,
     }
 }
 
@@ -195,11 +200,13 @@ pub(super) fn hashed_field(name: &str, required: bool) -> Field {
         slug: false,
         default: None,
         derived_from: None,
+        computed_date: None,
         constraints: lazuli_ir::FieldConstraints::default(),
         full_text: false,
         previous_names: Vec::new(),
         pii: None,
         owner_axis: None,
+        cross_feature_target: None,
         span_ref: None,
     }
 }
@@ -215,11 +222,13 @@ pub(super) fn encrypted_field(name: &str, required: bool) -> Field {
         slug: false,
         default: None,
         derived_from: None,
+        computed_date: None,
         constraints: lazuli_ir::FieldConstraints::default(),
         full_text: false,
         previous_names: Vec::new(),
         pii: None,
         owner_axis: None,
+        cross_feature_target: None,
         span_ref: None,
     }
 }
@@ -237,11 +246,13 @@ pub(super) fn token_field(name: &str, required: bool) -> Field {
         slug: false,
         default: None,
         derived_from: None,
+        computed_date: None,
         constraints: lazuli_ir::FieldConstraints::default(),
         full_text: false,
         previous_names: Vec::new(),
         pii: None,
         owner_axis: None,
+        cross_feature_target: None,
         span_ref: None,
     }
 }
@@ -257,11 +268,13 @@ pub(super) fn e2ee_field(name: &str, required: bool) -> Field {
         slug: false,
         default: None,
         derived_from: None,
+        computed_date: None,
         constraints: lazuli_ir::FieldConstraints::default(),
         full_text: false,
         previous_names: Vec::new(),
         pii: None,
         owner_axis: None,
+        cross_feature_target: None,
         span_ref: None,
     }
 }

@@ -64,6 +64,7 @@
     fn mk_report(name: &str, formats: Vec<ReportFormat>) -> Report {
         Report {
             name: name.to_owned(),
+            input: vec![],
             source: ReportSource::Query(QualifiedName {
                 feature: None,
                 name: "list".to_owned(),
@@ -124,6 +125,53 @@
         assert!(out.contains(
             "func RunMonthlyAudit(ctx *lazuli.Ctx, format report.Format, source report.SourceFn, store storage.ObjectStore) (string, error) {"
         ));
+    }
+
+    // W5 GAP-REPORT-01 — `report input { … }` codegen.
+
+    #[test]
+    fn report_with_input_emits_inputs_slice() {
+        use lazuli_ir::{BuiltinType, TypeRef, TypedSlot};
+
+        let mut feature = base_feature("billing");
+        let mut report = mk_report("billing_summary", vec![ReportFormat::Csv]);
+        report.input = vec![
+            TypedSlot {
+                name: "period_start".into(),
+                type_ref: TypeRef::Builtin(BuiltinType::Date),
+                required: true,
+                constraints: Default::default(),
+                validate_skip: false,
+            },
+            TypedSlot {
+                name: "format".into(),
+                type_ref: TypeRef::Unresolved("CSV".into()),
+                required: false,
+                constraints: Default::default(),
+                validate_skip: false,
+            },
+        ];
+        feature.reports.push(report);
+        let out = emit_reports_file("examples/x.lzi", &feature).expect("must emit");
+
+        // Inputs slice emitted into the Contract, in author order, with
+        // the verbatim type token + required bool.
+        assert!(out.contains("Inputs: []report.Input{"));
+        assert!(out.contains(
+            "{Name: \"period_start\", Type: \"Date\", Required: true},"
+        ));
+        assert!(out.contains("{Name: \"format\", Type: \"CSV\", Required: false},"));
+    }
+
+    #[test]
+    fn report_without_input_omits_inputs_slice() {
+        let mut feature = base_feature("customer");
+        feature
+            .reports
+            .push(mk_report("monthly_audit", vec![ReportFormat::Csv]));
+        let out = emit_reports_file("examples/x.lzi", &feature).expect("must emit");
+        // No `input` block → no Inputs field bloating the contract.
+        assert!(!out.contains("Inputs: []report.Input{"));
     }
 
     #[test]
@@ -187,6 +235,7 @@
         feature.policies.categories.push(PolicyCategory {
             name: "global_read".to_owned(),
             atoms: vec!["@role.admin".to_owned(), "@scope.same_org".to_owned()],
+            conditional_atoms: Vec::new(),
             previous_names: Vec::new(),
             when_denied: None,
             when_denied_route: None,
@@ -207,6 +256,7 @@
         feature.policies.categories.push(PolicyCategory {
             name: "global_read".to_owned(),
             atoms: vec!["@role.admin".to_owned()],
+            conditional_atoms: Vec::new(),
             previous_names: Vec::new(),
             when_denied: None,
             when_denied_route: None,
@@ -226,6 +276,7 @@
         feature.policies.categories.push(PolicyCategory {
             name: "global_read".to_owned(),
             atoms: vec!["@role.admin".to_owned()],
+            conditional_atoms: Vec::new(),
             previous_names: Vec::new(),
             when_denied: None,
             when_denied_route: None,

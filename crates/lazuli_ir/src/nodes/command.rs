@@ -265,9 +265,42 @@ pub struct AuditSpec {
     /// `None` = use feature/registry default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retain_for: Option<String>,
+    /// GAP-AUDIT-01 — `materialize @feature.<feature>.<Resource>` clause.
+    /// When present, the runtime writes the assembled audit record into
+    /// the named (append_only) OperationLog resource *in addition to* the
+    /// `emit_to` event — same record, two sinks. The target resolves like
+    /// a GAP-12 cross-feature reference (`uses`-as-Dependencies) and must
+    /// be an `append_only` resource (doctor `AUDIT-MATERIALIZE-TARGET-001`).
+    /// `None` = audit emits the event only (today's behaviour). Additive:
+    /// pre-GAP-AUDIT-01 snapshots deserialize with `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub materialize: Option<AuditMaterialize>,
+}
+
+/// GAP-AUDIT-01 — typed payload for the `materialize
+/// @feature.<feature>.<Resource>` clause on an `audit` block. Names the
+/// feature that owns the OperationLog resource + the resource itself. The
+/// reference resolves like a GAP-12 cross-feature target (same feature or
+/// a `uses`-listed dependency); doctor `AUDIT-MATERIALIZE-TARGET-001`
+/// additionally enforces the resolved resource is `append_only`. Mirrors
+/// `lazuli_syntax::AuditMaterializeAst`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct AuditMaterialize {
+    /// Owning feature name (segment after `@feature.`).
+    pub feature: String,
+    /// Target OperationLog resource name (PascalCase).
+    pub resource: String,
 }
 
 /// Phase L Tier 4b — Cut A.9 `approval` block lifted into IR.
+///
+/// W4 GAP-06 widened the single-approver form to an ordered approval
+/// *chain* (`approval chain [@role.manager, @role.admin] sequential timeout
+/// 24h then deny`). Back-compat shim: the single-approver `by` slot is
+/// retained and always reflects the *first* approver in the chain, so
+/// pre-W4 snapshots (which serialized only `by`) deserialize with a
+/// 1-element chain (see `chain`'s `#[serde(default)]`); consumers that only
+/// read `by` keep working unchanged.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApprovalSpec {
     /// `required_when <predicate>` — verbatim predicate text. The
@@ -276,13 +309,40 @@ pub struct ApprovalSpec {
     /// land without an IR churn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub required_when: Option<String>,
-    /// `by @role.<name>` or `by @actor.<name>` — single approver atom.
+    /// `by @role.<name>` or `by @actor.<name>` — the *first* approver atom.
+    /// Always equals `chain[0]`. Kept as a dedicated field for back-compat
+    /// with pre-W4 single-approver snapshots + consumers that read one
+    /// approver.
     pub by: String,
+    /// W4 GAP-06 — the ordered approval chain. Single-approver forms lift
+    /// to a 1-element chain (`[by]`). `#[serde(default)]` so a pre-W4
+    /// snapshot with only `by` deserializes with an empty `chain`;
+    /// `approvers()` falls back to `by` in that case.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chain: Vec<String>,
+    /// W4 GAP-06 — `sequential` requires the approvers to approve in chain
+    /// order (each tier gates the next). Absent = parallel (any-order).
+    /// `false` for the legacy single-approver form.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub sequential: bool,
     /// `timeout "24h"` — duration literal parsed by the adapter.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<String>,
     /// `then deny | allow | escalate` — closed catalog of resolutions.
     pub then: ApprovalThen,
+}
+
+impl ApprovalSpec {
+    /// The ordered approver atoms. Returns `chain` when populated (W4
+    /// chain form); falls back to the single `by` approver for pre-W4
+    /// snapshots that serialized only `by`.
+    pub fn approvers(&self) -> Vec<String> {
+        if self.chain.is_empty() {
+            vec![self.by.clone()]
+        } else {
+            self.chain.clone()
+        }
+    }
 }
 
 /// Phase L Tier 4b — closed catalog of approval timeout resolutions
@@ -323,6 +383,9 @@ pub enum CommandKind {
     Delete,
     /// `returns <Type>` — pure request/response, no side effect.
     Returns,
+    /// W4 GAP-REORDER-01 — `reorder <Resource> by <position>` — batch
+    /// position UPDATE over an ordered id list.
+    Reorder,
 }
 
 /// One typed `route <name>: <Type>` slot on a command. The
@@ -456,6 +519,9 @@ pub enum CommandEffect {
     Deletes(DeleteEffect),
     /// Pure request/response command — declares `returns` instead of an effect.
     Returns(ReturnsEffect),
+    /// W4 GAP-REORDER-01 — `reorder <Resource> by <position>` — see
+    /// [`ReorderEffect`].
+    Reorders(ReorderEffect),
     /// No effect declared yet (legacy lowering path).
     None,
 }
@@ -492,6 +558,19 @@ pub struct DeleteEffect {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReturnsEffect {
     pub return_type: TypeRef,
+}
+
+/// W4 GAP-REORDER-01 — `reorder <Resource> by <position>` effect. The
+/// command takes an ordered list of row ids and emits a single batch UPDATE
+/// of the `position_field` column (CASE-based / `VALUES` join — wire-thin
+/// SQL, no homegrown ordering). Doctor `REORDER-POSITION-FIELD-001`
+/// verifies `position_field` is a declared `Integer` field on `resource`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReorderEffect {
+    /// Target resource whose rows are reordered.
+    pub resource: QualifiedName,
+    /// Integer position column the batch UPDATE rewrites.
+    pub position_field: String,
 }
 
 /// One `field = expr` assignment inside a `creates` / `updates` body.

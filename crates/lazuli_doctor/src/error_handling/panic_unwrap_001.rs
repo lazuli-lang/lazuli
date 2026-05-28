@@ -188,12 +188,16 @@ fn scan_file(path: &Path, source: &str, out: &mut Vec<Finding>) {
         let trimmed = stripped.trim_start();
 
         // Track `#[cfg(test)]` attribute on the line just above a `mod`.
-        if trimmed.starts_with("#[cfg(test)]") || trimmed.starts_with("#[cfg(any(test")
+        if trimmed.starts_with("#[cfg(test)]")
+            || trimmed.starts_with("#[cfg(any(test")
             || trimmed.starts_with("#[cfg(all(test")
         {
             in_test_attr = true;
-        } else if in_test_attr && (trimmed.starts_with("mod ") || trimmed.starts_with("pub mod ")
-            || trimmed.starts_with("pub(crate) mod ") || trimmed.starts_with("pub(super) mod "))
+        } else if in_test_attr
+            && (trimmed.starts_with("mod ")
+                || trimmed.starts_with("pub mod ")
+                || trimmed.starts_with("pub(crate) mod ")
+                || trimmed.starts_with("pub(super) mod "))
         {
             // Entering a test module. Track its closing brace.
             if test_mod_depth == 0 {
@@ -375,7 +379,8 @@ fn strip_string_literals(line: &str) -> String {
                 while k < bytes.len() {
                     if bytes[k] == b'"' {
                         let mut h = 0;
-                        while h < hash_count && k + 1 + h < bytes.len() && bytes[k + 1 + h] == b'#' {
+                        while h < hash_count && k + 1 + h < bytes.len() && bytes[k + 1 + h] == b'#'
+                        {
                             h += 1;
                         }
                         if h == hash_count {
@@ -447,7 +452,10 @@ mod tests {
         let f = file(
             "pub fn x() {\n  let r: Result<u32, ()> = Ok(0);\n  let v = r.unwrap_or_default();\n}\n",
         );
-        assert!(check(&[f]).is_empty(), "unwrap_or_default is not panic-prone");
+        assert!(
+            check(&[f]).is_empty(),
+            "unwrap_or_default is not panic-prone"
+        );
     }
 
     #[test]
@@ -458,8 +466,10 @@ mod tests {
 
     #[test]
     fn expect_fires() {
-        let f = file(r#"pub fn x() { let r: Result<u32, ()> = Ok(0); r.expect("oops"); }
-"#);
+        let f = file(
+            r#"pub fn x() { let r: Result<u32, ()> = Ok(0); r.expect("oops"); }
+"#,
+        );
         let findings = check(&[f]);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].construct, ".expect(...)");
@@ -493,7 +503,10 @@ mod tests {
         let f = file(
             "pub fn x() {}\n#[cfg(test)]\nmod tests {\n  use super::*;\n  #[test]\n  fn t() { Some(1u32).unwrap(); }\n}\n",
         );
-        assert!(check(&[f]).is_empty(), "unwrap inside #[cfg(test)] mod is allowed");
+        assert!(
+            check(&[f]).is_empty(),
+            "unwrap inside #[cfg(test)] mod is allowed"
+        );
     }
 
     #[test]
@@ -521,9 +534,8 @@ mod tests {
 
     #[test]
     fn const_decls_with_panic_keyword_do_not_fire() {
-        let f = file(
-            "pub const PANIC_DOC: &str = \"calls panic!(...) on failure\";\npub fn x() {}\n",
-        );
+        let f =
+            file("pub const PANIC_DOC: &str = \"calls panic!(...) on failure\";\npub fn x() {}\n");
         assert!(check(&[f]).is_empty());
     }
 

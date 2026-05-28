@@ -20,13 +20,12 @@
 //! settings-block level — that prefix is reserved for child lines of
 //! a setting declaration.
 
-use crate::ast::{SettingDeclAst, SettingPersistenceAst, SettingValueSpaceAst, Span};
-
 use super::super::super::common::{
     SourceLine, is_kebab_or_snake_ident, is_trivia, line_error, line_error_owned, split_lzx_list,
     strip_inline_comment,
 };
 use super::super::super::error::ParseError;
+use crate::ast::{SettingDeclAst, SettingPersistenceAst, SettingValueSpaceAst, Span};
 
 pub(crate) fn parse_view_settings_block(
     lines: &[SourceLine<'_>],

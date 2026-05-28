@@ -150,10 +150,8 @@ fn scan_derived(
             // Multiplication of two Money fields is *always* a bug,
             // even at the same currency. The other operators only fire
             // when currencies mismatch.
-            let lhs_currency =
-                lhs.as_deref().and_then(|n| money_currency(resource, n));
-            let rhs_currency =
-                rhs.as_deref().and_then(|n| money_currency(resource, n));
+            let lhs_currency = lhs.as_deref().and_then(|n| money_currency(resource, n));
+            let rhs_currency = rhs.as_deref().and_then(|n| money_currency(resource, n));
             if ch == '*' {
                 if let (Some(lc), Some(rc)) = (lhs_currency, rhs_currency) {
                     // Two Money operands — fire regardless of currency.
@@ -300,11 +298,13 @@ mod tests {
             slug: false,
             default: None,
             derived_from: derived.map(str::to_owned),
+            computed_date: None,
             constraints: FieldConstraints::default(),
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         }
     }
@@ -318,11 +318,13 @@ mod tests {
             slug: false,
             default: None,
             derived_from: None,
+            computed_date: None,
             constraints: FieldConstraints::default(),
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         }
     }
@@ -347,6 +349,9 @@ mod tests {
             composite_key: None,
             conventions: Vec::new(),
             lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            many_through: Vec::new(),
+            append_only: false,
         }
     }
 

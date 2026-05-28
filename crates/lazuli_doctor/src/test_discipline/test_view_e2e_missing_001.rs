@@ -236,7 +236,9 @@ pub fn check_with_discovery_root(
             let view_snake = &view.name;
             let view_kebab = view_snake.replace('_', "-");
             let candidates = [
-                scan_root.join(&experience.name).join(format!("{view_snake}.spec.ts")),
+                scan_root
+                    .join(&experience.name)
+                    .join(format!("{view_snake}.spec.ts")),
                 scan_root.join(format!("{view_snake}.spec.ts")),
                 scan_root.join(format!("{view_kebab}.spec.ts")),
                 scan_root.join(format!("{}-{view_snake}.spec.ts", experience.name)),
@@ -403,7 +405,10 @@ experience empty
         let p = expected_spec_path(Path::new("/proj"), "customer", "detail");
         assert_eq!(
             p,
-            PathBuf::from("/proj").join("e2e").join("customer").join("detail.spec.ts")
+            PathBuf::from("/proj")
+                .join("e2e")
+                .join("customer")
+                .join("detail.spec.ts")
         );
     }
 
@@ -412,12 +417,7 @@ experience empty
         // Manual offset: in SAMPLE_LZX, the first `view list` is on line 4.
         let document = parse(SAMPLE_LZX);
         let tmp = TempDir::new().expect("tempdir");
-        let findings = check(
-            &document,
-            Path::new("customer.lzx"),
-            SAMPLE_LZX,
-            tmp.path(),
-        );
+        let findings = check(&document, Path::new("customer.lzx"), SAMPLE_LZX, tmp.path());
         let list = findings
             .iter()
             .find(|f| f.view == "list")

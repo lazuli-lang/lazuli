@@ -38,6 +38,7 @@ fn feature_with_all_error_vocab_fields_round_trips() {
     feature.policies.categories.push(PolicyCategory {
         name: "authenticated".to_owned(),
         atoms: vec!["@scope.authenticated".to_owned()],
+        conditional_atoms: Vec::new(),
         previous_names: Vec::new(),
         when_denied: Some(key_ref("must_be_signed_in", 300)),
         when_denied_route: None,

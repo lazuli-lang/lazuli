@@ -113,7 +113,7 @@ mod tests {
             extensions: vec![],
             escape_routes: vec![],
             agents: vec![],
-        pollers: vec![],
+            pollers: vec![],
             reports,
             channels: vec![],
             caches: vec![],
@@ -128,6 +128,7 @@ mod tests {
     fn mk_report(name: &str, columns: Vec<lazuli_ir::ReportColumn>) -> Report {
         Report {
             name: name.to_owned(),
+            input: vec![],
             source: ReportSource::Query(lazuli_ir::QualifiedName {
                 feature: None,
                 name: "list".into(),

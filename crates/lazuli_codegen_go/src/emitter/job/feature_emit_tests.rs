@@ -271,6 +271,9 @@
             composite_key: None,
             conventions: Vec::new(),
             lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            many_through: Vec::new(),
+            append_only: false,
         });
         let mut job = handler_job("recompute_score_after_invoice");
         job.body = JobBody::Declarative(JobDeclarative {

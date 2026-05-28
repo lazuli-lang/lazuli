@@ -21,11 +21,10 @@
 //! Errors carry the canonical "block keyword does not accept inline
 //! content" prose so doctor/LSP can lift the message verbatim.
 
-use crate::ast::{FlashSpecAst, InvalidatesDecl, OnSuccessSpecAst, Span};
-
 use super::super::super::common::{SourceLine, is_trivia, line_error, strip_inline_comment};
 use super::super::super::error::ParseError;
 use super::super::super::lzi::{parse_invalidates_entry, parse_translation_key_token};
+use crate::ast::{FlashSpecAst, InvalidatesDecl, OnSuccessSpecAst, Span};
 
 pub(crate) fn parse_on_success_block(
     lines: &[SourceLine<'_>],

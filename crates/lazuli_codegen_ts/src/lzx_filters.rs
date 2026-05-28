@@ -68,9 +68,18 @@ fn emit_filter_config(filters: &[FilterDecl]) -> String {
 }
 
 fn emit_filter_entry(filter: &FilterDecl) -> String {
+    // GAP-UX-07 — date_range lowers to a paired from/to picker. The runtime
+    // `useFilterState` helper reads `fromKey`/`toKey` for `mode: "date_range"`
+    // and surfaces the two query params (`<name>_from` / `<name>_to`).
+    if matches!(filter.cardinality, FilterCardinality::DateRange) {
+        return emit_date_range_filter_entry(filter);
+    }
+
     let mode = match filter.cardinality {
         FilterCardinality::Single => "single",
         FilterCardinality::Multi => "multi",
+        // Handled above by the early return.
+        FilterCardinality::DateRange => unreachable!("date_range routed to dedicated emitter"),
     };
 
     let mut fields = vec![format!("mode: \"{mode}\"")];
@@ -88,6 +97,22 @@ fn emit_filter_entry(filter: &FilterDecl) -> String {
         fields.push("urlKey: undefined".to_owned());
     }
 
+    format!("{}: {{ {} }}", filter.name, fields.join(", "))
+}
+
+/// Emit the paired-date-picker config for a `date_range` filter. Always
+/// surfaces `fromKey`/`toKey` (the two query params); `params`/`setParams`
+/// are threaded only when the filter is URL-synced (`from query`).
+fn emit_date_range_filter_entry(filter: &FilterDecl) -> String {
+    let mut fields = vec![
+        "mode: \"date_range\"".to_owned(),
+        format!("fromKey: \"{}_from\"", filter.name),
+        format!("toKey: \"{}_to\"", filter.name),
+    ];
+    if filter.url_sync {
+        fields.push("params".to_owned());
+        fields.push("setParams".to_owned());
+    }
     format!("{}: {{ {} }}", filter.name, fields.join(", "))
 }
 
@@ -242,6 +267,53 @@ mod tests {
             "ITEM_STATUS_VALUES"
         );
         assert_eq!(enum_value_constant_name("Confidence"), "CONFIDENCE_VALUES");
+    }
+
+    #[test]
+    fn date_range_filter_emits_paired_from_to_keys() {
+        let out = emit_filters_block(
+            &[filter(
+                "created",
+                "Date",
+                FilterCardinality::DateRange,
+                false,
+            )],
+            &surface(),
+        );
+
+        assert_eq!(
+            out,
+            "filters: useFilterState({ created: { mode: \"date_range\", fromKey: \"created_from\", toKey: \"created_to\" } }),"
+        );
+    }
+
+    #[test]
+    fn date_range_filter_with_url_sync_threads_params_pair() {
+        let out = emit_filters_block(
+            &[filter(
+                "created",
+                "DateTime",
+                FilterCardinality::DateRange,
+                true,
+            )],
+            &surface(),
+        );
+
+        assert_eq!(
+            out,
+            "filters: useFilterState({ created: { mode: \"date_range\", fromKey: \"created_from\", toKey: \"created_to\", params, setParams } }),"
+        );
+    }
+
+    #[test]
+    fn date_range_filter_omits_enum_value_imports() {
+        let filters = vec![filter(
+            "created",
+            "Date",
+            FilterCardinality::DateRange,
+            false,
+        )];
+        assert!(enum_value_imports(&filters).is_empty());
     }
 
     #[test]

@@ -64,7 +64,10 @@ impl EmitPredicate {
     /// use lazuli_ir::{EmitPredicate, EmitPredicateKind};
     ///
     /// let pred = EmitPredicate {
-    ///     kind: EmitPredicateKind::Equals { path: "type".into(), literal: "active".into() },
+    ///     kind: EmitPredicateKind::Equals {
+    ///         path: "type".into(),
+    ///         literal: "active".into(),
+    ///     },
     ///     raw: String::new(),
     ///     span_ref: None,
     /// };
@@ -81,8 +84,9 @@ impl EmitPredicate {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn emit_predicate_kind_equals_round_trips() {

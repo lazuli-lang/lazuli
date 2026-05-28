@@ -16,12 +16,10 @@
 
 use std::fmt::Write;
 
-use crate::lzx::lzx_aux;
-use crate::lzx::lzx_filters;
-use crate::lzx::lzx_search;
 use crate::lzx::{
     Audience, CommandRef, SearchMode, SelectionMode, Surface, ViewList, command_action_key,
-    command_ident, pascal_case, query_ident, view_hook_name, view_spec_const,
+    command_ident, lzx_aux, lzx_filters, lzx_search, pascal_case, query_ident, view_hook_name,
+    view_spec_const,
 };
 
 pub(super) fn write_hook(s: &mut String, audience: &Audience, view: &ViewList, surface: &Surface) {
@@ -122,6 +120,11 @@ pub(super) fn write_hook(s: &mut String, audience: &Audience, view: &ViewList, s
         .ok();
     }
     write_drawer_state(s, view);
+    // Wave-W6 view-level UX primitives (wizard_steps / tab_group /
+    // view_mode / view.inline_table).
+    if !view.ux.is_empty() {
+        s.push_str(&crate::lzx::lzx_ux::emit_ux_const(&view.ux));
+    }
 
     writeln!(s).ok();
     writeln!(s, "  return {{").ok();
@@ -146,6 +149,7 @@ pub(super) fn write_hook(s: &mut String, audience: &Audience, view: &ViewList, s
         writeln!(s, "    actions: {{ {} }},", parts.join(", ")).ok();
     }
     lzx_aux::write_return_fields(s, view);
+    crate::lzx::lzx_ux::emit_ux_return_fields(s, &view.ux);
     if view.drawer.is_some() {
         writeln!(s, "    drawer,").ok();
         writeln!(s, "    cellClick,").ok();

@@ -154,6 +154,9 @@ pub(super) fn parse_command_approval(
     let header = &lines[start];
     let mut required_when: Option<String> = None;
     let mut by: Option<String> = None;
+    // W4 GAP-06 — `chain [@role.a, @role.b] [sequential]` child form.
+    let mut chain: Vec<String> = Vec::new();
+    let mut sequential = false;
     let mut timeout: Option<String> = None;
     let mut then: Option<ApprovalThenDecl> = None;
     let mut i = start + 1;
@@ -177,6 +180,23 @@ pub(super) fn parse_command_approval(
 
         if let Some(rest) = trimmed.strip_prefix("required_when ") {
             required_when = Some(rest.trim().to_owned());
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("chain ") {
+            // W4 GAP-06 — `chain [@role.a, @role.b] [sequential]`. The
+            // approvers are a bracketed comma list; an optional trailing
+            // `sequential` token enforces chain order.
+            if !chain.is_empty() {
+                return Err(line_error(
+                    line,
+                    "`approval` may declare at most one `chain`",
+                ));
+            }
+            let (parsed_chain, seq) = parse_approval_chain(line, rest.trim())?;
+            chain = parsed_chain;
+            sequential = sequential || seq;
+            i += 1;
+        } else if trimmed == "sequential" {
+            sequential = true;
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("by ") {
             by = Some(rest.trim().to_owned());
@@ -202,16 +222,29 @@ pub(super) fn parse_command_approval(
         } else {
             return Err(line_error(
                 line,
-                "`approval` children are `required_when`, `by`, `timeout`, or `then`",
+                "`approval` children are `required_when`, `by`, `chain`, `sequential`, `timeout`, or `then`",
             ));
         }
     }
-    let by = by.ok_or_else(|| {
-        line_error(
-            header,
-            "`approval` requires a `by @role.<name>` or `by @actor.<name>` declaration",
-        )
-    })?;
+    // W4 GAP-06 — reconcile the single-approver `by` and the `chain` forms.
+    // Exactly one of them supplies the approvers. `by` lifts to a 1-element
+    // chain; `chain` sets `by = chain[0]` for back-compat.
+    let (by, chain) = match (by, chain.is_empty()) {
+        (Some(b), true) => (b.clone(), vec![b]),
+        (None, false) => (chain[0].clone(), chain),
+        (Some(_), false) => {
+            return Err(line_error(
+                header,
+                "`approval` accepts either `by <role>` or `chain [...]`, not both",
+            ));
+        }
+        (None, true) => {
+            return Err(line_error(
+                header,
+                "`approval` requires a `by @role.<name>` declaration or a `chain [@role.a, ...]`",
+            ));
+        }
+    };
     let then = then.ok_or_else(|| {
         line_error(
             header,
@@ -222,12 +255,56 @@ pub(super) fn parse_command_approval(
         CommandApproval {
             required_when,
             by,
+            chain,
+            sequential,
             timeout,
             then,
             span: Span::new(header.start, header.end),
         },
         i,
     ))
+}
+
+/// W4 GAP-06 — parse the body of an `approval chain` child:
+/// `[@role.a, @role.b] [sequential]`. Returns the ordered approver atoms +
+/// the `sequential` flag. The list must be bracketed and non-empty.
+fn parse_approval_chain(
+    line: &SourceLine<'_>,
+    body: &str,
+) -> Result<(Vec<String>, bool), ParseError> {
+    let body = body.trim();
+    let Some(close) = body.find(']') else {
+        return Err(line_error(
+            line,
+            "`approval chain` requires a bracketed list `[@role.a, @role.b]`",
+        ));
+    };
+    let list = body[..close]
+        .strip_prefix('[')
+        .ok_or_else(|| line_error(line, "`approval chain` list must start with `[`"))?;
+    let approvers: Vec<String> = list
+        .split(',')
+        .map(|t| t.trim().to_owned())
+        .filter(|t| !t.is_empty())
+        .collect();
+    if approvers.is_empty() {
+        return Err(line_error(
+            line,
+            "`approval chain [...]` requires at least one approver role",
+        ));
+    }
+    let trailing = body[close + 1..].trim();
+    let sequential = match trailing {
+        "" => false,
+        "sequential" => true,
+        other => {
+            return Err(line_error_owned(
+                line,
+                format!("`approval chain [...]` only accepts a trailing `sequential` (got `{other}`)"),
+            ));
+        }
+    };
+    Ok((approvers, sequential))
 }
 
 /// Parse `deprecated [since "<X>"] [replacement <ref>] [sunset "<Y>"]` —

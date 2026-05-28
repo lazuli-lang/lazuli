@@ -168,13 +168,7 @@ pub fn check(files: &[GoHandlerSourceFile]) -> Vec<Finding> {
     findings
 }
 
-fn scan_file(
-    path: &Path,
-    feature: &str,
-    bucket: &str,
-    source: &str,
-    out: &mut Vec<Finding>,
-) {
+fn scan_file(path: &Path, feature: &str, bucket: &str, source: &str, out: &mut Vec<Finding>) {
     let mut block_depth: usize = 0;
     let mut brace_depth: usize = 0;
 
@@ -288,7 +282,8 @@ fn is_sentinel_var_decl(trimmed: &str) -> bool {
     if let Some(rest) = trimmed.strip_prefix("Err") {
         if let Some(next) = rest.chars().next() {
             if next.is_ascii_uppercase() || next == '_' || next.is_ascii_alphanumeric() {
-                if trimmed.contains('=') && (trimmed.contains("errors.New(") || trimmed.contains("fmt.Errorf("))
+                if trimmed.contains('=')
+                    && (trimmed.contains("errors.New(") || trimmed.contains("fmt.Errorf("))
                 {
                     return true;
                 }
@@ -517,7 +512,10 @@ mod tests {
         let f = handler_file(
             "package handlers\n\nfunc Login(err error) error {\n    return fmt.Errorf(\"wrap: %v\", err)\n}\n",
         );
-        assert!(check(&[f]).is_empty(), "%v formatting deferred to wrap rule");
+        assert!(
+            check(&[f]).is_empty(),
+            "%v formatting deferred to wrap rule"
+        );
     }
 
     #[test]
@@ -567,9 +565,7 @@ mod tests {
 
     #[test]
     fn message_includes_construct_and_path() {
-        let f = handler_file(
-            "package handlers\n\nfunc A() error { return errors.New(\"x\") }\n",
-        );
+        let f = handler_file("package handlers\n\nfunc A() error { return errors.New(\"x\") }\n");
         let finding = check(&[f]).into_iter().next().unwrap();
         let msg = finding.message();
         assert!(msg.contains("errors.New"));

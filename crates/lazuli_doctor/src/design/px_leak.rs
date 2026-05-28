@@ -220,9 +220,7 @@ mod tests {
 
     #[test]
     fn allow_zero_and_auto() {
-        let f = run(&[
-            r#"<div style={{ padding: "0", margin: "auto", border: "0px" }} />"#,
-        ]);
+        let f = run(&[r#"<div style={{ padding: "0", margin: "auto", border: "0px" }} />"#]);
         assert!(f.is_empty(), "found: {:?}", f);
     }
 
@@ -237,9 +235,7 @@ mod tests {
 
     #[test]
     fn multi_dimensional_literals_each_fire() {
-        let f = run(&[
-            r#"<div style={{ padding: "12px", margin: "1rem", gap: "0.5em" }} />"#,
-        ]);
+        let f = run(&[r#"<div style={{ padding: "12px", margin: "1rem", gap: "0.5em" }} />"#]);
         assert_eq!(f.len(), 3, "got: {:?}", f);
     }
 

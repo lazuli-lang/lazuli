@@ -102,9 +102,9 @@ fn is_mutating(cmd: &Command) -> bool {
 mod tests {
     use super::*;
     use lazuli_ir::{
-        AuditSpec, BuiltinType, Command, CommandEffect, CommandInput, CommandKind,
-        CreateEffect, Defaults, DeleteEffect, Feature, Policies, PolicyRef,
-        QualifiedName, ReturnsEffect, TypeRef, UpdateEffect,
+        AuditSpec, BuiltinType, Command, CommandEffect, CommandInput, CommandKind, CreateEffect,
+        Defaults, DeleteEffect, Feature, Policies, PolicyRef, QualifiedName, ReturnsEffect,
+        TypeRef, UpdateEffect,
     };
 
     fn qn(name: &str) -> QualifiedName {
@@ -242,6 +242,7 @@ mod tests {
             record_before: false,
             record_after: false,
             retain_for: None,
+            materialize: None,
         })
     }
 
@@ -254,6 +255,7 @@ mod tests {
             record_before: false,
             record_after: false,
             retain_for: None,
+            materialize: None,
         })
     }
 
@@ -266,6 +268,7 @@ mod tests {
             record_before: false,
             record_after: false,
             retain_for: None,
+            materialize: None,
         })
     }
 
@@ -277,7 +280,11 @@ mod tests {
         let cmd = mk_cmd("update_status", updates_effect(), vec![], None);
         let feature = mk_feature(vec![cmd]);
         let findings = check(&feature, Path::new("features/publishing/publishing.lzi"));
-        assert_eq!(findings.len(), 1, "expected one finding for updates+no-audit");
+        assert_eq!(
+            findings.len(),
+            1,
+            "expected one finding for updates+no-audit"
+        );
         assert_eq!(findings[0].command, "update_status");
         assert_eq!(Finding::CODE, "VOCAB-AUDIT-001");
         assert!(
@@ -348,7 +355,11 @@ mod tests {
             mk_cmd("delete_publication", deletes_effect(), vec![], None),
         ]);
         let findings = check(&feature, Path::new("f.lzi"));
-        assert_eq!(findings.len(), 2, "both creates and deletes without audit must fire");
+        assert_eq!(
+            findings.len(),
+            2,
+            "both creates and deletes without audit must fire"
+        );
     }
 
     /// A `returns` command that also emits is treated as mutating and fires.
@@ -362,7 +373,11 @@ mod tests {
         );
         let feature = mk_feature(vec![cmd]);
         let findings = check(&feature, Path::new("f.lzi"));
-        assert_eq!(findings.len(), 1, "`returns` command with emits and no audit must fire");
+        assert_eq!(
+            findings.len(),
+            1,
+            "`returns` command with emits and no audit must fire"
+        );
         assert_eq!(findings[0].command, "notify_admin");
     }
 

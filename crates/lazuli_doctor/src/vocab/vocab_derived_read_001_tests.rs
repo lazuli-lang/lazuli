@@ -77,6 +77,9 @@
             composite_key: None,
             conventions: Vec::new(),
             lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            many_through: Vec::new(),
+            append_only: false,
         }
     }
 
@@ -89,11 +92,13 @@
             slug: false,
             default: None,
             derived_from: None,
+            computed_date: None,
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: vec![],
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         }
     }
@@ -107,11 +112,13 @@
             slug: false,
             default: None,
             derived_from: None,
+            computed_date: None,
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: vec![],
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         }
     }
@@ -252,11 +259,13 @@
             slug: false,
             default: None,
             derived_from: None,
+            computed_date: None,
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: vec![],
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         };
         let resource = mk_resource("User", vec![cap_field]);
@@ -281,11 +290,13 @@
             slug: false,
             default: Some(DefaultValue::String("active".into())),
             derived_from: None,
+            computed_date: None,
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: vec![],
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         };
         let resource = mk_resource("Account", vec![default_field]);
@@ -326,11 +337,13 @@
             slug: false,
             default: None,
             derived_from: Some("\"https://example.com/p/{{slug}}\"".into()),
+            computed_date: None,
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: vec![],
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         };
         let resource = mk_resource("Post", vec![derived_field]);

@@ -93,8 +93,8 @@ mod tests {
     use super::*;
     use lazuli_ir::{
         BuiltinType, Defaults, Extension, ExtensionContract, Feature, HandlerRef, IdempotencyKey,
-        Path as IrPath, PathRef, Poller, PollerBackoff, PollerCursor, PollerRetry, PollerState,
-        PollerStateKind, PollerTick, Policies, TypeRef,
+        Path as IrPath, PathRef, Policies, Poller, PollerBackoff, PollerCursor, PollerRetry,
+        PollerState, PollerStateKind, PollerTick, TypeRef,
     };
 
     fn mk_poller(handler_name: &str) -> Poller {

@@ -301,6 +301,7 @@ pub(crate) fn build_auto_photo_command(
             record_before: false,
             record_after: false,
             retain_for: None,
+            materialize: None,
         }),
         approval: None,
         invalidates: Vec::new(),
@@ -342,11 +343,13 @@ fn simple_field(name: &str, type_ref: ir::TypeRef, required: bool) -> ir::Field 
         slug: false,
         default: None,
         derived_from: None,
+        computed_date: None,
         constraints: ir::FieldConstraints::default(),
         full_text: false,
         previous_names: Vec::new(),
         pii: None,
         owner_axis: None,
+        cross_feature_target: None,
         span_ref: None,
     }
 }

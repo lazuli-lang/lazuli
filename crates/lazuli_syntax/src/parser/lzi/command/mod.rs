@@ -50,6 +50,10 @@ mod slots;
 
 #[cfg(test)]
 mod deprecated_tests;
+#[cfg(test)]
+mod gap_audit01_tests;
+#[cfg(test)]
+mod w4_tests;
 
 pub(in crate::parser::lzi) use audit::parse_command_audit;
 pub(in crate::parser::lzi) use effect::{parse_command_effect, parse_let_binding, parse_target_expr};
@@ -80,9 +84,9 @@ use super::{
 
 use crate::ast::{
     CommandApproval, CommandAudit, CommandDecl, CommandDeprecatedDecl, CommandEffectDecl,
-    CommandEffectKindDecl, CommandEmit, CommandInputDecl, CommandRouteSlot, CommandWriteWindow,
-    InvalidatesDecl, JobExternalCall, JobHandler, JobRetry, LetBindingDecl, PolicyExprAst,
-    RateLimitSpecAst, Span, TargetExprDecl, TranslationKeyRefAst,
+    CommandEffectKindDecl, CommandEmit, CommandInputDecl, CommandReorderDecl, CommandRouteSlot,
+    CommandWriteWindow, InvalidatesDecl, JobExternalCall, JobHandler, JobRetry, LetBindingDecl,
+    PolicyExprAst, RateLimitSpecAst, Span, TargetExprDecl, TranslationKeyRefAst,
 };
 
 pub(super) fn parse_command_decl(
@@ -115,6 +119,7 @@ pub(super) fn parse_command_decl(
     let mut validate: Vec<String> = Vec::new();
     let mut effect: Option<CommandEffectDecl> = None;
     let mut returns: Option<String> = None;
+    let mut reorder: Option<CommandReorderDecl> = None;
     let mut handler: Option<JobHandler> = None;
     let mut emits: Vec<CommandEmit> = Vec::new();
     let mut triggers: Vec<String> = Vec::new();
@@ -285,6 +290,17 @@ pub(super) fn parse_command_decl(
             effect = Some(parsed);
             last_end = lines[next.saturating_sub(1).max(i)].end;
             i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("reorder ") {
+            // W4 GAP-REORDER-01 — `reorder <Resource> by <position_field>`.
+            if reorder.is_some() {
+                return Err(line_error(
+                    line,
+                    "a command may declare at most one `reorder` body",
+                ));
+            }
+            reorder = Some(parse_command_reorder(line, rest)?);
+            last_end = line.end;
+            i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("returns ") {
             returns = Some(rest.trim().to_owned());
             last_end = line.end;
@@ -377,7 +393,7 @@ pub(super) fn parse_command_decl(
         } else {
             return Err(line_error(
                 line,
-                "`command` children are `previously`, `route`, `input`, `policy`, `rate_limit`, `audit`, `approval`, `deprecated`, `target`, `let`, `validate`, `creates`/`updates`/`deletes`, `returns`, `handler`, `emits`, `triggers transition`, `invalidates`, `calls`, `timeout`, `retry`, `idempotency by`, `write_window`, or `tests`",
+                "`command` children are `previously`, `route`, `input`, `policy`, `rate_limit`, `audit`, `approval`, `deprecated`, `target`, `let`, `validate`, `creates`/`updates`/`deletes`/`reorder`, `returns`, `handler`, `emits`, `triggers transition`, `invalidates`, `calls`, `timeout`, `retry`, `idempotency by`, `write_window`, or `tests`",
             ));
         }
     }
@@ -400,6 +416,7 @@ pub(super) fn parse_command_decl(
             validate,
             effect,
             returns,
+            reorder,
             handler,
             emits,
             triggers,
@@ -415,6 +432,39 @@ pub(super) fn parse_command_decl(
         },
         i,
     ))
+}
+
+/// W4 GAP-REORDER-01 — parse a `reorder <Resource> by <position_field>`
+/// command body. Single-line; the resource name may be qualified
+/// (`feature.Resource`). The `by <field>` clause is required and names the
+/// integer position column that the batch UPDATE rewrites.
+fn parse_command_reorder(
+    line: &SourceLine<'_>,
+    rest: &str,
+) -> Result<CommandReorderDecl, ParseError> {
+    let rest = rest.trim();
+    let Some((resource, by)) = rest.split_once(" by ") else {
+        return Err(line_error(
+            line,
+            "`reorder` requires `reorder <Resource> by <position_field>`",
+        ));
+    };
+    let resource = resource.trim();
+    let position_field = by.trim();
+    if resource.is_empty() {
+        return Err(line_error(line, "`reorder` requires a resource name"));
+    }
+    if position_field.is_empty() || position_field.split_whitespace().count() != 1 {
+        return Err(line_error(
+            line,
+            "`reorder <Resource> by` requires exactly one position field name",
+        ));
+    }
+    Ok(CommandReorderDecl {
+        resource: resource.to_owned(),
+        position_field: position_field.to_owned(),
+        span: Span::new(line.start, line.end),
+    })
 }
 
 // =============================================================================

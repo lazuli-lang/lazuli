@@ -314,7 +314,12 @@ func TestVerifyPassword(t *testing.T) {
         let findings = check(source, Path::new("verify_password_test.go"));
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].line, 4);
-        assert!(findings[0].marker_text.to_lowercase().contains("not implemented"));
+        assert!(
+            findings[0]
+                .marker_text
+                .to_lowercase()
+                .contains("not implemented")
+        );
     }
 
     #[test]

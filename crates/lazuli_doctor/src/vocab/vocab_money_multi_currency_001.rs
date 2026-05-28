@@ -105,12 +105,13 @@ fn check_resource(feature: &Feature, resource: &Resource, path: &Path) -> Option
     // already engaged with the multi-currency story; consider this resource
     // intentionally configured and skip the lint.
     let has_any_explicit_override = resource.fields.iter().any(|f| {
-        is_currency(f) && f.name.strip_suffix("_currency").is_some_and(|stem| {
-            resource
-                .fields
-                .iter()
-                .any(|other| other.name == stem && is_money(other))
-        })
+        is_currency(f)
+            && f.name.strip_suffix("_currency").is_some_and(|stem| {
+                resource
+                    .fields
+                    .iter()
+                    .any(|other| other.name == stem && is_money(other))
+            })
     });
     if has_any_explicit_override {
         return None;
@@ -153,11 +154,13 @@ mod tests {
             slug: false,
             default: None,
             derived_from: None,
+            computed_date: None,
             constraints: FieldConstraints::default(),
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         }
     }
@@ -195,6 +198,9 @@ mod tests {
             composite_key: None,
             conventions: Vec::new(),
             lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            many_through: Vec::new(),
+            append_only: false,
         }
     }
 
@@ -298,11 +304,7 @@ mod tests {
         // the author for the rest.
         let feature = mk_feature(vec![mk_resource(
             "MixedCharge",
-            vec![
-                money("amount"),
-                currency("amount_currency"),
-                money("fee"),
-            ],
+            vec![money("amount"), currency("amount_currency"), money("fee")],
         )]);
         assert!(check(&feature, Path::new("features/payments/payments.lzi")).is_empty());
     }
@@ -324,10 +326,7 @@ mod tests {
     fn multiple_resources_lint_per_resource() {
         let feature = mk_feature(vec![
             mk_resource("Charge", vec![money("amount"), money("fee")]),
-            mk_resource(
-                "Refund",
-                vec![money("amount"), money("fee"), money("net")],
-            ),
+            mk_resource("Refund", vec![money("amount"), money("fee"), money("net")]),
         ]);
         let findings = check(&feature, Path::new("features/payments/payments.lzi"));
         assert_eq!(findings.len(), 2);

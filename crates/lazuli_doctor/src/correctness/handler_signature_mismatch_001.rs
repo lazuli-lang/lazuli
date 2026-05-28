@@ -58,7 +58,7 @@ use lazuli_ir::Feature;
 
 use crate::allow_comment::file_contains_doctor_allow;
 use crate::handler_path;
-use crate::handler_walker::{iter_handler_sites, HandlerSite, HandlerSiteKind};
+use crate::handler_walker::{HandlerSite, HandlerSiteKind, iter_handler_sites};
 
 /// Kind of signature drift surfaced by the rule. Drives the diagnostic
 /// message and lets downstream consumers (IDE squiggle colour, JSON
@@ -949,7 +949,11 @@ var login = lazuli.Command[LoginInput, string]{
 
         let feature = mk_feature("account", vec![mk_cmd_with_handler("login", "login")]);
         let findings = check(&feature, &lzi_path, &app_root, &dist_root);
-        assert!(findings.is_empty(), "expected no findings, got {:?}", findings);
+        assert!(
+            findings.is_empty(),
+            "expected no findings, got {:?}",
+            findings
+        );
         assert_eq!(Finding::CODE, "HANDLER-SIGNATURE-MISMATCH-001");
     }
 
@@ -985,7 +989,10 @@ var loginResultWithGoogle = lazuli.Command[LoginResultWithGoogleInput, struct{}]
 
         let feature = mk_feature(
             "account",
-            vec![mk_cmd_with_handler("login_with_google", "login_with_google")],
+            vec![mk_cmd_with_handler(
+                "login_with_google",
+                "login_with_google",
+            )],
         );
         let findings = check(&feature, &lzi_path, &app_root, &dist_root);
         assert_eq!(findings.len(), 1, "got: {:?}", findings);
@@ -1020,7 +1027,14 @@ var login = lazuli.Command[ExpectedInput, string]{
     Name: "account.login",
 }
 "#;
-        lay_out_files(&app_root, &dist_root, "account", "login", handler_src, gen_src);
+        lay_out_files(
+            &app_root,
+            &dist_root,
+            "account",
+            "login",
+            handler_src,
+            gen_src,
+        );
 
         let feature = mk_feature("account", vec![mk_cmd_with_handler("login", "login")]);
         let findings = check(&feature, &lzi_path, &app_root, &dist_root);
@@ -1052,7 +1066,14 @@ var login = lazuli.Command[RightInput, RightOutput]{
     Name: "account.login",
 }
 "#;
-        lay_out_files(&app_root, &dist_root, "account", "login", handler_src, gen_src);
+        lay_out_files(
+            &app_root,
+            &dist_root,
+            "account",
+            "login",
+            handler_src,
+            gen_src,
+        );
 
         let feature = mk_feature("account", vec![mk_cmd_with_handler("login", "login")]);
         let findings = check(&feature, &lzi_path, &app_root, &dist_root);
@@ -1089,7 +1110,14 @@ func Login(ctx *lazuli.Ctx, input accountgen.LoginInput) (string, error) { retur
         let gen_src = r#"package accountgen
 var login = lazuli.Command[LoginInput, string]{ Name: "account.login" }
 "#;
-        lay_out_files(&app_root, &dist_root, "account", "login", handler_src, gen_src);
+        lay_out_files(
+            &app_root,
+            &dist_root,
+            "account",
+            "login",
+            handler_src,
+            gen_src,
+        );
 
         let feature = mk_feature("account", vec![mk_cmd_with_handler("login", "login")]);
         let findings = check(&feature, &lzi_path, &app_root, &dist_root);
@@ -1115,7 +1143,14 @@ func Login(ctx *lazuli.Ctx, input LoginInput) (string, int, error) { return "", 
         let gen_src = r#"package accountgen
 var login = lazuli.Command[LoginInput, string]{ Name: "account.login" }
 "#;
-        lay_out_files(&app_root, &dist_root, "account", "login", handler_src, gen_src);
+        lay_out_files(
+            &app_root,
+            &dist_root,
+            "account",
+            "login",
+            handler_src,
+            gen_src,
+        );
 
         let feature = mk_feature("account", vec![mk_cmd_with_handler("login", "login")]);
         let findings = check(&feature, &lzi_path, &app_root, &dist_root);
@@ -1137,7 +1172,14 @@ var login = lazuli.Command[LoginInput, string]{ Name: "account.login" }
         let gen_src = r#"package accountgen
 var login = lazuli.Command[LoginInput, string]{ Name: "account.login" }
 "#;
-        lay_out_files(&app_root, &dist_root, "account", "login", handler_src, gen_src);
+        lay_out_files(
+            &app_root,
+            &dist_root,
+            "account",
+            "login",
+            handler_src,
+            gen_src,
+        );
 
         let feature = mk_feature("account", vec![mk_cmd_with_handler("login", "login")]);
         let findings = check(&feature, &lzi_path, &app_root, &dist_root);
@@ -1204,7 +1246,14 @@ func Login(ctx *lazuli.Ctx, input WrongInput) (string, error) { return "", nil }
         let gen_src = r#"package accountgen
 var login = lazuli.Command[LoginInput, string]{ Name: "account.login" }
 "#;
-        lay_out_files(&app_root, &dist_root, "account", "login", handler_src, gen_src);
+        lay_out_files(
+            &app_root,
+            &dist_root,
+            "account",
+            "login",
+            handler_src,
+            gen_src,
+        );
 
         let feature = mk_feature("account", vec![mk_cmd_with_handler("login", "login")]);
         let findings = check(&feature, &lzi_path, &app_root, &dist_root);
@@ -1230,7 +1279,14 @@ var loginWithGoogle = lazuli.Command[OtherInput, OtherOutput]{
     Name: "account.login_with_google",
 }
 "#;
-        lay_out_files(&app_root, &dist_root, "account", "login", MATCHING_HANDLER, gen_src);
+        lay_out_files(
+            &app_root,
+            &dist_root,
+            "account",
+            "login",
+            MATCHING_HANDLER,
+            gen_src,
+        );
 
         let feature = mk_feature("account", vec![mk_cmd_with_handler("login", "login")]);
         let findings = check(&feature, &lzi_path, &app_root, &dist_root);
@@ -1251,7 +1307,14 @@ var loginWithGoogle = lazuli.Command[OtherInput, OtherOutput]{
         let handler_src = r#"package accounthandlers
 func DoLogin(ctx *lazuli.Ctx, input LoginInput) (string, error) { return "", nil }
 "#;
-        lay_out_files(&app_root, &dist_root, "account", "login", handler_src, MATCHING_GEN);
+        lay_out_files(
+            &app_root,
+            &dist_root,
+            "account",
+            "login",
+            handler_src,
+            MATCHING_GEN,
+        );
 
         let feature = mk_feature("account", vec![mk_cmd_with_handler("login", "login")]);
         let findings = check(&feature, &lzi_path, &app_root, &dist_root);

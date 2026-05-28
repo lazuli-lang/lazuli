@@ -280,6 +280,8 @@ fn operation_ref(feature: &str, cmd: &ir::Command) -> OperationRef {
         ir::CommandKind::Update => "PATCH",
         ir::CommandKind::Delete => "DELETE",
         ir::CommandKind::Returns => "POST",
+        // W4 GAP-REORDER-01 — batch position update.
+        ir::CommandKind::Reorder => "PATCH",
     };
     let mut path = format!("/api/{}/{}", feature, cmd.name);
     for slot in &cmd.route {

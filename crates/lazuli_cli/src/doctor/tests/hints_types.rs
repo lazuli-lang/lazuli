@@ -146,12 +146,12 @@ feature customer
         assert!(hits.iter().any(|diagnostic| {
             diagnostic.line == 8
                 && diagnostic.message
-                    == "unknown @semantic type \"@semantic.Distance\"; the closed catalog is {EMAIL, PHONE, URL, UUID, DATE, CURRENCY, MONEY, JSON, GEOPOINT}."
+                    == "unknown @semantic type \"@semantic.Distance\"; the closed catalog is {EMAIL, PHONE, URL, UUID, DATE, CURRENCY, MONEY, JSON, GEOPOINT, HEXCOLOR, PERCENTAGE}."
         }));
         assert!(hits.iter().any(|diagnostic| {
             diagnostic.line == 15
                 && diagnostic.message
-                    == "unknown @semantic type \"@semantic.Range\"; the closed catalog is {EMAIL, PHONE, URL, UUID, DATE, CURRENCY, MONEY, JSON, GEOPOINT}."
+                    == "unknown @semantic type \"@semantic.Range\"; the closed catalog is {EMAIL, PHONE, URL, UUID, DATE, CURRENCY, MONEY, JSON, GEOPOINT, HEXCOLOR, PERCENTAGE}."
         }));
     }
 

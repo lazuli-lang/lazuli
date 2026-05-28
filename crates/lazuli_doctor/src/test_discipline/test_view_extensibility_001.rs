@@ -123,11 +123,7 @@ pub fn check(module: &ExperienceModule, path: &Path) -> Vec<Finding> {
 ///     eprintln!("{}.{} flagged", f.experience, f.view);
 /// }
 /// ```
-pub fn check_view(
-    experience: &Experience,
-    view: &ExperienceView,
-    path: &Path,
-) -> Option<Finding> {
+pub fn check_view(experience: &Experience, view: &ExperienceView, path: &Path) -> Option<Finding> {
     if !view_needs_assertion(view) || !view.tests.is_empty() {
         return None;
     }
@@ -154,7 +150,11 @@ mod tests {
 
     use lazuli_ir::{Experience, ExperienceModule, ExperienceView, ViewTestAssertion};
 
-    fn mk_view(name: &str, extensible_by: Vec<String>, tests: Vec<ViewTestAssertion>) -> ExperienceView {
+    fn mk_view(
+        name: &str,
+        extensible_by: Vec<String>,
+        tests: Vec<ViewTestAssertion>,
+    ) -> ExperienceView {
         ExperienceView {
             name: name.into(),
             anchor: Some(format!("{name}_anchor")),
@@ -251,7 +251,9 @@ mod tests {
                 span_ref: None,
             }],
         ));
-        module.experiences[0].views.push(mk_view("plain", vec![], vec![]));
+        module.experiences[0]
+            .views
+            .push(mk_view("plain", vec![], vec![]));
 
         let findings = check(&module, Path::new("customer.lzx"));
         assert_eq!(findings.len(), 1, "only `detail` should fire");

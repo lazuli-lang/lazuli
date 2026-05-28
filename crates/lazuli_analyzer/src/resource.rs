@@ -127,6 +127,36 @@ pub(crate) fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resour
         .iter()
         .map(lower_resource_constraint)
         .collect();
+    // GAP-13 — lower `polymorphic_ref` declarations into typed IR.
+    let polymorphic_refs = r
+        .polymorphic_refs
+        .iter()
+        .map(|pr| ir::PolymorphicRef {
+            type_field: pr.type_field.clone(),
+            id_field: pr.id_field.clone(),
+            targets: pr.targets.clone(),
+        })
+        .collect();
+    // GAP-07 — lower `many_through <Junction> to <Partner>` declarations.
+    // Each payload field reuses the resource field lowering so it carries
+    // the full typed-field surface; the synthesized junction resource is
+    // assembled in `feature.rs` (it needs the declaring resource's name).
+    let many_through = r
+        .many_through
+        .iter()
+        .map(|mt| {
+            let payload = mt
+                .payload
+                .iter()
+                .map(lower_resource_field)
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(ir::ManyThrough {
+                junction: mt.name.clone(),
+                partner: mt.partner.clone(),
+                payload,
+            })
+        })
+        .collect::<Result<Vec<_>, AnalyzeError>>()?;
     let lifecycle_routes = r.lifecycle_routes.as_ref().map(|lr| ir::LifecycleRoutes {
         arms: lr
             .arms
@@ -161,7 +191,97 @@ pub(crate) fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resour
         composite_key,
         conventions,
         lifecycle_routes,
+        polymorphic_refs,
+        // GAP-AUDIT-02 — insert-only marker. Doctor RESOURCE-APPEND-ONLY-001
+        // rejects commands that update/delete this resource.
+        append_only: r.append_only,
+        // GAP-07 — M:N-with-metadata relationships. The junction resources
+        // they desugar into are synthesized in `feature.rs`.
+        many_through,
     })
+}
+
+/// GAP-07 — synthesize the junction `ir::Resource` for one `many_through`
+/// declaration. The junction carries:
+///   - `<declaring>_id: ID` — a same-feature FK to the declaring resource,
+///   - `<partner>_id: ID` — an FK to the partner resource,
+///   - one column per payload field (lowered already, on `ManyThrough`), and
+///   - a composite `UNIQUE (<declaring>_id, <partner>_id)` so the endpoint
+///     pair is a set, not a bag.
+///
+/// FK column naming: `pascal_to_snake(<Resource>) + "_id"`. The FK fields
+/// are `TypeRef::UserDefined` so the migration emitter raises a real DB
+/// `FOREIGN KEY` when the endpoint table is in the same module (and a plain
+/// `BIGINT` column otherwise — e.g. a partner owned by another feature's
+/// migration set, mirroring the cross-feature FK posture).
+pub(crate) fn synthesize_junction_resource(
+    declaring_resource: &str,
+    mt: &ir::ManyThrough,
+) -> ir::Resource {
+    let declaring_fk = format!("{}_id", crate::helpers::pascal_to_snake(declaring_resource));
+    let partner_fk = format!("{}_id", crate::helpers::pascal_to_snake(&mt.partner));
+
+    let mut fields = vec![
+        junction_fk_field(&declaring_fk, declaring_resource),
+        junction_fk_field(&partner_fk, &mt.partner),
+    ];
+    fields.extend(mt.payload.iter().cloned());
+
+    ir::Resource {
+        name: mt.junction.clone(),
+        public_contract: None,
+        tenancy: None,
+        soft_delete: false,
+        timestamps: None,
+        fields,
+        constraints: vec![ir::Constraint::Unique(ir::UniqueConstraint {
+            fields: vec![declaring_fk, partner_fk],
+            per: None,
+            when: None,
+        })],
+        validate: None,
+        validates: Vec::new(),
+        retention: None,
+        previous_names: Vec::new(),
+        span_ref: None,
+        lifecycle: None,
+        invariants: Vec::new(),
+        lock: None,
+        composite_key: None,
+        conventions: Vec::new(),
+        lifecycle_routes: None,
+        polymorphic_refs: Vec::new(),
+        append_only: false,
+        // A synthesized junction declares no `many_through` of its own.
+        many_through: Vec::new(),
+    }
+}
+
+/// GAP-07 — build one endpoint FK field on a synthesized junction. The
+/// field type is a same-feature `UserDefined` reference to the endpoint
+/// resource (`feature: None`); the migration emitter resolves it to a
+/// `BIGINT` FK column. `required` so neither endpoint can dangle.
+fn junction_fk_field(name: &str, target_resource: &str) -> ir::Field {
+    ir::Field {
+        name: name.to_owned(),
+        type_ref: ir::TypeRef::UserDefined(ir::QualifiedName {
+            feature: None,
+            name: target_resource.to_owned(),
+        }),
+        required: true,
+        unique: false,
+        slug: false,
+        default: None,
+        derived_from: None,
+        computed_date: None,
+        constraints: ir::FieldConstraints::default(),
+        full_text: false,
+        previous_names: Vec::new(),
+        pii: None,
+        owner_axis: None,
+        cross_feature_target: None,
+        span_ref: None,
+    }
 }
 
 pub(crate) fn lower_resource_constraint(
@@ -172,6 +292,14 @@ pub(crate) fn lower_resource_constraint(
             ir::Constraint::Unique(ir::UniqueConstraint {
                 fields: unique.fields.clone(),
                 per: None,
+                // GAP-NEW-001 — run the verbatim `when` text through the
+                // shared closed-predicate parser (same path as
+                // `invariant when`); unrecognized shapes land in
+                // `EvalPredicate::Unparsed` so doctor can echo the source.
+                when: unique
+                    .when
+                    .as_deref()
+                    .map(crate::agent::parse_closed_predicate),
             })
         }
         syntax::ResourceConstraintAst::Index(index) => ir::Constraint::Index(ir::IndexConstraint {
@@ -250,6 +378,17 @@ pub(crate) fn lower_resource_field(
         }
         None => None,
     };
+    // GAP-12 — project the `target @feature.<feature>.<Resource>`
+    // cross-feature FK annotation onto the IR. The reference is logical;
+    // doctor (`REF-CROSS-FEATURE-UNKNOWN-001`) validates the feature is in
+    // the declaring feature's `uses` and the resource exists there.
+    let cross_feature_target = f
+        .cross_feature_target
+        .as_ref()
+        .map(|t| ir::CrossFeatureTarget {
+            feature: t.feature.clone(),
+            resource: t.resource.clone(),
+        });
     Ok(ir::Field {
         name: f.name.clone(),
         // Phase L Tier 4 follow-up — use `type_ref_from_syntax` so
@@ -264,6 +403,11 @@ pub(crate) fn lower_resource_field(
         slug: f.slug,
         default,
         derived_from: f.derived_from.clone(),
+        // W3 GAP-03 — project the typed `computed_date from <base> offset
+        // <offset>` field kind onto the IR. The references are validated by
+        // doctor (`COMPUTED-DATE-EXPR-001`): `base` must be a declared
+        // `Date` field and `offset` an `Integer` field or integer literal.
+        computed_date: f.computed_date.as_ref().map(lower_computed_date),
         constraints,
         // Roadmap §1.5 (CL.C.2) — `@full_text` decorator captured by
         // the parser as a flag on the field declaration; threaded
@@ -277,8 +421,34 @@ pub(crate) fn lower_resource_field(
             .collect(),
         pii,
         owner_axis,
+        cross_feature_target,
         span_ref: Some(span_of(f.span)),
     })
+}
+
+/// W3 GAP-03 — lower the AST `computed_date from <base> offset <offset>`
+/// payload onto the typed IR node. Pure projection: reference validity
+/// (base is a `Date` field, offset is an `Integer` field or literal) is
+/// enforced by doctor `COMPUTED-DATE-EXPR-001`, not here, mirroring how
+/// `derived from` keeps its expression verbatim and defers field-resolution
+/// to doctor.
+fn lower_computed_date(ast: &syntax::ComputedDateAst) -> ir::ComputedDate {
+    let offset = match &ast.offset {
+        syntax::ComputedDateOffsetAst::Field(name) => ir::ComputedDateOffset::Field(name.clone()),
+        syntax::ComputedDateOffsetAst::Literal(n) => ir::ComputedDateOffset::Literal(*n),
+    };
+    // W4 GAP-08 — project the base selector: a bare `Date` field (W3) or a
+    // rule-enum + `@fn` (W4 `schedule_rule`). Reference validity (the `@fn`
+    // is a declared binding fn, the rule arg references a field) is enforced
+    // by doctor `SCHEDULE-RULE-001`, not here.
+    let base = match &ast.base {
+        syntax::ComputedDateBaseAst::Field(name) => ir::ComputedDateBase::Field(name.clone()),
+        syntax::ComputedDateBaseAst::Rule { rule, fn_ref } => ir::ComputedDateBase::Rule {
+            rule: rule.clone(),
+            fn_ref: fn_ref.clone(),
+        },
+    };
+    ir::ComputedDate { base, offset }
 }
 
 struct RecoveredFieldType {

@@ -267,9 +267,7 @@ mod tests {
     #[test]
     fn struct_does_not_fire() {
         // Structs have no exhaustiveness concept — this rule is enum-only.
-        let f = file(
-            "#[derive(Debug, thiserror::Error)]\npub struct ApiError { code: u16 }\n",
-        );
+        let f = file("#[derive(Debug, thiserror::Error)]\npub struct ApiError { code: u16 }\n");
         assert!(check(&[f]).is_empty());
     }
 
@@ -302,9 +300,7 @@ mod tests {
 
     #[test]
     fn doc_comment_between_derive_and_item_does_not_break_state() {
-        let f = file(
-            "#[derive(Debug, thiserror::Error)]\n/// Variants.\npub enum ParseError {}\n",
-        );
+        let f = file("#[derive(Debug, thiserror::Error)]\n/// Variants.\npub enum ParseError {}\n");
         let findings = check(&[f]);
         assert_eq!(findings.len(), 1);
     }
@@ -337,9 +333,7 @@ mod tests {
 
     #[test]
     fn pub_crate_enum_also_fires() {
-        let f = file(
-            "#[derive(Debug, thiserror::Error)]\npub(crate) enum LoadError { Bad }\n",
-        );
+        let f = file("#[derive(Debug, thiserror::Error)]\npub(crate) enum LoadError { Bad }\n");
         let findings = check(&[f]);
         assert_eq!(findings.len(), 1);
     }

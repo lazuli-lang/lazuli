@@ -22,10 +22,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::DefaultValue;
-use crate::PolicyAtom;
-use crate::SpanRef;
 use crate::nodes::experience::lifecycle_gate::RequiresLifecycle;
+use crate::{DefaultValue, PolicyAtom, SpanRef};
 
 /// `ir-route-guards` §3.1 — declarative policy + redirect targets for a
 /// view (experience view, platform view, audience, or app route). The

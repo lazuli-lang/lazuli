@@ -174,6 +174,13 @@ pub(crate) fn builtin_to_openapi(b: &ir::BuiltinType) -> (&'static str, Option<&
         SemanticUuid => ("string", Some("uuid")),
         SemanticMoney { .. } => ("number", None),
         SemanticCurrency => ("string", None),
+        // W1 GAP-04 — HexColor surfaces as a plain string (OpenAPI has no
+        // `color` format; the `#RRGGBB`/`#RGB` shape is enforced at the
+        // runtime decode boundary, not the schema format hint).
+        SemanticHexColor => ("string", None),
+        // W1 GAP-05 — Percentage surfaces as a number; the 0..=100 range
+        // guard lives in the runtime carrier, not the OpenAPI format slot.
+        SemanticPercentage => ("number", None),
         // GeoPoint follow-up — `@semantic.GeoPoint` carries
         // `{ lat, lng }`. OpenAPI does not have a `geography` format,
         // so we surface it as a generic `object` here; codegen-go is

@@ -146,9 +146,7 @@ fn malformed_reason(invariant: &LifecycleInvariant) -> Option<String> {
         LifecycleInvariant::TerminalImmutable | LifecycleInvariant::NoJumpMoreThanOne => None,
         LifecycleInvariant::SingleStatePerScope { state, scope_field } => {
             if state.trim().is_empty() {
-                return Some(
-                    "`single <state> per <scope_field>` has empty state name".to_owned(),
-                );
+                return Some("`single <state> per <scope_field>` has empty state name".to_owned());
             }
             if scope_field.trim().is_empty() {
                 return Some(
@@ -228,6 +226,9 @@ mod tests {
             composite_key: None,
             conventions: Vec::new(),
             lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            many_through: Vec::new(),
+            append_only: false,
         };
         Feature {
             name: "test_feat".into(),

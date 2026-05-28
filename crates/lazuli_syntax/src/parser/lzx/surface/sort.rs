@@ -15,12 +15,11 @@
 //! `requires a *by* line` / `requires a *default* line` diagnostic so
 //! doctor / LSP can surface a single, precise message.
 
-use crate::ast::{SortDeclAst, SortDirAst, Span};
-
 use super::super::super::common::{
     SourceLine, is_trivia, line_error, line_error_owned, split_lzx_list, strip_inline_comment,
 };
 use super::super::super::error::ParseError;
+use crate::ast::{SortDeclAst, SortDirAst, Span};
 
 pub(crate) fn parse_view_sort_block(
     lines: &[SourceLine<'_>],

@@ -347,10 +347,7 @@ fn migration_matches(stem: &str, prefix: &str) -> bool {
 fn expected_columns_for(feature: &Feature, resource: &Resource) -> BTreeSet<String> {
     let mut cols = BTreeSet::new();
 
-    let composite_primary = resource
-        .composite_key
-        .as_ref()
-        .is_some_and(|ck| ck.primary);
+    let composite_primary = resource.composite_key.as_ref().is_some_and(|ck| ck.primary);
     if !composite_primary {
         cols.insert("id".to_string());
     }
@@ -376,7 +373,10 @@ fn expected_columns_for(feature: &Feature, resource: &Resource) -> BTreeSet<Stri
         .collect();
 
     for field in &resource.fields {
-        if matches!(field.type_ref, TypeRef::Capability(CapabilityRef::File { .. })) {
+        if matches!(
+            field.type_ref,
+            TypeRef::Capability(CapabilityRef::File { .. })
+        ) {
             cols.insert(field.name.clone());
             continue;
         }
@@ -416,11 +416,7 @@ fn parse_create_table_columns(sql: &str, table_name: &str) -> BTreeSet<String> {
         format!("create table {}", table_name),
     ];
 
-    let Some(start) = needles
-        .iter()
-        .filter_map(|n| lower.find(n.as_str()))
-        .min()
-    else {
+    let Some(start) = needles.iter().filter_map(|n| lower.find(n.as_str())).min() else {
         return cols;
     };
 
@@ -466,7 +462,13 @@ fn push_column_name(segment: &str, cols: &mut BTreeSet<String>) {
         return;
     }
     let upper = line.to_ascii_uppercase();
-    for prefix in ["PRIMARY KEY", "UNIQUE", "FOREIGN KEY", "CONSTRAINT", "CHECK"] {
+    for prefix in [
+        "PRIMARY KEY",
+        "UNIQUE",
+        "FOREIGN KEY",
+        "CONSTRAINT",
+        "CHECK",
+    ] {
         if upper.starts_with(prefix) {
             return;
         }
@@ -616,7 +618,10 @@ fn first_ident(s: &str) -> String {
             return rest[..end].to_owned();
         }
     }
-    let token = s.split(|c: char| c.is_whitespace() || c == ',').next().unwrap_or("");
+    let token = s
+        .split(|c: char| c.is_whitespace() || c == ',')
+        .next()
+        .unwrap_or("");
     token.trim_matches('"').trim_matches('`').to_owned()
 }
 
@@ -674,9 +679,7 @@ fn lower_snake(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lazuli_ir::{
-        BuiltinType, Defaults, Field, FieldConstraints, Policies, Resource, TypeRef,
-    };
+    use lazuli_ir::{BuiltinType, Defaults, Field, FieldConstraints, Policies, Resource, TypeRef};
     use std::fs;
     use tempfile::TempDir;
 
@@ -691,11 +694,13 @@ mod tests {
             slug: false,
             default: None,
             derived_from: None,
+            computed_date: None,
             constraints: FieldConstraints::default(),
             full_text: false,
             previous_names: vec![],
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         }
     }
@@ -720,6 +725,9 @@ mod tests {
             composite_key: None,
             conventions: Vec::new(),
             lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            many_through: Vec::new(),
+            append_only: false,
         }
     }
 
@@ -889,7 +897,10 @@ mod tests {
         assert_eq!(findings.len(), 1, "{findings:?}");
         match &findings[0].kind {
             FindingKind::UnrecognisedMigration { snippet, .. } => {
-                assert!(snippet.to_ascii_lowercase().contains("alter table"), "{snippet}");
+                assert!(
+                    snippet.to_ascii_lowercase().contains("alter table"),
+                    "{snippet}"
+                );
             }
             other => panic!("expected UnrecognisedMigration, got {other:?}"),
         }
@@ -970,10 +981,7 @@ mod tests {
 
     #[test]
     fn alter_parser_ignores_other_tables() {
-        let r = parse_alter_add_columns(
-            "ALTER TABLE other_table ADD COLUMN foo INT;",
-            "user",
-        );
+        let r = parse_alter_add_columns("ALTER TABLE other_table ADD COLUMN foo INT;", "user");
         match r {
             AlterParseResult::Parsed(cols) => assert!(cols.is_empty()),
             other => panic!("{other:?}"),

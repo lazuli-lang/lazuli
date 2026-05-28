@@ -55,7 +55,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{PolicyRef, SpanRef, TypeRef, is_false};
+use crate::{EvalPredicate, PolicyRef, SpanRef, TypeRef, is_false};
 
 /// One `non_goals.<key> "<description>"` entry under a feature. Carries
 /// the boundary-key + prose pair the capsule's `delegated_to` /
@@ -96,21 +96,37 @@ pub enum Tenancy {
 /// Closed sum over resource-level constraint shapes. `Unique` flags
 /// uniqueness (with optional per-axis qualifier); `Index` declares
 /// secondary indexes with method + full-text flag.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// `Eq` is intentionally omitted: `UniqueConstraint.when` carries an
+/// `EvalPredicate` (transitively reaching `Expr`, which is not `Eq`)
+/// for the GAP-NEW-001 partial-index form. Consumers needing equality
+/// use `PartialEq`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum Constraint {
     Unique(UniqueConstraint),
     Index(IndexConstraint),
 }
 
-/// `unique <fields> [per <axis>]` constraint. The `per` slot scopes
-/// uniqueness per-tenant / per-org / per-team etc.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// `unique <fields> [per <axis>] [when <predicate>]` constraint. The
+/// `per` slot scopes uniqueness per-tenant / per-org / per-team etc.
+///
+/// GAP-NEW-001 — when `when` is `Some`, the constraint lowers to a
+/// PARTIAL unique index (`CREATE UNIQUE INDEX ... WHERE <predicate>`)
+/// rather than a table-level `UNIQUE (...)` clause, since Postgres only
+/// supports the `WHERE` qualifier on indexes, not table constraints.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UniqueConstraint {
     pub fields: Vec<String>,
     /// `unique email per org` -> `qualifier = Some("org")`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub per: Option<String>,
+    /// GAP-NEW-001 — `when <predicate>` partial-index predicate. `None`
+    /// is the unconditional UNIQUE constraint form. Parsed from verbatim
+    /// source text via the shared closed-predicate parser; `Unparsed`
+    /// when the shape isn't recognized so doctor can echo the source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<EvalPredicate>,
 }
 
 /// `index <fields> [using <method>]` constraint. The `full_text` flag
@@ -296,10 +312,13 @@ mod tests {
         let c = Constraint::Unique(UniqueConstraint {
             fields: vec!["email".into()],
             per: Some("org".into()),
+            when: None,
         });
         let s = serde_json::to_string(&c).unwrap();
         assert!(s.contains("\"kind\":\"Unique\""));
         assert!(s.contains("\"per\":\"org\""));
+        // Unconditional form omits the `when` slot entirely.
+        assert!(!s.contains("\"when\""));
         let back: Constraint = serde_json::from_str(&s).unwrap();
         assert_eq!(back, c);
     }

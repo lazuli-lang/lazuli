@@ -361,23 +361,19 @@ mod tests {
             composite_key: None,
             conventions: Vec::new(),
             lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            many_through: Vec::new(),
+            append_only: false,
         });
 
         let sites = iter_handler_sites(&feature);
         assert_eq!(sites.len(), 2);
-        assert!(
-            sites
-                .iter()
-                .any(|s| s.handler_name == "validate_row"
-                    && s.kind == HandlerSiteKind::ResourceValidate)
-        );
-        assert!(
-            sites
-                .iter()
-                .any(|s| s.handler_name == "validate_tier"
-                    && s.kind == HandlerSiteKind::ResourceFieldValidate
-                    && s.construct_name == "Post.tier")
-        );
+        assert!(sites.iter().any(
+            |s| s.handler_name == "validate_row" && s.kind == HandlerSiteKind::ResourceValidate
+        ));
+        assert!(sites.iter().any(|s| s.handler_name == "validate_tier"
+            && s.kind == HandlerSiteKind::ResourceFieldValidate
+            && s.construct_name == "Post.tier"));
     }
 
     #[test]

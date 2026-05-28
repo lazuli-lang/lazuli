@@ -49,15 +49,15 @@ use super::super::common::{
 };
 use super::super::error::ParseError;
 use super::super::lzx::try_parse_policy_expr;
-use super::command::parse_command_audit;
+use super::command::{parse_command_audit, parse_command_input_block};
 use super::{
     AGENT_INDENT_AGENT_CHILD, AGENT_INDENT_FEATURE_CHILD, fold_rate_limit_line,
     parse_rate_limit_line_body, split_first_token, take_identifier, take_quoted_string,
 };
 
 use crate::ast::{
-    CommandAudit, PolicyExprAst, RateLimitSpecAst, ReportColumnAst, ReportColumnSourceAst,
-    ReportDecl, Span,
+    CommandAudit, CommandInputDecl, CommandInputSlot, PolicyExprAst, RateLimitSpecAst,
+    ReportColumnAst, ReportColumnSourceAst, ReportDecl, Span,
 };
 
 // -----------------------------------------------------------------------------
@@ -84,6 +84,7 @@ pub(super) fn parse_report_decl(
         return Err(line_error(header, "report header requires a name"));
     }
 
+    let mut input: Vec<CommandInputSlot> = Vec::new();
     let mut source: Option<String> = None;
     let mut columns: Vec<ReportColumnAst> = Vec::new();
     let mut formats: Vec<String> = Vec::new();
@@ -116,7 +117,27 @@ pub(super) fn parse_report_decl(
             ));
         }
 
-        if let Some(rest) = trimmed.strip_prefix("source ") {
+        if trimmed == "input" {
+            // W5 GAP-REPORT-01 — request-time params threaded to the
+            // `source` query. Reuse the command-input slot grammar
+            // verbatim (`<name>: <Type> [required|optional]` rows at
+            // indent 6) so reports get the same Zod/Go-validator
+            // treatment as command inputs.
+            if !input.is_empty() {
+                return Err(line_error(
+                    line,
+                    "a `report` may declare at most one `input` block",
+                ));
+            }
+            let (parsed, next) = parse_command_input_block(lines, i)?;
+            input = match parsed {
+                CommandInputDecl::Typed(slots) => slots,
+                // `parse_command_input_block` only ever returns `Typed`.
+                _ => Vec::new(),
+            };
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("source ") {
             source = Some(rest.trim().to_owned());
             last_end = line.end;
             i += 1;
@@ -172,7 +193,7 @@ pub(super) fn parse_report_decl(
         } else {
             return Err(line_error(
                 line,
-                "`report` children are `source`, `columns`, `formats`, `storage`, `visibility`, `signed_ttl`, `filename`, `policy`, `rate_limit`, or `audit`",
+                "`report` children are `input`, `source`, `columns`, `formats`, `storage`, `visibility`, `signed_ttl`, `filename`, `policy`, `rate_limit`, or `audit`",
             ));
         }
     }
@@ -193,6 +214,7 @@ pub(super) fn parse_report_decl(
     Ok((
         ReportDecl {
             name,
+            input,
             source,
             columns,
             formats,
@@ -426,6 +448,52 @@ feature customer
                 "source.params".to_owned()
             ]
         );
+    }
+
+    #[test]
+    fn report_input_block_parses() {
+        // W5 GAP-REPORT-01 — canonical `report input { … }` syntax.
+        let source = r#"
+feature billing
+  report billing_summary
+    input
+      period_start: Date required
+      period_end: Date required
+      format: CSV
+    source billing.query.billing_rows
+    columns
+      id from row.id
+    formats csv
+    policy @policy.global_read
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let report = &features[0].reports[0];
+        assert_eq!(report.input.len(), 3);
+        assert_eq!(report.input[0].name, "period_start");
+        assert_eq!(report.input[0].type_text, "Date");
+        assert!(report.input[0].required);
+        assert_eq!(report.input[1].name, "period_end");
+        assert!(report.input[1].required);
+        assert_eq!(report.input[2].name, "format");
+        assert_eq!(report.input[2].type_text, "CSV");
+        assert!(!report.input[2].required);
+        // `source` / `columns` still parse alongside the new block.
+        assert_eq!(report.source, "billing.query.billing_rows");
+        assert_eq!(report.columns.len(), 1);
+    }
+
+    #[test]
+    fn report_without_input_block_has_empty_input() {
+        let source = r#"
+feature customer
+  report monthly_audit
+    source customer.query.list
+    columns
+      id from row.id
+    formats csv
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        assert!(features[0].reports[0].input.is_empty());
     }
 
     #[test]

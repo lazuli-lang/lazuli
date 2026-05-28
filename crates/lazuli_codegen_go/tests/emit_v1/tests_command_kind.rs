@@ -39,11 +39,13 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
                 slug: false,
                 default: None,
                 derived_from: None,
+                computed_date: None,
                 constraints: FieldConstraints::default(),
                 full_text: false,
                 previous_names: Vec::new(),
                 pii: None,
                 owner_axis: None,
+                cross_feature_target: None,
                 span_ref: None,
             },
             Field {
@@ -54,11 +56,13 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
                 slug: false,
                 default: None,
                 derived_from: None,
+                computed_date: None,
                 constraints: FieldConstraints::default(),
                 full_text: false,
                 previous_names: Vec::new(),
                 pii: None,
                 owner_axis: None,
+                cross_feature_target: None,
                 span_ref: None,
             },
         ],
@@ -74,6 +78,9 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
         composite_key: None,
         conventions: Vec::new(),
         lifecycle_routes: None,
+        polymorphic_refs: Vec::new(),
+        many_through: Vec::new(),
+        append_only: false,
     });
 
     // Command — `customer.create` with typed input + Creates effect.
@@ -210,6 +217,106 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
             .contents
             .contains("lazuli.PolicyAtom{{Namespace: \"role\", Name: \"admin\"}}"),
         "expected `PolicyAtom{{Namespace: \"role\", Name: \"admin\"}}` in command.gen.go:\n{}",
+        command_file.contents
+    );
+}
+
+#[test]
+fn reorder_command_emits_batch_reorder_effect() {
+    // W4 GAP-REORDER-01 — `reorder JobStep by position` emits a
+    // `lazuli.Reorder(&jobStepResource, "position")` effect (wire-thin).
+    let mut module = minimal_module("ops", "jobs");
+    module.features[0].resources.push(Resource {
+        name: "JobStep".to_owned(),
+        public_contract: None,
+        tenancy: None,
+        soft_delete: false,
+        timestamps: None,
+        fields: vec![Field {
+            name: "position".to_owned(),
+            type_ref: TypeRef::Builtin(BuiltinType::Integer),
+            required: true,
+            unique: false,
+            slug: false,
+            default: None,
+            derived_from: None,
+            computed_date: None,
+            constraints: FieldConstraints::default(),
+            full_text: false,
+            previous_names: Vec::new(),
+            pii: None,
+            owner_axis: None,
+            cross_feature_target: None,
+            span_ref: None,
+        }],
+        constraints: Vec::new(),
+        validate: None,
+        validates: Vec::new(),
+        retention: None,
+        previous_names: Vec::new(),
+        span_ref: None,
+        lifecycle: None,
+        invariants: vec![],
+        lock: None,
+        composite_key: None,
+        conventions: Vec::new(),
+        lifecycle_routes: None,
+        polymorphic_refs: Vec::new(),
+        many_through: Vec::new(),
+        append_only: false,
+    });
+
+    let mut cmd = Command {
+        name: "reorder_steps".to_owned(),
+        public_contract: None,
+        kind: CommandKind::Reorder,
+        route: Vec::new(),
+        input: CommandInput::Empty,
+        target: None,
+        lets: Vec::new(),
+        effect: lazuli_ir::CommandEffect::Reorders(lazuli_ir::ReorderEffect {
+            resource: QualifiedName {
+                feature: None,
+                name: "JobStep".to_owned(),
+            },
+            position_field: "position".to_owned(),
+        }),
+        policy: PolicyRef::Atom("@role.admin".to_owned()),
+        policy_expr: None,
+        policy_when_denied: None,
+        emits: Vec::new(),
+        rate_limit: None,
+        audit: None,
+        approval: None,
+        invalidates: Vec::new(),
+        external_calls: Vec::new(),
+        timeout: None,
+        retry: None,
+        idempotency: None,
+        write_window: None,
+        deprecated: None,
+        handler: None,
+        tests: None,
+        triggers: Vec::new(),
+        synthesized_from_cap_file: None,
+        previous_names: Vec::new(),
+        span_ref: None,
+        owner_scope_sql: None,
+        derived_from: None,
+    };
+    cmd.kind = CommandKind::Reorder;
+    module.features[0].commands.push(cmd);
+
+    let files = generate_v1(&module, &GoEmitOptions::default());
+    let command_file = files
+        .iter()
+        .find(|f| f.path == "jobs/command.gen.go")
+        .expect("expected jobs/command.gen.go");
+    assert!(
+        command_file
+            .contents
+            .contains("Effect: lazuli.Reorder(&jobStepResource, \"position\"),"),
+        "expected `Effect: lazuli.Reorder(...)` in command.gen.go:\n{}",
         command_file.contents
     );
 }

@@ -21,13 +21,12 @@
 //! pure validator and could in principle be exposed wider, but
 //! nothing outside this module currently consumes it.
 
-use crate::ast::{FilterCardinalityAst, FilterDeclAst, Span};
-
 use super::super::super::common::{
     SourceLine, is_lzx_bare_ident, is_trivia, line_error, line_error_owned, strip_inline_comment,
 };
 use super::super::super::error::ParseError;
 use super::ViewBodyState;
+use crate::ast::{FilterCardinalityAst, FilterDeclAst, Span};
 
 pub(crate) fn parse_filters_block(
     lines: &[SourceLine<'_>],
@@ -121,7 +120,15 @@ fn parse_filter_decl(line: &SourceLine<'_>, value: &str) -> Result<FilterDeclAst
         url_sync = true;
     }
 
-    let (cardinality, type_ref) = if let Some(type_ref) = rest.strip_prefix("list of ") {
+    // GAP-UX-07 — `date_range` is a closed cardinality keyword. Bare
+    // (`<name>: date_range`) defaults the backing type to `Date`; an
+    // explicit type (`<name>: date_range DateTime`) overrides it. Either
+    // way it lowers to a paired from/to picker (`<name>_from`/`<name>_to`).
+    let (cardinality, type_ref) = if rest == "date_range" {
+        (FilterCardinalityAst::DateRange, "Date")
+    } else if let Some(type_ref) = rest.strip_prefix("date_range ") {
+        (FilterCardinalityAst::DateRange, type_ref.trim())
+    } else if let Some(type_ref) = rest.strip_prefix("list of ") {
         (FilterCardinalityAst::Multi, type_ref.trim())
     } else {
         (FilterCardinalityAst::Single, rest)

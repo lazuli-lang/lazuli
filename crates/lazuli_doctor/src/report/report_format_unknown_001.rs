@@ -91,6 +91,7 @@ mod tests {
     fn mk_report(name: &str, formats: Vec<&str>) -> ReportDecl {
         ReportDecl {
             name: name.into(),
+            input: vec![],
             source: "customer.query.list".into(),
             columns: vec![],
             formats: formats.into_iter().map(str::to_owned).collect(),

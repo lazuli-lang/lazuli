@@ -77,6 +77,8 @@ pub(crate) fn ts_type_for_type_ref(
             | lazuli_ir::BuiltinType::SemanticUrl
             | lazuli_ir::BuiltinType::SemanticUuid
             | lazuli_ir::BuiltinType::SemanticCurrency
+            // W1 GAP-04 — HexColor is a text carrier.
+            | lazuli_ir::BuiltinType::SemanticHexColor
             | lazuli_ir::BuiltinType::CapSecret => "string".to_owned(),
             // B3 — plugin-contributed `@semantic.<Name>` projects to
             // the brand alias name (e.g. `BrazilianCPF`). The SDK
@@ -85,9 +87,10 @@ pub(crate) fn ts_type_for_type_ref(
             // every consuming interface picks up the alias.
             lazuli_ir::BuiltinType::SemanticPluginType { name, .. } => pascal_case(name),
             lazuli_ir::BuiltinType::Boolean => "boolean".to_owned(),
-            lazuli_ir::BuiltinType::Integer | lazuli_ir::BuiltinType::Decimal => {
-                "number".to_owned()
-            }
+            // W1 GAP-05 — Percentage is Decimal-backed; TS wire is number.
+            lazuli_ir::BuiltinType::Integer
+            | lazuli_ir::BuiltinType::Decimal
+            | lazuli_ir::BuiltinType::SemanticPercentage => "number".to_owned(),
             // Per `semantic-types-money-brazilian.md` v0.3 — Money is
             // the rich struct on the TS side too. `Money` interface
             // lives in `@lazuli/runtime`; downstream consumers get the

@@ -213,6 +213,8 @@ fn command_resource<'a>(
         lazuli_ir::CommandEffect::Creates(effect) => find_resource(module, &effect.resource),
         lazuli_ir::CommandEffect::Updates(effect) => find_resource(module, &effect.resource),
         lazuli_ir::CommandEffect::Deletes(effect) => find_resource(module, &effect.resource),
+        // W4 GAP-REORDER-01 — reorder targets a resource's table.
+        lazuli_ir::CommandEffect::Reorders(effect) => find_resource(module, &effect.resource),
         lazuli_ir::CommandEffect::Returns(_) | lazuli_ir::CommandEffect::None => {
             feature.resources.first()
         }

@@ -119,8 +119,8 @@ mod tests {
     use super::*;
     use lazuli_ir::{
         Defaults, Feature, HandlerRef, IdempotencyKey, Job, JobBody, JobHandler, JobTrigger,
-        Path as IrPath, PathRef, Poller, PollerBackoff, PollerCursor, PollerRetry, PollerState,
-        PollerStateKind, PollerTick, Policies, QualifiedName,
+        Path as IrPath, PathRef, Policies, Poller, PollerBackoff, PollerCursor, PollerRetry,
+        PollerState, PollerStateKind, PollerTick, QualifiedName,
     };
 
     fn mk_poller(source: &str) -> Poller {

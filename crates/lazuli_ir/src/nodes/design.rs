@@ -239,8 +239,9 @@ pub struct ZToken {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     fn sample_design() -> Design {
         Design {

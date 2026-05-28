@@ -82,11 +82,13 @@ fn e2ee_field_skipped_on_decrypt_path() {
             slug: false,
             default: None,
             derived_from: None,
+            computed_date: None,
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         }],
     );

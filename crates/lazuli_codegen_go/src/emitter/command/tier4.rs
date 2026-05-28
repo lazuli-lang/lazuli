@@ -143,11 +143,21 @@ pub(super) fn emit_invalidates(p: &mut GoPrinter, specs: &[InvalidatesSpec], hos
 }
 
 pub(super) fn format_approval(approval: &ApprovalSpec) -> String {
+    // W4 GAP-06 — emit the ordered approver chain + `sequential` flag. The
+    // single-approver form lifts to a 1-element chain (`by == chain[0]`).
+    let chain = approval.approvers();
+    let chain_lit = chain
+        .iter()
+        .map(|a| format!("\"{}\"", escape_string(a)))
+        .collect::<Vec<_>>()
+        .join(", ");
     format!(
-        "&lazuli.ApprovalSpec{{Then: \"{}\", By: \"{}\", Reason: \"{}\"}},",
+        "&lazuli.ApprovalSpec{{Then: \"{}\", By: \"{}\", Reason: \"{}\", Chain: []string{{{}}}, Sequential: {}}},",
         approval_then_literal(approval.then),
         escape_string(&approval.by),
-        escape_string(approval.required_when.as_deref().unwrap_or(""))
+        escape_string(approval.required_when.as_deref().unwrap_or("")),
+        chain_lit,
+        approval.sequential,
     )
 }
 
@@ -364,6 +374,8 @@ mod tests {
         cmd.approval = Some(lazuli_ir::ApprovalSpec {
             required_when: Some("target.tier = enterprise".to_owned()),
             by: "@role.admin".to_owned(),
+            chain: vec!["@role.admin".to_owned()],
+            sequential: false,
             timeout: Some("24h".to_owned()),
             then: lazuli_ir::ApprovalThen::Deny,
         });
@@ -392,7 +404,7 @@ mod tests {
 
         let out = emit(&feature).expect("must emit");
         assert!(out.contains(
-            "Approval: &lazuli.ApprovalSpec{Then: \"deny\", By: \"@role.admin\", Reason: \"target.tier = enterprise\"},"
+            "Approval: &lazuli.ApprovalSpec{Then: \"deny\", By: \"@role.admin\", Reason: \"target.tier = enterprise\", Chain: []string{\"@role.admin\"}, Sequential: false},"
         ));
         assert!(out.contains("ExternalCalls: []lazuli.ExternalCallRef{"));
         assert!(out.contains("{Slot: \"audit\", Operation: \"log\"},"));

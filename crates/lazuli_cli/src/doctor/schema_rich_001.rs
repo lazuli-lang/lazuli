@@ -130,6 +130,8 @@ fn rich_schema_builtin_label(builtin: &BuiltinType) -> Option<String> {
         BuiltinType::SemanticUuid => Some("@semantic.Uuid".to_owned()),
         BuiltinType::SemanticUrl => Some("@semantic.Url".to_owned()),
         BuiltinType::SemanticCurrency => Some("@semantic.Currency".to_owned()),
+        BuiltinType::SemanticHexColor => Some("@semantic.HexColor".to_owned()),
+        BuiltinType::SemanticPercentage => Some("@semantic.Percentage".to_owned()),
         BuiltinType::SemanticMoney { currency } => Some(format!("@semantic.Money({currency:?})")),
         BuiltinType::SemanticPluginType { name, .. } => Some(format!("@semantic.{name}")),
         _ => None,

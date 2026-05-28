@@ -162,7 +162,12 @@ pub fn literal_matches_type(lit: &DefaultValue, ty: &TypeRef) -> bool {
     }
     match (lit, ty) {
         (DefaultValue::Boolean(_), TypeRef::Builtin(BuiltinType::Boolean)) => true,
-        (DefaultValue::Integer(_), TypeRef::Builtin(BuiltinType::Integer)) => true,
+        (
+            DefaultValue::Integer(_),
+            // W1 GAP-05 — Percentage is Decimal-backed; an integer literal
+            // (e.g. `= 50`) is an admissible route-guard RHS.
+            TypeRef::Builtin(BuiltinType::Integer | BuiltinType::SemanticPercentage),
+        ) => true,
         (
             DefaultValue::String(_),
             TypeRef::Builtin(
@@ -172,7 +177,9 @@ pub fn literal_matches_type(lit: &DefaultValue, ty: &TypeRef) -> bool {
                 | BuiltinType::SemanticPhone
                 | BuiltinType::SemanticUrl
                 | BuiltinType::SemanticUuid
-                | BuiltinType::SemanticCurrency,
+                | BuiltinType::SemanticCurrency
+                // W1 GAP-04 — HexColor is a text carrier (`#RRGGBB`).
+                | BuiltinType::SemanticHexColor,
             ),
         ) => true,
         // Enum literal vs EnumRef is admissible.
@@ -219,11 +226,13 @@ mod tests {
             slug: false,
             default: None,
             derived_from: None,
+            computed_date: None,
             constraints: FieldConstraints::new(),
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         }
     }
@@ -248,6 +257,9 @@ mod tests {
             composite_key: None,
             conventions: Vec::new(),
             lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            many_through: Vec::new(),
+            append_only: false,
         };
         Feature {
             name: feature_name.into(),
@@ -369,7 +381,10 @@ mod tests {
         // for nullable timestamps (`kyc_passed_at = null`).
         let feature = mk_feature(
             "user",
-            vec![mk_field("kyc_passed_at", TypeRef::Builtin(BuiltinType::DateTime))],
+            vec![mk_field(
+                "kyc_passed_at",
+                TypeRef::Builtin(BuiltinType::DateTime),
+            )],
         );
         let module = mk_module("user", "kyc_passed_at", DefaultValue::Nil);
         assert!(check(&module, &[feature], Path::new("hostpoint.lzx")).is_empty());

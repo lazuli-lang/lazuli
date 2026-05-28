@@ -41,7 +41,7 @@ use super::super::super::common::{SourceLine, is_trivia, line_error, strip_inlin
 use super::super::super::error::ParseError;
 use super::super::field_constraints;
 
-use crate::ast::{OwnerAxisAst, ResourceFieldDecl, Span};
+use crate::ast::{CrossFeatureTargetAst, OwnerAxisAst, ResourceFieldDecl, Span};
 
 pub(in super::super) fn parse_resource_field_decl(
     lines: &[SourceLine<'_>],
@@ -66,8 +66,13 @@ pub(in super::super) fn parse_resource_field_decl(
     }
     let after = after.trim();
     // Split the type text from trailing modifiers honouring parens.
-    let (raw_type_text, modifiers_text, default, derived_from, constraints) =
-        field_constraints::split_resource_field_after(header, after)?;
+    let tail = field_constraints::split_resource_field_after(header, after)?;
+    let raw_type_text = tail.type_text;
+    let modifiers_text = tail.modifiers_text;
+    let default = tail.default;
+    let derived_from = tail.derived_from;
+    let computed_date = tail.computed_date;
+    let constraints = tail.constraints;
     let required = modifiers_text.contains("required");
     let optional = modifiers_text.contains("optional");
     let unique = modifiers_text.contains("unique");
@@ -91,6 +96,13 @@ pub(in super::super) fn parse_resource_field_decl(
     // projects this onto `ir::Field.owner_axis`; the synth pass (O2)
     // builds the ownership-chain WHERE-clause predicate from it.
     let (type_text, owner_axis) = extract_owner_axis_decorator(header, &type_text)?;
+
+    // GAP-12 — peel `target @feature.<feature>.<Resource>` out of the
+    // type tail into a typed `ResourceFieldDecl.cross_feature_target`.
+    // The analyzer projects this onto `ir::Field.cross_feature_target`;
+    // doctor cross-checks the feature against the declaring feature's
+    // `uses` (Dependencies) and the resource against that feature.
+    let (type_text, cross_feature_target) = extract_cross_feature_target(header, &type_text)?;
 
     // Consume optional `previously migrated <old>` grandchild lines.
     let mut previously: Vec<String> = Vec::new();
@@ -123,9 +135,11 @@ pub(in super::super) fn parse_resource_field_decl(
             slug,
             default,
             derived_from,
+            computed_date,
             constraints,
             full_text,
             owner_axis,
+            cross_feature_target,
             previously,
             span: Span::new(header.start, header.end),
         },
@@ -306,6 +320,80 @@ fn parse_owner_axis_body(line: &SourceLine<'_>, body: &str) -> Result<String, Pa
     Ok(value.to_owned())
 }
 
+/// GAP-12 — peel `target @feature.<feature>.<Resource>` off a resource
+/// field's type text. Returns the cleaned type text plus the optional
+/// cross-feature target payload.
+///
+/// Grammar: the literal keyword `target`, then `@feature.<feature>
+/// .<Resource>` — exactly two dot-separated identifier segments after the
+/// `@feature.` prefix. The annotation is only meaningful on `ID` fields;
+/// the analyzer rejects it on non-`ID` types. Recognized as a bare
+/// trailing clause (after the type token, e.g. `ID target
+/// @feature.agency.Department`).
+///
+/// Errors:
+/// - `target` not followed by `@feature.<feature>.<Resource>`.
+/// - missing feature or resource segment.
+/// - duplicate `target ...` on the same field.
+fn extract_cross_feature_target(
+    line: &SourceLine<'_>,
+    type_text: &str,
+) -> Result<(String, Option<CrossFeatureTargetAst>), ParseError> {
+    // The clause is `target @feature.<feature>.<Resource>`. Locate the
+    // `target` token at a word boundary (start-of-text or after space).
+    let needle = "target ";
+    let hit = if type_text.starts_with(needle) {
+        Some(0usize)
+    } else {
+        type_text.find(" target ").map(|idx| idx + 1)
+    };
+    let Some(start) = hit else {
+        return Ok((type_text.to_owned(), None));
+    };
+    let after = type_text[start + needle.len()..].trim_start();
+    // The qualifier reference runs to the next whitespace (the clause is
+    // a bare dotted path with no parens).
+    let (reference, tail) = match after.find(char::is_whitespace) {
+        Some(idx) => (&after[..idx], after[idx..].trim_start()),
+        None => (after, ""),
+    };
+    let Some(qualified) = reference.strip_prefix("@feature.") else {
+        return Err(line_error(
+            line,
+            "`target` requires `@feature.<feature>.<Resource>`",
+        ));
+    };
+    let mut segments = qualified.split('.');
+    let feature = segments.next().unwrap_or("").trim();
+    let resource = segments.next().unwrap_or("").trim();
+    if feature.is_empty() || resource.is_empty() || segments.next().is_some() {
+        return Err(line_error(
+            line,
+            "`target @feature.<feature>.<Resource>` requires exactly a feature \
+             and a resource segment",
+        ));
+    }
+    // Reassemble the cleaned type text (everything before `target` plus
+    // any trailing tokens after the reference).
+    let before = type_text[..start].trim_end();
+    let mut cleaned = before.to_owned();
+    if !cleaned.is_empty() && !tail.is_empty() {
+        cleaned.push(' ');
+    }
+    cleaned.push_str(tail);
+    // A second `target` clause is a parse error.
+    if cleaned.contains("target @feature.") {
+        return Err(line_error(line, "duplicate `target` clause on field"));
+    }
+    Ok((
+        cleaned.trim().to_owned(),
+        Some(CrossFeatureTargetAst {
+            feature: feature.to_owned(),
+            resource: resource.to_owned(),
+        }),
+    ))
+}
+
 /// Roadmap §1.5 (CL.C.2) — peel the `@full_text` decorator off the
 /// type text. Returns the cleaned type text plus a boolean flag. The
 /// marker is rejected if it appears more than once. Depth-aware so
@@ -450,6 +538,192 @@ feature catalog
         assert!(
             message.contains("requires a bare identifier"),
             "got: {message}",
+        );
+    }
+
+    // -------------------------------------------------------------------
+    // GAP-12 — `target @feature.<feature>.<Resource>` cross-feature FK
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn parses_cross_feature_target_on_id_field() {
+        let source = "
+feature agency
+  uses department
+  resource Agency
+    name: Text required
+    default_department_id: ID target @feature.department.Department
+";
+        let features = parse_feature_skeletons(source).unwrap();
+        let agency = &features[0].resources[0];
+        let fk = &agency.fields[1];
+        assert_eq!(fk.name, "default_department_id");
+        let target = fk
+            .cross_feature_target
+            .as_ref()
+            .expect("`target @feature.department.Department` should peel into the typed slot");
+        assert_eq!(target.feature, "department");
+        assert_eq!(target.resource, "Department");
+        // The `target ...` clause must be stripped from type_text.
+        assert!(
+            !fk.type_text.contains("target"),
+            "target clause should be stripped from type_text; got: {}",
+            fk.type_text
+        );
+        assert_eq!(fk.type_text.trim(), "ID");
+    }
+
+    #[test]
+    fn cross_feature_target_requires_feature_and_resource() {
+        let source = "
+feature agency
+  resource Agency
+    dep_id: ID target @feature.department
+";
+        assert!(
+            parse_feature_skeletons(source).is_err(),
+            "single-segment `@feature.department` must be a parse error"
+        );
+    }
+
+    // -------------------------------------------------------------------
+    // W3 GAP-03 — `computed_date from <base> offset <offset>`
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn parses_computed_date_with_field_offset() {
+        use crate::ast::{ComputedDateBaseAst, ComputedDateOffsetAst};
+        let source = "
+feature campaign
+  resource Campaign
+    campaign_start: Date required
+    offset_days: Integer required
+    due_date: Date computed_date from campaign_start offset offset_days
+";
+        let features = parse_feature_skeletons(source).unwrap();
+        let campaign = &features[0].resources[0];
+        let due = &campaign.fields[2];
+        assert_eq!(due.name, "due_date");
+        let cd = due
+            .computed_date
+            .as_ref()
+            .expect("`computed_date from ... offset ...` should peel into the typed slot");
+        assert_eq!(cd.base, ComputedDateBaseAst::Field("campaign_start".into()));
+        assert_eq!(
+            cd.offset,
+            ComputedDateOffsetAst::Field("offset_days".into())
+        );
+        // `computed_date ...` clause must be stripped from type_text.
+        assert_eq!(due.type_text.trim(), "Date");
+        assert!(!due.type_text.contains("computed_date"));
+        // Sibling fields carry no computed_date.
+        assert!(campaign.fields[0].computed_date.is_none());
+        assert!(campaign.fields[1].computed_date.is_none());
+    }
+
+    #[test]
+    fn parses_computed_date_with_integer_literal_offset() {
+        use crate::ast::{ComputedDateBaseAst, ComputedDateOffsetAst};
+        let source = "
+feature campaign
+  resource Campaign
+    campaign_start: Date required
+    due_date: Date computed_date from campaign_start offset 30
+";
+        let features = parse_feature_skeletons(source).unwrap();
+        let due = &features[0].resources[0].fields[1];
+        let cd = due.computed_date.as_ref().expect("computed_date present");
+        assert_eq!(cd.base, ComputedDateBaseAst::Field("campaign_start".into()));
+        assert_eq!(cd.offset, ComputedDateOffsetAst::Literal(30));
+        assert_eq!(due.type_text.trim(), "Date");
+    }
+
+    // -------------------------------------------------------------------
+    // W4 GAP-08 — `schedule_rule from @fn.<name>(<arg>) offset <offset>`
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn parses_schedule_rule_with_fn_base_and_field_offset() {
+        use crate::ast::{ComputedDateBaseAst, ComputedDateOffsetAst};
+        let source = "
+feature activity
+  resource Activity
+    offset_days: Integer required
+    rule: Text required
+    due_date: Date schedule_rule from @fn.activity_date_rule(input.rule) offset offset_days
+";
+        let features = parse_feature_skeletons(source).unwrap();
+        let activity = &features[0].resources[0];
+        let due = &activity.fields[2];
+        assert_eq!(due.name, "due_date");
+        let cd = due
+            .computed_date
+            .as_ref()
+            .expect("`schedule_rule from @fn...(...) offset ...` should peel into the typed slot");
+        assert_eq!(
+            cd.base,
+            ComputedDateBaseAst::Rule {
+                rule: "input.rule".into(),
+                fn_ref: "activity_date_rule".into(),
+            }
+        );
+        assert_eq!(cd.offset, ComputedDateOffsetAst::Field("offset_days".into()));
+        // The `schedule_rule ...` clause must be stripped from type_text.
+        assert_eq!(due.type_text.trim(), "Date");
+        assert!(!due.type_text.contains("schedule_rule"));
+    }
+
+    #[test]
+    fn schedule_rule_missing_fn_base_is_a_parse_error() {
+        let source = "
+feature activity
+  resource Activity
+    due_date: Date schedule_rule from start_date offset 7
+";
+        assert!(
+            parse_feature_skeletons(source).is_err(),
+            "`schedule_rule` requires an `@fn.<name>(<arg>)` base, not a bare field"
+        );
+    }
+
+    #[test]
+    fn schedule_rule_missing_offset_is_a_parse_error() {
+        let source = "
+feature activity
+  resource Activity
+    due_date: Date schedule_rule from @fn.pick_date(input.rule)
+";
+        assert!(
+            parse_feature_skeletons(source).is_err(),
+            "`schedule_rule from @fn(...)` without `offset <offset>` must be a parse error"
+        );
+    }
+
+    #[test]
+    fn computed_date_missing_offset_keyword_is_a_parse_error() {
+        let source = "
+feature campaign
+  resource Campaign
+    campaign_start: Date required
+    due_date: Date computed_date from campaign_start
+";
+        assert!(
+            parse_feature_skeletons(source).is_err(),
+            "`computed_date from <base>` without `offset <offset>` must be a parse error"
+        );
+    }
+
+    #[test]
+    fn computed_date_and_derived_from_are_mutually_exclusive() {
+        let source = "
+feature campaign
+  resource Campaign
+    campaign_start: Date required
+    due_date: Date computed_date from campaign_start offset 30 derived from now()
+";
+        assert!(
+            parse_feature_skeletons(source).is_err(),
+            "combining `computed_date` and `derived from` on one field must be a parse error"
         );
     }
 

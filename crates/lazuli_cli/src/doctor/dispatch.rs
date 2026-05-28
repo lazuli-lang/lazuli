@@ -468,6 +468,183 @@ impl DoctorPackage {
         // `INVARIANT-PREDICATE-INVALID`, `SLUG-UNIQUENESS-IMPLICIT`.
         diagnostics.extend(aggregators::domain::diagnostics(&self.tier3_facts));
 
+        // GAP-12 — REF-CROSS-FEATURE-UNKNOWN-001. Field-level `target
+        // @feature.<feature>.<Resource>` FK references must name a feature
+        // in the declaring feature's `uses` (Dependencies) and a resource
+        // that exists in it. Module-level: build the per-feature views from
+        // the Tier-3 fact bundle (which carries `uses` + full resources).
+        {
+            use lazuli_doctor::cross_feature::ref_unknown_001;
+            let views: Vec<ref_unknown_001::FeatureCrossRefView> = self
+                .tier3_facts
+                .iter()
+                .map(|fact| {
+                    let mut targets = Vec::new();
+                    for resource in &fact.resources {
+                        for field in &resource.fields {
+                            if let Some(t) = &field.cross_feature_target {
+                                targets.push(ref_unknown_001::CrossFeatureTargetRef {
+                                    resource: resource.name.clone(),
+                                    field: field.name.clone(),
+                                    target_feature: t.feature.clone(),
+                                    target_resource: t.resource.clone(),
+                                });
+                            }
+                        }
+                    }
+                    ref_unknown_001::FeatureCrossRefView {
+                        feature: fact.feature.clone(),
+                        path: fact.path.clone(),
+                        uses: fact.uses.clone(),
+                        resources: fact
+                            .resources
+                            .iter()
+                            .map(|r| r.name.clone())
+                            .collect(),
+                        cross_feature_targets: targets,
+                    }
+                })
+                .collect();
+            for finding in ref_unknown_001::check(&views) {
+                let line = self
+                    .tier3_facts
+                    .iter()
+                    .find(|f| f.feature == finding.feature)
+                    .map(|f| f.feature_line)
+                    .unwrap_or(1);
+                diagnostics.push(DoctorDiagnostic {
+                    path: doctor_rule_path(&self.project_root, finding.path.clone()),
+                    line,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: ref_unknown_001::Finding::CODE.to_owned(),
+                    message: finding.message(),
+                    category: None,
+                    feature_name: Some(finding.feature.clone()),
+                    construct: None,
+                    fix: None,
+                    group: None,
+                });
+            }
+        }
+
+        // GAP-13 — REF-POLYMORPHIC-TARGET-001. Every `polymorphic_ref`
+        // target must resolve to a resource in the declaring feature or a
+        // feature it `uses` (reuses the GAP-12 resolution model).
+        {
+            use lazuli_doctor::cross_feature::polymorphic_target_001;
+            let views: Vec<polymorphic_target_001::FeaturePolymorphicView> = self
+                .tier3_facts
+                .iter()
+                .map(|fact| {
+                    let mut sites = Vec::new();
+                    for resource in &fact.resources {
+                        for pref in &resource.polymorphic_refs {
+                            sites.push(polymorphic_target_001::PolymorphicRefSite {
+                                resource: resource.name.clone(),
+                                type_field: pref.type_field.clone(),
+                                targets: pref.targets.clone(),
+                            });
+                        }
+                    }
+                    polymorphic_target_001::FeaturePolymorphicView {
+                        feature: fact.feature.clone(),
+                        path: fact.path.clone(),
+                        uses: fact.uses.clone(),
+                        resources: fact
+                            .resources
+                            .iter()
+                            .map(|r| r.name.clone())
+                            .collect(),
+                        polymorphic_refs: sites,
+                    }
+                })
+                .collect();
+            for finding in polymorphic_target_001::check(&views) {
+                let line = self
+                    .tier3_facts
+                    .iter()
+                    .find(|f| f.feature == finding.feature)
+                    .map(|f| f.feature_line)
+                    .unwrap_or(1);
+                diagnostics.push(DoctorDiagnostic {
+                    path: doctor_rule_path(&self.project_root, finding.path.clone()),
+                    line,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: polymorphic_target_001::Finding::CODE.to_owned(),
+                    message: finding.message(),
+                    category: None,
+                    feature_name: Some(finding.feature.clone()),
+                    construct: None,
+                    fix: None,
+                    group: None,
+                });
+            }
+        }
+
+        // GAP-AUDIT-01 — AUDIT-MATERIALIZE-TARGET-001. Every command
+        // `audit materialize @feature.<f>.<R>` target must resolve to a
+        // reachable resource (same feature or a `uses` dependency) AND
+        // that resource must be `append_only` (W4 modifier). Reuses the
+        // GAP-12 `uses`-as-Dependencies resolution model; anchors at the
+        // command header.
+        {
+            use lazuli_doctor::cross_feature::audit_materialize_target_001 as amt;
+            let views: Vec<amt::FeatureAuditMaterializeView> = self
+                .tier3_facts
+                .iter()
+                .map(|fact| {
+                    let mut sites = Vec::new();
+                    for command in &fact.commands {
+                        if let Some(audit) = &command.audit {
+                            if let Some(m) = &audit.materialize {
+                                sites.push(amt::AuditMaterializeSite {
+                                    command: command.name.clone(),
+                                    target_feature: m.feature.clone(),
+                                    target_resource: m.resource.clone(),
+                                });
+                            }
+                        }
+                    }
+                    amt::FeatureAuditMaterializeView {
+                        feature: fact.feature.clone(),
+                        path: fact.path.clone(),
+                        uses: fact.uses.clone(),
+                        resources: fact
+                            .resources
+                            .iter()
+                            .map(|r| amt::ResourceAppendOnly {
+                                name: r.name.clone(),
+                                append_only: r.append_only,
+                            })
+                            .collect(),
+                        materialize_sites: sites,
+                    }
+                })
+                .collect();
+            for finding in amt::check(&views) {
+                let fact = self.tier3_facts.iter().find(|f| f.feature == finding.feature);
+                let line = fact
+                    .and_then(|f| f.command_lines.get(&finding.command).copied())
+                    .or_else(|| fact.map(|f| f.feature_line))
+                    .unwrap_or(1);
+                diagnostics.push(DoctorDiagnostic {
+                    path: doctor_rule_path(&self.project_root, finding.path.clone()),
+                    line,
+                    column: 1,
+                    severity: DoctorSeverity::Error,
+                    code: amt::Finding::CODE.to_owned(),
+                    message: finding.message(),
+                    category: None,
+                    feature_name: Some(finding.feature.clone()),
+                    construct: None,
+                    fix: None,
+                    group: None,
+                });
+            }
+        }
+
         // IR Error-Vocab (Cell ANALYZE-1) — 7 typed `ERR-VOCAB-*` codes
         // per `docs/proposals/ir-error-messages-vocab.md` §6. Operates
         // on the lowered IR carried in `tier3_facts`; `files` is passed

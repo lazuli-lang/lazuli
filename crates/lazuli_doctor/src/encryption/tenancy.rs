@@ -93,7 +93,10 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
 
     for resource in &feature.resources {
         // Resource-level tenancy may override feature defaults.
-        let effective_tenancy = resource.tenancy.as_ref().or(feature.defaults.tenancy.as_ref());
+        let effective_tenancy = resource
+            .tenancy
+            .as_ref()
+            .or(feature.defaults.tenancy.as_ref());
         if is_tenant_bearing(effective_tenancy) {
             continue;
         }

@@ -394,6 +394,7 @@ mod tests {
                 args: None,
             }],
             views: Vec::<View>::new(),
+            ux: Default::default(),
             span_ref: None,
         }
     }
@@ -407,6 +408,7 @@ mod tests {
                 args: None,
             }],
             views: Vec::<View>::new(),
+            ux: Default::default(),
             span_ref: None,
         }
     }

@@ -204,12 +204,7 @@ pub fn check_with_config(
             let mut shared: Vec<String> = left
                 .fields
                 .iter()
-                .filter(|(name, ty)| {
-                    right
-                        .fields
-                        .iter()
-                        .any(|(n2, t2)| n2 == name && t2 == ty)
-                })
+                .filter(|(name, ty)| right.fields.iter().any(|(n2, t2)| n2 == name && t2 == ty))
                 .map(|(name, _)| name.clone())
                 .collect();
             if shared.len() < min_cluster_fields {

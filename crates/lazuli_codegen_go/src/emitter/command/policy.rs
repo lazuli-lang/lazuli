@@ -23,7 +23,9 @@
 //! `and`, `or`, `not`, `(`, `)`), plus the original `<ns>` for
 //! embedded `@<ns>.<name>` references (`role`, `scope`, `actor`, ...).
 
-use lazuli_ir::{Policies, PolicyExpr, PolicyRef};
+use lazuli_ir::{
+    CompareOp, EvalPredicate, Expr, Policies, PolicyExpr, PolicyRef, Predicate,
+};
 
 use super::escape_string;
 
@@ -57,6 +59,20 @@ pub(super) fn format_local_policy(name: &str, policies: &Policies) -> Option<Str
         let nm = parts.next().unwrap_or("");
         format!("{{Namespace: \"{ns}\", Name: \"{nm}\"}}")
     };
+    // GAP-09 — render an atom with an attached input-value predicate
+    // (`When`). The atom evaluates as a normal OR-atom but the runtime
+    // `EvalPolicyInput` skips it unless the predicate holds against the
+    // request input. Mirrors `render_atom` plus a trailing `When:` field.
+    let render_conditional = |atom: &str, when: &EvalPredicate| -> Option<String> {
+        let stripped = atom.strip_prefix('@').unwrap_or(atom);
+        let mut parts = stripped.splitn(2, '.');
+        let ns = parts.next().unwrap_or("");
+        let nm = parts.next().unwrap_or("");
+        let guard = render_policy_when(when)?;
+        Some(format!(
+            "{{Namespace: \"{ns}\", Name: \"{nm}\", When: {guard}}}"
+        ))
+    };
     let mut atom_literals: Vec<String> = Vec::new();
     if category.atoms.len() >= 2 {
         atom_literals.push("{Namespace: \"predicate\", Name: \"(\"}".to_owned());
@@ -72,11 +88,72 @@ pub(super) fn format_local_policy(name: &str, policies: &Policies) -> Option<Str
             atom_literals.push(render_atom(atom));
         }
     }
+    // GAP-09 — predicate-gated atoms always join the OR list as flat
+    // atoms carrying their own `When` guard. They never participate in the
+    // 2+-atom `( ... and ... )` AND-wrapping above, because each predicate
+    // atom is an independent OR-branch ("admin when prod" OR "manager when
+    // media"). A guard that cannot be rendered (richer/unparsed predicate)
+    // degrades to an unconditional atom — fail-open is avoided because the
+    // analyzer + doctor reject unparseable `when` shapes upstream.
+    for ca in &category.conditional_atoms {
+        if let Some(rendered) = render_conditional(&ca.atom, &ca.when) {
+            atom_literals.push(rendered);
+        } else {
+            atom_literals.push(render_atom(&ca.atom));
+        }
+    }
     let inner = atom_literals.join(", ");
     Some(format!(
         "lazuli.Policy{{Name: \"@policy.{}\", Atoms: []lazuli.PolicyAtom{{{inner}}}}},",
         escape_string(name)
     ))
+}
+
+/// GAP-09 — render an `EvalPredicate` as a Go `&lazuli.PolicyWhen{...}`
+/// literal for the `When` slot on a `lazuli.PolicyAtom`. Only the simple
+/// closed `<input.path> <op> <literal>` comparison form is rendered;
+/// richer shapes (`And`/`Or`/`Has`/`Contains`/`ToolsCalls`/`Unparsed`)
+/// return `None` so the caller degrades the atom to unconditional. The
+/// `Path` is the dotted field path (`input.scope` → `"input.scope"`),
+/// `Op` is the comparison token, and `Value` is the Go literal.
+fn render_policy_when(when: &EvalPredicate) -> Option<String> {
+    let EvalPredicate::Closed(Predicate::Comparison { left, op, right }) = when else {
+        return None;
+    };
+    // The author writes `input.<field> <op> <literal>`; the path is on the
+    // left and the literal on the right. Accept the symmetric form too.
+    let (path, value) = match (left, right) {
+        (Expr::Path(p), v) => (p, v),
+        (v, Expr::Path(p)) => (p, v),
+        _ => return None,
+    };
+    let path_str = path.segments.join(".");
+    let value_lit = render_when_value(value)?;
+    let op_str = match op {
+        CompareOp::Eq => "=",
+        CompareOp::Ne => "!=",
+        CompareOp::Lt => "<",
+        CompareOp::Le => "<=",
+        CompareOp::Gt => ">",
+        CompareOp::Ge => ">=",
+    };
+    Some(format!(
+        "&lazuli.PolicyWhen{{Path: {:?}, Op: {:?}, Value: {value_lit}}}",
+        path_str, op_str
+    ))
+}
+
+/// Render the RHS literal of a policy `when` comparison as a Go value.
+/// String / integer / boolean / nil only — paths and enum literals are
+/// not admissible on the value side of an input-value predicate.
+fn render_when_value(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::String(s) => Some(format!("{:?}", s)),
+        Expr::Integer(n) => Some(format!("int64({n})")),
+        Expr::Boolean(b) => Some(b.to_string()),
+        Expr::Nil => Some("nil".to_owned()),
+        _ => None,
+    }
 }
 
 /// RB.S6 — render `lazuli.Policy{...}` with optional structured
@@ -398,6 +475,72 @@ mod tests {
         assert!(
             out.contains("Name: \"authenticated and has_role manager\""),
             "missing combined display name in:\n{out}"
+        );
+    }
+
+    // GAP-09 — input-value-predicate policy atoms emit a `When` guard on
+    // the `lazuli.PolicyAtom`, gated through the feature-local
+    // `@policy.<name>` resolution path (`format_local_policy`).
+    #[test]
+    fn conditional_policy_atom_emits_when_guard() {
+        use lazuli_ir::{
+            CompareOp, ConditionalPolicyAtom, EvalPredicate, Expr, Path, Policies, PolicyCategory,
+            PolicyRef, Predicate,
+        };
+
+        let mut feature = base_feature("catalog");
+        feature.policies = Policies {
+            categories: vec![PolicyCategory {
+                name: "create".into(),
+                atoms: vec![],
+                conditional_atoms: vec![
+                    ConditionalPolicyAtom {
+                        atom: "@role.admin".into(),
+                        when: EvalPredicate::Closed(Predicate::Comparison {
+                            left: Expr::Path(Path::from_segments(["input", "scope"])),
+                            op: CompareOp::Eq,
+                            right: Expr::String("production".into()),
+                        }),
+                    },
+                    ConditionalPolicyAtom {
+                        atom: "@role.manager".into(),
+                        when: EvalPredicate::Closed(Predicate::Comparison {
+                            left: Expr::Path(Path::from_segments(["input", "scope"])),
+                            op: CompareOp::Eq,
+                            right: Expr::String("media".into()),
+                        }),
+                    },
+                ],
+                previous_names: vec![],
+                when_denied: None,
+                when_denied_route: None,
+            }],
+            fields: Vec::new(),
+            span_ref: None,
+        };
+
+        let mut cmd = base_command("create");
+        cmd.input = CommandInput::Typed(vec![typed_slot("scope", BuiltinType::Text, true)]);
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Customer"),
+            from_input: true,
+            assignments: vec![],
+        });
+        cmd.policy = PolicyRef::Local("create".into());
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("emits");
+        assert!(
+            out.contains(
+                "{Namespace: \"role\", Name: \"admin\", When: &lazuli.PolicyWhen{Path: \"input.scope\", Op: \"=\", Value: \"production\"}}"
+            ),
+            "expected admin atom guarded on input.scope == production in:\n{out}"
+        );
+        assert!(
+            out.contains(
+                "{Namespace: \"role\", Name: \"manager\", When: &lazuli.PolicyWhen{Path: \"input.scope\", Op: \"=\", Value: \"media\"}}"
+            ),
+            "expected manager atom guarded on input.scope == media in:\n{out}"
         );
     }
 }

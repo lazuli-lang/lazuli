@@ -40,6 +40,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AuditSpec, FileVisibility, PolicyExpr, PolicyRef, QualifiedName, RateLimitSpec, SpanRef,
+    TypedSlot,
 };
 
 /// Root IR node for a `report <name> { … }` block — declarative
@@ -50,6 +51,15 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Report {
     pub name: String,
+    /// W5 GAP-REPORT-01 — request-time `input { … }` params threaded
+    /// to the `source` query (period_start / period_end / format
+    /// filters). Reuses [`TypedSlot`] so report inputs share the
+    /// command-input constraints catalog → identical Zod / Go-validator
+    /// / OpenAPI schema treatment. Empty when the report declares no
+    /// `input` block. Doctor `REPORT-INPUT-UNBOUND-001` warns when a
+    /// declared param is never consumed by the source query's params.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub input: Vec<TypedSlot>,
     pub source: ReportSource,
     pub columns: Vec<ReportColumn>,
     pub formats: Vec<ReportFormat>,
@@ -217,5 +227,60 @@ mod tests {
         for fmt in [ReportFormat::Csv, ReportFormat::Xlsx] {
             assert_eq!(fmt.token(), fmt.token().to_lowercase());
         }
+    }
+
+    #[test]
+    fn report_input_round_trips_and_defaults_empty() {
+        use crate::{BuiltinType, FileVisibility, PolicyRef, QualifiedName, TypeRef, TypedSlot};
+
+        let report = Report {
+            name: "billing_summary".into(),
+            input: vec![TypedSlot {
+                name: "period_start".into(),
+                type_ref: TypeRef::Builtin(BuiltinType::Date),
+                required: true,
+                constraints: Default::default(),
+                validate_skip: false,
+            }],
+            source: ReportSource::Query(QualifiedName {
+                feature: Some("billing".into()),
+                name: "billing_rows".into(),
+            }),
+            columns: vec![ReportColumn {
+                name: "id".into(),
+                source: ReportColumnSource::RowField("id".into()),
+                label: None,
+                format: None,
+                span_ref: None,
+            }],
+            formats: vec![ReportFormat::Csv],
+            storage: None,
+            visibility: FileVisibility::Signed,
+            signed_ttl: Some("1h".into()),
+            filename: None,
+            policy: PolicyRef::None,
+            policy_expr: None,
+            rate_limit: None,
+            audit: None,
+            span_ref: None,
+        };
+
+        // Round-trip preserves the declared input params.
+        let json = serde_json::to_string(&report).unwrap();
+        assert!(json.contains("period_start"));
+        let back: Report = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, report);
+        assert_eq!(back.input.len(), 1);
+
+        // Empty `input` is `skip_serializing_if`-elided, so legacy
+        // payloads (and reports with no `input` block) never carry the
+        // key and deserialize back to an empty vec via `#[serde(default)]`.
+        let mut no_input = report.clone();
+        no_input.input.clear();
+        let json_no_input = serde_json::to_string(&no_input).unwrap();
+        assert!(!json_no_input.contains("\"input\""));
+        let parsed: Report = serde_json::from_str(&json_no_input).unwrap();
+        assert!(parsed.input.is_empty());
+        assert_eq!(parsed, no_input);
     }
 }

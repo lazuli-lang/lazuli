@@ -176,6 +176,7 @@ fn command_target_resource(command: &Command) -> Option<&str> {
         CommandEffect::Creates(effect) => Some(effect.resource.name.as_str()),
         CommandEffect::Updates(effect) => Some(effect.resource.name.as_str()),
         CommandEffect::Deletes(effect) => Some(effect.resource.name.as_str()),
+        CommandEffect::Reorders(effect) => Some(effect.resource.name.as_str()),
         CommandEffect::Returns(_) | CommandEffect::None => None,
     }
 }
@@ -314,6 +315,7 @@ mod tests {
             record_before: false,
             record_after: false,
             retain_for: None,
+            materialize: None,
         }
     }
 
@@ -386,6 +388,7 @@ mod tests {
             record_before: false,
             record_after: false,
             retain_for: None,
+            materialize: None,
         });
         feature.commands.push(reassign);
 
@@ -443,6 +446,7 @@ mod tests {
             record_before: false,
             record_after: false,
             retain_for: None,
+            materialize: None,
         });
         feature.commands.push(command);
 

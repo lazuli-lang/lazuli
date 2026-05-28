@@ -71,7 +71,20 @@ func serve(w http.ResponseWriter, r *http.Request, reg Registration, format Form
 			return
 		}
 	}
-	url, err := reg.Runner(r.Context(), format)
+	// W5 GAP-REPORT-01 — parse + validate the declared report input
+	// params from the request query string and thread them to the
+	// SourceFn via the request context. Missing required params fail
+	// closed with HTTP 400 before the runner (and its DB cursor) opens.
+	ctx := r.Context()
+	if len(reg.Contract.Inputs) > 0 {
+		params, perr := ParseInputs(reg.Contract.Inputs, r.URL.Query())
+		if perr != nil {
+			http.Error(w, perr.Error(), http.StatusBadRequest)
+			return
+		}
+		ctx = WithParams(ctx, params)
+	}
+	url, err := reg.Runner(ctx, format)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotImplemented)
 		return

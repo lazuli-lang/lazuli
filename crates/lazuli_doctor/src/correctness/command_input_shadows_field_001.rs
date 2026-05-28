@@ -87,7 +87,10 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
         let resource_name = match &command.effect {
             CommandEffect::Creates(effect) => &effect.resource.name,
             CommandEffect::Updates(effect) => &effect.resource.name,
-            CommandEffect::Deletes(_) | CommandEffect::Returns(_) | CommandEffect::None => {
+            CommandEffect::Deletes(_)
+            | CommandEffect::Reorders(_)
+            | CommandEffect::Returns(_)
+            | CommandEffect::None => {
                 continue;
             }
         };
@@ -179,7 +182,7 @@ mod tests {
             type_ref,
             required: true,
             constraints: FieldConstraints::default(),
-        validate_skip: false,
+            validate_skip: false,
         }
     }
 
@@ -192,11 +195,13 @@ mod tests {
             slug: false,
             default: None,
             derived_from: None,
+            computed_date: None,
             constraints: FieldConstraints::default(),
             full_text: false,
             previous_names: vec![],
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         }
     }
@@ -223,6 +228,9 @@ mod tests {
             composite_key: None,
             conventions: Vec::new(),
             lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            many_through: Vec::new(),
+            append_only: false,
         }
     }
 

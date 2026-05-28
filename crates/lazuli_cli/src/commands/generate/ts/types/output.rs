@@ -127,7 +127,8 @@ pub(crate) fn command_output_ts_type(
         // this fell back to `feature.resources.first()`, which produced
         // wildly wrong types (e.g. every catalog command typed as
         // `UploadedAsset` — see WAR-VOCAB-HOSTPROPDETAIL-02).
-        lazuli_ir::CommandEffect::None => "void".to_owned(),
+        // W4 GAP-REORDER-01 — reorder is side-effecting; no typed output.
+        lazuli_ir::CommandEffect::Reorders(_) | lazuli_ir::CommandEffect::None => "void".to_owned(),
     }
 }
 

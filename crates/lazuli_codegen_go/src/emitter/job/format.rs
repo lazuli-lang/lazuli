@@ -63,6 +63,9 @@ pub(super) fn effect_summary(effect: &CommandEffect, ctx: &TypeCtx<'_>) -> Strin
         CommandEffect::Creates(create) => format!("creates {}", create.resource.name),
         CommandEffect::Updates(update) => format!("updates {}", update.resource.name),
         CommandEffect::Deletes(delete) => format!("deletes {}", delete.resource.name),
+        CommandEffect::Reorders(reorder) => {
+            format!("reorders {} by {}", reorder.resource.name, reorder.position_field)
+        }
         CommandEffect::Returns(ret) => {
             let (go_type, _import) = types::go_type_for(&ret.return_type, ctx);
             format!("returns {go_type}")

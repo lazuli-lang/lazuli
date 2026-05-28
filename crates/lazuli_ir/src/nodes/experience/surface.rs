@@ -18,9 +18,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::PolicyAtom;
-use crate::SpanRef;
 use crate::nodes::experience::guard::ViewGuard;
+use crate::{PolicyAtom, SpanRef};
 
 /// Root projection of one [`crate::Experience`] onto one platform
 /// target. Carries the platform discriminator, optional `uses

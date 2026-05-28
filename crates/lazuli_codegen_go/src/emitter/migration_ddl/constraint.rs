@@ -33,6 +33,14 @@ pub(super) fn unique_constraint_sql(constraint: &Constraint) -> Option<SqlColumn
     let Constraint::Unique(unique) = constraint else {
         return None;
     };
+    // GAP-NEW-001 — conditional uniques (`when <predicate>`) can't be a
+    // table-level `UNIQUE (...)` clause (Postgres only honors `WHERE` on
+    // indexes). They're emitted separately as `CREATE UNIQUE INDEX ...
+    // WHERE` via `index::partial_unique_index_sql`; skip them here so the
+    // table body doesn't carry a duplicate (and invalid) clause.
+    if unique.when.is_some() {
+        return None;
+    }
 
     unique_fields_sql(
         unique.fields.iter().map(String::as_str),
@@ -88,6 +96,37 @@ pub(super) fn composite_key_sql(resource: &Resource) -> Option<SqlColumn> {
         format!("UNIQUE ({})", cols.join(", "))
     };
     Some(SqlColumn::raw(&clause))
+}
+
+/// GAP-13 — render the columns + CHECK for every `polymorphic_ref` on a
+/// resource. Each declaration contributes:
+///   - `<type_field> TEXT NOT NULL CHECK (<type_field> IN ('A','B',...))`
+///     — the discriminator, constrained to the closed target-name set.
+///   - `<id_field> BIGINT NOT NULL` — the row id of whichever target the
+///     discriminator names.
+/// No `FOREIGN KEY` is emitted: a polymorphic referent can point at any
+/// of N tables, which a single SQL FK cannot express. The composite
+/// `(type_field, id_field)` index is emitted separately by
+/// `index::polymorphic_ref_indexes`.
+pub(super) fn polymorphic_ref_columns(resource: &Resource) -> Vec<SqlColumn> {
+    let mut columns = Vec::new();
+    for pref in &resource.polymorphic_refs {
+        let type_col = sql_ident(&pref.type_field);
+        let allowed = pref
+            .targets
+            .iter()
+            .map(|t| format!("'{}'", t.replace('\'', "''")))
+            .collect::<Vec<_>>()
+            .join(", ");
+        columns.push(SqlColumn::raw(&format!(
+            "{type_col} TEXT NOT NULL CHECK ({type_col} IN ({allowed}))"
+        )));
+        columns.push(SqlColumn::raw(&format!(
+            "{} BIGINT NOT NULL",
+            sql_ident(&pref.id_field)
+        )));
+    }
+    columns
 }
 
 pub(super) fn foreign_key_constraints<'a>(

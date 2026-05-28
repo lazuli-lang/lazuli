@@ -10,9 +10,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::SpanRef;
-
 use super::core::{CellBinding, CommandRef, QueryRef};
+use crate::SpanRef;
 
 /// One `setting <name> { ... }` knob inside a [`super::ViewList`].
 /// Three typed value spaces (enum / bool / int with bounds) keep the

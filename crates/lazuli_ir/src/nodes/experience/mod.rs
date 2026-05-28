@@ -41,20 +41,16 @@ pub mod lifecycle_gate;
 pub mod route;
 pub mod surface;
 
-pub use guard::{
-    ForbidWhen, RequiresField, RequiresLifecycleIn, RouteGuardDefaults, ViewGuard,
-};
+pub use guard::{ForbidWhen, RequiresField, RequiresLifecycleIn, RouteGuardDefaults, ViewGuard};
 pub use lifecycle_gate::{
     RequiresLifecycle, ResolvedLifecycleGate, ResumeArm, ResumeArmKind, ResumeRouter,
 };
 pub use route::{AppRoute, RouteLoader};
+use serde::{Deserialize, Serialize};
 pub use surface::{AudienceSurface, Platform, PlatformSurface, PlatformView};
 
-use serde::{Deserialize, Serialize};
-
-use crate::PolicyAtom;
-use crate::SpanRef;
 use crate::nodes::app_manifest::AppManifest;
+use crate::{PolicyAtom, SpanRef};
 
 /// Root of every `.lzx` document.
 ///
@@ -171,7 +167,10 @@ impl ViewTestAssertion {
     /// ```
     /// use lazuli_ir::ViewTestAssertion;
     ///
-    /// let a = ViewTestAssertion::AcceptedBy { feature: "checkout".into(), span_ref: None };
+    /// let a = ViewTestAssertion::AcceptedBy {
+    ///     feature: "checkout".into(),
+    ///     span_ref: None,
+    /// };
     /// assert_eq!(a.feature(), "checkout");
     /// ```
     pub fn feature(&self) -> &str {
@@ -188,7 +187,10 @@ impl ViewTestAssertion {
     /// ```
     /// use lazuli_ir::ViewTestAssertion;
     ///
-    /// let a = ViewTestAssertion::AcceptedBy { feature: "checkout".into(), span_ref: None };
+    /// let a = ViewTestAssertion::AcceptedBy {
+    ///     feature: "checkout".into(),
+    ///     span_ref: None,
+    /// };
     /// assert!(a.span_ref().is_none());
     /// ```
     pub fn span_ref(&self) -> Option<&SpanRef> {

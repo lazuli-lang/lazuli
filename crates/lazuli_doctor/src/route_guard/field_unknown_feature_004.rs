@@ -137,16 +137,17 @@ pub fn feature_has_lookup_my(features: &[Feature], feature_name: &str) -> bool {
     let Some(feature) = features.iter().find(|f| f.name == feature_name) else {
         return false;
     };
-    feature.queries.iter().any(|q| {
-        matches!(q, Query::Lookup(lookup) if lookup.name.starts_with("my_"))
-    })
+    feature
+        .queries
+        .iter()
+        .any(|q| matches!(q, Query::Lookup(lookup) if lookup.name.starts_with("my_")))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use lazuli_ir::{
-        AppRoute, Defaults, DefaultValue, ExperienceModule, Feature, LookupQuery, Policies, Query,
+        AppRoute, DefaultValue, Defaults, ExperienceModule, Feature, LookupQuery, Policies, Query,
         RequiresField, ViewGuard,
     };
 

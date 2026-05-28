@@ -87,11 +87,7 @@ impl Finding {
 /// let events: Vec<WebhookEvent> = vec![];
 /// let _ = check(&feature, &events, Path::new("billing.lzi"));
 /// ```
-pub fn check(
-    feature: &Feature,
-    webhook_events: &[WebhookEvent],
-    file_path: &Path,
-) -> Vec<Finding> {
+pub fn check(feature: &Feature, webhook_events: &[WebhookEvent], file_path: &Path) -> Vec<Finding> {
     let mut out = Vec::new();
     for webhook in &feature.webhooks {
         check_webhook(feature, webhook, webhook_events, file_path, &mut out);
@@ -110,10 +106,8 @@ fn check_webhook(
         return;
     }
     // Resolve the webhook's typed payload contract once per webhook.
-    let payload_fields: Option<&[WebhookEventField]> = webhook
-        .payload_from
-        .as_ref()
-        .and_then(|payload_ref| {
+    let payload_fields: Option<&[WebhookEventField]> =
+        webhook.payload_from.as_ref().and_then(|payload_ref| {
             webhook_events
                 .iter()
                 .find(|we| we.name == payload_ref.name)

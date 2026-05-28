@@ -101,11 +101,27 @@ pub fn lower_feature_skeleton(
         .map(|command| lower_command_decl(&skeleton.name, command))
         .collect::<Result<Vec<_>, _>>()?;
     let apis = skeleton.apis.iter().map(lower_api_decl).collect();
-    let resources = skeleton
+    let mut resources = skeleton
         .resources
         .iter()
         .map(lower_resource_decl)
         .collect::<Result<Vec<_>, _>>()?;
+    // GAP-07 — desugar every `many_through <Junction> to <Partner>` into a
+    // synthesized junction `ir::Resource` appended to the feature, so all
+    // downstream machinery (migration table emission, FK topo-sort, Go
+    // structs/register) picks it up for free. The declaring resource keeps
+    // its `many_through` IR record for doctor `MANY-THROUGH-ENDPOINT-001`.
+    let synthesized_junctions: Vec<ir::Resource> = resources
+        .iter()
+        .flat_map(|resource| {
+            resource
+                .many_through
+                .iter()
+                .map(|mt| crate::resource::synthesize_junction_resource(&resource.name, mt))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    resources.extend(synthesized_junctions);
     let queries = skeleton
         .queries
         .iter()

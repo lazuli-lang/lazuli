@@ -111,7 +111,9 @@ fn extract_boxshadow_strings(segment: &str) -> Vec<String> {
     let mut start = 0;
     while let Some(rel) = segment[start..].find(key) {
         let pos = start + rel;
-        let preceding_ok = match pos.checked_sub(1).and_then(|p| segment.as_bytes().get(p).copied())
+        let preceding_ok = match pos
+            .checked_sub(1)
+            .and_then(|p| segment.as_bytes().get(p).copied())
         {
             None => true,
             Some(b) => !is_ident_byte(b),

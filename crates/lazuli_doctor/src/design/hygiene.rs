@@ -238,7 +238,10 @@ pub fn check_duplicate_value(catalog: &HygieneCatalog) -> Vec<DuplicateValueFind
         .filter(|(_, paths)| paths.len() > 1)
         .map(|(value, mut paths)| {
             paths.sort();
-            DuplicateValueFinding { value, token_paths: paths }
+            DuplicateValueFinding {
+                value,
+                token_paths: paths,
+            }
         })
         .collect();
     out.sort_by(|a, b| a.value.cmp(&b.value));
@@ -323,11 +326,7 @@ pub fn check_missing_dark(catalog: &HygieneCatalog) -> Vec<MissingDarkFinding> {
             }
         }
     }
-    out.sort_by(|a, b| {
-        a.group
-            .cmp(&b.group)
-            .then(a.token_path.cmp(&b.token_path))
-    });
+    out.sort_by(|a, b| a.group.cmp(&b.group).then(a.token_path.cmp(&b.token_path)));
     out
 }
 
@@ -379,7 +378,11 @@ pub fn check_all(root: &Path, _ignored_path_anchor: &Path) -> Vec<HygieneFinding
         return Vec::new();
     };
     let mut out: Vec<HygieneFinding> = Vec::new();
-    out.extend(check_unused(root, &catalog).into_iter().map(HygieneFinding::Unused));
+    out.extend(
+        check_unused(root, &catalog)
+            .into_iter()
+            .map(HygieneFinding::Unused),
+    );
     out.extend(
         check_duplicate_value(&catalog)
             .into_iter()
@@ -422,10 +425,7 @@ mod tests {
             "success".to_string(),
             color("#16a34a", None, Some("status")),
         );
-        colors.insert(
-            "green".to_string(),
-            color("#16a34a", None, Some("brand")),
-        );
+        colors.insert("green".to_string(), color("#16a34a", None, Some("brand")));
         let cat = HygieneCatalog {
             colors,
             values: HashMap::new(),
@@ -434,7 +434,10 @@ mod tests {
         let f = check_duplicate_value(&cat);
         assert_eq!(f.len(), 1);
         assert_eq!(f[0].value, "#16a34a");
-        assert_eq!(f[0].token_paths, vec!["green".to_string(), "success".to_string()]);
+        assert_eq!(
+            f[0].token_paths,
+            vec!["green".to_string(), "success".to_string()]
+        );
     }
 
     #[test]

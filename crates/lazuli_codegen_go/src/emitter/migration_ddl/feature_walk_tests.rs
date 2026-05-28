@@ -6,8 +6,50 @@
 #![cfg(test)]
 
 use super::emit_migrations;
-use super::test_support::{base_feature, base_module, builtin, resource};
+use super::test_support::{base_feature, base_module, builtin, parsed_module, resource};
 use lazuli_ir::{BuiltinType, Tenancy};
+
+#[test]
+fn many_through_synthesizes_junction_table_with_fk_pair_and_unique() {
+    // GAP-07 — `many_through JobMember to User` on `Job` desugars into a
+    // synthesized `JobMember` junction table carrying both endpoint FKs
+    // (`job_id`, `user_id`), the payload column (`role_in_job`), and a
+    // composite `UNIQUE (job_id, user_id)` on the endpoint pair.
+    let source = "\
+feature staffing
+  resource Job
+    title: Text required
+    many_through JobMember to User
+      role_in_job: Text required
+  resource User
+    name: Text required
+";
+    let module = parsed_module(source);
+    let files = emit_migrations(&module, "staffing");
+
+    let junction = files
+        .iter()
+        .find(|f| f.path.ends_with("_staffing_job_member.sql"))
+        .expect("synthesized JobMember junction migration should be emitted");
+    let sql = &junction.contents;
+
+    assert!(sql.contains("CREATE TABLE IF NOT EXISTS \"job_member\""), "junction table: {sql}");
+    assert!(sql.contains("job_id BIGINT NOT NULL"), "declaring FK column: {sql}");
+    assert!(sql.contains("user_id BIGINT NOT NULL"), "partner FK column: {sql}");
+    assert!(sql.contains("role_in_job TEXT NOT NULL"), "payload column: {sql}");
+    assert!(
+        sql.contains("FOREIGN KEY (job_id) REFERENCES \"job\" (id)"),
+        "declaring FK constraint: {sql}"
+    );
+    assert!(
+        sql.contains("FOREIGN KEY (user_id) REFERENCES \"user\" (id)"),
+        "partner FK constraint: {sql}"
+    );
+    assert!(
+        sql.contains("UNIQUE (job_id, user_id)"),
+        "composite unique on endpoint pair: {sql}"
+    );
+}
 
 #[test]
 fn emits_audit_log_down_for_modules_without_resources() {
@@ -107,6 +149,35 @@ fn emits_generated_always_stored_for_derived_field() {
 
     assert!(sql.contains("subtotal BIGINT NOT NULL,"));
     assert!(sql.contains("total BIGINT NOT NULL GENERATED ALWAYS AS (subtotal + tax) STORED"));
+}
+
+#[test]
+fn computed_date_field_emits_plain_stored_date_column() {
+    // W3 GAP-03 — a `computed_date` field is materialized in Go at write
+    // time (the `Compute<Field>` helper), so its DDL column is a PLAIN
+    // stored `DATE` column — NOT a Postgres `GENERATED ALWAYS AS` column.
+    use lazuli_ir::{ComputedDate, ComputedDateBase, ComputedDateOffset};
+    let mut feature = base_feature("campaign");
+    let mut due = builtin("due_date", BuiltinType::Date, true);
+    due.computed_date = Some(ComputedDate {
+        base: ComputedDateBase::Field("campaign_start".to_owned()),
+        offset: ComputedDateOffset::Literal(30),
+    });
+    feature.resources.push(resource(
+        "Campaign",
+        vec![builtin("campaign_start", BuiltinType::Date, true), due],
+    ));
+
+    let files = emit_migrations(&base_module(vec![feature]), "marketing");
+    let sql = &files[0].contents;
+
+    assert!(sql.contains("campaign_start DATE NOT NULL"));
+    // Plain stored column — present in DDL, no GENERATED clause.
+    assert!(sql.contains("due_date DATE NOT NULL"));
+    assert!(
+        !sql.contains("due_date DATE NOT NULL GENERATED"),
+        "computed_date column must NOT be a Postgres generated column; got:\n{sql}"
+    );
 }
 
 #[test]

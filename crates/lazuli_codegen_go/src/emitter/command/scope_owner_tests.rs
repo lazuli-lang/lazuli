@@ -40,6 +40,7 @@ fn feature_with_owner_scope_policy() -> Feature {
         categories: vec![lazuli_ir::PolicyCategory {
             name: "delete".to_owned(),
             atoms: vec!["@scope.owner".to_owned()],
+            conditional_atoms: Vec::new(),
             previous_names: Vec::new(),
             when_denied: None,
             when_denied_route: None,
@@ -88,6 +89,7 @@ fn updates_with_scope_owner_injects_user_where_binding_when_user_id_absent() {
         categories: vec![lazuli_ir::PolicyCategory {
             name: "update".to_owned(),
             atoms: vec!["@scope.owner".to_owned()],
+            conditional_atoms: Vec::new(),
             previous_names: Vec::new(),
             when_denied: None,
             when_denied_route: None,
@@ -121,6 +123,7 @@ fn updates_with_scope_same_org_injects_org_id_where_binding() {
         categories: vec![lazuli_ir::PolicyCategory {
             name: "update".to_owned(),
             atoms: vec!["@scope.same_org".to_owned()],
+            conditional_atoms: Vec::new(),
             previous_names: Vec::new(),
             when_denied: None,
             when_denied_route: None,
@@ -155,6 +158,7 @@ fn no_scope_atom_emits_baseline_where_binding() {
         categories: vec![lazuli_ir::PolicyCategory {
             name: "admin".to_owned(),
             atoms: vec!["@role.admin".to_owned()],
+            conditional_atoms: Vec::new(),
             previous_names: Vec::new(),
             when_denied: None,
             when_denied_route: None,
@@ -200,11 +204,13 @@ fn updates_with_scope_owner_traverses_relation_when_no_direct_column() {
         slug: false,
         default: None,
         derived_from: None,
+        computed_date: None,
         constraints: lazuli_ir::FieldConstraints::default(),
         full_text: false,
         previous_names: Vec::new(),
         pii: None,
         owner_axis: None,
+        cross_feature_target: None,
         span_ref: None,
     });
     feature.resources.push(property);
@@ -213,6 +219,7 @@ fn updates_with_scope_owner_traverses_relation_when_no_direct_column() {
         categories: vec![lazuli_ir::PolicyCategory {
             name: "update".to_owned(),
             atoms: vec!["@scope.owner".to_owned()],
+            conditional_atoms: Vec::new(),
             previous_names: Vec::new(),
             when_denied: None,
             when_denied_route: None,
@@ -253,6 +260,7 @@ fn scope_owner_without_matching_column_skips_silently() {
         categories: vec![lazuli_ir::PolicyCategory {
             name: "update".to_owned(),
             atoms: vec!["@scope.owner".to_owned()],
+            conditional_atoms: Vec::new(),
             previous_names: Vec::new(),
             when_denied: None,
             when_denied_route: None,

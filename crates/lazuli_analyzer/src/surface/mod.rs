@@ -78,8 +78,8 @@ use crate::helpers::span_of;
 mod list_decls;
 
 use list_decls::{
-    lower_drawer, lower_filter_decls, lower_list_render, lower_search_decl, lower_selection_decl,
-    lower_setting_decl, lower_sort_decl,
+    lower_audience_ux, lower_drawer, lower_filter_decls, lower_list_render, lower_search_decl,
+    lower_selection_decl, lower_setting_decl, lower_sort_decl, lower_view_ux,
 };
 
 /// Lower a `SurfaceAst` (parser output) into the canonical `ir::Surface`
@@ -141,6 +141,7 @@ fn lower_audience_ast(
         name: ast.name.clone(),
         requires,
         views,
+        ux: lower_audience_ux(&ast.ux),
         span_ref: Some(span_of(ast.span)),
     })
 }
@@ -193,6 +194,7 @@ fn lower_view_ast(ast: &syntax::ViewAst, owning_feature: &str) -> Result<ir::Vie
                     .transpose()?,
                 settings: v.settings.iter().map(lower_setting_decl).collect(),
                 redacted_fields: v.redacted_fields.clone(),
+                ux: lower_view_ux(&v.ux, owning_feature, &v.name)?,
                 span_ref: Some(span_of(v.span)),
             }))
         }
@@ -255,6 +257,7 @@ fn lower_view_ast(ast: &syntax::ViewAst, owning_feature: &str) -> Result<ir::Vie
                     .collect(),
                 actions,
                 redacted_fields: v.redacted_fields.clone(),
+                ux: lower_view_ux(&v.ux, owning_feature, &v.name)?,
                 span_ref: Some(span_of(v.span)),
             }))
         }
@@ -414,7 +417,10 @@ pub(super) fn parse_query_ref(text: &str) -> Option<ir::QueryRef> {
 /// list entry. Accepts both the qualified form (`feat.command.name`)
 /// and the bare local form (`name`) — the latter assumes the owning
 /// feature.
-pub(super) fn parse_command_ref(text: &str, owning_feature: &str) -> Result<ir::CommandRef, AnalyzeError> {
+pub(super) fn parse_command_ref(
+    text: &str,
+    owning_feature: &str,
+) -> Result<ir::CommandRef, AnalyzeError> {
     let trimmed = text.trim();
     let parts: Vec<&str> = trimmed.split('.').collect();
     match parts.as_slice() {

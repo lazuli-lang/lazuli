@@ -14,12 +14,9 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::job::JobTrigger;
+use super::shared::{IdempotencyKey, RetryPolicy, TenantFromSpec};
 use crate::{PolicyExpr, PolicyRef, SpanRef, is_false};
-
-use super::{
-    job::JobTrigger,
-    shared::{IdempotencyKey, RetryPolicy, TenantFromSpec},
-};
 
 /// Phase L Tier 3 — `notification <name>` declarative contract.
 ///

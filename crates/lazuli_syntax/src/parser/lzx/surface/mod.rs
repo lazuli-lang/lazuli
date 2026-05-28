@@ -13,16 +13,12 @@
 //! re-exported from `lzx/mod.rs` so external callers keep using
 //! `crate::parser::lzx::parse_surface_document`.
 
-use crate::ast::{
-    AudienceAst, PolicyAtomAst, Span, SurfaceAst, SurfaceTargetAst, ViewAst,
-};
-
 use super::super::common::{
     SourceLine, is_kebab_or_snake_ident, is_trivia, line_error, source_lines, strip_inline_comment,
 };
 use super::super::error::ParseError;
-
 use super::policy_expr::parse_policy_atom;
+use crate::ast::{AudienceAst, PolicyAtomAst, Span, SurfaceAst, SurfaceTargetAst, ViewAst};
 
 mod body_state;
 pub(super) use body_state::{
@@ -48,6 +44,13 @@ pub(super) use filter::parse_filters_block;
 mod drawer;
 pub(super) use drawer::parse_drawer_block;
 
+mod ux;
+pub(in crate::parser::lzx::surface) use ux::{
+    parse_board_block, parse_inline_table_line, parse_repeatable_group_line, parse_tab_group_block,
+    parse_view_mode_block, parse_wizard_steps_line,
+};
+use ux::{parse_tabs_block, parse_wizard_block};
+
 mod view;
 use view::parse_view_block;
 
@@ -57,9 +60,10 @@ use view::parse_view_block;
 /// ## Examples
 ///
 /// ```
-/// use lazuli_syntax::{parse_surface_document, SurfaceTargetAst};
+/// use lazuli_syntax::{SurfaceTargetAst, parse_surface_document};
 ///
-/// let src = "surface customer web\n  audience admin\n    requires @scope.admin\n";
+/// let src =
+///     "surface customer web\n  audience admin\n    requires @scope.admin\n";
 /// let doc = parse_surface_document(src).expect("parses");
 /// assert_eq!(doc.feature, "customer");
 /// assert_eq!(doc.target, SurfaceTargetAst::Web);
@@ -206,6 +210,7 @@ fn parse_lzx_audience_block(
 
     let mut requires: Vec<PolicyAtomAst> = Vec::new();
     let mut views: Vec<ViewAst> = Vec::new();
+    let mut ux = crate::ast::AudienceUxAst::default();
     let mut last_end = header.end;
     let mut i = start + 1;
 
@@ -239,10 +244,22 @@ fn parse_lzx_audience_block(
             views.push(view);
             last_end = lines[next.saturating_sub(1).max(i)].end;
             i = next;
+        } else if trimmed == "tabs" {
+            // GAP-UX-03 — static tab container.
+            let (tabs, next) = parse_tabs_block(lines, i, view_indent)?;
+            last_end = tabs.span.end;
+            ux.tabs.push(tabs);
+            i = next;
+        } else if let Some(rest) = trimmed.strip_prefix("wizard ") {
+            // GAP-UX-03 — multi-step wizard container.
+            let (wizard, next) = parse_wizard_block(lines, i, view_indent, rest.trim())?;
+            last_end = wizard.span.end;
+            ux.wizards.push(wizard);
+            i = next;
         } else {
             return Err(line_error(
                 line,
-                "audience body lines are `requires @scope.<name>` or `view list|detail|create <name>` declarations",
+                "audience body lines are `requires @scope.<name>`, `view list|detail|create <name>`, `tabs`, or `wizard <name> steps` declarations",
             ));
         }
     }
@@ -252,6 +269,7 @@ fn parse_lzx_audience_block(
             name,
             requires,
             views,
+            ux,
             span: Span::new(header.start, last_end),
         },
         i,

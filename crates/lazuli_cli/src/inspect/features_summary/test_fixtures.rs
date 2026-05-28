@@ -81,6 +81,9 @@ pub(super) fn customer_resource(conventions: Vec<ConventionRef>) -> Resource {
         span_ref: None,
         lifecycle: None,
         lifecycle_routes: None,
+        polymorphic_refs: Vec::new(),
+        many_through: Vec::new(),
+        append_only: false,
         invariants: Vec::new(),
         lock: None,
         composite_key: None,
@@ -179,6 +182,7 @@ pub(super) fn owner_axis_host_field() -> Field {
         slug: false,
         default: None,
         derived_from: None,
+        computed_date: None,
         constraints: FieldConstraints::default(),
         full_text: false,
         previous_names: Vec::new(),
@@ -186,6 +190,7 @@ pub(super) fn owner_axis_host_field() -> Field {
         owner_axis: Some(OwnerAxis {
             through_column: "user".to_owned(),
         }),
+        cross_feature_target: None,
         span_ref: None,
     }
 }
@@ -202,11 +207,13 @@ pub(super) fn text_field(name: &str) -> Field {
         slug: false,
         default: None,
         derived_from: None,
+        computed_date: None,
         constraints: FieldConstraints::default(),
         full_text: false,
         previous_names: Vec::new(),
         pii: None,
         owner_axis: None,
+        cross_feature_target: None,
         span_ref: None,
     }
 }
@@ -227,6 +234,9 @@ pub(super) fn property_resource_with_owner_axis(conventions: Vec<ConventionRef>)
         span_ref: None,
         lifecycle: None,
         lifecycle_routes: None,
+        polymorphic_refs: Vec::new(),
+        many_through: Vec::new(),
+        append_only: false,
         invariants: Vec::new(),
         lock: None,
         composite_key: None,

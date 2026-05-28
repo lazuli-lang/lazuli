@@ -214,7 +214,12 @@ pub(super) fn pg_type_for_builtin(builtin: &BuiltinType) -> PgType {
         | BuiltinType::SemanticPhone
         | BuiltinType::SemanticUrl
         | BuiltinType::SemanticUuid
-        | BuiltinType::SemanticCurrency => "TEXT",
+        | BuiltinType::SemanticCurrency
+        // W1 GAP-04 — HexColor is a text carrier (`#RRGGBB`).
+        | BuiltinType::SemanticHexColor => "TEXT",
+        // W1 GAP-05 — Percentage is a decimal carrier; mirror `Decimal`'s
+        // NUMERIC precision so the 0..=100 ratio stores losslessly.
+        BuiltinType::SemanticPercentage => "NUMERIC(20, 6)",
         // Per proposal `semantic-types-money-brazilian.md` v0.4:
         // Money stores as `NUMERIC(20,4)`. One shared resource-level
         // `currency TEXT` column is auto-emitted (see resource_columns);

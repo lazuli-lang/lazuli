@@ -91,6 +91,77 @@ pub struct ResourceDecl {
     /// `unique (<field>, ...)`, and `fts on (<field>, ...)`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub constraints: Vec<ResourceConstraintAst>,
+    /// GAP-13 — `polymorphic_ref <type_field> <id_field> targets [A, B, ...]`
+    /// declarations. Each declares a discriminator field + an `ID` field
+    /// whose referent depends on the discriminator, over a closed target
+    /// resource list. Lowered to `ir::PolymorphicRef`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub polymorphic_refs: Vec<ResourcePolymorphicRefAst>,
+    /// GAP-AUDIT-02 — `append_only` resource modifier (bare line). When
+    /// `true`, the resource is insert-only: doctor
+    /// `RESOURCE-APPEND-ONLY-001` rejects `command`s that update/delete it.
+    #[serde(default, skip_serializing_if = "is_false_bool")]
+    pub append_only: bool,
+    /// GAP-07 — `many_through <JunctionName> to <PartnerResource>` block
+    /// declarations. Each declares an M:N relationship whose junction
+    /// resource carries extra payload fields beyond the two endpoint FKs.
+    /// The analyzer desugars each into a synthesized junction `ir::Resource`
+    /// (`<declaring>_id`, `<partner>_id`, payload columns, composite unique
+    /// on the pair). Lowered to `ir::ManyThrough`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub many_through: Vec<ManyThroughAst>,
+    pub span: Span,
+}
+
+/// GAP-07 — one `many_through <JunctionName> to <PartnerResource>` block on
+/// a [`ResourceDecl`]. Models an M:N relationship with metadata: the
+/// junction resource named `name` carries an FK to the declaring resource,
+/// an FK to `partner`, plus the `payload` fields authored under the block.
+///
+/// Surface (canonical-indent block form):
+///
+/// ```text
+/// resource Job
+///   many_through JobMember to User
+///     role_in_job: Text
+/// ```
+///
+/// The partner endpoint is **explicit and required** via the `to
+/// <PartnerResource>` clause — the clearest closed form. Inference from the
+/// junction name (e.g. stripping the declaring-resource prefix) is
+/// unreliable (`JobMember` → `Member` ≠ `User`), so the partner is named
+/// outright and doctor `MANY-THROUGH-ENDPOINT-001` verifies it resolves.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ManyThroughAst {
+    /// Junction resource name (PascalCase), e.g. `JobMember`.
+    pub name: String,
+    /// Partner endpoint resource name (PascalCase) from `to <Resource>`,
+    /// e.g. `User`.
+    pub partner: String,
+    /// Payload fields authored under the block — extra columns the
+    /// junction carries beyond the two endpoint FKs. Reuses the shared
+    /// resource field parser, so each supports the full field surface
+    /// (`<name>: <Type> [modifiers]`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub payload: Vec<ResourceFieldDecl>,
+    pub span: Span,
+}
+
+/// GAP-13 — one `polymorphic_ref <type_field> <id_field> targets
+/// [A, B, C]` declaration on a [`ResourceDecl`]. Models a discriminated
+/// foreign key: the `type_field` column holds the target resource name
+/// (an enum over `targets`) and the `id_field` column holds the row id of
+/// whichever target the discriminator names. No single DB FK can express
+/// this (it would point at multiple tables), so codegen emits the two
+/// columns + a CHECK over the target names + a composite index.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourcePolymorphicRefAst {
+    /// Discriminator field name (e.g. `entity_type`).
+    pub type_field: String,
+    /// FK id field name (e.g. `entity_id`).
+    pub id_field: String,
+    /// Closed list of target resource names, in source order.
+    pub targets: Vec<String>,
     pub span: Span,
 }
 
@@ -121,10 +192,20 @@ pub struct ResourceIndexAst {
 }
 
 /// One `unique (<field>, ...)` row on a [`ResourceDecl`].
+///
+/// GAP-NEW-001 — the optional `when <predicate>` clause turns the
+/// constraint into a PARTIAL unique index. The predicate text is
+/// captured verbatim (analyzer runs it through the closed-predicate
+/// parser, mirroring `InvariantDecl.when`); `None` is the unconditional
+/// `unique (...)` form that maps to a table-level UNIQUE constraint.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceUniqueAst {
     /// Column list verbatim, in source order.
     pub fields: Vec<String>,
+    /// `when <predicate>` — verbatim predicate text (analyzer parses).
+    /// `Some` makes this a partial unique index.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<String>,
     pub span: Span,
 }
 
@@ -257,6 +338,15 @@ pub struct ResourceFieldDecl {
     pub default: Option<String>,
     /// `derived from <expr>` computed-field expression (Phase L Tier 4c).
     pub derived_from: Option<String>,
+    /// W3 GAP-03 — `computed_date from <base> offset <offset>` typed
+    /// computed-date field kind. `Some` when the field's value is a base
+    /// `Date` field plus an integer day offset. The analyzer projects this
+    /// onto `ir::Field.computed_date`; doctor `COMPUTED-DATE-EXPR-001`
+    /// type-checks the base (must be a declared `Date` field) and offset
+    /// (a declared `Integer` field or an integer literal). Mutually
+    /// exclusive with `derived_from` at parse time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub computed_date: Option<ComputedDateAst>,
     /// L0 #3 §10 — inline constraints (`min N`, `max N`, `pattern
     /// STRING`, `between A and B`, `length N`, `in [...]`). Parser
     /// captures them; the analyzer validates combination rules and
@@ -276,9 +366,83 @@ pub struct ResourceFieldDecl {
     /// chain, synth pass uses tenant-scope (today's default).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner_axis: Option<OwnerAxisAst>,
+    /// GAP-12 — `target @feature.<feature>.<Resource>` cross-feature FK
+    /// annotation on an `ID` field. Parser peels the `target ...` clause
+    /// out of the type tail and lifts it here so the analyzer projects
+    /// into `ir::Field.cross_feature_target`. Absent = the field is a
+    /// plain `ID` (or a same-feature FK via the bare-type-name path).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cross_feature_target: Option<CrossFeatureTargetAst>,
     /// Child `previously migrated <old>` lines beneath the field.
     pub previously: Vec<String>,
     pub span: Span,
+}
+
+/// GAP-12 — typed payload for the `target @feature.<feature>.<Resource>`
+/// cross-feature FK annotation. Names the owning feature and the resource
+/// the `ID` field logically references. The reference is *logical*: codegen
+/// does not emit a hard DB FOREIGN KEY across feature/migration-set
+/// boundaries (the target table may be owned by a separately-ordered
+/// migration set); the analyzer + doctor enforce that the feature is
+/// declared in the consumer's `uses` (Dependencies) and that the resource
+/// exists in it (`REF-CROSS-FEATURE-UNKNOWN-001`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CrossFeatureTargetAst {
+    /// Owning feature name (the segment after `@feature.`).
+    pub feature: String,
+    /// Target resource name (PascalCase).
+    pub resource: String,
+}
+
+/// W3 GAP-03 — typed payload for the `computed_date from <base> offset
+/// <offset>` field kind. Surface syntax:
+///
+/// ```text
+/// due_date: Date computed_date from campaign_start offset offset_days
+/// ```
+///
+/// `base` names another `Date` field on the same resource; `offset` is
+/// either a same-resource `Integer` field name or an integer literal
+/// (number of days). The parser keeps the operands as raw identifiers /
+/// literal; the analyzer lifts into `ir::ComputedDate` and doctor
+/// (`COMPUTED-DATE-EXPR-001`) type-checks the references. Mirrors
+/// `lazuli_ir::ComputedDate`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ComputedDateAst {
+    /// Selector for the base `Date` value. `Field` is the W3
+    /// `computed_date from <field>` form; `Rule` is the W4 GAP-08
+    /// `schedule_rule from @fn.<name>(<rule_arg>)` form.
+    pub base: ComputedDateBaseAst,
+    /// The `offset <offset>` operand.
+    pub offset: ComputedDateOffsetAst,
+}
+
+/// W4 GAP-08 — AST mirror of `lazuli_ir::ComputedDateBase`. Selects the
+/// base `Date` of a [`ComputedDateAst`] either by a same-resource field
+/// name (W3 `computed_date`) or by a rule-enum value resolved through a
+/// bound `@fn` (W4 `schedule_rule`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ComputedDateBaseAst {
+    /// `computed_date from <field> ...` — bare same-resource `Date` field.
+    Field(String),
+    /// `schedule_rule from @fn.<name>(<rule_arg>) ...` — the base date is
+    /// produced by the bound `@fn`, which selects it from the rule arg.
+    Rule {
+        /// The rule-enum argument inside the `@fn(...)` call (verbatim).
+        rule: String,
+        /// Bare binding-fn name (the `<name>` in `@fn.<name>`).
+        fn_ref: String,
+    },
+}
+
+/// W3 GAP-03 — the `offset` operand of a [`ComputedDateAst`]. Either a
+/// same-resource `Integer` field name or an inline integer literal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ComputedDateOffsetAst {
+    /// `offset <field>` — bare identifier naming an `Integer` field.
+    Field(String),
+    /// `offset <int>` — integer-literal day count.
+    Literal(i64),
 }
 
 /// `ir-resource-conventions-owner-scope` §7.1 — AST-level mirror of

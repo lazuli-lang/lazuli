@@ -171,8 +171,8 @@ fn predicate_one_side(tests: &TestBlock) -> Option<&'static str> {
 mod tests {
     use super::*;
     use lazuli_ir::{
-        CompareOp, Defaults, Expr, OperationKind, OperationRef, Policies, Predicate,
-        QualifiedName, Rule,
+        CompareOp, Defaults, Expr, OperationKind, OperationRef, Policies, Predicate, QualifiedName,
+        Rule,
     };
 
     fn mk_allows_predicate() -> TestAssertion {

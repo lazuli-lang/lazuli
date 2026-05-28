@@ -99,8 +99,7 @@ impl ServerSidePairIndex {
     /// assert!(!idx.covers("is_phone_verified"));
     /// ```
     pub fn covers(&self, field: &str) -> bool {
-        self.sql_triggered_fields.contains(field)
-            || self.policy_required_fields.contains(field)
+        self.sql_triggered_fields.contains(field) || self.policy_required_fields.contains(field)
     }
 }
 

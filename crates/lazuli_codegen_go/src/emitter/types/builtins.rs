@@ -48,6 +48,21 @@ pub(super) fn go_type_for_builtin(builtin: &BuiltinType) -> (String, Option<&'st
             "postgis.Point".to_owned(),
             Some("github.com/cridenour/go-postgis"),
         ),
+        // W1 GAP-04 — `@semantic.HexColor` resolves to the named runtime
+        // type `lazuli.HexColor` (string carrier). Its `UnmarshalJSON`
+        // emits the server-side regex guard at the decode boundary, so a
+        // malformed `#GGG` surfaces as a `validation_failed` envelope.
+        BuiltinType::SemanticHexColor => (
+            "lazuli.HexColor".to_owned(),
+            Some("lazuli.dev/runtime/lazuli"),
+        ),
+        // W1 GAP-05 — `@semantic.Percentage` resolves to the named runtime
+        // type `lazuli.Percentage` (float64 carrier). Its `UnmarshalJSON`
+        // emits the `0 <= value <= 100` range check at the decode boundary.
+        BuiltinType::SemanticPercentage => (
+            "lazuli.Percentage".to_owned(),
+            Some("lazuli.dev/runtime/lazuli"),
+        ),
         // B3 — plugin-contributed `@semantic.<Name>` materialises as
         // the carrier's Go type. The validate tag (emitted at
         // resource-field-tag time per resource.rs) drives the
@@ -145,6 +160,31 @@ mod tests {
         let ctx = type_ctx("customer", "lazuli/test", &index);
         let (go, import) = go_type_for(&TypeRef::Builtin(BuiltinType::SemanticCurrency), &ctx);
         assert_eq!(go, "lazuli.Currency");
+        assert_eq!(import.as_deref(), Some("lazuli.dev/runtime/lazuli"));
+    }
+
+    #[test]
+    fn semantic_hexcolor_maps_to_lazuli_hexcolor() {
+        // W1 GAP-04 — Text-backed colour semantic resolves to the named
+        // runtime type whose UnmarshalJSON enforces the `#RRGGBB`/`#RGB`
+        // regex server-side.
+        let module = cross_ref_module();
+        let index = crate::emitter::cross_feature::CrossFeatureIndex::build(&module);
+        let ctx = type_ctx("customer", "lazuli/test", &index);
+        let (go, import) = go_type_for(&TypeRef::Builtin(BuiltinType::SemanticHexColor), &ctx);
+        assert_eq!(go, "lazuli.HexColor");
+        assert_eq!(import.as_deref(), Some("lazuli.dev/runtime/lazuli"));
+    }
+
+    #[test]
+    fn semantic_percentage_maps_to_lazuli_percentage() {
+        // W1 GAP-05 — Decimal-backed ratio semantic resolves to the named
+        // runtime type whose UnmarshalJSON enforces `0 <= value <= 100`.
+        let module = cross_ref_module();
+        let index = crate::emitter::cross_feature::CrossFeatureIndex::build(&module);
+        let ctx = type_ctx("customer", "lazuli/test", &index);
+        let (go, import) = go_type_for(&TypeRef::Builtin(BuiltinType::SemanticPercentage), &ctx);
+        assert_eq!(go, "lazuli.Percentage");
         assert_eq!(import.as_deref(), Some("lazuli.dev/runtime/lazuli"));
     }
 

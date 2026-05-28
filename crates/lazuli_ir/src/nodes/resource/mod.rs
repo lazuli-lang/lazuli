@@ -40,7 +40,10 @@ mod convention;
 pub use convention::{ConventionOrigin, ConventionRef};
 
 mod field;
-pub use field::{Field, FieldConstraints, OwnerAxis, OwnerScopeSql, SanitizeHtmlProfile};
+pub use field::{
+    ComputedDate, ComputedDateBase, ComputedDateOffset, CrossFeatureTarget, Field,
+    FieldConstraints, OwnerAxis, OwnerScopeSql, SanitizeHtmlProfile,
+};
 
 mod type_ref;
 pub use type_ref::{BuiltinType, CurrencyCode, TypeRef};
@@ -125,6 +128,74 @@ pub struct Resource {
     /// X.lifecycle_route` against a resource that doesn't have one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lifecycle_routes: Option<LifecycleRoutes>,
+    /// GAP-13 — `polymorphic_ref <type_field> <id_field> targets [...]`
+    /// declarations. Each models a discriminated FK (the `type_field`
+    /// column names the target resource; `id_field` holds its row id).
+    /// Codegen emits the two columns + a CHECK over the target names +
+    /// a composite index — never a single hard FK (it would point at
+    /// multiple tables). Doctor `REF-POLYMORPHIC-TARGET-001` verifies
+    /// every target resolves (same-feature or cross-feature via `uses`).
+    /// Additive: pre-GAP-13 fixtures deserialize with an empty vec.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub polymorphic_refs: Vec<PolymorphicRef>,
+    /// GAP-AUDIT-02 — `append_only` resource modifier. When `true`, rows
+    /// of this resource may only be inserted, never updated or deleted
+    /// (an audit-log / ledger discipline). Doctor
+    /// `RESOURCE-APPEND-ONLY-001` rejects any `command` whose effect
+    /// `updates` or `deletes` this resource; codegen omits the
+    /// update/delete handlers. Additive: pre-W4 fixtures deserialize with
+    /// `append_only == false`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub append_only: bool,
+    /// GAP-07 — `many_through <Junction> to <Partner>` declarations on the
+    /// declaring resource. Each models an M:N relationship with metadata.
+    /// The analyzer **desugars** every entry into a synthesized junction
+    /// `ir::Resource` appended to the same feature (two endpoint FK columns
+    /// + payload columns + a composite UNIQUE on the endpoint pair); these
+    /// entries are retained on the declaring resource as the IR record of
+    /// the relationship so doctor `MANY-THROUGH-ENDPOINT-001` can verify
+    /// both endpoints resolve and the payload field types are legal.
+    /// Additive: pre-GAP-07 fixtures deserialize with an empty vec.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub many_through: Vec<ManyThrough>,
+}
+
+/// GAP-07 — one M:N-with-metadata relationship declared via
+/// `many_through <Junction> to <Partner>` on a [`Resource`]. The junction
+/// resource named `junction` is synthesized by the analyzer with:
+///   - `<declaring>_id: ID` — FK to the declaring resource,
+///   - `<partner>_id: ID` — FK to the `partner` resource,
+///   - one column per `payload` field, and
+///   - a composite `UNIQUE (<declaring>_id, <partner>_id)` so the pair is
+///     unique (the relationship is a set, not a bag).
+/// The partner endpoint is explicit (the `to <Partner>` clause); doctor
+/// `MANY-THROUGH-ENDPOINT-001` verifies both endpoints resolve. Mirrors
+/// `lazuli_syntax::ManyThroughAst` minus the spans.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ManyThrough {
+    /// Junction resource name (PascalCase), e.g. `JobMember`.
+    pub junction: String,
+    /// Partner endpoint resource name (PascalCase), e.g. `User`.
+    pub partner: String,
+    /// Payload columns the junction carries beyond the two endpoint FKs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub payload: Vec<Field>,
+}
+
+/// GAP-13 — one polymorphic (discriminated) foreign key on a [`Resource`].
+/// Lowered from `polymorphic_ref <type_field> <id_field> targets [A, B,
+/// C]`. The `type_field` is an enum over `targets`; the `id_field` is the
+/// row id of whichever target the discriminator names. No single DB FK
+/// can express the multi-table referent, so codegen emits the columns + a
+/// CHECK + a composite index. Mirrors `lazuli_syntax::ResourcePolymorphicRefAst`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolymorphicRef {
+    /// Discriminator field name (e.g. `entity_type`).
+    pub type_field: String,
+    /// FK id field name (e.g. `entity_id`).
+    pub id_field: String,
+    /// Closed list of target resource names, in source order.
+    pub targets: Vec<String>,
 }
 
 /// router-w4 — `lifecycle_routes` block on a Resource. Maps every
@@ -358,5 +429,67 @@ mod tests {
         let v = StorageValue::String("x".into());
         let s = serde_json::to_string(&v).expect("serialize");
         assert_eq!(s, "{\"kind\":\"String\",\"value\":\"x\"}");
+    }
+
+    #[test]
+    fn many_through_round_trips_via_serde() {
+        // GAP-07 — `ManyThrough` (junction + partner + payload) serde round-trip.
+        let mt = ManyThrough {
+            junction: "JobMember".into(),
+            partner: "User".into(),
+            payload: vec![Field {
+                name: "role_in_job".into(),
+                type_ref: TypeRef::Builtin(BuiltinType::Text),
+                required: true,
+                unique: false,
+                slug: false,
+                default: None,
+                derived_from: None,
+                computed_date: None,
+                constraints: FieldConstraints::default(),
+                full_text: false,
+                previous_names: vec![],
+                pii: None,
+                owner_axis: None,
+                cross_feature_target: None,
+                span_ref: None,
+            }],
+        };
+        let s = serde_json::to_string(&mt).expect("serialize");
+        let back: ManyThrough = serde_json::from_str(&s).expect("deserialize");
+        assert_eq!(mt, back);
+        assert_eq!(back.junction, "JobMember");
+        assert_eq!(back.partner, "User");
+        assert_eq!(back.payload.len(), 1);
+    }
+
+    #[test]
+    fn resource_empty_many_through_is_omitted_from_json() {
+        // Additive: pre-GAP-07 fixtures (empty vec) don't ship the field.
+        let r = Resource {
+            name: "Plain".into(),
+            public_contract: None,
+            tenancy: None,
+            soft_delete: false,
+            timestamps: None,
+            fields: vec![],
+            constraints: vec![],
+            validate: None,
+            validates: vec![],
+            retention: None,
+            previous_names: vec![],
+            span_ref: None,
+            lifecycle: None,
+            invariants: vec![],
+            lock: None,
+            composite_key: None,
+            conventions: Vec::new(),
+            lifecycle_routes: None,
+            polymorphic_refs: Vec::new(),
+            append_only: false,
+            many_through: Vec::new(),
+        };
+        let s = serde_json::to_string(&r).expect("serialize");
+        assert!(!s.contains("many_through"), "empty many_through omitted: {s}");
     }
 }

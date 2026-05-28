@@ -138,6 +138,8 @@ fn builtin_label(builtin: &BuiltinType) -> String {
         BuiltinType::SemanticUuid => "@semantic.Uuid".to_string(),
         BuiltinType::SemanticCurrency => "@semantic.Currency".to_string(),
         BuiltinType::SemanticGeoPoint => "@semantic.GeoPoint".to_string(),
+        BuiltinType::SemanticHexColor => "@semantic.HexColor".to_string(),
+        BuiltinType::SemanticPercentage => "@semantic.Percentage".to_string(),
         // B3 — surface the alias `@semantic.<Name>` as the label so
         // diagnostics still read in source-form. Terminal-field checks
         // need a non-string canonical name to compare against, and the
@@ -215,11 +217,13 @@ mod tests {
             slug: false,
             default: None,
             derived_from: None,
+            computed_date: None,
             constraints: FieldConstraints::default(),
             full_text: false,
             previous_names: vec![],
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         }
     }
@@ -263,6 +267,9 @@ mod tests {
                 composite_key: None,
                 conventions: Vec::new(),
                 lifecycle_routes: None,
+                polymorphic_refs: Vec::new(),
+                many_through: Vec::new(),
+                append_only: false,
             }],
             events: vec![],
             rules: vec![],

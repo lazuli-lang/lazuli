@@ -48,6 +48,7 @@ fn deletes_with_single_input_slot_uses_alt_key_when_not_id() {
         categories: vec![lazuli_ir::PolicyCategory {
             name: "delete".to_owned(),
             atoms: vec!["@scope.owner".to_owned()],
+            conditional_atoms: Vec::new(),
             previous_names: Vec::new(),
             when_denied: None,
             when_denied_route: None,
@@ -137,6 +138,7 @@ fn updates_with_scope_self_uses_ctx_user_id_as_where_key() {
         categories: vec![lazuli_ir::PolicyCategory {
             name: "choose_role".to_owned(),
             atoms: vec!["@scope.self".to_owned()],
+            conditional_atoms: Vec::new(),
             previous_names: Vec::new(),
             when_denied: None,
             when_denied_route: None,
@@ -185,6 +187,7 @@ fn deletes_in_bulk_mode_drops_legacy_id_binding() {
         categories: vec![lazuli_ir::PolicyCategory {
             name: "logout".to_owned(),
             atoms: vec!["@scope.owner".to_owned()],
+            conditional_atoms: Vec::new(),
             previous_names: Vec::new(),
             when_denied: None,
             when_denied_route: None,

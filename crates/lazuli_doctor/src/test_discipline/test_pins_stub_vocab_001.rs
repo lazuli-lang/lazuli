@@ -203,8 +203,7 @@ pub fn check(source: &str, path: &Path) -> Vec<Finding> {
     let mut block_comment_depth: usize = 0;
 
     for (idx, raw_line) in source.lines().enumerate() {
-        let (stripped, depth_after) =
-            strip_block_comments(raw_line, block_comment_depth);
+        let (stripped, depth_after) = strip_block_comments(raw_line, block_comment_depth);
         block_comment_depth = depth_after;
 
         let no_line_comment = strip_line_comment(&stripped);
@@ -257,10 +256,7 @@ fn scan_line(line: &str, line_no: usize, path: &Path, out: &mut Vec<Finding>) {
 /// byte_column)>)` where `byte_column` is the 0-based byte index of
 /// the opening `"`. Returns `None` if we can't even start scanning
 /// (defensive — should not happen in practice).
-fn extract_string_literals_in_call(
-    line: &str,
-    start: usize,
-) -> Option<Vec<(String, usize)>> {
+fn extract_string_literals_in_call(line: &str, start: usize) -> Option<Vec<(String, usize)>> {
     let bytes = line.as_bytes();
     if start > bytes.len() {
         return None;

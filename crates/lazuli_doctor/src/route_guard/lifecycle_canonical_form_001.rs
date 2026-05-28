@@ -58,7 +58,10 @@ pub struct Finding {
 pub enum CanonicalFormCause {
     /// Both forms (`requires_lifecycle <R> = <s>` AND
     /// `requires_lifecycle_in <R> [<s>]`) appear on the same project.
-    MixedForms { shorthand_sites: usize, in_form_sites: usize },
+    MixedForms {
+        shorthand_sites: usize,
+        in_form_sites: usize,
+    },
     /// The shorthand appears in 2+ sites for the same resource;
     /// suggest the `_in` form for grep-ability.
     ShorthandAtScale { count: usize },
@@ -130,7 +133,9 @@ pub fn check(module: &ExperienceModule, path: &Path) -> Vec<Finding> {
 
     let mut visit_guard = |guard: &ViewGuard| {
         if let Some(rl) = guard.requires_lifecycle.as_ref() {
-            *shorthand_by_resource.entry(rl.resource.clone()).or_default() += 1;
+            *shorthand_by_resource
+                .entry(rl.resource.clone())
+                .or_default() += 1;
         }
         if let Some(rli) = guard.requires_lifecycle_in.as_ref() {
             *in_form_by_resource.entry(rli.resource.clone()).or_default() += 1;

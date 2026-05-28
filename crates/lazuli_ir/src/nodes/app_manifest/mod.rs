@@ -64,7 +64,6 @@ pub use security::{
     AppCookie, AppCors, AppCorsOriginRule, AppHeaders, AppHsts, AppLimits, AppProxy, CookieProfile,
     SecretRotation,
 };
-
 use serde::{Deserialize, Serialize};
 
 use crate::SpanRef;

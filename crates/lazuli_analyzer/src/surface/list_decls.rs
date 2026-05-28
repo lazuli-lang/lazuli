@@ -9,11 +9,9 @@
 use lazuli_ir as ir;
 use lazuli_syntax as syntax;
 
+use super::{parse_command_ref, validate_cells_slot_only};
 use crate::AnalyzeError;
 use crate::helpers::span_of;
-
-use super::parse_command_ref;
-use super::validate_cells_slot_only;
 
 pub(super) fn lower_list_render(ast: &syntax::ViewListAst) -> ir::ListRender {
     match (ast.columns.is_empty(), ast.cells_slot.as_ref()) {
@@ -46,6 +44,7 @@ fn lower_filter_decl(ast: &syntax::FilterDeclAst) -> ir::FilterDecl {
         cardinality: match ast.cardinality {
             syntax::FilterCardinalityAst::Single => ir::FilterCardinality::Single,
             syntax::FilterCardinalityAst::Multi => ir::FilterCardinality::Multi,
+            syntax::FilterCardinalityAst::DateRange => ir::FilterCardinality::DateRange,
         },
         url_sync: ast.url_sync,
         span_ref: Some(span_of(ast.span)),
@@ -88,10 +87,11 @@ pub(super) fn lower_drawer(
     ast: &syntax::DrawerSubViewAst,
     owning_feature: &str,
 ) -> Result<ir::DrawerSubView, AnalyzeError> {
-    let source = super::parse_query_ref(&ast.source).ok_or_else(|| AnalyzeError::LzxBadQueryRef {
-        view: ast.name.clone(),
-        value: ast.source.clone(),
-    })?;
+    let source =
+        super::parse_query_ref(&ast.source).ok_or_else(|| AnalyzeError::LzxBadQueryRef {
+            view: ast.name.clone(),
+            value: ast.source.clone(),
+        })?;
     validate_cells_slot_only(&ast.cells, &ast.name)?;
     let actions = ast
         .actions
@@ -159,6 +159,125 @@ pub(super) fn lower_selection_decl(
         bulk_actions,
         span_ref: Some(span_of(ast.span)),
     })
+}
+
+/// Lower the Wave-W6 view-level UX aggregate (`wizard_steps`, `tab_group`,
+/// `view_mode`, `view.inline_table`). Unknown render-mode keywords are
+/// dropped here (doctor `LZX-VIEW-MODE-001` flags them); the `inline_table`
+/// command ref is normalized via `parse_command_ref`.
+pub(super) fn lower_view_ux(
+    ast: &syntax::ViewUxAst,
+    owning_feature: &str,
+    view_name: &str,
+) -> Result<ir::ViewUx, AnalyzeError> {
+    let mut view_modes = Vec::with_capacity(ast.view_modes.len());
+    for mode in &ast.view_modes {
+        let parsed =
+            ir::RenderMode::parse(mode).ok_or_else(|| AnalyzeError::LzxUnknownRenderMode {
+                view: view_name.to_owned(),
+                mode: mode.clone(),
+            })?;
+        view_modes.push(parsed);
+    }
+    let inline_table = match &ast.inline_table {
+        Some(inline) => {
+            let bare = inline
+                .on_change
+                .trim()
+                .strip_prefix("@command.")
+                .unwrap_or(inline.on_change.trim());
+            Some(ir::InlineTable {
+                on_change: parse_command_ref(bare, owning_feature)?,
+                span_ref: Some(span_of(inline.span)),
+            })
+        }
+        None => None,
+    };
+    Ok(ir::ViewUx {
+        wizard_steps: ast.wizard_steps.as_ref().map(|w| ir::WizardSteps {
+            total: w.total,
+            current_field: w.current_field.clone(),
+            span_ref: Some(span_of(w.span)),
+        }),
+        tab_group: ast.tab_group.as_ref().map(|g| ir::TabGroup {
+            derived_from: g.derived_from.clone(),
+            cases: g
+                .cases
+                .iter()
+                .map(|c| ir::TabGroupCase {
+                    variants: c.variants.clone(),
+                    label: c.label.clone(),
+                    span_ref: Some(span_of(c.span)),
+                })
+                .collect(),
+            span_ref: Some(span_of(g.span)),
+        }),
+        view_modes,
+        inline_table,
+        board: ast.board.as_ref().map(|b| ir::Board {
+            name: b.name.clone(),
+            lanes_source: b.lanes_source.clone(),
+            span_ref: Some(span_of(b.span)),
+        }),
+        repeatable_groups: ast
+            .repeatable_groups
+            .iter()
+            .map(|g| ir::RepeatableGroup {
+                name: g.name.clone(),
+                fields: g
+                    .fields
+                    .iter()
+                    .map(|f| ir::RepeatableField {
+                        name: f.name.clone(),
+                        type_name: f.type_name.clone(),
+                    })
+                    .collect(),
+                sum_field: g.sum_field.clone(),
+                sum_target: g.sum_target.clone(),
+                span_ref: Some(span_of(g.span)),
+            })
+            .collect(),
+    })
+}
+
+/// Lower the Wave-W6 audience-level UX aggregate (`tabs`, `wizard`).
+pub(super) fn lower_audience_ux(ast: &syntax::AudienceUxAst) -> ir::AudienceUx {
+    ir::AudienceUx {
+        tabs: ast
+            .tabs
+            .iter()
+            .map(|t| ir::Tabs {
+                entries: t
+                    .entries
+                    .iter()
+                    .map(|e| ir::TabEntry {
+                        label: e.label.clone(),
+                        view: e.view.clone(),
+                        audience: e.audience.clone(),
+                        span_ref: Some(span_of(e.span)),
+                    })
+                    .collect(),
+                span_ref: Some(span_of(t.span)),
+            })
+            .collect(),
+        wizards: ast
+            .wizards
+            .iter()
+            .map(|w| ir::Wizard {
+                name: w.name.clone(),
+                steps: w
+                    .steps
+                    .iter()
+                    .map(|s| ir::WizardStep {
+                        index: s.index,
+                        ref_name: s.ref_name.clone(),
+                        span_ref: Some(span_of(s.span)),
+                    })
+                    .collect(),
+                span_ref: Some(span_of(w.span)),
+            })
+            .collect(),
+    }
 }
 
 pub(super) fn lower_setting_decl(ast: &syntax::SettingDeclAst) -> ir::SettingDecl {

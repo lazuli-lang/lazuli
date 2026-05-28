@@ -202,10 +202,7 @@ impl TestDisciplinePreset {
 ///     None,
 /// );
 /// ```
-pub fn preset_rule_severity(
-    preset: TestDisciplinePreset,
-    code: &str,
-) -> Option<DoctorSeverity> {
+pub fn preset_rule_severity(preset: TestDisciplinePreset, code: &str) -> Option<DoctorSeverity> {
     if !is_test_discipline_code(code) {
         return None;
     }
@@ -277,10 +274,7 @@ mod tests {
     #[test]
     fn strict_returns_warning_uniformly() {
         assert_eq!(
-            preset_rule_severity(
-                TestDisciplinePreset::TddStrict,
-                "TEST-MISSING-AUTHORED-001",
-            ),
+            preset_rule_severity(TestDisciplinePreset::TddStrict, "TEST-MISSING-AUTHORED-001",),
             Some(DoctorSeverity::Warning),
         );
     }
@@ -288,10 +282,7 @@ mod tests {
     #[test]
     fn mature_defers_to_per_rule_default() {
         assert_eq!(
-            preset_rule_severity(
-                TestDisciplinePreset::TddMature,
-                "TEST-FIXTURE-LITERAL-001",
-            ),
+            preset_rule_severity(TestDisciplinePreset::TddMature, "TEST-FIXTURE-LITERAL-001",),
             None,
         );
     }

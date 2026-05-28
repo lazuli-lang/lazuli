@@ -56,8 +56,9 @@ func rateLimitGloballyDisabled() bool {
 func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 	var zero O
 
-	// 1. policy
-	if err := EvalPolicy(ctx, c.Policy); err != nil {
+	// 1. policy — pass the typed input so GAP-09 input-value-predicate
+	// atoms (`@policy.x when input.y = "z"`) can test their `When` guard.
+	if err := EvalPolicyInput(ctx, c.Policy, input); err != nil {
 		return zero, err
 	}
 
@@ -167,6 +168,15 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 			if c.Audit != nil {
 				if err := writeAuditRow(ctx, tx, c.Name, "allowed"); err != nil {
 					return err
+				}
+				// GAP-AUDIT-01 — `audit materialize @feature.<f>.<R>`.
+				// Write the SAME assembled audit record into the declared
+				// append_only OperationLog, in the same tx (one record,
+				// two sinks). Doctor guarantees the table is append_only.
+				if c.Audit.MaterializeTable != "" {
+					if err := writeAuditMaterializeRow(ctx, tx, c.Audit.MaterializeTable, c.Name, "allowed"); err != nil {
+						return err
+					}
 				}
 			}
 			return nil
@@ -373,6 +383,40 @@ func writeAuditRow(ctx *Ctx, tx pgx.Tx, command, decision string) error {
 	return err
 }
 
+// writeAuditMaterializeRow inserts the same assembled audit record into a
+// declared append_only OperationLog table (GAP-AUDIT-01 `audit materialize
+// @feature.<f>.<R>`). It runs inside the command tx so materialization is
+// atomic with the effect + the lazuli_audit row — one record, two sinks.
+// Wire-thin: reuses the exact ctx-derived record (command, actor, tenant,
+// decision, recorded timestamp) that writeAuditRow assembles; no new audit
+// logic. The table is a compile-time literal (snake-cased target resource
+// emitted by codegen) verified append_only by doctor, so the identifier
+// interpolation carries no untrusted input. The canonical OperationLog
+// columns mirror lazuli_audit (command, actor, tenant, decision,
+// recorded_at) so the same record shape lands in both sinks.
+func writeAuditMaterializeRow(ctx *Ctx, tx pgx.Tx, table, command, decision string) error {
+	actor := string(ctx.Actor)
+	var tenant *string
+	if ctx.Tenant != nil {
+		s := strconv.FormatInt(int64(ctx.Tenant.OrgID), 10)
+		tenant = &s
+	}
+	sql := fmt.Sprintf(
+		`INSERT INTO %s (command, actor, tenant, decision, recorded_at) VALUES ($1, $2, $3, $4, $5)`,
+		pgQuoteIdent(table),
+	)
+	_, err := tx.Exec(ctx, sql, command, actor, tenant, decision, ctx.Now)
+	return err
+}
+
+// pgQuoteIdent double-quotes a Postgres identifier, escaping embedded
+// quotes. The table name reaching here is a codegen-emitted snake_case
+// literal, never user input — this is belt-and-suspenders so a future
+// caller can't smuggle an injection through the identifier slot.
+func pgQuoteIdent(ident string) string {
+	return `"` + strings.ReplaceAll(ident, `"`, `""`) + `"`
+}
+
 // newEnvelopeID returns a fresh 128-bit hex identifier for the outbox
 // envelope. Wire-thin: crypto/rand is stdlib and sufficient for the
 // uniqueness the outbox dedup table requires.
@@ -560,9 +604,81 @@ func applyEffect[I, O any](ctx *Ctx, tx pgx.Tx, effect Effect, input I) (O, erro
 		return applyDeletes[I, O](ctx, tx, eff, input)
 	case ReturnsEffect:
 		return applyReturns[I, O](ctx, eff, input)
+	case ReorderEffect:
+		return applyReorder[I, O](ctx, tx, eff, input)
 	default:
 		return zero, &Error{Status: 500, Code: CodeInternal,
 			Message: fmt.Sprintf("unknown effect kind: %T", effect)}
+	}
+}
+
+// applyReorder runs a `reorder <Resource> by <position>` command (W4
+// GAP-REORDER-01). It reads the ordered id list from the request input
+// (field "ids" — a slice of ids in the desired order) and emits a single
+// batch UPDATE that sets the position column to each id's index in the list
+// via a `VALUES (id, position)` join. Wire-thin: one statement, no
+// per-row round trips, no homegrown ordering. Returns the zero output value
+// (reorder commands are side-effecting; O is typically `struct{}`).
+func applyReorder[I, O any](ctx *Ctx, tx pgx.Tx, eff ReorderEffect, input I) (O, error) {
+	var zero O
+	idsRaw, err := readPath(reflect.ValueOf(input), "ids")
+	if err != nil {
+		return zero, &Error{Status: 400, Code: CodeBadRequest,
+			Message: "reorder command requires an ordered `ids` list"}
+	}
+	ids, ok := toAnySlice(idsRaw)
+	if !ok {
+		return zero, &Error{Status: 400, Code: CodeBadRequest,
+			Message: "reorder `ids` must be a list"}
+	}
+	if len(ids) == 0 {
+		return zero, nil
+	}
+
+	// Build a single `UPDATE <table> SET <pos> = data.position
+	// FROM (VALUES ($1,0),($2,1),...) AS data(id, position) WHERE
+	// <table>.id = data.id` statement. The VALUES rows pair each id with
+	// its 0-based ordinal in the supplied order.
+	values := make([]any, 0, len(ids))
+	tuples := make([]string, 0, len(ids))
+	for i, id := range ids {
+		values = append(values, id)
+		tuples = append(tuples, fmt.Sprintf("($%d, %d)", len(values), i))
+	}
+	sql := fmt.Sprintf(
+		`UPDATE %s SET %s = data.position FROM (VALUES %s) AS data(id, position) WHERE %s.id = data.id`,
+		quoteResourceTable(eff.Resource.Name),
+		quoteIdent(eff.PositionColumn),
+		strings.Join(tuples, ", "),
+		quoteResourceTable(eff.Resource.Name),
+	)
+	if _, err := tx.Exec(ctx, sql, values...); err != nil {
+		return zero, classifyDBError("reorder", err)
+	}
+	return zero, nil
+}
+
+// toAnySlice coerces a `readPath` result into a `[]any` so the reorder
+// effect can iterate the ordered ids regardless of the concrete slice type
+// the JSON decoder produced.
+func toAnySlice(v any) ([]any, bool) {
+	switch s := v.(type) {
+	case []any:
+		return s, true
+	case []string:
+		out := make([]any, len(s))
+		for i, e := range s {
+			out[i] = e
+		}
+		return out, true
+	case []int64:
+		out := make([]any, len(s))
+		for i, e := range s {
+			out[i] = e
+		}
+		return out, true
+	default:
+		return nil, false
 	}
 }
 

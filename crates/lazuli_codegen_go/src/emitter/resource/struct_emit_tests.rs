@@ -86,11 +86,13 @@ fn semantic_plugin_type_field_emits_validate_tag() {
         slug: false,
         default: None,
         derived_from: None,
+        computed_date: None,
         constraints: lazuli_ir::FieldConstraints::default(),
         full_text: false,
         previous_names: Vec::new(),
         pii: None,
         owner_axis: None,
+        cross_feature_target: None,
         span_ref: None,
     };
     feature
@@ -149,11 +151,13 @@ fn cap_file_field_registers_storage_import() {
             slug: false,
             default: None,
             derived_from: None,
+            computed_date: None,
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         }],
     );
@@ -292,6 +296,100 @@ fn derived_field_renders_as_comment_only() {
 }
 
 #[test]
+fn computed_date_field_emits_addate_helper_with_field_offset() {
+    use lazuli_ir::{ComputedDate, ComputedDateBase, ComputedDateOffset};
+    let mut feature = base_feature("campaign");
+    let mut due = simple_field("due_date", BuiltinType::Date, true);
+    due.computed_date = Some(ComputedDate {
+        base: ComputedDateBase::Field("campaign_start".to_owned()),
+        offset: ComputedDateOffset::Field("offset_days".to_owned()),
+    });
+    let resource = simple_resource(
+        "campaign",
+        vec![
+            simple_field("campaign_start", BuiltinType::Date, true),
+            simple_field("offset_days", BuiltinType::Integer, true),
+            due,
+        ],
+    );
+    feature.resources.push(resource);
+    let out = emit(&feature).expect("must emit");
+
+    // The computed_date column is a REAL struct field (Go computes it at
+    // write time; it round-trips back from the stored DATE column).
+    assert!(out.contains("DueDate"));
+    // The stdlib `time` import is registered for the helper.
+    assert!(out.contains("\"time\""));
+    // The `Compute<Field>` helper emits the wire-thin `AddDate` arithmetic.
+    assert!(out.contains("func (m *Campaign) ComputeDueDate() {"));
+    assert!(out.contains("time.Parse(\"2006-01-02\", string(m.CampaignStart))"));
+    assert!(
+        out.contains("base.AddDate(0, 0, int(m.OffsetDays))"),
+        "expected AddDate emission; got:\n{out}"
+    );
+}
+
+#[test]
+fn computed_date_field_emits_addate_helper_with_literal_offset() {
+    use lazuli_ir::{ComputedDate, ComputedDateBase, ComputedDateOffset};
+    let mut feature = base_feature("campaign");
+    let mut due = simple_field("due_date", BuiltinType::Date, true);
+    due.computed_date = Some(ComputedDate {
+        base: ComputedDateBase::Field("campaign_start".to_owned()),
+        offset: ComputedDateOffset::Literal(30),
+    });
+    let resource = simple_resource(
+        "campaign",
+        vec![simple_field("campaign_start", BuiltinType::Date, true), due],
+    );
+    feature.resources.push(resource);
+    let out = emit(&feature).expect("must emit");
+    assert!(out.contains("func (m *Campaign) ComputeDueDate() {"));
+    // Integer literal lowers verbatim (no `int(m.<field>)` wrapper).
+    assert!(
+        out.contains("base.AddDate(0, 0, 30)"),
+        "expected literal AddDate emission; got:\n{out}"
+    );
+}
+
+#[test]
+fn schedule_rule_field_emits_fn_backed_addate_helper() {
+    // W4 GAP-08 — `schedule_rule from @fn.activity_date_rule(input.rule)
+    // offset offset_days` emits a `Compute<Field>(rule string)` helper that
+    // resolves the base Date via `lazuli.ScheduleRuleDate` then applies the
+    // same AddDate arithmetic as `computed_date`.
+    use lazuli_ir::{ComputedDate, ComputedDateBase, ComputedDateOffset};
+    let mut feature = base_feature("activity");
+    let mut due = simple_field("due_date", BuiltinType::Date, true);
+    due.computed_date = Some(ComputedDate {
+        base: ComputedDateBase::Rule {
+            rule: "input.rule".to_owned(),
+            fn_ref: "activity_date_rule".to_owned(),
+        },
+        offset: ComputedDateOffset::Field("offset_days".to_owned()),
+    });
+    let resource = simple_resource(
+        "activity",
+        vec![simple_field("offset_days", BuiltinType::Integer, true), due],
+    );
+    feature.resources.push(resource);
+    let out = emit(&feature).expect("must emit");
+    // The rule form takes a `rule string` argument and calls the bound @fn.
+    assert!(
+        out.contains("func (m *Activity) ComputeDueDate(rule string) {"),
+        "expected rule-form Compute helper; got:\n{out}"
+    );
+    assert!(
+        out.contains("lazuli.ScheduleRuleDate(\"activity_date_rule\", rule)"),
+        "expected ScheduleRuleDate call; got:\n{out}"
+    );
+    assert!(
+        out.contains("base.AddDate(0, 0, int(m.OffsetDays))"),
+        "expected AddDate emission on the @fn-resolved base; got:\n{out}"
+    );
+}
+
+#[test]
 fn capability_encrypted_field_uses_lazuli_encrypted_ref() {
     let mut feature = base_feature("customer");
     let resource = simple_resource(
@@ -306,11 +404,13 @@ fn capability_encrypted_field_uses_lazuli_encrypted_ref() {
             slug: false,
             default: None,
             derived_from: None,
+            computed_date: None,
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         }],
     );
@@ -360,11 +460,13 @@ fn cross_feature_user_defined_field_emits_qualified_ref_and_import() {
             slug: false,
             default: None,
             derived_from: None,
+            computed_date: None,
             constraints: lazuli_ir::FieldConstraints::default(),
             full_text: false,
             previous_names: Vec::new(),
             pii: None,
             owner_axis: None,
+            cross_feature_target: None,
             span_ref: None,
         }],
     );
@@ -399,6 +501,9 @@ fn cross_feature_user_defined_field_emits_qualified_ref_and_import() {
         composite_key: None,
         conventions: Vec::new(),
         lifecycle_routes: None,
+        polymorphic_refs: Vec::new(),
+        many_through: Vec::new(),
+        append_only: false,
     });
 
     let module = Module {

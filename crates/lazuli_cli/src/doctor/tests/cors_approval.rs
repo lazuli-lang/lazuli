@@ -111,9 +111,12 @@ feature customer
 "#,
         )]);
         let diagnostics = package.diagnostics();
+        // W4 GAP-06 — the single-approver `by` form lifts to a 1-element
+        // chain; the unknown-role check now reports under the unified
+        // APPROVAL-CHAIN-ORDER-001 code.
         assert!(
-            codes(&diagnostics).contains("approval_role_unresolved_diagnostics"),
-            "expected approval_role_unresolved_diagnostics; got {:?}",
+            codes(&diagnostics).contains("APPROVAL-CHAIN-ORDER-001"),
+            "expected APPROVAL-CHAIN-ORDER-001; got {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
     }

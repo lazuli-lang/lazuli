@@ -4,7 +4,8 @@
 //!
 //! * `semantic_type_unknown_diagnostics_for_*` — closed catalog
 //!   `@semantic.<Name>` check. Catalog: `EMAIL, PHONE, URL, UUID,
-//!   DATE, CURRENCY, MONEY, JSON, GEOPOINT`. Plugin-declared semantic
+//!   DATE, CURRENCY, MONEY, JSON, GEOPOINT, HEXCOLOR, PERCENTAGE`.
+//!   Plugin-declared semantic
 //!   aliases ride the `SEMANTIC-PLUGIN-001/002` rules in
 //!   `aggregators::lazurite_manifest` instead. Two flavours: a
 //!   pre-IR `syntax_feature::*` walk that runs against the
