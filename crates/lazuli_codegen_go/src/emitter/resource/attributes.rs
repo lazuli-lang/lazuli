@@ -32,8 +32,42 @@ pub(super) fn effective_tenancy(feature: &Feature, resource: &lazuli_ir::Resourc
 
 /// Resolve effective timestamps flag — `Resource.timestamps` overrides
 /// `Defaults.timestamps`. `Some(false)` is the explicit opt-out.
+///
+/// Falls through to explicit-field detection when neither knob is set:
+/// if the author declared `created_at`/`updated_at` as resource fields
+/// directly (without flipping `defaults timestamps` on), the runtime
+/// still needs `Timestamps: true` on the emitted `Resource[T]` value so
+/// `applyCreates` / `applyUpdates` auto-bump `updated_at = now()` and
+/// `applyCreates` auto-sets `updated_at` at INSERT time. Without this,
+/// resources that opt into timestamps via explicit-field declaration
+/// hit `null value in column "updated_at" violates not-null constraint`
+/// on the first INSERT (no automatic binding because `Resource.HasColumn`
+/// returns false), even though the DDL has the column.
 pub(super) fn uses_timestamps(feature: &Feature, resource: &lazuli_ir::Resource) -> bool {
-    resource.timestamps.unwrap_or(feature.defaults.timestamps)
+    if let Some(explicit) = resource.timestamps {
+        return explicit;
+    }
+    if feature.defaults.timestamps {
+        return true;
+    }
+    has_explicit_timestamp_fields(resource)
+}
+
+/// True when the resource declares both `created_at` and `updated_at`
+/// as explicit fields. Both must be present; a resource that only has
+/// `created_at` is engaging "immutable row + audit-trail" semantics,
+/// not the auto-touch-on-write convention.
+fn has_explicit_timestamp_fields(resource: &lazuli_ir::Resource) -> bool {
+    let mut has_created = false;
+    let mut has_updated = false;
+    for field in &resource.fields {
+        match field.name.as_str() {
+            "created_at" => has_created = true,
+            "updated_at" => has_updated = true,
+            _ => {}
+        }
+    }
+    has_created && has_updated
 }
 
 /// Lift a `Tenancy` IR variant onto the `lazuli.Tenancy*` constant

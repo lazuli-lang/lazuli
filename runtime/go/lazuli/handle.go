@@ -652,6 +652,23 @@ func applyCreates[I, O any](ctx *Ctx, tx pgx.Tx, eff CreatesEffect, input I) (O,
 		}
 	}
 
+	// Auto-populate `updated_at = now()` on INSERT when the resource
+	// declares the column and the bindings don't already set it.
+	// Mirrors the UPDATE-path bump at line ~818 / ~947 so authors don't
+	// have to repeat `updated_at = ctx.now` in every `creates` block.
+	// Resources without an `updated_at` column (e.g. ones declared with
+	// `conventions [timestamps off]`) are unaffected — `HasColumn`
+	// returns false and the branch is a no-op. Symmetry: the runtime
+	// keeps responsibility for the audit-timestamp pair (created_at +
+	// updated_at), authors only bind business fields.
+	if eff.Resource.HasColumn("updated_at") {
+		if _, bound := eff.Bind["updated_at"]; !bound {
+			cols = append(cols, quoteIdent("updated_at"))
+			values = append(values, time.Now().UTC())
+			placeholders = append(placeholders, fmt.Sprintf("$%d", len(values)))
+		}
+	}
+
 	// Encrypt @cap.Encrypted / @cap.E2ee bound columns before they
 	// reach the driver. The runtime walks `Resource.EncryptedColumns`
 	// (populated by codegen) and replaces each plaintext value with

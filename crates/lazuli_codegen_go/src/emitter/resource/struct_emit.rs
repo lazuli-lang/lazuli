@@ -182,24 +182,43 @@ pub(super) fn emit_resource(
 
     // Implicit timestamps. `Defaults.timestamps` is feature-wide;
     // `Resource.timestamps` overrides. `None` on the resource side
-    // means "inherit feature default".
+    // means "inherit feature default" — and now also "auto-detect from
+    // explicit `created_at`+`updated_at` fields" (see `uses_timestamps`).
+    //
+    // Skip the auto-inject for either column the author already declared
+    // explicitly. Without this guard a resource that engages the
+    // convention via field declaration triggers `CreatedAt redeclared`
+    // / `UpdatedAt redeclared` Go build errors because both the user-
+    // field loop above AND this auto-inject would push the same field.
     if uses_timestamps(feature, resource) {
-        tagged.push(TaggedField {
-            name: "CreatedAt".to_owned(),
-            go_type: "lazuli.Time".to_owned(),
-            db_col: "created_at".to_owned(),
-            json_suffix: "created_at".to_owned(),
-            validate: None,
-            comment: None,
-        });
-        tagged.push(TaggedField {
-            name: "UpdatedAt".to_owned(),
-            go_type: "lazuli.Time".to_owned(),
-            db_col: "updated_at".to_owned(),
-            json_suffix: "updated_at".to_owned(),
-            validate: None,
-            comment: None,
-        });
+        let has_explicit_created_at = resource
+            .fields
+            .iter()
+            .any(|f| f.name == "created_at");
+        let has_explicit_updated_at = resource
+            .fields
+            .iter()
+            .any(|f| f.name == "updated_at");
+        if !has_explicit_created_at {
+            tagged.push(TaggedField {
+                name: "CreatedAt".to_owned(),
+                go_type: "lazuli.Time".to_owned(),
+                db_col: "created_at".to_owned(),
+                json_suffix: "created_at".to_owned(),
+                validate: None,
+                comment: None,
+            });
+        }
+        if !has_explicit_updated_at {
+            tagged.push(TaggedField {
+                name: "UpdatedAt".to_owned(),
+                go_type: "lazuli.Time".to_owned(),
+                db_col: "updated_at".to_owned(),
+                json_suffix: "updated_at".to_owned(),
+                validate: None,
+                comment: None,
+            });
+        }
     }
 
     // Soft delete sentinel — nullable; omitempty so default-encoded

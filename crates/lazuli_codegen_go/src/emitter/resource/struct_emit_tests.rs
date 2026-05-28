@@ -426,3 +426,87 @@ fn cross_feature_user_defined_field_emits_qualified_ref_and_import() {
         "expected `*lazuli.ID` FK field for cross-feature resource ref, got:\n{out}"
     );
 }
+
+/// Regression for the 2026-05-28 prod-break window: hostpoint `account.User`
+/// declared `created_at: DateTime required` + `updated_at: DateTime required`
+/// as explicit fields (no `defaults timestamps` on the feature), so
+/// `uses_timestamps()` returned false and the emitted `lazuli.Resource[User]`
+/// value lacked `Timestamps: true`. The runtime then skipped auto-binding
+/// `updated_at = now()` on INSERT, every `account.register` returned 500
+/// `null value in column "updated_at" violates not-null constraint`.
+///
+/// Fix: `uses_timestamps()` now falls through to explicit-field detection
+/// when neither `Resource.timestamps` nor `Defaults.timestamps` is set. A
+/// resource that declares BOTH `created_at` and `updated_at` opts into
+/// the auto-touch convention without the convention flag.
+#[test]
+fn explicit_created_and_updated_fields_set_timestamps_true() {
+    let mut feature = base_feature("account");
+    let resource = simple_resource(
+        "User",
+        vec![
+            simple_field("email", BuiltinType::SemanticEmail, true),
+            simple_field("created_at", BuiltinType::DateTime, true),
+            simple_field("updated_at", BuiltinType::DateTime, true),
+        ],
+    );
+    feature.resources.push(resource);
+
+    let out = emit(&feature).expect("must emit");
+
+    assert!(
+        out.contains("Timestamps: true"),
+        "explicit created_at + updated_at fields must set Timestamps: true \
+         on the Resource[T] value so runtime auto-binds updated_at on INSERT — \
+         got:\n{out}"
+    );
+}
+
+/// Negative path: a resource with `created_at` but NOT `updated_at` is
+/// engaging immutable-row / audit-trail semantics, not the auto-touch
+/// convention. `Timestamps: true` would emit a runtime auto-bind for a
+/// column that doesn't exist in the DDL → PG 42703 on every INSERT.
+#[test]
+fn created_at_alone_does_not_set_timestamps_true() {
+    let mut feature = base_feature("audit");
+    let resource = simple_resource(
+        "Event",
+        vec![
+            simple_field("kind", BuiltinType::Text, true),
+            simple_field("created_at", BuiltinType::DateTime, true),
+        ],
+    );
+    feature.resources.push(resource);
+
+    let out = emit(&feature).expect("must emit");
+
+    assert!(
+        !out.contains("Timestamps: true"),
+        "resource with only `created_at` (no `updated_at`) must NOT \
+         opt into the timestamps convention — got:\n{out}"
+    );
+}
+
+/// Symmetric to the above: `updated_at` alone (with no `created_at`)
+/// is an odd shape but should also NOT enable the convention. Both
+/// columns must be present for the auto-touch path to kick in.
+#[test]
+fn updated_at_alone_does_not_set_timestamps_true() {
+    let mut feature = base_feature("counter");
+    let resource = simple_resource(
+        "Bump",
+        vec![
+            simple_field("value", BuiltinType::Integer, true),
+            simple_field("updated_at", BuiltinType::DateTime, true),
+        ],
+    );
+    feature.resources.push(resource);
+
+    let out = emit(&feature).expect("must emit");
+
+    assert!(
+        !out.contains("Timestamps: true"),
+        "resource with only `updated_at` (no `created_at`) must NOT \
+         opt into the timestamps convention — got:\n{out}"
+    );
+}
