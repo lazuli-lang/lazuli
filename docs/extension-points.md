@@ -271,7 +271,7 @@ feature customer
     invoice: "invoicing"
     scoring: "credit scoring engine"
 
-  context "@docs/shared/customer-context.md"
+  attach_ctx "@docs/shared/customer-context.md"
 ```
 
 The context file is complementary prose only: history, AI guidance, performance notes, narrative examples, and decision logs. It should not duplicate schema, operations, policies, rules, events, or extension contracts from the `.lzi` file.

@@ -12,7 +12,7 @@ feature catalog
     out_of_scope
       generic_taxonomy: "tag taxonomy framework"
 
-  context "@docs/catalog/catalog.ctx.md"
+  attach_ctx "@docs/catalog/catalog.ctx.md"
 
   defaults
     tenancy org

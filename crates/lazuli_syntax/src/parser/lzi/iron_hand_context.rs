@@ -306,6 +306,38 @@ mod iron_hand_context_tests {
     }
 
     #[test]
+    fn feature_level_context_string_is_retired() {
+        // The dead feature-header `context "<path>"` form used to be
+        // silently dropped (no parser branch). It is now a HARD parse
+        // error pointing the author at `attach_ctx`. Negative case.
+        let source = "\nfeature catalog\n  context \"@x\"\n";
+        let err = parse_feature_skeletons(source).expect_err("rejects dead context form");
+        let msg = format!("{err}");
+        assert!(msg.contains("attach_ctx"), "got: {msg}");
+    }
+
+    #[test]
+    fn feature_level_context_emits_e_context_retired_code() {
+        // Mirrors `E-WORKFLOW-RETIRED`: the rejection ships with the
+        // stable `E-CONTEXT-RETIRED` code prefix on the diagnostic so
+        // the analyzer / LSP / downstream tooling recognise it by code.
+        let source = "\nfeature catalog\n  context \"@docs/customer/customer.ctx.md\"\n";
+        let err = parse_feature_skeletons(source).expect_err("rejects dead context form");
+        let msg = format!("{err}");
+        assert!(msg.contains("E-CONTEXT-RETIRED"), "got: {msg}");
+    }
+
+    #[test]
+    fn attach_ctx_still_parses_after_context_retirement() {
+        // Positive: the canonical `attach_ctx "<path>"` form is
+        // unaffected by the `context` retirement.
+        let source = "\nfeature catalog\n  attach_ctx \"@x\"\n";
+        let features = parse_feature_skeletons(source).expect("attach_ctx still parses");
+        let ctx = features[0].attach_ctx.as_ref().expect("attach_ctx present");
+        assert_eq!(ctx.path, "@x");
+    }
+
+    #[test]
     fn iron_hand_block_combines_with_existing_children() {
         // Smoke-check the three fields parse alongside resources /
         // commands / defaults — the canonical iron-hand-clean layout.
