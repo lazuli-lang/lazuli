@@ -251,6 +251,7 @@ pub(crate) fn default_synth_command(rate_limit: &str) -> ir::Command {
             record_before: false,
             record_after: false,
             retain_for: None,
+            materialize: None,
         }),
         approval: None,
         invalidates: Vec::new(),

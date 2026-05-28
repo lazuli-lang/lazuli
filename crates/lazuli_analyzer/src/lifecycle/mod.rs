@@ -351,6 +351,7 @@ fn lower_audit_spec(raw: &str) -> ir::AuditSpec {
         record_before: false,
         record_after: false,
         retain_for: None,
+        materialize: None,
     }
 }
 

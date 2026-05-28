@@ -85,6 +85,8 @@ mod wrap;
 // `command/<parent>/<name>.rs`. See each sibling's `//!` header for
 // the per-file coverage map.
 #[cfg(test)]
+mod audit_materialize_emit_tests;
+#[cfg(test)]
 mod emit_bindings_and_handlers_tests;
 #[cfg(test)]
 mod emit_effect_dispatch_tests;

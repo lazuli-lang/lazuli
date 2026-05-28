@@ -287,7 +287,27 @@ pub struct CommandAudit {
     pub record_after: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retain_for: Option<String>,
+    /// GAP-AUDIT-01 — `materialize @feature.<feature>.<Resource>` child.
+    /// Names the append_only OperationLog resource the audit record is
+    /// written to in addition to the `emit_to` event. Parsed verbatim
+    /// from the dotted reference; the analyzer projects into
+    /// `ir::AuditSpec.materialize`. Absent = audit emits the event only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub materialize: Option<AuditMaterializeAst>,
     pub span: Span,
+}
+
+/// GAP-AUDIT-01 — typed payload for the `materialize
+/// @feature.<feature>.<Resource>` audit child. Names the feature owning
+/// the OperationLog resource + the resource itself. Mirrors
+/// `lazuli_ir::AuditMaterialize`. The reference is resolved (and the
+/// append_only invariant enforced) downstream by the analyzer + doctor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuditMaterializeAst {
+    /// Owning feature name (the segment after `@feature.`).
+    pub feature: String,
+    /// Target OperationLog resource name (PascalCase).
+    pub resource: String,
 }
 
 /// Cut A.9 `approval` block — declarative human approval gate on a

@@ -17,6 +17,7 @@
 //! - `CROSS-FEATURE-WORKFLOW-SPAN-001` (warning) — workflow transitions
 //!   touch resources owned by multiple features.
 
+pub mod audit_materialize_target_001;
 pub mod contract_missing_001;
 pub mod polymorphic_target_001;
 pub mod ref_unknown_001;

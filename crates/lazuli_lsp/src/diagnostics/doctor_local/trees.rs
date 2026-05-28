@@ -177,6 +177,22 @@ pub(crate) fn wire_domain(
         synthetic_path,
         lazuli_doctor::domain::resource_append_only_invalid
     );
+    // GAP-AUDIT-01 — `command` ... `audit materialize @feature.<f>.<R>`
+    // must target a reachable append_only OperationLog. Cross-feature
+    // resolution needs the package (CLI dispatch); the LSP surfaces the
+    // same-feature subset (`check_local`) live in the editor.
+    {
+        use lazuli_doctor::cross_feature::audit_materialize_target_001 as leaf;
+        for finding in leaf::check_local(feature, synthetic_path) {
+            diagnostics.push(doctor_diagnostic(
+                source,
+                Some(&feature.name),
+                leaf::Finding::CODE,
+                finding.message(),
+                DiagnosticSeverity::ERROR,
+            ));
+        }
+    }
     // W4 GAP-REORDER-01 — `reorder <Resource> by <field>` position-field
     // type-check.
     wire_feature_check!(

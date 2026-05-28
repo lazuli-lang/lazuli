@@ -175,13 +175,32 @@ pub(super) fn emit_command(
             format!("{},", format_rate_limit_struct(rate, "\t")),
         ));
     }
-    if command.audit.is_some() {
+    if let Some(audit) = &command.audit {
         // Lazuli Go lib has `AuditDefault` + bespoke `AuditSpec`. The
         // IR carries subject lists + optional `emit_to`, both of which
         // map onto `AuditSpec.Fields`. Until the lib grows the
         // `emit_to` slot we emit the default marker — the captured
         // subjects round-trip through the audit-default behaviour.
-        kv_rows.push(("Audit:".to_owned(), "lazuli.AuditDefault,".to_owned()));
+        if let Some(materialize) = &audit.materialize {
+            // GAP-AUDIT-01 — the audit record is written to a declared
+            // append_only OperationLog in addition to the event. We emit
+            // a populated `lazuli.AuditSpec` carrying the target table so
+            // the runtime's existing audit path (`writeAuditRow` →
+            // `writeAuditMaterializeRow`) does a second INSERT of the
+            // SAME assembled record, same tx. Wire-thin: no new audit
+            // logic, one record two sinks. Table name = snake-cased
+            // target resource (matches the migration DDL convention).
+            let table = super::scope::command_pascal_to_snake(&materialize.resource);
+            kv_rows.push((
+                "Audit:".to_owned(),
+                format!(
+                    "&lazuli.AuditSpec{{MaterializeTable: \"{}\"}},",
+                    escape_string(&table)
+                ),
+            ));
+        } else {
+            kv_rows.push(("Audit:".to_owned(), "lazuli.AuditDefault,".to_owned()));
+        }
     }
     if let Some(approval) = &command.approval {
         kv_rows.push(("Approval:".to_owned(), format_approval(approval)));

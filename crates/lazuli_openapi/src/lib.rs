@@ -310,6 +310,7 @@ mod tests {
             record_before: false,
             record_after: false,
             retain_for: None,
+            materialize: None,
         });
         command.approval = Some(ir::ApprovalSpec {
             required_when: Some("target.tier = enterprise".to_owned()),

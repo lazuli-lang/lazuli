@@ -256,6 +256,7 @@ pub fn lower_poller(poller: &syntax::PollerBlockAst) -> Result<ir::Poller, Analy
                 record_before: false,
                 record_after: false,
                 retain_for: None,
+                materialize: None,
             }
         } else if let Some(reason) = rest.strip_prefix("none ") {
             ir::AuditSpec {
@@ -265,6 +266,7 @@ pub fn lower_poller(poller: &syntax::PollerBlockAst) -> Result<ir::Poller, Analy
                 record_before: false,
                 record_after: false,
                 retain_for: None,
+                materialize: None,
             }
         } else {
             ir::AuditSpec {
@@ -279,6 +281,7 @@ pub fn lower_poller(poller: &syntax::PollerBlockAst) -> Result<ir::Poller, Analy
                 record_before: false,
                 record_after: false,
                 retain_for: None,
+                materialize: None,
             }
         }
     });

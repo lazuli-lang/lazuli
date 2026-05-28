@@ -46,6 +46,7 @@
                 record_before: false,
                 record_after: false,
                 retain_for: None,
+                materialize: None,
             }),
             approval: None,
             invalidates: vec![],

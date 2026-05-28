@@ -168,6 +168,15 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 				if err := writeAuditRow(ctx, tx, c.Name, "allowed"); err != nil {
 					return err
 				}
+				// GAP-AUDIT-01 — `audit materialize @feature.<f>.<R>`.
+				// Write the SAME assembled audit record into the declared
+				// append_only OperationLog, in the same tx (one record,
+				// two sinks). Doctor guarantees the table is append_only.
+				if c.Audit.MaterializeTable != "" {
+					if err := writeAuditMaterializeRow(ctx, tx, c.Audit.MaterializeTable, c.Name, "allowed"); err != nil {
+						return err
+					}
+				}
 			}
 			return nil
 		})
@@ -371,6 +380,40 @@ func writeAuditRow(ctx *Ctx, tx pgx.Tx, command, decision string) error {
 	_, err := tx.Exec(ctx, `INSERT INTO lazuli_audit (command, actor, tenant, decision) VALUES ($1, $2, $3, $4)`,
 		command, actor, tenant, decision)
 	return err
+}
+
+// writeAuditMaterializeRow inserts the same assembled audit record into a
+// declared append_only OperationLog table (GAP-AUDIT-01 `audit materialize
+// @feature.<f>.<R>`). It runs inside the command tx so materialization is
+// atomic with the effect + the lazuli_audit row — one record, two sinks.
+// Wire-thin: reuses the exact ctx-derived record (command, actor, tenant,
+// decision, recorded timestamp) that writeAuditRow assembles; no new audit
+// logic. The table is a compile-time literal (snake-cased target resource
+// emitted by codegen) verified append_only by doctor, so the identifier
+// interpolation carries no untrusted input. The canonical OperationLog
+// columns mirror lazuli_audit (command, actor, tenant, decision,
+// recorded_at) so the same record shape lands in both sinks.
+func writeAuditMaterializeRow(ctx *Ctx, tx pgx.Tx, table, command, decision string) error {
+	actor := string(ctx.Actor)
+	var tenant *string
+	if ctx.Tenant != nil {
+		s := strconv.FormatInt(int64(ctx.Tenant.OrgID), 10)
+		tenant = &s
+	}
+	sql := fmt.Sprintf(
+		`INSERT INTO %s (command, actor, tenant, decision, recorded_at) VALUES ($1, $2, $3, $4, $5)`,
+		pgQuoteIdent(table),
+	)
+	_, err := tx.Exec(ctx, sql, command, actor, tenant, decision, ctx.Now)
+	return err
+}
+
+// pgQuoteIdent double-quotes a Postgres identifier, escaping embedded
+// quotes. The table name reaching here is a codegen-emitted snake_case
+// literal, never user input — this is belt-and-suspenders so a future
+// caller can't smuggle an injection through the identifier slot.
+func pgQuoteIdent(ident string) string {
+	return `"` + strings.ReplaceAll(ident, `"`, `""`) + `"`
 }
 
 // newEnvelopeID returns a fresh 128-bit hex identifier for the outbox

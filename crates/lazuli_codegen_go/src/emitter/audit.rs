@@ -315,6 +315,7 @@ mod tests {
             record_before: false,
             record_after: false,
             retain_for: None,
+            materialize: None,
         }
     }
 
@@ -387,6 +388,7 @@ mod tests {
             record_before: false,
             record_after: false,
             retain_for: None,
+            materialize: None,
         });
         feature.commands.push(reassign);
 
@@ -444,6 +446,7 @@ mod tests {
             record_before: false,
             record_after: false,
             retain_for: None,
+            materialize: None,
         });
         feature.commands.push(command);
 

@@ -405,6 +405,7 @@ pub(crate) fn lower_audit_block(src: &str) -> ir::AuditSpec {
         record_before: false,
         record_after: false,
         retain_for: None,
+        materialize: None,
     };
     for line in src.lines().map(str::trim).filter(|line| !line.is_empty()) {
         if let Some(rest) = line.strip_prefix("audit data_subject ") {
