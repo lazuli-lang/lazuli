@@ -30,10 +30,9 @@ use super::super::super::common::{
     split_lzx_list, strip_inline_comment, unquote_lzx_value,
 };
 use super::super::super::error::ParseError;
-use super::ViewBodyState;
 use crate::ast::{
     BoardAst, InlineTableAst, RepeatableFieldAst, RepeatableGroupAst, Span, TabEntryAst,
-    TabGroupAst, TabGroupCaseAst, TabsAst, WizardAst, WizardStepAst, WizardStepsAst,
+    TabGroupAst, TabGroupCaseAst, TabsAst, ViewUxAst, WizardAst, WizardStepAst, WizardStepsAst,
 };
 
 // ===========================================================================
@@ -41,12 +40,12 @@ use crate::ast::{
 // ===========================================================================
 
 /// `wizard_steps <total> current <field>` — single line. GAP-UX-01.
-pub(super) fn parse_wizard_steps_line(
+pub(in crate::parser::lzx) fn parse_wizard_steps_line(
     line: &SourceLine<'_>,
     rest: &str,
-    state: &mut ViewBodyState,
+    ux: &mut ViewUxAst,
 ) -> Result<(), ParseError> {
-    if state.ux.wizard_steps.is_some() {
+    if ux.wizard_steps.is_some() {
         return Err(line_error(
             line,
             "view declares `wizard_steps` at most once",
@@ -80,7 +79,7 @@ pub(super) fn parse_wizard_steps_line(
             ),
         ));
     }
-    state.ux.wizard_steps = Some(WizardStepsAst {
+    ux.wizard_steps = Some(WizardStepsAst {
         total,
         current_field,
         span: Span::new(line.start, line.end),
@@ -89,12 +88,12 @@ pub(super) fn parse_wizard_steps_line(
 }
 
 /// `view.inline_table on_change @command.<name>` — single line. GAP-UX-04.
-pub(super) fn parse_inline_table_line(
+pub(in crate::parser::lzx) fn parse_inline_table_line(
     line: &SourceLine<'_>,
     rest: &str,
-    state: &mut ViewBodyState,
+    ux: &mut ViewUxAst,
 ) -> Result<(), ParseError> {
-    if state.ux.inline_table.is_some() {
+    if ux.inline_table.is_some() {
         return Err(line_error(
             line,
             "view declares `view.inline_table` at most once",
@@ -120,7 +119,7 @@ pub(super) fn parse_inline_table_line(
             "`view.inline_table on_change @command.<name>` requires a command identifier",
         ));
     }
-    state.ux.inline_table = Some(InlineTableAst {
+    ux.inline_table = Some(InlineTableAst {
         on_change: command.to_owned(),
         span: Span::new(line.start, line.end),
     });
@@ -129,14 +128,14 @@ pub(super) fn parse_inline_table_line(
 
 /// `view_mode` block — child lines are bare render-mode keywords. GAP-UX-04.
 /// Returns the index of the first unconsumed line + the block's end offset.
-pub(super) fn parse_view_mode_block(
+pub(in crate::parser::lzx) fn parse_view_mode_block(
     lines: &[SourceLine<'_>],
     start: usize,
     body_indent: usize,
-    state: &mut ViewBodyState,
+    ux: &mut ViewUxAst,
 ) -> Result<(usize, usize), ParseError> {
     let header = &lines[start];
-    if !state.ux.view_modes.is_empty() {
+    if !ux.view_modes.is_empty() {
         return Err(line_error(header, "view declares `view_mode` at most once"));
     }
     let child_indent = body_indent + 2;
@@ -187,21 +186,21 @@ pub(super) fn parse_view_mode_block(
             "`view_mode` requires at least one render mode",
         ));
     }
-    state.ux.view_modes = modes;
+    ux.view_modes = modes;
     Ok((i, last_end))
 }
 
 /// `tab_group derived_from <field>` block — child lines are `case` arms.
 /// GAP-UX-02. Returns the first unconsumed index + the block end offset.
-pub(super) fn parse_tab_group_block(
+pub(in crate::parser::lzx) fn parse_tab_group_block(
     lines: &[SourceLine<'_>],
     start: usize,
     body_indent: usize,
     header_rest: &str,
-    state: &mut ViewBodyState,
+    ux: &mut ViewUxAst,
 ) -> Result<(usize, usize), ParseError> {
     let header = &lines[start];
-    if state.ux.tab_group.is_some() {
+    if ux.tab_group.is_some() {
         return Err(line_error(header, "view declares `tab_group` at most once"));
     }
     let derived_from = header_rest
@@ -256,7 +255,7 @@ pub(super) fn parse_tab_group_block(
             "`tab_group` requires at least one `case ... -> tab \"...\"`",
         ));
     }
-    state.ux.tab_group = Some(TabGroupAst {
+    ux.tab_group = Some(TabGroupAst {
         derived_from: derived_from.to_owned(),
         cases,
         span: Span::new(header.start, last_end),
@@ -302,23 +301,29 @@ fn parse_tab_group_case(line: &SourceLine<'_>, value: &str) -> Result<TabGroupCa
 /// `view.board [<name>]` block — a single child line `lanes derived_from
 /// <field>`. GAP-UX-05. Returns the first unconsumed index + the block end
 /// offset.
-pub(super) fn parse_board_block(
+pub(in crate::parser::lzx) fn parse_board_block(
     lines: &[SourceLine<'_>],
     start: usize,
     body_indent: usize,
     header_rest: &str,
-    state: &mut ViewBodyState,
+    ux: &mut ViewUxAst,
 ) -> Result<(usize, usize), ParseError> {
     let header = &lines[start];
-    if state.ux.board.is_some() {
-        return Err(line_error(header, "view declares `view.board` at most once"));
+    if ux.board.is_some() {
+        return Err(line_error(
+            header,
+            "view declares `view.board` at most once",
+        ));
     }
     // Optional `<name>` on the header line. Must be a bare identifier.
     let name = header_rest.trim();
     if !name.is_empty() && !is_kebab_or_snake_ident(name) {
         return Err(line_error_owned(
             header,
-            format!("`view.board` name `{}` must be a kebab/snake identifier", name),
+            format!(
+                "`view.board` name `{}` must be a kebab/snake identifier",
+                name
+            ),
         ));
     }
 
@@ -377,7 +382,7 @@ pub(super) fn parse_board_block(
             "`view.board` requires a `lanes derived_from <field>` line",
         )
     })?;
-    state.ux.board = Some(BoardAst {
+    ux.board = Some(BoardAst {
         name: name.to_owned(),
         lanes_source,
         span: Span::new(header.start, last_end),
@@ -387,10 +392,10 @@ pub(super) fn parse_board_block(
 
 /// `repeatable input <name> group { <f>: <T>; … } validates sum(<f>) = <n>`
 /// — single line. GAP-UX-05.
-pub(super) fn parse_repeatable_group_line(
+pub(in crate::parser::lzx) fn parse_repeatable_group_line(
     line: &SourceLine<'_>,
     rest: &str,
-    state: &mut ViewBodyState,
+    ux: &mut ViewUxAst,
 ) -> Result<(), ParseError> {
     // `<name> group { … } validates sum(<f>) = <n>`
     let (name_raw, after_name) = rest.split_once(" group ").ok_or_else(|| {
@@ -403,10 +408,13 @@ pub(super) fn parse_repeatable_group_line(
     if !is_kebab_or_snake_ident(&name) {
         return Err(line_error_owned(
             line,
-            format!("`repeatable input` name `{}` must be a kebab/snake identifier", name),
+            format!(
+                "`repeatable input` name `{}` must be a kebab/snake identifier",
+                name
+            ),
         ));
     }
-    if state.ux.repeatable_groups.iter().any(|g| g.name == name) {
+    if ux.repeatable_groups.iter().any(|g| g.name == name) {
         return Err(line_error_owned(
             line,
             format!("duplicate `repeatable input` group `{}`", name),
@@ -422,7 +430,10 @@ pub(super) fn parse_repeatable_group_line(
         ));
     }
     let close = after_name.find('}').ok_or_else(|| {
-        line_error(line, "`repeatable input` group body is missing a closing `}`")
+        line_error(
+            line,
+            "`repeatable input` group body is missing a closing `}`",
+        )
     })?;
     let body = &after_name[1..close];
     let tail = after_name[close + 1..].trim();
@@ -441,7 +452,10 @@ pub(super) fn parse_repeatable_group_line(
         if !is_kebab_or_snake_ident(&fname) {
             return Err(line_error_owned(
                 line,
-                format!("`repeatable input` field `{}` must be a kebab/snake identifier", fname),
+                format!(
+                    "`repeatable input` field `{}` must be a kebab/snake identifier",
+                    fname
+                ),
             ));
         }
         if ftype.is_empty() {
@@ -476,25 +490,42 @@ pub(super) fn parse_repeatable_group_line(
             let end = s.find(')')?;
             Some((s[..end].trim().to_owned(), s[end + 1..].trim()))
         })
-        .ok_or_else(|| line_error(line, "`repeatable input validates` must be `sum(<field>) = <n>`"))?;
+        .ok_or_else(|| {
+            line_error(
+                line,
+                "`repeatable input validates` must be `sum(<field>) = <n>`",
+            )
+        })?;
     let (sum_field, after_paren) = sum_inner;
     if !is_kebab_or_snake_ident(&sum_field) {
         return Err(line_error_owned(
             line,
-            format!("`repeatable input` sum field `{}` must be a kebab/snake identifier", sum_field),
+            format!(
+                "`repeatable input` sum field `{}` must be a kebab/snake identifier",
+                sum_field
+            ),
         ));
     }
-    let target_raw = after_paren.strip_prefix('=').map(str::trim).ok_or_else(|| {
-        line_error(line, "`repeatable input validates sum(<f>)` must be followed by `= <n>`")
-    })?;
+    let target_raw = after_paren
+        .strip_prefix('=')
+        .map(str::trim)
+        .ok_or_else(|| {
+            line_error(
+                line,
+                "`repeatable input validates sum(<f>)` must be followed by `= <n>`",
+            )
+        })?;
     if target_raw.is_empty() || target_raw.parse::<f64>().is_err() {
         return Err(line_error_owned(
             line,
-            format!("`repeatable input` sum target `{}` must be a number literal", target_raw),
+            format!(
+                "`repeatable input` sum target `{}` must be a number literal",
+                target_raw
+            ),
         ));
     }
 
-    state.ux.repeatable_groups.push(RepeatableGroupAst {
+    ux.repeatable_groups.push(RepeatableGroupAst {
         name,
         fields,
         sum_field,
@@ -510,7 +541,7 @@ pub(super) fn parse_repeatable_group_line(
 
 /// `tabs` block — child lines are `tab "<label>" -> view <name> [audience <a>]`.
 /// GAP-UX-03. Returns the parsed AST + the first unconsumed line index.
-pub(super) fn parse_tabs_block(
+pub(in crate::parser::lzx) fn parse_tabs_block(
     lines: &[SourceLine<'_>],
     start: usize,
     parent_indent: usize,
@@ -623,7 +654,7 @@ fn parse_tab_entry(line: &SourceLine<'_>, value: &str) -> Result<TabEntryAst, Pa
 
 /// `wizard <name> steps` block — child lines are `step <N>: <ref>`.
 /// GAP-UX-03. Returns the parsed AST + the first unconsumed line index.
-pub(super) fn parse_wizard_block(
+pub(in crate::parser::lzx) fn parse_wizard_block(
     lines: &[SourceLine<'_>],
     start: usize,
     parent_indent: usize,

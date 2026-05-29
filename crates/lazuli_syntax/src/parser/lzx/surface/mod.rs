@@ -44,12 +44,11 @@ pub(super) use filter::parse_filters_block;
 mod drawer;
 pub(super) use drawer::parse_drawer_block;
 
-mod ux;
-pub(in crate::parser::lzx::surface) use ux::{
+pub(in crate::parser::lzx) mod ux;
+pub(in crate::parser::lzx) use ux::{
     parse_board_block, parse_inline_table_line, parse_repeatable_group_line, parse_tab_group_block,
-    parse_view_mode_block, parse_wizard_steps_line,
+    parse_tabs_block, parse_view_mode_block, parse_wizard_block, parse_wizard_steps_line,
 };
-use ux::{parse_tabs_block, parse_wizard_block};
 
 mod view;
 use view::parse_view_block;

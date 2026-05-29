@@ -56,8 +56,8 @@ use super::super::super::error::ParseError;
 use super::{
     ViewBodyState, parse_board_block, parse_drawer_block, parse_filters_block,
     parse_inline_table_line, parse_on_success_block, parse_repeatable_group_line,
-    parse_tab_group_block, parse_view_mode_block, parse_view_search_decl, parse_view_settings_block,
-    parse_view_sort_block, parse_wizard_steps_line, view_body_handlers,
+    parse_tab_group_block, parse_view_mode_block, parse_view_search_decl,
+    parse_view_settings_block, parse_view_sort_block, parse_wizard_steps_line, view_body_handlers,
 };
 use crate::ast::{
     SelectionDeclAst, SelectionModeAst, Span, ViewAst, ViewCreateAst, ViewDetailAst, ViewListAst,
@@ -220,14 +220,15 @@ pub(super) fn parse_view_block(
         // attach to list+detail; `view_mode` / `view.inline_table` are
         // list-only (they shape a tabular surface).
         if let Some(rest) = trimmed.strip_prefix("wizard_steps ") {
-            parse_wizard_steps_line(line, rest.trim(), &mut state)?;
+            parse_wizard_steps_line(line, rest.trim(), &mut state.ux)?;
             last_end = line.end;
             i += 1;
             continue;
         }
         if trimmed.starts_with("tab_group ") || trimmed == "tab_group" {
             let rest = trimmed.strip_prefix("tab_group").unwrap_or("").trim();
-            let (next, block_end) = parse_tab_group_block(lines, i, body_indent, rest, &mut state)?;
+            let (next, block_end) =
+                parse_tab_group_block(lines, i, body_indent, rest, &mut state.ux)?;
             last_end = block_end;
             i = next;
             continue;
@@ -239,7 +240,7 @@ pub(super) fn parse_view_block(
                     "`view_mode` is only valid in `view list` bodies",
                 ));
             }
-            let (next, block_end) = parse_view_mode_block(lines, i, body_indent, &mut state)?;
+            let (next, block_end) = parse_view_mode_block(lines, i, body_indent, &mut state.ux)?;
             last_end = block_end;
             i = next;
             continue;
@@ -251,7 +252,7 @@ pub(super) fn parse_view_block(
                     "`view.inline_table` is only valid in `view list` bodies",
                 ));
             }
-            parse_inline_table_line(line, rest.trim(), &mut state)?;
+            parse_inline_table_line(line, rest.trim(), &mut state.ux)?;
             last_end = line.end;
             i += 1;
             continue;
@@ -267,13 +268,13 @@ pub(super) fn parse_view_block(
                 ));
             }
             let rest = trimmed.strip_prefix("view.board").unwrap_or("").trim();
-            let (next, block_end) = parse_board_block(lines, i, body_indent, rest, &mut state)?;
+            let (next, block_end) = parse_board_block(lines, i, body_indent, rest, &mut state.ux)?;
             last_end = block_end;
             i = next;
             continue;
         }
         if let Some(rest) = trimmed.strip_prefix("repeatable input ") {
-            parse_repeatable_group_line(line, rest.trim(), &mut state)?;
+            parse_repeatable_group_line(line, rest.trim(), &mut state.ux)?;
             last_end = line.end;
             i += 1;
             continue;
