@@ -165,6 +165,21 @@ const GROUPS: &[Group] = &[
         "entity.name.function.statement.proxy.lazuli",
     ),
     bare(
+        "kw-cors",
+        Context::Cors,
+        "entity.name.function.statement.cors.lazuli",
+    ),
+    bare(
+        "kw-route-guard",
+        Context::RouteGuard,
+        "entity.name.function.statement.route-guard.lazuli",
+    ),
+    bare(
+        "kw-error-page",
+        Context::ErrorPage,
+        "entity.name.function.statement.error-page.lazuli",
+    ),
+    bare(
         "kw-limits",
         Context::Limits,
         "entity.name.function.statement.limits.lazuli",

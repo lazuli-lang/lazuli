@@ -69,6 +69,13 @@ pub(crate) fn app_child_block(trimmed: &str) -> Option<&'static str> {
         // the LSP only needs to recognize the header so warnings
         // don't fire on the children.
         "encryption" => Some("encryption"),
+        // BUG-1 — `error_page <NNN>` opens an app-level error-page block
+        // whose indent-4 children (`template` / `audience`) are validated
+        // against the registry catalog by `validate_app_block_child`. The
+        // trailing HTTP status is part of the header, so the bare-header
+        // check in `validate_app_child_header` deliberately does NOT list
+        // `error_page`.
+        "error_page" => Some("error_page"),
         _ => None,
     }
 }

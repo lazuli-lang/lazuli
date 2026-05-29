@@ -437,3 +437,201 @@ fn registry_decorator_namespaces_are_allowed_references() {
         failures.join("\n  - ")
     );
 }
+
+// ── BUG-1: app-manifest block child-key validation (fail-closed gate) ─
+
+use lazuli_keywords::{manifest_block_name, manifest_child_keys};
+
+use super::{Diagnostic, DiagnosticSeverity, diagnostics_for};
+use crate::diagnostics::app::VALIDATED_APP_BLOCKS;
+
+/// The indent depth (in spaces) each validated app block's child keys sit
+/// at, so the behavioural repro feeds a bogus child at the level the walker
+/// actually inspects. Flat blocks validate their indent-4 line; the two
+/// binding-header blocks (`cookie` profile / `encryption` key) validate the
+/// indent-6 body. Mirrors the dispatch in
+/// `app::operational::app_operational_contract_diagnostics`.
+fn child_indent(block: &str) -> &'static str {
+    match block {
+        // Indent-6 bodies of an indent-4 binding header.
+        "cookie" | "encryption" => "      ",
+        // Flat indent-4 child keys.
+        _ => "    ",
+    }
+}
+
+/// The indent-4 opener line a binding-header block needs before its
+/// indent-6 child is in scope (the walker only validates the body once a
+/// profile / key binding is open). Empty for flat blocks.
+fn block_opener(block: &str) -> Option<&'static str> {
+    match block {
+        "cookie" => Some("  cookie\n    default\n"),
+        "encryption" => Some("  encryption\n    key @key.tenant\n"),
+        // `error_page` is opened by an `error_page <NNN>` header at indent 2.
+        "error_page" => None,
+        _ => None,
+    }
+}
+
+/// The indent-2 block header that opens `block` under `app`.
+fn block_header(block: &str) -> String {
+    match block {
+        "error_page" => "  error_page 404\n".to_string(),
+        // `cookie` / `encryption` carry their opener inline via
+        // `block_opener`; everything else is a bare `  <block>` header.
+        "cookie" | "encryption" => String::new(),
+        _ => format!("  {block}\n"),
+    }
+}
+
+/// (1) Single-source + (2) every validated block has a non-empty registry
+/// child catalog. A block listed in `VALIDATED_APP_BLOCKS` whose
+/// `manifest_child_keys` is empty would silently NO-OP the walker (the
+/// helper returns early on an empty catalog), re-opening the BUG-1
+/// silent-drop hole — so this FAILS CLOSED if a block loses its rows.
+#[test]
+fn every_validated_app_block_has_a_nonempty_child_catalog() {
+    let mut empty = Vec::new();
+    for &block in VALIDATED_APP_BLOCKS {
+        if manifest_child_keys(block).next().is_none() {
+            empty.push(block);
+        }
+    }
+    assert!(
+        empty.is_empty(),
+        "VALIDATED_APP_BLOCKS contains block(s) with NO registry child rows — the walker would \
+         silently no-op on them, re-opening the BUG-1 unknown-child drop. Add child-key rows to \
+         `lazuli_keywords::registry` (with the matching `Context`) or remove the block: {empty:?}"
+    );
+}
+
+/// (3) registry == walker. Every `lazuli_keywords::Context` that maps to an
+/// app-manifest block name via `manifest_block_name` MUST be listed in
+/// `VALIDATED_APP_BLOCKS`. Adding a `Context` + `manifest_block_name` row
+/// without wiring the walker arm would leave that block's children
+/// unvalidated — this FAILS CLOSED until the walker catches up.
+#[test]
+fn every_registry_manifest_block_is_validated_by_the_walker() {
+    let validated: BTreeSet<&str> = VALIDATED_APP_BLOCKS.iter().copied().collect();
+    let mut unwired: Vec<&'static str> = ALL
+        .iter()
+        .filter_map(|c| manifest_block_name(c.context))
+        .filter(|block| !validated.contains(block))
+        .collect();
+    unwired.sort_unstable();
+    unwired.dedup();
+    assert!(
+        unwired.is_empty(),
+        "registry block(s) carry `manifest_block_name` child rows but are NOT in \
+         VALIDATED_APP_BLOCKS — their children are unvalidated (BUG-1 hole). Wire a dispatch arm \
+         in `app::operational` and add them to VALIDATED_APP_BLOCKS: {unwired:?}"
+    );
+}
+
+/// (4) Behavioural: for EACH validated block, a bogus child key emits
+/// exactly one `app-block-child-contract` ERROR — and no valid child does.
+#[test]
+fn every_validated_app_block_flags_a_bogus_child() {
+    for &block in VALIDATED_APP_BLOCKS {
+        let header = block_header(block);
+        let opener = block_opener(block).unwrap_or("");
+        let indent = child_indent(block);
+
+        // ── bogus child → exactly one ERROR ──
+        let bogus = format!("app Demo\n{header}{opener}{indent}zzznonsense_xyz value\n");
+        let diags = diagnostics_for(&bogus);
+        let errors: Vec<&Diagnostic> = diags
+            .iter()
+            .filter(|d| {
+                matches!(
+                    d.code.as_ref(),
+                    Some(tower_lsp::lsp_types::NumberOrString::String(c))
+                        if c == "app-block-child-contract"
+                )
+            })
+            .collect();
+        assert_eq!(
+            errors.len(),
+            1,
+            "block `{block}`: bogus child `zzznonsense_xyz` must emit exactly one \
+             app-block-child-contract ERROR; got {} for source:\n{bogus}",
+            errors.len()
+        );
+        assert_eq!(
+            errors[0].severity,
+            Some(DiagnosticSeverity::ERROR),
+            "block `{block}`: app-block-child-contract must be ERROR severity"
+        );
+
+        // ── a real child of this block → ZERO app-block-child-contract ──
+        let valid_key = manifest_child_keys(block)
+            .next()
+            .expect("validated block has ≥1 registry child key");
+        let valid_src = format!("app Demo\n{header}{opener}{indent}{valid_key} value\n");
+        let valid_diags = diagnostics_for(&valid_src);
+        let valid_errors = valid_diags
+            .iter()
+            .filter(|d| {
+                matches!(
+                    d.code.as_ref(),
+                    Some(tower_lsp::lsp_types::NumberOrString::String(c))
+                        if c == "app-block-child-contract"
+                )
+            })
+            .count();
+        assert_eq!(
+            valid_errors, 0,
+            "block `{block}`: valid child `{valid_key}` must NOT emit app-block-child-contract; \
+             got {valid_errors} for source:\n{valid_src}"
+        );
+    }
+}
+
+/// The headline repro: `locale` / `fallbacks` (the user's actual typo of
+/// `fallback`) is an ERROR that suggests the right key, and the legitimate
+/// non-keyword bodies do NOT false-fire.
+#[test]
+fn locale_fallbacks_typo_is_flagged_with_a_suggestion() {
+    let source = "app Demo\n  locale\n    fallbacks en-US\n";
+    let diags = diagnostics_for(source);
+    let hits: Vec<&Diagnostic> = diags
+        .iter()
+        .filter(|d| {
+            matches!(
+                d.code.as_ref(),
+                Some(tower_lsp::lsp_types::NumberOrString::String(c))
+                    if c == "app-block-child-contract"
+            )
+        })
+        .collect();
+    assert_eq!(
+        hits.len(),
+        1,
+        "locale/fallbacks must flag exactly one ERROR"
+    );
+    assert!(
+        hits[0].message.contains("fallback"),
+        "message should suggest `fallback`; got: {}",
+        hits[0].message
+    );
+
+    // No false positive: valid locale children + a `pt-BR: en-US` indent-6
+    // fallback body (carries `:`) + an `encryption` `key @key.x` (carries `@`)
+    // must all stay silent.
+    let clean = "app Demo\n  locale\n    default \"en-US\"\n    supported en-US, pt-BR\n    fallback en-US -> pt-BR\n  encryption\n    key @key.tenant\n      source env.X\n";
+    let clean_diags = diagnostics_for(clean);
+    let clean_hits = clean_diags
+        .iter()
+        .filter(|d| {
+            matches!(
+                d.code.as_ref(),
+                Some(tower_lsp::lsp_types::NumberOrString::String(c))
+                    if c == "app-block-child-contract"
+            )
+        })
+        .count();
+    assert_eq!(
+        clean_hits, 0,
+        "valid locale/encryption bodies must not emit app-block-child-contract; got {clean_hits}"
+    );
+}

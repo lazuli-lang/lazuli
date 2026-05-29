@@ -149,6 +149,8 @@ fn context_order(c: Context) -> u16 {
         Headers => 33,
         Limits => 34,
         Proxy => 35,
+        Cors => 351,
+        RouteGuard => 352,
         Encryption => 36,
         Locale => 37,
         Logging => 38,
