@@ -1,0 +1,41 @@
+---
+# Knowledge doc frontmatter template. Copy this into `_inbox/` as a DRAFT,
+# fill it in, then promote it to `knowledge/<sector>/NNNN-<slug>.md` once it
+# passes the gate (see ../README.md "Gated write"). Delete the comment lines.
+#
+# --- identity ---
+title:   "Replace me"
+slug:    replace-me            # kebab-case; matches the filename minus the NNNN ordinal
+sector:  decisions             # MUST match the destination folder: decisions | changes | gaps | lazuli-way | <your-domain>
+
+# --- curation / confidence (CLOSED: draft | approved | gold | deprecated) ---
+tier:    draft                 # everything starts as draft; never author straight to gold
+
+# --- work progress (OPTIONAL, only on work-bearing sectors like `changes`) ---
+# status: planned              # CLOSED: planned | in-progress | implemented | blocked — orthogonal to tier
+
+# --- dates (ISO yyyy-mm-dd) ---
+created: 2026-01-01
+updated: 2026-01-01
+
+# --- relations (OPTIONAL) ---
+# supersedes: 0000-old-slug    # the doc this replaces; that doc becomes tier: deprecated
+
+# --- evidence (OPTIONAL; each cite carries a CLOSED kind) ---
+# cites:
+#   - { kind: code, ref: "{{app_slug}}.SomeResource" }   # code | url | item | issue | comment | doc
+#   - { kind: doc,  ref: "docs/some-design.md" }
+
+# --- facets (OPTIONAL, FREE-FORM — no global catalog) ---
+tags: []
+
+# --- decay (OPTIONAL; REQUIRED once tier: gold) ---
+# revalidate_by: 2027-01-01    # ISO date; a gold doc past this is STALE
+# decay_profile: stable        # CLOSED: stable | seasonal | volatile
+---
+
+# Replace me
+
+One short paragraph stating the durable knowledge this doc carries. Keep it
+curated — the working tree is the gold projection, not a scratchpad. History
+lives in git; this file is the current truth.

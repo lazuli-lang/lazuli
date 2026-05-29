@@ -1,0 +1,195 @@
+# {{app_name}} — Knowledge Vault
+
+`knowledge/` is **first-class, committed, authored source** — the curated
+memory of this project. It is the source of truth a feature points at with
+the `knowledge <sector>` field; the `VOCAB-KNOWLEDGE-*` doctor rules
+cross-check the field against the folders below.
+
+> `knowledge/` is **not** `.lazuli/`. `.lazuli/` is the disposable, gitignored
+> internal cache; the *derived* index built from this vault (a future
+> sqlite-vec embedding store, for when `grep` stops scaling) is what lives
+> there. The authored `.md` docs live **here**, in git.
+
+This README is the canonical, in-place instantiation of the converged design
+in `docs/proposals/knowledge-vault-structure.md` (lazuli repo). It is
+**closed + opinionated**: the vocabulary (tiers, evidence kinds, decay
+profiles) is fixed; the *set of sectors* is closed-by-default but
+dev-extensible by domain.
+
+---
+
+## Layout
+
+```
+knowledge/<sector>/NNNN-<slug>.md
+```
+
+- `NNNN` — a zero-padded 4-digit **ordinal**. It is the migration-style join
+  key: the same number threads a doc's filename, any `supersedes:` pointer,
+  and `cites: { kind: item }` references. Ordering **within** a sector is by
+  ordinal, not by date.
+- `<slug>` — `kebab-case`, matching the doc's topic.
+- `_inbox/` — the **draft staging** area (see "Gated write" below). Drafts
+  land here first; they are promoted into a sector only once validated.
+
+---
+
+## Sectors (closed catalog, dev-extensible)
+
+A sector is the slug in `knowledge <sector>` (grammar) **and** the folder
+`knowledge/<sector>/` (file). The catalog is **closed and opinionated** —
+open-vocabulary knowledge devolves into a per-project dialect, exactly what
+the `.lzi` grammar forbids in the domain.
+
+### Core sectors (the opinionated default)
+
+| Sector       | Captures                                                                 |
+|--------------|--------------------------------------------------------------------------|
+| `decisions`  | Why we decided: context, the options table, the choice, consequences (ADR). |
+| `changes`    | A change is the lifecycle-bearing unit of work; its contents are the specs — requirement (PRD) and/or technical sketch (TECH-SPEC). Work-bearing — carries an optional `status:`. |
+| `gaps`       | A framework gap: the workaround, the proposed primitive, disposition, doctor-code, wave. |
+| `lazuli-way` | Doctrine / method: the governing rules, protocols, escape-hatch discipline. Typically `tier: gold`, pulled in slices. |
+
+### Dev-extensible (domain sectors)
+
+You **may** add sectors for **your own project's domain** (e.g. `billing`,
+`iam`, `media`). The rule:
+
+- Adding a sector = create the folder `knowledge/<sector>/` **and** reference
+  it from `knowledge <sector>` on at least one feature. The two are tied by
+  `VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001` (grammar ↔ file).
+- A new sector inherits the **same** frontmatter schema and the **same** tier
+  lifecycle. You extend the *axis* (which sectors exist), **never** the
+  *internal vocabulary* (tiers, evidence kinds, decay profiles — all closed).
+- Sector slugs are `kebab-case`, with **no vendor/product namespace** (mirrors
+  `@plugin/<name>` ≠ core: product specifics live in `handlers/`/a plugin, not
+  the vault).
+
+---
+
+## Frontmatter schema (the contract)
+
+Every doc is a `.md` file opened by a `---`-fenced YAML frontmatter block.
+The body below it is free markdown.
+
+```yaml
+---
+# --- identity ---
+title:   "Wire, not reimplementation"   # human title; matches the body H1
+slug:    wire-not-reimplement           # kebab; matches the filename (minus NNNN)
+sector:  lazuli-way                      # MUST match the parent folder
+
+# --- curation / confidence (CLOSED) ---
+tier:    approved                        # draft | approved | gold | deprecated
+                                         #   deprecated is TERMINAL
+# status: implemented                    # OPTIONAL, only on work-bearing sectors
+                                         #   (e.g. changes): planned | in-progress
+                                         #   | implemented | blocked. ORTHOGONAL to tier.
+
+# --- dates (ISO yyyy-mm-dd) ---
+created: 2026-05-29
+updated: 2026-05-29
+
+# --- relations (optional) ---
+# supersedes: 0007-old-slug              # id of the doc this replaces; the old
+                                         #   doc thereby becomes `deprecated`.
+
+# --- evidence (optional) ---
+cites:                                   # each cite carries a CLOSED EvidenceKind
+  - { kind: code, ref: "customer.Customer" }   # code | url | item | issue | comment | doc
+  - { kind: doc,  ref: "docs/scope-discipline.md" }
+
+# --- facets (optional, FREE-FORM) ---
+tags: [doctrine, wire]                   # free text; no global catalog
+
+# --- decay / freshness (optional; REQUIRED when tier: gold) ---
+# revalidate_by: 2027-05-29              # ISO date; a gold doc past this is STALE
+# decay_profile: stable                  # stable | seasonal | volatile
+
+# --- grading (ONLY on `evaluations` docs) ---
+# score: 9.2
+# threshold: 9.0
+# passed: true
+---
+```
+
+### Field reference
+
+| Field           | Regime                                  | Required           |
+|-----------------|-----------------------------------------|--------------------|
+| `tier`          | **CLOSED** `draft\|approved\|gold\|deprecated` | yes         |
+| `status`        | **CLOSED** `planned\|in-progress\|implemented\|blocked` — ORTHOGONAL to tier | only on work-bearing sectors |
+| `created`/`updated` | ISO `yyyy-mm-dd`                    | yes                |
+| `supersedes`    | id (`NNNN-slug` or `sector/slug`)       | no                 |
+| `cites[].kind`  | **CLOSED** `code\|url\|item\|issue\|comment\|doc` | no       |
+| `tags`          | **FREE-FORM** (no enum)                 | no                 |
+| `revalidate_by` | ISO date                                | yes if `gold`      |
+| `decay_profile` | **CLOSED** `stable\|seasonal\|volatile` | no                 |
+| `score`/`threshold`/`passed` | numeric / bool             | only on `evaluations` |
+
+> **No `source` field.** Provenance (`human`/`ai`/`imported`) was dropped: in
+> an AI-curated harness it is near-constant. `tier` carries the trust signal.
+
+---
+
+## Tier vs. status (orthogonal axes)
+
+- **`tier`** is *knowledge confidence* — how much to trust this doc.
+- **`status`** is *work progress* — only meaningful on work-bearing sectors
+  (`changes`, and any domain sector that tracks delivery). It is **orthogonal**:
+  a change can be `tier: approved` (reviewed, trusted) while `status:
+  in-progress` (not yet shipped).
+
+`deprecated` is the **terminal** tier — there is no path back out of it.
+
+---
+
+## Deprecation is DERIVED, never a manual move
+
+You do **not** scan-and-move stale docs. When a new doc replaces an old one,
+the new doc declares `supersedes: <old-id>` at write-time, and the old doc's
+tier becomes `deprecated`. There is **no `archive/` tree** — "obsolete" is a
+tier, not a directory position. This keeps `git log --follow` intact:
+
+- **Append-only history, dated/signed** = `git` (history size ≠ context size).
+- **Current curated state** = the working tree (the "gold projection" the
+  agent reads — the pile is in git, the projection is on disk).
+
+---
+
+## Gated write (the anti-`lixão` gate)
+
+Memory writes are **not free**. The #1 failure of agent memory is the dump: a
+giant folder of unvalidated, stale, redundant notes the agent drowns in. The
+cure is migration discipline — drafts stage in `_inbox/`, and are promoted
+into a sector only when they pass **four gates**, each enforced by a
+`VOCAB-KNOWLEDGE-*` rule:
+
+| Discipline            | What it means                                                        | Enforcing rule                          |
+|-----------------------|----------------------------------------------------------------------|-----------------------------------------|
+| **In-catalog**        | a doc only exists under a `<sector>/` referenced by `knowledge <sector>` | `VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001` |
+| **Earned promotion**  | nothing is born `gold`; it must have passed through `draft` in git   | `VOCAB-KNOWLEDGE-UNGATED-WRITE-001`     |
+| **Durable**           | a `gold` doc past its `revalidate_by` goes stale and leaves the projection | `VOCAB-KNOWLEDGE-STALE-001`        |
+| **Cited / resolvable**| `cites:` cannot point at a symbol the compiler doesn't know          | `VOCAB-KNOWLEDGE-DANGLING-CITE-001`     |
+| **Non-redundant**     | one truth per topic: two `gold` docs on a topic need a `supersedes`  | `VOCAB-KNOWLEDGE-DUP-TOPIC-001`         |
+
+Promotion flow: author in `_inbox/` as `tier: draft` → review → move to
+`knowledge/<sector>/NNNN-<slug>.md` and bump `tier:` to `approved`/`gold`.
+Because the gate keys on **git history**, a `gold` doc that never had a draft
+commit fires `UNGATED-WRITE` — land it as `draft` first.
+
+---
+
+## Retrieval (the north star)
+
+How the agent pulls knowledge back out:
+
+- **By sector** — the directory (`knowledge/decisions/`).
+- **By tag** — a frontmatter scan (`tags: [...]`, AND-containment).
+- **By context pack** — the future `context <name>` keyword (NOT `pack`,
+  which the registry owns): a named query over sectors + tags + tier, on two
+  axes — *purpose* (durable, e.g. `onboarding`) and *handoff* (run-memory
+  recency, ordered by `updated`).
+
+When `grep` stops scaling, the derived index (sqlite-vec) is generated from
+this vault into `.lazuli/` — never the other way around.

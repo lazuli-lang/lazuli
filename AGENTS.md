@@ -90,6 +90,8 @@ features/<feature>/
 
 contracts/<service>.lzi   # External service contracts
 i18n/common.<locale>.json # App-wide translation catalogs
+knowledge/<sector>/       # Curated knowledge vault (committed source-of-truth)
+  NNNN-<slug>.md          #   tier/cites/revalidate_by frontmatter; VOCAB-KNOWLEDGE-* checked
 Lazurite.toml             # Workspace manifest (distros use distro-named TOML)
 ```
 
@@ -98,7 +100,9 @@ Lazurite.toml             # Workspace manifest (distros use distro-named TOML)
 ```
 dist/go/                  # Generated Go (regen-only)
 dist/ts-<frontend>/       # Generated TS SDK per frontend (audience-scoped)
-.lazuli/                  # Internal cache (graph, source-map, manifest)
+.lazuli/                  # Internal cache (graph, source-map, manifest,
+                          #   + derived knowledge INDEX regenerated from
+                          #   knowledge/ — the index lives here, the source docs do not)
 ```
 
 **Convention rules:**

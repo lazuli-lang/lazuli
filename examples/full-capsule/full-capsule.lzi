@@ -16,6 +16,7 @@ feature customer
       billing: "invoicing"
 
   attach_ctx "@docs/customer/customer.ctx.md"
+  knowledge lazuli-way
 
   defaults
     tenancy org
