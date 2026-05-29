@@ -1,7 +1,7 @@
 # Lazuli — `knowledge` como Primitivo & a Harness Especialista
 ## Documento de Ouro · visão unificada (proposta para review + grade)
 
-> **Status:** PROPOSTA — para review do `lazuli-language-architect` + grade contra o rubric AI-first.
+> **Status:** VISÃO / north-star. **Como proposta de linguagem: BLOQUEADA e superseded** (2026-05-28) — empacotava demais e propunha overload de tokens. A mudança de gramática gradeável foi extraída para `knowledge-sector-field.md` (`knowledge <sector>`, Opção A); RAG sai da gramática → plugin. Este doc permanece como narrativa de visão, NÃO como proposta.
 > **Origem:** destilado de uma sessão de design (2026-05-28). Une o melhor de Lazuli, Pleiades, Erudito, Orion e lazuli-ops; corta o excesso.
 > **Princípio-guia:** **a harness é a linguagem.** Correção por construção, não policiamento.
 
