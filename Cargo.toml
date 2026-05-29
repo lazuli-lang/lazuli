@@ -9,6 +9,7 @@ members = [
   "crates/lazuli_doctor",
   "crates/lazuli_fix",
   "crates/lazuli_ir",
+  "crates/lazuli_keywords",
   "crates/lazuli_lsp",
   "crates/lazuli_mcp",
   "crates/lazuli_openapi",

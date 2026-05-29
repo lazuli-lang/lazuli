@@ -697,6 +697,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazuli_keywords"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "lazuli_lsp"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,18 @@
+[package]
+name = "lazuli_keywords"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Single canonical registry of every Lazuli language keyword/construct + presentation/LSP metadata. Dependency-free leaf — every other crate derives from / is proven against it."
+
+[dependencies]
+serde = { workspace = true, optional = true }
+
+[features]
+default = []
+serde = ["dep:serde"]
+
+[dev-dependencies]
+# The proven-complete test scans the parser source tree at the workspace
+# root using only std + a hand-rolled literal extractor. No external deps.

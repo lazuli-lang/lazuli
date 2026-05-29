@@ -1,0 +1,2790 @@
+//! The populated capability registry — `ALL`.
+//!
+//! Every keyword/construct the Lazuli parser recognizes, ported from the
+//! three pre-existing hand-maintained copies:
+//!
+//! * **parser literals** (`lazuli_syntax/src/parser/**`) — the
+//!   authoritative set of what EXISTS; the proven-complete test asserts
+//!   every parser keyword literal appears here.
+//! * **LSP catalogs** — `lazuli_lsp/src/keywords.rs` `KEYWORDS` /
+//!   `DESIGN_KEYWORDS` (hover text), the `*_BODY_KINDS` /
+//!   `*_STATEMENT_KINDS` (per-context membership), `feature.rs`
+//!   `FEATURE_BODY_KINDS`.
+//! * **tmLanguage scopes** — `editors/vscode/syntaxes/lazuli.tmLanguage.json`
+//!   + `editors/vscode/SCOPES.md` (the TextMate scope each keyword gets).
+//!
+//! A keyword valid in N contexts with different scopes is N rows
+//! (context-as-data). `produces` is left empty (`&[]`) in Wave H1 — Wave
+//! C1 backfills the diagnostic-code facets.
+
+use crate::{CapabilitySpec, Context, SemanticToken, Sigil, Surface};
+
+// ── tmLanguage scope-leaf constants (SCOPES.md taxonomy) ──
+const DECL: &str = "keyword.control.declaration.structural.lazuli";
+const SECTION: &str = "keyword.control.section.lazuli";
+const STMT: &str = "keyword.control.statement.lazuli";
+const MODIFIER: &str = "storage.modifier.lazuli";
+const DECORATOR: &str = "entity.name.tag.decorator.lazuli";
+const OP_LOGICAL: &str = "keyword.operator.logical.lazuli";
+const OP_PREDICATE: &str = "keyword.operator.predicate.lazuli";
+const TYPE_CTOR: &str = "support.function.type-constructor.lazuli";
+
+/// Build a bare-keyword `.lzi` capability row with no `produces` facet.
+const fn kw(
+    literal: &'static str,
+    context: Context,
+    scope: &'static str,
+    hover: &'static str,
+) -> CapabilitySpec {
+    CapabilitySpec {
+        literal,
+        context,
+        scope,
+        token: SemanticToken::Keyword,
+        surface: Surface::Lzi,
+        sigil: None,
+        hover,
+        produces: &[],
+    }
+}
+
+/// Per-block statement-keyword scope leaf (`entity.name.function.statement.<block>.lazuli`).
+const fn stmt(
+    literal: &'static str,
+    context: Context,
+    scope: &'static str,
+    hover: &'static str,
+) -> CapabilitySpec {
+    CapabilitySpec {
+        literal,
+        context,
+        scope,
+        token: SemanticToken::Keyword,
+        surface: Surface::Lzi,
+        sigil: None,
+        hover,
+        produces: &[],
+    }
+}
+
+/// A closed-catalog VALUE row (`constant.language.<catalog>.lazuli`).
+const fn value(literal: &'static str, scope: &'static str) -> CapabilitySpec {
+    CapabilitySpec {
+        literal,
+        context: Context::Value,
+        scope,
+        token: SemanticToken::EnumMember,
+        surface: Surface::Lzi,
+        sigil: None,
+        hover: "",
+        produces: &[],
+    }
+}
+
+/// A cross-cutting `storage.modifier` word.
+const fn modifier(literal: &'static str, hover: &'static str) -> CapabilitySpec {
+    CapabilitySpec {
+        literal,
+        context: Context::Modifier,
+        scope: MODIFIER,
+        token: SemanticToken::Modifier,
+        surface: Surface::Lzi,
+        sigil: None,
+        hover,
+        produces: &[],
+    }
+}
+
+/// A filter/policy/test expression operator or predicate.
+const fn op(literal: &'static str, scope: &'static str) -> CapabilitySpec {
+    CapabilitySpec {
+        literal,
+        context: Context::Expression,
+        scope,
+        token: SemanticToken::Operator,
+        surface: Surface::Lzi,
+        sigil: None,
+        hover: "",
+        produces: &[],
+    }
+}
+
+/// An `@`-decorator namespace row.
+const fn decorator(literal: &'static str, hover: &'static str) -> CapabilitySpec {
+    CapabilitySpec {
+        literal,
+        context: Context::ResourceBody,
+        scope: DECORATOR,
+        token: SemanticToken::Decorator,
+        surface: Surface::Lzi,
+        sigil: Some(Sigil::At),
+        hover,
+        produces: &[],
+    }
+}
+
+/// A dotted-kind feature-body declaration (`query.list`, `event.trace`).
+const fn dotted(literal: &'static str, context: Context, hover: &'static str) -> CapabilitySpec {
+    CapabilitySpec {
+        literal,
+        context,
+        scope: DECL,
+        token: SemanticToken::Keyword,
+        surface: Surface::Lzi,
+        sigil: Some(Sigil::DottedKind),
+        hover,
+        produces: &[],
+    }
+}
+
+/// A `*.design.lzi`-surface keyword row.
+const fn design(literal: &'static str, hover: &'static str) -> CapabilitySpec {
+    CapabilitySpec {
+        literal,
+        context: Context::Design,
+        scope: SECTION,
+        token: SemanticToken::Keyword,
+        surface: Surface::Design,
+        sigil: None,
+        hover,
+        produces: &[],
+    }
+}
+
+/// An `.lzx` surface-view keyword row.
+const fn lzx(
+    literal: &'static str,
+    context: Context,
+    scope: &'static str,
+    hover: &'static str,
+) -> CapabilitySpec {
+    CapabilitySpec {
+        literal,
+        context,
+        scope,
+        token: SemanticToken::Keyword,
+        surface: Surface::Lzx,
+        sigil: None,
+        hover,
+        produces: &[],
+    }
+}
+
+/// The single iterable every downstream surface derives-from or is
+/// asserted-against. One row per `(literal, context)` pair.
+pub const ALL: &[CapabilitySpec] = &[
+    // ════════════════════════════════════════════════════════════════
+    // Top-level declarations (indent 0) — Surface::App / Lzi
+    // ════════════════════════════════════════════════════════════════
+    CapabilitySpec {
+        literal: "workspace",
+        context: Context::TopLevel,
+        scope: DECL,
+        token: SemanticToken::Keyword,
+        surface: Surface::App,
+        sigil: None,
+        hover: "Declares a multi-app workspace root.",
+        produces: &[],
+    },
+    CapabilitySpec {
+        literal: "app",
+        context: Context::TopLevel,
+        scope: DECL,
+        token: SemanticToken::Keyword,
+        surface: Surface::App,
+        sigil: None,
+        hover: "Declares an application: targets, urls, runtime, deploy topology.",
+        produces: &[],
+    },
+    CapabilitySpec {
+        literal: "registry",
+        context: Context::TopLevel,
+        scope: DECL,
+        token: SemanticToken::Keyword,
+        surface: Surface::Registry,
+        sigil: None,
+        hover: "Declares the shared integration/capability registry.",
+        produces: &[],
+    },
+    CapabilitySpec {
+        literal: "profile",
+        context: Context::TopLevel,
+        scope: DECL,
+        token: SemanticToken::Keyword,
+        surface: Surface::App,
+        sigil: None,
+        hover: "Declares a deployment/runtime profile.",
+        produces: &[],
+    },
+    kw(
+        "feature",
+        Context::TopLevel,
+        DECL,
+        "Declares a feature: the unit of business capability.",
+    ),
+    kw(
+        "design",
+        Context::TopLevel,
+        DECL,
+        "Declares the project-root design token catalog.",
+    ),
+    kw(
+        "plan",
+        Context::TopLevel,
+        DECL,
+        "Declares a billing/entitlement plan.",
+    ),
+    kw(
+        "gate",
+        Context::TopLevel,
+        DECL,
+        "Top-level feature/limit gating directive.",
+    ),
+    kw(
+        "route",
+        Context::TopLevel,
+        DECL,
+        "Top-level route declaration.",
+    ),
+    kw(
+        "permission",
+        Context::TopLevel,
+        DECL,
+        "RBAC permission catalog entry.",
+    ),
+    kw("role", Context::TopLevel, DECL, "RBAC role catalog entry."),
+    kw(
+        "experience",
+        Context::TopLevel,
+        DECL,
+        "Declares a shared surface experience.",
+    ),
+    kw(
+        "contract",
+        Context::TopLevel,
+        DECL,
+        "Declares a service contract.",
+    ),
+    kw(
+        "error_page",
+        Context::TopLevel,
+        DECL,
+        "Declares an app-level error page.",
+    ),
+    kw(
+        "escape_route",
+        Context::TopLevel,
+        DECL,
+        "Documents a deliberate framework escape hatch.",
+    ),
+    kw(
+        "shared_registry",
+        Context::TopLevel,
+        DECL,
+        "Workspace-level shared registry reference.",
+    ),
+    kw(
+        "apps",
+        Context::TopLevel,
+        SECTION,
+        "Workspace `apps` listing block.",
+    ),
+    kw(
+        "boundaries",
+        Context::TopLevel,
+        SECTION,
+        "Workspace service-boundary declarations.",
+    ),
+    kw(
+        "gateway",
+        Context::TopLevel,
+        SECTION,
+        "Workspace API gateway block.",
+    ),
+    kw("grants", Context::TopLevel, STMT, "RBAC grant statement."),
+    kw(
+        "grants_all",
+        Context::TopLevel,
+        STMT,
+        "RBAC grant-all statement.",
+    ),
+    kw(
+        "revoke_user",
+        Context::TopLevel,
+        STMT,
+        "RBAC revoke-user action.",
+    ),
+    kw(
+        "revoke_session_family",
+        Context::TopLevel,
+        STMT,
+        "RBAC revoke-session-family action.",
+    ),
+    kw(
+        "skeleton",
+        Context::TopLevel,
+        SECTION,
+        "Package skeleton block.",
+    ),
+    // ════════════════════════════════════════════════════════════════
+    // App body (indent-2 kinds + app-meta) — APP_BODY_KINDS
+    // ════════════════════════════════════════════════════════════════
+    kw(
+        "architecture",
+        Context::App,
+        SECTION,
+        "App architecture / service-boundary block.",
+    ),
+    kw(
+        "actor_query",
+        Context::App,
+        STMT,
+        "App-level actor resolution query.",
+    ),
+    kw(
+        "auth_failed_redirect",
+        Context::App,
+        STMT,
+        "Redirect target on auth failure.",
+    ),
+    kw(
+        "bindings",
+        Context::App,
+        SECTION,
+        "Registry binding overrides for this app.",
+    ),
+    kw(
+        "capabilities",
+        Context::App,
+        SECTION,
+        "App capability declarations.",
+    ),
+    kw(
+        "communication",
+        Context::App,
+        SECTION,
+        "Inter-service communication block.",
+    ),
+    kw(
+        "cookie",
+        Context::App,
+        SECTION,
+        "App cookie defaults block.",
+    ),
+    kw("cors", Context::App, SECTION, "CORS configuration block."),
+    kw(
+        "default_locale",
+        Context::App,
+        STMT,
+        "Default locale for the app.",
+    ),
+    kw(
+        "default_timezone",
+        Context::App,
+        STMT,
+        "Default timezone for the app.",
+    ),
+    kw(
+        "deploy",
+        Context::App,
+        SECTION,
+        "Deployment topology + migration policy block.",
+    ),
+    kw(
+        "encryption",
+        Context::App,
+        SECTION,
+        "Field-encryption configuration block.",
+    ),
+    kw(
+        "environments",
+        Context::App,
+        SECTION,
+        "Named environment declarations.",
+    ),
+    kw(
+        "headers",
+        Context::App,
+        SECTION,
+        "Security/response header defaults block.",
+    ),
+    kw(
+        "integrations",
+        Context::App,
+        SECTION,
+        "Third-party integration declarations.",
+    ),
+    kw(
+        "lazuli_version",
+        Context::App,
+        STMT,
+        "Pinned Lazuli framework version.",
+    ),
+    kw(
+        "limits",
+        Context::App,
+        SECTION,
+        "Request/body size + timeout limits block.",
+    ),
+    kw("locale", Context::App, SECTION, "Locale negotiation block."),
+    kw(
+        "logging",
+        Context::App,
+        SECTION,
+        "Structured logging configuration block.",
+    ),
+    kw(
+        "not_found",
+        Context::App,
+        STMT,
+        "404 / not-found handler reference.",
+    ),
+    kw(
+        "packs",
+        Context::App,
+        SECTION,
+        "Feature-pack inclusion block.",
+    ),
+    kw(
+        "proxy",
+        Context::App,
+        SECTION,
+        "Trusted-proxy / forwarded-header block.",
+    ),
+    kw(
+        "runtime",
+        Context::App,
+        SECTION,
+        "Runtime unit / process topology block.",
+    ),
+    kw(
+        "services",
+        Context::App,
+        SECTION,
+        "Service decomposition block.",
+    ),
+    kw(
+        "targets",
+        Context::App,
+        STMT,
+        "Generation targets (go/ts/...).",
+    ),
+    kw("title", Context::App, STMT, "App display title."),
+    kw(
+        "tracing",
+        Context::App,
+        SECTION,
+        "Distributed-tracing configuration block.",
+    ),
+    kw(
+        "urls",
+        Context::App,
+        SECTION,
+        "Named URL declarations block.",
+    ),
+    kw(
+        "uses",
+        Context::App,
+        STMT,
+        "Declares a registry/experience the app uses.",
+    ),
+    kw("version", Context::App, STMT, "App version string."),
+    kw(
+        "env",
+        Context::App,
+        SECTION,
+        "Environment-variable declarations block.",
+    ),
+    kw("route_guard", Context::App, STMT, "App-level route guard."),
+    // app-meta scalar lines (statements-app-meta scope leaf)
+    stmt(
+        "mode",
+        Context::App,
+        "entity.name.function.statement.app-meta.lazuli",
+        "Service mode (monolith/service).",
+    ),
+    stmt(
+        "service_ready",
+        Context::App,
+        "entity.name.function.statement.app-meta.lazuli",
+        "Marks the app service-ready.",
+    ),
+    stmt(
+        "enforce_service_boundaries",
+        Context::App,
+        "entity.name.function.statement.app-meta.lazuli",
+        "Enforce declared service boundaries.",
+    ),
+    stmt(
+        "environment",
+        Context::App,
+        "entity.name.function.statement.app-meta.lazuli",
+        "Environment selector.",
+    ),
+    // ── app: cookie block ──
+    stmt(
+        "default",
+        Context::Cookie,
+        "entity.name.function.statement.cookie.lazuli",
+        "Default cookie profile.",
+    ),
+    stmt(
+        "session",
+        Context::Cookie,
+        "entity.name.function.statement.cookie.lazuli",
+        "Session cookie settings.",
+    ),
+    stmt(
+        "csrf",
+        Context::Cookie,
+        "entity.name.function.statement.cookie.lazuli",
+        "CSRF cookie settings.",
+    ),
+    stmt(
+        "signed",
+        Context::Cookie,
+        "entity.name.function.statement.cookie.lazuli",
+        "Signed-cookie flag.",
+    ),
+    stmt(
+        "secure",
+        Context::Cookie,
+        "entity.name.function.statement.cookie.lazuli",
+        "Secure (HTTPS-only) flag.",
+    ),
+    stmt(
+        "http_only",
+        Context::Cookie,
+        "entity.name.function.statement.cookie.lazuli",
+        "HttpOnly flag.",
+    ),
+    stmt(
+        "same_site",
+        Context::Cookie,
+        "entity.name.function.statement.cookie.lazuli",
+        "SameSite policy.",
+    ),
+    stmt(
+        "max_age",
+        Context::Cookie,
+        "entity.name.function.statement.cookie.lazuli",
+        "Cookie max-age.",
+    ),
+    stmt(
+        "domain",
+        Context::Cookie,
+        "entity.name.function.statement.cookie.lazuli",
+        "Cookie domain.",
+    ),
+    stmt(
+        "path",
+        Context::Cookie,
+        "entity.name.function.statement.cookie.lazuli",
+        "Cookie path.",
+    ),
+    // ── app: headers block ──
+    stmt(
+        "csp",
+        Context::Headers,
+        "entity.name.function.statement.headers.lazuli",
+        "Content-Security-Policy header.",
+    ),
+    stmt(
+        "hsts",
+        Context::Headers,
+        "entity.name.function.statement.headers.lazuli",
+        "Strict-Transport-Security header.",
+    ),
+    stmt(
+        "x_frame_options",
+        Context::Headers,
+        "entity.name.function.statement.headers.lazuli",
+        "X-Frame-Options header.",
+    ),
+    stmt(
+        "x_content_type_options",
+        Context::Headers,
+        "entity.name.function.statement.headers.lazuli",
+        "X-Content-Type-Options header.",
+    ),
+    stmt(
+        "referrer_policy",
+        Context::Headers,
+        "entity.name.function.statement.headers.lazuli",
+        "Referrer-Policy header.",
+    ),
+    stmt(
+        "permissions_policy",
+        Context::Headers,
+        "entity.name.function.statement.headers.lazuli",
+        "Permissions-Policy header.",
+    ),
+    stmt(
+        "include_subdomains",
+        Context::Headers,
+        "entity.name.function.statement.headers.lazuli",
+        "HSTS includeSubDomains flag.",
+    ),
+    stmt(
+        "preload",
+        Context::Headers,
+        "entity.name.function.statement.headers.lazuli",
+        "HSTS preload flag.",
+    ),
+    // ── app: limits block ──
+    stmt(
+        "body_size",
+        Context::Limits,
+        "entity.name.function.statement.limits.lazuli",
+        "Max request body size.",
+    ),
+    stmt(
+        "header_size",
+        Context::Limits,
+        "entity.name.function.statement.limits.lazuli",
+        "Max header size.",
+    ),
+    stmt(
+        "upload_size",
+        Context::Limits,
+        "entity.name.function.statement.limits.lazuli",
+        "Max upload size.",
+    ),
+    // ── app: proxy block ──
+    stmt(
+        "trusted",
+        Context::Proxy,
+        "entity.name.function.statement.proxy.lazuli",
+        "Trusted proxy CIDRs.",
+    ),
+    stmt(
+        "real_ip_header",
+        Context::Proxy,
+        "entity.name.function.statement.proxy.lazuli",
+        "Real-IP header name.",
+    ),
+    stmt(
+        "forwarded_proto_header",
+        Context::Proxy,
+        "entity.name.function.statement.proxy.lazuli",
+        "Forwarded-Proto header name.",
+    ),
+    stmt(
+        "forwarded_host_header",
+        Context::Proxy,
+        "entity.name.function.statement.proxy.lazuli",
+        "Forwarded-Host header name.",
+    ),
+    // ── app: encryption block ──
+    stmt(
+        "algorithm",
+        Context::Encryption,
+        "entity.name.function.statement.encryption.lazuli",
+        "Encryption algorithm.",
+    ),
+    stmt(
+        "rotation_profile",
+        Context::Encryption,
+        "entity.name.function.statement.encryption.lazuli",
+        "Key-rotation profile.",
+    ),
+    // ── app: locale block ──
+    stmt(
+        "supported",
+        Context::Locale,
+        "entity.name.function.statement.locale.lazuli",
+        "Supported locales.",
+    ),
+    stmt(
+        "fallback",
+        Context::Locale,
+        "entity.name.function.statement.locale.lazuli",
+        "Fallback locale.",
+    ),
+    // ── app: logging block ──
+    stmt(
+        "level",
+        Context::Logging,
+        "entity.name.function.statement.logging.lazuli",
+        "Log level.",
+    ),
+    stmt(
+        "format",
+        Context::Logging,
+        "entity.name.function.statement.logging.lazuli",
+        "Log format (json/text).",
+    ),
+    stmt(
+        "redact",
+        Context::Logging,
+        "entity.name.function.statement.logging.lazuli",
+        "Redacted fields.",
+    ),
+    stmt(
+        "sample_rate",
+        Context::Logging,
+        "entity.name.function.statement.logging.lazuli",
+        "Log sample rate.",
+    ),
+    // ── app: tracing block ──
+    stmt(
+        "propagate",
+        Context::Tracing,
+        "entity.name.function.statement.tracing.lazuli",
+        "Trace-context propagation.",
+    ),
+    stmt(
+        "exporter",
+        Context::Tracing,
+        "entity.name.function.statement.tracing.lazuli",
+        "Trace exporter.",
+    ),
+    // ── app: runtime block ──
+    stmt(
+        "unit",
+        Context::Runtime,
+        "entity.name.function.statement.runtime.lazuli",
+        "Runtime unit (process).",
+    ),
+    stmt(
+        "serves",
+        Context::Runtime,
+        "entity.name.function.statement.runtime.lazuli",
+        "What the unit serves.",
+    ),
+    stmt(
+        "runs",
+        Context::Runtime,
+        "entity.name.function.statement.runtime.lazuli",
+        "What the unit runs.",
+    ),
+    stmt(
+        "healthcheck",
+        Context::Runtime,
+        "entity.name.function.statement.runtime.lazuli",
+        "Healthcheck endpoint.",
+    ),
+    stmt(
+        "readiness",
+        Context::Runtime,
+        "entity.name.function.statement.runtime.lazuli",
+        "Readiness probe.",
+    ),
+    // ── app: deploy block ──
+    stmt(
+        "migrations",
+        Context::Deploy,
+        "entity.name.function.statement.deploy.lazuli",
+        "Migration policy.",
+    ),
+    stmt(
+        "migration_lock",
+        Context::Deploy,
+        "entity.name.function.statement.deploy.lazuli",
+        "Migration advisory lock.",
+    ),
+    stmt(
+        "destructive_migrations",
+        Context::Deploy,
+        "entity.name.function.statement.deploy.lazuli",
+        "Destructive-migration policy.",
+    ),
+    stmt(
+        "rollback",
+        Context::Deploy,
+        "entity.name.function.statement.deploy.lazuli",
+        "Rollback policy.",
+    ),
+    stmt(
+        "topology",
+        Context::Deploy,
+        "entity.name.function.statement.deploy.lazuli",
+        "Deployment topology.",
+    ),
+    stmt(
+        "strategy",
+        Context::Deploy,
+        "entity.name.function.statement.deploy.lazuli",
+        "Deploy strategy (rolling/blue_green/canary).",
+    ),
+    stmt(
+        "lock_timeout",
+        Context::Deploy,
+        "entity.name.function.statement.deploy.lazuli",
+        "Migration lock timeout.",
+    ),
+    stmt(
+        "pre_migration_hook",
+        Context::Deploy,
+        "entity.name.function.statement.deploy.lazuli",
+        "Pre-migration hook.",
+    ),
+    stmt(
+        "post_migration_hook",
+        Context::Deploy,
+        "entity.name.function.statement.deploy.lazuli",
+        "Post-migration hook.",
+    ),
+    stmt(
+        "checkpoint",
+        Context::Deploy,
+        "entity.name.function.statement.deploy.lazuli",
+        "Migration checkpoint.",
+    ),
+    // ── app: services + communication ──
+    stmt(
+        "service",
+        Context::Services,
+        "entity.name.function.statement.services.lazuli",
+        "Declares a service.",
+    ),
+    stmt(
+        "owns",
+        Context::Services,
+        "entity.name.function.statement.services.lazuli",
+        "Resources a service owns.",
+    ),
+    stmt(
+        "exposes",
+        Context::Services,
+        "entity.name.function.statement.services.lazuli",
+        "Operations a service exposes.",
+    ),
+    stmt(
+        "publishes",
+        Context::Services,
+        "entity.name.function.statement.services.lazuli",
+        "Events a service publishes.",
+    ),
+    stmt(
+        "consumes",
+        Context::Services,
+        "entity.name.function.statement.services.lazuli",
+        "Events a service consumes.",
+    ),
+    stmt(
+        "internal",
+        Context::Communication,
+        "entity.name.function.statement.communication.lazuli",
+        "Internal communication mode.",
+    ),
+    stmt(
+        "external",
+        Context::Communication,
+        "entity.name.function.statement.communication.lazuli",
+        "External communication mode.",
+    ),
+    stmt(
+        "async",
+        Context::Communication,
+        "entity.name.function.statement.communication.lazuli",
+        "Async communication.",
+    ),
+    // ── app/registry: env block ──
+    stmt(
+        "group",
+        Context::Env,
+        "entity.name.function.statement.env.lazuli",
+        "Env-var group.",
+    ),
+    stmt(
+        "client",
+        Context::Env,
+        "entity.name.function.statement.env.lazuli",
+        "Client-exposed env var.",
+    ),
+    stmt(
+        "server",
+        Context::Env,
+        "entity.name.function.statement.env.lazuli",
+        "Server-only env var.",
+    ),
+    // ── integrations block ──
+    stmt(
+        "adapter",
+        Context::Integrations,
+        "entity.name.function.statement.integration.lazuli",
+        "Integration adapter.",
+    ),
+    stmt(
+        "credentials",
+        Context::Integrations,
+        "entity.name.function.statement.integration.lazuli",
+        "Integration credentials.",
+    ),
+    stmt(
+        "data_classification",
+        Context::Integrations,
+        "entity.name.function.statement.integration.lazuli",
+        "Data-classification tag.",
+    ),
+    stmt(
+        "integration",
+        Context::Integrations,
+        "entity.name.label.integration.lazuli",
+        "Named integration.",
+    ),
+    stmt(
+        "operation",
+        Context::Integrations,
+        "entity.name.function.statement.integration.lazuli",
+        "Integration operation.",
+    ),
+    // ── registry body ──
+    kw(
+        "secret_rotation",
+        Context::Registry,
+        SECTION,
+        "Secret-rotation policy block.",
+    ),
+    kw(
+        "tools",
+        Context::Registry,
+        SECTION,
+        "Registry tool declarations.",
+    ),
+    kw(
+        "webhook_event",
+        Context::Registry,
+        SECTION,
+        "Registry webhook-event envelope.",
+    ),
+    kw(
+        "webhook_events",
+        Context::Registry,
+        SECTION,
+        "Registry webhook-events catalog.",
+    ),
+    // ════════════════════════════════════════════════════════════════
+    // Feature body (indent-2 kinds) — FEATURE_BODY_KINDS
+    // ════════════════════════════════════════════════════════════════
+    kw(
+        "command",
+        Context::FeatureHeader,
+        DECL,
+        "Declares a write command (mutation effect).",
+    ),
+    kw(
+        "api",
+        Context::FeatureHeader,
+        DECL,
+        "Declares a full-control HTTP endpoint.",
+    ),
+    kw(
+        "view",
+        Context::FeatureHeader,
+        DECL,
+        "Declares a surface view.",
+    ),
+    kw(
+        "webhook",
+        Context::FeatureHeader,
+        DECL,
+        "Declares an inbound webhook handler.",
+    ),
+    kw(
+        "job",
+        Context::FeatureHeader,
+        DECL,
+        "Declares a background job.",
+    ),
+    kw(
+        "agent",
+        Context::FeatureHeader,
+        DECL,
+        "Declares an LLM agent.",
+    ),
+    kw(
+        "notification",
+        Context::FeatureHeader,
+        DECL,
+        "Declares a notification.",
+    ),
+    kw(
+        "poller",
+        Context::FeatureHeader,
+        DECL,
+        "Declares a polling integration.",
+    ),
+    kw(
+        "report",
+        Context::FeatureHeader,
+        DECL,
+        "Declares a report/export.",
+    ),
+    kw(
+        "channel",
+        Context::FeatureHeader,
+        DECL,
+        "Declares a realtime channel.",
+    ),
+    kw(
+        "cache",
+        Context::FeatureHeader,
+        DECL,
+        "Declares a named cache profile.",
+    ),
+    kw(
+        "aggregate",
+        Context::FeatureHeader,
+        DECL,
+        "Declares a domain aggregate root.",
+    ),
+    kw(
+        "record",
+        Context::FeatureHeader,
+        DECL,
+        "Declares a value-object record.",
+    ),
+    kw(
+        "entity",
+        Context::FeatureHeader,
+        DECL,
+        "Declares a domain entity.",
+    ),
+    kw(
+        "enum",
+        Context::FeatureHeader,
+        DECL,
+        "Declares an enumeration.",
+    ),
+    kw(
+        "events",
+        Context::FeatureHeader,
+        SECTION,
+        "Declares the events block.",
+    ),
+    kw(
+        "event",
+        Context::FeatureHeader,
+        DECL,
+        "Declares a domain event.",
+    ),
+    kw(
+        "event_group",
+        Context::FeatureHeader,
+        DECL,
+        "Declares an event group.",
+    ),
+    kw(
+        "surface",
+        Context::FeatureHeader,
+        SECTION,
+        "Declares a feature surface.",
+    ),
+    kw(
+        "extensions",
+        Context::FeatureHeader,
+        SECTION,
+        "Declares typed extension points.",
+    ),
+    kw(
+        "tests",
+        Context::FeatureHeader,
+        SECTION,
+        "Declares the policy/behavior tests block.",
+    ),
+    kw(
+        "auth",
+        Context::FeatureHeader,
+        SECTION,
+        "Declares the authentication block.",
+    ),
+    kw(
+        "errors",
+        Context::FeatureHeader,
+        SECTION,
+        "Declares the error-vocabulary block.",
+    ),
+    kw(
+        "policies",
+        Context::FeatureHeader,
+        SECTION,
+        "Declares the policy block.",
+    ),
+    kw(
+        "domain",
+        Context::FeatureHeader,
+        SECTION,
+        "Declares the domain-model block.",
+    ),
+    kw(
+        "defaults",
+        Context::FeatureHeader,
+        SECTION,
+        "Declares resource-convention defaults.",
+    ),
+    kw(
+        "purpose",
+        Context::FeatureHeader,
+        STMT,
+        "Feature purpose (iron-hand context).",
+    ),
+    kw(
+        "attach_ctx",
+        Context::FeatureHeader,
+        STMT,
+        "Attaches a context-provider to the feature.",
+    ),
+    kw(
+        "non_goals",
+        Context::FeatureHeader,
+        SECTION,
+        "Feature non-goals (iron-hand context).",
+    ),
+    stmt(
+        "delegated_to",
+        Context::FeatureHeader,
+        "entity.name.function.statement.non-goals.lazuli",
+        "Non-goal delegated to another feature.",
+    ),
+    stmt(
+        "out_of_scope",
+        Context::FeatureHeader,
+        "entity.name.function.statement.non-goals.lazuli",
+        "Explicitly out-of-scope concern.",
+    ),
+    stmt(
+        "constraints",
+        Context::FeatureHeader,
+        "entity.name.function.statement.non-goals.lazuli",
+        "Non-goal constraints.",
+    ),
+    kw(
+        "role",
+        Context::FeatureHeader,
+        DECL,
+        "Feature-scoped RBAC role.",
+    ),
+    kw(
+        "permission",
+        Context::FeatureHeader,
+        DECL,
+        "Feature-scoped RBAC permission.",
+    ),
+    kw(
+        "invariants",
+        Context::FeatureHeader,
+        SECTION,
+        "Declares the invariants block.",
+    ),
+    kw(
+        "compatibility",
+        Context::FeatureHeader,
+        STMT,
+        "Declares contract compatibility.",
+    ),
+    kw(
+        "import",
+        Context::FeatureHeader,
+        STMT,
+        "Imports a contract/operation.",
+    ),
+    kw(
+        "imports",
+        Context::FeatureHeader,
+        STMT,
+        "Declares feature imports.",
+    ),
+    kw(
+        "operation",
+        Context::FeatureHeader,
+        DECL,
+        "Declares a contract operation.",
+    ),
+    kw(
+        "mcp_server",
+        Context::FeatureHeader,
+        DECL,
+        "Declares an MCP server surface.",
+    ),
+    kw(
+        "subscription",
+        Context::FeatureHeader,
+        DECL,
+        "Declares an event subscription.",
+    ),
+    kw(
+        "translation",
+        Context::FeatureHeader,
+        SECTION,
+        "Declares a translation catalog.",
+    ),
+    kw(
+        "refs",
+        Context::FeatureHeader,
+        SECTION,
+        "Declares cross-feature references.",
+    ),
+    kw(
+        "tenant_migration",
+        Context::FeatureHeader,
+        DECL,
+        "Declares a tenant-data migration.",
+    ),
+    dotted(
+        "query.list",
+        Context::FeatureHeader,
+        "Declares a list query (collection projection).",
+    ),
+    dotted(
+        "query.lookup",
+        Context::FeatureHeader,
+        "Declares a lookup query (single-record fetch).",
+    ),
+    dotted(
+        "query.sql",
+        Context::FeatureHeader,
+        "Declares a raw-SQL query.",
+    ),
+    dotted(
+        "query.view",
+        Context::FeatureHeader,
+        "Declares a database-view-backed query.",
+    ),
+    dotted(
+        "event.trace",
+        Context::FeatureHeader,
+        "Declares an event trace.",
+    ),
+    // feature-meta scalar lines (statements-feature-meta scope leaf)
+    stmt(
+        "requires",
+        Context::FeatureHeader,
+        "entity.name.function.statement.feature-meta.lazuli",
+        "Feature dependency / requirement.",
+    ),
+    // ════════════════════════════════════════════════════════════════
+    // Resource / aggregate / record body — field modifiers + relations
+    // ════════════════════════════════════════════════════════════════
+    kw(
+        "resource",
+        Context::ResourceBody,
+        DECL,
+        "Declares a persisted resource.",
+    ),
+    stmt(
+        "tenancy",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Tenancy axis for the resource.",
+    ),
+    stmt(
+        "timestamps",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Enable created/updated timestamps.",
+    ),
+    stmt(
+        "soft_delete",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Enable soft-delete.",
+    ),
+    stmt(
+        "retention",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Data-retention policy.",
+    ),
+    stmt(
+        "conventions",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Opt into resource conventions.",
+    ),
+    stmt(
+        "paginate",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Default pagination.",
+    ),
+    stmt(
+        "validates",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Field validation rule.",
+    ),
+    stmt(
+        "validate",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Field validation rule.",
+    ),
+    stmt(
+        "unique",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Unique constraint.",
+    ),
+    stmt(
+        "index",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Index declaration.",
+    ),
+    stmt(
+        "on_delete",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Referential on-delete action.",
+    ),
+    stmt(
+        "derived",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Derived/computed field.",
+    ),
+    stmt(
+        "has_many",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "One-to-many relation.",
+    ),
+    stmt(
+        "inverse",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Inverse relation side.",
+    ),
+    stmt(
+        "previously",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Previous field name (rename).",
+    ),
+    stmt(
+        "migrated",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Migration marker.",
+    ),
+    stmt(
+        "alias",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Field alias.",
+    ),
+    stmt(
+        "composite_key",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Composite primary key.",
+    ),
+    stmt(
+        "lock",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Concurrency lock strategy.",
+    ),
+    stmt(
+        "invariant",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Resource invariant.",
+    ),
+    stmt(
+        "fields",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Field group.",
+    ),
+    stmt(
+        "primary",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Primary-key marker.",
+    ),
+    stmt(
+        "field",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Explicit field declaration.",
+    ),
+    stmt(
+        "root",
+        Context::ResourceBody,
+        "keyword.control.statement.lazuli",
+        "Aggregate root marker.",
+    ),
+    stmt(
+        "contains",
+        Context::ResourceBody,
+        "keyword.control.statement.lazuli",
+        "Aggregate containment.",
+    ),
+    stmt(
+        "append_only",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Append-only (event-log) resource.",
+    ),
+    stmt(
+        "many_through",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Many-to-many through a join.",
+    ),
+    stmt(
+        "polymorphic_ref",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Polymorphic reference field.",
+    ),
+    stmt(
+        "computed_date",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Computed date field.",
+    ),
+    stmt(
+        "schedule_rule",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Recurrence/schedule rule field.",
+    ),
+    stmt(
+        "storage",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Storage hint.",
+    ),
+    stmt(
+        "version_field",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Optimistic-lock version field.",
+    ),
+    stmt(
+        "lifecycle",
+        Context::ResourceBody,
+        DECL,
+        "Declares a resource lifecycle.",
+    ),
+    // ── enum body ──
+    // member identifiers are user-named; the catalog keyword is `enum`
+    // (declared above in FeatureHeader). No fixed member keywords.
+
+    // ════════════════════════════════════════════════════════════════
+    // Command body (indent-4) — COMMAND_STATEMENT_KINDS
+    // ════════════════════════════════════════════════════════════════
+    stmt(
+        "creates",
+        Context::CommandBody,
+        STMT,
+        "Effect: creates a resource.",
+    ),
+    stmt(
+        "updates",
+        Context::CommandBody,
+        STMT,
+        "Effect: updates a resource.",
+    ),
+    stmt(
+        "deletes",
+        Context::CommandBody,
+        STMT,
+        "Effect: deletes a resource.",
+    ),
+    stmt(
+        "returns",
+        Context::CommandBody,
+        STMT,
+        "Declares the command return type.",
+    ),
+    stmt(
+        "route",
+        Context::CommandBody,
+        STMT,
+        "HTTP route for the command.",
+    ),
+    stmt("input", Context::CommandBody, SECTION, "Input field block."),
+    stmt(
+        "output",
+        Context::CommandBody,
+        SECTION,
+        "Output field block.",
+    ),
+    stmt(
+        "policy",
+        Context::CommandBody,
+        STMT,
+        "Authorization policy expression.",
+    ),
+    stmt(
+        "rate_limit",
+        Context::CommandBody,
+        STMT,
+        "Rate-limit declaration.",
+    ),
+    stmt(
+        "audit",
+        Context::CommandBody,
+        SECTION,
+        "Audit-logging block.",
+    ),
+    stmt(
+        "approval",
+        Context::CommandBody,
+        SECTION,
+        "Approval-chain block.",
+    ),
+    stmt(
+        "target",
+        Context::CommandBody,
+        STMT,
+        "Effect target resource.",
+    ),
+    stmt("let", Context::CommandBody, STMT, "Local binding."),
+    stmt("validate", Context::CommandBody, STMT, "Inline validation."),
+    stmt("reorder", Context::CommandBody, STMT, "Reorder effect."),
+    stmt(
+        "materialize",
+        Context::CommandBody,
+        STMT,
+        "Materialize a projection.",
+    ),
+    stmt(
+        "handler",
+        Context::CommandBody,
+        STMT,
+        "Custom Go handler reference (`@fn.X`).",
+    ),
+    stmt("emits", Context::CommandBody, STMT, "Event emission."),
+    stmt(
+        "invalidates",
+        Context::CommandBody,
+        SECTION,
+        "Cache invalidation block.",
+    ),
+    stmt("calls", Context::CommandBody, STMT, "External call."),
+    stmt("timeout", Context::CommandBody, STMT, "Command timeout."),
+    stmt("retry", Context::CommandBody, STMT, "Retry policy."),
+    stmt(
+        "idempotency",
+        Context::CommandBody,
+        STMT,
+        "Idempotency key declaration.",
+    ),
+    stmt(
+        "write_window",
+        Context::CommandBody,
+        STMT,
+        "Write-window constraint.",
+    ),
+    stmt(
+        "deprecated",
+        Context::CommandBody,
+        SECTION,
+        "Deprecation metadata block.",
+    ),
+    stmt("gate", Context::CommandBody, STMT, "Entitlement gate."),
+    // ── command: audit sub-block ──
+    stmt(
+        "emit_to",
+        Context::Audit,
+        "entity.name.function.statement.audit.lazuli",
+        "Audit-event sink.",
+    ),
+    // ── command: approval sub-block ──
+    stmt(
+        "required_when",
+        Context::Approval,
+        "entity.name.function.statement.approval.lazuli",
+        "Condition requiring approval.",
+    ),
+    stmt("chain", Context::Approval, STMT, "Approval chain."),
+    stmt(
+        "sequential",
+        Context::Approval,
+        STMT,
+        "Sequential approval mode.",
+    ),
+    // ── command: deprecated sub-block ──
+    stmt(
+        "since",
+        Context::CommandBody,
+        "entity.name.function.statement.deprecated.lazuli",
+        "Deprecation since-version.",
+    ),
+    stmt(
+        "replacement",
+        Context::CommandBody,
+        "entity.name.function.statement.deprecated.lazuli",
+        "Replacement reference.",
+    ),
+    stmt(
+        "sunset",
+        Context::CommandBody,
+        "entity.name.function.statement.deprecated.lazuli",
+        "Sunset date.",
+    ),
+    // ════════════════════════════════════════════════════════════════
+    // Query body (indent-4) — QUERY_STATEMENT_KINDS
+    // ════════════════════════════════════════════════════════════════
+    stmt(
+        "filters",
+        Context::Query,
+        SECTION,
+        "Filter predicate block.",
+    ),
+    stmt("scope", Context::Query, SECTION, "Query scope block."),
+    stmt(
+        "modifier",
+        Context::Query,
+        STMT,
+        "Query modifier reference.",
+    ),
+    stmt(
+        "search",
+        Context::Query,
+        STMT,
+        "Full-text search declaration.",
+    ),
+    stmt("order", Context::Query, STMT, "Default ordering."),
+    stmt("sql", Context::Query, STMT, "Raw SQL body."),
+    stmt("source", Context::Query, STMT, "Query source resource."),
+    stmt("params", Context::Query, SECTION, "Query parameter block."),
+    // ════════════════════════════════════════════════════════════════
+    // Job / webhook / agent / notification / poller / report / channel
+    // ════════════════════════════════════════════════════════════════
+    stmt("queue", Context::Job, STMT, "Job queue."),
+    stmt("trigger", Context::Job, STMT, "Job trigger."),
+    stmt("schedule", Context::Job, STMT, "Job schedule."),
+    stmt(
+        "tenant_from",
+        Context::Job,
+        STMT,
+        "Tenant resolution source.",
+    ),
+    stmt("fanout", Context::Job, STMT, "Fan-out declaration."),
+    stmt("axis", Context::Job, STMT, "Fan-out axis."),
+    stmt("outbox", Context::Job, STMT, "Outbox-pattern marker."),
+    // ── webhook + verify/replay/dlq sub ──
+    stmt("payload", Context::Webhook, STMT, "Webhook payload type."),
+    stmt(
+        "payload_group",
+        Context::Webhook,
+        STMT,
+        "Webhook payload group.",
+    ),
+    stmt(
+        "payload_from",
+        Context::Webhook,
+        STMT,
+        "Payload source reference.",
+    ),
+    stmt(
+        "verify",
+        Context::Webhook,
+        SECTION,
+        "Signature-verification block.",
+    ),
+    stmt(
+        "replay",
+        Context::Webhook,
+        SECTION,
+        "Replay-protection block.",
+    ),
+    stmt("dlq", Context::Webhook, SECTION, "Dead-letter-queue block."),
+    stmt("dedupe", Context::Webhook, STMT, "Deduplication key."),
+    stmt("within", Context::Webhook, STMT, "Replay window."),
+    stmt(
+        "previous_version",
+        Context::Webhook,
+        STMT,
+        "Previous payload version.",
+    ),
+    stmt("secret", Context::Webhook, STMT, "Verification secret."),
+    stmt("header", Context::Webhook, STMT, "Signature header name."),
+    // ── agent + tools/expose/io/evals ──
+    stmt("model", Context::Agent, STMT, "LLM model."),
+    stmt("prompt", Context::Agent, STMT, "Agent prompt."),
+    stmt("safety", Context::Agent, STMT, "Safety constraints."),
+    stmt("stream", Context::Agent, STMT, "Streaming mode."),
+    stmt("temperature", Context::Agent, STMT, "Sampling temperature."),
+    stmt("max_tokens", Context::Agent, STMT, "Max output tokens."),
+    stmt("top_p", Context::Agent, STMT, "Top-p sampling."),
+    stmt("seed", Context::Agent, STMT, "Deterministic seed."),
+    stmt(
+        "expose",
+        Context::Agent,
+        STMT,
+        "Expose the agent over HTTP/MCP.",
+    ),
+    stmt(
+        "discriminator",
+        Context::Agent,
+        STMT,
+        "Output discriminator.",
+    ),
+    stmt(
+        "tools",
+        Context::Agent,
+        SECTION,
+        "Agent tool-binding block.",
+    ),
+    stmt(
+        "tool",
+        Context::Agent,
+        STMT,
+        "Declares a single tool / MCP tool.",
+    ),
+    // ── notification + digest/throttle ──
+    stmt(
+        "recipient",
+        Context::Notification,
+        STMT,
+        "Notification recipient.",
+    ),
+    stmt(
+        "template",
+        Context::Notification,
+        STMT,
+        "Notification template.",
+    ),
+    stmt(
+        "digest",
+        Context::Notification,
+        SECTION,
+        "Digest-batching block.",
+    ),
+    stmt(
+        "throttle",
+        Context::Notification,
+        SECTION,
+        "Throttling block.",
+    ),
+    stmt(
+        "every",
+        Context::Notification,
+        "entity.name.function.statement.digest.lazuli",
+        "Digest interval.",
+    ),
+    stmt(
+        "group_by",
+        Context::Notification,
+        "entity.name.function.statement.digest.lazuli",
+        "Digest grouping key.",
+    ),
+    stmt(
+        "template_strategy",
+        Context::Notification,
+        "entity.name.function.statement.digest.lazuli",
+        "Digest template strategy.",
+    ),
+    stmt(
+        "max_per",
+        Context::Notification,
+        "entity.name.function.statement.throttle.lazuli",
+        "Throttle max-per-window.",
+    ),
+    stmt(
+        "per_recipient",
+        Context::Notification,
+        "entity.name.function.statement.throttle.lazuli",
+        "Per-recipient throttle.",
+    ),
+    stmt(
+        "per_channel",
+        Context::Notification,
+        "entity.name.function.statement.throttle.lazuli",
+        "Per-channel throttle.",
+    ),
+    stmt(
+        "burst",
+        Context::Notification,
+        "entity.name.function.statement.throttle.lazuli",
+        "Throttle burst allowance.",
+    ),
+    stmt(
+        "max_size",
+        Context::Notification,
+        "entity.name.function.statement.digest.lazuli",
+        "Digest max batch size.",
+    ),
+    // ── poller ──
+    stmt("cursor", Context::Poller, STMT, "Poll cursor field."),
+    stmt("tick", Context::Poller, STMT, "Poll interval."),
+    stmt("backoff", Context::Poller, STMT, "Backoff policy."),
+    stmt("counter", Context::Poller, STMT, "Poll counter."),
+    stmt(
+        "retry_quirk",
+        Context::Poller,
+        STMT,
+        "Poller retry-quirk catalog entry.",
+    ),
+    stmt(
+        "max_attempts",
+        Context::Poller,
+        STMT,
+        "Max poll retry attempts.",
+    ),
+    // ── report + columns ──
+    stmt("columns", Context::Report, SECTION, "Report column block."),
+    stmt("formats", Context::Report, STMT, "Export formats."),
+    stmt(
+        "label",
+        Context::Report,
+        "entity.name.function.statement.columns.lazuli",
+        "Column label.",
+    ),
+    stmt("visibility", Context::Report, STMT, "Report visibility."),
+    // ── channel ──
+    stmt(
+        "payload_axis",
+        Context::Channel,
+        STMT,
+        "Channel partition axis.",
+    ),
+    // ── tenant_migration ──
+    stmt(
+        "materialize_strategy",
+        Context::TenantMigration,
+        STMT,
+        "Materialization strategy.",
+    ),
+    // ════════════════════════════════════════════════════════════════
+    // api / operation body
+    // ════════════════════════════════════════════════════════════════
+    stmt("method", Context::Api, STMT, "HTTP method."),
+    stmt("transport", Context::Api, STMT, "Transport (http)."),
+    // ════════════════════════════════════════════════════════════════
+    // auth block + sub
+    // ════════════════════════════════════════════════════════════════
+    stmt("identity", Context::Auth, STMT, "Identity strategy."),
+    stmt("password", Context::Auth, STMT, "Password strategy."),
+    stmt("oauth", Context::Auth, STMT, "OAuth provider."),
+    stmt("mfa", Context::Auth, STMT, "Multi-factor auth."),
+    stmt("sessions", Context::Auth, STMT, "Session settings."),
+    stmt("access_ttl", Context::Auth, STMT, "Access-token TTL."),
+    stmt("refresh_ttl", Context::Auth, STMT, "Refresh-token TTL."),
+    stmt("rotation", Context::Auth, STMT, "Token-rotation policy."),
+    stmt("grace", Context::Auth, STMT, "Rotation grace window."),
+    stmt(
+        "theft_detection_action",
+        Context::Auth,
+        STMT,
+        "Token-theft action.",
+    ),
+    stmt("refresh", Context::Auth, STMT, "Refresh operation."),
+    stmt("enroll", Context::Auth, STMT, "MFA enrollment."),
+    stmt("hash", Context::Auth, STMT, "Password hash algorithm."),
+    // ════════════════════════════════════════════════════════════════
+    // errors block
+    // ════════════════════════════════════════════════════════════════
+    stmt(
+        "error",
+        Context::Errors,
+        "entity.name.function.statement.errors.lazuli",
+        "Error declaration.",
+    ),
+    stmt(
+        "expose",
+        Context::Errors,
+        "entity.name.function.statement.errors.lazuli",
+        "Expose error to client.",
+    ),
+    stmt(
+        "hide",
+        Context::Errors,
+        "entity.name.function.statement.errors.lazuli",
+        "Hide error from client.",
+    ),
+    stmt(
+        "message",
+        Context::Errors,
+        "entity.name.function.statement.errors.lazuli",
+        "Error message.",
+    ),
+    stmt(
+        "status",
+        Context::Errors,
+        "entity.name.function.statement.errors.lazuli",
+        "HTTP status.",
+    ),
+    stmt(
+        "code",
+        Context::Errors,
+        "entity.name.function.statement.errors.lazuli",
+        "Error code.",
+    ),
+    stmt(
+        "reason",
+        Context::Errors,
+        "entity.name.function.statement.errors.lazuli",
+        "Error reason.",
+    ),
+    // ════════════════════════════════════════════════════════════════
+    // defaults block
+    // ════════════════════════════════════════════════════════════════
+    stmt(
+        "no_timestamps",
+        Context::Defaults,
+        "entity.name.function.statement.defaults.lazuli",
+        "Disable timestamps by default.",
+    ),
+    stmt(
+        "policy_for",
+        Context::Defaults,
+        "entity.name.function.statement.defaults.lazuli",
+        "Default policy for an action.",
+    ),
+    // ════════════════════════════════════════════════════════════════
+    // invariants block
+    // ════════════════════════════════════════════════════════════════
+    op("when", OP_PREDICATE),
+    // ════════════════════════════════════════════════════════════════
+    // cache profile block
+    // ════════════════════════════════════════════════════════════════
+    stmt(
+        "key",
+        Context::Cache,
+        "entity.name.function.statement.cache.lazuli",
+        "Cache key.",
+    ),
+    stmt(
+        "ttl",
+        Context::Cache,
+        "entity.name.function.statement.cache.lazuli",
+        "Cache TTL.",
+    ),
+    stmt(
+        "tags",
+        Context::Cache,
+        "entity.name.function.statement.cache.lazuli",
+        "Cache tags.",
+    ),
+    stmt(
+        "namespace",
+        Context::Cache,
+        "entity.name.function.statement.cache.lazuli",
+        "Cache namespace.",
+    ),
+    stmt(
+        "stale_while_revalidate",
+        Context::Cache,
+        "entity.name.function.statement.cache.lazuli",
+        "Stale-while-revalidate window.",
+    ),
+    stmt(
+        "coalesce",
+        Context::Cache,
+        "entity.name.function.statement.cache.lazuli",
+        "Request coalescing.",
+    ),
+    stmt(
+        "sliding",
+        Context::Cache,
+        "entity.name.function.statement.cache.lazuli",
+        "Sliding-expiration flag.",
+    ),
+    // ════════════════════════════════════════════════════════════════
+    // emits / event group
+    // ════════════════════════════════════════════════════════════════
+    op("level", OP_PREDICATE),
+    // ════════════════════════════════════════════════════════════════
+    // tests / evals block
+    // ════════════════════════════════════════════════════════════════
+    stmt(
+        "allows",
+        Context::Tests,
+        "entity.name.function.statement.tests.lazuli",
+        "Test: action allowed.",
+    ),
+    stmt(
+        "denies",
+        Context::Tests,
+        "entity.name.function.statement.tests.lazuli",
+        "Test: action denied.",
+    ),
+    stmt(
+        "permits",
+        Context::Tests,
+        "entity.name.function.statement.tests.lazuli",
+        "Test: permission granted.",
+    ),
+    stmt(
+        "forbids",
+        Context::Tests,
+        "entity.name.function.statement.tests.lazuli",
+        "Test: permission forbidden.",
+    ),
+    stmt(
+        "accepted",
+        Context::Tests,
+        "entity.name.function.statement.tests.lazuli",
+        "Test: input accepted.",
+    ),
+    stmt(
+        "rejected",
+        Context::Tests,
+        "entity.name.function.statement.tests.lazuli",
+        "Test: input rejected.",
+    ),
+    stmt(
+        "case",
+        Context::Tests,
+        "entity.name.function.statement.tests.lazuli",
+        "Eval case.",
+    ),
+    stmt(
+        "golden",
+        Context::Tests,
+        "entity.name.function.statement.tests.lazuli",
+        "Golden-output assertion.",
+    ),
+    stmt(
+        "min_score",
+        Context::Tests,
+        "entity.name.function.statement.tests.lazuli",
+        "Minimum eval score.",
+    ),
+    stmt("evals", Context::Tests, SECTION, "Agent evaluation block."),
+    // ════════════════════════════════════════════════════════════════
+    // policy block
+    // ════════════════════════════════════════════════════════════════
+    stmt(
+        "allow",
+        Context::Policy,
+        "entity.name.function.statement.policy.lazuli",
+        "Policy: allow.",
+    ),
+    stmt(
+        "deny",
+        Context::Policy,
+        "entity.name.function.statement.policy.lazuli",
+        "Policy: deny.",
+    ),
+    stmt(
+        "denies",
+        Context::Policy,
+        "entity.name.function.statement.policy.lazuli",
+        "Policy: denies.",
+    ),
+    stmt(
+        "permits",
+        Context::Policy,
+        "entity.name.function.statement.policy.lazuli",
+        "Policy: permits.",
+    ),
+    stmt(
+        "forbids",
+        Context::Policy,
+        "entity.name.function.statement.policy.lazuli",
+        "Policy: forbids.",
+    ),
+    stmt("default_policy", Context::Policy, STMT, "Default policy."),
+    op("forbid_when", OP_PREDICATE),
+    op("only_when", OP_PREDICATE),
+    op("eligible_when", OP_PREDICATE),
+    op("when_denied", OP_PREDICATE),
+    op("required_when", OP_PREDICATE),
+    // ════════════════════════════════════════════════════════════════
+    // typed extensions
+    // ════════════════════════════════════════════════════════════════
+    stmt(
+        "fn",
+        Context::Extensions,
+        "entity.name.function.statement.extension.lazuli",
+        "Custom function extension point.",
+    ),
+    stmt(
+        "hook",
+        Context::Extensions,
+        "entity.name.function.statement.extension.lazuli",
+        "Lifecycle hook extension point.",
+    ),
+    stmt(
+        "validator",
+        Context::Extensions,
+        "entity.name.function.statement.extension.lazuli",
+        "Validator extension point.",
+    ),
+    stmt(
+        "query_modifier",
+        Context::Extensions,
+        "entity.name.function.statement.extension.lazuli",
+        "Query-modifier extension point.",
+    ),
+    stmt(
+        "client",
+        Context::Extensions,
+        "entity.name.function.statement.extension.lazuli",
+        "Client-side extension point.",
+    ),
+    stmt(
+        "block",
+        Context::Extensions,
+        "entity.name.function.statement.extension.lazuli",
+        "UI block extension point.",
+    ),
+    stmt(
+        "escape_route",
+        Context::Extensions,
+        STMT,
+        "Escape-route extension.",
+    ),
+    // ════════════════════════════════════════════════════════════════
+    // translation block
+    // ════════════════════════════════════════════════════════════════
+    stmt(
+        "catalog",
+        Context::Translation,
+        "entity.name.function.statement.translation.lazuli",
+        "Translation catalog.",
+    ),
+    stmt(
+        "plural",
+        Context::Translation,
+        "entity.name.function.statement.translation.lazuli",
+        "Plural form.",
+    ),
+    // ════════════════════════════════════════════════════════════════
+    // secret_rotation block
+    // ════════════════════════════════════════════════════════════════
+    stmt(
+        "cadence",
+        Context::SecretRotation,
+        STMT,
+        "Rotation cadence.",
+    ),
+    stmt(
+        "overlap",
+        Context::SecretRotation,
+        STMT,
+        "Key-overlap window.",
+    ),
+    stmt(
+        "auto_rollback",
+        Context::SecretRotation,
+        STMT,
+        "Auto-rollback on failure.",
+    ),
+    // ════════════════════════════════════════════════════════════════
+    // SURFACE (.lzx) — view / audience / extends
+    // ════════════════════════════════════════════════════════════════
+    lzx(
+        "audience",
+        Context::Surface,
+        DECL,
+        "Audience grouping for surface views.",
+    ),
+    lzx(
+        "requires",
+        Context::SurfaceAudience,
+        STMT,
+        "Audience scope requirement (`requires @scope.X`).",
+    ),
+    lzx(
+        "uses",
+        Context::Surface,
+        STMT,
+        "`uses experience` declaration.",
+    ),
+    lzx("source", Context::SurfaceView, STMT, "View data source."),
+    lzx("submit", Context::SurfaceView, STMT, "Form submit target."),
+    lzx(
+        "on_success",
+        Context::SurfaceView,
+        SECTION,
+        "Post-submit success block.",
+    ),
+    lzx(
+        "columns",
+        Context::SurfaceView,
+        SECTION,
+        "List column projection.",
+    ),
+    lzx(
+        "fields",
+        Context::SurfaceView,
+        SECTION,
+        "Form/detail field block.",
+    ),
+    lzx(
+        "sections",
+        Context::SurfaceView,
+        SECTION,
+        "Detail section block.",
+    ),
+    lzx(
+        "cells",
+        Context::SurfaceView,
+        SECTION,
+        "Cell renderer block.",
+    ),
+    lzx("route", Context::SurfaceView, STMT, "View route."),
+    lzx(
+        "actions",
+        Context::SurfaceView,
+        SECTION,
+        "View action block.",
+    ),
+    lzx("action", Context::SurfaceView, STMT, "View action."),
+    lzx("filter", Context::SurfaceView, STMT, "List filter."),
+    lzx(
+        "filters",
+        Context::SurfaceView,
+        SECTION,
+        "List filter block.",
+    ),
+    lzx("search", Context::SurfaceView, STMT, "List search."),
+    lzx(
+        "drawer",
+        Context::SurfaceView,
+        SECTION,
+        "Detail drawer block.",
+    ),
+    lzx("sort", Context::SurfaceView, STMT, "List sort."),
+    lzx(
+        "selection",
+        Context::SurfaceView,
+        STMT,
+        "Row selection mode.",
+    ),
+    lzx(
+        "bulk_actions",
+        Context::SurfaceView,
+        SECTION,
+        "Bulk-action block.",
+    ),
+    lzx(
+        "settings",
+        Context::SurfaceView,
+        SECTION,
+        "View settings block.",
+    ),
+    lzx(
+        "persist",
+        Context::SurfaceView,
+        STMT,
+        "Filter/sort persistence.",
+    ),
+    lzx(
+        "flash",
+        Context::SurfaceView,
+        STMT,
+        "Flash message on success.",
+    ),
+    lzx("replace", Context::SurfaceView, STMT, "Replace navigation."),
+    lzx(
+        "redirect",
+        Context::SurfaceView,
+        STMT,
+        "Redirect on success.",
+    ),
+    lzx(
+        "back",
+        Context::SurfaceView,
+        STMT,
+        "Navigate back on success.",
+    ),
+    lzx("tabs", Context::SurfaceView, SECTION, "Tabbed view block."),
+    lzx("tab", Context::SurfaceView, STMT, "A single tab."),
+    lzx(
+        "tab_group",
+        Context::SurfaceView,
+        SECTION,
+        "Tab-group block.",
+    ),
+    lzx(
+        "wizard",
+        Context::SurfaceView,
+        SECTION,
+        "Wizard view block.",
+    ),
+    lzx(
+        "wizard_steps",
+        Context::SurfaceView,
+        SECTION,
+        "Wizard-steps block.",
+    ),
+    lzx("step", Context::SurfaceView, STMT, "A wizard step."),
+    lzx(
+        "view_mode",
+        Context::SurfaceView,
+        STMT,
+        "View display mode.",
+    ),
+    lzx(
+        "date_range",
+        Context::SurfaceView,
+        STMT,
+        "Date-range filter primitive.",
+    ),
+    lzx(
+        "repeatable",
+        Context::SurfaceView,
+        STMT,
+        "Repeatable input group.",
+    ),
+    lzx("lazy", Context::SurfaceView, STMT, "Lazy-load marker."),
+    lzx("prerender", Context::SurfaceView, STMT, "Prerender marker."),
+    lzx(
+        "loader",
+        Context::SurfaceView,
+        STMT,
+        "Data loader reference.",
+    ),
+    lzx(
+        "opens",
+        Context::SurfaceView,
+        STMT,
+        "Drawer/modal open trigger.",
+    ),
+    lzx("lanes", Context::SurfaceView, STMT, "Board lanes."),
+    lzx("icon", Context::SurfaceView, STMT, "Action/tab icon."),
+    lzx("hint", Context::SurfaceView, STMT, "Field hint text."),
+    lzx(
+        "error_view",
+        Context::SurfaceView,
+        STMT,
+        "Error-state view.",
+    ),
+    lzx(
+        "error_redact",
+        Context::SurfaceView,
+        STMT,
+        "Error redaction.",
+    ),
+    lzx(
+        "pending_view",
+        Context::SurfaceView,
+        STMT,
+        "Pending/loading view.",
+    ),
+    lzx(
+        "on_change",
+        Context::SurfaceView,
+        STMT,
+        "On-change handler.",
+    ),
+    lzx("mutate", Context::SurfaceView, STMT, "Optimistic mutation."),
+    lzx(
+        "requires_lifecycle",
+        Context::SurfaceView,
+        STMT,
+        "Lifecycle-state gate for the view/route.",
+    ),
+    lzx(
+        "requires_lifecycle_in",
+        Context::SurfaceView,
+        STMT,
+        "Lifecycle-state-set gate.",
+    ),
+    lzx(
+        "on_lifecycle_pending",
+        Context::SurfaceView,
+        STMT,
+        "Pending-lifecycle handler.",
+    ),
+    lzx(
+        "resume",
+        Context::SurfaceView,
+        STMT,
+        "Resume-from-pending reference.",
+    ),
+    lzx(
+        "view.inline_table",
+        Context::SurfaceView,
+        STMT,
+        "Inline-table view primitive (W6).",
+    ),
+    lzx(
+        "view.board",
+        Context::SurfaceView,
+        STMT,
+        "Board view primitive (W6).",
+    ),
+    lzx(
+        "detail",
+        Context::SurfaceView,
+        DECL,
+        "`view detail` projection kind.",
+    ),
+    lzx(
+        "create",
+        Context::SurfaceView,
+        DECL,
+        "`view create` projection kind.",
+    ),
+    // route / view guards (.lzx app + feature route blocks)
+    lzx(
+        "on_unauthenticated",
+        Context::SurfaceView,
+        STMT,
+        "Guard: action when unauthenticated.",
+    ),
+    lzx(
+        "on_unauthorized",
+        Context::SurfaceView,
+        STMT,
+        "Guard: action when unauthorized.",
+    ),
+    lzx(
+        "role_mismatch",
+        Context::SurfaceView,
+        STMT,
+        "Route guard: per-role mismatch redirect.",
+    ),
+    lzx(
+        "default_policy",
+        Context::SurfaceView,
+        STMT,
+        "Default route policy.",
+    ),
+    lzx(
+        "default_unauthenticated_redirect",
+        Context::SurfaceView,
+        STMT,
+        "Default unauthenticated redirect.",
+    ),
+    lzx(
+        "default_unauthorized_redirect",
+        Context::SurfaceView,
+        STMT,
+        "Default unauthorized redirect.",
+    ),
+    // extends / anchor / slot extensibility
+    lzx(
+        "extends",
+        Context::Extends,
+        DECL,
+        "Extends a sibling feature's anchor.",
+    ),
+    lzx(
+        "anchor",
+        Context::Extends,
+        STMT,
+        "Declares an extensibility anchor.",
+    ),
+    lzx(
+        "extensible_by",
+        Context::Extends,
+        STMT,
+        "Declares this view extensible by siblings.",
+    ),
+    lzx("slot", Context::Extends, STMT, "Extension slot position."),
+    lzx(
+        "platforms",
+        Context::Extends,
+        STMT,
+        "Target platforms for the extension.",
+    ),
+    // ════════════════════════════════════════════════════════════════
+    // plan block
+    // ════════════════════════════════════════════════════════════════
+    kw(
+        "features",
+        Context::Plan,
+        SECTION,
+        "Plan feature entitlements.",
+    ),
+    kw("trial", Context::Plan, STMT, "Plan trial period."),
+    CapabilitySpec {
+        literal: "then",
+        context: Context::Plan,
+        scope: "keyword.other.plan.lazuli",
+        token: SemanticToken::Keyword,
+        surface: Surface::Lzi,
+        sigil: None,
+        hover: "Plan upgrade target.",
+        produces: &[],
+    },
+    CapabilitySpec {
+        literal: "unlimited",
+        context: Context::Plan,
+        scope: "keyword.other.plan.lazuli",
+        token: SemanticToken::Keyword,
+        surface: Surface::Lzi,
+        sigil: None,
+        hover: "Unlimited plan quota.",
+        produces: &[],
+    },
+    // ════════════════════════════════════════════════════════════════
+    // Cross-cutting modifiers — storage.modifier.lazuli
+    // ════════════════════════════════════════════════════════════════
+    modifier("required", "Field is required."),
+    modifier("optional", "Field is optional."),
+    modifier("readonly", "Field is read-only."),
+    modifier("raw", "Raw/unprocessed value."),
+    modifier("override", "Override a base declaration."),
+    modifier("per", "Rate/quota unit connector."),
+    modifier("at", "Position/time connector."),
+    modifier("from", "Source connector."),
+    modifier("to", "Target connector."),
+    modifier("by", "Agent/grouping connector."),
+    modifier("on", "Relation/event connector."),
+    modifier("provides", "Provides connector."),
+    modifier("cascade", "On-delete cascade."),
+    modifier("restrict", "On-delete restrict."),
+    modifier("nullify", "On-delete set-null."),
+    modifier("terminal", "Terminal lifecycle state."),
+    modifier("initial", "Initial lifecycle state."),
+    modifier("sync", "Synchronous mode."),
+    modifier("after", "Slot-position after."),
+    modifier("before", "Slot-position before."),
+    modifier("using", "Using connector."),
+    modifier("inherits", "Inherits connector."),
+    modifier("parent", "Parent reference."),
+    modifier("name", "Name connector."),
+    modifier("description", "Description connector."),
+    modifier("filename", "Filename connector."),
+    modifier("mime", "MIME-type connector."),
+    modifier("size", "Size connector."),
+    modifier("attempts", "Attempts connector."),
+    modifier("max_attempts", "Max-attempts connector."),
+    modifier("max_recursion", "Max-recursion connector."),
+    modifier("signed_ttl", "Signed-URL TTL."),
+    modifier("accept", "Accepted MIME types."),
+    modifier("uri_template", "URI template."),
+    modifier("uses", "Uses connector."),
+    modifier("data_subject", "GDPR data-subject."),
+    modifier("retain", "Retention connector."),
+    modifier("opaque", "Opaque-token flag."),
+    modifier("terminal_result_field", "Terminal result field."),
+    modifier("terminal_status_field", "Terminal status field."),
+    modifier("invariant_handler", "Invariant handler reference."),
+    modifier("derived_from", "Derived-from source."),
+    modifier("resolve", "Resolve-via connector."),
+    modifier("triggers", "Triggers connector."),
+    modifier("states", "Lifecycle states block."),
+    modifier("state", "Lifecycle state."),
+    modifier("transition", "Lifecycle transition."),
+    modifier("lifecycle_routes", "Lifecycle route bindings."),
+    modifier("lifecycle_stage", "Lifecycle-stage marker."),
+    modifier("when_denied_route", "Route when policy denied."),
+    modifier("free", "`free text into` sugar."),
+    modifier("list", "`list of` type-constructor head."),
+    // ════════════════════════════════════════════════════════════════
+    // Type constructors — support.function.type-constructor.lazuli
+    // ════════════════════════════════════════════════════════════════
+    CapabilitySpec {
+        literal: "many",
+        context: Context::Expression,
+        scope: TYPE_CTOR,
+        token: SemanticToken::Type,
+        surface: Surface::Lzi,
+        sigil: None,
+        hover: "`many` relation type constructor.",
+        produces: &[],
+    },
+    CapabilitySpec {
+        literal: "list_of",
+        context: Context::Expression,
+        scope: TYPE_CTOR,
+        token: SemanticToken::Type,
+        surface: Surface::Lzi,
+        sigil: None,
+        hover: "`list_of` collection type constructor.",
+        produces: &[],
+    },
+    CapabilitySpec {
+        literal: "ref",
+        context: Context::Expression,
+        scope: TYPE_CTOR,
+        token: SemanticToken::Type,
+        surface: Surface::Lzi,
+        sigil: None,
+        hover: "`ref` reference type constructor.",
+        produces: &[],
+    },
+    // ════════════════════════════════════════════════════════════════
+    // Filter / policy / expression operators + predicates
+    // ════════════════════════════════════════════════════════════════
+    op("and", OP_LOGICAL),
+    op("or", OP_LOGICAL),
+    op("not", OP_LOGICAL),
+    op("has", OP_PREDICATE),
+    op("in", OP_PREDICATE),
+    op("exists", OP_PREDICATE),
+    op("matches", OP_PREDICATE),
+    op("is", OP_PREDICATE),
+    op("between", OP_PREDICATE),
+    op("contains", OP_PREDICATE),
+    op("length", OP_PREDICATE),
+    op("pattern", OP_PREDICATE),
+    op("min", OP_PREDICATE),
+    op("max", OP_PREDICATE),
+    op("excludes", OP_PREDICATE),
+    op("includes", OP_PREDICATE),
+    op("covers_pii", OP_PREDICATE),
+    op("guaranteed", OP_PREDICATE),
+    op("behind", "keyword.operator.plan-and-gate.lazuli"),
+    op("quota", "keyword.operator.plan-and-gate.lazuli"),
+    // ════════════════════════════════════════════════════════════════
+    // Decorator namespaces — entity.name.tag.decorator.lazuli
+    // ════════════════════════════════════════════════════════════════
+    decorator(
+        "@semantic",
+        "Semantic-scalar decorator (`@semantic.HexColor`).",
+    ),
+    decorator("@cap", "Capability decorator (`@cap.File`)."),
+    decorator("@pii", "PII-classification decorator."),
+    decorator("@key", "Encryption-key decorator."),
+    decorator("@slug", "Slug field decorator."),
+    decorator("@full_text", "Full-text-index decorator."),
+    decorator("@owner_axis", "Ownership-axis decorator."),
+    decorator("@llm", "LLM decorator."),
+    decorator("@tool", "Tool decorator."),
+    decorator("@adapter", "Adapter decorator."),
+    decorator("@policy", "Policy reference decorator."),
+    decorator("@scope", "Scope reference decorator."),
+    decorator("@role", "Role reference decorator."),
+    decorator("@actor", "Actor reference decorator."),
+    decorator("@anchor", "Anchor reference decorator."),
+    decorator("@client", "Client extension decorator."),
+    decorator("@fn", "Custom-function reference decorator."),
+    decorator("@hook", "Hook reference decorator."),
+    decorator("@validator", "Validator reference decorator."),
+    decorator("@query_modifier", "Query-modifier reference decorator."),
+    decorator("@translation", "Translation reference decorator."),
+    decorator("@command", "Command reference decorator."),
+    decorator("@file", "File reference decorator."),
+    decorator("@feature", "Feature reference decorator."),
+    decorator("@resume", "Resume reference decorator."),
+    decorator("@audience", "Audience reference decorator."),
+    // ════════════════════════════════════════════════════════════════
+    // design.lzi token catalog — DESIGN_KEYWORDS
+    // ════════════════════════════════════════════════════════════════
+    design("color", "Closed design token group for colors."),
+    design("typography", "Closed design token group for type."),
+    design("space", "Spacing scale token group."),
+    design("radius", "Border-radius token group."),
+    design("shadow", "Box-shadow elevation token group."),
+    design("motion", "Transition/animation token group."),
+    design("breakpoint", "Responsive breakpoint token group."),
+    design("z", "Stacking-order token group."),
+    design("family", "Font-family sub-group."),
+    design("scale", "Type-scale sub-group."),
+    design("weight", "Font-weight sub-group."),
+    design("tracking", "Letter-spacing sub-group."),
+    design("duration", "Motion duration sub-group."),
+    design("easing", "Motion easing sub-group."),
+    design("line_height", "Type line-height field."),
+    CapabilitySpec {
+        literal: "base",
+        context: Context::Design,
+        scope: SECTION,
+        token: SemanticToken::Keyword,
+        surface: Surface::Design,
+        sigil: None,
+        hover: "Required default color state.",
+        produces: &[],
+    },
+    CapabilitySpec {
+        literal: "foreground",
+        context: Context::Design,
+        scope: SECTION,
+        token: SemanticToken::Keyword,
+        surface: Surface::Design,
+        sigil: None,
+        hover: "Foreground color when used as background.",
+        produces: &[],
+    },
+    CapabilitySpec {
+        literal: "dark",
+        context: Context::Design,
+        scope: SECTION,
+        token: SemanticToken::Keyword,
+        surface: Surface::Design,
+        sigil: None,
+        hover: "Dark-theme color suffix.",
+        produces: &[],
+    },
+    // ════════════════════════════════════════════════════════════════
+    // Closed-catalog VALUES — constant.language.<catalog>.lazuli
+    // (carried so the proven-complete scan resolves match-arm value
+    //  literals; these are EnumMember tokens, not keywords.)
+    // ════════════════════════════════════════════════════════════════
+    // boolean
+    value("true", "constant.language.boolean.lazuli"),
+    value("false", "constant.language.boolean.lazuli"),
+    value("nil", "constant.language.boolean.lazuli"),
+    value("null", "constant.language.boolean.lazuli"),
+    // notification channels
+    value("email", "constant.language.channel.lazuli"),
+    value("push", "constant.language.channel.lazuli"),
+    value("sms", "constant.language.channel.lazuli"),
+    value("in_app", "constant.language.channel.lazuli"),
+    // cookie same_site
+    value("lax", "constant.language.cookie.lazuli"),
+    value("strict", "constant.language.cookie.lazuli"),
+    value("none", "constant.language.cookie.lazuli"),
+    // deploy strategy
+    value("rolling", "constant.language.deploy.lazuli"),
+    value("blue_green", "constant.language.deploy.lazuli"),
+    value("canary", "constant.language.deploy.lazuli"),
+    // dlq mode
+    value("emit", "constant.language.dlq.lazuli"),
+    value("drop", "constant.language.dlq.lazuli"),
+    // http methods
+    value("GET", "constant.language.http-method.lazuli"),
+    value("POST", "constant.language.http-method.lazuli"),
+    value("PUT", "constant.language.http-method.lazuli"),
+    value("PATCH", "constant.language.http-method.lazuli"),
+    value("DELETE", "constant.language.http-method.lazuli"),
+    value("OPTIONS", "constant.language.http-method.lazuli"),
+    value("HEAD", "constant.language.http-method.lazuli"),
+    // lock strategy
+    value("optimistic", "constant.language.lock.lazuli"),
+    value("pessimistic", "constant.language.lock.lazuli"),
+    value("row_level", "constant.language.lock.lazuli"),
+    // log level / format
+    value("debug", "constant.language.log-level.lazuli"),
+    value("info", "constant.language.log-level.lazuli"),
+    value("warn", "constant.language.log-level.lazuli"),
+    value("text", "constant.language.log-level.lazuli"),
+    value("json", "constant.language.log-level.lazuli"),
+    // report format
+    value("csv", "constant.language.report-format.lazuli"),
+    value("xlsx", "constant.language.report-format.lazuli"),
+    // rotation
+    value("manual", "constant.language.rotation.lazuli"),
+    value("kms_managed", "constant.language.rotation.lazuli"),
+    // template strategy
+    value("merge", "constant.language.template-strategy.lazuli"),
+    value("append", "constant.language.template-strategy.lazuli"),
+    // transport
+    value("http", "constant.language.transport.lazuli"),
+    // verify
+    value("hmac", "constant.language.verify.lazuli"),
+    value("jwt", "constant.language.verify.lazuli"),
+    // visibility
+    value("public", "constant.language.visibility.lazuli"),
+    value("private", "constant.language.visibility.lazuli"),
+    // sort direction
+    value("asc", "constant.language.direction.lazuli"),
+    value("desc", "constant.language.direction.lazuli"),
+    // selection mode
+    value("multi", "constant.language.selection-mode.lazuli"),
+    value("single", "constant.language.selection-mode.lazuli"),
+    // search mode
+    value("segmented", "constant.language.search-mode.lazuli"),
+    // binding source
+    value("query", "constant.language.binding-source.lazuli"),
+    // persistence
+    value("local", "constant.language.persistence.lazuli"),
+    // index methods
+    value("btree", "constant.language.lazuli"),
+    value("gin", "constant.language.lazuli"),
+    value("gist", "constant.language.lazuli"),
+    // policy effect actions (catalog values)
+    value("create", "entity.name.function.statement.policy.lazuli"),
+    value("update", "entity.name.function.statement.policy.lazuli"),
+    value("delete", "entity.name.function.statement.policy.lazuli"),
+    // semantic-value contexts / lifecycle / misc closed catalogs
+    value("anonymize", "constant.language.lazuli"),
+    value("archive", "constant.language.lazuli"),
+    value("escalate", "constant.language.lazuli"),
+    value("me", "constant.language.lazuli"),
+    value("org", "constant.language.lazuli"),
+    value("team", "constant.language.lazuli"),
+    value("crud", "constant.language.lazuli"),
+    value("web", "constant.language.lazuli"),
+    value("mobile", "constant.language.lazuli"),
+    value("authenticated", "constant.language.lazuli"),
+    value("unauthenticated", "constant.language.lazuli"),
+    value("custom", "constant.language.lazuli"),
+];
