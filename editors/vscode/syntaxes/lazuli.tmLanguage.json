@@ -556,8 +556,8 @@
     },
 
     "design-block": {
-      "comment": "`design <Name>` token catalog declaration (`.design.lzi`). Body sections (color/radius/shadow/typography/space/motion/...) are highlighted via the registry-generated #kw-design-section alternation. End/while idiom mirrors resource-block / view-block (dedent at a line not more-indented than the opener).",
-      "begin": "^(\\s*)(design)\\s+([A-Z][A-Za-z0-9_]*)\\b",
+      "comment": "`design <name>` token catalog declaration (`.design.lzi`). The name is a snake_case identifier (mirrors feature/app), so the opener accepts lower- or upper-case leading char. Body sections (color/radius/shadow/typography/space/motion/...) are highlighted via the registry-generated #kw-design-section alternation; the indented `<name> <value>` token lines get the name as a property and the value via #strings/#constants. End/while idiom mirrors resource-block / view-block (dedent at a line not more-indented than the opener).",
+      "begin": "^(\\s*)(design)\\s+([A-Za-z_][A-Za-z0-9_]*)\\b",
       "beginCaptures": {
         "2": { "name": "keyword.control.declaration.structural.lazuli" },
         "3": { "name": "entity.name.type.design.lazuli" }
@@ -567,6 +567,7 @@
         { "include": "#comments" },
         { "include": "#strings" },
         { "include": "#kw-design-section" },
+        { "match": "^\\s+([A-Za-z_][A-Za-z0-9_]*)(?=[ \\t]+\\S)", "captures": { "1": { "name": "variable.other.property.design.lazuli" } } },
         { "include": "#references" },
         { "include": "#types" },
         { "include": "#constants" },
