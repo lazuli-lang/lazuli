@@ -11,6 +11,7 @@ lazuli_doctor = { path = "../lazuli_doctor" }
 lazuli_doctor_config = { path = "../lazuli_doctor_config" }
 lazuli_doctor_run = { path = "../lazuli_doctor_run" }
 lazuli_ir = { path = "../lazuli_ir" }
+lazuli_keywords = { path = "../lazuli_keywords" }
 lazuli_syntax = { path = "../lazuli_syntax" }
 tokio.workspace = true
 tower-lsp.workspace = true

@@ -137,6 +137,9 @@ pub const KEYWORDS: &[&str] = &[
     "exporter",
     // Observability bucket cycle row 37 — `audit emit_to` slot.
     "emit_to",
+    // Audit-block connectors (registry-backfilled via H2; surfaced for LSP completion).
+    "data_subject",
+    "retain_for",
     // Migrations bucket cycle Route C — `tenant_migration` kind +
     // `deploy.{strategy, lock_timeout, pre_migration_hook,
     // post_migration_hook, checkpoint}` keywords. See
@@ -392,6 +395,32 @@ pub const KEYWORDS: &[&str] = &[
     "lanes",
     "repeatable",
     "step",
+    // Wave H3 — registry-parity backfill. These are `SemanticToken::Keyword`
+    // literals carried in `lazuli_keywords::ALL` (proven complete against
+    // the parser by H1) that the hand-curated catalog had drifted past.
+    // The `keyword_surface_parity` LSP-coverage assertion now enforces
+    // that every registry keyword-token is offered here; hover one-liners
+    // come from the registry via `hover::keyword_description`'s H3 fallback.
+    //
+    // Feature-body / domain.
+    "constraints",          // `non_goals` child (alongside delegated_to / out_of_scope)
+    "discriminator",        // agent structured-output discriminator
+    "on_delete",            // resource referential on-delete action
+    "outbox",               // job outbox-pattern marker
+    "payload_axis",         // channel partition axis
+    "materialize_strategy", // tenant_migration materialization strategy
+    "no_timestamps",        // defaults-block timestamp opt-out
+    // tests / evals.
+    "golden",    // golden-output assertion
+    "min_score", // minimum eval score
+    // Surface (`.lzx`) view primitives.
+    "loader",        // data-loader reference
+    "opens",         // drawer/modal open trigger
+    "hint",          // field hint text
+    "error_view",    // error-state view
+    "error_redact",  // error redaction
+    "pending_view",  // pending/loading view
+    "role_mismatch", // route-guard per-role mismatch redirect
 ];
 
 /// Rich hover detail strings for every token in [`DESIGN_KEYWORDS`].

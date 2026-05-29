@@ -11,12 +11,14 @@ members = [
   "crates/lazuli_doctor_run",
   "crates/lazuli_fix",
   "crates/lazuli_ir",
+  "crates/lazuli_keywords",
   "crates/lazuli_lsp",
   "crates/lazuli_manifest",
   "crates/lazuli_mcp",
   "crates/lazuli_openapi",
   "crates/lazuli_planner",
   "crates/lazuli_syntax",
+  "tools/xtask",
 ]
 resolver = "3"
 

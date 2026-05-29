@@ -725,6 +725,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazuli_keywords"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "lazuli_lsp"
 version = "0.1.0"
 dependencies = [
@@ -733,6 +740,7 @@ dependencies = [
  "lazuli_doctor_config",
  "lazuli_doctor_run",
  "lazuli_ir",
+ "lazuli_keywords",
  "lazuli_syntax",
  "serde_json",
  "tokio",
@@ -1644,6 +1652,14 @@ name = "writeable"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
+
+[[package]]
+name = "xtask"
+version = "0.1.0"
+dependencies = [
+ "lazuli_keywords",
+ "serde_json",
+]
 
 [[package]]
 name = "yoke"

@@ -78,4 +78,25 @@ pub fn keyword_description(keyword: &str) -> Option<&'static str> {
     manifest::keyword_description(keyword)
         .or_else(|| domain::keyword_description(keyword))
         .or_else(|| surface::keyword_description(keyword))
+        // Wave H3: final fallback to the canonical `lazuli_keywords`
+        // registry one-liner. The three concern-shaped modules above own
+        // the *rich* curated copy (they win first-match so nothing
+        // regresses); this arm backfills any keyword the registry knows
+        // but the hand modules never described — so a registry-only
+        // keyword still hovers with at least its one-line summary. We
+        // skip the registry's empty-string hovers (values / operators
+        // carry `hover: ""`) so a blank tooltip never shadows a generic
+        // hover the caller would otherwise emit.
+        .or_else(|| registry_hover(keyword))
+}
+
+/// One-line hover sourced from the [`lazuli_keywords`] registry, or
+/// `None` when the literal is unknown or its registry `hover` is the
+/// empty placeholder. Context-insensitive: returns the first row's
+/// hover that is non-empty for this literal.
+fn registry_hover(keyword: &str) -> Option<&'static str> {
+    lazuli_keywords::ALL
+        .iter()
+        .find(|c| c.literal == keyword && !c.hover.is_empty())
+        .map(|c| c.hover)
 }
