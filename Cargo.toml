@@ -8,6 +8,7 @@ members = [
   "crates/lazuli_codegen_ts",
   "crates/lazuli_doctor",
   "crates/lazuli_doctor_config",
+  "crates/lazuli_doctor_run",
   "crates/lazuli_fix",
   "crates/lazuli_ir",
   "crates/lazuli_lsp",
@@ -31,7 +32,7 @@ clap = { version = "4.5", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
-tokio = { version = "1.48", features = ["io-std", "macros", "rt", "rt-multi-thread", "sync"] }
+tokio = { version = "1.48", features = ["io-std", "macros", "rt", "rt-multi-thread", "sync", "time"] }
 tower-lsp = "0.20"
 
 [profile.test]

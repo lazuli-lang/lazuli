@@ -624,6 +624,7 @@ dependencies = [
  "lazuli_codegen_ts",
  "lazuli_doctor",
  "lazuli_doctor_config",
+ "lazuli_doctor_run",
  "lazuli_fix",
  "lazuli_ir",
  "lazuli_lsp",
@@ -691,6 +692,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazuli_doctor_run"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "lazuli_analyzer",
+ "lazuli_doctor",
+ "lazuli_doctor_config",
+ "lazuli_ir",
+ "lazuli_manifest",
+ "lazuli_syntax",
+ "serde_json",
+ "tempfile",
+ "toml",
+]
+
+[[package]]
 name = "lazuli_fix"
 version = "0.1.0"
 dependencies = [
@@ -714,6 +731,7 @@ dependencies = [
  "lazuli_analyzer",
  "lazuli_doctor",
  "lazuli_doctor_config",
+ "lazuli_doctor_run",
  "lazuli_ir",
  "lazuli_syntax",
  "serde_json",

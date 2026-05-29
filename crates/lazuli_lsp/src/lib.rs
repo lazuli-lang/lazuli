@@ -15,6 +15,7 @@ mod completion_items;
 mod conventions;
 mod diagnostics;
 mod dispatch;
+mod doctor_engine;
 mod format;
 mod handlers;
 mod hover;
@@ -29,29 +30,41 @@ mod text_utils;
 mod types;
 
 pub use backend::serve_stdio;
-
-// Wave R7-3 extract — text + position utilities moved into
-// `text_utils.rs`. Re-exported so existing `crate::*` call paths inside
-// `lib.rs`, `diagnostics/*`, `completion/*`, `hover.rs`, and the test
-// suite keep compiling.
-pub(crate) use text_utils::{
-    byte_index_for_utf16_position, feature_name, first_line_range, full_document_range,
-    is_design_lzi_uri, is_lzx_uri, is_trivia_line, is_word_byte, leading_spaces,
-    line_prefix_at_position, position_at_line_start, position_for_offset, range_from_span,
-    simple_canonical_diagnostic, simple_edit_action, word_at_position,
+pub use catalogs::*;
+pub use code_actions::auth_refresh::auth_refresh_code_actions;
+pub use code_actions::error_vocab::error_vocab_code_actions;
+pub use code_actions::lifecycle_gate::lifecycle_gate_code_actions;
+pub use code_actions::route_guard::route_guard_code_actions;
+pub use completion::auth_refresh::auth_refresh_completions;
+pub(crate) use completion::auth_refresh::{
+    AuthRotationBlock, AuthSessionsBlock, after_keyword_value_prefix,
+    auth_refresh_rotation_clause_completion_items, auth_refresh_theft_action_completion_items,
+    auth_rotation_has_children, auth_sessions_has_child, block_end_line,
+    duration_literal_completion_items, enclosing_auth_rotation_block,
+    enclosing_auth_sessions_block, has_auth_parent, is_rotation_line, is_sessions_line,
+    rotation_block_snippet_completion,
 };
-
-// Wave R7-3 extract — `tests` block producer + stack/anchor helpers
-// moved into `test_blocks.rs`. Re-exported so the anchor-whitelist
-// producer, the source-walk dispatch, and the LSP test suite keep their
-// existing `crate::*` call paths.
-pub(crate) use test_blocks::{
-    extends_anchor, extensible_by_features, is_transition_line, is_valid_test_assertion,
-    stack_kind, test_block_diagnostics, test_context, view_anchor,
+pub(crate) use completion::cap_file::cap_file_value_completions;
+pub(crate) use completion::context::{
+    EFFECT_VERBS, KIND_CHILD_COMPLETIONS, RATE_LIMIT_AXES, block_kind_at,
+    context_aware_completions, convention_bundle_hover, is_inside_conventions_list,
+    rate_limit_axis_completions,
 };
-
-pub(crate) use dispatch::diagnostics_for_with_profile_inner;
-
+pub(crate) use completion::error_page::error_page_value_completions;
+pub use completion::error_vocab::{
+    error_vocab_code_resolved_hover, error_vocab_completions, error_vocab_resolved_text,
+};
+pub(crate) use completion::error_vocab::{
+    in_feature_errors_block, lookup_feature_error_key, lookup_translation_first_variant,
+};
+pub use completion::input_field::input_field_completions;
+pub(crate) use completion::input_field::{
+    collect_command_input_and_route_params, input_dot_trigger,
+};
+pub(crate) use completion::namespace::{collect_namespace_names, namespace_prefix_completions};
+pub(crate) use completion::owner_axis::owner_axis_through_completions;
+pub(crate) use completion_items::{completion_items_for_uri, make_symbol, merge_completion_items};
+pub use conventions::conventions_list_completions;
 // Per-catalog diagnostic producers (Rails-style layout). Each
 // `pub(crate) use diagnostics::<catalog>::*` line preserves the
 // pre-extraction ABI: producers continue to be reachable at
@@ -89,7 +102,19 @@ pub(crate) use diagnostics::security::*;
 pub(crate) use diagnostics::vocab::*;
 pub(crate) use diagnostics::webhook::*;
 pub(crate) use diagnostics::workspace::*;
-
+pub(crate) use dispatch::diagnostics_for_with_profile_inner;
+pub(crate) use format::canonical::*;
+pub use hover::*;
+pub(crate) use keywords::{DESIGN_KEYWORDS, KEYWORDS, design_keyword_description};
+pub use rate_limit::rate_limit_env_completions;
+// Wave R9-B extract — security-profile narrowing moved into
+// `security_profile.rs`. Re-exported so `dispatch.rs` and the
+// `diagnostics_for_source_with_profile` entry point keep their
+// `crate::*` paths.
+#[allow(unused_imports)]
+pub(crate) use security_profile::{
+    apply_security_profile, diagnostic_code, is_security_enforcement_code, is_security_opt_out_code,
+};
 // Wave R9-B extract — small crate-root source-walk diagnostics
 // (`approval`, `event.trace`, `extensible_by` whitelist) moved into
 // `source_diagnostics.rs`. Re-exported so `dispatch.rs` keeps its
@@ -99,56 +124,25 @@ pub(crate) use source_diagnostics::{
     AnchorWhitelistEntry, anchor_whitelist_diagnostics, approval_contract_diagnostics,
     reserved_trace_event_diagnostics,
 };
-
-// Wave R9-B extract — security-profile narrowing moved into
-// `security_profile.rs`. Re-exported so `dispatch.rs` and the
-// `diagnostics_for_source_with_profile` entry point keep their
-// `crate::*` paths.
-#[allow(unused_imports)]
-pub(crate) use security_profile::{
-    apply_security_profile, diagnostic_code, is_security_enforcement_code, is_security_opt_out_code,
-};
-
-pub use catalogs::*;
-pub use code_actions::auth_refresh::auth_refresh_code_actions;
-pub use code_actions::error_vocab::error_vocab_code_actions;
-pub use code_actions::lifecycle_gate::lifecycle_gate_code_actions;
-pub use code_actions::route_guard::route_guard_code_actions;
-pub use completion::auth_refresh::auth_refresh_completions;
-pub(crate) use completion::auth_refresh::{
-    AuthRotationBlock, AuthSessionsBlock, after_keyword_value_prefix,
-    auth_refresh_rotation_clause_completion_items, auth_refresh_theft_action_completion_items,
-    auth_rotation_has_children, auth_sessions_has_child, block_end_line,
-    duration_literal_completion_items, enclosing_auth_rotation_block,
-    enclosing_auth_sessions_block, has_auth_parent, is_rotation_line, is_sessions_line,
-    rotation_block_snippet_completion,
-};
-pub(crate) use completion::cap_file::cap_file_value_completions;
-pub(crate) use completion::context::{
-    EFFECT_VERBS, KIND_CHILD_COMPLETIONS, RATE_LIMIT_AXES, block_kind_at,
-    context_aware_completions, convention_bundle_hover, is_inside_conventions_list,
-    rate_limit_axis_completions,
-};
-pub(crate) use completion::error_page::error_page_value_completions;
-pub use completion::error_vocab::{
-    error_vocab_code_resolved_hover, error_vocab_completions, error_vocab_resolved_text,
-};
-pub(crate) use completion::error_vocab::{
-    in_feature_errors_block, lookup_feature_error_key, lookup_translation_first_variant,
-};
-pub use completion::input_field::input_field_completions;
-pub(crate) use completion::input_field::{
-    collect_command_input_and_route_params, input_dot_trigger,
-};
-pub(crate) use completion::namespace::{collect_namespace_names, namespace_prefix_completions};
-pub(crate) use completion::owner_axis::owner_axis_through_completions;
-pub(crate) use completion_items::{completion_items_for_uri, make_symbol, merge_completion_items};
-pub use conventions::conventions_list_completions;
-pub(crate) use format::canonical::*;
-pub use hover::*;
-pub(crate) use keywords::{DESIGN_KEYWORDS, KEYWORDS, design_keyword_description};
-pub use rate_limit::rate_limit_env_completions;
 pub use source_scan::*;
+// Wave R7-3 extract — `tests` block producer + stack/anchor helpers
+// moved into `test_blocks.rs`. Re-exported so the anchor-whitelist
+// producer, the source-walk dispatch, and the LSP test suite keep their
+// existing `crate::*` call paths.
+pub(crate) use test_blocks::{
+    extends_anchor, extensible_by_features, is_transition_line, is_valid_test_assertion,
+    stack_kind, test_block_diagnostics, test_context, view_anchor,
+};
+// Wave R7-3 extract — text + position utilities moved into
+// `text_utils.rs`. Re-exported so existing `crate::*` call paths inside
+// `lib.rs`, `diagnostics/*`, `completion/*`, `hover.rs`, and the test
+// suite keep compiling.
+pub(crate) use text_utils::{
+    byte_index_for_utf16_position, feature_name, first_line_range, full_document_range,
+    is_design_lzi_uri, is_lzx_uri, is_trivia_line, is_word_byte, leading_spaces,
+    line_prefix_at_position, position_at_line_start, position_for_offset, range_from_span,
+    simple_canonical_diagnostic, simple_edit_action, word_at_position,
+};
 pub use types::SecurityProfile;
 
 /// The stable server identifier surfaced to LSP clients during
@@ -199,9 +193,10 @@ pub fn diagnostics_for_source(source: &str) -> Vec<Diagnostic> {
 /// ## Examples
 ///
 /// ```
-/// use lazuli_lsp::{diagnostics_for_source_with_profile, SecurityProfile};
+/// use lazuli_lsp::{SecurityProfile, diagnostics_for_source_with_profile};
 ///
-/// let diags = diagnostics_for_source_with_profile("", SecurityProfile::Prototype);
+/// let diags =
+///     diagnostics_for_source_with_profile("", SecurityProfile::Prototype);
 /// assert!(diags.is_empty());
 /// ```
 pub fn diagnostics_for_source_with_profile(

@@ -10,7 +10,7 @@ use lazuli_doctor_config::{DoctorProfile, ResolvedDoctorConfig};
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
 use super::*;
-use crate::{diagnostics_for_with_config, doctor_class_lsp_severity};
+use crate::doctor_class_lsp_severity;
 
 /// The `VOCAB-CONTEXT-PURPOSE-001` trio is the task's named example: it
 /// is suppressed (`None`) under the `off` coverage preset and escalated
@@ -96,15 +96,17 @@ fn manifest_override_moves_doctor_class_severity() {
     );
 }
 
-/// End-to-end: a wired doctor-class finding (`VOCAB-AUDIT-001`, surfaced
-/// through `doctor_local`) flows through the full diagnostic pass and its
-/// editor severity reflects a workspace manifest override — proving the
-/// config threads from `diagnostics_for_with_config` all the way to the
-/// `doctor_local` trees bridge.
+/// End-to-end (D3): a package/cross-feature ("doctor-owned") finding
+/// (`VOCAB-AUDIT-001`) flows through the in-editor package-engine run
+/// (`run_package`) and its editor severity is **mode-aware** — it tracks
+/// the workspace `[doctor] profile`, matching what `lazuli doctor` emits.
+/// This proves the engine threads the profile from the backend all the
+/// way to the published Layer-2 squiggle.
 #[test]
 fn wired_finding_severity_reflects_workspace_config() {
     // A write command without `audit` is the textbook VOCAB-AUDIT-001
-    // trigger (intrinsic ERROR base in the LSP bridge).
+    // trigger. Vocabulary rules resolve `Strict -> Warning`,
+    // `Production -> Error` through `doctor_severity_for`.
     let source = r#"
 feature widget
   purpose "Widgets"
@@ -121,35 +123,62 @@ feature widget
     creates Widget
 "#;
 
-    // Default strict workspace: the rule fires at its intrinsic ERROR.
-    let strict = ResolvedDoctorConfig::resolve(None, DoctorProfile::Strict).unwrap();
-    let diags = diagnostics_for_with_config(source, &strict);
-    let hits = doctor_diagnostics_with_code(&diags, "VOCAB-AUDIT-001");
-    assert!(!hits.is_empty(), "VOCAB-AUDIT-001 should fire");
+    // Strict workspace: vocabulary rule fires at WARNING in-editor.
+    let strict = doctor_engine_diagnostics_for("widget", source, SecurityProfile::Strict);
+    let strict_hits = doctor_diagnostics_with_code(&strict, "VOCAB-AUDIT-001");
+    assert!(
+        !strict_hits.is_empty(),
+        "VOCAB-AUDIT-001 should fire through the in-editor engine under strict"
+    );
+    assert_eq!(
+        strict_hits[0].severity,
+        Some(DiagnosticSeverity::WARNING),
+        "vocabulary posture is WARNING under a strict workspace",
+    );
+
+    // Production workspace: the SAME finding escalates to ERROR — the
+    // editor severity tracks the workspace mode, not a hardcoded literal.
+    let production = doctor_engine_diagnostics_for("widget", source, SecurityProfile::Production);
+    let prod_hits = doctor_diagnostics_with_code(&production, "VOCAB-AUDIT-001");
+    assert!(
+        !prod_hits.is_empty(),
+        "VOCAB-AUDIT-001 should still fire under production"
+    );
+    assert_eq!(
+        prod_hits[0].severity,
+        Some(DiagnosticSeverity::ERROR),
+        "editor severity must escalate to ERROR under a production workspace",
+    );
+}
+
+/// D3 named deliverable — a **cross-feature** package finding
+/// (`REF-CROSS-FEATURE-UNKNOWN-001`) now surfaces in-editor through the
+/// package engine. A field FK `target @feature.other.Thing` whose feature
+/// isn't in `uses` is the textbook trigger; the synchronous file-local
+/// pass cannot compute it (it needs the whole package), so this proves the
+/// Layer-2 engine run delivers package-level findings to the editor.
+#[test]
+fn cross_feature_ref_unknown_surfaces_in_editor() {
+    let source = r#"
+feature orders
+  domain
+    resource Order
+      customer_id: ID target @feature.customers.Customer
+"#;
+    let diags = doctor_engine_diagnostics_for("orders", source, SecurityProfile::Strict);
+    let hits = doctor_diagnostics_with_code(&diags, "REF-CROSS-FEATURE-UNKNOWN-001");
+    assert!(
+        !hits.is_empty(),
+        "REF-CROSS-FEATURE-UNKNOWN-001 should surface in-editor via the package engine; got: {:?}",
+        diags
+            .iter()
+            .filter_map(|d| d.code.as_ref())
+            .collect::<Vec<_>>()
+    );
     assert_eq!(
         hits[0].severity,
         Some(DiagnosticSeverity::ERROR),
-        "intrinsic posture is ERROR under a plain strict workspace",
+        "cross-feature ref errors are ERROR severity",
     );
-
-    // Same source, but the workspace overrides the rule to a warning:
-    // the editor severity tracks the workspace config, not a hardcoded
-    // literal.
-    let overridden = ResolvedDoctorConfig::resolve(
-        Some(
-            "[doctor.test_discipline.severity_override.\"VOCAB-AUDIT-001\"]\n\
-             severity = \"warning\"\n\
-             reason = \"audit backfill scheduled\"\n",
-        ),
-        DoctorProfile::Strict,
-    )
-    .unwrap();
-    let diags = diagnostics_for_with_config(source, &overridden);
-    let hits = doctor_diagnostics_with_code(&diags, "VOCAB-AUDIT-001");
-    assert!(!hits.is_empty(), "VOCAB-AUDIT-001 should still fire");
-    assert_eq!(
-        hits[0].severity,
-        Some(DiagnosticSeverity::WARNING),
-        "editor severity must follow the workspace [doctor] override",
-    );
+    assert_eq!(hits[0].source.as_deref(), Some("lazuli-doctor"));
 }

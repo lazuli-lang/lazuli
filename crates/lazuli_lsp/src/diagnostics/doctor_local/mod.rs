@@ -25,8 +25,6 @@ use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range};
 
 use crate::{first_line_range, leading_spaces};
 
-mod trees;
-
 /// Map a resolved [`DoctorSeverity`] to the editor [`DiagnosticSeverity`].
 ///
 /// This mapping lives in `lazuli_lsp` (not the config crate) because
@@ -136,67 +134,13 @@ pub(crate) fn feature_header_range(source: &str, feature_name: &str) -> Option<R
     None
 }
 
-pub(crate) fn doctor_file_local_diagnostics(
-    source: &str,
-    config: &ResolvedDoctorConfig,
-) -> Vec<Diagnostic> {
-    let mut diagnostics: Vec<Diagnostic> = Vec::new();
-
-    // VOCAB-GRAMMAR-FORM-001 runs on raw source (no lowering needed)
-    // and surfaces 1-indexed line/column itself.
-    let synthetic_path = std::path::Path::new("source.lzi");
-    let grammar_form_code = lazuli_doctor::vocab::vocab_grammar_form_001::Finding::CODE;
-    if let Some(severity) =
-        doctor_class_lsp_severity(grammar_form_code, DiagnosticSeverity::WARNING, config)
-    {
-        for finding in lazuli_doctor::vocab::vocab_grammar_form_001::check(source, synthetic_path) {
-            let line_zero = finding.line.saturating_sub(1) as u32;
-            let col_zero = finding.column.saturating_sub(1) as u32;
-            diagnostics.push(Diagnostic {
-                range: Range {
-                    start: Position {
-                        line: line_zero,
-                        character: col_zero,
-                    },
-                    end: Position {
-                        line: line_zero,
-                        character: col_zero + finding.old.chars().count() as u32,
-                    },
-                },
-                severity: Some(severity),
-                code: Some(tower_lsp::lsp_types::NumberOrString::String(
-                    grammar_form_code.to_owned(),
-                )),
-                code_description: None,
-                source: Some("lazuli-doctor".to_owned()),
-                message: finding.message(),
-                related_information: None,
-                tags: None,
-                data: None,
-            });
-        }
-    }
-
-    // Everything else needs lowered IR. Bail silently if parsing or
-    // lowering fails — shape diagnostics already surface those errors
-    // via other paths.
-    let Ok(skeletons) = lazuli_syntax::parse_feature_skeletons(source) else {
-        return diagnostics;
-    };
-    let features: Vec<lazuli_ir::Feature> = skeletons
-        .iter()
-        .filter_map(|skeleton| lazuli_analyzer::lower_feature_skeleton(skeleton).ok())
-        .collect();
-
-    for feature in &features {
-        trees::wire_correctness(source, &mut diagnostics, feature, synthetic_path, config);
-        trees::wire_domain(source, &mut diagnostics, feature, synthetic_path, config);
-        trees::wire_lifecycle(source, &mut diagnostics, feature, synthetic_path, config);
-        trees::wire_vocab(source, &mut diagnostics, feature, synthetic_path, config);
-        trees::wire_encryption(source, &mut diagnostics, feature, synthetic_path, config);
-        trees::wire_poller(source, &mut diagnostics, feature, synthetic_path, config);
-        trees::wire_report(source, &mut diagnostics, feature, synthetic_path, config);
-    }
-
-    diagnostics
-}
+// D3 — `doctor_file_local_diagnostics` (the duplicated doctor-mirror that
+// re-walked `lazuli_doctor::{correctness, domain, lifecycle, vocab,
+// encryption, poller, report}` + `VOCAB-GRAMMAR-FORM-001` against lowered
+// IR) is GONE. Those are package/cross-feature ("doctor-owned") findings
+// now produced by the in-editor package-engine run
+// (`crate::doctor_engine::doctor_owned_for_document` →
+// `lazuli_doctor_run::run_package`), so the LSP no longer mirrors them
+// here. `doctor_diagnostic` / `feature_header_range` /
+// `doctor_class_lsp_severity` stay — they're the shared helpers the
+// engine-run remap and the LSP-owned producers still use.

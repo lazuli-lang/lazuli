@@ -30,11 +30,14 @@ feature widget
     rate_limit "30 per hour per user"
     creates Widget
 "#;
-    let diags = diagnostics_for(source);
+    // D3 — VOCAB-AUDIT-001 is a package/cross-feature ("doctor-owned")
+    // finding now produced by the in-editor package-engine run, not the
+    // synchronous file-local pass. Drive the engine directly.
+    let diags = doctor_engine_diagnostics_for("widget", source, SecurityProfile::Strict);
     let hits = doctor_diagnostics_with_code(&diags, "VOCAB-AUDIT-001");
     assert!(
         !hits.is_empty(),
-        "VOCAB-AUDIT-001 should fire through the LSP; got codes: {:?}",
+        "VOCAB-AUDIT-001 should fire through the in-editor doctor engine; got codes: {:?}",
         diags
             .iter()
             .filter_map(|d| d.code.as_ref())
@@ -72,14 +75,14 @@ feature widget
     rate_limit "30 per hour per user"
     creates Widget
 "#;
-    let diags = diagnostics_for(source);
+    let diags = doctor_engine_diagnostics_for("widget", source, SecurityProfile::Strict);
     let doctor_sources: Vec<_> = diags
         .iter()
         .filter(|d| d.source.as_deref() == Some("lazuli-doctor"))
         .collect();
     assert!(
         !doctor_sources.is_empty(),
-        "expected at least one source=lazuli-doctor diagnostic"
+        "expected at least one source=lazuli-doctor diagnostic from the engine run"
     );
 }
 
@@ -106,11 +109,11 @@ feature publication
           from scheduled
           to published
 "#;
-    let diags = diagnostics_for(source);
+    let diags = doctor_engine_diagnostics_for("publication", source, SecurityProfile::Strict);
     let hits = doctor_diagnostics_with_code(&diags, "LIFECYCLE-POLICY-REQUIRED");
     assert!(
         !hits.is_empty(),
-        "LIFECYCLE-POLICY-REQUIRED should fire through the LSP; got codes: {:?}",
+        "LIFECYCLE-POLICY-REQUIRED should fire through the in-editor doctor engine; got codes: {:?}",
         diags
             .iter()
             .filter_map(|d| d.code.as_ref())
@@ -162,4 +165,3 @@ feature customer
             .collect::<Vec<_>>()
     );
 }
-

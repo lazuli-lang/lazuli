@@ -173,8 +173,9 @@ fn qualified_type_label(name: &QualifiedName) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs;
+
+    use super::*;
 
     fn write(root: &Path, rel: &str, contents: &str) {
         let path = root.join(rel);

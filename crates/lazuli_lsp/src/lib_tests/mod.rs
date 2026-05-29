@@ -12,6 +12,10 @@
 
 #![allow(unused_imports)]
 
+pub(super) use tower_lsp::lsp_types::{
+    CompletionItem, CompletionItemKind, Diagnostic, DiagnosticSeverity, Position, Url,
+};
+
 pub(super) use super::{
     DESIGN_KEYWORDS, EFFECT_VERBS, KEYWORDS, KIND_CHILD_COMPLETIONS,
     NOTIFICATION_DIGEST_TEMPLATE_STRATEGY_VALUES, RATE_LIMIT_AXES, SecurityProfile, block_kind_at,
@@ -21,9 +25,6 @@ pub(super) use super::{
     keyword_description, notification_digest_template_strategy_detail,
     owner_axis_through_completions, position_for_offset, rate_limit_env_completions,
     rich_keyword_hover,
-};
-pub(super) use tower_lsp::lsp_types::{
-    CompletionItem, CompletionItemKind, Diagnostic, DiagnosticSeverity, Position, Url,
 };
 
 /// Per-LSP-test helper: strip `lazuli-doctor` diagnostics so legacy
@@ -35,6 +36,56 @@ pub(super) fn diagnostics_for_lsp_only(source: &str) -> Vec<Diagnostic> {
         .into_iter()
         .filter(|d| d.source.as_deref() != Some("lazuli-doctor"))
         .collect()
+}
+
+/// D3 in-editor engine helper: write `source` as `<feature>.lzi` in a
+/// throwaway workspace, run the package doctor engine
+/// (`crate::doctor_engine::doctor_owned_for_document`) at `profile`, and
+/// return the **doctor-owned** findings remapped onto that document — the
+/// Layer-2 squiggle set the backend publishes after the debounce. This is
+/// the engine equivalent of the old synchronous trees mirror: package /
+/// cross-feature findings (VOCAB-*, LIFECYCLE-*, REF-CROSS-FEATURE-*, …)
+/// now arrive through `run_package`, not the in-process file-local pass.
+pub(super) fn doctor_engine_diagnostics_for(
+    file_stem: &str,
+    source: &str,
+    profile: SecurityProfile,
+) -> Vec<Diagnostic> {
+    doctor_engine_diagnostics_with_manifest(file_stem, source, profile, None)
+}
+
+/// Manifest-aware variant of [`doctor_engine_diagnostics_for`]: when
+/// `manifest` is `Some`, a `Lazurite.toml` is written into the throwaway
+/// workspace so the engine resolves diagnostic severity through the
+/// workspace `[doctor]` config (profile + presets + per-rule overrides) —
+/// the mode-aware in-editor severity path.
+pub(super) fn doctor_engine_diagnostics_with_manifest(
+    file_stem: &str,
+    source: &str,
+    profile: SecurityProfile,
+    manifest: Option<&str>,
+) -> Vec<Diagnostic> {
+    let root = std::env::temp_dir().join(format!(
+        "lazuli-lsp-engine-{}-{}-{}",
+        file_stem,
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("create temp lsp engine workspace");
+    let target = root.join(format!("{file_stem}.lzi"));
+    std::fs::write(&target, source).expect("write feature .lzi");
+    if let Some(manifest_body) = manifest {
+        std::fs::write(root.join("Lazurite.toml"), manifest_body).expect("write Lazurite.toml");
+    }
+
+    let uri = Url::from_file_path(&target).expect("file uri");
+    let diagnostics = crate::doctor_engine::doctor_owned_for_document(&root, &uri, source, profile);
+    let _ = std::fs::remove_dir_all(&root);
+    diagnostics
 }
 
 pub(super) fn diagnostic_codes(diagnostics: &[Diagnostic]) -> Vec<String> {

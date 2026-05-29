@@ -18,6 +18,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use lazuli_doctor_config::ResolvedDoctorConfig;
 use tokio::sync::RwLock;
@@ -54,7 +56,18 @@ pub(crate) struct Backend {
     /// for `Lazurite.toml` discovery when a document's own path can't be
     /// resolved.
     pub(crate) workspace_root: Arc<RwLock<Option<PathBuf>>>,
+    /// D3 — monotonic generation counter for the debounced package-engine
+    /// run. Each `publish_diagnostics` bumps it; the background task
+    /// captures its generation and only publishes if it is still the
+    /// latest when the engine finishes — so a burst of keystrokes collapses
+    /// to one engine run, and stale results never overwrite fresh ones.
+    pub(crate) doctor_run_generation: Arc<AtomicU64>,
 }
+
+/// Debounce window before the background package-engine run fires. Short
+/// enough to feel live, long enough that a burst of keystrokes collapses
+/// to a single full-workspace run.
+const DOCTOR_RUN_DEBOUNCE: Duration = Duration::from_millis(400);
 
 /// Walk up from `start` looking for the workspace `Lazurite.toml`,
 /// returning its path. Bounded by the filesystem root.
@@ -348,10 +361,65 @@ impl Backend {
         // nearest `Lazurite.toml`. Cheap: one small TOML parse.
         let workspace_root = self.workspace_root.read().await.clone();
         let config = resolve_workspace_config(&uri, workspace_root.as_deref());
-        let diagnostics = diagnostics_for_uri_with_config(&uri, &source, &config);
+
+        // Layer 1 — synchronous file-local pass for typing responsiveness.
+        // These are the LSP-owned shape / contract / security diagnostics;
+        // published immediately so squiggles track keystrokes.
+        let file_local = diagnostics_for_uri_with_config(&uri, &source, &config);
         self.client
-            .publish_diagnostics(uri, diagnostics, None)
+            .publish_diagnostics(uri.clone(), file_local.clone(), None)
             .await;
+
+        // Layer 2 — debounced background package-engine run (D3). Bump the
+        // generation; a later keystroke that bumps again will make THIS
+        // task's result stale, so it won't publish. Only fires when a
+        // workspace root + the document's file path are resolvable (the
+        // engine needs a real project to load).
+        let generation = self.doctor_run_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let (Some(workspace_root), Ok(_doc_path)) = (workspace_root, uri.to_file_path()) else {
+            return;
+        };
+
+        let generation_handle = Arc::clone(&self.doctor_run_generation);
+        let client = self.client.clone();
+        let profile = config.profile.0;
+        tokio::spawn(async move {
+            tokio::time::sleep(DOCTOR_RUN_DEBOUNCE).await;
+            // Debounce: a newer publish superseded us — bail before the
+            // (synchronous, potentially heavy) engine run.
+            if generation_handle.load(Ordering::SeqCst) != generation {
+                return;
+            }
+
+            // The package engine run is synchronous + filesystem-bound;
+            // keep it off the async reactor.
+            let doc_for_engine = uri.clone();
+            let source_for_engine = source.clone();
+            let doctor_owned = tokio::task::spawn_blocking(move || {
+                crate::doctor_engine::doctor_owned_for_document(
+                    &workspace_root,
+                    &doc_for_engine,
+                    &source_for_engine,
+                    profile,
+                )
+            })
+            .await
+            .unwrap_or_default();
+
+            // Generation re-check: a keystroke could have landed during the
+            // engine run. If so, the newer publish already owns the squiggle
+            // set — don't clobber it with stale results.
+            if generation_handle.load(Ordering::SeqCst) != generation {
+                return;
+            }
+
+            // Republish the MERGED stream (LSP-owned file-local + the
+            // doctor-owned package findings) since an LSP publish replaces
+            // the document's diagnostics wholesale.
+            let mut merged = file_local;
+            merged.extend(doctor_owned);
+            client.publish_diagnostics(uri, merged, None).await;
+        });
     }
 }
 
@@ -380,6 +448,7 @@ pub async fn serve_stdio() {
         client,
         documents: Arc::new(RwLock::new(HashMap::new())),
         workspace_root: Arc::new(RwLock::new(None)),
+        doctor_run_generation: Arc::new(AtomicU64::new(0)),
     });
 
     Server::new(stdin, stdout, socket).serve(service).await;

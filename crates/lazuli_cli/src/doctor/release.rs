@@ -11,12 +11,11 @@
 use std::path::Path;
 
 use anyhow::{Result, bail};
+use lazuli_doctor_run::entry_support::{
+    collect_recipe_dirs, doctor_project_root, extract_lzir_schema, major_minor,
+};
+use lazuli_doctor_run::{DoctorDiagnostic, DoctorSeverity};
 use lazuli_ir::LZIR_SCHEMA;
-
-use super::helpers::doctor_project_root;
-use super::parsers::major_minor;
-use super::scanners::{collect_recipe_dirs, extract_lzir_schema};
-use super::{DoctorDiagnostic, DoctorSeverity};
 
 pub(super) fn doctor_release_command(input: &Path) -> Result<()> {
     let project_root = doctor_project_root(input);

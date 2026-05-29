@@ -12,19 +12,20 @@
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
-
-use super::helpers::{
-    parse_doctor_format, parse_fail_on_specs, resolve_error_handling_severity,
-    resolve_internal_hygiene_severity,
+use lazuli_doctor_run::entry_support::{
+    resolve_error_handling_severity, resolve_internal_hygiene_severity,
 };
+use lazuli_doctor_run::{DoctorDiagnostic, DoctorSeverity};
+use lazuli_manifest::lazurite_manifest;
+
 use super::runtime_options::DoctorRuntimeOptions;
-use super::{DoctorDiagnostic, DoctorSeverity};
-use crate::lazurite_manifest;
+use super::{parse_doctor_format, parse_fail_on_specs};
 
 pub(super) fn doctor_self_command(input: &Path, opts: &DoctorRuntimeOptions) -> Result<()> {
+    use lazuli_doctor::internal_hygiene::preset::InternalHygienePreset;
+    use lazuli_doctor::internal_hygiene::walker::walk_workspace_rust_sources;
     use lazuli_doctor::internal_hygiene::{
-        file_size_001, no_example_001, preset::InternalHygienePreset, test_pairing_001,
-        undoc_pub_001, walker::walk_workspace_rust_sources,
+        file_size_001, no_example_001, test_pairing_001, undoc_pub_001,
     };
 
     let workspace_root = if input.as_os_str().is_empty() {

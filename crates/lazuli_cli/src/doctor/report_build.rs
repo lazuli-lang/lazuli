@@ -10,8 +10,7 @@ use std::path::Path;
 
 use anyhow::Result;
 use lazuli_doctor_config::DoctorProfile as SecurityProfile;
-
-use super::{DoctorDiagnostic, DoctorPackage, DoctorSeverity};
+use lazuli_doctor_run::{DoctorDiagnostic, DoctorPackage, DoctorSeverity};
 
 /// Build a canonical `DoctorReport` from `DoctorDiagnostic` list +
 /// optional coverage. Wave 2 (JSON schema) + Wave 6 (coverage).
@@ -20,10 +19,11 @@ pub(super) fn build_doctor_report(
     want_coverage: bool,
     package: &DoctorPackage,
 ) -> crate::doctor_report::DoctorReport {
+    use std::collections::BTreeMap;
+
     use crate::doctor_report::{
         DoctorReport, DoctorSummary, FindingBuilder, Severity as JsonSeverity, classify_result,
     };
-    use std::collections::BTreeMap;
     let mut findings = Vec::with_capacity(diagnostics.len());
     let mut summary = DoctorSummary {
         errors: 0,
@@ -122,7 +122,7 @@ pub(crate) fn doctor_diagnostics_json(
     input: &Path,
     security_profile: SecurityProfile,
 ) -> Result<serde_json::Value> {
-    let package = DoctorPackage::load(input, security_profile)?;
+    let package = super::run_package_cli(input, security_profile)?;
     let diagnostics = package.diagnostics();
     let payload: Vec<serde_json::Value> = diagnostics
         .iter()
