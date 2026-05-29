@@ -29,8 +29,10 @@ use tower_lsp::lsp_types::{
     CompletionParams, CompletionResponse, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DocumentFormattingParams, DocumentSymbolParams,
     DocumentSymbolResponse, Hover, HoverContents, HoverParams, InitializeParams, InitializeResult,
-    InitializedParams, MarkupContent, MarkupKind, MessageType, OneOf, ServerCapabilities,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url,
+    InitializedParams, MarkupContent, MarkupKind, MessageType, OneOf, SemanticTokensFullOptions,
+    SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
+    SemanticTokensServerCapabilities, ServerCapabilities, TextDocumentSyncCapability,
+    TextDocumentSyncKind, TextEdit, Url, WorkDoneProgressOptions,
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server, async_trait};
 
@@ -160,6 +162,21 @@ impl LanguageServer for Backend {
                 // `command.policy` line. Auth-refresh rotation contributes
                 // text-edit scaffolds for `auth.sessions.rotation`.
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                // H4 — parser-driven semantic-token highlighting. Legend
+                // is the `lazuli_keywords::SemanticToken` projection so it
+                // tracks the registry. `full` only for now; clients fall
+                // back to the static tmLanguage grammar for spans the
+                // classifier under-classifies (by design).
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(
+                        SemanticTokensOptions {
+                            work_done_progress_options: WorkDoneProgressOptions::default(),
+                            legend: crate::semantic_tokens::legend(),
+                            range: Some(false),
+                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                        },
+                    ),
+                ),
                 ..ServerCapabilities::default()
             },
             server_info: Some(tower_lsp::lsp_types::ServerInfo {
@@ -350,6 +367,19 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
         Ok(handlers::code_actions_for_position(source, &uri, position))
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        let uri = params.text_document.uri;
+        let documents = self.documents.read().await;
+        let Some(source) = documents.get(&uri) else {
+            return Ok(None);
+        };
+        let tokens = crate::semantic_tokens::semantic_tokens_full(source);
+        Ok(Some(SemanticTokensResult::Tokens(tokens)))
     }
 }
 

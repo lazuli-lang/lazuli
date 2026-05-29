@@ -23,6 +23,7 @@ mod keywords;
 mod lzx_completion;
 mod rate_limit;
 mod security_profile;
+mod semantic_tokens;
 mod source_diagnostics;
 mod source_scan;
 mod test_blocks;
@@ -161,6 +162,13 @@ pub use types::SecurityProfile;
 pub mod test_surface {
     pub use crate::diagnostics::doctor_local::{doctor_class_lsp_severity, lsp_severity};
     pub use crate::doctor_engine::{is_doctor_owned, is_lsp_owned};
+    // H4 — the genuine semantic-token production functions the
+    // `semantic_tokens_full` trait method calls. Re-exported so the
+    // end-to-end parity test exercises the exact legend + delta-encoding
+    // code path the editor publishes, not a reconstruction.
+    pub use crate::semantic_tokens::{
+        SEMANTIC_TOKEN_ORDER, encode_delta, legend, semantic_tokens_full,
+    };
 }
 
 /// The stable server identifier surfaced to LSP clients during

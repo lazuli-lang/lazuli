@@ -1,0 +1,526 @@
+//! Parser-driven semantic-token classifier (Wave H4).
+//!
+//! There is no lexer / token stream in this crate — "each parser IS the
+//! spec" (see `lzi/mod.rs`). The only shared scanning primitive is the
+//! indent-aware [`SourceLine`] line-span plus the ad-hoc byte scanners in
+//! [`super::common`]. So instead of re-running the recursive-descent
+//! parsers (which produce an AST, not positioned tokens), this module
+//! builds a small, *correct-where-it-fires* positioned-token classifier
+//! directly over the line stream.
+//!
+//! ## Approach — re-deriving tokens without a lexer
+//!
+//! [`classify_tokens`] walks one [`SourceLine`] at a time and scans it
+//! left-to-right into byte-anchored word tokens, classifying each by a
+//! *closed*, conservative set of rules:
+//!
+//! 1. **Comments** — a `#` outside any quote ends the line; the rest is
+//!    one [`SemanticToken::Comment`] span. (`#` inside `"..."`/`'...'`
+//!    stays put, mirroring [`super::common::strip_inline_comment`].)
+//! 2. **Strings** — `"..."` / `'...'` spans classify as
+//!    [`SemanticToken::String`]. **Nothing inside a string is ever
+//!    re-scanned**, so a keyword that happens to sit inside a string
+//!    literal stays `String` — never mis-classified as a keyword.
+//! 3. **`@`-sigils** — `@head` looks up the registry decorator row; the
+//!    `@head` namespace span is [`SemanticToken::Decorator`]. A
+//!    `.TypeName` suffix (`@semantic.HexColor`, `@cap.File`) classifies
+//!    the uppercase-initial suffix as [`SemanticToken::Type`]. A
+//!    lowercase suffix (`@policy.create`, `@fn.foo`) is left to the
+//!    tmLanguage fallback — under-classify rather than mis-classify.
+//! 4. **Registry keyword literals** — a bare word that resolves to a
+//!    [`lazuli_keywords::find`] row carrying its `.token` is classified as
+//!    that token **only in a position where the classification is
+//!    unambiguous**: the head (first non-trivia) word of a line, or a
+//!    dotted-kind head (`query.list`). This is the conservative core: a
+//!    word like `name` is both a `storage.modifier` connector *and* a
+//!    cookie-block statement keyword; classifying it by registry lookup
+//!    in arbitrary mid-line position would risk emitting the wrong token,
+//!    so mid-line bare words are left to the fallback.
+//! 5. **Uppercase-initial type refs** — a word matching `IDENT_UPPER`
+//!    (e.g. the `Org` / `Text` in `org: Org required`, or a resource
+//!    name `Customer`) classifies as [`SemanticToken::Type`].
+//!
+//! Everything not covered by these rules (numbers, field names,
+//! mid-line modifiers/operators, bound variables, …) is **deliberately
+//! left unclassified** and falls through to the static tmLanguage grammar
+//! — the design's documented fallback. The invariant this module upholds
+//! is: *when it fires, it is correct*; it under-classifies by design.
+//!
+//! Note on numbers: [`SemanticToken`] (the registry enum that drives the
+//! LSP legend) has no numeric variant, so this classifier never emits a
+//! number token — numbers stay a tmLanguage `constant.numeric` concern.
+//! This keeps the legend's token-type set exactly the registry's variants.
+
+use lazuli_keywords::{SemanticToken, find};
+
+use super::common::{SourceLine, source_lines};
+
+/// One positioned, classified token. Byte-range anchored
+/// (`line`/`start_col`/`len` are all 0-based byte offsets within the line)
+/// plus the registry's [`SemanticToken`] type. Carries no `tower-lsp`
+/// types — the LSP layer maps `(line, start_col, len, token)` to the
+/// protocol's relative-delta encoding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClassifiedToken {
+    /// 0-based line index.
+    pub line: usize,
+    /// 0-based byte offset of the token start within the line.
+    pub start_col: usize,
+    /// Token length in bytes.
+    pub len: usize,
+    /// The classified semantic-token type.
+    pub token: SemanticToken,
+}
+
+/// Classify `source` into a flat, line-ordered, non-overlapping list of
+/// positioned semantic tokens.
+///
+/// Pure: same input → same output, no I/O, no allocation beyond the
+/// result `Vec`. The result is ordered by `(line, start_col)` and every
+/// token is non-overlapping (within a line each token's
+/// `[start_col, start_col+len)` is disjoint from its neighbours), which is
+/// exactly the precondition the LSP delta encoder needs.
+///
+/// It does **not** classify everything — see the module docs. It is
+/// correct where it fires; anything it leaves out is covered by the
+/// static tmLanguage grammar.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_syntax::{classify_tokens, ClassifiedToken};
+/// use lazuli_keywords::SemanticToken;
+///
+/// let toks = classify_tokens("feature billing\n");
+/// // `feature` is a top-level declaration keyword.
+/// assert_eq!(toks[0].token, SemanticToken::Keyword);
+/// assert_eq!((toks[0].line, toks[0].start_col, toks[0].len), (0, 0, 7));
+/// // `Billing`-style uppercase name would be a Type; `billing` (lower)
+/// // is a feature name left to the fallback.
+/// ```
+pub fn classify_tokens(source: &str) -> Vec<ClassifiedToken> {
+    let mut out = Vec::new();
+    for (line_idx, line) in source_lines(source).iter().enumerate() {
+        classify_line(line_idx, line, &mut out);
+    }
+    out
+}
+
+/// Classify a single source line, pushing tokens onto `out`.
+fn classify_line(line_idx: usize, line: &SourceLine<'_>, out: &mut Vec<ClassifiedToken>) {
+    let bytes = line.text.as_bytes();
+    let mut i = 0usize;
+    // Index, within the line, of the first non-whitespace token start —
+    // used to decide whether a bare-keyword lookup is in "head" position.
+    let mut first_word_start: Option<usize> = None;
+
+    while i < bytes.len() {
+        let b = bytes[i];
+
+        // Whitespace — skip.
+        if b == b' ' || b == b'\t' {
+            i += 1;
+            continue;
+        }
+
+        // Comment — `#` outside a quote ends the line.
+        if b == b'#' {
+            let len = bytes.len() - i;
+            if len > 0 {
+                out.push(ClassifiedToken {
+                    line: line_idx,
+                    start_col: i,
+                    len,
+                    token: SemanticToken::Comment,
+                });
+            }
+            return;
+        }
+
+        // String literal — `"..."` or `'...'`. Scan to the matching
+        // (unescaped) close quote, or to end-of-line if unterminated.
+        if b == b'"' || b == b'\'' {
+            let start = i;
+            let quote = b;
+            i += 1;
+            while i < bytes.len() {
+                if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                    i += 2;
+                    continue;
+                }
+                if bytes[i] == quote {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            out.push(ClassifiedToken {
+                line: line_idx,
+                start_col: start,
+                len: i - start,
+                token: SemanticToken::String,
+            });
+            continue;
+        }
+
+        // A non-whitespace, non-comment, non-string word starts here.
+        let word_start = i;
+        let is_head = first_word_start.is_none();
+        if first_word_start.is_none() {
+            first_word_start = Some(word_start);
+        }
+
+        // `@`-sigil decorator.
+        if b == b'@' {
+            i = classify_at_token(line_idx, line.text, word_start, out);
+            continue;
+        }
+
+        // Bare word — scan to the next word boundary (whitespace, quote,
+        // `#`, or an opening bracket / colon that ends the head token).
+        let word_end = scan_word_end(bytes, word_start);
+        let word = &line.text[word_start..word_end];
+        i = word_end;
+
+        classify_bare_word(line_idx, word, word_start, is_head, out);
+    }
+}
+
+/// Scan to the end of a bare word starting at `start`. A word runs until
+/// whitespace, a quote, a `#`, or a bracket — but a `.` is included so
+/// dotted kinds (`query.list`, `event.trace`) stay one token.
+fn scan_word_end(bytes: &[u8], start: usize) -> usize {
+    let mut i = start;
+    while i < bytes.len() {
+        match bytes[i] {
+            b' ' | b'\t' | b'"' | b'\'' | b'#' | b'(' | b')' | b'[' | b']' | b'{' | b'}' | b',' => {
+                break;
+            }
+            _ => i += 1,
+        }
+    }
+    i
+}
+
+/// Classify an `@head[.suffix]` sigil token. Returns the byte index just
+/// past the consumed token. `at` is the byte offset of the `@`.
+fn classify_at_token(
+    line_idx: usize,
+    text: &str,
+    at: usize,
+    out: &mut Vec<ClassifiedToken>,
+) -> usize {
+    let bytes = text.as_bytes();
+    let token_end = scan_word_end(bytes, at);
+    let token = &text[at..token_end];
+
+    // Split `@head` from an optional `.suffix` (`@semantic.HexColor`).
+    let head_end = token.find('.').map(|d| at + d).unwrap_or(token_end);
+    let head = &text[at..head_end]; // includes the leading `@`
+
+    // The `@head` must resolve to a registry decorator row to fire; an
+    // unknown `@foo` is left to the fallback (under-classify).
+    let head_is_known = find(head)
+        .map(|spec| spec.token == SemanticToken::Decorator)
+        .unwrap_or(false);
+
+    if head_is_known {
+        out.push(ClassifiedToken {
+            line: line_idx,
+            start_col: at,
+            len: head_end - at,
+            token: SemanticToken::Decorator,
+        });
+
+        // A dotted `.TypeName` suffix with an uppercase initial is a type
+        // reference (`@semantic.HexColor`, `@cap.File`). A lowercase
+        // suffix (`@policy.create`, `@fn.foo`) is a reference name we
+        // leave to the fallback.
+        if head_end < token_end {
+            let suffix_start = head_end + 1; // skip the `.`
+            if suffix_start < token_end {
+                let suffix = &text[suffix_start..token_end];
+                if is_ident_upper(suffix) {
+                    out.push(ClassifiedToken {
+                        line: line_idx,
+                        start_col: suffix_start,
+                        len: token_end - suffix_start,
+                        token: SemanticToken::Type,
+                    });
+                }
+            }
+        }
+    }
+
+    token_end
+}
+
+/// Classify a bare (non-sigil) word.
+///
+/// * An uppercase-initial identifier (`Org`, `Text`, `Customer`) is a
+///   [`SemanticToken::Type`] reference — safe anywhere because the grammar
+///   only uses `IDENT_UPPER` for type / resource / entity names.
+/// * Otherwise, **only in head position**, a registry lookup classifies
+///   the word as its `.token`. Mid-line bare words are left to the
+///   fallback to avoid mis-classifying context-sensitive connectors.
+fn classify_bare_word(
+    line_idx: usize,
+    word: &str,
+    start: usize,
+    is_head: bool,
+    out: &mut Vec<ClassifiedToken>,
+) {
+    if word.is_empty() {
+        return;
+    }
+
+    // Uppercase-initial → type reference. Correct anywhere in the grammar.
+    if is_ident_upper(word) {
+        out.push(ClassifiedToken {
+            line: line_idx,
+            start_col: start,
+            len: word.len(),
+            token: SemanticToken::Type,
+        });
+        return;
+    }
+
+    if !is_head {
+        // Mid-line bare word: context-sensitive — leave to the fallback.
+        return;
+    }
+
+    // Head word: classify via the registry if it resolves to a row whose
+    // token is one we can emit unambiguously in declaration/statement
+    // head position. We restrict to Keyword (and its decorator/dotted
+    // siblings already handled): a head word that the registry knows as a
+    // Keyword is a declaration/section/statement opener, which is exactly
+    // what head position means.
+    if let Some(spec) = find(word) {
+        match spec.token {
+            SemanticToken::Keyword => out.push(ClassifiedToken {
+                line: line_idx,
+                start_col: start,
+                len: word.len(),
+                token: SemanticToken::Keyword,
+            }),
+            // Other token kinds (Modifier / Operator / EnumMember) are
+            // context-sensitive even in head position (e.g. a policy
+            // expression can begin with the `not` operator). Under-
+            // classify: leave them to the tmLanguage fallback.
+            _ => {}
+        }
+    }
+}
+
+/// `IDENT_UPPER`: an ASCII uppercase initial followed by ASCII
+/// alphanumerics / underscores. Matches the grammar's type/entity-name
+/// shape (`Org`, `Text`, `Customer`, `HexColor`).
+fn is_ident_upper(s: &str) -> bool {
+    let mut chars = s.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_uppercase())
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Pull the `(start_col, len, token)` of every classified token on a
+    /// given line, ordered.
+    fn line_tokens(toks: &[ClassifiedToken], line: usize) -> Vec<(usize, usize, SemanticToken)> {
+        toks.iter()
+            .filter(|t| t.line == line)
+            .map(|t| (t.start_col, t.len, t.token))
+            .collect()
+    }
+
+    /// Index of the first line containing `needle`. Uses `.contains` (not
+    /// equality / prefix matching against string literals) on purpose: the
+    /// `proven_complete` parser-keyword scanner treats equality- and
+    /// prefix-marker string literals in this source tree as parser keyword
+    /// literals, so test fixtures must avoid those markers.
+    fn line_with(src: &str, needle: &str) -> usize {
+        src.lines()
+            .position(|l| l.contains(needle))
+            .unwrap_or_else(|| panic!("line containing `{needle}` not found"))
+    }
+
+    /// Find the token whose span covers `start_col` on `line`, if any.
+    fn token_at(toks: &[ClassifiedToken], line: usize, start_col: usize) -> Option<SemanticToken> {
+        toks.iter()
+            .find(|t| t.line == line && t.start_col == start_col)
+            .map(|t| t.token)
+    }
+
+    const SNIPPET: &str = "\
+feature billing
+  resource Invoice
+    org: Org required
+    customer_id: ID required unique when active
+    items: many_through LineItem
+    label: Text required
+  command issue
+    policy @policy.create
+    target Invoice
+    note: \"resource feature command not keywords\"
+    amount: @semantic.Money required
+";
+
+    #[test]
+    fn classifies_header_resource_and_types() {
+        let toks = classify_tokens(SNIPPET);
+
+        // line 0: `feature` keyword at col 0; `billing` (lowercase name)
+        // left to the fallback (not classified).
+        assert_eq!(token_at(&toks, 0, 0), Some(SemanticToken::Keyword));
+        assert_eq!(
+            token_at(&toks, 0, 8),
+            None,
+            "lowercase feature name unclassified"
+        );
+
+        // line 1: `  resource Invoice` — `resource` keyword at col 2,
+        // `Invoice` type at col 11.
+        assert_eq!(token_at(&toks, 1, 2), Some(SemanticToken::Keyword));
+        assert_eq!(token_at(&toks, 1, 11), Some(SemanticToken::Type));
+
+        // line 2: `    org: Org required` — `Org` is a type ref; `org:`
+        // (field name) and `required` (modifier, mid-line) are left out.
+        assert_eq!(token_at(&toks, 2, 9), Some(SemanticToken::Type));
+        // field-name `org:` is not classified (no Property emission here).
+        assert_eq!(token_at(&toks, 2, 4), None);
+    }
+
+    #[test]
+    fn classifies_many_through_unique_when_line() {
+        let toks = classify_tokens(SNIPPET);
+
+        // line 3: `    customer_id: ID required unique when active`
+        //  - `ID` is uppercase → Type.
+        assert_eq!(token_at(&toks, 3, 17), Some(SemanticToken::Type));
+        // `unique` and `when` appear mid-line, so they are NOT classified
+        // (correctly under-classified — `when` is context-sensitive).
+        // Assert no token is emitted at their offsets.
+        let line3 = SNIPPET.lines().nth(3).unwrap();
+        let unique_at = line3.find("unique").unwrap();
+        let when_at = line3.find("when").unwrap();
+        assert_eq!(token_at(&toks, 3, unique_at), None);
+        assert_eq!(token_at(&toks, 3, when_at), None);
+
+        // line 4: `    items: many_through LineItem`
+        //  - `LineItem` uppercase → Type. `many_through` is a mid-line
+        //    bare word, left to the fallback.
+        let line4 = SNIPPET.lines().nth(4).unwrap();
+        let lineitem_at = line4.find("LineItem").unwrap();
+        assert_eq!(token_at(&toks, 4, lineitem_at), Some(SemanticToken::Type));
+        let many_through_at = line4.find("many_through").unwrap();
+        assert_eq!(token_at(&toks, 4, many_through_at), None);
+    }
+
+    #[test]
+    fn classifies_command_and_policy_decorator() {
+        let toks = classify_tokens(SNIPPET);
+
+        // `  command issue` — `command` keyword.
+        let cmd_line = line_with(SNIPPET, "command issue");
+        assert_eq!(token_at(&toks, cmd_line, 2), Some(SemanticToken::Keyword));
+
+        // `    policy @policy.create` — `policy` head keyword, then the
+        // `@policy` decorator. The `.create` suffix is lowercase → left
+        // to the fallback (NOT a type).
+        let pol_line = line_with(SNIPPET, "policy @policy.create");
+        assert_eq!(token_at(&toks, pol_line, 4), Some(SemanticToken::Keyword)); // `policy`
+        let policy_decorator_at = SNIPPET
+            .lines()
+            .nth(pol_line)
+            .unwrap()
+            .find("@policy")
+            .unwrap();
+        assert_eq!(
+            token_at(&toks, pol_line, policy_decorator_at),
+            Some(SemanticToken::Decorator)
+        );
+        // `.create` lowercase suffix → no Type emission.
+        let create_at = SNIPPET
+            .lines()
+            .nth(pol_line)
+            .unwrap()
+            .find("create")
+            .unwrap();
+        assert_eq!(token_at(&toks, pol_line, create_at), None);
+    }
+
+    #[test]
+    fn semantic_decorator_uppercase_suffix_is_type() {
+        let toks = classify_tokens(SNIPPET);
+        // `    amount: @semantic.Money required`
+        let line = line_with(SNIPPET, "@semantic.Money");
+        let dec_at = SNIPPET
+            .lines()
+            .nth(line)
+            .unwrap()
+            .find("@semantic")
+            .unwrap();
+        let money_at = SNIPPET.lines().nth(line).unwrap().find("Money").unwrap();
+        assert_eq!(
+            token_at(&toks, line, dec_at),
+            Some(SemanticToken::Decorator)
+        );
+        assert_eq!(token_at(&toks, line, money_at), Some(SemanticToken::Type));
+    }
+
+    #[test]
+    fn keyword_inside_a_string_stays_string_never_keyword() {
+        let toks = classify_tokens(SNIPPET);
+        // `    note: "resource feature command not keywords"` — the words
+        // `resource`/`feature`/`command` live INSIDE the string. There
+        // must be exactly one classified token on this line (the String),
+        // and it must be String — never Keyword.
+        let line = SNIPPET
+            .lines()
+            .position(|l| l.contains("resource feature command not keywords"))
+            .unwrap();
+        let on_line = line_tokens(&toks, line);
+        assert_eq!(
+            on_line.len(),
+            1,
+            "exactly one token (the string) on the note line"
+        );
+        assert_eq!(on_line[0].2, SemanticToken::String);
+        // And specifically: the `resource` substring inside the string is
+        // NOT classified as a Keyword.
+        let resource_in_string = SNIPPET.lines().nth(line).unwrap().find("resource").unwrap();
+        // No token *starts* there (it's swallowed by the string span).
+        assert_eq!(token_at(&toks, line, resource_in_string), None);
+    }
+
+    #[test]
+    fn comment_classifies_whole_tail_and_strips_keywords() {
+        let toks = classify_tokens("  # feature resource command\n");
+        let on_line = line_tokens(&toks, 0);
+        assert_eq!(on_line.len(), 1);
+        assert_eq!(on_line[0].2, SemanticToken::Comment);
+        assert_eq!(on_line[0].0, 2, "comment starts at the `#`");
+    }
+
+    #[test]
+    fn output_is_ordered_and_non_overlapping() {
+        let toks = classify_tokens(SNIPPET);
+        // Globally ordered by (line, start_col); within a line each token
+        // is disjoint from the next.
+        for w in toks.windows(2) {
+            let (a, b) = (w[0], w[1]);
+            assert!(
+                (a.line, a.start_col) <= (b.line, b.start_col),
+                "tokens must be (line, col)-ordered"
+            );
+            if a.line == b.line {
+                assert!(
+                    a.start_col + a.len <= b.start_col,
+                    "tokens on the same line must not overlap: {a:?} vs {b:?}"
+                );
+            }
+        }
+    }
+}

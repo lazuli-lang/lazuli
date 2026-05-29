@@ -58,10 +58,12 @@
 
 mod common;
 mod error;
+mod highlight;
 mod lzi;
 mod lzx;
 
 pub use error::ParseError;
+pub use highlight::{ClassifiedToken, classify_tokens};
 pub use lzi::{
     LifecycleBlockAst, LifecycleInvariantAst, LifecycleInvariantForm, LifecycleStateAst,
     LifecycleTransitionAst, PollerBlockAst, PollerCursorAst, PollerRetryAst, PollerRetryQuirkAst,

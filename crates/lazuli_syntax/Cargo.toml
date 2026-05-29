@@ -6,6 +6,7 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+lazuli_keywords = { path = "../lazuli_keywords" }
 serde.workspace = true
 thiserror.workspace = true
 

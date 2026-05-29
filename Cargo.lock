@@ -796,6 +796,7 @@ dependencies = [
 name = "lazuli_syntax"
 version = "0.1.0"
 dependencies = [
+ "lazuli_keywords",
  "serde",
  "serde_json",
  "thiserror",
