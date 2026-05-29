@@ -33,6 +33,10 @@ runtime/ts/**/dist/
 dist/web/**/dist/
 *.tsbuildinfo
 .claude/
+# The scaffold template ships a `.claude/` payload (the lazuli-architect skill)
+# that `lazuli new` copies into every new app — it must be tracked, not ignored.
+!lazurite/templates/default/.claude/
+!lazurite/templates/default/.claude/**
 
 # Per-agent worktrees for parallel wave implementation (TDD/BDD multi-agent campaign 2026-05-24)
 .worktrees/
