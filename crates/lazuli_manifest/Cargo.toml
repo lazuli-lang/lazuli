@@ -1,0 +1,16 @@
+[package]
+name = "lazuli_manifest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+lazuli_doctor_config = { path = "../lazuli_doctor_config" }
+lazuli_ir = { path = "../lazuli_ir" }
+serde.workspace = true
+toml = "0.8"
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile = "3"

@@ -5,7 +5,12 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 
-mod app_manifest;
+// Shim-first (Wave D3a): the manifest trio (`app_manifest`,
+// `lazurite_manifest`, `plugin_manifest`) moved to the shared
+// `lazuli_manifest` leaf crate. Re-export under the original crate-root
+// paths so every `crate::app_manifest::Y` / `crate::lazurite_manifest::X`
+// / `crate::plugin_manifest::Z` call site keeps resolving unchanged.
+use lazuli_manifest::{app_manifest, lazurite_manifest, plugin_manifest};
 mod casing;
 mod cli_args;
 mod cmd_design;
@@ -40,13 +45,11 @@ mod inspect {
     pub mod features_summary;
 }
 mod lazurite_codegen;
-mod lazurite_manifest;
 mod migrate;
 mod module_loader;
 mod path_utils;
 mod playwright_fixture;
 mod plugin_catalog;
-mod plugin_manifest;
 mod plugin_semantic_resolver;
 mod profile;
 mod runners;

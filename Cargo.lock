@@ -627,6 +627,7 @@ dependencies = [
  "lazuli_fix",
  "lazuli_ir",
  "lazuli_lsp",
+ "lazuli_manifest",
  "lazuli_openapi",
  "lazuli_planner",
  "lazuli_syntax",
@@ -718,6 +719,18 @@ dependencies = [
  "serde_json",
  "tokio",
  "tower-lsp",
+]
+
+[[package]]
+name = "lazuli_manifest"
+version = "0.1.0"
+dependencies = [
+ "lazuli_doctor_config",
+ "lazuli_ir",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
 ]
 
 [[package]]

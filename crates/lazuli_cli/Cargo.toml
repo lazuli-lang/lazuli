@@ -31,6 +31,7 @@ lazuli_doctor_config = { path = "../lazuli_doctor_config" }
 lazuli_fix = { path = "../lazuli_fix" }
 lazuli_ir = { path = "../lazuli_ir" }
 lazuli_lsp = { path = "../lazuli_lsp" }
+lazuli_manifest = { path = "../lazuli_manifest" }
 lazuli_openapi = { path = "../lazuli_openapi" }
 lazuli_planner = { path = "../lazuli_planner" }
 lazuli_syntax = { path = "../lazuli_syntax" }
