@@ -119,3 +119,4 @@ mod group_09_canonical_order_reports_late_use;
 mod group_10_rich_keyword_hover_describes_con;
 mod group_11_rich_hover_for_query_lookup_docu;
 mod group_12_doctor_vocab_audit_001_surfaces_;
+mod group_13_keyword_registry_derivation;

@@ -710,6 +710,7 @@ dependencies = [
  "lazuli_analyzer",
  "lazuli_doctor",
  "lazuli_ir",
+ "lazuli_keywords",
  "lazuli_syntax",
  "serde_json",
  "tokio",
