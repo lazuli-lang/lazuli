@@ -29,6 +29,12 @@ pub mod vocab_cap_missing_001;
 // `crates/lazuli_doctor/src/coverage/mod.rs:preset_severity_overrides`.
 pub mod vocab_context_ctxmd_001;
 pub mod vocab_context_nongoals_001;
+// CUT 1b — the drift-killer. Fires when a feature's co-located
+// `<feature>.ctx.md` prose SHADOWS (duplicates as a markdown table) what the
+// IR already knows about a resource's fields. Doctrine-enforcement over the
+// `<feature>.ctx.md` convention (no net-new vocab); sibling of
+// `vocab_context_ctxmd_001` (which enforces the sidecar's PRESENCE).
+pub mod vocab_context_prose_shadows_ir_001;
 pub mod vocab_context_purpose_001;
 pub mod vocab_derived_read_001;
 pub mod vocab_event_orphan_001;

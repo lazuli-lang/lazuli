@@ -284,6 +284,17 @@ pub const GLOBAL_DIAGNOSTICS: &[DiagnosticFacet] = &[
         base_severity: "warning",
         category: "vocabulary",
     },
+    // `VOCAB-CONTEXT-PROSE-SHADOWS-IR-001` (CUT 1b, the drift-killer) fires
+    // when a feature's co-located `<feature>.ctx.md` prose SHADOWS the IR —
+    // a markdown table whose header columns duplicate >=3 of a resource's
+    // fields. Same convention origin as CTXMD-001 (no keyword owner): it
+    // enforces existing doctrine (canonical-semantics "Do not duplicate
+    // schema ... there"), not net-new vocab, so it lives here too.
+    DiagnosticFacet {
+        code: "VOCAB-CONTEXT-PROSE-SHADOWS-IR-001",
+        base_severity: "warning",
+        category: "vocabulary",
+    },
 ];
 
 /// The block/scope a capability is valid in. Mirrors the LSP

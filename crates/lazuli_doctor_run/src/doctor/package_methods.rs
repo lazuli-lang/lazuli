@@ -37,7 +37,8 @@ impl DoctorPackage {
     pub(super) fn context_vocab_diagnostics(&self) -> Vec<DoctorDiagnostic> {
         use lazuli_doctor::coverage::CoveragePreset;
         use lazuli_doctor::vocab::{
-            vocab_context_ctxmd_001, vocab_context_nongoals_001, vocab_context_purpose_001,
+            vocab_context_ctxmd_001, vocab_context_nongoals_001,
+            vocab_context_prose_shadows_ir_001, vocab_context_purpose_001,
         };
 
         let preset = self.coverage_preset();
@@ -141,6 +142,30 @@ impl DoctorPackage {
                         column: 1,
                         severity: sev,
                         code: vocab_context_ctxmd_001::Finding::CODE.to_owned(),
+                        message,
+                        category: Some(RuleCategory::Vocabulary),
+                        feature_name: Some(finding.feature),
+                        construct: None,
+                        fix: None,
+                        group: None,
+                    });
+                }
+
+                // VOCAB-CONTEXT-PROSE-SHADOWS-IR-001 (CUT 1b) — the
+                // drift-killer. Reads the same `<feature>.ctx.md` convention
+                // sidecar and fires when a markdown table's header columns
+                // duplicate >=3 of a resource's field names (the prose
+                // shadows the IR). The finding's `line` anchors at the
+                // offending table row inside the sidecar.
+                let sev = resolve(vocab_context_prose_shadows_ir_001::Finding::CODE);
+                for finding in vocab_context_prose_shadows_ir_001::check(&feature, &file.path) {
+                    let message = finding.message();
+                    out.push(DoctorDiagnostic {
+                        path: finding.path,
+                        line: finding.table_line,
+                        column: 1,
+                        severity: sev,
+                        code: vocab_context_prose_shadows_ir_001::Finding::CODE.to_owned(),
                         message,
                         category: Some(RuleCategory::Vocabulary),
                         feature_name: Some(finding.feature),

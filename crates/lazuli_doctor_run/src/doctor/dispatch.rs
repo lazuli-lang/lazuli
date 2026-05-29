@@ -58,9 +58,11 @@ impl DoctorPackage {
         diagnostics.extend(lazurite_manifest_diagnostics(self));
 
         // Iron-hand context-vocabulary lints (VOCAB-CONTEXT-PURPOSE-001,
-        // VOCAB-CONTEXT-NONGOALS-001, VOCAB-CONTEXT-CTXMD-001). Severity
-        // resolves through: manifest override > preset escalation
-        // (iron-hand promotes to error) > category default.
+        // VOCAB-CONTEXT-NONGOALS-001, VOCAB-CONTEXT-CTXMD-001, and CUT 1b's
+        // VOCAB-CONTEXT-PROSE-SHADOWS-IR-001 — the drift-killer that fires
+        // when a `<feature>.ctx.md` markdown table shadows a resource's
+        // fields). Severity resolves through: manifest override > preset
+        // escalation (iron-hand promotes to error) > category default.
         diagnostics.extend(self.context_vocab_diagnostics());
 
         // Knowledge-sector vocabulary — the five `VOCAB-KNOWLEDGE-*` rules
