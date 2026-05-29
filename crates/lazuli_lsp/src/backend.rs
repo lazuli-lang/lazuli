@@ -461,7 +461,7 @@ impl Backend {
             // keep it off the async reactor.
             let doc_for_engine = uri.clone();
             let source_for_engine = source.clone();
-            let doctor_owned = tokio::task::spawn_blocking(move || {
+            let doctor_owned = match tokio::task::spawn_blocking(move || {
                 crate::doctor_engine::doctor_owned_for_document(
                     &workspace_root,
                     &doc_for_engine,
@@ -470,7 +470,22 @@ impl Backend {
                 )
             })
             .await
-            .unwrap_or_default();
+            {
+                Ok(doctor_owned) => doctor_owned,
+                // A panic in the package engine must NOT silently erase the
+                // squiggles: surface the panic to the client log and keep
+                // the already-computed Layer-1 (file-local) diagnostics so
+                // shape/contract findings survive an engine crash.
+                Err(join_err) => {
+                    client
+                        .log_message(
+                            MessageType::ERROR,
+                            format!("doctor engine panicked: {join_err}"),
+                        )
+                        .await;
+                    Vec::new()
+                }
+            };
 
             // Generation re-check: a keystroke could have landed during the
             // engine run. If so, the newer publish already owns the squiggle
