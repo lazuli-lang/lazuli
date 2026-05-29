@@ -145,6 +145,24 @@ pub(crate) use text_utils::{
 };
 pub use types::SecurityProfile;
 
+/// Hidden test surface — the **real** LSP-side severity bridge + the D3
+/// ownership partition, re-exported so the anti-drift parity integration
+/// test (`tests/doctor_severity_parity.rs`) can call the genuine
+/// production functions rather than a reconstruction. Hardcoding a
+/// severity on the LSP side (instead of routing through the shared
+/// `lazuli_doctor_config` resolver) would then fail that test at build /
+/// assert time.
+///
+/// `#[doc(hidden)]`: not part of the LSP's public API contract — it
+/// exists only so the cross-consumer parity proof can mechanically
+/// reference the exact code path the editor publishes. Production callers
+/// reach these through the crate-internal paths unchanged.
+#[doc(hidden)]
+pub mod test_surface {
+    pub use crate::diagnostics::doctor_local::{doctor_class_lsp_severity, lsp_severity};
+    pub use crate::doctor_engine::{is_doctor_owned, is_lsp_owned};
+}
+
 /// The stable server identifier surfaced to LSP clients during
 /// initialization handshake. Hard-coded so the value can never drift
 /// between releases — VS Code / Helix bind their config keys to this
