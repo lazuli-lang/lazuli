@@ -71,7 +71,7 @@ pub enum AnalyzeError {
 
     /// L0 #2 — `design <X>` declared `extends <Y>`. Cut B (post-pilot).
     /// v0 keeps the keyword reserved at parse time but rejects at
-    /// lowering. See `docs/proposals/design-tokens.md` §3.6.
+    /// lowering. See the design-tokens proposal §3.6 (operational archive).
     #[error(
         "DESIGN-EXTENDS-CUT-B: theme inheritance via `extends` ships in Cut B (post-pilot); for v0 declare a standalone `design <X>` block with full token values (got `extends {target}`)"
     )]
@@ -138,7 +138,7 @@ pub enum AnalyzeError {
     /// comma, indicating multi-layer composition. Closed v0 grammar
     /// accepts only single-layer shadows; declare separate tokens
     /// (`shadow.elevated_outer`, `shadow.elevated_inner`) and compose
-    /// at component level. See `docs/proposals/design-tokens.md` §4.6.
+    /// at component level. See the design-tokens proposal §4.6 (operational archive).
     #[error(
         "DESIGN-SHADOW-MULTI-LAYER: shadow `{name}` is multi-layer (top-level comma); v0 accepts single-layer only — declare separate tokens and compose at component level"
     )]
