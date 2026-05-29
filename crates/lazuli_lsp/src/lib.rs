@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use lazuli_doctor_config::ResolvedDoctorConfig;
 use lazuli_syntax::Span;
 use tower_lsp::lsp_types::{
     CodeAction, CodeActionKind, CompletionItemKind, Diagnostic, DiagnosticSeverity, Position,
@@ -95,8 +96,8 @@ pub(crate) use diagnostics::workspace::*;
 // `crate::*` paths.
 #[allow(unused_imports)]
 pub(crate) use source_diagnostics::{
-    anchor_whitelist_diagnostics, approval_contract_diagnostics,
-    reserved_trace_event_diagnostics, AnchorWhitelistEntry,
+    AnchorWhitelistEntry, anchor_whitelist_diagnostics, approval_contract_diagnostics,
+    reserved_trace_event_diagnostics,
 };
 
 // Wave R9-B extract — security-profile narrowing moved into
@@ -105,8 +106,7 @@ pub(crate) use source_diagnostics::{
 // `crate::*` paths.
 #[allow(unused_imports)]
 pub(crate) use security_profile::{
-    apply_security_profile, diagnostic_code, is_security_enforcement_code,
-    is_security_opt_out_code,
+    apply_security_profile, diagnostic_code, is_security_enforcement_code, is_security_opt_out_code,
 };
 
 pub use catalogs::*;
@@ -192,8 +192,9 @@ pub fn diagnostics_for_source(source: &str) -> Vec<Diagnostic> {
 /// against the same lowered IR, and duplicating them here would double-fire
 /// every catalog code into both the LSP-pulled stream and the CLI's own
 /// dispatch. The LSP backend (`Backend::did_open` / `did_change`) calls
-/// `diagnostics_for_uri` → `diagnostics_for` which DOES include them so
-/// editor squiggles still surface live.
+/// `diagnostics_for_uri_with_config` → `diagnostics_for_with_config`
+/// which DOES include them so editor squiggles still surface live, with
+/// severity resolved through the workspace-loaded `ResolvedDoctorConfig`.
 ///
 /// ## Examples
 ///
@@ -207,11 +208,32 @@ pub fn diagnostics_for_source_with_profile(
     source: &str,
     security_profile: SecurityProfile,
 ) -> Vec<Diagnostic> {
-    diagnostics_for_with_profile_inner(source, security_profile, false)
+    // CLI / out-of-process callers pass only a profile (no workspace
+    // manifest). Build a profile-only resolved config so the shared
+    // resolver path is identical to the LSP's.
+    let config = ResolvedDoctorConfig::from_doctor(None, security_profile);
+    diagnostics_for_with_profile_inner(source, &config, false)
 }
 
+/// Test-only convenience: resolve at the default `Strict` profile with no
+/// workspace manifest. Production paths go through
+/// [`diagnostics_for_uri_with_config`] with the backend-loaded config.
+#[cfg(test)]
 pub(crate) fn diagnostics_for_uri(uri: &Url, source: &str) -> Vec<Diagnostic> {
-    let mut diagnostics = diagnostics_for(source);
+    diagnostics_for_uri_with_config(uri, source, &ResolvedDoctorConfig::default())
+}
+
+/// In-LSP entry point that resolves doctor-class diagnostic severity
+/// through a workspace-loaded [`ResolvedDoctorConfig`] (W2). The backend
+/// builds + caches the config from the workspace `Lazurite.toml`
+/// (`[doctor] profile` + presets / overrides) and hands it in here so
+/// editor severities are mode-aware and match `lazuli doctor`.
+pub(crate) fn diagnostics_for_uri_with_config(
+    uri: &Url,
+    source: &str,
+    config: &ResolvedDoctorConfig,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = diagnostics_for_with_config(source, config);
 
     if is_lzx_source(source) {
         diagnostics.extend(lzx_filename_diagnostics(uri, source));
@@ -220,17 +242,33 @@ pub(crate) fn diagnostics_for_uri(uri: &Url, source: &str) -> Vec<Diagnostic> {
     diagnostics
 }
 
+/// Test-only convenience: full in-LSP pass at the default `Strict`
+/// profile with no workspace manifest.
+#[cfg(test)]
 pub(crate) fn diagnostics_for(source: &str) -> Vec<Diagnostic> {
-    diagnostics_for_with_profile(source, SecurityProfile::Strict)
+    diagnostics_for_with_config(source, &ResolvedDoctorConfig::default())
 }
 
 /// Internal in-LSP entry point — always includes the doctor file-local
-/// diagnostics wired in R2.F so editor squiggles fire live.
+/// diagnostics wired in R2.F so editor squiggles fire live. Severity is
+/// resolved through the supplied [`ResolvedDoctorConfig`].
+pub(crate) fn diagnostics_for_with_config(
+    source: &str,
+    config: &ResolvedDoctorConfig,
+) -> Vec<Diagnostic> {
+    diagnostics_for_with_profile_inner(source, config, true)
+}
+
+/// Internal in-LSP entry point keyed on a bare profile (no manifest
+/// presets / overrides). Retained for tests + callers that only vary the
+/// profile; builds a profile-only resolved config.
+#[cfg(test)]
 pub(crate) fn diagnostics_for_with_profile(
     source: &str,
     security_profile: SecurityProfile,
 ) -> Vec<Diagnostic> {
-    diagnostics_for_with_profile_inner(source, security_profile, true)
+    let config = ResolvedDoctorConfig::from_doctor(None, security_profile);
+    diagnostics_for_with_config(source, &config)
 }
 
 pub(crate) fn is_canonical_source(source: &str) -> bool {

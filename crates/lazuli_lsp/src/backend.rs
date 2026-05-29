@@ -16,8 +16,10 @@
 //! `diagnostics/*`, not here.
 
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use lazuli_doctor_config::ResolvedDoctorConfig;
 use tokio::sync::RwLock;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
@@ -40,18 +42,87 @@ use crate::diagnostics::lifecycle_block::lifecycle_block_completions;
 use crate::diagnostics::route_guard::route_guard_completions;
 use crate::format::canonical::format_canonical_source;
 use crate::{
-    diagnostics_for_uri, full_document_range, handlers, is_design_lzi_uri, is_lzx_uri,
+    diagnostics_for_uri_with_config, full_document_range, handlers, is_design_lzi_uri, is_lzx_uri,
     lzx_completion, server_name,
 };
 
 pub(crate) struct Backend {
     pub(crate) client: Client,
     pub(crate) documents: Arc<RwLock<HashMap<Url, String>>>,
+    /// Workspace root captured from the `initialize` handshake
+    /// (`root_uri` / first workspace folder). Used as the starting point
+    /// for `Lazurite.toml` discovery when a document's own path can't be
+    /// resolved.
+    pub(crate) workspace_root: Arc<RwLock<Option<PathBuf>>>,
+}
+
+/// Walk up from `start` looking for the workspace `Lazurite.toml`,
+/// returning its path. Bounded by the filesystem root.
+fn find_lazurite_manifest(start: &Path) -> Option<PathBuf> {
+    let mut dir = Some(start);
+    while let Some(d) = dir {
+        let candidate = d.join("Lazurite.toml");
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+        dir = d.parent();
+    }
+    None
+}
+
+/// Build a [`ResolvedDoctorConfig`] for the workspace that owns `doc_uri`.
+///
+/// W2 — this is where the LSP loads the workspace doctor config:
+/// 1. locate `Lazurite.toml` (from the document's own directory, falling
+///    back to the `initialize` workspace root);
+/// 2. read `[doctor] profile` FOR REAL — `DoctorProfile::parse`, default
+///    `Strict` — fixing the bug where the LSP ignored the authored
+///    profile entirely;
+/// 3. resolve the full `[doctor]` config (presets + per-rule overrides)
+///    via the shared `lazuli_doctor_config` resolver.
+///
+/// Falls back to a profile-only `Strict` config when no manifest is
+/// reachable (single-file edits, scratch dirs) — matching the CLI's
+/// behavior on manifest-less invocations.
+fn resolve_workspace_config(doc_uri: &Url, workspace_root: Option<&Path>) -> ResolvedDoctorConfig {
+    let manifest_path = doc_uri
+        .to_file_path()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf))
+        .and_then(|dir| find_lazurite_manifest(&dir))
+        .or_else(|| workspace_root.and_then(find_lazurite_manifest));
+
+    let Some(manifest_path) = manifest_path else {
+        return ResolvedDoctorConfig::default();
+    };
+    let Ok(body) = std::fs::read_to_string(&manifest_path) else {
+        return ResolvedDoctorConfig::default();
+    };
+
+    // Read `[doctor] profile` for real (default `Strict`) and resolve the
+    // full `[doctor]` config in one shot via the shared resolver.
+    ResolvedDoctorConfig::resolve_reading_profile(Some(&body))
+        .unwrap_or_else(|_| ResolvedDoctorConfig::default())
 }
 
 #[async_trait]
 impl LanguageServer for Backend {
-    async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+        // W2 — capture the workspace root from the handshake so
+        // `Lazurite.toml` (and its `[doctor] profile`) can be discovered
+        // for documents whose own path doesn't resolve a manifest. Prefer
+        // the first workspace folder, else `root_uri`.
+        let root = params
+            .workspace_folders
+            .as_ref()
+            .and_then(|folders| folders.first())
+            .map(|folder| folder.uri.clone())
+            .or(params.root_uri)
+            .and_then(|uri| uri.to_file_path().ok());
+        if root.is_some() {
+            *self.workspace_root.write().await = root;
+        }
+
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
@@ -169,8 +240,7 @@ impl LanguageServer for Backend {
                     || route_guard_items.is_some()
                     || lifecycle_block_items.is_some()
                 {
-                    let merged =
-                        merge_completion_items(lifecycle_items, route_guard_items);
+                    let merged = merge_completion_items(lifecycle_items, route_guard_items);
                     return Ok(Some(CompletionResponse::Array(merge_completion_items(
                         Some(merged),
                         lifecycle_block_items,
@@ -272,7 +342,13 @@ impl LanguageServer for Backend {
 
 impl Backend {
     pub(crate) async fn publish_diagnostics(&self, uri: Url, source: String) {
-        let diagnostics = diagnostics_for_uri(&uri, &source);
+        // W2 — resolve the workspace `[doctor]` config (profile + presets
+        // + overrides) per publish so manifest edits take effect without a
+        // server restart, and so single-file opens still discover the
+        // nearest `Lazurite.toml`. Cheap: one small TOML parse.
+        let workspace_root = self.workspace_root.read().await.clone();
+        let config = resolve_workspace_config(&uri, workspace_root.as_deref());
+        let diagnostics = diagnostics_for_uri_with_config(&uri, &source, &config);
         self.client
             .publish_diagnostics(uri, diagnostics, None)
             .await;
@@ -303,6 +379,7 @@ pub async fn serve_stdio() {
     let (service, socket) = LspService::new(|client| Backend {
         client,
         documents: Arc::new(RwLock::new(HashMap::new())),
+        workspace_root: Arc::new(RwLock::new(None)),
     });
 
     Server::new(stdin, stdout, socket).serve(service).await;

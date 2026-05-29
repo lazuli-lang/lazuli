@@ -258,6 +258,46 @@ impl ResolvedDoctorConfig {
         Ok(Self::from_doctor(doctor.as_ref(), profile))
     }
 
+    /// Parse a `Lazurite.toml` body, reading the active profile FROM
+    /// `[doctor] profile` (default [`DoctorProfile::Strict`] when the key
+    /// is absent or unparseable).
+    ///
+    /// This is the LSP's workspace-config entry point (W2): unlike
+    /// [`resolve`](Self::resolve) — which takes the profile from the
+    /// caller (the CLI's `--security-profile` flag) — this method honors
+    /// the authored `[doctor] profile`. `manifest_toml = None` yields a
+    /// profile-only `Strict` config.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor_config::{ResolvedDoctorConfig, DoctorProfile};
+    ///
+    /// let toml = "[doctor]\nprofile = \"production\"\n";
+    /// let cfg = ResolvedDoctorConfig::resolve_reading_profile(Some(toml)).unwrap();
+    /// assert_eq!(cfg.profile.0, DoctorProfile::Production);
+    ///
+    /// // Absent / no manifest -> Strict default.
+    /// let cfg = ResolvedDoctorConfig::resolve_reading_profile(None).unwrap();
+    /// assert_eq!(cfg.profile.0, DoctorProfile::Strict);
+    /// ```
+    pub fn resolve_reading_profile(manifest_toml: Option<&str>) -> Result<Self, ConfigError> {
+        let doctor: Option<Doctor> = match manifest_toml {
+            Some(body) => {
+                let manifest: ManifestShim =
+                    toml::from_str(body).map_err(|e| ConfigError(e.to_string()))?;
+                manifest.doctor
+            }
+            None => None,
+        };
+        let profile = doctor
+            .as_ref()
+            .and_then(|d| d.profile.as_deref())
+            .and_then(DoctorProfile::parse)
+            .unwrap_or(DoctorProfile::Strict);
+        Ok(Self::from_doctor(doctor.as_ref(), profile))
+    }
+
     /// Build a resolved config from an already-parsed `[doctor]` block.
     /// This is the path the CLI uses, since it has already deserialized
     /// the manifest into its own `Manifest` type — it hands the
@@ -403,27 +443,150 @@ pub fn effective_severity(
     category: RuleCategory,
     config: &ResolvedDoctorConfig,
 ) -> Option<DoctorSeverity> {
+    // Levels 1-3 — manifest override / coverage escalation / category
+    // preset, or `None` when coverage-`Off` suppresses the code.
+    match resolve_levels_1_to_3(code, category, config) {
+        Resolution::Suppress => None,
+        Resolution::Severity(sev) => Some(sev),
+        // Level 4 — category default per profile (the
+        // `doctor_severity_for` match). Today every category has an
+        // opinion, so `base_severity` is the documented "level-4
+        // fallback" the LSP and future rules can rely on without losing
+        // per-rule calibration.
+        Resolution::None => Some(category_default_for_profile(
+            category,
+            config.profile.0,
+            base_severity,
+        )),
+    }
+}
+
+/// Variant of [`effective_severity`] that floors on the rule's intrinsic
+/// `base_severity` instead of applying the level-4 per-profile category
+/// default.
+///
+/// This is the resolver for the LSP's `doctor_local` hardcoded-severity
+/// bridge (W2). Those file-local doctor codes are emitted by the CLI's
+/// aggregators at a hardcoded posture (mostly `Error`, a handful
+/// `Warning`) — NOT through the level-4 `category_default_for_profile`
+/// match. So the LSP must keep that same intrinsic base as the floor and
+/// only let levels 1-3 *move* it:
+///
+/// 1. **manifest `severity_override.<code>`** — wins absolutely.
+/// 2. **coverage-preset escalation** — `tdd-iron-hand` escalates the
+///    `VOCAB-CONTEXT-*` family; `off` suppresses it (→ `None`).
+/// 3. **category preset escalation** — per-family
+///    `preset_rule_severity`.
+/// 4. **`base_severity`** — the intrinsic posture, when no override /
+///    preset applies. (NOT the profile default — that would clobber an
+///    `Error`-base correctness rule down to `Warning` at `strict`,
+///    diverging from what `lazuli doctor` emits.)
+///
+/// Returns `None` only when the code is SILENT under the active config
+/// (coverage-`Off`).
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor_config::{
+///     effective_severity_over_base, DoctorProfile, DoctorSeverity, ResolvedDoctorConfig,
+///     RuleCategory,
+/// };
+///
+/// // No preset: an Error-base correctness rule stays Error at strict
+/// // (unlike `effective_severity`, which would return Warning).
+/// let cfg = ResolvedDoctorConfig::resolve(None, DoctorProfile::Strict).unwrap();
+/// assert_eq!(
+///     effective_severity_over_base(
+///         "HOOK-TARGET-001",
+///         DoctorSeverity::Error,
+///         RuleCategory::Correctness,
+///         &cfg,
+///     ),
+///     Some(DoctorSeverity::Error),
+/// );
+///
+/// // Iron-hand coverage preset still escalates the VOCAB-CONTEXT family.
+/// let toml = "[doctor.coverage]\npreset = \"tdd-iron-hand\"\n";
+/// let cfg = ResolvedDoctorConfig::resolve(Some(toml), DoctorProfile::Strict).unwrap();
+/// assert_eq!(
+///     effective_severity_over_base(
+///         "VOCAB-CONTEXT-PURPOSE-001",
+///         DoctorSeverity::Warning,
+///         RuleCategory::Vocabulary,
+///         &cfg,
+///     ),
+///     Some(DoctorSeverity::Error),
+/// );
+///
+/// // `off` coverage preset suppresses the family (silent).
+/// let toml = "[doctor.coverage]\npreset = \"off\"\n";
+/// let cfg = ResolvedDoctorConfig::resolve(Some(toml), DoctorProfile::Strict).unwrap();
+/// assert_eq!(
+///     effective_severity_over_base(
+///         "VOCAB-CONTEXT-PURPOSE-001",
+///         DoctorSeverity::Warning,
+///         RuleCategory::Vocabulary,
+///         &cfg,
+///     ),
+///     None,
+/// );
+/// ```
+pub fn effective_severity_over_base(
+    code: &str,
+    base_severity: DoctorSeverity,
+    category: RuleCategory,
+    config: &ResolvedDoctorConfig,
+) -> Option<DoctorSeverity> {
+    match resolve_levels_1_to_3(code, category, config) {
+        Resolution::Suppress => None,
+        Resolution::Severity(sev) => Some(sev),
+        Resolution::None => Some(base_severity),
+    }
+}
+
+/// Outcome of the shared levels-1-to-3 resolution.
+enum Resolution {
+    /// Code is silent under the active config (coverage-`Off`).
+    Suppress,
+    /// A level-1/2/3 rule produced a concrete severity.
+    Severity(DoctorSeverity),
+    /// No level-1/2/3 rule applied; caller supplies the level-4 / base
+    /// fallback.
+    None,
+}
+
+/// Shared resolution of precedence levels 1-3 (override > coverage
+/// escalation/suppression > category preset). The level-4 / base
+/// fallback differs between [`effective_severity`] (profile default) and
+/// [`effective_severity_over_base`] (intrinsic base), so it stays with
+/// the callers.
+fn resolve_levels_1_to_3(
+    code: &str,
+    category: RuleCategory,
+    config: &ResolvedDoctorConfig,
+) -> Resolution {
     // Level 1 — manifest per-rule override wins absolutely (when its
     // severity string parses). Matches `doctor_severity_for` and the
     // `context_vocab_diagnostics` closure.
     if let Some(ov) = config.overrides.get(code) {
         if let Some(parsed) = parse_severity(&ov.severity) {
-            return Some(parsed);
+            return Resolution::Severity(parsed);
         }
     }
 
     // Level 2 — coverage-preset escalation map. The `Off` preset
-    // suppresses the VOCAB-CONTEXT family entirely (silent → None),
+    // suppresses the VOCAB-CONTEXT family entirely (silent → Suppress),
     // mirroring the CLI short-circuit at
     // `context_vocab_diagnostics` (`package_methods.rs`).
     if let Some(preset) = config.coverage_preset {
         if matches!(preset, CoveragePreset::Off) && is_coverage_preset_governed(code) {
-            return None;
+            return Resolution::Suppress;
         }
         let escalations = preset_severity_overrides(preset);
         if let Some(sev_str) = escalations.get(code) {
             if let Some(parsed) = parse_severity(sev_str) {
-                return Some(parsed);
+                return Resolution::Severity(parsed);
             }
         }
     }
@@ -432,19 +595,10 @@ pub fn effective_severity(
     // explicit category so a code only ever consults the preset for its
     // own family (each `preset_rule_severity` already prefix-guards).
     if let Some(sev) = category_preset_severity(code, category, config) {
-        return Some(sev);
+        return Resolution::Severity(sev);
     }
 
-    // Level 4 — category default per profile (the `doctor_severity_for`
-    // match), falling back to `base_severity` only when the category has
-    // no per-profile opinion. Today every category has an opinion, so
-    // `base_severity` is the documented "level-4 fallback" the LSP and
-    // future rules can rely on without losing per-rule calibration.
-    Some(category_default_for_profile(
-        category,
-        config.profile.0,
-        base_severity,
-    ))
+    Resolution::None
 }
 
 /// `true` when the rule code is one the coverage preset escalation map

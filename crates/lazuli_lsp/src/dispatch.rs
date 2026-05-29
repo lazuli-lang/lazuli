@@ -26,20 +26,22 @@
 //!   `pub(crate)` from this module for the LSP backend + CLI entry
 //!   points.
 //! * `lib.rs::apply_security_profile` — narrows the canonical-source
-//!   output by `lazuli_lsp::types::SecurityProfile`.
+//!   output by the active profile carried in the
+//!   `lazuli_doctor_config::ResolvedDoctorConfig`.
 //! * `crate::doctor_file_local_diagnostics` — the bridge that pulls
 //!   `lazuli_doctor` checks into the live LSP stream (proposal R2.F).
 
+use lazuli_doctor_config::ResolvedDoctorConfig;
 use lazuli_syntax::parse_feature_skeletons;
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 
 use crate::{
-    SecurityProfile, active_session_query_diagnostics, agent_contract_diagnostics,
-    agent_discriminator_diagnostics, agent_evals_diagnostics, agent_expose_diagnostics,
-    agent_tools_diagnostics, anchor_whitelist_diagnostics, api_contract_diagnostics,
-    app_operational_contract_diagnostics, app_unknown_kind_diagnostics, apply_security_profile,
-    approval_contract_diagnostics, audience_unknown_kind_diagnostics, auth_security_diagnostics,
-    cache_contract_diagnostics, canonical_order_diagnostics, command_contract_diagnostics,
+    active_session_query_diagnostics, agent_contract_diagnostics, agent_discriminator_diagnostics,
+    agent_evals_diagnostics, agent_expose_diagnostics, agent_tools_diagnostics,
+    anchor_whitelist_diagnostics, api_contract_diagnostics, app_operational_contract_diagnostics,
+    app_unknown_kind_diagnostics, apply_security_profile, approval_contract_diagnostics,
+    audience_unknown_kind_diagnostics, auth_security_diagnostics, cache_contract_diagnostics,
+    canonical_order_diagnostics, command_contract_diagnostics,
     command_rate_limit_contract_diagnostics, command_statement_unknown_diagnostics,
     command_validator_diagnostics, cors_contract_diagnostics, crypto_contract_diagnostics,
     defaults_policy_syntax_diagnostics, derived_field_diagnostics, doctor_file_local_diagnostics,
@@ -71,7 +73,7 @@ use crate::{
 
 pub(crate) fn diagnostics_for_with_profile_inner(
     source: &str,
-    security_profile: SecurityProfile,
+    config: &ResolvedDoctorConfig,
     include_doctor: bool,
 ) -> Vec<Diagnostic> {
     if is_canonical_source(source) {
@@ -158,9 +160,9 @@ pub(crate) fn diagnostics_for_with_profile_inner(
         diagnostics.extend(extension_reference_diagnostics(source));
         diagnostics.extend(idempotency_key_diagnostics(source));
         if include_doctor {
-            diagnostics.extend(doctor_file_local_diagnostics(source));
+            diagnostics.extend(doctor_file_local_diagnostics(source, config));
         }
-        return apply_security_profile(diagnostics, security_profile);
+        return apply_security_profile(diagnostics, config);
     }
 
     if is_lzx_source(source) {

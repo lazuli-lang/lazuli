@@ -3,39 +3,54 @@
 //!
 //! Codes that authors flag as **enforcement** (e.g. `command-policy`,
 //! `command-rate-limit`, `webhook-verify`, `crypto-tier`) carry their
-//! own severity; this layer rewrites them to match the active
-//! [`SecurityProfile`]:
+//! own severity; this layer rewrites them to match the active profile:
 //!
 //! * `Prototype` — enforcement codes become WARNING.
 //! * `Strict` / `Production` — enforcement codes become ERROR;
 //!   `Production` additionally promotes the documented opt-out code
 //!   (`security-opt-out`) from WARNING to ERROR.
 //!
+//! ## W2 — single source of truth
+//!
+//! The active profile now lives on the shared
+//! [`ResolvedDoctorConfig`](lazuli_doctor_config::ResolvedDoctorConfig)
+//! (loaded from the workspace `[doctor] profile`), not on a separately
+//! threaded `SecurityProfile`. This layer reads
+//! `config.profile.0` so the LSP and CLI resolve enforcement-code
+//! posture from the same loaded config.
+//!
+//! These enforcement / opt-out codes are kebab-case LSP-only codes with
+//! no peer in the doctor catalog, so they keep their bespoke
+//! profile→severity mapping rather than flowing through
+//! `effective_severity` (which would resolve them under the catch-all
+//! `Vocabulary` category and lose the enforcement posture). Doctor-class
+//! *codes* are routed through `effective_severity` upstream in
+//! `doctor_local`.
+//!
 //! The helpers are re-exported at the crate root via
 //! `pub(crate) use crate::security_profile::*;` in `lib.rs` so
 //! `crate::dispatch::diagnostics_for_with_profile_inner` keeps
 //! calling them through the same paths.
 
+use lazuli_doctor_config::{DoctorProfile, ResolvedDoctorConfig};
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
-
-use crate::types::SecurityProfile;
 
 pub(crate) fn apply_security_profile(
     mut diagnostics: Vec<Diagnostic>,
-    security_profile: SecurityProfile,
+    config: &ResolvedDoctorConfig,
 ) -> Vec<Diagnostic> {
+    let profile = config.profile.0;
     for diagnostic in &mut diagnostics {
         let Some(code) = diagnostic_code(diagnostic) else {
             continue;
         };
 
         if is_security_enforcement_code(code) {
-            diagnostic.severity = Some(match security_profile {
-                SecurityProfile::Prototype => DiagnosticSeverity::WARNING,
-                SecurityProfile::Strict | SecurityProfile::Production => DiagnosticSeverity::ERROR,
+            diagnostic.severity = Some(match profile {
+                DoctorProfile::Prototype => DiagnosticSeverity::WARNING,
+                DoctorProfile::Strict | DoctorProfile::Production => DiagnosticSeverity::ERROR,
             });
-        } else if security_profile == SecurityProfile::Production && is_security_opt_out_code(code)
-        {
+        } else if profile == DoctorProfile::Production && is_security_opt_out_code(code) {
             diagnostic.severity = Some(DiagnosticSeverity::ERROR);
         }
     }
