@@ -411,20 +411,14 @@ func writeAuditMaterializeRow(ctx *Ctx, tx pgx.Tx, table, command, decision stri
 		s := strconv.FormatInt(int64(ctx.Tenant.OrgID), 10)
 		tenant = &s
 	}
+	// %s is a codegen-emitted snake_case table literal, never user input;
+	// pgx.Identifier.Sanitize quotes it (defense-in-depth on the identifier slot).
 	sql := fmt.Sprintf(
 		`INSERT INTO %s (command, actor, tenant, decision, recorded_at) VALUES ($1, $2, $3, $4, $5)`,
-		pgQuoteIdent(table),
+		pgx.Identifier{table}.Sanitize(),
 	)
 	_, err := tx.Exec(ctx, sql, command, actor, tenant, decision, ctx.Now)
 	return err
-}
-
-// pgQuoteIdent double-quotes a Postgres identifier, escaping embedded
-// quotes. The table name reaching here is a codegen-emitted snake_case
-// literal, never user input — this is belt-and-suspenders so a future
-// caller can't smuggle an injection through the identifier slot.
-func pgQuoteIdent(ident string) string {
-	return `"` + strings.ReplaceAll(ident, `"`, `""`) + `"`
 }
 
 // newEnvelopeID returns a fresh 128-bit hex identifier for the outbox
