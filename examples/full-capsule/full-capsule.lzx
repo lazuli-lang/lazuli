@@ -91,7 +91,7 @@ experience customer
     source query.lookup by_id
     none -> view list
     lead -> view list
-    active → view detail
+    active -> view detail
     paused -> view list
     archived -> view list
     * -> view list

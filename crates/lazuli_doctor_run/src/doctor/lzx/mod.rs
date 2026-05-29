@@ -22,6 +22,9 @@
 //!   field NOT in `columns`/`fields`/`sections`.
 //! - [`cells_mixed_form`] — `view list` declares both grid-row
 //!   `cells @client.<slot>` and per-column `cells <field> @client.<slot>`.
+//! - [`arrow_glyph_mixed`] — one `.lzx`/`.lzi` file mixes the Unicode
+//!   arrow `→` and the ASCII `->` on arrow-bearing lines (hygiene; the
+//!   `.lzx` twin of [`cells_mixed_form`]'s "don't mix equivalent forms").
 //! - [`audience_empty_sdk`] — audience's `requires` set produces an
 //!   empty command/query intersection.
 //!
@@ -47,6 +50,7 @@
 pub mod ir_stub;
 
 pub mod action_not_in_audience;
+pub mod arrow_glyph_mixed;
 pub mod audience_empty_sdk;
 pub mod bulk_actions;
 pub mod cell_missing_impl;

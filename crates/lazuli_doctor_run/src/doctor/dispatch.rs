@@ -368,6 +368,16 @@ impl DoctorPackage {
             &self.feature_uses,
             self.registry.as_ref(),
         ));
+        // AUTH-ACTOR-SUBJECT-AMBIGUOUS-001 — warn when the app's
+        // `actor_query` resolves the authenticated actor to a non-`User`
+        // resource while an owner/scope check (ctx.user / @scope.owner /
+        // @scope.same_org) gates a User-typed owner; both identities
+        // collapse into the single ctx.User runtime slot.
+        diagnostics.extend(aggregators::auth_actor_subject::diagnostics(
+            &self.tier3_facts,
+            self.app.as_ref(),
+            &self.feature_uses,
+        ));
         diagnostics.extend(auth_refresh::diagnostics(
             &self.auth_facts,
             &self.feature_resources,
@@ -379,6 +389,14 @@ impl DoctorPackage {
             &self.auth_facts,
             &self.project_root,
         ));
+        // SESSION-QUERY-TEMPORAL-VALIDITY-001 — IR-driven session-query
+        // security invariant. Promotes the warn-only LSP
+        // `active-session-temporal-scope` text-scan to a blocking,
+        // name-agnostic IR rule over the resource bound by `auth sessions
+        // resource <X>`. Reads `Query.filters` from the re-parsed typed
+        // `Feature` (the fact-only auth slices the aggregator above uses
+        // do not carry queries).
+        diagnostics.extend(self.session_query_temporal_validity_diagnostics());
 
         // Row 30 — Storage bucket cycle: 5 typed `@cap.File`
         // diagnostics. See `docs/proposals/bucket-storage-cycle.md`

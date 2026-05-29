@@ -98,6 +98,12 @@ impl RuleCategory {
             Some("HOOK") | Some("DUPLICATE") | Some("ROUTE") | Some("UPDATES")
             | Some("MUTATION") | Some("MISSING") | Some("MANUAL") | Some("IMPORT")
             | Some("CAP") | Some("SCHEMA") => Self::Correctness,
+            // `LZX-*` — `.lzx` ViewModel-surface rules (route binding, view
+            // mode, tab/wizard refs, cells-mixed-form, arrow-glyph-mixed
+            // hygiene). They audit user `.lzx` source shape; route them to
+            // Correctness alongside the other surface-shape checks rather than
+            // letting them fall through to the Vocabulary catch-all.
+            Some("LZX") => Self::Correctness,
             Some("LIFECYCLE") => Self::Lifecycle,
             Some("DOMAIN") => Self::Domain,
             Some("CROSS") => Self::CrossFeature,
@@ -317,6 +323,24 @@ mod tests {
         );
         // Serde snake_case round-trip.
         assert_eq!(RuleCategory::LziHygiene.as_str(), "lzi_hygiene");
+    }
+
+    #[test]
+    fn lzx_prefix_routes_to_correctness() {
+        // `.lzx` surface-shape rules (correctness family) — both the
+        // uppercase numbered codes and the new arrow-glyph hygiene rule.
+        assert_eq!(
+            RuleCategory::from_code_prefix("LZX-ARROW-GLYPH-MIXED-001"),
+            RuleCategory::Correctness
+        );
+        assert_eq!(
+            RuleCategory::from_code_prefix("LZX-WIZARD-STEPS-EXPR-001"),
+            RuleCategory::Correctness
+        );
+        assert_eq!(
+            RuleCategory::from_code_prefix("LZX-ROUTE-001"),
+            RuleCategory::Correctness
+        );
     }
 
     #[test]

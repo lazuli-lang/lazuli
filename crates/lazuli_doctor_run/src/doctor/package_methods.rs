@@ -8,6 +8,7 @@
 use lazuli_analyzer::lower_feature_skeleton;
 use lazuli_doctor_config::{
     DoctorProfile as SecurityProfile, ResolvedDoctorConfig, SeverityOverride, effective_severity,
+    effective_severity_over_base,
 };
 use lazuli_syntax::parse_feature_skeletons;
 
@@ -162,6 +163,100 @@ impl DoctorPackage {
                         code: vocab_context_ctxmd_001::Finding::CODE.to_owned(),
                         message,
                         category: Some(RuleCategory::Vocabulary),
+                        feature_name: Some(finding.feature),
+                        construct: None,
+                        fix: None,
+                        group: None,
+                    });
+                }
+            }
+        }
+        out
+    }
+
+    /// SESSION-QUERY-TEMPORAL-VALIDITY-001 — IR-driven auth/session
+    /// security invariant. Dispatches
+    /// [`auth::session_query_temporal_validity_001::check`] across every
+    /// `.lzi` feature, re-parsing the typed `Feature` IR so the rule can
+    /// read `Query.filters` + the session binding (neither survives on
+    /// the fact-only `AuthFacts`/`ResourceFact` slices the
+    /// `aggregators::auth` dispatcher uses).
+    ///
+    /// Severity follows the session-family enforcement posture (parity
+    /// with the LSP's [`is_security_enforcement_code`] peers
+    /// `auth-session-ttl` / `auth_sessions_resource_unknown`): **WARNING**
+    /// under the prototype profile, **ERROR** under strict/production —
+    /// so under the scaffolded `[doctor] profile = "strict"` it blocks.
+    /// A manifest `severity_override.<code>` (under either the kebab or
+    /// snake code) still wins via the shared resolver.
+    ///
+    /// [`is_security_enforcement_code`]: crate::security_profile
+    pub(super) fn session_query_temporal_validity_diagnostics(&self) -> Vec<DoctorDiagnostic> {
+        use super::auth::session_query_temporal_validity_001 as rule;
+        use super::helpers::line_col_for_offset;
+
+        // Enforcement-code posture: prototype warns, strict/production
+        // block. Mirrors `security_profile::apply_security_profile` so the
+        // engine severity matches the in-editor severity for this code.
+        // Computed in the config-side `lazuli_doctor::DoctorSeverity` so it
+        // feeds `effective_severity_over_base` directly; the result is
+        // mapped back to the local `DoctorSeverity` via `From`.
+        let base_severity = match self.security_profile {
+            SecurityProfile::Prototype => lazuli_doctor::DoctorSeverity::Warning,
+            SecurityProfile::Strict | SecurityProfile::Production => {
+                lazuli_doctor::DoctorSeverity::Error
+            }
+        };
+
+        // A manifest override (either spelling) still wins, and `off`
+        // coverage suppression is honored, via the shared resolver flooring
+        // on the enforcement base. Security category keeps levels 1-3.
+        let config = ResolvedDoctorConfig {
+            profile: self.security_profile.into(),
+            coverage_preset: self.coverage_preset(),
+            ..ResolvedDoctorConfig::default()
+        };
+        let resolve = |code: &str| -> Option<DoctorSeverity> {
+            effective_severity_over_base(code, base_severity, RuleCategory::Security, &config)
+                .map(DoctorSeverity::from)
+        };
+
+        let mut out: Vec<DoctorDiagnostic> = Vec::new();
+        for file in &self.files {
+            if !is_lzi_path(&file.path) {
+                continue;
+            }
+            let Ok(skeletons) = parse_feature_skeletons(&file.source) else {
+                continue;
+            };
+            for skeleton in &skeletons {
+                let Ok(feature) = lower_feature_skeleton(skeleton) else {
+                    continue;
+                };
+                for finding in rule::check(&feature, &file.path) {
+                    // Resolve severity under both spellings so an override
+                    // keyed to either the kebab or snake code applies; the
+                    // kebab spelling (LSP/profile family) takes precedence.
+                    let severity = match resolve(rule::Finding::KEBAB_CODE)
+                        .or_else(|| resolve(rule::Finding::CODE))
+                    {
+                        Some(sev) => sev,
+                        // Suppressed under the active config (coverage-off).
+                        None => continue,
+                    };
+                    let (line, column) = finding
+                        .offset
+                        .map(|offset| line_col_for_offset(&file.source, offset))
+                        .unwrap_or((1, 1));
+                    let message = finding.message();
+                    out.push(DoctorDiagnostic {
+                        path: finding.path,
+                        line,
+                        column,
+                        severity,
+                        code: rule::Finding::KEBAB_CODE.to_owned(),
+                        message,
+                        category: Some(RuleCategory::Security),
                         feature_name: Some(finding.feature),
                         construct: None,
                         fix: None,

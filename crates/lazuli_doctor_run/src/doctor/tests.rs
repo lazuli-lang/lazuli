@@ -123,6 +123,14 @@ mod tests {
         include!("tests/auth_session.rs");
     }
 
+    mod auth_actor_subject {
+        include!("tests/auth_actor_subject.rs");
+    }
+
+    mod session_query_temporal_validity {
+        include!("tests/session_query_temporal_validity.rs");
+    }
+
     mod headers_app_security {
         include!("tests/headers_app_security.rs");
     }

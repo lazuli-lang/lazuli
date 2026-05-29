@@ -19,8 +19,21 @@
 //!   - `auth_sessions_resource_unknown_001`
 //!   - `auth_identity_field_unknown_001`
 //!   - `auth_oauth_adapter_unbound_001`
+//!
+//! v0.2 (+1 rule, IR-driven session-query security invariant):
+//!   - `session_query_temporal_validity_001` — a `query.list` over the
+//!     session resource bound by `auth sessions resource <X>` must carry
+//!     a temporal lower bound (`expires_at > ctx.now` / `>=`) so it
+//!     cannot return expired sessions. Name-agnostic (does not gate on
+//!     the literal `active_sessions`); the resource is resolved from the
+//!     binding and queries are attached with the codegen name scorer.
+//!     Unlike the v0.1 four, this rule IS wired into the live dispatcher
+//!     (`dispatch.rs`) via the re-parsed typed `Feature` IR, so it
+//!     actually fires at `lazuli doctor` time and blocks under the
+//!     strict profile.
 
 pub mod auth_identity_field_unknown_001;
 pub mod auth_oauth_adapter_unbound_001;
 pub mod auth_password_algorithm_hash_mismatch_001;
 pub mod auth_sessions_resource_unknown_001;
+pub mod session_query_temporal_validity_001;
