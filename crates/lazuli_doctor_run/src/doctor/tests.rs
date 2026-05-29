@@ -150,4 +150,8 @@ mod tests {
     mod synthetic_feature_completeness {
         include!("tests/synthetic_feature_completeness.rs");
     }
+
+    mod knowledge_single_feature {
+        include!("tests/knowledge_single_feature.rs");
+    }
 }

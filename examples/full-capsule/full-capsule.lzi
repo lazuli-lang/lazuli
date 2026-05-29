@@ -639,6 +639,8 @@ feature customer_auth
       user: "staff authentication"
       customer: "customer lifecycle ownership"
 
+  knowledge lazuli-way
+
   defaults
     tenancy org
     timestamps

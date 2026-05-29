@@ -1,0 +1,26 @@
+# Doctor fixture — NEGATIVE case for VOCAB-KNOWLEDGE-SINGLE-FEATURE-001.
+# Two features in one package, BOTH declaring `knowledge shared-sector`.
+# The sector is a genuine shared (1:N) corpus, so the package-level rule
+# stays silent for `shared-sector`.
+
+app AcmeApp
+  title "Acme"
+  version "0.1.0"
+  targets
+    backend go
+  environments
+    local
+
+feature alpha
+  purpose "Alpha capability."
+  knowledge shared-sector
+  domain
+    resource Alpha
+      id: ID required
+
+feature beta
+  purpose "Beta capability."
+  knowledge shared-sector
+  domain
+    resource Beta
+      id: ID required

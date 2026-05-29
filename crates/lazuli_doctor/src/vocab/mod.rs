@@ -53,6 +53,12 @@ pub mod knowledge_vault;
 pub mod vocab_knowledge_dangling_cite_001;
 pub mod vocab_knowledge_dup_topic_001;
 pub mod vocab_knowledge_sector_unknown_001;
+// Package-level (cross-feature) member of the family: fires when a
+// `knowledge <sector>` slug is declared by exactly ONE feature across the
+// whole package (a solo declaration is a smell — a sector is meant to be a
+// SHARED 1:N corpus, so feature-private context likely belongs in
+// `<feature>.ctx.md` instead). See docs/proposals/knowledge-sector-field.md.
+pub mod vocab_knowledge_single_feature_001;
 pub mod vocab_knowledge_stale_001;
 pub mod vocab_knowledge_ungated_write_001;
 // VOCAB-LIFECYCLE-001 — was deferred per the original proposal note

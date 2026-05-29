@@ -212,6 +212,7 @@ impl DoctorPackage {
             vocab_knowledge_dangling_cite_001 as dangling,
             vocab_knowledge_dup_topic_001 as dup_topic,
             vocab_knowledge_sector_unknown_001 as sector_unknown,
+            vocab_knowledge_single_feature_001 as single_feature,
             vocab_knowledge_stale_001 as stale, vocab_knowledge_ungated_write_001 as ungated,
         };
 
@@ -304,6 +305,35 @@ impl DoctorPackage {
                     sectors_to_scan.push(sector.to_string());
                 }
             }
+        }
+
+        // (a2) Package-level cross-feature rule: SINGLE-FEATURE. Counts how
+        //      many distinct features declare each `knowledge <sector>` slug
+        //      across the WHOLE package and fires once per sector declared by
+        //      exactly one feature — anchored at that single declarer's `.lzi`.
+        //      Can only be decided at the package layer (a lone feature can
+        //      never satisfy the shared 1:N invariant), so it runs here over
+        //      the already-lifted `features` set rather than per-file.
+        let sev = resolve(single_feature::Finding::CODE);
+        let entries: Vec<(&std::path::Path, &lazuli_ir::Feature)> = features
+            .iter()
+            .map(|(path, feature)| (path.as_path(), feature))
+            .collect();
+        for finding in single_feature::check(&entries) {
+            let message = finding.message();
+            out.push(DoctorDiagnostic {
+                path: finding.path,
+                line: 1,
+                column: 1,
+                severity: sev,
+                code: single_feature::Finding::CODE.to_owned(),
+                message,
+                category: Some(RuleCategory::Vocabulary),
+                feature_name: Some(finding.feature),
+                construct: None,
+                fix: None,
+                group: None,
+            });
         }
 
         // (b) Vault-scanning rules: DANGLING-CITE, STALE, UNGATED-WRITE,

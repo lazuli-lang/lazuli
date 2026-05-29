@@ -345,6 +345,7 @@ const P_KNOWLEDGE: &[DiagnosticFacet] = &[
     df("VOCAB-KNOWLEDGE-DANGLING-CITE-001", "warning", "vocabulary"),
     df("VOCAB-KNOWLEDGE-DUP-TOPIC-001", "warning", "vocabulary"),
     df("VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001", "warning", "vocabulary"),
+    df("VOCAB-KNOWLEDGE-SINGLE-FEATURE-001", "warning", "vocabulary"),
     df("VOCAB-KNOWLEDGE-STALE-001", "warning", "vocabulary"),
     df("VOCAB-KNOWLEDGE-UNGATED-WRITE-001", "warning", "vocabulary"),
 ];
