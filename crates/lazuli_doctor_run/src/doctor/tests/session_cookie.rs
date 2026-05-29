@@ -92,6 +92,9 @@ fn insecure_secure_false_fires_only_under_production() {
     // Promote to the production profile -> the rule fires and blocks.
     let mut prod = package_from_sources(vec![("auth.lzi", &src)]);
     prod.security_profile = SecurityProfile::Production;
+    // v2 — keep the severity config's profile in sync with the mutated
+    // `security_profile` so config-driven severity resolution agrees.
+    prod.config.profile = SecurityProfile::Production.into();
     let diagnostics = prod.diagnostics();
     assert!(
         codes(&diagnostics).contains(INSECURE_IN_PROD),

@@ -206,6 +206,9 @@ app AcmeCRM
 "#,
         )]);
         package.security_profile = SecurityProfile::Production;
+        // v2 — keep the severity config's profile in sync with the
+        // mutated `security_profile`.
+        package.config.profile = SecurityProfile::Production.into();
         let diagnostics = package.diagnostics();
         let codes = codes(&diagnostics);
         assert!(

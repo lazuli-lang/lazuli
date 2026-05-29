@@ -145,7 +145,21 @@ pub(crate) fn run_package_cli(
     let project_root = lazuli_doctor_run::entry_support::doctor_project_root(input);
     let file_local = |path: &Path, source: &str| cli_file_local(path, source, security_profile);
     let injected = schema_rich_injected(&project_root);
-    run_package(input, security_profile, &file_local, injected)
+    // v2 — build the engine's severity `ResolvedDoctorConfig` from the
+    // on-disk `Lazurite.toml` + the `--security-profile` flag, exactly the
+    // inputs the engine used to read internally. `from_doctor` takes the
+    // profile from the flag (NOT `[doctor] profile`), matching today's CLI
+    // behavior, so the config VALUE — and thus the diagnostic stream — is
+    // byte-identical to before. The engine still loads the manifest for its
+    // non-severity uses; this only moves WHO builds the severity config.
+    let manifest = lazuli_manifest::lazurite_manifest::load(&project_root)
+        .ok()
+        .flatten();
+    let config = lazuli_doctor_config::ResolvedDoctorConfig::from_doctor(
+        manifest.as_ref().and_then(|m| m.doctor.as_ref()),
+        security_profile,
+    );
+    run_package(input, &config, &file_local, injected)
 }
 
 /// Handler for `lazuli doctor` — runs the full diagnostic surface

@@ -12,7 +12,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use lazuli_doctor_config::DoctorProfile as SecurityProfile;
+use lazuli_doctor_config::{DoctorProfile as SecurityProfile, ResolvedDoctorConfig};
 use lazuli_manifest::lazurite_manifest::Manifest;
 
 use super::super::{
@@ -25,6 +25,12 @@ use super::super::{
 pub(super) struct LoadContext<'a> {
     pub(super) project_root: PathBuf,
     pub(super) security_profile: SecurityProfile,
+    /// v2 — the caller-supplied severity config. The per-file
+    /// test-discipline dispatch reads `[doctor.test_discipline].preset`
+    /// off this (instead of the on-disk manifest) so unsaved buffer edits
+    /// drive in-editor severity. `lazurite_manifest` below stays for the
+    /// non-severity app-root / plugin-alias uses.
+    pub(super) config: &'a ResolvedDoctorConfig,
     pub(super) lazurite_manifest: &'a Option<Manifest>,
 }
 

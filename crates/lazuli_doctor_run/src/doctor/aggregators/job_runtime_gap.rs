@@ -22,7 +22,6 @@
 
 use lazuli_doctor::error_handling::job_declarative_body_unsupported_001;
 use lazuli_doctor::error_handling::preset::ErrorHandlingPreset;
-use lazuli_manifest::lazurite_manifest::Manifest;
 
 use super::correctness::make_synthetic_feature_for_correctness;
 use crate::doctor::helpers::resolve_error_handling_severity;
@@ -31,14 +30,18 @@ use crate::doctor::{DoctorDiagnostic, DoctorSeverity, Tier3FeatureFacts};
 /// Aggregate every `JOB-*` runtime-gap finding across the package's
 /// Tier 3 facts into the canonical [`DoctorDiagnostic`] envelope.
 ///
-/// `manifest` is consulted for `[doctor.error_handling].preset` to
-/// resolve severity. Pass `None` to fall back to the per-rule default
-/// (`Warning`).
+/// `preset` is the active `[doctor.error_handling]` preset (resolved by
+/// the caller off the severity `ResolvedDoctorConfig`). Pass `None` to
+/// fall back to the per-rule default (`Warning`).
+///
+/// v2 — the preset arrives pre-resolved from the caller's severity
+/// config (CLI: disk; LSP: unsaved `Lazurite.toml` buffer) rather than
+/// being re-read from an on-disk manifest here, so in-editor severity
+/// tracks unsaved `[doctor.error_handling] preset` edits.
 pub(crate) fn diagnostics(
     facts: &[Tier3FeatureFacts],
-    manifest: Option<&Manifest>,
+    preset: Option<ErrorHandlingPreset>,
 ) -> Vec<DoctorDiagnostic> {
-    let preset = resolve_preset(manifest);
     let mut diagnostics = Vec::new();
 
     for fact in facts {
@@ -69,19 +72,6 @@ pub(crate) fn diagnostics(
     }
 
     diagnostics
-}
-
-/// Pull `[doctor.error_handling].preset` out of the manifest and parse
-/// it. Returns `None` (per-rule default stands) when the manifest, the
-/// `[doctor]` block, the `[doctor.error_handling]` sub-block, or the
-/// `preset = "..."` key is absent / unparseable. Mirrors the resolver in
-/// [`super::error_handling_handlers`].
-fn resolve_preset(manifest: Option<&Manifest>) -> Option<ErrorHandlingPreset> {
-    manifest
-        .and_then(|m| m.doctor.as_ref())
-        .and_then(|d| d.error_handling.as_ref())
-        .and_then(|eh| eh.preset.as_deref())
-        .and_then(ErrorHandlingPreset::parse)
 }
 
 #[cfg(test)]

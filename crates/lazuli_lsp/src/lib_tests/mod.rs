@@ -83,7 +83,17 @@ pub(super) fn doctor_engine_diagnostics_with_manifest(
     }
 
     let uri = Url::from_file_path(&target).expect("file uri");
-    let diagnostics = crate::doctor_engine::doctor_owned_for_document(&root, &uri, source, profile);
+    // v2 — the engine now takes a `ResolvedDoctorConfig`, not a bare
+    // profile. Build it from the on-disk manifest body (when one was
+    // written) at the test's `profile`, mirroring what the backend
+    // resolves; `profile` stays authoritative via `resolve` (which, like
+    // the CLI, takes the profile from the caller, not `[doctor] profile`).
+    let config = lazuli_doctor_config::ResolvedDoctorConfig::resolve(manifest, profile)
+        .unwrap_or_else(|_| lazuli_doctor_config::ResolvedDoctorConfig {
+            profile: profile.into(),
+            ..lazuli_doctor_config::ResolvedDoctorConfig::default()
+        });
+    let diagnostics = crate::doctor_engine::doctor_owned_for_document(&root, &uri, source, &config);
     let _ = std::fs::remove_dir_all(&root);
     diagnostics
 }

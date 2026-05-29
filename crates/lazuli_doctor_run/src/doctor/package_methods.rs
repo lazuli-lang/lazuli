@@ -9,8 +9,7 @@ use std::collections::BTreeSet;
 
 use lazuli_analyzer::lower_feature_skeleton;
 use lazuli_doctor_config::{
-    DoctorProfile as SecurityProfile, ResolvedDoctorConfig, SeverityOverride, effective_severity,
-    effective_severity_over_base,
+    DoctorProfile as SecurityProfile, effective_severity, effective_severity_over_base,
 };
 use lazuli_syntax::parse_feature_skeletons;
 
@@ -50,38 +49,19 @@ impl DoctorPackage {
             return Vec::new();
         }
 
-        // W1 — build the resolved config once and route every severity
-        // decision through `lazuli_doctor_config::effective_severity`.
-        // For the VOCAB-CONTEXT family (category Vocabulary, no category
-        // preset) this exercises precedence levels 1 (manifest override),
-        // 2 (coverage-preset escalation), and 4 (profile default) — the
-        // exact union the old hand-rolled `resolve` closure implemented.
-        let overrides = self
-            .lazurite_manifest
-            .as_ref()
-            .and_then(|m| m.doctor.as_ref())
-            .and_then(|d| d.test_discipline.as_ref())
-            .map(|td| {
-                td.severity_override
-                    .iter()
-                    .map(|(code, ov)| {
-                        (
-                            code.clone(),
-                            SeverityOverride {
-                                severity: ov.severity.clone(),
-                                reason: ov.reason.clone(),
-                            },
-                        )
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let config = ResolvedDoctorConfig {
-            profile: self.security_profile.into(),
-            coverage_preset: preset,
-            overrides,
-            ..ResolvedDoctorConfig::default()
-        };
+        // W1 — route every severity decision through
+        // `lazuli_doctor_config::effective_severity`. For the VOCAB-CONTEXT
+        // family (category Vocabulary, no category preset) this exercises
+        // precedence levels 1 (manifest override), 2 (coverage-preset
+        // escalation), and 4 (profile default).
+        //
+        // v2 — the severity config (profile + coverage preset + per-rule
+        // overrides) is the caller-supplied `self.config`, NOT a fresh one
+        // built from the on-disk manifest. `coverage_preset()` already
+        // reads `self.config`, so the local `preset` matches; the overrides
+        // ride the same config. Byte-identical for the CLI (its config is
+        // built from the same on-disk `[doctor]`).
+        let config = &self.config;
 
         // The VOCAB-CONTEXT codes always resolve to a concrete severity
         // here (the `Off` preset is already short-circuited above and the
@@ -92,7 +72,7 @@ impl DoctorPackage {
                 code,
                 lazuli_doctor::DoctorSeverity::Warning,
                 RuleCategory::Vocabulary,
-                &config,
+                config,
             )
             .map(DoctorSeverity::from)
             .unwrap_or(DoctorSeverity::Warning)
@@ -222,38 +202,17 @@ impl DoctorPackage {
         // Severity resolver — identical precedence to the VOCAB-CONTEXT
         // family: manifest override > coverage-preset escalation > category
         // default (Vocabulary: warning at strict, error at production).
-        let overrides = self
-            .lazurite_manifest
-            .as_ref()
-            .and_then(|m| m.doctor.as_ref())
-            .and_then(|d| d.test_discipline.as_ref())
-            .map(|td| {
-                td.severity_override
-                    .iter()
-                    .map(|(code, ov)| {
-                        (
-                            code.clone(),
-                            SeverityOverride {
-                                severity: ov.severity.clone(),
-                                reason: ov.reason.clone(),
-                            },
-                        )
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let config = ResolvedDoctorConfig {
-            profile: self.security_profile.into(),
-            coverage_preset: preset,
-            overrides,
-            ..ResolvedDoctorConfig::default()
-        };
+        //
+        // v2 — the override / preset / profile inputs ride the
+        // caller-supplied `self.config` (CLI: disk; LSP: unsaved buffer),
+        // not a fresh config built from the on-disk manifest.
+        let config = &self.config;
         let resolve = |code: &str| -> DoctorSeverity {
             effective_severity(
                 code,
                 lazuli_doctor::DoctorSeverity::Warning,
                 RuleCategory::Vocabulary,
-                &config,
+                config,
             )
             .map(DoctorSeverity::from)
             .unwrap_or(DoctorSeverity::Warning)
@@ -451,13 +410,14 @@ impl DoctorPackage {
         // A manifest override (either spelling) still wins, and `off`
         // coverage suppression is honored, via the shared resolver flooring
         // on the enforcement base. Security category keeps levels 1-3.
-        let config = ResolvedDoctorConfig {
-            profile: self.security_profile.into(),
-            coverage_preset: self.coverage_preset(),
-            ..ResolvedDoctorConfig::default()
-        };
+        //
+        // v2 — the config (profile + coverage preset + per-rule overrides)
+        // is the caller-supplied `self.config` (CLI: disk; LSP: unsaved
+        // buffer), so a buffered `severity_override` for either code
+        // spelling takes effect in-editor.
+        let config = &self.config;
         let resolve = |code: &str| -> Option<DoctorSeverity> {
-            effective_severity_over_base(code, base_severity, RuleCategory::Security, &config)
+            effective_severity_over_base(code, base_severity, RuleCategory::Security, config)
                 .map(DoctorSeverity::from)
         };
 
@@ -541,8 +501,7 @@ impl DoctorPackage {
         use super::auth::{
             session_cookie_host_prefix_violation_001 as host_prefix,
             session_cookie_insecure_in_prod_001 as insecure_prod,
-            session_cookie_missing_001 as missing,
-            session_cookie_profile_conflict_001 as conflict,
+            session_cookie_missing_001 as missing, session_cookie_profile_conflict_001 as conflict,
             session_cookie_samesite_none_insecure_001 as samesite_none,
         };
         use super::helpers::line_col_for_offset;
@@ -571,13 +530,12 @@ impl DoctorPackage {
         // warning/error regression while still surfacing the guidance.
         let advisory_base = CfgSeverity::Hint;
 
-        let config = ResolvedDoctorConfig {
-            profile: self.security_profile.into(),
-            coverage_preset: self.coverage_preset(),
-            ..ResolvedDoctorConfig::default()
-        };
+        // v2 — caller-supplied severity config (CLI: disk; LSP: unsaved
+        // buffer). Carries the profile, coverage preset, and per-rule
+        // overrides the SESSION-COOKIE family resolves through.
+        let config = &self.config;
         let resolve = |code: &str, base: CfgSeverity| -> Option<DoctorSeverity> {
-            effective_severity_over_base(code, base, RuleCategory::Security, &config)
+            effective_severity_over_base(code, base, RuleCategory::Security, config)
                 .map(DoctorSeverity::from)
         };
 
@@ -754,7 +712,7 @@ impl DoctorPackage {
         use std::path::PathBuf;
 
         use lazuli_doctor::coverage::{
-            CoveragePreset, CoverageProfile, LayerThreshold, build_coverage_report_with_e2e_root,
+            CoverageProfile, LayerThreshold, build_coverage_report_with_e2e_root,
             resolve_coverage_thresholds,
         };
 
@@ -765,17 +723,20 @@ impl DoctorPackage {
             SecurityProfile::Production => CoverageProfile::Production,
         };
 
-        // Lift `[doctor.coverage]` from the manifest into the resolver
-        // inputs. Absent manifest / absent section → empty maps, which
-        // makes resolution fall back to the profile defaults verbatim
-        // (backwards compatible).
-        let (preset, per_layer_overrides, aggregate_method) = self
+        // v2 — the coverage PRESET (a severity/threshold-escalation input)
+        // rides the caller-supplied `self.config` (CLI: disk; LSP: unsaved
+        // buffer), so an unsaved `[doctor.coverage] preset` edit drives the
+        // in-editor coverage rollup. The per-layer thresholds + aggregate
+        // method are non-preset coverage-gating knobs that stay sourced
+        // from the on-disk manifest. Absent manifest / absent section →
+        // empty maps, falling back to the profile defaults (back-compat).
+        let preset = self.config.coverage_preset;
+        let (per_layer_overrides, aggregate_method) = self
             .lazurite_manifest
             .as_ref()
             .and_then(|m| m.doctor.as_ref())
             .and_then(|d| d.coverage.as_ref())
             .map(|cov| {
-                let preset = cov.preset.as_deref().and_then(CoveragePreset::parse);
                 let per_layer: BTreeMap<String, LayerThreshold> = cov
                     .per_layer
                     .iter()
@@ -789,7 +750,7 @@ impl DoctorPackage {
                         )
                     })
                     .collect();
-                (preset, per_layer, cov.aggregate_method.clone())
+                (per_layer, cov.aggregate_method.clone())
             })
             .unwrap_or_default();
 

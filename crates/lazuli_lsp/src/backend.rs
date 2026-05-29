@@ -96,10 +96,22 @@ fn find_lazurite_manifest(start: &Path) -> Option<PathBuf> {
 /// 3. resolve the full `[doctor]` config (presets + per-rule overrides)
 ///    via the shared `lazuli_doctor_config` resolver.
 ///
+/// v2 single-source residual — the `Lazurite.toml` body is read from the
+/// **open-document store first** (`open_docs`): if the workspace
+/// `Lazurite.toml` is open in the editor, its UNSAVED buffer drives the
+/// resolved config, so an unsaved `[doctor]` profile / preset /
+/// `severity_override` edit changes in-editor severity live (for BOTH the
+/// file-local layer and the package-engine layer, which now share this
+/// config). Falls back to the on-disk file when that document is not open.
+///
 /// Falls back to a profile-only `Strict` config when no manifest is
 /// reachable (single-file edits, scratch dirs) — matching the CLI's
 /// behavior on manifest-less invocations.
-fn resolve_workspace_config(doc_uri: &Url, workspace_root: Option<&Path>) -> ResolvedDoctorConfig {
+fn resolve_workspace_config(
+    doc_uri: &Url,
+    workspace_root: Option<&Path>,
+    open_docs: &HashMap<Url, String>,
+) -> ResolvedDoctorConfig {
     let manifest_path = doc_uri
         .to_file_path()
         .ok()
@@ -110,8 +122,19 @@ fn resolve_workspace_config(doc_uri: &Url, workspace_root: Option<&Path>) -> Res
     let Some(manifest_path) = manifest_path else {
         return ResolvedDoctorConfig::default();
     };
-    let Ok(body) = std::fs::read_to_string(&manifest_path) else {
-        return ResolvedDoctorConfig::default();
+
+    // Prefer the UNSAVED editor buffer when the workspace `Lazurite.toml`
+    // is open, so unsaved `[doctor]` edits take effect immediately; else
+    // read the on-disk file.
+    let buffered = Url::from_file_path(&manifest_path)
+        .ok()
+        .and_then(|manifest_uri| open_docs.get(&manifest_uri).cloned());
+    let body = match buffered {
+        Some(buf) => buf,
+        None => match std::fs::read_to_string(&manifest_path) {
+            Ok(disk) => disk,
+            Err(_) => return ResolvedDoctorConfig::default(),
+        },
     };
 
     // Read `[doctor] profile` for real (default `Strict`) and resolve the
@@ -389,8 +412,17 @@ impl Backend {
         // + overrides) per publish so manifest edits take effect without a
         // server restart, and so single-file opens still discover the
         // nearest `Lazurite.toml`. Cheap: one small TOML parse.
+        //
+        // v2 — resolve from the open-document store FIRST so an unsaved
+        // `Lazurite.toml` buffer drives both the file-local layer (below)
+        // and the package-engine layer (the config is now threaded into
+        // `run_package`). Snapshot the docs map once; the workspace
+        // manifest is usually small, so the clone is cheap.
         let workspace_root = self.workspace_root.read().await.clone();
-        let config = resolve_workspace_config(&uri, workspace_root.as_deref());
+        let config = {
+            let docs = self.documents.read().await;
+            resolve_workspace_config(&uri, workspace_root.as_deref(), &docs)
+        };
 
         // Layer 1 — synchronous file-local pass for typing responsiveness.
         // These are the LSP-owned shape / contract / security diagnostics;
@@ -412,7 +444,11 @@ impl Backend {
 
         let generation_handle = Arc::clone(&self.doctor_run_generation);
         let client = self.client.clone();
-        let profile = config.profile.0;
+        // v2 — thread the FULL resolved config (profile + presets +
+        // overrides, buffer-preferring) into the package engine, not just
+        // the profile, so the package layer's published severities react to
+        // unsaved `[doctor]` edits exactly like the file-local layer.
+        let config_for_engine = config.clone();
         tokio::spawn(async move {
             tokio::time::sleep(DOCTOR_RUN_DEBOUNCE).await;
             // Debounce: a newer publish superseded us — bail before the
@@ -430,7 +466,7 @@ impl Backend {
                     &workspace_root,
                     &doc_for_engine,
                     &source_for_engine,
-                    profile,
+                    &config_for_engine,
                 )
             })
             .await
@@ -482,4 +518,136 @@ pub async fn serve_stdio() {
     });
 
     Server::new(stdin, stdout, socket).serve(service).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use lazuli_doctor_config::{DoctorProfile, DoctorSeverity, RuleCategory, effective_severity};
+    use tower_lsp::lsp_types::Url;
+
+    use super::resolve_workspace_config;
+
+    /// Make a unique throwaway directory under the system temp dir. Mirrors
+    /// the pattern the LSP lib-test helpers use (no `tempfile` dev-dep).
+    fn unique_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "lazuli-lsp-cfg-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp workspace");
+        dir
+    }
+
+    /// v2 residual — the UNSAVED `Lazurite.toml` editor buffer drives the
+    /// resolved doctor config (and thus the package finding's published
+    /// severity) when that file is open, over the on-disk contents.
+    ///
+    /// Disk pins `[doctor] profile = "prototype"`; the open buffer flips it
+    /// to `production` AND escalates the VOCAB-CONTEXT family via
+    /// `[doctor.coverage] preset = "tdd-iron-hand"`. The resolved config —
+    /// and the severity `effective_severity` yields for a doctor-owned
+    /// package code — must reflect the BUFFER, proving unsaved edits take
+    /// effect in-editor.
+    #[test]
+    fn open_buffer_lazurite_toml_overrides_disk_for_severity() {
+        let root = unique_dir("buffer-wins");
+        let manifest_path = root.join("Lazurite.toml");
+        // DISK: prototype profile, no coverage preset. Under prototype a
+        // doctor-owned vocab code lands at WARNING and the VOCAB-CONTEXT
+        // family is NOT escalated.
+        std::fs::write(&manifest_path, "[doctor]\nprofile = \"prototype\"\n")
+            .expect("write disk Lazurite.toml");
+
+        // A feature `.lzi` in the same dir, so config discovery anchors on
+        // this workspace's manifest.
+        let feature = root.join("acct.lzi");
+        std::fs::write(&feature, "feature acct\n").expect("write feature");
+        let doc_uri = Url::from_file_path(&feature).expect("doc uri");
+        let manifest_uri = Url::from_file_path(&manifest_path).expect("manifest uri");
+
+        // BUFFER: the editor has the manifest open with UNSAVED edits —
+        // production profile + iron-hand coverage preset (escalates the
+        // VOCAB-CONTEXT trio to ERROR).
+        let mut open_docs: HashMap<Url, String> = HashMap::new();
+        open_docs.insert(
+            manifest_uri,
+            "[doctor]\nprofile = \"production\"\n\n[doctor.coverage]\npreset = \"tdd-iron-hand\"\n"
+                .to_owned(),
+        );
+
+        let cfg = resolve_workspace_config(&doc_uri, Some(&root), &open_docs);
+
+        // Profile reflects the BUFFER (production), not disk (prototype).
+        assert_eq!(
+            cfg.profile.0,
+            DoctorProfile::Production,
+            "buffer profile must win over disk"
+        );
+
+        // A doctor-owned VOCAB-CONTEXT code is ESCALATED to ERROR by the
+        // buffer's iron-hand coverage preset — disk (no preset, prototype)
+        // would have yielded WARNING.
+        let sev = effective_severity(
+            "VOCAB-CONTEXT-PURPOSE-001",
+            DoctorSeverity::Warning,
+            RuleCategory::Vocabulary,
+            &cfg,
+        );
+        assert_eq!(
+            sev,
+            Some(DoctorSeverity::Error),
+            "buffer's iron-hand coverage preset must escalate the package finding"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Fallback — with NO open buffer for the workspace `Lazurite.toml`,
+    /// the resolved config comes from DISK. Same fixture, but the docs map
+    /// is empty: profile + preset must reflect the on-disk file.
+    #[test]
+    fn no_open_buffer_falls_back_to_disk_for_severity() {
+        let root = unique_dir("disk-fallback");
+        let manifest_path = root.join("Lazurite.toml");
+        // DISK: production profile + iron-hand coverage preset.
+        std::fs::write(
+            &manifest_path,
+            "[doctor]\nprofile = \"production\"\n\n[doctor.coverage]\npreset = \"tdd-iron-hand\"\n",
+        )
+        .expect("write disk Lazurite.toml");
+
+        let feature = root.join("acct.lzi");
+        std::fs::write(&feature, "feature acct\n").expect("write feature");
+        let doc_uri = Url::from_file_path(&feature).expect("doc uri");
+
+        // No open documents at all -> disk is the only source.
+        let open_docs: HashMap<Url, String> = HashMap::new();
+        let cfg = resolve_workspace_config(&doc_uri, Some(&root), &open_docs);
+
+        assert_eq!(
+            cfg.profile.0,
+            DoctorProfile::Production,
+            "disk profile drives the config when the manifest is not open"
+        );
+        let sev = effective_severity(
+            "VOCAB-CONTEXT-PURPOSE-001",
+            DoctorSeverity::Warning,
+            RuleCategory::Vocabulary,
+            &cfg,
+        );
+        assert_eq!(
+            sev,
+            Some(DoctorSeverity::Error),
+            "disk's iron-hand preset escalates the package finding on fallback"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

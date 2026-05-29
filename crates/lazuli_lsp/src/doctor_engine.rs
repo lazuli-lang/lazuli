@@ -32,7 +32,7 @@
 
 use std::path::Path;
 
-use lazuli_doctor_config::DoctorProfile;
+use lazuli_doctor_config::ResolvedDoctorConfig;
 use lazuli_doctor_run::{DoctorDiagnostic, DoctorSeverity, run_package};
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, NumberOrString, Position, Range, Url};
 
@@ -158,21 +158,34 @@ fn to_lsp_diagnostic(doc_source: &str, finding: &DoctorDiagnostic) -> Diagnostic
 /// **doctor-owned** findings that belong to `doc_uri`, remapped to editor
 /// `Diagnostic`s over `doc_source`.
 ///
-/// `profile` is the workspace `[doctor] profile` (resolved by the
-/// backend); the engine's file-local injector reuses the LSP's own
-/// synchronous pass at that profile so the merged stream stays consistent
-/// with `lazuli doctor`. Returns an empty vec on any load failure (no
-/// manifest, parse error, unreadable root) — the synchronous pass already
-/// covers the editing-in-progress case.
+/// `config` is the workspace severity [`ResolvedDoctorConfig`] resolved by
+/// the backend (profile + presets + per-rule overrides), built
+/// buffer-preferring from the open `Lazurite.toml` editor buffer when that
+/// file is open, else from disk. The engine's file-local injector reuses
+/// the LSP's own synchronous pass at the config's profile so the merged
+/// stream stays consistent with `lazuli doctor`; the package layer's
+/// severity is driven by the same `config` — so an unsaved `[doctor]` edit
+/// changes both layers' published severities live.
+///
+/// v2 — previously this took only the `DoctorProfile`; the engine
+/// internally re-derived presets/overrides from its on-disk manifest read,
+/// so unsaved `[doctor]` preset/override edits did not reach package
+/// findings. Now the full config is threaded into `run_package`.
+///
+/// Returns an empty vec on any load failure (no manifest, parse error,
+/// unreadable root) — the synchronous pass already covers the
+/// editing-in-progress case.
 pub(crate) fn doctor_owned_for_document(
     workspace_root: &Path,
     doc_uri: &Url,
     doc_source: &str,
-    profile: DoctorProfile,
+    config: &ResolvedDoctorConfig,
 ) -> Vec<Diagnostic> {
     let Ok(doc_path) = doc_uri.to_file_path() else {
         return Vec::new();
     };
+
+    let profile = config.profile.0;
 
     // File-local injector: the engine consumes the LSP's own synchronous
     // file-local pass per file, exactly as the CLI feeds it
@@ -186,7 +199,7 @@ pub(crate) fn doctor_owned_for_document(
             .collect()
     };
 
-    let Ok(package) = run_package(workspace_root, profile, &file_local, Vec::new()) else {
+    let Ok(package) = run_package(workspace_root, config, &file_local, Vec::new()) else {
         return Vec::new();
     };
 

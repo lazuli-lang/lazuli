@@ -184,7 +184,12 @@ pub use lazuli_doctor::{
     RuleCategory, correctness, design, domain, encryption, lifecycle, poller, report,
     test_discipline, vocab,
 };
+// `SecurityProfile` (= `DoctorProfile`) is re-bound here so the in-module
+// `#[cfg(test)]` suites can name it through their `use crate::doctor::*`
+// glob (several mutate `package.security_profile` / `package.config.profile`).
+#[allow(unused_imports)]
 use lazuli_doctor_config::DoctorProfile as SecurityProfile;
+use lazuli_doctor_config::ResolvedDoctorConfig;
 // Re-exported for `dispatch.rs` (`use super::{… LZIR_SCHEMA …}`), which
 // passes it to the runtime-version aggregators.
 pub(crate) use lazuli_ir::LZIR_SCHEMA;
@@ -288,13 +293,24 @@ pub type FileLocalInjector<'a> = dyn Fn(&Path, &str) -> Vec<DoctorDiagnostic> + 
 /// or `.coverage_report()` for the per-layer coverage rollup. The CLI
 /// keeps the formatting / exit-code / `--coverage` / `--fail-on` layer
 /// on top.
+///
+/// v2 single-source residual — the engine takes a caller-supplied
+/// [`ResolvedDoctorConfig`] (profile + coverage/category presets +
+/// per-rule `severity_override`) instead of a bare `DoctorProfile`. It
+/// no longer re-derives severity config from its own on-disk manifest
+/// read; the manifest is still loaded internally, but ONLY for the
+/// non-severity uses (plugin alias maps / `semantic_type_unknown`
+/// suppression, app-root resolution). The CLI builds the config from the
+/// on-disk `Lazurite.toml` (byte-identical to before); the LSP builds it
+/// from the unsaved editor buffer when the workspace `Lazurite.toml` is
+/// open, so in-editor severities react to unsaved `[doctor]` edits.
 pub fn run_package(
     input: &Path,
-    security_profile: SecurityProfile,
+    config: &ResolvedDoctorConfig,
     file_local: &FileLocalInjector<'_>,
     injected: Vec<DoctorDiagnostic>,
 ) -> Result<DoctorPackage> {
-    let mut package = DoctorPackage::load_with(input, security_profile, file_local)?;
+    let mut package = DoctorPackage::load_with(input, config, file_local)?;
     package.injected = injected;
     Ok(package)
 }

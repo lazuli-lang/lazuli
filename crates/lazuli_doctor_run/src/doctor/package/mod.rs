@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use lazuli_analyzer::lower_feature_skeleton;
-use lazuli_doctor_config::DoctorProfile as SecurityProfile;
+use lazuli_doctor_config::{DoctorProfile as SecurityProfile, ResolvedDoctorConfig};
 use lazuli_manifest::lazurite_manifest::{self, Manifest};
 use lazuli_syntax::parse_feature_skeletons;
 
@@ -55,6 +55,20 @@ use state::{LoadAccumulator, LoadContext};
 pub struct DoctorPackage {
     pub(super) project_root: PathBuf,
     pub(super) security_profile: SecurityProfile,
+    /// v2 single-source residual — the caller-supplied
+    /// [`ResolvedDoctorConfig`] that drives EVERY severity decision the
+    /// package makes (profile + coverage/category presets + per-rule
+    /// `severity_override`). The CLI builds it from the on-disk
+    /// `Lazurite.toml` (byte-identical to the manifest it already loads);
+    /// the LSP builds it from the UNSAVED `Lazurite.toml` editor buffer
+    /// when that file is open, falling back to disk. `security_profile`
+    /// above is derived from `config.profile.0` so the profile-only
+    /// aggregators (which still take `self.security_profile`) follow the
+    /// same source. The package no longer reads `self.lazurite_manifest`'s
+    /// `[doctor]` section for severity — only for the non-severity uses
+    /// (plugin alias maps / `semantic_type_unknown` suppression, app-root
+    /// resolution).
+    pub(super) config: ResolvedDoctorConfig,
     /// `true` when `lazuli doctor` was invoked on a single `.lzi`/`.lzx`
     /// file rather than a project directory. Single-file mode skips
     /// project-level checks (e.g. `MANIFEST-REQUIRED-001`) that depend
@@ -130,7 +144,11 @@ impl DoctorPackage {
     /// suite where `lazuli_lsp` is available.
     #[cfg(test)]
     pub(crate) fn load(input: &Path, security_profile: SecurityProfile) -> Result<Self> {
-        Self::load_with(input, security_profile, &|_, _| Vec::new())
+        let config = ResolvedDoctorConfig {
+            profile: security_profile.into(),
+            ..ResolvedDoctorConfig::default()
+        };
+        Self::load_with(input, &config, &|_, _| Vec::new())
     }
 
     /// Load the package with a caller-supplied file-local diagnostic
@@ -145,9 +163,14 @@ impl DoctorPackage {
     /// `lazuli_lsp` nor `lazuli_cli`.
     pub fn load_with(
         input: &Path,
-        security_profile: SecurityProfile,
+        config: &ResolvedDoctorConfig,
         file_local: &super::FileLocalInjector<'_>,
     ) -> Result<Self> {
+        // v2 — the profile that flows to every profile-keyed aggregator is
+        // the config's profile. The manifest's `[doctor]` is still loaded
+        // below, but ONLY for non-severity uses; severity (profile +
+        // preset + overrides) now rides `config`.
+        let security_profile = config.profile.0;
         let paths = super::collect_package_paths(input)?;
         if paths.is_empty() {
             bail!("no .lzi or .lzx files found for {}", input.display());
@@ -171,6 +194,7 @@ impl DoctorPackage {
         let ctx = LoadContext {
             project_root: project_root.clone(),
             security_profile,
+            config,
             lazurite_manifest: &lazurite_manifest,
         };
         let mut acc = LoadAccumulator::default();
@@ -219,6 +243,7 @@ impl DoctorPackage {
         Ok(Self {
             project_root,
             security_profile,
+            config: config.clone(),
             single_file_input,
             lazurite_manifest,
             files,
@@ -289,12 +314,11 @@ impl DoctorPackage {
     /// thresholds and the rule-severity escalation map applied by
     /// dispatchers (see `context_vocab_diagnostics`).
     pub(super) fn coverage_preset(&self) -> Option<lazuli_doctor::coverage::CoveragePreset> {
-        use lazuli_doctor::coverage::CoveragePreset;
-        self.lazurite_manifest
-            .as_ref()
-            .and_then(|m| m.doctor.as_ref())
-            .and_then(|d| d.coverage.as_ref())
-            .and_then(|cov| cov.preset.as_deref())
-            .and_then(CoveragePreset::parse)
+        // v2 — read the coverage preset off the caller-supplied severity
+        // config (built from disk by the CLI, from the unsaved buffer by
+        // the LSP), NOT from the on-disk-loaded manifest. The CLI's config
+        // is built from the same on-disk `[doctor.coverage] preset`, so the
+        // value is byte-identical to the previous manifest read.
+        self.config.coverage_preset
     }
 }

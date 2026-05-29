@@ -235,20 +235,18 @@ impl DoctorPackage {
         // error under iron-hand) like the `HANDLER-*` family.
         diagnostics.extend(aggregators::job_runtime_gap::diagnostics(
             &self.tier3_facts,
-            self.lazurite_manifest.as_ref(),
+            // v2 — `[doctor.error_handling] preset` off the caller's
+            // severity config (CLI: disk; LSP: unsaved buffer).
+            self.config.error_handling_preset,
         ));
         // `.lzi` hygiene — file size, file/feature name alignment,
-        // and multi-feature cohesion. Reads
-        // `[doctor.lzi_hygiene].preset` from the workspace manifest.
-        {
-            let manifest = lazuli_manifest::lazurite_manifest::load(&self.project_root)
-                .ok()
-                .flatten();
-            diagnostics.extend(aggregators::lzi_hygiene::lzi_hygiene_diagnostics(
-                &self.project_root,
-                manifest.as_ref(),
-            ));
-        }
+        // and multi-feature cohesion. v2 — `[doctor.lzi_hygiene] preset`
+        // rides the caller's severity config instead of an independent
+        // on-disk manifest reload here.
+        diagnostics.extend(aggregators::lzi_hygiene::lzi_hygiene_diagnostics(
+            &self.project_root,
+            self.config.lzi_hygiene_preset,
+        ));
         diagnostics.extend(returns_list_001::diagnostics(
             &self.tier3_facts,
             &self.project_root,
@@ -753,7 +751,11 @@ impl DoctorPackage {
         // aggregator.
         diagnostics.extend(aggregators::error_handling_handlers::diagnostics(
             &correctness_app_root,
-            self.lazurite_manifest.as_ref(),
+            // v2 — `[doctor.error_handling] preset` + `[doctor.test_discipline]
+            // preset` off the caller's severity config (CLI: disk; LSP:
+            // unsaved buffer) instead of an on-disk manifest read.
+            self.config.error_handling_preset,
+            self.config.test_discipline_preset,
             self.security_profile,
         ));
 

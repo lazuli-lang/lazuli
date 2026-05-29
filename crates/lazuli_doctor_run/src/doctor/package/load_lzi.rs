@@ -246,13 +246,13 @@ fn process_lowered_feature(
     // loop. Under `tdd-iron-hand`, every TEST-* / DOCTOR-* /
     // MIGRATION-* / RUNTIME-* rule fires at Error regardless of
     // profile.
-    let test_discipline_preset = ctx
-        .lazurite_manifest
-        .as_ref()
-        .and_then(|m| m.doctor.as_ref())
-        .and_then(|d| d.test_discipline.as_ref())
-        .and_then(|td| td.preset.as_deref())
-        .and_then(lazuli_doctor::test_discipline::preset::TestDisciplinePreset::parse);
+    //
+    // v2 — sourced from the caller-supplied severity `config` (CLI: disk;
+    // LSP: unsaved buffer-first) rather than the on-disk manifest, so
+    // unsaved `[doctor.test_discipline] preset` edits drive in-editor
+    // test-discipline severity. Byte-identical for the CLI (its config is
+    // built from the same on-disk preset).
+    let test_discipline_preset = ctx.config.test_discipline_preset;
     file.local_diagnostics
         .extend(aggregators::test_discipline::diagnostics(
             &file.path,

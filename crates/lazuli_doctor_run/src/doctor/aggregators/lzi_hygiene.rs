@@ -16,14 +16,18 @@ use lazuli_doctor::lzi_hygiene::walker::walk_lzi_sources;
 use lazuli_doctor::lzi_hygiene::{
     feature_cohesion_001, feature_naming_matches_file_001, file_size_001,
 };
-use lazuli_manifest::lazurite_manifest::Manifest;
 
 use crate::doctor::helpers::resolve_lzi_hygiene_severity;
 use crate::doctor::{DoctorDiagnostic, DoctorSeverity};
 
 /// Run every `LZI-*` rule against `project_root` and return the
-/// collected diagnostics. Reads `[doctor.lzi_hygiene].preset` from the
-/// manifest (if any) to resolve severity.
+/// collected diagnostics. `preset` is the active `[doctor.lzi_hygiene]`
+/// preset, resolved by the caller off the severity `ResolvedDoctorConfig`.
+///
+/// v2 — the preset arrives pre-resolved from the caller's severity config
+/// (CLI: disk; LSP: unsaved `Lazurite.toml` buffer) instead of being
+/// re-read off an on-disk manifest here, so in-editor severity tracks
+/// unsaved `[doctor.lzi_hygiene] preset` edits.
 ///
 /// ## Examples
 ///
@@ -39,14 +43,8 @@ use crate::doctor::{DoctorDiagnostic, DoctorSeverity};
 /// ```
 pub(crate) fn lzi_hygiene_diagnostics(
     project_root: &Path,
-    manifest: Option<&Manifest>,
+    preset: Option<LziHygienePreset>,
 ) -> Vec<DoctorDiagnostic> {
-    let preset = manifest
-        .and_then(|m| m.doctor.as_ref())
-        .and_then(|d| d.lzi_hygiene.as_ref())
-        .and_then(|lh| lh.preset.as_deref())
-        .and_then(LziHygienePreset::parse);
-
     let files = walk_lzi_sources(project_root);
     if files.is_empty() {
         return Vec::new();

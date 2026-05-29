@@ -425,6 +425,11 @@
         DoctorPackage {
             project_root: PathBuf::from("."),
             security_profile: SecurityProfile::Strict,
+            // v2 — Strict-default severity config to match
+            // `security_profile` above. `package_from_sources_with_manifest`
+            // overwrites this with a config resolved from the test
+            // manifest's `[doctor]` section.
+            config: lazuli_doctor_config::ResolvedDoctorConfig::default(),
             single_file_input: true,
             lazurite_manifest: None,
             files,
@@ -466,7 +471,17 @@
         fs::create_dir_all(&root).expect("create temp manifest project");
         fs::write(root.join("Lazurite.toml"), manifest_source).expect("write Lazurite.toml");
         package.project_root = root;
-        package.lazurite_manifest = Some(toml::from_str(manifest_source).unwrap());
+        let manifest: lazuli_manifest::lazurite_manifest::Manifest =
+            toml::from_str(manifest_source).unwrap();
+        // v2 — the severity config now drives every preset/override
+        // decision. Build it from the SAME manifest `[doctor]` section
+        // the test wrote, at the package's Strict profile, so
+        // preset/override-driven test assertions keep their behavior.
+        package.config = lazuli_doctor_config::ResolvedDoctorConfig::from_doctor(
+            manifest.doctor.as_ref(),
+            package.security_profile,
+        );
+        package.lazurite_manifest = Some(manifest);
         package
     }
 

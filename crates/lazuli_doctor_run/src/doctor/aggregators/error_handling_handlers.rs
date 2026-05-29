@@ -57,7 +57,6 @@ use lazuli_doctor::error_handling::{
 use lazuli_doctor::test_discipline::preset::TestDisciplinePreset;
 use lazuli_doctor::test_discipline::{test_failure_only_coverage_001, test_pins_stub_vocab_001};
 use lazuli_doctor_config::DoctorProfile as SecurityProfile;
-use lazuli_manifest::lazurite_manifest::Manifest;
 
 use crate::doctor::helpers::{resolve_error_handling_severity, resolve_test_discipline_severity};
 use crate::doctor::{DoctorDiagnostic, DoctorSeverity};
@@ -66,9 +65,17 @@ use crate::doctor::{DoctorDiagnostic, DoctorSeverity};
 /// `HANDLER-*` rule. Returns the canonical
 /// `Vec<DoctorDiagnostic>` the rest of the dispatch pipeline expects.
 ///
-/// `manifest` is consulted for `[doctor.error_handling].preset` to
-/// resolve severity. Pass `None` to fall back to per-rule defaults
-/// (every rule fires at `Warning`).
+/// `error_handling_preset` / `test_discipline_preset` are the active
+/// `[doctor.error_handling]` / `[doctor.test_discipline]` presets,
+/// resolved by the caller off the severity `ResolvedDoctorConfig`. Pass
+/// `None` to fall back to per-rule defaults (every preset-governed rule
+/// fires at `Warning`).
+///
+/// v2 — the presets arrive pre-resolved from the caller's severity config
+/// (CLI: disk; LSP: unsaved `Lazurite.toml` buffer) rather than being
+/// re-read off an on-disk manifest, so in-editor severity tracks unsaved
+/// `[doctor.error_handling] preset` / `[doctor.test_discipline] preset`
+/// edits.
 ///
 /// ## Examples
 ///
@@ -80,21 +87,23 @@ use crate::doctor::{DoctorDiagnostic, DoctorSeverity};
 /// ```
 pub(crate) fn diagnostics(
     project_root: &Path,
-    manifest: Option<&Manifest>,
+    error_handling_preset: Option<ErrorHandlingPreset>,
+    test_discipline_preset: Option<TestDisciplinePreset>,
     security_profile: SecurityProfile,
 ) -> Vec<DoctorDiagnostic> {
     diagnostics_with_preset(
         project_root,
-        resolve_preset(manifest),
-        resolve_test_discipline_preset(manifest),
+        error_handling_preset,
+        test_discipline_preset,
         security_profile,
     )
 }
 
-/// Inner helper — same plumbing as [`diagnostics`] but takes the
-/// already-resolved presets directly. Public to the parent module so
-/// unit tests can validate severity escalation without faking a full
-/// [`Manifest`].
+/// Inner helper — same plumbing as [`diagnostics`] but kept distinct so
+/// unit tests can validate severity escalation by passing presets in
+/// directly. (Since the v2 single-source change, [`diagnostics`] also
+/// takes presets directly, so this is now a thin pass-through retained
+/// for the existing test call sites.)
 pub(crate) fn diagnostics_with_preset(
     project_root: &Path,
     preset: Option<ErrorHandlingPreset>,
@@ -258,32 +267,6 @@ pub(crate) fn diagnostics_with_preset(
 
 /// Pull the `[doctor.error_handling].preset` value out of the manifest
 /// and parse it. Returns `None` when:
-///
-/// - The manifest is absent.
-/// - `[doctor]` is absent.
-/// - `[doctor.error_handling]` is absent.
-/// - `preset = "..."` is unset or unparseable.
-///
-/// Callers fall back to per-rule defaults in that case.
-fn resolve_preset(manifest: Option<&Manifest>) -> Option<ErrorHandlingPreset> {
-    manifest
-        .and_then(|m| m.doctor.as_ref())
-        .and_then(|d| d.error_handling.as_ref())
-        .and_then(|eh| eh.preset.as_deref())
-        .and_then(ErrorHandlingPreset::parse)
-}
-
-/// Pull `[doctor.test_discipline].preset` for the
-/// `TEST-FAILURE-ONLY-COVERAGE-001` severity-resolver. Mirrors
-/// [`resolve_preset`].
-fn resolve_test_discipline_preset(manifest: Option<&Manifest>) -> Option<TestDisciplinePreset> {
-    manifest
-        .and_then(|m| m.doctor.as_ref())
-        .and_then(|d| d.test_discipline.as_ref())
-        .and_then(|td| td.preset.as_deref())
-        .and_then(TestDisciplinePreset::parse)
-}
-
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -303,7 +286,7 @@ mod tests {
     #[test]
     fn empty_workspace_yields_no_diagnostics() {
         let tmp = tempfile::tempdir().unwrap();
-        let diags = diagnostics(tmp.path(), None, SecurityProfile::Strict);
+        let diags = diagnostics(tmp.path(), None, None, SecurityProfile::Strict);
         assert!(diags.is_empty());
     }
 
@@ -315,7 +298,7 @@ mod tests {
             "features/auth/handlers/login.go",
             "package handlers\n\nfunc Login() { panic(\"nope\") }\n",
         );
-        let diags = diagnostics(tmp.path(), None, SecurityProfile::Strict);
+        let diags = diagnostics(tmp.path(), None, None, SecurityProfile::Strict);
         let panic_diags: Vec<_> = diags
             .iter()
             .filter(|d| d.code == "HANDLER-NO-PANIC-001")
@@ -360,7 +343,7 @@ mod tests {
             "features/billing/domain/foo.go",
             "package domain\n\nfunc Foo() error { return errors.New(\"oops\") }\n",
         );
-        let diags = diagnostics(tmp.path(), None, SecurityProfile::Strict);
+        let diags = diagnostics(tmp.path(), None, None, SecurityProfile::Strict);
         let codes: std::collections::BTreeSet<&str> =
             diags.iter().map(|d| d.code.as_str()).collect();
         assert!(codes.contains("HANDLER-NO-PANIC-001"));
@@ -376,7 +359,7 @@ mod tests {
             "features/auth/handlers/login_test.go",
             "package handlers\n\nfunc TestX(t *T) {\n  panic(\"ok\")\n  return errors.New(\"ok\")\n  return fmt.Errorf(\"bad: %v\", err)\n}\n",
         );
-        let diags = diagnostics(tmp.path(), None, SecurityProfile::Strict);
+        let diags = diagnostics(tmp.path(), None, None, SecurityProfile::Strict);
         // The HANDLER-* error-handling rules ignore `_test.go` files.
         // `TEST-FAILURE-ONLY-COVERAGE-001` does walk them, but the file
         // above has no `func Test*` body (the parens-fenced helper is
