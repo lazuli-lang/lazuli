@@ -209,7 +209,15 @@ pub(super) fn harvest_tier3_facts(
             events: feature.events.clone(),
             policies_declared: feature.policies.span_ref.is_some(),
             policies: feature.policies.clone(),
-            extensions: feature.extensions.clone(),
+            // F4 — the skeleton lower leaves `feature.extensions` empty, so
+            // harvest the `fn <name>: Function[...]` rows from the raw source
+            // to feed SCHEDULE-RULE-001's `@fn` resolution. Any extensions the
+            // lower *does* populate (none today, but future-proof) are kept.
+            extensions: {
+                let mut exts = feature.extensions.clone();
+                exts.extend(harvest_fn_extensions(&file.source, &feature.name));
+                exts
+            },
             reports: feature.reports.clone(),
             report_lines,
             resources: feature.resources.clone(),
@@ -221,4 +229,81 @@ pub(super) fn harvest_tier3_facts(
             channels: feature.channels.clone(),
         });
     }
+}
+
+/// F4 — harvest `fn <name>: Function[...]` extension declarations from a
+/// feature's `extensions` block as typed `Extension` rows.
+///
+/// The skeleton lowering (`lower_feature_skeleton`) does not capture the
+/// `extensions` block — `Feature.extensions` is always empty in the doctor
+/// pipeline. SCHEDULE-RULE-001 (`schedule_rule_invalid::check`) resolves a
+/// `schedule_rule from @fn.<rule>` base against the feature's declared `fn`
+/// (Function) extensions by *name*, so without this harvest a validly
+/// declared `fn` is invisible and the rule false-positives "unresolved fn".
+///
+/// Wire-thin: a text-scan limited to the single feature's `extensions`
+/// block (indent 2). Only the extension *name* is load-bearing for the
+/// SCHEDULE-RULE-001 lookup; the `Function` input/output types are seeded
+/// with placeholders the rule never reads.
+fn harvest_fn_extensions(source: &str, feature_name: &str) -> Vec<lazuli_ir::Extension> {
+    use lazuli_ir::{BuiltinType, Extension, ExtensionContract, PathRef, TypeRef};
+
+    let leading_spaces = |line: &str| line.len() - line.trim_start().len();
+    let lines: Vec<&str> = source.lines().collect();
+    let mut out = Vec::new();
+    let mut in_target_feature = false;
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            i += 1;
+            continue;
+        }
+        if leading_spaces(line) == 0 {
+            if let Some(name) = trimmed.strip_prefix("feature ") {
+                in_target_feature = name.trim() == feature_name;
+            } else {
+                in_target_feature = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_target_feature && leading_spaces(line) == 2 && trimmed == "extensions" {
+            let mut j = i + 1;
+            while j < lines.len() {
+                let inner = lines[j];
+                let inner_trim = inner.trim_start();
+                if inner_trim.is_empty() || inner_trim.starts_with('#') {
+                    j += 1;
+                    continue;
+                }
+                if leading_spaces(inner) <= 2 {
+                    break;
+                }
+                if let Some(rest) = inner_trim.strip_prefix("fn ") {
+                    // `fn <name>: Function[...] [at "..."]` — only the name
+                    // (up to the `:`) is needed for the @fn resolution.
+                    let name = rest.split(':').next().unwrap_or("").trim();
+                    if !name.is_empty() {
+                        out.push(Extension {
+                            name: name.to_owned(),
+                            contract: ExtensionContract::Function {
+                                input: TypeRef::Builtin(BuiltinType::Json),
+                                output: TypeRef::Builtin(BuiltinType::Json),
+                            },
+                            resolved_path: PathRef::authored("./handlers/_harvested.go"),
+                            previous_names: Vec::new(),
+                            span_ref: None,
+                        });
+                    }
+                }
+                j += 1;
+            }
+            i = j;
+            continue;
+        }
+        i += 1;
+    }
+    out
 }
