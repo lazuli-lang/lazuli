@@ -1,0 +1,16 @@
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Dev-only build tasks for the Lazuli workspace (tmLanguage keyword-rule generation, freshness gates). Pure projector — deps lazuli_keywords + serde_json only."
+publish = false
+
+[[bin]]
+name = "xtask"
+path = "src/main.rs"
+
+[dependencies]
+lazuli_keywords = { path = "../../crates/lazuli_keywords", features = ["serde"] }
+serde_json = { workspace = true }

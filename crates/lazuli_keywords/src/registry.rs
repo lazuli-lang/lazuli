@@ -29,6 +29,23 @@ const OP_LOGICAL: &str = "keyword.operator.logical.lazuli";
 const OP_PREDICATE: &str = "keyword.operator.predicate.lazuli";
 const TYPE_CTOR: &str = "support.function.type-constructor.lazuli";
 
+// ── per-block statement-scope leaves (used by the H2 tmLanguage backfill) ──
+const TESTS: &str = "entity.name.function.statement.tests.lazuli";
+const TRANSLATION: &str = "entity.name.function.statement.translation.lazuli";
+const HEADERS: &str = "entity.name.function.statement.headers.lazuli";
+const LIMITS: &str = "entity.name.function.statement.limits.lazuli";
+const ENCRYPTION: &str = "entity.name.function.statement.encryption.lazuli";
+const TRACING: &str = "entity.name.function.statement.tracing.lazuli";
+const DEPLOY: &str = "entity.name.function.statement.deploy.lazuli";
+const COMMUNICATION: &str = "entity.name.function.statement.communication.lazuli";
+const ENV: &str = "entity.name.function.statement.env.lazuli";
+const INTEGRATION: &str = "entity.name.function.statement.integration.lazuli";
+const PACKS: &str = "entity.name.function.statement.packs.lazuli";
+const DEFAULTS: &str = "entity.name.function.statement.defaults.lazuli";
+const AUDIT: &str = "entity.name.function.statement.audit.lazuli";
+const APPROVAL: &str = "entity.name.function.statement.approval.lazuli";
+const REPLAY: &str = "entity.name.function.statement.replay.lazuli";
+
 /// Build a bare-keyword `.lzi` capability row with no `produces` facet.
 const fn kw(
     literal: &'static str,
@@ -1593,11 +1610,15 @@ pub const ALL: &[CapabilitySpec] = &[
         "entity.name.function.statement.approval.lazuli",
         "Condition requiring approval.",
     ),
-    stmt("chain", Context::Approval, STMT, "Approval chain."),
+    // H2 reconcile: `chain`/`sequential` are approval-block statements — the
+    // hand-written grammar colors them `entity.name.function.statement.approval`
+    // (alongside `required_when`), not the generic statement leaf. Promote off
+    // STMT so the generated `#kw-approval` alternation is faithful.
+    stmt("chain", Context::Approval, APPROVAL, "Approval chain."),
     stmt(
         "sequential",
         Context::Approval,
-        STMT,
+        APPROVAL,
         "Sequential approval mode.",
     ),
     // ── command: deprecated sub-block ──
@@ -1687,8 +1708,16 @@ pub const ALL: &[CapabilitySpec] = &[
         "Replay-protection block.",
     ),
     stmt("dlq", Context::Webhook, SECTION, "Dead-letter-queue block."),
-    stmt("dedupe", Context::Webhook, STMT, "Deduplication key."),
-    stmt("within", Context::Webhook, STMT, "Replay window."),
+    // H2 reconcile: `dedupe`/`within` belong to the webhook `replay` sub-block;
+    // the grammar colors them `entity.name.function.statement.replay`. Promote
+    // off the generic statement leaf so `#kw-replay` is faithful.
+    stmt(
+        "dedupe",
+        Context::Webhook,
+        REPLAY,
+        "Replay deduplication key.",
+    ),
+    stmt("within", Context::Webhook, REPLAY, "Replay window."),
     stmt(
         "previous_version",
         Context::Webhook,
@@ -2481,7 +2510,10 @@ pub const ALL: &[CapabilitySpec] = &[
         SECTION,
         "Plan feature entitlements.",
     ),
-    kw("trial", Context::Plan, STMT, "Plan trial period."),
+    // H2 reconcile: the grammar's plan-block alternation colors
+    // `features | limits | trial` at the section leaf; promote `trial` off the
+    // generic statement leaf so `#kw-plan-section` is faithful.
+    kw("trial", Context::Plan, SECTION, "Plan trial-window block."),
     CapabilitySpec {
         literal: "then",
         context: Context::Plan,
@@ -2775,9 +2807,19 @@ pub const ALL: &[CapabilitySpec] = &[
     value("update", "entity.name.function.statement.policy.lazuli"),
     value("delete", "entity.name.function.statement.policy.lazuli"),
     // semantic-value contexts / lifecycle / misc closed catalogs
-    value("anonymize", "constant.language.lazuli"),
-    value("archive", "constant.language.lazuli"),
-    value("escalate", "constant.language.lazuli"),
+    // Retention-action catalog — tmLanguage assigns the precise leaf
+    // `constant.language.retention-action.lazuli` (lazuli.tmLanguage.json
+    // `feature-retention-line`: `then (anonymize|delete|archive)`). H2
+    // reconcile (step 4): promote these off the generic `constant.language`
+    // leaf to the precise one so a future value-catalog generator is faithful.
+    value("anonymize", "constant.language.retention-action.lazuli"),
+    value("archive", "constant.language.retention-action.lazuli"),
+    // `escalate` is NOT a closed-catalog value — it is an `approval` block
+    // statement keyword. tmLanguage colors it
+    // `entity.name.function.statement.approval.lazuli` (approval-block
+    // alternation). H2 reconcile (step 4): the spurious `value()` row is
+    // dropped here; the faithful Approval-context row is added in the H2
+    // tmLanguage-faithfulness backfill block below.
     value("me", "constant.language.lazuli"),
     value("org", "constant.language.lazuli"),
     value("team", "constant.language.lazuli"),
@@ -2787,4 +2829,230 @@ pub const ALL: &[CapabilitySpec] = &[
     value("authenticated", "constant.language.lazuli"),
     value("unauthenticated", "constant.language.lazuli"),
     value("custom", "constant.language.lazuli"),
+    // ════════════════════════════════════════════════════════════════
+    // H2 tmLanguage-faithfulness backfill (Wave H2)
+    // ════════════════════════════════════════════════════════════════
+    //
+    // The tmLanguage keyword-alternation rules are GENERATED from this
+    // registry (`cargo xtask gen-tmlanguage`), grouped by `(context, scope)`.
+    // H1 enumerated each block's *novel* statement keywords but left some
+    // per-block rows implicit — the cross-cutting words (`from`/`to`/`by`/
+    // `when`/`required`/...) lived only in their `Modifier`/`Expression`
+    // rows, and a handful of block-specific keywords were simply missing.
+    //
+    // For the generated `#kw-*` alternation of a block to reproduce the
+    // hand-written grammar's coverage EXACTLY (zero snapshot drift), each
+    // generatable `(context, scope)` group must hold every literal the old
+    // inline alternation listed. These rows are that backfill: the literal +
+    // its per-block context + the scope leaf the grammar already assigned.
+    // Context-as-data (lib.rs §"Context-as-data") — a literal valid in N
+    // blocks with different scopes is N rows; these are the per-block rows.
+    //
+    // Each row mirrors a literal in `editors/vscode/syntaxes/lazuli.tmLanguage.json`.
+    // The generator's `GROUPS` allowlist names exactly which `(context, scope)`
+    // groups below are wired into the grammar as `#kw-*` includes.
+
+    // ── plan-block: `features | limits | trial` (section scope) ──
+    // (`trial` is reconciled in place above, off STMT; only `limits` is new here.)
+    stmt(
+        "limits",
+        Context::Plan,
+        SECTION,
+        "Plan limit-entitlement block.",
+    ),
+    // ── tests-block: filter/predicate connectors at the tests scope ──
+    stmt(
+        "requires",
+        Context::Tests,
+        TESTS,
+        "Test precondition clause.",
+    ),
+    stmt("when", Context::Tests, TESTS, "Test guard clause."),
+    stmt("by", Context::Tests, TESTS, "Test actor binding."),
+    stmt("from", Context::Tests, TESTS, "Test source binding."),
+    stmt("as", Context::Tests, TESTS, "Test actor/role alias."),
+    stmt("to", Context::Tests, TESTS, "Test transition target."),
+    // ── translation-block: `catalog | key | plural` ──
+    stmt("key", Context::Translation, TRANSLATION, "Translation key."),
+    // ── headers-block: `max_age` ──
+    stmt(
+        "max_age",
+        Context::Headers,
+        HEADERS,
+        "HSTS max-age directive.",
+    ),
+    // ── limits-block: `timeout` ──
+    stmt("timeout", Context::Limits, LIMITS, "Request timeout limit."),
+    // ── encryption-block: `key | source | algorithm | rotation | rotation_profile` ──
+    stmt(
+        "key",
+        Context::Encryption,
+        ENCRYPTION,
+        "Encryption key reference.",
+    ),
+    stmt(
+        "source",
+        Context::Encryption,
+        ENCRYPTION,
+        "Key-source declaration.",
+    ),
+    stmt(
+        "rotation",
+        Context::Encryption,
+        ENCRYPTION,
+        "Key-rotation policy.",
+    ),
+    // ── tracing-block: `sample_rate` ──
+    stmt(
+        "sample_rate",
+        Context::Tracing,
+        TRACING,
+        "Trace sampling rate.",
+    ),
+    // ── deploy-block: `environment` ──
+    stmt(
+        "environment",
+        Context::Deploy,
+        DEPLOY,
+        "Deploy target environment.",
+    ),
+    // ── communication-block: `sync | propagate | timeout` ──
+    stmt(
+        "sync",
+        Context::Communication,
+        COMMUNICATION,
+        "Synchronous channel.",
+    ),
+    stmt(
+        "propagate",
+        Context::Communication,
+        COMMUNICATION,
+        "Context propagation toggle.",
+    ),
+    stmt(
+        "timeout",
+        Context::Communication,
+        COMMUNICATION,
+        "Call timeout.",
+    ),
+    // ── env-block: `required | optional | default` ──
+    stmt(
+        "required",
+        Context::Env,
+        ENV,
+        "Required environment variable.",
+    ),
+    stmt(
+        "optional",
+        Context::Env,
+        ENV,
+        "Optional environment variable.",
+    ),
+    stmt(
+        "default",
+        Context::Env,
+        ENV,
+        "Environment-variable default value.",
+    ),
+    // ── integrations-block: `environment | contract` ──
+    stmt(
+        "environment",
+        Context::Integrations,
+        INTEGRATION,
+        "Integration environment selector.",
+    ),
+    stmt(
+        "contract",
+        Context::Integrations,
+        INTEGRATION,
+        "Integration contract reference.",
+    ),
+    // ── packs-block: `provides | from | feature` ──
+    stmt(
+        "provides",
+        Context::Packs,
+        PACKS,
+        "Pack-provided capability.",
+    ),
+    stmt("from", Context::Packs, PACKS, "Pack source reference."),
+    stmt("feature", Context::Packs, PACKS, "Pack-included feature."),
+    // ── defaults-block: project-default modifiers (resource conventions) ──
+    stmt(
+        "tenancy",
+        Context::Defaults,
+        DEFAULTS,
+        "Default tenancy mode.",
+    ),
+    stmt(
+        "timestamps",
+        Context::Defaults,
+        DEFAULTS,
+        "Default timestamp convention.",
+    ),
+    stmt(
+        "soft_delete",
+        Context::Defaults,
+        DEFAULTS,
+        "Default soft-delete convention.",
+    ),
+    stmt(
+        "retention",
+        Context::Defaults,
+        DEFAULTS,
+        "Default retention policy.",
+    ),
+    // ── audit-block: lifecycle connectors at the audit scope ──
+    stmt(
+        "materialize",
+        Context::Audit,
+        AUDIT,
+        "Materialize the audit projection.",
+    ),
+    stmt(
+        "before",
+        Context::Audit,
+        AUDIT,
+        "Audit before-image clause.",
+    ),
+    stmt("after", Context::Audit, AUDIT, "Audit after-image clause."),
+    stmt(
+        "data_subject",
+        Context::Audit,
+        AUDIT,
+        "GDPR data-subject binding.",
+    ),
+    stmt(
+        "retain_for",
+        Context::Audit,
+        AUDIT,
+        "Audit retention window.",
+    ),
+    // ── approval-block: chain connectors at the approval scope ──
+    stmt("by", Context::Approval, APPROVAL, "Approver binding."),
+    stmt("timeout", Context::Approval, APPROVAL, "Approval timeout."),
+    stmt(
+        "then",
+        Context::Approval,
+        APPROVAL,
+        "Approval next-step connector.",
+    ),
+    stmt("deny", Context::Approval, APPROVAL, "Approval deny branch."),
+    stmt(
+        "allow",
+        Context::Approval,
+        APPROVAL,
+        "Approval allow branch.",
+    ),
+    stmt(
+        "escalate",
+        Context::Approval,
+        APPROVAL,
+        "Approval escalation action.",
+    ),
+    // (`chain`/`sequential` are reconciled in place above, off STMT.)
+    // ── replay-block (webhook): `allow | deny | within | dedupe | by` ──
+    // (`within`/`dedupe` are reconciled in place above, off STMT.)
+    stmt("allow", Context::Webhook, REPLAY, "Replay allow window."),
+    stmt("deny", Context::Webhook, REPLAY, "Replay deny rule."),
+    stmt("by", Context::Webhook, REPLAY, "Replay dedupe binding."),
 ];

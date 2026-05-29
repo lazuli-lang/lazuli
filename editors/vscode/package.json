@@ -151,7 +151,9 @@
     "test:grammar:manifest": "vscode-tmgrammar-snap -g ./syntaxes/lazurite-manifest.tmLanguage.json -s source.lazurite-toml --updateSnapshot \"./tests/grammar/**/*.toml\"",
     "test:grammar:manifest:check": "vscode-tmgrammar-snap -g ./syntaxes/lazurite-manifest.tmLanguage.json -s source.lazurite-toml \"./tests/grammar/**/*.toml\"",
     "test:grammar": "npm run test:grammar:lazuli && npm run test:grammar:manifest",
-    "test:grammar:check": "npm run test:grammar:lazuli:check && npm run test:grammar:manifest:check",
+    "test:grammar:gen": "cargo run --manifest-path ../../Cargo.toml -p xtask -- gen-tmlanguage",
+    "test:grammar:gen:check": "cargo run --manifest-path ../../Cargo.toml -p xtask -- gen-tmlanguage --check",
+    "test:grammar:check": "npm run test:grammar:gen:check && npm run test:grammar:lazuli:check && npm run test:grammar:manifest:check",
     "test:diagnostics": "cargo test --manifest-path ../../Cargo.toml -p lazuli_lsp --test typo_snapshot",
     "test:all": "npm run test:grammar:check && npm run test:diagnostics"
   }
