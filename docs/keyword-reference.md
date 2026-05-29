@@ -260,6 +260,7 @@ _Generated from 676 capability rows across the `lazuli_keywords` registry._
 | `sunset` | `entity.name.function.statement.deprecated.lazuli` | `keyword` | — | Sunset date. | — |
 | `target` | `keyword.control.statement.lazuli` | `keyword` | — | Effect target resource. | — |
 | `timeout` | `keyword.control.statement.lazuli` | `keyword` | — | Command timeout. | — |
+| `triggers` | `keyword.control.statement.lazuli` | `keyword` | — | Triggers a lifecycle transition (`triggers transition <t>`). | — |
 | `updates` | `keyword.control.statement.lazuli` | `keyword` | — | Effect: updates a resource. | — |
 | `validate` | `keyword.control.statement.lazuli` | `keyword` | — | Inline validation. | — |
 | `write_window` | `keyword.control.statement.lazuli` | `keyword` | — | Write-window constraint. | — |
@@ -811,7 +812,6 @@ _Generated from 676 capability rows across the `lazuli_keywords` registry._
 | `terminal_status_field` | `storage.modifier.lazuli` | `modifier` | — | Terminal status field. | — |
 | `to` | `storage.modifier.lazuli` | `modifier` | — | Target connector. | — |
 | `transition` | `storage.modifier.lazuli` | `modifier` | — | Lifecycle transition. | — |
-| `triggers` | `storage.modifier.lazuli` | `modifier` | — | Triggers connector. | — |
 | `uri_template` | `storage.modifier.lazuli` | `modifier` | — | URI template. | — |
 | `uses` | `storage.modifier.lazuli` | `modifier` | — | Uses connector. | — |
 | `using` | `storage.modifier.lazuli` | `modifier` | — | Using connector. | — |

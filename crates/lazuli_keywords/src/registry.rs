@@ -2071,6 +2071,12 @@ pub const ALL: &[CapabilitySpec] = &[
         P_EMITS,
     ),
     stmt(
+        "triggers",
+        Context::CommandBody,
+        STMT,
+        "Triggers a lifecycle transition (`triggers transition <t>`).",
+    ),
+    stmt(
         "invalidates",
         Context::CommandBody,
         SECTION,
@@ -3096,7 +3102,6 @@ pub const ALL: &[CapabilitySpec] = &[
     modifier("invariant_handler", "Invariant handler reference."),
     modifier("derived_from", "Derived-from source."),
     modifier("resolve", "Resolve-via connector."),
-    modifier("triggers", "Triggers connector."),
     modifier("states", "Lifecycle states block."),
     modifier("state", "Lifecycle state."),
     modifier("transition", "Lifecycle transition."),

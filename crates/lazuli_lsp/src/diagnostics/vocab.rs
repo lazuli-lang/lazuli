@@ -141,7 +141,7 @@ pub(crate) fn namespace_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
                     line,
                     DiagnosticSeverity::WARNING,
                     "namespace-catalog",
-                    "unknown `@...` namespace. Allowed namespaces are `@role`, `@scope`, `@actor`, `@policy`, `@semantic`, `@cap`, `@pii`, `@key`, `@fn`, `@hook`, `@validator`, `@adapter`, `@client`, `@query_modifier`, `@anchor`, `@llm`, `@tool`, and `@trace`.",
+                    "unknown `@...` namespace. Allowed namespaces are `@role`, `@scope`, `@actor`, `@policy`, `@semantic`, `@cap`, `@pii`, `@key`, `@fn`, `@hook`, `@validator`, `@adapter`, `@client`, `@query_modifier`, `@anchor`, `@llm`, `@tool`, `@trace`, `@translation`, and `@feature`.",
                 ));
                 break;
             }
@@ -240,5 +240,10 @@ pub(crate) fn is_allowed_reference_namespace(namespace: &str) -> bool {
             // labels). Keys are declared in feature `translation` blocks;
             // doctor's `rule_message_ref_unresolved` validates resolution.
             | "translation"
+            // GAP-12 / GAP-AUDIT-01 — cross-feature reference namespace for
+            // `@feature.<feature>.<Resource>` on `target` (effect-target
+            // resolution) and `audit ... materialize @feature.x.OperationLog`.
+            // Resolves to a resource declared in a sibling feature block.
+            | "feature"
     )
 }
