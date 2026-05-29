@@ -50,12 +50,20 @@ feature customer
       owner: User optional
       name: Text required
       email: @semantic.Email @pii.contact required
+      brand_color: @semantic.HexColor optional
+      health: @semantic.Percentage = 0
       tier: CustomerTier = free
       source: CustomerSource = manual
       score: Integer @pii.derived = 0
       external_id: @cap.Encrypted(key:@key.tenant) @pii.external optional
       is_high_value: Boolean derived from score > 80
+      renewal_date: Date optional
+      reminder_lead_days: Integer = 7
+      renewal_reminder_at: Date computed_date from renewal_date offset reminder_lead_days
       has_many notes: CustomerNote inverse customer
+      many_through CustomerAccountManager to User
+        role_in_account: Text required
+        assigned_at: DateTime required
 
       soft_delete
       retention 7y then anonymize
@@ -117,6 +125,31 @@ feature customer
       customer: Customer required
       author: User required
       body: Text required
+      position: Integer = 0
+      pinned: Boolean = false
+
+      unique pinned when pinned = true
+
+    record Address
+      line1: Text required
+      line2: Text optional
+      city: Text required
+      postal_code: Text required
+      country: Text required
+
+    resource CustomerAddress
+      customer: Customer required on_delete cascade
+      label: Text required
+      address: Address required
+      is_default: Boolean = false
+
+      unique is_default when is_default = true
+
+    resource CustomerActivity
+      append_only
+      actor: User required
+      kind: Text required
+      polymorphic_ref subject_type subject_id targets [Customer, CustomerNote]
 
     constraints
       unique email per org
@@ -416,7 +449,20 @@ feature customer
       query.list
       query.by_id(id: route.id)
 
+  command reorder_notes
+    route id: ID
+    input
+      ordered_ids: JSON required
+    policy @policy.update
+    rate_limit "30 per minute per user"
+    reorder CustomerNote by position
+    invalidates
+      query.by_id(id: route.id)
+
   report monthly_audit
+    input
+      period_start: Date required
+      period_end: Date required
     source customer.query.list
     columns
       id from row.id
