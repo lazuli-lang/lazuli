@@ -233,7 +233,7 @@ use lazuli_analyzer::lower_feature_skeleton;
 use lazuli_ir::{
     self as ir, Agent, AppContract, AppManifest, AppProfile, AppRegistry, AppWorkspace, LZIR_SCHEMA,
 };
-use lazuli_lsp::SecurityProfile;
+use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 use lazuli_syntax::{LzxDocument, LzxPlatform, LzxPlatformView, parse_feature_skeletons};
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
@@ -254,7 +254,7 @@ use crate::lazurite_manifest::{self, Manifest, MigrationStrategy};
 ///
 /// ```ignore
 /// use std::path::Path;
-/// use lazuli_lsp::SecurityProfile;
+/// use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 /// use lazuli_cli::doctor::doctor_command;
 ///
 /// // doctor_command(Path::new("."), SecurityProfile::Strict, false, true)?;
@@ -286,7 +286,7 @@ pub fn doctor_command(
 ///
 /// ```ignore
 /// use std::path::Path;
-/// use lazuli_lsp::SecurityProfile;
+/// use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 /// use lazuli_cli::doctor::{doctor_command_with_options, DoctorRuntimeOptions};
 ///
 /// // doctor_command_with_options(

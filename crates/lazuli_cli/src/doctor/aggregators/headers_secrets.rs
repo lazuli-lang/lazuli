@@ -24,8 +24,8 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 use lazuli_ir::{self as ir};
-use lazuli_lsp::SecurityProfile;
 
 use crate::doctor::{DoctorAppManifest, DoctorDiagnostic, DoctorSeverity};
 

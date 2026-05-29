@@ -28,7 +28,7 @@
 
 use std::path::Path;
 
-use lazuli_lsp::SecurityProfile;
+use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 
 use crate::doctor::{DoctorDiagnostic, DoctorSeverity};
 

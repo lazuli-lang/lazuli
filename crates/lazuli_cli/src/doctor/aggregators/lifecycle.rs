@@ -49,7 +49,7 @@ use std::path::Path;
 
 use lazuli_doctor::allow_comment::file_contains_doctor_allow;
 use lazuli_doctor::{RuleCategory, lifecycle};
-use lazuli_lsp::SecurityProfile;
+use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 
 use super::correctness::make_synthetic_feature_for_correctness;
 use crate::doctor::diagnostic::DoctorSeverityOverride;

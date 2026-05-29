@@ -173,7 +173,7 @@ fn validate_curated_example(
 
     super::commands::check::check_command(
         &lzi_path,
-        lazuli_lsp::SecurityProfile::Prototype,
+        lazuli_doctor_config::DoctorProfile::Prototype,
         false,
     )?;
 

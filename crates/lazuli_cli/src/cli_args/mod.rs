@@ -14,7 +14,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
-use lazuli_lsp::SecurityProfile;
+use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 
 use crate::cmd_design;
 use crate::cmd_test_types;

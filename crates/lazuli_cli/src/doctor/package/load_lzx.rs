@@ -8,7 +8,7 @@
 //! profiles >= `Strict`, with severity escalation honoring the
 //! `tdd-iron-hand` preset when configured.
 
-use lazuli_lsp::SecurityProfile;
+use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 
 use super::super::helpers::resolve_test_discipline_severity;
 use super::super::{

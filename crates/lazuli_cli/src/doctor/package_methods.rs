@@ -6,8 +6,9 @@
 //! `super`.
 
 use lazuli_analyzer::lower_feature_skeleton;
-use lazuli_doctor_config::{ResolvedDoctorConfig, SeverityOverride, effective_severity};
-use lazuli_lsp::SecurityProfile;
+use lazuli_doctor_config::{
+    DoctorProfile as SecurityProfile, ResolvedDoctorConfig, SeverityOverride, effective_severity,
+};
 use lazuli_syntax::parse_feature_skeletons;
 
 use super::parsers::is_lzi_path;

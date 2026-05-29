@@ -56,7 +56,7 @@ use lazuli_doctor::error_handling::{
 use lazuli_doctor::test_discipline::{
     preset::TestDisciplinePreset, test_failure_only_coverage_001, test_pins_stub_vocab_001,
 };
-use lazuli_lsp::SecurityProfile;
+use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 
 use crate::doctor::helpers::{resolve_error_handling_severity, resolve_test_discipline_severity};
 use crate::doctor::{DoctorDiagnostic, DoctorSeverity};
