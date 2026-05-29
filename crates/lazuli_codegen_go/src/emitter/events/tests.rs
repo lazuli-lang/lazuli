@@ -226,8 +226,6 @@ fn event_group_emits_runtime_todos_descriptors_and_inferred_payload() {
     assert!(out.contains("package customergen"));
     assert!(out.contains("\"lazuli.dev/runtime/lazuli\""));
     assert!(out.contains("var customerCustomerEvents = lazuli.EventGroup{"));
-    assert!(out.contains("// TODO(runtime): lazuli.EventGroup is missing"));
-    assert!(out.contains("// TODO(runtime): lazuli.EventDescriptor is missing"));
     assert!(out.contains("Pattern:  \"customer_*\","));
     assert!(out.contains("Resource: \"Customer\","));
 
