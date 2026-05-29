@@ -373,7 +373,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         fs::write(
             dir.join(format!("{name}.lzi")),
-            "feature minimal_demo\n  domain\n    resource Item\n      name: Text required\n\n  command create_item\n    input\n      name: Text required\n    creates Item\n      name: input.name\n",
+            "feature minimal_demo\n  domain\n    resource Item\n      name: Text required\n\n  command create_item\n    input\n      name: Text required\n    creates Item\n      name = input.name\n",
         )
         .unwrap();
         fs::write(
