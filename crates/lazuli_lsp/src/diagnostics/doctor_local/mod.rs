@@ -30,7 +30,11 @@ use crate::{first_line_range, leading_spaces};
 /// This mapping lives in `lazuli_lsp` (not the config crate) because
 /// `lazuli_doctor_config` is deliberately `tower-lsp`-free. It is the
 /// inverse of `lazuli_cli::doctor::diagnostic::from_lsp`.
-pub(crate) fn lsp_severity(severity: DoctorSeverity) -> DiagnosticSeverity {
+///
+/// `pub` (not `pub(crate)`) only so the anti-drift parity test
+/// (`crate::test_surface`) can reference the exact map the editor
+/// publishes; not part of the LSP's public API contract.
+pub fn lsp_severity(severity: DoctorSeverity) -> DiagnosticSeverity {
     match severity {
         DoctorSeverity::Error => DiagnosticSeverity::ERROR,
         DoctorSeverity::Warning => DiagnosticSeverity::WARNING,
@@ -60,7 +64,11 @@ pub(crate) fn lsp_severity(severity: DoctorSeverity) -> DiagnosticSeverity {
 /// Returns `None` when the rule is SILENT under the active config
 /// (e.g. the `Off` coverage preset suppressing the `VOCAB-CONTEXT-*`
 /// family). Callers emit no diagnostic for `None`.
-pub(crate) fn doctor_class_lsp_severity(
+///
+/// `pub` (not `pub(crate)`) only so the anti-drift parity test
+/// (`crate::test_surface`) can call the exact severity path the editor
+/// publishes; not part of the LSP's public API contract.
+pub fn doctor_class_lsp_severity(
     code: &str,
     base_severity: DiagnosticSeverity,
     config: &ResolvedDoctorConfig,

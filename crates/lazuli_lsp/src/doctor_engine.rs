@@ -54,7 +54,11 @@ use crate::diagnostics_for_source_with_profile;
 /// that is a kebab-case "contract/shape" code is LSP-owned; everything
 /// else (the `SCREAMING-KEBAB-NNN` rule-catalog codes, coverage findings,
 /// manifest/version checks) is doctor-owned.
-pub(crate) fn is_lsp_owned(code: &str) -> bool {
+///
+/// `pub` (not `pub(crate)`) only so the anti-drift parity test
+/// (`crate::test_surface`) can assert the partition is total + disjoint
+/// over the sampled codes; not part of the LSP's public API contract.
+pub fn is_lsp_owned(code: &str) -> bool {
     // Rule-catalog codes are `SCREAMING-KEBAB` optionally suffixed with a
     // `-NNN` numeric tail (e.g. `REF-CROSS-FEATURE-UNKNOWN-001`,
     // `MANIFEST-REQUIRED-001`, `SCHEMA-RICH-001`). The synchronous LSP
@@ -73,7 +77,11 @@ pub(crate) fn is_lsp_owned(code: &str) -> bool {
 
 /// `true` when `code` is the engine's own (package-level) finding —
 /// the complement of [`is_lsp_owned`].
-pub(crate) fn is_doctor_owned(code: &str) -> bool {
+///
+/// `pub` (not `pub(crate)`) only so the anti-drift parity test
+/// (`crate::test_surface`) can assert the partition is total + disjoint;
+/// not part of the LSP's public API contract.
+pub fn is_doctor_owned(code: &str) -> bool {
     !is_lsp_owned(code)
 }
 
