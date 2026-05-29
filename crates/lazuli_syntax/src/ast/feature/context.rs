@@ -36,7 +36,7 @@ pub struct LziFeatureAttachCtx {
 
 /// Iron-hand `knowledge <sector>` line. The sector is a bareword slug
 /// (kebab/snake, e.g. `billing`) — NOT a quoted string — naming the
-/// `.lazuli/knowledge/<sector>/` vault the feature draws from. Resolution
+/// `knowledge/<sector>/` vault the feature draws from. Resolution
 /// against the on-disk vault happens in the `VOCAB-KNOWLEDGE-*` doctor
 /// lints (a later stage); the parser only captures the slug verbatim. See
 /// `docs/proposals/knowledge-sector-field.md`.

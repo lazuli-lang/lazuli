@@ -1,7 +1,7 @@
 //! VOCAB-KNOWLEDGE-DUP-TOPIC-001 — two `gold` docs cover the same topic in
 //! one sector with no supersession relation between them.
 //!
-//! Trigger cue: within a single `.lazuli/knowledge/<sector>/`, two or more
+//! Trigger cue: within a single `knowledge/<sector>/`, two or more
 //! `tier: gold` documents share a topic slug (the `<slug>` of
 //! `NNNN-<slug>.md`) and *none* of them declares a `supersedes` / `replaces`
 //! / `deprecated`-style relation. Two live "trust this" docs on the same

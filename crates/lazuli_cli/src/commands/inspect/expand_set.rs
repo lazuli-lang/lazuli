@@ -140,7 +140,7 @@ pub(crate) struct ExpandSet {
     /// the `knowledge` sector slug, all read from the lowered IR. The
     /// scalar context fields surface here as a single grouped axis (the
     /// "memory is the compiler" projection); reading the on-disk
-    /// `.lazuli/knowledge/<sector>/` vault is a later/runtime concern.
+    /// `knowledge/<sector>/` vault is a later/runtime concern.
     /// See `docs/proposals/knowledge-sector-field.md`.
     pub(crate) knowledge: bool,
 }
@@ -399,7 +399,7 @@ pub(crate) fn parse_expand_set(value: &str) -> Result<ExpandSet> {
             // `knowledge <sector>` (iron-hand context) — projects the
             // feature intent triad (purpose + non_goals + knowledge
             // sector) from the lowered IR. Reading the on-disk
-            // `.lazuli/knowledge/<sector>/` vault is a later concern.
+            // `knowledge/<sector>/` vault is a later concern.
             "knowledge" => set.knowledge = true,
             _ => bail!(
                 "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, event_groups, webhook_events, migrations, tenant_migrations, notifications, caches, aggregates, commands, api, apis, resources, queries, records, errors, or knowledge"

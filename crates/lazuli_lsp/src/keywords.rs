@@ -377,7 +377,7 @@ pub const KEYWORDS: &[&str] = &[
     "purpose",
     "non_goals",
     // `knowledge <sector>` — bareword sector slug naming the
-    // `.lazuli/knowledge/<sector>/` vault the feature draws from. Sibling
+    // `knowledge/<sector>/` vault the feature draws from. Sibling
     // of purpose / non_goals / attach_ctx. See
     // `docs/proposals/knowledge-sector-field.md`.
     "knowledge",

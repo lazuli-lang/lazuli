@@ -333,7 +333,7 @@ const P_ATTACH_CTX: &[DiagnosticFacet] = &[
 
 // Knowledge-sector vocabulary — the five `VOCAB-KNOWLEDGE-*` rules
 // (`crates/lazuli_doctor/src/vocab/vocab_knowledge_*`) cross-check
-// `knowledge <sector>` against the `.lazuli/knowledge/<sector>/` document
+// `knowledge <sector>` against the `knowledge/<sector>/` document
 // vault. Same `Vocabulary` category + `warning` posture as the sibling
 // `VOCAB-CONTEXT-*` family above. See
 // `docs/proposals/knowledge-sector-field.md` §Doctor.
@@ -1581,7 +1581,7 @@ pub const ALL: &[CapabilitySpec] = &[
         "Feature non-goals (iron-hand context).",
     ),
     // Iron-hand context vocabulary — `knowledge <sector>` names the
-    // `.lazuli/knowledge/<sector>/` vault the feature draws from. The
+    // `knowledge/<sector>/` vault the feature draws from. The
     // sector is a bareword slug. Produces the five `VOCAB-KNOWLEDGE-*`
     // doctor rules that cross-check the sector against its on-disk vault
     // (see `docs/proposals/knowledge-sector-field.md` §Doctor).

@@ -1,4 +1,12 @@
-//! Shared scanner for the `.lazuli/knowledge/<sector>/` document vault.
+//! Shared scanner for the `knowledge/<sector>/` document vault.
+//!
+//! The vault is a **first-class, committed authored source directory** at the
+//! project root (`knowledge/`) — the source of truth. The disk walk here
+//! resolves against `knowledge/<sector>/`, NOT `.lazuli/knowledge/`: `.lazuli/`
+//! is the disposable, gitignored internal cache, so it is the wrong home for
+//! hand-authored, version-controlled knowledge docs. What *does* live under
+//! `.lazuli/` is the **derived knowledge index** (future sqlite-vec embedding
+//! store) regenerated from `knowledge/` — never the source docs themselves.
 //!
 //! Five sibling rules read this vault — `VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001`,
 //! `VOCAB-KNOWLEDGE-UNGATED-WRITE-001`, `VOCAB-KNOWLEDGE-STALE-001`,
@@ -10,7 +18,7 @@
 //! ## File layout (proved first, no grammar)
 //!
 //! ```text
-//! .lazuli/knowledge/<sector>/NNNN-<slug>.md
+//! knowledge/<sector>/NNNN-<slug>.md
 //!   frontmatter: tier(draft|approved|gold|deprecated) | supersedes
 //!              | revalidate_by | cites | tags
 //! ```
@@ -31,7 +39,7 @@
 //! The five `VOCAB-KNOWLEDGE-*` rules that consume it each carry their own
 //! `warning`-tier severity (category `Vocabulary`). Trigger cue: this module
 //! has no trigger; for an example of the data it returns, see the unit tests
-//! below (a synthetic `.lazuli/knowledge/<sector>/` temp fixture).
+//! below (a synthetic `knowledge/<sector>/` temp fixture).
 //!
 //! Reference: docs/proposals/knowledge-sector-field.md §Doctor.
 
@@ -98,9 +106,23 @@ impl VaultDoc {
 
 // ── path resolution ─────────────────────────────────────────────────────────────
 
-/// Resolve the `.lazuli/knowledge/<sector>/` directory for a sector slug,
-/// relative to the project root. Mirrors
-/// `vocab_context_ctxmd_001::resolve_candidate`'s project-root anchoring.
+/// Project-root-relative name of the knowledge vault directory.
+///
+/// First-class **committed** authored source — the source of truth for the
+/// knowledge sectors. Deliberately NOT under `.lazuli/`: that folder is the
+/// disposable, gitignored internal cache (per the CLAUDE.md folder
+/// conventions) and is the wrong home for version-controlled docs. The
+/// *derived* index built from this vault (future sqlite-vec embedding store)
+/// is what lives in `.lazuli/`; the authored `.md` docs live here.
+pub const KNOWLEDGE_VAULT_ROOT: &str = "knowledge";
+
+/// Resolve the `knowledge/<sector>/` directory for a sector slug, relative to
+/// the project root. Mirrors `vocab_context_ctxmd_001::resolve_candidate`'s
+/// project-root anchoring.
+///
+/// The vault root is the committed `knowledge/` source directory, **not**
+/// `.lazuli/knowledge/` — `.lazuli/` is the gitignored cache and only holds the
+/// derived index, never the authored source docs.
 ///
 /// ## Examples
 ///
@@ -112,13 +134,10 @@ impl VaultDoc {
 /// assert!(dir.ends_with("billing"));
 /// ```
 pub fn sector_dir(project_root: &Path, sector: &str) -> PathBuf {
-    project_root
-        .join(".lazuli")
-        .join("knowledge")
-        .join(sector)
+    project_root.join(KNOWLEDGE_VAULT_ROOT).join(sector)
 }
 
-/// Does a `.lazuli/knowledge/<sector>/` folder exist under the project root?
+/// Does a `knowledge/<sector>/` folder exist under the project root?
 ///
 /// This is the single predicate `VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001` keys on.
 pub fn sector_exists(project_root: &Path, sector: &str) -> bool {
@@ -523,7 +542,7 @@ mod tests {
         // A bare temp dir is not a git repo: probes must degrade to None
         // (skip) rather than panic or fire.
         let dir = tempfile::tempdir().expect("tmp");
-        let f = dir.path().join(".lazuli/knowledge/billing/0001-x.md");
+        let f = dir.path().join("knowledge/billing/0001-x.md");
         std::fs::create_dir_all(f.parent().unwrap()).unwrap();
         std::fs::write(&f, "---\ntier: gold\n---\n").unwrap();
         assert_eq!(git_commit_count(dir.path(), &f), None);

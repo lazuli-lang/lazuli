@@ -41,7 +41,7 @@ pub struct Feature {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_path: Option<String>,
     /// Iron-hand `knowledge <sector>` — the bareword sector slug naming
-    /// the `.lazuli/knowledge/<sector>/` vault this feature draws from.
+    /// the `knowledge/<sector>/` vault this feature draws from.
     /// `None` when the feature declares no `knowledge` line; absent =>
     /// `None` keeps pre-knowledge fixtures byte-identical on the wire.
     /// Sector ↔ vault cross-checks live in the planned `VOCAB-KNOWLEDGE-*`

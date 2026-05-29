@@ -3045,12 +3045,12 @@ project root as fallback.
 ### `knowledge <sector>`
 
 A bareword sector slug (e.g. `lodging`, `billing`) naming the
-`.lazuli/knowledge/<sector>/` document vault the feature draws
+`knowledge/<sector>/` document vault the feature draws
 authoring knowledge from. Unquoted identifier, cardinality 0..1.
 
 The planned `VOCAB-KNOWLEDGE-*` rules cross-check the declared sector
 against its on-disk vault (e.g. a dangling sector with no matching
-`.lazuli/knowledge/<sector>/` directory, or a dangling citation). They
+`knowledge/<sector>/` directory, or a dangling citation). They
 carry the same `Vocabulary` category and `warning` posture as the
 sibling `VOCAB-CONTEXT-*` family.
 

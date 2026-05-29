@@ -169,7 +169,7 @@ purpose_stmt      = "purpose" STRING NEWLINE ;
 attach_ctx_stmt   = "attach_ctx" STRING NEWLINE ;     (* attach_ctx "./ctx.md" *)
 
 (* Iron-hand context directive. Names the bareword sector slug whose
-   `.lazuli/knowledge/<sector>/` vault the feature draws authoring
+   `knowledge/<sector>/` vault the feature draws authoring
    knowledge from. Cardinality 0..1; the planned `VOCAB-KNOWLEDGE-*`
    doctor lints cross-check the sector against its on-disk vault. *)
 knowledge_stmt    = "knowledge" IDENT_LOWER NEWLINE ;  (* knowledge billing *)

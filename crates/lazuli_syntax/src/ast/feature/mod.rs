@@ -186,7 +186,7 @@ pub struct FeatureSkeleton {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attach_ctx: Option<LziFeatureAttachCtx>,
     /// Iron-hand context-vocabulary — `knowledge <sector>` naming the
-    /// `.lazuli/knowledge/<sector>/` vault the feature draws from. The
+    /// `knowledge/<sector>/` vault the feature draws from. The
     /// sector is a bareword slug (not a quoted string). At most one per
     /// feature; duplicate is a parse error. Sector ↔ on-disk vault
     /// cross-checks live in the planned `VOCAB-KNOWLEDGE-*` doctor lints

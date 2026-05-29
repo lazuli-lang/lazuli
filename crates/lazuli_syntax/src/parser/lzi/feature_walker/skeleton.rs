@@ -196,7 +196,7 @@ pub(super) fn parse_feature_skeleton(
 
         // Iron-hand context vocabulary — `knowledge <sector>`.
         // Single bareword sector-slug line at indent 2 naming the
-        // `.lazuli/knowledge/<sector>/` vault. At most one per feature.
+        // `knowledge/<sector>/` vault. At most one per feature.
         // See `docs/proposals/knowledge-sector-field.md`.
         if line.indent == AGENT_INDENT_FEATURE_CHILD
             && let Some(rest) = trimmed.strip_prefix("knowledge ")

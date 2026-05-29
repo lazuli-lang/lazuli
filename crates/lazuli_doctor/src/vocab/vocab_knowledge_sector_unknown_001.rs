@@ -2,7 +2,7 @@
 //! that does not exist on disk.
 //!
 //! Trigger cue: a feature declares `knowledge <sector>` but no
-//! `.lazuli/knowledge/<sector>/` folder exists under the project root. The
+//! `knowledge/<sector>/` folder exists under the project root. The
 //! sector slug is a forward reference to a documentation vault; a missing
 //! folder means the reference dangles (typo, un-scaffolded sector, or a
 //! vault that moved). This is the grammar ↔ file cross-check of the
@@ -37,7 +37,7 @@ pub struct Finding {
     pub feature: String,
     /// The sector slug that resolved to no folder.
     pub sector: String,
-    /// The `.lazuli/knowledge/<sector>/` path the lint looked for.
+    /// The `knowledge/<sector>/` path the lint looked for.
     pub expected_dir: PathBuf,
 }
 
@@ -49,7 +49,7 @@ impl Finding {
     /// sector, and the expected on-disk location.
     pub fn message(&self) -> String {
         format!(
-            "feature `{}` declares `knowledge {}` but no `.lazuli/knowledge/{}/` vault folder \
+            "feature `{}` declares `knowledge {}` but no `knowledge/{}/` vault folder \
              exists ({}). Create the sector folder (with at least one `NNNN-<slug>.md` doc) or \
              fix the sector slug. See docs/proposals/knowledge-sector-field.md.",
             self.feature,
@@ -65,7 +65,7 @@ impl Finding {
 /// Run VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001 for one feature.
 ///
 /// `lzi_path` anchors the finding at the declaring source file.
-/// `project_root` is the resolution base for the `.lazuli/knowledge/`
+/// `project_root` is the resolution base for the `knowledge/`
 /// vault (the same project root the doctor walker threads to
 /// `vocab_context_ctxmd_001::check`). When `project_root` is `None` the rule
 /// cannot locate the vault root and stays silent (skip, don't false-fire).
@@ -188,7 +188,7 @@ mod tests {
         let findings = check(&feature, &lzi, Some(dir.path()));
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].sector, "billing");
-        assert!(findings[0].message().contains(".lazuli/knowledge/billing/"));
+        assert!(findings[0].message().contains("knowledge/billing/"));
         assert!(findings[0].message().contains("billing"));
     }
 

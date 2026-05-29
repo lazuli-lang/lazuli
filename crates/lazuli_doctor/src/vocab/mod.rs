@@ -38,7 +38,7 @@ pub mod vocab_grammar_form_001;
 pub mod vocab_handler_heavy_001;
 pub mod vocab_json_typed_001;
 // Knowledge-sector vocabulary (`## Preview vocab`). Five rules cross-check
-// `knowledge <sector>` against the `.lazuli/knowledge/<sector>/` document
+// `knowledge <sector>` against the committed `knowledge/<sector>/` document
 // vault (grammar↔file↔IR + write-gate + decay), mirroring the
 // `VOCAB-CONTEXT-*` family that governs `purpose`/`non_goals`/`attach_ctx`.
 // Shared disk/frontmatter/git scanner lives in `knowledge_vault`.

@@ -1,7 +1,7 @@
 //! VOCAB-KNOWLEDGE-UNGATED-WRITE-001 — a `gold` vault doc was never gated
 //! through `draft` in git history (anti-`lixão`).
 //!
-//! Trigger cue: a `tier: gold` document in `.lazuli/knowledge/<sector>/`
+//! Trigger cue: a `tier: gold` document in `knowledge/<sector>/`
 //! whose git history shows it was born gold — no prior revision ever carried
 //! `tier: draft` (or `approved`). Promotion to gold is supposed to pass
 //! through review; a doc that appears already-gold on its first commit

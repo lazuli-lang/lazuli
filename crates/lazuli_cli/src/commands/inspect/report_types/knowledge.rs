@@ -8,7 +8,7 @@
 //! intent with the sector it draws knowledge from.
 //!
 //! v0 scope is IR-only. Reading the on-disk
-//! `.lazuli/knowledge/<sector>/` vault (gold docs, tiers, decay) is a
+//! `knowledge/<sector>/` vault (gold docs, tiers, decay) is a
 //! later/runtime concern, gated by the planned `VOCAB-KNOWLEDGE-*`
 //! doctor lints. See `docs/proposals/knowledge-sector-field.md`.
 

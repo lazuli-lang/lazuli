@@ -1,7 +1,7 @@
 //! VOCAB-KNOWLEDGE-STALE-001 — a `gold` vault doc is past its
 //! `revalidate_by` date.
 //!
-//! Trigger cue: a `tier: gold` document in `.lazuli/knowledge/<sector>/`
+//! Trigger cue: a `tier: gold` document in `knowledge/<sector>/`
 //! carries a `revalidate_by:` frontmatter date that is now in the past.
 //! Gold docs are the load-bearing, "trust this" tier; a lapsed revalidation
 //! window means the knowledge may have decayed and must be re-reviewed (the

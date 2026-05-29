@@ -174,7 +174,7 @@ pub(super) fn inspect_feature(
     // projects the feature intent triad (purpose + non_goals + knowledge
     // sector) from the lowered IR. Always `Some` when the flag is set so
     // consumers distinguish "flag not set" from "no intent declared".
-    // Reading the on-disk `.lazuli/knowledge/<sector>/` vault is a later
+    // Reading the on-disk `knowledge/<sector>/` vault is a later
     // concern. See `docs/proposals/knowledge-sector-field.md`.
     let knowledge_projection = expansions.knowledge.then(|| super::super::InspectKnowledge {
         purpose: tier3.and_then(|t| t.purpose.clone()),

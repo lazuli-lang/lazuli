@@ -24,10 +24,11 @@ feature billing
 ## Camada de arquivo (provada primeiro, sem Rust novo)
 
 ```
-.lazuli/knowledge/<sector>/NNNN-<slug>.md
+knowledge/<sector>/NNNN-<slug>.md
   frontmatter: tier(draft|approved|gold|deprecated) | supersedes | revalidate_by | cites | tags
 ```
 
+- `knowledge/` é **fonte autorada de primeira classe, versionada** (a source-of-truth do vault), na raiz do projeto — NÃO `.lazuli/`, que é o cache interno descartável/gitignored. O **índice derivado** (futuro sqlite-vec) gerado a partir de `knowledge/` é o que mora em `.lazuli/` (regenerável); os `.md` autorados ficam em `knowledge/`.
 - História append-only = **git** (não construir engine). Estado corrente = working tree (gold).
 - Precedente reusável: `lazuli examples validate --check-decay` (`crates/lazuli_cli/src/commands/examples.rs:59-61`) já varre artefatos em disco e sinaliza decay.
 
@@ -37,7 +38,7 @@ Prefixo `VOCAB-` mapeia pra `Vocabulary` (`rule_category.rs:96`), mesma casa de 
 
 | Código | Dispara quando | Lado validado |
 |---|---|---|
-| `VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001` | `knowledge <sector>` sem pasta `.lazuli/knowledge/<sector>/` | grammar ↔ file |
+| `VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001` | `knowledge <sector>` sem pasta `knowledge/<sector>/` | grammar ↔ file |
 | `VOCAB-KNOWLEDGE-UNGATED-WRITE-001` | doc `gold` sem ter passado por `draft` no git (anti-lixão) | file + git |
 | `VOCAB-KNOWLEDGE-STALE-001` | `gold` com `revalidate_by` vencido | file |
 | `VOCAB-KNOWLEDGE-DANGLING-CITE-001` | `cites:` aponta símbolo inexistente no IR | file ↔ IR |

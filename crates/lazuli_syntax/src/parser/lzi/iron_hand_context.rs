@@ -68,7 +68,7 @@ pub(super) fn parse_feature_attach_ctx_line(
 ///
 /// Unlike `attach_ctx`, the argument is a **bareword** sector slug
 /// (kebab/snake, e.g. `billing`) — NOT a quoted string — naming the
-/// `.lazuli/knowledge/<sector>/` vault. Exactly one slug, no trailing
+/// `knowledge/<sector>/` vault. Exactly one slug, no trailing
 /// tokens. Sector ↔ on-disk-vault cross-checks live in the planned
 /// `VOCAB-KNOWLEDGE-*` doctor lints (a later stage); the parser only
 /// captures the slug verbatim. See

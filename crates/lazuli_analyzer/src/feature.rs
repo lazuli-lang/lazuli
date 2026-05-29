@@ -200,7 +200,7 @@ pub fn lower_feature_skeleton(
     let context_path = skeleton.attach_ctx.as_ref().map(|c| c.path.clone());
     // Iron-hand `knowledge <sector>` — lower the surface AST into the
     // verbatim sector slug. Resolution against the on-disk
-    // `.lazuli/knowledge/<sector>/` vault happens in the planned
+    // `knowledge/<sector>/` vault happens in the planned
     // `VOCAB-KNOWLEDGE-*` doctor lints (a later stage).
     let knowledge = skeleton.knowledge.as_ref().map(|k| k.sector.clone());
 

@@ -1,7 +1,7 @@
 //! VOCAB-KNOWLEDGE-DANGLING-CITE-001 — a vault doc `cites:` a symbol that
 //! does not exist in the IR.
 //!
-//! Trigger cue: a `.lazuli/knowledge/<sector>/` document lists a `cites:`
+//! Trigger cue: a `knowledge/<sector>/` document lists a `cites:`
 //! entry naming a feature or `feature.symbol` that the compiler does not
 //! know about. A citation is a promise that the doc is anchored to a real
 //! piece of the system; a dangling cite means the doc points at a renamed,
