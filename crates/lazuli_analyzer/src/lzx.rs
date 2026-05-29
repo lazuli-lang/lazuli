@@ -58,6 +58,168 @@ pub fn lower_lzx_document(document: &syntax::LzxDocument) -> ir::ExperienceModul
     }
 }
 
+/// G-A2 — lower the experience-dialect surfaces of a `.lzx` document into the
+/// rich per-feature [`ir::Surface`] shape (the one carrying [`ir::ViewUx`] /
+/// [`ir::FilterDecl`]) so the §7a surface-UX doctor rules (`ux_rules`,
+/// `date_range_filter`) can walk real `.lzx` usage.
+///
+/// `lower_lzx_document` above projects surfaces into the lean
+/// [`ir::PlatformSurface`] shape, which drops the §7a `ViewUxAst`
+/// (`wizard_steps` / `tab_group` / `view_mode` / `view.board` /
+/// `repeatable input`) the parser captured. This sibling lowering keeps that
+/// UX payload by reusing the surface-dialect's `lower_view_ux` /
+/// `lower_audience_ux` helpers — so the §7a `ViewUxAst -> ir::ViewUx`
+/// projection is not reimplemented.
+///
+/// The experience dialect carries no `source <feature>.query.<name>` line and
+/// no list/detail/create kind (every view is `view <name> <type>`), so:
+/// * the view kind is inferred from `<type>` (`Form`/`Create` -> Create,
+///   `Detail`/`SidePanel`/`Panel` -> Detail, else List);
+/// * each list/detail view's `source` is synthesized as a `query.list`
+///   reference whose `feature` is the surface's owning feature — single-resource
+///   features then resolve unambiguously (matching `ux_rules::resolve_resource`),
+///   and multi-resource features are suppressed (the rules return `None`).
+///
+/// Views whose `view_modes` reference an unknown render mode are still emitted;
+/// the analyzer normally rejects those at lowering (`LzxUnknownRenderMode`), so
+/// here an unknown mode is simply dropped (doctor's other passes own that).
+pub fn lower_lzx_feature_surfaces(document: &syntax::LzxDocument) -> Vec<ir::Surface> {
+    document
+        .surfaces
+        .iter()
+        .map(lower_feature_surface_from_experience)
+        .collect()
+}
+
+fn lower_feature_surface_from_experience(surface: &syntax::LzxSurface) -> ir::Surface {
+    let owning_feature = surface
+        .uses_experience
+        .clone()
+        .unwrap_or_else(|| surface.experience.clone());
+    ir::Surface {
+        feature: owning_feature.clone(),
+        target: match surface.platform {
+            syntax::LzxPlatform::Web => ir::SurfaceTarget::Web,
+            syntax::LzxPlatform::Mobile => ir::SurfaceTarget::Mobile,
+        },
+        audiences: surface
+            .audiences
+            .iter()
+            .map(|audience| lower_feature_audience_from_experience(audience, &owning_feature))
+            .collect(),
+        span_ref: Some(span_of(surface.span)),
+    }
+}
+
+fn lower_feature_audience_from_experience(
+    audience: &syntax::LzxAudience,
+    owning_feature: &str,
+) -> ir::Audience {
+    ir::Audience {
+        name: audience.name.clone(),
+        requires: Vec::new(),
+        views: audience
+            .views
+            .iter()
+            .map(|view| lower_feature_view_from_experience(view, owning_feature))
+            .collect(),
+        ux: crate::surface::crate_lower_audience_ux(&audience.ux),
+        span_ref: Some(span_of(audience.span)),
+    }
+}
+
+fn lower_feature_view_from_experience(
+    view: &syntax::LzxPlatformView,
+    owning_feature: &str,
+) -> ir::View {
+    let synthetic_source = ir::QueryRef {
+        feature: owning_feature.to_owned(),
+        kind: ir::QueryKind::List,
+        name: String::new(),
+    };
+    // `lower_view_ux` only fails on an unknown render-mode keyword; drop the
+    // UX payload to empty in that case rather than aborting the whole surface
+    // (doctor's render-mode pass owns that diagnostic independently).
+    let ux = crate::surface::crate_lower_view_ux(&view.ux, owning_feature, &view.name)
+        .unwrap_or_default();
+
+    match classify_experience_view_kind(&view.view_type) {
+        ExperienceViewKind::Create => ir::View::Create(ir::ViewCreate {
+            name: view.name.clone(),
+            route: None,
+            submit: ir::CommandRef {
+                feature: owning_feature.to_owned(),
+                name: view.submit.clone().unwrap_or_default(),
+            },
+            on_success: None,
+            fields: view.fields.clone(),
+            cells: Vec::new(),
+            redacted_fields: Vec::new(),
+            span_ref: Some(span_of(view.span)),
+        }),
+        ExperienceViewKind::Detail => ir::View::Detail(ir::ViewDetail {
+            name: view.name.clone(),
+            route: None,
+            source: synthetic_source,
+            route_params: Vec::new(),
+            sections: view.sections.clone(),
+            cells: Vec::new(),
+            actions: Vec::new(),
+            redacted_fields: Vec::new(),
+            ux,
+            span_ref: Some(span_of(view.span)),
+        }),
+        ExperienceViewKind::List => ir::View::List(ir::ViewList {
+            name: view.name.clone(),
+            route: None,
+            source: synthetic_source,
+            render: ir::ListRender::Table {
+                columns: view.columns.clone(),
+            },
+            search: None,
+            filter: view
+                .filter
+                .iter()
+                .map(|name| ir::FilterDecl {
+                    name: name.clone(),
+                    type_ref: String::new(),
+                    cardinality: ir::FilterCardinality::Single,
+                    url_sync: false,
+                    span_ref: None,
+                })
+                .collect(),
+            cells: Vec::new(),
+            actions: Vec::new(),
+            drawer: None,
+            sort: None,
+            selection: None,
+            settings: Vec::new(),
+            redacted_fields: Vec::new(),
+            ux,
+            span_ref: Some(span_of(view.span)),
+        }),
+    }
+}
+
+enum ExperienceViewKind {
+    List,
+    Detail,
+    Create,
+}
+
+/// Map the experience-dialect `view <name> <type>` `<type>` keyword onto the
+/// closed `ir::View` kind. The §7a UX primitives the rules validate
+/// (`tab_group` / `wizard_steps` / `view.board` / `view_mode`) are list-only,
+/// so the exact Detail-vs-List split only matters for form views — those carry
+/// `submit`/`fields` and never the list-only UX.
+fn classify_experience_view_kind(view_type: &str) -> ExperienceViewKind {
+    match view_type.trim().to_ascii_lowercase().as_str() {
+        "form" | "create" | "wizard" => ExperienceViewKind::Create,
+        "detail" | "sidepanel" | "side_panel" | "panel" | "drawer" => ExperienceViewKind::Detail,
+        _ => ExperienceViewKind::List,
+    }
+}
+
 fn lower_lzx_app(app: &syntax::LzxApp) -> ir::AppManifest {
     let route_guard = app
         .route_guard
@@ -405,7 +567,10 @@ fn lower_forbid_when(fw: &syntax::LzxForbidWhen) -> Option<ir::ForbidWhen> {
         },
         dispatch_to: fw.dispatch_to.clone(),
         // ir-route-guard-escape-hatch-2026-05-28 §4.2 — Cell A IR slot.
-        only_when_lifecycle: fw.only_when_lifecycle.as_ref().map(lower_requires_lifecycle),
+        only_when_lifecycle: fw
+            .only_when_lifecycle
+            .as_ref()
+            .map(lower_requires_lifecycle),
         span_ref: Some(span_of(fw.span)),
     })
 }

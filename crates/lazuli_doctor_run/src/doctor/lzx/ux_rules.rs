@@ -149,13 +149,25 @@ fn check_view_ux(
                 ),
             }),
             Some(decl) => {
-                let variants: BTreeSet<&str> =
-                    decl.variants.iter().map(|v| v.name.as_str()).collect();
-                let mut covered: BTreeSet<&str> = BTreeSet::new();
+                // The grammar declares enum variants as `IDENT_LOWER`
+                // (`reassign`) but `tab_group` `case` references them as
+                // `IDENT_UPPER` (`REASSIGN`) — see `docs/grammar.lzx.md` §7a.3
+                // (`enum_variant_list = IDENT_UPPER`). Compare on the canonical
+                // screaming-snake projection so the dialects line up; the
+                // diagnostic message still echoes the authored token. Matching
+                // on the raw casing (as this rule originally did) over-fired on
+                // every conformant `tab_group` whose enum is lowercase-declared.
+                let variants: BTreeSet<String> = decl
+                    .variants
+                    .iter()
+                    .map(|v| screaming_snake(&v.name))
+                    .collect();
+                let mut covered: BTreeSet<String> = BTreeSet::new();
                 for case in &group.cases {
                     let case_line = case.span_ref.map(|s| s.start).unwrap_or(line);
                     for v in &case.variants {
-                        if !variants.contains(v.as_str()) {
+                        let key = screaming_snake(v);
+                        if !variants.contains(&key) {
                             out.push(Finding {
                                 code: TAB_GROUP_CASE_CODE,
                                 severity: Severity::Error,
@@ -168,12 +180,18 @@ fn check_view_ux(
                                 ),
                             });
                         } else {
-                            covered.insert(v.as_str());
+                            covered.insert(key);
                         }
                     }
                 }
-                let missing: Vec<&str> =
-                    variants.difference(&covered).copied().collect();
+                // Report missing variants in the authored (declared) casing so
+                // the message matches what the user wrote in the `.lzi`.
+                let missing: Vec<&str> = decl
+                    .variants
+                    .iter()
+                    .filter(|v| !covered.contains(&screaming_snake(&v.name)))
+                    .map(|v| v.name.as_str())
+                    .collect();
                 if !missing.is_empty() {
                     out.push(Finding {
                         code: TAB_GROUP_CASE_CODE,
@@ -232,10 +250,18 @@ fn check_view_ux(
     if let Some(board) = &ux.board {
         let line = board.span_ref.map(|s| s.start).unwrap_or(0);
         let field = resource.and_then(|(_, r)| field_on(r, &board.lanes_source));
-        let valid = matches!(
-            field.map(|f| &f.type_ref),
-            Some(TypeRef::EnumRef(_)) | Some(TypeRef::Many(_))
-        );
+        // A lane source is valid when the field resolves to a declared enum
+        // (one lane per variant) OR is a has_many relation (`TypeRef::Many`).
+        // Enum fields lower to `TypeRef::UserDefined` (the bare `enum X`
+        // domain decl) or `TypeRef::EnumRef` (the lifecycle-synthesized
+        // discriminator); `enum_for_field` resolves both. Matching only on
+        // `EnumRef` (as this rule originally did) over-fired on every plain
+        // `enum`-typed lane field.
+        let resolves_enum = resource
+            .zip(field)
+            .map(|((f, r), _)| enum_for_field(f, r, &board.lanes_source).is_some())
+            .unwrap_or(false);
+        let valid = resolves_enum || matches!(field.map(|f| &f.type_ref), Some(TypeRef::Many(_)));
         if !valid {
             out.push(Finding {
                 code: BOARD_LANES_CODE,
@@ -288,6 +314,32 @@ fn check_view_ux(
 /// Find field `name` on `resource`.
 fn field_on<'a>(resource: &'a Resource, name: &str) -> Option<&'a Field> {
     resource.fields.iter().find(|f| f.name == name)
+}
+
+/// Canonical screaming-snake projection used to compare an enum variant's
+/// declared `IDENT_LOWER` name (`reassign`, `in_progress`) against a
+/// `tab_group` `case` `IDENT_UPPER` reference (`REASSIGN`, `IN_PROGRESS`).
+/// Inserts an `_` at lower→upper boundaries (so a stray camelCase token still
+/// normalizes), collapses existing separators, then upper-cases — matching the
+/// codegen `screaming_snake` (`to_snake_case().to_ascii_uppercase()`).
+fn screaming_snake(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() + 4);
+    let mut prev_lower_or_digit = false;
+    for ch in value.chars() {
+        if ch == '_' || ch == '-' || ch == ' ' {
+            if !out.ends_with('_') && !out.is_empty() {
+                out.push('_');
+            }
+            prev_lower_or_digit = false;
+            continue;
+        }
+        if ch.is_ascii_uppercase() && prev_lower_or_digit && !out.ends_with('_') {
+            out.push('_');
+        }
+        out.push(ch.to_ascii_uppercase());
+        prev_lower_or_digit = ch.is_ascii_lowercase() || ch.is_ascii_digit();
+    }
+    out.trim_matches('_').to_owned()
 }
 
 /// True when a repeatable-group field's type keyword names a numeric type the

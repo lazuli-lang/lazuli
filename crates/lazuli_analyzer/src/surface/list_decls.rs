@@ -165,7 +165,7 @@ pub(super) fn lower_selection_decl(
 /// `view_mode`, `view.inline_table`). Unknown render-mode keywords are
 /// dropped here (doctor `LZX-VIEW-MODE-001` flags them); the `inline_table`
 /// command ref is normalized via `parse_command_ref`.
-pub(super) fn lower_view_ux(
+pub(crate) fn lower_view_ux(
     ast: &syntax::ViewUxAst,
     owning_feature: &str,
     view_name: &str,
@@ -241,7 +241,7 @@ pub(super) fn lower_view_ux(
 }
 
 /// Lower the Wave-W6 audience-level UX aggregate (`tabs`, `wizard`).
-pub(super) fn lower_audience_ux(ast: &syntax::AudienceUxAst) -> ir::AudienceUx {
+pub(crate) fn lower_audience_ux(ast: &syntax::AudienceUxAst) -> ir::AudienceUx {
     ir::AudienceUx {
         tabs: ast
             .tabs

@@ -82,6 +82,16 @@ use list_decls::{
     lower_selection_decl, lower_setting_decl, lower_sort_decl, lower_view_ux,
 };
 
+// G-A2 — the §7a UX doctor rules (`ux_rules` / `date_range_filter`) walk
+// the experience-dialect surfaces lowered by `lzx::lower_lzx_feature_surfaces`.
+// That lowering reuses the same view-/audience-level UX + filter lowering the
+// per-feature surface dialect uses, so re-export the three helpers it needs at
+// crate scope. Keeps the §7a lowering wire-thin (no reimplementation of the
+// ViewUxAst -> ir::ViewUx projection in two places).
+pub(crate) use list_decls::{
+    lower_audience_ux as crate_lower_audience_ux, lower_view_ux as crate_lower_view_ux,
+};
+
 /// Lower a `SurfaceAst` (parser output) into the canonical `ir::Surface`
 /// per `docs/proposals/lzx-integration-codegen.md` §5 + §5.2.
 ///

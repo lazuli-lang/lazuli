@@ -169,6 +169,110 @@ fn empty_overrides() -> std::collections::BTreeMap<String, DoctorSeverityOverrid
     std::collections::BTreeMap::new()
 }
 
+/// G-A2 — dispatch the dormant command-trigger lifecycle-transition pass
+/// (`LIFECYCLE-TRANSITION-001..006`).
+///
+/// `lazuli_analyzer::checks::lifecycle_transition::check` validates that every
+/// `command … triggers transition <name>` clause names a transition declared
+/// on the command's `updates` target resource, that the chain is contiguous,
+/// and that the command doesn't also assign the lifecycle discriminator
+/// directly. The pass shipped with passing unit tests but
+/// `run_lifecycle_transition_checks` was never called from the CLI / doctor /
+/// LSP — so the six codes never fired on real `.lzi` usage (the dormant class
+/// the G-A2 tail wave closes).
+///
+/// Unlike the structural `LIFECYCLE-*` rules above (which read only the
+/// resource lifecycle block), this pass walks `commands` + `resources` and
+/// resolves cross-feature `updates` targets through `uses`, so the synthetic
+/// features must carry `uses` (the correctness adapter blanks it). Severity
+/// resolves through `RuleCategory::Lifecycle` like the rest of the family:
+/// `Strict` → Warning, `Production` → Error.
+pub(crate) fn transition_command_diagnostics(
+    facts: &[Tier3FeatureFacts],
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    if security_profile == SecurityProfile::Prototype {
+        return Vec::new();
+    }
+
+    // Build the full feature set in one pass — the transition check resolves
+    // cross-feature `updates @feature.<f>.<R>` targets via `uses`, so it must
+    // see every feature at once (not one synthetic feature in isolation).
+    let features: Vec<lazuli_ir::Feature> = facts
+        .iter()
+        .map(|fact| {
+            let mut feature = make_synthetic_feature_for_correctness(fact);
+            feature.uses = fact.uses.clone();
+            feature
+        })
+        .collect();
+
+    let mut out = Vec::new();
+    for diagnostic in lazuli_analyzer::checks::run_lifecycle_transition_checks(&features) {
+        // Anchor the finding: a transition diagnostic carries the offending
+        // command's name in its message ("command `<name>` …"); resolve to the
+        // command's source line via the fact bundle, falling back to the
+        // feature header. The owning fact is the one whose commands set carries
+        // the named command.
+        let (path, line, feature_name) = anchor_for_transition(facts, &diagnostic.message);
+        let severity = match diagnostic.severity {
+            // Profile-gate the hard rejections; advisory overlaps stay Warning.
+            lazuli_analyzer::checks::lifecycle_transition::Severity::Error => doctor_severity_for(
+                diagnostic.code,
+                RuleCategory::Lifecycle,
+                security_profile,
+                &empty_overrides(),
+            ),
+            lazuli_analyzer::checks::lifecycle_transition::Severity::Warning => {
+                crate::doctor::DoctorSeverity::Warning
+            }
+        };
+        out.push(DoctorDiagnostic {
+            path,
+            line,
+            column: 1,
+            severity,
+            code: diagnostic.code.to_owned(),
+            message: diagnostic.message,
+            category: Some(RuleCategory::Lifecycle),
+            feature_name,
+            construct: None,
+            fix: None,
+            group: None,
+        });
+    }
+    out
+}
+
+/// Resolve the `(path, line, feature)` anchor for a transition diagnostic by
+/// matching the ``command `<name>` `` token in the message against each fact's
+/// `command_lines` map. Falls back to the first fact's header line when no
+/// command name is recoverable.
+fn anchor_for_transition(
+    facts: &[Tier3FeatureFacts],
+    message: &str,
+) -> (std::path::PathBuf, usize, Option<String>) {
+    let command_name = message
+        .split_once("command `")
+        .and_then(|(_, rest)| rest.split_once('`').map(|(name, _)| name.to_owned()));
+
+    if let Some(command_name) = command_name {
+        for fact in facts {
+            if let Some(&line) = fact.command_lines.get(&command_name) {
+                return (fact.path.clone(), line.max(1), Some(fact.feature.clone()));
+            }
+        }
+    }
+    match facts.first() {
+        Some(fact) => (
+            fact.path.clone(),
+            fact.feature_line.max(1),
+            Some(fact.feature.clone()),
+        ),
+        None => (std::path::PathBuf::new(), 1, None),
+    }
+}
+
 fn enum_duplicate_findings(
     feature: &lazuli_ir::Feature,
     path: &Path,

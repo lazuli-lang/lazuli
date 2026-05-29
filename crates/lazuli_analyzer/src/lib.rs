@@ -143,7 +143,7 @@ pub(crate) use feature_meta::{
     lower_translation_decl,
 };
 pub use jobs::{lower_job, lower_poller};
-pub use lzx::lower_lzx_document;
+pub use lzx::{lower_lzx_document, lower_lzx_feature_surfaces};
 pub use plan_gate::{
     PlanGateCode, PlanGateDiagnostic, PlanGateFacts, aggregate_plan_gate_facts,
     diagnose_plan_gate_facts, parse_subscription_anchor,
