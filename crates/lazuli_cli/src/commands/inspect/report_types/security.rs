@@ -8,12 +8,45 @@
 
 use serde::Serialize;
 
+use super::auth::InspectOrigin;
+
 #[derive(Debug, Serialize)]
 pub(in crate::commands::inspect) struct InspectSecurity {
     pub(in crate::commands::inspect) fields: Vec<InspectSecurityField>,
     pub(in crate::commands::inspect) event_payloads: Vec<InspectSecurityEventPayload>,
     pub(in crate::commands::inspect) operations: Vec<InspectSecurityOperation>,
     pub(in crate::commands::inspect) webhooks: Vec<InspectSecurityWebhook>,
+    /// `cookie-sessions-child` — the session-cookie transport envelope
+    /// lowered from `auth.sessions.cookie`. `None` when the feature has no
+    /// `auth.sessions` block, or declared one without a `cookie` child
+    /// (the runtime then stamps the hardcoded cookie literals). Additive
+    /// axis: present only under `--expand=security`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(in crate::commands::inspect) session_cookie: Option<InspectSessionCookie>,
+}
+
+/// `cookie-sessions-child` — projected session-cookie transport envelope.
+/// Mirrors the IR [`lazuli_ir::SessionCookie`] 1:1; every axis is optional
+/// so the projection shows exactly which attributes the author declared
+/// (absent axes serialize nothing, signalling "runtime keeps its default").
+#[derive(Debug, Serialize)]
+pub(in crate::commands::inspect) struct InspectSessionCookie {
+    /// The session resource the cookie carries (`UserSession`), echoed so
+    /// the envelope is self-describing under the security axis.
+    pub(in crate::commands::inspect) resource: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(in crate::commands::inspect) name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(in crate::commands::inspect) same_site: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(in crate::commands::inspect) secure: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(in crate::commands::inspect) http_only: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(in crate::commands::inspect) domain: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(in crate::commands::inspect) path: Option<String>,
+    pub(in crate::commands::inspect) origin: InspectOrigin,
 }
 
 #[derive(Debug, Serialize)]

@@ -39,6 +39,7 @@
                     extra_columns,
                     access_ttl: None,
                     rotation: None,
+                    cookie: None,
                 }),
                 mfa: None,
                 oauth: vec![],

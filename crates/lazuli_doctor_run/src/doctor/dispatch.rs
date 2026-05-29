@@ -398,6 +398,14 @@ impl DoctorPackage {
         // do not carry queries).
         diagnostics.extend(self.session_query_temporal_validity_diagnostics());
 
+        // SESSION-COOKIE-* — the five IR-driven session-cookie transport
+        // diagnostics over `auth.sessions.cookie` (insecure-in-prod,
+        // samesite-none-insecure, missing, profile-conflict,
+        // host-prefix-violation). Re-parses the typed `Feature` IR for the
+        // cookie sub-block the fact-only auth slices above do not carry.
+        // See `docs/proposals/cookie-sessions-child.md` §Doctor.
+        diagnostics.extend(self.session_cookie_diagnostics());
+
         // Row 30 — Storage bucket cycle: 5 typed `@cap.File`
         // diagnostics. See `docs/proposals/bucket-storage-cycle.md`
         // §Doctor/LSP.

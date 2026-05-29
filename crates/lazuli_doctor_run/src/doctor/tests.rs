@@ -131,6 +131,10 @@ mod tests {
         include!("tests/session_query_temporal_validity.rs");
     }
 
+    mod session_cookie {
+        include!("tests/session_cookie.rs");
+    }
+
     mod headers_app_security {
         include!("tests/headers_app_security.rs");
     }

@@ -426,7 +426,7 @@ pub(crate) fn keyword_description(keyword: &str) -> Option<&'static str> {
         // hover mirrors the doctor diagnostic catalog so the LLM /
         // human reading the source sees the contract without docs.
         "cookie" => Some(
-            "App cookie contract (`app.cookie`). Named profiles (`default`, `session`, `csrf`, ...) declare per-cookie hygiene. Closed catalogs: `same_site ∈ {lax, strict, none}`. Optional bools: `signed`, `secure`, `http_only`. Duration: `max_age \"7d\"`. Default profile applies unless overridden.",
+            "Cookie hygiene block. As `app.cookie`: named profiles (`default`, `session`, `csrf`, ...) declaring per-cookie hygiene (`signed`, `secure`, `http_only`, `same_site ∈ {lax, strict, none}`, `max_age \"7d\"`). As the `auth.sessions.cookie` child: the session-cookie transport envelope with six optional attributes (`name`, `same_site`, `secure`, `http_only`, `domain`, `path`) — each omitted attribute keeps the runtime default for that axis.",
         ),
         "proxy" => Some(
             "App proxy contract (`app.proxy`). Declares trusted upstreams + real-IP header overrides. `trusted` accepts a comma-separated CIDR list (`10.0.0.0/8, 172.16.0.0/12`). Optional headers: `real_ip_header`, `forwarded_proto_header`, `forwarded_host_header`. The runtime trusts these headers only from the CIDRs in `trusted`.",

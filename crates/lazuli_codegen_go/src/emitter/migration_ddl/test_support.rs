@@ -190,6 +190,7 @@ pub(super) fn auth_session_module(rotation: Option<RotationConfig>) -> Module {
             extra_columns: Vec::new(),
             access_ttl: None,
             rotation,
+            cookie: None,
         }),
         mfa: None,
         oauth: Vec::new(),

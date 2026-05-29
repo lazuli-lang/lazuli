@@ -209,6 +209,7 @@ mod tests {
                 extra_columns: vec![],
                 access_ttl: None,
                 rotation: None,
+                cookie: None,
             }),
             mfa: Some(AuthMfa {
                 method: "totp".to_owned(),

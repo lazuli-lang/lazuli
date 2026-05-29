@@ -208,11 +208,16 @@ func sessionExpiredError(ctx *Ctx) error {
 }
 
 // extractSessionToken returns the opaque session token from the
-// request, preferring the `lazuli_session` cookie over the
+// request, preferring the session cookie over the
 // `Authorization: Bearer <token>` header. Returns "" when neither
 // path supplies a value.
+//
+// Reads through `SessionCookieName()` so a declared
+// `auth.sessions.cookie / name` override stays symmetric with
+// `Ctx.SetSessionCookie` (which stamps the same name). When no name is
+// declared this is `lazuli_session`, unchanged from before.
 func extractSessionToken(r *http.Request) string {
-	if cookie, err := r.Cookie(ProductionSessionCookieName); err == nil && cookie.Value != "" {
+	if cookie, err := r.Cookie(SessionCookieName()); err == nil && cookie.Value != "" {
 		return cookie.Value
 	}
 	authz := r.Header.Get("Authorization")

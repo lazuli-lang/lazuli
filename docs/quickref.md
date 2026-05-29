@@ -933,6 +933,12 @@ opt-outs such as `verify none` without a deployment allowlist.
 - `escape_route` requires `policy` and `tenant`.
 - `auth password` requires `algorithm` and `rate_limit`; `auth sessions`
   requires `ttl`.
+- `auth sessions` may declare a `cookie` child block to override the
+  session-cookie transport envelope. Six optional attributes — `name`,
+  `same_site` (`lax` | `strict` | `none`), `secure`, `http_only`, `domain`,
+  `path`. Any attribute you omit keeps the runtime default for that axis;
+  set `secure true` whenever `same_site none`. The attribute vocabulary is
+  shared with app-level `app.cookie` profiles.
 - Mark sensitive fields and event payloads with `@pii.*`, `@cap.*`, and
   `@key.*`.
 - Use canonical capability arguments: `@cap.Hashed(algorithm:argon2id)`,

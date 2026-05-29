@@ -71,7 +71,7 @@ const SEMANTIC_VALUES: &[&str] = &["HexColor", "Percentage"];
 /// entry is a registry keyword-token literal that is NOT yet present in
 /// one or more of `lazuli.tmLanguage.json` / `grammar.lzi.md` /
 /// `grammar.lzx.md` / `quickref.md`. Re-rooting `keyword_surface_parity`
-/// on the full registry surfaced these (≈200 literals — cookie/header/
+/// on the full registry surfaced these (≈200 literals — header/
 /// proxy scalars, deploy + migration keywords, RBAC verbs, surface-view
 /// primitives, observability scalars, …). Closing them means editing the
 /// tmLanguage grammar + the grammar/quickref docs, which is explicitly
@@ -80,6 +80,13 @@ const SEMANTIC_VALUES: &[&str] = &["HexColor", "Percentage"];
 /// construction gate green on everything H1+H2+H3 actually cover while
 /// still failing for any NEW keyword that lands without doc/highlight
 /// coverage.
+///
+/// The `cookie-sessions-child` parity pass (the `auth.sessions.cookie`
+/// block + its `same_site` / `secure` / `http_only` attributes) retired
+/// `cookie` / `same_site` / `secure` / `http_only` from this list once
+/// they landed in `grammar.lzi.md` + `quickref.md` (they were already in
+/// the generated tmLanguage `#kw-cookie` alternation). `domain` / `path`
+/// were never in the gap. They are now enforced by-construction.
 ///
 /// To retire an entry: add the literal to the relevant doc/grammar/
 /// tmLanguage surface and delete it here. The test will tell you which
@@ -114,7 +121,6 @@ const DOC_SURFACE_GAP: &[&str] = &[
     "constraints",
     "consumes",
     "conventions",
-    "cookie",
     "cors",
     "counter",
     "credentials",
@@ -167,7 +173,6 @@ const DOC_SURFACE_GAP: &[&str] = &[
     "hide",
     "hint",
     "hsts",
-    "http_only",
     "icon",
     "include_subdomains",
     "inverse",
@@ -247,12 +252,10 @@ const DOC_SURFACE_GAP: &[&str] = &[
     "rotation_profile",
     "route_guard",
     "runs",
-    "same_site",
     "sample_rate",
     "scale",
     "secret_rotation",
     "sections",
-    "secure",
     "selection",
     "server",
     "serves",

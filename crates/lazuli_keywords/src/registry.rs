@@ -2373,6 +2373,20 @@ pub const ALL: &[CapabilitySpec] = &[
     stmt("refresh", Context::Auth, STMT, "Refresh operation."),
     stmt("enroll", Context::Auth, STMT, "MFA enrollment."),
     stmt("hash", Context::Auth, STMT, "Password hash algorithm."),
+    // `auth.sessions.cookie` — session-cookie transport block. Option (b)
+    // from `docs/proposals/cookie-sessions-child.md`: the cookie attribute
+    // vocabulary (`same_site`/`secure`/`http_only`/`domain`/`path` —
+    // `Context::Cookie` rows under the app `cookie` SECTION above; `name`
+    // is the generic `modifier`) is REUSED, not duplicated. This row is the
+    // second anchor position: the `cookie` SECTION re-rooted under the
+    // `sessions` parent (`Context::Auth`) instead of `Context::App`. The
+    // parser dispatches the cookie children to the same closed catalog.
+    kw(
+        "cookie",
+        Context::Auth,
+        SECTION,
+        "Session-cookie transport attributes block (name/same_site/secure/http_only/domain/path).",
+    ),
     // ════════════════════════════════════════════════════════════════
     // errors block
     // ════════════════════════════════════════════════════════════════

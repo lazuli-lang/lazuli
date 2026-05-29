@@ -170,6 +170,13 @@ pub(super) fn inspect_feature(
         .then(|| tier3.and_then(|t| t.errors.clone()))
         .flatten();
 
+    // `cookie-sessions-child` — the security projection now reads the
+    // lowered auth lookup (for the `auth.sessions.cookie` envelope), so
+    // bind it before the struct literal moves `name`.
+    let security_projection = expansions
+        .security
+        .then(|| inspect_security(lines, &name, auth_by_feature.get(&name)));
+
     InspectFeature {
         name,
         requirements: inspect_requirements(lines),
@@ -180,7 +187,7 @@ pub(super) fn inspect_feature(
         summary: expansions.summary.then(|| super::inspect_summary(lines)),
         locators: expansions.locators.then(|| inspect_locators(lines)),
         dependencies: expansions.dependencies.then(|| inspect_dependencies(lines)),
-        security: expansions.security.then(|| inspect_security(lines)),
+        security: security_projection,
         defaults: expansions.defaults.then(|| inspect_defaults(lines, tier3)),
         events: expansions.events.then(|| inspect_events(lines)),
         built_in_trace_events: expansions.events.then(inspect_built_in_trace_events),

@@ -41,9 +41,10 @@ pub(crate) use feature::{FEATURE_BODY_KINDS, feature_unknown_kind_diagnostics};
 #[allow(unused_imports)]
 pub(crate) use sections::{
     APP_BODY_KINDS, AUDIENCE_BODY_KINDS, COMMAND_STATEMENT_KINDS, QUERY_STATEMENT_KINDS,
-    REGISTRY_BODY_KINDS, SURFACE_BODY_KINDS, VIEW_BODY_KINDS, app_unknown_kind_diagnostics,
-    audience_unknown_kind_diagnostics, command_statement_unknown_diagnostics,
-    query_statement_unknown_diagnostics, registry_unknown_kind_diagnostics,
+    REGISTRY_BODY_KINDS, SESSIONS_BODY_KINDS, SESSIONS_COOKIE_BODY_KINDS, SURFACE_BODY_KINDS,
+    VIEW_BODY_KINDS, app_unknown_kind_diagnostics, audience_unknown_kind_diagnostics,
+    command_statement_unknown_diagnostics, query_statement_unknown_diagnostics,
+    registry_unknown_kind_diagnostics, sessions_unknown_kind_diagnostics,
     surface_unknown_kind_diagnostics, view_unknown_kind_diagnostics,
 };
 

@@ -94,6 +94,7 @@ fn feature_with_sessions(name: &str, rotation: bool) -> Feature {
                 theft_detection_action: None,
                 span_ref: None,
             }),
+            cookie: None,
         }),
         mfa: None,
         oauth: Vec::new(),

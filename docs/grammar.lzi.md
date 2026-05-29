@@ -855,7 +855,8 @@ sessions_body     = "resource" IDENT_UPPER NEWLINE
                   | "ttl" duration_literal NEWLINE
                   | "refresh" ( "true" | "false" ) NEWLINE
                   | "access_ttl" duration_literal NEWLINE
-                  | rotation_block ;
+                  | rotation_block
+                  | cookie_block ;
 rotation_block    = "rotation" NEWLINE
                     INDENT rotation_body* DEDENT
                   | "rotation" "true" NEWLINE ;
@@ -864,6 +865,15 @@ rotation_body     = "refresh_ttl" duration_literal NEWLINE
                   | "theft_detection_action" theft_detection_action NEWLINE ;
 theft_detection_action
                   = "revoke_session_family" | "revoke_user" ;
+cookie_block      = "cookie" NEWLINE
+                    INDENT cookie_attr+ DEDENT ;
+cookie_attr       = "name" STRING NEWLINE
+                  | "same_site" same_site_value NEWLINE
+                  | "secure" ( "true" | "false" ) NEWLINE
+                  | "http_only" ( "true" | "false" ) NEWLINE
+                  | "domain" STRING NEWLINE
+                  | "path" STRING NEWLINE ;
+same_site_value   = "lax" | "strict" | "none" ;
 duration_literal  = STRING | DURATION ;
 ```
 
@@ -884,6 +894,23 @@ framework default `14d`.
 `theft_detection_action` is scoped to `auth.sessions.rotation`; it is a closed
 enum (`revoke_session_family` | `revoke_user`) with default
 `revoke_session_family`.
+
+`cookie` is scoped to `auth.sessions`; it is a nested block declaring the
+session-cookie transport envelope. Every attribute is optional — an absent
+attribute leaves the runtime's hardcoded cookie literal for that axis in place,
+so the block overrides only what it names. The six reserved attributes are:
+
+- `name` — the cookie name (string; runtime default `lazuli_session`).
+- `same_site` — CSRF policy, a closed catalog `lax` | `strict` | `none`
+  (default `lax`; `none` requires `secure true` per RFC 6265bis).
+- `secure` — `Secure` (TLS-only) flag, `true` | `false`.
+- `http_only` — `HttpOnly` (hidden from `document.cookie`) flag, `true` | `false`.
+- `domain` — the cookie `Domain` attribute (string, e.g. `".example.com"`).
+- `path` — the cookie `Path` attribute (string, e.g. `"/app"`).
+
+The `same_site` / `secure` / `http_only` attribute vocabulary is shared with
+the app-level `app.cookie` profiles (app manifest); only the parent scope
+differs.
 
 ## 14. Agent (with Cut A AI primitives)
 

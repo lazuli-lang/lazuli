@@ -165,6 +165,15 @@ pub const KEYWORDS: &[&str] = &[
     "refresh_ttl",
     "grace",
     "theft_detection_action",
+    // `cookie-sessions-child` — the `auth.sessions.cookie` transport
+    // sub-block + its attribute vocabulary. `same_site` / `secure` /
+    // `http_only` are shared with the app-level `app.cookie` profiles
+    // (`Context::Cookie`); `domain` / `path` already appear in this
+    // catalog as generic keywords; `name` is the generic `modifier`.
+    "cookie",
+    "same_site",
+    "secure",
+    "http_only",
     "refresh",
     "enroll",
     "verify",

@@ -183,3 +183,117 @@ feature customer
         // No auth block authored → field omitted (None serialises away).
         assert!(json["features"][0]["auth"].is_null());
     }
+
+    // -------------------------------------------------------------------------
+    // cookie-sessions-child — `--expand=security` session-cookie envelope
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn inspect_security_projects_session_cookie_envelope() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+      cookie
+        name "lazuli_session"
+        same_site strict
+        secure true
+        http_only true
+        domain ".example.com"
+        path "/"
+"#;
+        let mut expansions = ExpandSet::default();
+        expansions.security = true;
+        let report = inspect_canonical_source(source, Path::new("customer_auth.lzi"), expansions);
+        let json = serde_json::to_value(&report).unwrap();
+        let cookie = &json["features"][0]["security"]["session_cookie"];
+        assert!(
+            !cookie.is_null(),
+            "session_cookie envelope should be present under --expand=security: {json}"
+        );
+        assert_eq!(cookie["resource"], "CustomerSession");
+        assert_eq!(cookie["name"], "lazuli_session");
+        assert_eq!(cookie["same_site"], "strict");
+        assert_eq!(cookie["secure"], true);
+        assert_eq!(cookie["http_only"], true);
+        assert_eq!(cookie["domain"], ".example.com");
+        assert_eq!(cookie["path"], "/");
+        assert_eq!(cookie["origin"]["feature"], "customer_auth");
+    }
+
+    #[test]
+    fn inspect_security_session_cookie_omits_absent_axes() {
+        // A partial cookie (only same_site) projects only that axis; absent
+        // axes serialize nothing, signalling "runtime keeps its default".
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+      cookie
+        same_site lax
+"#;
+        let mut expansions = ExpandSet::default();
+        expansions.security = true;
+        let report = inspect_canonical_source(source, Path::new("customer_auth.lzi"), expansions);
+        let json = serde_json::to_value(&report).unwrap();
+        let cookie = &json["features"][0]["security"]["session_cookie"];
+        assert_eq!(cookie["same_site"], "lax");
+        assert!(cookie["name"].is_null(), "absent name must not serialize");
+        assert!(cookie["secure"].is_null(), "absent secure must not serialize");
+        assert!(cookie["domain"].is_null(), "absent domain must not serialize");
+    }
+
+    #[test]
+    fn inspect_security_session_cookie_absent_when_no_cookie_block() {
+        // sessions without a cookie child → no envelope (runtime keeps the
+        // hardcoded literals); other security bands still present.
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+"#;
+        let mut expansions = ExpandSet::default();
+        expansions.security = true;
+        let report = inspect_canonical_source(source, Path::new("customer_auth.lzi"), expansions);
+        let json = serde_json::to_value(&report).unwrap();
+        let security = &json["features"][0]["security"];
+        assert!(!security.is_null(), "security envelope present: {json}");
+        assert!(
+            security["session_cookie"].is_null(),
+            "session_cookie must be absent when no cookie block: {security}"
+        );
+    }
+
+    #[test]
+    fn inspect_security_session_cookie_omitted_without_expand() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+      cookie
+        same_site strict
+"#;
+        let report =
+            inspect_canonical_source(source, Path::new("customer_auth.lzi"), ExpandSet::default());
+        let json = serde_json::to_string(&report).unwrap();
+        assert!(
+            !json.contains("session_cookie"),
+            "session_cookie must be absent without --expand=security: {json}"
+        );
+    }

@@ -888,8 +888,20 @@
           }
         },
         {
+          "comment": "`auth.sessions.cookie` child same_site closed catalog (lazuli_syntax parse_same_site @ parser/lzi/auth/sessions.rs:343). Shared closed catalog with app.cookie.",
+          "match": "^\\s+(same_site)\\s+(lax|strict|none)\\b",
+          "captures": {
+            "1": { "name": "entity.name.function.statement.cookie.lazuli" },
+            "2": { "name": "constant.language.closed-catalog.lazuli" }
+          }
+        },
+        {
+          "comment": "`auth.sessions.cookie` child attributes (name/same_site/secure/http_only/domain/path). Highlighted via the registry-generated #kw-cookie alternation; the cookie SECTION is re-rooted under the sessions parent per docs/proposals/cookie-sessions-child.md.",
+          "include": "#kw-cookie"
+        },
+        {
           "name": "keyword.control.statement.lazuli",
-          "match": "^\\s+(identity|password|oauth|mfa|sessions|adapter|enroll|verify|hash|algorithm|refresh|ttl|resource|rate_limit)\\b"
+          "match": "^\\s+(identity|password|oauth|mfa|sessions|adapter|enroll|verify|hash|algorithm|refresh|ttl|resource|rate_limit|cookie)\\b"
         },
         { "include": "#references" },
         { "include": "#types" },

@@ -2754,6 +2754,52 @@ records theft on the session resource and applies `theft_detection_action`.
 other devices alone. `revoke_user` revokes every session row for the same user
 and is appropriate when a replay implies broader account compromise.
 
+### Session cookie
+
+`auth.sessions.cookie` is an optional nested block (sibling of `rotation`) that
+overrides the transport envelope of the session cookie. Without it the runtime
+stamps its hardcoded cookie literals; with it, each attribute you name overrides
+that axis while every attribute you omit keeps the default — the block is a
+partial override, not a full replacement:
+
+```txt
+auth
+  sessions
+    resource <ResourceName>
+    [cookie
+      [name "<cookie-name>"]
+      [same_site lax|strict|none]
+      [secure true|false]
+      [http_only true|false]
+      [domain "<domain>"]
+      [path "<path>"]
+    ]
+```
+
+Example:
+
+```lazuli
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+      cookie
+        name "lazuli_session"
+        same_site strict
+        secure true
+        http_only true
+        domain ".example.com"
+        path "/app"
+```
+
+The six attributes are all optional and each appears at most once. `name` sets
+the cookie name (default `lazuli_session`); `same_site` is the closed CSRF
+catalog `lax` | `strict` | `none` (default `lax`, and `none` requires
+`secure true` per RFC 6265bis); `secure` and `http_only` toggle the `Secure`
+and `HttpOnly` flags; `domain` and `path` set the cookie `Domain` and `Path`.
+The `same_site` / `secure` / `http_only` vocabulary is shared with app-level
+`app.cookie` profiles — only the parent scope differs. An absent `cookie` block
+leaves the session under the runtime's hardcoded cookie literals.
+
 ### Two-cookie discipline
 
 The access credential and refresh credential are separate. The access token may

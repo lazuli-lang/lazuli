@@ -33,7 +33,8 @@ pub(crate) use blocks::{
     surface_unknown_kind_diagnostics, view_unknown_kind_diagnostics,
 };
 pub(crate) use statements::{
-    AUDIENCE_BODY_KINDS, COMMAND_STATEMENT_KINDS, QUERY_STATEMENT_KINDS,
-    audience_unknown_kind_diagnostics, command_statement_unknown_diagnostics,
-    query_statement_unknown_diagnostics,
+    AUDIENCE_BODY_KINDS, COMMAND_STATEMENT_KINDS, QUERY_STATEMENT_KINDS, SESSIONS_BODY_KINDS,
+    SESSIONS_COOKIE_BODY_KINDS, audience_unknown_kind_diagnostics,
+    command_statement_unknown_diagnostics, query_statement_unknown_diagnostics,
+    sessions_unknown_kind_diagnostics,
 };

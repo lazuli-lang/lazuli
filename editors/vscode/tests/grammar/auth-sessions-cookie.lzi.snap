@@ -1,0 +1,114 @@
+># Grammar snapshot fixture — exercises the `auth.sessions.cookie` child
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+># (cookie-sessions-child). Modeled on the analyzer's
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+># `lower_auth_sessions_cookie_block_to_ir` fixture so the session-cookie
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+># transport attributes (name / same_site / secure / http_only / domain /
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+># path) each get their dedicated cookie scope, alongside the rotation
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+># sub-block and the surrounding auth vocabulary.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+>
+>feature customer_auth
+#^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#       ^ source.lazuli
+#        ^^^^^^^^^^^^^ source.lazuli entity.name.type.feature.lazuli
+>  purpose "Customer login, sessions, and session-cookie transport."
+#^^^^^^^^^ source.lazuli entity.name.function.statement.feature-meta.lazuli
+#         ^ source.lazuli
+#          ^ source.lazuli string.quoted.double.lazuli
+#           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                                                  ^ source.lazuli string.quoted.double.lazuli
+>
+>  auth
+#^^ source.lazuli
+#  ^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+>    identity Customer.email
+#^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#            ^ source.lazuli
+#             ^^^^^^^^ source.lazuli support.type.domain.lazuli
+#                     ^^^^^^ source.lazuli variable.other.member.lazuli
+>
+>    password
+#^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+>      hash @fn.hash_customer_password
+#^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#          ^ source.lazuli
+#           ^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>      verify @fn.verify_customer_password
+#^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#            ^ source.lazuli
+#             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.tag.lazuli
+>      rate_limit "5 per 10 minutes"
+#^^^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#                ^ source.lazuli
+#                 ^ source.lazuli string.quoted.double.lazuli
+#                  ^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                  ^ source.lazuli string.quoted.double.lazuli
+>
+>    sessions
+#^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+>      resource CustomerSession
+#^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#              ^ source.lazuli
+#               ^^^^^^^^^^^^^^^ source.lazuli support.type.domain.lazuli
+>      ttl "7 days"
+#^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#         ^ source.lazuli
+#          ^ source.lazuli string.quoted.double.lazuli
+#           ^^^^^^ source.lazuli string.quoted.double.lazuli
+#                 ^ source.lazuli string.quoted.double.lazuli
+>      access_ttl "15 minutes"
+#^^^^^^^^^^^^^^^^^ source.lazuli
+#                 ^ source.lazuli string.quoted.double.lazuli
+#                  ^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                            ^ source.lazuli string.quoted.double.lazuli
+>      rotation
+#^^^^^^^^^^^^^^^ source.lazuli
+>        refresh_ttl "30 days"
+#^^^^^^^^^^^^^^^^^^^^ source.lazuli
+#                    ^ source.lazuli string.quoted.double.lazuli
+#                     ^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                            ^ source.lazuli string.quoted.double.lazuli
+>        grace "30 seconds"
+#^^^^^^^^^^^^^^ source.lazuli
+#              ^ source.lazuli string.quoted.double.lazuli
+#               ^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                         ^ source.lazuli string.quoted.double.lazuli
+>        theft_detection_action revoke_session_family
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>      cookie
+#^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+>        name "lazuli_session"
+#^^^^^^^^^^^^^ source.lazuli
+#             ^ source.lazuli string.quoted.double.lazuli
+#              ^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                            ^ source.lazuli string.quoted.double.lazuli
+>        same_site strict
+#^^^^^^^^ source.lazuli
+#        ^^^^^^^^^ source.lazuli entity.name.function.statement.cookie.lazuli
+#                 ^ source.lazuli
+#                  ^^^^^^ source.lazuli constant.language.closed-catalog.lazuli
+>        secure true
+#^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.cookie.lazuli
+#              ^ source.lazuli
+#               ^^^^ source.lazuli constant.language.boolean.lazuli
+>        http_only false
+#^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.cookie.lazuli
+#                 ^ source.lazuli
+#                  ^^^^^ source.lazuli constant.language.boolean.lazuli
+>        domain ".example.com"
+#^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.cookie.lazuli
+#              ^ source.lazuli
+#               ^ source.lazuli string.quoted.double.lazuli
+#                ^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                            ^ source.lazuli string.quoted.double.lazuli
+>        path "/app"
+#^^^^^^^^^^^^ source.lazuli entity.name.function.statement.cookie.lazuli
+#            ^ source.lazuli
+#             ^ source.lazuli string.quoted.double.lazuli
+#              ^^^^ source.lazuli string.quoted.double.lazuli
+#                  ^ source.lazuli string.quoted.double.lazuli
+>

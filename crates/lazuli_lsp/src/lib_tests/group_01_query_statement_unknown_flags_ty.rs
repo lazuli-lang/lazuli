@@ -105,6 +105,108 @@ feature catalog
 }
 
 #[test]
+fn sessions_unknown_kind_flags_typo_with_suggestion() {
+    // `cokie` (vs `cookie`) is silently dropped by the parser — the typo
+    // catalog turns it into a precise suggestion.
+    let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+      cokie
+        same_site strict
+"#;
+    let diagnostics = diagnostics_for(source);
+    let hits = diagnostics_with_code(&diagnostics, "sessions-unknown-kind");
+    assert_eq!(
+        hits.len(),
+        1,
+        "expected one sessions-unknown-kind diagnostic for `cokie`; got {} (full set: {:#?})",
+        hits.len(),
+        diagnostics,
+    );
+    assert!(hits[0].message.contains("cokie"));
+    assert!(
+        hits[0].message.contains("cookie"),
+        "diagnostic must suggest `cookie`; got `{}`",
+        hits[0].message
+    );
+}
+
+#[test]
+fn sessions_cookie_unknown_attribute_flags_typo_with_suggestion() {
+    // `same_sight` (vs `same_site`) inside the cookie sub-block.
+    let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+      cookie
+        same_sight strict
+        secure true
+"#;
+    let diagnostics = diagnostics_for(source);
+    let hits = diagnostics_with_code(&diagnostics, "sessions-cookie-unknown-kind");
+    assert_eq!(
+        hits.len(),
+        1,
+        "expected one sessions-cookie-unknown-kind diagnostic for `same_sight`; got {} (full set: {:#?})",
+        hits.len(),
+        diagnostics,
+    );
+    assert!(hits[0].message.contains("same_sight"));
+    assert!(
+        hits[0].message.contains("same_site"),
+        "diagnostic must suggest `same_site`; got `{}`",
+        hits[0].message
+    );
+}
+
+#[test]
+fn sessions_unknown_kind_silent_for_valid_body_and_cookie() {
+    // A fully valid sessions block — scalars, rotation sub-block, and the
+    // cookie sub-block with all six attributes — must stay quiet on both
+    // the sessions-body and sessions-cookie catalogs.
+    let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+      access_ttl "15 minutes"
+      refresh true
+      rotation
+        refresh_ttl "30 days"
+        grace "30 seconds"
+        theft_detection_action revoke_session_family
+      cookie
+        name "lazuli_session"
+        same_site strict
+        secure true
+        http_only false
+        domain ".example.com"
+        path "/app"
+"#;
+    let diagnostics = diagnostics_for(source);
+    let body_hits = diagnostics_with_code(&diagnostics, "sessions-unknown-kind");
+    let cookie_hits = diagnostics_with_code(&diagnostics, "sessions-cookie-unknown-kind");
+    assert!(
+        body_hits.is_empty() && cookie_hits.is_empty(),
+        "valid sessions + cookie body must not fire either typo diagnostic; got body={:#?} cookie={:#?}",
+        body_hits,
+        cookie_hits,
+    );
+}
+
+#[test]
 fn canonical_order_accepts_full_capsule_fixture() {
     let diagnostics = diagnostics_for(include_str!(
         "../../../../examples/full-capsule/full-capsule.lzi"
