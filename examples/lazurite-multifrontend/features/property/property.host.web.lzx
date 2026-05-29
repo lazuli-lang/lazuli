@@ -2,5 +2,7 @@ surface property web
   uses experience property
 
   audience host
+    policy @policy.authenticated
+      on_unauthenticated redirect "/sign-in"
     view list List
       fields name, address
