@@ -146,4 +146,8 @@ mod tests {
     mod route_guard_lifecycle {
         include!("tests/route_guard_lifecycle.rs");
     }
+
+    mod synthetic_feature_completeness {
+        include!("tests/synthetic_feature_completeness.rs");
+    }
 }
