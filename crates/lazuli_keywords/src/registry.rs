@@ -1095,6 +1095,15 @@ pub const ALL: &[CapabilitySpec] = &[
         "Key-rotation profile.",
     ),
     // ── app: locale block ──
+    // Surface keywords the `app.locale` block parser accepts
+    // (`crates/lazuli_manifest/src/app_manifest/manifest_indent4.rs`
+    // `Some("locale")` arm): `default`, `supported`, `fallback`.
+    stmt(
+        "default",
+        Context::Locale,
+        "entity.name.function.statement.locale.lazuli",
+        "Primary BCP-47 locale tag.",
+    ),
     stmt(
         "supported",
         Context::Locale,
@@ -1471,6 +1480,12 @@ pub const ALL: &[CapabilitySpec] = &[
         Context::FeatureHeader,
         DECL,
         "Declares a domain entity.",
+    ),
+    kw(
+        "resource",
+        Context::FeatureHeader,
+        DECL,
+        "Declares a domain resource.",
     ),
     produces(
         kw(
