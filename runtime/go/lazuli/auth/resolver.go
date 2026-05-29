@@ -203,7 +203,13 @@ func (runtimeResolver) ResolveRoles(ctx context.Context, userID lazuli.ID) ([]st
 	return []string{role}, nil
 }
 
-func quoteTableIdent(table string) string { return `"` + table + `"` }
+// quoteTableIdent quotes a table identifier for safe interpolation into
+// a SQL string. It delegates to pgx's library-correct sanitizer (which
+// double-quotes and escapes embedded double-quotes) rather than naively
+// wrapping the raw name, matching `lazuli/retention.go`'s quoteIdentifier.
+// Self-guarding: a name containing a double-quote is escaped, not passed
+// through unaltered.
+func quoteTableIdent(table string) string { return pgx.Identifier{table}.Sanitize() }
 
 func guardSessionIdent(name string) error {
 	for _, c := range name {
