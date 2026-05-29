@@ -16,10 +16,13 @@
 //! optional `from query` clause that asks the runtime to URL-sync
 //! the value.
 //!
-//! `parse_filters_block` mutates the shared `ViewBodyState` so it
-//! reuses `super::ViewBodyState` directly. `parse_filter_decl` is a
-//! pure validator and could in principle be exposed wider, but
-//! nothing outside this module currently consumes it.
+//! `parse_filters_block` mutates the shared `ViewBodyState` (surface
+//! dialect) by way of [`parse_filters_block_into`], the dialect-neutral
+//! core that targets the raw filter accumulators directly. The
+//! experience dialect (`lzx/experience/audience.rs`) reuses that core to
+//! mount the same typed `filters` block on `LzxPlatformView`, mirroring
+//! the F5 view-level UX helpers. `parse_filter_decl` is a pure validator
+//! kept module-private.
 
 use super::super::super::common::{
     SourceLine, is_lzx_bare_ident, is_trivia, line_error, line_error_owned, strip_inline_comment,
@@ -34,14 +37,37 @@ pub(crate) fn parse_filters_block(
     body_indent: usize,
     state: &mut ViewBodyState,
 ) -> Result<(usize, usize), ParseError> {
+    parse_filters_block_into(
+        lines,
+        start,
+        body_indent,
+        &mut state.filters,
+        &mut state.has_filters_block,
+    )
+}
+
+/// Dialect-neutral core of the typed `filters { … }` block parser.
+///
+/// Reused by both the surface dialect (via [`parse_filters_block`],
+/// which threads `ViewBodyState`) and the experience dialect (which
+/// owns its own `Vec<FilterDeclAst>` + seen-flag on `LzxPlatformView`).
+/// Walks children one indentation level deeper than `body_indent`,
+/// parsing `<name>: [list of | date_range] <Type> [from query]` decls.
+pub(in crate::parser::lzx) fn parse_filters_block_into(
+    lines: &[SourceLine<'_>],
+    start: usize,
+    body_indent: usize,
+    out: &mut Vec<FilterDeclAst>,
+    has_filters_block: &mut bool,
+) -> Result<(usize, usize), ParseError> {
     let header = &lines[start];
-    if state.has_filters_block {
+    if *has_filters_block {
         return Err(line_error(
             header,
             "view list declares `filters` at most once",
         ));
     }
-    state.has_filters_block = true;
+    *has_filters_block = true;
 
     let child_indent = body_indent + 2;
     let mut block_filters = Vec::new();
@@ -88,7 +114,7 @@ pub(crate) fn parse_filters_block(
         ));
     }
 
-    state.filters.extend(block_filters);
+    out.extend(block_filters);
     Ok((i, last_end))
 }
 

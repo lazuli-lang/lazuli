@@ -50,7 +50,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{AudienceUxAst, RouteParamAst, Span, ViewUxAst};
+use super::{AudienceUxAst, FilterDeclAst, RouteParamAst, Span, ViewUxAst};
 
 /// One parsed `.lzx` document — the app's UI shell tree.
 ///
@@ -461,6 +461,13 @@ pub struct LzxPlatformView {
     pub sections: Vec<String>,
     pub search: Vec<String>,
     pub filter: Vec<String>,
+    /// Typed `filters { <name>: [list of | date_range] <Type> [from query] }`
+    /// block declarations (G-A1). Shares the surface-dialect AST
+    /// (`FilterDeclAst`); the single-line `filter <list>` form above stays
+    /// separate. Empty by default — additive over the §7a primitives F5
+    /// brought into this dialect.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub filters: Vec<FilterDeclAst>,
     pub cells: Vec<String>,
     pub actions: Vec<String>,
     pub submit: Option<String>,

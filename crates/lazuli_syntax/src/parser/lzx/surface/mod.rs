@@ -40,6 +40,7 @@ pub(super) use search::parse_view_search_decl;
 
 mod filter;
 pub(super) use filter::parse_filters_block;
+pub(in crate::parser::lzx) use filter::parse_filters_block_into;
 
 mod drawer;
 pub(super) use drawer::parse_drawer_block;

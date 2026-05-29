@@ -764,6 +764,86 @@ surface widget web
     assert_eq!(audience.ux.wizards[0].steps[0].ref_name, "list");
 }
 
+// G-A1 — the typed `filters { … }` block (incl. `date_range`) now has an
+// end-to-end home in the experience dialect. Previously it parsed only in
+// the orphaned surface dialect; an experience-dialect platform view that
+// declared it was rejected with `LZX-PARSE`. The block reuses the
+// surface-dialect parser (`parse_filters_block_into`) and lands on
+// `LzxPlatformView.filters` (`FilterDeclAst`). Strictly additive — the
+// single-line `filter <list>` form is unchanged.
+#[test]
+fn lzx_platform_view_accepts_typed_filters_block() {
+    use crate::FilterCardinalityAst;
+    let source = r#"
+surface widget web
+  uses experience widget
+
+  audience admin
+    policy @policy.read
+
+    view list Table
+      columns name, status, created_at
+      filter status, owner
+      filters
+        created: date_range
+        status: single
+        tags: list of Text from query
+"#;
+    let doc = parse_lzx_document(source).expect("typed filters block parses");
+    let list = &doc.surfaces[0].audiences[0].views[0];
+
+    // The single-line `filter` form is untouched.
+    assert_eq!(list.filter, vec!["status", "owner"]);
+
+    // The typed `filters` block lands on the new slot.
+    assert_eq!(list.filters.len(), 3);
+    assert_eq!(list.filters[0].name, "created");
+    assert_eq!(list.filters[0].type_ref, "Date");
+    assert_eq!(list.filters[0].cardinality, FilterCardinalityAst::DateRange);
+    assert!(!list.filters[0].url_sync);
+
+    assert_eq!(list.filters[1].name, "status");
+    assert_eq!(list.filters[1].cardinality, FilterCardinalityAst::Single);
+
+    assert_eq!(list.filters[2].name, "tags");
+    assert_eq!(list.filters[2].cardinality, FilterCardinalityAst::Multi);
+    assert!(list.filters[2].url_sync);
+}
+
+#[test]
+fn lzx_platform_view_rejects_malformed_filters_block() {
+    // Inline content on the block keyword is a hard error, mirroring the
+    // surface dialect — the catalog expanded but the grammar stayed tight.
+    let inline = r#"
+surface widget web
+  uses experience widget
+
+  audience admin
+    view list Table
+      columns name
+      filters status, owner
+"#;
+    let err = parse_lzx_document(inline).expect_err("inline filters content must fail");
+    assert!(err.to_string().contains("block keyword"), "got: {err}");
+
+    // An empty `filters` block is rejected by the reused surface parser.
+    let empty = r#"
+surface widget web
+  uses experience widget
+
+  audience admin
+    view list Table
+      columns name
+      filters
+      actions update
+"#;
+    let err = parse_lzx_document(empty).expect_err("empty filters block must fail");
+    assert!(
+        err.to_string().contains("requires at least one"),
+        "got: {err}"
+    );
+}
+
 #[test]
 fn lzx_platform_view_still_rejects_unknown_child() {
     // Behavior-preserving: the catalog only EXPANDED — a genuinely

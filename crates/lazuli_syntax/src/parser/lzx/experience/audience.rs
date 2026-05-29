@@ -26,14 +26,15 @@
 //! submit | block | policy`. Partial overrides (`+=`, `-=`) are
 //! rejected at parse time; the grammar demands full redeclaration.
 
-use crate::ast::{AudienceUxAst, LzxAudience, LzxPlatformView, Span, ViewUxAst};
+use crate::ast::{AudienceUxAst, FilterDeclAst, LzxAudience, LzxPlatformView, Span, ViewUxAst};
 
 use super::super::super::common::{SourceLine, is_trivia, line_error, split_lzx_list};
 use super::super::super::error::ParseError;
 use super::super::app::parse_lzx_view_guard;
 use super::super::surface::{
-    parse_board_block, parse_inline_table_line, parse_repeatable_group_line, parse_tab_group_block,
-    parse_tabs_block, parse_view_mode_block, parse_wizard_block, parse_wizard_steps_line,
+    parse_board_block, parse_filters_block_into, parse_inline_table_line,
+    parse_repeatable_group_line, parse_tab_group_block, parse_tabs_block, parse_view_mode_block,
+    parse_wizard_block, parse_wizard_steps_line,
 };
 
 pub(super) fn parse_lzx_audience(
@@ -131,6 +132,8 @@ fn parse_lzx_platform_view(
     let mut sections = Vec::new();
     let mut search = Vec::new();
     let mut filter = Vec::new();
+    let mut filters: Vec<FilterDeclAst> = Vec::new();
+    let mut has_filters_block = false;
     let mut cells = Vec::new();
     let mut actions = Vec::new();
     let mut submit = None;
@@ -176,6 +179,20 @@ fn parse_lzx_platform_view(
             search = split_lzx_list(rest);
         } else if let Some(rest) = trimmed.strip_prefix("filter ") {
             filter = split_lzx_list(rest);
+        } else if trimmed == "filters" {
+            // G-A1 — typed `filters` block, reusing the surface-dialect
+            // parser (`parse_filters_block_into`). Children sit one
+            // indentation level deeper (8 spaces); the single-line
+            // `filter <list>` form above stays separate.
+            let (next, _end) =
+                parse_filters_block_into(lines, index, 6, &mut filters, &mut has_filters_block)?;
+            index = next;
+            continue;
+        } else if trimmed.starts_with("filters ") {
+            return Err(line_error(
+                line,
+                "`filters` is a block keyword and does not accept inline content",
+            ));
         } else if let Some(rest) = trimmed.strip_prefix("cells ") {
             cells = split_lzx_list(rest);
         } else if let Some(rest) = trimmed.strip_prefix("actions ") {
@@ -222,7 +239,7 @@ fn parse_lzx_platform_view(
         } else {
             return Err(line_error(
                 line,
-                "platform view children are `columns`, `fields`, `sections`, `search`, `filter`, `cells`, `actions`, `submit`, `block`, `policy`, `wizard_steps`, `tab_group`, `view_mode`, `view.inline_table`, `view.board`, or `repeatable input`",
+                "platform view children are `columns`, `fields`, `sections`, `search`, `filter`, `filters`, `cells`, `actions`, `submit`, `block`, `policy`, `wizard_steps`, `tab_group`, `view_mode`, `view.inline_table`, `view.board`, or `repeatable input`",
             ));
         }
 
@@ -238,6 +255,7 @@ fn parse_lzx_platform_view(
             sections,
             search,
             filter,
+            filters,
             cells,
             actions,
             submit,
