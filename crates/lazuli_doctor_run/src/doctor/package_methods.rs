@@ -129,13 +129,11 @@ impl DoctorPackage {
                     });
                 }
 
-                // VOCAB-CONTEXT-CTXMD-001 — passes project_root so
-                // sidecar paths resolve relative to the feature `.lzi`
-                // first, then to the project root as a fallback.
+                // VOCAB-CONTEXT-CTXMD-001 — resolves the `<feature>.ctx.md`
+                // convention sidecar at the SINGLE base of the feature
+                // `.lzi` directory (no project-root fallback).
                 let sev = resolve(vocab_context_ctxmd_001::Finding::CODE);
-                for finding in
-                    vocab_context_ctxmd_001::check(&feature, &file.path, Some(&self.project_root))
-                {
+                for finding in vocab_context_ctxmd_001::check(&feature, &file.path) {
                     let message = finding.message();
                     out.push(DoctorDiagnostic {
                         path: finding.path,

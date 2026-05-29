@@ -518,11 +518,14 @@ source that only fails later.
 - `purpose "<sentence>"` is a single quoted-string line at feature-child
   indent; at most one per feature. `VOCAB-CONTEXT-PURPOSE-001` fires on
   missing / empty strings.
-- `attach_ctx "<relative-path>"` is a single quoted-string line pointing
-  at a markdown sidecar; at most one per feature. The doctor resolves
-  the path against the `.lzi` directory first, then the project root.
-  `VOCAB-CONTEXT-CTXMD-001` fires on missing, absent, or stub content
-  (< 100 non-whitespace characters).
+- Feature context prose is resolved by CONVENTION, not a keyword: a
+  co-located `<feature>.ctx.md` markdown sidecar next to the feature's
+  `.lzi`. The doctor probes a SINGLE base (the `.lzi` directory) — there
+  is no path argument, no project-root fallback, and no override.
+  `VOCAB-CONTEXT-CTXMD-001` fires on a missing sidecar or stub content
+  (< 100 non-whitespace characters). The former `attach_ctx
+  "<relative-path>"` meta statement is retired — the parser hard-errors
+  `E-ATTACH-CTX-RETIRED`.
 - The `tdd-iron-hand` coverage preset is a meta-bundle: it raises the
   numerical coverage bar (six layers blocked at 90/95) AND escalates
   the three `VOCAB-CONTEXT-*` rules from `warning` to `error` under

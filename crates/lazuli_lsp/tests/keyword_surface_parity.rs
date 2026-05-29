@@ -56,11 +56,12 @@ use lazuli_keywords::{ALL, SemanticToken};
 
 /// Tokens that must NOT appear as live, highlighted feature-header
 /// keywords — the dead forms whose silent-drop earlier waves removed. The
-/// feature-level `context "..."` was migrated to `attach_ctx` and now
-/// hard-errors (`E-CONTEXT-RETIRED`); the retired `workflow` block
-/// hard-errors (`E-WORKFLOW-RETIRED`). They must be gone from the LSP
-/// feature-body catalog.
-const RETIRED_FEATURE_KEYWORDS: &[&str] = &["workflow"];
+/// feature-level `context "..."` and `attach_ctx "..."` keywords were
+/// both migrated to the co-located `<feature>.ctx.md` convention and now
+/// hard-error (`E-CONTEXT-RETIRED` / `E-ATTACH-CTX-RETIRED`); the retired
+/// `workflow` block hard-errors (`E-WORKFLOW-RETIRED`). They must be gone
+/// from the LSP feature-body catalog.
+const RETIRED_FEATURE_KEYWORDS: &[&str] = &["attach_ctx", "workflow"];
 
 /// `@semantic.*` scalar VALUES. Unlike keywords these are not in the LSP
 /// keyword catalog and are highlighted generically by tmLanguage's

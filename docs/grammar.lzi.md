@@ -157,15 +157,18 @@ in `docs/canonical-semantics.md §Quick Reference`, not by the grammar.
 ```ebnf
 meta_block        = purpose_stmt
                   | non_goals_block
-                  | attach_ctx_stmt
                   | knowledge_stmt ;
 
 purpose_stmt      = "purpose" STRING NEWLINE ;
 
-(* Iron-hand context directive. Points the feature at a sidecar context
-   file (markdown) the agent / strict-profile reads as authoring guidance.
-   Cardinality 0..1; the quoted path is relative to the feature file. *)
-attach_ctx_stmt   = "attach_ctx" STRING NEWLINE ;     (* attach_ctx "./ctx.md" *)
+(* Feature context prose is resolved by CONVENTION, not a keyword: a
+   co-located `<feature>.ctx.md` markdown sidecar next to the `.lzi`,
+   probed at a SINGLE base (the `.lzi` directory; no path argument, no
+   project-root fallback, no override). The former `attach_ctx "<path>"`
+   meta statement is retired — the parser hard-errors
+   `E-ATTACH-CTX-RETIRED` (mirroring the retired `context "..."` form,
+   `E-CONTEXT-RETIRED`). See docs/canonical-semantics.md
+   §"feature-context-vocabulary". *)
 
 (* Iron-hand context directive. Names the bareword sector slug whose
    `knowledge/<sector>/` vault the feature draws authoring
@@ -1005,8 +1008,10 @@ budget_scope      = "request" ;        (* aggregate scopes are pack territory *)
 ## 16. Knowledge
 
 `knowledge` is a scalar meta statement (`knowledge_stmt` — `knowledge <sector>`, sibling of
-`purpose` / `non_goals` / `attach_ctx`), cross-checked against its on-disk vault by the
+`purpose` / `non_goals`), cross-checked against its on-disk vault by the
 `VOCAB-KNOWLEDGE-*` doctor rules. See `docs/proposals/knowledge-sector-field.md`.
+(Feature context prose is resolved by the `<feature>.ctx.md` convention, not a
+keyword; the former `attach_ctx` meta statement is retired — `E-ATTACH-CTX-RETIRED`.)
 
 An earlier block-form RAG sketch (`source` / `chunk by` / `embedding @adapter`) was never
 wired on any executable face and has been removed; vector/embedding retrieval is

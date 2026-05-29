@@ -20,7 +20,7 @@
 //!   `locale_negotiate`).
 //! - [`defaults`] — feature-level `defaults` block.
 //! - [`contracts`] — cross-feature contracts + `uses` clauses.
-//! - [`context`] — iron-hand `purpose` / `non_goals` / `attach_ctx`.
+//! - [`context`] — iron-hand `purpose` / `non_goals` / `knowledge`.
 
 use serde::{Deserialize, Serialize};
 
@@ -39,9 +39,7 @@ pub mod policy;
 pub mod rbac;
 pub mod translation;
 
-pub use context::{
-    LziFeatureAttachCtx, LziFeatureKnowledge, LziFeatureNonGoals, LziFeaturePurpose,
-};
+pub use context::{LziFeatureKnowledge, LziFeatureNonGoals, LziFeaturePurpose};
 pub use contracts::{PublicContractDeclAst, UsesClauseAst};
 pub use defaults::{DefaultsPolicyFor, DefaultsTenancy, FeatureDefaults};
 pub use enums::{EnumDeclAst, EnumStorageValueDecl, EnumVariantDecl};
@@ -178,13 +176,6 @@ pub struct FeatureSkeleton {
     /// `docs/canonical-semantics.md#feature-context-vocabulary`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub non_goals: Option<LziFeatureNonGoals>,
-    /// Iron-hand context-vocabulary — `attach_ctx "<relative-path>"`
-    /// pointing at a markdown sidecar (e.g. `./ctx.md`). Missing,
-    /// unreadable, or <100-char content surfaces
-    /// `VOCAB-CONTEXT-CTXMD-001`. See
-    /// `docs/canonical-semantics.md#feature-context-vocabulary`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub attach_ctx: Option<LziFeatureAttachCtx>,
     /// Iron-hand context-vocabulary — `knowledge <sector>` naming the
     /// `knowledge/<sector>/` vault the feature draws from. The
     /// sector is a bareword slug (not a quoted string). At most one per

@@ -12,8 +12,6 @@ feature catalog
     out_of_scope
       generic_taxonomy: "tag taxonomy framework"
 
-  attach_ctx "@docs/catalog/catalog.ctx.md"
-
   knowledge catalog
 
   defaults

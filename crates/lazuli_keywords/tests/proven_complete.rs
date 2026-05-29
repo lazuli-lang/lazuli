@@ -84,12 +84,14 @@ const ALLOWLIST: &[&str] = &[
     "5xx",       // error-status range literal — a value, not a keyword
     "utf8_safe", // sanitize-flag value fragment
     // ── RETIRED keywords: the parser still RECOGNIZES these solely to emit
-    //    a retirement hard-error (E-CONTEXT-RETIRED / E-WORKFLOW-RETIRED).
-    //    They are deliberately NOT live registry keywords — the LSP
-    //    keyword_surface_parity `RETIRED_FEATURE_KEYWORDS` check would
-    //    conflict if they were. Allow-listed here, NOT added to ALL. ──
-    "context",  // retired feature-level `context "..."` (now `attach_ctx`)
-    "workflow", // retired `workflow` block (now lifecycle/command effects)
+    //    a retirement hard-error (E-CONTEXT-RETIRED / E-ATTACH-CTX-RETIRED /
+    //    E-WORKFLOW-RETIRED). They are deliberately NOT live registry
+    //    keywords — the LSP keyword_surface_parity `RETIRED_FEATURE_KEYWORDS`
+    //    check would conflict if they were. Allow-listed here, NOT added to
+    //    ALL. ──
+    "context",    // retired feature-level `context "..."` (now `<feature>.ctx.md`)
+    "attach_ctx", // retired feature-level `attach_ctx "..."` (now `<feature>.ctx.md` convention)
+    "workflow",   // retired `workflow` block (now lifecycle/command effects)
     // ── reference-path roots / dotted references (NOT standalone keywords;
     //    highlighted as support.variable.context / reference paths) ──
     "row",         // `row.<field>` context-variable root

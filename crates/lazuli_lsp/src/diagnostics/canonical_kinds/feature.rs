@@ -29,7 +29,6 @@ pub(crate) const FEATURE_BODY_KINDS: &[&str] = &[
     "agent",
     "aggregate",
     "api",
-    "attach_ctx",
     "auth",
     "cache",
     "channel",
@@ -131,7 +130,7 @@ pub(crate) fn feature_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> 
                 format!("unknown feature block kind `{first}`. Did you mean `{suggested}`?")
             }
             None => format!(
-                "unknown feature block kind `{first}`. Valid kinds: command / api / query.list / query.lookup / query.sql / query.view / view / webhook / job / agent / notification / poller / report / channel / cache / aggregate / events / event_group / event.trace / surface / extensions / tests / auth / errors / policies / domain / defaults / uses / purpose / attach_ctx / non_goals / knowledge / role / permission / etc."
+                "unknown feature block kind `{first}`. Valid kinds: command / api / query.list / query.lookup / query.sql / query.view / view / webhook / job / agent / notification / poller / report / channel / cache / aggregate / events / event_group / event.trace / surface / extensions / tests / auth / errors / policies / domain / defaults / uses / purpose / non_goals / knowledge / role / permission / etc."
             ),
         };
         // ERROR not WARNING: an unknown kind keyword causes the

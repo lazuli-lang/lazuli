@@ -1,17 +1,19 @@
 //! Iron-hand context vocabulary — feature-scoped `purpose`,
-//! `non_goals`, and `attach_ctx` directives.
+//! `non_goals`, and `knowledge` directives.
 //!
 //! Extracted from `feature_walker.rs` so the main `parse_feature_skeleton`
 //! line walker stays Rails-thin. Each helper returns the parsed AST node
 //! plus the index of the first line not consumed; the caller folds the
 //! result into its `FeatureSkeleton` builder.
+//!
+//! (Feature context is resolved by the co-located `<feature>.ctx.md`
+//! CONVENTION in the analyzer — the retired `attach_ctx` keyword
+//! hard-errors as `E-ATTACH-CTX-RETIRED` in `feature_walker/skeleton.rs`.)
 
 use super::super::common::{SourceLine, is_kebab_or_snake_ident, is_trivia, line_error};
 use super::super::error::ParseError;
 use super::helpers::take_quoted_string;
-use crate::ast::{
-    LziFeatureAttachCtx, LziFeatureKnowledge, LziFeatureNonGoals, LziFeaturePurpose, Span,
-};
+use crate::ast::{LziFeatureKnowledge, LziFeatureNonGoals, LziFeaturePurpose, Span};
 
 /// Parse a single `purpose "<sentence>"` line at feature-child indent.
 /// The caller has already validated indent + keyword prefix.
@@ -34,31 +36,6 @@ pub(super) fn parse_feature_purpose_line(
     }
     Ok(LziFeaturePurpose {
         text,
-        span: Span::new(line.start, line.end),
-    })
-}
-
-/// Parse a single `attach_ctx "<relative-path>"` line at feature-child
-/// indent. The caller has already validated indent + keyword prefix.
-pub(super) fn parse_feature_attach_ctx_line(
-    line: &SourceLine<'_>,
-    rest: &str,
-) -> Result<LziFeatureAttachCtx, ParseError> {
-    let (path, tail) = take_quoted_string(rest.trim_start(), line).map_err(|_| {
-        line_error(
-            line,
-            "`attach_ctx` requires a quoted relative path — e.g. \
-             `attach_ctx \"./ctx.md\"`",
-        )
-    })?;
-    if !tail.trim().is_empty() {
-        return Err(line_error(
-            line,
-            "`attach_ctx` accepts exactly one quoted path and no trailing tokens",
-        ));
-    }
-    Ok(LziFeatureAttachCtx {
-        path,
         span: Span::new(line.start, line.end),
     })
 }
@@ -325,38 +302,46 @@ mod iron_hand_context_tests {
     }
 
     #[test]
-    fn attach_ctx_line_lowers_into_skeleton() {
+    fn attach_ctx_keyword_is_retired() {
+        // The `attach_ctx "<path>"` keyword was retired in favour of the
+        // co-located `<feature>.ctx.md` convention. It is now a HARD
+        // parse error whose message names the convention (not another
+        // retired keyword). Negative case.
         let source = "\nfeature catalog\n  attach_ctx \"./ctx.md\"\n";
-        let features = parse_feature_skeletons(source).expect("parses");
-        let ctx = features[0].attach_ctx.as_ref().expect("attach_ctx present");
-        assert_eq!(ctx.path, "./ctx.md");
+        let err = parse_feature_skeletons(source).expect_err("rejects retired attach_ctx");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains(".ctx.md") && msg.contains("convention"),
+            "expected the message to name the `<feature>.ctx.md` convention, got: {msg}",
+        );
     }
 
     #[test]
-    fn attach_ctx_requires_quoted_path() {
-        let source = "\nfeature catalog\n  attach_ctx ./ctx.md\n";
-        let err = parse_feature_skeletons(source).expect_err("rejects bareword");
+    fn attach_ctx_emits_e_attach_ctx_retired_code() {
+        // Mirrors `E-CONTEXT-RETIRED` / `E-WORKFLOW-RETIRED`: the
+        // rejection ships with the stable `E-ATTACH-CTX-RETIRED` code
+        // prefix so the analyzer / LSP / downstream tooling recognise it
+        // by code.
+        let source = "\nfeature catalog\n  attach_ctx \"@docs/customer/customer.ctx.md\"\n";
+        let err = parse_feature_skeletons(source).expect_err("rejects retired attach_ctx");
         let msg = format!("{err}");
-        assert!(msg.contains("quoted relative path"), "got: {msg}");
-    }
-
-    #[test]
-    fn duplicate_attach_ctx_is_rejected() {
-        let source = "\nfeature catalog\n  attach_ctx \"./a.md\"\n  attach_ctx \"./b.md\"\n";
-        let err = parse_feature_skeletons(source).expect_err("rejects dup");
-        let msg = format!("{err}");
-        assert!(msg.contains("at most one `attach_ctx`"), "got: {msg}");
+        assert!(msg.contains("E-ATTACH-CTX-RETIRED"), "got: {msg}");
     }
 
     #[test]
     fn feature_level_context_string_is_retired() {
         // The dead feature-header `context "<path>"` form used to be
         // silently dropped (no parser branch). It is now a HARD parse
-        // error pointing the author at `attach_ctx`. Negative case.
+        // error pointing the author at the `<feature>.ctx.md` convention.
+        // Negative case — the message names the convention, NOT another
+        // retired keyword.
         let source = "\nfeature catalog\n  context \"@x\"\n";
         let err = parse_feature_skeletons(source).expect_err("rejects dead context form");
         let msg = format!("{err}");
-        assert!(msg.contains("attach_ctx"), "got: {msg}");
+        assert!(
+            msg.contains(".ctx.md") && !msg.contains("attach_ctx"),
+            "expected the message to name the convention and not `attach_ctx`, got: {msg}",
+        );
     }
 
     #[test]
@@ -368,16 +353,6 @@ mod iron_hand_context_tests {
         let err = parse_feature_skeletons(source).expect_err("rejects dead context form");
         let msg = format!("{err}");
         assert!(msg.contains("E-CONTEXT-RETIRED"), "got: {msg}");
-    }
-
-    #[test]
-    fn attach_ctx_still_parses_after_context_retirement() {
-        // Positive: the canonical `attach_ctx "<path>"` form is
-        // unaffected by the `context` retirement.
-        let source = "\nfeature catalog\n  attach_ctx \"@x\"\n";
-        let features = parse_feature_skeletons(source).expect("attach_ctx still parses");
-        let ctx = features[0].attach_ctx.as_ref().expect("attach_ctx present");
-        assert_eq!(ctx.path, "@x");
     }
 
     // ── knowledge <sector> — mirrors the attach_ctx tests, but the
@@ -438,15 +413,16 @@ mod iron_hand_context_tests {
     }
 
     #[test]
-    fn knowledge_combines_with_purpose_non_goals_attach_ctx() {
+    fn knowledge_combines_with_purpose_non_goals() {
         // Smoke-check `knowledge` parses alongside the sibling context
-        // fields + the rest of the iron-hand-clean layout.
+        // fields + the rest of the iron-hand-clean layout. (Feature
+        // context is now the co-located `<feature>.ctx.md` convention —
+        // no `attach_ctx` line.)
         let source = r#"
 feature billing
   purpose "Charge customers and reconcile invoices"
   non_goals
     "Tax calculation"
-  attach_ctx "./ctx.md"
   knowledge billing
   defaults
     timestamps
@@ -460,22 +436,22 @@ feature billing
             "Charge customers and reconcile invoices"
         );
         assert_eq!(f.non_goals.as_ref().unwrap().entries.len(), 1);
-        assert_eq!(f.attach_ctx.as_ref().unwrap().path, "./ctx.md");
         assert_eq!(f.knowledge.as_ref().unwrap().sector, "billing");
         assert_eq!(f.resources.len(), 1);
     }
 
     #[test]
     fn iron_hand_block_combines_with_existing_children() {
-        // Smoke-check the three fields parse alongside resources /
+        // Smoke-check the context fields parse alongside resources /
         // commands / defaults — the canonical iron-hand-clean layout.
+        // (Feature context is now the co-located `<feature>.ctx.md`
+        // convention — no `attach_ctx` line.)
         let source = r#"
 feature catalog
   purpose "Discover and book lodging via host properties + services"
   non_goals
     "Full marketplace listing optimization"
     "Real-time chat (use messaging feature)"
-  attach_ctx "./ctx.md"
   defaults
     timestamps
   resource Property
@@ -488,7 +464,6 @@ feature catalog
             "Discover and book lodging via host properties + services"
         );
         assert_eq!(f.non_goals.as_ref().unwrap().entries.len(), 2);
-        assert_eq!(f.attach_ctx.as_ref().unwrap().path, "./ctx.md");
         assert_eq!(f.resources.len(), 1);
     }
 }

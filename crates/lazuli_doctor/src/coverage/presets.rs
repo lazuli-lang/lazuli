@@ -93,10 +93,11 @@ impl CoveragePreset {
 /// The `tdd-iron-hand` preset is the canonical "production ship-bar"
 /// stance: not only does it block all six coverage layers at 90/95
 /// (numerical TDD), it also forces every feature to carry a context
-/// header (`purpose`, `non_goals`, `attach_ctx`). The three
-/// `VOCAB-CONTEXT-*` rules normally surface as `warning`; under iron
-/// hand they become `error` so CI gates on missing structural
-/// documentation.
+/// header (`purpose`, `non_goals`) plus a co-located `<feature>.ctx.md`
+/// sidecar (the convention that replaced the retired `attach_ctx`
+/// keyword). The three `VOCAB-CONTEXT-*` rules normally surface as
+/// `warning`; under iron hand they become `error` so CI gates on missing
+/// structural documentation.
 ///
 /// Other presets return an empty map — their coverage thresholds
 /// already express the strictness, no rule-severity escalation is

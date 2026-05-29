@@ -179,9 +179,7 @@ pub fn lower_feature_skeleton(
     // strings on the surface; we map each into `NonGoal { key,
     // description }` with `key = ""` (the IR carries a richer shape for
     // future delegated_to / out_of_scope partitioning, but the
-    // wire-thin grammar only authors descriptions today). `attach_ctx`
-    // becomes the verbatim path; resolution + content-length check
-    // happens in `VOCAB-CONTEXT-CTXMD-001`.
+    // wire-thin grammar only authors descriptions today).
     let purpose = skeleton.purpose.as_ref().map(|p| p.text.clone());
     let non_goals = skeleton
         .non_goals
@@ -197,7 +195,14 @@ pub fn lower_feature_skeleton(
                 .collect()
         })
         .unwrap_or_default();
-    let context_path = skeleton.attach_ctx.as_ref().map(|c| c.path.clone());
+    // Feature context is resolved by CONVENTION — a co-located
+    // `<feature>.ctx.md` sidecar next to the `.lzi` file. The retired
+    // `attach_ctx` keyword no longer feeds this field; the path-aware
+    // resolution lives in `resolve_ctx_convention` (the analyzer is the
+    // SOLE writer of `context_path`), invoked by the path-aware callers
+    // (doctor package-load). `lower_feature_skeleton` has no source path,
+    // so it leaves the field `None` until convention resolution runs.
+    let context_path = None;
     // Iron-hand `knowledge <sector>` — lower the surface AST into the
     // verbatim sector slug. Resolution against the on-disk
     // `knowledge/<sector>/` vault happens in the planned
@@ -269,6 +274,36 @@ pub fn lower_feature_skeleton(
     // doctor per §11.
     let _ = synthesize_conventions(&mut feature);
     Ok(feature)
+}
+
+/// Resolve a feature's context sidecar by CONVENTION — the co-located
+/// `<feature>.ctx.md` file next to its `.lzi` source. This is the SOLE
+/// resolution rule for `Feature.context_path` after the `attach_ctx`
+/// keyword was retired: a SINGLE base (the `.lzi` file's directory), with
+/// NO project-root fallback (the determinism win — one base, not two).
+///
+/// `lzi_path` is the `.lzi` source file; `feature_name` is the feature
+/// declared inside it. Returns `Some(path)` when the convention file
+/// exists on disk, else `None`. Path-aware callers (the doctor
+/// package-load) invoke this to populate `Feature.context_path`, keeping
+/// the analyzer the single owner of the resolution rule.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_analyzer::resolve_ctx_convention;
+///
+/// // <dir>/customer.ctx.md next to <dir>/customer.lzi, if present.
+/// let resolved = resolve_ctx_convention(Path::new("features/customer/customer.lzi"), "customer");
+/// ```
+pub fn resolve_ctx_convention(
+    lzi_path: &std::path::Path,
+    feature_name: &str,
+) -> Option<std::path::PathBuf> {
+    let dir = lzi_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let candidate = dir.join(format!("{feature_name}.ctx.md"));
+    candidate.exists().then_some(candidate)
 }
 
 #[cfg(test)]

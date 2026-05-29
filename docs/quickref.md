@@ -328,7 +328,11 @@ meta -> defaults -> uses -> refs? -> domain -> policies -> errors -> auth
 -> escape_route
 ```
 
-`meta` means `purpose`, `non_goals`, `attach_ctx`, and `context`.
+`meta` means `purpose`, `non_goals`, and `knowledge`. Feature context prose
+lives in a co-located `<feature>.ctx.md` sidecar resolved by CONVENTION — it
+is NOT a `meta` keyword. The former `attach_ctx "..."` and `context "..."`
+header forms are retired (parser hard-errors `E-ATTACH-CTX-RETIRED` /
+`E-CONTEXT-RETIRED`).
 [v0] `workflow` is retired (parser hard-errors `E-WORKFLOW-RETIRED`). Express
 lifecycle via the resource `lifecycle <field>` block plus the command
 `triggers transition <name>` clause.
@@ -1003,21 +1007,25 @@ non_goals
 validated as feature ids. `out_of_scope` entries document design boundaries
 that are not semantic dependencies. Direct keys and `anti_pattern.*` are legacy.
 
-## Attach Context
+## Context sidecar (convention)
 
-[v0] `attach_ctx "<path>"` is a feature-header directive (alongside `purpose`
-/ `non_goals`) that points the feature at a sidecar markdown context file the
-agent / strict profile reads as authoring guidance. Quoted relative path,
-cardinality 0..1.
+[v0] Feature context is resolved by CONVENTION: a co-located
+`<feature>.ctx.md` markdown sidecar next to the feature's `.lzi` file (e.g.
+`features/catalog/catalog.ctx.md` for `feature catalog`). There is NO keyword
+and NO path argument — the analyzer probes a SINGLE base (the `.lzi`
+directory; no project-root fallback). The agent / strict profile reads it as
+authoring guidance. Doctor `VOCAB-CONTEXT-CTXMD-001` fires when the sidecar is
+absent or under 100 non-whitespace characters. (The former `attach_ctx "..."`
+header directive is retired — the parser hard-errors `E-ATTACH-CTX-RETIRED`.)
 
 ```lazuli
 feature catalog
   purpose "Discover and book lodging."
-  attach_ctx "./ctx.md"
+  # context prose lives in the co-located catalog.ctx.md sidecar
 ```
 
 [v0] `knowledge <sector>` is the sibling feature-header directive (alongside
-`purpose` / `non_goals` / `attach_ctx`). The bareword sector slug names the
+`purpose` / `non_goals`). The bareword sector slug names the
 `knowledge/<sector>/` vault the feature draws authoring knowledge from.
 Cardinality 0..1; the planned `VOCAB-KNOWLEDGE-*` doctor lints cross-check the
 sector against its on-disk vault.

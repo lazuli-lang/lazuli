@@ -130,7 +130,7 @@ The canonical form avoids compact aliases. Use `domain`, `resource`, `record`, `
 Feature blocks have a canonical lint/format order:
 
 ```txt
-meta: purpose, non_goals, attach_ctx, knowledge
+meta: purpose, non_goals, knowledge
 defaults
 uses
 refs (optional reading aid; omit core namespace lists)
@@ -284,14 +284,18 @@ non_goals
 
 Referenced features under `delegated_to` are validated as feature ids, but they do not count as `uses`. `out_of_scope` entries are intentionally not feature references. These entries document boundaries; they are not semantic dependencies. Earlier drafts used direct keys and `anti_pattern.*`; canonical v0 groups entries explicitly so humans and agents do not need to infer which keys are feature references.
 
-`attach_ctx` is only an override when the convention is not enough:
+Feature context prose is resolved by CONVENTION: a co-located
+`<feature>.ctx.md` markdown sidecar next to the feature's `.lzi` file (a
+SINGLE resolution base — the `.lzi` directory, with no project-root
+fallback). There is no keyword and no path argument — the file is found by
+name:
 
 ```lazuli
 feature customer
-  attach_ctx "@docs/customer/customer.ctx.md"
+  # context prose lives in the co-located customer.ctx.md sidecar
 ```
 
-The compiler may validate that the referenced file exists and `lazuli inspect` may aggregate it, but Lazuli should not rewrite the markdown file.
+The compiler resolves the sidecar by convention and `lazuli inspect` may aggregate it, but Lazuli should not rewrite the markdown file. (The former `attach_ctx "<path>"` directive is retired — the parser hard-errors `E-ATTACH-CTX-RETIRED`.)
 
 ## Resources And Relations
 
@@ -2942,8 +2946,9 @@ noise-cutting `tdd-strict` coverage shape, or vice versa.
     `handler_go` strictness as `tdd-strict`, applied universally).
   - **Structural feature documentation** — escalates the three
     `VOCAB-CONTEXT-*` rules from `warning` to `error` so every feature
-    must carry a `purpose` line, a non-empty `non_goals` block, and an
-    `attach_ctx` sidecar with at least 100 characters of real prose.
+    must carry a `purpose` line, a non-empty `non_goals` block, and a
+    co-located `<feature>.ctx.md` sidecar with at least 100 characters of
+    real prose.
     See [`#feature-context-vocabulary`](#feature-context-vocabulary).
 
   Pilots selecting this preset declare: "every IR construct ships with
@@ -2973,11 +2978,15 @@ over-tighten a single layer when it earns it.
 
 ## Feature Context Vocabulary
 
-Four feature-scope keywords give cold readers — humans skimming the
-codebase and LLMs ingesting source — an immediate, structural answer
-to "what is this feature for, what is it explicitly NOT for, and where
-do I read more?". They sit at feature-child indent (two spaces), each
-at most once per feature.
+Three feature-scope keywords (`purpose`, `non_goals`, `knowledge`) plus
+the co-located `<feature>.ctx.md` sidecar convention give cold readers —
+humans skimming the codebase and LLMs ingesting source — an immediate,
+structural answer to "what is this feature for, what is it explicitly NOT
+for, and where do I read more?". The keywords sit at feature-child indent
+(two spaces), each at most once per feature; the context prose lives in a
+markdown sidecar named `<feature>.ctx.md` next to the `.lzi` file
+(resolved by convention at a SINGLE base — no keyword, no path argument,
+no project-root fallback).
 
 ```
 feature catalog
@@ -2985,12 +2994,12 @@ feature catalog
   non_goals
     "Full marketplace listing optimization"
     "Real-time chat (use messaging feature)"
-  attach_ctx "./ctx.md"
   knowledge lodging
   defaults
     timestamps
   resource Property
     name: Text required
+# context prose lives in the co-located catalog.ctx.md sidecar
 ```
 
 ### `purpose "<sentence>"`
@@ -3027,18 +3036,21 @@ non_goals
 
 `VOCAB-CONTEXT-NONGOALS-001` fires when the block has zero entries.
 
-### `attach_ctx "<relative-path>"`
+### Context sidecar (`<feature>.ctx.md` convention)
 
-A relative path to a markdown sidecar (e.g. `./ctx.md` next to the
-`.lzi`, or `docs/customer/customer.ctx.md` from the project root). The
-doctor resolves the path against the `.lzi` directory first, then the
-project root as fallback.
+Feature context prose is resolved by CONVENTION, not a keyword: a
+co-located `<feature>.ctx.md` markdown sidecar next to the feature's
+`.lzi` (e.g. `customer.ctx.md` beside `customer.lzi`). The doctor probes
+a SINGLE base — the `.lzi` directory — with no path argument, no
+project-root fallback, and no override. The former `attach_ctx
+"<relative-path>"` meta statement is retired; the parser hard-errors
+`E-ATTACH-CTX-RETIRED` (mirroring the retired `context "..."` form,
+`E-CONTEXT-RETIRED`).
 
 `VOCAB-CONTEXT-CTXMD-001` fires when:
 
-1. `attach_ctx` is absent.
-2. The referenced file does not exist on disk.
-3. The file exists but contains fewer than `100` non-whitespace
+1. The co-located `<feature>.ctx.md` sidecar does not exist on disk.
+2. The sidecar exists but contains fewer than `100` non-whitespace
    characters (stub heuristic — empty / whitespace-only files do not
    count as documentation).
 

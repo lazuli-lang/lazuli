@@ -1,8 +1,10 @@
 //! Iron-hand context-vocabulary — feature-scoped intent declarations.
 //!
-//! `purpose "<sentence>"`, `non_goals { "..." }`, `attach_ctx "<path>"` —
+//! `purpose "<sentence>"`, `non_goals { "..." }`, `knowledge <sector>` —
 //! surfaced by `VOCAB-CONTEXT-*` lints. The `tdd-iron-hand` preset
-//! promotes the lints from warn to error. See
+//! promotes the lints from warn to error. Feature context prose lives in
+//! a co-located `<feature>.ctx.md` sidecar resolved by CONVENTION (the
+//! retired `attach_ctx` keyword had no AST node after this cut). See
 //! `docs/canonical-semantics.md#feature-context-vocabulary`.
 
 use serde::{Deserialize, Serialize};
@@ -23,14 +25,6 @@ pub struct LziFeaturePurpose {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LziFeatureNonGoals {
     pub entries: Vec<String>,
-    pub span: Span,
-}
-
-/// Iron-hand `attach_ctx "<relative-path>"` line. Path is verbatim;
-/// resolution against the project root happens in the doctor lint.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LziFeatureAttachCtx {
-    pub path: String,
     pub span: Span,
 }
 

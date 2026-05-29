@@ -4,7 +4,9 @@
 //! `parse_feature_skeletons` plus the indent constants Rails-thin.
 
 use super::super::super::common::{SourceLine, is_trivia, line_error, line_error_owned};
-use super::super::super::error::{E_CONTEXT_RETIRED, E_WORKFLOW_RETIRED, ParseError};
+use super::super::super::error::{
+    E_ATTACH_CTX_RETIRED, E_CONTEXT_RETIRED, E_WORKFLOW_RETIRED, ParseError,
+};
 
 use crate::ast::{
     AggregateDecl, ApiDecl, Auth, CacheProfileDecl, Channel, CommandDecl, EnumDeclAst, EventGroup,
@@ -28,8 +30,7 @@ use super::super::feature_prelude::{
     take_matching_public_contract,
 };
 use super::super::iron_hand_context::{
-    parse_feature_attach_ctx_line, parse_feature_knowledge_line, parse_feature_non_goals_block,
-    parse_feature_purpose_line,
+    parse_feature_knowledge_line, parse_feature_non_goals_block, parse_feature_purpose_line,
 };
 use super::super::job::{parse_job, parse_tenant_migration};
 use super::super::mcp;
@@ -81,11 +82,13 @@ pub(super) fn parse_feature_skeleton(
     let mut uses_clauses: Vec<UsesClauseAst> = Vec::new();
     // MCP bucket cycle — `mcp_server <name>` feature-scoped blocks.
     let mut mcp_servers: Vec<crate::ast::McpServer> = Vec::new();
-    // Iron-hand context vocabulary — purpose / non_goals / attach_ctx /
-    // knowledge. Each at most once per feature; duplicates are parse errors.
+    // Iron-hand context vocabulary — purpose / non_goals / knowledge.
+    // Each at most once per feature; duplicates are parse errors.
+    // (Feature context is resolved by the co-located `<feature>.ctx.md`
+    // CONVENTION in the analyzer — the retired `attach_ctx` keyword
+    // hard-errors below as `E-ATTACH-CTX-RETIRED`.)
     let mut purpose: Option<crate::ast::LziFeaturePurpose> = None;
     let mut non_goals: Option<crate::ast::LziFeatureNonGoals> = None;
-    let mut attach_ctx: Option<crate::ast::LziFeatureAttachCtx> = None;
     let mut knowledge: Option<crate::ast::LziFeatureKnowledge> = None;
     let mut pending_contract: Option<(String, PublicContractDeclAst)> = None;
     let mut i = start + 1;
@@ -177,21 +180,34 @@ pub(super) fn parse_feature_skeleton(
             continue;
         }
 
-        // Iron-hand context vocabulary — `attach_ctx "<relative-path>"`.
-        // Single quoted-string line at indent 2. At most one per feature.
+        // Retired keyword — feature-header-level `attach_ctx "<path>"`.
+        // The `attach_ctx` keyword was retired in favour of a co-located
+        // `<feature>.ctx.md` CONVENTION: the analyzer probes
+        // `<dir-of-the-.lzi>/<feature>.ctx.md` and auto-attaches it when
+        // present (no keyword, no path argument, a single resolution
+        // base). We special-case the known dead form — an `attach_ctx `
+        // line whose argument is a quoted string literal — so this stays
+        // scoped and does not over-reject other unknown children (which
+        // remain in the legacy text-pattern doctor pipeline).
+        //
+        // Coded as `E-ATTACH-CTX-RETIRED`; mirrors `E-CONTEXT-RETIRED` /
+        // `E-WORKFLOW-RETIRED` exactly. The leading `[E-ATTACH-CTX-RETIRED]`
+        // tag on the message is the stable marker downstream tooling reads
+        // to populate the diagnostic `code` field.
         if line.indent == AGENT_INDENT_FEATURE_CHILD
             && let Some(rest) = trimmed.strip_prefix("attach_ctx ")
+            && rest.trim_start().starts_with('"')
         {
-            if attach_ctx.is_some() {
-                return Err(line_error(
-                    line,
-                    "feature may declare at most one `attach_ctx` line",
-                ));
-            }
-            attach_ctx = Some(parse_feature_attach_ctx_line(line, rest)?);
-            last_end = line.end;
-            i += 1;
-            continue;
+            return Err(line_error_owned(
+                line,
+                format!(
+                    "[{E_ATTACH_CTX_RETIRED}] the `attach_ctx \"...\"` keyword was retired; \
+                     feature context is now resolved by the co-located `{name}.ctx.md` \
+                     convention. Delete this line and place the prose in `{name}.ctx.md` next \
+                     to this `.lzi` file — the analyzer auto-attaches `<feature>.ctx.md` when \
+                     present (a single resolution base: no path argument, no project-root fallback).",
+                ),
+            ));
         }
 
         // Iron-hand context vocabulary — `knowledge <sector>`.
@@ -216,8 +232,9 @@ pub(super) fn parse_feature_skeleton(
         // Retired dead form — a feature-header-level `context "<path>"`
         // line never had a parser branch, so it used to be silently
         // dropped (zero `context_path` in the IR), violating inviolable
-        // rule #7 (no silent runtime behaviour). The canonical
-        // context-attach vocabulary is `attach_ctx "<path>"`. We
+        // rule #7 (no silent runtime behaviour). Feature context is now
+        // resolved by CONVENTION: a co-located `<feature>.ctx.md` sidecar
+        // next to this `.lzi` file (no keyword, no path argument). We
         // special-case the known dead form ONLY — a `context ` line whose
         // argument is a quoted string literal — so this stays scoped and
         // does not over-reject other unknown children (which remain in
@@ -237,10 +254,11 @@ pub(super) fn parse_feature_skeleton(
                 line,
                 format!(
                     "[{E_CONTEXT_RETIRED}] feature-level `context \"...\"` is not \
-                     recognized; use `attach_ctx \"<path>\"`. The bare `context` \
-                     form was never wired into the parser and was silently \
-                     dropped (no context_path in the IR); `attach_ctx` is the \
-                     canonical feature context-attach vocabulary.",
+                     recognized. Feature context is resolved by CONVENTION: \
+                     place the prose in a co-located `{name}.ctx.md` sidecar \
+                     next to this `.lzi` file (no keyword, no path argument). \
+                     The bare `context` form was never wired into the parser \
+                     and was silently dropped (no context_path in the IR).",
                 ),
             ));
         }
@@ -542,7 +560,6 @@ pub(super) fn parse_feature_skeleton(
             mcp_servers,
             purpose,
             non_goals,
-            attach_ctx,
             knowledge,
             span: Span::new(header.start, last_end),
         },

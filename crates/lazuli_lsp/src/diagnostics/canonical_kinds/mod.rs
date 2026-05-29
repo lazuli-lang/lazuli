@@ -215,9 +215,7 @@ pub(crate) fn canonical_block_kind(trimmed_line: &str) -> Option<CanonicalBlockK
     let first = trimmed_line.split_whitespace().next()?;
 
     match first {
-        "purpose" | "non_goals" | "attach_ctx" | "knowledge" | "context" => {
-            Some(CanonicalBlockKind::Meta)
-        }
+        "purpose" | "non_goals" | "knowledge" | "context" => Some(CanonicalBlockKind::Meta),
         "defaults" => Some(CanonicalBlockKind::Defaults),
         "uses" => Some(CanonicalBlockKind::Uses),
         "refs" => Some(CanonicalBlockKind::Refs),

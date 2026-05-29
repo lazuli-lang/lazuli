@@ -271,7 +271,7 @@ feature customer
     invoice: "invoicing"
     scoring: "credit scoring engine"
 
-  attach_ctx "@docs/shared/customer-context.md"
+  # Complementary context prose lives in the co-located customer.ctx.md sidecar.
 ```
 
-The context file is complementary prose only: history, AI guidance, performance notes, narrative examples, and decision logs. It should not duplicate schema, operations, policies, rules, events, or extension contracts from the `.lzi` file.
+The context file is resolved by CONVENTION: a co-located `<feature>.ctx.md` markdown sidecar next to the feature's `.lzi` (here `customer.ctx.md`), probed at a single base — no keyword, no path argument, no override. (The former `attach_ctx "<path>"` directive is retired; the parser hard-errors `E-ATTACH-CTX-RETIRED`.) It is complementary prose only: history, AI guidance, performance notes, narrative examples, and decision logs. It should not duplicate schema, operations, policies, rules, events, or extension contracts from the `.lzi` file.

@@ -30,7 +30,7 @@ Columns:
 
 <!-- BEGIN GENERATED BODY -->
 
-_Generated from 676 capability rows across the `lazuli_keywords` registry._
+_Generated from 675 capability rows across the `lazuli_keywords` registry._
 
 ## `.lzi` — feature source
 
@@ -116,7 +116,6 @@ _Generated from 676 capability rows across the `lazuli_keywords` registry._
 | `agent` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares an LLM agent. | — |
 | `aggregate` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a domain aggregate root. | `AGGREGATE-CONTAINS-UNKNOWN`<br>`AGGREGATE-ROOT-UNKNOWN` |
 | `api` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a full-control HTTP endpoint. | — |
-| `attach_ctx` | `keyword.control.statement.lazuli` | `keyword` | — | Attaches a context-provider to the feature. | `VOCAB-CONTEXT-CTXMD-001`<br>`VOCAB-CONTEXT-NONGOALS-001`<br>`VOCAB-CONTEXT-PURPOSE-001` |
 | `auth` | `keyword.control.section.lazuli` | `keyword` | — | Declares the authentication block. | — |
 | `cache` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a named cache profile. | — |
 | `channel` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a realtime channel. | `CHANNEL-PAYLOAD-001` |
@@ -140,14 +139,14 @@ _Generated from 676 capability rows across the `lazuli_keywords` registry._
 | `job` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a background job. | `JOB-DECLARATIVE-BODY-UNSUPPORTED-001` |
 | `knowledge` | `keyword.control.statement.lazuli` | `keyword` | — | Feature knowledge sector (iron-hand context). | `VOCAB-KNOWLEDGE-DANGLING-CITE-001`<br>`VOCAB-KNOWLEDGE-DUP-TOPIC-001`<br>`VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001`<br>`VOCAB-KNOWLEDGE-STALE-001`<br>`VOCAB-KNOWLEDGE-UNGATED-WRITE-001` |
 | `mcp_server` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares an MCP server surface. | — |
-| `non_goals` | `keyword.control.section.lazuli` | `keyword` | — | Feature non-goals (iron-hand context). | — |
+| `non_goals` | `keyword.control.section.lazuli` | `keyword` | — | Feature non-goals (iron-hand context). | `VOCAB-CONTEXT-NONGOALS-001` |
 | `notification` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a notification. | — |
 | `operation` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a contract operation. | — |
 | `out_of_scope` | `entity.name.function.statement.non-goals.lazuli` | `keyword` | — | Explicitly out-of-scope concern. | — |
 | `permission` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Feature-scoped RBAC permission. | — |
 | `policies` | `keyword.control.section.lazuli` | `keyword` | — | Declares the policy block. | `POLICY-PREDICATE-001` |
 | `poller` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a polling integration. | `POLLER-CURSOR-MISSING-001`<br>`POLLER-DUAL-SCHEDULER-001`<br>`POLLER-HANDLER-ORPHAN-001`<br>`POLLER-IDEMPOTENCY-ATTEMPTS-MISSING-001`<br>`POLLER-MAX-RETRIES-UNBOUNDED-001`<br>`POLLER-NO-TERMINAL-001`<br>`POLLER-QUIRK-CATALOG-MISMATCH-001`<br>`POLLER-TERMINAL-FIELD-ENUM-001`<br>`POLLER-TERMINAL-NO-EMIT-001`<br>`POLLER-TICK-TOO-FAST-001` |
-| `purpose` | `keyword.control.statement.lazuli` | `keyword` | — | Feature purpose (iron-hand context). | — |
+| `purpose` | `keyword.control.statement.lazuli` | `keyword` | — | Feature purpose (iron-hand context). | `VOCAB-CONTEXT-PURPOSE-001` |
 | `query.list` | `keyword.control.declaration.structural.lazuli` | `keyword` | `.` (dotted kind) | Declares a list query (collection projection). | `DUPLICATE-QUERY-NAME-001`<br>`MISSING-POLICY-ON-QUERY-001` |
 | `query.lookup` | `keyword.control.declaration.structural.lazuli` | `keyword` | `.` (dotted kind) | Declares a lookup query (single-record fetch). | — |
 | `query.sql` | `keyword.control.declaration.structural.lazuli` | `keyword` | `.` (dotted kind) | Declares a raw-SQL query. | — |

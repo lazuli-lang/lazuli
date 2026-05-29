@@ -105,9 +105,6 @@ pub(crate) fn keyword_description(keyword: &str) -> Option<&'static str> {
         "non_goals" => Some(
             "Feature-context block (at most once per feature): boundary statements naming what the feature explicitly does NOT do. Simple form is a list of quoted strings; the partitioned form nests `delegated_to` / `out_of_scope`. Doctor `VOCAB-CONTEXT-NONGOALS-001` fires when empty.",
         ),
-        "attach_ctx" => Some(
-            "Feature-context directive (at most once per feature): `attach_ctx \"<relative-path>\"` points at a markdown sidecar (e.g. `./ctx.md`) resolved against the `.lzi` directory then the project root. Doctor `VOCAB-CONTEXT-CTXMD-001` fires when absent, missing on disk, or under 100 non-whitespace characters.",
-        ),
         "knowledge" => Some(
             "Feature-context directive (at most once per feature): `knowledge <sector>` names the bareword sector slug whose `knowledge/<sector>/` vault the feature draws authoring knowledge from. The planned `VOCAB-KNOWLEDGE-*` doctor lints cross-check the sector against its on-disk vault.",
         ),

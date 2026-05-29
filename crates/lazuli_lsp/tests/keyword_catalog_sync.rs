@@ -32,10 +32,11 @@ const WT2_KEYWORDS: &[&str] = &[
     "approval",
     "chain",
     "sequential",
-    // Feature kinds + iron-hand context vocabulary.
+    // Feature kinds + iron-hand context vocabulary. (`attach_ctx` was
+    // retired → the co-located `<feature>.ctx.md` convention; it is no
+    // longer a catalog keyword.)
     "report",
     "poller",
-    "attach_ctx",
     "purpose",
     "non_goals",
     // Surface (`.lzx`) view / create / UX primitives.

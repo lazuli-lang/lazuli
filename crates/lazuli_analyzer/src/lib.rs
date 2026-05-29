@@ -136,7 +136,7 @@ pub use events::{
     lower_channel, lower_event_group, lower_mcp_server, lower_notification, lower_tenant_migration,
     lower_webhook,
 };
-pub use feature::lower_feature_skeleton;
+pub use feature::{lower_feature_skeleton, resolve_ctx_convention};
 pub(crate) use feature_meta::{
     lower_aggregate_decl, lower_api_decl, lower_defaults, lower_enum_decl,
     lower_feature_errors_decl, lower_invariant_decl, lower_public_contract, lower_record_decl,

@@ -370,15 +370,16 @@ pub const KEYWORDS: &[&str] = &[
     "approval",
     "chain",
     "sequential",
-    // Feature kinds + iron-hand context vocabulary.
+    // Feature kinds + iron-hand context vocabulary. (`attach_ctx` was
+    // retired → the co-located `<feature>.ctx.md` convention; it is no
+    // longer a catalog keyword.)
     "report",
     "poller",
-    "attach_ctx",
     "purpose",
     "non_goals",
     // `knowledge <sector>` — bareword sector slug naming the
     // `knowledge/<sector>/` vault the feature draws from. Sibling
-    // of purpose / non_goals / attach_ctx. See
+    // of purpose / non_goals. See
     // `docs/proposals/knowledge-sector-field.md`.
     "knowledge",
     // Surface (`.lzx`) view / create / UX primitives. `view list`

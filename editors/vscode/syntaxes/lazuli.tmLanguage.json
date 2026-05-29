@@ -2647,11 +2647,11 @@
       ]
     },
     "statements-feature-meta": {
-      "comment": "Feature-scoped metadata that requires a same-line value (kills bare over-color). Surface-sync WT-3: dropped the dead feature-level `context` keyword and replaced it with `attach_ctx` (the live agent-body `context` keeps its own dedicated agent-block rule). F4/F7 (R1.A audit): dropped duplicates of `model`, plus dropped keywords already covered by their dedicated blocks (`trigger`/`schedule`/`queue` → job/notification, `prompt`/`safety`/`stream`/`temperature`/`max_tokens`/`top_p`/`seed`/`tools` → agent, `template` → notification/error_page, `catalog`/`namespace`/`sql`/`topic` → translation/cache/query.sql/event, `tenant_from`/`target`/`targets`/`tenant`/`reason` → command/job/scope). Kept `to` (used in route bodies which lack a dedicated block) and the genuine feature-meta directives.",
+      "comment": "Feature-scoped metadata that requires a same-line value (kills bare over-color). Surface-sync WT-3: dropped the dead feature-level `context` keyword (the live agent-body `context` keeps its own dedicated agent-block rule). The `attach_ctx` keyword was later retired in favour of the co-located `<feature>.ctx.md` convention — it is no longer highlighted (it hard-errors at parse time). F4/F7 (R1.A audit): dropped duplicates of `model`, plus dropped keywords already covered by their dedicated blocks (`trigger`/`schedule`/`queue` → job/notification, `prompt`/`safety`/`stream`/`temperature`/`max_tokens`/`top_p`/`seed`/`tools` → agent, `template` → notification/error_page, `catalog`/`namespace`/`sql`/`topic` → translation/cache/query.sql/event, `tenant_from`/`target`/`targets`/`tenant`/`reason` → command/job/scope). Kept `to` (used in route bodies which lack a dedicated block) and the genuine feature-meta directives.",
       "patterns": [
         {
           "name": "entity.name.function.statement.feature-meta.lazuli",
-          "match": "^\\s+(purpose|attach_ctx|knowledge|imports|uses|requires|to|owner|owns|exposes|publishes|consumes|service|provides)\\b(?=\\s+\\S)"
+          "match": "^\\s+(purpose|knowledge|imports|uses|requires|to|owner|owns|exposes|publishes|consumes|service|provides)\\b(?=\\s+\\S)"
         }
       ]
     },

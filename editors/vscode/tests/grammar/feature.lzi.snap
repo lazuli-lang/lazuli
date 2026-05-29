@@ -48,13 +48,6 @@
 #                         ^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
 #                                               ^ source.lazuli string.quoted.double.lazuli
 >
->  attach_ctx "@docs/catalog/catalog.ctx.md"
-#^^^^^^^^^^^^ source.lazuli entity.name.function.statement.feature-meta.lazuli
-#            ^ source.lazuli
-#             ^ source.lazuli string.quoted.double.lazuli
-#              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
-#                                          ^ source.lazuli string.quoted.double.lazuli
->
 >  knowledge catalog
 #^^^^^^^^^^^ source.lazuli entity.name.function.statement.feature-meta.lazuli
 #           ^^^^^^^^^ source.lazuli

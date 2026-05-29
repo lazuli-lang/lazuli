@@ -1,13 +1,15 @@
-//! VOCAB-CONTEXT-CTXMD-001 — feature missing or stub `attach_ctx` sidecar.
+//! VOCAB-CONTEXT-CTXMD-001 — feature missing or stub `<feature>.ctx.md`
+//! context sidecar.
 //!
-//! Fires when any of three conditions holds:
-//!   1. `attach_ctx` is absent (no path declared).
-//!   2. The referenced file does not exist on disk relative to the
-//!      `.lzi` source file's directory (or the project root, as a
-//!      fallback).
-//!   3. The file exists but its content is < 100 characters after
+//! Feature context is resolved by CONVENTION (the `attach_ctx` keyword
+//! was retired): the rule probes the SINGLE co-located base
+//! `<dir-of-the-.lzi>/<feature>.ctx.md` — NO project-root fallback (the
+//! determinism win: one resolution base, not two). It fires when either:
+//!   1. The convention file `<feature>.ctx.md` does not exist next to the
+//!      `.lzi` source (the `Missing` case).
+//!   2. The file exists but its content is < 100 characters after
 //!      trimming whitespace — empty / whitespace-only sidecars are not
-//!      documentation.
+//!      documentation (the `StubContent` case).
 //!
 //! The `tdd-iron-hand` coverage preset escalates this rule from warn to
 //! error, gating CI on every feature carrying a non-stub context
@@ -33,15 +35,13 @@ pub const MIN_CTX_CHARS: usize = 100;
 
 // ── output ────────────────────────────────────────────────────────────────────
 
-/// Why a feature's `attach_ctx` failed the lint.
+/// Why a feature's `<feature>.ctx.md` convention sidecar failed the lint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FailureReason {
-    /// No `attach_ctx` line declared on the feature.
+    /// No `<feature>.ctx.md` sidecar exists next to the feature's `.lzi`.
     Missing,
-    /// `attach_ctx` declared but the file is unreadable / not present.
-    FileNotFound,
-    /// File exists but contains fewer than `MIN_CTX_CHARS` non-trivial
-    /// characters.
+    /// The convention sidecar exists but contains fewer than
+    /// `MIN_CTX_CHARS` non-trivial characters.
     StubContent {
         /// Length of trimmed contents seen by the lint.
         len: usize,
@@ -57,8 +57,8 @@ pub struct Finding {
     pub feature: String,
     /// Specific failure category — drives the precise diagnostic.
     pub reason: FailureReason,
-    /// Resolved path the lint attempted to read (only populated for
-    /// `FileNotFound` / `StubContent`).
+    /// Resolved convention path the lint expects / inspected (the
+    /// `<feature>.ctx.md` next to the `.lzi`).
     pub attempted_path: Option<PathBuf>,
 }
 
@@ -66,8 +66,8 @@ impl Finding {
     /// Stable diagnostic code emitted with this finding.
     pub const CODE: &'static str = "VOCAB-CONTEXT-CTXMD-001";
 
-    /// Render the per-reason diagnostic — different prose for missing,
-    /// not-found, and stub-content cases.
+    /// Render the per-reason diagnostic — different prose for the
+    /// missing-convention-file and stub-content cases.
     ///
     /// ## Examples
     ///
@@ -79,40 +79,31 @@ impl Finding {
     ///     path: PathBuf::from("f.lzi"),
     ///     feature: "billing".into(),
     ///     reason: FailureReason::Missing,
-    ///     attempted_path: None,
+    ///     attempted_path: Some(PathBuf::from("billing.ctx.md")),
     /// };
-    /// assert!(f.message().contains("attach_ctx"));
+    /// assert!(f.message().contains("billing.ctx.md"));
     /// ```
     pub fn message(&self) -> String {
+        let where_ = self
+            .attempted_path
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "<feature>.ctx.md".into());
         match &self.reason {
             FailureReason::Missing => format!(
-                "feature `{}` has no `attach_ctx` line — point at a markdown sidecar with \
-                 `attach_ctx \"./ctx.md\"` to give cold readers (humans + LLMs) a richer \
-                 context anchor. The `tdd-iron-hand` preset gates CI on this. See \
+                "feature `{}` has no co-located `{}` context sidecar — create it (a markdown \
+                 file named `<feature>.ctx.md` next to the `.lzi`) with at least {} characters \
+                 of real prose to give cold readers (humans + LLMs) a richer context anchor. \
+                 The convention resolves at a single base (the `.lzi` directory); the \
+                 `tdd-iron-hand` preset gates CI on this. See \
                  docs/canonical-semantics.md#feature-context-vocabulary.",
-                self.feature
-            ),
-            FailureReason::FileNotFound => format!(
-                "feature `{}` declares `attach_ctx` but the referenced file was not found \
-                 ({}). Create the sidecar with at least {} characters of real prose.",
-                self.feature,
-                self.attempted_path
-                    .as_ref()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|| "<no path>".into()),
-                MIN_CTX_CHARS
+                self.feature, where_, MIN_CTX_CHARS
             ),
             FailureReason::StubContent { len } => format!(
-                "feature `{}` declares `attach_ctx` but the file ({}) contains only {} \
+                "feature `{}` has a `{}` context sidecar but it contains only {} \
                  non-whitespace characters — below the {}-char stub threshold. Expand the \
                  sidecar with real product context.",
-                self.feature,
-                self.attempted_path
-                    .as_ref()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|| "<no path>".into()),
-                len,
-                MIN_CTX_CHARS
+                self.feature, where_, len, MIN_CTX_CHARS
             ),
         }
     }
@@ -123,9 +114,8 @@ impl Finding {
 /// Run VOCAB-CONTEXT-CTXMD-001 for one feature.
 ///
 /// `lzi_path` is the absolute or project-relative path of the source
-/// `.lzi` file. `project_root`, when supplied, is consulted as a
-/// fallback resolution base when `attach_ctx` is not found relative to
-/// the `.lzi` directory.
+/// `.lzi` file. Context is resolved by CONVENTION at the SINGLE base
+/// `<dir-of-the-.lzi>/<feature>.ctx.md` (no project-root fallback).
 ///
 /// ## Examples
 ///
@@ -134,27 +124,28 @@ impl Finding {
 /// use lazuli_doctor::vocab::vocab_context_ctxmd_001::check;
 /// use lazuli_ir::Feature;
 ///
-/// let feature: Feature = unimplemented!("lower a feature with attach_ctx");
-/// let _ = check(&feature, Path::new("billing.lzi"), None);
+/// let feature: Feature = unimplemented!("lower a feature");
+/// let _ = check(&feature, Path::new("billing.lzi"));
 /// ```
-pub fn check(feature: &Feature, lzi_path: &Path, project_root: Option<&Path>) -> Vec<Finding> {
-    let Some(rel) = feature.context_path.as_deref() else {
-        return vec![Finding {
-            path: lzi_path.to_path_buf(),
-            feature: feature.name.clone(),
-            reason: FailureReason::Missing,
-            attempted_path: None,
-        }];
-    };
+pub fn check(feature: &Feature, lzi_path: &Path) -> Vec<Finding> {
+    // Single-base convention resolution: `<lzi-dir>/<feature>.ctx.md`.
+    // This is the same rule the analyzer's `resolve_ctx_convention`
+    // applies (the analyzer is the sole writer of `Feature.context_path`);
+    // the doctor inlines it here so it carries no extra crate dependency.
+    // The expected path is computed even when the file is absent so the
+    // diagnostic can point the author at exactly where to create it.
+    let dir = lzi_path.parent().unwrap_or_else(|| Path::new("."));
+    let expected = dir.join(format!("{}.ctx.md", feature.name));
 
-    let candidate = resolve_candidate(rel, lzi_path, project_root);
-    match std::fs::read_to_string(&candidate) {
+    match std::fs::read_to_string(&expected) {
+        // Convention file absent / unreadable — Missing.
         Err(_) => vec![Finding {
             path: lzi_path.to_path_buf(),
             feature: feature.name.clone(),
-            reason: FailureReason::FileNotFound,
-            attempted_path: Some(candidate),
+            reason: FailureReason::Missing,
+            attempted_path: Some(expected),
         }],
+        // Convention file present — gate on stub-length.
         Ok(contents) => {
             let trimmed_len = trimmed_len(&contents);
             if trimmed_len < MIN_CTX_CHARS {
@@ -162,7 +153,7 @@ pub fn check(feature: &Feature, lzi_path: &Path, project_root: Option<&Path>) ->
                     path: lzi_path.to_path_buf(),
                     feature: feature.name.clone(),
                     reason: FailureReason::StubContent { len: trimmed_len },
-                    attempted_path: Some(candidate),
+                    attempted_path: Some(expected),
                 }]
             } else {
                 Vec::new()
@@ -172,23 +163,6 @@ pub fn check(feature: &Feature, lzi_path: &Path, project_root: Option<&Path>) ->
 }
 
 // ── internals ─────────────────────────────────────────────────────────────────
-
-fn resolve_candidate(rel: &str, lzi_path: &Path, project_root: Option<&Path>) -> PathBuf {
-    let base = lzi_path.parent().unwrap_or_else(|| Path::new("."));
-    let candidate = base.join(rel);
-    if candidate.exists() {
-        return candidate;
-    }
-    if let Some(root) = project_root {
-        let alt = root.join(rel);
-        if alt.exists() {
-            return alt;
-        }
-    }
-    // Return the lzi-relative candidate so the diagnostic points at the
-    // most likely intended location.
-    candidate
-}
 
 /// Number of non-whitespace characters in the file (LLM-tokenization
 /// proxy — strips spaces, tabs, newlines, CRs so a 200-char file of
@@ -204,12 +178,15 @@ mod tests {
     use super::*;
     use lazuli_ir::{Defaults, Feature, Policies};
 
-    fn mk_feature(name: &str, context_path: Option<&str>) -> Feature {
+    fn mk_feature(name: &str) -> Feature {
         Feature {
             name: name.into(),
             purpose: None,
             non_goals: vec![],
-            context_path: context_path.map(|s| s.to_owned()),
+            // `context_path` is convention-resolved (analyzer is the sole
+            // writer); the rule resolves `<feature>.ctx.md` from the
+            // `.lzi` path directly, so this stays `None` in the fixtures.
+            context_path: None,
             knowledge: None,
             defaults: Defaults::default(),
             uses: vec![],
@@ -251,44 +228,35 @@ mod tests {
         }
     }
 
-    /// Helper: create a temp dir and return (lzi_path, project_root).
-    /// The `.lzi` file is written so resolution against its parent
-    /// directory matches what the doctor walker sees in production.
-    fn temp_setup(name: &str) -> (tempfile::TempDir, PathBuf) {
+    /// Helper: create a temp dir and return (tempdir, lzi_path) where the
+    /// `.lzi` file is named `<feature>.lzi` so the co-located convention
+    /// sidecar resolves the way the doctor walker sees it in production.
+    fn temp_setup(feature: &str) -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().expect("tmpdir");
-        let lzi = dir.path().join(format!("{name}.lzi"));
+        let lzi = dir.path().join(format!("{feature}.lzi"));
         std::fs::write(&lzi, "feature dummy\n").expect("seed lzi");
         (dir, lzi)
     }
 
     #[test]
-    fn missing_attach_ctx_fires_with_missing_reason() {
+    fn missing_convention_file_fires_with_missing_reason() {
         let (_dir, lzi) = temp_setup("catalog");
-        let feature = mk_feature("catalog", None);
-        let findings = check(&feature, &lzi, None);
+        let feature = mk_feature("catalog");
+        let findings = check(&feature, &lzi);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].reason, FailureReason::Missing);
-        assert!(findings[0].message().contains("attach_ctx"));
+        // The diagnostic names the expected convention path.
+        assert!(findings[0].message().contains("catalog.ctx.md"));
         assert_eq!(Finding::CODE, "VOCAB-CONTEXT-CTXMD-001");
-    }
-
-    #[test]
-    fn file_not_found_fires_with_path_in_diagnostic() {
-        let (_dir, lzi) = temp_setup("catalog");
-        let feature = mk_feature("catalog", Some("./missing.md"));
-        let findings = check(&feature, &lzi, None);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].reason, FailureReason::FileNotFound);
-        assert!(findings[0].message().contains("not found"));
     }
 
     #[test]
     fn stub_file_under_threshold_fires() {
         let (dir, lzi) = temp_setup("catalog");
-        let ctx = dir.path().join("ctx.md");
-        std::fs::write(&ctx, "tiny").expect("write ctx");
-        let feature = mk_feature("catalog", Some("./ctx.md"));
-        let findings = check(&feature, &lzi, None);
+        // Co-located convention sidecar `<feature>.ctx.md`.
+        std::fs::write(dir.path().join("catalog.ctx.md"), "tiny").expect("write ctx");
+        let feature = mk_feature("catalog");
+        let findings = check(&feature, &lzi);
         assert_eq!(findings.len(), 1);
         match findings[0].reason {
             FailureReason::StubContent { len } => assert_eq!(len, 4),
@@ -299,11 +267,10 @@ mod tests {
     #[test]
     fn whitespace_only_file_is_treated_as_stub() {
         let (dir, lzi) = temp_setup("catalog");
-        let ctx = dir.path().join("ctx.md");
         // 500 bytes of whitespace — but zero non-whitespace chars.
-        std::fs::write(&ctx, " \n \t ".repeat(100)).expect("write ctx");
-        let feature = mk_feature("catalog", Some("./ctx.md"));
-        let findings = check(&feature, &lzi, None);
+        std::fs::write(dir.path().join("catalog.ctx.md"), " \n \t ".repeat(100)).expect("write ctx");
+        let feature = mk_feature("catalog");
+        let findings = check(&feature, &lzi);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].reason, FailureReason::StubContent { len: 0 });
     }
@@ -311,64 +278,31 @@ mod tests {
     #[test]
     fn rich_file_above_threshold_passes() {
         let (dir, lzi) = temp_setup("catalog");
-        let ctx = dir.path().join("ctx.md");
         // 150 non-whitespace characters.
-        let body = "a".repeat(150);
-        std::fs::write(&ctx, body).expect("write ctx");
-        let feature = mk_feature("catalog", Some("./ctx.md"));
-        assert!(check(&feature, &lzi, None).is_empty());
+        std::fs::write(dir.path().join("catalog.ctx.md"), "a".repeat(150)).expect("write ctx");
+        let feature = mk_feature("catalog");
+        assert!(check(&feature, &lzi).is_empty());
     }
 
-    #[test]
-    fn resolves_via_project_root_when_lzi_relative_missing() {
-        let dir = tempfile::tempdir().expect("tmpdir");
-        let sub = dir.path().join("features").join("catalog");
-        std::fs::create_dir_all(&sub).expect("mkdir");
-        let lzi = sub.join("catalog.lzi");
-        std::fs::write(&lzi, "feature dummy\n").expect("seed lzi");
-        // Sidecar lives at project root, not next to the .lzi.
-        let root_ctx = dir.path().join("ctx.md");
-        std::fs::write(&root_ctx, "x".repeat(200)).expect("write ctx");
-
-        let feature = mk_feature("catalog", Some("ctx.md"));
-        // Without project_root the lookup misses.
-        let f1 = check(&feature, &lzi, None);
-        assert_eq!(f1.len(), 1);
-        assert_eq!(f1[0].reason, FailureReason::FileNotFound);
-
-        // With project_root the lookup succeeds.
-        let f2 = check(&feature, &lzi, Some(dir.path()));
-        assert!(f2.is_empty(), "expected pass, got {f2:?}");
-    }
-
-    /// Tabled coverage — testify-style. One row per failure mode.
+    /// Tabled coverage — testify-style. One row per failure mode. The
+    /// convention sidecar is always `<feature>.ctx.md` next to the `.lzi`
+    /// (single base, no project-root fallback).
     #[test]
     fn tabled_cases() {
-        let cases: &[(&str, Option<&str>, Option<&str>, bool)] = &[
-            // (label, attach_ctx, sidecar_contents, expect_finding)
-            ("missing_attach_ctx", None, None, true),
-            ("file_not_found", Some("./absent.md"), None, true),
-            ("stub_too_short", Some("./ctx.md"), Some("short"), true),
-            (
-                "at_threshold_passes",
-                Some("./ctx.md"),
-                Some(&"a".repeat(100)),
-                false,
-            ),
-            (
-                "above_threshold_passes",
-                Some("./ctx.md"),
-                Some(&"a".repeat(500)),
-                false,
-            ),
+        let cases: &[(&str, Option<&str>, bool)] = &[
+            // (label, sidecar_contents, expect_finding)
+            ("missing_convention_file", None, true),
+            ("stub_too_short", Some("short"), true),
+            ("at_threshold_passes", Some(&"a".repeat(100)), false),
+            ("above_threshold_passes", Some(&"a".repeat(500)), false),
         ];
-        for (label, attach, body, expect_finding) in cases {
+        for (label, body, expect_finding) in cases {
             let (dir, lzi) = temp_setup(label);
             if let Some(content) = body {
-                std::fs::write(dir.path().join("ctx.md"), content).expect("seed");
+                std::fs::write(dir.path().join(format!("{label}.ctx.md")), content).expect("seed");
             }
-            let feature = mk_feature("f", *attach);
-            let findings = check(&feature, &lzi, None);
+            let feature = mk_feature(label);
+            let findings = check(&feature, &lzi);
             let got_finding = !findings.is_empty();
             assert_eq!(
                 got_finding, *expect_finding,

@@ -140,6 +140,11 @@ pub struct DiagnosticFacet {
 /// * **CRUD / actor synthesis** (`crud_synth_*`, `me_synth_*`) — fire during
 ///   command synthesis spanning resource + policy + handler, not bound to a
 ///   single keyword.
+/// * **convention-derived feature context** (`VOCAB-CONTEXT-CTXMD-001`) —
+///   fires on an absent / stub co-located `<feature>.ctx.md` sidecar. After
+///   the `attach_ctx` keyword was retired in favour of that file convention,
+///   the rule has no keyword owner (its `purpose` / `non_goals` siblings stay
+///   attributed to their surviving keywords).
 ///
 /// This is a documented home, NOT a dumping ground: the
 /// `lazuli_diagnostics_registry` bridge asserts every code here resolves to a
@@ -265,6 +270,18 @@ pub const GLOBAL_DIAGNOSTICS: &[DiagnosticFacet] = &[
     DiagnosticFacet {
         code: "me_synth_signature_mismatch",
         base_severity: "error",
+        category: "vocabulary",
+    },
+    // ── convention-derived feature context (no keyword owner) ──
+    // `VOCAB-CONTEXT-CTXMD-001` fires when a feature's co-located
+    // `<feature>.ctx.md` sidecar is absent or a <100-char stub. After the
+    // `attach_ctx` keyword was retired in favour of that convention, the
+    // rule no longer has a keyword to attach to — it is derived from the
+    // file convention, so it lives here (its sibling `purpose` /
+    // `non_goals` codes stay attributed to their surviving keywords).
+    DiagnosticFacet {
+        code: "VOCAB-CONTEXT-CTXMD-001",
+        base_severity: "warning",
         category: "vocabulary",
     },
 ];

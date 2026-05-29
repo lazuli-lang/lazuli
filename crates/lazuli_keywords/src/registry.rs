@@ -325,11 +325,15 @@ const P_TESTS: &[DiagnosticFacet] = &[
 
 const P_CAP: &[DiagnosticFacet] = &[df("VOCAB-CAP-MISSING-001", "warning", "vocabulary")];
 
-const P_ATTACH_CTX: &[DiagnosticFacet] = &[
-    df("VOCAB-CONTEXT-CTXMD-001", "warning", "vocabulary"),
-    df("VOCAB-CONTEXT-NONGOALS-001", "warning", "vocabulary"),
-    df("VOCAB-CONTEXT-PURPOSE-001", "warning", "vocabulary"),
-];
+// Iron-hand context vocabulary — `purpose` / `non_goals` keyword facets.
+// (`attach_ctx` was retired → its row + the `P_ATTACH_CTX` const are
+// gone; the orphaned `VOCAB-CONTEXT-PURPOSE-001` / `-NONGOALS-001` codes
+// are re-homed onto the surviving bare keywords below, and
+// `VOCAB-CONTEXT-CTXMD-001` — now a convention-derived rule with no
+// keyword owner — moves to `GLOBAL_DIAGNOSTICS`.)
+const P_PURPOSE: &[DiagnosticFacet] = &[df("VOCAB-CONTEXT-PURPOSE-001", "warning", "vocabulary")];
+
+const P_NONGOALS: &[DiagnosticFacet] = &[df("VOCAB-CONTEXT-NONGOALS-001", "warning", "vocabulary")];
 
 // Knowledge-sector vocabulary — the five `VOCAB-KNOWLEDGE-*` rules
 // (`crates/lazuli_doctor/src/vocab/vocab_knowledge_*`) cross-check
@@ -1559,26 +1563,23 @@ pub const ALL: &[CapabilitySpec] = &[
         SECTION,
         "Declares resource-convention defaults.",
     ),
-    kw(
-        "purpose",
-        Context::FeatureHeader,
-        STMT,
-        "Feature purpose (iron-hand context).",
+    produces(
+        kw(
+            "purpose",
+            Context::FeatureHeader,
+            STMT,
+            "Feature purpose (iron-hand context).",
+        ),
+        P_PURPOSE,
     ),
     produces(
         kw(
-            "attach_ctx",
+            "non_goals",
             Context::FeatureHeader,
-            STMT,
-            "Attaches a context-provider to the feature.",
+            SECTION,
+            "Feature non-goals (iron-hand context).",
         ),
-        P_ATTACH_CTX,
-    ),
-    kw(
-        "non_goals",
-        Context::FeatureHeader,
-        SECTION,
-        "Feature non-goals (iron-hand context).",
+        P_NONGOALS,
     ),
     // Iron-hand context vocabulary — `knowledge <sector>` names the
     // `knowledge/<sector>/` vault the feature draws from. The

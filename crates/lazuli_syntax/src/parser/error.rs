@@ -31,14 +31,26 @@ pub const E_WORKFLOW_RETIRED: &str = "E-WORKFLOW-RETIRED";
 /// feature-header-level `context "<path>"` line. That form was never a
 /// recognised parser branch, so it used to be silently dropped (zero
 /// `context_path` in the IR), violating inviolable rule #7 (no silent
-/// runtime behaviour). The canonical context-attach vocabulary is
-/// `attach_ctx "<path>"`. Mirrors `E-WORKFLOW-RETIRED`: the parser
+/// runtime behaviour). Feature context is now resolved by CONVENTION: a
+/// co-located `<feature>.ctx.md` sidecar next to the `.lzi` file (no
+/// keyword, no path argument). Mirrors `E-WORKFLOW-RETIRED`: the parser
 /// carries this constant as the leading `[E-CONTEXT-RETIRED]` tag on the
 /// `ParseError::Pest.message` so downstream tooling recognises it by
 /// code. NOTE: this is scoped to the feature-header `context "<string>"`
 /// form only — the live agent-body `context <expr>` keyword and
 /// `context:` map keys are unaffected.
 pub const E_CONTEXT_RETIRED: &str = "E-CONTEXT-RETIRED";
+
+/// `E-ATTACH-CTX-RETIRED` — emitted when a `.lzi` author writes a
+/// feature-header-level `attach_ctx "<path>"` line. The `attach_ctx`
+/// keyword was retired in favour of a co-located `<feature>.ctx.md`
+/// CONVENTION: the analyzer probes `<dir-of-the-.lzi>/<feature>.ctx.md`
+/// and auto-attaches it when present (no keyword, no path argument, a
+/// single resolution base). Mirrors `E-CONTEXT-RETIRED` /
+/// `E-WORKFLOW-RETIRED`: the parser carries this constant as the leading
+/// `[E-ATTACH-CTX-RETIRED]` tag on the `ParseError::Pest.message` so
+/// downstream tooling recognises it by code.
+pub const E_ATTACH_CTX_RETIRED: &str = "E-ATTACH-CTX-RETIRED";
 
 /// Single error type returned by every parser entry point.
 ///
