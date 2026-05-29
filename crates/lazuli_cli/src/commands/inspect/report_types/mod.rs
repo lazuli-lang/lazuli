@@ -34,6 +34,7 @@ use std::collections::BTreeMap;
 mod agent;
 mod aggregate;
 mod auth;
+mod context;
 mod job;
 mod knowledge;
 mod notification;
@@ -47,6 +48,7 @@ mod webhook;
 pub(in crate::commands::inspect) use agent::*;
 pub(in crate::commands::inspect) use aggregate::*;
 pub(in crate::commands::inspect) use auth::*;
+pub(in crate::commands::inspect) use context::*;
 pub(in crate::commands::inspect) use job::*;
 pub(in crate::commands::inspect) use knowledge::*;
 pub(in crate::commands::inspect) use notification::*;
@@ -226,6 +228,17 @@ pub(crate) struct InspectFeature {
     /// `docs/proposals/knowledge-sector-field.md`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) knowledge: Option<InspectKnowledge>,
+    /// CUT 2 — populated only when `--expand=context` (alias `ctx`) is
+    /// set. The composite "feature context" section catalog: each
+    /// section reuses an existing per-axis projector's output, boxed as
+    /// an opaque `serde_json::Value` and tagged with a `ContextStatus`
+    /// provenance marker (`derived` / `derived-via-textwalk` / `prose` /
+    /// `vault` / `absent`). Zero IR change — purely composes the
+    /// already-available projections. Always `Some` when the flag is set
+    /// so consumers distinguish "flag not set" from the (impossible)
+    /// "empty catalog". See `report_types/context.rs`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) context: Option<InspectContext>,
 }
 
 #[derive(Debug, Serialize)]

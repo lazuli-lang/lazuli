@@ -19,7 +19,7 @@ use super::super::projectors::{
     project_aggregate, project_event_group, project_job, project_webhook,
 };
 use super::super::security::inspect_security;
-use super::super::InspectFeature;
+use super::super::{ContextStatus, InspectContext, InspectContextSection, InspectFeature};
 
 use super::tier3_collect::Tier3FeatureSlice;
 
@@ -189,6 +189,21 @@ pub(super) fn inspect_feature(
         .security
         .then(|| inspect_security(lines, &name, auth_by_feature.get(&name)));
 
+    // CUT 2 — the composite `--expand=context` section catalog. Built
+    // here (before the struct literal moves `name`) by composing the
+    // already-available projector outputs. Self-contained: it projects
+    // the underlying data regardless of which individual sub-axes the
+    // user set. See `build_context` below + `report_types/context.rs`.
+    let context_projection = expansions.context.then(|| {
+        build_context(
+            lines,
+            &name,
+            tier3,
+            &policies,
+            auth_by_feature.get(&name),
+        )
+    });
+
     InspectFeature {
         name,
         requirements: inspect_requirements(lines),
@@ -225,5 +240,200 @@ pub(super) fn inspect_feature(
         records: records_projection,
         errors: errors_projection,
         knowledge: knowledge_projection,
+        context: context_projection,
+    }
+}
+
+/// CUT 2 — compose the fixed "feature context" section catalog from the
+/// already-available per-axis projector outputs. Zero IR change: each
+/// section reuses an existing projected shape (boxed opaquely as a
+/// `serde_json::Value` inside [`InspectContextSection`]) and carries a
+/// [`ContextStatus`] provenance tag.
+///
+/// The three text-walk sections — `authorization`, `events`, `security`
+/// — are tagged `derived-via-textwalk` because their projectors
+/// (`policies.rs`, `events.rs`, `security.rs`) re-scan source lines
+/// rather than cloning a verbatim typed-IR shape. Everything else that
+/// the compiler derives is a clean `derived`; `invariants` is `derived`
+/// only when a `soft_delete`/`append_only` resource is present, else
+/// `absent`. `code_pointers`/`test_matrix` are `absent` (no projector),
+/// `boundaries`/`performance`/`examples` are `prose`, and `decisions`
+/// is `vault` (the on-disk `knowledge/decisions/` sector is not read
+/// here). The catalog is fixed: every section surfaces so consumers see
+/// the complete map of what the compiler can vs cannot derive.
+fn build_context(
+    lines: &[String],
+    feature_name: &str,
+    tier3: Option<&Tier3FeatureSlice>,
+    policies: &BTreeMap<String, Vec<String>>,
+    auth: Option<&lazuli_ir::Auth>,
+) -> InspectContext {
+    // --- `derived` sections: verbatim typed-IR clones from the slice. ---
+
+    // purpose / non_goals — the feature intent fields (as in
+    // `--expand=knowledge`). `derived` even when unset; the payload is
+    // simply `None` if the feature declared none.
+    let purpose = match tier3.and_then(|t| t.purpose.clone()) {
+        Some(text) => InspectContextSection::derived_value(ContextStatus::Derived, &text),
+        None => InspectContextSection::empty(ContextStatus::Derived),
+    };
+    let non_goals = {
+        let goals = tier3.map(|t| t.non_goals.clone()).unwrap_or_default();
+        if goals.is_empty() {
+            InspectContextSection::empty(ContextStatus::Derived)
+        } else {
+            InspectContextSection::derived_value(ContextStatus::Derived, &goals)
+        }
+    };
+
+    // data_model — resources + enums + records. Enums live on the
+    // lowered `Resource`/`Record` graph and on the feature; the Tier 3
+    // slice carries resources + records verbatim. Enums are surfaced via
+    // the resources/records that reference them (the slice does not hold
+    // a standalone enum vec), so the data_model payload boxes resources
+    // + records together.
+    let data_model = {
+        let resources = tier3.map(|t| t.resources.clone()).unwrap_or_default();
+        let records = tier3.map(|t| t.records.clone()).unwrap_or_default();
+        InspectContextSection::derived_value(
+            ContextStatus::Derived,
+            &serde_json::json!({ "resources": resources, "records": records }),
+        )
+    };
+
+    // operations — commands + queries + apis.
+    let operations = {
+        let commands = tier3.map(|t| t.commands.clone()).unwrap_or_default();
+        let queries = tier3.map(|t| t.queries.clone()).unwrap_or_default();
+        let apis = tier3.map(|t| t.apis.clone()).unwrap_or_default();
+        InspectContextSection::derived_value(
+            ContextStatus::Derived,
+            &serde_json::json!({
+                "commands": commands,
+                "queries": queries,
+                "apis": apis,
+            }),
+        )
+    };
+
+    // contracts — command inputs + query params + api outputs + records.
+    // The full Command/Query/Api/Record shapes carry these slots; box
+    // them verbatim (consumers read `.input` / `.params` / `.output`).
+    let contracts = {
+        let commands = tier3.map(|t| t.commands.clone()).unwrap_or_default();
+        let queries = tier3.map(|t| t.queries.clone()).unwrap_or_default();
+        let apis = tier3.map(|t| t.apis.clone()).unwrap_or_default();
+        let records = tier3.map(|t| t.records.clone()).unwrap_or_default();
+        InspectContextSection::derived_value(
+            ContextStatus::Derived,
+            &serde_json::json!({
+                "command_inputs": commands,
+                "query_params": queries,
+                "api_outputs": apis,
+                "records": records,
+            }),
+        )
+    };
+
+    // errors — `Feature.errors`. `None` when the feature declared no
+    // `errors` block.
+    let errors = match tier3.and_then(|t| t.errors.clone()) {
+        Some(block) => InspectContextSection::derived_value(ContextStatus::Derived, &block),
+        None => InspectContextSection::empty(ContextStatus::Derived),
+    };
+
+    // invariants — the resource-decorator subset (`soft_delete` /
+    // `append_only` on resources) ONLY. `derived` when any present, else
+    // `absent`.
+    let invariants = {
+        let flagged: Vec<serde_json::Value> = tier3
+            .map(|t| {
+                t.resources
+                    .iter()
+                    .filter(|r| r.soft_delete || r.append_only)
+                    .map(|r| {
+                        serde_json::json!({
+                            "resource": r.name,
+                            "soft_delete": r.soft_delete,
+                            "append_only": r.append_only,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if flagged.is_empty() {
+            InspectContextSection::empty(ContextStatus::Absent)
+        } else {
+            InspectContextSection::derived_value(
+                ContextStatus::Derived,
+                &serde_json::Value::Array(flagged),
+            )
+        }
+    };
+
+    // --- `derived-via-textwalk` sections: projectors re-scan source. ---
+
+    // authorization — policies + auth. `inspect_policies` is a text
+    // walker over command/query/transition lines (seeded by the typed
+    // `policies` map); the `auth` block is the lowered IR envelope.
+    let authorization = {
+        let policy_projection = inspect_policies(lines, policies, tier3);
+        InspectContextSection::derived_value(
+            ContextStatus::DerivedViaTextWalk,
+            &serde_json::json!({ "policies": policy_projection, "auth": auth }),
+        )
+    };
+
+    // events — the event-decl payload projection (text walker over
+    // `event`/`event_group` lines).
+    let events = {
+        let event_projection = inspect_events(lines);
+        InspectContextSection::derived_value(ContextStatus::DerivedViaTextWalk, &event_projection)
+    };
+
+    // security — the per-feature security envelope (text walker over
+    // field/op markers, with the lowered cookie envelope folded in).
+    let security = {
+        let security_projection = inspect_security(lines, feature_name, auth);
+        InspectContextSection::derived_value(
+            ContextStatus::DerivedViaTextWalk,
+            &security_projection,
+        )
+    };
+
+    // --- catalog slots the compiler cannot (or does not here) derive. ---
+
+    // code_pointers / test_matrix — no feature-level file:line table and
+    // no projected coverage layers exist, so enumerate them `absent`.
+    let code_pointers = InspectContextSection::empty(ContextStatus::Absent);
+    let test_matrix = InspectContextSection::empty(ContextStatus::Absent);
+
+    // boundaries / performance / examples — human prose; lives in the
+    // co-located `.ctx.md`, not derivable.
+    let boundaries = InspectContextSection::empty(ContextStatus::Prose);
+    let performance = InspectContextSection::empty(ContextStatus::Prose);
+    let examples = InspectContextSection::empty(ContextStatus::Prose);
+
+    // decisions — the `knowledge/decisions/` vault sector, not read in
+    // this projection.
+    let decisions = InspectContextSection::empty(ContextStatus::Vault);
+
+    InspectContext {
+        purpose,
+        non_goals,
+        data_model,
+        operations,
+        contracts,
+        errors,
+        authorization,
+        events,
+        security,
+        invariants,
+        code_pointers,
+        test_matrix,
+        boundaries,
+        performance,
+        examples,
+        decisions,
     }
 }

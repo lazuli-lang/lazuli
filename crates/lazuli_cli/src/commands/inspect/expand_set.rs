@@ -143,6 +143,16 @@ pub(crate) struct ExpandSet {
     /// `knowledge/<sector>/` vault is a later/runtime concern.
     /// See `docs/proposals/knowledge-sector-field.md`.
     pub(crate) knowledge: bool,
+    /// CUT 2 — `--expand=context` (alias `ctx`) produces the composite
+    /// "feature context" section catalog. A NEW, ADDITIVE axis with zero
+    /// IR change: it COMPOSES the existing per-axis projectors
+    /// (purpose/non_goals/resources/commands/queries/apis/records/errors/
+    /// policies/auth/events/security) under a fixed section schema,
+    /// tagging each section with a `ContextStatus` provenance marker.
+    /// When set, the composite projects the underlying data even if the
+    /// individual sub-axes are off (the composite is self-contained).
+    /// See `report_types/context.rs`.
+    pub(crate) context: bool,
 }
 
 impl ExpandSet {
@@ -180,6 +190,7 @@ impl ExpandSet {
             records: true,
             errors: true,
             knowledge: true,
+            context: true,
         }
     }
 
@@ -216,6 +227,7 @@ impl ExpandSet {
             || self.records
             || self.errors
             || self.knowledge
+            || self.context
     }
 
     pub(super) fn labels(self) -> Vec<&'static str> {
@@ -316,6 +328,9 @@ impl ExpandSet {
         if self.knowledge {
             labels.push("knowledge");
         }
+        if self.context {
+            labels.push("context");
+        }
         labels
     }
 }
@@ -401,8 +416,13 @@ pub(crate) fn parse_expand_set(value: &str) -> Result<ExpandSet> {
             // sector) from the lowered IR. Reading the on-disk
             // `knowledge/<sector>/` vault is a later concern.
             "knowledge" => set.knowledge = true,
+            // CUT 2 — composite "feature context" section catalog.
+            // Accepts both the full `context` token and the `ctx`
+            // alias; both set the same boolean. Composes the existing
+            // per-axis projectors under a fixed section schema.
+            "context" | "ctx" => set.context = true,
             _ => bail!(
-                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, event_groups, webhook_events, migrations, tenant_migrations, notifications, caches, aggregates, commands, api, apis, resources, queries, records, errors, or knowledge"
+                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, event_groups, webhook_events, migrations, tenant_migrations, notifications, caches, aggregates, commands, api, apis, resources, queries, records, errors, knowledge, context, or ctx"
             ),
         }
     }

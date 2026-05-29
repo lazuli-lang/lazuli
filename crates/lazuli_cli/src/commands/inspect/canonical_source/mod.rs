@@ -113,7 +113,12 @@ pub(in crate::commands::inspect) fn inspect_canonical_source_with_aliases(
     // `cookie-sessions-child` — the `security` axis also reads this
     // lookup (to project the lowered `auth.sessions.cookie` transport
     // envelope), so populate it when EITHER `auth` OR `security` is set.
-    let auth_by_feature = if (expansions.auth || expansions.security) && !is_lzx {
+    //
+    // CUT 2 — the composite `--expand=context` axis also reads this
+    // lookup for its `authorization` section (policies + auth), so
+    // populate it whenever `context` is set as well.
+    let auth_by_feature = if (expansions.auth || expansions.security || expansions.context) && !is_lzx
+    {
         collect_auth_by_feature(source)
     } else {
         BTreeMap::new()
@@ -141,7 +146,13 @@ pub(in crate::commands::inspect) fn inspect_canonical_source_with_aliases(
         || expansions.queries
         || expansions.records
         || expansions.errors
-        || expansions.knowledge)
+        || expansions.knowledge
+        // CUT 2 — the composite `context` axis composes resources +
+        // commands + queries + apis + records + errors + policies +
+        // purpose + non_goals from this slice, so lift it on `context`
+        // too (the composite is self-contained, regardless of which
+        // individual sub-axes the user set).
+        || expansions.context)
         && !is_lzx
     {
         collect_tier3_by_feature_with_aliases(source, alias_map)
