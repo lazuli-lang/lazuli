@@ -154,6 +154,34 @@ fn to_lsp_diagnostic(doc_source: &str, finding: &DoctorDiagnostic) -> Diagnostic
     }
 }
 
+/// Build the single synthetic diagnostic published when the package engine
+/// fails to *load* the workspace (broken/missing manifest, parse error,
+/// unreadable root). Anchored at line 0 of the open document so the editor
+/// shows a top-of-file marker rather than silently going green.
+///
+/// The code is the SCREAMING-KEBAB `LOAD-FAILED-001`, which
+/// [`is_doctor_owned`] keeps doctor-owned (published by the Layer-2
+/// background run, never double-fired by the file-local pass). It is built
+/// through [`to_lsp_diagnostic`] — by reporting the synthetic `line: 1,
+/// column: 1` with no `feature_name`, the remapper lands it at line 0,
+/// exactly as it does for project-level findings.
+fn load_failure_diagnostic(doc_source: &str, err: impl std::fmt::Display) -> Diagnostic {
+    let finding = DoctorDiagnostic {
+        path: std::path::PathBuf::new(),
+        line: 1,
+        column: 1,
+        severity: DoctorSeverity::Error,
+        code: "LOAD-FAILED-001".to_owned(),
+        message: format!("doctor could not load package: {err}"),
+        category: None,
+        feature_name: None,
+        construct: None,
+        fix: None,
+        group: None,
+    };
+    to_lsp_diagnostic(doc_source, &finding)
+}
+
 /// Run the package doctor engine against `workspace_root` and return the
 /// **doctor-owned** findings that belong to `doc_uri`, remapped to editor
 /// `Diagnostic`s over `doc_source`.
@@ -172,9 +200,12 @@ fn to_lsp_diagnostic(doc_source: &str, finding: &DoctorDiagnostic) -> Diagnostic
 /// so unsaved `[doctor]` preset/override edits did not reach package
 /// findings. Now the full config is threaded into `run_package`.
 ///
-/// Returns an empty vec on any load failure (no manifest, parse error,
-/// unreadable root) — the synchronous pass already covers the
-/// editing-in-progress case.
+/// On a package **load failure** (no manifest, parse error, unreadable
+/// root) the engine no longer goes silently green: it surfaces ONE
+/// synthetic doctor-owned `LOAD-FAILED-001` diagnostic at line 0 so the
+/// editor signals that the package layer could not run. The synchronous
+/// file-local pass still owns the editing-in-progress squiggles; this
+/// single diagnostic is purely the "Layer 2 could not load" signal.
 pub(crate) fn doctor_owned_for_document(
     workspace_root: &Path,
     doc_uri: &Url,
@@ -199,8 +230,12 @@ pub(crate) fn doctor_owned_for_document(
             .collect()
     };
 
-    let Ok(package) = run_package(workspace_root, config, &file_local, Vec::new()) else {
-        return Vec::new();
+    let package = match run_package(workspace_root, config, &file_local, Vec::new()) {
+        Ok(package) => package,
+        // Load failure (missing/parse-broken manifest, unreadable root, …):
+        // surface a single synthetic doctor-owned diagnostic instead of an
+        // empty set so the editor does not go silently green.
+        Err(e) => return vec![load_failure_diagnostic(doc_source, &e)],
     };
 
     package
@@ -319,5 +354,60 @@ mod tests {
     fn lsp_owned_recognises_kebab_contract_code() {
         assert!(is_lsp_owned("env-schema-contract"));
         assert!(!is_doctor_owned("env-schema-contract"));
+    }
+
+    /// `LOAD-FAILED-001` is SCREAMING-KEBAB, so the partition keeps it
+    /// doctor-owned (published by the Layer-2 background run, never dropped
+    /// as a double-fire of the file-local pass).
+    #[test]
+    fn load_failed_code_is_doctor_owned() {
+        assert!(is_doctor_owned("LOAD-FAILED-001"));
+        assert!(!is_lsp_owned("LOAD-FAILED-001"));
+    }
+
+    /// Regression: when `run_package` fails to LOAD the workspace (here: an
+    /// empty directory with no `.lzi`/`.lzx` and no manifest), the engine
+    /// must surface ONE synthetic `LOAD-FAILED-001` diagnostic at line 0 —
+    /// NOT an empty set that would let the editor go silently green.
+    #[test]
+    fn doctor_owned_for_document_surfaces_load_failure() {
+        // Unique empty workspace root — `collect_package_paths` finds no
+        // `.lzi`/`.lzx`, so `run_package` returns `Err`.
+        let root = std::env::temp_dir().join(format!(
+            "lazuli-lsp-loadfail-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&root).expect("create temp workspace root");
+
+        let doc_path = root.join("feature.lzi");
+        let doc_uri = Url::from_file_path(&doc_path).expect("file url from absolute path");
+        let config = ResolvedDoctorConfig::default();
+
+        let diagnostics = doctor_owned_for_document(&root, &doc_uri, "feature x\n", &config);
+
+        // Cleanup regardless of assertion outcome.
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "a load failure must surface exactly one synthetic diagnostic, got {diagnostics:?}"
+        );
+        let diag = &diagnostics[0];
+        assert_eq!(
+            diag.code,
+            Some(NumberOrString::String("LOAD-FAILED-001".to_owned())),
+            "the synthetic diagnostic must carry the LOAD-FAILED-001 code"
+        );
+        assert_eq!(diag.range.start.line, 0, "anchored at line 0");
+        assert!(
+            diag.message.contains("doctor could not load package"),
+            "message should explain the load failure, got: {}",
+            diag.message
+        );
     }
 }

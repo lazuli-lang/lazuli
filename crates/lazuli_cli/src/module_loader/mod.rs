@@ -96,6 +96,14 @@ pub(crate) fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> 
         vec![input.to_path_buf()]
     };
 
+    // Collect every parse/lower FAILURE across all files instead of
+    // stopping at the first; a partial codegen run on a broken feature is
+    // worse than a hard stop, and reporting all failures at once saves a
+    // fix-rebuild-rediscover loop. Genuinely-optional warnings (the design
+    // pipeline above) stay non-fatal — only parse/lower of feature
+    // skeletons becomes fatal.
+    let mut load_failures: Vec<String> = Vec::new();
+
     for path in &files {
         let source =
             fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
@@ -117,26 +125,38 @@ pub(crate) fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> 
         if !profiles.is_empty() {
             module.profiles.extend(profiles);
         }
-        // Features via canonical-indent slice
+        // Features via canonical-indent slice. A parse OR lower failure is
+        // FATAL: skipping the feature would silently emit incomplete
+        // codegen for a broken `.lzi`. Record the per-feature error text
+        // and continue scanning so all failures surface at once, then abort
+        // the command below.
         match lazuli_syntax::parse_feature_skeletons(&source) {
             Ok(skeletons) => {
                 for ast in skeletons {
                     match lazuli_analyzer::lower_feature_skeleton(&ast) {
                         Ok(feature) => module.features.push(feature),
-                        Err(err) => eprintln!(
-                            "lazuli: skipping feature in {}: lower failed: {:?}",
+                        Err(err) => load_failures.push(format!(
+                            "{}: feature lower failed: {:?}",
                             path.display(),
                             err
-                        ),
+                        )),
                     }
                 }
             }
-            Err(err) => eprintln!(
-                "lazuli: skipping {}: feature parse failed: {:?}",
+            Err(err) => load_failures.push(format!(
+                "{}: feature parse failed: {:?}",
                 path.display(),
                 err
-            ),
+            )),
         }
+    }
+
+    if !load_failures.is_empty() {
+        anyhow::bail!(
+            "lazuli: {} feature(s) failed to parse/lower:\n  {}",
+            load_failures.len(),
+            load_failures.join("\n  ")
+        );
     }
 
     lazuli_analyzer::resolve_invalidates_targets(&mut module)
@@ -224,6 +244,12 @@ pub(crate) fn build_module_with_source_from_path(
         input.parent().unwrap_or_else(|| Path::new("."))
     };
 
+    // Mirror `build_module_from_path`: a parse/lower failure is FATAL on
+    // the source-map build path too (used by `lazuli generate go`), so a
+    // broken feature can never produce silently-incomplete codegen. Collect
+    // all failures, then abort below.
+    let mut load_failures: Vec<String> = Vec::new();
+
     for (idx, path) in files.iter().enumerate() {
         let file_id =
             u16::try_from(idx + 1).context("too many source files for SourceMap FileId")?;
@@ -259,14 +285,36 @@ pub(crate) fn build_module_with_source_from_path(
         if !profiles.is_empty() {
             module.profiles.extend(profiles);
         }
-        if let Ok(skeletons) = lazuli_syntax::parse_feature_skeletons(&source) {
-            for ast in skeletons {
-                if let Ok(feature) = lazuli_analyzer::lower_feature_skeleton(&ast) {
-                    feature_file_ids.insert(feature.name.clone(), file_id);
-                    module.features.push(feature);
+        match lazuli_syntax::parse_feature_skeletons(&source) {
+            Ok(skeletons) => {
+                for ast in skeletons {
+                    match lazuli_analyzer::lower_feature_skeleton(&ast) {
+                        Ok(feature) => {
+                            feature_file_ids.insert(feature.name.clone(), file_id);
+                            module.features.push(feature);
+                        }
+                        Err(err) => load_failures.push(format!(
+                            "{}: feature lower failed: {:?}",
+                            path.display(),
+                            err
+                        )),
+                    }
                 }
             }
+            Err(err) => load_failures.push(format!(
+                "{}: feature parse failed: {:?}",
+                path.display(),
+                err
+            )),
         }
+    }
+
+    if !load_failures.is_empty() {
+        anyhow::bail!(
+            "lazuli: {} feature(s) failed to parse/lower:\n  {}",
+            load_failures.len(),
+            load_failures.join("\n  ")
+        );
     }
 
     lazuli_analyzer::resolve_invalidates_targets(&mut module)
@@ -360,4 +408,68 @@ pub(crate) fn collect_plan_gate_facts_for_generate(
         subscription_anchor: facts.subscription_anchor,
         gates: facts.gates,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    /// A minimal, known-good single-feature `.lzi`.
+    const VALID_FEATURE: &str = "feature hello\n  domain\n    record GreetOutput\n      message: Text required\n\n  command greet\n    input\n      name: Text required\n    returns GreetOutput\n    policy @policy.public\n    handler @fn.greet\n";
+
+    /// The valid feature plus a `job` block carrying an unknown child —
+    /// `parse_feature_skeletons` rejects it (strict job-children grammar).
+    const PARSE_BROKEN_FEATURE: &str = "feature hello\n  domain\n    record GreetOutput\n      message: Text required\n\n  job nightly\n    bogus_unknown_child \"not a valid job child\"\n";
+
+    fn write_temp_lzi(contents: &str) -> tempfile::TempPath {
+        let mut file = tempfile::Builder::new()
+            .suffix(".lzi")
+            .tempfile()
+            .expect("create temp .lzi");
+        file.write_all(contents.as_bytes())
+            .expect("write temp .lzi");
+        file.flush().expect("flush temp .lzi");
+        file.into_temp_path()
+    }
+
+    /// Positive control: a valid feature loads to an `Ok` module with the
+    /// feature present (proves the broken-case assertion below is about the
+    /// error, not an unrelated loader failure).
+    #[test]
+    fn build_module_from_path_loads_valid_feature() {
+        let path = write_temp_lzi(VALID_FEATURE);
+        let module = build_module_from_path(&path).expect("valid feature should load");
+        assert_eq!(module.features.len(), 1, "expected the one feature to load");
+    }
+
+    /// Regression: a parse failure is now a HARD ERROR (was eprintln-and-skip
+    /// → silent Ok with an incomplete module). Must return `Err`, not
+    /// `Ok`-with-the-feature-skipped.
+    #[test]
+    fn build_module_from_path_errors_on_parse_failure() {
+        let path = write_temp_lzi(PARSE_BROKEN_FEATURE);
+        let result = build_module_from_path(&path);
+        assert!(
+            result.is_err(),
+            "a parse failure must abort the loader, not skip the feature"
+        );
+        let msg = format!("{:#}", result.unwrap_err());
+        assert!(
+            msg.contains("failed to parse/lower"),
+            "error should name the parse/lower failure, got: {msg}"
+        );
+    }
+
+    /// The source-map build path (used by `lazuli generate go`) must abort
+    /// on a parse failure too — silent partial codegen is the worst case.
+    #[test]
+    fn build_module_with_source_from_path_errors_on_parse_failure() {
+        let path = write_temp_lzi(PARSE_BROKEN_FEATURE);
+        let result = build_module_with_source_from_path(&path);
+        assert!(
+            result.is_err(),
+            "the source-map loader must abort on a parse failure too"
+        );
+    }
 }
