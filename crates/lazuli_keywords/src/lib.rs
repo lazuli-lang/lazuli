@@ -28,7 +28,8 @@
 //! * the **semantic-token** legend is the [`SemanticToken`] projection
 //!   (Wave H4, not yet built);
 //! * the **diagnostic codes** a capability produces are the [`produces`]
-//!   facet — left empty in H1, backfilled in Wave C1.
+//!   facet — backfilled in Wave C1 and asserted coherent + complete by the
+//!   `lazuli_diagnostics_registry` bridge crate.
 //!
 //! [`produces`]: CapabilitySpec::produces
 //!
@@ -94,10 +95,12 @@ pub struct CapabilitySpec {
     /// table. Empty string when no curated description exists.
     pub hover: &'static str,
 
-    /// The diagnostic codes this capability can produce. **Empty in Wave
-    /// H1** — Wave C1 backfills the code↔capability links. Carried as
-    /// string-mirror refs ([`DiagnosticFacet`]) so this leaf stays free of
-    /// `lazuli_doctor`.
+    /// The diagnostic codes this capability can produce. Backfilled in
+    /// Wave C1: each facet mirrors a live `lazuli_doctor` rule `CODE` const.
+    /// Empty for purely structural keywords that never gate a diagnostic.
+    /// Carried as string-mirror refs ([`DiagnosticFacet`]) so this leaf
+    /// stays free of `lazuli_doctor`; the `lazuli_diagnostics_registry`
+    /// bridge crate (над `lazuli_doctor`) asserts coherence + completeness.
     pub produces: &'static [DiagnosticFacet],
 }
 
@@ -119,6 +122,152 @@ pub struct DiagnosticFacet {
     /// `== from_code_prefix(code)` by `lazuli_diagnostics_registry`.
     pub category: &'static str,
 }
+
+/// Cross-cutting diagnostic codes that are NOT produced by a single
+/// language keyword/capability — they guard framework-wide or
+/// generated-artifact concerns rather than one DSL construct:
+///
+/// * **migration codegen** (`MIGRATION-*`, `@correctness.migration_out_of_sync`,
+///   `@info.record_column_jsonb`, `RUNTIME-UPDATE-BUILDER-JSONB-001`) — emitted
+///   over the generated SQL/Go, not a `.lzi` keyword;
+/// * **framework-internal hygiene** (`INTERNAL-*`) — fires under
+///   `lazuli doctor --self` against `crates/lazuli_*/src/`, auditing the
+///   framework's own Rust, not user DSL;
+/// * **`.lzi` source-shape hygiene** (`LZI-*`) — file size / name alignment /
+///   cohesion, a property of the file, not any one construct;
+/// * **doctor-meta** (`DOCTOR-OVERRIDE-NEEDS-REASON-001`) — guards the
+///   `Lazurite.toml` severity-override table itself;
+/// * **CRUD / actor synthesis** (`crud_synth_*`, `me_synth_*`) — fire during
+///   command synthesis spanning resource + policy + handler, not bound to a
+///   single keyword.
+///
+/// This is a documented home, NOT a dumping ground: the
+/// `lazuli_diagnostics_registry` bridge asserts every code here resolves to a
+/// live rule and is claimed *exactly once* (here OR by a capability's
+/// `produces`). A future diagnostic added without a capability home must land
+/// here explicitly or the `complete` test fails the build.
+pub const GLOBAL_DIAGNOSTICS: &[DiagnosticFacet] = &[
+    // ── migration codegen / runtime update-builder (over generated artifacts) ──
+    DiagnosticFacet {
+        code: "MIGRATION-ALTER-MISSING-001",
+        base_severity: "error",
+        category: "vocabulary",
+    },
+    DiagnosticFacet {
+        code: "MIGRATION-DSL-UNIQUE-001",
+        base_severity: "error",
+        category: "vocabulary",
+    },
+    DiagnosticFacet {
+        code: "MIGRATION-IDEMPOTENT-CREATE-001",
+        base_severity: "warning",
+        category: "vocabulary",
+    },
+    DiagnosticFacet {
+        code: "RUNTIME-UPDATE-BUILDER-JSONB-001",
+        base_severity: "error",
+        category: "vocabulary",
+    },
+    DiagnosticFacet {
+        code: "@correctness.migration_out_of_sync",
+        base_severity: "error",
+        category: "vocabulary",
+    },
+    DiagnosticFacet {
+        code: "@info.record_column_jsonb",
+        base_severity: "info",
+        category: "vocabulary",
+    },
+    // ── framework-internal hygiene (`--self`, audits framework Rust) ──
+    DiagnosticFacet {
+        code: "INTERNAL-FILE-SIZE-001",
+        base_severity: "warning",
+        category: "internal_hygiene",
+    },
+    DiagnosticFacet {
+        code: "INTERNAL-NO-EXAMPLE-001",
+        base_severity: "warning",
+        category: "internal_hygiene",
+    },
+    DiagnosticFacet {
+        code: "INTERNAL-TEST-PAIRING-001",
+        base_severity: "warning",
+        category: "internal_hygiene",
+    },
+    DiagnosticFacet {
+        code: "INTERNAL-UNDOC-PUB-001",
+        base_severity: "warning",
+        category: "internal_hygiene",
+    },
+    DiagnosticFacet {
+        code: "INTERNAL-ERROR-NAMING-001",
+        base_severity: "warning",
+        category: "error_handling",
+    },
+    DiagnosticFacet {
+        code: "INTERNAL-ERROR-NON-EXHAUSTIVE-001",
+        base_severity: "warning",
+        category: "error_handling",
+    },
+    DiagnosticFacet {
+        code: "INTERNAL-ERROR-VARIANT-DOC-001",
+        base_severity: "warning",
+        category: "error_handling",
+    },
+    DiagnosticFacet {
+        code: "INTERNAL-PANIC-UNWRAP-001",
+        base_severity: "warning",
+        category: "error_handling",
+    },
+    // ── `.lzi` source-shape hygiene (file property, not a construct) ──
+    DiagnosticFacet {
+        code: "LZI-FILE-SIZE-001",
+        base_severity: "warning",
+        category: "lzi_hygiene",
+    },
+    DiagnosticFacet {
+        code: "LZI-FEATURE-NAMING-MATCHES-FILE-001",
+        base_severity: "warning",
+        category: "lzi_hygiene",
+    },
+    DiagnosticFacet {
+        code: "LZI-FEATURE-COHESION-001",
+        base_severity: "warning",
+        category: "lzi_hygiene",
+    },
+    // ── doctor-meta (guards the override table itself) ──
+    DiagnosticFacet {
+        code: "DOCTOR-OVERRIDE-NEEDS-REASON-001",
+        base_severity: "error",
+        category: "test_discipline",
+    },
+    // ── CRUD / actor synthesis (spans resource + policy + handler) ──
+    DiagnosticFacet {
+        code: "crud_synth_no_required_fields",
+        base_severity: "error",
+        category: "vocabulary",
+    },
+    DiagnosticFacet {
+        code: "crud_synth_policy_not_found",
+        base_severity: "error",
+        category: "vocabulary",
+    },
+    DiagnosticFacet {
+        code: "crud_synth_signature_mismatch",
+        base_severity: "error",
+        category: "vocabulary",
+    },
+    DiagnosticFacet {
+        code: "me_synth_no_actor_resolution",
+        base_severity: "error",
+        category: "vocabulary",
+    },
+    DiagnosticFacet {
+        code: "me_synth_signature_mismatch",
+        base_severity: "error",
+        category: "vocabulary",
+    },
+];
 
 /// The block/scope a capability is valid in. Mirrors the LSP
 /// `*_BODY_KINDS` / `*_STATEMENT_KINDS` partitions and the tmLanguage

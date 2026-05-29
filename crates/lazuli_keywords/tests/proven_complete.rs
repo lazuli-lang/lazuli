@@ -286,12 +286,30 @@ fn registry_is_populated_and_h1_shaped() {
     for spec in ALL {
         assert!(!spec.literal.is_empty(), "empty literal in registry");
         assert!(!spec.scope.is_empty(), "empty scope for `{}`", spec.literal);
-        // H1 invariant: produces is backfilled in C1, so it must be empty now.
-        assert!(
-            spec.produces.is_empty(),
-            "`{}` has a non-empty `produces` — that facet is backfilled in Wave C1, not H1",
-            spec.literal
-        );
+        // Wave C1 backfilled the `produces` facet: each `DiagnosticFacet`
+        // must carry a non-empty code/base_severity/category triple. The
+        // code↔capability↔category coherence + completeness asserts live in
+        // the `lazuli_diagnostics_registry` bridge crate (над `lazuli_doctor`);
+        // here we only guard the in-leaf shape.
+        for facet in spec.produces {
+            assert!(
+                !facet.code.is_empty(),
+                "`{}` has a produces facet with an empty code",
+                spec.literal
+            );
+            assert!(
+                !facet.base_severity.is_empty(),
+                "`{}` produces `{}` with an empty base_severity",
+                spec.literal,
+                facet.code
+            );
+            assert!(
+                !facet.category.is_empty(),
+                "`{}` produces `{}` with an empty category",
+                spec.literal,
+                facet.code
+            );
+        }
         // Context-as-data: each (literal, context) pair must be unique. A
         // duplicate is a copy-paste bug — two rows would generate two
         // identical tmLanguage alternations / LSP completion items.
