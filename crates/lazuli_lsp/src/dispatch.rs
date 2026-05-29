@@ -65,16 +65,38 @@ use crate::{
     retention_contract_diagnostics, rule_self_diagnostics, scheduled_job_tenancy_diagnostics,
     scope_override_policy_diagnostics, secret_rotation_contract_diagnostics,
     sessions_unknown_kind_diagnostics, sql_return_type_diagnostics,
-    surface_unknown_kind_diagnostics, target_binding_diagnostics,
-    test_block_diagnostics, type_namespace_diagnostics, validation_syntax_diagnostics,
-    view_unknown_kind_diagnostics, webhook_security_diagnostics, webhook_tenant_from_diagnostics,
-    workspace_contract_diagnostics, write_window_contract_diagnostics,
+    surface_unknown_kind_diagnostics, target_binding_diagnostics, test_block_diagnostics,
+    type_namespace_diagnostics, validation_syntax_diagnostics, view_unknown_kind_diagnostics,
+    webhook_security_diagnostics, webhook_tenant_from_diagnostics, workspace_contract_diagnostics,
+    write_window_contract_diagnostics,
 };
+
+/// Which consumer is driving the dispatch — selects whether the canonical
+/// branch runs the real parser/lower as a backstop after the ~70
+/// text-pattern producers.
+///
+/// * [`DiagnosticMode::Cli`] — the `lazuli check` batch path. Runs the
+///   parser/lower backstop synchronously so a genuine syntax/lowering
+///   error inside a STRICT block that has *no* text-pattern producer
+///   (e.g. an unknown child in a `job`/`poller`/`notification` block)
+///   still surfaces — the confirmed BUG 2 Part B exit-0 regression.
+/// * [`DiagnosticMode::Editor`] — the LSP per-keystroke synchronous
+///   Layer-1 pass (and the file-local injector the package engine reuses).
+///   Does **not** run the parser backstop: the editor already receives
+///   parse/lower failures via the debounced Layer-2 `run_package` stream
+///   (`crate::doctor_engine`, now doctor-owned after the BUG 2 Part A
+///   `PARSE-FAILED-001` / `LOWER-FAILED-001` rename), so running it here
+///   too would double-fire and cause squiggle flicker.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum DiagnosticMode {
+    Cli,
+    Editor,
+}
 
 pub(crate) fn diagnostics_for_with_profile_inner(
     source: &str,
     config: &ResolvedDoctorConfig,
-    _include_doctor: bool,
+    mode: DiagnosticMode,
 ) -> Vec<Diagnostic> {
     if is_canonical_source(source) {
         let mut diagnostics = canonical_order_diagnostics(source);
@@ -163,9 +185,24 @@ pub(crate) fn diagnostics_for_with_profile_inner(
         // D3 — the doctor file-local mirror is gone. Those package /
         // cross-feature ("doctor-owned") findings are now produced by the
         // in-editor package-engine run (`crate::doctor_engine`), published
-        // by the backend's debounced Layer-2 task. `_include_doctor` is
-        // retained on the signature for the two callers' intent only.
-        let _ = _include_doctor;
+        // by the backend's debounced Layer-2 task.
+        //
+        // BUG 2 Part B — parser/lower backstop, CLI-only. The ~70
+        // producers above are text-pattern detectors; several STRICT
+        // blocks (`job`, `poller`, `notification`, `report`, `cache`,
+        // `agent`, lifecycle, auth sub-blocks, `locale_negotiate`, …) have
+        // NO producer, so a genuine syntax error inside one of them is
+        // silently dropped and `lazuli check` exits 0. We run the real
+        // parser + lower here and append their failures, deduped against
+        // any ERROR a producer already reported on the same line so a
+        // block that DOES have a producer (command/query/view/surface/
+        // sessions) still shows exactly once. Editor Layer-1 skips this
+        // (it gets parse/lower failures from Layer-2 instead) — no
+        // cross-layer dedup is needed.
+        if mode == DiagnosticMode::Cli {
+            let parse_backstop = parse_backstop_diagnostics(source);
+            append_deduped_by_line(&mut diagnostics, parse_backstop);
+        }
         return apply_security_profile(diagnostics, config);
     }
 
@@ -179,36 +216,96 @@ pub(crate) fn diagnostics_for_with_profile_inner(
 
     let features = match parse_feature_skeletons(source) {
         Ok(features) => features,
-        Err(error) => {
-            return vec![Diagnostic {
-                range: range_from_span(source, error.span()),
-                severity: Some(DiagnosticSeverity::ERROR),
-                code: None,
-                code_description: None,
-                source: Some("lazuli-syntax".to_owned()),
-                message: error.to_string(),
-                related_information: None,
-                tags: None,
-                data: None,
-            }];
-        }
+        Err(error) => return vec![parse_error_diagnostic(source, &error)],
     };
 
     for feature in &features {
         if let Err(error) = lazuli_analyzer::lower_feature_skeleton(feature) {
-            return vec![Diagnostic {
-                range: first_line_range(source),
-                severity: Some(DiagnosticSeverity::ERROR),
-                code: None,
-                code_description: None,
-                source: Some("lazuli-analyzer".to_owned()),
-                message: error.to_string(),
-                related_information: None,
-                tags: None,
-                data: None,
-            }];
+            return vec![lower_error_diagnostic(source, &error)];
         }
     }
 
     Vec::new()
+}
+
+/// Build the syntax-error `Diagnostic` for a `parse_feature_skeletons`
+/// failure. Extracted (with byte-identical span/source/severity logic) so
+/// both the free-form branch and the CLI canonical-branch backstop share
+/// one definition of how a parser error renders.
+fn parse_error_diagnostic(source: &str, error: &lazuli_syntax::ParseError) -> Diagnostic {
+    Diagnostic {
+        range: range_from_span(source, error.span()),
+        severity: Some(DiagnosticSeverity::ERROR),
+        code: None,
+        code_description: None,
+        source: Some("lazuli-syntax".to_owned()),
+        message: error.to_string(),
+        related_information: None,
+        tags: None,
+        data: None,
+    }
+}
+
+/// Build the analyzer-error `Diagnostic` for a `lower_feature_skeleton`
+/// failure. Extracted alongside [`parse_error_diagnostic`] so the
+/// first-line span/source/severity logic is defined exactly once.
+fn lower_error_diagnostic(source: &str, error: &lazuli_analyzer::AnalyzeError) -> Diagnostic {
+    Diagnostic {
+        range: first_line_range(source),
+        severity: Some(DiagnosticSeverity::ERROR),
+        code: None,
+        code_description: None,
+        source: Some("lazuli-analyzer".to_owned()),
+        message: error.to_string(),
+        related_information: None,
+        tags: None,
+        data: None,
+    }
+}
+
+/// Run the real parser + analyzer lower over a canonical `.lzi` source and
+/// return every syntax/lowering failure as a `Diagnostic`, reusing the
+/// shared [`parse_error_diagnostic`] / [`lower_error_diagnostic`] builders.
+///
+/// A parse failure short-circuits (the skeletons are unavailable, so
+/// lowering cannot run); otherwise each skeleton that fails to lower
+/// contributes one diagnostic. This is the CLI-only backstop wired into the
+/// canonical branch — it is intentionally *not* on the editor's
+/// per-keystroke Layer-1 path.
+fn parse_backstop_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let features = match parse_feature_skeletons(source) {
+        Ok(features) => features,
+        Err(error) => return vec![parse_error_diagnostic(source, &error)],
+    };
+
+    let mut diagnostics = Vec::new();
+    for feature in &features {
+        if let Err(error) = lazuli_analyzer::lower_feature_skeleton(feature) {
+            diagnostics.push(lower_error_diagnostic(source, &error));
+        }
+    }
+    diagnostics
+}
+
+/// Append `incoming` diagnostics to `existing`, dropping any incoming whose
+/// `range.start.line` already carries an ERROR-severity diagnostic in
+/// `existing`. This keeps a STRICT block that already has a text-pattern
+/// producer (which emits its own line-anchored ERROR) from double-firing
+/// the parser/lower backstop on the same line, while a producer-less block
+/// (whose error only the backstop sees) still surfaces.
+fn append_deduped_by_line(existing: &mut Vec<Diagnostic>, incoming: Vec<Diagnostic>) {
+    use std::collections::HashSet;
+    let error_lines: HashSet<u32> = existing
+        .iter()
+        .filter(|d| d.severity == Some(DiagnosticSeverity::ERROR))
+        .map(|d| d.range.start.line)
+        .collect();
+    for diagnostic in incoming {
+        if diagnostic.severity == Some(DiagnosticSeverity::ERROR)
+            && error_lines.contains(&diagnostic.range.start.line)
+        {
+            continue;
+        }
+        existing.push(diagnostic);
+    }
 }

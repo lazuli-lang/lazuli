@@ -103,7 +103,7 @@ pub(crate) use diagnostics::security::*;
 pub(crate) use diagnostics::vocab::*;
 pub(crate) use diagnostics::webhook::*;
 pub(crate) use diagnostics::workspace::*;
-pub(crate) use dispatch::diagnostics_for_with_profile_inner;
+pub(crate) use dispatch::{DiagnosticMode, diagnostics_for_with_profile_inner};
 pub(crate) use format::canonical::*;
 pub use hover::*;
 pub(crate) use keywords::{DESIGN_KEYWORDS, KEYWORDS, design_keyword_description};
@@ -233,7 +233,28 @@ pub fn diagnostics_for_source_with_profile(
     // manifest). Build a profile-only resolved config so the shared
     // resolver path is identical to the LSP's.
     let config = ResolvedDoctorConfig::from_doctor(None, security_profile);
-    diagnostics_for_with_profile_inner(source, &config, false)
+    diagnostics_for_with_profile_inner(source, &config, DiagnosticMode::Editor)
+}
+
+/// CLI/batch diagnostic entry point used by `lazuli check` (and any other
+/// out-of-process consumer that wants the full *batch* surface, not the
+/// editor's per-keystroke subset).
+///
+/// Identical to [`diagnostics_for_source_with_profile`] except it runs the
+/// real parser + analyzer lower as a backstop over canonical `.lzi`
+/// sources (BUG 2 Part B). The text-pattern producers the editor pass runs
+/// do not cover every STRICT block — `job`/`poller`/`notification` and
+/// other producer-less blocks would otherwise let a genuine syntax error
+/// slip through with a 0 exit. This entry surfaces it; the editor's
+/// synchronous Layer-1 deliberately does NOT (it gets parse/lower failures
+/// from the debounced Layer-2 `run_package` stream instead, avoiding
+/// per-keystroke double-fire / flicker).
+pub fn diagnostics_for_source_with_profile_cli(
+    source: &str,
+    security_profile: SecurityProfile,
+) -> Vec<Diagnostic> {
+    let config = ResolvedDoctorConfig::from_doctor(None, security_profile);
+    diagnostics_for_with_profile_inner(source, &config, DiagnosticMode::Cli)
 }
 
 /// Test-only convenience: resolve at the default `Strict` profile with no
@@ -277,7 +298,7 @@ pub(crate) fn diagnostics_for_with_config(
     source: &str,
     config: &ResolvedDoctorConfig,
 ) -> Vec<Diagnostic> {
-    diagnostics_for_with_profile_inner(source, config, true)
+    diagnostics_for_with_profile_inner(source, config, DiagnosticMode::Editor)
 }
 
 /// Internal in-LSP entry point keyed on a bare profile (no manifest
