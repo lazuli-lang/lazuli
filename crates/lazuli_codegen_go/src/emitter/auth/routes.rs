@@ -6,7 +6,7 @@
 //! decides which routes exist and how each one is laid out as a
 //! `lazuli.RegisterApi(...)` call.
 
-use lazuli_ir::{Auth, AuthOAuthProvider, AuthSessions, Feature};
+use lazuli_ir::{Auth, AuthOAuthProvider, AuthSessions, Feature, SessionCookie};
 
 use super::super::module::EmitContext;
 use super::super::patterns::{PATTERN_AUTH_LOGIN, PATTERN_AUTH_REFRESH, emit_pattern_header};
@@ -117,8 +117,101 @@ pub(super) fn emit_session_resolver_register(
             "auth.RegisterRefreshContract({feature_pascal}AuthSessions)"
         ));
     }
+    if let Some(cookie) = sessions.cookie.as_ref() {
+        emit_session_cookie_config(p, cookie);
+    }
     p.dedent();
     p.line("}");
+}
+
+/// Emit the `lazuli.ConfigureSessionCookie(...)` call lowering a
+/// `auth.sessions.cookie` block's transport axes into the runtime's
+/// process-wide [`SessionCookieConfig`]. Each declared axis becomes an
+/// addressable local then a `&local` field on the config literal; absent
+/// axes leave the field nil so the runtime keeps its hardcoded default
+/// (so a partial block only overrides the axes it names). When the whole
+/// `cookie` child is absent the orchestrator never calls this — the
+/// generated boot stays byte-identical to the pre-`cookie` runtime,
+/// mirroring the `sessionCookieSecureFlag` precedent the cookie impl
+/// deferred to wire here.
+///
+/// Wire, not logic: the runtime's `SessionCookieConfig.opts` does all the
+/// overlay work (`runtime/go/lazuli/ctx.go`); codegen only emits the call.
+fn emit_session_cookie_config(p: &mut GoPrinter, cookie: &SessionCookie) {
+    // Bind each declared axis to a local so the config literal can take
+    // its address (every SessionCookieConfig field is a pointer — a nil
+    // field means "axis not declared"). gofmt keeps the `:=` block above
+    // the struct literal; ordering follows the IR struct so output is
+    // deterministic.
+    if let Some(name) = cookie.name.as_ref() {
+        p.line(&format!(
+            "cookieName := \"{}\"",
+            escape_string(name)
+        ));
+    }
+    if let Some(same_site) = cookie.same_site.as_ref() {
+        p.line(&format!(
+            "cookieSameSite := {}",
+            same_site_expr(same_site)
+        ));
+    }
+    if let Some(secure) = cookie.secure {
+        p.line(&format!("cookieSecure := {secure}"));
+    }
+    if let Some(http_only) = cookie.http_only {
+        p.line(&format!("cookieHTTPOnly := {http_only}"));
+    }
+    if let Some(domain) = cookie.domain.as_ref() {
+        p.line(&format!(
+            "cookieDomain := \"{}\"",
+            escape_string(domain)
+        ));
+    }
+    if let Some(path) = cookie.path.as_ref() {
+        p.line(&format!(
+            "cookiePath := \"{}\"",
+            escape_string(path)
+        ));
+    }
+
+    p.line("lazuli.ConfigureSessionCookie(lazuli.SessionCookieConfig{");
+    p.indent();
+    let mut rows = Vec::new();
+    if cookie.name.is_some() {
+        rows.push(("Name:".to_owned(), "&cookieName,".to_owned()));
+    }
+    if cookie.same_site.is_some() {
+        rows.push(("SameSite:".to_owned(), "&cookieSameSite,".to_owned()));
+    }
+    if cookie.secure.is_some() {
+        rows.push(("Secure:".to_owned(), "&cookieSecure,".to_owned()));
+    }
+    if cookie.http_only.is_some() {
+        rows.push(("HTTPOnly:".to_owned(), "&cookieHTTPOnly,".to_owned()));
+    }
+    if cookie.domain.is_some() {
+        rows.push(("Domain:".to_owned(), "&cookieDomain,".to_owned()));
+    }
+    if cookie.path.is_some() {
+        rows.push(("Path:".to_owned(), "&cookiePath,".to_owned()));
+    }
+    write_aligned_kv_rows(p, &rows);
+    p.dedent();
+    p.line("})");
+}
+
+/// Map the closed `same_site` catalog (`lax | strict | none`, validated
+/// at parse time) onto the `net/http.SameSite` constant the runtime
+/// `SessionCookieConfig.SameSite` pointer expects. Any out-of-catalog
+/// value (only reachable if the analyzer regressed) falls back to the
+/// runtime default `Lax` so the emitted Go still compiles.
+fn same_site_expr(raw: &str) -> &'static str {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "strict" => "http.SameSiteStrictMode",
+        "none" => "http.SameSiteNoneMode",
+        // "lax" and any unexpected value default to Lax (runtime default).
+        _ => "http.SameSiteLaxMode",
+    }
 }
 
 pub(super) fn emit_auth_routes(

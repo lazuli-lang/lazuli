@@ -61,6 +61,19 @@ pub fn emit_auth_file(
     if auth.sessions.is_some() {
         imports.add("time");
     }
+    // `net/http` is pulled in only when a `auth.sessions.cookie` block
+    // declares `same_site` — that is the single cookie axis lowering to an
+    // `http.SameSite*Mode` constant. The other axes (name/secure/http_only/
+    // domain/path) lower to plain string/bool locals and need no import,
+    // so a cookie without `same_site` stays import-clean.
+    if auth
+        .sessions
+        .as_ref()
+        .and_then(|s| s.cookie.as_ref())
+        .is_some_and(|c| c.same_site.is_some())
+    {
+        imports.add("net/http");
+    }
 
     p.banner(
         source_label,
@@ -137,7 +150,7 @@ mod tests {
     use super::*;
     use lazuli_ir::{
         AppManifest, AuthIdentity, AuthMfa, AuthOAuthProvider, AuthPassword, AuthSessions,
-        Defaults, FieldRef, Module, Policies, QualifiedName,
+        Defaults, FieldRef, Module, Policies, QualifiedName, SessionCookie,
     };
 
     fn emit(feature: &Feature) -> Option<String> {
@@ -468,4 +481,9 @@ mod tests {
         assert!(out.contains("TTL:      0 * time.Second,"));
         assert!(out.contains("// TODO(auth-ttl): unsupported AuthSessions.ttl literal \"soon\""));
     }
+
+    // Cookie-emission cases live in a sibling file to keep this module
+    // under the 500-LOC Rails budget. `include!` pastes them into this
+    // `mod tests` body so they share the helpers + `SessionCookie` import.
+    include!("cookie_tests.rs");
 }
