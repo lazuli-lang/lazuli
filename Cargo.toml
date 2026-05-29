@@ -15,6 +15,7 @@ members = [
   "crates/lazuli_openapi",
   "crates/lazuli_planner",
   "crates/lazuli_syntax",
+  "tools/xtask",
 ]
 resolver = "3"
 
