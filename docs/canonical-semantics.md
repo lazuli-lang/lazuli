@@ -3060,11 +3060,44 @@ A bareword sector slug (e.g. `lodging`, `billing`) naming the
 `knowledge/<sector>/` document vault the feature draws
 authoring knowledge from. Unquoted identifier, cardinality 0..1.
 
-The planned `VOCAB-KNOWLEDGE-*` rules cross-check the declared sector
+The `VOCAB-KNOWLEDGE-*` rules cross-check the declared sector
 against its on-disk vault (e.g. a dangling sector with no matching
 `knowledge/<sector>/` directory, or a dangling citation). They
 carry the same `Vocabulary` category and `warning` posture as the
 sibling `VOCAB-CONTEXT-*` family.
+
+#### Known sectors — closed core + governed flexibility
+
+A `knowledge <sector>` is treated as KNOWN (no
+`VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001` finding) when the slug is ANY of:
+
+1. a member of the **closed core catalog** — `decisions`, `changes`,
+   `gaps`, `lazuli-way` — recognized out of the box, with or without a
+   folder. (`_inbox` is a staging directory, not a sector, and is
+   deliberately absent.)
+2. **declared** under `[knowledge.sectors]` in `Lazurite.toml`
+   (recognized before the folder is scaffolded); or
+3. backed by an on-disk `knowledge/<sector>/` **folder** (the
+   back-compatible folder-exists leg).
+
+The rule FIRES only when the sector is NONE of those — a typo or an
+undeclared/unscaffolded sector. The design is a closed core of
+opinionated sectors plus *governed* flexibility (declare-or-scaffold), not
+a free-for-all dialect.
+
+Declare custom sectors with a `[knowledge.sectors]` table mapping each
+slug to an optional human description (advisory only — the doctor keys on
+the slug's presence):
+
+```toml
+[knowledge.sectors]
+billing = "Revenue, invoicing, reconciliation"
+compliance = "KYC / audit / regulatory"
+```
+
+To resolve a `SECTOR-UNKNOWN` finding: create the
+`knowledge/<sector>/` folder (with at least one `NNNN-<slug>.md` doc),
+fix the sector slug, OR declare it under `[knowledge.sectors]`.
 
 ### Preset behavior
 
@@ -3101,6 +3134,9 @@ canonical defaults baked into the framework:
   `app/web/` or a sole `app/clients/<name>/`)
 - `[testing.playwright]` → `config = "<layout>/playwright.config.ts"`,
   `discovery_root = "<layout>/e2e"`, `workers = 4`
+- `[knowledge.sectors]` → empty (the closed core catalog `decisions`,
+  `changes`, `gaps`, `lazuli-way` is recognized without declaration;
+  author this table only to register CUSTOM sectors)
 
 Author a block (or a single field inside a block) only when the
 project genuinely diverges from the canonical shape.

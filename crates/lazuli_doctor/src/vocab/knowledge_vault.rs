@@ -116,6 +116,31 @@ impl VaultDoc {
 /// is what lives in `.lazuli/`; the authored `.md` docs live here.
 pub const KNOWLEDGE_VAULT_ROOT: &str = "knowledge";
 
+/// The CLOSED CORE catalog of opinionated knowledge sectors every Lazuli
+/// project understands without scaffolding a folder or declaring a custom
+/// sector. A `knowledge <sector>` naming one of these is always KNOWN to
+/// `VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001` — even before the
+/// `knowledge/<sector>/` folder is created — because the framework opines
+/// these four as the canonical documentation lanes:
+///
+/// - `decisions`  — architecture / design decision records (ADRs).
+/// - `changes`    — change logs / migration notes / what-moved-and-why.
+/// - `gaps`       — known shortfalls / residual-gap backlog.
+/// - `lazuli-way` — framework idiom / "how we do it here" guidance.
+///
+/// `_inbox` is deliberately ABSENT: it is the staging directory for
+/// un-triaged drafts, not a sector. Projects extend this core with custom
+/// sectors via `[knowledge.sectors]` in `Lazurite.toml` (governed
+/// flexibility — a declared slug, not a free-for-all dialect).
+pub const CORE_KNOWLEDGE_SECTORS: &[&str] = &["decisions", "changes", "gaps", "lazuli-way"];
+
+/// `true` when `sector` is one of the [`CORE_KNOWLEDGE_SECTORS`]. Trims the
+/// input so a stray-whitespace slug still matches the catalog.
+pub fn is_core_sector(sector: &str) -> bool {
+    let s = sector.trim();
+    CORE_KNOWLEDGE_SECTORS.contains(&s)
+}
+
 /// Resolve the `knowledge/<sector>/` directory for a sector slug, relative to
 /// the project root. Mirrors `vocab_context_ctxmd_001::resolve_candidate`'s
 /// project-root anchoring.

@@ -272,6 +272,16 @@ impl DoctorPackage {
         let today = current_iso_date();
         let root = &self.project_root;
 
+        // Custom sectors declared in `Lazurite.toml [knowledge.sectors]`.
+        // Combined with the closed core catalog + the on-disk folder leg,
+        // these form the three ways a `knowledge <sector>` is KNOWN to
+        // SECTOR-UNKNOWN. Empty when no `[knowledge]` block is authored.
+        let declared_sectors: Vec<String> = self
+            .lazurite_manifest
+            .as_ref()
+            .map(|m| m.declared_knowledge_sectors())
+            .unwrap_or_default();
+
         let mut out: Vec<DoctorDiagnostic> = Vec::new();
 
         // (a) Per-feature IR rule: SECTOR-UNKNOWN. Distinct sectors are
@@ -283,7 +293,7 @@ impl DoctorPackage {
             // SECTOR-UNKNOWN-001 — names the declaring feature, so it runs
             // once per feature even if two features share a sector.
             let sev = resolve(sector_unknown::Finding::CODE);
-            for finding in sector_unknown::check(feature, path, Some(root)) {
+            for finding in sector_unknown::check(feature, path, Some(root), &declared_sectors) {
                 let message = finding.message();
                 out.push(DoctorDiagnostic {
                     path: finding.path,

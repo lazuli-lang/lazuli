@@ -24,6 +24,7 @@ mod error;
 mod frontends;
 mod generate;
 mod inspect;
+mod knowledge;
 mod migrations;
 mod project;
 mod testing;
@@ -49,6 +50,7 @@ pub use error::ManifestError;
 pub use frontends::{Frontend, FrontendTarget};
 pub use generate::{Generate, GenerateGo};
 pub use inspect::{InspectFrontend, InspectManifest, InspectPlugin};
+pub use knowledge::Knowledge;
 pub use migrations::{DevOverrides, MigrationStrategy, Migrations, Seeds};
 pub use project::{Lazurite, LazuliPin, Plugin, Project};
 pub use testing::{Testing, TestingGo, TestingPlaywright, TestingSpec, TestingTs};
@@ -86,6 +88,15 @@ pub struct Manifest {
     /// `docs/proposals/tdd-bdd-first-2026-05-23.md` §Wave 0.5 + Wave 6.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub doctor: Option<Doctor>,
+    /// Optional `[knowledge]` block — declares CUSTOM knowledge sectors on
+    /// top of the closed core catalog (`decisions`, `changes`, `gaps`,
+    /// `lazuli-way`). Absent on most projects, which then rely solely on
+    /// the core catalog + on-disk `knowledge/<sector>/` folders.
+    /// `VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001` reads
+    /// `[knowledge.sectors]` as the "declared" leg of its known-sector
+    /// check.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub knowledge: Option<Knowledge>,
     /// Sibling T0-T5 — `[testing]` section consumed by `lazuli test`.
     /// Optional; when absent the runner falls back to conventional
     /// discovery. Schema per
@@ -382,6 +393,24 @@ impl Manifest {
             return Some(format!("app/clients/{}", entries[0]));
         }
         None
+    }
+
+    /// Declared custom knowledge sectors from `[knowledge.sectors]`, in
+    /// deterministic order. Empty when the `[knowledge]` block is absent.
+    /// Threaded to `VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001` as the "declared"
+    /// leg of its known-sector check (alongside the closed core catalog
+    /// and the on-disk folder leg).
+    ///
+    /// ## Examples
+    ///
+    /// ```ignore
+    /// // let sectors = manifest.declared_knowledge_sectors();
+    /// ```
+    pub fn declared_knowledge_sectors(&self) -> Vec<String> {
+        self.knowledge
+            .as_ref()
+            .map(Knowledge::declared_sectors)
+            .unwrap_or_default()
     }
 
     /// Run the post-parse manifest invariants:

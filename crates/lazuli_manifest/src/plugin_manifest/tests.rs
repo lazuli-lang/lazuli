@@ -35,6 +35,7 @@ fn make_manifest(plugins: BTreeMap<String, Plugin>) -> Manifest {
         seeds: None,
         dev: None,
         doctor: None,
+        knowledge: None,
         testing: None,
     }
 }

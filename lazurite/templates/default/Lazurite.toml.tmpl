@@ -17,3 +17,14 @@ profile = "strict"
 
 [doctor.coverage]
 preset = "tdd-strict"
+
+# Knowledge — a feature draws authoring knowledge from a
+# `knowledge/<sector>/` vault via `knowledge <sector>`. The core catalog
+# (decisions, changes, gaps, lazuli-way) is recognized out of the box.
+# Declare CUSTOM sectors here so VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001
+# recognizes the slug before the folder is scaffolded (a sector is also
+# known once `knowledge/<sector>/` exists on disk). Uncomment + edit:
+# See docs/canonical-semantics.md#knowledge-sector.
+# [knowledge.sectors]
+# billing = "Revenue, invoicing, reconciliation"
+# compliance = "KYC / audit / regulatory"

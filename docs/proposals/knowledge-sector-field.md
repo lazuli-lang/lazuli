@@ -38,7 +38,7 @@ Prefixo `VOCAB-` mapeia pra `Vocabulary` (`rule_category.rs:96`), mesma casa de 
 
 | Código | Dispara quando | Lado validado |
 |---|---|---|
-| `VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001` | `knowledge <sector>` sem pasta `knowledge/<sector>/` | grammar ↔ file |
+| `VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001` | `knowledge <sector>` que NÃO é do catálogo core (`decisions`, `changes`, `gaps`, `lazuli-way`), NÃO está declarado em `Lazurite.toml [knowledge.sectors]`, e NÃO tem pasta `knowledge/<sector>/` | grammar ↔ catálogo/file |
 | `VOCAB-KNOWLEDGE-UNGATED-WRITE-001` | doc `gold` sem ter passado por `draft` no git (anti-lixão) | file + git |
 | `VOCAB-KNOWLEDGE-STALE-001` | `gold` com `revalidate_by` vencido | file |
 | `VOCAB-KNOWLEDGE-DANGLING-CITE-001` | `cites:` aponta símbolo inexistente no IR | file ↔ IR |
