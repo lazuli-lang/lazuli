@@ -3,8 +3,13 @@ feature minimal_demo
     resource Item
       name: Text required
 
+  policies
+    write: @scope.same_org
+
   command create_item
     input
       name: Text required
+    policy @policy.write
+    rate_limit "60 per minute per user"
     creates Item
       name: input.name

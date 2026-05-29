@@ -1,10 +1,27 @@
 {
-  "expand": [],
-  "features": [
-    {
-      "name": "minimal_demo"
+  "ir": {
+    "expand": [],
+    "features": [
+      {
+        "name": "minimal_demo"
+      }
+    ],
+    "schema": "lazuli.inspect.v0",
+    "source": "examples/curated/minimal_command/minimal_command.lzi"
+  },
+  "manifest": {
+    "frontends": [],
+    "generate": {},
+    "lazuli": {
+      "runtime": "self"
+    },
+    "origin": "Lazurite.toml",
+    "plugins": [],
+    "project": {
+      "module": "github.com/lazuli-lang/lazuli",
+      "name": "lazuli",
+      "schema": 1
     }
-  ],
-  "schema": "lazuli.inspect.v0",
-  "source": "examples/curated/minimal_command/minimal_command.lzi"
+  },
+  "plugin_semantic_types": []
 }

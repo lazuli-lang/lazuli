@@ -38,6 +38,8 @@ route admin_customer_detail
   surface customer web
   audience admin
   lazy true
+  policy @policy.update
+    requires_lifecycle_in Customer [active, paused]
 
 route sales_customer_list
   path "customers"
