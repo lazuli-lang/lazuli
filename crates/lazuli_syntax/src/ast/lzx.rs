@@ -50,7 +50,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{RouteParamAst, Span};
+use super::{AudienceUxAst, RouteParamAst, Span, ViewUxAst};
 
 /// One parsed `.lzx` document — the app's UI shell tree.
 ///
@@ -440,6 +440,11 @@ pub struct LzxAudience {
     pub qualifiers: Vec<String>,
     pub views: Vec<LzxPlatformView>,
     pub guard: Option<LzxViewGuard>,
+    /// §7a audience-level UX containers (`tabs`, `wizard <name> steps`).
+    /// Shares the surface-dialect AST (`AudienceUxAst`) so both `.lzx`
+    /// dialects lower the same primitives.
+    #[serde(default, skip_serializing_if = "AudienceUxAst::is_empty")]
+    pub ux: AudienceUxAst,
     pub span: Span,
 }
 
@@ -461,6 +466,11 @@ pub struct LzxPlatformView {
     pub submit: Option<String>,
     pub blocks: Vec<String>,
     pub guard: Option<LzxViewGuard>,
+    /// §7a view-level UX primitives (`wizard_steps`, `tab_group`,
+    /// `view_mode`, `view.inline_table`, `view.board`, `repeatable
+    /// input`). Shares the surface-dialect AST (`ViewUxAst`).
+    #[serde(default, skip_serializing_if = "ViewUxAst::is_empty")]
+    pub ux: ViewUxAst,
     pub span: Span,
 }
 

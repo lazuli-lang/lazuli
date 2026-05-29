@@ -26,11 +26,15 @@
 //! submit | block | policy`. Partial overrides (`+=`, `-=`) are
 //! rejected at parse time; the grammar demands full redeclaration.
 
-use crate::ast::{LzxAudience, LzxPlatformView, Span};
+use crate::ast::{AudienceUxAst, LzxAudience, LzxPlatformView, Span, ViewUxAst};
 
 use super::super::super::common::{SourceLine, is_trivia, line_error, split_lzx_list};
 use super::super::super::error::ParseError;
 use super::super::app::parse_lzx_view_guard;
+use super::super::surface::{
+    parse_board_block, parse_inline_table_line, parse_repeatable_group_line, parse_tab_group_block,
+    parse_tabs_block, parse_view_mode_block, parse_wizard_block, parse_wizard_steps_line,
+};
 
 pub(super) fn parse_lzx_audience(
     lines: &[SourceLine<'_>],
@@ -44,6 +48,7 @@ pub(super) fn parse_lzx_audience(
 
     let mut views = Vec::new();
     let mut guard = None;
+    let mut ux = AudienceUxAst::default();
     let mut index = start + 1;
 
     while index < lines.len() {
@@ -77,10 +82,20 @@ pub(super) fn parse_lzx_audience(
             let (view, next) = parse_lzx_platform_view(lines, index)?;
             views.push(view);
             index = next;
+        } else if trimmed == "tabs" {
+            // §7a — static tab container (audience sibling to `view`).
+            let (tabs, next) = parse_tabs_block(lines, index, 4)?;
+            ux.tabs.push(tabs);
+            index = next;
+        } else if let Some(rest) = trimmed.strip_prefix("wizard ") {
+            // §7a — multi-step wizard container (audience sibling to `view`).
+            let (wizard, next) = parse_wizard_block(lines, index, 4, rest.trim())?;
+            ux.wizards.push(wizard);
+            index = next;
         } else {
             return Err(line_error(
                 line,
-                "audience children are complete `view <name> <type>` declarations or `policy <policy>`",
+                "audience children are complete `view <name> <type>` declarations, `policy <policy>`, `tabs`, or `wizard <name> steps`",
             ));
         }
     }
@@ -91,6 +106,7 @@ pub(super) fn parse_lzx_audience(
             qualifiers: parts[2..].iter().map(|part| (*part).to_owned()).collect(),
             views,
             guard,
+            ux,
             span: Span::new(header.start, lines[index.saturating_sub(1)].end),
         },
         index,
@@ -120,6 +136,7 @@ fn parse_lzx_platform_view(
     let mut submit = None;
     let mut blocks = Vec::new();
     let mut guard = None;
+    let mut ux = ViewUxAst::default();
     let mut index = start + 1;
 
     while index < lines.len() {
@@ -178,10 +195,34 @@ fn parse_lzx_platform_view(
             guard = Some(parsed);
             index = next;
             continue;
+        } else if let Some(rest) = trimmed.strip_prefix("wizard_steps ") {
+            // §7a — view-level UX primitives. The abstract experience
+            // dialect has no list/detail/create kind, so every primitive
+            // is accepted uniformly; lowering shares the surface-dialect
+            // `ViewUxAst`.
+            parse_wizard_steps_line(line, rest.trim(), &mut ux)?;
+        } else if trimmed == "tab_group" || trimmed.starts_with("tab_group ") {
+            let rest = trimmed.strip_prefix("tab_group").unwrap_or("").trim();
+            let (next, _end) = parse_tab_group_block(lines, index, 6, rest, &mut ux)?;
+            index = next;
+            continue;
+        } else if trimmed == "view_mode" {
+            let (next, _end) = parse_view_mode_block(lines, index, 6, &mut ux)?;
+            index = next;
+            continue;
+        } else if let Some(rest) = trimmed.strip_prefix("view.inline_table ") {
+            parse_inline_table_line(line, rest.trim(), &mut ux)?;
+        } else if trimmed == "view.board" || trimmed.starts_with("view.board ") {
+            let rest = trimmed.strip_prefix("view.board").unwrap_or("").trim();
+            let (next, _end) = parse_board_block(lines, index, 6, rest, &mut ux)?;
+            index = next;
+            continue;
+        } else if let Some(rest) = trimmed.strip_prefix("repeatable input ") {
+            parse_repeatable_group_line(line, rest.trim(), &mut ux)?;
         } else {
             return Err(line_error(
                 line,
-                "platform view children are `columns`, `fields`, `sections`, `search`, `filter`, `cells`, `actions`, `submit`, `block`, or `policy`",
+                "platform view children are `columns`, `fields`, `sections`, `search`, `filter`, `cells`, `actions`, `submit`, `block`, `policy`, `wizard_steps`, `tab_group`, `view_mode`, `view.inline_table`, `view.board`, or `repeatable input`",
             ));
         }
 
@@ -202,6 +243,7 @@ fn parse_lzx_platform_view(
             submit,
             blocks,
             guard,
+            ux,
             span: Span::new(header.start, lines[index.saturating_sub(1)].end),
         },
         index,

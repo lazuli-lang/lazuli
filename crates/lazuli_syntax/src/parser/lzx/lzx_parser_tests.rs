@@ -111,8 +111,7 @@ fn full_capsule_view_tests_round_trip() {
 #[test]
 fn parses_lzx_experience_and_platform_surface() {
     let experience =
-        parse_lzx_document(include_str!("../../../../../examples/customer-capsule.lzx"))
-            .unwrap();
+        parse_lzx_document(include_str!("../../../../../examples/customer-capsule.lzx")).unwrap();
     assert_eq!(experience.experiences.len(), 1);
     assert_eq!(experience.experiences[0].name, "customer");
     assert_eq!(experience.experiences[0].imports, vec!["customer"]);
@@ -462,8 +461,8 @@ experience customer_tags
             .order
             .as_ref()
             .map(|order| (order.relation.as_str(), order.target.as_str())),
-            Some(("after", "activity_timeline"))
-        );
+        Some(("after", "activity_timeline"))
+    );
 }
 
 // =============================================================================
@@ -493,7 +492,11 @@ route host_basic_details
     assert_eq!(allow_list.resource, "Host");
     assert_eq!(
         allow_list.allowed_states,
-        vec!["basic_details_pending", "address_pending", "languages_pending"]
+        vec![
+            "basic_details_pending",
+            "address_pending",
+            "languages_pending"
+        ]
     );
     // Existing requires_lifecycle slot stays None.
     assert!(guard.requires_lifecycle.is_none());
@@ -516,7 +519,10 @@ route phone_verification
         .as_ref()
         .and_then(|g| g.requires_lifecycle_in.as_ref())
         .expect("requires_lifecycle_in");
-    assert_eq!(allow_list.allowed_states, vec!["phone_verification_pending"]);
+    assert_eq!(
+        allow_list.allowed_states,
+        vec!["phone_verification_pending"]
+    );
 }
 
 #[test]
@@ -677,4 +683,100 @@ route bad
 "#;
     let err = parse_lzx_document(source).expect_err("wrong middle segment must fail");
     assert!(err.to_string().contains("lookup_my"));
+}
+
+// ── F5 — §7a surface UX primitives in the experience-surface dialect ──────────
+// The abstract-experience `surface` dialect (parsed by `parse_lzx_document`,
+// the dialect doctor runs) accepts the §7a view-level and audience-level UX
+// primitives. Before this, these children were rejected with `LZX-PARSE`
+// because the platform-view / audience catalogs were closed. They now parse
+// into the shared surface-dialect `ViewUxAst` / `AudienceUxAst`.
+
+#[test]
+fn lzx_platform_view_accepts_view_level_ux_primitives() {
+    let source = r#"
+surface widget web
+  uses experience widget
+
+  audience admin
+    policy @policy.read
+
+    view list Table
+      columns name, status
+      view_mode
+        table
+        kanban
+      tab_group derived_from status
+        case OPEN, PENDING -> tab "Active"
+        case CLOSED -> tab "Archived"
+      view.inline_table on_change @command.update_row
+      view.board activity
+        lanes derived_from status
+
+    view edit_form Form
+      fields a, b
+      wizard_steps 3 current step
+      repeatable input installments group { days: Int; pct: Decimal } validates sum(pct) = 100
+"#;
+    let doc = parse_lzx_document(source).expect("§7a view-level primitives parse");
+    let audience = &doc.surfaces[0].audiences[0];
+
+    let list = &audience.views[0];
+    assert_eq!(list.ux.view_modes, vec!["table", "kanban"]);
+    let group = list.ux.tab_group.as_ref().expect("tab_group");
+    assert_eq!(group.derived_from, "status");
+    assert_eq!(group.cases.len(), 2);
+    assert_eq!(group.cases[0].variants, vec!["OPEN", "PENDING"]);
+    assert!(list.ux.inline_table.is_some());
+    let board = list.ux.board.as_ref().expect("board");
+    assert_eq!(board.name, "activity");
+    assert_eq!(board.lanes_source, "status");
+
+    let form = &audience.views[1];
+    let steps = form.ux.wizard_steps.as_ref().expect("wizard_steps");
+    assert_eq!(steps.total, 3);
+    assert_eq!(steps.current_field, "step");
+    assert_eq!(form.ux.repeatable_groups.len(), 1);
+    assert_eq!(form.ux.repeatable_groups[0].sum_field, "pct");
+}
+
+#[test]
+fn lzx_audience_accepts_tabs_and_wizard_containers() {
+    let source = r#"
+surface widget web
+  uses experience widget
+
+  audience admin
+    view list Table
+      columns name
+
+    tabs
+      tab "Details" -> view list
+    wizard onboarding steps
+      step 1: list
+"#;
+    let doc = parse_lzx_document(source).expect("§7a audience containers parse");
+    let audience = &doc.surfaces[0].audiences[0];
+    assert_eq!(audience.ux.tabs.len(), 1);
+    assert_eq!(audience.ux.tabs[0].entries[0].view, "list");
+    assert_eq!(audience.ux.wizards.len(), 1);
+    assert_eq!(audience.ux.wizards[0].name, "onboarding");
+    assert_eq!(audience.ux.wizards[0].steps[0].ref_name, "list");
+}
+
+#[test]
+fn lzx_platform_view_still_rejects_unknown_child() {
+    // Behavior-preserving: the catalog only EXPANDED — a genuinely
+    // unknown child still hard-errors (no silent acceptance).
+    let source = r#"
+surface widget web
+  uses experience widget
+
+  audience admin
+    view list Table
+      columns name
+      hologram_mode
+"#;
+    let err = parse_lzx_document(source).expect_err("unknown view child must fail");
+    assert!(err.to_string().contains("platform view children are"));
 }
