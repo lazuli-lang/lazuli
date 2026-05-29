@@ -11,6 +11,7 @@ members = [
   "crates/lazuli_fix",
   "crates/lazuli_ir",
   "crates/lazuli_lsp",
+  "crates/lazuli_manifest",
   "crates/lazuli_mcp",
   "crates/lazuli_openapi",
   "crates/lazuli_planner",
