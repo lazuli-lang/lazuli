@@ -108,6 +108,10 @@ pub(crate) fn collect_approval_block_presence(
 
             if let Some(approval_at) = approval_at {
                 let mut has_by = false;
+                // W4 GAP-06 — `chain [@role.a, @role.b] [sequential]` is the
+                // multi-approver form; a non-empty bracketed list satisfies
+                // the approver requirement when `by` is absent.
+                let mut has_chain = false;
                 let mut has_timeout = false;
                 let mut has_then = false;
                 let mut k = approval_at + 1;
@@ -124,6 +128,8 @@ pub(crate) fn collect_approval_block_presence(
                     if leading_spaces(body) == 6 {
                         if body_trim.starts_with("by ") {
                             has_by = true;
+                        } else if let Some(rest) = body_trim.strip_prefix("chain ") {
+                            has_chain = approval_chain_nonempty(rest.trim());
                         } else if body_trim.starts_with("timeout ") {
                             has_timeout = true;
                         } else if body_trim.starts_with("then ") {
@@ -133,7 +139,10 @@ pub(crate) fn collect_approval_block_presence(
                     k += 1;
                 }
                 let mut missing: Vec<&'static str> = Vec::new();
-                if !has_by {
+                // An approver comes from `by <role>` or a non-empty
+                // `chain [...]`. The parser rejects both-at-once, so we
+                // don't re-check exclusivity here; either satisfies it.
+                if !has_by && !has_chain {
                     missing.push("by");
                 }
                 if !has_timeout {
@@ -315,6 +324,23 @@ pub(crate) fn approval_diagnostics(
     }
 
     diagnostics
+}
+
+/// W4 GAP-06 — file-local shape check for an `approval chain` body:
+/// `[@role.a, @role.b] [sequential]`. Returns `true` when the bracketed
+/// list parses and holds at least one approver. Mirrors the parser's
+/// `parse_approval_chain` so this presence walker agrees with the IR;
+/// the authoritative non-empty / role-declared checks (under
+/// `APPROVAL-CHAIN-ORDER-001`) run in `approval_diagnostics`.
+fn approval_chain_nonempty(body: &str) -> bool {
+    let body = body.trim();
+    let Some(close) = body.find(']') else {
+        return false;
+    };
+    let Some(list) = body[..close].strip_prefix('[') else {
+        return false;
+    };
+    list.split(',').any(|t| !t.trim().is_empty())
 }
 
 /// Shape-check a duration string. Accepts `<digits> <unit>` or

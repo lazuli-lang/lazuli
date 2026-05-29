@@ -184,6 +184,72 @@ feature customer
     }
 
     #[test]
+    fn doctor_accepts_approval_chain_sequential() {
+        // F2/W4 GAP-06 — `chain [@role.manager, @role.admin] sequential`
+        // with both roles declared and a valid `then escalate` must pass
+        // clean: neither the file-local presence walker nor the IR-layer
+        // chain-order check should fire.
+        let package = package_from_sources(vec![(
+            "approvals.lzi",
+            r#"
+feature approvals
+  policies
+    delete: @role.manager, @role.admin
+
+  command approve_job
+    policy @policy.delete
+    approval
+      required_when target.tier = enterprise
+      chain [@role.manager, @role.admin] sequential
+      timeout "24h"
+      then escalate
+    deletes Job
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let codes_set = codes(&diagnostics);
+        for code in [
+            "approval_contract_diagnostics",
+            "APPROVAL-CHAIN-ORDER-001",
+            "approval_timeout_invalid_diagnostics",
+        ] {
+            assert!(
+                !codes_set.contains(code),
+                "well-formed approval chain must not produce {code}; got {:?}",
+                diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn doctor_rejects_approval_chain_with_unknown_role() {
+        // F2 — the chain form must still flag an approver that no policy
+        // declares, under the unified APPROVAL-CHAIN-ORDER-001 code.
+        let package = package_from_sources(vec![(
+            "approvals.lzi",
+            r#"
+feature approvals
+  policies
+    delete: @role.manager
+
+  command approve_job
+    policy @policy.delete
+    approval
+      chain [@role.manager, @role.ghost] sequential
+      timeout "24h"
+      then escalate
+    deletes Job
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            codes(&diagnostics).contains("APPROVAL-CHAIN-ORDER-001"),
+            "expected APPROVAL-CHAIN-ORDER-001 for unknown chain role; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn doctor_rejects_approval_missing_required_children() {
         let package = package_from_sources(vec![(
             "customer.lzi",

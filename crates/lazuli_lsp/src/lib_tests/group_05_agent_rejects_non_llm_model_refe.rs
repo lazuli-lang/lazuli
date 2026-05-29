@@ -430,6 +430,31 @@ feature customer
 
 #[test]
 fn approval_rejects_unknown_then_action() {
+    // F2b — the closed `then` catalog is `deny | allow | escalate`
+    // (matches the parser/IR). `proceed` was a stale legacy synonym
+    // the walker once accepted; it is now rejected.
+    let source = r#"
+feature customer
+  command archive
+    approval
+      by @role.admin
+      timeout "24h"
+      then proceed
+"#;
+    let diagnostics = diagnostics_for(source);
+    let messages: Vec<&str> = diagnostics.iter().map(|d| d.message.as_str()).collect();
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.contains("`approval then proceed`")),
+        "expected diagnostic about invalid then value; got: {messages:?}"
+    );
+}
+
+#[test]
+fn approval_accepts_escalate_then_action() {
+    // F2b — `escalate` is a valid `then` resolution (parser lowers it
+    // to `ApprovalThen::Escalate`); the file-local walker must not flag it.
     let source = r#"
 feature customer
   command archive
@@ -439,12 +464,33 @@ feature customer
       then escalate
 "#;
     let diagnostics = diagnostics_for(source);
-    let messages: Vec<&str> = diagnostics.iter().map(|d| d.message.as_str()).collect();
     assert!(
-        messages
+        !diagnostic_codes(&diagnostics)
             .iter()
-            .any(|m| m.contains("`approval then escalate`")),
-        "expected diagnostic about invalid then value; got: {messages:?}"
+            .any(|c| c == "approval_contract_diagnostics"),
+        "valid `then escalate` must not produce approval_contract_diagnostics"
+    );
+}
+
+#[test]
+fn approval_accepts_chain_sequential_without_by() {
+    // F2/W4 GAP-06 — a non-empty `chain [...] sequential` satisfies the
+    // approver requirement; the file-local walker must not demand `by`.
+    let source = r#"
+feature customer
+  command archive
+    approval
+      chain [@role.manager, @role.admin] sequential
+      timeout "24h"
+      then escalate
+"#;
+    let diagnostics = diagnostics_for(source);
+    assert!(
+        !diagnostic_codes(&diagnostics)
+            .iter()
+            .any(|c| c == "approval_contract_diagnostics"),
+        "chain form must satisfy the approver requirement; got: {:?}",
+        diagnostic_codes(&diagnostics)
     );
 }
 
