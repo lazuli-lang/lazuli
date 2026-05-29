@@ -142,7 +142,6 @@ feature_body      = ( meta_block
                     | event_trace_block
                     | agent_block
                     | flow_block          (* Cut B *)
-                    | knowledge_block     (* Cut B sketch *)
                     | extensions_block
                     | escape_route_block
                     | surface_block       (* feature-side surface declarations *)
@@ -1003,23 +1002,16 @@ budget_axis       = "tokens" INTEGER "per" budget_scope ;
 budget_scope      = "request" ;        (* aggregate scopes are pack territory *)
 ```
 
-## 16. Knowledge (Cut B sketch — pack candidate, not in v0)
+## 16. Knowledge
 
-```ebnf
-knowledge_block   = "knowledge" IDENT_LOWER ( "from" "@pack." namespace_path )? NEWLINE
-                    INDENT knowledge_body DEDENT ;
+`knowledge` is a scalar meta statement (`knowledge_stmt` — `knowledge <sector>`, sibling of
+`purpose` / `non_goals` / `attach_ctx`), cross-checked against its on-disk vault by the
+`VOCAB-KNOWLEDGE-*` doctor rules. See `docs/proposals/knowledge-sector-field.md`.
 
-knowledge_body    = ( "source" target_expr NEWLINE
-                    | "chunk" "by" IDENT_LOWER NEWLINE
-                    | "retention" DURATION NEWLINE
-                    | "pii" pii_class_list NEWLINE
-                    | "tenant_from" idempotency_source NEWLINE
-                    | "embedding" "@adapter." IDENT_LOWER NEWLINE
-                    )+ ;
-
-pii_class_list    = IDENT_LOWER ( "," IDENT_LOWER )* ;
-namespace_path    = IDENT_LOWER ( "." IDENT_LOWER )* ;
-```
+An earlier block-form RAG sketch (`source` / `chunk by` / `embedding @adapter`) was never
+wired on any executable face and has been removed; vector/embedding retrieval is
+companion-`@plugin` territory, not core grammar (see the proposal's out-of-scope section
+for the disposition).
 
 ## 17. Surfaces (feature-side)
 
