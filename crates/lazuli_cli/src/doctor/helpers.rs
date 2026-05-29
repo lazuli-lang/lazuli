@@ -10,11 +10,11 @@
 //!    severity enum. Centralized so every dispatch site escalates
 //!    uniformly (e.g. `tdd-iron-hand` promotes everything to `Error`
 //!    in one place).
-//! 2. **TOML override parsing** — `parse_doctor_severity` accepts the
-//!    `"error" | "warning" | "warn" | "info" | "hint"` vocabulary
-//!    authored in `Lazurite.toml` `[doctor.*.severity_override]`
-//!    tables. Returning `Option` lets callers fall back to the
-//!    per-category default when an override is malformed.
+//! 2. **TOML override parsing** — severity-string parsing now lives in
+//!    `lazuli_doctor_config::parse_severity` (the shared resolver crate),
+//!    consumed transitively through `effective_severity` /
+//!    `category_preset_severity`. The CLI no longer carries its own
+//!    `parse_doctor_severity` copy.
 //! 3. **CLI flag parsing** — `parse_doctor_format` and
 //!    `parse_fail_on_specs` translate the wire-level `--format` /
 //!    `--fail-on` strings into the typed shapes defined by
@@ -30,6 +30,9 @@
 //! `crate::doctor::*`.
 
 use std::path::{Path, PathBuf};
+
+use lazuli_doctor::RuleCategory;
+use lazuli_doctor_config::{ResolvedDoctorConfig, category_preset_severity};
 
 use super::DoctorSeverity;
 
@@ -61,14 +64,20 @@ pub(super) fn resolve_test_discipline_severity(
     code: &str,
     preset: Option<lazuli_doctor::test_discipline::preset::TestDisciplinePreset>,
 ) -> DoctorSeverity {
-    if let Some(preset) = preset {
-        if let Some(override_sev) =
-            lazuli_doctor::test_discipline::preset::preset_rule_severity(preset, code)
-        {
-            return override_sev.into();
-        }
-    }
-    default
+    // W1 — share the category-preset escalation (precedence level 3) via
+    // `lazuli_doctor_config`. This site applies ONLY that level over the
+    // per-rule `default` (no profile default, no manifest override), so
+    // it calls `category_preset_severity` rather than the full
+    // `effective_severity`. Identical answer: for TestDiscipline with
+    // this preset, the shared fn returns
+    // `preset_rule_severity(preset, code)`.
+    let config = ResolvedDoctorConfig {
+        test_discipline_preset: preset,
+        ..ResolvedDoctorConfig::default()
+    };
+    category_preset_severity(code, RuleCategory::TestDiscipline, &config)
+        .map(DoctorSeverity::from)
+        .unwrap_or(default)
 }
 
 /// W3 — mirror of `resolve_test_discipline_severity` for the
@@ -80,14 +89,15 @@ pub(super) fn resolve_internal_hygiene_severity(
     code: &str,
     preset: Option<lazuli_doctor::internal_hygiene::preset::InternalHygienePreset>,
 ) -> DoctorSeverity {
-    if let Some(preset) = preset {
-        if let Some(override_sev) =
-            lazuli_doctor::internal_hygiene::preset::preset_rule_severity(preset, code)
-        {
-            return override_sev.into();
-        }
-    }
-    default
+    // W1 — see `resolve_test_discipline_severity`: category-preset
+    // escalation only, shared via `lazuli_doctor_config`.
+    let config = ResolvedDoctorConfig {
+        internal_hygiene_preset: preset,
+        ..ResolvedDoctorConfig::default()
+    };
+    category_preset_severity(code, RuleCategory::InternalHygiene, &config)
+        .map(DoctorSeverity::from)
+        .unwrap_or(default)
 }
 
 /// `.lzi` hygiene severity resolver — mirror of
@@ -99,14 +109,15 @@ pub(super) fn resolve_lzi_hygiene_severity(
     code: &str,
     preset: Option<lazuli_doctor::lzi_hygiene::preset::LziHygienePreset>,
 ) -> DoctorSeverity {
-    if let Some(preset) = preset {
-        if let Some(override_sev) =
-            lazuli_doctor::lzi_hygiene::preset::preset_rule_severity(preset, code)
-        {
-            return override_sev.into();
-        }
-    }
-    default
+    // W1 — see `resolve_test_discipline_severity`: category-preset
+    // escalation only, shared via `lazuli_doctor_config`.
+    let config = ResolvedDoctorConfig {
+        lzi_hygiene_preset: preset,
+        ..ResolvedDoctorConfig::default()
+    };
+    category_preset_severity(code, RuleCategory::LziHygiene, &config)
+        .map(DoctorSeverity::from)
+        .unwrap_or(default)
 }
 
 /// Iron-hand 4th-dimension severity resolver — mirror of
@@ -119,27 +130,15 @@ pub(super) fn resolve_error_handling_severity(
     code: &str,
     preset: Option<lazuli_doctor::error_handling::preset::ErrorHandlingPreset>,
 ) -> DoctorSeverity {
-    if let Some(preset) = preset {
-        if let Some(override_sev) =
-            lazuli_doctor::error_handling::preset::preset_rule_severity(preset, code)
-        {
-            return override_sev.into();
-        }
-    }
-    default
-}
-
-/// Parse a TOML override string (`"warning"`, `"error"`, …) into a
-/// `DoctorSeverity`. Returns `None` for unrecognized strings; callers
-/// fall back to the category default in that case.
-pub(super) fn parse_doctor_severity(s: &str) -> Option<DoctorSeverity> {
-    match s.to_ascii_lowercase().as_str() {
-        "error" => Some(DoctorSeverity::Error),
-        "warning" | "warn" => Some(DoctorSeverity::Warning),
-        "info" => Some(DoctorSeverity::Info),
-        "hint" => Some(DoctorSeverity::Hint),
-        _ => None,
-    }
+    // W1 — see `resolve_test_discipline_severity`: category-preset
+    // escalation only, shared via `lazuli_doctor_config`.
+    let config = ResolvedDoctorConfig {
+        error_handling_preset: preset,
+        ..ResolvedDoctorConfig::default()
+    };
+    category_preset_severity(code, RuleCategory::ErrorHandling, &config)
+        .map(DoctorSeverity::from)
+        .unwrap_or(default)
 }
 
 /// Translate the wire-level `--format` string into a typed

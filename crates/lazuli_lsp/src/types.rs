@@ -1,41 +1,34 @@
 //! LSP-side type definitions shared across handlers, diagnostics, and code
 //! action producers.
 //!
-//! ## Why this lives here (and not in `lazuli_ir`)
+//! ## `SecurityProfile` now lives in `lazuli_doctor_config`
 //!
-//! These types describe the *LSP server's* view of the world — diagnostic
-//! data payloads carried in `Diagnostic.data`, security-profile selectors
-//! that gate which diagnostic codes fire — not the IR's view of the source
-//! tree. Putting them in `lazuli_ir` would force every IR consumer
-//! (codegen, doctor CLI, packs) to depend on `tower-lsp` transitively
-//! through type definitions they never touch.
+//! The 3-value profile enum was relocated to `lazuli_doctor_config` as
+//! `DoctorProfile` so that the single doctor severity resolver
+//! (`lazuli_doctor_config::effective_severity`) can be shared by both the
+//! CLI doctor and the LSP without an inverted `lazuli_cli -> lazuli_lsp`
+//! dependency. `lazuli_lsp` re-exports it as `SecurityProfile` so the
+//! documented ABI (the canonical pilot VSCode extension and
+//! `lazuli_cli::doctor` import `lazuli_lsp::SecurityProfile`) is
+//! preserved byte-for-byte — the variants (`Prototype` / `Strict` /
+//! `Production`) are identical.
 //!
-//! ## ABI guarantee
+//! ## Why these types live here (and not in `lazuli_ir`)
 //!
-//! `SecurityProfile` is re-exported from the crate root via `pub use
-//! types::SecurityProfile;` so external consumers (notably the the canonical pilot
-//! VSCode extension and `lazuli_cli::doctor`) continue to import it as
-//! `lazuli_lsp::SecurityProfile` exactly as before.
+//! The remaining LSP-side types describe the *server's* view of the
+//! world — diagnostic data payloads carried in `Diagnostic.data` — not
+//! the IR's view of the source tree. Putting them in `lazuli_ir` would
+//! force every IR consumer (codegen, doctor CLI, packs) to depend on
+//! `tower-lsp` transitively through type definitions they never touch.
 
 /// Selector for which subset of diagnostic codes the LSP backend emits.
 ///
-/// The default for `diagnostics_for_source` is `Strict`. `Prototype`
-/// down-grades production-only codes; `Production` upgrades a handful of
-/// warnings to errors. The CLI `doctor` reads this off the project
-/// profile in `profiles.lzi`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SecurityProfile {
-    /// Pre-production sandbox. Production-only codes are demoted so
-    /// scaffolds can iterate without churn from rules that don't apply
-    /// until deploy.
-    Prototype,
-    /// Default. Every catalog code fires at its declared severity.
-    Strict,
-    /// Production lock-in. A handful of warnings escalate to errors so
-    /// `doctor` blocks deploy on weak postures (missing redact, open
-    /// CORS, etc.).
-    Production,
-}
+/// Relocated to `lazuli_doctor_config::DoctorProfile`; re-exported here
+/// as `SecurityProfile` for ABI stability. The default for
+/// `diagnostics_for_source` is `Strict`. `Prototype` down-grades
+/// production-only codes; `Production` upgrades a handful of warnings to
+/// errors. The CLI `doctor` reads this off the project profile.
+pub use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 
 #[cfg(test)]
 mod tests {

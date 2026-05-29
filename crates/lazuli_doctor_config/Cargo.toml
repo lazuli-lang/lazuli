@@ -1,0 +1,13 @@
+[package]
+name = "lazuli_doctor_config"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+lazuli_doctor = { path = "../lazuli_doctor" }
+serde.workspace = true
+toml = "0.8"
+
+[dev-dependencies]

@@ -22,10 +22,9 @@
 use std::path::PathBuf;
 
 use lazuli_doctor::RuleCategory;
+use lazuli_doctor_config::{ResolvedDoctorConfig, SeverityOverride, effective_severity};
 use lazuli_lsp::SecurityProfile;
 use tower_lsp::lsp_types::DiagnosticSeverity;
-
-use super::helpers::parse_doctor_severity;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DoctorSeverity {
@@ -225,24 +224,41 @@ pub(crate) fn doctor_severity_for(
     security_profile: SecurityProfile,
     overrides: &std::collections::BTreeMap<String, DoctorSeverityOverride>,
 ) -> DoctorSeverity {
-    // Per-rule override wins absolutely (TOML).
-    if let Some(ov) = overrides.get(code) {
-        if let Some(parsed) = parse_doctor_severity(&ov.severity) {
-            return parsed;
-        }
-    }
-    match (category, security_profile) {
-        // Test-discipline rules carry their own per-profile posture so
-        // the framework can promote test-completeness without leaking
-        // the same posture to vocab/correctness.
-        (RuleCategory::TestDiscipline, SecurityProfile::Production) => DoctorSeverity::Error,
-        (RuleCategory::TestDiscipline, SecurityProfile::Strict) => DoctorSeverity::Warning,
-        (RuleCategory::TestDiscipline, SecurityProfile::Prototype) => DoctorSeverity::Info,
-        // Everything else: keep the legacy global mapping so Wave 0.5
-        // is purely additive — no behavior change for existing rules.
-        (_, SecurityProfile::Production) => DoctorSeverity::Error,
-        (_, SecurityProfile::Prototype | SecurityProfile::Strict) => DoctorSeverity::Warning,
-    }
+    // W1 — delegate to the single shared resolver in
+    // `lazuli_doctor_config`. This site supplies only the profile +
+    // per-rule overrides (no coverage / category preset), so
+    // `effective_severity` exercises precedence levels 1 (override) and 4
+    // (category default per profile) — exactly the two this function used
+    // to inline. The shared resolver's level-4 match is the verbatim copy
+    // of the match that lived here.
+    let config = ResolvedDoctorConfig {
+        profile: security_profile.into(),
+        overrides: overrides
+            .iter()
+            .map(|(code, ov)| {
+                (
+                    code.clone(),
+                    SeverityOverride {
+                        severity: ov.severity.clone(),
+                        reason: ov.reason.clone(),
+                    },
+                )
+            })
+            .collect(),
+        ..ResolvedDoctorConfig::default()
+    };
+    // The category default always has an opinion for every profile, so
+    // the resolver never returns `None` here; `base_severity` is the
+    // unreachable level-4 fallback. `Warning` matches the historical
+    // global default for that unreachable arm.
+    effective_severity(
+        code,
+        lazuli_doctor::DoctorSeverity::Warning,
+        category,
+        &config,
+    )
+    .map(DoctorSeverity::from)
+    .unwrap_or(DoctorSeverity::Warning)
 }
 
 /// Legacy alias — kept as a thin shim so existing call sites compile

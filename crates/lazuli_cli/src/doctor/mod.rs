@@ -193,8 +193,8 @@ pub use runtime_options::DoctorRuntimeOptions;
 pub(super) use scanners::leading_spaces;
 
 use helpers::{
-    doctor_project_root, parse_doctor_format, parse_doctor_severity, parse_fail_on_specs,
-    project_has_lazurite_manifest, resolve_test_discipline_severity,
+    doctor_project_root, parse_doctor_format, parse_fail_on_specs, project_has_lazurite_manifest,
+    resolve_test_discipline_severity,
 };
 // Re-export the shared offset → (line, column) helpers so the
 // `facts/*` collectors (`canonical`, `lzx`) keep their existing

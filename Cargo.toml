@@ -7,6 +7,7 @@ members = [
   "crates/lazuli_codegen_spec",
   "crates/lazuli_codegen_ts",
   "crates/lazuli_doctor",
+  "crates/lazuli_doctor_config",
   "crates/lazuli_fix",
   "crates/lazuli_ir",
   "crates/lazuli_lsp",

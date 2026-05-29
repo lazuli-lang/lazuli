@@ -6,14 +6,12 @@
 //! `super`.
 
 use lazuli_analyzer::lower_feature_skeleton;
+use lazuli_doctor_config::{ResolvedDoctorConfig, SeverityOverride, effective_severity};
 use lazuli_lsp::SecurityProfile;
 use lazuli_syntax::parse_feature_skeletons;
 
-use super::{
-    DoctorDiagnostic, DoctorPackage, DoctorSeverity, RuleCategory, doctor_severity_for,
-    parse_doctor_severity,
-};
 use super::parsers::is_lzi_path;
+use super::{DoctorDiagnostic, DoctorPackage, DoctorSeverity, RuleCategory};
 
 impl DoctorPackage {
     /// Iron-hand meta-bundle — dispatch the three `VOCAB-CONTEXT-*`
@@ -34,46 +32,66 @@ impl DoctorPackage {
     /// The `off` preset suppresses the rules entirely (consistent with
     /// the coverage layers it zeroes out).
     pub(super) fn context_vocab_diagnostics(&self) -> Vec<DoctorDiagnostic> {
-        use lazuli_doctor::coverage::{CoveragePreset, preset_severity_overrides};
+        use lazuli_doctor::coverage::CoveragePreset;
         use lazuli_doctor::vocab::{
             vocab_context_ctxmd_001, vocab_context_nongoals_001, vocab_context_purpose_001,
         };
 
         let preset = self.coverage_preset();
         // `off` preset opts out entirely — mirrors how the coverage
-        // layers all zero out under `off`.
+        // layers all zero out under `off`. (The shared resolver also
+        // returns `None` for these codes under `Off`; this early return
+        // is the equivalent loop-level short-circuit.)
         if matches!(preset, Some(CoveragePreset::Off)) {
             return Vec::new();
         }
 
-        let manifest_overrides = self
+        // W1 — build the resolved config once and route every severity
+        // decision through `lazuli_doctor_config::effective_severity`.
+        // For the VOCAB-CONTEXT family (category Vocabulary, no category
+        // preset) this exercises precedence levels 1 (manifest override),
+        // 2 (coverage-preset escalation), and 4 (profile default) — the
+        // exact union the old hand-rolled `resolve` closure implemented.
+        let overrides = self
             .lazurite_manifest
             .as_ref()
             .and_then(|m| m.doctor.as_ref())
             .and_then(|d| d.test_discipline.as_ref())
-            .map(|td| &td.severity_override);
+            .map(|td| {
+                td.severity_override
+                    .iter()
+                    .map(|(code, ov)| {
+                        (
+                            code.clone(),
+                            SeverityOverride {
+                                severity: ov.severity.clone(),
+                                reason: ov.reason.clone(),
+                            },
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let config = ResolvedDoctorConfig {
+            profile: self.security_profile.into(),
+            coverage_preset: preset,
+            overrides,
+            ..ResolvedDoctorConfig::default()
+        };
 
-        let preset_overrides = preset.map(preset_severity_overrides).unwrap_or_default();
-
-        // Resolver: manifest > preset > category default.
+        // The VOCAB-CONTEXT codes always resolve to a concrete severity
+        // here (the `Off` preset is already short-circuited above and the
+        // category default always has an opinion), so the resolver never
+        // returns `None`; `Warning` is the unreachable fallback.
         let resolve = |code: &str| -> DoctorSeverity {
-            if let Some(map) = manifest_overrides
-                && let Some(ov) = map.get(code)
-                && let Some(parsed) = parse_doctor_severity(&ov.severity)
-            {
-                return parsed;
-            }
-            if let Some(severity_str) = preset_overrides.get(code)
-                && let Some(parsed) = parse_doctor_severity(severity_str)
-            {
-                return parsed;
-            }
-            doctor_severity_for(
+            effective_severity(
                 code,
+                lazuli_doctor::DoctorSeverity::Warning,
                 RuleCategory::Vocabulary,
-                self.security_profile,
-                &std::collections::BTreeMap::new(),
+                &config,
             )
+            .map(DoctorSeverity::from)
+            .unwrap_or(DoctorSeverity::Warning)
         };
 
         let mut out: Vec<DoctorDiagnostic> = Vec::new();
