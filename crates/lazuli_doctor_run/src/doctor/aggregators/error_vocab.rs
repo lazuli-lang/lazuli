@@ -251,6 +251,7 @@ pub(crate) fn make_synthetic_feature_for_error_vocab(
         purpose: None,
         non_goals: Vec::new(),
         context_path: None,
+        knowledge: None,
         defaults: lazuli_ir::Defaults::default(),
         uses: fact.uses.clone(),
         uses_spans: Vec::new(),

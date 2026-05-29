@@ -64,7 +64,8 @@ use crate::{
     required_field_nil_rule_diagnostics, reserved_trace_event_diagnostics,
     retention_contract_diagnostics, rule_self_diagnostics, scheduled_job_tenancy_diagnostics,
     scope_override_policy_diagnostics, secret_rotation_contract_diagnostics,
-    sql_return_type_diagnostics, surface_unknown_kind_diagnostics, target_binding_diagnostics,
+    sessions_unknown_kind_diagnostics, sql_return_type_diagnostics,
+    surface_unknown_kind_diagnostics, target_binding_diagnostics,
     test_block_diagnostics, type_namespace_diagnostics, validation_syntax_diagnostics,
     view_unknown_kind_diagnostics, webhook_security_diagnostics, webhook_tenant_from_diagnostics,
     workspace_contract_diagnostics, write_window_contract_diagnostics,
@@ -87,6 +88,7 @@ pub(crate) fn diagnostics_for_with_profile_inner(
         diagnostics.extend(command_statement_unknown_diagnostics(source));
         diagnostics.extend(query_statement_unknown_diagnostics(source));
         diagnostics.extend(audience_unknown_kind_diagnostics(source));
+        diagnostics.extend(sessions_unknown_kind_diagnostics(source));
         diagnostics.extend(query_mode_diagnostics(source));
         diagnostics.extend(previously_mode_diagnostics(source));
         diagnostics.extend(app_operational_contract_diagnostics(source));

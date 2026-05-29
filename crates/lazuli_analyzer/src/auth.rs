@@ -107,6 +107,26 @@ pub(crate) fn lower_auth_sessions(sessions: &syntax::AuthSessions) -> ir::AuthSe
         extra_columns: vec![],
         access_ttl: sessions.access_ttl.as_ref().map(|ttl| ttl.value.clone()),
         rotation: sessions.rotation.as_ref().map(lower_auth_session_rotation),
+        cookie: sessions.cookie.as_ref().map(lower_auth_session_cookie),
+    }
+}
+
+/// Lower a parsed `cookie` block into [`ir::SessionCookie`]. Mirrors how
+/// [`lower_auth_session_rotation`] carries each `Option<_>` slot straight
+/// through — `None` slots stay `None` so the runtime keeps its hardcoded
+/// literal for that axis. The closed `same_site` value rides as its raw
+/// string (parse-time validated).
+pub(crate) fn lower_auth_session_cookie(
+    cookie: &syntax::AuthSessionCookie,
+) -> ir::SessionCookie {
+    ir::SessionCookie {
+        name: cookie.name.clone(),
+        same_site: cookie.same_site.clone(),
+        secure: cookie.secure,
+        http_only: cookie.http_only,
+        domain: cookie.domain.clone(),
+        path: cookie.path.clone(),
+        span_ref: Some(span_of(cookie.span)),
     }
 }
 

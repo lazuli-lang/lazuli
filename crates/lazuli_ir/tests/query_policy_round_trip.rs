@@ -26,6 +26,7 @@ fn base_feature() -> Feature {
         purpose: None,
         non_goals: Vec::new(),
         context_path: None,
+        knowledge: None,
         defaults: Defaults {
             tenancy: None,
             timestamps: false,

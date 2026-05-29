@@ -229,7 +229,13 @@ pub(crate) fn resolve_platform_action_target(
     default_feature: &str,
     abstract_actions: Option<&BTreeMap<String, String>>,
 ) -> Option<ResolvedCommandTarget> {
-    if let Some((_, target)) = action.split_once("->") {
+    // Accept BOTH arrow glyphs (ASCII `->` and Unicode `→`, U+2192), matching
+    // `lifecycle_gate::parse_arm` and the `split_lzx_arrow` parser helper — an
+    // action target written with either glyph must resolve identically.
+    if let Some((_, target)) = action
+        .split_once("->")
+        .or_else(|| action.split_once('\u{2192}'))
+    {
         return resolve_command_target(target.trim(), default_feature);
     }
     if let Some(target) = resolve_command_target(action, default_feature) {
@@ -348,4 +354,43 @@ pub(crate) fn audience_roles(audience: &str, qualifiers: &[String]) -> BTreeSet<
     }
 
     roles
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `resolve_platform_action_target` accepts an action written with the
+    /// ASCII arrow `->`. (Baseline for the glyph-parity assertion below.)
+    #[test]
+    fn action_target_resolves_with_ascii_arrow() {
+        let resolved = resolve_platform_action_target("Save -> billing.command.pay", "ui", None)
+            .expect("ascii-arrow action target must resolve");
+        assert_eq!(resolved.key.feature, "billing");
+        assert_eq!(resolved.key.command, "pay");
+    }
+
+    /// The Unicode arrow `→` (U+2192) must resolve identically to `->` —
+    /// the fix that brings `command_routing` into parity with
+    /// `lifecycle_gate::parse_arm` and the `split_lzx_arrow` parser helper.
+    #[test]
+    fn action_target_resolves_with_unicode_arrow() {
+        let resolved =
+            resolve_platform_action_target("Save \u{2192} billing.command.pay", "ui", None)
+                .expect("unicode-arrow action target must resolve");
+        assert_eq!(resolved.key.feature, "billing");
+        assert_eq!(resolved.key.command, "pay");
+    }
+
+    /// Both glyphs land on the SAME `ResolvedCommandTarget` — proving the
+    /// fallback is semantics-preserving, not a separate code path.
+    #[test]
+    fn ascii_and_unicode_arrows_resolve_to_same_target() {
+        let ascii = resolve_platform_action_target("a -> orders.command.ship", "ui", None);
+        let unicode =
+            resolve_platform_action_target("a \u{2192} orders.command.ship", "ui", None);
+        let (a, u) = (ascii.expect("ascii"), unicode.expect("unicode"));
+        assert_eq!(a.key, u.key);
+        assert_eq!(a.args, u.args);
+    }
 }

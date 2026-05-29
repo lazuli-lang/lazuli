@@ -94,10 +94,26 @@ impl RuleCategory {
         match code.split('-').next() {
             Some("TEST") | Some("DOCTOR") => Self::TestDiscipline,
             Some("VOCAB") | Some("MONEY") => Self::Vocabulary,
-            Some("SECURITY") | Some("FIELD") | Some("WEBHOOK") | Some("AUTH") => Self::Security,
+            // `SESSION-*` — the session-cookie transport family
+            // (`SESSION-COOKIE-INSECURE-IN-PROD-001`,
+            // `SESSION-COOKIE-SAMESITE-NONE-INSECURE-001`,
+            // `SESSION-COOKIE-MISSING-001`,
+            // `SESSION-COOKIE-PROFILE-CONFLICT-001`,
+            // `SESSION-COOKIE-HOST-PREFIX-VIOLATION-001`). They audit the
+            // `auth.sessions.cookie` transport envelope, so they join the
+            // cookie-hygiene peers under Security alongside `AUTH-*`.
+            Some("SECURITY") | Some("FIELD") | Some("WEBHOOK") | Some("AUTH") | Some("SESSION") => {
+                Self::Security
+            }
             Some("HOOK") | Some("DUPLICATE") | Some("ROUTE") | Some("UPDATES")
             | Some("MUTATION") | Some("MISSING") | Some("MANUAL") | Some("IMPORT")
             | Some("CAP") | Some("SCHEMA") => Self::Correctness,
+            // `LZX-*` — `.lzx` ViewModel-surface rules (route binding, view
+            // mode, tab/wizard refs, cells-mixed-form, arrow-glyph-mixed
+            // hygiene). They audit user `.lzx` source shape; route them to
+            // Correctness alongside the other surface-shape checks rather than
+            // letting them fall through to the Vocabulary catch-all.
+            Some("LZX") => Self::Correctness,
             Some("LIFECYCLE") => Self::Lifecycle,
             Some("DOMAIN") => Self::Domain,
             Some("CROSS") => Self::CrossFeature,
@@ -119,6 +135,14 @@ impl RuleCategory {
                 _ => Self::InternalHygiene,
             },
             Some("HANDLER") => Self::ErrorHandling,
+            // JOB-* — runtime-execution gaps on `job` bodies (today:
+            // `JOB-DECLARATIVE-BODY-UNSUPPORTED-001`). A declarative job
+            // body that lowers to a no-op silently drops the declared
+            // work — the job-level twin of a swallowed handler error, so
+            // it lands in the error-handling 4th dimension alongside the
+            // `HANDLER-*` family (and is preset-governed by
+            // `[doctor.error_handling]`).
+            Some("JOB") => Self::ErrorHandling,
             Some("LZI") => Self::LziHygiene,
             _ => Self::Vocabulary, // safe fallback; auditor flags
         }
@@ -247,6 +271,12 @@ mod tests {
             RuleCategory::from_code_prefix("HANDLER-NO-PANIC-001"),
             RuleCategory::ErrorHandling
         );
+        // JOB-* — declarative job bodies the runtime can't execute route
+        // to the error-handling 4th dimension (preset-governed).
+        assert_eq!(
+            RuleCategory::from_code_prefix("JOB-DECLARATIVE-BODY-UNSUPPORTED-001"),
+            RuleCategory::ErrorHandling
+        );
         // INTERNAL-PANIC-* and INTERNAL-ERROR-* are error_handling, not
         // internal_hygiene — they cover error-handling discipline on the
         // framework Rust source.
@@ -303,6 +333,43 @@ mod tests {
         );
         // Serde snake_case round-trip.
         assert_eq!(RuleCategory::LziHygiene.as_str(), "lzi_hygiene");
+    }
+
+    #[test]
+    fn session_cookie_prefix_routes_to_security() {
+        // The session-cookie transport family routes to Security (joins
+        // the `AUTH-*` / cookie-hygiene peers).
+        for code in [
+            "SESSION-COOKIE-INSECURE-IN-PROD-001",
+            "SESSION-COOKIE-SAMESITE-NONE-INSECURE-001",
+            "SESSION-COOKIE-MISSING-001",
+            "SESSION-COOKIE-PROFILE-CONFLICT-001",
+            "SESSION-COOKIE-HOST-PREFIX-VIOLATION-001",
+        ] {
+            assert_eq!(
+                RuleCategory::from_code_prefix(code),
+                RuleCategory::Security,
+                "{code} should route to Security"
+            );
+        }
+    }
+
+    #[test]
+    fn lzx_prefix_routes_to_correctness() {
+        // `.lzx` surface-shape rules (correctness family) — both the
+        // uppercase numbered codes and the new arrow-glyph hygiene rule.
+        assert_eq!(
+            RuleCategory::from_code_prefix("LZX-ARROW-GLYPH-MIXED-001"),
+            RuleCategory::Correctness
+        );
+        assert_eq!(
+            RuleCategory::from_code_prefix("LZX-WIZARD-STEPS-EXPR-001"),
+            RuleCategory::Correctness
+        );
+        assert_eq!(
+            RuleCategory::from_code_prefix("LZX-ROUTE-001"),
+            RuleCategory::Correctness
+        );
     }
 
     #[test]

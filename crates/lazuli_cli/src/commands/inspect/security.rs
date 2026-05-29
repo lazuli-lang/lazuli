@@ -14,17 +14,49 @@
 
 use super::expand::{collect_event_decls, leading_spaces};
 use super::{
-    InspectSecurity, InspectSecurityEventPayload, InspectSecurityField, InspectSecurityOperation,
-    InspectSecurityWebhook,
+    InspectOrigin, InspectSecurity, InspectSecurityEventPayload, InspectSecurityField,
+    InspectSecurityOperation, InspectSecurityWebhook, InspectSessionCookie,
 };
 
-pub(super) fn inspect_security(lines: &[String]) -> InspectSecurity {
+pub(super) fn inspect_security(
+    lines: &[String],
+    feature_name: &str,
+    auth: Option<&lazuli_ir::Auth>,
+) -> InspectSecurity {
     InspectSecurity {
         fields: inspect_security_fields(lines),
         event_payloads: inspect_security_event_payloads(lines),
         operations: inspect_security_operations(lines),
         webhooks: inspect_security_webhooks(lines),
+        session_cookie: auth.and_then(|a| inspect_session_cookie(feature_name, a)),
     }
+}
+
+/// `cookie-sessions-child` — project the lowered `auth.sessions.cookie`
+/// transport envelope onto the security axis. Returns `None` when the
+/// feature declared no `auth.sessions`, or declared sessions without a
+/// `cookie` child (the runtime then keeps its hardcoded cookie literals).
+/// Each axis is echoed verbatim from the IR so the projection reads
+/// exactly like the authored block; absent axes stay `None`.
+pub(super) fn inspect_session_cookie(
+    feature_name: &str,
+    auth: &lazuli_ir::Auth,
+) -> Option<InspectSessionCookie> {
+    let sessions = auth.sessions.as_ref()?;
+    let cookie = sessions.cookie.as_ref()?;
+    Some(InspectSessionCookie {
+        resource: sessions.resource.name.clone(),
+        name: cookie.name.clone(),
+        same_site: cookie.same_site.clone(),
+        secure: cookie.secure,
+        http_only: cookie.http_only,
+        domain: cookie.domain.clone(),
+        path: cookie.path.clone(),
+        origin: InspectOrigin {
+            feature: feature_name.to_owned(),
+            line: cookie.span_ref.map(|span| span.start),
+        },
+    })
 }
 
 pub(super) fn inspect_security_fields(lines: &[String]) -> Vec<InspectSecurityField> {

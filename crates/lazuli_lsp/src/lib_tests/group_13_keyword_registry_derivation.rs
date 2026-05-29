@@ -42,7 +42,8 @@ use lazuli_keywords::{ALL, Context};
 use super::{DESIGN_KEYWORDS, KEYWORDS};
 use crate::{
     APP_BODY_KINDS, AUDIENCE_BODY_KINDS, COMMAND_STATEMENT_KINDS, FEATURE_BODY_KINDS,
-    QUERY_STATEMENT_KINDS, REGISTRY_BODY_KINDS, SURFACE_BODY_KINDS, VIEW_BODY_KINDS,
+    QUERY_STATEMENT_KINDS, REGISTRY_BODY_KINDS, SESSIONS_BODY_KINDS, SESSIONS_COOKIE_BODY_KINDS,
+    SURFACE_BODY_KINDS, VIEW_BODY_KINDS,
 };
 
 /// LSP-completion conveniences that are intentionally NOT standalone
@@ -155,11 +156,15 @@ fn typo_catalogs() -> Vec<(&'static str, &'static [&'static str])> {
         ("COMMAND_STATEMENT_KINDS", COMMAND_STATEMENT_KINDS),
         ("QUERY_STATEMENT_KINDS", QUERY_STATEMENT_KINDS),
         ("AUDIENCE_BODY_KINDS", AUDIENCE_BODY_KINDS),
+        ("SESSIONS_BODY_KINDS", SESSIONS_BODY_KINDS),
+        ("SESSIONS_COOKIE_BODY_KINDS", SESSIONS_COOKIE_BODY_KINDS),
     ]
 }
 
 /// Every typo-catalog entry must be a real registry literal. (No
-/// allowlist needed — all eight catalogs are clean against the registry.)
+/// allowlist needed — all ten catalogs are clean against the registry,
+/// including the `cookie-sessions-child` `SESSIONS_BODY_KINDS` /
+/// `SESSIONS_COOKIE_BODY_KINDS` pair.)
 #[test]
 fn typo_catalogs_are_subsets_of_the_registry() {
     let registry = registry_literals();

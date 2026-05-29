@@ -22,6 +22,7 @@ fn legacy_sessions() -> AuthSessions {
         extra_columns: Vec::new(),
         access_ttl: None,
         rotation: None,
+        cookie: None,
     }
 }
 
@@ -33,6 +34,7 @@ fn rotation_sessions(rotation: RotationConfig) -> AuthSessions {
         extra_columns: Vec::new(),
         access_ttl: None,
         rotation: Some(rotation),
+        cookie: None,
     }
 }
 

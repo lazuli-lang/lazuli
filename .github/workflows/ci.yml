@@ -97,3 +97,11 @@ jobs:
         with:
           name: self-doctor-report
           path: self-doctor-report.json
+
+  fixtures-check:
+    name: fixtures drift-guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check fixtures for drift
+        run: pwsh -File tools/generate-fixtures.ps1 -Check

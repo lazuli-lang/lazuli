@@ -162,6 +162,9 @@ const P_FN: &[DiagnosticFacet] = &[
 const P_INVARIANTS: &[DiagnosticFacet] =
     &[df("INVARIANT-PREDICATE-INVALID", "error", "vocabulary")];
 
+const P_JOB: &[DiagnosticFacet] =
+    &[df("JOB-DECLARATIVE-BODY-UNSUPPORTED-001", "warning", "error_handling")];
+
 const P_LIFECYCLE: &[DiagnosticFacet] = &[
     df("LIFECYCLE-ENUM-DUPLICATE", "error", "lifecycle"),
     df("LIFECYCLE-FIELD-DOUBLE-DECLARED", "error", "lifecycle"),
@@ -326,6 +329,20 @@ const P_ATTACH_CTX: &[DiagnosticFacet] = &[
     df("VOCAB-CONTEXT-CTXMD-001", "warning", "vocabulary"),
     df("VOCAB-CONTEXT-NONGOALS-001", "warning", "vocabulary"),
     df("VOCAB-CONTEXT-PURPOSE-001", "warning", "vocabulary"),
+];
+
+// Knowledge-sector vocabulary — the five `VOCAB-KNOWLEDGE-*` rules
+// (`crates/lazuli_doctor/src/vocab/vocab_knowledge_*`) cross-check
+// `knowledge <sector>` against the `knowledge/<sector>/` document
+// vault. Same `Vocabulary` category + `warning` posture as the sibling
+// `VOCAB-CONTEXT-*` family above. See
+// `docs/proposals/knowledge-sector-field.md` §Doctor.
+const P_KNOWLEDGE: &[DiagnosticFacet] = &[
+    df("VOCAB-KNOWLEDGE-DANGLING-CITE-001", "warning", "vocabulary"),
+    df("VOCAB-KNOWLEDGE-DUP-TOPIC-001", "warning", "vocabulary"),
+    df("VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001", "warning", "vocabulary"),
+    df("VOCAB-KNOWLEDGE-STALE-001", "warning", "vocabulary"),
+    df("VOCAB-KNOWLEDGE-UNGATED-WRITE-001", "warning", "vocabulary"),
 ];
 
 const P_DERIVED: &[DiagnosticFacet] = &[df("VOCAB-DERIVED-READ-001", "warning", "vocabulary")];
@@ -1377,11 +1394,14 @@ pub const ALL: &[CapabilitySpec] = &[
         ),
         P_WEBHOOK,
     ),
-    kw(
-        "job",
-        Context::FeatureHeader,
-        DECL,
-        "Declares a background job.",
+    produces(
+        kw(
+            "job",
+            Context::FeatureHeader,
+            DECL,
+            "Declares a background job.",
+        ),
+        P_JOB,
     ),
     kw(
         "agent",
@@ -1559,6 +1579,20 @@ pub const ALL: &[CapabilitySpec] = &[
         Context::FeatureHeader,
         SECTION,
         "Feature non-goals (iron-hand context).",
+    ),
+    // Iron-hand context vocabulary — `knowledge <sector>` names the
+    // `knowledge/<sector>/` vault the feature draws from. The
+    // sector is a bareword slug. Produces the five `VOCAB-KNOWLEDGE-*`
+    // doctor rules that cross-check the sector against its on-disk vault
+    // (see `docs/proposals/knowledge-sector-field.md` §Doctor).
+    produces(
+        kw(
+            "knowledge",
+            Context::FeatureHeader,
+            STMT,
+            "Feature knowledge sector (iron-hand context).",
+        ),
+        P_KNOWLEDGE,
     ),
     stmt(
         "delegated_to",
@@ -2367,6 +2401,20 @@ pub const ALL: &[CapabilitySpec] = &[
     stmt("refresh", Context::Auth, STMT, "Refresh operation."),
     stmt("enroll", Context::Auth, STMT, "MFA enrollment."),
     stmt("hash", Context::Auth, STMT, "Password hash algorithm."),
+    // `auth.sessions.cookie` — session-cookie transport block. Option (b)
+    // from `docs/proposals/cookie-sessions-child.md`: the cookie attribute
+    // vocabulary (`same_site`/`secure`/`http_only`/`domain`/`path` —
+    // `Context::Cookie` rows under the app `cookie` SECTION above; `name`
+    // is the generic `modifier`) is REUSED, not duplicated. This row is the
+    // second anchor position: the `cookie` SECTION re-rooted under the
+    // `sessions` parent (`Context::Auth`) instead of `Context::App`. The
+    // parser dispatches the cookie children to the same closed catalog.
+    kw(
+        "cookie",
+        Context::Auth,
+        SECTION,
+        "Session-cookie transport attributes block (name/same_site/secure/http_only/domain/path).",
+    ),
     // ════════════════════════════════════════════════════════════════
     // errors block
     // ════════════════════════════════════════════════════════════════

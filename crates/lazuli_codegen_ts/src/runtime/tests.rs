@@ -33,6 +33,7 @@ fn base_feature(resources: Vec<ir::Resource>) -> ir::Feature {
         purpose: None,
         non_goals: Vec::new(),
         context_path: None,
+        knowledge: None,
         defaults: ir::Defaults::default(),
         uses: Vec::new(),
         uses_spans: Vec::new(),

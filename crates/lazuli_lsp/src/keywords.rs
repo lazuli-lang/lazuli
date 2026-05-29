@@ -165,6 +165,15 @@ pub const KEYWORDS: &[&str] = &[
     "refresh_ttl",
     "grace",
     "theft_detection_action",
+    // `cookie-sessions-child` — the `auth.sessions.cookie` transport
+    // sub-block + its attribute vocabulary. `same_site` / `secure` /
+    // `http_only` are shared with the app-level `app.cookie` profiles
+    // (`Context::Cookie`); `domain` / `path` already appear in this
+    // catalog as generic keywords; `name` is the generic `modifier`.
+    "cookie",
+    "same_site",
+    "secure",
+    "http_only",
     "refresh",
     "enroll",
     "verify",
@@ -367,6 +376,11 @@ pub const KEYWORDS: &[&str] = &[
     "attach_ctx",
     "purpose",
     "non_goals",
+    // `knowledge <sector>` — bareword sector slug naming the
+    // `knowledge/<sector>/` vault the feature draws from. Sibling
+    // of purpose / non_goals / attach_ctx. See
+    // `docs/proposals/knowledge-sector-field.md`.
+    "knowledge",
     // Surface (`.lzx`) view / create / UX primitives. `view list`
     // projections, the `view create` submit + post-submit contract, and
     // the Wave-W6 / GAP-UX UX primitives.

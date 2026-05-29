@@ -266,6 +266,7 @@ mod tests {
             purpose: None,
             non_goals: Vec::new(),
             context_path: None,
+            knowledge: None,
             defaults: Defaults { tenancy: None, timestamps: false, policy: None },
             uses: Vec::new(),
             uses_spans: Vec::new(),
@@ -351,6 +352,7 @@ mod tests {
             extra_columns: vec![],
             access_ttl: None,
             rotation: None,
+            cookie: None,
         })));
         assert!(emit_auth_session_file("examples/x.lzi", &feature).is_none());
     }
@@ -365,6 +367,7 @@ mod tests {
             extra_columns: vec![org_extra_column()],
             access_ttl: None,
             rotation: None,
+            cookie: None,
         })));
 
         let out = emit_auth_session_file("features/account/account.lzi", &feature)
@@ -430,6 +433,7 @@ mod tests {
             extra_columns: vec![org_extra_column()],
             access_ttl: None,
             rotation: None,
+            cookie: None,
         })));
 
         let out = emit_auth_session_file("features/billing/billing.lzi", &feature)

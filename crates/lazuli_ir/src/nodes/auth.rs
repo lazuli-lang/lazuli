@@ -156,6 +156,54 @@ pub struct RotationConfig {
     pub span_ref: Option<SpanRef>,
 }
 
+/// Transport attributes for the session/refresh cookie. Present iff the
+/// author declared a `cookie` block under `auth.sessions`. Each axis is
+/// independently optional — when a slot is `None` the runtime keeps its
+/// hardcoded default for that attribute (so a partial block only overrides
+/// the axes it names). When the whole struct is `None`
+/// ([`AuthSessions::cookie`] absent), the runtime stamps cookies exactly as
+/// it does today.
+///
+/// The catalog is reused, not invented: `same_site` draws on the same
+/// closed `lax | strict | none` set the app-wide `cookie` block already
+/// uses (`crates/lazuli_keywords/src/registry.rs` `Context::Cookie`), so
+/// there is one transport-attribute vocabulary with two anchor positions
+/// (the app manifest and `auth.sessions`).
+///
+/// `http_only` is the author-facing axis; the runtime sink ([`CookieOpts`]
+/// in `runtime/go/lazuli/http_cookies.go`) is keyed on the inverse
+/// `AllowJS`, so `http_only = true` lowers to `AllowJS = false`.
+///
+/// See `docs/proposals/cookie-sessions-child.md` (authoring shape + lowering).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionCookie {
+    /// `name "lazuli_session"` — cookie name. When `None` the runtime
+    /// keeps the canonical `lazuli_session` / `lazuli_refresh` names.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// `same_site lax|strict|none` — closed catalog (validated at parse
+    /// time). When `None` the runtime keeps `SameSite=Lax`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub same_site: Option<String>,
+    /// `secure true|false` — `Secure` (HTTPS-only) flag. Defaults to
+    /// `true` (SEC-H1) in the runtime when `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secure: Option<bool>,
+    /// `http_only true|false` — `HttpOnly` flag. Defaults to `true` in
+    /// the runtime when `None`. Lowers to the inverse `AllowJS` sink.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http_only: Option<bool>,
+    /// `domain ".example.com"` — cookie `Domain`. When `None` the cookie
+    /// is host-only (runtime leaves `Domain` empty).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    /// `path "/"` — cookie `Path`. When `None` the runtime keeps `/`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ref: Option<SpanRef>,
+}
+
 /// `auth.sessions { ... }` block — names the session resource and
 /// declares the token lifetime + rotation discipline. The legacy
 /// single-token shape (`ttl`, `refresh: bool`) is preserved for
@@ -193,6 +241,14 @@ pub struct AuthSessions {
     /// See proposal §2.A.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rotation: Option<RotationConfig>,
+    /// Cookie transport attributes. Presence = the author declared a
+    /// `cookie` block under `sessions`; inner slots each optional with the
+    /// runtime keeping its hardcoded literal for absent axes. When `None`,
+    /// the runtime stamps the session/refresh cookies exactly as it does
+    /// today — back-compat guaranteed. Mirrors how [`AuthSessions::rotation`]
+    /// defaults its slots. See `docs/proposals/cookie-sessions-child.md`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cookie: Option<SessionCookie>,
 }
 
 impl AuthSessions {
@@ -354,6 +410,7 @@ mod tests {
             extra_columns: vec![],
             access_ttl: None,
             rotation: None,
+            cookie: None,
         };
         assert!(!sessions.is_rotation_enabled());
         assert_eq!(sessions.resolved_access_ttl(), "7 days");
@@ -379,6 +436,7 @@ mod tests {
                 theft_detection_action: None,
                 span_ref: None,
             }),
+            cookie: None,
         };
         assert!(sessions.is_rotation_enabled());
         assert_eq!(sessions.resolved_access_ttl(), "15 minutes");
@@ -407,6 +465,7 @@ mod tests {
                 theft_detection_action: Some(TheftAction::RevokeUser),
                 span_ref: None,
             }),
+            cookie: None,
         };
         assert_eq!(sessions.resolved_access_ttl(), "5 minutes");
         assert_eq!(sessions.resolved_refresh_ttl(), Some("90 days"));
@@ -415,5 +474,72 @@ mod tests {
             sessions.resolved_theft_action(),
             Some(TheftAction::RevokeUser)
         );
+    }
+
+    #[test]
+    fn cookie_absent_serializes_no_key() {
+        // Back-compat: a `cookie`-less AuthSessions must not emit a
+        // `cookie` key, so older IR consumers see byte-identical JSON.
+        let sessions = AuthSessions {
+            resource: QualifiedName {
+                feature: None,
+                name: "CustomerSession".into(),
+            },
+            ttl: "7 days".into(),
+            refresh: false,
+            extra_columns: vec![],
+            access_ttl: None,
+            rotation: None,
+            cookie: None,
+        };
+        let json = serde_json::to_value(&sessions).unwrap();
+        assert!(
+            json.get("cookie").is_none(),
+            "absent cookie must skip-serialize, got: {json}"
+        );
+    }
+
+    #[test]
+    fn session_cookie_round_trips_through_json() {
+        // A fully-populated SessionCookie survives a serialize → deserialize
+        // round-trip with every axis preserved (the closed `same_site`
+        // catalog rides as its raw string).
+        let cookie = SessionCookie {
+            name: Some("lazuli_session".into()),
+            same_site: Some("strict".into()),
+            secure: Some(true),
+            http_only: Some(true),
+            domain: Some(".example.com".into()),
+            path: Some("/".into()),
+            span_ref: Some(SpanRef { start: 1, end: 2 }),
+        };
+        let json = serde_json::to_string(&cookie).unwrap();
+        let back: SessionCookie = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, cookie);
+    }
+
+    #[test]
+    fn session_cookie_partial_skips_absent_axes() {
+        // A partial cookie (only `secure`) skip-serializes the rest, so
+        // the runtime keeps its hardcoded literal for every absent axis.
+        let cookie = SessionCookie {
+            name: None,
+            same_site: None,
+            secure: Some(false),
+            http_only: None,
+            domain: None,
+            path: None,
+            span_ref: None,
+        };
+        let json = serde_json::to_value(&cookie).unwrap();
+        assert_eq!(json.get("secure"), Some(&serde_json::json!(false)));
+        for absent in ["name", "same_site", "http_only", "domain", "path"] {
+            assert!(
+                json.get(absent).is_none(),
+                "absent axis `{absent}` must skip-serialize, got: {json}"
+            );
+        }
+        let back: SessionCookie = serde_json::from_value(json).unwrap();
+        assert_eq!(back, cookie);
     }
 }

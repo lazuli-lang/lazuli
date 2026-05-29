@@ -104,6 +104,41 @@ pub struct AuthSessions {
     /// `rotation` nested block. Presence enables refresh-token rotation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rotation: Option<AuthSessionRotation>,
+    /// `cookie` nested block. Presence declares session-cookie transport
+    /// attributes; absence keeps the runtime's hardcoded cookie literals.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cookie: Option<AuthSessionCookie>,
+    pub span: Span,
+}
+
+/// `cookie` nested block inside [`AuthSessions`] — closed-catalog session
+/// cookie transport attributes. Sibling of [`AuthSessionRotation`]; each
+/// axis is `Option<_>` so a partial block only overrides the axes it names
+/// and the runtime keeps its hardcoded literal for the rest. The `cookie`
+/// child reuses the same attribute vocabulary as the app-wide `cookie`
+/// block (anchored here by the `sessions` parent) per
+/// `docs/proposals/cookie-sessions-child.md`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthSessionCookie {
+    /// `name "lazuli_session"` — optional cookie name override.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// `same_site lax|strict|none` — closed catalog, validated at parse
+    /// time (unknown values are rejected with a clear error).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub same_site: Option<String>,
+    /// `secure true|false` — `Secure` (HTTPS-only) flag override.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secure: Option<bool>,
+    /// `http_only true|false` — `HttpOnly` flag override.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http_only: Option<bool>,
+    /// `domain ".example.com"` — optional cookie `Domain`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    /// `path "/"` — optional cookie `Path`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     pub span: Span,
 }
 

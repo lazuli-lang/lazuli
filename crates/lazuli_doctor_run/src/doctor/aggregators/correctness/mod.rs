@@ -403,6 +403,7 @@ pub(crate) fn make_synthetic_feature_for_correctness(
         purpose: None,
         non_goals: Vec::new(),
         context_path: None,
+        knowledge: None,
         defaults: synth_defaults,
         uses: Vec::new(),
         uses_spans: Vec::new(),

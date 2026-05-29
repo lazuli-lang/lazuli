@@ -51,6 +51,8 @@ mod slots;
 #[cfg(test)]
 mod deprecated_tests;
 #[cfg(test)]
+mod emits_split_tests;
+#[cfg(test)]
 mod gap_audit01_tests;
 #[cfg(test)]
 mod w4_tests;
@@ -310,8 +312,10 @@ pub(super) fn parse_command_decl(
             last_end = line.end;
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("emits ") {
+            // `emits a, b` expands to one `CommandEmit` per name, so
+            // `.extend` (mirroring `parse_invalidates_block` below).
             let (parsed, next) = parse_command_emit(lines, i, rest)?;
-            emits.push(parsed);
+            emits.extend(parsed);
             last_end = lines[next.saturating_sub(1).max(i)].end;
             i = next;
         } else if trimmed == "triggers" {

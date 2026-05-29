@@ -1,7 +1,7 @@
 ># Grammar snapshot fixture — exercises the canonical .lzi vocabulary.
 #^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
 ># Modeled on examples/full-capsule and example/account so every major
-#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
 ># construct that has a dedicated TextMate scope is hit at least once.
 #^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
 >
@@ -54,6 +54,10 @@
 #             ^ source.lazuli string.quoted.double.lazuli
 #              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
 #                                          ^ source.lazuli string.quoted.double.lazuli
+>
+>  knowledge catalog
+#^^^^^^^^^^^ source.lazuli entity.name.function.statement.feature-meta.lazuli
+#           ^^^^^^^^^ source.lazuli
 >
 >  defaults
 #^^ source.lazuli

@@ -47,6 +47,7 @@ pub(super) fn base_feature(name: &str) -> Feature {
         purpose: None,
         non_goals: Vec::new(),
         context_path: None,
+        knowledge: None,
         defaults: Defaults {
             tenancy: None,
             timestamps: false,
@@ -190,6 +191,7 @@ pub(super) fn auth_session_module(rotation: Option<RotationConfig>) -> Module {
             extra_columns: Vec::new(),
             access_ttl: None,
             rotation,
+            cookie: None,
         }),
         mfa: None,
         oauth: Vec::new(),

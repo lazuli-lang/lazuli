@@ -63,6 +63,18 @@ impl DoctorPackage {
         // (iron-hand promotes to error) > category default.
         diagnostics.extend(self.context_vocab_diagnostics());
 
+        // Knowledge-sector vocabulary — the five `VOCAB-KNOWLEDGE-*` rules
+        // (SECTOR-UNKNOWN, DANGLING-CITE, UNGATED-WRITE, STALE, DUP-TOPIC).
+        // Sibling of the VOCAB-CONTEXT family above: same Vocabulary
+        // category + severity precedence, but it additionally iterates
+        // features carrying a `knowledge <sector>` field (SECTOR-UNKNOWN /
+        // DANGLING-CITE) and scans the on-disk `knowledge/<sector>/` gold-doc
+        // vault for the write-gate + decay + dedup rules. Closes the dormant
+        // wiring gap: the rules compiled + were registry-claimed but no
+        // dispatcher invoked them. See
+        // `docs/proposals/knowledge-sector-field.md` §Doctor.
+        diagnostics.extend(self.knowledge_vocab_diagnostics());
+
         // PG.B — plan-and-gate cross-feature checks.
         if let Some(facts) = &self.plan_gate_facts {
             let eval_order_inputs = collect_callable_bodies_for_eval_order(&self.files);
@@ -183,6 +195,16 @@ impl DoctorPackage {
             &correctness_app_root,
             self.security_profile,
             self.single_file_input,
+        ));
+        // JOB-* runtime-gap rules over the lifted `Feature.jobs` —
+        // today `JOB-DECLARATIVE-BODY-UNSUPPORTED-001`, which fires when
+        // a declarative job body lowers to a no-op (the runtime has no
+        // `jobs.JobContract` slot to execute it). Severity resolves
+        // through `[doctor.error_handling].preset` (warn under strict,
+        // error under iron-hand) like the `HANDLER-*` family.
+        diagnostics.extend(aggregators::job_runtime_gap::diagnostics(
+            &self.tier3_facts,
+            self.lazurite_manifest.as_ref(),
         ));
         // `.lzi` hygiene — file size, file/feature name alignment,
         // and multi-feature cohesion. Reads
@@ -358,6 +380,16 @@ impl DoctorPackage {
             &self.feature_uses,
             self.registry.as_ref(),
         ));
+        // AUTH-ACTOR-SUBJECT-AMBIGUOUS-001 — warn when the app's
+        // `actor_query` resolves the authenticated actor to a non-`User`
+        // resource while an owner/scope check (ctx.user / @scope.owner /
+        // @scope.same_org) gates a User-typed owner; both identities
+        // collapse into the single ctx.User runtime slot.
+        diagnostics.extend(aggregators::auth_actor_subject::diagnostics(
+            &self.tier3_facts,
+            self.app.as_ref(),
+            &self.feature_uses,
+        ));
         diagnostics.extend(auth_refresh::diagnostics(
             &self.auth_facts,
             &self.feature_resources,
@@ -369,6 +401,22 @@ impl DoctorPackage {
             &self.auth_facts,
             &self.project_root,
         ));
+        // SESSION-QUERY-TEMPORAL-VALIDITY-001 — IR-driven session-query
+        // security invariant. Promotes the warn-only LSP
+        // `active-session-temporal-scope` text-scan to a blocking,
+        // name-agnostic IR rule over the resource bound by `auth sessions
+        // resource <X>`. Reads `Query.filters` from the re-parsed typed
+        // `Feature` (the fact-only auth slices the aggregator above uses
+        // do not carry queries).
+        diagnostics.extend(self.session_query_temporal_validity_diagnostics());
+
+        // SESSION-COOKIE-* — the five IR-driven session-cookie transport
+        // diagnostics over `auth.sessions.cookie` (insecure-in-prod,
+        // samesite-none-insecure, missing, profile-conflict,
+        // host-prefix-violation). Re-parses the typed `Feature` IR for the
+        // cookie sub-block the fact-only auth slices above do not carry.
+        // See `docs/proposals/cookie-sessions-child.md` §Doctor.
+        diagnostics.extend(self.session_cookie_diagnostics());
 
         // Row 30 — Storage bucket cycle: 5 typed `@cap.File`
         // diagnostics. See `docs/proposals/bucket-storage-cycle.md`

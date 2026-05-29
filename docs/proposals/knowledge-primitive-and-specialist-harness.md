@@ -1,7 +1,7 @@
 # Lazuli — `knowledge` como Primitivo & a Harness Especialista
 ## Documento de Ouro · visão unificada (proposta para review + grade)
 
-> **Status:** PROPOSTA — para review do `lazuli-language-architect` + grade contra o rubric AI-first.
+> **Status:** VISÃO / north-star. **Como proposta de linguagem: BLOQUEADA e superseded** (2026-05-28) — empacotava demais e propunha overload de tokens. A mudança de gramática gradeável foi extraída para `knowledge-sector-field.md` (`knowledge <sector>`, Opção A); RAG sai da gramática → plugin. Este doc permanece como narrativa de visão, NÃO como proposta.
 > **Origem:** destilado de uma sessão de design (2026-05-28). Une o melhor de Lazuli, Pleiades, Erudito, Orion e lazuli-ops; corta o excesso.
 > **Princípio-guia:** **a harness é a linguagem.** Correção por construção, não policiamento.
 
@@ -108,7 +108,7 @@ Vantagem injusta: **a memória é o compilador**, então o pack é *derivado* do
 
 O modo de falha nº1 de memória é o **lixão**: pasta gigante de notas não-validadas, stale, redundantes — o agente afoga. (Inclusive a memória do próprio Claude Code peca nisso: escrita grátis, sem gate, sem decay, pedindo pro agente se autocurar.) A cura é a analogia de **migration**:
 
-- **História append-only, datada, nunca editada** = o **git** de `.lazuli/knowledge/`. (Não construir engine; git já é isso.)
+- **História append-only, datada, nunca editada** = o **git** de `knowledge/`. (Não construir engine; git já é isso.)
 - **Estado atual = projeção curada** = a working tree (só gold). O agente lê a *projeção*, não a pilha. Tamanho da história ≠ tamanho do contexto.
 - **Escrita GATED** = entra como `draft` num `_inbox`; só promove a `gold` se passar: está no catálogo, não-redundante (dedup), durável, citado. **Escrever memória deixa de ser ação grátis.**
 - **Supersessão, não acumulação** (`replaces` + `deprecated`): uma verdade por tópico na visão corrente.
@@ -116,7 +116,7 @@ O modo de falha nº1 de memória é o **lixão**: pasta gigante de notas não-va
 
 Layout file-native (prova primeiro, antes de qualquer Rust):
 ```
-.lazuli/knowledge/<sector>/NNNN-<slug>.md
+knowledge/<sector>/NNNN-<slug>.md
   frontmatter: tier | supersedes | revalidate_by | cites | tags
 ```
 
@@ -176,7 +176,7 @@ O grafo de conhecimento, fundido ao compilador, é renderizado pra três plateia
 ## 10. Ordem de prova (construir sem inchar)
 
 1. **Destilar do `.specs` do pauta-web** (o "ouro" piloto) qual é o **catálogo fechado** real: quais sectors, tiers, relations *provaram* valor. Não se chuta — destila.
-2. **Provar file-native primeiro**: `.lazuli/knowledge/*.md` + frontmatter + git + grep. Sem índice vetorial (sqlite-vec só quando o grep parar de escalar), sem servidor, sem UI.
+2. **Provar file-native primeiro**: `knowledge/*.md` + frontmatter + git + grep. Sem índice vetorial (sqlite-vec só quando o grep parar de escalar), sem servidor, sem UI.
 3. **Promover a Rust/nativo** via o loop do lazuli-ops (gap → proposta → grade ≥9.0 → wave). A primitiva nasce **justa, não inchada.**
 4. **Roteiro dev-time primeiro** (hooks + Workflow); standalone (Agent SDK) só se/quando quiser o produto autônomo.
 
@@ -186,7 +186,7 @@ O grafo de conhecimento, fundido ao compilador, é renderizado pra três plateia
 2. **Subsunção:** `knowledge` deve *substituir* `attach_ctx` (e talvez absorver `purpose`/`non_goals` como campos), ou conviver?
 3. **`pack` é primitivo top-level ou uma forma de `query`?** Qual fere menos a composabilidade e o vocabulário fechado?
 4. **Catálogo fechado inicial:** quais sectors/tiers/relations entram no default opinativo, e quanto de extensão-pelo-dev é seguro sem virar dialeto?
-5. **Fronteira nativo vs file:** o que é declarado na linguagem (`.lzi`) vs o que vive como convenção de arquivo (`.lazuli/knowledge/`)? O `doctor` valida o quê de cada lado?
+5. **Fronteira nativo vs file:** o que é declarado na linguagem (`.lzi`) vs o que vive como convenção de arquivo (`knowledge/`)? O `doctor` valida o quê de cada lado?
 6. **Multi-target:** a projeção "onboarding" (§7) tem implicação de codegen (Go/React/Expo) ou é puramente uma view derivada do IR?
 7. **Rule Zero & founding principle:** algo aqui tenta reimplementar o que stdlib/lib madura já faz (git como história, sqlite-vec como índice)? Onde o "wire, not reimplement" precisa de vigilância?
 

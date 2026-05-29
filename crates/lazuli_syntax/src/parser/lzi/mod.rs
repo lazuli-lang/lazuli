@@ -73,6 +73,9 @@ pub mod translation;
 pub mod types;
 mod webhook;
 
+#[cfg(test)]
+mod lifecycle_emits_split_tests;
+
 // Hand-rolled line-walker for `feature <name>` blocks. Lives in a sibling
 // so this module root stays thin; it dispatches to every other parser in
 // `lzi/*.rs`.

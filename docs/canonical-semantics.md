@@ -130,7 +130,7 @@ The canonical form avoids compact aliases. Use `domain`, `resource`, `record`, `
 Feature blocks have a canonical lint/format order:
 
 ```txt
-meta: purpose, non_goals, context
+meta: purpose, non_goals, attach_ctx, knowledge
 defaults
 uses
 refs (optional reading aid; omit core namespace lists)
@@ -2754,6 +2754,52 @@ records theft on the session resource and applies `theft_detection_action`.
 other devices alone. `revoke_user` revokes every session row for the same user
 and is appropriate when a replay implies broader account compromise.
 
+### Session cookie
+
+`auth.sessions.cookie` is an optional nested block (sibling of `rotation`) that
+overrides the transport envelope of the session cookie. Without it the runtime
+stamps its hardcoded cookie literals; with it, each attribute you name overrides
+that axis while every attribute you omit keeps the default — the block is a
+partial override, not a full replacement:
+
+```txt
+auth
+  sessions
+    resource <ResourceName>
+    [cookie
+      [name "<cookie-name>"]
+      [same_site lax|strict|none]
+      [secure true|false]
+      [http_only true|false]
+      [domain "<domain>"]
+      [path "<path>"]
+    ]
+```
+
+Example:
+
+```lazuli
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+      cookie
+        name "lazuli_session"
+        same_site strict
+        secure true
+        http_only true
+        domain ".example.com"
+        path "/app"
+```
+
+The six attributes are all optional and each appears at most once. `name` sets
+the cookie name (default `lazuli_session`); `same_site` is the closed CSRF
+catalog `lax` | `strict` | `none` (default `lax`, and `none` requires
+`secure true` per RFC 6265bis); `secure` and `http_only` toggle the `Secure`
+and `HttpOnly` flags; `domain` and `path` set the cookie `Domain` and `Path`.
+The `same_site` / `secure` / `http_only` vocabulary is shared with app-level
+`app.cookie` profiles — only the parent scope differs. An absent `cookie` block
+leaves the session under the runtime's hardcoded cookie literals.
+
 ### Two-cookie discipline
 
 The access credential and refresh credential are separate. The access token may
@@ -2927,7 +2973,7 @@ over-tighten a single layer when it earns it.
 
 ## Feature Context Vocabulary
 
-Three feature-scope keywords give cold readers — humans skimming the
+Four feature-scope keywords give cold readers — humans skimming the
 codebase and LLMs ingesting source — an immediate, structural answer
 to "what is this feature for, what is it explicitly NOT for, and where
 do I read more?". They sit at feature-child indent (two spaces), each
@@ -2940,6 +2986,7 @@ feature catalog
     "Full marketplace listing optimization"
     "Real-time chat (use messaging feature)"
   attach_ctx "./ctx.md"
+  knowledge lodging
   defaults
     timestamps
   resource Property
@@ -2994,6 +3041,18 @@ project root as fallback.
 3. The file exists but contains fewer than `100` non-whitespace
    characters (stub heuristic — empty / whitespace-only files do not
    count as documentation).
+
+### `knowledge <sector>`
+
+A bareword sector slug (e.g. `lodging`, `billing`) naming the
+`knowledge/<sector>/` document vault the feature draws
+authoring knowledge from. Unquoted identifier, cardinality 0..1.
+
+The planned `VOCAB-KNOWLEDGE-*` rules cross-check the declared sector
+against its on-disk vault (e.g. a dangling sector with no matching
+`knowledge/<sector>/` directory, or a dangling citation). They
+carry the same `Vocabulary` category and `warning` posture as the
+sibling `VOCAB-CONTEXT-*` family.
 
 ### Preset behavior
 

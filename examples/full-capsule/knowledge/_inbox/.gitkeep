@@ -1,0 +1,3 @@
+# Gated-write draft staging. New knowledge lands here as `tier: draft`,
+# and is promoted to `knowledge/<sector>/NNNN-<slug>.md` once it passes the
+# gate (see ../README.md "Gated write").

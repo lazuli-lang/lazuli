@@ -142,7 +142,6 @@ feature_body      = ( meta_block
                     | event_trace_block
                     | agent_block
                     | flow_block          (* Cut B *)
-                    | knowledge_block     (* Cut B sketch *)
                     | extensions_block
                     | escape_route_block
                     | surface_block       (* feature-side surface declarations *)
@@ -158,7 +157,8 @@ in `docs/canonical-semantics.md §Quick Reference`, not by the grammar.
 ```ebnf
 meta_block        = purpose_stmt
                   | non_goals_block
-                  | attach_ctx_stmt ;
+                  | attach_ctx_stmt
+                  | knowledge_stmt ;
 
 purpose_stmt      = "purpose" STRING NEWLINE ;
 
@@ -166,6 +166,12 @@ purpose_stmt      = "purpose" STRING NEWLINE ;
    file (markdown) the agent / strict-profile reads as authoring guidance.
    Cardinality 0..1; the quoted path is relative to the feature file. *)
 attach_ctx_stmt   = "attach_ctx" STRING NEWLINE ;     (* attach_ctx "./ctx.md" *)
+
+(* Iron-hand context directive. Names the bareword sector slug whose
+   `knowledge/<sector>/` vault the feature draws authoring
+   knowledge from. Cardinality 0..1; the planned `VOCAB-KNOWLEDGE-*`
+   doctor lints cross-check the sector against its on-disk vault. *)
+knowledge_stmt    = "knowledge" IDENT_LOWER NEWLINE ;  (* knowledge billing *)
 
 non_goals_block   = "non_goals" NEWLINE
                     INDENT
@@ -855,7 +861,8 @@ sessions_body     = "resource" IDENT_UPPER NEWLINE
                   | "ttl" duration_literal NEWLINE
                   | "refresh" ( "true" | "false" ) NEWLINE
                   | "access_ttl" duration_literal NEWLINE
-                  | rotation_block ;
+                  | rotation_block
+                  | cookie_block ;
 rotation_block    = "rotation" NEWLINE
                     INDENT rotation_body* DEDENT
                   | "rotation" "true" NEWLINE ;
@@ -864,6 +871,15 @@ rotation_body     = "refresh_ttl" duration_literal NEWLINE
                   | "theft_detection_action" theft_detection_action NEWLINE ;
 theft_detection_action
                   = "revoke_session_family" | "revoke_user" ;
+cookie_block      = "cookie" NEWLINE
+                    INDENT cookie_attr+ DEDENT ;
+cookie_attr       = "name" STRING NEWLINE
+                  | "same_site" same_site_value NEWLINE
+                  | "secure" ( "true" | "false" ) NEWLINE
+                  | "http_only" ( "true" | "false" ) NEWLINE
+                  | "domain" STRING NEWLINE
+                  | "path" STRING NEWLINE ;
+same_site_value   = "lax" | "strict" | "none" ;
 duration_literal  = STRING | DURATION ;
 ```
 
@@ -884,6 +900,23 @@ framework default `14d`.
 `theft_detection_action` is scoped to `auth.sessions.rotation`; it is a closed
 enum (`revoke_session_family` | `revoke_user`) with default
 `revoke_session_family`.
+
+`cookie` is scoped to `auth.sessions`; it is a nested block declaring the
+session-cookie transport envelope. Every attribute is optional — an absent
+attribute leaves the runtime's hardcoded cookie literal for that axis in place,
+so the block overrides only what it names. The six reserved attributes are:
+
+- `name` — the cookie name (string; runtime default `lazuli_session`).
+- `same_site` — CSRF policy, a closed catalog `lax` | `strict` | `none`
+  (default `lax`; `none` requires `secure true` per RFC 6265bis).
+- `secure` — `Secure` (TLS-only) flag, `true` | `false`.
+- `http_only` — `HttpOnly` (hidden from `document.cookie`) flag, `true` | `false`.
+- `domain` — the cookie `Domain` attribute (string, e.g. `".example.com"`).
+- `path` — the cookie `Path` attribute (string, e.g. `"/app"`).
+
+The `same_site` / `secure` / `http_only` attribute vocabulary is shared with
+the app-level `app.cookie` profiles (app manifest); only the parent scope
+differs.
 
 ## 14. Agent (with Cut A AI primitives)
 
@@ -969,23 +1002,16 @@ budget_axis       = "tokens" INTEGER "per" budget_scope ;
 budget_scope      = "request" ;        (* aggregate scopes are pack territory *)
 ```
 
-## 16. Knowledge (Cut B sketch — pack candidate, not in v0)
+## 16. Knowledge
 
-```ebnf
-knowledge_block   = "knowledge" IDENT_LOWER ( "from" "@pack." namespace_path )? NEWLINE
-                    INDENT knowledge_body DEDENT ;
+`knowledge` is a scalar meta statement (`knowledge_stmt` — `knowledge <sector>`, sibling of
+`purpose` / `non_goals` / `attach_ctx`), cross-checked against its on-disk vault by the
+`VOCAB-KNOWLEDGE-*` doctor rules. See `docs/proposals/knowledge-sector-field.md`.
 
-knowledge_body    = ( "source" target_expr NEWLINE
-                    | "chunk" "by" IDENT_LOWER NEWLINE
-                    | "retention" DURATION NEWLINE
-                    | "pii" pii_class_list NEWLINE
-                    | "tenant_from" idempotency_source NEWLINE
-                    | "embedding" "@adapter." IDENT_LOWER NEWLINE
-                    )+ ;
-
-pii_class_list    = IDENT_LOWER ( "," IDENT_LOWER )* ;
-namespace_path    = IDENT_LOWER ( "." IDENT_LOWER )* ;
-```
+An earlier block-form RAG sketch (`source` / `chunk by` / `embedding @adapter`) was never
+wired on any executable face and has been removed; vector/embedding retrieval is
+companion-`@plugin` territory, not core grammar (see the proposal's out-of-scope section
+for the disposition).
 
 ## 17. Surfaces (feature-side)
 

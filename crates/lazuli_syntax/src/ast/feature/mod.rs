@@ -39,7 +39,9 @@ pub mod policy;
 pub mod rbac;
 pub mod translation;
 
-pub use context::{LziFeatureAttachCtx, LziFeatureNonGoals, LziFeaturePurpose};
+pub use context::{
+    LziFeatureAttachCtx, LziFeatureKnowledge, LziFeatureNonGoals, LziFeaturePurpose,
+};
 pub use contracts::{PublicContractDeclAst, UsesClauseAst};
 pub use defaults::{DefaultsPolicyFor, DefaultsTenancy, FeatureDefaults};
 pub use enums::{EnumDeclAst, EnumStorageValueDecl, EnumVariantDecl};
@@ -183,6 +185,15 @@ pub struct FeatureSkeleton {
     /// `docs/canonical-semantics.md#feature-context-vocabulary`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attach_ctx: Option<LziFeatureAttachCtx>,
+    /// Iron-hand context-vocabulary — `knowledge <sector>` naming the
+    /// `knowledge/<sector>/` vault the feature draws from. The
+    /// sector is a bareword slug (not a quoted string). At most one per
+    /// feature; duplicate is a parse error. Sector ↔ on-disk vault
+    /// cross-checks live in the planned `VOCAB-KNOWLEDGE-*` doctor lints
+    /// (a later stage). See
+    /// `docs/proposals/knowledge-sector-field.md`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub knowledge: Option<LziFeatureKnowledge>,
     pub span: Span,
 }
 

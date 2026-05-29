@@ -10,7 +10,7 @@ use lazuli_ir::{
     TypedSlot,
 };
 
-use super::builders::minimal_module;
+use super::builders::{empty_command, minimal_module};
 
 #[test]
 fn command_kind_emits_typed_input_struct_and_command_value() {
@@ -318,6 +318,47 @@ fn reorder_command_emits_batch_reorder_effect() {
             .contains("Effect: lazuli.Reorder(&jobStepResource, \"position\"),"),
         "expected `Effect: lazuli.Reorder(...)` in command.gen.go:\n{}",
         command_file.contents
+    );
+}
+
+#[test]
+fn multi_event_emits_render_one_event_row_per_name() {
+    // Regression for bug F1-emits-multi-event. The PARSE-layer fix makes
+    // `emits a, b` populate `ir::Command.emits` with TWO strings (not one
+    // `"a, b"` comma-string), so the Go emitter must now render two
+    // separate `{Name: ...}` rows. Before the fix the IR carried a single
+    // `"subscription_activated, subscription_status_changed"` element and
+    // the emitter faithfully produced one bogus row matching no declared
+    // event. This pins the post-fix contract end-to-end at the emit layer:
+    // N IR names -> N rendered EventEmit rows, never a joined comma-string.
+    let mut module = minimal_module("billing", "subscription");
+    let mut cmd = empty_command("activate", None);
+    cmd.emits = vec![
+        "subscription_activated".to_owned(),
+        "subscription_status_changed".to_owned(),
+    ];
+    module.features[0].commands.push(cmd);
+
+    let files = generate_v1(&module, &GoEmitOptions::default());
+    let command_file = files
+        .iter()
+        .find(|f| f.path == "subscription/command.gen.go")
+        .expect("expected subscription/command.gen.go");
+    let contents = &command_file.contents;
+
+    assert!(
+        contents.contains("{Name: \"subscription_activated\", From: lazuli.FromExplicit},"),
+        "expected a standalone `subscription_activated` EventEmit row:\n{contents}"
+    );
+    assert!(
+        contents.contains("{Name: \"subscription_status_changed\", From: lazuli.FromExplicit},"),
+        "expected a standalone `subscription_status_changed` EventEmit row:\n{contents}"
+    );
+    // The pre-fix symptom: the two names joined by a comma in ONE Name
+    // literal. Must never reappear.
+    assert!(
+        !contents.contains("subscription_activated, subscription_status_changed"),
+        "comma-joined event names must NOT survive into a single Name literal:\n{contents}"
     );
 }
 

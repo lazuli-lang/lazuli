@@ -129,26 +129,44 @@ pub(in crate::parser::lzi) fn parse_command_effect(
     ))
 }
 
-/// `emits <event>` line. Recognises trailing ` from creates` /
-/// ` from updates` / ` from deletes`. Optional child block uses six-
-/// space indent with `<key> = <expr>` lines.
+/// `emits <event>[, <event>…]` line. Recognises a trailing
+/// ` from creates` / ` from updates` / ` from deletes` axis that applies
+/// to every name on the line. A single line may declare several events
+/// separated by `,` (`emits paid, status_changed`); each becomes its own
+/// [`CommandEmit`], so the caller `.extend`s rather than `.push`es — see
+/// the sibling `parse_invalidates_block`, which returns many the same way.
+///
+/// An optional child block (six-space indent, `<key> = <expr>` payload
+/// binds) is only legal on a **single-name** `emits`: with several names
+/// it is ambiguous which event the binds populate, so a multi-name line
+/// carrying a child block is a parse error rather than a silent guess.
 pub(in crate::parser::lzi) fn parse_command_emit(
     lines: &[SourceLine<'_>],
     start: usize,
     rest: &str,
-) -> Result<(CommandEmit, usize), ParseError> {
+) -> Result<(Vec<CommandEmit>, usize), ParseError> {
     let header = &lines[start];
     let rest = rest.trim();
-    let (name, from) = if let Some(n) = rest.strip_suffix(" from creates") {
-        (n.trim().to_owned(), Some(CommandEffectKindDecl::Creates))
+    let (names_part, from) = if let Some(n) = rest.strip_suffix(" from creates") {
+        (n.trim(), Some(CommandEffectKindDecl::Creates))
     } else if let Some(n) = rest.strip_suffix(" from updates") {
-        (n.trim().to_owned(), Some(CommandEffectKindDecl::Updates))
+        (n.trim(), Some(CommandEffectKindDecl::Updates))
     } else if let Some(n) = rest.strip_suffix(" from deletes") {
-        (n.trim().to_owned(), Some(CommandEffectKindDecl::Deletes))
+        (n.trim(), Some(CommandEffectKindDecl::Deletes))
     } else {
-        (rest.to_owned(), None)
+        (rest, None)
     };
-    if name.is_empty() {
+    if names_part.is_empty() {
+        return Err(line_error(header, "`emits` requires an event name"));
+    }
+    let names: Vec<String> = names_part
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect();
+    if names.is_empty() {
+        // Only commas / whitespace after the `emits` keyword.
         return Err(line_error(header, "`emits` requires an event name"));
     }
     let mut fields: Vec<AssignmentDecl> = Vec::new();
@@ -187,13 +205,22 @@ pub(in crate::parser::lzi) fn parse_command_emit(
         });
         i += 1;
     }
-    Ok((
-        CommandEmit {
+    if names.len() > 1 && !fields.is_empty() {
+        return Err(line_error(
+            header,
+            "a multi-name `emits` (e.g. `emits a, b`) cannot carry a payload child block — \
+             give each event its own `emits` line to bind fields",
+        ));
+    }
+    let span = Span::new(header.start, header.end);
+    let emits = names
+        .into_iter()
+        .map(|name| CommandEmit {
             name,
             from,
-            fields,
-            span: Span::new(header.start, header.end),
-        },
-        i,
-    ))
+            fields: fields.clone(),
+            span,
+        })
+        .collect();
+    Ok((emits, i))
 }

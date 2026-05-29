@@ -30,7 +30,7 @@ Columns:
 
 <!-- BEGIN GENERATED BODY -->
 
-_Generated from 674 capability rows across the `lazuli_keywords` registry._
+_Generated from 676 capability rows across the `lazuli_keywords` registry._
 
 ## `.lzi` — feature source
 
@@ -137,7 +137,8 @@ _Generated from 674 capability rows across the `lazuli_keywords` registry._
 | `import` | `keyword.control.statement.lazuli` | `keyword` | — | Imports a contract/operation. | — |
 | `imports` | `keyword.control.statement.lazuli` | `keyword` | — | Declares feature imports. | — |
 | `invariants` | `keyword.control.section.lazuli` | `keyword` | — | Declares the invariants block. | `INVARIANT-PREDICATE-INVALID` |
-| `job` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a background job. | — |
+| `job` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a background job. | `JOB-DECLARATIVE-BODY-UNSUPPORTED-001` |
+| `knowledge` | `keyword.control.statement.lazuli` | `keyword` | — | Feature knowledge sector (iron-hand context). | `VOCAB-KNOWLEDGE-DANGLING-CITE-001`<br>`VOCAB-KNOWLEDGE-DUP-TOPIC-001`<br>`VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001`<br>`VOCAB-KNOWLEDGE-STALE-001`<br>`VOCAB-KNOWLEDGE-UNGATED-WRITE-001` |
 | `mcp_server` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares an MCP server surface. | — |
 | `non_goals` | `keyword.control.section.lazuli` | `keyword` | — | Feature non-goals (iron-hand context). | — |
 | `notification` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a notification. | — |
@@ -497,6 +498,7 @@ _Generated from 674 capability rows across the `lazuli_keywords` registry._
 | keyword / literal | scope | semantic token | sigil | hover | produces |
 | --- | --- | --- | --- | --- | --- |
 | `access_ttl` | `keyword.control.statement.lazuli` | `keyword` | — | Access-token TTL. | — |
+| `cookie` | `keyword.control.section.lazuli` | `keyword` | — | Session-cookie transport attributes block (name/same_site/secure/http_only/domain/path). | — |
 | `enroll` | `keyword.control.statement.lazuli` | `keyword` | — | MFA enrollment. | — |
 | `grace` | `keyword.control.statement.lazuli` | `keyword` | — | Rotation grace window. | — |
 | `hash` | `keyword.control.statement.lazuli` | `keyword` | — | Password hash algorithm. | — |

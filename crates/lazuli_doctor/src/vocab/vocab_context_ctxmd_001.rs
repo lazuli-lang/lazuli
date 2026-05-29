@@ -210,6 +210,7 @@ mod tests {
             purpose: None,
             non_goals: vec![],
             context_path: context_path.map(|s| s.to_owned()),
+            knowledge: None,
             defaults: Defaults::default(),
             uses: vec![],
             uses_spans: vec![],

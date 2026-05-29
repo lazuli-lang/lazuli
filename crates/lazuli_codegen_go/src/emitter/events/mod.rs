@@ -186,12 +186,6 @@ fn emit_group(p: &mut GoPrinter, feature: &Feature, group: &EventGroup) {
         event_group_var_name(&feature.name, &group.pattern)
     ));
     p.indent();
-    p.line(
-        "// TODO(runtime): lazuli.EventGroup is missing in Lazuli Go lib (proposal section 4.6).",
-    );
-    p.line(
-        "// TODO(runtime): lazuli.EventDescriptor is missing in Lazuli Go lib (proposal section 4.6).",
-    );
 
     let resource = group.on_resource.as_deref().unwrap_or("");
     let kv_rows = vec![

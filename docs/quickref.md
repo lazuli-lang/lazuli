@@ -933,6 +933,12 @@ opt-outs such as `verify none` without a deployment allowlist.
 - `escape_route` requires `policy` and `tenant`.
 - `auth password` requires `algorithm` and `rate_limit`; `auth sessions`
   requires `ttl`.
+- `auth sessions` may declare a `cookie` child block to override the
+  session-cookie transport envelope. Six optional attributes — `name`,
+  `same_site` (`lax` | `strict` | `none`), `secure`, `http_only`, `domain`,
+  `path`. Any attribute you omit keeps the runtime default for that axis;
+  set `secure true` whenever `same_site none`. The attribute vocabulary is
+  shared with app-level `app.cookie` profiles.
 - Mark sensitive fields and event payloads with `@pii.*`, `@cap.*`, and
   `@key.*`.
 - Use canonical capability arguments: `@cap.Hashed(algorithm:argon2id)`,
@@ -1008,6 +1014,18 @@ cardinality 0..1.
 feature catalog
   purpose "Discover and book lodging."
   attach_ctx "./ctx.md"
+```
+
+[v0] `knowledge <sector>` is the sibling feature-header directive (alongside
+`purpose` / `non_goals` / `attach_ctx`). The bareword sector slug names the
+`knowledge/<sector>/` vault the feature draws authoring knowledge from.
+Cardinality 0..1; the planned `VOCAB-KNOWLEDGE-*` doctor lints cross-check the
+sector against its on-disk vault.
+
+```lazuli
+feature catalog
+  purpose "Discover and book lodging."
+  knowledge lodging
 ```
 
 ## Inspect Context Pack

@@ -69,6 +69,14 @@ pub(in crate::commands::inspect) struct Tier3FeatureSlice {
     /// when the feature declared no `errors` block. Powers
     /// `--expand=errors` projection.
     pub(in crate::commands::inspect)errors: Option<lazuli_ir::FeatureErrors>,
+    /// `knowledge <sector>` (iron-hand context) — lifted `purpose`
+    /// text, `non_goals` entries, and the `knowledge` sector slug. The
+    /// intent triad `--expand=knowledge` projects from the lowered IR.
+    /// `purpose` / `knowledge` are `None` when unset; `non_goals` is an
+    /// empty vec. See `docs/proposals/knowledge-sector-field.md`.
+    pub(in crate::commands::inspect)purpose: Option<String>,
+    pub(in crate::commands::inspect)non_goals: Vec<lazuli_ir::NonGoal>,
+    pub(in crate::commands::inspect)knowledge: Option<String>,
 }
 
 /// B3 — variant that applies the plugin alias map to lifted features
@@ -129,6 +137,9 @@ pub(super) fn collect_tier3_by_feature_with_aliases(
                 queries: feature_ir.queries,
                 records: feature_ir.records,
                 errors: feature_ir.errors,
+                purpose: feature_ir.purpose,
+                non_goals: feature_ir.non_goals,
+                knowledge: feature_ir.knowledge,
             },
         );
     }

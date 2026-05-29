@@ -108,6 +108,83 @@ feature customer_auth
             Some(ir::TheftAction::RevokeUser)
         );
         assert!(rotation.span_ref.is_some());
+        // A rotation-only sessions block leaves the cookie slot None so the
+        // runtime keeps its hardcoded cookie literals.
+        assert!(sessions.cookie.is_none());
+    }
+
+    #[test]
+    fn lower_auth_sessions_cookie_block_to_ir() {
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+      cookie
+        name "lazuli_session"
+        same_site strict
+        secure true
+        http_only false
+        domain ".example.com"
+        path "/app"
+"#;
+        let features = lazuli_syntax::parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        let sessions = feature
+            .auth
+            .as_ref()
+            .expect("auth lowered")
+            .sessions
+            .as_ref()
+            .expect("sessions lowered");
+
+        let cookie = sessions.cookie.as_ref().expect("cookie lowered");
+        assert_eq!(cookie.name.as_deref(), Some("lazuli_session"));
+        assert_eq!(cookie.same_site.as_deref(), Some("strict"));
+        assert_eq!(cookie.secure, Some(true));
+        assert_eq!(cookie.http_only, Some(false));
+        assert_eq!(cookie.domain.as_deref(), Some(".example.com"));
+        assert_eq!(cookie.path.as_deref(), Some("/app"));
+        assert!(cookie.span_ref.is_some());
+    }
+
+    #[test]
+    fn lower_auth_sessions_partial_cookie_keeps_absent_axes_none() {
+        // Only `same_site` authored — every other axis lowers to None so the
+        // runtime keeps its hardcoded literal for the rest.
+        let source = r#"
+feature customer_auth
+  auth
+    identity Customer.email
+
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+      cookie
+        same_site none
+"#;
+        let features = lazuli_syntax::parse_feature_skeletons(source).expect("parses");
+        let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+        let cookie = feature
+            .auth
+            .as_ref()
+            .expect("auth lowered")
+            .sessions
+            .as_ref()
+            .expect("sessions lowered")
+            .cookie
+            .as_ref()
+            .expect("cookie lowered");
+
+        assert_eq!(cookie.same_site.as_deref(), Some("none"));
+        assert!(cookie.name.is_none());
+        assert!(cookie.secure.is_none());
+        assert!(cookie.http_only.is_none());
+        assert!(cookie.domain.is_none());
+        assert!(cookie.path.is_none());
     }
 
     #[test]

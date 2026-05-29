@@ -50,7 +50,7 @@ pub use nodes::async_work::{
 };
 pub use nodes::auth::{
     Auth, AuthIdentity, AuthMfa, AuthOAuthProvider, AuthPassword, AuthSessions, RotationConfig,
-    SessionExtraColumn, TheftAction,
+    SessionCookie, SessionExtraColumn, TheftAction,
 };
 pub use nodes::capability::{
     CapabilityRef, EncryptedCapability, FileCapability, FileSize, FileSizeLiteral, FileVisibility,
@@ -149,7 +149,20 @@ pub use nodes::workspace::{
     WorkspaceGatewayRoute,
 };
 
-/// LZIR_SCHEMA — version of the IR JSON ABI. Bumped to 0.16.0 by
+/// LZIR_SCHEMA — version of the IR JSON ABI.
+///
+/// `cookie-sessions-child` (this stage) adds the `AuthSessions.cookie`
+/// slot + the new `SessionCookie` type. The change is **purely additive
+/// and back-compat-pure**: every field carries
+/// `#[serde(default, skip_serializing_if = "Option::is_none")]`, so a
+/// `cookie`-less `AuthSessions` serializes byte-identical to 0.16.0 and
+/// 0.16.0 fixtures deserialize unchanged. The Minor bump that
+/// `docs/ir-abi.md` ("new optional field") prescribes is deferred to the
+/// follow-up stage that also ships the `0.16-to-0.17` migration recipe and
+/// re-pins the version fixtures (those are migration/doctor concerns out
+/// of this core-faces stage). Until then the constant stays 0.16.0.
+///
+/// Bumped to 0.16.0 by
 /// `ir-rate-limit-env-aware` cell 1 (proposal §4.1 + §8): the
 /// `Command.rate_limit` / `Api.rate_limit` / `Agent.rate_limit` /
 /// `Report.rate_limit` / `AuthPassword.rate_limit` fields move from

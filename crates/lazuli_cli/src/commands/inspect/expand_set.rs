@@ -135,6 +135,14 @@ pub(crate) struct ExpandSet {
     /// overrides). Mirrors `commands`/`apis` shape. See
     /// `docs/proposals/ir-error-messages-vocab.md` §3.6.
     pub(crate) errors: bool,
+    /// `knowledge <sector>` (iron-hand context) — `--expand=knowledge`
+    /// projects the feature's intent triad: `purpose` + `non_goals` +
+    /// the `knowledge` sector slug, all read from the lowered IR. The
+    /// scalar context fields surface here as a single grouped axis (the
+    /// "memory is the compiler" projection); reading the on-disk
+    /// `knowledge/<sector>/` vault is a later/runtime concern.
+    /// See `docs/proposals/knowledge-sector-field.md`.
+    pub(crate) knowledge: bool,
 }
 
 impl ExpandSet {
@@ -171,6 +179,7 @@ impl ExpandSet {
             queries: true,
             records: true,
             errors: true,
+            knowledge: true,
         }
     }
 
@@ -206,6 +215,7 @@ impl ExpandSet {
             || self.queries
             || self.records
             || self.errors
+            || self.knowledge
     }
 
     pub(super) fn labels(self) -> Vec<&'static str> {
@@ -303,6 +313,9 @@ impl ExpandSet {
         if self.errors {
             labels.push("errors");
         }
+        if self.knowledge {
+            labels.push("knowledge");
+        }
         labels
     }
 }
@@ -383,8 +396,13 @@ pub(crate) fn parse_expand_set(value: &str) -> Result<ExpandSet> {
             // `ir::FeatureErrors` block (exposure defaults + 4xx/5xx
             // field allowlists + per-code message overrides).
             "errors" => set.errors = true,
+            // `knowledge <sector>` (iron-hand context) — projects the
+            // feature intent triad (purpose + non_goals + knowledge
+            // sector) from the lowered IR. Reading the on-disk
+            // `knowledge/<sector>/` vault is a later concern.
+            "knowledge" => set.knowledge = true,
             _ => bail!(
-                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, event_groups, webhook_events, migrations, tenant_migrations, notifications, caches, aggregates, commands, api, apis, resources, queries, records, or errors"
+                "unknown inspect expansion `{item}`; use none, all, refs, summary, locators, dependencies, security, events, targets, policies, tests, defaults, tools, expose, auth, storage, tracing, logging, jobs, webhooks, event_groups, webhook_events, migrations, tenant_migrations, notifications, caches, aggregates, commands, api, apis, resources, queries, records, errors, or knowledge"
             ),
         }
     }

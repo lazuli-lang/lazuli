@@ -109,7 +109,11 @@ pub(in crate::commands::inspect) fn inspect_canonical_source_with_aliases(
     // and build a per-feature lookup. The slice is permissive about
     // unknown constructs, so a failed parse degrades gracefully into
     // an empty lookup; the text-pattern inspect path still runs.
-    let auth_by_feature = if expansions.auth && !is_lzx {
+    //
+    // `cookie-sessions-child` — the `security` axis also reads this
+    // lookup (to project the lowered `auth.sessions.cookie` transport
+    // envelope), so populate it when EITHER `auth` OR `security` is set.
+    let auth_by_feature = if (expansions.auth || expansions.security) && !is_lzx {
         collect_auth_by_feature(source)
     } else {
         BTreeMap::new()
@@ -136,7 +140,8 @@ pub(in crate::commands::inspect) fn inspect_canonical_source_with_aliases(
         || expansions.resources
         || expansions.queries
         || expansions.records
-        || expansions.errors)
+        || expansions.errors
+        || expansions.knowledge)
         && !is_lzx
     {
         collect_tier3_by_feature_with_aliases(source, alias_map)

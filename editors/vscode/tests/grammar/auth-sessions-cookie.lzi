@@ -1,0 +1,33 @@
+# Grammar snapshot fixture — exercises the `auth.sessions.cookie` child
+# (cookie-sessions-child). Modeled on the analyzer's
+# `lower_auth_sessions_cookie_block_to_ir` fixture so the session-cookie
+# transport attributes (name / same_site / secure / http_only / domain /
+# path) each get their dedicated cookie scope, alongside the rotation
+# sub-block and the surrounding auth vocabulary.
+
+feature customer_auth
+  purpose "Customer login, sessions, and session-cookie transport."
+
+  auth
+    identity Customer.email
+
+    password
+      hash @fn.hash_customer_password
+      verify @fn.verify_customer_password
+      rate_limit "5 per 10 minutes"
+
+    sessions
+      resource CustomerSession
+      ttl "7 days"
+      access_ttl "15 minutes"
+      rotation
+        refresh_ttl "30 days"
+        grace "30 seconds"
+        theft_detection_action revoke_session_family
+      cookie
+        name "lazuli_session"
+        same_site strict
+        secure true
+        http_only false
+        domain ".example.com"
+        path "/app"

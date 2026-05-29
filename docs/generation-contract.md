@@ -34,7 +34,7 @@ validators
 event structs
 policy calls
 typed TS client
-React tables/forms/panels
+per-view TanStack Query/Router hooks + ViewModel spec consts (headless; presentational components authored)
 ```
 
 Generated source should be structured for debugging, not bundled for distribution. The Go target emits many feature/category files and lets `go build` produce the final binary. The React target emits many feature modules and lets Vite/esbuild produce the browser bundle. Single-file generated Go or React output is not canonical because it destroys useful stack traces, incremental rebuild locality, and source-to-feature correspondence.

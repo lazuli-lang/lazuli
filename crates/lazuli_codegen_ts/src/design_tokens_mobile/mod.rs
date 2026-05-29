@@ -1,5 +1,5 @@
 //! Mobile `tokens.ts` emitter (React Native / Expo shape) —
-//! See `docs/proposals/design-tokens.md` §4.6.
+//! See the design-tokens proposal §4.6 (operational archive).
 //!
 //! Conversions from web → RN:
 //!   - `rem` values become integer `px` numbers (multiplied by `rem_base`).
@@ -163,7 +163,7 @@ pub fn emit_tokens_mobile_ts(design: &Design, rem_base: u32) -> String {
     writeln!(s, "    }},").ok();
     writeln!(s, "  }},").ok();
 
-    // NOTE: breakpoint + z intentionally omitted (proposal §4.6).
+    // NOTE: breakpoint + z intentionally omitted (design-tokens proposal §4.6, operational archive).
     writeln!(s, "}} as const;").ok();
     s
 }

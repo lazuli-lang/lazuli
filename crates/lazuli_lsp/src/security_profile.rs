@@ -86,6 +86,14 @@ pub(crate) fn is_security_enforcement_code(code: &str) -> bool {
             | "auth-password-algorithm"
             | "auth-password-rate-limit"
             | "auth-session-ttl"
+            // IR-driven session-query temporal-validity invariant
+            // (SESSION-QUERY-TEMPORAL-VALIDITY-001). Joins its
+            // session-family peers `auth-session-ttl` /
+            // `auth_sessions_resource_unknown`: WARNING under prototype,
+            // ERROR under strict/production so it blocks under the
+            // scaffolded strict profile. The warn-only in-editor
+            // `active-session-temporal-scope` squiggle stays as-is.
+            | "session-query-temporal-validity"
             | "auth_password_algorithm_hash_mismatch"
             | "auth_sessions_resource_unknown"
             | "auth_identity_field_unknown"

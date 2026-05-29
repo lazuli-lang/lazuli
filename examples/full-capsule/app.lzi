@@ -10,6 +10,7 @@ app AcmeCRM
     default "pt-BR"
     supported "pt-BR", "en-US"
     fallback "en-US" -> "pt-BR"
+  # doctor:allow AUTH-ACTOR-SUBJECT-AMBIGUOUS-001 -- reason "canonical dual-identity demonstration"
   actor_query "customer.query.by_id"
   auth_failed_redirect public_login
   route_guard

@@ -104,50 +104,129 @@ func (c *Ctx) DeleteCookie(name string) {
 	DeleteCookie(c.responseWriter, name)
 }
 
-// SetSessionCookie issues the canonical `lazuli_session` cookie with
-// the runtime defaults (HttpOnly + SameSite=Lax + Secure by default).
+// SetSessionCookie issues the session cookie with the runtime defaults
+// (name `lazuli_session`, HttpOnly + SameSite=Lax + Secure by default).
 // Used by login handlers after `auth.IssueSession` returns the opaque
 // token. Pass `ttl=0` to use `SessionCookieTTL` (7 days).
+//
+// When the feature's `auth.sessions.cookie` block declared transport
+// attributes (lowered into [SessionCookieConfig] by boot wiring), the
+// declared axes override the defaults below; absent axes keep these
+// literals. A `cookie`-less declaration leaves the config zero-valued, so
+// the stamped cookie is byte-identical to the pre-`cookie` runtime.
 func (c *Ctx) SetSessionCookie(token string, ttl time.Duration) {
 	if ttl <= 0 {
 		ttl = SessionCookieTTL
 	}
-	c.SetCookie(ProductionSessionCookieName, token, CookieOpts{
-		TTL:      ttl,
-		Path:     "/",
-		AllowJS:  false,
-		Secure:   sessionCookieSecureDefault(),
-		SameSite: http.SameSiteLaxMode,
-	})
+	c.SetCookie(SessionCookieName(), token, sessionCookieConfig.opts(ttl))
 }
 
-// ClearSessionCookie deletes the canonical session cookie. Used by
-// logout handlers after `auth.InvalidateSession`.
+// ClearSessionCookie deletes the session cookie. Used by logout handlers
+// after `auth.InvalidateSession`. Honors the declared cookie name so the
+// cleared cookie matches the one that was set.
 func (c *Ctx) ClearSessionCookie() {
-	c.DeleteCookie(ProductionSessionCookieName)
+	c.DeleteCookie(SessionCookieName())
 }
 
 // SetRefreshCookie issues the canonical `lazuli_refresh` cookie carrying
-// the long-lived refresh token. Cookie is HttpOnly + SameSite=Lax +
-// Secure by default, same as the session cookie. Used by the refresh
-// handler after `auth.RotateSession` returns a new refresh token.
+// the long-lived refresh token. Inherits the same declared transport
+// attributes (SameSite / Secure / HttpOnly / Domain / Path) as the
+// session cookie; the cookie NAME stays `lazuli_refresh` (the refresh
+// cookie is a distinct canonical cookie — `name` overrides the session
+// cookie only). Used by the refresh handler after `auth.RotateSession`
+// returns a new refresh token.
 func (c *Ctx) SetRefreshCookie(token string, ttl time.Duration) {
 	if ttl <= 0 {
 		ttl = SessionCookieTTL
 	}
-	c.SetCookie(ProductionRefreshCookieName, token, CookieOpts{
-		TTL:      ttl,
-		Path:     "/",
-		AllowJS:  false,
-		Secure:   sessionCookieSecureDefault(),
-		SameSite: http.SameSiteLaxMode,
-	})
+	c.SetCookie(ProductionRefreshCookieName, token, sessionCookieConfig.opts(ttl))
 }
 
 // ClearRefreshCookie deletes the canonical refresh cookie. Used after
 // a refresh failure (theft detection forces logout).
 func (c *Ctx) ClearRefreshCookie() {
 	c.DeleteCookie(ProductionRefreshCookieName)
+}
+
+// SessionCookieConfig carries the transport attributes lowered from a
+// feature's `auth.sessions.cookie` block. Each axis is a pointer so the
+// zero value (every field nil) means "nothing declared" — the runtime
+// then keeps its hardcoded literals and behaves exactly as it did before
+// the `cookie` child existed. Boot wiring (emitted by codegen from the IR
+// `SessionCookie`) calls [ConfigureSessionCookie] with the populated
+// axes.
+//
+// This is wire, not logic: `opts` just overlays declared axes onto the
+// same [CookieOpts] sink the SET helpers already used. `HTTPOnly` is the
+// author-facing axis; the sink is keyed on the inverse `AllowJS`, so
+// `HTTPOnly=&true` lowers to `AllowJS:false`.
+type SessionCookieConfig struct {
+	// Name overrides the session cookie name (`lazuli_session`). Nil keeps
+	// the canonical name. The refresh cookie is unaffected.
+	Name *string
+	// SameSite overrides the SameSite policy. Nil keeps SameSite=Lax.
+	SameSite *http.SameSite
+	// Secure overrides the Secure flag. Nil keeps the
+	// `SetSessionCookieSecure` default (true in prod).
+	Secure *bool
+	// HTTPOnly overrides the HttpOnly flag. Nil keeps HttpOnly=true.
+	HTTPOnly *bool
+	// Domain overrides the cookie Domain. Nil keeps host-only (empty).
+	Domain *string
+	// Path overrides the cookie Path. Nil keeps `/`.
+	Path *string
+}
+
+// sessionCookieConfig is the process-wide declared cookie config. Zero
+// value = nothing declared = legacy behavior. Set once at boot by
+// generated wiring, mirroring `sessionCookieSecureFlag`.
+var sessionCookieConfig SessionCookieConfig
+
+// ConfigureSessionCookie installs the declared `auth.sessions.cookie`
+// transport attributes. Generated boot wiring calls this from the lowered
+// IR `SessionCookie`; absent axes pass nil and keep the runtime default.
+// Calling it with the zero value is a no-op (legacy behavior).
+func ConfigureSessionCookie(cfg SessionCookieConfig) { sessionCookieConfig = cfg }
+
+// SessionCookieName returns the declared session cookie name, or the
+// canonical `lazuli_session` when none was declared. The production
+// session middleware reads through this so SET and READ stay symmetric.
+func SessionCookieName() string {
+	if sessionCookieConfig.Name != nil && *sessionCookieConfig.Name != "" {
+		return *sessionCookieConfig.Name
+	}
+	return ProductionSessionCookieName
+}
+
+// opts builds the CookieOpts for a session/refresh cookie at the given
+// TTL, starting from the runtime defaults and overlaying any declared
+// axis. The defaults are exactly the literals the SET helpers hardcoded
+// before the `cookie` child landed (Path `/`, HttpOnly, Secure-by-default,
+// SameSite=Lax), so a zero-valued config reproduces legacy behavior.
+func (c SessionCookieConfig) opts(ttl time.Duration) CookieOpts {
+	opts := CookieOpts{
+		TTL:      ttl,
+		Path:     "/",
+		AllowJS:  false,
+		Secure:   sessionCookieSecureDefault(),
+		SameSite: http.SameSiteLaxMode,
+	}
+	if c.SameSite != nil {
+		opts.SameSite = *c.SameSite
+	}
+	if c.Secure != nil {
+		opts.Secure = *c.Secure
+	}
+	if c.HTTPOnly != nil {
+		opts.AllowJS = !*c.HTTPOnly
+	}
+	if c.Domain != nil {
+		opts.Domain = *c.Domain
+	}
+	if c.Path != nil && *c.Path != "" {
+		opts.Path = *c.Path
+	}
+	return opts
 }
 
 // sessionCookieSecureDefault returns whether the canonical session

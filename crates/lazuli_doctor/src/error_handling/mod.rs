@@ -53,6 +53,12 @@
 //! - `ERROR-RETRIABLE-CLASS-001` — `job` / `webhook` variants declare
 //!   `retriable: true/false`.
 //! - `ERROR-AUDIT-EMIT-001` — mutative command errors emit audit events.
+//! - `JOB-DECLARATIVE-BODY-UNSUPPORTED-001` — a `job` declared with a
+//!   declarative body (typed `target` + `effect`) the runtime cannot
+//!   execute. Codegen lowers the body to a no-op (`jobs.JobContract` has
+//!   no body slot), so the job registers but silently does nothing. Per
+//!   inviolable rule 7 the gap must surface here, not compile green.
+//!   Walks the lifted IR `Feature.jobs` like the other `.lzi` rules.
 //!
 //! **`.lzx` UX**:
 //! - `ERROR-VIEW-ON-ERROR-001` — `view create` / `view detail` with
@@ -84,6 +90,7 @@ pub mod error_variant_doc_001;
 pub mod handler_error_wrap_001;
 pub mod handler_no_panic_001;
 pub mod handler_no_string_error_001;
+pub mod job_declarative_body_unsupported_001;
 pub mod panic_unwrap_001;
 
 pub use error_naming_001::Finding as ErrorNamingFinding;
@@ -92,6 +99,7 @@ pub use error_variant_doc_001::Finding as ErrorVariantDocFinding;
 pub use handler_error_wrap_001::Finding as HandlerErrorWrapFinding;
 pub use handler_no_panic_001::Finding as HandlerNoPanicFinding;
 pub use handler_no_string_error_001::Finding as HandlerNoStringErrorFinding;
+pub use job_declarative_body_unsupported_001::Finding as JobDeclarativeBodyUnsupportedFinding;
 pub use panic_unwrap_001::Finding as PanicUnwrapFinding;
 pub use preset::{ErrorHandlingPreset, preset_rule_severity};
 pub use walker::{GoHandlerSourceFile, walk_workspace_go_handlers};
