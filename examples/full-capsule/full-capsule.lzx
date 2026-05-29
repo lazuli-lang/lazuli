@@ -131,6 +131,16 @@ experience customer_tags
       platforms web, mobile
       audience admin, sales
 
+experience customer_audit
+  imports customer_audit
+
+  view ledger
+    source customer_audit.query.ledger
+
+  view entry
+    route id: OperationLog.ID
+    source customer_audit.query.entry_by_id(id: route.id)
+
 experience customer_import
   imports customer_import, customer
 

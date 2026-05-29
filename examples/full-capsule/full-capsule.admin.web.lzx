@@ -11,6 +11,10 @@ surface customer web
       search name, email
       filter status, tier, owner
       cells status @client.status_cell, score @client.score_cell, owner @client.owner_cell
+      # §7a.5 — user-toggleable render modes (LZX-VIEW-MODE-001).
+      view_mode
+        table
+        kanban
 
     view detail SidePanel
       sections header, activity_timeline
@@ -20,6 +24,16 @@ surface customer web
 
     view churn_risk Table
       columns customer_id, risk_score, reason
+
+    # §7a.4 — static tab container + multi-step wizard at the audience level,
+    # each pointing at a view declared in this audience (LZX-TAB-VIEW-REF-001).
+    tabs
+      tab "Customers" -> view list
+      tab "Lifetime value" -> view ltv_report
+      tab "Churn risk" -> view churn_risk
+    wizard customer_review steps
+      step 1: list
+      step 2: detail
 
 surface customer_tags web
   uses experience customer_tags
@@ -47,3 +61,31 @@ surface customer_import web
 
     view rows Table
       columns row_number, error, created_at
+
+# customer_audit is a single-resource feature whose `OperationLog.operation`
+# enum field backs the runtime-derived tab group, wizard indicator, and board
+# lanes — so the §7a primitives that resolve against a declared enum field
+# (LZX-TAB-GROUP-CASE-001 / LZX-WIZARD-STEPS-EXPR-001 / LZX-BOARD-LANES-001)
+# validate positively here.
+surface customer_audit web
+  uses experience customer_audit
+
+  audience admin
+    policy @policy.read
+
+    view ledger Table
+      columns operation, actor, occurred_at
+      # §7a.5 — toggleable render modes.
+      view_mode
+        table
+        calendar
+      # §7a.3 — runtime-derived tabs keyed off the `operation` enum field;
+      # every variant is covered (exhaustive).
+      tab_group derived_from operation
+        case REASSIGN -> tab "Reassignments"
+        case ARCHIVE -> tab "Archivals"
+      # §7a.2 — step indicator driven by the same enum field.
+      wizard_steps 2 current operation
+      # §7a.6 — kanban board, one lane per enum variant.
+      view.board ledger_board
+        lanes derived_from operation
