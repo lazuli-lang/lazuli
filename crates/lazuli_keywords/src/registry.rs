@@ -2007,12 +2007,6 @@ pub const ALL: &[CapabilitySpec] = &[
     ),
     stmt("input", Context::CommandBody, SECTION, "Input field block."),
     stmt(
-        "output",
-        Context::CommandBody,
-        SECTION,
-        "Output field block.",
-    ),
-    stmt(
         "policy",
         Context::CommandBody,
         STMT,
@@ -2053,12 +2047,6 @@ pub const ALL: &[CapabilitySpec] = &[
     produces(
         stmt("reorder", Context::CommandBody, STMT, "Reorder effect."),
         P_REORDER,
-    ),
-    stmt(
-        "materialize",
-        Context::CommandBody,
-        STMT,
-        "Materialize a projection.",
     ),
     stmt(
         "handler",
@@ -2129,22 +2117,22 @@ pub const ALL: &[CapabilitySpec] = &[
         APPROVAL,
         "Sequential approval mode.",
     ),
-    // ── command: deprecated sub-block ──
+    // ── command/api: deprecated sub-block (indent-6 children) ──
     stmt(
         "since",
-        Context::CommandBody,
+        Context::Deprecated,
         "entity.name.function.statement.deprecated.lazuli",
         "Deprecation since-version.",
     ),
     stmt(
         "replacement",
-        Context::CommandBody,
+        Context::Deprecated,
         "entity.name.function.statement.deprecated.lazuli",
         "Replacement reference.",
     ),
     stmt(
         "sunset",
-        Context::CommandBody,
+        Context::Deprecated,
         "entity.name.function.statement.deprecated.lazuli",
         "Sunset date.",
     ),
@@ -2236,6 +2224,14 @@ pub const ALL: &[CapabilitySpec] = &[
     stmt("header", Context::Webhook, STMT, "Signature header name."),
     // ── agent + tools/expose/io/evals ──
     stmt("model", Context::Agent, STMT, "LLM model."),
+    // `output <Type>` / `output stream <Type>` / `output discriminator <Enum>`
+    // on an `agent` body (`parser/lzi/agent/{mod,io}.rs`).
+    stmt(
+        "output",
+        Context::Agent,
+        STMT,
+        "Agent output shape (bare / `stream` / `discriminator`).",
+    ),
     stmt("prompt", Context::Agent, STMT, "Agent prompt."),
     stmt("safety", Context::Agent, STMT, "Safety constraints."),
     stmt("stream", Context::Agent, STMT, "Streaming mode."),
@@ -2386,6 +2382,15 @@ pub const ALL: &[CapabilitySpec] = &[
     // ════════════════════════════════════════════════════════════════
     stmt("method", Context::Api, STMT, "HTTP method."),
     stmt("transport", Context::Api, STMT, "Transport (http)."),
+    // `output <Type>` — required typed response shape on an `api`/`operation`
+    // body (`parser/lzi/api.rs`). (Re-filed off the spurious `CommandBody`
+    // row: command bodies have `input` but no `output`.)
+    stmt(
+        "output",
+        Context::Api,
+        STMT,
+        "Typed response shape for the endpoint.",
+    ),
     // ════════════════════════════════════════════════════════════════
     // auth block + sub
     // ════════════════════════════════════════════════════════════════

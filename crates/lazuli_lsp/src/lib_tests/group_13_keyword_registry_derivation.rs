@@ -93,29 +93,30 @@ const APP_CONTEXT_FLAGGED_TO_H2: &[&str] = &[
 ];
 
 /// Registry literals tagged `Context::CommandBody` that are **NOT**
-/// indent-4 `command` statements the LSP typo detector guards, so they are
-/// excluded from the `COMMAND_STATEMENT_KINDS` reverse-coverage assertion.
-/// Each is genuinely parsed at a deeper indent or inside a sub-block — the
-/// indent-4 kind-head detector (`command_statement_unknown_diagnostics`)
-/// correctly never offers them, and listing them in `COMMAND_STATEMENT_KINDS`
-/// would suppress a legitimate typo squiggle (the inverse of the F1 hole).
+/// indent-4 `command` statements — **now EMPTY.**
 ///
-/// * `output` — there is no parseable `output` indent-4 command child; the
-///   parser accepts only `input` (`parse_command_input_block`). The registry
-///   row mirrors the IR's output-field block, not a statement head. Registry
-///   should re-context (flag to the registry owner).
-/// * `materialize` — parsed as an `audit` sub-block child at indent-6
-///   (`parse_command_audit` -> `materialize @feature.x.Resource`), not an
-///   indent-4 command statement. Registry should re-context to `Audit`.
-/// * `since` / `replacement` / `sunset` — children of the `deprecated`
-///   sub-block (indent-6, `parse_deprecated_block`), not indent-4 command
-///   statements. Registry should re-context to a deprecated sub-context.
+/// This list previously grandfathered five mis-contexted registry rows that
+/// were tagged `Context::CommandBody` but parse at a deeper indent / inside a
+/// sub-block, so the indent-4 kind-head detector correctly never offers them
+/// and listing them in `COMMAND_STATEMENT_KINDS` would suppress a legitimate
+/// typo squiggle. WT-3 re-filed each to its real context in
+/// `lazuli_keywords::registry`, so the `COMMAND_STATEMENT_KINDS`
+/// reverse-coverage now passes cleanly with no exclusions:
 ///
-/// When the registry re-contexts these, drop them here and they'll be
-/// coverage-asserted against their correct block catalog (or, in the
-/// `output` case, become genuinely absent from any indent-4 catalog).
-const COMMAND_CONTEXT_FLAGGED: &[&str] =
-    &["output", "materialize", "since", "replacement", "sunset"];
+/// * `output` — re-filed to `Context::Api` + `Context::Agent` (it is parsed
+///   only on `api`/`operation`/`agent` bodies; a command body has `input`
+///   but no `output`).
+/// * `materialize` — the duplicate `CommandBody` row was removed; the correct
+///   `Context::Audit` row (the `audit` sub-block child
+///   `materialize @feature.x.Resource`) already carried it.
+/// * `since` / `replacement` / `sunset` — re-filed to the new
+///   `Context::Deprecated` (children of the `deprecated` sub-block).
+///
+/// It stays declared (empty) so the stale-flag hygiene assertion below keeps
+/// proving the list is truly empty, and so a future deliberate exception has
+/// an obvious documented home (it should essentially never be needed — fix the
+/// registry context instead).
+const COMMAND_CONTEXT_FLAGGED: &[&str] = &[];
 
 fn registry_literals() -> BTreeSet<&'static str> {
     ALL.iter().map(|c| c.literal).collect()
@@ -227,11 +228,13 @@ fn typo_catalogs_are_subsets_of_the_registry() {
 /// asserts that direction by construction. Mentally deleting `triggers`
 /// from `COMMAND_STATEMENT_KINDS` re-reddens this test.
 ///
-/// The five `COMMAND_CONTEXT_FLAGGED` literals (`output` / `materialize` /
-/// `since` / `replacement` / `sunset`) are mis-contexted in the registry —
-/// they are NOT indent-4 command statements (they parse at indent-6 or
-/// inside a sub-block) and must NOT be added to `COMMAND_STATEMENT_KINDS`,
-/// so they are excluded exactly like `APP_CONTEXT_FLAGGED_TO_H2`.
+/// `COMMAND_CONTEXT_FLAGGED` is now EMPTY: the five previously-flagged
+/// literals (`output` / `materialize` / `since` / `replacement` / `sunset`)
+/// were re-filed to their real registry contexts in WT-3 (`output` → Api +
+/// Agent; `materialize` duplicate removed in favour of the Audit row;
+/// `since`/`replacement`/`sunset` → `Context::Deprecated`), so the
+/// `COMMAND_STATEMENT_KINDS` reverse-coverage now passes with no exclusions.
+/// A stale-flag hygiene assertion keeps the (empty) list honest.
 ///
 /// Scoped to the contexts where the registry's single-context projection
 /// (minus the documented mis-context flags) is a clean subset of the
@@ -299,6 +302,26 @@ fn typo_catalogs_cover_their_registry_context() {
         "typo catalog coverage gap — a registry keyword for this block context is not \
          offered by the LSP typo catalog:\n  - {}",
         failures.join("\n  - ")
+    );
+
+    // Hygiene: a `COMMAND_CONTEXT_FLAGGED` entry is only meaningful if it is
+    // still a `Context::CommandBody` registry literal that is absent from
+    // `COMMAND_STATEMENT_KINDS` (otherwise the exclusion is dead). Now that the
+    // list is empty this is trivially satisfied; the assertion exists so a
+    // future stale flag (a literal that was re-contexted away from CommandBody,
+    // or added to the catalog) is caught and must be deleted.
+    let cmd_body = literals_in_context(Context::CommandBody);
+    let cmd_kinds: BTreeSet<&str> = COMMAND_STATEMENT_KINDS.iter().copied().collect();
+    let stale_cmd_flags: Vec<&str> = COMMAND_CONTEXT_FLAGGED
+        .iter()
+        .copied()
+        .filter(|lit| !cmd_body.contains(lit) || cmd_kinds.contains(lit))
+        .collect();
+    assert!(
+        stale_cmd_flags.is_empty(),
+        "COMMAND_CONTEXT_FLAGGED has stale entries (re-contexted away from CommandBody, or now \
+         present in COMMAND_STATEMENT_KINDS) — delete them so the exclusion list stays honest: \
+         {stale_cmd_flags:?}"
     );
 }
 

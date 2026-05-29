@@ -90,74 +90,31 @@ const SEMANTIC_VALUES: &[&str] = &["HexColor", "Percentage"];
 /// instead).
 const DOC_SURFACE_GAP: &[&str] = &[];
 
-/// **Pre-existing tmLanguage HIGHLIGHT debt** — a genuinely separate concern
-/// from the (now-closed) documentation gap.
+/// **tmLanguage HIGHLIGHT debt — now EMPTY (WT-3).**
 ///
 /// The old `DOC_SURFACE_GAP` conflated two debts under one name: keywords
 /// missing from the docs AND keywords missing from the VS Code grammar. The
 /// doc-gap wave closed the documentation half by construction (the generated
-/// `keyword-reference.md` covers everything). What remains here is ONLY the
-/// highlight half: registry keyword-token literals that are not yet a
+/// `keyword-reference.md` covers everything). What remained here was ONLY the
+/// highlight half: ~44 registry keyword-token literals that were not yet a
 /// substring of `editors/vscode/syntaxes/lazuli.tmLanguage.json`.
 ///
-/// These literals live inside the curated **multi-group fallback
-/// alternations** of the grammar (`command`/`query`/`view*`/`agent`/… blocks
-/// the H2 `gen-tmlanguage` projector deliberately does NOT generate — see
-/// `tools/xtask/src/tmlanguage.rs` module docs), or are scalars whose block
-/// alternation was never authored. Adding them is a tmLanguage-grammar edit,
-/// owned by the highlighter/H2 surface and out of scope for the doc-gap wave;
-/// they are grandfathered here at exactly the strictness they had before
-/// (when the single conflated list exempted them from the tm check too).
+/// Those 44 lived inside the curated **multi-group fallback alternations** of
+/// the grammar (`command`/`query`/`view*`/`agent`/… blocks). WT-3 extended
+/// `tools/xtask/src/tmlanguage.rs` so `gen-tmlanguage` ALSO projects those
+/// fallback `(context, scope)` groups into `#kw-*` repository alternations from
+/// the registry (see its [`GROUPS`] tier 2). Every one of the 44 is now a
+/// literal substring of the grammar by construction — so the highlight half is
+/// drift-proof and this list is empty. (The generated fallback rules are
+/// intentionally left un-`include`d, so no rendered token changed color — the
+/// grammar snapshots stay green; only the generation source moved.)
 ///
-/// To retire an entry: add the literal to the relevant alternation in
-/// `lazuli.tmLanguage.json` (or to a `#kw-*` group `gen-tmlanguage` covers)
-/// and delete it here. The test reports which surface is still missing it.
-const HIGHLIGHT_SURFACE_GAP: &[&str] = &[
-    "access_ttl",
-    "actor_query",
-    "breakpoint",
-    "cors",
-    "dark",
-    "default_unauthenticated_redirect",
-    "default_unauthorized_redirect",
-    "design",
-    "detail",
-    "easing",
-    "error_redact",
-    "error_view",
-    "event.trace",
-    "family",
-    "flash",
-    "foreground",
-    "grace",
-    "hint",
-    "icon",
-    "lanes",
-    "lazuli_version",
-    "line_height",
-    "loader",
-    "materialize_strategy",
-    "mcp_server",
-    "motion",
-    "outbox",
-    "payload_axis",
-    "pending_view",
-    "previous_version",
-    "query.view",
-    "radius",
-    "refresh_ttl",
-    "resume",
-    "revoke_session_family",
-    "revoke_user",
-    "role_mismatch",
-    "scale",
-    "shadow",
-    "theft_detection_action",
-    "tracking",
-    "typography",
-    "version_field",
-    "weight",
-];
+/// It stays declared (empty) so the stale-entry hygiene assertion below keeps
+/// proving the list is truly empty, and so a genuinely un-generatable future
+/// case (e.g. a context-sensitive collision) has a documented home. It should
+/// essentially never be needed — add the keyword's `(context, scope)` group to
+/// `gen-tmlanguage`'s `GROUPS` and regenerate instead.
+const HIGHLIGHT_SURFACE_GAP: &[&str] = &[];
 
 fn workspace_root() -> PathBuf {
     // CARGO_MANIFEST_DIR = <root>/crates/lazuli_lsp
@@ -200,6 +157,21 @@ fn lsp_sources() -> String {
 /// (`query.list`) keep their full form.
 fn search_token(literal: &str) -> &str {
     literal.strip_prefix('@').unwrap_or(literal)
+}
+
+/// Whether the tmLanguage grammar surfaces `tok`. A dotted-kind literal
+/// (`query.view`, `event.trace`) appears inside a TextMate `match` regex with
+/// its `.` escaped to `\.` (the `gen-tmlanguage` `#kw-feature-dotted`
+/// alternation, and the hand-written `query`-block opener). The grammar is a
+/// JSON file, so each single regex backslash is itself JSON-escaped on disk —
+/// the literal `.` lands as the four bytes `\\.` (two backslashes + dot). So
+/// accept the verbatim form or that JSON-escaped regex form. Non-dotted
+/// literals fall through to the verbatim check.
+fn tm_has(tm: &str, tok: &str) -> bool {
+    if tm.contains(tok) {
+        return true;
+    }
+    tok.contains('.') && tm.contains(&tok.replace('.', "\\\\."))
 }
 
 /// Registry keyword-token literals — the constructs a highlighter +
@@ -263,7 +235,7 @@ fn every_registry_keyword_is_highlighted_and_documented() {
     for kw in registry_keyword_literals() {
         let tok = search_token(kw);
         // Highlight half (H2's gen-tmlanguage / the curated grammar own this).
-        let in_tm = tm.contains(tok);
+        let in_tm = tm_has(&tm, tok);
         // Documented half: the generated reference contains every registry
         // keyword by construction, so this is satisfied for all of them.
         let in_reference = reference.contains(tok);

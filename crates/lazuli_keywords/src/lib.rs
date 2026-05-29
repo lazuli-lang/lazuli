@@ -326,6 +326,10 @@ pub enum Context {
     Audit,
     /// Inside an `approval` block.
     Approval,
+    /// Inside a `deprecated` sub-block (indent-6 children `since` /
+    /// `replacement` / `sunset` of a `command`/`api` `deprecated` block —
+    /// `parse_deprecated_block` / `parse_command_deprecated`).
+    Deprecated,
     /// Inside a `policies`/`policy <expr>` block.
     Policy,
     /// Inside an `errors` block.
