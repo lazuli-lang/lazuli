@@ -137,6 +137,9 @@ pub const KEYWORDS: &[&str] = &[
     "exporter",
     // Observability bucket cycle row 37 — `audit emit_to` slot.
     "emit_to",
+    // Audit-block connectors (registry-backfilled via H2; surfaced for LSP completion).
+    "data_subject",
+    "retain_for",
     // Migrations bucket cycle Route C — `tenant_migration` kind +
     // `deploy.{strategy, lock_timeout, pre_migration_hook,
     // post_migration_hook, checkpoint}` keywords. See

@@ -85,6 +85,11 @@ const SEMANTIC_VALUES: &[&str] = &["HexColor", "Percentage"];
 /// tmLanguage surface and delete it here. The test will tell you which
 /// surface is still missing it.
 const DOC_SURFACE_GAP: &[&str] = &[
+    // Audit-block connectors (registry-backfilled via H2): in the generated
+    // tmLanguage + LSP catalog, but not yet in grammar.*.md / quickref — same
+    // pre-existing doc debt class as the rest of this allowlist.
+    "data_subject",
+    "retain_for",
     "access_ttl",
     "actions",
     "actor_query",
