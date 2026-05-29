@@ -52,6 +52,7 @@ pub(crate) mod job_runtime_gap;
 pub(crate) mod lazurite_manifest;
 pub(crate) mod lifecycle;
 pub(crate) mod lzi_hygiene;
+pub(crate) mod lzx_ux;
 pub(crate) mod migrations;
 pub(crate) mod observability;
 pub(crate) mod rbac_catalog;

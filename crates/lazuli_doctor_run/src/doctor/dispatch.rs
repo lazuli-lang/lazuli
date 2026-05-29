@@ -148,6 +148,37 @@ impl DoctorPackage {
             self.security_profile,
         ));
 
+        // G-A2 — command-trigger lifecycle-transition pass
+        // (`LIFECYCLE-TRANSITION-001..006`). The analyzer
+        // `run_lifecycle_transition_checks` pass shipped with passing unit
+        // tests but was never invoked from the CLI / doctor / LSP — the six
+        // codes were dormant (declared-but-inert, same class as F4). This
+        // dispatches it over the synthesized feature set so it fires on real
+        // `command … triggers transition <x>` usage. Severity defers to
+        // `RuleCategory::Lifecycle` (Strict → Warning, Production → Error;
+        // Prototype suppresses).
+        diagnostics.extend(aggregators::lifecycle::transition_command_diagnostics(
+            &self.tier3_facts,
+            self.security_profile,
+        ));
+
+        // G-A2 — §7a surface-UX rules (`LZX-WIZARD-STEPS-EXPR-001`,
+        // `LZX-TAB-GROUP-CASE-001`, `LZX-TAB-VIEW-REF-001`,
+        // `LZX-VIEW-MODE-001`, `LZX-BOARD-LANES-001`,
+        // `LZX-REPEATABLE-SUM-001`, `LZX-DATE-RANGE-001`). The
+        // `doctor::lzx::ux_rules` + `date_range_filter` checks shipped with
+        // passing unit tests but were reached only from those tests — never
+        // from the package-doctor `.lzx` pass, so they never fired on real
+        // surface usage. This synthesizes the rich `ir::Surface` shape from the
+        // parsed `.lzx` documents + Tier-3 facts and runs them. Severity:
+        // `RuleCategory::Correctness` (Strict → Warning, Production → Error;
+        // Prototype suppresses).
+        diagnostics.extend(aggregators::lzx_ux::diagnostics(
+            &self.files,
+            &self.tier3_facts,
+            self.security_profile,
+        ));
+
         diagnostics.extend(lazuli_version_001_diagnostics(
             self.app.as_ref(),
             LZIR_SCHEMA,
