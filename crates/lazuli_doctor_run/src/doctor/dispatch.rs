@@ -184,6 +184,16 @@ impl DoctorPackage {
             self.security_profile,
             self.single_file_input,
         ));
+        // JOB-* runtime-gap rules over the lifted `Feature.jobs` —
+        // today `JOB-DECLARATIVE-BODY-UNSUPPORTED-001`, which fires when
+        // a declarative job body lowers to a no-op (the runtime has no
+        // `jobs.JobContract` slot to execute it). Severity resolves
+        // through `[doctor.error_handling].preset` (warn under strict,
+        // error under iron-hand) like the `HANDLER-*` family.
+        diagnostics.extend(aggregators::job_runtime_gap::diagnostics(
+            &self.tier3_facts,
+            self.lazurite_manifest.as_ref(),
+        ));
         // `.lzi` hygiene — file size, file/feature name alignment,
         // and multi-feature cohesion. Reads
         // `[doctor.lzi_hygiene].preset` from the workspace manifest.

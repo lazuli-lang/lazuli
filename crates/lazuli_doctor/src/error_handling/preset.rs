@@ -11,6 +11,7 @@
 //! - `INTERNAL-ERROR-*` (framework Rust)
 //! - `ERROR-*` (`.lzi` / `.lzx`)
 //! - `HANDLER-*` (Go handlers)
+//! - `JOB-*` (`.lzi` jobs — declarative bodies the runtime can't execute)
 //!
 //! All other prefixes pass through with `None` (the preset has no
 //! opinion; per-rule default stands).
@@ -154,6 +155,12 @@ fn is_error_handling_code(code: &str) -> bool {
         (Some("INTERNAL"), Some("ERROR")) => true,
         (Some("ERROR"), _) => true,
         (Some("HANDLER"), _) => true,
+        // JOB-* — runtime-execution gaps on declarative job bodies. A
+        // declarative job that lowers to a no-op silently drops the work
+        // the author declared, the job-level twin of a swallowed handler
+        // error (matching the `rule_category` routing of `JOB` ->
+        // `ErrorHandling`).
+        (Some("JOB"), _) => true,
         _ => false,
     }
 }
@@ -192,6 +199,7 @@ mod tests {
             "HANDLER-NO-PANIC-001",
             "HANDLER-NO-STRING-ERROR-001",
             "HANDLER-ERROR-WRAP-001",
+            "JOB-DECLARATIVE-BODY-UNSUPPORTED-001",
         ];
         for code in codes {
             assert_eq!(
@@ -200,6 +208,25 @@ mod tests {
                 "iron-hand should escalate {code}"
             );
         }
+    }
+
+    #[test]
+    fn job_prefix_warns_under_strict_errors_under_iron_hand() {
+        // The exact per-profile contract this rule was added for.
+        assert_eq!(
+            preset_rule_severity(
+                ErrorHandlingPreset::TddStrict,
+                "JOB-DECLARATIVE-BODY-UNSUPPORTED-001"
+            ),
+            Some(DoctorSeverity::Warning),
+        );
+        assert_eq!(
+            preset_rule_severity(
+                ErrorHandlingPreset::TddIronHand,
+                "JOB-DECLARATIVE-BODY-UNSUPPORTED-001"
+            ),
+            Some(DoctorSeverity::Error),
+        );
     }
 
     #[test]

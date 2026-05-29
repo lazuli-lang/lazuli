@@ -119,6 +119,14 @@ impl RuleCategory {
                 _ => Self::InternalHygiene,
             },
             Some("HANDLER") => Self::ErrorHandling,
+            // JOB-* — runtime-execution gaps on `job` bodies (today:
+            // `JOB-DECLARATIVE-BODY-UNSUPPORTED-001`). A declarative job
+            // body that lowers to a no-op silently drops the declared
+            // work — the job-level twin of a swallowed handler error, so
+            // it lands in the error-handling 4th dimension alongside the
+            // `HANDLER-*` family (and is preset-governed by
+            // `[doctor.error_handling]`).
+            Some("JOB") => Self::ErrorHandling,
             Some("LZI") => Self::LziHygiene,
             _ => Self::Vocabulary, // safe fallback; auditor flags
         }
@@ -245,6 +253,12 @@ mod tests {
         );
         assert_eq!(
             RuleCategory::from_code_prefix("HANDLER-NO-PANIC-001"),
+            RuleCategory::ErrorHandling
+        );
+        // JOB-* — declarative job bodies the runtime can't execute route
+        // to the error-handling 4th dimension (preset-governed).
+        assert_eq!(
+            RuleCategory::from_code_prefix("JOB-DECLARATIVE-BODY-UNSUPPORTED-001"),
             RuleCategory::ErrorHandling
         );
         // INTERNAL-PANIC-* and INTERNAL-ERROR-* are error_handling, not

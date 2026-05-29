@@ -151,6 +151,7 @@ feature customer
 
   job import
     trigger schedule "0 2 * * *"
+    handler "./jobs/import.go"
 
   webhook inbound
     path "/webhooks/inbound"
