@@ -37,13 +37,13 @@
 
 use std::collections::BTreeSet;
 
-use lazuli_keywords::{ALL, Context};
+use lazuli_keywords::{ALL, Context, Sigil};
 
 use super::{DESIGN_KEYWORDS, KEYWORDS};
 use crate::{
     APP_BODY_KINDS, AUDIENCE_BODY_KINDS, COMMAND_STATEMENT_KINDS, FEATURE_BODY_KINDS,
     QUERY_STATEMENT_KINDS, REGISTRY_BODY_KINDS, SESSIONS_BODY_KINDS, SESSIONS_COOKIE_BODY_KINDS,
-    SURFACE_BODY_KINDS, VIEW_BODY_KINDS,
+    SURFACE_BODY_KINDS, VIEW_BODY_KINDS, is_allowed_reference_namespace,
 };
 
 /// LSP-completion conveniences that are intentionally NOT standalone
@@ -91,6 +91,31 @@ const APP_CONTEXT_FLAGGED_TO_H2: &[&str] = &[
     "enforce_service_boundaries",
     "environment",
 ];
+
+/// Registry literals tagged `Context::CommandBody` that are **NOT**
+/// indent-4 `command` statements the LSP typo detector guards, so they are
+/// excluded from the `COMMAND_STATEMENT_KINDS` reverse-coverage assertion.
+/// Each is genuinely parsed at a deeper indent or inside a sub-block — the
+/// indent-4 kind-head detector (`command_statement_unknown_diagnostics`)
+/// correctly never offers them, and listing them in `COMMAND_STATEMENT_KINDS`
+/// would suppress a legitimate typo squiggle (the inverse of the F1 hole).
+///
+/// * `output` — there is no parseable `output` indent-4 command child; the
+///   parser accepts only `input` (`parse_command_input_block`). The registry
+///   row mirrors the IR's output-field block, not a statement head. Registry
+///   should re-context (flag to the registry owner).
+/// * `materialize` — parsed as an `audit` sub-block child at indent-6
+///   (`parse_command_audit` -> `materialize @feature.x.Resource`), not an
+///   indent-4 command statement. Registry should re-context to `Audit`.
+/// * `since` / `replacement` / `sunset` — children of the `deprecated`
+///   sub-block (indent-6, `parse_deprecated_block`), not indent-4 command
+///   statements. Registry should re-context to a deprecated sub-context.
+///
+/// When the registry re-contexts these, drop them here and they'll be
+/// coverage-asserted against their correct block catalog (or, in the
+/// `output` case, become genuinely absent from any indent-4 catalog).
+const COMMAND_CONTEXT_FLAGGED: &[&str] =
+    &["output", "materialize", "since", "replacement", "sunset"];
 
 fn registry_literals() -> BTreeSet<&'static str> {
     ALL.iter().map(|c| c.literal).collect()
@@ -193,40 +218,73 @@ fn typo_catalogs_are_subsets_of_the_registry() {
 /// One-directional: the curated lists may additionally include
 /// cross-context inclusions (asserted as subsets, not equality).
 ///
+/// **Re-enabled for `COMMAND_STATEMENT_KINDS` (Guard B — close the F1
+/// drift hole).** The F1-F5 root-cause triage found this reverse direction
+/// was DISABLED for the command-body context, which is exactly the hole F1
+/// fell through: `triggers` was a `Context::CommandBody` registry row but
+/// absent from `COMMAND_STATEMENT_KINDS`, so a typo'd / missing `triggers`
+/// produced no squiggle. F1 added `triggers` to the catalog; this gate now
+/// asserts that direction by construction. Mentally deleting `triggers`
+/// from `COMMAND_STATEMENT_KINDS` re-reddens this test.
+///
+/// The five `COMMAND_CONTEXT_FLAGGED` literals (`output` / `materialize` /
+/// `since` / `replacement` / `sunset`) are mis-contexted in the registry —
+/// they are NOT indent-4 command statements (they parse at indent-6 or
+/// inside a sub-block) and must NOT be added to `COMMAND_STATEMENT_KINDS`,
+/// so they are excluded exactly like `APP_CONTEXT_FLAGGED_TO_H2`.
+///
 /// Scoped to the contexts where the registry's single-context projection
-/// is a clean subset of the curated list. FEATURE_BODY_KINDS /
-/// VIEW_BODY_KINDS / COMMAND_STATEMENT_KINDS are intentionally excluded:
-/// the registry tags some statement-level literals to those same
-/// contexts (e.g. `materialize`, the app-meta scalars, `deprecated`
-/// sub-keys) that the indent-2/indent-4 *kind*-head typo detector does
-/// not guard — exact coverage there awaits a registry context-split
-/// (tracked for a follow-up wave). Completeness for all eight is still
-/// enforced by `typo_catalogs_are_subsets_of_the_registry`.
+/// (minus the documented mis-context flags) is a clean subset of the
+/// curated list. FEATURE_BODY_KINDS / VIEW_BODY_KINDS remain excluded: the
+/// registry tags some statement-level literals to those same indent-2
+/// *kind*-head contexts that the kind-head typo detector does not guard —
+/// exact coverage there awaits a registry context-split (tracked for a
+/// follow-up wave). Completeness for all ten catalogs is still enforced by
+/// `typo_catalogs_are_subsets_of_the_registry`.
 #[test]
 fn typo_catalogs_cover_their_registry_context() {
-    let cases: &[(&str, Context, &[&str])] = &[
-        ("APP_BODY_KINDS", Context::App, APP_BODY_KINDS),
+    // Per-case mis-context flag sets (registry literals that genuinely do
+    // not belong in that block's typo catalog despite their `context` tag).
+    let app_flags: BTreeSet<&str> = APP_CONTEXT_FLAGGED_TO_H2.iter().copied().collect();
+    let cmd_flags: BTreeSet<&str> = COMMAND_CONTEXT_FLAGGED.iter().copied().collect();
+    let none: BTreeSet<&str> = BTreeSet::new();
+
+    let cases: &[(&str, Context, &[&str], &BTreeSet<&str>)] = &[
+        ("APP_BODY_KINDS", Context::App, APP_BODY_KINDS, &app_flags),
         (
             "REGISTRY_BODY_KINDS",
             Context::Registry,
             REGISTRY_BODY_KINDS,
+            &none,
         ),
-        ("SURFACE_BODY_KINDS", Context::Surface, SURFACE_BODY_KINDS),
+        (
+            "SURFACE_BODY_KINDS",
+            Context::Surface,
+            SURFACE_BODY_KINDS,
+            &none,
+        ),
         (
             "QUERY_STATEMENT_KINDS",
             Context::Query,
             QUERY_STATEMENT_KINDS,
+            &none,
         ),
         (
             "AUDIENCE_BODY_KINDS",
             Context::SurfaceAudience,
             AUDIENCE_BODY_KINDS,
+            &none,
+        ),
+        (
+            "COMMAND_STATEMENT_KINDS",
+            Context::CommandBody,
+            COMMAND_STATEMENT_KINDS,
+            &cmd_flags,
         ),
     ];
 
-    let flagged: BTreeSet<&str> = APP_CONTEXT_FLAGGED_TO_H2.iter().copied().collect();
     let mut failures = Vec::new();
-    for (name, ctx, list) in cases {
+    for (name, ctx, list, flagged) in cases {
         let list_set: BTreeSet<&str> = list.iter().copied().collect();
         for lit in literals_in_context(*ctx) {
             if !list_set.contains(lit) && !flagged.contains(lit) {
@@ -273,5 +331,86 @@ fn registry_hover_one_liners_are_reachable_via_keyword_description() {
         missing.is_empty(),
         "registry keywords carry a `hover` one-liner but `keyword_description` returns None \
          for them — the H3 registry fallback should cover these: {missing:?}"
+    );
+}
+
+// ── registry → namespace parity (Guard B — close the F3 drift hole) ──
+
+/// `@`-decorator literals in the registry that are **bare ATTRIBUTE
+/// markers**, not reference namespaces of the `@<ns>.<target>` form. The
+/// `namespace_reference_diagnostics` rule only scans `@<ns>.<x>` references
+/// (it requires a `.`), so a bare `@slug` / `@full_text` / `@owner_axis` /
+/// `@resume` decorator is never validated against
+/// `is_allowed_reference_namespace` and must NOT be required to live there.
+///
+/// (`@pii` / `@key` / `@cap` / `@semantic` DO carry a dotted target — e.g.
+/// `@semantic.HexColor`, `@cap.File` — and so are genuine reference
+/// namespaces already present in the allowlist; they are NOT excluded.)
+///
+/// Each excluded literal is a standalone field/relation decorator with no
+/// namespace target:
+/// * `@slug` — slug-field marker.
+/// * `@full_text` — full-text-index marker.
+/// * `@owner_axis` — ownership-axis marker.
+/// * `@resume` — lifecycle resume marker (`on_lifecycle_pending @resume f`).
+const ATTRIBUTE_DECORATORS: &[&str] = &["@slug", "@full_text", "@owner_axis", "@resume"];
+
+/// **Registry → namespace parity (the F3 class).** Every `@`-sigil
+/// reference-namespace decorator the registry carries MUST be accepted by
+/// the LSP `is_allowed_reference_namespace` catalog — otherwise a primitive
+/// the parser/registry knows uses a namespace the LSP rejects with a
+/// spurious `namespace-catalog` warning. This is exactly the F3 failure
+/// class (a primitive using a namespace the LSP catalog doesn't allow); F3
+/// added `@feature`, and this gate asserts that direction by construction
+/// so no future decorator can drift the two surfaces apart again.
+///
+/// Bare attribute decorators (`ATTRIBUTE_DECORATORS`) are excluded: they
+/// have no `@<ns>.<target>` form, so the namespace catalog never validates
+/// them. Everything else (`@semantic`, `@cap`, `@policy`, `@scope`,
+/// `@fn`, `@command`, `@file`, `@audience`, …) is reference-form and must
+/// be allowed.
+///
+/// Spot-check that this goes RED if drift reopens: removing `feature` from
+/// `is_allowed_reference_namespace` (the F3 fix) re-reddens this test with
+/// "`@feature` ... not accepted".
+#[test]
+fn registry_decorator_namespaces_are_allowed_references() {
+    let attr: BTreeSet<&str> = ATTRIBUTE_DECORATORS.iter().copied().collect();
+
+    let mut failures = Vec::new();
+    for spec in ALL.iter() {
+        if spec.sigil != Some(Sigil::At) {
+            continue;
+        }
+        if attr.contains(spec.literal) {
+            continue;
+        }
+        // The namespace is the decorator literal minus its `@` sigil and
+        // any dotted-target tail (registry decorator rows are bare, e.g.
+        // `@semantic`, so there is no tail — but strip defensively).
+        let namespace = spec
+            .literal
+            .strip_prefix('@')
+            .unwrap_or(spec.literal)
+            .split('.')
+            .next()
+            .unwrap_or("");
+        if !is_allowed_reference_namespace(namespace) {
+            failures.push(format!(
+                "registry decorator `{}` (namespace `{namespace}`) is not accepted by \
+                 `is_allowed_reference_namespace` — add it to the LSP namespace catalog in \
+                 `diagnostics::vocab`, or, if it is a bare attribute marker with no \
+                 `@<ns>.<target>` form, add it to ATTRIBUTE_DECORATORS with a justification",
+                spec.literal
+            ));
+        }
+    }
+    failures.sort_unstable();
+    failures.dedup();
+    assert!(
+        failures.is_empty(),
+        "registry → namespace parity drift (F3 class) — a registry `@`-decorator uses a \
+         namespace the LSP `is_allowed_reference_namespace` catalog rejects:\n  - {}",
+        failures.join("\n  - ")
     );
 }

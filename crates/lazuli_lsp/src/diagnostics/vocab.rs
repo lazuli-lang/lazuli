@@ -13,7 +13,9 @@
 //! - `defaults-policy-for` — `defaults` blocks should use `policy_for
 //!   <kinds>: <atom>`, not the deprecated `policy <atom>` form.
 //! - `namespace-catalog` — every `@...` reference must use one of the
-//!   17 allowed namespaces (`@role`, `@scope`, `@actor`, …).
+//!   allowed reference namespaces (`@role`, `@scope`, `@actor`, …); the
+//!   set is kept in registry-parity with `lazuli_keywords` `@`-decorators
+//!   by `registry_decorator_namespaces_are_allowed_references`.
 //!
 //! `namespace_references` + `is_allowed_reference_namespace` are
 //! pub(crate) so the policy / lazurite_manifest aggregators can reuse
@@ -141,7 +143,7 @@ pub(crate) fn namespace_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
                     line,
                     DiagnosticSeverity::WARNING,
                     "namespace-catalog",
-                    "unknown `@...` namespace. Allowed namespaces are `@role`, `@scope`, `@actor`, `@policy`, `@semantic`, `@cap`, `@pii`, `@key`, `@fn`, `@hook`, `@validator`, `@adapter`, `@client`, `@query_modifier`, `@anchor`, `@llm`, `@tool`, `@trace`, `@translation`, and `@feature`.",
+                    "unknown `@...` namespace. Allowed namespaces are `@role`, `@scope`, `@actor`, `@policy`, `@semantic`, `@cap`, `@pii`, `@key`, `@fn`, `@hook`, `@validator`, `@adapter`, `@client`, `@query_modifier`, `@anchor`, `@llm`, `@tool`, `@trace`, `@translation`, `@feature`, `@command`, `@file`, and `@audience`.",
                 ));
                 break;
             }
@@ -245,5 +247,22 @@ pub(crate) fn is_allowed_reference_namespace(namespace: &str) -> bool {
             // resolution) and `audit ... materialize @feature.x.OperationLog`.
             // Resolves to a resource declared in a sibling feature block.
             | "feature"
+            // Registry-parity backfill (Guard B / F3 class) — three
+            // reference namespaces the `lazuli_keywords` registry carries as
+            // `@`-decorators but the catalog had silently dropped (caught by
+            // `registry_decorator_namespaces_are_allowed_references`):
+            //   * `@command.<name>` — `view.inline_table on_change @command.X`
+            //     binds an inline-edit row mutation to a sibling command
+            //     (`docs/grammar.lzx.md`, `docs/quickref.md`).
+            //   * `@file.<name>` — `query.sql foo / @file.foo.sql` and
+            //     template references (`@file.welcome`) point at a path-
+            //     convention file (`docs/project-structure.md`,
+            //     `docs/scope-discipline.md`).
+            //   * `@audience.<name>` — `audience @audience.<name>` /
+            //     `expose to @audience <name>` restricts a surface/error to a
+            //     declared audience (`lazuli_syntax::ast::feature::errors`).
+            | "command"
+            | "file"
+            | "audience"
     )
 }
