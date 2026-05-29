@@ -16,11 +16,15 @@
 //! `records`, `queries`, `agents`, `reports` — that the domain checks
 //! actually walk).
 //!
-//! Optimization: when a fact row has zero aggregates AND no resource
-//! invariants AND no `slug` fields anywhere, the rules can't fire, so
-//! the loop body is skipped. This keeps the per-feature dispatch O(1)
-//! for the common case where a feature is plain CRUD without domain
-//! modeling.
+//! Optimization: when a fact row carries none of the domain-relevant
+//! shapes — zero aggregates, no resource invariants, no `slug` fields, no
+//! conditional-unique constraints, no `many_through`, no conditional
+//! policy atoms, no `computed_date` / `schedule_rule` fields, no
+//! `append_only` resource, and no `reorder` command — the rules can't
+//! fire, so the loop body is skipped. This keeps the per-feature dispatch
+//! O(1) for the common case where a feature is plain CRUD without domain
+//! modeling. The gate MUST gate-in every shape some rule guards, or that
+//! rule goes dormant (fires on zero examples).
 //!
 //! Line anchoring resolves through `aggregate_lines` for aggregate-scoped
 //! findings; resource-scoped findings anchor at the feature header
@@ -52,6 +56,26 @@ pub(crate) fn diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> 
             .categories
             .iter()
             .any(|c| !c.conditional_atoms.is_empty());
+        // F4 — the W3/W4 date+ordering rules (COMPUTED-DATE-EXPR-001,
+        // SCHEDULE-RULE-001, RESOURCE-APPEND-ONLY-001,
+        // REORDER-POSITION-FIELD-001) were dormant because the early-skip
+        // gate never gated them in. A feature whose only domain-relevant
+        // content is a `computed_date` / `schedule_rule` field, an
+        // `append_only` resource, or a `reorder` command must NOT be
+        // skipped, or those rules never run.
+        //
+        // `computed_date.is_some()` covers both the W3 `Field`-base form
+        // (COMPUTED-DATE-EXPR-001) and the W4 `Rule`-base / `schedule_rule`
+        // form (SCHEDULE-RULE-001).
+        let has_computed_date = fact
+            .resources
+            .iter()
+            .any(|r| r.fields.iter().any(|f| f.computed_date.is_some()));
+        let has_append_only = fact.resources.iter().any(|r| r.append_only);
+        let has_reorder = fact
+            .commands
+            .iter()
+            .any(|c| matches!(c.effect, lazuli_ir::CommandEffect::Reorders(_)));
         if fact.aggregates.is_empty()
             && fact.resources.iter().all(|r| r.invariants.is_empty())
             && fact
@@ -61,6 +85,9 @@ pub(crate) fn diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> 
             && !has_conditional_unique
             && !has_many_through
             && !has_conditional_policy
+            && !has_computed_date
+            && !has_append_only
+            && !has_reorder
         {
             continue;
         }
@@ -71,6 +98,13 @@ pub(crate) fn diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> 
         // feature drops both slots, so re-attach them from the fact.
         feature.policies = fact.policies.clone();
         feature.commands = fact.commands.clone();
+        // F4 — SCHEDULE-RULE-001 resolves a `schedule_rule from @fn.<rule>`
+        // base against the feature's declared `fn` (Function) extensions
+        // (`schedule_rule_invalid.rs` reads `feature.extensions`). The
+        // report-shaped synthetic feature zeroes `extensions`, so a validly
+        // declared `fn` would be invisible → false-positive "unresolved fn".
+        // Re-attach the harvested extensions so the binding-fn resolves.
+        feature.extensions = fact.extensions.clone();
 
         // AGGREGATE-ROOT-UNKNOWN
         for finding in domain::aggregate_root_unknown::check(&feature, &fact.path) {
