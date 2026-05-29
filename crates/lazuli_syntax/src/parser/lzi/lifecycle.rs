@@ -256,11 +256,21 @@ fn parse_lifecycle_transition(
             last_end = line.end;
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("emits ") {
-            let event = rest.trim();
-            if event.is_empty() {
+            // `emits a, b` declares several events on one transition line;
+            // split on `,` so each lands as its own event name (mirrors
+            // `command::parse_command_emit`). Without the split the whole
+            // `"a, b"` string became one bogus event the codegen rendered
+            // as a single `{Name: "a, b"}` matching no declared event.
+            let before = emits.len();
+            emits.extend(
+                rest.split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_owned),
+            );
+            if emits.len() == before {
                 return Err(line_error(line, "`emits` requires an event name"));
             }
-            emits.push(event.to_owned());
             last_end = line.end;
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("requires ") {

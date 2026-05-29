@@ -172,13 +172,12 @@ pub(super) fn parse_job(
             last_end = lines[next.saturating_sub(1).max(i)].end;
             i = next;
         } else if let Some(rest) = trimmed.strip_prefix("emits ") {
-            // Strip the optional ` from creates`/`from updates`/`from deletes`
-            // suffix and consume any indented payload child block. The IR
-            // only carries event names today; the child assignments stay
-            // on the surface for Tier 3 doctor diagnostics that walk
-            // source text directly.
+            // Strip the optional ` from <kind>` axis, then split the
+            // remaining `a, b` list into one event name apiece (mirrors
+            // `command::parse_command_emit`). Only event names reach IR;
+            // any indented payload child block stays on the source surface.
             let raw = rest.trim();
-            let name = if let Some(n) = raw.strip_suffix(" from creates") {
+            let names_part = if let Some(n) = raw.strip_suffix(" from creates") {
                 n.trim()
             } else if let Some(n) = raw.strip_suffix(" from updates") {
                 n.trim()
@@ -187,10 +186,18 @@ pub(super) fn parse_job(
             } else {
                 raw
             };
-            emits.push(name.to_owned());
+            let names: Vec<&str> = names_part
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .collect();
+            if names.is_empty() {
+                return Err(line_error(line, "`emits` requires an event name"));
+            }
             last_end = line.end;
             i += 1;
-            // Skip indented child lines (`<field> = <expr>`).
+            // Consume any indented payload child block (`<field> = <expr>`).
+            let mut has_child_block = false;
             while i < lines.len() {
                 let child = &lines[i];
                 let child_trim = child.text.trim_start();
@@ -201,9 +208,18 @@ pub(super) fn parse_job(
                 if child.indent <= AGENT_INDENT_AGENT_CHILD {
                     break;
                 }
+                has_child_block = true;
                 last_end = child.end;
                 i += 1;
             }
+            if names.len() > 1 && has_child_block {
+                return Err(line_error(
+                    line,
+                    "a multi-name `emits` (e.g. `emits a, b`) cannot carry a payload child block — \
+                     give each event its own `emits` line to bind fields",
+                ));
+            }
+            emits.extend(names.into_iter().map(str::to_owned));
         } else if trimmed.starts_with("gate ") {
             // PG.A — gates lifted via side-channel pass; tolerate here.
             last_end = line.end;
@@ -479,3 +495,6 @@ feature customer
         );
     }
 }
+
+#[cfg(test)]
+mod emits_split_tests;
