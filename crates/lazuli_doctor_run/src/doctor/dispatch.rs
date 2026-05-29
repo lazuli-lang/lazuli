@@ -63,6 +63,18 @@ impl DoctorPackage {
         // (iron-hand promotes to error) > category default.
         diagnostics.extend(self.context_vocab_diagnostics());
 
+        // Knowledge-sector vocabulary — the five `VOCAB-KNOWLEDGE-*` rules
+        // (SECTOR-UNKNOWN, DANGLING-CITE, UNGATED-WRITE, STALE, DUP-TOPIC).
+        // Sibling of the VOCAB-CONTEXT family above: same Vocabulary
+        // category + severity precedence, but it additionally iterates
+        // features carrying a `knowledge <sector>` field (SECTOR-UNKNOWN /
+        // DANGLING-CITE) and scans the on-disk `knowledge/<sector>/` gold-doc
+        // vault for the write-gate + decay + dedup rules. Closes the dormant
+        // wiring gap: the rules compiled + were registry-claimed but no
+        // dispatcher invoked them. See
+        // `docs/proposals/knowledge-sector-field.md` §Doctor.
+        diagnostics.extend(self.knowledge_vocab_diagnostics());
+
         // PG.B — plan-and-gate cross-feature checks.
         if let Some(facts) = &self.plan_gate_facts {
             let eval_order_inputs = collect_callable_bodies_for_eval_order(&self.files);
