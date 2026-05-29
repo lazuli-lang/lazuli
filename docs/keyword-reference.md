@@ -30,7 +30,7 @@ Columns:
 
 <!-- BEGIN GENERATED BODY -->
 
-_Generated from 678 capability rows across the `lazuli_keywords` registry._
+_Generated from 687 capability rows across the `lazuli_keywords` registry._
 
 ## `.lzi` — feature source
 
@@ -679,6 +679,13 @@ _Generated from 678 capability rows across the `lazuli_keywords` registry._
 | `cadence` | `keyword.control.statement.lazuli` | `keyword` | — | Rotation cadence. | — |
 | `overlap` | `keyword.control.statement.lazuli` | `keyword` | — | Key-overlap window. | — |
 
+### ErrorPage
+
+| keyword / literal | scope | semantic token | sigil | hover | produces |
+| --- | --- | --- | --- | --- | --- |
+| `audience` | `entity.name.function.statement.error-page.lazuli` | `keyword` | — | Error-page audience selector. | — |
+| `template` | `entity.name.function.statement.error-page.lazuli` | `keyword` | — | Error-page template path. | — |
+
 ### Plan
 
 | keyword / literal | scope | semantic token | sigil | hover | produces |
@@ -850,6 +857,23 @@ _Generated from 678 capability rows across the `lazuli_keywords` registry._
 | `required_when` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
 | `when` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
 | `when_denied` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
+
+### Cors
+
+| keyword / literal | scope | semantic token | sigil | hover | produces |
+| --- | --- | --- | --- | --- | --- |
+| `allow_credentials` | `entity.name.function.statement.cors.lazuli` | `keyword` | — | Allow credentialed CORS requests. | — |
+| `allow_origins` | `entity.name.function.statement.cors.lazuli` | `keyword` | — | Allowed CORS origins. | — |
+| `max_age` | `entity.name.function.statement.cors.lazuli` | `keyword` | — | CORS preflight max-age. | — |
+
+### RouteGuard
+
+| keyword / literal | scope | semantic token | sigil | hover | produces |
+| --- | --- | --- | --- | --- | --- |
+| `default_policy` | `entity.name.function.statement.route-guard.lazuli` | `keyword` | — | App-level default route policy. | — |
+| `on_unauthenticated` | `entity.name.function.statement.route-guard.lazuli` | `keyword` | — | Default redirect when unauthenticated. | — |
+| `on_unauthorized` | `entity.name.function.statement.route-guard.lazuli` | `keyword` | — | Default redirect when unauthorized. | — |
+| `skeleton` | `entity.name.function.statement.route-guard.lazuli` | `keyword` | — | Default loading skeleton. | — |
 
 ### Deprecated
 
