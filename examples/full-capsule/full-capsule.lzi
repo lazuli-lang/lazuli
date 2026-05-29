@@ -23,7 +23,7 @@ feature customer
     timestamps
     policy_for jobs, webhooks: @actor.system
 
-  uses org, user, billing
+  uses org, user, billing, customer_audit
 
   domain
     public contract CustomerStatus as v1
@@ -61,6 +61,13 @@ feature customer
       renewal_date: Date optional
       reminder_lead_days: Integer = 7
       renewal_reminder_at: Date computed_date from renewal_date offset reminder_lead_days
+      # W4 GAP-08 — rule-driven computed Date: the base Date is selected by
+      # the `next_review_rule` binding fn (declared in `extensions`), then
+      # shifted by `reminder_lead_days`.
+      next_review_at: Date schedule_rule from @fn.next_review_rule(renewal_date) offset reminder_lead_days
+      # GAP-12 — cross-feature FK into the append-only audit ledger owned by
+      # `customer_audit` (declared in this feature's `uses`).
+      last_audit_id: ID target @feature.customer_audit.OperationLog optional
       has_many notes: CustomerNote inverse customer
       many_through CustomerAccountManager to User
         role_in_account: Text required
@@ -450,6 +457,50 @@ feature customer
       query.list
       query.by_id(id: route.id)
 
+  command activate
+    route id: ID
+    input
+      owner_id: User.ID required
+    let resolved_owner = user.query.by_id(id: input.owner_id)
+    policy @policy.update
+    rate_limit "30 per minute per user"
+    # The command owns the write; the lifecycle owns the state edge.
+    # Backend gates on `Customer.status == activate.from` (lead), runs the
+    # update, then advances `status = activate.to` (active) in one txn.
+    triggers transition activate
+    updates Customer
+      owner = resolved_owner
+    emits customer_activated
+    invalidates
+      query.list
+      query.by_id(id: route.id)
+
+  command archive_customer
+    route id: ID
+    input
+      reason: Text required
+    policy @policy.update
+    rate_limit "10 per minute per user"
+    # Multi-approver sign-off: a compliance reviewer then an admin must
+    # approve in strict order; on timeout/denial the request escalates.
+    approval
+      required_when target.tier = enterprise
+      chain [@role.sales_manager, @role.admin] sequential
+      timeout "24h"
+      then escalate
+    # Records the archive into the append-only ledger owned by
+    # `customer_audit` (cross-feature, reachable via `uses`).
+    audit actor, target.id, input.reason
+      materialize @feature.customer_audit.OperationLog
+    # Advances the lifecycle (active -> archived) without writing `status`.
+    triggers transition archive
+    updates Customer
+      reminder_lead_days = 0
+    emits customer_archived
+    invalidates
+      query.list
+      query.by_id(id: route.id)
+
   command reorder_notes
     route id: ID
     input
@@ -571,6 +622,7 @@ feature customer
     hook after_archive: Hook[ArchiveCustomer]
     fn risk_score: Function[Customer, Integer]
     fn lifetime_value: Function[ID, Integer] at "./domain/lifetime_value.go"
+    fn next_review_rule: Function[Date, Date] at "./domain/next_review_rule.go"
     query_modifier query_scope_modifier: QueryModifier[Customer]
 
     validator tier_check: Validator[Customer.tier] at "./hooks/validate_tier.go"
@@ -1037,3 +1089,55 @@ feature account
       email
         read: @scope.same_org
         write: @role.admin
+
+feature customer_audit
+  purpose "Append-only audit ledger that customer write-commands materialize into."
+
+  non_goals
+    delegated_to
+      customer: "customer lifecycle ownership"
+    out_of_scope
+      generic_audit_pipeline: "cross-domain audit aggregation"
+
+  defaults
+    tenancy org
+    timestamps
+
+  uses org, user
+
+  domain
+    enum OperationKind
+      reassign
+      archive
+
+    # Append-only ledger: customer commands sink their audit record here
+    # via `audit ... materialize @feature.customer_audit.OperationLog`.
+    resource OperationLog
+      append_only
+      actor: User required
+      operation: OperationKind required
+      target_id: ID required
+      occurred_at: DateTime required
+      detail: JSON optional
+
+    query.list ledger
+      params
+        operation: OperationKind optional
+
+      filters
+        operation when params.operation
+
+      paginate 100
+
+    query.lookup entry_by_id by id: ID
+
+    rule "audit ledger entries cannot be deleted"
+      deny OperationLog.delete when self.detail != nil
+      message "Audit log entries are immutable"
+
+      tests
+        denies when self.detail != nil
+        allows when self.detail = nil
+
+  policies
+    read: @role.admin, @role.compliance
