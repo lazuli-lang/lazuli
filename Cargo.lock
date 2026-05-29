@@ -671,6 +671,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazuli_diagnostics_registry"
+version = "0.1.0"
+dependencies = [
+ "lazuli_doctor",
+ "lazuli_keywords",
+]
+
+[[package]]
 name = "lazuli_doctor"
 version = "0.1.0"
 dependencies = [
