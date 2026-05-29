@@ -14,7 +14,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use anyhow::Context;
-use lazuli_lsp::SecurityProfile;
+use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 use serde_json::{Value, json};
 
 use crate::ExpandSet;

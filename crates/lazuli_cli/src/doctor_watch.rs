@@ -11,7 +11,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use lazuli_lsp::SecurityProfile;
+use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 use notify::{Event, RecursiveMode, Watcher};
 
 use crate::doctor;
@@ -27,7 +27,7 @@ const DEBOUNCE_MS: u64 = 200;
 ///
 /// ```ignore
 /// use std::path::Path;
-/// use lazuli_lsp::SecurityProfile;
+/// use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 /// use lazuli_cli::doctor_report::DoctorFormat;
 /// use lazuli_cli::doctor_watch::doctor_watch_command;
 ///

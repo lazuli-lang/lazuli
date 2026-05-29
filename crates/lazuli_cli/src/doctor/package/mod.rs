@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use lazuli_analyzer::lower_feature_skeleton;
-use lazuli_lsp::SecurityProfile;
+use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 use lazuli_syntax::parse_feature_skeletons;
 
 use crate::lazurite_manifest::{self, Manifest};

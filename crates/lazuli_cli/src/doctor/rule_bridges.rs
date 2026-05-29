@@ -31,7 +31,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use lazuli_doctor::{RuleCategory, vocab};
-use lazuli_lsp::SecurityProfile;
+use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 
 use crate::doctor::diagnostic::DoctorSeverityOverride;
 use super::parsers::is_lzi_path;

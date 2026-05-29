@@ -9,7 +9,7 @@
 use std::path::Path;
 
 use anyhow::Result;
-use lazuli_lsp::SecurityProfile;
+use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 
 use super::{DoctorDiagnostic, DoctorPackage, DoctorSeverity};
 

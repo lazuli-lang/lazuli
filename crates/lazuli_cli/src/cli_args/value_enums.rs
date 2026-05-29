@@ -5,7 +5,7 @@
 //! Lifted out of the `cli_args` god-file in the rails-style R9 split.
 
 use clap::ValueEnum;
-use lazuli_lsp::SecurityProfile;
+use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 
 use crate::cmd_design;
 use crate::cmd_test_types;

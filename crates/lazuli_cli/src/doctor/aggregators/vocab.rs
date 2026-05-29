@@ -49,7 +49,7 @@
 //! See `docs/proposals/doctor-vocabulary-lints.md` for the per-rule
 //! catalog and detection heuristics.
 
-use lazuli_lsp::SecurityProfile;
+use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 
 use super::correctness::make_synthetic_feature_for_correctness;
 use crate::doctor::{

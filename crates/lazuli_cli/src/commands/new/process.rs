@@ -13,7 +13,7 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 
-use lazuli_lsp::SecurityProfile;
+use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 
 use crate::doctor;
 

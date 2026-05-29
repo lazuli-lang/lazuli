@@ -13,7 +13,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use anyhow::Result;
-use lazuli_lsp::SecurityProfile;
+use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 
 use crate::cmd_test_types::{Layer, LayerResult, LayerVerdict, TestFailure};
 

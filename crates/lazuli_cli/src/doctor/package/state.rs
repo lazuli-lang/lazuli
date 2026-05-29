@@ -12,7 +12,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use lazuli_lsp::SecurityProfile;
+use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 
 use super::super::{
     AgentFacts, ApprovalBlockPresence, AuthFacts, CommandKey, CommandPolicy, DoctorAppContract,

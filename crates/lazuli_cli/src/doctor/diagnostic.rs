@@ -22,8 +22,9 @@
 use std::path::PathBuf;
 
 use lazuli_doctor::RuleCategory;
-use lazuli_doctor_config::{ResolvedDoctorConfig, SeverityOverride, effective_severity};
-use lazuli_lsp::SecurityProfile;
+use lazuli_doctor_config::{
+    DoctorProfile as SecurityProfile, ResolvedDoctorConfig, SeverityOverride, effective_severity,
+};
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

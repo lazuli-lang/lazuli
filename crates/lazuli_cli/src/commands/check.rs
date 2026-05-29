@@ -25,7 +25,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use lazuli_lsp::SecurityProfile;
+use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 
 use crate::{lazurite_manifest, version};
@@ -41,7 +41,7 @@ use crate::{lazurite_manifest, version};
 ///
 /// ```ignore
 /// use std::path::Path;
-/// use lazuli_lsp::SecurityProfile;
+/// use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 /// use lazuli_cli::commands::check::check_command;
 ///
 /// // Run with `allow_version_mismatch = true` against a single file:
