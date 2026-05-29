@@ -10,7 +10,9 @@
 
 use std::process::ExitCode;
 
-use xtask::tmlanguage;
+use xtask::{keyword_reference, tmlanguage};
+
+const USAGE: &str = "usage: cargo xtask <gen-tmlanguage | gen-keyword-reference> [--check]";
 
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
@@ -18,13 +20,11 @@ fn main() -> ExitCode {
     match cmd.as_deref() {
         Some("gen-tmlanguage") => {
             let check = args.any(|a| a == "--check");
-            match tmlanguage::run(check) {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(e) => {
-                    eprintln!("error: {e}");
-                    ExitCode::FAILURE
-                }
-            }
+            finish(tmlanguage::run(check))
+        }
+        Some("gen-keyword-reference") => {
+            let check = args.any(|a| a == "--check");
+            finish(keyword_reference::run(check))
         }
         Some("dump-groups") => {
             tmlanguage::dump_groups();
@@ -32,11 +32,22 @@ fn main() -> ExitCode {
         }
         Some(other) => {
             eprintln!("error: unknown xtask subcommand `{other}`");
-            eprintln!("usage: cargo xtask gen-tmlanguage [--check]");
+            eprintln!("{USAGE}");
             ExitCode::FAILURE
         }
         None => {
-            eprintln!("usage: cargo xtask gen-tmlanguage [--check]");
+            eprintln!("{USAGE}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Map a subcommand `Result` to a process exit code, printing any error.
+fn finish(r: Result<(), String>) -> ExitCode {
+    match r {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("error: {e}");
             ExitCode::FAILURE
         }
     }

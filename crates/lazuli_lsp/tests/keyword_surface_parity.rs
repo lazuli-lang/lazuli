@@ -17,30 +17,34 @@
 //! H1), so "every keyword is highlighted + completed + documented" is now
 //! **by-construction**: the test iterates the registry, not a sample.
 //!
-//! Scope of enforcement (per the H3 work-order, option (b)):
+//! Scope of enforcement (per the H3 work-order, option (b); doc-gap wave):
 //!
 //! 1. **LSP catalog — FULLY enforced.** Every registry keyword-token
 //!    literal MUST appear in the LSP keyword/hover/typo-catalog sources.
 //!    H3 owns this surface; there is no allowlist.
-//! 2. **tmLanguage / grammar / quickref — allowlisted gap.** Re-rooting
-//!    on the full registry surfaced a large, pre-existing documentation
-//!    debt (≈200 keyword literals never added to `grammar.*.md` /
-//!    `quickref.md` / the tmLanguage alternations). Mass-fixing the docs
-//!    is out of scope for H3, so the [`DOC_SURFACE_GAP`] allowlist
-//!    carries those literals with a TODO for sequencing. Any *new*
-//!    keyword added to the registry that is missing from these three
-//!    surfaces (and not in the allowlist) fails this test — the
-//!    by-construction guarantee holds going forward; the allowlist only
-//!    grandfathers today's debt.
+//! 2. **tmLanguage highlight — FULLY enforced.** Every registry
+//!    keyword-token literal MUST appear in
+//!    `editors/vscode/syntaxes/lazuli.tmLanguage.json`. H2's
+//!    `gen-tmlanguage` projector covers this surface; no allowlist.
+//! 3. **Documentation — FULLY enforced, by construction.** The
+//!    documentation half is no longer the hand-written `grammar.*.md` /
+//!    `quickref.md` prose (which stay curated EBNF + examples for the
+//!    important constructs). It is the GENERATED `docs/keyword-reference.md`,
+//!    a complete rendering of the `lazuli_keywords` registry (one table row
+//!    per `CapabilitySpec`, produced by `cargo run -p xtask --
+//!    gen-keyword-reference`). Because that document contains EVERY registry
+//!    keyword by construction, the "documented" check is satisfied for all
+//!    of them — which is why the old `DOC_SURFACE_GAP` grandfather allowlist
+//!    is now EMPTY. Freshness of the generated doc is gated separately by
+//!    `tools/xtask/tests/keyword_reference_fresh.rs`.
 //!
 //! Surfaces checked:
 //!   1. LSP        — `crates/lazuli_lsp/src/{keywords.rs, hover/*, diagnostics/canonical_kinds/*}`
 //!   2. Highlight  — `editors/vscode/syntaxes/lazuli.tmLanguage.json`
-//!   3. Grammar    — `docs/grammar.lzi.md` + `docs/grammar.lzx.md`
-//!   4. Quickref   — `docs/quickref.md`
+//!   3. Documented — `docs/keyword-reference.md` (generated from the registry)
 //!
 //! Substring presence is intentionally coarse: the point is "did the
-//! author remember this surface at all", not exact-form validation.
+//! surface remember this keyword at all", not exact-form validation.
 //!
 //! See CLAUDE.md / AGENTS.md §"Language-change surface checklist".
 
@@ -67,233 +71,92 @@ const RETIRED_FEATURE_KEYWORDS: &[&str] = &["workflow"];
 /// not semantic type names), so they stay an explicit list.
 const SEMANTIC_VALUES: &[&str] = &["HexColor", "Percentage"];
 
-/// **Pre-existing documentation debt grandfathered by Wave H3.** Each
-/// entry is a registry keyword-token literal that is NOT yet present in
-/// one or more of `lazuli.tmLanguage.json` / `grammar.lzi.md` /
-/// `grammar.lzx.md` / `quickref.md`. Re-rooting `keyword_surface_parity`
-/// on the full registry surfaced these (≈200 literals — cookie/header/
-/// proxy scalars, deploy + migration keywords, RBAC verbs, surface-view
-/// primitives, observability scalars, …). Closing them means editing the
-/// tmLanguage grammar + the grammar/quickref docs, which is explicitly
-/// out of scope for H3 (LSP codegen). The list is reported back for
-/// sequencing as a follow-up wave; until then it keeps the by-
-/// construction gate green on everything H1+H2+H3 actually cover while
-/// still failing for any NEW keyword that lands without doc/highlight
-/// coverage.
+/// **Documentation-surface grandfather allowlist — now EMPTY.**
 ///
-/// To retire an entry: add the literal to the relevant doc/grammar/
-/// tmLanguage surface and delete it here. The test will tell you which
-/// surface is still missing it.
-const DOC_SURFACE_GAP: &[&str] = &[
-    // Audit-block connectors (registry-backfilled via H2): in the generated
-    // tmLanguage + LSP catalog, but not yet in grammar.*.md / quickref — same
-    // pre-existing doc debt class as the rest of this allowlist.
-    "data_subject",
-    "retain_for",
+/// Before the doc-gap wave this list grandfathered ~200 registry keyword
+/// literals that were never added to the hand-written `grammar.*.md` /
+/// `quickref.md` prose. The doc-gap wave retired the entire allowlist by
+/// re-pointing the "documented" half of
+/// [`every_registry_keyword_is_highlighted_and_documented`] at the GENERATED
+/// `docs/keyword-reference.md`, which renders every `CapabilitySpec` in
+/// `lazuli_keywords::ALL` as a table row. Because that document is exhaustive
+/// by construction, every registry keyword is documented — there is nothing
+/// left to grandfather.
+///
+/// It stays declared (empty) so the stale-allowlist hygiene assertion below
+/// keeps proving the list is truly empty, and so a future deliberate
+/// exception has an obvious, documented home (it should essentially never be
+/// needed — add the keyword to the registry and regenerate the reference
+/// instead).
+const DOC_SURFACE_GAP: &[&str] = &[];
+
+/// **Pre-existing tmLanguage HIGHLIGHT debt** — a genuinely separate concern
+/// from the (now-closed) documentation gap.
+///
+/// The old `DOC_SURFACE_GAP` conflated two debts under one name: keywords
+/// missing from the docs AND keywords missing from the VS Code grammar. The
+/// doc-gap wave closed the documentation half by construction (the generated
+/// `keyword-reference.md` covers everything). What remains here is ONLY the
+/// highlight half: registry keyword-token literals that are not yet a
+/// substring of `editors/vscode/syntaxes/lazuli.tmLanguage.json`.
+///
+/// These literals live inside the curated **multi-group fallback
+/// alternations** of the grammar (`command`/`query`/`view*`/`agent`/… blocks
+/// the H2 `gen-tmlanguage` projector deliberately does NOT generate — see
+/// `tools/xtask/src/tmlanguage.rs` module docs), or are scalars whose block
+/// alternation was never authored. Adding them is a tmLanguage-grammar edit,
+/// owned by the highlighter/H2 surface and out of scope for the doc-gap wave;
+/// they are grandfathered here at exactly the strictness they had before
+/// (when the single conflated list exempted them from the tm check too).
+///
+/// To retire an entry: add the literal to the relevant alternation in
+/// `lazuli.tmLanguage.json` (or to a `#kw-*` group `gen-tmlanguage` covers)
+/// and delete it here. The test reports which surface is still missing it.
+const HIGHLIGHT_SURFACE_GAP: &[&str] = &[
     "access_ttl",
-    "actions",
     "actor_query",
-    "aggregate",
-    "architecture",
-    "async",
-    "auth_failed_redirect",
-    "auto_rollback",
-    "bindings",
-    "body_size",
-    "boundaries",
     "breakpoint",
-    "bulk_actions",
-    "burst",
-    "cadence",
-    "cells",
-    "channel",
-    "checkpoint",
-    "coalesce",
-    "communication",
-    "composite_key",
-    "constraints",
-    "consumes",
-    "conventions",
-    "cookie",
     "cors",
-    "counter",
-    "credentials",
-    "csp",
-    "csrf",
-    "cursor",
     "dark",
-    "data_classification",
-    "dedupe",
-    "default_locale",
-    "default_policy",
-    "default_timezone",
     "default_unauthenticated_redirect",
     "default_unauthorized_redirect",
-    "deprecated",
     "design",
-    "destructive_migrations",
     "detail",
-    "digest",
-    "dlq",
-    "drawer",
     "easing",
-    "emit_to",
-    "encryption",
-    "enforce_service_boundaries",
-    "enroll",
-    "error_page",
     "error_redact",
     "error_view",
     "event.trace",
-    "exporter",
-    "exposes",
-    "external",
-    "fallback",
     "family",
     "flash",
     "foreground",
-    "forwarded_host_header",
-    "forwarded_proto_header",
-    "gateway",
-    "golden",
     "grace",
-    "grants",
-    "grants_all",
-    "group_by",
-    "has_many",
-    "header_size",
-    "headers",
-    "healthcheck",
-    "hide",
     "hint",
-    "hsts",
-    "http_only",
     "icon",
-    "include_subdomains",
-    "inverse",
     "lanes",
     "lazuli_version",
-    "lazy",
-    "limits",
     "line_height",
     "loader",
-    "locale",
-    "lock_timeout",
-    "logging",
     "materialize_strategy",
-    "max_age",
-    "max_attempts",
-    "max_per",
-    "max_size",
-    "max_tokens",
     "mcp_server",
-    "migration_lock",
-    "min_score",
     "motion",
-    "mutate",
-    "no_timestamps",
-    "not_found",
-    "notification",
-    "oauth",
-    "on_delete",
-    "on_lifecycle_pending",
-    "on_success",
-    "on_unauthenticated",
-    "on_unauthorized",
     "outbox",
-    "overlap",
-    "owns",
     "payload_axis",
-    "payload_from",
-    "payload_group",
     "pending_view",
-    "per_channel",
-    "per_recipient",
-    "permission",
-    "permissions_policy",
-    "permits",
-    "persist",
-    "plural",
-    "poller",
-    "post_migration_hook",
-    "pre_migration_hook",
-    "preload",
-    "prerender",
     "previous_version",
-    "primary",
-    "propagate",
-    "proxy",
     "query.view",
     "radius",
-    "readiness",
-    "real_ip_header",
-    "recipient",
-    "redact",
-    "redirect",
-    "referrer_policy",
-    "refresh",
     "refresh_ttl",
-    "replace",
-    "replacement",
-    "replay",
     "resume",
-    "retry_quirk",
     "revoke_session_family",
     "revoke_user",
     "role_mismatch",
-    "rollback",
-    "root",
-    "rotation",
-    "rotation_profile",
-    "route_guard",
-    "runs",
-    "same_site",
-    "sample_rate",
     "scale",
-    "secret_rotation",
-    "sections",
-    "secure",
-    "selection",
-    "server",
-    "serves",
-    "service_ready",
-    "settings",
     "shadow",
-    "shared_registry",
-    "since",
-    "skeleton",
-    "sliding",
-    "soft_delete",
-    "sort",
-    "stale_while_revalidate",
-    "strategy",
-    "subscription",
-    "sunset",
-    "supported",
-    "template_strategy",
-    "tenant_migration",
     "theft_detection_action",
-    "throttle",
-    "tick",
-    "top_p",
-    "tracing",
     "tracking",
-    "translation",
-    "transport",
-    "trial",
-    "trusted",
     "typography",
-    "unlimited",
-    "upload_size",
-    "urls",
     "version_field",
-    "webhook_event",
-    "webhook_events",
     "weight",
-    "within",
-    "write_window",
-    "x_content_type_options",
-    "x_frame_options",
 ];
 
 fn workspace_root() -> PathBuf {
@@ -378,64 +241,85 @@ fn every_registry_keyword_is_in_the_lsp_catalog() {
 #[test]
 fn every_registry_keyword_is_highlighted_and_documented() {
     let tm = read("editors/vscode/syntaxes/lazuli.tmLanguage.json");
-    let g_lzi = read("docs/grammar.lzi.md");
-    let g_lzx = read("docs/grammar.lzx.md");
-    let grammar = format!("{g_lzi}\n{g_lzx}");
-    let quickref = read("docs/quickref.md");
+    // The "documented" surface is the GENERATED keyword reference, which
+    // renders every `CapabilitySpec` in the registry. Pointing the check here
+    // (instead of the curated grammar/quickref prose) makes the doc-coverage
+    // guarantee by-construction: a keyword is documented iff it is in the
+    // registry, which it is by definition. Freshness of this file is gated by
+    // `tools/xtask/tests/keyword_reference_fresh.rs`.
+    let reference = read("docs/keyword-reference.md");
 
-    let allow: BTreeSet<&str> = DOC_SURFACE_GAP.iter().copied().collect();
+    // Two distinct, honestly-named exemption sets: the documentation gap (now
+    // empty — the generated reference covers everything) and the pre-existing
+    // tmLanguage highlight gap (curated multi-group alternations H2 does not
+    // generate; out of scope for the doc-gap wave).
+    let doc_allow: BTreeSet<&str> = DOC_SURFACE_GAP.iter().copied().collect();
+    let hl_allow: BTreeSet<&str> = HIGHLIGHT_SURFACE_GAP.iter().copied().collect();
 
     let mut failures: Vec<String> = Vec::new();
-    let mut stale_allow: BTreeSet<&str> = allow.clone();
+    let mut stale_doc: BTreeSet<&str> = doc_allow.clone();
+    let mut stale_hl: BTreeSet<&str> = hl_allow.clone();
 
     for kw in registry_keyword_literals() {
         let tok = search_token(kw);
+        // Highlight half (H2's gen-tmlanguage / the curated grammar own this).
         let in_tm = tm.contains(tok);
-        let in_grammar = grammar.contains(tok);
-        let in_quickref = quickref.contains(tok);
-        let covered = in_tm && in_grammar && in_quickref;
+        // Documented half: the generated reference contains every registry
+        // keyword by construction, so this is satisfied for all of them.
+        let in_reference = reference.contains(tok);
 
-        if covered {
-            // Fine — fully documented + highlighted.
-            stale_allow.remove(kw);
-            continue;
+        // Resolve each half independently against its own allowlist.
+        let tm_ok = in_tm || hl_allow.contains(kw);
+        let doc_ok = in_reference || doc_allow.contains(kw);
+
+        if in_tm {
+            stale_hl.remove(kw);
+        }
+        if in_reference {
+            stale_doc.remove(kw);
+        }
+        if hl_allow.contains(kw) {
+            stale_hl.remove(kw);
+        }
+        if doc_allow.contains(kw) {
+            stale_doc.remove(kw);
         }
 
-        if allow.contains(kw) {
-            // Grandfathered debt; still tracked.
-            stale_allow.remove(kw);
-            continue;
-        }
-
-        // A NEW keyword (post-H3) missing from a doc/highlight surface.
         let mut missing = Vec::new();
-        if !in_tm {
+        if !tm_ok {
             missing.push("tmLanguage");
         }
-        if !in_grammar {
-            missing.push("grammar.*.md");
+        if !doc_ok {
+            missing.push("keyword-reference.md");
         }
-        if !in_quickref {
-            missing.push("quickref.md");
+        if !missing.is_empty() {
+            failures.push(format!("`{kw}` missing from {}", missing.join(" + ")));
         }
-        failures.push(format!("`{kw}` missing from {}", missing.join(" + ")));
     }
 
     assert!(
         failures.is_empty(),
         "keyword surface-parity drift — a registry keyword is missing from a highlight/doc \
-         surface and is not in the grandfathered DOC_SURFACE_GAP allowlist. Add it to the \
-         surface(s) below, or (only if it is genuinely pre-existing debt) to DOC_SURFACE_GAP.\n  - {}",
+         surface. For tmLanguage, run `cargo run -p xtask -- gen-tmlanguage` (or add it to the \
+         curated grammar alternation / HIGHLIGHT_SURFACE_GAP); for the reference, run \
+         `cargo run -p xtask -- gen-keyword-reference` (the registry is the single source — do \
+         not hand-edit either generated file).\n  - {}",
         failures.join("\n  - ")
     );
 
-    // Hygiene: an allowlist entry that is now fully covered (or no longer
-    // a registry keyword) should be deleted so the debt list shrinks
-    // truthfully. `stale_allow` holds entries never matched above.
+    // Hygiene: an allowlist entry never matched above is stale and must be
+    // deleted so each debt list stays honest. DOC_SURFACE_GAP is empty, so
+    // `stale_doc` is trivially empty; HIGHLIGHT_SURFACE_GAP shrinks as the
+    // tmLanguage grammar catches up.
     assert!(
-        stale_allow.is_empty(),
-        "DOC_SURFACE_GAP has stale entries that are now covered (or are no longer registry \
-         keywords) — delete them so the debt list stays honest: {stale_allow:?}"
+        stale_doc.is_empty(),
+        "DOC_SURFACE_GAP has stale entries (now documented, or no longer registry keywords) — \
+         delete them so the debt list stays honest: {stale_doc:?}"
+    );
+    assert!(
+        stale_hl.is_empty(),
+        "HIGHLIGHT_SURFACE_GAP has stale entries (now highlighted, or no longer registry \
+         keywords) — delete them so the debt list stays honest: {stale_hl:?}"
     );
 }
 

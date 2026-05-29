@@ -238,7 +238,10 @@ fn build_kw_rules() -> Map<String, Value> {
         // serde_json::Value::Object is a BTreeMap, so the three keys serialize
         // in stable alphabetical order (`comment`, `match`, `name`).
         let mut rule = Map::new();
-        rule.insert("comment".to_string(), Value::String(GEN_COMMENT.to_string()));
+        rule.insert(
+            "comment".to_string(),
+            Value::String(GEN_COMMENT.to_string()),
+        );
         rule.insert("name".to_string(), Value::String(g.scope.to_string()));
         rule.insert("match".to_string(), Value::String(pattern));
         out.insert(g.key.to_string(), Value::Object(rule));
