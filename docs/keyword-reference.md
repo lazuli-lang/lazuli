@@ -247,17 +247,12 @@ _Generated from 676 capability rows across the `lazuli_keywords` registry._
 | `input` | `keyword.control.section.lazuli` | `keyword` | — | Input field block. | — |
 | `invalidates` | `keyword.control.section.lazuli` | `keyword` | — | Cache invalidation block. | — |
 | `let` | `keyword.control.statement.lazuli` | `keyword` | — | Local binding. | — |
-| `materialize` | `keyword.control.statement.lazuli` | `keyword` | — | Materialize a projection. | — |
-| `output` | `keyword.control.section.lazuli` | `keyword` | — | Output field block. | — |
 | `policy` | `keyword.control.statement.lazuli` | `keyword` | — | Authorization policy expression. | — |
 | `rate_limit` | `keyword.control.statement.lazuli` | `keyword` | — | Rate-limit declaration. | `rate_limit_duplicate_default`<br>`rate_limit_duplicate_env`<br>`rate_limit_invalid_spec`<br>`rate_limit_no_default_with_qualifications`<br>`rate_limit_unknown_env` |
 | `reorder` | `keyword.control.statement.lazuli` | `keyword` | — | Reorder effect. | `REORDER-POSITION-FIELD-001` |
-| `replacement` | `entity.name.function.statement.deprecated.lazuli` | `keyword` | — | Replacement reference. | — |
 | `retry` | `keyword.control.statement.lazuli` | `keyword` | — | Retry policy. | — |
 | `returns` | `keyword.control.statement.lazuli` | `keyword` | — | Declares the command return type. | — |
 | `route` | `keyword.control.statement.lazuli` | `keyword` | — | HTTP route for the command. | — |
-| `since` | `entity.name.function.statement.deprecated.lazuli` | `keyword` | — | Deprecation since-version. | — |
-| `sunset` | `entity.name.function.statement.deprecated.lazuli` | `keyword` | — | Sunset date. | — |
 | `target` | `keyword.control.statement.lazuli` | `keyword` | — | Effect target resource. | — |
 | `timeout` | `keyword.control.statement.lazuli` | `keyword` | — | Command timeout. | — |
 | `triggers` | `keyword.control.statement.lazuli` | `keyword` | — | Triggers a lifecycle transition (`triggers transition <t>`). | — |
@@ -317,6 +312,7 @@ _Generated from 676 capability rows across the `lazuli_keywords` registry._
 | `expose` | `keyword.control.statement.lazuli` | `keyword` | — | Expose the agent over HTTP/MCP. | — |
 | `max_tokens` | `keyword.control.statement.lazuli` | `keyword` | — | Max output tokens. | — |
 | `model` | `keyword.control.statement.lazuli` | `keyword` | — | LLM model. | — |
+| `output` | `keyword.control.statement.lazuli` | `keyword` | — | Agent output shape (bare / `stream` / `discriminator`). | — |
 | `prompt` | `keyword.control.statement.lazuli` | `keyword` | — | Agent prompt. | — |
 | `safety` | `keyword.control.statement.lazuli` | `keyword` | — | Safety constraints. | — |
 | `seed` | `keyword.control.statement.lazuli` | `keyword` | — | Deterministic seed. | — |
@@ -380,6 +376,7 @@ _Generated from 676 capability rows across the `lazuli_keywords` registry._
 | keyword / literal | scope | semantic token | sigil | hover | produces |
 | --- | --- | --- | --- | --- | --- |
 | `method` | `keyword.control.statement.lazuli` | `keyword` | — | HTTP method. | — |
+| `output` | `keyword.control.statement.lazuli` | `keyword` | — | Typed response shape for the endpoint. | — |
 | `transport` | `keyword.control.statement.lazuli` | `keyword` | — | Transport (http). | — |
 
 ### Audit
@@ -851,6 +848,14 @@ _Generated from 676 capability rows across the `lazuli_keywords` registry._
 | `required_when` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
 | `when` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
 | `when_denied` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
+
+### Deprecated
+
+| keyword / literal | scope | semantic token | sigil | hover | produces |
+| --- | --- | --- | --- | --- | --- |
+| `replacement` | `entity.name.function.statement.deprecated.lazuli` | `keyword` | — | Replacement reference. | — |
+| `since` | `entity.name.function.statement.deprecated.lazuli` | `keyword` | — | Deprecation since-version. | — |
+| `sunset` | `entity.name.function.statement.deprecated.lazuli` | `keyword` | — | Sunset date. | — |
 
 ## `.lzx` — surface source
 

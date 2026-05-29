@@ -2,31 +2,35 @@
 //!
 //! # What this generates
 //!
-//! Only the **pure keyword-alternation repository rules** (`#kw-*`) of the
-//! VS Code grammar — one repo rule per per-block `(Context, scope)` group that
-//! the hand-written grammar previously expressed as an inline
-//! `^\s+(a|b|c)\b` alternation with a single scope `name`.
+//! The **keyword-alternation repository rules** (`#kw-*`) of the VS Code
+//! grammar — one repo rule per `(Context, scope, sigil-shape)` group in the
+//! [`GROUPS`] allowlist. Each rule's match is `^\s+(<literals, longest-first>)\b`
+//! and its `name` is the group's TextMate scope leaf. Because a literal valid
+//! in N contexts is N rows in the registry (context-as-data), grouping by
+//! `(Context, scope)` reproduces the grammar's per-block scope leaves exactly.
 //!
-//! Each generated rule is a faithful projection of the registry: its match
-//! is `^\s+(<literals, longest-first>)\b` and its `name` is the group's
-//! TextMate scope leaf. Because a literal valid in N contexts is N rows in
-//! the registry (context-as-data), grouping by `(Context, scope)` reproduces
-//! the grammar's per-block scope leaves exactly.
+//! Two tiers (see [`GROUPS`]):
+//!
+//! 1. **Wired** rules an `include` in a hand-written `begin/end` block points
+//!    at (`kw-cookie`, `kw-audit`, …) — editing the registry widens the live
+//!    highlight.
+//! 2. **Fallback-coverage** rules (WT-3) that back the curated multi-group
+//!    fallback alternations (`command`/`query`/`view*`/`agent`/… bodies). These
+//!    are GENERATED so every registry keyword is a literal substring of the
+//!    grammar (the `keyword_surface_parity` highlight half is drift-proof by
+//!    construction — this retired the 44-entry `HIGHLIGHT_SURFACE_GAP`) but are
+//!    intentionally left UN-`include`d, so they change the generation source,
+//!    not a rendered token (snapshots stay byte-for-byte green).
 //!
 //! # What it does NOT generate (stays hand-written, structural)
 //!
 //! * block `begin`/`end` rules, entity-name captures, the top-level
-//!   `patterns` include list;
+//!   `patterns` include list, and the `{ "include": "#kw-*" }` references
+//!   (which block points at which generated rule is a hand-written decision);
 //! * strings, comments, operators, punctuation, `#references`, `#types`,
 //!   `#decorators`, `#modifiers`, `#constants` (cross-cutting / regex-shaped);
-//! * curated *multi-group fallback* alternations that deliberately merge a
-//!   block's statement keywords with section headers + cross-cutting
-//!   modifiers and are shadowed by dedicated `begin/end` sub-blocks
-//!   (`command`, `query`, `api`, `webhook`, `job`, `agent`, `notification`,
-//!   `report`, `view*`, `extends*`, `experience`, `poller`, `rule`, `role`,
-//!   `aggregate`, `auth`, `errors`, `channel`, `tenant_migration`,
-//!   `resource`, value-catalog alternations). These are not single-group
-//!   projections.
+//! * `locale` (two distinct alternations share one `(Context, scope)` group →
+//!   not a single-group projection), and the value-catalog alternations.
 //!
 //! # Freshness
 //!
@@ -38,7 +42,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use lazuli_keywords::{ALL, Context};
+use lazuli_keywords::{ALL, Context, Sigil};
 use serde_json::{Map, Value};
 
 /// Path to the committed grammar, relative to the workspace root.
@@ -58,153 +62,306 @@ struct Group {
     key: &'static str,
     context: Context,
     scope: &'static str,
+    /// Which sigil-shape of row this group projects. The registry stores a
+    /// dotted-kind declaration (`query.view`, `event.trace`) with
+    /// `Sigil::DottedKind` and a bare keyword with `None`; both can share the
+    /// same `(context, scope)`, so the selector lets one `(context, scope)`
+    /// pair split into a bare alternation and a dotted alternation under
+    /// separate `#kw-*` keys. (`@`-decorators are never projected here — they
+    /// are matched by the cross-cutting `#decorators` rule.)
+    sigil: SigilSel,
 }
 
-/// The blocks whose inline alternation is replaced by a `#kw-*` include.
-/// Order here is the emission order of the `#kw-*` keys (stable).
+/// Which sigil-shape of registry row a [`Group`] projects.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SigilSel {
+    /// Bare keyword literals (`c.sigil == None`) — the default for every
+    /// per-block statement/section alternation.
+    Bare,
+    /// Dotted-kind declarations (`c.sigil == Some(Sigil::DottedKind)`), e.g.
+    /// `query.view` / `event.trace`.
+    Dotted,
+}
+
+impl SigilSel {
+    /// Whether a registry row's sigil matches this selector.
+    fn matches(self, sigil: Option<Sigil>) -> bool {
+        match self {
+            SigilSel::Bare => sigil.is_none(),
+            SigilSel::Dotted => sigil == Some(Sigil::DottedKind),
+        }
+    }
+}
+
+/// Shorthand for a bare-keyword group (the common case).
+const fn bare(key: &'static str, context: Context, scope: &'static str) -> Group {
+    Group {
+        key,
+        context,
+        scope,
+        sigil: SigilSel::Bare,
+    }
+}
+
+/// Shorthand for a dotted-kind group (`query.*` / `event.trace`).
+const fn dotted_group(key: &'static str, context: Context, scope: &'static str) -> Group {
+    Group {
+        key,
+        context,
+        scope,
+        sigil: SigilSel::Dotted,
+    }
+}
+
+/// The `(Context, scope)` groups whose alternation `gen-tmlanguage` projects
+/// into `#kw-*` repository rules. The `#kw-*` keys are emitted in
+/// alphabetical order (the rule map is a `BTreeMap`), so this array's order
+/// only disambiguates same-key collisions — declare them in any sensible
+/// grouping.
 ///
-/// Excluded on purpose (kept hand-written): the curated multi-group fallback
-/// alternations (`command`, `query`, `api`, `webhook`, `job`, `agent`,
-/// `notification`, `report`, `view*`, `extends*`, `experience`, `poller`,
-/// `rule`, `role`, `aggregate`, `auth`, `errors`, `channel`,
-/// `tenant_migration`, `resource`), and `locale` (two distinct alternations
-/// share one `(Context, scope)` group → not a single-group projection).
+/// # Two tiers of generated group
+///
+/// 1. **Wired alternations** (the original H2 set) — the per-block statement
+///    leaves whose `#kw-*` rule is `include`d by a hand-written block
+///    `begin/end` (`kw-cookie`, `kw-audit`, `kw-deprecated`, …). Editing the
+///    registry widens the live highlight.
+///
+/// 2. **Fallback-coverage alternations** (WT-3) — the groups that back the
+///    curated *multi-group fallback* alternations (`command`/`query`/`view*`/
+///    `agent`/… bodies) which `gen-tmlanguage` deliberately does NOT wire as a
+///    single `begin/end` include. These `#kw-*` rules are GENERATED (so every
+///    registry keyword is a literal substring of the grammar — the
+///    `keyword_surface_parity` highlight half is satisfied by construction and
+///    drift-proof) but are intentionally left UN-`include`d: the editor color
+///    still comes from the existing hand-written fallback rules, so generating
+///    them changes the *source of truth*, not a single rendered token (the
+///    grammar snapshots stay byte-for-byte green). They retire the
+///    `HIGHLIGHT_SURFACE_GAP` allowlist. To promote one to a live wired rule,
+///    add an `{ "include": "#kw-<key>" }` to the relevant block and re-snapshot.
+///
+/// Still NOT generated at all: `locale` (two distinct alternations share one
+/// `(Context, scope)` group → not a single-group projection); `@`-decorators
+/// and value catalogs (regex-shaped / cross-cutting, matched by `#decorators`
+/// / `#constants`).
 const GROUPS: &[Group] = &[
-    Group {
-        key: "kw-cookie",
-        context: Context::Cookie,
-        scope: "entity.name.function.statement.cookie.lazuli",
-    },
-    Group {
-        key: "kw-headers",
-        context: Context::Headers,
-        scope: "entity.name.function.statement.headers.lazuli",
-    },
-    Group {
-        key: "kw-proxy",
-        context: Context::Proxy,
-        scope: "entity.name.function.statement.proxy.lazuli",
-    },
-    Group {
-        key: "kw-limits",
-        context: Context::Limits,
-        scope: "entity.name.function.statement.limits.lazuli",
-    },
-    Group {
-        key: "kw-encryption",
-        context: Context::Encryption,
-        scope: "entity.name.function.statement.encryption.lazuli",
-    },
-    Group {
-        key: "kw-logging",
-        context: Context::Logging,
-        scope: "entity.name.function.statement.logging.lazuli",
-    },
-    Group {
-        key: "kw-tracing",
-        context: Context::Tracing,
-        scope: "entity.name.function.statement.tracing.lazuli",
-    },
-    Group {
-        key: "kw-runtime",
-        context: Context::Runtime,
-        scope: "entity.name.function.statement.runtime.lazuli",
-    },
-    Group {
-        key: "kw-deploy",
-        context: Context::Deploy,
-        scope: "entity.name.function.statement.deploy.lazuli",
-    },
-    Group {
-        key: "kw-services",
-        context: Context::Services,
-        scope: "entity.name.function.statement.services.lazuli",
-    },
-    Group {
-        key: "kw-communication",
-        context: Context::Communication,
-        scope: "entity.name.function.statement.communication.lazuli",
-    },
-    Group {
-        key: "kw-env",
-        context: Context::Env,
-        scope: "entity.name.function.statement.env.lazuli",
-    },
-    Group {
-        key: "kw-integrations",
-        context: Context::Integrations,
-        scope: "entity.name.function.statement.integration.lazuli",
-    },
-    Group {
-        key: "kw-packs",
-        context: Context::Packs,
-        scope: "entity.name.function.statement.packs.lazuli",
-    },
-    Group {
-        key: "kw-cache",
-        context: Context::Cache,
-        scope: "entity.name.function.statement.cache.lazuli",
-    },
-    Group {
-        key: "kw-translation",
-        context: Context::Translation,
-        scope: "entity.name.function.statement.translation.lazuli",
-    },
-    Group {
-        key: "kw-tests",
-        context: Context::Tests,
-        scope: "entity.name.function.statement.tests.lazuli",
-    },
-    Group {
-        key: "kw-defaults",
-        context: Context::Defaults,
-        scope: "entity.name.function.statement.defaults.lazuli",
-    },
-    Group {
-        key: "kw-non-goals",
-        context: Context::FeatureHeader,
-        scope: "entity.name.function.statement.non-goals.lazuli",
-    },
-    Group {
-        key: "kw-audit",
-        context: Context::Audit,
-        scope: "entity.name.function.statement.audit.lazuli",
-    },
-    Group {
-        key: "kw-approval",
-        context: Context::Approval,
-        scope: "entity.name.function.statement.approval.lazuli",
-    },
-    Group {
-        key: "kw-deprecated",
-        context: Context::CommandBody,
-        scope: "entity.name.function.statement.deprecated.lazuli",
-    },
-    Group {
-        key: "kw-replay",
-        context: Context::Webhook,
-        scope: "entity.name.function.statement.replay.lazuli",
-    },
-    Group {
-        key: "kw-digest",
-        context: Context::Notification,
-        scope: "entity.name.function.statement.digest.lazuli",
-    },
-    Group {
-        key: "kw-throttle",
-        context: Context::Notification,
-        scope: "entity.name.function.statement.throttle.lazuli",
-    },
-    Group {
-        key: "kw-plan-section",
-        context: Context::Plan,
-        scope: "keyword.control.section.lazuli",
-    },
-    Group {
-        key: "kw-secret-rotation",
-        context: Context::SecretRotation,
-        scope: "keyword.control.statement.lazuli",
-    },
+    // ── tier 1: wired per-block statement/section alternations (H2) ──
+    bare(
+        "kw-cookie",
+        Context::Cookie,
+        "entity.name.function.statement.cookie.lazuli",
+    ),
+    bare(
+        "kw-headers",
+        Context::Headers,
+        "entity.name.function.statement.headers.lazuli",
+    ),
+    bare(
+        "kw-proxy",
+        Context::Proxy,
+        "entity.name.function.statement.proxy.lazuli",
+    ),
+    bare(
+        "kw-limits",
+        Context::Limits,
+        "entity.name.function.statement.limits.lazuli",
+    ),
+    bare(
+        "kw-encryption",
+        Context::Encryption,
+        "entity.name.function.statement.encryption.lazuli",
+    ),
+    bare(
+        "kw-logging",
+        Context::Logging,
+        "entity.name.function.statement.logging.lazuli",
+    ),
+    bare(
+        "kw-tracing",
+        Context::Tracing,
+        "entity.name.function.statement.tracing.lazuli",
+    ),
+    bare(
+        "kw-runtime",
+        Context::Runtime,
+        "entity.name.function.statement.runtime.lazuli",
+    ),
+    bare(
+        "kw-deploy",
+        Context::Deploy,
+        "entity.name.function.statement.deploy.lazuli",
+    ),
+    bare(
+        "kw-services",
+        Context::Services,
+        "entity.name.function.statement.services.lazuli",
+    ),
+    bare(
+        "kw-communication",
+        Context::Communication,
+        "entity.name.function.statement.communication.lazuli",
+    ),
+    bare(
+        "kw-env",
+        Context::Env,
+        "entity.name.function.statement.env.lazuli",
+    ),
+    bare(
+        "kw-integrations",
+        Context::Integrations,
+        "entity.name.function.statement.integration.lazuli",
+    ),
+    bare(
+        "kw-packs",
+        Context::Packs,
+        "entity.name.function.statement.packs.lazuli",
+    ),
+    bare(
+        "kw-cache",
+        Context::Cache,
+        "entity.name.function.statement.cache.lazuli",
+    ),
+    bare(
+        "kw-translation",
+        Context::Translation,
+        "entity.name.function.statement.translation.lazuli",
+    ),
+    bare(
+        "kw-tests",
+        Context::Tests,
+        "entity.name.function.statement.tests.lazuli",
+    ),
+    bare(
+        "kw-defaults",
+        Context::Defaults,
+        "entity.name.function.statement.defaults.lazuli",
+    ),
+    bare(
+        "kw-non-goals",
+        Context::FeatureHeader,
+        "entity.name.function.statement.non-goals.lazuli",
+    ),
+    bare(
+        "kw-audit",
+        Context::Audit,
+        "entity.name.function.statement.audit.lazuli",
+    ),
+    bare(
+        "kw-approval",
+        Context::Approval,
+        "entity.name.function.statement.approval.lazuli",
+    ),
+    bare(
+        "kw-deprecated",
+        Context::Deprecated,
+        "entity.name.function.statement.deprecated.lazuli",
+    ),
+    bare(
+        "kw-replay",
+        Context::Webhook,
+        "entity.name.function.statement.replay.lazuli",
+    ),
+    bare(
+        "kw-digest",
+        Context::Notification,
+        "entity.name.function.statement.digest.lazuli",
+    ),
+    bare(
+        "kw-throttle",
+        Context::Notification,
+        "entity.name.function.statement.throttle.lazuli",
+    ),
+    bare(
+        "kw-plan-section",
+        Context::Plan,
+        "keyword.control.section.lazuli",
+    ),
+    bare(
+        "kw-secret-rotation",
+        Context::SecretRotation,
+        "keyword.control.statement.lazuli",
+    ),
+    // ── tier 2: fallback-coverage alternations (WT-3 — generated, un-wired) ──
+    // These retire the 44-entry `HIGHLIGHT_SURFACE_GAP` allowlist in
+    // `crates/lazuli_lsp/tests/keyword_surface_parity.rs`: each group's
+    // literals become substrings of the grammar so the parity highlight half is
+    // satisfied by construction. (Decl-head / section groups span more than the
+    // gap literals — every member is already highlighted by its hand-written
+    // block opener, so projecting the whole group is snapshot-neutral.)
+    bare(
+        "kw-design-section",
+        Context::Design,
+        "keyword.control.section.lazuli",
+    ),
+    bare(
+        "kw-surface-view-stmt",
+        Context::SurfaceView,
+        "keyword.control.statement.lazuli",
+    ),
+    bare(
+        "kw-surface-view-decl",
+        Context::SurfaceView,
+        "keyword.control.declaration.structural.lazuli",
+    ),
+    bare(
+        "kw-auth-stmt",
+        Context::Auth,
+        "keyword.control.statement.lazuli",
+    ),
+    bare(
+        "kw-app-stmt",
+        Context::App,
+        "keyword.control.statement.lazuli",
+    ),
+    bare(
+        "kw-app-section",
+        Context::App,
+        "keyword.control.section.lazuli",
+    ),
+    bare(
+        "kw-top-decl",
+        Context::TopLevel,
+        "keyword.control.declaration.structural.lazuli",
+    ),
+    bare(
+        "kw-top-stmt",
+        Context::TopLevel,
+        "keyword.control.statement.lazuli",
+    ),
+    bare(
+        "kw-feature-decl",
+        Context::FeatureHeader,
+        "keyword.control.declaration.structural.lazuli",
+    ),
+    dotted_group(
+        "kw-feature-dotted",
+        Context::FeatureHeader,
+        "keyword.control.declaration.structural.lazuli",
+    ),
+    bare(
+        "kw-job-stmt",
+        Context::Job,
+        "keyword.control.statement.lazuli",
+    ),
+    bare(
+        "kw-channel-stmt",
+        Context::Channel,
+        "keyword.control.statement.lazuli",
+    ),
+    bare(
+        "kw-webhook-stmt",
+        Context::Webhook,
+        "keyword.control.statement.lazuli",
+    ),
+    bare(
+        "kw-tenant-migration-stmt",
+        Context::TenantMigration,
+        "keyword.control.statement.lazuli",
+    ),
+    bare(
+        "kw-resource-stmt",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+    ),
 ];
 
 /// Marker written into every generated `#kw-*` rule so a reader (and the
@@ -219,7 +376,7 @@ fn build_kw_rules() -> Map<String, Value> {
     for (ctx_idx, g) in GROUPS.iter().enumerate() {
         let mut lits: Vec<&'static str> = ALL
             .iter()
-            .filter(|c| c.context == g.context && c.scope == g.scope && c.sigil.is_none())
+            .filter(|c| c.context == g.context && c.scope == g.scope && g.sigil.matches(c.sigil))
             .map(|c| c.literal)
             .collect();
         lits.sort_unstable();
