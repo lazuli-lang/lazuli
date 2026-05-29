@@ -130,7 +130,7 @@ The canonical form avoids compact aliases. Use `domain`, `resource`, `record`, `
 Feature blocks have a canonical lint/format order:
 
 ```txt
-meta: purpose, non_goals, context
+meta: purpose, non_goals, attach_ctx, knowledge
 defaults
 uses
 refs (optional reading aid; omit core namespace lists)
@@ -2973,7 +2973,7 @@ over-tighten a single layer when it earns it.
 
 ## Feature Context Vocabulary
 
-Three feature-scope keywords give cold readers — humans skimming the
+Four feature-scope keywords give cold readers — humans skimming the
 codebase and LLMs ingesting source — an immediate, structural answer
 to "what is this feature for, what is it explicitly NOT for, and where
 do I read more?". They sit at feature-child indent (two spaces), each
@@ -2986,6 +2986,7 @@ feature catalog
     "Full marketplace listing optimization"
     "Real-time chat (use messaging feature)"
   attach_ctx "./ctx.md"
+  knowledge lodging
   defaults
     timestamps
   resource Property
@@ -3040,6 +3041,18 @@ project root as fallback.
 3. The file exists but contains fewer than `100` non-whitespace
    characters (stub heuristic — empty / whitespace-only files do not
    count as documentation).
+
+### `knowledge <sector>`
+
+A bareword sector slug (e.g. `lodging`, `billing`) naming the
+`.lazuli/knowledge/<sector>/` document vault the feature draws
+authoring knowledge from. Unquoted identifier, cardinality 0..1.
+
+The planned `VOCAB-KNOWLEDGE-*` rules cross-check the declared sector
+against its on-disk vault (e.g. a dangling sector with no matching
+`.lazuli/knowledge/<sector>/` directory, or a dangling citation). They
+carry the same `Vocabulary` category and `warning` posture as the
+sibling `VOCAB-CONTEXT-*` family.
 
 ### Preset behavior
 

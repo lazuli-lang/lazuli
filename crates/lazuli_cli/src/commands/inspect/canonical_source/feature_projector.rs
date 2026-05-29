@@ -170,6 +170,18 @@ pub(super) fn inspect_feature(
         .then(|| tier3.and_then(|t| t.errors.clone()))
         .flatten();
 
+    // `knowledge <sector>` (iron-hand context) — `--expand=knowledge`
+    // projects the feature intent triad (purpose + non_goals + knowledge
+    // sector) from the lowered IR. Always `Some` when the flag is set so
+    // consumers distinguish "flag not set" from "no intent declared".
+    // Reading the on-disk `.lazuli/knowledge/<sector>/` vault is a later
+    // concern. See `docs/proposals/knowledge-sector-field.md`.
+    let knowledge_projection = expansions.knowledge.then(|| super::super::InspectKnowledge {
+        purpose: tier3.and_then(|t| t.purpose.clone()),
+        non_goals: tier3.map(|t| t.non_goals.clone()).unwrap_or_default(),
+        sector: tier3.and_then(|t| t.knowledge.clone()),
+    });
+
     // `cookie-sessions-child` — the security projection now reads the
     // lowered auth lookup (for the `auth.sessions.cookie` envelope), so
     // bind it before the struct literal moves `name`.
@@ -212,5 +224,6 @@ pub(super) fn inspect_feature(
         queries: queries_projection,
         records: records_projection,
         errors: errors_projection,
+        knowledge: knowledge_projection,
     }
 }

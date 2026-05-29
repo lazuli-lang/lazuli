@@ -34,6 +34,7 @@ mod edge_cases;
             purpose: None,
             non_goals: Vec::new(),
             context_path: None,
+            knowledge: None,
             defaults: ir::Defaults {
                 tenancy: None,
                 timestamps: false,

@@ -28,7 +28,8 @@ use super::super::feature_prelude::{
     take_matching_public_contract,
 };
 use super::super::iron_hand_context::{
-    parse_feature_attach_ctx_line, parse_feature_non_goals_block, parse_feature_purpose_line,
+    parse_feature_attach_ctx_line, parse_feature_knowledge_line, parse_feature_non_goals_block,
+    parse_feature_purpose_line,
 };
 use super::super::job::{parse_job, parse_tenant_migration};
 use super::super::mcp;
@@ -80,11 +81,12 @@ pub(super) fn parse_feature_skeleton(
     let mut uses_clauses: Vec<UsesClauseAst> = Vec::new();
     // MCP bucket cycle — `mcp_server <name>` feature-scoped blocks.
     let mut mcp_servers: Vec<crate::ast::McpServer> = Vec::new();
-    // Iron-hand context vocabulary — purpose / non_goals / attach_ctx.
-    // Each at most once per feature; duplicates are parse errors.
+    // Iron-hand context vocabulary — purpose / non_goals / attach_ctx /
+    // knowledge. Each at most once per feature; duplicates are parse errors.
     let mut purpose: Option<crate::ast::LziFeaturePurpose> = None;
     let mut non_goals: Option<crate::ast::LziFeatureNonGoals> = None;
     let mut attach_ctx: Option<crate::ast::LziFeatureAttachCtx> = None;
+    let mut knowledge: Option<crate::ast::LziFeatureKnowledge> = None;
     let mut pending_contract: Option<(String, PublicContractDeclAst)> = None;
     let mut i = start + 1;
     let mut last_end = header.end;
@@ -187,6 +189,25 @@ pub(super) fn parse_feature_skeleton(
                 ));
             }
             attach_ctx = Some(parse_feature_attach_ctx_line(line, rest)?);
+            last_end = line.end;
+            i += 1;
+            continue;
+        }
+
+        // Iron-hand context vocabulary — `knowledge <sector>`.
+        // Single bareword sector-slug line at indent 2 naming the
+        // `.lazuli/knowledge/<sector>/` vault. At most one per feature.
+        // See `docs/proposals/knowledge-sector-field.md`.
+        if line.indent == AGENT_INDENT_FEATURE_CHILD
+            && let Some(rest) = trimmed.strip_prefix("knowledge ")
+        {
+            if knowledge.is_some() {
+                return Err(line_error(
+                    line,
+                    "feature may declare at most one `knowledge` line",
+                ));
+            }
+            knowledge = Some(parse_feature_knowledge_line(line, rest)?);
             last_end = line.end;
             i += 1;
             continue;
@@ -522,6 +543,7 @@ pub(super) fn parse_feature_skeleton(
             purpose,
             non_goals,
             attach_ctx,
+            knowledge,
             span: Span::new(header.start, last_end),
         },
         i,

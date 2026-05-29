@@ -140,7 +140,8 @@ pub(in crate::commands::inspect) fn inspect_canonical_source_with_aliases(
         || expansions.resources
         || expansions.queries
         || expansions.records
-        || expansions.errors)
+        || expansions.errors
+        || expansions.knowledge)
         && !is_lzx
     {
         collect_tier3_by_feature_with_aliases(source, alias_map)

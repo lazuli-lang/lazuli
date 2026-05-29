@@ -6,10 +6,12 @@
 //! plus the index of the first line not consumed; the caller folds the
 //! result into its `FeatureSkeleton` builder.
 
-use super::super::common::{SourceLine, is_trivia, line_error};
+use super::super::common::{SourceLine, is_kebab_or_snake_ident, is_trivia, line_error};
 use super::super::error::ParseError;
 use super::helpers::take_quoted_string;
-use crate::ast::{LziFeatureAttachCtx, LziFeatureNonGoals, LziFeaturePurpose, Span};
+use crate::ast::{
+    LziFeatureAttachCtx, LziFeatureKnowledge, LziFeatureNonGoals, LziFeaturePurpose, Span,
+};
 
 /// Parse a single `purpose "<sentence>"` line at feature-child indent.
 /// The caller has already validated indent + keyword prefix.
@@ -57,6 +59,47 @@ pub(super) fn parse_feature_attach_ctx_line(
     }
     Ok(LziFeatureAttachCtx {
         path,
+        span: Span::new(line.start, line.end),
+    })
+}
+
+/// Parse a single `knowledge <sector>` line at feature-child indent. The
+/// caller has already validated indent + keyword prefix.
+///
+/// Unlike `attach_ctx`, the argument is a **bareword** sector slug
+/// (kebab/snake, e.g. `billing`) — NOT a quoted string — naming the
+/// `.lazuli/knowledge/<sector>/` vault. Exactly one slug, no trailing
+/// tokens. Sector ↔ on-disk-vault cross-checks live in the planned
+/// `VOCAB-KNOWLEDGE-*` doctor lints (a later stage); the parser only
+/// captures the slug verbatim. See
+/// `docs/proposals/knowledge-sector-field.md`.
+pub(super) fn parse_feature_knowledge_line(
+    line: &SourceLine<'_>,
+    rest: &str,
+) -> Result<LziFeatureKnowledge, ParseError> {
+    let mut tokens = rest.split_whitespace();
+    let Some(sector) = tokens.next() else {
+        return Err(line_error(
+            line,
+            "`knowledge` requires a sector slug — e.g. `knowledge billing`",
+        ));
+    };
+    if tokens.next().is_some() {
+        return Err(line_error(
+            line,
+            "`knowledge` accepts exactly one sector slug and no trailing tokens",
+        ));
+    }
+    if !is_kebab_or_snake_ident(sector) {
+        return Err(line_error(
+            line,
+            "`knowledge` sector must be a kebab/snake slug \
+             (lowercase letter first, then letters/digits/`_`/`-`) — \
+             e.g. `knowledge billing`, not a quoted string",
+        ));
+    }
+    Ok(LziFeatureKnowledge {
+        sector: sector.to_string(),
         span: Span::new(line.start, line.end),
     })
 }
@@ -335,6 +378,91 @@ mod iron_hand_context_tests {
         let features = parse_feature_skeletons(source).expect("attach_ctx still parses");
         let ctx = features[0].attach_ctx.as_ref().expect("attach_ctx present");
         assert_eq!(ctx.path, "@x");
+    }
+
+    // ── knowledge <sector> — mirrors the attach_ctx tests, but the
+    //    argument is a bareword sector slug, not a quoted string.
+    //    See docs/proposals/knowledge-sector-field.md. ──
+
+    #[test]
+    fn knowledge_line_lowers_into_skeleton() {
+        let source = "\nfeature billing\n  knowledge billing\n";
+        let features = parse_feature_skeletons(source).expect("parses");
+        let knowledge = features[0].knowledge.as_ref().expect("knowledge present");
+        assert_eq!(knowledge.sector, "billing");
+    }
+
+    #[test]
+    fn knowledge_accepts_kebab_and_snake_slugs() {
+        let source = "\nfeature ops\n  knowledge tax_reporting\n";
+        let features = parse_feature_skeletons(source).expect("parses");
+        assert_eq!(features[0].knowledge.as_ref().unwrap().sector, "tax_reporting");
+
+        let source = "\nfeature ops\n  knowledge tax-reporting\n";
+        let features = parse_feature_skeletons(source).expect("parses");
+        assert_eq!(features[0].knowledge.as_ref().unwrap().sector, "tax-reporting");
+    }
+
+    #[test]
+    fn knowledge_rejects_quoted_string() {
+        // The sector is a bareword slug — a quoted string is not a valid
+        // kebab/snake ident, so it is rejected (the inverse of attach_ctx,
+        // which *requires* the quotes).
+        let source = "\nfeature billing\n  knowledge \"billing\"\n";
+        let err = parse_feature_skeletons(source).expect_err("rejects quoted sector");
+        let msg = format!("{err}");
+        assert!(msg.contains("kebab/snake slug"), "got: {msg}");
+    }
+
+    #[test]
+    fn knowledge_rejects_trailing_tokens() {
+        let source = "\nfeature billing\n  knowledge billing invoices\n";
+        let err = parse_feature_skeletons(source).expect_err("rejects trailing tokens");
+        let msg = format!("{err}");
+        assert!(msg.contains("exactly one sector slug"), "got: {msg}");
+    }
+
+    #[test]
+    fn duplicate_knowledge_is_rejected() {
+        let source = "\nfeature billing\n  knowledge billing\n  knowledge invoicing\n";
+        let err = parse_feature_skeletons(source).expect_err("rejects dup");
+        let msg = format!("{err}");
+        assert!(msg.contains("at most one `knowledge`"), "got: {msg}");
+    }
+
+    #[test]
+    fn absent_knowledge_stays_none() {
+        let source = "\nfeature billing\n  purpose \"Bill customers\"\n";
+        let features = parse_feature_skeletons(source).expect("parses");
+        assert!(features[0].knowledge.is_none());
+    }
+
+    #[test]
+    fn knowledge_combines_with_purpose_non_goals_attach_ctx() {
+        // Smoke-check `knowledge` parses alongside the sibling context
+        // fields + the rest of the iron-hand-clean layout.
+        let source = r#"
+feature billing
+  purpose "Charge customers and reconcile invoices"
+  non_goals
+    "Tax calculation"
+  attach_ctx "./ctx.md"
+  knowledge billing
+  defaults
+    timestamps
+  resource Invoice
+    amount: Int required
+"#;
+        let features = parse_feature_skeletons(source).expect("parses");
+        let f = &features[0];
+        assert_eq!(
+            f.purpose.as_ref().unwrap().text,
+            "Charge customers and reconcile invoices"
+        );
+        assert_eq!(f.non_goals.as_ref().unwrap().entries.len(), 1);
+        assert_eq!(f.attach_ctx.as_ref().unwrap().path, "./ctx.md");
+        assert_eq!(f.knowledge.as_ref().unwrap().sector, "billing");
+        assert_eq!(f.resources.len(), 1);
     }
 
     #[test]

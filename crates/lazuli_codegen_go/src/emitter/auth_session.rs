@@ -266,6 +266,7 @@ mod tests {
             purpose: None,
             non_goals: Vec::new(),
             context_path: None,
+            knowledge: None,
             defaults: Defaults { tenancy: None, timestamps: false, policy: None },
             uses: Vec::new(),
             uses_spans: Vec::new(),

@@ -108,6 +108,9 @@ pub(crate) fn keyword_description(keyword: &str) -> Option<&'static str> {
         "attach_ctx" => Some(
             "Feature-context directive (at most once per feature): `attach_ctx \"<relative-path>\"` points at a markdown sidecar (e.g. `./ctx.md`) resolved against the `.lzi` directory then the project root. Doctor `VOCAB-CONTEXT-CTXMD-001` fires when absent, missing on disk, or under 100 non-whitespace characters.",
         ),
+        "knowledge" => Some(
+            "Feature-context directive (at most once per feature): `knowledge <sector>` names the bareword sector slug whose `.lazuli/knowledge/<sector>/` vault the feature draws authoring knowledge from. The planned `VOCAB-KNOWLEDGE-*` doctor lints cross-check the sector against its on-disk vault.",
+        ),
         "paginate" => Some("Declares the positive default page size for a `query.list`."),
         "surface" => Some("Declares UI projections for list, form, and detail views."),
         "input" => Some("Lists fields accepted by a command."),

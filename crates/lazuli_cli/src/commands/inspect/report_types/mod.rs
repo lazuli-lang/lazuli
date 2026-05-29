@@ -35,6 +35,7 @@ mod agent;
 mod aggregate;
 mod auth;
 mod job;
+mod knowledge;
 mod notification;
 mod security;
 mod storage;
@@ -47,6 +48,7 @@ pub(in crate::commands::inspect) use agent::*;
 pub(in crate::commands::inspect) use aggregate::*;
 pub(in crate::commands::inspect) use auth::*;
 pub(in crate::commands::inspect) use job::*;
+pub(in crate::commands::inspect) use knowledge::*;
 pub(in crate::commands::inspect) use notification::*;
 pub(in crate::commands::inspect) use security::*;
 pub(in crate::commands::inspect) use storage::*;
@@ -215,6 +217,15 @@ pub(crate) struct InspectFeature {
     /// vectors empty) when the block exists but has no overrides.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) errors: Option<lazuli_ir::FeatureErrors>,
+    /// `knowledge <sector>` (iron-hand context) — populated only when
+    /// `--expand=knowledge` is set. The feature intent triad
+    /// (`purpose` + `non_goals` + `knowledge` sector) read from the
+    /// lowered IR. Always `Some` when the flag is set (even with every
+    /// inner field empty) so consumers distinguish "flag not set" from
+    /// "no intent declared". See
+    /// `docs/proposals/knowledge-sector-field.md`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) knowledge: Option<InspectKnowledge>,
 }
 
 #[derive(Debug, Serialize)]

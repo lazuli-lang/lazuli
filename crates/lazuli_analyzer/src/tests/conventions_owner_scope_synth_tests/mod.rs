@@ -18,6 +18,7 @@ mod emit;
             purpose: None,
             non_goals: Vec::new(),
             context_path: None,
+            knowledge: None,
             defaults: ir::Defaults {
                 tenancy: None,
                 timestamps: false,

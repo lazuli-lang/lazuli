@@ -376,6 +376,11 @@ pub const KEYWORDS: &[&str] = &[
     "attach_ctx",
     "purpose",
     "non_goals",
+    // `knowledge <sector>` — bareword sector slug naming the
+    // `.lazuli/knowledge/<sector>/` vault the feature draws from. Sibling
+    // of purpose / non_goals / attach_ctx. See
+    // `docs/proposals/knowledge-sector-field.md`.
+    "knowledge",
     // Surface (`.lzx`) view / create / UX primitives. `view list`
     // projections, the `view create` submit + post-submit contract, and
     // the Wave-W6 / GAP-UX UX primitives.

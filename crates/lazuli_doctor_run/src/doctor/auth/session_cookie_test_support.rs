@@ -80,6 +80,7 @@ fn build(cookie: Option<SessionCookie>, refresh: bool) -> Feature {
         purpose: None,
         non_goals: vec![],
         context_path: None,
+        knowledge: None,
         defaults: Defaults::default(),
         uses: vec![],
         uses_spans: Vec::new(),

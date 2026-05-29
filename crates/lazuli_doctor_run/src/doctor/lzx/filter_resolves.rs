@@ -252,6 +252,7 @@ mod tests {
                 purpose: None,
                 non_goals: Vec::new(),
                 context_path: None,
+                knowledge: None,
                 defaults: Defaults::default(),
                 uses: Vec::new(),
                 uses_spans: Vec::new(),

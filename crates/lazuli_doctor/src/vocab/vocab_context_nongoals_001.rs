@@ -98,6 +98,7 @@ mod tests {
             purpose: None,
             non_goals,
             context_path: None,
+            knowledge: None,
             defaults: Defaults::default(),
             uses: vec![],
             uses_spans: vec![],

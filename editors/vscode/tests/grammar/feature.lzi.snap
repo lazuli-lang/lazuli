@@ -55,6 +55,10 @@
 #              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
 #                                          ^ source.lazuli string.quoted.double.lazuli
 >
+>  knowledge catalog
+#^^^^^^^^^^^ source.lazuli entity.name.function.statement.feature-meta.lazuli
+#           ^^^^^^^^^ source.lazuli
+>
 >  defaults
 #^^ source.lazuli
 #  ^^^^^^^^ source.lazuli keyword.control.section.lazuli

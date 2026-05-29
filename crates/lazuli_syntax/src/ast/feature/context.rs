@@ -34,6 +34,18 @@ pub struct LziFeatureAttachCtx {
     pub span: Span,
 }
 
+/// Iron-hand `knowledge <sector>` line. The sector is a bareword slug
+/// (kebab/snake, e.g. `billing`) — NOT a quoted string — naming the
+/// `.lazuli/knowledge/<sector>/` vault the feature draws from. Resolution
+/// against the on-disk vault happens in the `VOCAB-KNOWLEDGE-*` doctor
+/// lints (a later stage); the parser only captures the slug verbatim. See
+/// `docs/proposals/knowledge-sector-field.md`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LziFeatureKnowledge {
+    pub sector: String,
+    pub span: Span,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -54,5 +66,14 @@ mod tests {
             span: Span::new(0, 0),
         };
         assert!(n.entries.is_empty());
+    }
+
+    #[test]
+    fn knowledge_sector_preserved_verbatim() {
+        let k = LziFeatureKnowledge {
+            sector: "billing".into(),
+            span: Span::new(0, 0),
+        };
+        assert_eq!(k.sector, "billing");
     }
 }

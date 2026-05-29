@@ -30,6 +30,7 @@ fn feature_fixture() -> ir::Feature {
         purpose: None,
         non_goals: vec![],
         context_path: None,
+        knowledge: None,
         defaults: ir::Defaults::default(),
         uses: vec![],
         uses_spans: vec![],

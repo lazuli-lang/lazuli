@@ -331,6 +331,20 @@ const P_ATTACH_CTX: &[DiagnosticFacet] = &[
     df("VOCAB-CONTEXT-PURPOSE-001", "warning", "vocabulary"),
 ];
 
+// Knowledge-sector vocabulary — the five `VOCAB-KNOWLEDGE-*` rules
+// (`crates/lazuli_doctor/src/vocab/vocab_knowledge_*`) cross-check
+// `knowledge <sector>` against the `.lazuli/knowledge/<sector>/` document
+// vault. Same `Vocabulary` category + `warning` posture as the sibling
+// `VOCAB-CONTEXT-*` family above. See
+// `docs/proposals/knowledge-sector-field.md` §Doctor.
+const P_KNOWLEDGE: &[DiagnosticFacet] = &[
+    df("VOCAB-KNOWLEDGE-DANGLING-CITE-001", "warning", "vocabulary"),
+    df("VOCAB-KNOWLEDGE-DUP-TOPIC-001", "warning", "vocabulary"),
+    df("VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001", "warning", "vocabulary"),
+    df("VOCAB-KNOWLEDGE-STALE-001", "warning", "vocabulary"),
+    df("VOCAB-KNOWLEDGE-UNGATED-WRITE-001", "warning", "vocabulary"),
+];
+
 const P_DERIVED: &[DiagnosticFacet] = &[df("VOCAB-DERIVED-READ-001", "warning", "vocabulary")];
 
 const P_RESOURCE: &[DiagnosticFacet] = &[
@@ -1565,6 +1579,20 @@ pub const ALL: &[CapabilitySpec] = &[
         Context::FeatureHeader,
         SECTION,
         "Feature non-goals (iron-hand context).",
+    ),
+    // Iron-hand context vocabulary — `knowledge <sector>` names the
+    // `.lazuli/knowledge/<sector>/` vault the feature draws from. The
+    // sector is a bareword slug. Produces the five `VOCAB-KNOWLEDGE-*`
+    // doctor rules that cross-check the sector against its on-disk vault
+    // (see `docs/proposals/knowledge-sector-field.md` §Doctor).
+    produces(
+        kw(
+            "knowledge",
+            Context::FeatureHeader,
+            STMT,
+            "Feature knowledge sector (iron-hand context).",
+        ),
+        P_KNOWLEDGE,
     ),
     stmt(
         "delegated_to",

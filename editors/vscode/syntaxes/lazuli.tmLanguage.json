@@ -2576,7 +2576,7 @@
       "patterns": [
         {
           "name": "entity.name.function.statement.feature-meta.lazuli",
-          "match": "^\\s+(purpose|attach_ctx|imports|uses|requires|to|owner|owns|exposes|publishes|consumes|service|provides)\\b(?=\\s+\\S)"
+          "match": "^\\s+(purpose|attach_ctx|knowledge|imports|uses|requires|to|owner|owns|exposes|publishes|consumes|service|provides)\\b(?=\\s+\\S)"
         }
       ]
     },

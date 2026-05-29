@@ -1016,6 +1016,18 @@ feature catalog
   attach_ctx "./ctx.md"
 ```
 
+[v0] `knowledge <sector>` is the sibling feature-header directive (alongside
+`purpose` / `non_goals` / `attach_ctx`). The bareword sector slug names the
+`.lazuli/knowledge/<sector>/` vault the feature draws authoring knowledge from.
+Cardinality 0..1; the planned `VOCAB-KNOWLEDGE-*` doctor lints cross-check the
+sector against its on-disk vault.
+
+```lazuli
+feature catalog
+  purpose "Discover and book lodging."
+  knowledge lodging
+```
+
 ## Inspect Context Pack
 
 Default agent context for editing a feature:
