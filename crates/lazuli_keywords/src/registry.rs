@@ -162,6 +162,9 @@ const P_FN: &[DiagnosticFacet] = &[
 const P_INVARIANTS: &[DiagnosticFacet] =
     &[df("INVARIANT-PREDICATE-INVALID", "error", "vocabulary")];
 
+const P_JOB: &[DiagnosticFacet] =
+    &[df("JOB-DECLARATIVE-BODY-UNSUPPORTED-001", "warning", "error_handling")];
+
 const P_LIFECYCLE: &[DiagnosticFacet] = &[
     df("LIFECYCLE-ENUM-DUPLICATE", "error", "lifecycle"),
     df("LIFECYCLE-FIELD-DOUBLE-DECLARED", "error", "lifecycle"),
@@ -1377,11 +1380,14 @@ pub const ALL: &[CapabilitySpec] = &[
         ),
         P_WEBHOOK,
     ),
-    kw(
-        "job",
-        Context::FeatureHeader,
-        DECL,
-        "Declares a background job.",
+    produces(
+        kw(
+            "job",
+            Context::FeatureHeader,
+            DECL,
+            "Declares a background job.",
+        ),
+        P_JOB,
     ),
     kw(
         "agent",
