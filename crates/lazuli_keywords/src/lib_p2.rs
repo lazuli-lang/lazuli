@@ -171,6 +171,31 @@ mod catalog_tests {
     /// bare field flags + the `@resume` lifecycle flow-sigil.
     const NON_REFERENCE_DECORATORS: &[&str] = &["slug", "full_text", "owner_axis", "resume"];
 
+    /// SPEC-07 (B): the identity-axis catalog atoms `@role`/`@scope`/`@actor`
+    /// carry a scope leaf distinct from the feature-local named reference
+    /// `@policy`, so the named-ref-vs-catalog-atom kind is visible in the
+    /// generated `docs/keyword-reference.md` scope column (not just prose). The
+    /// shared identity/authorization axis is unaffected — all four stay `@`
+    /// reference namespaces; only the kind distinction is named here.
+    #[test]
+    fn identity_catalog_atoms_are_a_distinct_kind() {
+        const CATALOG_ATOM: &str = "entity.name.tag.catalog-atom.lazuli";
+        const DECORATOR: &str = "entity.name.tag.decorator.lazuli";
+        let scope_of = |lit: &str| ALL.iter().find(|c| c.literal == lit).map(|c| c.scope);
+        for atom in ["@role", "@scope", "@actor"] {
+            assert_eq!(
+                scope_of(atom),
+                Some(CATALOG_ATOM),
+                "{atom} must be a catalog-atom kind (SPEC-07 B) — use `catalog_atom(...)`",
+            );
+        }
+        assert_eq!(
+            scope_of("@policy"),
+            Some(DECORATOR),
+            "@policy is the feature-local named reference — it stays a `decorator(...)` kind",
+        );
+    }
+
     #[test]
     fn reference_namespaces_cover_registry_decorators() {
         for spec in ALL.iter() {

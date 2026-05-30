@@ -10,6 +10,11 @@ pub(crate) const SECTION: &str = "keyword.control.section.lazuli";
 pub(crate) const STMT: &str = "keyword.control.statement.lazuli";
 pub(crate) const MODIFIER: &str = "storage.modifier.lazuli";
 pub(crate) const DECORATOR: &str = "entity.name.tag.decorator.lazuli";
+/// SPEC-07 (B): the identity-axis catalog atoms `@role`/`@scope`/`@actor` carry
+/// a scope leaf distinct from generic reference decorators so the sigil-straddle
+/// (named feature-local reference vs app-level catalog atom) is named in the
+/// generated `docs/keyword-reference.md` scope column, not just in prose.
+pub(crate) const CATALOG_ATOM: &str = "entity.name.tag.catalog-atom.lazuli";
 pub(crate) const OP_LOGICAL: &str = "keyword.operator.logical.lazuli";
 pub(crate) const OP_PREDICATE: &str = "keyword.operator.predicate.lazuli";
 pub(crate) const TYPE_CTOR: &str = "support.function.type-constructor.lazuli";
@@ -117,6 +122,28 @@ pub(crate) const fn decorator(literal: &'static str, hover: &'static str) -> Cap
         literal,
         context: Context::ResourceBody,
         scope: DECORATOR,
+        token: SemanticToken::Decorator,
+        surface: Surface::Lzi,
+        sigil: Some(Sigil::At),
+        hover,
+        produces: &[],
+    }
+}
+
+/// An identity-axis catalog-atom namespace row (`@role`/`@scope`/`@actor`).
+///
+/// SPEC-07 (B): distinguished from [`decorator`] (the feature-local named
+/// reference `@policy.<category>`) — these resolve against an APP-LEVEL closed
+/// identity catalog declared in the registry, not a feature-local block. Same
+/// `@` sigil and LSP [`SemanticToken::Decorator`] token (they read as decorators
+/// to a highlighter); the [`CATALOG_ATOM`] scope leaf is what names the kind in
+/// the generated keyword reference. The split is enforced by
+/// `identity_catalog_atoms_are_a_distinct_kind` in `lib_p2.rs`.
+pub(crate) const fn catalog_atom(literal: &'static str, hover: &'static str) -> CapabilitySpec {
+    CapabilitySpec {
+        literal,
+        context: Context::ResourceBody,
+        scope: CATALOG_ATOM,
         token: SemanticToken::Decorator,
         surface: Surface::Lzi,
         sigil: Some(Sigil::At),

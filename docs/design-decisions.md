@@ -148,6 +148,18 @@ by `is_allowed_reference_namespace` in
 | Extension surface | `@fn`, `@hook`, `@validator`, `@adapter`, `@client`, `@query_modifier`, `@anchor` |
 | AI capabilities | `@llm`, `@tool` |
 
+**Settled — kind split on the identity axis (SPEC-07 B, consistent with
+SPEC-04's `@`-doctrine).** The four identity namespaces share one axis but are
+two *kinds* of reference, now named distinctly in the keyword registry:
+`@policy.<category>` is a **feature-local named reference** (resolves to a
+`policies` block in the same feature — registered as a `decorator`), whereas
+`@role`/`@scope`/`@actor` are **app-level catalog atoms** (resolve against the
+registry identity catalog — registered with the `catalog_atom` builder, scope
+leaf `entity.name.tag.catalog-atom.lazuli`). The axis is preserved; only the
+named-ref-vs-catalog-atom kind is made explicit, surfacing in hover and the
+generated `docs/keyword-reference.md` scope column. Enforced by
+`identity_catalog_atoms_are_a_distinct_kind` in `lazuli_keywords`.
+
 Merging axes into fewer namespaces would lose the ability to enforce
 axis-specific rules (e.g., `@cap.Encrypted(key:@key.tenant)` requires
 `@key.*` exactly because key scope is its own axis). The cost of "many

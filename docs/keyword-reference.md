@@ -169,7 +169,7 @@ _Generated from 684 capability rows across the `lazuli_keywords` registry._
 
 | keyword / literal | scope | semantic token | sigil | hover | produces |
 | --- | --- | --- | --- | --- | --- |
-| `@actor` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Actor reference decorator. | — |
+| `@actor` | `entity.name.tag.catalog-atom.lazuli` | `decorator` | `@` | Identity-axis catalog atom (`@actor.<name>`, e.g. `@actor.system` → an app-level actor principal). | — |
 | `@adapter` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Adapter decorator. | — |
 | `@anchor` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Anchor reference decorator. | — |
 | `@audience` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Audience reference decorator. | — |
@@ -184,11 +184,11 @@ _Generated from 684 capability rows across the `lazuli_keywords` registry._
 | `@llm` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | LLM decorator. | — |
 | `@owner_axis` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Ownership-axis decorator. | `owner_axis_collides_with_unique_user`<br>`owner_axis_on_non_fk`<br>`owner_axis_through_not_user_keyed`<br>`owner_axis_unknown_through` |
 | `@pii` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | PII-classification decorator. | — |
-| `@policy` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Policy reference decorator. | — |
+| `@policy` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Feature-local policy named reference (`@policy.<category>` → a `policies` block category in this feature). | — |
 | `@query_modifier` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Query-modifier reference decorator. | — |
 | `@resume` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Resume reference decorator. | — |
-| `@role` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Role reference decorator. | — |
-| `@scope` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Scope reference decorator. | — |
+| `@role` | `entity.name.tag.catalog-atom.lazuli` | `decorator` | `@` | Identity-axis catalog atom (`@role.<name>` → an app-level role from the registry identity catalog). | — |
+| `@scope` | `entity.name.tag.catalog-atom.lazuli` | `decorator` | `@` | Identity-axis catalog atom (`@scope.<name>` → an app-level OAuth/permission scope). | — |
 | `@semantic` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Semantic-scalar decorator (`@semantic.HexColor`). | `MONEY-ARITHMETIC-001`<br>`MONEY-COMPARE-001`<br>`VOCAB-JSON-TYPED-001`<br>`VOCAB-MONEY-MULTI-CURRENCY-001` |
 | `@slug` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Slug field decorator. | — |
 | `@tool` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Tool decorator. | — |

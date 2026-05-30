@@ -23,7 +23,8 @@ these scope families and you'll cover 95% of tokens:
 | `keyword.control.declaration.structural.lazuli`                      | Top-level kind (feature/app/etc.) — use your "class declaration" color          |
 | `keyword.control.section.lazuli`                                     | Block-opener (params/filters/audit/etc.) — use your "keyword.control" color     |
 | `keyword.control.statement.lazuli`                                   | Statement keywords (creates/updates/order/etc.) — use your "keyword" color      |
-| `entity.name.tag.decorator.lazuli`                                   | Decorator namespaces (@policy/@scope/@fn/etc.) — use your "tag/decorator" color |
+| `entity.name.tag.decorator.lazuli`                                   | Decorator namespaces / feature-local named references (@policy/@fn/@hook/etc.) — "tag/decorator" color |
+| `entity.name.tag.catalog-atom.lazuli`                                | Identity-axis catalog atoms (@role/@scope/@actor) — SPEC-07 B kind split; theme as "tag/decorator" or a distinct accent |
 | `entity.name.function.named-block.lazuli`                            | Named-block name (the `X` in `command X`) — use your "function name" color      |
 | `entity.name.function.statement.*.lazuli` family                     | Sub-block statement keywords (cookie/limits/policy/etc.) — "keyword" color      |
 | `entity.name.type.X.lazuli` family                                   | Top-level entity names (feature/app/aggregate names) — "type name" color        |

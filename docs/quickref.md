@@ -397,11 +397,19 @@ Lazuli has three distinct policy concepts. Do not collapse them:
 |-------|---------|---------|
 | `policies` block | feature-local policy category dictionary | `update: @role.admin, @role.sales` |
 | `policy ...` statement | construct references one category | `policy @policy.update` |
-| policy atom | terminal auth predicate/executor/role | `@role.admin`, `@scope.same_org`, `@actor.system` |
+| catalog atom | app-level identity atom (role / scope / actor) | `@role.admin`, `@scope.same_org`, `@actor.system` |
 
-[v0] Commands and queries with local policy should reference
-`@policy.*`, not raw `@role.*` or `@scope.*`. Defaults and escape routes may
-still use atoms directly when they are the actual authority boundary.
+[v0] **One uniform rule (SPEC-07 A).** A `policy <ref>` reference uses the SAME
+grammar at every callable — command, query, api, job, webhook, escape_route,
+lifecycle transition, view/route guard, and `policy_for` defaults. The
+well-formed shapes are: `@policy.<category>` (a **feature-local named
+reference**), a namespaced **catalog atom** (`@role.*` / `@scope.*` /
+`@actor.*` from the app identity catalog), or a structured policy expression.
+There is no per-construct table: the old "commands must use `@policy.*` while
+defaults/escape-routes may inline atoms" asymmetry is retired. `@` always means
+*named reference*; consistent with SPEC-04, the catalog-atom kind
+(`@role`/`@scope`/`@actor`) is named distinctly from the feature-local
+`@policy` reference (SPEC-07 B).
 
 [v0] `policy_for` is the only feature-default policy form. It is scoped to
 construct families so the fallback cannot be mistaken for a command default:
@@ -420,10 +428,10 @@ authorization.
 
 | Namespace | Meaning |
 |-----------|---------|
-| `@role.*` | role authorization atoms |
-| `@scope.*` | authorization predicates such as same-org, owner, public, none |
-| `@actor.*` | executor identities such as user, system, service |
-| `@policy.*` | feature-local policy categories |
+| `@role.*` | identity catalog atom — app-level role authorization |
+| `@scope.*` | identity catalog atom — authorization predicates such as same-org, owner, public, none |
+| `@actor.*` | identity catalog atom — executor identities such as user, system, service |
+| `@policy.*` | feature-local **named reference** — policy categories declared in this feature |
 | `@semantic.*` | semantic types with validation/formatting |
 | `@cap.*` | platform capabilities: files, hashes, encryption, tokens |
 | `@pii.*` | data classification markers |
