@@ -538,4 +538,4 @@ app MyApp
 - `headers` `referrer_policy` is closed-catalog per W3C spec.
 - `headers` `hsts` `max_age` must be a non-negative integer (seconds);
 
-Doctor (`crates/lazuli_cli/src/doctor.rs`) enforces these.
+Doctor (`crates/lazuli_cli/src/doctor/mod.rs`) enforces these.

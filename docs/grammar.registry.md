@@ -205,7 +205,7 @@ result_field      = IDENT_LOWER ":" type_ref
 - `env required in <environment>` references must match the
   environment list in `app.lzi environments` once the app loads.
 
-Cross-file checks live in `crates/lazuli_cli/src/doctor.rs`.
+Cross-file checks live in `crates/lazuli_cli/src/doctor/mod.rs`.
 
 ## 10. Out of scope
 

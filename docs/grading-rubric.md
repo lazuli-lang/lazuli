@@ -133,7 +133,7 @@ Sum of weights = 100%.
 | 6 | Composability | 8% | Do `extends @anchor.*`, `extensible_by`, `packs`, `has_many`, `event_group` combine cleanly? |
 | 7 | Multi-target fit (Go/React/Expo) | 7% | Are surface projections (`.web.lzx` / `.mobile.lzx`) clean? Does any contract leak transport mechanics? |
 | 8 | Operational coverage | 5% | Do `runtime`, `deploy`, `profiles`, `services`, `architecture` cover real production needs without becoming Kubernetes config? Includes the **operational schema evolution** sub-anchor — see §"Criterion 8 — Operational schema evolution sub-anchor (runbook)" below. |
-| 8.5 | Diagnostic identifier truthfulness | 3% | For every diagnostic code named in a proposal's acceptance lists: does the code (a) exist in `crates/lazuli_cli/src/doctor.rs` or `crates/lazuli_lsp/src/lib.rs`, or (b) explicitly appear under a `## New diagnostics` heading as net-new? Mechanical grep check. See §"How the rubric is enforced" for the runbook. |
+| 8.5 | Diagnostic identifier truthfulness | 3% | For every diagnostic code named in a proposal's acceptance lists: does the code (a) exist in `crates/lazuli_cli/src/doctor/mod.rs` or `crates/lazuli_lsp/src/lib.rs`, or (b) explicitly appear under a `## New diagnostics` heading as net-new? Mechanical grep check. See §"How the rubric is enforced" for the runbook. |
 | 9 | Declarative testability | 6% | Are `tests` blocks expressive enough for rules / transitions / anchors / commands without becoming a mock framework? |
 | 10 | AI-first readiness | 7% | Does the language treat LLMs as first-class consumers (`agent`, namespaces, inspect contracts, doctor messages)? |
 | 11 | Framework error message contract | 6% | Are framework-emitted runtime errors (anything that reaches the HTTP wire without passing through an authored `rule "..." message @translation.<key>` block) keyed by a translation identifier under `@translation.<key>` (or equivalent message-namespace identifier), negotiated against the active locale, and override-able by app or feature surface? Hardcoded English in `Message:` fields of `&Error{...}` constructors in the runtime is an automatic 0. See §"Criterion 11 — Framework error message contract (runbook)" below. |
@@ -411,7 +411,7 @@ list in an acceptance section) named in a proposal, the grader runs:
 
 ```bash
 rg --no-heading --no-line-number -F '<code>' \
-   crates/lazuli_cli/src/doctor.rs \
+   crates/lazuli_cli/src/doctor/mod.rs \
    crates/lazuli_cli/src/doctor/ \
    crates/lazuli_doctor/src/ \
    crates/lazuli_lsp/src/lib.rs
@@ -490,7 +490,7 @@ rg --no-heading '@(translation|framework_message)\.' \
 # Probe 3: doctor lints missing framework-message coverage.
 # Expect: ≥ 1 hit naming a diagnostic that fires on missing coverage.
 rg --no-heading 'framework_message|policy_message_missing|error_message_locale' \
-   crates/lazuli_cli/src/doctor.rs crates/lazuli_doctor/src/
+   crates/lazuli_cli/src/doctor/mod.rs crates/lazuli_doctor/src/
 
 # Probe 4: error contract documents the message-key surface.
 # Expect (for scores ≥ 9): both terms anchored in docs/error-contract.md.
@@ -941,7 +941,7 @@ Grader runs:
 rg -n -i 'deprecat|legacy|prefer.*vocab|should.*declarative|escape.*hatch.*last' \
    docs/proposals/<proposal>.md
 rg -n 'handler.*should|fn.*deprecated|imperative.*warning' \
-   crates/lazuli_cli/src/doctor.rs crates/lazuli_doctor/src/
+   crates/lazuli_cli/src/doctor/mod.rs crates/lazuli_doctor/src/
 ```
 
 - Zero hits + proposal explicitly affirms parity → P-B passes.

@@ -188,7 +188,7 @@ gateway_route_body = ( "rate_limit" STRING NEWLINE
 - `shared registry` definitions are merged with each app's
   registry; conflicts are doctor errors.
 
-`crates/lazuli_cli/src/doctor.rs` `workspace_contract_diagnostics`
+`crates/lazuli_cli/src/doctor/mod.rs` `workspace_contract_diagnostics`
 already covers most of these.
 
 ## 9. Out of scope

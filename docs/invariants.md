@@ -670,7 +670,7 @@ invariants below pin where the distro's reach starts and stops.
   settings (`[generate.go]`), frontend topology (`[frontends.*]`),
   migration runner policy (`[migrations]`), seed policy (`[seeds]`),
   and local-dev overrides (`[dev]`). Doctor parses the manifest via
-  `crates/lazuli_cli/src/lazurite_manifest.rs` and `lazuli inspect
+  `crates/lazuli_manifest/src/lazurite_manifest/mod.rs` and `lazuli inspect
   --include=manifest` surfaces it in derived JSON.
 - `Lazurite.toml` MUST NOT declare environments, URLs, CORS, deploy gates,
   audiences, locale settings, or any other slot already owned by

@@ -117,5 +117,5 @@ open, or another actor may have advanced the same resource.
 
 ## Related
 
-- [Lifecycle vocabulary](lifecycle.md)
-- [IR command-transition binding proposal](proposals/ir-command-transition-binding.md)
+- [Lifecycle grammar](grammar.lzi.md)
+- IR command-transition binding (operational proposal archive)

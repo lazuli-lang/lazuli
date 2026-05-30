@@ -374,7 +374,7 @@ The style guide does NOT cover:
 - **Indent unit (tabs vs spaces, 2 vs 4)**. The grammar lexer fixes the unit from the file's first indent (`docs/grammar.lzi.md` §1.2); `lazuli fmt` normalizes to two spaces.
 - **Commit-message style and PR descriptions**. Authoring discipline (Co-Authored-By trailers, message format, grading discipline) lives in `CLAUDE.md` / `AGENTS.md`.
 - **Generated code conventions**. `dist/go/*.go` and `dist/ts-*/` are derived; nothing in this guide applies to them.
-- **`.lzx` layout conventions** beyond shared vocabulary with `.lzi`. Surface/audience/route idioms live in `docs/lzx-grammar.md` and the L0 #6 terminal-grammar proposal.
+- **`.lzx` layout conventions** beyond shared vocabulary with `.lzi`. Surface/audience/route idioms live in `docs/grammar.lzx.md` and the L0 #6 terminal-grammar proposal.
 - **Plugin authoring**. `@plugin/<name>` adapter shape, repo layout, and registration mechanics belong to `docs/plugin-authoring.md`.
 - **Test coverage thresholds and CI gates**. The `tests` block syntax is normative (`docs/canonical-semantics.md` §Tests); coverage policy is per-project in `Lazurite.toml`.
 

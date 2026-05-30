@@ -216,7 +216,7 @@ only system actors can read or write it.
 - `runtime/go/lazuli/auth/oauth.go` and `runtime/go/lazuli/auth/oauth*.go` - OAuth contracts, state, PKCE, and provider helpers.
 - `runtime/go/lazuli/authz/policy.go` - policy evaluation.
 - `runtime/go/lazuli/authz/rbac.go` and `runtime/go/lazuli/authz/role_inheritance.go` - role permissions and inheritance.
-- `crates/lazuli_codegen_go/src/emitter/auth.rs` - Go auth contract emitter.
+- `crates/lazuli_codegen_go/src/emitter/auth_session.rs` - Go auth contract emitter.
 - `runtime/ts/lazuli/src/client.ts` - `enableAutoRefresh`, single-flight refresh, and retry-once behavior.
 
 ## Smoke tests

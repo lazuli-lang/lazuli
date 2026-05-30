@@ -156,7 +156,7 @@ The blast radius of a fix depends on the layer it belongs to.
 | Runtime behavior is wrong (e.g., soft-delete doesn't filter from queries; rate limiter has off-by-one) | `runtime/go/lazuli/<concern>.go` | **One line, no regen.** All `dist/` callers inherit immediately. |
 | Generated code shape is wrong (e.g., struct field name mismatched runtime expectation) | `crates/lazuli_codegen_go/` + regenerate | Affects the relevant `dist/*.gen.go` files only. Codegen test catches regressions. |
 | DSL accepts something it shouldn't (e.g., `derived from` with `default`) | `crates/lazuli_lsp/` (diagnostic), optionally `lazuli_analyzer` for IR-level rejection | Detected at edit time. Codegen never sees invalid input. |
-| Cross-feature contract broken (e.g., `extensible_by` doesn't match `extends @anchor`) | `crates/lazuli_cli/src/doctor.rs` | Caught by `lazuli doctor`. Runtime never reaches an inconsistent state. |
+| Cross-feature contract broken (e.g., `extensible_by` doesn't match `extends @anchor`) | `crates/lazuli_cli/src/doctor/mod.rs` | Caught by `lazuli doctor`. Runtime never reaches an inconsistent state. |
 
 The vast majority of production bugs land in the first row: runtime
 behavior. That's the metaframework win — most fixes are one line in

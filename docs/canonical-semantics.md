@@ -2383,7 +2383,7 @@ The walk is per slot. A view can set `policy @policy.host_only` and inherit the
 redirect paths from the audience or app. If every layer leaves `policy` unset,
 the route remains unguarded for backward compatibility.
 
-Until `crates/lazuli_cli/tests/fixtures/route-guard/happy.lzx` exists, this
+Until `crates/lazuli_doctor_run/tests/fixtures/route-guard/happy.lzx` exists, this
 example follows the shipped proposal/parser grammar:
 
 ```lazuli

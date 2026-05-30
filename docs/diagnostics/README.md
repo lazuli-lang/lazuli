@@ -5,8 +5,8 @@ Index of every rule shipped by `crates/lazuli_doctor`. The doctor is the surface
 This catalog mines each rule's module-header docstring (the canonical source of truth) and pairs it with the on-disk module path so cold readers can jump straight to the rule logic + its `#[cfg(test)] mod tests`. When a rule lacks a docstring the row carries a `documentation gap` tag instead of a one-liner.
 
 - **Anchor crate**: [`crates/lazuli_doctor/src/`](../../crates/lazuli_doctor/src/)
-- **CLI entry**: `lazuli doctor` (`crates/lazuli_cli/src/doctor.rs`)
-- **Severity rendering**: `crates/lazuli_cli/src/doctor.rs:DoctorSeverity` (`error` / `warning` / `info`).
+- **CLI entry**: `lazuli doctor` (`crates/lazuli_cli/src/doctor/mod.rs`)
+- **Severity rendering**: `crates/lazuli_cli/src/doctor/mod.rs:DoctorSeverity` (`error` / `warning` / `info`).
 - **Profile gating**: many rules carry a `strict` / `production` profile pair; see each module header.
 - **Inline escape hatch**: `// lazuli-allow: <code> — <reason>` (see `design/helpers.rs::is_allowed_by_escape_comment`).
 
@@ -153,7 +153,7 @@ Source: [`crates/lazuli_doctor/src/error_vocab/`](../../crates/lazuli_doctor/src
 
 ## Vocabulary (Rule Zero)
 
-Source: [`crates/lazuli_doctor/src/vocab/`](../../crates/lazuli_doctor/src/vocab/). Vocabulary-fitness lints — Rule Zero ("Vocabulary Over Mechanism"). Reference docs: `docs/proposals/doctor-vocabulary-lints.md`, `docs/next-checklist.md`, plus per-rule proposal links in each module header.
+Source: [`crates/lazuli_doctor/src/vocab/`](../../crates/lazuli_doctor/src/vocab/). Vocabulary-fitness lints — Rule Zero ("Vocabulary Over Mechanism"). Reference docs: `docs/proposals/doctor-vocabulary-lints.md`, the operational next-checklist (lazuli-ops), plus per-rule proposal links in each module header.
 
 ### Vocabulary fitness — core `VOCAB-*` catalog
 

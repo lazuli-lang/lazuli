@@ -519,7 +519,7 @@ settings, frontend topology, migration runner policy, seed policy,
 local-dev overrides. The manifest is owned by the **Lazurite distro**
 (Lazuli's opinionated distribution); other future distros may ship
 different defaults but the schema lives in Lazuli core
-(`crates/lazuli_cli/src/lazurite_manifest.rs`).
+(`crates/lazuli_manifest/src/lazurite_manifest/mod.rs`).
 
 Required sections: `[project]` (name + module + schema), `[lazuli]`
 (runtime version pin). Optional: `[lazurite]`, `[plugins]`,

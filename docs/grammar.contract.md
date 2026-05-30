@@ -158,7 +158,7 @@ event_body        = ( "topic" STRING NEWLINE
 - `idempotency by input.X` requires `X` to exist in the operation's
   input record.
 
-`crates/lazuli_cli/src/doctor.rs` covers cross-file validation.
+`crates/lazuli_cli/src/doctor/mod.rs` covers cross-file validation.
 LSP `lzx_contract_diagnostics`-pattern checks live in
 `crates/lazuli_lsp/src/lib.rs`.
 
