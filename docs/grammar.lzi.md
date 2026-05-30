@@ -836,9 +836,9 @@ query_list_body   = ( params_block
 
 filter_field_list = filter_field ( "," filter_field )* ;
 filter_field      = IDENT_LOWER filter_op? ;
-filter_op         = "=" | "!=" | "<" | "<=" | ">" | ">=" | "has" ;
+filter_op         = "==" | "!=" | "<" | "<=" | ">" | ">=" | "has" ;
 
-scope_predicate   = IDENT_LOWER "=" expr NEWLINE ;
+scope_predicate   = IDENT_LOWER "==" expr NEWLINE ;
 search_mode       = "contains" | "prefix" | "fulltext" ;
 cache_args        = "key" STRING ( "ttl" DURATION )? ;
 order_list        = order_entry ( "," order_entry )* ;
@@ -1156,8 +1156,12 @@ primary           = comparison
                   | "(" expr ")"
                   | call_expr ;
 
-comparison        = ref ( "=" | "!=" | "has" ) value
+comparison        = ref ( "==" | "!=" | "has" ) value
                   | ref ;       (* truthiness *)
+(* Predicate equality is `==`. Bare `=` is NOT a comparison: it is
+   assignment / field-default / enum-storage only. Lifecycle state
+   bindings (`requires_lifecycle X = state`, `only_when lifecycle X = state`)
+   also keep `=` — they bind a state, not compare. *)
 
 call_expr         = "@validator." IDENT_LOWER "(" arg_list? ")"
                   | "@fn." IDENT_LOWER "(" arg_list? ")" ;

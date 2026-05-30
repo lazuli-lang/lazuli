@@ -347,6 +347,56 @@ enforce the folded forms and the generated-vs-authored boundary. Parser
 `test_blocks.rs` flags hand-authored `permits`/`forbids` inside command tests
 as a generated-only smell.
 
+### 12. `=` and `==` split by role, not friction
+
+**Looks like friction**: the token `=` and the token `==` both appear in
+`.lzi`/`.lzx` source. A reader (or an audit pipeline) may see two spellings
+and assume one should fold into the other — "why isn't equality just `=`?"
+
+**Why it isn't**: SPEC-05 split the two tokens along the one axis that
+matters — *comparison* vs *binding* — so each token carries a single,
+self-describing meaning instead of a context-dependent polysemy.
+
+- **`==` is THE equality operator** in the closed predicate language, and the
+  *only* one. Every comparison context uses it: rule `deny … when <pred>`,
+  `tests allows/denies when <pred>`, query `filters` (`field == value`),
+  `unique … when <pred>`, `invariant when <pred>`, conditional policy atoms
+  (`… when <pred>`), the `.lzx` route-guard
+  (`requires <feature>.lookup_my.<field> == <literal>`), and webhook
+  `emits … when <pred>`. This matches the equality reflex an LLM is trained on
+  from every mainstream language (Go, Python, JS, TS, Rust, Java, C), so a
+  first-attempt predicate parses instead of costing a doctor/compile
+  round-trip. `!=` and `has` are unchanged; the ordered comparisons
+  `<`, `<=`, `>`, `>=` are unchanged. The IR was already ahead of the surface
+  here: `CompareOp::Eq` is documented as `==` and `CompareOp::Ne` as `!=`
+  (`crates/lazuli_ir/src/nodes/query.rs`) — the surface now matches the IR.
+- **`=` (single) keeps exactly its three NON-comparison roles**, none of which
+  is equality: (1) **assignment / payload binding** — `name = input.name`,
+  `owner = nil` inside `creates`/`updates` blocks; (2) **field default** —
+  `tier: CustomerTier = free`, `health: @semantic.Percentage = 0`; (3) **enum
+  storage** — `lead = 10` (the variant's stored value). A bare `=` is never a
+  boolean comparison.
+- **Lifecycle state bindings stay `=` and are deliberately OUT OF SCOPE.**
+  `requires_lifecycle <Resource> = <state>` and
+  `only_when lifecycle <Resource> = <state>` bind a state; they do not compare
+  one. They lower to a state binding, never to `CompareOp::Eq`, so they are
+  not predicate equality and must NOT be migrated to `==`.
+
+**Do not re-propose merging `=` and `==`, and do not flag lifecycle `=`
+bindings as needing `==`.** The two tokens model different operations; merging
+them would re-introduce the at-a-point collision between equality and
+assignment/default/storage that SPEC-05 removed. A bare `=` used as an
+equality comparison is a hard error, not an accepted alternate spelling.
+
+**Where**: `docs/grammar.lzi.md` (`comparison`, `filter_op`, `scope_predicate`
+productions read `"==" | "!=" | "has"`). Doctor rule
+`PREDICATE-EQ-OPERATOR-001` (iron-hand) rejects a single `=` used as an
+equality comparison in any closed-predicate context with a fix-it to `==`, and
+deliberately EXCLUDES assignment, field default, enum storage, and the two
+lifecycle state-binding forms. The retired predicate `=` hard-errors as
+`E-PREDICATE-EQ-RETIRED`; a `lazuli upgrade` recipe rewrites predicate-context
+`=`→`==` span-precisely while leaving the four `=` roles untouched.
+
 ### Tool effect is derived, not declared at the binding site (Cut A)
 
 `agent ... tools` lists references only — no per-tool `effect: read |

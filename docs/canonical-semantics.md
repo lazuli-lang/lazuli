@@ -360,9 +360,9 @@ resource Issue
   status: IssueStatus = backlog
 ```
 
-`tenancy team` is the source of truth for the tenant axis. It injects a required `team: Team` field into the resource and the default query scope `team = ctx.team`.
+`tenancy team` is the source of truth for the tenant axis. It injects a required `team: Team` field into the resource and the default query scope `team == ctx.team`.
 
-`soft_delete` injects the default query scope `deleted_at = nil`.
+`soft_delete` injects the default query scope `deleted_at == nil`.
 
 Together:
 
@@ -376,8 +376,8 @@ means declarative queries inherit:
 
 ```lazuli
 scope
-  team = ctx.team
-  deleted_at = nil
+  team == ctx.team
+  deleted_at == nil
 ```
 
 Do not restate inherited tenancy or soft-delete scope in normal queries. The analyzer should report redundant scope lines.
@@ -516,26 +516,26 @@ Inherited scope is always applied unless a query explicitly uses `scope override
 
 ```lazuli
 filters
-  parent.id = params.parent_id
+  parent.id == params.parent_id
   status when params.status
   labels has params.label when params.label
 ```
 
-`status when params.status` means "apply `status = params.status` only when the param is present." For collection fields, name the operation: `labels has params.label when params.label`.
+`status when params.status` means "apply `status == params.status` only when the param is present." For collection fields, name the operation: `labels has params.label when params.label`.
 
 Use the short filter form when the field name and param name are the same. Use the explicit form when they differ or when the predicate needs a path or operation:
 
 ```lazuli
 filters
   lifecycle_stage when params.lifecycle_stage
-  parent.id = params.parent_id
+  parent.id == params.parent_id
 ```
 
 Path expressions are allowed in query filters:
 
 ```lazuli
 filters
-  parent.id = params.parent_id
+  parent.id == params.parent_id
 ```
 
 This means "the related parent record has this id"; it is not a new field named `parent.id`.
@@ -591,7 +591,7 @@ query.list sub_issues
     parent_id: ID
 
   filters
-    parent.id = params.parent_id
+    parent.id == params.parent_id
 ```
 
 This keeps local `scope` reserved for safety boundaries.
@@ -604,7 +604,7 @@ query.list global_audit
 
   scope override
     reason "Global audit intentionally crosses tenant scope."
-    deleted_at = nil
+    deleted_at == nil
 ```
 
 An override disables inherited tenancy scope and requires both an explicit query `policy @policy.*` and a `reason "..."` child under `scope override`.
@@ -636,7 +636,7 @@ query.sql lifetime_value
   returns CustomerLtv[]
 
   scope
-    org = ctx.user.org
+    org == ctx.user.org
 
   sql "./queries/customer_lifetime_value.sql"
 ```
@@ -1276,7 +1276,7 @@ query.list global_search
 
   scope override
     reason "Global admin search intentionally crosses tenant scope."
-    deleted_at = nil
+    deleted_at == nil
 ```
 
 The `reason` is part of the authoring contract for dangerous scope replacement. It is not generated into business logic, but it appears in `lazuli inspect --expand=security` so reviewers and agents can distinguish intentional cross-tenant access from an accidental missing tenant predicate.
@@ -1422,7 +1422,7 @@ query.list active_sessions
     customer_id: ID
 
   filters
-    customer.id = params.customer_id
+    customer.id == params.customer_id
     expires_at > ctx.now
 ```
 
@@ -1436,7 +1436,7 @@ A rule belongs to the feature that owns the command or workflow being denied.
 
 ```lazuli
 rule "archived customers cannot be reassigned"
-  deny Customer.reassign when self.status = CustomerStatus.archived
+  deny Customer.reassign when self.status == CustomerStatus.archived
   message "Cannot reassign an archived customer"
 ```
 
@@ -1455,7 +1455,7 @@ Cross-feature predicates are allowed, but the target operation owner should own 
 ```lazuli
 feature invoice
   rule "archived customers cannot receive invoices"
-    deny Invoice.create when self.customer.status = CustomerStatus.archived
+    deny Invoice.create when self.customer.status == CustomerStatus.archived
 ```
 
 Avoid placing this rule in `feature customer`, because enforcement happens when `Invoice.create` runs.
@@ -1464,10 +1464,16 @@ Avoid placing this rule in `feature customer`, because enforcement happens when 
 
 Rule predicates, query filter predicates, and command/workflow guards share one small predicate language. The full set:
 
-- Equality: `=`, `!=`
+- Equality: `==`, `!=` (canonical equality is `==`; a bare `=` is never a comparison — it is assignment / field-default / enum-storage / lifecycle state binding)
 - Membership: `has` (collection contains element)
 - Composition: `AND`, `OR`
 - Operands: paths (`self.status`, `params.id`, `ctx.user.org`), enum literals (qualified or unqualified where unambiguous), strings, integers, `nil`
+
+Worked example (predicate equality uses `==`; `!=` stays `!=`):
+
+```lazuli
+deny Customer.activate when self.tier == enterprise AND self.owner == nil
+```
 
 Everything else is intentionally rejected:
 
@@ -1477,7 +1483,7 @@ Everything else is intentionally rejected:
 - Functions like `length`, `is_null`, `lower` — same.
 - Aggregations — same.
 
-`is_nil` is not a function; use `= nil` and `!= nil`.
+`is_nil` is not a function; use `== nil` and `!= nil`.
 
 The ceiling is fixed by design. If a feature needs richer logic, it is leaving the declarative path; reach for `@validator.*` or a `query.sql`.
 
@@ -1493,9 +1499,9 @@ A `tests` block is the last child of a `command`, workflow transition, `rule`, o
 
 Within a `tests` block, the parent construct is the implicit subject. Tests inside `command reassign` are about `command reassign`. Tests inside a rule are about the operation that the rule denies. The subject is never restated.
 
-Command tests use `target` for the loaded command target when the command has one. Rule and workflow tests use `self` for the resource snapshot under the rule or transition. Predicates inside tests reuse the closed predicate language: `=`, `!=`, `has`, `AND`, `OR`, paths, enum literals, strings, integers, and `nil`. Tests add no new operators or functions.
+Command tests use `target` for the loaded command target when the command has one. Rule and workflow tests use `self` for the resource snapshot under the rule or transition. Predicates inside tests reuse the closed predicate language: `==`, `!=`, `has`, `AND`, `OR`, paths, enum literals, strings, integers, and `nil`. Tests add no new operators or functions.
 
-Path expressions are allowed in test predicates the same way they are allowed in query filters. `denies when self.customer.lifecycle_stage = archived` is valid in a rule test when the resource being tested has a `customer` relation; `denies when target.lifecycle_stage = archived` is valid in a command test when the command target has that field.
+Path expressions are allowed in test predicates the same way they are allowed in query filters. `denies when self.customer.lifecycle_stage == archived` is valid in a rule test when the resource being tested has a `customer` relation; `denies when target.lifecycle_stage == archived` is valid in a command test when the command target has that field.
 
 ### Verbs By Category
 
@@ -1503,8 +1509,8 @@ Command tests authored in source accept predicate assertions:
 
 ```lazuli
 tests
-  allows when target.lifecycle_stage = active
-  denies when target.lifecycle_stage = archived
+  allows when target.lifecycle_stage == active
+  denies when target.lifecycle_stage == archived
 ```
 
 `allows when`/`denies when` test rule applicability against the loaded command target.
@@ -1558,8 +1564,8 @@ Rule tests accept:
 
 ```lazuli
 tests
-  denies when self.tier = enterprise AND self.owner = nil
-  allows when self.tier = enterprise AND self.owner != nil
+  denies when self.tier == enterprise AND self.owner == nil
+  allows when self.tier == enterprise AND self.owner != nil
 ```
 
 The subject is the operation referenced in the rule's `deny` clause. Tests evaluate the rule predicate in isolation; they do not simulate the target operation. A test for the rule "deleted customers cannot be archived" verifies that the predicate fires when `self.deleted_at != nil`, not that the `archive` transition would actually fail. Transition tests in the workflow are separate and cover state-machine behavior. Both perspectives can coexist; they test different things.
@@ -1613,10 +1619,10 @@ Canonical v0 uses `self` as the snapshot binding inside rules and workflow tests
 
 ```lazuli
 # before
-deny Customer.reassign when customer.lifecycle_stage = archived
+deny Customer.reassign when customer.lifecycle_stage == archived
 
 # after
-deny Customer.reassign when self.lifecycle_stage = archived
+deny Customer.reassign when self.lifecycle_stage == archived
 ```
 
 ## Enum Literals
@@ -1633,7 +1639,7 @@ workflow lifecycle on Customer.status
 In free predicates, prefer qualified literals:
 
 ```lazuli
-deny Customer.reassign when self.status = CustomerStatus.archived
+deny Customer.reassign when self.status == CustomerStatus.archived
 ```
 
 Enum values may reserve explicit storage mappings for adapters or legacy schemas:

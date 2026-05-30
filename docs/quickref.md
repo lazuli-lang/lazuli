@@ -572,9 +572,18 @@ it is a macro, not v0 sugar.
 `paginate` is valid only on `query.list` and must be a positive integer.
 `query.list` defaults to `order created_at desc`; declare `order` only when a
 query intentionally differs from newest-first listing.
+Canonical equality in every closed predicate (rule `deny … when`, `tests
+allows/denies when`, query `filters`, `unique … when`, `invariant when`,
+conditional policy atoms, the `.lzx requires … == <literal>` guard, and
+webhook `emits … when`) is `==`; `!=` and `has` are unchanged. A bare `=` is
+never a comparison — it is assignment/payload binding, field default, enum
+storage, or a lifecycle state binding. So
+`deny Customer.activate when self.tier == enterprise AND self.owner == nil`,
+not `… self.tier = enterprise …`.
+
 Simple equality filters derive language-managed indexes. With `tenancy org`,
 `status when params.status` derives `org, status`, and
-`customer.id = params.customer_id` derives `org, customer`. Search, `has`,
+`customer.id == params.customer_id` derives `org, customer`. Search, `has`,
 `!=`, `nil`, `scope override`, and SQL queries do not derive indexes.
 
 Use `search` for text matching instead of an equality-looking filter:
@@ -613,7 +622,7 @@ Resource-body modifiers, relations, and field decorators beyond the basics:
 | `append_only` | insert-only resource; rejects update/delete commands | `append_only` |
 | `many_through <J> to <P> { … }` | M:N junction carrying payload metadata | `many_through JobMember to User` |
 | `polymorphic_ref <type> <id> targets [A, B]` | polymorphic FK over a target set | `polymorphic_ref entity_type entity_id targets [Job, Activity]` |
-| `unique <field> when <pred>` | partial/conditional unique index | `unique is_default when is_default = true` |
+| `unique <field> when <pred>` | partial/conditional unique index | `unique is_default when is_default == true` |
 | `<f>: ID target @feature.<feat>.<Res>` | cross-feature FK annotation (needs `uses`) | `dept_id: ID target @feature.org.Department` |
 | `@slug` | auto-unique URL slug column | `slug: Text @slug` |
 | `@full_text` | tsvector source for `fts on (...)` | `body: Text @full_text` |
@@ -634,7 +643,7 @@ resource Job
   many_through JobMember to User
     role_in_job: Text required
   polymorphic_ref entity_type entity_id targets [Customer, Activity]
-  unique (org, title) when archived = false
+  unique (org, title) when archived == false
 ```
 
 `@semantic.HexColor` (Text-backed `#RRGGBB`/`#RGB`) and `@semantic.Percentage`
@@ -698,10 +707,10 @@ agent summarize_customer
     @tool.web_search
   evals
     case redacts_email
-      allows customer.email = "ada@example.com"
+      allows customer.email == "ada@example.com"
       denies output contains @semantic.Email
     case uses_lookup_when_id_known
-      allows input.customer_id = "cus_123"
+      allows input.customer_id == "cus_123"
       allows tools.calls includes customer.query.lookup.by_id
 ```
 
@@ -820,7 +829,7 @@ command reassign
     owner_id: User.ID required
   policy @policy.update
   approval
-    required_when target.tier = enterprise
+    required_when target.tier == enterprise
     by @role.admin
     timeout "24h"
     then deny
