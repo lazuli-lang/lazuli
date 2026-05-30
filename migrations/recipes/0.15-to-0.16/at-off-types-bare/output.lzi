@@ -1,0 +1,8 @@
+feature x
+  domain
+    resource R
+      email: Email required
+      revenue: Money
+      tax_id: @semantic.TaxID optional
+      secret: Hashed(algorithm:argon2id) required
+      token: Encrypted(key:@key.tenant) optional

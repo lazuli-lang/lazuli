@@ -1,0 +1,47 @@
+# SPEC-04 — @ off types. The closed CORE semantic catalog and ALL capability
+# types are spelled BARE; the `@semantic.<core>` / `@cap.<X>` sigil forms are
+# deprecated aliases. `@semantic.<plugin>` (e.g. `@semantic.TaxID`) is NOT
+# rewritten — open plugin scalars keep the sigil, so the rules target the closed
+# core names explicitly rather than blanket-stripping `@semantic.`.
+#
+# Meaning-preserving by construction: input.lzi and output.lzi lower to identical
+# IR (both spellings resolve to the same Builtin), which the runner's IR-equality
+# smoke verifies.
+
+[recipe]
+from_version = "0.15.0"
+to_version   = "0.16.0"
+kind         = "rewrite"
+summary      = "@ off types: @semantic.<core> / @cap.X -> bare PascalCase type"
+
+[[rule]]
+find    = "@cap."
+replace = ""
+
+[[rule]]
+find    = "@semantic.Email"
+replace = "Email"
+[[rule]]
+find    = "@semantic.Phone"
+replace = "Phone"
+[[rule]]
+find    = "@semantic.Url"
+replace = "Url"
+[[rule]]
+find    = "@semantic.Uuid"
+replace = "Uuid"
+[[rule]]
+find    = "@semantic.Currency"
+replace = "Currency"
+[[rule]]
+find    = "@semantic.GeoPoint"
+replace = "GeoPoint"
+[[rule]]
+find    = "@semantic.HexColor"
+replace = "HexColor"
+[[rule]]
+find    = "@semantic.Percentage"
+replace = "Percentage"
+[[rule]]
+find    = "@semantic.Money"
+replace = "Money"

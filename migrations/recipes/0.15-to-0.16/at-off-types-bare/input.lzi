@@ -1,0 +1,8 @@
+feature x
+  domain
+    resource R
+      email: @semantic.Email required
+      revenue: @semantic.Money
+      tax_id: @semantic.TaxID optional
+      secret: @cap.Hashed(algorithm:argon2id) required
+      token: @cap.Encrypted(key:@key.tenant) optional

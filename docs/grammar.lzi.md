@@ -294,16 +294,21 @@ type_expr         = scalar_type
 
 scalar_type       = "ID" | "Text" | "Boolean" | "Integer" | "Decimal"
                   | "Date" | "DateTime" | "JSON" ;
-semantic_type     = "@semantic." IDENT_UPPER ;
+(* SPEC-04 — the CLOSED CORE semantic catalog is spelled BARE (a reserved
+   PascalCase type name, like `Text`). `@semantic.<X>` is a DEPRECATED alias for
+   a core type (`lazuli fmt` normalizes to bare) and the LIVE form for an OPEN
+   plugin-declared scalar (`@semantic.TaxID`, `@semantic.BrazilianCPF`). The
+   closed core set is `docs/closed-catalogs.md` (Email, Phone, Url, Uuid,
+   Currency, GeoPoint, HexColor, Percentage, Money). *)
+semantic_type     = SEMANTIC_CORE                  (* canonical: `Email`, `Money` *)
+                  | "@semantic." IDENT_UPPER ;     (* deprecated-core alias OR plugin scalar *)
+(* e.g. brand_color: HexColor required *)
+(* e.g. completion: Percentage = 0 *)
 
-(* Closed `@semantic.*` catalog (doctor-enforced, not EBNF). Beyond the
-   established scalars (`Email`, `Slug`, `Url`, `Money`, `Phone`, ...) the
-   wave added `@semantic.HexColor` (Text-backed CSS colour, validated
-   `^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$`) and `@semantic.Percentage`
-   (Decimal-backed ratio bounded `0..=100`). *)
-(* e.g. brand_color: @semantic.HexColor required *)
-(* e.g. completion: @semantic.Percentage = 0 *)
-cap_type          = "@cap." IDENT_UPPER ( "(" cap_args ")" )? ;
+(* SPEC-04 — capability types are spelled BARE; `@cap.<X>(...)` is a deprecated
+   alias `lazuli fmt` normalizes. *)
+cap_type          = CAP_NAME ( "(" cap_args ")" )?           (* canonical: `Encrypted(key:@key.tenant)` *)
+                  | "@cap." IDENT_UPPER ( "(" cap_args ")" )? ;
 cap_args          = cap_arg ( "," cap_arg )* ;
 cap_arg           = IDENT_LOWER ":" cap_arg_value ;
 cap_arg_value     = STRING | INTEGER | DURATION | SIZE | namespace_ref
