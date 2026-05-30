@@ -1,7 +1,7 @@
 # Cement R1 — execution status (overnight run)
 
 Branch: `cement-r1-exec` (isolated worktree `c:/tmp/cement-r1`, off `06f9c717`).
-**16 commits, every one green; full workspace + all test binaries compile; all
+**29 commits, every one green; full workspace + all test binaries compile; all
 campaign invariant gates pass.** The branch is preserved in git and ready to
 merge when the main checkout's swarm is paused (merging into a swarm-active
 branch would be invasive — left to the operator).
@@ -17,6 +17,9 @@ branch would be invasive — left to the operator).
 | **SPEC-12/13/15/16/17/18** | Documented the whole parsed-but-undocumented grammar surface: app `locale/cors/logging/tracing/encryption/cookie/proxy/limits/headers/locale_negotiate/lazuli_version/subscription`; enum storage + metadata forms (retired the `value` ghost) |
 | **Docs anti-stale (3 tiers)** | (1) generated catalogs/keyword-ref + freshness gates; (2) `docs_hygiene` CI gate continuously verifies every citation + link (**cleaned 43 dead citations + 4 dead links**); (3) self-maintaining `docs-staleness` git report; `README.md` rewritten as a current index; CLAUDE.md/AGENTS.md updated |
 | **SPEC-20 (1/n)** | De-polluted the published `lazuli --help` — `parse`/`spike-generate`/`examples`/`doctor --self` hidden (framework-dev only) |
+| **SPEC-02 (1/n)** | Retired the §7a `{ }`/`;` braces in the lzx-surface repeatable-group line → indentation/`validates` form |
+| **SPEC-04 (full)** | `@` off types: closed-core semantic + ALL capability types spelled BARE; `@semantic.<core>`/`@cap.X` deprecated; analyzer/parser/LSP/doctor + fixtures + migration recipe |
+| **SPEC-08 (full)** | Folded the four test dialects to two (generated permits/forbids vs authored allows/denies); `.lzx` `accepted by`/`rejected by` → `allows/denies extension`, eval `requires`/`forbids` → `allows`/`denies`; AST/IR variant renames, parser hard-errors, registry drop+`extension` subject, 3 doctor backstops, 4 migrate recipes, curated docs, vscode snapshots, diagnostics-registry claim — full workspace green |
 | **(bonus)** | Caught + fixed pre-existing `keyword-reference.md` drift — the freshness gate working on a real case |
 
 ## Remaining — the invasive breaking cuts (specced, NOT auto-executed)
@@ -28,12 +31,10 @@ directive (risk of leaving the tree red mid-iteration).
 
 | Spec | Why it's invasive |
 |---|---|
-| **SPEC-02** §7a retire | lzx-surface parser + analyzer `list_decls.rs` + codegen `lzx_ux.rs` + fixtures; the brace/`Int`/`@command` dialect must be rewritten to indentation |
-| **SPEC-04** @ off types | every `@semantic.`/`@cap.` type site + codegen Go/TS + tmLanguage + every fixture; the biggest sweep |
+| **SPEC-02 (2/n)** | retire the `@command` sigil in lzx-surface action targets (the remaining §7a cut after braces) |
 | **SPEC-05** == for equality | the predicate parser uses naive `split_once('=')` in many sites — `==` needs a shared operator tokenizer, touching rules/filters/tests |
 | **SPEC-07** policy coherence | analyzer `rbac.rs` + the `@policy`/CRUD-collision + fixtures |
-| **SPEC-08** test dialects | lzx view-test parser + analyzer + `TEST-VIEW-*` doctor + `full-capsule.lzx` |
-| **SPEC-19** LOC debt | `registry.rs` (3601 LOC) needs const-slice concat (`constcat` or section-`include!`); ~40 files >500 |
+| **SPEC-19** LOC debt | `registry.rs` (now ~3.6k LOC) needs const-slice concat (`constcat` or section-`include!`); ~40 files >500 |
 | **SPEC-20 (2/n)** | move `parse`/`spike-generate`/`examples`/`self-doctor` to a `lazuli-dev` binary + `scripts/dev-check.sh` |
 
 Each ships its `lazuli upgrade` recipe (SPEC-00 makes this possible). Run them
