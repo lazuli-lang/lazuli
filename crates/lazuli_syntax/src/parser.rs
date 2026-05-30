@@ -13,20 +13,20 @@ use crate::ast::{
     CommandEffectKindDecl, CommandEmit, CommandInputDecl, CommandInputSlot, CommandRouteSlot,
     ContainsRhs, DefaultsPolicyFor, DefaultsTenancy, DesignDeclAst, Document, EasingTokenAst,
     EnumDeclAst, EnumStorageValueDecl, EnumVariantDecl, EventGroup, FamilyTokenAst,
-    FeatureDefaults, FeatureSkeleton, Field, FieldConstraintsDecl, FieldModifier, FieldPoliciesDecl, FieldPolicyDecl,
-    HttpMethod, InvalidatesDecl, Job, JobBody, JobDeclarativeTyped, JobExternalCall,
-    JobExternalCallArg, JobFanout, JobHandler, JobRetry, JobTrigger, LetBindingDecl,
-    ListQueryDecl, LocaleNegotiateDecl, LookupKey, LookupQueryDecl, LzxAction, LzxApp, LzxAudience,
-    LzxDocument, LzxExperience, LzxExperienceView, LzxExtensionOrder, LzxExtensionSlot, LzxPlatform,
-    LzxPlatformView, LzxRoute, LzxSurface, LzxViewExtension, MotionAst, Notification,
-    NotificationDigest, NotificationThrottle, PoliciesDecl, PolicyAtomAst, PolicyCategoryDecl,
-    Query, QueryDecl, QuerySearch, RecordDecl, ResourceDecl, ResourceFieldDecl, ResourceHasMany,
-    ResourceRetention, ResourceRetentionAction, RouteParamAst, ScaleTokenAst, ShadowTokenAst, Span,
-    SqlQueryDecl, Surface, SurfaceAst, SurfaceTargetAst, TargetArgDecl, TargetExprDecl,
-    TenantMigration, TextScaleTokenAst, ToolsCallsOp, TrackingTokenAst, TranslationDecl,
-    TranslationKeyDecl, TranslationPluralArmDecl, TranslationVariantDecl, TypographyAst, ViewAst,
-    ViewCreateAst, ViewDetailAst, ViewListAst, Webhook, WebhookDlq, WebhookHandler, WebhookReplay,
-    WebhookVerify, WeightTokenAst, ZTokenAst,
+    FeatureDefaults, FeatureSkeleton, Field, FieldConstraintsDecl, FieldModifier,
+    FieldPoliciesDecl, FieldPolicyDecl, HttpMethod, InvalidatesDecl, Job, JobBody,
+    JobDeclarativeTyped, JobExternalCall, JobExternalCallArg, JobFanout, JobHandler, JobRetry,
+    JobTrigger, LetBindingDecl, ListQueryDecl, LocaleNegotiateDecl, LookupKey, LookupQueryDecl,
+    LzxAction, LzxApp, LzxAudience, LzxDocument, LzxExperience, LzxExperienceView,
+    LzxExtensionOrder, LzxExtensionSlot, LzxPlatform, LzxPlatformView, LzxRoute, LzxSurface,
+    LzxViewExtension, MotionAst, Notification, NotificationDigest, NotificationThrottle,
+    PoliciesDecl, PolicyAtomAst, PolicyCategoryDecl, Query, QueryDecl, QuerySearch, RecordDecl,
+    ResourceDecl, ResourceFieldDecl, ResourceHasMany, ResourceRetention, ResourceRetentionAction,
+    RouteParamAst, ScaleTokenAst, ShadowTokenAst, Span, SqlQueryDecl, Surface, SurfaceAst,
+    SurfaceTargetAst, TargetArgDecl, TargetExprDecl, TenantMigration, TextScaleTokenAst,
+    ToolsCallsOp, TrackingTokenAst, TranslationDecl, TranslationKeyDecl, TranslationPluralArmDecl,
+    TranslationVariantDecl, TypographyAst, ViewAst, ViewCreateAst, ViewDetailAst, ViewListAst,
+    Webhook, WebhookDlq, WebhookHandler, WebhookReplay, WebhookVerify, WeightTokenAst, ZTokenAst,
 };
 
 #[derive(Parser)]
@@ -989,10 +989,7 @@ fn parse_surface_decl(
         if let Some(rest) = trimmed.strip_prefix("uses feature ") {
             let value = rest.trim();
             if value.is_empty() {
-                return Err(line_error(
-                    line,
-                    "`uses feature` requires a feature name",
-                ));
+                return Err(line_error(line, "`uses feature` requires a feature name"));
             }
             uses_feature = Some(value.to_owned());
             last_end = line.end;
@@ -1214,11 +1211,17 @@ fn parse_view_block(
             name,
             route,
             source: source.ok_or_else(|| {
-                line_error(header, "view list requires a `source <feature>.query.<name>` line")
+                line_error(
+                    header,
+                    "view list requires a `source <feature>.query.<name>` line",
+                )
             })?,
             columns: {
                 if columns.is_empty() {
-                    return Err(line_error(header, "view list requires `columns <field>, ...`"));
+                    return Err(line_error(
+                        header,
+                        "view list requires `columns <field>, ...`",
+                    ));
                 }
                 columns
             },
@@ -1232,7 +1235,10 @@ fn parse_view_block(
             name,
             route,
             source: source.ok_or_else(|| {
-                line_error(header, "view detail requires a `source <feature>.query.<name>` line")
+                line_error(
+                    header,
+                    "view detail requires a `source <feature>.query.<name>` line",
+                )
             })?,
             route_params,
             sections,
@@ -1279,10 +1285,7 @@ fn parse_view_header_tail(
         }
         let route = unquote_lzx_value(after).to_owned();
         if !route.starts_with('/') {
-            return Err(line_error(
-                header,
-                "`at` route path must begin with `/`",
-            ));
+            return Err(line_error(header, "`at` route path must begin with `/`"));
         }
         Ok((name, Some(route)))
     } else {
@@ -1334,24 +1337,15 @@ fn parse_cell_binding(line: &SourceLine<'_>, value: &str) -> Result<CellBindingA
 fn parse_route_param(line: &SourceLine<'_>, value: &str) -> Result<RouteParamAst, ParseError> {
     // Pattern: `<name>: <Type> from path`. Split on `from` first so
     // any `:` inside `<Type>` is preserved.
-    let (head, source) = value.rsplit_once(" from ").ok_or_else(|| {
-        line_error(
-            line,
-            "route param must be `route <name>: <Type> from path`",
-        )
-    })?;
+    let (head, source) = value
+        .rsplit_once(" from ")
+        .ok_or_else(|| line_error(line, "route param must be `route <name>: <Type> from path`"))?;
     if source.trim() != "path" {
-        return Err(line_error(
-            line,
-            "route param source must be `from path`",
-        ));
+        return Err(line_error(line, "route param source must be `from path`"));
     }
-    let (name_raw, type_raw) = head.split_once(':').ok_or_else(|| {
-        line_error(
-            line,
-            "route param must be `route <name>: <Type> from path`",
-        )
-    })?;
+    let (name_raw, type_raw) = head
+        .split_once(':')
+        .ok_or_else(|| line_error(line, "route param must be `route <name>: <Type> from path`"))?;
     let name = name_raw.trim().to_owned();
     let type_ref = type_raw.trim().to_owned();
     if name.is_empty() || type_ref.is_empty() {
@@ -3948,7 +3942,13 @@ fn split_resource_field_after(
 
     // Now split type (paren-aware) from trailing modifier tokens.
     let (type_text, modifiers_text) = split_type_and_modifiers(&head);
-    Ok((type_text, modifiers_text, default, derived_from, constraints))
+    Ok((
+        type_text,
+        modifiers_text,
+        default,
+        derived_from,
+        constraints,
+    ))
 }
 
 /// L0 #3 §10 — scan the field tail for inline constraint keywords.
@@ -3979,10 +3979,7 @@ fn extract_field_constraints(
                 ConstraintKw::In => {
                     let (values, tail) = parse_constraint_in_list(line, rest)?;
                     if constraints.r#in.is_some() {
-                        return Err(line_error(
-                            line,
-                            "duplicate `in` constraint on field",
-                        ));
+                        return Err(line_error(line, "duplicate `in` constraint on field"));
                     }
                     constraints.r#in = Some(values);
                     head = format!("{}{}", before, tail);
@@ -4015,10 +4012,7 @@ fn extract_field_constraints(
                         ));
                     }
                     if constraints.length.is_some() {
-                        return Err(line_error(
-                            line,
-                            "duplicate `length` constraint on field",
-                        ));
+                        return Err(line_error(line, "duplicate `length` constraint on field"));
                     }
                     constraints.length = Some(n as usize);
                     head = format!("{}{}", before, tail);
@@ -4027,10 +4021,7 @@ fn extract_field_constraints(
                 ConstraintKw::Pattern => {
                     let (pat, tail) = parse_constraint_string(line, rest, "pattern")?;
                     if constraints.pattern.is_some() {
-                        return Err(line_error(
-                            line,
-                            "duplicate `pattern` constraint on field",
-                        ));
+                        return Err(line_error(line, "duplicate `pattern` constraint on field"));
                     }
                     constraints.pattern = Some(pat);
                     head = format!("{}{}", before, tail);
@@ -4039,10 +4030,7 @@ fn extract_field_constraints(
                 ConstraintKw::Between => {
                     let (lo, hi, tail) = parse_constraint_between(line, rest)?;
                     if constraints.between.is_some() {
-                        return Err(line_error(
-                            line,
-                            "duplicate `between` constraint on field",
-                        ));
+                        return Err(line_error(line, "duplicate `between` constraint on field"));
                     }
                     constraints.between = Some((lo, hi));
                     head = format!("{}{}", before, tail);
@@ -4134,9 +4122,7 @@ fn parse_constraint_int(
         })?
         .trim_start();
     // Take next whitespace-delimited token as the integer.
-    let end = rest
-        .find(|c: char| c.is_whitespace())
-        .unwrap_or(rest.len());
+    let end = rest.find(|c: char| c.is_whitespace()).unwrap_or(rest.len());
     let value_str = &rest[..end];
     let tail = rest[end..].to_owned();
     let n: i64 = value_str.parse().map_err(|_| {
@@ -4177,10 +4163,7 @@ fn parse_constraint_string(
     let end = body.find('"').ok_or_else(|| {
         line_error_owned(
             line,
-            format!(
-                "`{}` constraint string is missing a closing `\"`",
-                keyword
-            ),
+            format!("`{}` constraint string is missing a closing `\"`", keyword),
         )
     })?;
     let value = body[..end].to_owned();
@@ -4204,25 +4187,17 @@ fn parse_constraint_between(
         .ok_or_else(|| line_error(line, "`between` constraint requires `<A> and <B>`"))?;
     let lo_str = &rest[..end];
     let lo: i64 = lo_str.parse().map_err(|_| {
-        line_error_owned(
-            line,
-            format!("`between` expects integer, got `{}`", lo_str),
-        )
+        line_error_owned(line, format!("`between` expects integer, got `{}`", lo_str))
     })?;
     let rest = rest[end..].trim_start();
     let rest = rest
         .strip_prefix("and")
         .ok_or_else(|| line_error(line, "`between <A> and <B>` requires the `and` keyword"))?
         .trim_start();
-    let end = rest
-        .find(|c: char| c.is_whitespace())
-        .unwrap_or(rest.len());
+    let end = rest.find(|c: char| c.is_whitespace()).unwrap_or(rest.len());
     let hi_str = &rest[..end];
     let hi: i64 = hi_str.parse().map_err(|_| {
-        line_error_owned(
-            line,
-            format!("`between` expects integer, got `{}`", hi_str),
-        )
+        line_error_owned(line, format!("`between` expects integer, got `{}`", hi_str))
     })?;
     let tail = rest[end..].to_owned();
     Ok((lo, hi, tail))
@@ -4258,10 +4233,7 @@ fn parse_constraint_in_list(
         .map(|piece| {
             let trimmed = piece.trim();
             // Strip surrounding double quotes if present.
-            if trimmed.len() >= 2
-                && trimmed.starts_with('"')
-                && trimmed.ends_with('"')
-            {
+            if trimmed.len() >= 2 && trimmed.starts_with('"') && trimmed.ends_with('"') {
                 trimmed[1..trimmed.len() - 1].to_owned()
             } else {
                 trimmed.to_owned()
@@ -4743,8 +4715,7 @@ fn parse_query_params_block(
         }
         // L0 #3 §10 — query params share the inline-constraint catalog
         // with command inputs / resource fields.
-        let (after_constraints, constraints) =
-            extract_field_constraints(line, type_part.trim())?;
+        let (after_constraints, constraints) = extract_field_constraints(line, type_part.trim())?;
         let (type_text, required, optional) =
             split_command_input_modifiers(after_constraints.trim());
         slots.push(CommandInputSlot {
@@ -7728,11 +7699,7 @@ fn parse_design_color_states(
 ) -> Result<(Vec<ColorStateAst>, usize, usize), ParseError> {
     let mut states: Vec<ColorStateAst> = Vec::new();
     let mut i = start;
-    let mut last_end = if start == 0 {
-        0
-    } else {
-        lines[start - 1].end
-    };
+    let mut last_end = if start == 0 { 0 } else { lines[start - 1].end };
     while i < lines.len() {
         let line = &lines[i];
         let trimmed_raw = line.text.trim_start();
@@ -7841,7 +7808,8 @@ fn parse_design_typography(
                 i = next;
             }
             "scale" => {
-                let (entries, next) = parse_design_scale_block(lines, sub_header_index, entry_indent)?;
+                let (entries, next) =
+                    parse_design_scale_block(lines, sub_header_index, entry_indent)?;
                 typo.scale = entries;
                 i = next;
             }
@@ -7963,9 +7931,7 @@ fn parse_design_motion(
             other => {
                 return Err(line_error_owned(
                     line,
-                    format!(
-                        "motion sub-groups are `duration` or `easing` (got `{other}`)"
-                    ),
+                    format!("motion sub-groups are `duration` or `easing` (got `{other}`)"),
                 ));
             }
         }
@@ -9547,7 +9513,11 @@ design pleiades
         assert_eq!(ast.colors.len(), 1);
         assert_eq!(ast.colors[0].name, "primary");
         assert_eq!(ast.colors[0].states.len(), 4);
-        let kinds: Vec<&str> = ast.colors[0].states.iter().map(|s| s.kind.as_str()).collect();
+        let kinds: Vec<&str> = ast.colors[0]
+            .states
+            .iter()
+            .map(|s| s.kind.as_str())
+            .collect();
         assert_eq!(kinds, vec!["base", "hover", "active", "foreground"]);
         assert_eq!(ast.colors[0].states[0].value, "#7c3aed");
         assert_eq!(ast.colors[0].states[3].value, "#ffffff");
@@ -9731,10 +9701,7 @@ feature slug
         assert!(field.required);
         assert_eq!(field.constraints.min, Some(2));
         assert_eq!(field.constraints.max, Some(80));
-        assert_eq!(
-            field.constraints.pattern.as_deref(),
-            Some("^[a-z0-9-]+$")
-        );
+        assert_eq!(field.constraints.pattern.as_deref(), Some("^[a-z0-9-]+$"));
     }
 
     /// `between A and B` on Integer parses as a two-tuple.
@@ -9822,10 +9789,7 @@ feature slug
         assert_eq!(slots[0].name, "key");
         assert_eq!(slots[0].constraints.min, Some(2));
         assert_eq!(slots[0].constraints.max, Some(80));
-        assert_eq!(
-            slots[0].constraints.pattern.as_deref(),
-            Some("^[a-z]+$")
-        );
+        assert_eq!(slots[0].constraints.pattern.as_deref(), Some("^[a-z]+$"));
         assert!(slots[0].required);
     }
 }
@@ -9942,10 +9906,7 @@ surface slug web
         assert_eq!(detail.route_params.len(), 1);
         assert_eq!(detail.route_params[0].name, "key");
         assert_eq!(detail.route_params[0].type_ref, "Text");
-        assert_eq!(
-            detail.sections,
-            vec!["header", "metadata", "related_items"]
-        );
+        assert_eq!(detail.sections, vec!["header", "metadata", "related_items"]);
         assert_eq!(detail.actions, vec!["update", "delete"]);
 
         let create = match &admin.views[2] {
@@ -9955,10 +9916,7 @@ surface slug web
         assert_eq!(create.name, "slug_create");
         assert_eq!(create.route.as_deref(), Some("/slugs/new"));
         assert_eq!(create.submit, "slug.command.create");
-        assert_eq!(
-            create.fields,
-            vec!["key", "title", "description", "tags"]
-        );
+        assert_eq!(create.fields, vec!["key", "title", "description", "tags"]);
 
         // public audience.
         let public = &surface.audiences[1];
@@ -9977,7 +9935,8 @@ surface slug web
 
     #[test]
     fn view_list_requires_columns() {
-        let source = "surface slug web\n  audience admin\n    view list bad\n      source slug.query.mine\n";
+        let source =
+            "surface slug web\n  audience admin\n    view list bad\n      source slug.query.mine\n";
         let err = parse_surface_document(source).unwrap_err();
         assert!(err.to_string().contains("`columns"));
     }

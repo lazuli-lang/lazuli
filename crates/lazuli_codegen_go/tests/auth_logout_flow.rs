@@ -265,11 +265,7 @@ mod smoke_e2e {
         let rest = set_cookie.strip_prefix(&format!("{name}="))?;
         let end = rest.find(';').unwrap_or(rest.len());
         let value = &rest[..end];
-        if value.is_empty() {
-            None
-        } else {
-            Some(value)
-        }
+        if value.is_empty() { None } else { Some(value) }
     }
 
     fn assert_status(server: &mut ServerChild, response: HttpResponse, want: u16, label: &str) {

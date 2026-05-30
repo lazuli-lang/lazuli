@@ -88,13 +88,7 @@ fn emit_enum(p: &mut GoPrinter, decl: &EnumDecl) {
     let pascal = pascal_case(&decl.name);
     let storage = classify_storage(decl);
 
-    write_section_banner(
-        p,
-        &[
-            format!("Enum: {pascal}"),
-            format!("  enum {pascal}"),
-        ],
-    );
+    write_section_banner(p, &[format!("Enum: {pascal}"), format!("  enum {pascal}")]);
 
     // Typed alias. `int64` chosen for the integer form because the IR
     // carries `StorageValue::Integer(i64)`; downcasting to a narrower
@@ -114,10 +108,7 @@ fn emit_enum(p: &mut GoPrinter, decl: &EnumDecl) {
     // sits flush against `<EnumName>` — the type column is fixed width
     // (the enum name) so we only need to pad the variant name.
     enum Row {
-        Variant {
-            name: String,
-            literal: String,
-        },
+        Variant { name: String, literal: String },
         Comment(String),
     }
 

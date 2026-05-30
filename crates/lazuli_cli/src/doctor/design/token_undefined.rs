@@ -130,11 +130,7 @@ pub fn check_file(path: &Path, lines: &[&str], allowlist: &Allowlist) -> Vec<Fin
                 };
                 // Empty suffix on a "bare" class (`rounded`, `shadow`) →
                 // check the `DEFAULT` slot in the bucket.
-                let lookup_suffix = if suffix.is_empty() {
-                    "DEFAULT"
-                } else {
-                    suffix
-                };
+                let lookup_suffix = if suffix.is_empty() { "DEFAULT" } else { suffix };
                 let bucket_key = prefix.trim_end_matches('-');
                 if !allowlist.knows_prefix(bucket_key) {
                     continue;
@@ -219,10 +215,7 @@ mod tests {
     #[test]
     fn allow_declared_token() {
         let lines = vec![r#"<div className="bg-primary text-primary-foreground" />"#];
-        let allowlist = al(&[
-            ("bg", &["primary"]),
-            ("text", &["primary-foreground"]),
-        ]);
+        let allowlist = al(&[("bg", &["primary"]), ("text", &["primary-foreground"])]);
         let f = check_file(Path::new("x.tsx"), &lines, &allowlist);
         assert!(f.is_empty(), "found unexpected: {:?}", f);
     }
@@ -270,7 +263,11 @@ mod tests {
         let lines = vec![r#"<div className="rounded" />"#];
         let allowlist = al(&[("rounded", &["DEFAULT", "md", "lg"])]);
         let f = check_file(Path::new("x.tsx"), &lines, &allowlist);
-        assert!(f.is_empty(), "rounded → DEFAULT slot lookup; found: {:?}", f);
+        assert!(
+            f.is_empty(),
+            "rounded → DEFAULT slot lookup; found: {:?}",
+            f
+        );
     }
 
     #[test]

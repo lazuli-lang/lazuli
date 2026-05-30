@@ -99,7 +99,11 @@ pub fn check_file(path: &Path, content: &str, lines: &[&str]) -> Vec<Finding> {
         }
     }
 
-    findings.sort_by(|a, b| a.line.cmp(&b.line).then(format!("{:?}", a.site).cmp(&format!("{:?}", b.site))));
+    findings.sort_by(|a, b| {
+        a.line
+            .cmp(&b.line)
+            .then(format!("{:?}", a.site).cmp(&format!("{:?}", b.site)))
+    });
     findings
 }
 

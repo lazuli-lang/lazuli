@@ -122,7 +122,11 @@ fn check_resource(
         // Signal (c): optional field name starts with `<variant>_`.
         let correlated: Vec<String> = optional_non_enum
             .iter()
-            .filter(|f| tag_variants.iter().any(|v| f.name.starts_with(&format!("{v}_"))))
+            .filter(|f| {
+                tag_variants
+                    .iter()
+                    .any(|v| f.name.starts_with(&format!("{v}_")))
+            })
             .map(|f| f.name.clone())
             .collect();
 
@@ -145,9 +149,7 @@ fn check_resource(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lazuli_ir::{
-        BuiltinType, Defaults, EnumVariant, Policies, QualifiedName, Resource,
-    };
+    use lazuli_ir::{BuiltinType, Defaults, EnumVariant, Policies, QualifiedName, Resource};
 
     fn mk_field(name: &str, type_ref: TypeRef, required: bool) -> Field {
         Field {
@@ -316,9 +318,6 @@ mod tests {
             vec![resource],
         );
         let findings = check(&feature, Path::new("features/payment/payment.lzi"));
-        assert!(
-            findings.is_empty(),
-            "no optional fields → should not fire"
-        );
+        assert!(findings.is_empty(), "no optional fields → should not fire");
     }
 }

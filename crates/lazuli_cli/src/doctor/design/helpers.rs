@@ -165,11 +165,17 @@ pub fn scan_lines(content: &str) -> impl Iterator<Item = (usize, &str)> {
 /// is conventional but not enforced — any text after the code is accepted.
 /// The comment may be on the same line as the violation OR on the line
 /// immediately above it.
-pub fn is_allowed_by_escape_comment(lines: &[&str], current_line_idx_0based: usize, code: &str) -> bool {
+pub fn is_allowed_by_escape_comment(
+    lines: &[&str],
+    current_line_idx_0based: usize,
+    code: &str,
+) -> bool {
     if has_allow_comment_for(lines[current_line_idx_0based], code) {
         return true;
     }
-    if current_line_idx_0based > 0 && has_allow_comment_for(lines[current_line_idx_0based - 1], code) {
+    if current_line_idx_0based > 0
+        && has_allow_comment_for(lines[current_line_idx_0based - 1], code)
+    {
         return true;
     }
     false
@@ -255,7 +261,10 @@ fn find_class_attr(s: &str) -> Option<(usize, usize)> {
     let mut best: Option<(usize, usize)> = None;
     for (key, key_len) in candidates {
         if let Some(idx) = s.find(key) {
-            let ok = match idx.checked_sub(1).and_then(|i| s.as_bytes().get(i).copied()) {
+            let ok = match idx
+                .checked_sub(1)
+                .and_then(|i| s.as_bytes().get(i).copied())
+            {
                 None => true,
                 Some(b) => !is_ident_byte(b),
             };
@@ -330,7 +339,10 @@ pub fn iter_style_spans<'a>(content: &'a str, lines: &[&'a str]) -> Vec<StyleSpa
                         if line.as_bytes().get(after).copied() == Some(b'{')
                             && line.as_bytes().get(after + 1).copied() == Some(b'{')
                         {
-                            state = ScanState::Inside { depth: 2, in_string: None };
+                            state = ScanState::Inside {
+                                depth: 2,
+                                in_string: None,
+                            };
                             current_start_in_line = after + 2;
                             current_line = line_idx;
                             i = after + 2;
@@ -342,7 +354,10 @@ pub fn iter_style_spans<'a>(content: &'a str, lines: &[&'a str]) -> Vec<StyleSpa
                         break;
                     }
                 }
-                ScanState::Inside { ref mut depth, ref mut in_string } => {
+                ScanState::Inside {
+                    ref mut depth,
+                    ref mut in_string,
+                } => {
                     let c = bytes[i];
                     match in_string {
                         Some(q) => {
@@ -489,11 +504,7 @@ mod tests {
         stdfs::create_dir_all(root.join("node_modules").join("react")).unwrap();
         stdfs::create_dir_all(root.join("dist").join("ts-web")).unwrap();
         stdfs::write(root.join("features").join("hello").join("ok.tsx"), "x").unwrap();
-        stdfs::write(
-            root.join("features").join("hello").join("ok.test.tsx"),
-            "x",
-        )
-        .unwrap();
+        stdfs::write(root.join("features").join("hello").join("ok.test.tsx"), "x").unwrap();
         stdfs::write(
             root.join("features").join("hello").join("ok.stories.tsx"),
             "x",
@@ -519,7 +530,11 @@ mod tests {
             "  return <div style={{ color: \"#fff\" }} />; // lazuli-allow: design-token-hex-leak — vendor brand",
             "}",
         ];
-        assert!(is_allowed_by_escape_comment(&lines, 1, "design-token-hex-leak"));
+        assert!(is_allowed_by_escape_comment(
+            &lines,
+            1,
+            "design-token-hex-leak"
+        ));
     }
 
     #[test]
@@ -528,21 +543,37 @@ mod tests {
             "// lazuli-allow: design-token-hex-leak — vendor brand",
             "<div style={{ color: \"#fff\" }} />",
         ];
-        assert!(is_allowed_by_escape_comment(&lines, 1, "design-token-hex-leak"));
+        assert!(is_allowed_by_escape_comment(
+            &lines,
+            1,
+            "design-token-hex-leak"
+        ));
     }
 
     #[test]
     fn escape_comment_only_matches_exact_code() {
         let lines = vec!["x // lazuli-allow: design-token-hex-leak — note"];
-        assert!(is_allowed_by_escape_comment(&lines, 0, "design-token-hex-leak"));
-        assert!(!is_allowed_by_escape_comment(&lines, 0, "design-token-px-leak"));
+        assert!(is_allowed_by_escape_comment(
+            &lines,
+            0,
+            "design-token-hex-leak"
+        ));
+        assert!(!is_allowed_by_escape_comment(
+            &lines,
+            0,
+            "design-token-px-leak"
+        ));
         // Prefix-only collision must NOT match.
         let lines2 = vec!["x // lazuli-allow: design-token-hex-leak-and-more"];
         // The escape is `design-token-hex-leak` followed by `-and-more` —
         // a `-` is an accepted separator per the parser. This is the
         // intentional behaviour: `-` is treated as a separator so that
         // hyphenated reasons need not be quoted.
-        assert!(is_allowed_by_escape_comment(&lines2, 0, "design-token-hex-leak"));
+        assert!(is_allowed_by_escape_comment(
+            &lines2,
+            0,
+            "design-token-hex-leak"
+        ));
     }
 
     #[test]

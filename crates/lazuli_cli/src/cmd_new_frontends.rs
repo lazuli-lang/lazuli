@@ -39,13 +39,17 @@ pub fn scaffold_frontend_web(project_root: &Path, _app_name: &str) -> Result<()>
 
     let shell_dir = project_root.join("app").join("shell").join("web");
     let theme_dir = project_root.join("app").join("theme");
-    fs::create_dir_all(&shell_dir)
-        .with_context(|| format!("creating {}", shell_dir.display()))?;
-    fs::create_dir_all(&theme_dir)
-        .with_context(|| format!("creating {}", theme_dir.display()))?;
+    fs::create_dir_all(&shell_dir).with_context(|| format!("creating {}", shell_dir.display()))?;
+    fs::create_dir_all(&theme_dir).with_context(|| format!("creating {}", theme_dir.display()))?;
 
-    write_if_absent(&shell_dir.join("root.tsx"), templates::FRONTEND_WEB_ROOT_TSX)?;
-    write_if_absent(&shell_dir.join("layout.tsx"), templates::FRONTEND_WEB_LAYOUT_TSX)?;
+    write_if_absent(
+        &shell_dir.join("root.tsx"),
+        templates::FRONTEND_WEB_ROOT_TSX,
+    )?;
+    write_if_absent(
+        &shell_dir.join("layout.tsx"),
+        templates::FRONTEND_WEB_LAYOUT_TSX,
+    )?;
     write_if_absent(
         &shell_dir.join("error_boundary.tsx"),
         templates::FRONTEND_WEB_ERROR_BOUNDARY_TSX,
@@ -102,8 +106,7 @@ pub fn scaffold_frontend_mobile(project_root: &Path, _app_name: &str) -> Result<
     ensure_dir(project_root)?;
 
     let shell_dir = project_root.join("app").join("shell").join("mobile");
-    fs::create_dir_all(&shell_dir)
-        .with_context(|| format!("creating {}", shell_dir.display()))?;
+    fs::create_dir_all(&shell_dir).with_context(|| format!("creating {}", shell_dir.display()))?;
 
     write_if_absent(
         &shell_dir.join("root.tsx"),
@@ -141,8 +144,7 @@ fn write_if_absent(path: &Path, content: &str) -> Result<()> {
         return Ok(());
     }
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("creating {}", parent.display()))?;
+        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
     fs::write(path, content).with_context(|| format!("writing {}", path.display()))
 }
@@ -171,8 +173,7 @@ fn append_manifest_block(manifest_path: &Path, header: &str, snippet: &str) -> R
     }
     out.push_str(snippet);
 
-    fs::write(&manifest_buf, out)
-        .with_context(|| format!("writing {}", manifest_buf.display()))
+    fs::write(&manifest_buf, out).with_context(|| format!("writing {}", manifest_buf.display()))
 }
 
 #[cfg(test)]
@@ -234,7 +235,10 @@ mod tests {
         scaffold_frontend_web(root, "demo").unwrap();
 
         // app/shell/web/
-        assert!(root.join("app/shell/web/root.tsx").exists(), "root.tsx missing");
+        assert!(
+            root.join("app/shell/web/root.tsx").exists(),
+            "root.tsx missing"
+        );
         assert!(
             root.join("app/shell/web/layout.tsx").exists(),
             "layout.tsx missing"
@@ -245,7 +249,10 @@ mod tests {
         );
 
         // app/theme/
-        assert!(root.join("app/theme/globals.css").exists(), "globals.css missing");
+        assert!(
+            root.join("app/theme/globals.css").exists(),
+            "globals.css missing"
+        );
         assert!(
             root.join("app/theme/theme_provider.tsx").exists(),
             "theme_provider.tsx missing"
@@ -257,7 +264,10 @@ mod tests {
             "tailwind.config.ts missing"
         );
         assert!(root.join("tsconfig.json").exists(), "tsconfig.json missing");
-        assert!(root.join("vite.config.ts").exists(), "vite.config.ts missing");
+        assert!(
+            root.join("vite.config.ts").exists(),
+            "vite.config.ts missing"
+        );
     }
 
     #[test]
@@ -359,7 +369,10 @@ mod tests {
 
         // file untouched
         let after = fs::read_to_string(root.join("app/shell/web/root.tsx")).unwrap();
-        assert_eq!(after, edited_root_tsx, "second pass must NOT overwrite user edit");
+        assert_eq!(
+            after, edited_root_tsx,
+            "second pass must NOT overwrite user edit"
+        );
 
         // manifest still has exactly one block
         let manifest = fs::read_to_string(root.join("lazurite.toml")).unwrap();

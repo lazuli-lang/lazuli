@@ -82,9 +82,30 @@ pub fn emit_allowlist_json(design: &Design) -> String {
     let gap_y = utilities("gap-y", &space_names);
 
     // -------- radius / shadow / z / font / text-size --------
-    let rounded = utilities_with_default("rounded", &design.radii.iter().map(|r| r.name.clone()).collect::<Vec<_>>());
-    let shadow = utilities_with_default("shadow", &design.shadows.iter().map(|s| s.name.clone()).collect::<Vec<_>>());
-    let z = utilities("z", &design.z_indices.iter().map(|t| t.name.clone()).collect::<Vec<_>>());
+    let rounded = utilities_with_default(
+        "rounded",
+        &design
+            .radii
+            .iter()
+            .map(|r| r.name.clone())
+            .collect::<Vec<_>>(),
+    );
+    let shadow = utilities_with_default(
+        "shadow",
+        &design
+            .shadows
+            .iter()
+            .map(|s| s.name.clone())
+            .collect::<Vec<_>>(),
+    );
+    let z = utilities(
+        "z",
+        &design
+            .z_indices
+            .iter()
+            .map(|t| t.name.clone())
+            .collect::<Vec<_>>(),
+    );
 
     // font: families + weights all live under the `font-*` prefix in Tailwind.
     let mut font: Vec<String> = Vec::new();
@@ -158,10 +179,7 @@ pub fn emit_allowlist_json(design: &Design) -> String {
 }
 
 fn utilities(prefix: &str, names: &[String]) -> Vec<String> {
-    names
-        .iter()
-        .map(|n| format!("{}-{}", prefix, n))
-        .collect()
+    names.iter().map(|n| format!("{}-{}", prefix, n)).collect()
 }
 
 /// Like `utilities`, but the token named `base` collapses to the bare prefix
@@ -259,9 +277,32 @@ mod tests {
         let out = emit_allowlist_json(&minimal());
         assert!(out.starts_with("{\n"));
         for key in [
-            "bg", "text", "border", "ring", "p", "px", "py", "pt", "pr", "pb", "pl", "m", "mx",
-            "my", "mt", "mr", "mb", "ml", "gap", "gap-x", "gap-y", "rounded", "shadow", "z",
-            "font", "text-size",
+            "bg",
+            "text",
+            "border",
+            "ring",
+            "p",
+            "px",
+            "py",
+            "pt",
+            "pr",
+            "pb",
+            "pl",
+            "m",
+            "mx",
+            "my",
+            "mt",
+            "mr",
+            "mb",
+            "ml",
+            "gap",
+            "gap-x",
+            "gap-y",
+            "rounded",
+            "shadow",
+            "z",
+            "font",
+            "text-size",
         ] {
             assert!(out.contains(&format!("\"{}\"", key)), "missing key {key}");
         }

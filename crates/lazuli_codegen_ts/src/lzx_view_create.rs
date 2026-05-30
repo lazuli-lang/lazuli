@@ -124,7 +124,12 @@ fn write_hook(s: &mut String, audience: &Audience, view: &ViewCreate, _surface: 
     let input_iface = command_input_iface(&view.submit, &feature_pascal);
 
     writeln!(s, "export function {}() {{", hook_name).ok();
-    writeln!(s, "  const submit = useLazuliCommand({}.submit);", const_name).ok();
+    writeln!(
+        s,
+        "  const submit = useLazuliCommand({}.submit);",
+        const_name
+    )
+    .ok();
     writeln!(s, "  const form = useForm<{}>({{", input_iface).ok();
     writeln!(s, "    resolver: zodResolver({}.schema),", const_name).ok();
     writeln!(s, "  }});").ok();
@@ -137,7 +142,12 @@ fn write_hook(s: &mut String, audience: &Audience, view: &ViewCreate, _surface: 
     writeln!(s, "    submit.mutateAsync(values),").ok();
     writeln!(s, "  );").ok();
     writeln!(s).ok();
-    writeln!(s, "  return {{ form, submit, handleSubmit, meta: {} }};", const_name).ok();
+    writeln!(
+        s,
+        "  return {{ form, submit, handleSubmit, meta: {} }};",
+        const_name
+    )
+    .ok();
     writeln!(s, "}}").ok();
 }
 
@@ -255,9 +265,7 @@ mod tests {
         assert!(out.contains("export function useAdminSlugCreateView"));
         // Imports.
         assert!(out.contains("import { useForm } from \"react-hook-form\";"));
-        assert!(
-            out.contains("import { zodResolver } from \"@hookform/resolvers/zod\";")
-        );
+        assert!(out.contains("import { zodResolver } from \"@hookform/resolvers/zod\";"));
         // Command + input + schema imports.
         assert!(out.contains("createSlug,"));
         assert!(out.contains("type CreateSlugInput,"));
@@ -266,9 +274,7 @@ mod tests {
         // Spec const fields.
         assert!(out.contains("submit: createSlug"));
         assert!(out.contains("schema: createSlugInputSchema"));
-        assert!(out.contains(
-            "fields: [\"key\", \"title\", \"description\", \"tags\"] as const"
-        ));
+        assert!(out.contains("fields: [\"key\", \"title\", \"description\", \"tags\"] as const"));
         assert!(out.contains("cells: { tags: \"@client.type_badge\" as const }"));
         assert!(out.contains("route: \"/slugs/new\""));
         // Slot interface.
@@ -277,13 +283,9 @@ mod tests {
         assert!(out.contains("const submit = useLazuliCommand(adminSlugCreateView.submit);"));
         assert!(out.contains("const form = useForm<CreateSlugInput>({"));
         assert!(out.contains("resolver: zodResolver(adminSlugCreateView.schema)"));
-        assert!(out.contains(
-            "const handleSubmit = form.handleSubmit(async (values) =>"
-        ));
+        assert!(out.contains("const handleSubmit = form.handleSubmit(async (values) =>"));
         assert!(out.contains("submit.mutateAsync(values)"));
-        assert!(out.contains(
-            "return { form, submit, handleSubmit, meta: adminSlugCreateView };"
-        ));
+        assert!(out.contains("return { form, submit, handleSubmit, meta: adminSlugCreateView };"));
     }
 
     #[test]
@@ -320,12 +322,14 @@ mod tests {
         let surface = minimal_surface(audience.clone());
 
         let out = emit_view_create(&surface, &audience, &view);
-        assert!(out.contains(
-            "import type { TypeBadgeProps } from \"../../cells/type_badge.gen.js\";"
-        ));
-        assert!(out.contains(
-            "import type { UserAvatarProps } from \"../../cells/user_avatar.gen.js\";"
-        ));
+        assert!(
+            out.contains("import type { TypeBadgeProps } from \"../../cells/type_badge.gen.js\";")
+        );
+        assert!(
+            out.contains(
+                "import type { UserAvatarProps } from \"../../cells/user_avatar.gen.js\";"
+            )
+        );
         assert!(out.contains("TypeBadge: React.ComponentType<TypeBadgeProps>"));
         assert!(out.contains("UserAvatar: React.ComponentType<UserAvatarProps>"));
     }

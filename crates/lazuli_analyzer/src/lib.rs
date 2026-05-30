@@ -66,38 +66,50 @@ pub enum AnalyzeError {
     /// L0 #3 — view source did not parse as
     /// `<feature>.query.<short>` or
     /// `<feature>.query.{list|lookup|sql}.<short>`.
-    #[error("LZX-BAD-QUERY-REF: view `{view}` source `{value}` must be `<feature>.query.<name>` (or `.query.{{list|lookup|sql}}.<name>`)")]
+    #[error(
+        "LZX-BAD-QUERY-REF: view `{view}` source `{value}` must be `<feature>.query.<name>` (or `.query.{{list|lookup|sql}}.<name>`)"
+    )]
     LzxBadQueryRef { view: String, value: String },
 
     /// L0 #3 — `submit` or `actions` entry did not parse as a command
     /// reference. Accepts `<feature>.command.<name>` (qualified) or a
     /// bare local short name (`create`).
-    #[error("LZX-BAD-COMMAND-REF: command reference `{value}` must be `<feature>.command.<name>` or a bare local short name")]
+    #[error(
+        "LZX-BAD-COMMAND-REF: command reference `{value}` must be `<feature>.command.<name>` or a bare local short name"
+    )]
     LzxBadCommandRef { value: String },
 
     /// L0 #3 §11 `lzx-cell-slot-orphan` — a `cells <field> @client.<slot>`
     /// binding references a field that isn't in the view's column /
     /// section / fields list. v0 surfaces this at lowering; doctor may
     /// downgrade to a warning.
-    #[error("LZX-CELL-SLOT-ORPHAN: view `{view}` cell binding for field `{field}` is not in its columns / sections / fields list")]
+    #[error(
+        "LZX-CELL-SLOT-ORPHAN: view `{view}` cell binding for field `{field}` is not in its columns / sections / fields list"
+    )]
     LzxCellSlotOrphan { view: String, field: String },
 
     /// L0 #3 — the cell slot identifier itself is malformed (empty or
     /// non-kebab/snake characters). Parser-time check; this guards
     /// against direct AST construction.
-    #[error("LZX-CELL-SLOT-INVALID: view `{view}` cell slot `{slot}` must be a kebab/snake identifier")]
+    #[error(
+        "LZX-CELL-SLOT-INVALID: view `{view}` cell slot `{slot}` must be a kebab/snake identifier"
+    )]
     LzxCellSlotInvalid { view: String, slot: String },
 
     /// L0 #3 §11 `lzx-route-param-missing-binding` — a `:name`
     /// placeholder in the `at "<path>"` string has no matching
     /// `route <name>: <Type> from path` declaration.
-    #[error("LZX-ROUTE-PARAM-MISSING-BINDING: view `{view}` path placeholder `:{placeholder}` has no `route {placeholder}: <Type> from path` declaration")]
+    #[error(
+        "LZX-ROUTE-PARAM-MISSING-BINDING: view `{view}` path placeholder `:{placeholder}` has no `route {placeholder}: <Type> from path` declaration"
+    )]
     LzxRouteParamMissingBinding { view: String, placeholder: String },
 
     /// L0 #3 §11 `lzx-route-param-orphan` — a `route <name>: Type from
     /// path` declaration has no matching `:name` placeholder in the
     /// view's `at "<path>"`.
-    #[error("LZX-ROUTE-PARAM-ORPHAN: view `{view}` declared route param `{param}` but the `at` path has no `:{param}` placeholder")]
+    #[error(
+        "LZX-ROUTE-PARAM-ORPHAN: view `{view}` declared route param `{param}` but the `at` path has no `:{param}` placeholder"
+    )]
     LzxRouteParamOrphan { view: String, param: String },
 
     /// L0 #2 — a `shadow <name> "<value>"` entry carried a top-level
@@ -430,7 +442,10 @@ pub fn lower_surface(ast: &syntax::SurfaceAst) -> Result<ir::Surface, AnalyzeErr
         syntax::SurfaceTargetAst::Web => ir::SurfaceTarget::Web,
         syntax::SurfaceTargetAst::Mobile => ir::SurfaceTarget::Mobile,
     };
-    let owning_feature = ast.uses_feature.clone().unwrap_or_else(|| ast.feature.clone());
+    let owning_feature = ast
+        .uses_feature
+        .clone()
+        .unwrap_or_else(|| ast.feature.clone());
 
     let mut audiences = Vec::with_capacity(ast.audiences.len());
     for audience in &ast.audiences {
@@ -470,16 +485,14 @@ fn lower_audience_ast(
     })
 }
 
-fn lower_view_ast(
-    ast: &syntax::ViewAst,
-    owning_feature: &str,
-) -> Result<ir::View, AnalyzeError> {
+fn lower_view_ast(ast: &syntax::ViewAst, owning_feature: &str) -> Result<ir::View, AnalyzeError> {
     match ast {
         syntax::ViewAst::List(v) => {
-            let source = parse_query_ref(&v.source).ok_or_else(|| AnalyzeError::LzxBadQueryRef {
-                view: v.name.clone(),
-                value: v.source.clone(),
-            })?;
+            let source =
+                parse_query_ref(&v.source).ok_or_else(|| AnalyzeError::LzxBadQueryRef {
+                    view: v.name.clone(),
+                    value: v.source.clone(),
+                })?;
             validate_cells(&v.cells, &v.columns, &v.name)?;
             let actions = v
                 .actions
@@ -506,10 +519,11 @@ fn lower_view_ast(
             }))
         }
         syntax::ViewAst::Detail(v) => {
-            let source = parse_query_ref(&v.source).ok_or_else(|| AnalyzeError::LzxBadQueryRef {
-                view: v.name.clone(),
-                value: v.source.clone(),
-            })?;
+            let source =
+                parse_query_ref(&v.source).ok_or_else(|| AnalyzeError::LzxBadQueryRef {
+                    view: v.name.clone(),
+                    value: v.source.clone(),
+                })?;
             // Detail views bind cells against fields on the source resource,
             // not against the `sections` enumeration. The source-resource
             // cross-check happens at doctor time (`lzx-source-resource-mismatch`).
@@ -623,9 +637,9 @@ fn validate_cells_slot_only(
 
 fn validate_cell_slot_shape(slot: &str, view_name: &str) -> Result<(), AnalyzeError> {
     if slot.is_empty()
-        || !slot.chars().all(|c| {
-            c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-'
-        })
+        || !slot
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
     {
         return Err(AnalyzeError::LzxCellSlotInvalid {
             view: view_name.to_owned(),
@@ -1702,14 +1716,12 @@ fn validate_default_against_constraints(
 ) -> Result<(), AnalyzeError> {
     let default_raw = default_raw.trim();
     // Strip surrounding double quotes for string-typed defaults.
-    let unquoted = if default_raw.len() >= 2
-        && default_raw.starts_with('"')
-        && default_raw.ends_with('"')
-    {
-        &default_raw[1..default_raw.len() - 1]
-    } else {
-        default_raw
-    };
+    let unquoted =
+        if default_raw.len() >= 2 && default_raw.starts_with('"') && default_raw.ends_with('"') {
+            &default_raw[1..default_raw.len() - 1]
+        } else {
+            default_raw
+        };
     // Numeric path: try parsing the (unquoted) literal as an integer.
     let as_int = unquoted.parse::<i64>().ok();
     // length check (string only — applies to char count of the
@@ -3150,14 +3162,15 @@ fn lower_design_color_token(token: &syntax::ColorTokenAst) -> Result<ir::ColorTo
 }
 
 fn lower_design_weight(weight: &syntax::WeightTokenAst) -> Result<ir::WeightToken, AnalyzeError> {
-    let parsed = weight
-        .value
-        .trim()
-        .parse::<u16>()
-        .map_err(|_| AnalyzeError::DesignWeightInvalid {
-            name: weight.name.clone(),
-            value: weight.value.clone(),
-        })?;
+    let parsed =
+        weight
+            .value
+            .trim()
+            .parse::<u16>()
+            .map_err(|_| AnalyzeError::DesignWeightInvalid {
+                name: weight.name.clone(),
+                value: weight.value.clone(),
+            })?;
     Ok(ir::WeightToken {
         name: weight.name.clone(),
         value: parsed,
@@ -4448,7 +4461,10 @@ design pleiades
 ";
         let design = lower_design_source(source);
         assert_eq!(design.typography.families[0].name, "sans");
-        assert_eq!(design.typography.families[0].value, "Inter, system-ui, sans-serif");
+        assert_eq!(
+            design.typography.families[0].value,
+            "Inter, system-ui, sans-serif"
+        );
         assert_eq!(design.typography.scale[0].size, "1rem");
         assert_eq!(design.typography.scale[0].line_height, "1.5rem");
         // u16 parse.
@@ -4483,10 +4499,10 @@ design pleiades
 ";
         let ast = parse_design_document(source).unwrap();
         let err = lower_design(&ast).unwrap_err();
-        assert!(matches!(
-            err,
-            AnalyzeError::DesignColorHexInvalid { .. }
-        ), "got {err:?}");
+        assert!(
+            matches!(err, AnalyzeError::DesignColorHexInvalid { .. }),
+            "got {err:?}"
+        );
     }
 
     #[test]
@@ -4916,10 +4932,7 @@ feature account
                 assert_eq!(field, "handle");
                 assert!(rule.starts_with("min="), "expected min rule, got {}", rule);
             }
-            other => panic!(
-                "expected DefaultViolatesConstraint, got: {:?}",
-                other.err()
-            ),
+            other => panic!("expected DefaultViolatesConstraint, got: {:?}", other.err()),
         }
     }
 

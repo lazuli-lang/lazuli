@@ -62,9 +62,7 @@ pub fn translate_route_path(target: RouterTarget, route: &str) -> String {
         if bytes[i] == b':' {
             let start = i + 1;
             let mut j = start;
-            while j < bytes.len()
-                && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_')
-            {
+            while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
                 j += 1;
             }
             if j > start {

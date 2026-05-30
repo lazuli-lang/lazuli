@@ -644,6 +644,8 @@ mod feature_emit_tests {
         assert!(out.contains("var mercadopagoCallbackWebhook = webhooks.WebhookContract{"));
         assert!(out.contains("Route:       \"/webhooks/mercadopago\","));
         assert!(out.contains("HandlerPath: \"./webhooks/mercadopago_callback.go\","));
-        assert!(out.contains("Retry:       &jobs.RetryPolicy{Count: 3, Backoff: jobs.BackoffFixed},"));
+        assert!(
+            out.contains("Retry:       &jobs.RetryPolicy{Count: 3, Backoff: jobs.BackoffFixed},")
+        );
     }
 }

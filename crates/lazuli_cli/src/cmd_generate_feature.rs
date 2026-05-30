@@ -7,7 +7,7 @@
 use std::fs;
 use std::path::Path;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 
 /// Run the subcommand. `project_root` is the directory containing
 /// `lazurite.toml` (or the CWD if no manifest).
@@ -166,8 +166,8 @@ fn mobile_lzx_stub(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use self::tempfile::TempDir;
+    use super::*;
 
     mod tempfile {
         use std::fs;
@@ -251,16 +251,20 @@ mod tests {
 
         let feature_root = project.path().join("features").join("slug");
         assert!(feature_root.join("slug.web.lzx").exists());
-        assert!(feature_root
-            .join("web")
-            .join("cells")
-            .join(".gitkeep")
-            .exists());
-        assert!(feature_root
-            .join("web")
-            .join("views")
-            .join(".gitkeep")
-            .exists());
+        assert!(
+            feature_root
+                .join("web")
+                .join("cells")
+                .join(".gitkeep")
+                .exists()
+        );
+        assert!(
+            feature_root
+                .join("web")
+                .join("views")
+                .join(".gitkeep")
+                .exists()
+        );
         assert!(!feature_root.join("slug.mobile.lzx").exists());
     }
 
@@ -273,16 +277,20 @@ mod tests {
 
         let feature_root = project.path().join("features").join("slug");
         assert!(feature_root.join("slug.mobile.lzx").exists());
-        assert!(feature_root
-            .join("mobile")
-            .join("cells")
-            .join(".gitkeep")
-            .exists());
-        assert!(feature_root
-            .join("mobile")
-            .join("views")
-            .join(".gitkeep")
-            .exists());
+        assert!(
+            feature_root
+                .join("mobile")
+                .join("cells")
+                .join(".gitkeep")
+                .exists()
+        );
+        assert!(
+            feature_root
+                .join("mobile")
+                .join("views")
+                .join(".gitkeep")
+                .exists()
+        );
         assert!(!feature_root.join("slug.web.lzx").exists());
     }
 
@@ -298,27 +306,35 @@ mod tests {
 
         let feature_root = project.path().join("features").join("slug");
         assert!(feature_root.join("slug.web.lzx").exists());
-        assert!(feature_root
-            .join("web")
-            .join("cells")
-            .join(".gitkeep")
-            .exists());
-        assert!(feature_root
-            .join("web")
-            .join("views")
-            .join(".gitkeep")
-            .exists());
+        assert!(
+            feature_root
+                .join("web")
+                .join("cells")
+                .join(".gitkeep")
+                .exists()
+        );
+        assert!(
+            feature_root
+                .join("web")
+                .join("views")
+                .join(".gitkeep")
+                .exists()
+        );
         assert!(feature_root.join("slug.mobile.lzx").exists());
-        assert!(feature_root
-            .join("mobile")
-            .join("cells")
-            .join(".gitkeep")
-            .exists());
-        assert!(feature_root
-            .join("mobile")
-            .join("views")
-            .join(".gitkeep")
-            .exists());
+        assert!(
+            feature_root
+                .join("mobile")
+                .join("cells")
+                .join(".gitkeep")
+                .exists()
+        );
+        assert!(
+            feature_root
+                .join("mobile")
+                .join("views")
+                .join(".gitkeep")
+                .exists()
+        );
     }
 
     #[test]

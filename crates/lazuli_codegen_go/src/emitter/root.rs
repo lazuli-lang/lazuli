@@ -592,9 +592,7 @@ mod tests {
             "// Feature packages are imported above for init-time registry registration."
         ));
         assert!(
-            out.contains(
-                "// lazuli.Mux() walks that registry and attaches command, query, and"
-            )
+            out.contains("// lazuli.Mux() walks that registry and attaches command, query, and")
         );
         assert!(out.contains("// healthz routes before the process starts accepting requests."));
     }

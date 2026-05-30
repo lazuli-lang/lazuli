@@ -19,7 +19,7 @@
 //!   when `A != B`; cross-feature visual dependencies must go via
 //!   slot bindings or shared `app/ui/` primitives.
 
+pub mod cross_feature_import;
 pub mod feature_orphan;
 pub mod pages_bypass;
 pub mod type_duplicate;
-pub mod cross_feature_import;

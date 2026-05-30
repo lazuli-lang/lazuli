@@ -1225,7 +1225,9 @@ mod tests {
         let out = emit(&feature).expect("must emit");
         assert!(out.contains("type LifetimeValueArgs struct {"));
         assert!(out.contains("MinScore *int64 `json:\"min_score,omitempty\"`"));
-        assert!(out.contains("var lifetimeValue = lazuli.Query[LifetimeValueArgs, []CustomerLtv]{"));
+        assert!(
+            out.contains("var lifetimeValue = lazuli.Query[LifetimeValueArgs, []CustomerLtv]{")
+        );
         assert!(out.contains("Kind:     lazuli.QuerySQL,"));
         assert!(out.contains("SQL:     \"./queries/lifetime_value.sql\","));
         assert!(out.contains("Returns: \"CustomerLtv[]\","));
@@ -1318,7 +1320,13 @@ mod feature_emit {
         };
         let index = CrossFeatureIndex::build(&module);
         let emit_ctx = EmitContext::no_source("customer/query.gen.go");
-        emit_query_file("features/customer/customer.lzi", feature, "lazuli/test", &index, &emit_ctx)
+        emit_query_file(
+            "features/customer/customer.lzi",
+            feature,
+            "lazuli/test",
+            &index,
+            &emit_ctx,
+        )
     }
 
     fn base_feature(name: &str) -> Feature {

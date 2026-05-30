@@ -286,8 +286,8 @@ fn should_skip_dir(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use self::tempfile::TempDir;
+    use super::*;
     use std::fs;
 
     mod tempfile {

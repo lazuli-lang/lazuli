@@ -340,15 +340,11 @@ fn emit_input_struct(p: &mut GoPrinter, name: &str, slots: &[TypedSlot], ctx: &T
         // tag chain stays deterministic: `json:"…"` then optional
         // `validate:"…"` (only when the slot is required OR carries
         // at least one constraint).
-        let validate_body =
-            super::validator_tag_body(&slot.constraints, slot.required);
+        let validate_body = super::validator_tag_body(&slot.constraints, slot.required);
         let tag = if validate_body.is_empty() {
             format!("`json:\"{}\"`", json_suffix)
         } else {
-            format!(
-                "`json:\"{}\" validate:\"{}\"`",
-                json_suffix, validate_body
-            )
+            format!("`json:\"{}\" validate:\"{}\"`", json_suffix, validate_body)
         };
         rows.push((pascal_case(&slot.name), final_type, tag));
     }

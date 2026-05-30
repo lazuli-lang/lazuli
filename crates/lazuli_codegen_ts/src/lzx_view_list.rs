@@ -364,12 +364,14 @@ mod tests {
         let surface = minimal_surface(audience.clone());
 
         let out = emit_view_list(&surface, &audience, &view);
-        assert!(out.contains(
-            "import type { TypeBadgeProps } from \"../../cells/type_badge.gen.js\";"
-        ));
-        assert!(out.contains(
-            "import type { UserAvatarProps } from \"../../cells/user_avatar.gen.js\";"
-        ));
+        assert!(
+            out.contains("import type { TypeBadgeProps } from \"../../cells/type_badge.gen.js\";")
+        );
+        assert!(
+            out.contains(
+                "import type { UserAvatarProps } from \"../../cells/user_avatar.gen.js\";"
+            )
+        );
         // Slot interface includes both.
         assert!(out.contains("TypeBadge: React.ComponentType<TypeBadgeProps>"));
         assert!(out.contains("UserAvatar: React.ComponentType<UserAvatarProps>"));
@@ -399,7 +401,11 @@ mod tests {
 
         let out = emit_view_list(&surface, &audience, &view);
         // Object literal style + all three resolved identifiers.
-        assert!(out.contains("actions: { create: createSlug, update: updateSlug, archive: archiveSlug }"));
+        assert!(
+            out.contains(
+                "actions: { create: createSlug, update: updateSlug, archive: archiveSlug }"
+            )
+        );
         // Hook returns the spread actions map.
         assert!(out.contains("actions: { create, update, archive }"));
     }

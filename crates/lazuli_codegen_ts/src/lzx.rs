@@ -52,8 +52,8 @@ pub mod ir {
     //! Canonical .lzx IR types — re-exported from lazuli_ir.
     //! (Original stubs replaced after Cell A.1+A.2+A.3 landed in 235d7a7.)
     pub use lazuli_ir::{
-        Surface, SurfaceTarget, Audience, View, ViewList, ViewDetail, ViewCreate,
-        QueryRef, QueryKind, CommandRef, CellBinding, RouteParam, PolicyAtom,
+        Audience, CellBinding, CommandRef, PolicyAtom, QueryKind, QueryRef, RouteParam, Surface,
+        SurfaceTarget, View, ViewCreate, ViewDetail, ViewList,
     };
 }
 
@@ -200,11 +200,7 @@ pub(crate) fn view_spec_const(audience: &str, view_name: &str) -> String {
 /// `useAdminSlugListView`. Note `slug` is not in the hook name — the
 /// dist path already scopes by feature.
 pub(crate) fn view_hook_name(audience: &str, view_name: &str) -> String {
-    format!(
-        "use{}{}View",
-        pascal_case(audience),
-        pascal_case(view_name)
-    )
+    format!("use{}{}View", pascal_case(audience), pascal_case(view_name))
 }
 
 /// Pascal name for an `<Audience><View>` prefix (used for slot
@@ -532,8 +528,12 @@ mod tests {
 
         // Four (audience, view) tuples: admin × {list, detail, create}
         // plus public × list.
-        assert_eq!(files.len(), 4, "expected 4 files, got {:?}",
-            files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>());
+        assert_eq!(
+            files.len(),
+            4,
+            "expected 4 files, got {:?}",
+            files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>()
+        );
 
         let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
         assert!(paths.contains(&"dist/ts-web/slug/views/admin/slug_list.gen.ts"));
@@ -545,24 +545,56 @@ mod tests {
         let by_path = |p: &str| files.iter().find(|f| f.path == p).expect("path present");
 
         let list_file = by_path("dist/ts-web/slug/views/admin/slug_list.gen.ts");
-        assert!(list_file.contents.contains("export const adminSlugListView"));
-        assert!(list_file.contents.contains("export function useAdminSlugListView"));
+        assert!(
+            list_file
+                .contents
+                .contains("export const adminSlugListView")
+        );
+        assert!(
+            list_file
+                .contents
+                .contains("export function useAdminSlugListView")
+        );
         assert!(list_file.contents.contains("listMineSlugs"));
 
         let detail_file = by_path("dist/ts-web/slug/views/admin/slug_detail.gen.ts");
-        assert!(detail_file.contents.contains("export const adminSlugDetailView"));
-        assert!(detail_file.contents.contains("export function useAdminSlugDetailView"));
+        assert!(
+            detail_file
+                .contents
+                .contains("export const adminSlugDetailView")
+        );
+        assert!(
+            detail_file
+                .contents
+                .contains("export function useAdminSlugDetailView")
+        );
         assert!(detail_file.contents.contains("@tanstack/react-router"));
         assert!(detail_file.contents.contains("AdminSlugDetailSections"));
 
         let create_file = by_path("dist/ts-web/slug/views/admin/slug_create.gen.ts");
-        assert!(create_file.contents.contains("export const adminSlugCreateView"));
-        assert!(create_file.contents.contains("export function useAdminSlugCreateView"));
+        assert!(
+            create_file
+                .contents
+                .contains("export const adminSlugCreateView")
+        );
+        assert!(
+            create_file
+                .contents
+                .contains("export function useAdminSlugCreateView")
+        );
         assert!(create_file.contents.contains("zodResolver"));
 
         let public_file = by_path("dist/ts-web/slug/views/public/public_slug_list.gen.ts");
-        assert!(public_file.contents.contains("export const publicPublicSlugListView"));
-        assert!(public_file.contents.contains("export function usePublicPublicSlugListView"));
+        assert!(
+            public_file
+                .contents
+                .contains("export const publicPublicSlugListView")
+        );
+        assert!(
+            public_file
+                .contents
+                .contains("export function usePublicPublicSlugListView")
+        );
     }
 
     #[test]

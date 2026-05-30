@@ -286,9 +286,10 @@ mod tests {
 
         assert_eq!(file.path, "migrations/audit_log.sql");
         assert_eq!(file.contents, AUDIT_LOG_DDL);
-        assert!(file
-            .contents
-            .contains("CREATE TABLE IF NOT EXISTS audit_log ("));
+        assert!(
+            file.contents
+                .contains("CREATE TABLE IF NOT EXISTS audit_log (")
+        );
         assert!(file.contents.contains("id BIGSERIAL PRIMARY KEY,"));
         assert!(file.contents.contains("org_id BIGINT,"));
         assert!(file.contents.contains("actor_id BIGINT,"));
@@ -299,19 +300,22 @@ mod tests {
         assert!(file.contents.contains("payload JSONB,"));
         assert!(file.contents.contains("result_status TEXT NOT NULL,"));
         assert!(file.contents.contains("error_code TEXT,"));
-        assert!(file
-            .contents
-            .contains("happened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),"));
+        assert!(
+            file.contents
+                .contains("happened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),")
+        );
         assert!(file.contents.contains("correlation_id TEXT"));
-        assert!(file
-            .contents
-            .contains("CREATE INDEX audit_log_command_idx ON audit_log (command_name);"));
+        assert!(
+            file.contents
+                .contains("CREATE INDEX audit_log_command_idx ON audit_log (command_name);")
+        );
         assert!(file.contents.contains(
             "CREATE INDEX audit_log_target_idx ON audit_log (target_resource, target_id);"
         ));
-        assert!(file
-            .contents
-            .contains("CREATE INDEX audit_log_actor_idx ON audit_log (actor_id);"));
+        assert!(
+            file.contents
+                .contains("CREATE INDEX audit_log_actor_idx ON audit_log (actor_id);")
+        );
         assert!(file.contents.contains(
             "CREATE INDEX audit_log_org_time_idx ON audit_log (org_id, happened_at DESC);"
         ));
@@ -342,15 +346,21 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].path, "customer/audit.gen.go");
         assert!(files[0].contents.contains("package customer"));
-        assert!(files[0]
-            .contents
-            .contains("\"lazuli.dev/runtime/lazuli/auth\""));
-        assert!(files[0]
-            .contents
-            .contains("var createAuditEntry = auth.AuditEntry{"));
-        assert!(files[0]
-            .contents
-            .contains("CommandName:    \"customer.create\","));
+        assert!(
+            files[0]
+                .contents
+                .contains("\"lazuli.dev/runtime/lazuli/auth\"")
+        );
+        assert!(
+            files[0]
+                .contents
+                .contains("var createAuditEntry = auth.AuditEntry{")
+        );
+        assert!(
+            files[0]
+                .contents
+                .contains("CommandName:    \"customer.create\",")
+        );
         assert!(files[0].contents.contains("TargetResource: \"Customer\","));
         assert!(!files[0].contents.contains("reassignAuditEntry"));
     }
