@@ -4,10 +4,9 @@ Branch: `cement-r1-exec` (isolated worktree `c:/tmp/cement-r1`, off `06f9c717`).
 **Every commit green; full workspace test suite (`cargo test --workspace`)
 passes; all campaign invariant gates pass.** Fast-forwarded onto `origin/main`
 after each spec. **All cement-r1 specs (00–20) are implemented and merged.**
-Of CI's five required gates, **four are green** (fmt, clippy, test, doc); the
-fifth (self-doctor editorial veto) is reduced 107→75 by removing all SPEC-19
-chunk false-positives, leaving the repo's own pre-existing W5/W7 rustdoc-example
-sweep. See Session 5 at the bottom.
+**All five of CI's required gates are now green** (fmt, clippy, test, doc,
+self-doctor). The self-doctor editorial veto went 107 → 0 findings at full
+`tdd-iron-hand` (no posture downgrade). See Sessions 5 + 6 at the bottom.
 
 ## Done (green, committed)
 
@@ -71,20 +70,50 @@ the cement-r1 campaign; four are now green and pushed:
 | **clippy** (`--workspace --all-targets -D warnings`) | ✅ green | ~900 lints. Dropped the miscalibrated `disallowed-methods` unwrap entries (no test carve-out; the test-aware doctor rule INTERNAL-PANIC-UNWRAP-001 is canonical); narrow justified `[workspace.lints]` baseline (doc-list/`too_many_arguments`/`large_enum_variant`/`type_complexity`/`field_reassign_with_default`, rust `unused_imports`/`dead_code` for include!-chunk false positives); **fixed everything else** incl. 3 real correctness bugs + 11 dropped Results + dup/unreachable match arms. |
 | **test** (`cargo test --workspace`) | ✅ green | Green on every commit throughout. |
 | **doc** (`cargo doc … -D broken/private-intra-doc-links`) | ✅ green | Fixed ~30 genuinely-broken links (test-fn refs, cross-crate, code-in-doc → `text` fences); crate-root `#![allow(rustdoc::broken_intra_doc_links, private_intra_doc_links)]` as the deliberate posture for this all-internal-tooling workspace (docs cross-ref `pub(crate)`/test-proofs under `--document-private-items`). |
-| **self-doctor** (`lazuli-dev self-doctor --fail-on category:internal_hygiene,test_discipline`) | ◑ 107→75 | Removed all **33 SPEC-19 include!-chunk false positives** (fragments' docs/tests belong to the canonical sibling — the audits now skip `<base>_p<N>.rs` / `<base>_tests.rs`). The remaining **75** are genuine: **61 INTERNAL-NO-EXAMPLE-001** (`pub fn` without a `## Examples`), 7 UNDOC-PUB, 7 TEST-PAIRING. |
+| **self-doctor** (`lazuli-dev self-doctor --fail-on category:internal_hygiene,test_discipline`) | ✅ green (Session 6) | 107 → 0 findings. See Session 6. |
 
-### The self-doctor remainder (75) — the repo's own W5/W7 sweep
+### The self-doctor remainder — closed in Session 6
 
-These are NOT cement-r1 spec work and NOT a split artifact — they are the
-incremental rustdoc/test sweep the repo's own `CLAUDE.md` describes
-("INTERNAL-NO-EXAMPLE-001 enforced once a crate reaches W5 sweep completion";
-"promote to tdd-iron-hand AFTER a W7 sweep reduces the count to ~0"). The
-iron-hand `[doctor.internal_hygiene]` preset is enforcing it across all crates
-ahead of that sweep. The 61 `## Examples` must compile (`cargo test --workspace`
-runs doc-tests), so it is a genuine multi-hour documentation pass over internal
-IR-heavy functions — the right shape for a focused follow-up, crate by crate,
-not a blind autonomous stub-fill (which would not be the "que dá orgulho"
-quality bar). Concentrated in `lazuli_doctor` (52) + `lazuli_doctor_run` (26).
+The 75 carried into Session 6 (61 NO-EXAMPLE + 7 UNDOC + 7 TEST-PAIRING) plus
+two latent gate blockers underneath them are all resolved. The work was a
+genuine documentation/test pass (the `## Examples` must compile under
+`cargo test --workspace`), not a stub-fill — see Session 6.
+
+## Session 6 — self-doctor gate to green (the 5th gate), `c1ec583f`
+
+The 5th gate finally went green. Underneath the 75 internal_hygiene
+doc-findings sat two latent blockers that had kept it red on HEAD regardless
+of doc work:
+
+| Blocker | Fix |
+|---|---|
+| `enforce_manifest_pin` ignored the documented `[lazuli] runtime = "self"` reserved no-pin sentinel → `self-doctor` bailed on its own repo's version pin **before findings even ran** | `manifest_pin_matches` now honors `self` (+ unit test) |
+| `INTERNAL-PANIC-UNWRAP-001` false-fired on `.unwrap()`/`.expect()` in **27** SPEC-19 `*_tests_p<N>.rs` test fragments (the `#[cfg(test)] mod` wrapper lives in the canonical `_tests.rs`, so the depth-tracker can't see it) | extended `is_rails_test_file` to recognize `_tests_p<N>` chunks |
+
+The 3 genuine panic hits were eliminated **cleanly, with no posture
+downgrade** (`error_handling` stays `tdd-iron-hand`): `lzx_filters` folds the
+date_range early-return into the match arm (exhaustive — a new cardinality is
+a compile error, not a runtime `unreachable!`); `semantic_tokens` returns the
+test-pinned `token as u32` discriminant instead of a `.position().expect()`
+scan; `single_feature` swaps `.expect("len == 1")` for a slice-pattern `if let`.
+
+The 75 doc-findings (61 NO-EXAMPLE + 7 UNDOC + 7 TEST-PAIRING) were closed
+honestly: compiling `## Examples` for the genuinely-public surface (the six
+`vocab_knowledge_*` rules; the `lazuli_doctor_run::entry_support` helpers +
+`run_package`, with `ResolvedDoctorConfig` re-exported so the example can name
+it); `///` docs for the undocumented public items; inline tests for
+helpers/parsers/scanners (parsers uses a SPEC-19 sibling-include to stay
+≤500 LOC) + clap-surface parse tests for `cli_run`/`cli_dev`; tightened the
+crate-internal `lzx` rule fns to `pub(crate)`. Factored the SPEC-19 fragment
+predicate into one canonical `walker::is_split_fragment_name` (now also
+covering `_impl<N>` chunks) and fixed a doc mis-attachment that had stripped
+`test_pairing_001::check`'s own docstring.
+
+Result: `lazuli-dev self-doctor --security-profile strict --fail-on
+category:internal_hygiene --fail-on category:test_discipline` exits **0** with
+**0 errors / 0 warnings / 0 infos**. All five gates verified green together:
+fmt + clippy `-D warnings` + `cargo test --workspace` (129 suites) + doc gate +
+self-doctor.
 
 ## Merge + cleanup
 1. `cement-r1-exec` is fast-forwarded onto `origin/main` after every spec; no
