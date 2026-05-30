@@ -281,6 +281,7 @@ mod tests {
                     previous_names: Vec::new(),
                     span_ref: None,
                 })],
+                resume_routers: Vec::new(),
                 workflows: Vec::new(),
                 jobs: Vec::new(),
                 webhooks: Vec::new(),

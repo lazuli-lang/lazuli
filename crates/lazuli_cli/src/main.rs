@@ -223,9 +223,9 @@ enum Commands {
     /// OpenAPI / Lazuli Go / Lazurite feature cycle — emit artifacts
     /// derived from the typed IR slice. Today supports `openapi`
     /// (OpenAPI 3.1 spec YAML), `go` (Lazuli Go user-code that imports
-    /// `lazuli.dev/runtime/lazuli`).
+    /// `lazuli.dev/runtime/lazuli`), and `playwright` e2e helpers.
     Generate {
-        /// Which artifact to emit. Closed catalog: `openapi`, `go`, `feature`.
+        /// Which artifact to emit. Closed catalog: `openapi`, `go`, `feature`, `handler`, `ts`, `playwright`.
         #[arg(value_enum)]
         kind: GenerateKind,
         /// Path to a `.lzi` file or directory; for `feature`, the feature name.
@@ -257,6 +257,17 @@ enum Commands {
         /// Emit source-map sidecar data and Go //line directives.
         #[arg(long)]
         with_source: bool,
+        /// Playwright codegen sub-target. Required when kind is `playwright`.
+        /// Accepts repeated flags or comma-separated values.
+        #[arg(
+            long,
+            value_enum,
+            value_delimiter = ',',
+            num_args = 1..,
+            value_name = "TARGET",
+            required_if_eq("kind", "playwright")
+        )]
+        target: Vec<PlaywrightTarget>,
     },
     /// Watch Lazuli source files, regenerate Go output, and optionally run it.
     Dev {
@@ -446,6 +457,15 @@ enum GenerateKind {
     Feature,
     Handler,
     Ts,
+    Playwright,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum PlaywrightTarget {
+    ApiPolicy,
+    LifecycleGate,
+    ScalarFixturesBarrel,
+    All,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -852,6 +872,7 @@ fn main() -> Result<()> {
             lazuli_go_version,
             check,
             with_source,
+            target,
         } => generate_command(
             kind,
             &input,
@@ -861,6 +882,7 @@ fn main() -> Result<()> {
             lazuli_go_version.as_deref(),
             check,
             with_source,
+            &target,
             cli.allow_version_mismatch,
         ),
         Commands::Dev {
@@ -963,6 +985,7 @@ fn generate_command(
     lazuli_go_version: Option<&str>,
     check: bool,
     with_source: bool,
+    playwright_targets: &[PlaywrightTarget],
     allow_version_mismatch: bool,
 ) -> Result<()> {
     if !allow_version_mismatch {
@@ -1004,7 +1027,87 @@ fn generate_command(
             cmd_generate_handler::run(ident, &project_root)
         }
         GenerateKind::Ts => generate_ts(input, output, check),
+        GenerateKind::Playwright => generate_playwright(input, output, playwright_targets, check),
     }
+}
+
+/// Emit Playwright e2e artifacts under `<project>/e2e/_generated/`.
+fn generate_playwright(
+    input: &Path,
+    output: Option<&Path>,
+    targets: &[PlaywrightTarget],
+    check: bool,
+) -> Result<()> {
+    use lazuli_codegen_ts::playwright::*;
+
+    if targets.is_empty() {
+        bail!(
+            "`lazuli generate playwright` requires --target=<api-policy|lifecycle-gate|scalar-fixtures-barrel|all>"
+        );
+    }
+
+    let project_root = project_root_for_input(input);
+    let module = build_module_from_path(input)?;
+    let out_dir = output
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| project_root.join("e2e").join("_generated"));
+    let opts = PlaywrightEmitOpts {
+        command_namespace: "account".to_owned(),
+        api_url_env_var: "LAZULI_API_URL".to_owned(),
+        api_url_fallback: "http://localhost:8080".to_owned(),
+        out_dir: out_dir.clone(),
+        helpers_package: "@lazuli/playwright".to_owned(),
+    };
+
+    let mut emit_api_policy = false;
+    let mut emit_lifecycle_gate = false;
+    let mut emit_scalar_fixtures_barrel = false;
+
+    for target in targets {
+        match target {
+            PlaywrightTarget::ApiPolicy => emit_api_policy = true,
+            PlaywrightTarget::LifecycleGate => emit_lifecycle_gate = true,
+            PlaywrightTarget::ScalarFixturesBarrel => emit_scalar_fixtures_barrel = true,
+            PlaywrightTarget::All => {
+                emit_api_policy = true;
+                emit_lifecycle_gate = true;
+                emit_scalar_fixtures_barrel = true;
+            }
+        }
+    }
+
+    let mut files: Vec<lazuli_codegen_ts::GeneratedFile> = Vec::new();
+    if emit_api_policy || emit_lifecycle_gate {
+        files.push(emit_peer_dep_check(&opts));
+    }
+    if emit_api_policy {
+        files.extend(emit_api_policy_spec(&module, &opts));
+    }
+    if emit_lifecycle_gate {
+        files.extend(emit_lifecycle_gate_spec(&module, &opts));
+    }
+    if emit_scalar_fixtures_barrel {
+        files.push(emit_scalar_fixtures_barrel_file(&opts));
+    }
+
+    if check {
+        println!("lazuli generate playwright --check");
+        println!("would emit {} file(s):", files.len());
+        for file in &files {
+            println!("  {}", out_dir.join(&file.path).display());
+        }
+        return Ok(());
+    }
+
+    fs::create_dir_all(&out_dir)
+        .with_context(|| format!("creating output directory {}", out_dir.display()))?;
+
+    for file in &files {
+        write_generated_file(&out_dir, &file.path, &file.contents)?;
+    }
+
+    println!("wrote {} file(s) to {}", files.len(), out_dir.display());
+    Ok(())
 }
 
 /// L0 #3 — emit TypeScript user-code for a Lazuli/Lazurite project.
@@ -11506,6 +11609,7 @@ mod tests {
             apis: vec![],
             records: vec![],
             queries: vec![],
+            resume_routers: vec![],
             workflows: vec![],
             jobs: vec![],
             webhooks: vec![],
@@ -11604,6 +11708,7 @@ mod tests {
             apis: vec![],
             records: vec![],
             queries: vec![],
+            resume_routers: vec![],
             workflows: vec![],
             jobs: vec![],
             webhooks: vec![],

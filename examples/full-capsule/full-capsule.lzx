@@ -88,7 +88,7 @@ experience customer
     submit customer.command.capture_lead
 
   resume customer_status
-    source query.lookup by_id
+    source query.lookup customer.by_id
     none -> view list
     lead -> view list
     active → view detail
