@@ -1,7 +1,7 @@
 # Cement R1 — execution status (overnight run)
 
 Branch: `cement-r1-exec` (isolated worktree `c:/tmp/cement-r1`, off `06f9c717`).
-**47 commits, every one green; full workspace + all test binaries compile; all
+**56 commits, every one green; full workspace + all test binaries compile; all
 campaign invariant gates pass.** The branch is preserved in git and ready to
 merge when the main checkout's swarm is paused (merging into a swarm-active
 branch would be invasive — left to the operator).
@@ -30,10 +30,29 @@ branch would be invasive — left to the operator).
 | **SPEC-05 (full lang)** | `==` is the closed-predicate equality operator; bare `=` retired from comparison (kept for assignment/default/enum-storage + lifecycle bindings). 4 comparison parsers + 50 fixtures + 21 examples + `PREDICATE-EQ-OPERATOR-001` doctor rule + docs + tmLanguage (`=`→assignment) + snapshots. Pushed. LSP hover/auto-recipe deferred — enforced by the doctor fix-it. |
 | **SPEC-07 (A)** | UNIFORM policy reference: deleted the command/workflow-only `@policy.*` asymmetry — every callable now takes the same grammar. Pushed. |
 
+## Session 3 — SPEC-19 LOC debt, merged to origin/main (green)
+
+The ≤500-LOC/file convention had regressed to **79 offenders** post-merge.
+Cut to **11** (86%), all merged, every commit green:
+
+| Move | Result |
+|---|---|
+| **registry.rs 3691 → 14 files** | `facets`/`builders`/`sections/s01..s11` concatenated by `constcat::concat_slices!` into `ALL`; `gen-keyword-reference` byte-identical (order preserved), proven_complete green |
+| **~60 `include!`-chunk splits** | every `#[cfg(test)] mod tests {…}` and oversized module split into same-dir `<base>_p<k>.rs` / `_tests.rs` fragments — same module, so `pub`/`pub(crate)` ABI unchanged; string/raw/char-aware, fixtures byte-exact |
+| **gate updates** | `module_headers` skips `_p<N>.rs` fragments; `keyword_surface_parity` scans `keywords_p*.rs`; chunk names end `_tests.rs` where the parser-literal scan must keep excluding them |
+
+The **11 remaining** need bespoke (non-mechanical) handling: single-`impl`
+files (`dispatch` 817, `package_methods` 919, `handler_signature_mismatch`
+1362, `handler_sql_column_drift`…, `migration_alter_missing` 1000) want
+per-`impl X {}`-wrapped chunks; doc-heavy module roots (`analyzer/lib` 508,
+`ir/lib` 507, `conventions/mod` 503) are mostly legitimate `//!` docs; two
+cargo integration-test roots (`route_guard_escape_hatch_golden`,
+`doctor_severity_parity`) need the `tests/foo/main.rs` + mod-sibling pattern.
+
 ## Remaining — supervised / blocked tier
 
 - **SPEC-07 (B/C)**: B = reclassify `@role/@scope/@actor` to a catalog-atom registry *kind* (low user-value, touches proven_complete/tmLanguage/hover). C = forbid CRUD-named policy categories — **101 sites across nearly every example**, and the rename to "semantic" names is NON-mechanical (per-category judgment). Opinionated boundary move; per `docs/scope-discipline.md` needs explicit appetite, not an autonomous sweep.
-- **SPEC-19 registry.rs split**: BLOCKED — needs `constcat` (no built-in const-slice concat in stable Rust); `constcat` is not in the offline cargo cache. Other >500 files need full Rails production+test concern splits with the documented raw-string-fixture corruption risk.
+- **SPEC-19**: DONE 79→11 (see Session 3 above; `constcat` fetched, registry split landed). The 11 left are bespoke (impl-wrap / doc-roots / integration-test restructure).
 - **SPEC-20 (2/n)**: the `parse` handler depends on the bin-private compiler entry `build_module_from_path`; a second binary requires hoisting the build pipeline into the lib — central-crate reorg with cascade risk. (1/n already hid the commands from `lazuli --help`.)
 - **SPEC-02 (2/n)**: retire the `@command` sigil in lzx-surface action targets (the remaining §7a cut after the braces retire in 1/n).
 
