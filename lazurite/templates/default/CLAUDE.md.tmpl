@@ -6,6 +6,12 @@ Mirrored verbatim at `AGENTS.md` for tooling that loads `AGENTS.md`.
 
 ---
 
+## Write idiomatic Lazuli — read the lazuli-way index FIRST
+
+Before authoring or editing any `.lzi` / `.lzx`, open **`knowledge/lazuli-way/0000-index.md`** — the idiom guide's *Fast path* + router. It carries the highest-frequency rules inline and points you to the **one** doctrine doc for the task at hand, so you load the index + 1 doc (not all of them). The `lazuli-architect` skill grounds its language facts there; so should you. When the fast-path doesn't settle it, open the doc it names; when even that doesn't, **ask the compiler** (`lazuli check` / `inspect` / `doctor`) — never guess or work around a rejected form.
+
+---
+
 ## Quality gates — run before AND after every change
 
 Lazuli is declarative. The compiler can catch most mistakes BEFORE they reach runtime — treat the CLI as your typecheck + lint:

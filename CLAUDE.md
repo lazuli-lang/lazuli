@@ -12,6 +12,8 @@ Before doing any design or implementation work, read [`docs/scope-discipline.md`
 
 **Operational rule**: if a proposal feels like it's making the framework conform to one specific app's specifics, it's a scope violation. Reject or kick to `@plugin/<name>`. The boundary moves only with ≥3-app pilot evidence + an architect-graded proposal (≥ 8.5).
 
+**When you author or edit any `.lzi`/`.lzx`** (examples, fixtures, scaffold templates, doc snippets) — not just the Rust crates — start at the app-author idiom guide: [`examples/full-capsule/knowledge/lazuli-way/0000-index.md`](examples/full-capsule/knowledge/lazuli-way/0000-index.md). Its *Fast path* + router encode the current syntax and the retired forms; consulting it is what prevents the stale-syntax drift the 2026-05-30 freshness sweep had to fix (path-based `verify`, `query.lookup key`, the `:`-vs-`=` effect gaffe) — the same class as the `attach_ctx` incident. Ground every language fact in `lazuli check`/`inspect`/`doctor`, never memory.
+
 ---
 
 ## The founding principle (NEVER violate)
