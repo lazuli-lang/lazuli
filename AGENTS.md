@@ -161,32 +161,38 @@ When you spot a violation: reject in line. Do not merge into a checklist for "la
 
 ## Language-surface parity — every keyword has many faces
 
-A keyword the *parser* accepts is not "shipped." It is shipped when every surface an author or AI touches agrees on it. Lazuli has **no single generated keyword catalog** — each surface is hand-maintained, so they drift independently and *silently* (the feature-level walker skips unknown children with no error). The 2026-05 `attach_ctx` incident is the cautionary tale: the live keyword `attach_ctx` was invisible (no highlight, no LSP completion, absent from `grammar.lzi.md`) while the **dead** feature-level `context "@…"` form was highlighted, documented, and used in `examples/full-capsule/` — where the parser silently drops it (`context_path` never populates). Result: freshly-scaffolded pilots *looked* wrong while being correct, and the blessed example was actually broken. Tooling that highlights the broken form and not the working one is worse than no tooling.
+A keyword the *parser* accepts is not "shipped." It is shipped when every surface an author or AI touches agrees on it. The 2026-05 `attach_ctx` incident is the cautionary tale: the parser accepted `attach_ctx`, but it was invisible (no highlight, no LSP completion, absent from `grammar.lzi.md`) while the *dead* feature-level `context "@…"` form was highlighted and documented — and the canonical `examples/full-capsule/` used `context`, which the parser silently dropped (`context_path` never populated). Freshly-scaffolded pilots *looked* wrong while being correct; the blessed example was actually broken. (Both forms were since retired entirely in favour of the co-located `<feature>.ctx.md` convention; the parser now hard-errors `E-ATTACH-CTX-RETIRED` / `E-CONTEXT-RETIRED`.)
 
-**The rule:** any change to a `.lzi`/`.lzx`/manifest keyword, sub-keyword, closed-value catalog, or `@`-sigil — add, rename, remove, or alias — lands in **one change that touches every face below**. Partial = drift.
+**This is now enforced by construction — do NOT hand-sync surfaces.** The single source of truth is the keyword registry:
 
-**The faces of a keyword** (paths verified 2026-05-28):
+- **Registry:** `crates/lazuli_keywords` (`ALL`) — one `CapabilitySpec` per keyword/construct. Proven complete against the parser by `crates/lazuli_keywords/tests/proven_complete.rs`. **Any add / rename / retire starts here.**
+- **Generated, NEVER hand-edited** (the registry is the only edit point):
+  - `editors/vscode/syntaxes/lazuli.tmLanguage.json` ← `cargo run -p xtask -- gen-tmlanguage`
+  - `docs/keyword-reference.md` (exhaustive — one row per registry entry) ← `cargo run -p xtask -- gen-keyword-reference`
+- **Gates that must stay green:**
+  - `crates/lazuli_lsp/tests/keyword_surface_parity.rs` — iterates the *registry* (not a curated sample) and asserts every keyword is in the LSP catalog + `tmLanguage.json` + `keyword-reference.md`, and that retired forms (`RETIRED_FEATURE_KEYWORDS`) are absent from the feature catalog.
+  - `tools/xtask/tests/keyword_reference_fresh.rs` — the generated reference is in sync with the registry.
 
-| Face | Where | Failure mode if skipped |
+**The faces a generator cannot reach — you still own these by hand:**
+
+| Face | Where | Note |
 |---|---|---|
-| Recognition (parser) | `crates/lazuli_syntax/src/parser/lzi/…` (feature children dispatch in `feature_walker/skeleton.rs`); app-manifest keys in `crates/lazuli_cli/src/app_manifest/manifest.rs` | keyword unparseable, or silently dropped at the lenient feature-level fall-through |
-| Lowering (IR) | `crates/lazuli_analyzer/src/feature.rs`, `crates/lazuli_ir/` | parses but never reaches codegen. Note: `lazuli parse` emits the *skeleton* AST (analyzer-only blocks like `extensions` show empty there) — verify with `lazuli inspect` / `generate … --check`, **not** `parse` |
-| Completion + hover (LSP) | `crates/lazuli_lsp/src/keywords.rs` (`KEYWORDS`, hand-curated) + hover tables | no autocomplete, no hover doc — author/AI can't discover the keyword |
-| Typo catalogs (LSP) | `…/diagnostics/canonical_kinds/sections/blocks.rs` (`*_BODY_KINDS`) + `statements.rs` | false "did you mean" squiggle, or a real typo silently slips through |
-| Syntax highlighting | `editors/vscode/syntaxes/lazuli.tmLanguage.json` + `editors/vscode/SCOPES.md`; regenerate `editors/vscode/tests/grammar/*.snap` | renders as plain text → "looks like a syntax error" |
-| Reference grammar | `docs/grammar.lzi.md` (reserved-word list **and** the production rule), `docs/grammar.app.md` for manifest keys | a cold-reading AI authors the wrong spelling |
-| Teaching docs | `docs/quickref.md`, `docs/canonical-semantics.md`, `docs/invariants.md` | contradicts the grammar; the most-read surface lies |
-| Scaffold + canon | `lazurite/templates/default/**`, `examples/**` (esp. `examples/full-capsule/`) | every new project and every cold-read inherits the stale form |
-| Migration recipe (rename/remove only) | `lazuli upgrade` recipes in `crates/lazuli_cli` | existing pilots can't auto-migrate off the old spelling |
+| Recognition (parser) | `crates/lazuli_syntax/src/parser/lzi/…` (feature dispatch in `feature_walker/skeleton.rs`); manifest keys in `crates/lazuli_cli/src/app_manifest/manifest.rs` | registry mirrors this; keep them in lockstep (`proven_complete.rs` checks it) |
+| Lowering (IR) | `crates/lazuli_analyzer/src/feature.rs`, `crates/lazuli_ir/` | parses ≠ reaches codegen. Verify with `lazuli inspect` / `generate … --check`, **not** `lazuli parse` (which emits the lossy skeleton AST — analyzer-only blocks like `extensions` show empty there) |
+| LSP completion / hover / typo catalogs | `crates/lazuli_lsp/src/keywords.rs`, hover tables, `…/canonical_kinds/sections/{blocks,statements}.rs` | the parity gate fails if a registry keyword is missing here |
+| Curated grammar + teaching docs | `docs/grammar.lzi.md`, `grammar.app.md`, `quickref.md`, `canonical-semantics.md`, `invariants.md` | these stay *curated* (EBNF + worked examples for the constructs that matter); exhaustiveness lives in the generated `keyword-reference.md` |
+| Scaffold + canon | `lazurite/templates/default/**`, `examples/**` (esp. `full-capsule/`) | every new project & cold-read inherits these — `scaffold_from_template_smoke_tree_matches_expected` now runs `lazuli doctor` on the scaffold to catch drift |
+| Migration recipe (rename / retire only) | `lazuli upgrade` recipes in `crates/lazuli_cli` | so existing pilots auto-migrate off the old spelling |
 
 **Definition of done** for a keyword change:
-1. `grep` the OLD spelling across `docs/`, `examples/`, `lazurite/`, `editors/`, `crates/lazuli_lsp/` → **zero** stray hits (only the migration recipe may still name it).
-2. `grep` the NEW spelling → present in parser, LSP `KEYWORDS`, tmLanguage, grammar doc, quickref, and scaffold/example.
-3. The canonical example actually round-trips: `lazuli inspect examples/full-capsule` (or `generate … --check`) shows the construct **populated**, not silently dropped.
-4. `editors/vscode` grammar snapshot tests regenerated and committed (`cd editors/vscode && npx vscode-tmgrammar-snap -g ./syntaxes/lazuli.tmLanguage.json "./tests/grammar/**/*.lzi" "./tests/grammar/**/*.lzx"`).
-5. Register the keyword's token in `crates/lazuli_lsp/tests/keyword_surface_parity.rs` — add it to `CANONICAL` (statement/modifier/surface keywords) or `SEMANTIC_VALUES` (`@semantic` scalars), retired forms to `RETIRED_FEATURE_KEYWORDS` — then `cargo test -p lazuli_lsp --test keyword_surface_parity`.
+1. Edit the registry (`crates/lazuli_keywords`) **and** the parser; `cargo test -p lazuli_keywords` (proves parser↔registry parity).
+2. Regenerate: `cargo run -p xtask -- gen-tmlanguage && cargo run -p xtask -- gen-keyword-reference`. Never hand-edit the generated files.
+3. Surface it in the LSP catalog and lower it in the analyzer; add curated `grammar`/`quickref` entries for non-trivial constructs.
+4. Green gates: `cargo test -p lazuli_lsp --test keyword_surface_parity` and `cargo test -p xtask`.
+5. Regenerate the VS Code grammar snapshots (`cd editors/vscode && npx vscode-tmgrammar-snap -g ./syntaxes/lazuli.tmLanguage.json "./tests/grammar/**/*.lzi" "./tests/grammar/**/*.lzx"`).
+6. Round-trip the canonical example (`lazuli inspect examples/full-capsule`) and a fresh scaffold (`lazuli doctor` on `lazuli new`).
 
-If you cannot touch every face in this change, do not change the keyword — file it and do it whole. The bar is parity, not "the parser accepts it." **Enforcement (added 2026-05-28):** `crates/lazuli_lsp/tests/keyword_surface_parity.rs` is now a mechanical CI gate — for every token in `CANONICAL`/`SEMANTIC_VALUES` it asserts presence in the LSP catalog, `tmLanguage.json`, the grammar docs, and `quickref.md`, and asserts retired forms are gone from the feature catalog. It fails the build on drift, so it automates steps 2 + the surface-presence sweep. This checklist remains the human/AI companion for the faces a substring test cannot verify (lowering/IR, grammar-snapshot regen, migration recipes).
+If you cannot do it whole, do not change the keyword — file it. The bar is parity, not "the parser accepts it."
 
 ---
 

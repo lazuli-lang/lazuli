@@ -136,7 +136,6 @@
     }
 
     #[test]
-    #[ignore = "smoke test for the complete embedded Lazurite scaffold tree"]
     fn scaffold_from_template_smoke_tree_matches_expected() {
         let suffix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -201,6 +200,22 @@
             compose.contains("MINIO_ROOT_USER_FILE: \"\""),
             "docker-compose.yml should clear MinIO _FILE defaults"
         );
+
+        // Schema-drift gate: the freshly scaffolded tree must pass
+        // `lazuli doctor` under the strict profile — the same sanity check
+        // `lazuli new` runs (but swallows into a `warning:` line). Asserting
+        // it here turns the swallowed check into a CI gate: a schema bump not
+        // mirrored into the hardcoded `app.lzi.tmpl` `lazuli_version` pin (or
+        // any template that drifts off the current grammar) starts failing
+        // this test instead of silently shipping broken new projects.
+        // `allow_version_mismatch = false` so the pin is actually checked.
+        crate::doctor::doctor_command(
+            &root,
+            lazuli_doctor_config::DoctorProfile::Strict,
+            false,
+            false,
+        )
+        .expect("freshly scaffolded project must pass `lazuli doctor` (strict)");
 
         let _ = fs::remove_dir_all(root);
     }

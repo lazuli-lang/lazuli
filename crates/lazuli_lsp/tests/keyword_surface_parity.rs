@@ -46,7 +46,8 @@
 //! Substring presence is intentionally coarse: the point is "did the
 //! surface remember this keyword at all", not exact-form validation.
 //!
-//! See CLAUDE.md / AGENTS.md §"Language-change surface checklist".
+//! See CLAUDE.md / AGENTS.md §"Language-surface parity — every keyword has
+//! many faces" (the human/AI companion to this mechanical gate).
 
 use std::collections::BTreeSet;
 use std::fs;
