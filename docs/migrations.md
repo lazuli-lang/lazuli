@@ -58,3 +58,43 @@ lifecycle_status previously migrated status: CustomerStatus = lead
 ```
 
 If no identity hint exists, planner should treat the change as remove + add.
+
+## Upgrade Recipes (`lazuli upgrade`)
+
+Where the planner reasons about a *single project's* schema evolution, **upgrade
+recipes** carry a *framework version bump* across every pilot — they migrate
+authored `.lzi`/`.lzx` off a retired spelling when the language itself changes a
+keyword, sigil, or catalog value.
+
+Recipes live at `migrations/recipes/<from>-to-<to>/<slug>/recipe.toml`:
+
+```toml
+[recipe]
+from_version = "0.14.0"
+to_version   = "0.15.0"
+kind         = "rewrite"        # additive | rename | rewrite
+summary      = "@semantic.X / @cap.X -> bare PascalCase type"
+
+# rename + rewrite recipes carry an ordered list of literal find->replace rules,
+# applied to every .lzi/.lzx under the target (generated/internal trees skipped).
+[[rule]]
+find    = "@semantic."
+replace = ""
+[[rule]]
+find    = "@cap."
+replace = ""
+```
+
+The three kinds:
+
+- **`additive`** — records intent; inserts new declarations. No in-place edit.
+- **`rename`** — a keyword/sigil/catalog token swap (e.g. `public contract` ->
+  `public_contract`).
+- **`rewrite`** — a structural find->replace (e.g. dropping a type sigil).
+
+`rename` and `rewrite` share one text-rule engine; they differ only in authoring
+intent. Each is **meaning-preserving by construction**: a recipe may ship a
+sibling `input.lzi` + `output.lzi` fixture, and the runner's IR-equality smoke
+(`lazuli inspect --format=json` on both) **fails the recipe** if the two do not
+lower to identical IR — so a recipe can never silently change behaviour. Run with
+`--check` to report pending migrations without writing.

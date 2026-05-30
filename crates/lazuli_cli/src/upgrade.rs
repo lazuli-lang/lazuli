@@ -130,14 +130,115 @@ fn major_minor(version: &str) -> String {
 }
 
 fn apply_recipe(
-    _recipe_path: &Path,
-    _target: &Path,
+    recipe_path: &Path,
+    target: &Path,
     metadata: &RecipeMetadata,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match metadata.kind.as_str() {
+        // Additive recipes insert new declarations; the runner records intent and
+        // the smoke fixture proves the shape — there is no in-place edit here.
         "additive" => Ok(()),
+        // `rename` (a keyword/sigil/catalog token swap) and `rewrite` (a structural
+        // find->replace) share one text-rule engine; they differ only in authoring
+        // intent — collapsing them to one mechanism keeps the migration surface
+        // peaked. Each `[[rule]]` is a literal find->replace applied to every
+        // `.lzi`/`.lzx` under `target`. Meaning-preservation is proven separately by
+        // [`smoke_recipe`] against the recipe's own input/output fixture, so a
+        // recipe that changes meaning fails the run rather than corrupting sources.
+        "rename" | "rewrite" => apply_text_rules(recipe_path, target),
         other => Err(format!("recipe kind '{}' not yet implemented in run_upgrade", other).into()),
     }
+}
+
+/// Load the `[[rule]]` `{ find, replace }` pairs a `rename`/`rewrite` recipe
+/// applies. Errors when a rule omits `find` or the recipe declares none.
+fn load_recipe_rules(
+    recipe_path: &Path,
+) -> Result<Vec<(String, String)>, Box<dyn std::error::Error>> {
+    let content = std::fs::read_to_string(recipe_path.join("recipe.toml"))?;
+    let parsed: toml::Value = toml::from_str(&content)?;
+    let mut rules = Vec::new();
+    if let Some(arr) = parsed.get("rule").and_then(|v| v.as_array()) {
+        for rule in arr {
+            let find = rule
+                .get("find")
+                .and_then(|v| v.as_str())
+                .ok_or("each [[rule]] needs a `find`")?;
+            if find.is_empty() {
+                return Err("[[rule]] `find` must be non-empty".into());
+            }
+            let replace = rule.get("replace").and_then(|v| v.as_str()).unwrap_or("");
+            rules.push((find.to_string(), replace.to_string()));
+        }
+    }
+    if rules.is_empty() {
+        return Err("rename/rewrite recipe declares no [[rule]] entries".into());
+    }
+    Ok(rules)
+}
+
+/// Apply the recipe's text rules to every `.lzi`/`.lzx` source under `target`
+/// (or to `target` itself when it is a single source file). Only files that
+/// actually change are rewritten.
+fn apply_text_rules(
+    recipe_path: &Path,
+    target: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let rules = load_recipe_rules(recipe_path)?;
+    let mut files = Vec::new();
+    collect_sources(target, &mut files)?;
+    for file in files {
+        let original = std::fs::read_to_string(&file)?;
+        let mut updated = original.clone();
+        for (find, replace) in &rules {
+            updated = updated.replace(find.as_str(), replace.as_str());
+        }
+        if updated != original {
+            std::fs::write(&file, updated)?;
+        }
+    }
+    Ok(())
+}
+
+/// Recursively collect `.lzi`/`.lzx` sources under `root` (or `root` itself if
+/// it is one). Skips generated/internal trees so a recipe never rewrites
+/// `dist/`, `.lazuli/`, its own `migrations/` fixtures, `.git/`, or `target/`.
+fn collect_sources(
+    root: &Path,
+    out: &mut Vec<PathBuf>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if root.is_file() {
+        if is_source(root) {
+            out.push(root.to_path_buf());
+        }
+        return Ok(());
+    }
+    if !root.is_dir() {
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(root)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            let skip = matches!(
+                path.file_name().and_then(|n| n.to_str()),
+                Some("dist") | Some(".lazuli") | Some("migrations") | Some(".git") | Some("target")
+            );
+            if !skip {
+                collect_sources(&path, out)?;
+            }
+        } else if is_source(&path) {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+/// Whether `path` is a Lazuli source file (`.lzi` or `.lzx`).
+fn is_source(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some("lzi") | Some("lzx")
+    )
 }
 
 pub(crate) fn smoke_recipe(recipe_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -276,12 +377,43 @@ mod tests {
     fn run_upgrade_halts_chain_on_failure() {
         let root = temp_dir("halt");
         write_recipe(&root, "0.11-to-0.12", "a-additive", "additive");
-        write_recipe(&root, "0.11-to-0.12", "b-rename", "rename");
+        write_recipe(&root, "0.11-to-0.12", "b-bogus", "bogus");
         write_recipe(&root, "0.11-to-0.12", "c-additive", "additive");
         let report = run_upgrade(&root, "0.11", "0.12", &root, false).unwrap();
         assert_eq!(report.applied.len(), 1);
         assert_eq!(report.failed.len(), 1);
         assert!(report.failed[0].1.contains("not yet implemented"));
+    }
+
+    #[test]
+    fn run_upgrade_applies_rewrite_recipe() {
+        let root = temp_dir("rewrite");
+        let recipe = write_recipe(&root, "0.11-to-0.12", "a-rewrite", "rewrite");
+        let toml = recipe.join("recipe.toml");
+        let mut content = std::fs::read_to_string(&toml).unwrap();
+        content.push_str("\n[[rule]]\nfind = \"@semantic.\"\nreplace = \"\"\n");
+        std::fs::write(&toml, content).unwrap();
+
+        let src = root.join("app/feature.lzi");
+        std::fs::create_dir_all(src.parent().unwrap()).unwrap();
+        std::fs::write(&src, "feature x\n  domain\n    resource R\n      email: @semantic.Email required\n").unwrap();
+
+        let report = run_upgrade(&root, "0.11", "0.12", &root, false).unwrap();
+        assert!(report.failed.is_empty(), "{:?}", report.failed);
+        assert_eq!(report.applied.len(), 1);
+
+        let after = std::fs::read_to_string(&src).unwrap();
+        assert!(after.contains("email: Email required"), "got: {after}");
+        assert!(!after.contains("@semantic."));
+    }
+
+    #[test]
+    fn rewrite_recipe_with_no_rules_fails() {
+        let root = temp_dir("norules");
+        write_recipe(&root, "0.11-to-0.12", "a-rewrite", "rewrite");
+        let report = run_upgrade(&root, "0.11", "0.12", &root, false).unwrap();
+        assert_eq!(report.failed.len(), 1);
+        assert!(report.failed[0].1.contains("no [[rule]] entries"));
     }
 
     #[test]

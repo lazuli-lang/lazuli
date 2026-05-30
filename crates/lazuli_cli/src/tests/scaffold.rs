@@ -211,7 +211,7 @@
         // `allow_version_mismatch = false` so the pin is actually checked.
         crate::doctor::doctor_command(
             &root,
-            lazuli_doctor_config::DoctorProfile::Strict,
+            Some(lazuli_doctor_config::DoctorProfile::Strict),
             false,
             false,
         )
