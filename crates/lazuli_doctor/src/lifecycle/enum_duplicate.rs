@@ -6,10 +6,9 @@
 //! Severity: `error` (strict), `error` (production).
 //! Reference: docs/proposals/lifecycle-vocab.md §5
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use lazuli_ir::Feature;
+use lazuli_ir::{Feature, SpanRef};
 
 // ── output ────────────────────────────────────────────────────────────────────
 
@@ -72,14 +71,26 @@ impl Finding {
 /// let _ = check(&feature, Path::new("publishing.lzi"));
 /// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
-    let declared: HashSet<&str> = feature.enums.iter().map(|e| e.name.as_str()).collect();
     let mut findings = vec![];
 
     for r in &feature.resources {
         let Some(lc) = r.lifecycle.as_ref() else {
             continue;
         };
-        if declared.contains(lc.generated_enum.as_str()) {
+        // The lifecycle synthesis auto-emits its generated enum INTO
+        // `feature.enums`
+        // (`lazuli_analyzer::lifecycle::emit_lifecycle_enum`), copying the
+        // lifecycle block's own `span_ref` onto that `EnumDecl`. So the
+        // bare presence of a same-named enum is NOT a collision — it would
+        // flag the synthesized enum against itself (Bug B). Only an
+        // AUTHOR-declared `enum <Name>` — one whose `span_ref` differs from
+        // the lifecycle block's — is a real collision. (When the author
+        // declares a colliding enum, the synth pass skips its own emit, so
+        // the surviving entry carries the author's distinct span.)
+        let author_declares_collision = feature.enums.iter().any(|e| {
+            e.name == lc.generated_enum && !is_lifecycle_synthesized(e.span_ref, lc.span_ref)
+        });
+        if author_declares_collision {
             findings.push(Finding {
                 path: path.to_path_buf(),
                 resource: r.name.clone(),
@@ -89,6 +100,14 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     }
 
     findings
+}
+
+/// True when `entry_span` equals the lifecycle block's span — i.e. the
+/// enum was synthesized FROM this lifecycle (the analyzer copies
+/// `lifecycle_ast.span` onto the generated `EnumDecl`), not authored
+/// independently. A span match means "synth vs itself" → not a duplicate.
+fn is_lifecycle_synthesized(entry_span: Option<SpanRef>, lifecycle_span: Option<SpanRef>) -> bool {
+    matches!((entry_span, lifecycle_span), (Some(a), Some(b)) if a == b)
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────
@@ -247,5 +266,29 @@ mod tests {
         let findings = check(&feature, Path::new("features/publishing/publishing.lzi"));
 
         assert!(findings.is_empty());
+    }
+
+    /// Bug B: the lifecycle-synthesized enum carries the lifecycle block's
+    /// own span, so it must NOT be flagged against itself.
+    #[test]
+    fn synthesized_enum_does_not_fire() {
+        let span = lazuli_ir::SpanRef {
+            start: 57,
+            end: 185,
+        };
+        let mut lc = mk_lifecycle("PublicationStatus");
+        lc.span_ref = Some(span);
+        let mut feature = mk_feature_with_lifecycle("Publication", lc);
+        // The synth enum copies the lifecycle's span (same byte range).
+        let mut synth_enum = mk_enum("PublicationStatus");
+        synth_enum.span_ref = Some(span);
+        feature.enums = vec![synth_enum];
+
+        let findings = check(&feature, Path::new("features/publishing/publishing.lzi"));
+
+        assert!(
+            findings.is_empty(),
+            "the synthesized lifecycle enum (same span as the lifecycle block) must not fire: {findings:?}"
+        );
     }
 }

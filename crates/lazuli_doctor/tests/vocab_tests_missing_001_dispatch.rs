@@ -77,3 +77,98 @@ fn finding_message_documents_opt_out() {
         "message should mention the planned `# doctor:allow` opt-out, got: {message}"
     );
 }
+
+// ── Bug A — command `tests {}` lowering reaches the rule ─────────────────────────
+//
+// Before the fix `lower_command_decl` hardcoded `tests: None`, so an
+// authored command `tests { allows as @role.X }` was dropped and never
+// reached `ir::Command.tests`. These tests parse + lower inline source
+// (no fixture file) so the `# doctor:allow` comment escape hatch can
+// never mask the result.
+
+fn lower(source: &str) -> lazuli_ir::Feature {
+    let skeletons =
+        lazuli_syntax::parse_feature_skeletons(source).expect("parse feature skeletons");
+    lazuli_analyzer::lower_feature_skeleton(&skeletons[0]).expect("lower feature")
+}
+
+#[test]
+fn command_tests_lower_to_actor_assertions() {
+    let source = r#"
+feature billing
+  resource Invoice
+    number: Text required
+  command void_invoice
+    policy @policy.admin
+    tests
+      allows as @role.admin
+      denies as @role.guest
+"#;
+    let feature = lower(source);
+    let cmd = feature
+        .commands
+        .iter()
+        .find(|c| c.name == "void_invoice")
+        .expect("void_invoice command");
+    let block = cmd
+        .tests
+        .as_ref()
+        .expect("command tests lower to a substantive TestBlock (Bug A)");
+    assert_eq!(
+        block.assertions,
+        vec![
+            lazuli_ir::TestAssertion::AllowsAs {
+                actor: "@role.admin".to_owned()
+            },
+            lazuli_ir::TestAssertion::DeniesAs {
+                actor: "@role.guest".to_owned()
+            },
+        ]
+    );
+}
+
+#[test]
+fn feature_with_command_test_block_is_silent() {
+    let source = r#"
+feature billing
+  resource Invoice
+    number: Text required
+  command void_invoice
+    policy @policy.admin
+    tests
+      allows as @role.admin
+"#;
+    // A command with a substantive tests block silences the rule. Use a
+    // guaranteed-nonexistent path so the `# doctor:allow` escape hatch
+    // cannot mask the result.
+    let findings = vocab_tests_missing_001::check(
+        &lower(source),
+        Path::new("definitely_nonexistent_buga_fixture.lzi"),
+    );
+    assert!(
+        findings.is_empty(),
+        "a command with a substantive tests block should silence VOCAB-TESTS-MISSING-001: {findings:?}"
+    );
+}
+
+#[test]
+fn spec_actor_matrix_credits_command_allows_as() {
+    let source = r#"
+feature billing
+  policies
+    admin: @role.admin
+  resource Invoice
+    number: Text required
+  command void_invoice
+    policy @policy.admin
+    tests
+      allows as @role.admin
+"#;
+    let feature = lower(source);
+    let layer = lazuli_doctor::coverage::spec_actor_matrix::compute(std::slice::from_ref(&feature));
+    assert_eq!(layer.total, 1, "one (command, @role.admin) pair");
+    assert_eq!(
+        layer.covered, 1,
+        "the command's `allows as @role.admin` test must credit the pair"
+    );
+}

@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use lazuli_ir::Feature;
+use lazuli_ir::{Feature, SpanRef};
 
 // ── output ────────────────────────────────────────────────────────────────────
 
@@ -79,7 +79,21 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
             continue;
         };
 
-        if r.fields.iter().any(|f| f.name == lc.discriminator_field) {
+        // The lifecycle synthesis auto-emits its discriminator field INTO
+        // `resource.fields`
+        // (`lazuli_analyzer::lifecycle::emit_discriminator_field`), copying
+        // the lifecycle block's own `span_ref` onto that `Field`. So the
+        // bare presence of a same-named field is NOT a double-declaration —
+        // it would flag the synthesized field against itself (Bug B). Only
+        // an AUTHOR-declared field in the resource's explicit `fields`
+        // block — one whose `span_ref` differs from the lifecycle block's —
+        // is a real double-declaration. (When the author declares it, the
+        // synth pass skips its own emit, so the surviving field carries the
+        // author's distinct span.)
+        let author_declares_field = r.fields.iter().any(|f| {
+            f.name == lc.discriminator_field && !is_lifecycle_synthesized(f.span_ref, lc.span_ref)
+        });
+        if author_declares_field {
             findings.push(Finding {
                 path: path.to_path_buf(),
                 resource: r.name.clone(),
@@ -89,6 +103,15 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     }
 
     findings
+}
+
+/// True when `entry_span` equals the lifecycle block's span — i.e. the
+/// field was synthesized FROM this lifecycle (the analyzer copies
+/// `lifecycle_ast.span` onto the generated `Field`), not authored in the
+/// resource's explicit `fields` block. A span match means "synth vs
+/// itself" → not a double-declaration.
+fn is_lifecycle_synthesized(entry_span: Option<SpanRef>, lifecycle_span: Option<SpanRef>) -> bool {
+    matches!((entry_span, lifecycle_span), (Some(a), Some(b)) if a == b)
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────
@@ -298,5 +321,28 @@ mod tests {
         let feature = mk_feature_with_resource(resource);
 
         assert!(check(&feature, Path::new("f.lzi")).is_empty());
+    }
+
+    /// Bug B: the lifecycle-synthesized discriminator field carries the
+    /// lifecycle block's own span, so it must NOT be flagged against
+    /// itself.
+    #[test]
+    fn synthesized_field_does_not_fire() {
+        let span = lazuli_ir::SpanRef {
+            start: 57,
+            end: 185,
+        };
+        let mut lc = mk_lifecycle("status");
+        lc.span_ref = Some(span);
+        // The synth discriminator field copies the lifecycle's span.
+        let mut synth_field = enum_field("status", "PublicationStatus");
+        synth_field.span_ref = Some(span);
+        let resource = mk_resource("Publication", vec![synth_field], lc);
+        let feature = mk_feature_with_resource(resource);
+
+        assert!(
+            check(&feature, Path::new("f.lzi")).is_empty(),
+            "the synthesized discriminator field (same span as the lifecycle block) must not fire"
+        );
     }
 }
