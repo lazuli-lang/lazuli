@@ -2949,7 +2949,12 @@
         },
         {
           "name": "keyword.operator.comparison.lazuli",
-          "match": "==|!=|<=|>=|<|>|="
+          "match": "==|!=|<=|>=|<|>"
+        },
+        {
+          "comment": "SPEC-05 — a standalone `=` is assignment/default/enum-storage, NEVER predicate equality (which is `==`). Highlighting it as assignment flags a misused `=` in a predicate.",
+          "name": "keyword.operator.assignment.lazuli",
+          "match": "(?<![=!<>])=(?!=)"
         }
       ]
     },

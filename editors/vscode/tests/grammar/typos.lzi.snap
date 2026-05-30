@@ -199,7 +199,7 @@
 #    ^^^^^^^ source.lazuli keyword.control.section.lazuli
 >      status = "active"
 #^^^^^^^^^^^^^ source.lazuli
-#             ^ source.lazuli keyword.operator.comparison.lazuli
+#             ^ source.lazuli keyword.operator.assignment.lazuli
 #              ^ source.lazuli
 #               ^ source.lazuli string.quoted.double.lazuli
 #                ^^^^^^ source.lazuli string.quoted.double.lazuli

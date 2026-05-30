@@ -90,19 +90,19 @@
 >      draft = 10
 #^^^^^^^^^^^ source.lazuli constant.language.enum-member.lazuli
 #           ^ source.lazuli
-#            ^ source.lazuli keyword.operator.comparison.lazuli
+#            ^ source.lazuli keyword.operator.assignment.lazuli
 #             ^ source.lazuli
 #              ^^ source.lazuli constant.numeric.lazuli
 >      active = 20
 #^^^^^^^^^^^^ source.lazuli constant.language.enum-member.lazuli
 #            ^ source.lazuli
-#             ^ source.lazuli keyword.operator.comparison.lazuli
+#             ^ source.lazuli keyword.operator.assignment.lazuli
 #              ^ source.lazuli
 #               ^^ source.lazuli constant.numeric.lazuli
 >      archived = 90
 #^^^^^^^^^^^^^^ source.lazuli constant.language.enum-member.lazuli
 #              ^ source.lazuli
-#               ^ source.lazuli keyword.operator.comparison.lazuli
+#               ^ source.lazuli keyword.operator.assignment.lazuli
 #                ^ source.lazuli
 #                 ^^ source.lazuli constant.numeric.lazuli
 >
@@ -176,7 +176,7 @@
 #           ^ source.lazuli
 #            ^^^^^^^^^ source.lazuli support.type.domain.lazuli
 #                     ^ source.lazuli
-#                      ^ source.lazuli keyword.operator.comparison.lazuli
+#                      ^ source.lazuli keyword.operator.assignment.lazuli
 #                       ^^^^^^^^^^ source.lazuli
 >      status: ProductStatus = draft
 #^^^^^^ source.lazuli
@@ -185,7 +185,7 @@
 #             ^ source.lazuli
 #              ^^^^^^^^^^^^^ source.lazuli support.type.domain.lazuli
 #                           ^ source.lazuli
-#                            ^ source.lazuli keyword.operator.comparison.lazuli
+#                            ^ source.lazuli keyword.operator.assignment.lazuli
 #                             ^^^^^^^ source.lazuli
 >      price_cents: Integer required
 #^^^^^^ source.lazuli
@@ -202,7 +202,7 @@
 #               ^ source.lazuli
 #                ^^^^ source.lazuli support.type.primitive.lazuli
 #                    ^ source.lazuli
-#                     ^ source.lazuli keyword.operator.comparison.lazuli
+#                     ^ source.lazuli keyword.operator.assignment.lazuli
 #                      ^ source.lazuli
 #                       ^ source.lazuli string.quoted.double.lazuli
 #                        ^^^ source.lazuli string.quoted.double.lazuli
@@ -360,7 +360,7 @@
 #               ^ source.lazuli
 #                ^^^^^^^ source.lazuli support.type.primitive.lazuli
 #                       ^ source.lazuli
-#                        ^ source.lazuli keyword.operator.comparison.lazuli
+#                        ^ source.lazuli keyword.operator.assignment.lazuli
 #                         ^ source.lazuli
 #                          ^ source.lazuli constant.numeric.lazuli
 >
@@ -594,7 +594,7 @@
 #      ^^^^^ source.lazuli keyword.control.section.lazuli
 >        org = ctx.user.org
 #^^^^^^^^^^^^ source.lazuli
-#            ^ source.lazuli keyword.operator.comparison.lazuli
+#            ^ source.lazuli keyword.operator.assignment.lazuli
 #             ^ source.lazuli
 #              ^^^ source.lazuli support.variable.context.lazuli
 #                 ^^^^^^^^^ source.lazuli variable.other.member.lazuli
@@ -620,7 +620,7 @@
 #                                ^^^^ source.lazuli support.variable.context.lazuli
 #                                    ^^^^^^^ source.lazuli variable.other.member.lazuli
 #                                           ^ source.lazuli
-#                                            ^ source.lazuli keyword.operator.comparison.lazuli
+#                                            ^ source.lazuli keyword.operator.assignment.lazuli
 #                                             ^ source.lazuli
 #                                              ^^^^^^^^^^^^^ source.lazuli support.type.domain.lazuli
 #                                                           ^^^^^^^^^ source.lazuli variable.other.member.lazuli
@@ -638,7 +638,7 @@
 #                    ^^^^ source.lazuli support.variable.context.lazuli
 #                        ^^^^^^^ source.lazuli variable.other.member.lazuli
 #                               ^ source.lazuli
-#                                ^ source.lazuli keyword.operator.comparison.lazuli
+#                                ^ source.lazuli keyword.operator.assignment.lazuli
 #                                 ^^^^^^^^^^ source.lazuli
 >        allows when self.status = draft
 #^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.tests.lazuli
@@ -646,7 +646,7 @@
 #                    ^^^^ source.lazuli support.variable.context.lazuli
 #                        ^^^^^^^ source.lazuli variable.other.member.lazuli
 #                               ^ source.lazuli
-#                                ^ source.lazuli keyword.operator.comparison.lazuli
+#                                ^ source.lazuli keyword.operator.assignment.lazuli
 #                                 ^^^^^^^ source.lazuli
 >
 >    event_group product_* on Product
@@ -662,16 +662,16 @@
 #^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.event-group.lazuli
 >        product_id = id
 #^^^^^^^^^^^^^^^^^^^ source.lazuli
-#                   ^ source.lazuli keyword.operator.comparison.lazuli
+#                   ^ source.lazuli keyword.operator.assignment.lazuli
 #                    ^^^^ source.lazuli
 >        org_id = org.id
 #^^^^^^^^^^^^^^^ source.lazuli
-#               ^ source.lazuli keyword.operator.comparison.lazuli
+#               ^ source.lazuli keyword.operator.assignment.lazuli
 #                ^ source.lazuli
 #                 ^^^^^^ source.lazuli variable.other.property.semantic.lazuli
 >        by_id = ctx.user.id when @actor.user
 #^^^^^^^^^^^^^^ source.lazuli
-#              ^ source.lazuli keyword.operator.comparison.lazuli
+#              ^ source.lazuli keyword.operator.assignment.lazuli
 #               ^ source.lazuli
 #                ^^^ source.lazuli support.variable.context.lazuli
 #                   ^^^^^^^^ source.lazuli variable.other.member.lazuli
@@ -928,31 +928,31 @@
 #            ^^^^^^^ source.lazuli support.type.domain.lazuli
 >      name = input.name
 #^^^^^^^^^^^ source.lazuli
-#           ^ source.lazuli keyword.operator.comparison.lazuli
+#           ^ source.lazuli keyword.operator.assignment.lazuli
 #            ^ source.lazuli
 #             ^^^^^ source.lazuli support.variable.context.lazuli
 #                  ^^^^^ source.lazuli variable.other.member.lazuli
 >      sku = input.sku
 #^^^^^^^^^^ source.lazuli
-#          ^ source.lazuli keyword.operator.comparison.lazuli
+#          ^ source.lazuli keyword.operator.assignment.lazuli
 #           ^ source.lazuli
 #            ^^^^^ source.lazuli support.variable.context.lazuli
 #                 ^^^^ source.lazuli variable.other.member.lazuli
 >      tier = input.tier
 #^^^^^^^^^^^ source.lazuli
-#           ^ source.lazuli keyword.operator.comparison.lazuli
+#           ^ source.lazuli keyword.operator.assignment.lazuli
 #            ^ source.lazuli
 #             ^^^^^ source.lazuli support.variable.context.lazuli
 #                  ^^^^^ source.lazuli variable.other.member.lazuli
 >      price_cents = input.price_cents
 #^^^^^^^^^^^^^^^^^^ source.lazuli
-#                  ^ source.lazuli keyword.operator.comparison.lazuli
+#                  ^ source.lazuli keyword.operator.assignment.lazuli
 #                   ^ source.lazuli
 #                    ^^^^^ source.lazuli support.variable.context.lazuli
 #                         ^^^^^^^^^^^^ source.lazuli variable.other.member.lazuli
 >      owner = ctx.user
 #^^^^^^^^^^^^ source.lazuli
-#            ^ source.lazuli keyword.operator.comparison.lazuli
+#            ^ source.lazuli keyword.operator.assignment.lazuli
 #             ^ source.lazuli
 #              ^^^ source.lazuli support.variable.context.lazuli
 #                 ^^^^^ source.lazuli variable.other.member.lazuli
@@ -1010,7 +1010,7 @@
 >      status = ProductStatus.active
 #^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
 #            ^ source.lazuli
-#             ^ source.lazuli keyword.operator.comparison.lazuli
+#             ^ source.lazuli keyword.operator.assignment.lazuli
 #              ^ source.lazuli
 #               ^^^^^^^^^^^^^ source.lazuli support.type.domain.lazuli
 #                            ^^^^^^^ source.lazuli variable.other.member.lazuli
@@ -1083,7 +1083,7 @@
 #                    ^^^^^^ source.lazuli support.variable.context.lazuli
 #                          ^^^^^ source.lazuli variable.other.member.lazuli
 #                               ^ source.lazuli
-#                                ^ source.lazuli keyword.operator.comparison.lazuli
+#                                ^ source.lazuli keyword.operator.assignment.lazuli
 #                                 ^^^^^^^^^ source.lazuli
 >      by @role.admin
 #^^^^^^^^ source.lazuli entity.name.function.statement.approval.lazuli
@@ -1106,7 +1106,7 @@
 >      status = ProductStatus.archived
 #^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
 #            ^ source.lazuli
-#             ^ source.lazuli keyword.operator.comparison.lazuli
+#             ^ source.lazuli keyword.operator.assignment.lazuli
 #              ^ source.lazuli
 #               ^^^^^^^^^^^^^ source.lazuli support.type.domain.lazuli
 #                            ^^^^^^^^^ source.lazuli variable.other.member.lazuli
