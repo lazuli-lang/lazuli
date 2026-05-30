@@ -4,5 +4,6 @@
 //! [`keyword_reference`], and [`catalog_reference`].
 
 pub mod catalog_reference;
+pub mod docs_staleness;
 pub mod keyword_reference;
 pub mod tmlanguage;
