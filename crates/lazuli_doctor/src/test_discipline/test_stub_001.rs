@@ -255,7 +255,7 @@ surface post web
   view list recent
     tests
       # @TODO authored: list features whose `extends` should be accepted
-      accepted by post_extras
+      allows extension post_extras
 ";
         let findings = check(source, Path::new("post.web.lzx"));
         assert_eq!(findings.len(), 1);

@@ -112,8 +112,8 @@ feature customer
     prompt "./p.md"
     evals
       case redacts_email
-        requires customer.email = "ada@example.com"
-        forbids output contains @semantic.Email
+        allows customer.email = "ada@example.com"
+        denies output contains @semantic.Email
 "#;
     let diagnostics = diagnostics_for(source);
     let codes = diagnostic_codes(&diagnostics);
@@ -198,7 +198,7 @@ feature customer
     prompt "./p.md"
     evals
       case smoke
-        requires output contains "ok"
+        allows output contains "ok"
 "#;
     let diagnostics = diagnostics_for(source);
     assert!(

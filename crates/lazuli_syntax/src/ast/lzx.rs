@@ -45,8 +45,8 @@
 //! - `LzxResumeArmKind`: arm match in a resume router
 //!   (`State(<name>) | None | Wildcard`).
 //! - `LzxViewTestAssertion`: surface AST mirror of
-//!   `lazuli_ir::ViewTestAssertion` — only `accepted by <feature>` /
-//!   `rejected by <feature>` are admissible at parse time (Wave 4).
+//!   `lazuli_ir::ViewTestAssertion` — only `allows extension <feature>` /
+//!   `denies extension <feature>` are admissible at parse time (Wave 4).
 
 use serde::{Deserialize, Serialize};
 
@@ -311,7 +311,7 @@ pub struct LzxExperienceView {
     pub actions: Vec<LzxAction>,
     pub opens: Vec<String>,
     /// Wave 4 — typed view test assertions parsed from the `tests` block.
-    /// Only `accepted by <feature>` / `rejected by <feature>` shapes are
+    /// Only `allows extension <feature>` / `denies extension <feature>` shapes are
     /// admissible; the parser rejects any other line as a `ParseError`.
     pub tests: Vec<LzxViewTestAssertion>,
     pub guard: Option<LzxViewGuard>,
@@ -323,8 +323,8 @@ pub struct LzxExperienceView {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LzxViewTestAssertion {
-    AcceptedBy { feature: String, span: Span },
-    RejectedBy { feature: String, span: Span },
+    AllowsExtension { feature: String, span: Span },
+    DeniesExtension { feature: String, span: Span },
 }
 
 impl LzxViewTestAssertion {
@@ -335,7 +335,7 @@ impl LzxViewTestAssertion {
     /// ```
     /// use lazuli_syntax::{LzxViewTestAssertion, Span};
     ///
-    /// let a = LzxViewTestAssertion::AcceptedBy {
+    /// let a = LzxViewTestAssertion::AllowsExtension {
     ///     feature: "customer".into(),
     ///     span: Span::new(0, 0),
     /// };
@@ -343,8 +343,8 @@ impl LzxViewTestAssertion {
     /// ```
     pub fn feature(&self) -> &str {
         match self {
-            LzxViewTestAssertion::AcceptedBy { feature, .. }
-            | LzxViewTestAssertion::RejectedBy { feature, .. } => feature,
+            LzxViewTestAssertion::AllowsExtension { feature, .. }
+            | LzxViewTestAssertion::DeniesExtension { feature, .. } => feature,
         }
     }
 
@@ -356,7 +356,7 @@ impl LzxViewTestAssertion {
     /// ```
     /// use lazuli_syntax::{LzxViewTestAssertion, Span};
     ///
-    /// let a = LzxViewTestAssertion::RejectedBy {
+    /// let a = LzxViewTestAssertion::DeniesExtension {
     ///     feature: "billing".into(),
     ///     span: Span::new(10, 20),
     /// };
@@ -364,8 +364,8 @@ impl LzxViewTestAssertion {
     /// ```
     pub fn span(&self) -> Span {
         match self {
-            LzxViewTestAssertion::AcceptedBy { span, .. }
-            | LzxViewTestAssertion::RejectedBy { span, .. } => *span,
+            LzxViewTestAssertion::AllowsExtension { span, .. }
+            | LzxViewTestAssertion::DeniesExtension { span, .. } => *span,
         }
     }
 }
@@ -501,7 +501,7 @@ mod tests {
 
     #[test]
     fn lzx_view_test_assertion_feature_and_span() {
-        let a = LzxViewTestAssertion::AcceptedBy {
+        let a = LzxViewTestAssertion::AllowsExtension {
             feature: "billing".into(),
             span: Span::new(5, 10),
         };

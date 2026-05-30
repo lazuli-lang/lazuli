@@ -251,13 +251,13 @@ slot_body         = ( "before" IDENT_LOWER NEWLINE
 tests_block       = "tests" NEWLINE
                     INDENT view_test_assertion+ DEDENT ;
 
-view_test_assertion = ( "accepted" "by" feature_ref NEWLINE
-                      | "rejected" "by" feature_ref NEWLINE
+view_test_assertion = ( "allows" "extension" feature_ref NEWLINE
+                      | "denies" "extension" feature_ref NEWLINE
                       ) ;
 ```
 
 Used by `extensible_by` anchors to verify which extension features
-the host accepts. The `accepted by` / `rejected by` shape is
+the host accepts. The `allows extension` / `denies extension` shape is
 distinct from `.lzi` `tests` (which uses `allows` / `denies`).
 
 ## 7a. Surface-dialect UX primitives (wave W6)

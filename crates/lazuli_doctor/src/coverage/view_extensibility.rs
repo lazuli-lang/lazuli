@@ -3,15 +3,15 @@
 //! Walks every `ExperienceView` lifted from `.lzx` files (carried on
 //! `Feature.surfaces[i].audiences[j].views` and similar; today the
 //! tests metadata lives on the syntax-level `LzxExperienceView.tests:
-//! Vec<String>` since Wave 4 has not landed an `accepted by /
-//! rejected by` typed enum yet — coverage works against the raw
+//! Vec<String>` since Wave 4 has not landed an `allows extension /
+//! denies extension` typed enum yet — coverage works against the raw
 //! string slot until Wave 4 widens the surface).
 //!
 //! Per Wave 6.2 row 4 (canonical metric table):
 //!
 //! | Denominator | Numerator |
 //! | --- | --- |
-//! | views with `extensible_by` declared | views with ≥1 `accepted by` OR `rejected by` assertion |
+//! | views with `extensible_by` declared | views with ≥1 `allows extension` OR `denies extension` assertion |
 //!
 //! This layer counts the **lifted** `Feature.experience` view shape
 //! (see `lazuli_ir::ExperienceView`). The `.lzx`-side
@@ -36,7 +36,7 @@ pub struct ViewSnapshot {
     pub view: String,
     /// `true` when the view declares an `extensible_by` hint.
     pub extensible: bool,
-    /// `accepted by <feature>` / `rejected by <feature>` assertion
+    /// `allows extension <feature>` / `denies extension <feature>` assertion
     /// text, verbatim from `.lzx`.
     pub tests: Vec<String>,
 }
@@ -66,7 +66,7 @@ pub fn compute(features: &[Feature]) -> LayerCoverage {
 
 /// Compute the layer from a pre-built snapshot vec. Only `extensible`
 /// snapshots enter the denominator; coverage counts when any test
-/// string starts with `accepted by ` or `rejected by `. Emits
+/// string starts with `allows extension ` or `denies extension `. Emits
 /// `source = "lzx-walk"`.
 ///
 /// ## Examples
@@ -97,11 +97,11 @@ pub fn compute_from_snapshots(snapshots: &[ViewSnapshot]) -> LayerCoverage {
 }
 
 fn is_accepted_by(s: &str) -> bool {
-    s.trim_start().starts_with("accepted by ")
+    s.trim_start().starts_with("allows extension ")
 }
 
 fn is_rejected_by(s: &str) -> bool {
-    s.trim_start().starts_with("rejected by ")
+    s.trim_start().starts_with("denies extension ")
 }
 
 #[cfg(test)]
@@ -134,7 +134,7 @@ mod tests {
 
     #[test]
     fn extensible_with_accepted_by_covered() {
-        let v = snap("post_card", true, vec!["accepted by customer_tags"]);
+        let v = snap("post_card", true, vec!["allows extension customer_tags"]);
         let l = compute_from_snapshots(&[v]);
         assert_eq!(l.total, 1);
         assert_eq!(l.covered, 1);
@@ -142,7 +142,7 @@ mod tests {
 
     #[test]
     fn extensible_with_rejected_by_covered() {
-        let v = snap("post_card", true, vec!["rejected by billing"]);
+        let v = snap("post_card", true, vec!["denies extension billing"]);
         let l = compute_from_snapshots(&[v]);
         assert_eq!(l.total, 1);
         assert_eq!(l.covered, 1);

@@ -3,7 +3,7 @@
 //! Extracted from the original monolithic `agent.rs`. See
 //! `super::mod` for the orchestrating `parse_agent` line walker; this
 //! module owns the eval-case branch plus the closed predicate catalog
-//! (`requires`/`forbids` bodies).
+//! (`allows`/`denies` bodies).
 
 use super::super::super::common::{SourceLine, is_trivia, line_error};
 use super::super::super::error::ParseError;
@@ -93,7 +93,7 @@ pub(super) fn parse_agent_evals(
         if assertions.is_empty() && golden.is_none() {
             return Err(line_error(
                 line,
-                "`case <name>` must declare at least one `requires`/`forbids` assertion or a `golden \"./path\"` reference",
+                "`case <name>` must declare at least one `allows`/`denies` assertion or a `golden \"./path\"` reference",
             ));
         }
 
@@ -157,14 +157,30 @@ fn parse_eval_golden(line: &SourceLine<'_>, rest: &str) -> Result<AgentEvalGolde
 
 fn parse_eval_assertion(line: &SourceLine<'_>) -> Result<AgentEvalAssertion, ParseError> {
     let trimmed = line.text.trim_start();
-    let (kind, body) = if let Some(rest) = trimmed.strip_prefix("requires ") {
-        (AgentEvalKind::Requires, rest.trim())
-    } else if let Some(rest) = trimmed.strip_prefix("forbids ") {
-        (AgentEvalKind::Forbids, rest.trim())
+    // SPEC-08 — eval polarity folded into the authored `allows`/`denies`
+    // dialect (the eval predicate subject names the dimension). The old
+    // `requires`/`forbids` spellings hard-error so a partially-migrated
+    // tree fails loudly rather than parsing under a retired verb.
+    let (kind, body) = if let Some(rest) = trimmed.strip_prefix("allows ") {
+        (AgentEvalKind::Allows, rest.trim())
+    } else if let Some(rest) = trimmed.strip_prefix("denies ") {
+        (AgentEvalKind::Denies, rest.trim())
+    } else if trimmed.strip_prefix("requires ").is_some() {
+        return Err(line_error(
+            line,
+            "E-EVAL-REQUIRES-RETIRED: eval assertion verb `requires` was retired in SPEC-08; \
+             use `allows <predicate>` (eval polarity folded into the authored allows/denies dialect)",
+        ));
+    } else if trimmed.strip_prefix("forbids ").is_some() {
+        return Err(line_error(
+            line,
+            "E-EVAL-FORBIDS-RETIRED: eval assertion verb `forbids` was retired in SPEC-08; \
+             use `denies <predicate>` (eval polarity folded into the authored allows/denies dialect)",
+        ));
     } else {
         return Err(line_error(
             line,
-            "eval assertions start with `requires` or `forbids`",
+            "eval assertions start with `allows` or `denies`",
         ));
     };
 
@@ -313,16 +329,16 @@ feature customer
     prompt "./prompts/summarize.md"
     evals
       case short_for_active
-        requires customer.lifecycle_stage = active
-        requires output contains "active"
+        allows customer.lifecycle_stage = active
+        allows output contains "active"
 
       case redacts_email
-        requires customer.email = "ada@example.com"
-        forbids output contains @semantic.Email
+        allows customer.email = "ada@example.com"
+        denies output contains @semantic.Email
 
       case uses_lookup_when_id_known
-        requires input.customer_id = "cus_123"
-        requires tools.calls includes customer.query.by_id
+        allows input.customer_id = "cus_123"
+        allows tools.calls includes customer.query.by_id
 "#;
 
         let features = parse_feature_skeletons(source).unwrap();
@@ -335,7 +351,7 @@ feature customer
         let case0 = &agent.evals[0];
         assert_eq!(case0.name, "short_for_active");
         assert_eq!(case0.assertions.len(), 2);
-        assert_eq!(case0.assertions[0].kind, AgentEvalKind::Requires);
+        assert_eq!(case0.assertions[0].kind, AgentEvalKind::Allows);
         match &case0.assertions[1].predicate {
             AgentEvalPredicate::Contains { lhs, rhs } => {
                 assert_eq!(lhs, "output");
@@ -346,7 +362,7 @@ feature customer
 
         let case1 = &agent.evals[1];
         assert_eq!(case1.name, "redacts_email");
-        assert_eq!(case1.assertions[1].kind, AgentEvalKind::Forbids);
+        assert_eq!(case1.assertions[1].kind, AgentEvalKind::Denies);
         match &case1.assertions[1].predicate {
             AgentEvalPredicate::Contains { lhs, rhs } => {
                 assert_eq!(lhs, "output");
@@ -382,7 +398,7 @@ feature customer
     prompt "./p.md"
     evals
       case golden_quality
-        requires output contains "active"
+        allows output contains "active"
         golden "./evals/summarize.jsonl" min_score 0.85
 
       case golden_only
@@ -418,13 +434,57 @@ feature customer
     prompt "./p.md"
     evals
       case bad
-        requires output contains "ok"
+        allows output contains "ok"
         golden "./x.jsonl" min_score 1.5
 "#;
         let err = parse_feature_skeletons(source).unwrap_err();
         assert!(
             err.to_string().contains("0.0..=1.0"),
             "error should reject out-of-range min_score: {err}"
+        );
+    }
+
+    #[test]
+    fn eval_retired_requires_hard_errors() {
+        let source = "\
+feature customer
+  agent a
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    temperature 0
+    seed 1
+    prompt \"./p.md\"
+    evals
+      case c
+        requires output contains \"ok\"
+";
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(
+            err.to_string().contains("E-EVAL-REQUIRES-RETIRED"),
+            "retired `requires` eval verb must hard-error: {err}"
+        );
+    }
+
+    #[test]
+    fn eval_retired_forbids_hard_errors() {
+        let source = "\
+feature customer
+  agent a
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    temperature 0
+    seed 1
+    prompt \"./p.md\"
+    evals
+      case c
+        forbids output contains @semantic.Email
+";
+        let err = parse_feature_skeletons(source).unwrap_err();
+        assert!(
+            err.to_string().contains("E-EVAL-FORBIDS-RETIRED"),
+            "retired `forbids` eval verb must hard-error: {err}"
         );
     }
 }

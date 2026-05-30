@@ -2,7 +2,7 @@
 //!
 //! Wave 3 — appends a `view list <name>` block in the matching `.lzx`
 //! surface, pre-populated with a `tests` block carrying
-//! `accepted by`/`rejected by` extensibility markers anchored by
+//! `allows extension`/`denies extension` extensibility markers anchored by
 //! `@TODO authored:` comments. The markers trip `TEST-STUB-001`.
 
 use std::fs;
@@ -89,9 +89,9 @@ fn render_view_block(name: &str) -> String {
     extensible_by
     tests
       # @TODO authored: list features whose `extends` should be accepted at this anchor
-      accepted by {name}_extras
+      allows extension {name}_extras
       # @TODO authored: list features whose `extends` should be rejected at this anchor
-      rejected by billing
+      denies extension billing
 "
     )
 }
@@ -167,8 +167,8 @@ mod tests {
         let lzx = fs::read_to_string(project.path().join("features/post/post.web.lzx")).unwrap();
         assert!(lzx.contains("view list recent"));
         assert!(lzx.contains("tests"));
-        assert!(lzx.contains("accepted by"));
-        assert!(lzx.contains("rejected by"));
+        assert!(lzx.contains("allows extension"));
+        assert!(lzx.contains("denies extension"));
         assert!(lzx.contains("@TODO authored:"));
     }
 

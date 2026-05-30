@@ -19,7 +19,7 @@
 //! - [`ExperienceAction`] — typed action target binding.
 //! - [`ViewExtension`] / [`ViewExtensionSlot`] / [`ViewExtensionOrder`] —
 //!   anchor-based extension surface.
-//! - [`ViewTestAssertion`] — closed catalog `accepted by` / `rejected
+//! - [`ViewTestAssertion`] — closed catalog `allows extension` / `rejected
 //!   by` extensibility assertion.
 //!
 //! ## Wave R3-F split
@@ -111,7 +111,7 @@ pub struct ExperienceView {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub opens: Vec<String>,
     /// Wave 4 — view test assertions. Previously `Vec<String>` raw lines;
-    /// now a typed enum carrying `accepted by <feature>` / `rejected by
+    /// now a typed enum carrying `allows extension <feature>` / `denies extension
     /// <feature>` semantics with span back-references for diagnostic
     /// surfaces. The closed catalog is **extensibility-only**: views do
     /// NOT participate in policy / predicate testing (those belong to
@@ -135,23 +135,23 @@ pub struct ExperienceView {
 /// Wave 4 (TDD/BDD proposal) — typed view test assertion.
 ///
 /// View tests use a closed extensibility vocabulary; they do NOT
-/// participate in policy / predicate testing. Only `accepted by
-/// <feature>` and `rejected by <feature>` are admissible. The parser
+/// participate in policy / predicate testing. Only `allows extension
+/// <feature>` and `denies extension <feature>` are admissible. The parser
 /// rejects any other shape; the analyzer passes the typed value through
 /// to doctor rules `TEST-VIEW-EXTENSIBILITY-001` and `TEST-VIEW-DRIFT-001`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ViewTestAssertion {
-    /// `accepted by <feature>` — declares that `<feature>` may extend
+    /// `allows extension <feature>` — declares that `<feature>` may extend
     /// the view via its anchor.
-    AcceptedBy {
+    AllowsExtension {
         feature: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         span_ref: Option<SpanRef>,
     },
-    /// `rejected by <feature>` — declares that `<feature>` must NOT
+    /// `denies extension <feature>` — declares that `<feature>` must NOT
     /// extend the view via its anchor.
-    RejectedBy {
+    DeniesExtension {
         feature: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         span_ref: Option<SpanRef>,
@@ -160,14 +160,14 @@ pub enum ViewTestAssertion {
 
 impl ViewTestAssertion {
     /// Returns the asserted feature name (the value to the right of
-    /// `accepted by` / `rejected by`).
+    /// `allows extension` / `denies extension`).
     ///
     /// ## Examples
     ///
     /// ```
     /// use lazuli_ir::ViewTestAssertion;
     ///
-    /// let a = ViewTestAssertion::AcceptedBy {
+    /// let a = ViewTestAssertion::AllowsExtension {
     ///     feature: "checkout".into(),
     ///     span_ref: None,
     /// };
@@ -175,8 +175,8 @@ impl ViewTestAssertion {
     /// ```
     pub fn feature(&self) -> &str {
         match self {
-            ViewTestAssertion::AcceptedBy { feature, .. }
-            | ViewTestAssertion::RejectedBy { feature, .. } => feature,
+            ViewTestAssertion::AllowsExtension { feature, .. }
+            | ViewTestAssertion::DeniesExtension { feature, .. } => feature,
         }
     }
 
@@ -187,7 +187,7 @@ impl ViewTestAssertion {
     /// ```
     /// use lazuli_ir::ViewTestAssertion;
     ///
-    /// let a = ViewTestAssertion::AcceptedBy {
+    /// let a = ViewTestAssertion::AllowsExtension {
     ///     feature: "checkout".into(),
     ///     span_ref: None,
     /// };
@@ -195,8 +195,8 @@ impl ViewTestAssertion {
     /// ```
     pub fn span_ref(&self) -> Option<&SpanRef> {
         match self {
-            ViewTestAssertion::AcceptedBy { span_ref, .. }
-            | ViewTestAssertion::RejectedBy { span_ref, .. } => span_ref.as_ref(),
+            ViewTestAssertion::AllowsExtension { span_ref, .. }
+            | ViewTestAssertion::DeniesExtension { span_ref, .. } => span_ref.as_ref(),
         }
     }
 }
@@ -272,25 +272,25 @@ mod tests {
 
     #[test]
     fn view_test_assertion_serialises_with_snake_case_tag() {
-        let v = ViewTestAssertion::AcceptedBy {
+        let v = ViewTestAssertion::AllowsExtension {
             feature: "checkout".into(),
             span_ref: None,
         };
         let s = serde_json::to_string(&v).expect("serialize");
-        assert!(s.contains("\"kind\":\"accepted_by\""));
+        assert!(s.contains("\"kind\":\"allows_extension\""));
         let back: ViewTestAssertion = serde_json::from_str(&s).expect("deserialize");
         assert_eq!(v, back);
         assert_eq!(v.feature(), "checkout");
     }
 
     #[test]
-    fn view_test_assertion_rejected_by_round_trip() {
-        let v = ViewTestAssertion::RejectedBy {
+    fn view_test_assertion_denies_extension_round_trip() {
+        let v = ViewTestAssertion::DeniesExtension {
             feature: "abandoned".into(),
             span_ref: None,
         };
         let s = serde_json::to_string(&v).expect("serialize");
-        assert!(s.contains("\"kind\":\"rejected_by\""));
+        assert!(s.contains("\"kind\":\"denies_extension\""));
         let back: ViewTestAssertion = serde_json::from_str(&s).expect("deserialize");
         assert_eq!(v, back);
     }

@@ -1,11 +1,11 @@
 //! TEST-VIEW-EXTENSIBILITY-001 — extensible view without test assertions.
 //!
 //! Example: fires when a `.lzx` view declares `extensible_by customer_tags`
-//! but has no `accepted by` / `rejected by` assertions under its
+//! but has no `allows extension` / `denies extension` assertions under its
 //! `tests` block.
 //!
 //! Fires when an `.lzx` `view` declares one or more `extensible_by` targets
-//! but authors no `accepted by` / `rejected by` assertions. The intent of
+//! but authors no `allows extension` / `denies extension` assertions. The intent of
 //! the rule is to keep extensibility surface visible: a view that opens
 //! its anchor to other features must declare which features are admitted
 //! (and, optionally, which are denied) so downstream extensions can be
@@ -60,7 +60,7 @@ impl Finding {
     /// ```
     pub fn message(&self) -> String {
         format!(
-            "view `{}.{}` declares `extensible_by {}` but has no `accepted by` / `rejected by` \
+            "view `{}.{}` declares `extensible_by {}` but has no `allows extension` / `denies extension` \
              assertions — add at least one assertion under a `tests` block so doctor can \
              cross-check that each declared extension actually exists and targets the right \
              anchor (see TEST-VIEW-DRIFT-001).",
@@ -205,7 +205,7 @@ mod tests {
         let view = mk_view(
             "detail",
             vec!["tags".into()],
-            vec![ViewTestAssertion::AcceptedBy {
+            vec![ViewTestAssertion::AllowsExtension {
                 feature: "tags".into(),
                 span_ref: None,
             }],
@@ -226,12 +226,12 @@ mod tests {
 
     #[test]
     fn rejected_by_alone_satisfies_the_rule() {
-        // `rejected by` is also a closure: it pins which feature is
+        // `denies extension` is also a closure: it pins which feature is
         // explicitly NOT admitted at the anchor.
         let view = mk_view(
             "detail",
             vec!["tags".into()],
-            vec![ViewTestAssertion::RejectedBy {
+            vec![ViewTestAssertion::DeniesExtension {
                 feature: "billing".into(),
                 span_ref: None,
             }],
@@ -246,7 +246,7 @@ mod tests {
         module.experiences[0].views.push(mk_view(
             "summary",
             vec!["tags".into()],
-            vec![ViewTestAssertion::AcceptedBy {
+            vec![ViewTestAssertion::AllowsExtension {
                 feature: "tags".into(),
                 span_ref: None,
             }],

@@ -82,7 +82,7 @@ pub(in crate::commands::inspect) fn test_group(assertion: &str) -> &'static str 
         "transition"
     } else if assertion.contains(" when ") {
         "predicate"
-    } else if assertion.starts_with("accepted by ") || assertion.starts_with("rejected by ") {
+    } else if assertion.starts_with("allows extension ") || assertion.starts_with("denies extension ") {
         "anchor"
     } else {
         "other"

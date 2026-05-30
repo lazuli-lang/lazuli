@@ -1,23 +1,23 @@
 //! TEST-VIEW-DRIFT-001 — view test assertion fails cross-feature resolution.
 //!
-//! Example: fires when a `.lzx` view authors `accepted by tags` but the
+//! Example: fires when a `.lzx` view authors `allows extension tags` but the
 //! `tags` experience does not declare `extends @anchor.<host_anchor>`.
 //!
-//! Walks every `accepted by <feature>` / `rejected by <feature>` assertion
-//! on `.lzx` views and verifies, for `accepted by`, that the named feature
+//! Walks every `allows extension <feature>` / `denies extension <feature>` assertion
+//! on `.lzx` views and verifies, for `allows extension`, that the named feature
 //! actually declares `extends @anchor.<X>` matching the host view's anchor.
 //!
 //! Two finding shapes share the rule:
 //!
-//! - `MissingFeature` — `accepted by <feature>` names an experience that
+//! - `MissingFeature` — `allows extension <feature>` names an experience that
 //!   does not exist in the module.
 //! - `MissingAnchorExtension` — the experience exists but does not extend
 //!   the host view's anchor.
 //!
-//! `rejected by` assertions deliberately do NOT fire either finding here:
+//! `denies extension` assertions deliberately do NOT fire either finding here:
 //! they are existence-tolerant (the feature may not even exist yet; the
 //! point is to pre-commit a forbidden surface). A future
-//! `TEST-VIEW-REJECTED-DRIFT-001` could flag the inverse — `rejected by
+//! `TEST-VIEW-REJECTED-DRIFT-001` could flag the inverse — `denies extension
 //! <feature>` while `<feature>` actually carries an `extends` clause.
 //! Out of scope for Wave 4.
 //!
@@ -41,7 +41,7 @@ pub struct Finding {
     pub view: String,
     /// Host view's anchor token.
     pub anchor: String,
-    /// Feature named by the `accepted by <feature>` assertion.
+    /// Feature named by the `allows extension <feature>` assertion.
     pub target_feature: String,
     /// Specific drift detected — feature unknown vs feature known but
     /// missing the required `extends <anchor>` declaration.
@@ -53,10 +53,10 @@ pub struct Finding {
 /// Distinguishes the two `TEST-VIEW-DRIFT-001` shapes. See variants.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FindingKind {
-    /// `accepted by <feature>` names a feature that does not appear in
+    /// `allows extension <feature>` names a feature that does not appear in
     /// the module's experiences.
     MissingFeature,
-    /// `accepted by <feature>` resolves to an experience, but that
+    /// `allows extension <feature>` resolves to an experience, but that
     /// experience does not declare `extends <anchor>` for the host view's
     /// anchor.
     MissingAnchorExtension,
@@ -90,13 +90,13 @@ impl Finding {
     pub fn message(&self) -> String {
         match self.kind {
             FindingKind::MissingFeature => format!(
-                "view `{}.{}` asserts `accepted by {}` but no `experience {}` declaration \
+                "view `{}.{}` asserts `allows extension {}` but no `experience {}` declaration \
                  exists in the module — declare the experience, drop the assertion, or fix \
                  the typo.",
                 self.experience, self.view, self.target_feature, self.target_feature,
             ),
             FindingKind::MissingAnchorExtension => format!(
-                "view `{}.{}` (anchor `{}`) asserts `accepted by {}` but experience \
+                "view `{}.{}` (anchor `{}`) asserts `allows extension {}` but experience \
                  `{}` does not declare `extends {}` — either add the extension or remove \
                  the assertion to keep view tests honest.",
                 self.experience,
@@ -127,7 +127,7 @@ impl Finding {
 ///
 /// let findings = check(&module, Path::new("shop.lzx"));
 /// for f in findings {
-///     eprintln!("{}.{}: drift on accepted by {}", f.experience, f.view, f.target_feature);
+///     eprintln!("{}.{}: drift on allows extension {}", f.experience, f.view, f.target_feature);
 /// }
 /// ```
 pub fn check(module: &ExperienceModule, path: &Path) -> Vec<Finding> {
@@ -136,14 +136,14 @@ pub fn check(module: &ExperienceModule, path: &Path) -> Vec<Finding> {
         for view in &experience.views {
             let Some(view_anchor) = view.anchor.as_ref() else {
                 // No anchor on the host view — nothing to cross-check
-                // against. `accepted by` on a non-anchored view is
+                // against. `allows extension` on a non-anchored view is
                 // already a parse-time arguable shape; doctor stays
                 // silent here.
                 continue;
             };
             for assertion in &view.tests {
-                let ViewTestAssertion::AcceptedBy { feature, span_ref } = assertion else {
-                    // `RejectedBy` is existence-tolerant by design.
+                let ViewTestAssertion::AllowsExtension { feature, span_ref } = assertion else {
+                    // `DeniesExtension` is existence-tolerant by design.
                     continue;
                 };
 
@@ -252,7 +252,7 @@ mod tests {
         let host_view = mk_view(
             "detail",
             Some("@anchor.customer_detail"),
-            vec![ViewTestAssertion::AcceptedBy {
+            vec![ViewTestAssertion::AllowsExtension {
                 feature: "tags".into(),
                 span_ref: None,
             }],
@@ -269,7 +269,7 @@ mod tests {
         let host_view = mk_view(
             "detail",
             Some("@anchor.customer_detail"),
-            vec![ViewTestAssertion::AcceptedBy {
+            vec![ViewTestAssertion::AllowsExtension {
                 feature: "tags".into(),
                 span_ref: None,
             }],
@@ -287,7 +287,7 @@ mod tests {
         let host_view = mk_view(
             "detail",
             Some("@anchor.customer_detail"),
-            vec![ViewTestAssertion::AcceptedBy {
+            vec![ViewTestAssertion::AllowsExtension {
                 feature: "tags".into(),
                 span_ref: None,
             }],
@@ -304,12 +304,12 @@ mod tests {
 
     #[test]
     fn rejected_by_does_not_fire_either_finding() {
-        // `rejected by` is existence-tolerant; it is meant to pre-commit
+        // `denies extension` is existence-tolerant; it is meant to pre-commit
         // a forbidden surface even before the would-be extender exists.
         let host_view = mk_view(
             "detail",
             Some("@anchor.customer_detail"),
-            vec![ViewTestAssertion::RejectedBy {
+            vec![ViewTestAssertion::DeniesExtension {
                 feature: "billing".into(),
                 span_ref: None,
             }],
@@ -324,7 +324,7 @@ mod tests {
         let host_view = mk_view(
             "detail",
             None,
-            vec![ViewTestAssertion::AcceptedBy {
+            vec![ViewTestAssertion::AllowsExtension {
                 feature: "tags".into(),
                 span_ref: None,
             }],
@@ -343,11 +343,11 @@ mod tests {
             "detail",
             Some("@anchor.customer_detail"),
             vec![
-                ViewTestAssertion::AcceptedBy {
+                ViewTestAssertion::AllowsExtension {
                     feature: "tags".into(),
                     span_ref: None,
                 },
-                ViewTestAssertion::AcceptedBy {
+                ViewTestAssertion::AllowsExtension {
                     feature: "imports".into(),
                     span_ref: None,
                 },

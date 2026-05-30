@@ -93,13 +93,13 @@ fn view_extensibility_from_snapshots_distinguishes_extensible() {
             experience: "e".to_string(),
             view: "v_extensible_with_accepted".to_string(),
             extensible: true,
-            tests: vec!["accepted by customer_tags".to_string()],
+            tests: vec!["allows extension customer_tags".to_string()],
         },
         ViewSnapshot {
             experience: "e".to_string(),
             view: "v_extensible_with_rejected".to_string(),
             extensible: true,
-            tests: vec!["rejected by billing".to_string()],
+            tests: vec!["denies extension billing".to_string()],
         },
     ];
     let layer = coverage::view_extensibility::compute_from_snapshots(&snapshots);

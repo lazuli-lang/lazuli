@@ -247,40 +247,58 @@ fn parse_lzx_experience_view(
                         "test assertions inside experience views use six-space indentation",
                     ));
                 }
-                // Wave 4 — view tests are an extensibility vocabulary,
-                // not policy/predicate. Closed catalog: `accepted by
-                // <feature>` / `rejected by <feature>`. Anything else is
-                // a hard parse error (no silent acceptance).
-                let assertion = if let Some(rest) = test_trimmed.strip_prefix("accepted by ") {
+                // SPEC-08 — view tests fold into the authored allows/denies
+                // vocabulary with a typed `extension <feature>` subject (the
+                // "this is extensibility, not policy" distinction lives in the
+                // subject, not a separate verb). Closed catalog: `allows
+                // extension <feature>` / `denies extension <feature>`. Anything
+                // else is a hard parse error (no silent acceptance).
+                let assertion = if let Some(rest) =
+                    test_trimmed.strip_prefix("allows extension ")
+                {
                     let feature = rest.trim().to_owned();
                     if feature.is_empty() {
                         return Err(line_error(
                             test_line,
-                            "view test `accepted by` requires a feature name",
+                            "view test `allows extension` requires a feature name",
                         ));
                     }
-                    LzxViewTestAssertion::AcceptedBy {
+                    LzxViewTestAssertion::AllowsExtension {
                         feature,
                         span: Span::new(test_line.start, test_line.end),
                     }
-                } else if let Some(rest) = test_trimmed.strip_prefix("rejected by ") {
+                } else if let Some(rest) = test_trimmed.strip_prefix("denies extension ") {
                     let feature = rest.trim().to_owned();
                     if feature.is_empty() {
                         return Err(line_error(
                             test_line,
-                            "view test `rejected by` requires a feature name",
+                            "view test `denies extension` requires a feature name",
                         ));
                     }
-                    LzxViewTestAssertion::RejectedBy {
+                    LzxViewTestAssertion::DeniesExtension {
                         feature,
                         span: Span::new(test_line.start, test_line.end),
                     }
+                } else if test_trimmed.starts_with("accepted by ") {
+                    return Err(line_error(
+                        test_line,
+                        "E-TEST-ACCEPTED-BY-RETIRED: view test verb `accepted by` was retired in \
+                             SPEC-08; use `allows extension <feature>` (the typed `extension` \
+                             subject carries the extensibility dimension)",
+                    ));
+                } else if test_trimmed.starts_with("rejected by ") {
+                    return Err(line_error(
+                        test_line,
+                        "E-TEST-REJECTED-BY-RETIRED: view test verb `rejected by` was retired in \
+                             SPEC-08; use `denies extension <feature>` (the typed `extension` \
+                             subject carries the extensibility dimension)",
+                    ));
                 } else {
                     return Err(line_error(
                         test_line,
-                        "view test assertion must start with `accepted by` or `rejected by` \
-                             (extensibility vocabulary only — policy / predicate testing lives \
-                             on commands, rules, and transitions)",
+                        "view test assertion must start with `allows extension` or `denies \
+                             extension` (extensibility vocabulary — policy / predicate testing \
+                             lives on commands, rules, and transitions)",
                     ));
                 };
                 tests.push(assertion);

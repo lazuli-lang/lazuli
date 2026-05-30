@@ -12,7 +12,7 @@ use super::parse_lzx_document;
 use crate::{LzxPlatform, LzxScalarLiteral, LzxViewTestAssertion};
 
 /// Wave 4 — parser must lift view `tests` into the typed
-/// `LzxViewTestAssertion` enum. `accepted by` / `rejected by` are
+/// `LzxViewTestAssertion` enum. `allows extension` / `denies extension` are
 /// the only admissible shapes; anything else is a hard parse error.
 #[test]
 fn lzx_view_tests_lift_to_typed_assertions() {
@@ -23,31 +23,31 @@ fn lzx_view_tests_lift_to_typed_assertions() {
     source customer.query.by_id(id: route.id)
 
     tests
-      accepted by customer_tags
-      accepted by customer_import
-      rejected by billing
+      allows extension customer_tags
+      allows extension customer_import
+      denies extension billing
 ";
     let document = parse_lzx_document(source).unwrap();
     let view = &document.experiences[0].views[0];
     assert_eq!(view.tests.len(), 3);
 
     match &view.tests[0] {
-        LzxViewTestAssertion::AcceptedBy { feature, .. } => {
+        LzxViewTestAssertion::AllowsExtension { feature, .. } => {
             assert_eq!(feature, "customer_tags")
         }
-        other => panic!("expected AcceptedBy, got {other:?}"),
+        other => panic!("expected AllowsExtension, got {other:?}"),
     }
     match &view.tests[1] {
-        LzxViewTestAssertion::AcceptedBy { feature, .. } => {
+        LzxViewTestAssertion::AllowsExtension { feature, .. } => {
             assert_eq!(feature, "customer_import")
         }
-        other => panic!("expected AcceptedBy, got {other:?}"),
+        other => panic!("expected AllowsExtension, got {other:?}"),
     }
     match &view.tests[2] {
-        LzxViewTestAssertion::RejectedBy { feature, .. } => {
+        LzxViewTestAssertion::DeniesExtension { feature, .. } => {
             assert_eq!(feature, "billing")
         }
-        other => panic!("expected RejectedBy, got {other:?}"),
+        other => panic!("expected DeniesExtension, got {other:?}"),
     }
 }
 
@@ -66,13 +66,13 @@ fn lzx_view_tests_reject_non_extensibility_shapes() {
     let err = parse_lzx_document(source).unwrap_err();
     let msg = format!("{:?}", err);
     assert!(
-        msg.contains("accepted by") && msg.contains("rejected by"),
+        msg.contains("allows extension") && msg.contains("denies extension"),
         "expected guidance about closed catalog, got {msg}"
     );
 }
 
 /// Wave 4 — the live full-capsule fixture must still parse and its
-/// `accepted by` / `rejected by` lines must lift to the new typed
+/// `allows extension` / `denies extension` lines must lift to the new typed
 /// shape (regression guard for the existing example).
 #[test]
 fn full_capsule_view_tests_round_trip() {
@@ -87,12 +87,12 @@ fn full_capsule_view_tests_round_trip() {
         .find(|v| v.name == "detail")
         .expect("detail view present in fixture");
     // Sanity-check the assertion shape — the fixture has two
-    // `accepted by` and one `rejected by` under the `detail` view.
+    // `allows extension` and one `denies extension` under the `detail` view.
     let accepted: Vec<&str> = detail_view
         .tests
         .iter()
         .filter_map(|t| match t {
-            LzxViewTestAssertion::AcceptedBy { feature, .. } => Some(feature.as_str()),
+            LzxViewTestAssertion::AllowsExtension { feature, .. } => Some(feature.as_str()),
             _ => None,
         })
         .collect();
@@ -100,7 +100,7 @@ fn full_capsule_view_tests_round_trip() {
         .tests
         .iter()
         .filter_map(|t| match t {
-            LzxViewTestAssertion::RejectedBy { feature, .. } => Some(feature.as_str()),
+            LzxViewTestAssertion::DeniesExtension { feature, .. } => Some(feature.as_str()),
             _ => None,
         })
         .collect();

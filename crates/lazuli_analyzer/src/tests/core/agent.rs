@@ -116,14 +116,14 @@ feature customer
     prompt "./p.md"
     evals
       case short_for_active
-        requires customer.lifecycle_stage = active
-        requires output contains "active"
+        allows customer.lifecycle_stage = active
+        allows output contains "active"
 
       case redacts_email
-        forbids output contains @semantic.Email
+        denies output contains @semantic.Email
 
       case uses_lookup
-        requires tools.calls includes customer.query.by_id
+        allows tools.calls includes customer.query.by_id
 "#;
         let agent = lower_first_agent(source);
         assert_eq!(agent.evals.len(), 3);
@@ -152,9 +152,9 @@ feature customer
             other => panic!("expected Contains literal, got {other:?}"),
         }
 
-        // Case 1: Forbids + Contains semantic.
+        // Case 1: Denies + Contains semantic.
         let c1 = &agent.evals[1];
-        assert_eq!(c1.assertions[0].kind, ir::EvalAssertionKind::Forbids);
+        assert_eq!(c1.assertions[0].kind, ir::EvalAssertionKind::Denies);
         match &c1.assertions[0].predicate {
             ir::EvalPredicate::Contains { rhs, .. } => match rhs {
                 ir::EvalContainsRhs::SemanticType(qn) => {
@@ -253,7 +253,7 @@ feature customer
     prompt "./p.md"
     evals
       case nondeterministic
-        requires output contains "x"
+        allows output contains "x"
 "#;
         let agent = lower_first_agent(source);
         assert_eq!(agent.temperature, Some(0.7));
@@ -304,8 +304,8 @@ feature customer
     prompt "./p.md"
     evals
       case bounded
-        requires output.length <= 800
-        requires output.length >= 1
+        allows output.length <= 800
+        allows output.length >= 1
 "#;
         let agent = lower_first_agent(source);
         assert_eq!(agent.evals.len(), 1);
@@ -369,7 +369,7 @@ feature customer
     prompt "./p.md"
     evals
       case quality
-        requires output contains "active"
+        allows output contains "active"
         golden "./evals/summarize.jsonl" min_score 0.85
 "#;
         let agent = lower_first_agent(source);

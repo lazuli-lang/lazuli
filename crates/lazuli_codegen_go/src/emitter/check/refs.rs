@@ -432,8 +432,8 @@ fn collect_test_block_refs(
             }
             TestAssertion::AllowsFrom { .. }
             | TestAssertion::DeniesFrom { .. }
-            | TestAssertion::AcceptedBy { .. }
-            | TestAssertion::RejectedBy { .. } => {}
+            | TestAssertion::AllowsExtension { .. }
+            | TestAssertion::DeniesExtension { .. } => {}
         }
     }
 }

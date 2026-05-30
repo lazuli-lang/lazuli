@@ -204,7 +204,7 @@ pub struct AgentEvalGolden {
     pub span: Span,
 }
 
-/// One assertion row inside an [`AgentEvalCase`] (`requires` or `forbids`
+/// One assertion row inside an [`AgentEvalCase`] (`allows` or `denies`
 /// + a predicate).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentEvalAssertion {
@@ -213,19 +213,24 @@ pub struct AgentEvalAssertion {
     pub span: Span,
 }
 
-/// Closed two-arm catalog distinguishing `requires` from `forbids` on
+/// Closed two-arm catalog distinguishing `allows` from `denies` on
 /// an [`AgentEvalAssertion`].
+///
+/// SPEC-08 folded eval polarity into the same authored `allows`/`denies`
+/// dialect every other authored test uses; the eval predicate subject
+/// (the agent-output assertion) names the dimension, not a bespoke verb.
+/// The retired `requires`/`forbids` spellings hard-error in the parser.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentEvalKind {
-    /// `requires <predicate>` — must hold for the case to pass.
-    Requires,
-    /// `forbids <predicate>` — must NOT hold for the case to pass.
-    Forbids,
+    /// `allows <predicate>` — must hold for the case to pass.
+    Allows,
+    /// `denies <predicate>` — must NOT hold for the case to pass.
+    Denies,
 }
 
 /// Parser-level eval predicate. Captures the three shapes the EBNF (§14)
-/// allows inside `requires` / `forbids`:
+/// allows inside `allows` / `denies`:
 ///
 /// - the closed predicate language (recorded verbatim for lowering),
 /// - `<ref> contains <STRING | @semantic.Type>`,
@@ -254,9 +259,9 @@ pub enum AgentEvalPredicate {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum ContainsRhs {
-    /// `requires output contains "active"` — substring literal match.
+    /// `allows output contains "active"` — substring literal match.
     Literal(String),
-    /// `forbids output contains @semantic.Email` — semantic-type membership.
+    /// `denies output contains @semantic.Email` — semantic-type membership.
     /// Validation dispatches at `lazuli test --evals`, never at check-time.
     SemanticType(String),
 }
@@ -292,8 +297,8 @@ mod tests {
     #[test]
     fn agent_eval_kind_serde_snake_case() {
         assert_eq!(
-            serde_json::to_value(AgentEvalKind::Requires).unwrap(),
-            serde_json::json!("requires")
+            serde_json::to_value(AgentEvalKind::Allows).unwrap(),
+            serde_json::json!("allows")
         );
     }
 }

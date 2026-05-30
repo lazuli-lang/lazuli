@@ -52,14 +52,14 @@ feature customer_support
 
     evals
       case urgent_for_outage
-        requires input.message contains "outage"
-        requires output = urgent
+        allows input.message contains "outage"
+        allows output = urgent
       case refund_for_chargeback
-        requires input.message contains "chargeback"
-        requires output = refund_request
+        allows input.message contains "chargeback"
+        allows output = refund_request
       case question_for_how_do_i
-        requires input.message contains "how do i"
-        requires output = question
+        allows input.message contains "how do i"
+        allows output = question
 
   agent summarize_customer
     input
@@ -91,15 +91,15 @@ feature customer_support
 
     evals
       case short_for_active
-        requires customer.lifecycle_stage = active
-        requires output.length < 800
-        requires output contains "active"
+        allows customer.lifecycle_stage = active
+        allows output.length < 800
+        allows output contains "active"
       case redacts_email
-        requires customer.email = "ada@example.com"
-        forbids output contains Email
+        allows customer.email = "ada@example.com"
+        denies output contains Email
       case uses_lookup_when_id_known
-        requires input.customer_id = "cus_123"
-        requires tools.calls includes customer.query.by_id
+        allows input.customer_id = "cus_123"
+        allows tools.calls includes customer.query.by_id
 
   agent draft_reply
     input

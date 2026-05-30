@@ -98,15 +98,16 @@ pub(crate) fn keyword_description(keyword: &str) -> Option<&'static str> {
         "forbids" => Some(
             "Generated command authorization assertion; authored command policy matrices are redundant with `policy @policy.*`.",
         ),
-        "allows" => Some("Declares a positive predicate or transition test assertion."),
+        "allows" => Some(
+            "Declares a positive authored test assertion. The subject names the dimension: `allows when <pred>` (predicate), `allows from <state>` (transition), `allows extension <feature>` (view extensibility), `allows <pred>` (agent eval).",
+        ),
         "deny" => Some("Declares a rule precondition that rejects an operation."),
-        "denies" => Some("Declares a negative predicate or transition test assertion."),
-        "accepted" => {
-            Some("Declares that a view extension should be accepted by an anchor whitelist.")
-        }
-        "rejected" => {
-            Some("Declares that a view extension should be rejected by an anchor whitelist.")
-        }
+        "denies" => Some(
+            "Declares a negative authored test assertion. The subject names the dimension: `denies when <pred>`, `denies from <state>`, `denies extension <feature>`, `denies <pred>` (agent eval).",
+        ),
+        "extension" => Some(
+            "View-test subject: `allows extension <feature>` / `denies extension <feature>` whitelists which features may extend a view via its anchor (SPEC-08 folded the retired `accepted by`/`rejected by` verbs into this authored allows/denies form).",
+        ),
         "search" => Some("Lists fields used by a query search index."),
         "filter" => Some("Lists fields available as query filters."),
         "list" => Some("Declares table/list fields for a surface."),

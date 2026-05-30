@@ -1,7 +1,7 @@
 //! Eval-block predicate shape + non-determinism check for `agent.evals`.
 //!
-//! Cases live at six-space indent (`case <name>`); each `requires` /
-//! `forbids` / `golden` child runs through the predicate shape gate. An
+//! Cases live at six-space indent (`case <name>`); each `allows` /
+//! `denies` / `golden` child runs through the predicate shape gate. An
 //! `evals` block without `temperature 0` + `seed <int>` warns so the
 //! inner loop catches non-deterministic runs before doctor.
 
@@ -54,7 +54,7 @@ pub(crate) fn agent_evals_diagnostics(source: &str) -> Vec<Diagnostic> {
                         raw,
                         DiagnosticSeverity::ERROR,
                         "agent_evals_diagnostics",
-                        "`given` is legacy vocabulary; eval blocks use `case <name>` then `requires`/`forbids` clauses.",
+                        "`given` is legacy vocabulary; eval blocks use `case <name>` then `allows`/`denies` clauses.",
                     ));
                 } else if !trimmed.starts_with("case ") {
                     diagnostics.push(simple_canonical_diagnostic(
@@ -85,12 +85,12 @@ pub(crate) fn agent_evals_diagnostics(source: &str) -> Vec<Diagnostic> {
                         raw,
                         DiagnosticSeverity::ERROR,
                         "agent_evals_diagnostics",
-                        "`expect` is legacy vocabulary; eval assertions are `requires <predicate>` or `forbids <predicate>`.",
+                        "`expect` is legacy vocabulary; eval assertions are `allows <predicate>` or `denies <predicate>`.",
                     ));
                     continue;
                 }
                 // Cut A.10: `golden "./path.jsonl" [min_score N]` is a
-                // valid case child alongside requires/forbids.
+                // valid case child alongside allows/denies.
                 if trimmed.starts_with("golden ") {
                     let rest = trimmed.strip_prefix("golden ").unwrap_or("").trim();
                     if !rest.starts_with('"') {
@@ -105,15 +105,15 @@ pub(crate) fn agent_evals_diagnostics(source: &str) -> Vec<Diagnostic> {
                     continue;
                 }
                 let predicate = trimmed
-                    .strip_prefix("requires ")
-                    .or_else(|| trimmed.strip_prefix("forbids "));
+                    .strip_prefix("allows ")
+                    .or_else(|| trimmed.strip_prefix("denies "));
                 let Some(predicate) = predicate else {
                     diagnostics.push(simple_canonical_diagnostic(
                         line_index,
                         raw,
                         DiagnosticSeverity::ERROR,
                         "agent_evals_diagnostics",
-                        "eval children are `requires <predicate>`, `forbids <predicate>`, or `golden \"./path\"`.",
+                        "eval children are `allows <predicate>`, `denies <predicate>`, or `golden \"./path\"`.",
                     ));
                     continue;
                 };

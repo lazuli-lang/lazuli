@@ -554,16 +554,16 @@ feature customer
       route customer_id: Customer.ID
     evals
       case mentions_active_when_active
-        requires customer.status = active
-        requires output contains "active"
+        allows customer.status = active
+        allows output contains "active"
 
       case redacts_email
-        requires customer.email = "ada@example.com"
-        forbids output contains Email
+        allows customer.email = "ada@example.com"
+        denies output contains Email
 
       case uses_lookup_when_id_known
-        requires input.customer_id = "cus_123"
-        requires tools.calls includes customer.query.lookup.by_id
+        allows input.customer_id = "cus_123"
+        allows tools.calls includes customer.query.lookup.by_id
 
       case golden_summary_quality
         golden "./evals/summarize_customer_golden.jsonl" min_score 0.85

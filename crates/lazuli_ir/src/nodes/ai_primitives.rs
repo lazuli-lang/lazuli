@@ -361,7 +361,7 @@ pub struct GoldenSpec {
     pub span_ref: Option<SpanRef>,
 }
 
-/// One `requires <pred>` / `forbids <pred>` assertion inside an
+/// One `allows <pred>` / `denies <pred>` assertion inside an
 /// [`EvalCase`]. The `kind` axis flips the polarity; `predicate` is
 /// the typed predicate sublanguage.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -372,15 +372,19 @@ pub struct EvalAssertion {
     pub span_ref: Option<SpanRef>,
 }
 
-/// Closed catalog flipping eval assertion polarity. `Requires` holds
-/// when the predicate is true; `Forbids` holds when it is false.
+/// Closed catalog flipping eval assertion polarity. `Allows` holds
+/// when the predicate is true; `Denies` holds when it is false.
+///
+/// SPEC-08 folded eval polarity into the authored `allows`/`denies`
+/// dialect (was `requires`/`forbids`); the predicate subject names the
+/// dimension, not a bespoke verb.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EvalAssertionKind {
-    /// `requires <pred>` — predicate must hold.
-    Requires,
-    /// `forbids <pred>` — predicate must NOT hold.
-    Forbids,
+    /// `allows <pred>` — predicate must hold.
+    Allows,
+    /// `denies <pred>` — predicate must NOT hold.
+    Denies,
 }
 
 /// Typed predicate sublanguage admitted in [`EvalAssertion`]. The
@@ -524,7 +528,7 @@ mod tests {
 
     #[test]
     fn eval_assertion_kind_round_trips() {
-        for k in [EvalAssertionKind::Requires, EvalAssertionKind::Forbids] {
+        for k in [EvalAssertionKind::Allows, EvalAssertionKind::Denies] {
             let v = serde_json::to_value(k).unwrap();
             let back: EvalAssertionKind = serde_json::from_value(v).unwrap();
             assert_eq!(back, k);

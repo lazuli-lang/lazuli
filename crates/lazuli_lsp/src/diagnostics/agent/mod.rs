@@ -9,7 +9,7 @@
 //! |---|---|
 //! | [`agent_contract_diagnostics`] | The `agent` header demands `policy`, `output`, `model @llm.*`, `prompt`; plus shape checks for `temperature` / `top_p` / `max_tokens` / `seed`. |
 //! | [`agent_tools_diagnostics`] | Each entry in `tools` is `@tool.<dotted>` or `[<feature>.]<kind>[.<sub>].<name>`. |
-//! | [`agent_evals_diagnostics`] | `evals` children are `case <name>` blocks containing `requires` / `forbids` / `golden`; `eval` requires `temperature 0` + `seed`. |
+//! | [`agent_evals_diagnostics`] | `evals` children are `case <name>` blocks containing `allows` / `denies` / `golden`; `eval` requires `temperature 0` + `seed`. |
 //! | [`agent_discriminator_diagnostics`] | `discriminator` is a `record`-only field marker. |
 //! | [`agent_expose_diagnostics`] | `expose http` slot shape + same-file collision check; GET + `output stream` warns. |
 //!

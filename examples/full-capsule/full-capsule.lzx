@@ -75,9 +75,9 @@ experience customer
     action archive -> customer.lifecycle.archive(id: route.id)
 
     tests
-      accepted by customer_tags
-      accepted by customer_import
-      rejected by billing
+      allows extension customer_tags
+      allows extension customer_import
+      denies extension billing
 
   view ltv_report
     source customer.query.lifetime_value

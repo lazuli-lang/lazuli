@@ -14,7 +14,7 @@
 //! `tests permits @role.admin` once; codegen emits the Go-level
 //! `TestXxx_permits_admin` case that exercises the actual policy
 //! evaluation in the runtime — no DSL macro, no test scaffold to
-//! maintain. The verbs are scoped: `accepted by` only on extensible
+//! maintain. The verbs are scoped: `allows extension` only on extensible
 //! views, `allows from` only on workflow transitions, etc., and the
 //! analyzer rejects misplaced verbs at lower time.
 //!
@@ -67,7 +67,7 @@ pub struct TestBlock {
 }
 
 /// Closed catalog of test verbs. The analyzer rejects assertions that do not
-/// belong to the parent construct (e.g. `accepted by` on a command).
+/// belong to the parent construct (e.g. `allows extension` on a command).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "verb", content = "value")]
 pub enum TestAssertion {
@@ -93,10 +93,10 @@ pub enum TestAssertion {
     AllowsFromAs { state: String, actor: String },
     /// Combined transition: `denies from active as @role.sales`.
     DeniesFromAs { state: String, actor: String },
-    /// Extensible view whitelist: `accepted by customer_tags`.
-    AcceptedBy { feature: String },
-    /// Extensible view whitelist: `rejected by billing`.
-    RejectedBy { feature: String },
+    /// Extensible view whitelist: `allows extension customer_tags`.
+    AllowsExtension { feature: String },
+    /// Extensible view whitelist: `denies extension billing`.
+    DeniesExtension { feature: String },
 }
 
 /// Feature-level `policies` block. Categories are named atom lists; field
@@ -372,7 +372,7 @@ mod tests {
     #[test]
     fn test_block_skips_none_span() {
         let tb = TestBlock {
-            assertions: vec![TestAssertion::AcceptedBy {
+            assertions: vec![TestAssertion::AllowsExtension {
                 feature: "billing".into(),
             }],
             span_ref: None,

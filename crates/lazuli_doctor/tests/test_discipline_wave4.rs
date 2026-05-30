@@ -97,7 +97,7 @@ fn extensibility_quiet_when_one_assertion_present() {
         "detail",
         vec!["tags"],
         Some("@anchor.X"),
-        vec![ViewTestAssertion::AcceptedBy {
+        vec![ViewTestAssertion::AllowsExtension {
             feature: "tags".into(),
             span_ref: None,
         }],
@@ -114,7 +114,7 @@ fn drift_quiet_when_target_extends_anchor() {
         "detail",
         vec!["tags"],
         Some("@anchor.customer_detail"),
-        vec![ViewTestAssertion::AcceptedBy {
+        vec![ViewTestAssertion::AllowsExtension {
             feature: "tags".into(),
             span_ref: None,
         }],
@@ -136,7 +136,7 @@ fn drift_fires_when_target_extends_wrong_anchor() {
         "detail",
         vec!["tags"],
         Some("@anchor.customer_detail"),
-        vec![ViewTestAssertion::AcceptedBy {
+        vec![ViewTestAssertion::AllowsExtension {
             feature: "tags".into(),
             span_ref: None,
         }],
@@ -161,7 +161,7 @@ fn drift_fires_when_target_feature_missing() {
         "detail",
         vec!["tags"],
         Some("@anchor.customer_detail"),
-        vec![ViewTestAssertion::AcceptedBy {
+        vec![ViewTestAssertion::AllowsExtension {
             feature: "missing_feat".into(),
             span_ref: None,
         }],

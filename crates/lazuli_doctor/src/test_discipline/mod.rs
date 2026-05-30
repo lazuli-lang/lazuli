@@ -31,8 +31,8 @@
 //! - `test_stub_001` (warning) — catches `@TODO authored:` markers from
 //!   `lazuli generate command/view/rule/transition/handler`. Wave 3.
 //! - `test_view_extensibility_001` (warning) — extensible views must author
-//!   at least one `accepted by` / `rejected by` assertion. Wave 4.
-//! - `test_view_drift_001` (error) — `accepted by <feature>` must resolve to
+//!   at least one `allows extension` / `denies extension` assertion. Wave 4.
+//! - `test_view_drift_001` (error) — `allows extension <feature>` must resolve to
 //!   a feature whose `extends @anchor.<X>` matches the view's anchor. Wave 4.
 //! - `test_command_assertion_drift_001` (error) — command `tests` block with
 //!   `denies when target.<field> = <value>` must be backed by an invariant,

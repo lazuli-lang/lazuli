@@ -278,8 +278,8 @@ pub(crate) fn lower_eval_case(
     for assertion in &case.assertions {
         assertions.push(ir::EvalAssertion {
             kind: match assertion.kind {
-                syntax::AgentEvalKind::Requires => ir::EvalAssertionKind::Requires,
-                syntax::AgentEvalKind::Forbids => ir::EvalAssertionKind::Forbids,
+                syntax::AgentEvalKind::Allows => ir::EvalAssertionKind::Allows,
+                syntax::AgentEvalKind::Denies => ir::EvalAssertionKind::Denies,
             },
             predicate: lower_eval_predicate(&assertion.predicate, feature)?,
             span_ref: Some(span_of(assertion.span)),
