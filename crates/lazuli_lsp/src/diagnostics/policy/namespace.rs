@@ -76,19 +76,13 @@ pub(crate) fn policy_namespace_diagnostics(source: &str) -> Vec<Diagnostic> {
             .and_then(|feature| policy_categories.get(feature))
             .is_some_and(|categories| categories.contains(is_policy_category_ref));
 
-        if matches!(current_top, Some("command" | "workflow"))
-            && !policy_ref.starts_with("@policy.")
-        {
-            diagnostics.push(simple_canonical_diagnostic(
-                line_index,
-                line,
-                DiagnosticSeverity::WARNING,
-                "policy-ref-namespace",
-                "commands and workflows should reference feature-local policy categories with `@policy.*`; put `@role.*`, `@scope.*`, or `@actor.*` atoms in the `policies` dictionary.",
-            ));
-            continue;
-        }
-
+        // SPEC-07 — UNIFORM policy reference across ALL callables. The
+        // former command/workflow-only `@policy.*` requirement is gone:
+        // every callable (command, workflow, query, api, job, webhook,
+        // escape_route, transition, view guard, route_guard, policy_for)
+        // accepts the SAME grammar — `@policy.<category>`, a namespaced
+        // atom (`@role.*`/`@scope.*`/`@actor.*`), or a structured policy
+        // expression. The rules below no longer branch on `current_top`.
         if policy_ref.starts_with("@policy.") {
             if !is_local_category {
                 diagnostics.push(simple_canonical_diagnostic(

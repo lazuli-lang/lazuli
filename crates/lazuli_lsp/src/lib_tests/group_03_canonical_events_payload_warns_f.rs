@@ -114,7 +114,11 @@ feature customer
 }
 
 #[test]
-fn canonical_warns_for_direct_policy_atom_in_command() {
+fn canonical_uniform_inline_atom_on_command_is_clean() {
+    // SPEC-07 — the command/workflow-only `@policy.*` asymmetry is GONE:
+    // a namespaced inline atom (`@role.admin`) is uniformly accepted on
+    // EVERY callable, exactly as it always was on jobs/webhooks/
+    // escape_routes. The old per-construct warning must no longer fire.
     let source = r#"
 feature customer
   purpose "Customers"
@@ -126,11 +130,14 @@ feature customer
 
     let diagnostics = diagnostics_for(source);
 
-    assert!(diagnostics.iter().any(|diagnostic| {
-        diagnostic
-            .message
-            .contains("commands and workflows should reference feature-local policy categories")
-    }));
+    assert!(
+        !diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("commands and workflows should reference feature-local policy categories")
+        }),
+        "the retired command/workflow-only @policy asymmetry must not fire"
+    );
 }
 
 #[test]
