@@ -1,0 +1,6 @@
+# Shell scripts must stay LF on every platform so Git Bash (Windows) can run
+# them — CRLF breaks the `#!/usr/bin/env bash` shebang. This protects the
+# template's agent hooks (lazurite/templates/default/tools/lazuli-hooks/*.sh),
+# which are embedded verbatim into every scaffolded project, plus the repo's
+# own scripts/*.sh.
+*.sh text eol=lf

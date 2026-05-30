@@ -1,24 +1,27 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
 # lazuli-gate.sh — Stop-hook acceptance gate (the executable "definition of
-# done"). Lazuli's equivalent of the article's post-task test + coverage
-# harness: the agent CANNOT declare itself finished while `lazuli doctor`
-# (and, opt-in, `lazuli test`) is red.
+# done"). Lazuli's equivalent of a post-task test + coverage harness: the agent
+# CANNOT declare itself finished while `lazuli doctor` (and, once handlers
+# exist, `lazuli test`) is red.
 #
-# Fired by .claude/settings.json on the Stop event. Runs the project-wide
-# acceptance gate; if it fails, returns `{"decision":"block", ...}` so Claude
-# Code refuses to stop and forces the agent to keep fixing. An infinite-loop
-# guard (`stop_hook_active`) lets the agent off the hook after one blocked
-# round so a genuinely-stuck gate can't trap the session forever.
+# AGENT-AGNOSTIC. Wired from BOTH agents on the `Stop` event — their stop-hook
+# protocols are identical (same `{"decision":"block","reason":…}` stdout block,
+# same `stop_hook_active` loop-guard field on stdin):
+#   * Claude Code → .claude/settings.json  (Stop)
+#   * Codex CLI   → .codex/hooks.json       (Stop)
 #
-# Tiers (see .claude/hooks/README.md for the full rationale + tuning):
+# If the gate fails it returns `{"decision":"block", ...}` so the agent refuses
+# to stop and keeps fixing. The `stop_hook_active` guard lets the agent off the
+# hook after one blocked round so a genuinely-stuck gate can't trap the session.
+#
+# Tiers (see README.md for the full rationale + tuning):
 #   * Gate 1 (fast, ~0.3 s, always): `lazuli doctor . --security-profile strict
-#     --coverage --fail-on category:TestDiscipline`. Under the `strict`
-#     profile most discipline findings are WARNINGS (exit 0 by default), so we
-#     pass an explicit `--fail-on` to make the test-discipline family actually
-#     block — mirroring the `pnpm lazuli:doctor:gate` script. The doctor `spec`
-#     surface already exercises the spec/actor/predicate/transition rules, so
-#     this alone is a meaningful acceptance gate without codegen.
+#     --coverage --fail-on category:TestDiscipline`. Under the `strict` profile
+#     most discipline findings are WARNINGS (exit 0 by default), so we pass an
+#     explicit `--fail-on` to make the test-discipline family actually block.
+#     The doctor `spec` surface exercises the spec/actor/predicate/transition
+#     rules, so this alone is a meaningful acceptance gate without codegen.
 #   * Gate 2 (handler coverage, ON by default once handlers exist): generates
 #     dist/go/ then runs `lazuli test . --layer handler --coverage --fail-on
 #     coverage:handler_go=<pct>` so a coverage % below the bar BLOCKS the stop —
@@ -29,10 +32,9 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Read the Stop payload from stdin ONCE. Claude Code delivers hook state as a
-# JSON object on stdin (NOT as shell/env vars), including `stop_hook_active` —
-# the field we need for the loop guard below. Parse it with jq, falling back to
-# node (every Lazurite project ships node), mirroring lazuli-check.sh.
+# Read the Stop payload from stdin ONCE. Both agents deliver hook state as a
+# JSON object on stdin (NOT as env vars), including `stop_hook_active` — the
+# field the loop guard needs. Parse with jq, falling back to node.
 # ---------------------------------------------------------------------------
 payload="$(cat)"
 
@@ -60,19 +62,18 @@ extract_field() {
 }
 
 # ---------------------------------------------------------------------------
-# Infinite-loop guard. When a Stop hook blocks, Claude Code re-enters the Stop
-# event with `stop_hook_active: true` in the payload. If we blocked last round,
-# allow the stop this time rather than looping forever on a gate the agent
-# can't satisfy.
+# Infinite-loop guard. When a Stop hook blocks, the agent re-enters the Stop
+# event with `stop_hook_active: true`. If we blocked last round, allow the stop
+# this time rather than looping forever on a gate the agent can't satisfy.
 # ---------------------------------------------------------------------------
 if [[ "$(extract_field stop_hook_active || true)" == "true" ]]; then
   exit 0
 fi
 
 # ---------------------------------------------------------------------------
-# Emit a block decision (exit 0 + JSON on stdout). Claude Code parses this,
-# refuses to stop, and shows `reason` to the agent. Prefer jq for safe JSON
-# encoding; fall back to node (always present in a Lazurite project).
+# Emit a block decision (exit 0 + JSON on stdout). Both agents parse this,
+# refuse to stop, and show `reason` to the agent. Prefer jq for safe JSON
+# encoding; fall back to node, then to the exit-2 + stderr path.
 # ---------------------------------------------------------------------------
 emit_block() {
   local reason="$1"
@@ -86,20 +87,27 @@ emit_block() {
       }));
     '
   else
-    # No JSON encoder available — fall back to the exit-2 + stderr blocking
-    # path, which also prevents the stop (weaker, but still blocks).
     echo "${reason}" >&2
     exit 2
   fi
   exit 0
 }
 
-# Run from the project root (hooks fire there, but be defensive against a
-# session that `cd`'d elsewhere) so `lazuli doctor .` / `find app/...` resolve.
-cd "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null || true
+# ---------------------------------------------------------------------------
+# Run from the project root so `lazuli doctor .` / the `find app/...` probe
+# resolve regardless of session cwd. Order: explicit agent env → git toplevel →
+# cwd. CLAUDE_PROJECT_DIR is set by Claude Code; Codex runs at session cwd, so
+# git toplevel is the reliable cross-agent anchor.
+# ---------------------------------------------------------------------------
+project_root() {
+  if [[ -n "${CLAUDE_PROJECT_DIR:-}" ]]; then printf '%s' "${CLAUDE_PROJECT_DIR}"; return; fi
+  if [[ -n "${CODEX_PROJECT_DIR:-}" ]]; then printf '%s' "${CODEX_PROJECT_DIR}"; return; fi
+  git rev-parse --show-toplevel 2>/dev/null || printf '.'
+}
+cd "$(project_root)" 2>/dev/null || true
 
-# If there is no global `lazuli` on PATH we cannot gate — allow the stop
-# rather than wedge every conversation. (Same PATH assumption as package.json.)
+# If there is no global `lazuli` on PATH we cannot gate — allow the stop rather
+# than wedge every conversation. (Same PATH assumption as package.json.)
 if ! command -v lazuli >/dev/null 2>&1; then
   exit 0
 fi
@@ -108,8 +116,7 @@ failures=()
 
 # ---------------------------------------------------------------------------
 # Gate 1 — project-wide doctor (always). Strict profile + coverage report +
-# test-discipline hard-block. Capture output so a failure can quote the
-# summary back to the agent.
+# test-discipline hard-block. Capture output so a failure can quote the summary.
 # ---------------------------------------------------------------------------
 set +e
 doctor_output="$(lazuli doctor . \
@@ -120,8 +127,6 @@ doctor_status=$?
 set -e
 
 if [[ ${doctor_status} -ne 0 ]]; then
-  # Keep the reason compact: the headline + the last ~30 lines of doctor
-  # output (where the summary / gate verdict lives).
   doctor_tail="$(printf '%s\n' "${doctor_output}" | tail -n 30)"
   failures+=("lazuli doctor (strict + coverage, --fail-on category:TestDiscipline) FAILED:
 ${doctor_tail}")
@@ -129,20 +134,17 @@ fi
 
 # ---------------------------------------------------------------------------
 # Gate 2 — handler tests + Go coverage threshold (ON by default; the article's
-# "coverage forces iterations" mechanism). This is what makes a coverage % an
-# actual gate, not just a report: `lazuli test --layer handler --coverage
-# --fail-on coverage:handler_go=<pct>` exits non-zero when handler coverage is
-# below the bar, blocking the stop until you write the missing tests.
+# "coverage forces iterations" mechanism). Makes a coverage % an actual gate:
+# `lazuli test --layer handler --coverage --fail-on coverage:handler_go=<pct>`
+# exits non-zero when handler coverage is below the bar, blocking the stop.
 #
 # Robustness so this never wedges a legitimately-early session:
-#   * Skipped entirely when there are no handler `.go` files yet (nothing to
-#     cover) — a fresh/early project isn't punished.
+#   * Skipped while there are no handler `.go` files yet (nothing to cover).
 #   * Disable with LAZULI_GATE_RUN_TESTS=0. Tune the bar with
 #     LAZULI_GATE_HANDLER_COVERAGE (default 90, matching the tdd-strict
 #     `[doctor.coverage]` handler_go block threshold).
 #   * `lazuli test --layer handler` needs the generated dist/go/ tree, so we
-#     codegen first; a codegen failure (often an offline `go mod`) only WARNS —
-#     an environment hiccup must not trap the session.
+#     codegen first; a codegen failure (often an offline `go mod`) only WARNS.
 # ---------------------------------------------------------------------------
 handler_coverage="${LAZULI_GATE_HANDLER_COVERAGE:-90}"
 if [[ "${LAZULI_GATE_RUN_TESTS:-1}" != "0" ]] \

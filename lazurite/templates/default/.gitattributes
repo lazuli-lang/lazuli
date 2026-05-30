@@ -1,0 +1,5 @@
+# Shell scripts must stay LF on every platform so Git Bash (Windows) can run
+# them — CRLF breaks the `#!/usr/bin/env bash` shebang. The agent hooks under
+# tools/lazuli-hooks/ are bash; without this pin a Windows clone with
+# core.autocrlf=true would rewrite them to CRLF and the hooks would fail.
+*.sh text eol=lf
