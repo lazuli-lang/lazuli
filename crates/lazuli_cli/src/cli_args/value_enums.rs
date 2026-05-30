@@ -88,6 +88,10 @@ pub(crate) enum CheckSecurityProfile {
     Prototype,
     Strict,
     Production,
+    /// One-knob meta-bundle: full iron-hand stance (every discipline
+    /// family at `tdd-iron-hand` + production-level severity escalation).
+    #[value(name = "iron-hand")]
+    IronHand,
 }
 
 impl From<CheckSecurityProfile> for SecurityProfile {
@@ -96,6 +100,7 @@ impl From<CheckSecurityProfile> for SecurityProfile {
             CheckSecurityProfile::Prototype => SecurityProfile::Prototype,
             CheckSecurityProfile::Strict => SecurityProfile::Strict,
             CheckSecurityProfile::Production => SecurityProfile::Production,
+            CheckSecurityProfile::IronHand => SecurityProfile::IronHand,
         }
     }
 }

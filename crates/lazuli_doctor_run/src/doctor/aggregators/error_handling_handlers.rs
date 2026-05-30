@@ -185,7 +185,9 @@ pub(crate) fn diagnostics_with_preset(
     // proposal's history-blind drift policy).
     let sql_drift_default = match security_profile {
         SecurityProfile::Prototype => DoctorSeverity::Warning,
-        SecurityProfile::Strict | SecurityProfile::Production => DoctorSeverity::Error,
+        SecurityProfile::Strict | SecurityProfile::Production | SecurityProfile::IronHand => {
+            DoctorSeverity::Error
+        }
     };
     for finding in handler_sql_column_drift_001::check(&files, project_root) {
         diagnostics.push(DoctorDiagnostic {
@@ -210,7 +212,7 @@ pub(crate) fn diagnostics_with_preset(
     let stub_vocab_default = match security_profile {
         SecurityProfile::Prototype => DoctorSeverity::Info,
         SecurityProfile::Strict => DoctorSeverity::Warning,
-        SecurityProfile::Production => DoctorSeverity::Error,
+        SecurityProfile::Production | SecurityProfile::IronHand => DoctorSeverity::Error,
     };
     for file in &files {
         if !file.is_test {

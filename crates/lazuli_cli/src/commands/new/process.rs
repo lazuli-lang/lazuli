@@ -33,7 +33,7 @@ pub(crate) fn run_go_mod_tidy(project: &Path) -> Result<()> {
 /// Smoke-test the freshly scaffolded project with `lazuli doctor`
 /// (strict). Catches malformed templates before the user hits them.
 pub(crate) fn run_doctor_sanity_check(project: &Path) -> Result<()> {
-    doctor::doctor_command(project, SecurityProfile::Strict, false, false)
+    doctor::doctor_command(project, Some(SecurityProfile::Strict), false, false)
 }
 
 /// Spawn a synchronous subprocess and bail on non-zero exit. Used by

@@ -48,9 +48,13 @@ pub(crate) fn apply_security_profile(
         if is_security_enforcement_code(code) {
             diagnostic.severity = Some(match profile {
                 DoctorProfile::Prototype => DiagnosticSeverity::WARNING,
-                DoctorProfile::Strict | DoctorProfile::Production => DiagnosticSeverity::ERROR,
+                DoctorProfile::Strict | DoctorProfile::Production | DoctorProfile::IronHand => {
+                    DiagnosticSeverity::ERROR
+                }
             });
-        } else if profile == DoctorProfile::Production && is_security_opt_out_code(code) {
+        } else if matches!(profile, DoctorProfile::Production | DoctorProfile::IronHand)
+            && is_security_opt_out_code(code)
+        {
             diagnostic.severity = Some(DiagnosticSeverity::ERROR);
         }
     }

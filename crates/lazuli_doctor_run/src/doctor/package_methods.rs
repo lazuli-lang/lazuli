@@ -465,9 +465,9 @@ impl DoctorPackage {
         // mapped back to the local `DoctorSeverity` via `From`.
         let base_severity = match self.security_profile {
             SecurityProfile::Prototype => lazuli_doctor::DoctorSeverity::Warning,
-            SecurityProfile::Strict | SecurityProfile::Production => {
-                lazuli_doctor::DoctorSeverity::Error
-            }
+            SecurityProfile::Strict
+            | SecurityProfile::Production
+            | SecurityProfile::IronHand => lazuli_doctor::DoctorSeverity::Error,
         };
 
         // A manifest override (either spelling) still wins, and `off`
@@ -575,7 +575,9 @@ impl DoctorPackage {
         // with the session-family enforcement posture).
         let blocking_base = match self.security_profile {
             SecurityProfile::Prototype => CfgSeverity::Warning,
-            SecurityProfile::Strict | SecurityProfile::Production => CfgSeverity::Error,
+            SecurityProfile::Strict | SecurityProfile::Production | SecurityProfile::IronHand => {
+                CfgSeverity::Error
+            }
         };
         // Hygiene base: WARNING on every profile. Used by the two rules
         // that only ever fire when the author HAS declared a `cookie` block
@@ -783,7 +785,9 @@ impl DoctorPackage {
         let profile = match self.security_profile {
             SecurityProfile::Prototype => CoverageProfile::Prototype,
             SecurityProfile::Strict => CoverageProfile::Strict,
-            SecurityProfile::Production => CoverageProfile::Production,
+            // iron-hand inherits production's coverage profile; the defaulted
+            // tdd-iron-hand coverage preset layers the 90/95 thresholds on top.
+            SecurityProfile::Production | SecurityProfile::IronHand => CoverageProfile::Production,
         };
 
         // v2 — the coverage PRESET (a severity/threshold-escalation input)

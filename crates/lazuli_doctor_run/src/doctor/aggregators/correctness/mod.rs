@@ -63,11 +63,11 @@ pub(crate) fn diagnostics(
     let migration_severity = match security_profile {
         SecurityProfile::Prototype => DoctorSeverity::Info,
         SecurityProfile::Strict => DoctorSeverity::Warning,
-        SecurityProfile::Production => DoctorSeverity::Error,
+        SecurityProfile::Production | SecurityProfile::IronHand => DoctorSeverity::Error,
     };
     let handler_sig_severity = match security_profile {
         SecurityProfile::Prototype | SecurityProfile::Strict => DoctorSeverity::Warning,
-        SecurityProfile::Production => DoctorSeverity::Error,
+        SecurityProfile::Production | SecurityProfile::IronHand => DoctorSeverity::Error,
     };
 
     // Codegen root holding `<dist_root>/go/<feature>/command.gen.go`.

@@ -142,7 +142,9 @@ fn run_once(
     };
     if let Err(err) = doctor::doctor_command_with_options(
         input,
-        security_profile,
+        // The watch loop already carries a concrete profile; the
+        // toml-vs-flag precedence resolution happens at the CLI entry.
+        Some(security_profile),
         false,
         allow_version_mismatch,
         opts,

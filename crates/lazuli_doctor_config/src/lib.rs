@@ -90,6 +90,16 @@ pub enum DoctorProfile {
     /// `doctor` blocks deploy on weak postures (missing redact, open
     /// CORS, etc.).
     Production,
+    /// One-knob meta-bundle. Behaves exactly like [`Production`](Self::Production)
+    /// for the global profile→severity escalation, AND additionally
+    /// defaults EVERY discipline family (coverage, test_discipline,
+    /// error_handling, lzi_hygiene, internal_hygiene) to its
+    /// `tdd-iron-hand` preset when the corresponding `[doctor.<family>]`
+    /// block is absent. So `[doctor] profile = "iron-hand"` alone reproduces
+    /// the full six-block iron-hand stance (coverage 90/95 gating +
+    /// `VOCAB-CONTEXT-*` → error + every hygiene/test rule at Error). A
+    /// per-family `[doctor.<family>] preset` still overrides the default.
+    IronHand,
 }
 
 impl DoctorProfile {
@@ -111,6 +121,7 @@ impl DoctorProfile {
             "prototype" => Some(Self::Prototype),
             "strict" => Some(Self::Strict),
             "production" => Some(Self::Production),
+            "iron-hand" => Some(Self::IronHand),
             _ => None,
         }
     }
@@ -130,6 +141,7 @@ impl DoctorProfile {
             Self::Prototype => "prototype",
             Self::Strict => "strict",
             Self::Production => "production",
+            Self::IronHand => "iron-hand",
         }
     }
 }
@@ -312,26 +324,55 @@ impl ResolvedDoctorConfig {
     /// assert_eq!(cfg.profile.0, DoctorProfile::Production);
     /// ```
     pub fn from_doctor(doctor: Option<&Doctor>, profile: DoctorProfile) -> Self {
+        // The iron-hand meta-bundle: when `profile = "iron-hand"` and a
+        // discipline family declares no `[doctor.<family>] preset`, default
+        // that family to its `tdd-iron-hand` preset. An explicit per-family
+        // preset still wins (the six-block form stays the low-level escape
+        // hatch). For every other profile the default stays `None`, so
+        // behavior is byte-identical to before.
+        let iron_hand = profile == DoctorProfile::IronHand;
+
         let coverage_preset = doctor
             .and_then(|d| d.coverage.as_ref())
             .and_then(|c| c.preset.as_deref())
-            .and_then(CoveragePreset::parse);
+            .and_then(CoveragePreset::parse)
+            .or_else(|| iron_hand.then(|| CoveragePreset::parse("tdd-iron-hand")).flatten());
         let test_discipline_preset = doctor
             .and_then(|d| d.test_discipline.as_ref())
             .and_then(|td| td.preset.as_deref())
-            .and_then(TestDisciplinePreset::parse);
+            .and_then(TestDisciplinePreset::parse)
+            .or_else(|| {
+                iron_hand
+                    .then(|| TestDisciplinePreset::parse("tdd-iron-hand"))
+                    .flatten()
+            });
         let internal_hygiene_preset = doctor
             .and_then(|d| d.internal_hygiene.as_ref())
             .and_then(|ih| ih.preset.as_deref())
-            .and_then(InternalHygienePreset::parse);
+            .and_then(InternalHygienePreset::parse)
+            .or_else(|| {
+                iron_hand
+                    .then(|| InternalHygienePreset::parse("tdd-iron-hand"))
+                    .flatten()
+            });
         let error_handling_preset = doctor
             .and_then(|d| d.error_handling.as_ref())
             .and_then(|eh| eh.preset.as_deref())
-            .and_then(ErrorHandlingPreset::parse);
+            .and_then(ErrorHandlingPreset::parse)
+            .or_else(|| {
+                iron_hand
+                    .then(|| ErrorHandlingPreset::parse("tdd-iron-hand"))
+                    .flatten()
+            });
         let lzi_hygiene_preset = doctor
             .and_then(|d| d.lzi_hygiene.as_ref())
             .and_then(|lh| lh.preset.as_deref())
-            .and_then(LziHygienePreset::parse);
+            .and_then(LziHygienePreset::parse)
+            .or_else(|| {
+                iron_hand
+                    .then(|| LziHygienePreset::parse("tdd-iron-hand"))
+                    .flatten()
+            });
 
         // Merge every per-category override into one map. Today the CLI
         // only reads `[doctor.test_discipline].severity_override` at
@@ -683,11 +724,14 @@ fn category_default_for_profile(
 ) -> DoctorSeverity {
     match (category, profile) {
         // Test-discipline rules carry their own per-profile posture.
-        (RuleCategory::TestDiscipline, DoctorProfile::Production) => DoctorSeverity::Error,
+        // iron-hand inherits production's posture (warnings → errors).
+        (RuleCategory::TestDiscipline, DoctorProfile::Production | DoctorProfile::IronHand) => {
+            DoctorSeverity::Error
+        }
         (RuleCategory::TestDiscipline, DoctorProfile::Strict) => DoctorSeverity::Warning,
         (RuleCategory::TestDiscipline, DoctorProfile::Prototype) => DoctorSeverity::Info,
-        // Everything else: the legacy global mapping.
-        (_, DoctorProfile::Production) => DoctorSeverity::Error,
+        // Everything else: the legacy global mapping. iron-hand == production.
+        (_, DoctorProfile::Production | DoctorProfile::IronHand) => DoctorSeverity::Error,
         (_, DoctorProfile::Prototype | DoctorProfile::Strict) => DoctorSeverity::Warning,
     }
 }
@@ -869,5 +913,100 @@ preset = "tdd-iron-hand"
             ),
             Some(DoctorSeverity::Info),
         );
+    }
+
+    /// The one-knob contract: `[doctor] profile = "iron-hand"` with NO
+    /// family blocks must resolve the FULL iron-hand stance — every
+    /// discipline family defaulted to its `tdd-iron-hand` preset, plus the
+    /// production-level severity escalation (VOCAB-CONTEXT-* → error, every
+    /// test-discipline rule → error). This is the exact posture the
+    /// six-block form (`profile = "production"` + five
+    /// `[doctor.<family>] preset = "tdd-iron-hand"` blocks) produced.
+    #[test]
+    fn iron_hand_profile_meta_bundle_fans_out_all_families() {
+        // No manifest at all — the profile alone must do everything.
+        let cfg = ResolvedDoctorConfig::from_doctor(None, DoctorProfile::IronHand);
+
+        // (1) all five families default to their tdd-iron-hand preset, exactly
+        // as if each had authored `[doctor.<family>] preset = "tdd-iron-hand"`.
+        assert_eq!(cfg.coverage_preset, CoveragePreset::parse("tdd-iron-hand"));
+        assert_eq!(
+            cfg.test_discipline_preset,
+            TestDisciplinePreset::parse("tdd-iron-hand")
+        );
+        assert_eq!(
+            cfg.internal_hygiene_preset,
+            InternalHygienePreset::parse("tdd-iron-hand")
+        );
+        assert_eq!(
+            cfg.error_handling_preset,
+            ErrorHandlingPreset::parse("tdd-iron-hand")
+        );
+        assert_eq!(
+            cfg.lzi_hygiene_preset,
+            LziHygienePreset::parse("tdd-iron-hand")
+        );
+        assert!(cfg.coverage_preset.is_some(), "iron-hand must set a preset");
+
+        // (2a) production-level severity escalation: VOCAB-CONTEXT-* → error
+        // (driven by the defaulted tdd-iron-hand coverage preset).
+        for code in [
+            "VOCAB-CONTEXT-PURPOSE-001",
+            "VOCAB-CONTEXT-NONGOALS-001",
+            "VOCAB-CONTEXT-CTXMD-001",
+        ] {
+            assert_eq!(
+                effective_severity(
+                    code,
+                    DoctorSeverity::Warning,
+                    RuleCategory::Vocabulary,
+                    &cfg
+                ),
+                Some(DoctorSeverity::Error),
+                "{code} must escalate to error under iron-hand profile",
+            );
+        }
+
+        // (2b) test-discipline rules fire at Error (the iron-hand preset +
+        // production-level category default both agree on Error).
+        assert_eq!(
+            effective_severity(
+                "TEST-MISSING-AUTHORED-001",
+                DoctorSeverity::Warning,
+                RuleCategory::TestDiscipline,
+                &cfg
+            ),
+            Some(DoctorSeverity::Error),
+        );
+    }
+
+    /// Iron-hand resolved via the toml-honoring entry point
+    /// (`resolve_reading_profile`, the LSP / no-flag path) matches the
+    /// explicit-profile path: one knob, both entrypoints, same stance.
+    #[test]
+    fn iron_hand_via_reading_profile_matches_explicit() {
+        let toml = "[doctor]\nprofile = \"iron-hand\"\n";
+        let cfg = ResolvedDoctorConfig::resolve_reading_profile(Some(toml)).unwrap();
+        assert_eq!(cfg.profile.0, DoctorProfile::IronHand);
+        assert_eq!(cfg.coverage_preset, CoveragePreset::parse("tdd-iron-hand"));
+        assert_eq!(
+            effective_severity(
+                "VOCAB-CONTEXT-PURPOSE-001",
+                DoctorSeverity::Warning,
+                RuleCategory::Vocabulary,
+                &cfg
+            ),
+            Some(DoctorSeverity::Error),
+        );
+    }
+
+    /// iron-hand `parse`/`as_str` round-trip.
+    #[test]
+    fn iron_hand_profile_round_trips() {
+        assert_eq!(
+            DoctorProfile::parse("iron-hand"),
+            Some(DoctorProfile::IronHand)
+        );
+        assert_eq!(DoctorProfile::IronHand.as_str(), "iron-hand");
     }
 }

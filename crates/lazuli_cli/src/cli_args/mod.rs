@@ -45,8 +45,11 @@ pub(crate) enum Commands {
     },
     Doctor {
         input: PathBuf,
-        #[arg(long, value_enum, default_value_t = CheckSecurityProfile::Strict)]
-        security_profile: CheckSecurityProfile,
+        /// Security/doctor profile. When omitted, the manifest's
+        /// `[doctor] profile` is honored (falling back to `strict`).
+        /// An explicit flag always wins over the toml.
+        #[arg(long, value_enum)]
+        security_profile: Option<CheckSecurityProfile>,
         /// Run release-gate checks only.
         #[arg(long)]
         check_release: bool,

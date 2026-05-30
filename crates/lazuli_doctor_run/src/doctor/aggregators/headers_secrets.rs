@@ -59,7 +59,7 @@ pub(crate) fn headers_diagnostics(
     //    Prototype defer — existing fixtures + feature-port flows must
     //    keep passing on the default Strict profile.
     let severity = match security_profile {
-        SecurityProfile::Production => DoctorSeverity::Error,
+        SecurityProfile::Production | SecurityProfile::IronHand => DoctorSeverity::Error,
         SecurityProfile::Strict | SecurityProfile::Prototype => DoctorSeverity::Warning,
     };
     let author_opted_in = headers.is_some();

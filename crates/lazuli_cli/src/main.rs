@@ -195,7 +195,10 @@ fn main() -> Result<()> {
             self_audit,
         } => doctor::doctor_command_with_options(
             &input,
-            security_profile.into(),
+            // Precedence is resolved in doctor::run: explicit
+            // --security-profile flag > toml `[doctor] profile` > strict.
+            // `None` here means "no flag given; honor the manifest".
+            security_profile.map(Into::into),
             check_release,
             cli.allow_version_mismatch,
             doctor::DoctorRuntimeOptions {

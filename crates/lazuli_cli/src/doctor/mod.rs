@@ -166,7 +166,7 @@ pub(crate) fn run_package_cli(
 /// with the default runtime options.
 pub fn doctor_command(
     input: &Path,
-    security_profile: SecurityProfile,
+    security_profile: Option<SecurityProfile>,
     check_release: bool,
     allow_version_mismatch: bool,
 ) -> Result<()> {
@@ -184,7 +184,7 @@ pub fn doctor_command(
 /// into a field of `opts`.
 pub fn doctor_command_with_options(
     input: &Path,
-    security_profile: SecurityProfile,
+    security_profile: Option<SecurityProfile>,
     check_release: bool,
     allow_version_mismatch: bool,
     opts: DoctorRuntimeOptions,
@@ -200,6 +200,24 @@ pub fn doctor_command_with_options(
             })?;
         crate::version::enforce_manifest_pin(manifest.as_ref())?;
     }
+
+    // Precedence: explicit `--security-profile` flag > toml `[doctor]
+    // profile` > default strict. When no flag was given (`None`), defer to
+    // the manifest's declared profile (the wart fix — previously the flag's
+    // clap default always won, masking `[doctor] profile`). This keeps the
+    // CLI consistent with the LSP, which already honors `[doctor] profile`
+    // via `ResolvedDoctorConfig::resolve_reading_profile`.
+    let security_profile = security_profile.unwrap_or_else(|| {
+        let project_root = lazuli_doctor_run::entry_support::doctor_project_root(input);
+        lazuli_manifest::lazurite_manifest::load(&project_root)
+            .ok()
+            .flatten()
+            .and_then(|m| m.doctor)
+            .and_then(|d| d.profile)
+            .as_deref()
+            .and_then(SecurityProfile::parse)
+            .unwrap_or(SecurityProfile::Strict)
+    });
 
     if check_release {
         return release::doctor_release_command(input);
