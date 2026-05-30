@@ -47,6 +47,22 @@ impl Finding {
     pub const CODE: &'static str = "VOCAB-KNOWLEDGE-STALE-001";
 
     /// Render the "gold doc overdue for revalidation" message.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::vocab::vocab_knowledge_stale_001::Finding;
+    /// use std::path::PathBuf;
+    ///
+    /// let finding = Finding {
+    ///     path: PathBuf::from("knowledge/billing/0001-charge-model.md"),
+    ///     sector: "billing".to_owned(),
+    ///     revalidate_by: "2025-01-01".to_owned(),
+    ///     today: "2026-05-29".to_owned(),
+    /// };
+    /// assert!(finding.message().contains("past its `revalidate_by"));
+    /// assert_eq!(Finding::CODE, "VOCAB-KNOWLEDGE-STALE-001");
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "gold knowledge doc `{}` (sector `{}`) is past its `revalidate_by: {}` (today is \
@@ -68,6 +84,18 @@ impl Finding {
 /// `revalidate_by` is strictly less than `today`. Docs without a
 /// `revalidate_by`, non-gold docs, and docs with a malformed date are
 /// skipped (the date well-formedness is not this rule's job).
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::vocab::vocab_knowledge_stale_001::check;
+/// use std::path::Path;
+///
+/// // No vault on disk for this sector => no findings (the rule is silent
+/// // for projects that declare no `knowledge/` sector).
+/// let findings = check(Path::new("nonexistent-project-root"), "billing", "2026-05-29");
+/// assert!(findings.is_empty());
+/// ```
 pub fn check(project_root: &Path, sector: &str, today: &str) -> Vec<Finding> {
     let docs = scan_sector(project_root, sector);
     check_docs(&docs, sector, today)

@@ -68,18 +68,15 @@ fn emit_filter_config(filters: &[FilterDecl]) -> String {
 }
 
 fn emit_filter_entry(filter: &FilterDecl) -> String {
-    // GAP-UX-07 — date_range lowers to a paired from/to picker. The runtime
-    // `useFilterState` helper reads `fromKey`/`toKey` for `mode: "date_range"`
-    // and surfaces the two query params (`<name>_from` / `<name>_to`).
-    if matches!(filter.cardinality, FilterCardinality::DateRange) {
-        return emit_date_range_filter_entry(filter);
-    }
-
+    // GAP-UX-07 — date_range lowers to a paired from/to picker via a dedicated
+    // emitter (the runtime `useFilterState` helper reads `fromKey`/`toKey` for
+    // `mode: "date_range"` and surfaces `<name>_from` / `<name>_to`). Routing
+    // it from the match arm keeps the match exhaustive — a new cardinality
+    // variant becomes a compile error here, not a runtime `unreachable!`.
     let mode = match filter.cardinality {
         FilterCardinality::Single => "single",
         FilterCardinality::Multi => "multi",
-        // Handled above by the early return.
-        FilterCardinality::DateRange => unreachable!("date_range routed to dedicated emitter"),
+        FilterCardinality::DateRange => return emit_date_range_filter_entry(filter),
     };
 
     let mut fields = vec![format!("mode: \"{mode}\"")];

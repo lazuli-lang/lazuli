@@ -125,6 +125,53 @@ pub fn walk_workspace_rust_sources(workspace_root: &Path) -> Vec<RustSourceFile>
     out
 }
 
+/// True for a SPEC-19 module-split fragment basename — a file whose pub
+/// items, docs, and tests are owned by a canonical sibling module rather
+/// than by the fragment itself. Three shapes qualify:
+///
+/// - `<base>_tests.rs` — the `#[cfg(test)]` sibling of `<base>.rs`.
+/// - `<base>_p<N>.rs` — an `include!`d body chunk (`lifecycle_p1.rs`, …).
+/// - `<base>_impl<N>.rs` — an `include!`d method/impl chunk
+///   (`dispatch_impl1.rs`, `package_methods_impl2.rs`, …).
+///
+/// The internal-hygiene audits (`INTERNAL-UNDOC-PUB-001`,
+/// `INTERNAL-NO-EXAMPLE-001`, `INTERNAL-TEST-PAIRING-001`) skip these so a
+/// single logical module is audited once — at its canonical file — not once
+/// per `include!` fragment. `<base>.rs` (the file holding the `include!`s)
+/// is still audited normally.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::internal_hygiene::walker::is_split_fragment_name;
+///
+/// assert!(is_split_fragment_name("widget_tests.rs"));
+/// assert!(is_split_fragment_name("lifecycle_p2.rs"));
+/// assert!(is_split_fragment_name("dispatch_impl1.rs"));
+/// // The canonical file that hosts the `include!`s is NOT a fragment.
+/// assert!(!is_split_fragment_name("dispatch.rs"));
+/// assert!(!is_split_fragment_name("widget.rs"));
+/// ```
+pub fn is_split_fragment_name(name: &str) -> bool {
+    if name.ends_with("_tests.rs") {
+        return true;
+    }
+    let Some(stem) = name.strip_suffix(".rs") else {
+        return false;
+    };
+    // `<base>_p<N>.rs` / `<base>_impl<N>.rs` — a marker immediately followed
+    // by one-or-more digits at the end of the stem.
+    for marker in ["_impl", "_p"] {
+        if let Some(pos) = stem.rfind(marker) {
+            let digits = &stem[pos + marker.len()..];
+            if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 fn walk_dir_recursive(
     workspace_root: &Path,
     crate_name: &str,

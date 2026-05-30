@@ -55,6 +55,22 @@ impl Finding {
 
     /// Render the "unknown sector" message, naming the feature, the
     /// sector, and the three ways to make the reference resolve.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::vocab::vocab_knowledge_sector_unknown_001::Finding;
+    /// use std::path::PathBuf;
+    ///
+    /// let finding = Finding {
+    ///     path: PathBuf::from("features/billing/billing.lzi"),
+    ///     feature: "billing".to_owned(),
+    ///     sector: "biling".to_owned(),
+    ///     expected_dir: PathBuf::from("knowledge/biling"),
+    /// };
+    /// assert!(finding.message().contains("unknown sector"));
+    /// assert_eq!(Finding::CODE, "VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001");
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "feature `{}` declares `knowledge {}` but `{}` is an unknown sector — it is not in \

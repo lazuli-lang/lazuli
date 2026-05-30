@@ -53,6 +53,18 @@ pub(super) fn is_lzx_path(path: &Path) -> bool {
 /// Reduce a SemVer-shaped string to its `major.minor` prefix. Used by
 /// `LAZULI-VERSION-001` to compare the manifest pin against the IR
 /// schema version while ignoring patch jitter.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor_run::entry_support::major_minor;
+///
+/// assert_eq!(major_minor("0.5.7"), "0.5");
+/// // Patch jitter is ignored; a missing patch is fine.
+/// assert_eq!(major_minor("1.2"), "1.2");
+/// // A string without a minor component passes through unchanged.
+/// assert_eq!(major_minor("3"), "3");
+/// ```
 pub fn major_minor(version: &str) -> String {
     let mut parts = version.split('.');
     let Some(major) = parts.next() else {
@@ -466,4 +478,9 @@ pub(crate) fn cache_ttl_as_seconds(ttl: &lazuli_ir::CacheTtl) -> Option<u64> {
         }),
         lazuli_ir::CacheTtl::Quoted(_) => None,
     }
+}
+
+#[cfg(test)]
+mod tests {
+    include!("parsers_tests.rs");
 }

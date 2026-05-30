@@ -50,6 +50,16 @@ impl SymbolIndex {
     ///
     /// Matching is case-sensitive: Lazuli symbols are case-significant
     /// (`account.User` is a resource, `catalog.list` a query).
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::vocab::vocab_knowledge_dangling_cite_001::SymbolIndex;
+    ///
+    /// // An empty feature set yields an empty index — the rule then skips
+    /// // entirely (it never fires when it cannot prove a symbol is absent).
+    /// let _index = SymbolIndex::from_features(&[]);
+    /// ```
     pub fn from_features(features: &[Feature]) -> Self {
         let mut symbols = BTreeSet::new();
         for f in features {
@@ -77,6 +87,14 @@ impl SymbolIndex {
     /// Build directly from a list of fully-qualified symbol strings — the
     /// test seam, and the entry point a future driver can use when it has a
     /// pre-computed symbol table rather than `&[Feature]`.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::vocab::vocab_knowledge_dangling_cite_001::SymbolIndex;
+    ///
+    /// let _index = SymbolIndex::from_symbols(["billing", "billing.charge", "billing.Invoice"]);
+    /// ```
     pub fn from_symbols<I, S>(iter: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -116,6 +134,21 @@ impl Finding {
     pub const CODE: &'static str = "VOCAB-KNOWLEDGE-DANGLING-CITE-001";
 
     /// Render the "dangling citation" message.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::vocab::vocab_knowledge_dangling_cite_001::Finding;
+    /// use std::path::PathBuf;
+    ///
+    /// let finding = Finding {
+    ///     path: PathBuf::from("knowledge/billing/0001-charge-model.md"),
+    ///     sector: "billing".to_owned(),
+    ///     cite: "billing.ghost".to_owned(),
+    /// };
+    /// assert!(finding.message().contains("billing.ghost"));
+    /// assert_eq!(Finding::CODE, "VOCAB-KNOWLEDGE-DANGLING-CITE-001");
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "knowledge doc `{}` (sector `{}`) cites `{}`, which is not a feature or \
@@ -135,6 +168,18 @@ impl Finding {
 /// `index` is the IR-derived known-symbol set. When the index is empty (no
 /// IR features were lifted) the rule skips — it must never fire when it
 /// cannot prove a symbol is absent.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::vocab::vocab_knowledge_dangling_cite_001::{check, SymbolIndex};
+/// use std::path::Path;
+///
+/// let index = SymbolIndex::from_symbols(["billing", "billing.charge"]);
+/// // No vault on disk for this sector => no findings.
+/// let findings = check(Path::new("nonexistent-project-root"), "billing", &index);
+/// assert!(findings.is_empty());
+/// ```
 pub fn check(project_root: &Path, sector: &str, index: &SymbolIndex) -> Vec<Finding> {
     let docs = scan_sector(project_root, sector);
     check_docs(&docs, sector, index)

@@ -231,6 +231,18 @@ pub(crate) fn collect_lazuli_paths_recursive(root: &Path, paths: &mut Vec<PathBu
 /// Recursively enumerate every directory under `root` that contains
 /// a `recipe.toml` file. Used by `check_migration_recipe_*` to walk
 /// the `recipes/` tree from any nested starting point.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor_run::entry_support::collect_recipe_dirs;
+/// use std::path::{Path, PathBuf};
+///
+/// // A root that does not exist yields no recipe directories.
+/// let mut found: Vec<PathBuf> = Vec::new();
+/// collect_recipe_dirs(Path::new("nonexistent-recipes-root"), &mut found);
+/// assert!(found.is_empty());
+/// ```
 pub fn collect_recipe_dirs(root: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(root) else {
         return;
@@ -289,6 +301,17 @@ pub(super) fn lazuli_version_line(source: &str) -> Option<usize> {
 /// Lift the `LZIR_SCHEMA = "x.y.z"` literal out of
 /// `crates/lazuli_ir/src/lib.rs`. Used by the release migration
 /// recipe diagnostics to compare HEAD~1 vs current schema.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor_run::entry_support::extract_lzir_schema;
+///
+/// let src = "pub const LZIR_SCHEMA: &str = \"0.5.0\";";
+/// assert_eq!(extract_lzir_schema(src), Some("0.5.0".to_owned()));
+/// // Source with no schema literal yields `None`.
+/// assert_eq!(extract_lzir_schema("fn main() {}"), None);
+/// ```
 pub fn extract_lzir_schema(source: &str) -> Option<String> {
     source.lines().find_map(|line| {
         let trimmed = line.trim();
@@ -328,4 +351,57 @@ pub(crate) fn is_type_name(source: &str) -> bool {
     let mut chars = source.chars();
     matches!(chars.next(), Some(first) if first.is_ascii_uppercase())
         && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_lzir_schema_lifts_the_literal() {
+        let src = "// header\npub const LZIR_SCHEMA: &str = \"0.5.0\";\n";
+        assert_eq!(extract_lzir_schema(src), Some("0.5.0".to_owned()));
+    }
+
+    #[test]
+    fn extract_lzir_schema_none_when_absent() {
+        assert_eq!(extract_lzir_schema("fn main() {}"), None);
+    }
+
+    #[test]
+    fn collect_recipe_dirs_empty_on_missing_root() {
+        let mut out: Vec<PathBuf> = Vec::new();
+        collect_recipe_dirs(Path::new("definitely-not-a-real-dir"), &mut out);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn package_stem_strips_surface_modifier() {
+        assert_eq!(
+            package_stem(Path::new("customer.lzi")).as_deref(),
+            Some("customer")
+        );
+        assert_eq!(
+            package_stem(Path::new("customer.web.lzx")).as_deref(),
+            Some("customer")
+        );
+        assert_eq!(package_stem(Path::new("README.md")), None);
+    }
+
+    #[test]
+    fn derive_feature_name_reads_first_header() {
+        let src = "feature billing\n  domain {}\n";
+        assert_eq!(derive_feature_name(src).as_deref(), Some("billing"));
+        assert_eq!(derive_feature_name("app myapp\n"), None);
+    }
+
+    #[test]
+    fn leading_spaces_and_identifier_predicates() {
+        assert_eq!(leading_spaces("    x"), 4);
+        assert_eq!(leading_spaces("y"), 0);
+        assert!(is_identifier("customer_id"));
+        assert!(!is_identifier("1bad"));
+        assert!(is_type_name("Customer"));
+        assert!(!is_type_name("customer"));
+    }
 }

@@ -304,6 +304,28 @@ pub type FileLocalInjector<'a> = dyn Fn(&Path, &str) -> Vec<DoctorDiagnostic> + 
 /// on-disk `Lazurite.toml` (byte-identical to before); the LSP builds it
 /// from the unsaved editor buffer when the workspace `Lazurite.toml` is
 /// open, so in-editor severities react to unsaved `[doctor]` edits.
+///
+/// ## Examples
+///
+/// Load a project with a no-op file-local injector and the default config,
+/// then hand the package to the formatting layer:
+///
+/// ```no_run
+/// use lazuli_doctor_run::{
+///     run_package, DoctorDiagnostic, FileLocalInjector, ResolvedDoctorConfig,
+/// };
+/// use std::path::Path;
+///
+/// let config = ResolvedDoctorConfig::default();
+/// // The CLI/LSP inject Layer-1 file-local findings here; a no-op injector
+/// // runs only the package-level aggregators.
+/// let file_local: &FileLocalInjector =
+///     &|_path: &Path, _source: &str| Vec::<DoctorDiagnostic>::new();
+///
+/// let package = run_package(Path::new("path/to/project"), &config, file_local, Vec::new())
+///     .expect("load project");
+/// let _ = package;
+/// ```
 pub fn run_package(
     input: &Path,
     config: &ResolvedDoctorConfig,

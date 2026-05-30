@@ -45,6 +45,20 @@ impl Finding {
     pub const CODE: &'static str = "VOCAB-KNOWLEDGE-UNGATED-WRITE-001";
 
     /// Render the "promoted to gold without a draft phase" message.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::vocab::vocab_knowledge_ungated_write_001::Finding;
+    /// use std::path::PathBuf;
+    ///
+    /// let finding = Finding {
+    ///     path: PathBuf::from("knowledge/billing/0001-charge-model.md"),
+    ///     sector: "billing".to_owned(),
+    /// };
+    /// assert!(finding.message().contains("already-gold"));
+    /// assert_eq!(Finding::CODE, "VOCAB-KNOWLEDGE-UNGATED-WRITE-001");
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "gold knowledge doc `{}` (sector `{}`) was never gated through `draft` in git \
@@ -95,6 +109,17 @@ pub(crate) fn fires(tier_is_gold: bool, probe: GateProbe) -> bool {
 ///
 /// `project_root` is both the vault anchor and the git working-tree root the
 /// history probe runs `git -C` against.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::vocab::vocab_knowledge_ungated_write_001::check;
+/// use std::path::Path;
+///
+/// // No vault on disk for this sector => no findings.
+/// let findings = check(Path::new("nonexistent-project-root"), "billing");
+/// assert!(findings.is_empty());
+/// ```
 pub fn check(project_root: &Path, sector: &str) -> Vec<Finding> {
     let docs = scan_sector(project_root, sector);
     let mut out = Vec::new();
@@ -113,6 +138,16 @@ pub fn check(project_root: &Path, sector: &str) -> Vec<Finding> {
 /// Pure core over a pre-scanned doc set + an injected probe resolver. Used by
 /// the end-to-end git test (real probe) and lets a future driver substitute a
 /// cached history lookup.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::vocab::vocab_knowledge_ungated_write_001::check_docs_with;
+///
+/// // No docs to probe => no findings, and the probe resolver is never called.
+/// let findings = check_docs_with(&[], "billing", |_path| None);
+/// assert!(findings.is_empty());
+/// ```
 pub fn check_docs_with<F>(docs: &[VaultDoc], sector: &str, mut probe_of: F) -> Vec<Finding>
 where
     F: FnMut(&Path) -> Option<bool>,

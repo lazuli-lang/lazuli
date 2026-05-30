@@ -229,3 +229,32 @@ pub(crate) fn generate_go(
         allow_drops,
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn check_subcommand_routes() {
+        let cli = Cli::try_parse_from(["lazuli", "check", "app.lzi"]).expect("parse");
+        assert!(matches!(cli.command, Commands::Check { .. }));
+    }
+
+    #[test]
+    fn doctor_subcommand_routes() {
+        let cli = Cli::try_parse_from(["lazuli", "doctor", "."]).expect("parse");
+        assert!(matches!(cli.command, Commands::Doctor { .. }));
+    }
+
+    #[test]
+    fn new_subcommand_routes() {
+        let cli = Cli::try_parse_from(["lazuli", "new", "my-app"]).expect("parse");
+        assert!(matches!(cli.command, Commands::New { .. }));
+    }
+
+    #[test]
+    fn dev_only_subcommand_is_not_on_the_published_surface() {
+        // `parse` / `self-doctor` live on the `lazuli-dev` binary only.
+        assert!(Cli::try_parse_from(["lazuli", "self-doctor", "."]).is_err());
+    }
+}

@@ -22,26 +22,17 @@ use super::runtime_options::DoctorRuntimeOptions;
 use super::{parse_doctor_format, parse_fail_on_specs};
 
 /// True for a SPEC-19 module-split fragment whose pub items + tests are owned
-/// by a canonical sibling module: `<base>_tests.rs` (the test sibling) or
-/// `<base>_p<N>.rs` (an `include!`d body chunk). The doc / example / test-pairing
-/// audits skip these so a single logical module is not counted N times.
+/// by a canonical sibling module (`<base>_tests.rs`, `<base>_p<N>.rs`, or
+/// `<base>_impl<N>.rs`). The doc / example / test-pairing audits skip these so a
+/// single logical module is not counted N times. Thin wrapper over the canonical
+/// [`lazuli_doctor::internal_hygiene::walker::is_split_fragment_name`].
 fn is_split_fragment(file: &lazuli_doctor::internal_hygiene::walker::RustSourceFile) -> bool {
     let name = file
         .relative_path
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("");
-    if name.ends_with("_tests.rs") {
-        return true;
-    }
-    // `<base>_p<N>.rs` — `_p` immediately followed by one-or-more digits, `.rs`.
-    if let Some(stem) = name.strip_suffix(".rs")
-        && let Some(pos) = stem.rfind("_p")
-    {
-        let digits = &stem[pos + 2..];
-        return !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit());
-    }
-    false
+    lazuli_doctor::internal_hygiene::walker::is_split_fragment_name(name)
 }
 
 pub(super) fn doctor_self_command(input: &Path, opts: &DoctorRuntimeOptions) -> Result<()> {

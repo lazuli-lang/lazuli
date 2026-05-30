@@ -44,6 +44,21 @@ impl Finding {
 
     /// Render the "solo sector" message, naming the sector, the single
     /// declaring feature, and the cut-in/cut-out decision the author owes.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::vocab::vocab_knowledge_single_feature_001::Finding;
+    /// use std::path::PathBuf;
+    ///
+    /// let finding = Finding {
+    ///     path: PathBuf::from("features/billing/billing.lzi"),
+    ///     feature: "billing".to_owned(),
+    ///     sector: "charge-model".to_owned(),
+    /// };
+    /// assert!(finding.message().contains("only one feature"));
+    /// assert_eq!(Finding::CODE, "VOCAB-KNOWLEDGE-SINGLE-FEATURE-001");
+    /// ```
     pub fn message(&self) -> String {
         format!(
             "`knowledge {}` is declared by only one feature (`{}`). A knowledge sector is \
@@ -110,8 +125,11 @@ pub fn check(features: &[FeatureEntry<'_>]) -> Vec<Finding> {
 
     let mut out = Vec::new();
     for (sector, decls) in declarers {
-        if decls.len() == 1 {
-            let (path, feature) = decls.into_iter().next().expect("len == 1");
+        // A solo-declared sector is exactly one `(path, feature)` pair; take
+        // the single entry without a panic-prone `.expect` on the length.
+        if let [_] = decls.as_slice()
+            && let Some((path, feature)) = decls.into_iter().next()
+        {
             out.push(Finding {
                 path,
                 feature,

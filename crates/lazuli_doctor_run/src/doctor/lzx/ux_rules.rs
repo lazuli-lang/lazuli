@@ -53,9 +53,18 @@ pub struct Finding {
     pub message: String,
 }
 
+/// GAP-UX-02 — `view … wizard_steps current <field>`: the stepped field
+/// must reference a declared enum field on the bound resource, with one
+/// step per variant.
 pub const WIZARD_STEPS_CODE: &str = "LZX-WIZARD-STEPS-EXPR-001";
+/// GAP-UX-03 — `view … tabs group <field>`: each tab `case` must match a
+/// variant of the grouped enum field (exhaustive, no stray cases).
 pub const TAB_GROUP_CASE_CODE: &str = "LZX-TAB-GROUP-CASE-001";
+/// GAP-UX-03 — `view … tabs … <view>`: each tab must reference a view that
+/// exists on the same audience.
 pub const TAB_VIEW_REF_CODE: &str = "LZX-TAB-VIEW-REF-001";
+/// GAP-UX-04 — `view.<mode>`: the render mode keyword must be one of the
+/// closed view-mode catalog (`table`, `kanban`, `calendar`, …).
 pub const VIEW_MODE_CODE: &str = "LZX-VIEW-MODE-001";
 /// GAP-UX-05 — `view.board lanes derived_from <field>`: the lane source must
 /// be a declared enum field (one lane per variant) or a has_many relation on
@@ -67,7 +76,7 @@ pub const BOARD_LANES_CODE: &str = "LZX-BOARD-LANES-001";
 pub const REPEATABLE_SUM_CODE: &str = "LZX-REPEATABLE-SUM-001";
 
 /// Run all four W6 surface UX rules across the module.
-pub fn check(module: &Module) -> Vec<Finding> {
+pub(crate) fn check(module: &Module) -> Vec<Finding> {
     let mut out = Vec::new();
     for feature in &module.features {
         for surface in &feature.surfaces {

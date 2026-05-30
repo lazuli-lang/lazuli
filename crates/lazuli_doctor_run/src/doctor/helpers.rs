@@ -84,6 +84,19 @@ pub(super) fn resolve_test_discipline_severity(
 /// internal-hygiene category. Under `tdd-iron-hand`, every `INTERNAL-*`
 /// rule escalates to `Error`; otherwise the per-rule default carried
 /// by the dispatcher stands.
+///
+/// ## Examples
+///
+/// With no preset active the caller's per-rule default stands:
+///
+/// ```rust
+/// use lazuli_doctor_run::DoctorSeverity;
+/// use lazuli_doctor_run::entry_support::resolve_internal_hygiene_severity;
+///
+/// let resolved =
+///     resolve_internal_hygiene_severity(DoctorSeverity::Warning, "INTERNAL-UNDOC-PUB-001", None);
+/// assert_eq!(resolved, DoctorSeverity::Warning);
+/// ```
 pub fn resolve_internal_hygiene_severity(
     default: DoctorSeverity,
     code: &str,
@@ -125,6 +138,17 @@ pub(super) fn resolve_lzi_hygiene_severity(
 /// (`INTERNAL-PANIC-*`, `INTERNAL-ERROR-*`, `ERROR-*`, `HANDLER-*`).
 /// Under `tdd-iron-hand`, every error-handling code escalates to
 /// `Error`; otherwise the per-rule default stands.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor_run::DoctorSeverity;
+/// use lazuli_doctor_run::entry_support::resolve_error_handling_severity;
+///
+/// let resolved =
+///     resolve_error_handling_severity(DoctorSeverity::Warning, "INTERNAL-PANIC-UNWRAP-001", None);
+/// assert_eq!(resolved, DoctorSeverity::Warning);
+/// ```
 pub fn resolve_error_handling_severity(
     default: DoctorSeverity,
     code: &str,
@@ -146,6 +170,23 @@ pub fn resolve_error_handling_severity(
 /// resolve to the parent directory so `Lazurite.toml` / `app.lzi`
 /// lookups still find the project. Inputs without a parent fall back
 /// to `.` (single-file invocation from the repo root).
+///
+/// ## Examples
+///
+/// A single-file input resolves to its parent so manifest lookups still
+/// find the project; a directory input passes through unchanged:
+///
+/// ```rust
+/// use lazuli_doctor_run::entry_support::doctor_project_root;
+/// use std::path::Path;
+///
+/// // `billing.lzi` does not exist on disk here, so it is treated as a file
+/// // input and resolves to its parent directory.
+/// assert_eq!(
+///     doctor_project_root(Path::new("features/billing/billing.lzi")),
+///     Path::new("features/billing"),
+/// );
+/// ```
 pub fn doctor_project_root(input: &Path) -> PathBuf {
     if input.is_dir() {
         return input.to_path_buf();
@@ -198,4 +239,51 @@ pub(crate) fn line_col_for_offset_in_file(path: &Path, offset: usize) -> (usize,
         return (1, 1);
     };
     line_col_for_offset(&source, offset)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn project_root_of_file_input_is_parent_dir() {
+        let root = doctor_project_root(Path::new("features/billing/billing.lzi"));
+        assert_eq!(root, PathBuf::from("features/billing"));
+    }
+
+    #[test]
+    fn project_root_of_parentless_file_falls_back_to_dot() {
+        assert_eq!(doctor_project_root(Path::new("app.lzi")), PathBuf::from(""));
+    }
+
+    #[test]
+    fn severity_bridge_is_one_to_one() {
+        use lazuli_doctor::DoctorSeverity as Shared;
+        assert_eq!(DoctorSeverity::from(Shared::Error), DoctorSeverity::Error);
+        assert_eq!(
+            DoctorSeverity::from(Shared::Warning),
+            DoctorSeverity::Warning
+        );
+        assert_eq!(DoctorSeverity::from(Shared::Info), DoctorSeverity::Info);
+        assert_eq!(DoctorSeverity::from(Shared::Hint), DoctorSeverity::Hint);
+    }
+
+    #[test]
+    fn internal_hygiene_severity_defaults_through_when_no_preset() {
+        let resolved = resolve_internal_hygiene_severity(
+            DoctorSeverity::Warning,
+            "INTERNAL-UNDOC-PUB-001",
+            None,
+        );
+        assert_eq!(resolved, DoctorSeverity::Warning);
+    }
+
+    #[test]
+    fn line_col_counts_lines_and_columns_one_based() {
+        let src = "ab\ncd";
+        assert_eq!(line_col_for_offset(src, 0), (1, 1));
+        assert_eq!(line_col_for_offset(src, 1), (1, 2));
+        // offset 3 lands just after the newline → line 2, column 1.
+        assert_eq!(line_col_for_offset(src, 3), (2, 1));
+    }
 }

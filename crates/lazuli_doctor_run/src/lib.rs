@@ -34,6 +34,10 @@ pub use doctor::{
     DoctorConstruct, DoctorDiagnostic, DoctorFix, DoctorPackage, DoctorSeverity, FileLocalInjector,
     folder, run_package,
 };
+// `ResolvedDoctorConfig` rides in `run_package`'s signature, so re-export it
+// here: external callers (the LSP, the CLI's thin shim) can name the config
+// type without taking a second direct dependency on `lazuli_doctor_config`.
+pub use lazuli_doctor_config::ResolvedDoctorConfig;
 
 /// Helpers reused by the CLI's `lazuli doctor` entry layer (`--self`,
 /// `--check-release`) which stays in `lazuli_cli`. These are doctor

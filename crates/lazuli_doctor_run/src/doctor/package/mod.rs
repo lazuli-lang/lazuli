@@ -51,6 +51,16 @@ use load_lzx::process_lzx_file;
 use load_plan_gate::build_plan_gate_facts;
 use state::{LoadAccumulator, LoadContext};
 
+/// A loaded Lazuli project ready for the doctor engine to run rules against.
+///
+/// Built once per `lazuli doctor` invocation (or per LSP package run) by
+/// walking the project root, parsing + lowering every `.lzi`/`.lzx`, and
+/// pinning the resolved configuration that drives every severity decision.
+/// Each `*_diagnostics` method on this struct is one aggregator over the
+/// loaded facts; [`crate::run_package`] threads them together into the final
+/// [`DoctorDiagnostic`] stream. All fields are `pub(super)` so the per-rule
+/// sibling modules under `doctor/` read the loaded facts directly without a
+/// widening accessor.
 #[derive(Debug)]
 pub struct DoctorPackage {
     pub(super) project_root: PathBuf,

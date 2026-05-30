@@ -26,11 +26,24 @@ use lazuli_doctor_config::{
     DoctorProfile as SecurityProfile, ResolvedDoctorConfig, SeverityOverride, effective_severity,
 };
 
+/// The CLI-side severity of a doctor finding — the resolved level a
+/// [`DoctorDiagnostic`] carries after preset / profile / manifest-override
+/// resolution. Mirrors `lazuli_doctor::DoctorSeverity` (the shared enum the
+/// preset machinery speaks) via a 1:1 `From` bridge; this copy keeps the
+/// engine's public envelope independent of the resolver crate's type.
+///
+/// Ordering of intent (most → least urgent): `Error` fails the
+/// `--fail-on` gate, `Warning` surfaces but does not gate, `Info` is
+/// advisory, `Hint` is the lightest editor nudge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DoctorSeverity {
+    /// Gating severity — trips `--fail-on` and a non-zero exit.
     Error,
+    /// Surfaced in output but does not fail the build.
     Warning,
+    /// Advisory finding; informational only.
     Info,
+    /// Lightest nudge — editor hint severity.
     Hint,
 }
 
@@ -140,6 +153,29 @@ impl DoctorDiagnostic {
     /// Render one diagnostic row in the canonical `lazuli doctor` text
     /// format (`path:line:col: severity [CODE]: message`). The CLI calls
     /// this for every finding in text mode.
+    ///
+    /// ## Examples
+    ///
+    /// ```no_run
+    /// use lazuli_doctor_run::{DoctorDiagnostic, DoctorSeverity};
+    /// use std::path::PathBuf;
+    ///
+    /// let diagnostic = DoctorDiagnostic {
+    ///     path: PathBuf::from("features/billing/billing.lzi"),
+    ///     line: 12,
+    ///     column: 3,
+    ///     severity: DoctorSeverity::Warning,
+    ///     code: "VOCAB-KNOWLEDGE-STALE-001".to_owned(),
+    ///     message: "gold doc overdue for revalidation".to_owned(),
+    ///     category: None,
+    ///     feature_name: None,
+    ///     construct: None,
+    ///     fix: None,
+    ///     group: None,
+    /// };
+    /// // Prints: features/billing/billing.lzi:12:3: warning [VOCAB-KNOWLEDGE-STALE-001]: ...
+    /// diagnostic.print();
+    /// ```
     pub fn print(&self) {
         let severity = match self.severity {
             DoctorSeverity::Error => "error",

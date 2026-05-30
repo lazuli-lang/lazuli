@@ -43,6 +43,24 @@ impl Finding {
 
     /// Render the "two unsuperseded gold docs" message, listing the
     /// colliding paths.
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// use lazuli_doctor::vocab::vocab_knowledge_dup_topic_001::Finding;
+    /// use std::path::PathBuf;
+    ///
+    /// let finding = Finding {
+    ///     sector: "billing".to_owned(),
+    ///     topic: "charge-model".to_owned(),
+    ///     docs: vec![
+    ///         PathBuf::from("knowledge/billing/0001-charge-model.md"),
+    ///         PathBuf::from("knowledge/billing/0007-charge-model.md"),
+    ///     ],
+    /// };
+    /// assert!(finding.message().contains("charge-model"));
+    /// assert_eq!(Finding::CODE, "VOCAB-KNOWLEDGE-DUP-TOPIC-001");
+    /// ```
     pub fn message(&self) -> String {
         let list = self
             .docs
@@ -66,6 +84,17 @@ impl Finding {
 // ── detection ─────────────────────────────────────────────────────────────────
 
 /// Run VOCAB-KNOWLEDGE-DUP-TOPIC-001 over a sector's vault.
+///
+/// ## Examples
+///
+/// ```rust
+/// use lazuli_doctor::vocab::vocab_knowledge_dup_topic_001::check;
+/// use std::path::Path;
+///
+/// // No vault on disk for this sector => no findings.
+/// let findings = check(Path::new("nonexistent-project-root"), "billing");
+/// assert!(findings.is_empty());
+/// ```
 pub fn check(project_root: &Path, sector: &str) -> Vec<Finding> {
     let docs = scan_sector(project_root, sector);
     check_docs(&docs, sector)

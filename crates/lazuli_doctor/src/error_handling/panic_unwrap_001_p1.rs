@@ -103,6 +103,20 @@ fn is_rails_test_file(path: &std::path::Path) -> bool {
     {
         return true;
     }
+    // SPEC-19 `_p<N>` chunks of a `_tests.rs` sibling (e.g.
+    // `handler_signature_mismatch_001_tests_p1.rs`) are test code too: the
+    // `#[cfg(test)] mod tests { include!(...) }` wrapper lives in the canonical
+    // `<base>_tests.rs`, so the chunk file carries no `#[cfg(test)]` of its own
+    // and the depth-tracker can't see it. Strip a trailing `_p<digits>` and
+    // re-check for the `_tests` sibling marker.
+    if let Some(stem) = name.strip_suffix(".rs")
+        && let Some((head, digits)) = stem.rsplit_once("_p")
+        && !digits.is_empty()
+        && digits.bytes().all(|b| b.is_ascii_digit())
+        && head.ends_with("_tests")
+    {
+        return true;
+    }
     let s = path.to_string_lossy().replace('\\', "/");
     for component in s.split('/') {
         if component == "tests" || component == "lib_tests" {

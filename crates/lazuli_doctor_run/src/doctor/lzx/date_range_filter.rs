@@ -30,7 +30,7 @@ impl Finding {
     pub const CODE: &'static str = "LZX-DATE-RANGE-001";
 
     /// Render the canonical diagnostic message.
-    pub fn message(filter: &str, resource: &str) -> String {
+    pub(crate) fn message(filter: &str, resource: &str) -> String {
         format!(
             "date_range filter '{filter}' must bind a Date or DateTime field \
              named '{filter}' on resource {resource}"
@@ -39,7 +39,7 @@ impl Finding {
 }
 
 /// Run `LZX-DATE-RANGE-001` across all `.lzx` surfaces in the module.
-pub fn check(module: &Module) -> Vec<Finding> {
+pub(crate) fn check(module: &Module) -> Vec<Finding> {
     let mut out = Vec::new();
     for feature in &module.features {
         for surface in &feature.surfaces {

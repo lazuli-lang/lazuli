@@ -68,10 +68,12 @@ fn lsp_token_type(token: SemanticToken) -> SemanticTokenType {
 /// in [`SEMANTIC_TOKEN_ORDER`], i.e. `SemanticToken as u32`. The two are
 /// asserted equal by [`tests::legend_order_matches_registry_variants`].
 fn token_type_index(token: SemanticToken) -> u32 {
-    SEMANTIC_TOKEN_ORDER
-        .iter()
-        .position(|t| *t == token)
-        .expect("every registry variant is in SEMANTIC_TOKEN_ORDER") as u32
+    // The legend publishes variants in discriminant order, so the encoded
+    // `token_type` index IS the enum discriminant — no list scan, no panic.
+    // `tests::legend_order_matches_registry_variants` pins the invariant
+    // (`SEMANTIC_TOKEN_ORDER[i] as u32 == i`), so this cast can never drift
+    // from the published legend.
+    token as u32
 }
 
 /// The minimal token-modifier set. We classify no modifiers today (the

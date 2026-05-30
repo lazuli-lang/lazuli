@@ -120,3 +120,34 @@ pub fn run_dev() -> Result<()> {
         ),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn self_doctor_subcommand_parses() {
+        let cli = DevCli::try_parse_from(["lazuli-dev", "self-doctor", "."]).expect("parse");
+        assert!(matches!(cli.command, DevCommands::SelfDoctor { .. }));
+    }
+
+    #[test]
+    fn parse_subcommand_parses() {
+        let cli = DevCli::try_parse_from(["lazuli-dev", "parse", "app.lzi"]).expect("parse");
+        assert!(matches!(cli.command, DevCommands::Parse { .. }));
+    }
+
+    #[test]
+    fn global_allow_version_mismatch_flag_is_threaded() {
+        let cli =
+            DevCli::try_parse_from(["lazuli-dev", "parse", "app.lzi", "--allow-version-mismatch"])
+                .expect("parse");
+        assert!(cli.allow_version_mismatch);
+        assert!(matches!(cli.command, DevCommands::Parse { .. }));
+    }
+
+    #[test]
+    fn unknown_subcommand_is_rejected() {
+        assert!(DevCli::try_parse_from(["lazuli-dev", "definitely-not-a-command"]).is_err());
+    }
+}
