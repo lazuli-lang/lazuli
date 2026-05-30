@@ -113,7 +113,7 @@ Per the `mobile-target` proposal (operational archive) §9. The catalog of `lzx-
 These diagnostics are emitted by `crates/lazuli_doctor/src/route_guard/`
 during `lazuli doctor` walks of `.lzx` files. They cover the
 escape-hatch surface added by
-`docs/proposals/ir-route-guard-escape-hatch-2026-05-28.md` §4.3 —
+`lazuli-ops/docs/proposals/ir-route-guard-escape-hatch-2026-05-28.md` §4.3 —
 `requires_lifecycle_in`, the composed `forbid_when ... only_when
 lifecycle ...`, and the `requires <feature>.lookup_my.<field> =
 <literal> on_unmet redirect "..."` row-field predicate. All codes

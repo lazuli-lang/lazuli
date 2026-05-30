@@ -469,7 +469,7 @@ source that only fails later.
   (`TestZeroAuthoringPolicyDeniedEmitsBuiltinPTBR` in
   `runtime/go/lazuli/http_error_resolution_smoke_test.go`) asserts the
   legacy jargon string never reaches the wire payload. See
-  `docs/proposals/ir-error-messages-vocab.md` §2.D and §2.E.
+  `lazuli-ops/docs/proposals/ir-error-messages-vocab.md` §2.D and §2.E.
 - Sensitive fields marked with `@pii.*`, `@cap.Encrypted`, `@cap.Hashed`,
   `@cap.E2ee`, or `@cap.Token` declare field-level `read` and `write` policy.
 - `registry.env` is the canonical home for environment schema. Every

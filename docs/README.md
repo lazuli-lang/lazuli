@@ -100,7 +100,7 @@ Docs are held to the code by three tiers, so the canon cannot drift unnoticed:
 2. **Verified** — `docs_hygiene` (`cargo test -p lazuli_cli --test docs_hygiene`) asserts that every `path/file.ext[:line]` citation and every inter-doc Markdown link in a maintained doc resolves. A moved source file or a deleted doc fails CI.
 3. **Reviewed** — `cargo run -p xtask -- docs-staleness` flags any doc whose cited source files changed *after* the doc was last touched. Self-maintaining: no `last_reviewed` date to remember — git is the source of truth. Run it periodically (a nightly/weekly job), not on every build.
 
-`docs/proposals/*` are archived design snapshots (the live archive moved to the operational repo); they are frozen and exempt from the gates.
+Design **proposals live entirely in the operational repo** (`lazuli-ops/docs/proposals/`), not in this public doc set — public canon is English-only and normative; proposal narrative (and any non-English drafting) stays operational. Citations to `lazuli-ops/docs/proposals/*` are exempt from the link gates (they resolve outside this repo).
 
 ## Conventions used in this doc set
 

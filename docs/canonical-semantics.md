@@ -950,7 +950,7 @@ eight closed-catalog framework codes. The `customer` feature in
 ```
 
 The fixture exercises every authoring layer the error contract recognizes. See
-`docs/proposals/ir-error-messages-vocab.md` for the design rationale; the
+`lazuli-ops/docs/proposals/ir-error-messages-vocab.md` for the design rationale; the
 sections below describe the resolved surface as it ships.
 
 ### Exposure rules

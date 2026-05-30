@@ -701,14 +701,14 @@ only; `handler_go` parses Go's coverprofile output but never invokes
 only consumes the resulting artifacts.
 
 **Triggered by:** the framework-side gap surfaced in the audit
-(`docs/proposals/test-completeness-lints.md` §1) — `tests` slot
+(`lazuli-ops/docs/proposals/test-completeness-lints.md` §1) — `tests` slot
 present, zero enforcement. Wave 6 closes the loop by making the
 coverage observable + gateable + reportable in the same JSON shape
 agents and CI already consume. Provenance:
-`docs/proposals/tdd-bdd-first-2026-05-23.md` Wave 6. The
+`lazuli-ops/docs/proposals/tdd-bdd-first-2026-05-23.md` Wave 6. The
 2026-05-27 refinement (Probes Q-E + Q-F, `spec_polarity` layer,
 auto-BLOCK escalation) is provenance:
-`docs/proposals/grader-anti-theater-hardening.md` §4.2 — closes
+`lazuli-ops/docs/proposals/grader-anti-theater-hardening.md` §4.2 — closes
 the polarity-blind + stub-state-pinned gaps surfaced by the
 canonical pilot-A incident (bugs D + E).
 
@@ -899,7 +899,7 @@ the rubric is hardened against.
 
 **Triggered by:** the canonical pilot-A 2026-05-27 incident
 (Google sign-in production break under green-doctor iron-hand).
-Provenance: `docs/proposals/grader-anti-theater-hardening.md` v0.2
+Provenance: `lazuli-ops/docs/proposals/grader-anti-theater-hardening.md` v0.2
 (self-graded 8.75 PASS strict). The five bug classes map 1:1 to
 the architect-wave proposals
 (`HANDLER-SIGNATURE-MISMATCH-001`, `HANDLER-SQL-COLUMN-DRIFT-001`,
@@ -939,7 +939,7 @@ Grader runs:
 
 ```bash
 rg -n -i 'deprecat|legacy|prefer.*vocab|should.*declarative|escape.*hatch.*last' \
-   docs/proposals/<proposal>.md
+   lazuli-ops/docs/proposals/<proposal>.md
 rg -n 'handler.*should|fn.*deprecated|imperative.*warning' \
    crates/lazuli_cli/src/doctor/mod.rs crates/lazuli_doctor/src/
 ```

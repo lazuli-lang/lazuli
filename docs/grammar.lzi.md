@@ -648,7 +648,7 @@ A command-level `when_denied` is the highest-precedence step in the error
 resolver chain — it overrides any per-policy `when_denied` and any
 feature-level `errors policy_denied message ...` catch-all for this one
 command. See `docs/canonical-semantics.md` (errors section) for the four-layer
-resolver chain and `docs/proposals/ir-error-messages-vocab.md` §2 for the
+resolver chain and `lazuli-ops/docs/proposals/ir-error-messages-vocab.md` §2 for the
 design rationale.
 
 ```lazuli
@@ -1054,7 +1054,7 @@ budget_scope      = "request" ;        (* aggregate scopes are pack territory *)
 
 `knowledge` is a scalar meta statement (`knowledge_stmt` — `knowledge <sector>`, sibling of
 `purpose` / `non_goals`), cross-checked against its on-disk vault by the
-`VOCAB-KNOWLEDGE-*` doctor rules. See `docs/proposals/knowledge-sector-field.md`.
+`VOCAB-KNOWLEDGE-*` doctor rules. See `lazuli-ops/docs/proposals/knowledge-sector-field.md`.
 (Feature context prose is resolved by the `<feature>.ctx.md` convention, not a
 keyword; the former `attach_ctx` meta statement is retired — `E-ATTACH-CTX-RETIRED`.)
 

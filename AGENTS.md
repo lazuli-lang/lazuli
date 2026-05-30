@@ -226,7 +226,8 @@ resolved.
    source and are freshness-gated.
 2. **Verified** — `cargo test -p lazuli_cli --test docs_hygiene` asserts every
    `path/file.ext` citation and inter-doc link in a maintained doc resolves (a
-   moved file or deleted doc fails CI). `docs/proposals/*` (archived) and
+   moved file or deleted doc fails CI). Citations to `lazuli-ops/docs/proposals/*`
+   (the operational proposal archive — proposals do NOT live in public canon) and
    `runtime/*` (unbuilt) are exempt.
 3. **Reviewed** — `cargo run -p xtask -- docs-staleness` flags any doc whose
    cited source changed after the doc was last touched. Self-maintaining (git is
@@ -256,7 +257,7 @@ Three conventions:
 
 2. **`## Examples` MANDATORY** for pub items with non-trivial use. Show progressive complexity (simple → realistic → edge). Must compile via `cargo test --doc` — enforced by `INTERNAL-NO-EXAMPLE-001` once a crate reaches W5 sweep completion. Use `# use lazuli_ir::*;` lines to hide setup; show only the meaningful invocation.
 
-3. **Cross-ref liberally** via `` [`Type`] `` / `` [`module::fn`] ``. rust-analyzer renders these as clickable hover. Point to: related fns in the same module, design proposals (`docs/proposals/...`), invariants in `docs/invariants.md`. Cross-references turn each hover into a mini-page.
+3. **Cross-ref liberally** via `` [`Type`] `` / `` [`module::fn`] ``. rust-analyzer renders these as clickable hover. Point to: related fns in the same module, design proposals (the operational archive at `lazuli-ops/docs/proposals/...`), invariants in `docs/invariants.md`. Cross-references turn each hover into a mini-page.
 
 **Canonical model**: [`crates/lazuli_doctor/src/test_discipline/mod.rs:1-40`](crates/lazuli_doctor/src/test_discipline/mod.rs) already exemplifies the style — prose paragraph, variant bullet list, cross-refs. Treat it as the template when writing module-level docs.
 
