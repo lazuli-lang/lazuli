@@ -55,6 +55,8 @@ mod emits_split_tests;
 #[cfg(test)]
 mod gap_audit01_tests;
 #[cfg(test)]
+mod rate_limit_none_tests;
+#[cfg(test)]
 mod w4_tests;
 
 pub(in crate::parser::lzi) use audit::parse_command_audit;
@@ -225,6 +227,31 @@ pub(super) fn parse_command_decl(
                 ));
             }
             i = j;
+        } else if trimmed == "rate_limit none" {
+            // Security opt-out: a mutating command may explicitly decline a rate
+            // limit, but must justify it. Runtime behaviour is identical to
+            // `rate_limit "unlimited"` (no throttle), so it lowers to the same
+            // empty-default spec; the `reason "..."` child (six-space indent,
+            // required by the LSP security rule) is consumed here so the
+            // deeper-indented line does not trip the four-space command-child
+            // check. See `docs/grammar.lzi.md` (rate_limit_clause).
+            fold_rate_limit_line(line, &mut rate_limit, "unlimited".to_owned(), None)?;
+            last_end = line.end;
+            i += 1;
+            while i < lines.len() {
+                let child = &lines[i];
+                let child_trimmed = child.text.trim_start();
+                if is_trivia(child_trimmed) {
+                    i += 1;
+                    continue;
+                }
+                if child.indent > AGENT_INDENT_AGENT_CHILD && child_trimmed.starts_with("reason ") {
+                    last_end = child.end;
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
         } else if let Some(rest) = trimmed.strip_prefix("rate_limit ") {
             let (literal, envs) = parse_rate_limit_line_body(line, rest)?;
             fold_rate_limit_line(line, &mut rate_limit, literal, envs)?;

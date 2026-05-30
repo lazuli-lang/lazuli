@@ -597,7 +597,14 @@ error_emit        = "error" IDENT_UPPER ( "if" expr )? NEWLINE ;
 policy_clause     = "policy" policy_atom_list NEWLINE
                     ( INDENT when_denied_clause DEDENT )? ;
 
-rate_limit_clause = "rate_limit" STRING NEWLINE ;
+rate_limit_clause = "rate_limit" STRING NEWLINE
+                  | "rate_limit" "none" NEWLINE
+                    ( INDENT rate_limit_reason DEDENT )? ;
+rate_limit_reason = "reason" STRING NEWLINE ;
+(* `rate_limit none` is the explicit security opt-out: a mutating command  *)
+(* declines a rate limit but must justify it via the `reason` child. It    *)
+(* lowers to the same no-throttle spec as `rate_limit "unlimited"`; the     *)
+(* reason is enforced at authoring time (LSP), not carried in the IR.       *)
 
 idempotency_clause = "idempotency" "by" idempotency_source
                      ( "," idempotency_source )* NEWLINE ;
