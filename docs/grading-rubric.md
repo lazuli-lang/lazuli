@@ -550,7 +550,7 @@ method disclosure (`weighted-by-construct-count`, `weighted-by-LOC`,
 | `spec_predicate` | Predicate branches in `requires` / `rule.when` / transition predicates | Branches with `allows when` + `denies when` covering each side | IR walk |
 | `spec_actor_matrix` | `(construct, @role.X)` pairs derived from `policy @policy.X` | Pairs touched by `permits`/`forbids` or `allows as`/`denies as` rows | IR walk |
 | `spec_transition_state` | `from <state>` slots in workflow + lifecycle transitions | Slots with ≥1 `allows from` (DeniesFrom alone is not sufficient) | IR walk |
-| `view_extensibility` | Views with `extensible_by` | Views with ≥1 `accepted by` / `rejected by` | `.lzx` walk |
+| `view_extensibility` | Views with `extensible_by` | Views with ≥1 `allows extension` / `denies extension` | `.lzx` walk |
 | `view_e2e_pair` | Declared views | Views with `e2e/<feature>/<view>.spec.ts` present | filesystem |
 | `handler_go` | Statements in `app/features/<f>/handlers/*.go` (excluding `_test.go`) | Statements with `count > 0` in `coverage.out` | `go test -coverprofile` parse |
 | `spec_polarity` | Constructs with a `tests` block | Constructs with ≥1 `allows*` (positive) AND ≥1 `denies*` (negative) assertion | IR walk |

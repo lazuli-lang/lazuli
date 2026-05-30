@@ -296,6 +296,57 @@ shipped in commit `93ac166`.
 **Where**: `docs/invariants.md` validators line. LSP
 `validation_syntax_diagnostics` warns the legacy forms.
 
+### 11. Test vocabulary is two dialects (generated vs authored), not four
+
+**Looks like friction**: the test surface once spoke four allow/deny-polarity
+verb pairs — `allows`/`denies` (predicate/edge), `permits`/`forbids`
+(generated actor matrix), `accepted by`/`rejected by` (`.lzx` view
+extensibility), and `requires`/`forbids` (agent `evals` cases) — and `forbids`
+meant two different things while `requires` meant three.
+
+**Why it isn't (anymore)**: SPEC-08 collapsed the four dialects to **two**,
+split on the one genuinely load-bearing axis — generated vs authored:
+
+- **KEPT — generated `permits`/`forbids`.** Command actor-matrix rows are
+  machine-derived from `policy @policy.*`. The distinct verb pair is a 1-bit
+  at-a-glance signal "this row is generated, do not hand-edit" — information
+  the typed subject cannot carry. This is the one test-vocabulary distinction
+  worth keeping; collapsing it would force authors to hand-write rows they
+  should never touch. Do not propose merging it into `allows`/`denies`.
+- **RETIRED — `accepted by`/`rejected by`.** Folded into
+  `allows extension <feature>` / `denies extension <feature>`. An allowlist
+  membership test is just an authored allow/deny over a typed `extension`
+  subject; the distinction lived in the SUBJECT, not the verb. Same move as
+  §10 (validator scope moved into the type, not a call-site keyword).
+- **RETIRED — eval `requires`/`forbids`.** Folded into `allows`/`denies` over
+  the agent-output predicate. Eval polarity is exactly authored allow/deny;
+  the eval-only predicate extensions (`<ref> contains …`, `tools.calls
+  includes|excludes …`) are unchanged. This also resolves the hard `forbids`
+  collision (eval negative-assertion vs generated negative-authorization row)
+  and removes one of the three `requires` overloads. The feature-header
+  `requires integration <slot>: <Cap>` dependency line and the command
+  `requires @policy.x` precondition are DIFFERENT constructs and are
+  UNCHANGED.
+
+The canonical answer to "how do I write a test?" is now: authored → always
+`allows`/`denies`, with the typed subject (`when`/`from`/`as`/`extension`/bare
+eval predicate) naming the dimension; generated → always `permits`/`forbids`.
+Two verbs, one canonical form per intent — the same no-information-in-the-verb
+entropy win as the reverted bare `query` form (§6) and the unified
+`validates field/resource` → `validates` (§10).
+
+The retired spellings hard-error in the parser: `E-TEST-ACCEPTED-BY-RETIRED`,
+`E-TEST-REJECTED-BY-RETIRED`, `E-EVAL-REQUIRES-RETIRED`,
+`E-EVAL-FORBIDS-RETIRED`. **Do not re-propose re-adding `accepted by`/
+`rejected by` or eval `requires`/`forbids`.**
+
+**Where**: `docs/invariants.md` test-vocabulary section + "View tests are
+extensibility, NOT policy". Doctor rules `TEST-EVAL-VERB-RETIRED-001`,
+`TEST-VIEW-EXTENSION-VERB-RETIRED-001`, and `TEST-MATRIX-VERB-MISPLACED-001`
+enforce the folded forms and the generated-vs-authored boundary. Parser
+`test_blocks.rs` flags hand-authored `permits`/`forbids` inside command tests
+as a generated-only smell.
+
 ### Tool effect is derived, not declared at the binding site (Cut A)
 
 `agent ... tools` lists references only — no per-tool `effect: read |

@@ -698,11 +698,11 @@ agent summarize_customer
     @tool.web_search
   evals
     case redacts_email
-      requires customer.email = "ada@example.com"
-      forbids output contains @semantic.Email
+      allows customer.email = "ada@example.com"
+      denies output contains @semantic.Email
     case uses_lookup_when_id_known
-      requires input.customer_id = "cus_123"
-      requires tools.calls includes customer.query.lookup.by_id
+      allows input.customer_id = "cus_123"
+      allows tools.calls includes customer.query.lookup.by_id
 ```
 
 - `tools` lists every capability the LLM may invoke. Effect (`read |
@@ -730,14 +730,14 @@ A `case` may also reference a golden file (Cut A.10):
 ```lazuli
 evals
   case golden_quality
-    requires output contains "active"
+    allows output contains "active"
     golden "./evals/summarize_golden.jsonl" min_score 0.85
 ```
 
 The runtime adapter loads the file and scores the agent's output;
 `min_score` (0.0–1.0) gates the case. Omitting `min_score` falls
 through to the adapter's default (0.85 by convention). Golden refs
-coexist with `requires`/`forbids` assertions — both run; failing
+coexist with `allows`/`denies` assertions — both run; failing
 either fails the case.
 
 ### `expose http` (Cut A.7)
@@ -876,12 +876,18 @@ command reorder_steps
 Tests are inline IR assertions. They are optional by default and strict in
 `lazuli check --strict-tests`.
 
+Two dialects, split on generated vs authored: generated actor-matrix rows use
+`permits`/`forbids`; everything you author uses `allows`/`denies`, with the
+typed subject (`when`/`from`/`as`/`extension`/bare eval predicate) naming the
+dimension — never a new verb.
+
 | Construct | Verbs | Binding |
 |-----------|-------|---------|
 | command | authored: `allows`/`denies when <predicate>`; generated: `permits`/`forbids <actor>` from `policy @policy.*` | `target` |
 | lifecycle transition | `allows`/`denies from <state>`; `allows`/`denies as <actor>`; combined | `self` |
 | rule | `allows`/`denies when <predicate>` | `self` |
-| extensible view | `accepted`/`rejected by <feature>` | none |
+| extensible view | `allows`/`denies extension <feature>` | none |
+| agent eval case | `allows`/`denies <eval-predicate>` | agent output |
 
 Do not copy command policy matrices into source. `lazuli inspect --expand=tests`
 and runtime test generation derive `permits`/`forbids` from the effective

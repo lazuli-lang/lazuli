@@ -134,7 +134,7 @@ source that only fails later.
     proposal forbids re-declaring at the binding. Doctor cross-checks
     policy compatibility, write-tool guarding by `safety`, and PII
     propagation from the registry-side `@tool.*` entries.
-  - `evals` — indent-6 `case <name>` blocks with `requires`/`forbids`
+  - `evals` — indent-6 `case <name>` blocks with `allows`/`denies`
     assertions over the closed predicate language extended (only inside
     evals) with `<ref> contains <"literal"|@semantic.<Type>>` and
     `tools.calls includes|excludes <tool-ref>`. Eval cases gate CI only
@@ -587,11 +587,17 @@ source that only fails later.
   `policy @policy.*`; authored command tests should cover only predicate
   behavior beyond policy.
 - Generated command actor-matrix tests use `permits` and `forbids`; authored
-  predicate and transition tests use `allows` and `denies`.
-- Keep tests vocabulary scoped by construct. Rule predicates, workflow edges,
-  workflow actor checks, and anchor allowlists are different semantic decisions;
-  do not flatten them into one generic `allow/deny` dialect unless it preserves
-  the same static rejection power and readability.
+  predicate, transition, and view-extensibility tests use `allows` and `denies`.
+  This generated-vs-authored split is now the SOLE test-vocabulary axis: it is
+  the one distinction that carries information the typed subject cannot (a 1-bit
+  "this row is machine-derived from `policy @policy.*`, do not hand-edit"
+  signal). Every other dimension is named by the subject, not a new verb.
+- Within authored tests the verb pair never changes — the typed subject after
+  `allows`/`denies` carries the dimension: `when <pred>` (rule predicate),
+  `from <state>` (workflow edge), `as <actor>` (workflow actor check),
+  `extension <feature>` (anchor allowlist, `.lzx` view tests), and a bare eval
+  predicate inside `agent` `evals` `case`. Keep these subjects distinct for
+  static rejection power; do NOT mint a separate verb for any of them.
 - Command tests use `target` when a loaded target exists. Rule and workflow
   tests use `self`.
 - Tests use the same closed predicate language as rules and filters; no
@@ -599,26 +605,29 @@ source that only fails later.
 
 ### View tests are extensibility, NOT policy (Wave 4)
 
-View tests in `.lzx` use a DIFFERENT closed vocabulary from command / rule /
-transition tests. The only admissible shapes are `accepted by <feature>` and
-`rejected by <feature>`. They assert which sibling features may extend the
-view via its anchor — they are NOT policy resolution, NOT predicate
-boundaries, NOT DOM-level interaction tests. They do NOT use `allows` /
-`denies` / `when` / `as` (those belong to commands, rules, and transitions
-per the section above).
+View tests in `.lzx` use the SAME authored `allows` / `denies` dialect as
+command / rule / transition tests — they are NOT a separate verb family. The
+typed subject `extension <feature>` is what makes them extensibility tests:
+the only admissible shapes are `allows extension <feature>` and
+`denies extension <feature>`. They assert which sibling features may extend
+the view via its anchor — they are NOT policy resolution, NOT predicate
+boundaries, NOT DOM-level interaction tests. The `extension` subject is what
+distinguishes them from `when` (predicate), `from` (edge), and `as` (actor);
+the verb is shared, the subject names the dimension (see the test-vocabulary
+section above).
 
 View tests are validated by two doctor rules:
 
 - `TEST-VIEW-EXTENSIBILITY-001` (warning) — a view that declares
-  `extensible_by` MUST author at least one `accepted by` or `rejected by`
-  assertion. Without one, the extension surface is undocumented and
-  `TEST-VIEW-DRIFT-001` cannot cross-check it.
-- `TEST-VIEW-DRIFT-001` (error) — every `accepted by <feature>` must
+  `extensible_by` MUST author at least one `allows extension` or
+  `denies extension` assertion. Without one, the extension surface is
+  undocumented and `TEST-VIEW-DRIFT-001` cannot cross-check it.
+- `TEST-VIEW-DRIFT-001` (error) — every `allows extension <feature>` must
   resolve to a sibling experience whose `extends @anchor.<X>` clause
   matches the host view's anchor. Two finding shapes: `MissingFeature`
   (the named experience does not exist) and `MissingAnchorExtension`
   (the experience exists but does not extend the host view's anchor).
-  `rejected by` is intentionally existence-tolerant: it pre-commits a
+  `denies extension` is intentionally existence-tolerant: it pre-commits a
   forbidden surface even before the would-be extender ships.
 
 View tests do NOT participate in DOM-level or interaction-level testing.

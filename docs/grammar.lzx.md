@@ -257,8 +257,10 @@ view_test_assertion = ( "allows" "extension" feature_ref NEWLINE
 ```
 
 Used by `extensible_by` anchors to verify which extension features
-the host accepts. The `allows extension` / `denies extension` shape is
-distinct from `.lzi` `tests` (which uses `allows` / `denies`).
+the host accepts. This is the SAME authored `allows` / `denies` dialect
+as `.lzi` `tests` (`grammar.lzi.md` §19) — not a separate verb family.
+The typed `extension <feature>` subject names the dimension, exactly as
+`when <pred>` / `from <state>` / `as @role.x` name theirs.
 
 ## 7a. Surface-dialect UX primitives (wave W6)
 

@@ -78,7 +78,7 @@ Inline assertions, last child of the construct. Optional by default; `--strict-t
 | command | authored `allows`/`denies when <predicate>`; generated `permits`/`forbids <actor>` from effective policy |
 | workflow transition | `allows`/`denies from <state>`; `allows`/`denies as <actor>`; combined form |
 | rule | `allows`/`denies when <predicate>` |
-| extensible view | `accepted`/`rejected by <feature>` |
+| extensible view | `allows`/`denies extension <feature>` |
 
 Tests use the same binding as the construct under test, reuse the predicate language, and do not use fixtures or mocks. Command policy matrices are derived from `policy @policy.*`; do not copy them into source. Run `lazuli test` for IR checks, or `lazuli test --runtime` for generated Go/TypeScript checks.
 
@@ -1516,8 +1516,12 @@ provenance. Authors do not restate those rows in source, because they would
 only duplicate the `policy @policy.*` contract.
 
 The actor-matrix verbs are intentionally reserved for generated authorization
-rows: `permits`/`forbids` always talk about authorization subjects, while
-`allows`/`denies` always talk about evaluated predicates or workflow edges.
+rows: `permits`/`forbids` always mark a machine-derived authorization row,
+while `allows`/`denies` always mark an assertion you authored. These are the
+ONLY two test dialects, split on the one load-bearing axis (generated vs
+authored). Within the authored dialect the verb never changes — the typed
+subject after `allows`/`denies` (`when`/`from`/`as`/`extension`/eval predicate)
+names the dimension.
 
 Workflow transition tests accept three forms with separate semantics:
 
@@ -1533,12 +1537,22 @@ tests
 
 `from <state>` tests state-machine edges, assuming an authorized actor. `as <actor>` tests policy, assuming the transition's valid source state. The combined form tests both dimensions at the intersection. Use the right form for the property being checked; the test runner uses the workflow's policy default when only `from` is present, and the transition's source state default when only `as` is present.
 
-Do not flatten every test form into a single generic `allow`/`deny` dialect in
-canonical v0. The scoped vocabulary is deliberate. `when` means predicate
+The dimension is carried by the SUBJECT after the verb, not by a separate
+verb. Within authored tests there is exactly one verb pair — `allows`/`denies`
+— and the typed subject names what is being tested: `when` means predicate
 evaluation, `from` means state-machine edge, `as` means actor authorization,
-and `accepted/rejected by` means anchor allowlist membership. Keeping those
-shapes distinct gives the parser and LSP useful rejection power and gives
-humans/agents a local clue about which semantic dimension is being tested.
+`extension` means anchor allowlist membership (used by `.lzx` view tests), and
+a bare eval predicate inside an `agent` `evals` `case` means agent-output
+assertion. Keeping those subjects distinct gives the parser and LSP useful
+rejection power and gives humans/agents a local clue about which semantic
+dimension is being tested — without minting a new verb for each one. (Earlier
+drafts spelled view extensibility as `accepted/rejected by <feature>` and eval
+assertions as `requires`/`forbids`; both were folded into `allows`/`denies`
+over their typed subject, since the distinction lived in the subject, not the
+verb.) The one verb pair that stays distinct is the generated `permits`/`forbids`
+actor matrix: that 1-bit "machine-derived, do not hand-edit" signal carries
+information the subject cannot, so it survives as the second — and only other —
+dialect.
 
 Rule tests accept:
 
@@ -1559,9 +1573,9 @@ view detail SidePanel id @anchor.customer_detail
   block @client.activity_timeline
 
   tests
-    accepted by customer_tags
-    accepted by customer_import
-    rejected by billing
+    allows extension customer_tags
+    allows extension customer_import
+    denies extension billing
 ```
 
 The whitelist is owned by the target view, so tests live there. `extends` blocks on the consumer side do not declare tests; they exercise the whitelist by participation.

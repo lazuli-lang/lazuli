@@ -1000,7 +1000,7 @@ evals_block       = "evals" NEWLINE
                     INDENT eval_case+ DEDENT ;
 eval_case         = "case" IDENT_LOWER NEWLINE
                     INDENT eval_assertion+ DEDENT ;
-eval_assertion    = ( "requires" | "forbids" ) eval_predicate NEWLINE ;
+eval_assertion    = ( "allows" | "denies" ) eval_predicate NEWLINE ;
 
 eval_predicate    = predicate
                   | eval_contains
@@ -1130,10 +1130,21 @@ test_assertion    = ( "allows" | "denies" )
                     test_clause+ NEWLINE ;
 test_clause       = "from" enum_value
                   | "as" actor_ref
-                  | "when" expr ;
+                  | "when" expr
+                  | "extension" feature_ref ;
 actor_ref         = "@role." IDENT_LOWER
                   | "@actor." IDENT_LOWER ;
 ```
+
+Authored tests speak ONE verb pair — `allows` / `denies` — and let the
+typed subject after the verb name the dimension: `when <pred>` for a
+predicate, `from <state>` / `as @role.x` for a transition edge/actor,
+and `extension <feature>` for view extensibility. The `extension`
+subject is shared with `.lzx` view tests (`grammar.lzx.md` §7), which
+reuse this same `test_assertion` rather than a separate verb family.
+Generated command actor-matrix rows are the one exception: they use
+`permits` / `forbids` (Section on command tests) to signal "this row is
+machine-derived from `policy @policy.*`, do not hand-edit."
 
 ## 20. Predicate language (closed)
 
