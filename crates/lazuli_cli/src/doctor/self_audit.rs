@@ -21,6 +21,29 @@ use lazuli_manifest::lazurite_manifest;
 use super::runtime_options::DoctorRuntimeOptions;
 use super::{parse_doctor_format, parse_fail_on_specs};
 
+/// True for a SPEC-19 module-split fragment whose pub items + tests are owned
+/// by a canonical sibling module: `<base>_tests.rs` (the test sibling) or
+/// `<base>_p<N>.rs` (an `include!`d body chunk). The doc / example / test-pairing
+/// audits skip these so a single logical module is not counted N times.
+fn is_split_fragment(file: &lazuli_doctor::internal_hygiene::walker::RustSourceFile) -> bool {
+    let name = file
+        .relative_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    if name.ends_with("_tests.rs") {
+        return true;
+    }
+    // `<base>_p<N>.rs` — `_p` immediately followed by one-or-more digits, `.rs`.
+    if let Some(stem) = name.strip_suffix(".rs")
+        && let Some(pos) = stem.rfind("_p")
+    {
+        let digits = &stem[pos + 2..];
+        return !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit());
+    }
+    false
+}
+
 pub(super) fn doctor_self_command(input: &Path, opts: &DoctorRuntimeOptions) -> Result<()> {
     use lazuli_doctor::internal_hygiene::preset::InternalHygienePreset;
     use lazuli_doctor::internal_hygiene::walker::walk_workspace_rust_sources;
@@ -57,6 +80,18 @@ pub(super) fn doctor_self_command(input: &Path, opts: &DoctorRuntimeOptions) -> 
         );
     }
 
+    // SPEC-19 split a module into `<base>_p<N>.rs` / `<base>_tests.rs` fragments
+    // that are `include!`d into (or are the test sibling of) a canonical module.
+    // A fragment's pub items + tests belong to that canonical module, so auditing
+    // the fragment for docs / examples / a paired test double-counts — the same
+    // skip `module_headers` and `proven_complete` already apply. FILE-SIZE still
+    // covers fragments (they are <=500 by construction, so it never fires).
+    let audit_files: Vec<_> = files
+        .iter()
+        .filter(|f| !is_split_fragment(f))
+        .cloned()
+        .collect();
+
     let mut diagnostics: Vec<DoctorDiagnostic> = Vec::new();
 
     // INTERNAL-FILE-SIZE-001 — per-finding tier-aware default severity.
@@ -84,7 +119,7 @@ pub(super) fn doctor_self_command(input: &Path, opts: &DoctorRuntimeOptions) -> 
     }
 
     // INTERNAL-UNDOC-PUB-001 — default Warning.
-    for finding in undoc_pub_001::check(&files) {
+    for finding in undoc_pub_001::check(&audit_files) {
         let severity = resolve_internal_hygiene_severity(
             DoctorSeverity::Warning,
             undoc_pub_001::Finding::CODE,
@@ -107,7 +142,7 @@ pub(super) fn doctor_self_command(input: &Path, opts: &DoctorRuntimeOptions) -> 
     }
 
     // INTERNAL-NO-EXAMPLE-001 — default Info (soft during W5 sweep).
-    for finding in no_example_001::check(&files) {
+    for finding in no_example_001::check(&audit_files) {
         let severity = resolve_internal_hygiene_severity(
             DoctorSeverity::Info,
             no_example_001::Finding::CODE,
@@ -129,7 +164,9 @@ pub(super) fn doctor_self_command(input: &Path, opts: &DoctorRuntimeOptions) -> 
         });
     }
 
-    // INTERNAL-TEST-PAIRING-001 — default Warning.
+    // INTERNAL-TEST-PAIRING-001 — default Warning. Uses the FULL file list
+    // (not `audit_files`): a `<base>_tests.rs` fragment is the *evidence* that
+    // `<base>.rs` has a paired test, so it must stay visible to the rule.
     for finding in test_pairing_001::check(&files) {
         let severity = resolve_internal_hygiene_severity(
             DoctorSeverity::Warning,

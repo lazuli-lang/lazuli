@@ -131,6 +131,21 @@ impl Finding {
 ///     eprintln!("missing tests: {} (try {})", f.path.display(), f.suggested_sibling.display());
 /// }
 /// ```
+/// True for a SPEC-19 module-split fragment basename — `<base>_tests.rs` or
+/// `<base>_p<N>.rs` — whose pub items + tests belong to a canonical sibling.
+fn is_split_fragment_name(name: &str) -> bool {
+    if name.ends_with("_tests.rs") {
+        return true;
+    }
+    if let Some(stem) = name.strip_suffix(".rs")
+        && let Some(pos) = stem.rfind("_p")
+    {
+        let digits = &stem[pos + 2..];
+        return !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit());
+    }
+    false
+}
+
 pub fn check(files: &[RustSourceFile]) -> Vec<Finding> {
     let library_paths: HashSet<PathBuf> = files
         .iter()
@@ -154,6 +169,13 @@ pub fn check(files: &[RustSourceFile]) -> Vec<Finding> {
             .and_then(|s| s.to_str())
             .unwrap_or("");
         if matches!(name, "lib.rs" | "main.rs" | "mod.rs") {
+            continue;
+        }
+        // SPEC-19 split fragments — `<base>_p<N>.rs` (an `include!`d body chunk)
+        // and `<base>_tests.rs` (the test sibling) belong to a canonical module
+        // and are not independently test-paired. They stay in `library_paths`
+        // above, so a `<base>_tests.rs` is still seen as evidence for `<base>.rs`.
+        if is_split_fragment_name(name) {
             continue;
         }
         if TEST_SUPPORT_BASENAMES.contains(&name) {
