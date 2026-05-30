@@ -12,4 +12,4 @@ feature minimal_demo
     policy @policy.write
     rate_limit "60 per minute per user"
     creates Item
-      name: input.name
+      name = input.name

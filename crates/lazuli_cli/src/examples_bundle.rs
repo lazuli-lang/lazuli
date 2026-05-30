@@ -259,11 +259,26 @@ fn days_from_civil(year: i32, month: u32, day: u32) -> i64 {
 }
 
 fn normalize_snapshot(mut value: serde_json::Value) -> serde_json::Value {
-    if let Some(source) = value.get_mut("source").and_then(|source| source.as_str()) {
+    // Path-separator normalization so a snapshot blessed on Linux (forward
+    // slashes) still matches a `lazuli inspect` run on Windows (where the
+    // walker builds the source path with `\`). The `source` field lives BOTH
+    // at the top level (older snapshot shape) and nested under `ir` (current
+    // `lazuli.inspect.v0`), so normalize wherever it appears — otherwise the
+    // nested `ir.source` slips through and curated-example validation
+    // false-fails on Windows.
+    normalize_source_separators(&mut value);
+    if let Some(ir) = value.get_mut("ir") {
+        normalize_source_separators(ir);
+    }
+    value
+}
+
+/// Rewrite a `source` string field in `value` to use forward slashes.
+fn normalize_source_separators(value: &mut serde_json::Value) {
+    if let Some(source) = value.get("source").and_then(|source| source.as_str()) {
         let normalized = source.replace('\\', "/");
         value["source"] = serde_json::Value::String(normalized);
     }
-    value
 }
 
 #[cfg(test)]
