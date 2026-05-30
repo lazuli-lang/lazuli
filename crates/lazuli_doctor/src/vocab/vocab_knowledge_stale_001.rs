@@ -75,7 +75,7 @@ pub fn check(project_root: &Path, sector: &str, today: &str) -> Vec<Finding> {
 
 /// Pure core over a pre-scanned doc set — lets unit tests drive in-memory
 /// [`VaultDoc`]s without disk.
-pub fn check_docs(docs: &[VaultDoc], sector: &str, today: &str) -> Vec<Finding> {
+pub(crate) fn check_docs(docs: &[VaultDoc], sector: &str, today: &str) -> Vec<Finding> {
     let today = today.trim();
     docs.iter()
         .filter(|d| d.is_gold())

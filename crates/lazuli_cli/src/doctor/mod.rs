@@ -164,7 +164,7 @@ pub(crate) fn run_package_cli(
 
 /// Handler for `lazuli doctor` — runs the full diagnostic surface
 /// with the default runtime options.
-pub fn doctor_command(
+pub(crate) fn doctor_command(
     input: &Path,
     security_profile: Option<SecurityProfile>,
     check_release: bool,
@@ -182,7 +182,7 @@ pub fn doctor_command(
 /// Run `lazuli doctor` with a fully-specified [`DoctorRuntimeOptions`]
 /// bag. The load-bearing entry point — every clap-side flag translates
 /// into a field of `opts`.
-pub fn doctor_command_with_options(
+pub(crate) fn doctor_command_with_options(
     input: &Path,
     security_profile: Option<SecurityProfile>,
     check_release: bool,

@@ -64,7 +64,7 @@ pub enum Tier {
 
 impl Tier {
     /// Parse a `tier:` value, case-insensitively. Unknown / absent => `None`.
-    pub fn parse(raw: &str) -> Option<Self> {
+    pub(crate) fn parse(raw: &str) -> Option<Self> {
         match raw.trim().to_ascii_lowercase().as_str() {
             "draft" => Some(Self::Draft),
             "approved" => Some(Self::Approved),
@@ -99,7 +99,7 @@ pub struct VaultDoc {
 
 impl VaultDoc {
     /// Convenience: is this doc `gold`?
-    pub fn is_gold(&self) -> bool {
+    pub(crate) fn is_gold(&self) -> bool {
         self.tier == Some(Tier::Gold)
     }
 }
@@ -136,7 +136,7 @@ pub const CORE_KNOWLEDGE_SECTORS: &[&str] = &["decisions", "changes", "gaps", "l
 
 /// `true` when `sector` is one of the [`CORE_KNOWLEDGE_SECTORS`]. Trims the
 /// input so a stray-whitespace slug still matches the catalog.
-pub fn is_core_sector(sector: &str) -> bool {
+pub(crate) fn is_core_sector(sector: &str) -> bool {
     let s = sector.trim();
     CORE_KNOWLEDGE_SECTORS.contains(&s)
 }
@@ -165,7 +165,7 @@ pub fn sector_dir(project_root: &Path, sector: &str) -> PathBuf {
 /// Does a `knowledge/<sector>/` folder exist under the project root?
 ///
 /// This is the single predicate `VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001` keys on.
-pub fn sector_exists(project_root: &Path, sector: &str) -> bool {
+pub(crate) fn sector_exists(project_root: &Path, sector: &str) -> bool {
     sector_dir(project_root, sector).is_dir()
 }
 
@@ -177,7 +177,7 @@ pub fn sector_exists(project_root: &Path, sector: &str) -> bool {
 /// sector-unknown rule owns the "folder absent" diagnostic; the doc-level
 /// rules simply have nothing to inspect). Non-`.md` entries and dotfiles are
 /// ignored. Results are sorted by path for deterministic diagnostics.
-pub fn scan_sector(project_root: &Path, sector: &str) -> Vec<VaultDoc> {
+pub(crate) fn scan_sector(project_root: &Path, sector: &str) -> Vec<VaultDoc> {
     let dir = sector_dir(project_root, sector);
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return Vec::new();
@@ -204,7 +204,7 @@ pub fn scan_sector(project_root: &Path, sector: &str) -> Vec<VaultDoc> {
 /// Parse one document's frontmatter into a [`VaultDoc`]. Public so rule unit
 /// tests can build a `VaultDoc` from an in-memory string without touching
 /// disk.
-pub fn parse_doc(path: &Path, file_stem: &str, contents: &str) -> VaultDoc {
+pub(crate) fn parse_doc(path: &Path, file_stem: &str, contents: &str) -> VaultDoc {
     let fm = extract_frontmatter(contents);
     let mut tier = None;
     let mut has_supersession = false;
@@ -375,7 +375,7 @@ fn slug_from_stem(stem: &str) -> String {
 /// unavailable, the path is untracked, or the command errors — callers MUST
 /// treat `None` as "cannot evaluate -> skip" (do not fire), matching the
 /// harness "skip, don't fail when the environment is unreachable" rule.
-pub fn git_commit_count(project_root: &Path, file: &Path) -> Option<usize> {
+pub(crate) fn git_commit_count(project_root: &Path, file: &Path) -> Option<usize> {
     let rel = file.strip_prefix(project_root).unwrap_or(file);
     let output = std::process::Command::new("git")
         .arg("-C")
@@ -407,7 +407,7 @@ pub fn git_commit_count(project_root: &Path, file: &Path) -> Option<usize> {
 ///   * `Some(true)`  — a prior revision had tier draft/approved (gate satisfied)
 ///   * `Some(false)` — every revision (including the first) was already gold
 ///   * `None`        — git unavailable / untracked / unreadable (skip)
-pub fn passed_through_draft(project_root: &Path, file: &Path) -> Option<bool> {
+pub(crate) fn passed_through_draft(project_root: &Path, file: &Path) -> Option<bool> {
     let rel = file.strip_prefix(project_root).unwrap_or(file);
     // List historical commit hashes touching the file, oldest last.
     let log = std::process::Command::new("git")

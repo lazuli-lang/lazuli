@@ -144,7 +144,7 @@ pub fn check(features: &[FeaturePolymorphicView]) -> Vec<Finding> {
 
 /// Convenience: build the per-feature views from `ir::Feature`s. Used by
 /// callers that hold lowered IR (LSP / tests).
-pub fn views_from_features(
+pub(crate) fn views_from_features(
     features: &[lazuli_ir::Feature],
     path: &Path,
 ) -> Vec<FeaturePolymorphicView> {

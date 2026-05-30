@@ -228,7 +228,7 @@ fn make_finding(
 /// Convenience: build the per-feature views directly from `ir::Feature`s.
 /// Used by callers that already hold lowered IR (LSP / tests). The CLI
 /// builds views from its fact bundle instead.
-pub fn views_from_features(
+pub(crate) fn views_from_features(
     features: &[lazuli_ir::Feature],
     path: &Path,
 ) -> Vec<FeatureCrossRefView> {

@@ -40,7 +40,7 @@ impl Knowledge {
     /// The declared custom sector slugs, in deterministic (sorted) order.
     /// Threaded to `VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001` as the "declared"
     /// leg of its known-sector check.
-    pub fn declared_sectors(&self) -> Vec<String> {
+    pub(crate) fn declared_sectors(&self) -> Vec<String> {
         self.sectors.keys().cloned().collect()
     }
 }

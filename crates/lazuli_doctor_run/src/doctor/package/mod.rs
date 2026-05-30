@@ -161,7 +161,7 @@ impl DoctorPackage {
     /// integration point where the engine used to import `lazuli_lsp`
     /// directly — now severed so this crate depends on neither
     /// `lazuli_lsp` nor `lazuli_cli`.
-    pub fn load_with(
+    pub(crate) fn load_with(
         input: &Path,
         config: &ResolvedDoctorConfig,
         file_local: &super::FileLocalInjector<'_>,

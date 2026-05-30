@@ -85,7 +85,7 @@ impl GateProbe {
 
 /// Pure firing decision for one gold doc given its gate probe. Only
 /// `BornGold` fires; `Unknown` skips (conservative).
-pub fn fires(tier_is_gold: bool, probe: GateProbe) -> bool {
+pub(crate) fn fires(tier_is_gold: bool, probe: GateProbe) -> bool {
     tier_is_gold && probe == GateProbe::BornGold
 }
 

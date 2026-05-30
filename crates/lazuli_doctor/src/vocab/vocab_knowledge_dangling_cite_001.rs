@@ -88,12 +88,12 @@ impl SymbolIndex {
     }
 
     /// Is the index empty (no IR loaded)? The rule skips in this state.
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.symbols.is_empty()
     }
 
     /// Does this cite resolve to a known symbol?
-    pub fn resolves(&self, cite: &str) -> bool {
+    pub(crate) fn resolves(&self, cite: &str) -> bool {
         self.symbols.contains(cite.trim())
     }
 }
@@ -141,7 +141,7 @@ pub fn check(project_root: &Path, sector: &str, index: &SymbolIndex) -> Vec<Find
 }
 
 /// Pure core over a pre-scanned doc set.
-pub fn check_docs(docs: &[VaultDoc], sector: &str, index: &SymbolIndex) -> Vec<Finding> {
+pub(crate) fn check_docs(docs: &[VaultDoc], sector: &str, index: &SymbolIndex) -> Vec<Finding> {
     if index.is_empty() {
         return Vec::new();
     }

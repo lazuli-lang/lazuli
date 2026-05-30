@@ -207,6 +207,17 @@ impl ComputedDateBase {
     /// selector ([`ComputedDateBase::Field`]); `None` for the rule form.
     /// Doctor's W3 base-type check reads this to resolve the same-resource
     /// `Date` field.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::ComputedDateBase;
+    ///
+    /// assert_eq!(
+    ///     ComputedDateBase::Field("created_at".to_owned()).field(),
+    ///     Some("created_at"),
+    /// );
+    /// ```
     pub fn field(&self) -> Option<&str> {
         match self {
             ComputedDateBase::Field(name) => Some(name.as_str()),

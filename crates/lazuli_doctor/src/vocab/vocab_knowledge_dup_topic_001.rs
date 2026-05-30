@@ -73,7 +73,7 @@ pub fn check(project_root: &Path, sector: &str) -> Vec<Finding> {
 
 /// Pure core: group gold docs by topic, flag any topic with ≥ 2 docs where
 /// no member declares a supersession relation.
-pub fn check_docs(docs: &[VaultDoc], sector: &str) -> Vec<Finding> {
+pub(crate) fn check_docs(docs: &[VaultDoc], sector: &str) -> Vec<Finding> {
     // topic_slug -> (paths, any_member_has_supersession)
     let mut by_topic: BTreeMap<String, (Vec<PathBuf>, bool)> = BTreeMap::new();
     for d in docs.iter().filter(|d| d.is_gold()) {

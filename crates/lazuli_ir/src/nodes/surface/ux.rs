@@ -49,6 +49,14 @@ pub struct ViewUx {
 impl ViewUx {
     /// True when no W6/GAP-UX-05 primitive is declared — codegen can skip the
     /// whole surface.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::ViewUx;
+    ///
+    /// assert!(ViewUx::default().is_empty());
+    /// ```
     pub fn is_empty(&self) -> bool {
         self.wizard_steps.is_none()
             && self.tab_group.is_none()
@@ -72,6 +80,14 @@ pub struct AudienceUx {
 
 impl AudienceUx {
     /// True when the audience declares no tabs or wizards.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::AudienceUx;
+    ///
+    /// assert!(AudienceUx::default().is_empty());
+    /// ```
     pub fn is_empty(&self) -> bool {
         self.tabs.is_empty() && self.wizards.is_empty()
     }
@@ -172,6 +188,15 @@ pub enum RenderMode {
 impl RenderMode {
     /// Parse the authored keyword into a [`RenderMode`]. Returns `None`
     /// for an unknown mode — the caller raises `LZX-VIEW-MODE-001`.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::RenderMode;
+    ///
+    /// assert_eq!(RenderMode::parse("kanban"), Some(RenderMode::Kanban));
+    /// assert_eq!(RenderMode::parse("nope"), None);
+    /// ```
     pub fn parse(word: &str) -> Option<Self> {
         match word {
             "table" => Some(RenderMode::Table),
@@ -183,6 +208,14 @@ impl RenderMode {
     }
 
     /// The lowercase wire keyword for this mode.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use lazuli_ir::RenderMode;
+    ///
+    /// assert_eq!(RenderMode::Kanban.as_str(), "kanban");
+    /// ```
     pub fn as_str(self) -> &'static str {
         match self {
             RenderMode::Table => "table",
