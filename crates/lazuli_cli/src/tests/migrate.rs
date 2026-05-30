@@ -156,3 +156,70 @@
 
         let _ = fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn spec08_migrate_recipes_fold_view_and_eval_verbs() {
+        // SPEC-08: the four SHIPPED recipes under
+        // migrations/recipes/0.15-to-0.16/ fold the retired view + eval
+        // verbs. Copy the real recipe files into a tempdir and apply, so
+        // this exercises the bytes we ship, not an inline mirror.
+        let real_recipe_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../migrations/recipes/0.15-to-0.16");
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let recipe_dir = root.join("migrations/recipes/0.15-to-0.16");
+        fs::create_dir_all(&recipe_dir).unwrap();
+        for entry in fs::read_dir(&real_recipe_dir).unwrap() {
+            let src = entry.unwrap().path();
+            if src.extension().and_then(|e| e.to_str()) == Some("md") {
+                fs::copy(&src, recipe_dir.join(src.file_name().unwrap())).unwrap();
+            }
+        }
+
+        let feat = root.join("features/catalog");
+        fs::create_dir_all(&feat).unwrap();
+
+        let lzx = "experience catalog
+  view list posts at \"/posts\"
+    anchor @anchor.posts_list
+    extensible_by
+    tests
+      accepted by catalog_tags
+      rejected by billing
+";
+        let lzx_path = feat.join("catalog.lzx");
+        fs::write(&lzx_path, lzx).unwrap();
+
+        // eval-ONLY .lzi (no `requires integration` / `requires @policy`,
+        // so the over-matching eval recipes apply without rollback).
+        let lzi = "feature customer
+  agent summarize
+    policy @policy.read
+    output stream Text
+    model @llm.default
+    temperature 0
+    seed 1
+    prompt \"./p.md\"
+    evals
+      case redacts
+        requires customer.status = active
+        forbids output contains @semantic.Email
+";
+        let lzi_path = feat.join("customer.lzi");
+        fs::write(&lzi_path, lzi).unwrap();
+
+        let report = crate::migrate::dsl::run_migrate_dsl(root, "0.15", "0.16", false)
+            .expect("migrate dsl");
+        assert!(report.rolled_back.is_empty(), "no rollback expected: {report:?}");
+
+        let lzx_after = fs::read_to_string(&lzx_path).unwrap();
+        assert!(lzx_after.contains("allows extension catalog_tags"), "{lzx_after}");
+        assert!(lzx_after.contains("denies extension billing"), "{lzx_after}");
+        assert!(!lzx_after.contains("accepted by"));
+        assert!(!lzx_after.contains("rejected by"));
+
+        let lzi_after = fs::read_to_string(&lzi_path).unwrap();
+        assert!(lzi_after.contains("allows customer.status = active"), "{lzi_after}");
+        assert!(lzi_after.contains("denies output contains @semantic.Email"), "{lzi_after}");
+        lazuli_syntax::parse_feature_skeletons(&lzi_after).expect("reparse rewritten .lzi");
+    }
