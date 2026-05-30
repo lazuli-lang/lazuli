@@ -304,6 +304,7 @@ const P_TESTS: &[DiagnosticFacet] = &[
         "warning",
         "test_discipline",
     ),
+    df("TEST-EVAL-VERB-RETIRED-001", "error", "test_discipline"),
     df(
         "TEST-FAILURE-ONLY-COVERAGE-001",
         "warning",
@@ -311,6 +312,7 @@ const P_TESTS: &[DiagnosticFacet] = &[
     ),
     df("TEST-FIXTURE-LITERAL-001", "warning", "test_discipline"),
     df("TEST-HANDLER-MISSING-001", "error", "test_discipline"),
+    df("TEST-MATRIX-VERB-MISPLACED-001", "warning", "test_discipline"),
     df("TEST-MISSING-AUTHORED-001", "warning", "test_discipline"),
     df("TEST-PINS-STUB-VOCAB-001", "warning", "test_discipline"),
     df("TEST-PREDICATE-UNCOVERED-001", "warning", "test_discipline"),
@@ -320,6 +322,11 @@ const P_TESTS: &[DiagnosticFacet] = &[
     df("TEST-VIEW-DRIFT-001", "warning", "test_discipline"),
     df("TEST-VIEW-E2E-MISSING-001", "warning", "test_discipline"),
     df("TEST-VIEW-EXTENSIBILITY-001", "warning", "test_discipline"),
+    df(
+        "TEST-VIEW-EXTENSION-VERB-RETIRED-001",
+        "error",
+        "test_discipline",
+    ),
     df("VOCAB-TESTS-MISSING-001", "warning", "vocabulary"),
 ];
 
