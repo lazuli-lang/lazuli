@@ -135,6 +135,10 @@ fn lsp_sources() -> String {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let files = [
         "src/keywords.rs",
+        // SPEC-19: keywords.rs is `include!`-chunked; the KEYWORDS/DESIGN_KEYWORDS
+        // catalogs live in the chunk fragments.
+        "src/keywords_p1.rs",
+        "src/keywords_p2.rs",
         "src/hover/domain.rs",
         "src/hover/surface.rs",
         "src/hover/manifest.rs",

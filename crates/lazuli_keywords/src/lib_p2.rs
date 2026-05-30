@@ -1,0 +1,239 @@
+/// The surface family a capability belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub enum Surface {
+    /// Canonical `.lzi` source.
+    Lzi,
+    /// Surface `.lzx` source.
+    Lzx,
+    /// App-manifest / top-level orchestration (`app`, `registry`,
+    /// `workspace`, `profile`).
+    App,
+    /// Registry source.
+    Registry,
+    /// `Lazurite.toml` manifest overlay.
+    Manifest,
+    /// `design.lzi` token catalog.
+    Design,
+}
+
+/// The decorator/namespace sigil a literal carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub enum Sigil {
+    /// An `@`-prefixed decorator namespace (`@policy`, `@scope`, `@fn`,
+    /// `@slug`, `@semantic`, ...).
+    At,
+    /// A dotted kind keyword (`query.list`, `event.trace`).
+    DottedKind,
+}
+
+/// The LSP semantic-token type a literal classifies as. Projected to the
+/// LSP standard token-type set for the `SemanticTokensLegend` in Wave H4;
+/// the legend order is `SemanticToken as usize` so it never reshuffles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub enum SemanticToken {
+    /// Control/declaration/statement keyword.
+    Keyword,
+    /// Built-in or user-declared type name.
+    Type,
+    /// Named-block name / function-like construct.
+    Function,
+    /// Package/import namespace reference.
+    Namespace,
+    /// `@`-decorator.
+    Decorator,
+    /// Modifier word.
+    Modifier,
+    /// Closed-catalog enum-member value.
+    EnumMember,
+    /// String literal.
+    String,
+    /// Comment.
+    Comment,
+    /// Operator / predicate.
+    Operator,
+    /// Bound variable / identifier.
+    Variable,
+    /// Field / property name.
+    Property,
+}
+
+impl CapabilitySpec {
+    /// Whether this capability is a bare keyword (no sigil).
+    pub const fn is_bare_keyword(&self) -> bool {
+        self.sigil.is_none()
+    }
+}
+
+/// Every distinct keyword literal in the registry, for membership checks
+/// (used by the proven-complete parser test and downstream surfaces).
+pub fn all_literals() -> impl Iterator<Item = &'static str> {
+    ALL.iter().map(|c| c.literal)
+}
+
+/// Look up the first [`CapabilitySpec`] whose literal matches `literal`
+/// in any context. Convenience for hover/completion lookups that don't
+/// care about context.
+pub fn find(literal: &str) -> Option<&'static CapabilitySpec> {
+    ALL.iter().find(|c| c.literal == literal)
+}
+
+/// The closed catalog of `@`-reference namespaces — the **single source** for
+/// "is `@<ns>.<target>` a valid reference?". `lazuli_lsp` (`vocab.rs`) and
+/// `lazuli_doctor` (`refs.rs`) derive their allow-checks from this instead of
+/// each keeping a divergent hand-maintained copy: before this, the LSP allowed
+/// 23 namespaces and the doctor only 18 (silently rejecting `@feature` /
+/// `@translation` / `@command` / `@file` / `@audience` that the LSP accepted).
+///
+/// Gated against the registry's `@`-decorator rows by
+/// [`reference_namespaces_cover_registry_decorators`] (below): every decorator
+/// that is not a bare field-marker (`@slug` / `@full_text` / `@owner_axis`) or
+/// the `@resume` flow-sigil must appear here, so a new `@`-namespace cannot
+/// enter the registry without surfacing in this catalog.
+pub const REFERENCE_NAMESPACES: &[&str] = &[
+    "role", "scope", "actor", "policy", // identity / authorization
+    "semantic", "cap", "pii", "key", // data classification / typed
+    "fn", "hook", "validator", "adapter", // extension surface
+    "client", "query_modifier", "anchor", //
+    "llm", "tool", // AI
+    "trace", "translation", "feature", // observability / i18n / cross-feature
+    "command", "file", "audience", // named references
+];
+
+/// Whether `ns` (the segment after `@`, e.g. `"policy"` in `@policy.update`) is
+/// a valid reference namespace. The closed-catalog contract — unknown
+/// namespaces are diagnostics. See [`REFERENCE_NAMESPACES`].
+pub fn is_reference_namespace(ns: &str) -> bool {
+    REFERENCE_NAMESPACES.contains(&ns)
+}
+
+/// The closed scalar type catalog (bare PascalCase). Single source for the
+/// generated catalog docs and the analyzer's membership gate. Authored as the
+/// canonical spelling only — aliases live in [`SCALAR_ALIASES`].
+pub const SCALAR_TYPES: &[&str] =
+    &["ID", "Text", "Boolean", "Integer", "Decimal", "Date", "DateTime", "JSON"];
+
+/// The closed semantic-scalar catalog. Today these are spelled `@semantic.<X>`;
+/// SPEC-04 retires the sigil and they become bare reserved type names (which is
+/// why they live in the type catalog, not the decorator rows).
+pub const SEMANTIC_TYPES: &[&str] = &[
+    "Email", "Phone", "Url", "Uuid", "Currency", "GeoPoint", "HexColor", "Percentage", "Money",
+];
+
+/// Non-canonical scalar aliases the analyzer historically resolved **silently**
+/// (the bug SPEC-01 ends): `Int`->`Integer`, `Bool`->`Boolean`, etc. They map
+/// alias -> canonical so `VOCAB-SCALAR-ALIAS-001` can name the fix and
+/// `lazuli fmt` can normalize. Reject+autocorrect, never silently tolerate.
+pub const SCALAR_ALIASES: &[(&str, &str)] = &[
+    ("Id", "ID"),
+    ("String", "Text"),
+    ("Bool", "Boolean"),
+    ("Int", "Integer"),
+    ("Float", "Decimal"),
+    ("Json", "JSON"),
+];
+
+/// The canonical scalar spelling for `name` if it is a known alias, else `None`.
+pub fn canonical_scalar(name: &str) -> Option<&'static str> {
+    SCALAR_ALIASES
+        .iter()
+        .find(|(alias, _)| *alias == name)
+        .map(|(_, canonical)| *canonical)
+}
+
+#[cfg(test)]
+mod catalog_tests {
+    use super::*;
+
+    #[test]
+    fn scalar_and_semantic_catalogs_are_disjoint_and_canonical() {
+        for s in SEMANTIC_TYPES {
+            assert!(!SCALAR_TYPES.contains(s), "{s} is in both scalar and semantic");
+        }
+        for (alias, canonical) in SCALAR_ALIASES {
+            assert!(
+                SCALAR_TYPES.contains(canonical),
+                "alias {alias} maps to {canonical}, which is not a canonical scalar",
+            );
+            assert!(
+                !SCALAR_TYPES.contains(alias) && !SEMANTIC_TYPES.contains(alias),
+                "alias {alias} must not also be a canonical type name",
+            );
+        }
+    }
+
+    /// Registry `@`-decorators that are NOT `.target` reference namespaces:
+    /// bare field flags + the `@resume` lifecycle flow-sigil.
+    const NON_REFERENCE_DECORATORS: &[&str] = &["slug", "full_text", "owner_axis", "resume"];
+
+    #[test]
+    fn reference_namespaces_cover_registry_decorators() {
+        for spec in ALL.iter() {
+            let lit = spec.literal;
+            if !lit.starts_with('@') || lit.contains('/') {
+                continue; // skip non-decorators + `@runtime/…` pack refs
+            }
+            let ns = lit.trim_start_matches('@');
+            if NON_REFERENCE_DECORATORS.contains(&ns) {
+                continue;
+            }
+            assert!(
+                REFERENCE_NAMESPACES.contains(&ns),
+                "registry decorator `@{ns}` is missing from REFERENCE_NAMESPACES \
+                 (catalog drift) — add it to the catalog or to NON_REFERENCE_DECORATORS",
+            );
+        }
+    }
+}
+
+/// The app-manifest block-header name a [`Context`] models, if the context
+/// IS an app-manifest indent-2 block whose indent-4 children are registry
+/// rows. Returns `None` for every context that is not an app-manifest
+/// child-key block (feature bodies, surfaces, value catalogs, …).
+///
+/// This is the **single source of truth** mapping a `Context` variant to
+/// the `app <Name>` block header string the parser dispatches on (the
+/// `state.current_child` literal in
+/// `crates/lazuli_manifest/src/app_manifest/manifest_indent4.rs`). The LSP
+/// operational walker and the anti-drift gate both derive their
+/// validated-block set from this function via [`manifest_child_keys`], so
+/// the walker, the registry, and the parser can never silently diverge.
+///
+/// Only the contexts whose indent-4 children are declared as registry rows
+/// appear here; a block whose children are not yet registry-backed (so it
+/// has no closed catalog to validate against) is deliberately absent.
+pub const fn manifest_block_name(context: Context) -> Option<&'static str> {
+    match context {
+        Context::Cookie => Some("cookie"),
+        Context::Headers => Some("headers"),
+        Context::Limits => Some("limits"),
+        Context::Proxy => Some("proxy"),
+        Context::Cors => Some("cors"),
+        Context::RouteGuard => Some("route_guard"),
+        Context::Encryption => Some("encryption"),
+        Context::Locale => Some("locale"),
+        Context::Logging => Some("logging"),
+        Context::Tracing => Some("tracing"),
+        Context::ErrorPage => Some("error_page"),
+        _ => None,
+    }
+}
+
+/// The valid indent-4 child-key literals for an app-manifest `block`
+/// header, derived from the [`ALL`] registry by filtering on
+/// [`manifest_block_name`]. Returns an empty iterator for an unknown /
+/// non-child-key block — callers treat "catalog non-empty" as the gate to
+/// validate against it (so a block with no registry rows never false-fires
+/// an unknown-child diagnostic).
+///
+/// This is the catalog the LSP `validate_app_block_child` walker looks up
+/// per block, and the set the anti-drift gate
+/// (`every_manifest_block_has_child_key_validation`) asserts non-empty for
+/// every walker-validated block.
+pub fn manifest_child_keys(block: &str) -> impl Iterator<Item = &'static str> {
+    ALL.iter()
+        .filter(move |c| manifest_block_name(c.context) == Some(block))
+        .map(|c| c.literal)
+}

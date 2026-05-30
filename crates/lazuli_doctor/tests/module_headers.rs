@@ -109,8 +109,24 @@ fn should_skip(path: &Path) -> bool {
     path.file_name()
         .and_then(|file_name| file_name.to_str())
         .is_some_and(|file_name| {
-            SKIP_FILES.contains(&file_name) || file_name.ends_with("_tests.rs")
+            SKIP_FILES.contains(&file_name)
+                || file_name.ends_with("_tests.rs")
+                // SPEC-19 `include!`-chunk fragments (`<base>_p1.rs`, `_p2.rs`, …)
+                // are split-out sections of their parent module, not standalone
+                // modules — the parent carries the `//!` header.
+                || is_split_chunk(file_name)
         })
+}
+
+/// True for a SPEC-19 chunk-fragment filename like `foo_p1.rs` / `foo_p12.rs`.
+fn is_split_chunk(file_name: &str) -> bool {
+    let Some(stem) = file_name.strip_suffix(".rs") else {
+        return false;
+    };
+    let Some((_, tail)) = stem.rsplit_once("_p") else {
+        return false;
+    };
+    !tail.is_empty() && tail.bytes().all(|b| b.is_ascii_digit())
 }
 
 fn validate_header(contents: &str) -> Result<(), &'static str> {
