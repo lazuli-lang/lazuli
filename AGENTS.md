@@ -169,9 +169,11 @@ A keyword the *parser* accepts is not "shipped." It is shipped when every surfac
 - **Generated, NEVER hand-edited** (the registry is the only edit point):
   - `editors/vscode/syntaxes/lazuli.tmLanguage.json` ← `cargo run -p xtask -- gen-tmlanguage`
   - `docs/keyword-reference.md` (exhaustive — one row per registry entry) ← `cargo run -p xtask -- gen-keyword-reference`
+  - `docs/closed-catalogs.md` (reference namespaces / scalars / semantic scalars / aliases) ← `cargo run -p xtask -- gen-catalog-reference`
 - **Gates that must stay green:**
   - `crates/lazuli_lsp/tests/keyword_surface_parity.rs` — iterates the *registry* (not a curated sample) and asserts every keyword is in the LSP catalog + `tmLanguage.json` + `keyword-reference.md`, and that retired forms (`RETIRED_FEATURE_KEYWORDS`) are absent from the feature catalog.
-  - `tools/xtask/tests/keyword_reference_fresh.rs` — the generated reference is in sync with the registry.
+  - `tools/xtask/tests/keyword_reference_fresh.rs` + `catalog_reference_fresh.rs` — the generated reference + catalog docs are in sync with the registry/catalogs.
+  - `crates/lazuli_analyzer/tests/catalog_resolver_parity.rs` — the scalar/semantic catalog matches the analyzer's type resolver.
 
 **The faces a generator cannot reach — you still own these by hand:**
 
@@ -193,6 +195,43 @@ A keyword the *parser* accepts is not "shipped." It is shipped when every surfac
 6. Round-trip the canonical example (`lazuli inspect examples/full-capsule`) and a fresh scaffold (`lazuli doctor` on `lazuli new`).
 
 If you cannot do it whole, do not change the keyword — file it. The bar is parity, not "the parser accepts it."
+
+### Closed value-catalogs are single-sourced too (not just keywords)
+
+The reference-namespace, scalar, and semantic catalogs — "is `@foo.bar` a valid
+namespace?", "is `Email` a known type?" — live ONCE in `lazuli_keywords`
+(`REFERENCE_NAMESPACES` / `SCALAR_TYPES` / `SEMANTIC_TYPES` / `SCALAR_ALIASES`).
+The LSP (`vocab.rs`), doctor (`refs.rs`), and analyzer (`types.rs`) **derive**
+from them — no second hand-maintained copy. This collapsed the historical drift
+where the LSP allowed 23 namespaces, the doctor 18, and three docs published
+8 / 17 / 23. Add a namespace/scalar/semantic in `lazuli_keywords` only; the
+consumers + `docs/closed-catalogs.md` follow. Non-canonical scalar aliases
+(`Int`→`Integer`, …) are flagged by `VOCAB-SCALAR-ALIAS-001` (LSP), not silently
+resolved.
+
+### Docs cannot silently rot — three tiers
+
+1. **Generated** — `closed-catalogs.md` + `keyword-reference.md` render from the
+   source and are freshness-gated.
+2. **Verified** — `cargo test -p lazuli_cli --test docs_hygiene` asserts every
+   `path/file.ext` citation and inter-doc link in a maintained doc resolves (a
+   moved file or deleted doc fails CI). `docs/proposals/*` (archived) and
+   `runtime/*` (unbuilt) are exempt.
+3. **Reviewed** — `cargo run -p xtask -- docs-staleness` flags any doc whose
+   cited source changed after the doc was last touched. Self-maintaining (git is
+   the truth); run periodically, not per-build.
+
+When you change code a doc cites, the gates tell you. See `docs/README.md`
+"Staying current."
+
+### CLI surface — published vs framework-dev
+
+The published `lazuli` binary carries only app-developer commands. Framework-dev
+commands (`parse`, `spike-generate`, `examples`, `doctor --self`) are
+`#[command(hide = true)]` and slated to move to a non-published `lazuli-dev`
+binary (`specs/cement-r1/SPEC-20.md`). Do not add framework-introspection
+commands to the published surface. `lazuli upgrade` IS published — it migrates a
+user's project to a new framework version.
 
 ---
 
