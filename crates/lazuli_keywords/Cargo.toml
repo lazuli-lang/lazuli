@@ -7,6 +7,7 @@ authors.workspace = true
 description = "Single canonical registry of every Lazuli language keyword/construct + presentation/LSP metadata. Dependency-free leaf — every other crate derives from / is proven against it."
 
 [dependencies]
+constcat = "0.6.1"
 serde = { workspace = true, optional = true }
 
 [features]
