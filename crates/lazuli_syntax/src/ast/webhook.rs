@@ -48,8 +48,16 @@ pub struct Webhook {
     pub name: String,
     /// `path "/webhooks/..."` — raw HTTP route literal.
     pub route: String,
-    /// `verify hmac sha256` + nested `secret`/`header`. Required.
-    pub verify: WebhookVerify,
+    /// `verify hmac sha256` + nested `secret`/`header`. `None` when the
+    /// webhook declares the explicit `verify none` opt-out instead (see
+    /// [`Webhook::verify_none`]); exactly one of the two is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verify: Option<WebhookVerify>,
+    /// `verify none` security opt-out + its `reason "..."` child — an inbound
+    /// webhook that intentionally skips signature verification (e.g. verified
+    /// at a gateway or genuinely internal). Mutually exclusive with `verify`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verify_none: Option<WebhookVerifyNone>,
     /// `tenant_from payload.<axis>_id` — path captured verbatim.
     pub tenant_from: Option<String>,
     /// `scope global` declaration — set when the provider doesn't send
@@ -141,6 +149,19 @@ pub struct WebhookVerify {
     pub secret_env: Option<String>,
     /// `header "X-..."` — quoted header literal.
     pub header: Option<String>,
+    pub span: Span,
+}
+
+/// `verify none` opt-out on a [`Webhook`] — the inbound edge intentionally
+/// skips signature verification. Mirrors [`WebhookScopeGlobal`]: a `reason
+/// "..."` child is required by the LSP security rule so the waiver is
+/// auditable, though the parser accepts a bare `verify none` (the reason is
+/// enforced at authoring time, not carried into the IR).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebhookVerifyNone {
+    /// `reason "..."` justification, when authored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
     pub span: Span,
 }
 

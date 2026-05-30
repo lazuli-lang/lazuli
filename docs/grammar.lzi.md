@@ -700,7 +700,13 @@ webhook_body      = ( "path" STRING NEWLINE
                     | "policy" policy_atom_list NEWLINE
                     | "rate_limit" STRING NEWLINE
                     )+ ;
-verify_value      = "none" | "hmac" hmac_args | STRING ;
+verify_value      = "hmac" hmac_args
+                  | "none" ( INDENT verify_reason DEDENT )? ;
+verify_reason     = "reason" STRING NEWLINE ;
+(* `verify none` is the security opt-out: an inbound webhook intentionally   *)
+(* skips signature verification (verified at a gateway, or genuinely         *)
+(* internal). The `reason` child is required by the LSP security rule. The   *)
+(* legacy path form `verify "./verifier.go"` is retired — use `verify hmac`. *)
 hmac_args         = NEWLINE INDENT
                       "secret" "env." IDENT_LOWER NEWLINE
                       "algorithm" IDENT_LOWER NEWLINE

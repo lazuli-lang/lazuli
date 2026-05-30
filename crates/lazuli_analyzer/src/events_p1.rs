@@ -16,24 +16,28 @@
 /// # Ok::<(), lazuli_analyzer::AnalyzeError>(())
 /// ```
 pub fn lower_webhook(webhook: &syntax::Webhook) -> Result<ir::Webhook, AnalyzeError> {
-    let structured_verify = Some(ir::VerifySpec {
-        scheme: match webhook.verify.scheme.as_str() {
-            "hmac" => ir::VerifyScheme::Hmac,
-            other => {
-                return Err(AnalyzeError::UnsupportedVerifyScheme {
-                    scheme: other.to_owned(),
-                });
-            }
-        },
-        algorithm: webhook.verify.algorithm.clone(),
-        secret_env: webhook
-            .verify
-            .secret_env
-            .as_deref()
-            .map(extract_env_binding)
-            .unwrap_or_default(),
-        header: webhook.verify.header.clone().unwrap_or_default(),
-    });
+    // `verify none` opt-out → no structured verifier; otherwise lift the
+    // `verify hmac <alg>` block.
+    let structured_verify = match &webhook.verify {
+        Some(verify) => Some(ir::VerifySpec {
+            scheme: match verify.scheme.as_str() {
+                "hmac" => ir::VerifyScheme::Hmac,
+                other => {
+                    return Err(AnalyzeError::UnsupportedVerifyScheme {
+                        scheme: other.to_owned(),
+                    });
+                }
+            },
+            algorithm: verify.algorithm.clone(),
+            secret_env: verify
+                .secret_env
+                .as_deref()
+                .map(extract_env_binding)
+                .unwrap_or_default(),
+            header: verify.header.clone().unwrap_or_default(),
+        }),
+        None => None,
+    };
     let tenant_from = webhook
         .tenant_from
         .as_deref()
@@ -125,7 +129,13 @@ pub fn lower_webhook(webhook: &syntax::Webhook) -> Result<ir::Webhook, AnalyzeEr
     Ok(ir::Webhook {
         name: webhook.name.clone(),
         route: webhook.route.clone(),
-        verify: ir::PathRef::convention(format!("./webhooks/{}_verify.go", webhook.name)),
+        // `verify none` opt-out lowers to an empty verifier path (no verifier
+        // file). Codegen + OpenAPI skip emission when the path is empty.
+        verify: if webhook.verify.is_some() {
+            ir::PathRef::convention(format!("./webhooks/{}_verify.go", webhook.name))
+        } else {
+            ir::PathRef::authored(String::new())
+        },
         structured_verify,
         tenant_from,
         scope_global,

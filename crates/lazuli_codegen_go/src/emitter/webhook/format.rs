@@ -40,10 +40,18 @@ pub(super) fn format_string_slice(values: &[String]) -> String {
 
 pub(super) fn emit_runtime_gaps(p: &mut GoPrinter, webhook: &Webhook) {
     if webhook.structured_verify.is_none() {
-        p.line(&format!(
-            "// TODO(runtime): legacy verifier path \"{}\" is not represented by WebhookContract v0.",
-            escape_string(&webhook.verify.path)
-        ));
+        if webhook.verify.path.is_empty() {
+            // `verify none` opt-out — no verifier by design (an empty verify
+            // path is the no-verification sentinel).
+            p.line(
+                "// verify none: inbound signature verification is intentionally skipped (opt-out).",
+            );
+        } else {
+            p.line(&format!(
+                "// TODO(runtime): legacy verifier path \"{}\" is not represented by WebhookContract v0.",
+                escape_string(&webhook.verify.path)
+            ));
+        }
     }
 }
 

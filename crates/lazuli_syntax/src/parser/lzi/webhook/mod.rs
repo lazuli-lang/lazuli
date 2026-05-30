@@ -45,6 +45,9 @@ use crate::ast::{
 
 use blocks::{parse_webhook_dlq, parse_webhook_replay, parse_webhook_verify};
 
+#[cfg(test)]
+mod verify_none_tests;
+
 pub(super) fn parse_webhook(
     lines: &[SourceLine<'_>],
     start: usize,
@@ -61,6 +64,7 @@ pub(super) fn parse_webhook(
 
     let mut route: Option<String> = None;
     let mut verify: Option<WebhookVerify> = None;
+    let mut verify_none: Option<crate::ast::WebhookVerifyNone> = None;
     let mut tenant_from: Option<String> = None;
     let mut scope_global: Option<crate::ast::WebhookScopeGlobal> = None;
     let mut idempotency_by: Option<String> = None;
@@ -101,10 +105,53 @@ pub(super) fn parse_webhook(
             last_end = line.end;
             i += 1;
         } else if let Some(rest) = trimmed.strip_prefix("verify ") {
-            let (parsed, next) = parse_webhook_verify(lines, i, rest)?;
-            verify = Some(parsed);
-            last_end = lines[next.saturating_sub(1).max(i)].end;
-            i = next;
+            if rest.trim() == "none" {
+                // `verify none` security opt-out + optional `reason "..."`
+                // child (mirrors `scope global`): the inbound edge skips
+                // signature verification. The reason is required by the LSP
+                // security rule but optional to the parser.
+                let verify_line = line;
+                let mut reason_text: Option<String> = None;
+                let mut next = i + 1;
+                while next < lines.len() {
+                    let next_line = &lines[next];
+                    let next_trim = next_line.text.trim_start();
+                    if is_trivia(next_trim) {
+                        next += 1;
+                        continue;
+                    }
+                    if next_line.indent <= AGENT_INDENT_AGENT_CHILD {
+                        break;
+                    }
+                    if let Some(reason_rest) = next_trim.strip_prefix("reason ") {
+                        let unquoted = unquote_lzx_value(reason_rest.trim());
+                        if unquoted.is_empty() {
+                            return Err(line_error(
+                                next_line,
+                                "`verify none` requires non-empty `reason \"...\"`",
+                            ));
+                        }
+                        reason_text = Some(unquoted.to_owned());
+                        last_end = next_line.end;
+                        next += 1;
+                        continue;
+                    }
+                    return Err(line_error(
+                        next_line,
+                        "`verify none` child must be `reason \"...\"`",
+                    ));
+                }
+                verify_none = Some(crate::ast::WebhookVerifyNone {
+                    reason: reason_text,
+                    span: Span::new(verify_line.start, last_end),
+                });
+                i = next;
+            } else {
+                let (parsed, next) = parse_webhook_verify(lines, i, rest)?;
+                verify = Some(parsed);
+                last_end = lines[next.saturating_sub(1).max(i)].end;
+                i = next;
+            }
         } else if let Some(rest) = trimmed.strip_prefix("tenant_from ") {
             tenant_from = Some(rest.trim().to_owned());
             last_end = line.end;
@@ -279,12 +326,12 @@ pub(super) fn parse_webhook(
 
     let route = route
         .ok_or_else(|| line_error(header, "`webhook` requires a `path \"/...\"` declaration"))?;
-    let verify = verify.ok_or_else(|| {
-        line_error(
+    if verify.is_none() && verify_none.is_none() {
+        return Err(line_error(
             header,
-            "`webhook` requires a `verify hmac <alg>` declaration",
-        )
-    })?;
+            "`webhook` requires a `verify hmac <alg>` declaration or an explicit `verify none`",
+        ));
+    }
 
     // B5 framework gap 2 — only keep `emits_predicates` when at least
     // one entry carries a `when` clause; an all-None vec is the legacy
@@ -300,6 +347,7 @@ pub(super) fn parse_webhook(
             name,
             route,
             verify,
+            verify_none,
             tenant_from,
             scope_global,
             idempotency_by,

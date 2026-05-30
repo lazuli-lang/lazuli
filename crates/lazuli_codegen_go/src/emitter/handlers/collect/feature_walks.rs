@@ -112,13 +112,17 @@ pub(super) fn walk_webhooks(
     let feature_name = feature.name.as_str();
     for webhook in &feature.webhooks {
         let site = format!("webhook.{}", webhook.name);
-        collect_text_handler_refs(
-            &webhook.verify.path,
-            feature_name,
-            &format!("webhook.{}.verify", webhook.name),
-            signatures,
-            stubs,
-        );
+        // `verify none` opt-out → empty verifier path → no verifier handler to
+        // collect (skip; an empty path would otherwise stub a "" handler).
+        if !webhook.verify.path.is_empty() {
+            collect_text_handler_refs(
+                &webhook.verify.path,
+                feature_name,
+                &format!("webhook.{}.verify", webhook.name),
+                signatures,
+                stubs,
+            );
+        }
         collect_text_handler_refs(
             &webhook.handler.path,
             feature_name,

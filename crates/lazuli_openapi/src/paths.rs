@@ -291,6 +291,9 @@ pub(crate) fn emit_webhook(out: &mut YamlEmitter, feature: &str, webhook: &ir::W
     out.kv_quoted("x-lazuli-handler", &webhook.handler.path);
     if let Some(verify) = &webhook.structured_verify {
         emit_verify(out, verify);
+    } else if webhook.verify.path.is_empty() {
+        // `verify none` opt-out — surface it explicitly rather than an empty path.
+        out.kv_quoted("x-lazuli-verify", "none");
     } else {
         out.kv_quoted("x-lazuli-verify-path", &webhook.verify.path);
     }
