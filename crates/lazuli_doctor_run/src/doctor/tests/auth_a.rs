@@ -33,7 +33,7 @@ feature customer
       query.lookup.by_id
     evals
       case mentions_status
-        requires output contains "active"
+        allows output contains "active"
 "#,
         )]);
         let diagnostics = package.diagnostics();

@@ -143,7 +143,7 @@ feature customer
     prompt "./p.md"
     evals
       case smoke
-        requires output contains "ok"
+        allows output contains "ok"
 "#,
         )]);
         let diagnostics = package.diagnostics();
@@ -193,7 +193,7 @@ feature customer
     prompt "./p.md"
     evals
       case bad
-        requires customer.email < "z@example.com"
+        allows customer.email < "z@example.com"
 "#,
         )]);
         let diagnostics = package.diagnostics();
