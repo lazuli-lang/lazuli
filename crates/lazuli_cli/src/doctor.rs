@@ -209,6 +209,14 @@ struct Tier3FeatureFacts {
     /// with no per-query policy inherit this; absent defaults imply the
     /// runtime's public fallback.
     defaults_policy: Option<lazuli_ir::PolicyRef>,
+    /// Cycle 2 cell RU3 — feature-level `defaults.timestamps` toggle.
+    /// `updates_missing_updated_at_diagnostics` resolves a resource's
+    /// effective auto-stamp behaviour as
+    /// `Resource.timestamps.unwrap_or(defaults_timestamps)`. Captured
+    /// here so the dispatch can call into `correctness::updates_missing_
+    /// updated_at::check_from_facts` without re-materializing whole
+    /// `Feature` values.
+    defaults_timestamps: bool,
     jobs: Vec<lazuli_ir::Job>,
     webhooks: Vec<lazuli_ir::Webhook>,
     notifications: Vec<lazuli_ir::Notification>,
@@ -735,6 +743,7 @@ impl DoctorPackage {
                                             feature_line: header_line,
                                             tenancy_axis: tenancy_axis_for(&feature),
                                             defaults_policy: feature.defaults.policy.clone(),
+                                            defaults_timestamps: feature.defaults.timestamps,
                                             jobs: feature.jobs.clone(),
                                             webhooks: feature.webhooks.clone(),
                                             notifications: feature.notifications.clone(),
@@ -1048,6 +1057,7 @@ impl DoctorPackage {
         ));
         diagnostics.extend(missing_policy_on_query_diagnostics(&self.tier3_facts));
         diagnostics.extend(mutation_without_readback_diagnostics(&self.tier3_facts));
+        diagnostics.extend(updates_missing_updated_at_diagnostics(&self.tier3_facts));
         diagnostics.extend(route_id_effect_consistency_diagnostics(&self.tier3_facts));
         diagnostics.extend(app_contract_diagnostics(
             self.app.as_ref(),
@@ -3817,6 +3827,79 @@ fn mutation_without_readback_diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<Doc
                 column: 1,
                 severity: DoctorSeverity::Warning,
                 code: correctness::mutation_without_readback::Finding::CODE.to_owned(),
+            });
+        }
+    }
+
+    diagnostics
+}
+
+/// Cycle 2 cell RU3 — surface resources targeted by `Updates` commands
+/// that lack an `updated_at: DateTime` audit field AND have effective
+/// `timestamps = false` (so the framework would not auto-stamp). Pairs
+/// with cell RU1 (graceful runtime omit) so the codegen path stays
+/// compilable while the author is nudged toward the canonical shape.
+fn updates_missing_updated_at_diagnostics(
+    facts: &[Tier3FeatureFacts],
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let mut seen = BTreeSet::new();
+
+    // Build the neighbour view once. Each tuple carries
+    // `(feature_name, resources, &defaults_timestamps)` so the
+    // diagnostic can resolve `Resource.timestamps.unwrap_or(default)`
+    // for cross-feature `updates Other.Foo` effects without walking the
+    // owning feature again.
+    let neighbor_defaults: Vec<(String, lazuli_ir::Defaults)> = facts
+        .iter()
+        .map(|fact| {
+            (
+                fact.feature.clone(),
+                lazuli_ir::Defaults {
+                    tenancy: None,
+                    timestamps: fact.defaults_timestamps,
+                    policy: None,
+                },
+            )
+        })
+        .collect();
+    let neighbor_resources: Vec<(String, &[lazuli_ir::Resource], &lazuli_ir::Defaults)> = facts
+        .iter()
+        .zip(neighbor_defaults.iter())
+        .map(|(fact, (_, defaults))| (fact.feature.clone(), fact.resources.as_slice(), defaults))
+        .collect();
+
+    for fact in facts {
+        let self_defaults = lazuli_ir::Defaults {
+            tenancy: None,
+            timestamps: fact.defaults_timestamps,
+            policy: None,
+        };
+        for finding in correctness::updates_missing_updated_at::check_from_facts(
+            &fact.feature,
+            &fact.commands,
+            &fact.resources,
+            &self_defaults,
+            &neighbor_resources,
+            &fact.path,
+        ) {
+            if !seen.insert((
+                finding.path.clone(),
+                finding.feature.clone(),
+                finding.resource.clone(),
+            )) {
+                continue;
+            }
+            // Anchor at the feature line — the diagnostic is about a
+            // resource shape gap, not a single command. Authors who
+            // need per-command context get it from the message.
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line: fact.feature_line,
+                column: 1,
+                severity: DoctorSeverity::Warning,
+                code: correctness::updates_missing_updated_at::Finding::CODE.to_owned(),
             });
         }
     }
@@ -14430,6 +14513,7 @@ mod tests {
                                     feature_line: header_line,
                                     tenancy_axis: tenancy_axis_for(&feature),
                                     defaults_policy: feature.defaults.policy.clone(),
+                                    defaults_timestamps: feature.defaults.timestamps,
                                     jobs: feature.jobs.clone(),
                                     webhooks: feature.webhooks.clone(),
                                     notifications: feature.notifications.clone(),
@@ -14589,6 +14673,7 @@ mod tests {
                                     feature_line: header_line,
                                     tenancy_axis: tenancy_axis_for(&feature),
                                     defaults_policy: feature.defaults.policy.clone(),
+                                    defaults_timestamps: feature.defaults.timestamps,
                                     jobs: feature.jobs.clone(),
                                     webhooks: feature.webhooks.clone(),
                                     notifications: feature.notifications.clone(),
@@ -19485,6 +19570,7 @@ feature customer
             feature_line: 1,
             tenancy_axis: None,
             defaults_policy: None,
+            defaults_timestamps: false,
             jobs: Vec::new(),
             webhooks: Vec::new(),
             notifications: Vec::new(),
@@ -19589,6 +19675,7 @@ feature customer
             feature_line: 1,
             tenancy_axis: None,
             defaults_policy: None,
+            defaults_timestamps: false,
             jobs: Vec::new(),
             webhooks: Vec::new(),
             notifications: Vec::new(),
