@@ -125,7 +125,7 @@ feature issue
         parent_id: ID
 
       filters
-        parent.id = params.parent_id
+        parent.id == params.parent_id
 
       order priority desc
 

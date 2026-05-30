@@ -68,8 +68,8 @@ feature comment
         issue_id: ID
 
       filters
-        target = CommentTarget.issue
-        target_id = params.issue_id
+        target == CommentTarget.issue
+        target_id == params.issue_id
 
       order created_at asc
 
@@ -78,8 +78,8 @@ feature comment
         customer_id: ID
 
       filters
-        target = CommentTarget.customer
-        target_id = params.customer_id
+        target == CommentTarget.customer
+        target_id == params.customer_id
 
       order created_at asc
 

@@ -1,7 +1,7 @@
 # VOCAB-UNION-001 positive: correlated-prefix optional fields.
 # Expected: rule SHOULD fire.
 # Resource keeps `kind: LearningNodeKind` plus optional `bridge_*` fields.
-# The `bridge_` prefix is meaningful only when `kind = bridge`, so union fits.
+# The `bridge_` prefix is meaningful only when `kind == bridge`, so union fits.
 
 feature union_001_positive_correlated
   purpose "Fixture for VOCAB-UNION-001 correlated optional fields."

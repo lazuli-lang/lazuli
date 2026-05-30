@@ -93,10 +93,10 @@ pub(crate) fn lower_emit_predicate(raw: &str) -> ir::EmitPredicate {
 }
 
 fn parse_emit_predicate_kind(text: &str) -> Option<ir::EmitPredicateKind> {
-    // `path = "literal"` — split on the first `=` not followed by `=`
-    // (avoid `==` if a future surface accepts it). The current closed
-    // surface only authors a single `=`.
-    if let Some((lhs, rhs)) = text.split_once('=') {
+    // SPEC-05 — `path == "literal"`. Equality is `==` (the closed predicate
+    // operator); a bare `=` no longer parses as an emit-when comparison and
+    // falls through (surfaced by `PREDICATE-EQ-OPERATOR-001`).
+    if let Some((lhs, rhs)) = text.split_once("==") {
         let path = lhs.trim();
         let literal_raw = rhs.trim();
         if !path.is_empty() && !path.contains(' ') {

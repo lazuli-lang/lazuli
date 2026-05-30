@@ -6,7 +6,7 @@ route roundtrip_canonical_demo
   policy @policy.authenticated
     on_unauthenticated redirect "/sign-in"
     requires_lifecycle_in Host [basic_details_pending, address_pending]
-    requires user.lookup_my.is_phone_verified = true
+    requires user.lookup_my.is_phone_verified == true
       on_unmet redirect "/demo/phone-verify"
     forbid_when @role.guest dispatch_to "/demo/welcome"
       only_when lifecycle Host = complete

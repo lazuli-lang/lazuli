@@ -333,13 +333,18 @@ pub(crate) fn lower_eval_predicate(
 pub(crate) fn parse_closed_predicate(text: &str) -> ir::EvalPredicate {
     let trimmed = text.trim();
     // Try ordered ops first (longest token wins to avoid `<=` parsing as `<`).
+    // SPEC-05 — `==` is THE equality operator in the closed predicate
+    // language. Bare `=` is no longer a comparison token (it keeps its
+    // assignment/default/enum-storage roles elsewhere); a `=`-as-equality
+    // predicate matches nothing here and falls through to `Unparsed`, which
+    // `PREDICATE-EQ-OPERATOR-001` keys on with a fix-it to `==`.
     for (token, op) in [
         ("<=", ir::CompareOp::Le),
         (">=", ir::CompareOp::Ge),
         ("!=", ir::CompareOp::Ne),
         ("<", ir::CompareOp::Lt),
         (">", ir::CompareOp::Gt),
-        ("=", ir::CompareOp::Eq),
+        ("==", ir::CompareOp::Eq),
     ] {
         if let Some(idx) = find_top_level_operator(trimmed, token) {
             let (lhs_text, rhs_text) = trimmed.split_at(idx);

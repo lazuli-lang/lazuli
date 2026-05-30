@@ -491,11 +491,11 @@ pub(crate) fn parse_lzx_requires_field(
         )
     })?;
 
-    // Predicate split: `<feature>.lookup_my.<field> = <literal>`.
-    let (path_part, literal_part) = predicate.split_once('=').ok_or_else(|| {
+    // SPEC-05 — predicate equality is `==`: `<feature>.lookup_my.<field> == <literal>`.
+    let (path_part, literal_part) = predicate.split_once("==").ok_or_else(|| {
         line_error(
             line,
-            "`requires` predicate must be `<feature>.lookup_my.<field> = <literal>`",
+            "`requires` predicate must be `<feature>.lookup_my.<field> == <literal>`",
         )
     })?;
     let path_part = path_part.trim();

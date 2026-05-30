@@ -285,7 +285,7 @@ feature payments
       header "x-signature"
     idempotency by envelope.id
     handler @fn.on_mp_payment_event
-    emits charge_confirmed when payload.status = "approved"
+    emits charge_confirmed when payload.status == "approved"
     emits charge_failed when payload.status in ("rejected", "cancelled")
     emits mp_status_received
 "#;

@@ -51,7 +51,7 @@ feature org
         user: User
 
       filters
-        user = params.user
+        user == params.user
 
     query.list teams
       order name asc

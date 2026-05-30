@@ -157,7 +157,7 @@ fn emits_conditional_unique_as_partial_index() {
     resource PriceTable
       name: Text required
       is_default: Boolean required
-      unique is_default when is_default = true
+      unique is_default when is_default == true
 "#,
     );
 

@@ -32,8 +32,8 @@ feature audit_log
         subject_id: ID
 
       filters
-        subject_type = params.subject_type
-        subject_id = params.subject_id
+        subject_type == params.subject_type
+        subject_id == params.subject_id
 
       paginate 100
 

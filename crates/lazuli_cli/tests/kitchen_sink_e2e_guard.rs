@@ -176,7 +176,7 @@ const FIXTURE_SENTINELS: &[(&str, &str, &str)] = &[
     (
         "unique … when",
         "full-capsule.lzi",
-        "unique is_default when is_default = true",
+        "unique is_default when is_default == true",
     ),
     (
         "HexColor",

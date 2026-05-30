@@ -135,7 +135,7 @@ feature customer
       position: Integer = 0
       pinned: Boolean = false
 
-      unique pinned when pinned = true
+      unique pinned when pinned == true
 
     record Address
       line1: Text required
@@ -150,7 +150,7 @@ feature customer
       address: Address required
       is_default: Boolean = false
 
-      unique is_default when is_default = true
+      unique is_default when is_default == true
 
     resource CustomerActivity
       append_only
@@ -242,14 +242,14 @@ feature customer
       sql "./queries/customer_churn_risk.sql"
 
     rule "archived customers cannot be reassigned"
-      deny Customer.reassign when self.status = CustomerStatus.archived
+      deny Customer.reassign when self.status == CustomerStatus.archived
       message @translation.archive_archived_blocked
 
       tests
-        denies when self.status = archived
-        allows when self.status = active
-        allows when self.status = paused
-        allows when self.status = lead
+        denies when self.status == archived
+        allows when self.status == active
+        allows when self.status == paused
+        allows when self.status == lead
 
     rule "deleted customers cannot be archived"
       deny Customer.archive when self.deleted_at != nil
@@ -257,23 +257,23 @@ feature customer
 
       tests
         denies when self.deleted_at != nil
-        allows when self.deleted_at = nil
+        allows when self.deleted_at == nil
 
     rule "enterprise customers require owner before activation"
-      deny Customer.activate when self.tier = CustomerTier.enterprise AND self.owner = nil
+      deny Customer.activate when self.tier == CustomerTier.enterprise AND self.owner == nil
       message @translation.enterprise_owner_required
 
       tests
-        denies when self.tier = enterprise AND self.owner = nil
-        allows when self.tier = enterprise AND self.owner != nil
-        allows when self.tier = free AND self.owner = nil
-        allows when self.tier = pro AND self.owner = nil
+        denies when self.tier == enterprise AND self.owner == nil
+        allows when self.tier == enterprise AND self.owner != nil
+        allows when self.tier == free AND self.owner == nil
+        allows when self.tier == pro AND self.owner == nil
 
     event_group customer_* on Customer
       payload
         customer_id = id
         org_id = org.id
-        by_id = ctx.user.id when @actor.user
+        by_id == ctx.user.id when @actor.user
 
       event created
         email: Email @pii.contact
@@ -440,9 +440,9 @@ feature customer
       query.by_id(id: route.id)
 
     tests
-      denies when target.status = archived
-      allows when target.status = active
-      allows when target.status = paused
+      denies when target.status == archived
+      allows when target.status == active
+      allows when target.status == paused
 
   command update_tier
     route id: ID
@@ -681,7 +681,7 @@ feature customer_auth
         customer_id: ID
 
       filters
-        customer.id = params.customer_id
+        customer.id == params.customer_id
         expires_at > ctx.now
 
     event customer_logged_in
@@ -808,7 +808,7 @@ feature customer_tags
         customer_id: ID
 
       filters
-        customer.id = params.customer_id
+        customer.id == params.customer_id
 
       order added_at desc
 
@@ -818,15 +818,15 @@ feature customer_tags
         tag_id: ID
 
       filters
-        customer.id = params.customer_id
-        tag.id = params.tag_id
+        customer.id == params.customer_id
+        tag.id == params.tag_id
 
     query.list customers_by_tag
       params
         tag_id: ID
 
       filters
-        tag.id = params.tag_id
+        tag.id == params.tag_id
 
       order added_at desc
       paginate 100
@@ -836,7 +836,7 @@ feature customer_tags
         customer_id = customer.id
         tag_id = tag.id
         org_id = org.id
-        by_id = ctx.user.id when @actor.user
+        by_id == ctx.user.id when @actor.user
 
       event created
 
@@ -940,7 +940,7 @@ feature customer_import
         batch_id: ID
 
       filters
-        batch.id = params.batch_id
+        batch.id == params.batch_id
 
       order row_number asc
       paginate 100
@@ -1138,7 +1138,7 @@ feature customer_audit
 
       tests
         denies when self.detail != nil
-        allows when self.detail = nil
+        allows when self.detail == nil
 
   policies
     read: @role.admin, @role.compliance

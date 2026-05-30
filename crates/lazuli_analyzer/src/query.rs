@@ -210,13 +210,17 @@ pub(crate) fn parse_query_filter_line(text: &str) -> Option<ir::Filter> {
     if trimmed.is_empty() || trimmed.starts_with('#') {
         return None;
     }
+    // SPEC-05 — `==` is the equality operator in query `filters` (matching
+    // the closed predicate language); bare `=` is no longer a comparison
+    // token and returns `None` (the filter line is rejected, surfaced by
+    // `PREDICATE-EQ-OPERATOR-001`).
     for (token, op) in [
         ("<=", ir::CompareOp::Le),
         (">=", ir::CompareOp::Ge),
         ("!=", ir::CompareOp::Ne),
         ("<", ir::CompareOp::Lt),
         (">", ir::CompareOp::Gt),
-        ("=", ir::CompareOp::Eq),
+        ("==", ir::CompareOp::Eq),
     ] {
         if let Some(idx) = find_top_level_operator(trimmed, token) {
             let (lhs_text, rhs_text) = trimmed.split_at(idx);

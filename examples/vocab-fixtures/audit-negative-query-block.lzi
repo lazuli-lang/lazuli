@@ -22,9 +22,9 @@ feature audit_negative_query_block
         author_name: Text optional
 
       filters
-        status = params.status
-        category = params.category
-        author_name = params.author_name
+        status == params.status
+        category == params.category
+        author_name == params.author_name
 
       paginate 25
 

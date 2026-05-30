@@ -11,7 +11,7 @@ feature greeter
       params
         user_id: ID required
       filters
-        user = params.user_id
+        user == params.user_id
 
   policies
     public: @scope.public

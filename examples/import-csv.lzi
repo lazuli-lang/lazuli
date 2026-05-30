@@ -53,7 +53,7 @@ feature customer_import
         batch_id: ID
 
       filters
-        batch.id = params.batch_id
+        batch.id == params.batch_id
 
       order row_number asc
       paginate 100

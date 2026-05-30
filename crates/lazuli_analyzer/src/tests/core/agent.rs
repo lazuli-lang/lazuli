@@ -116,7 +116,7 @@ feature customer
     prompt "./p.md"
     evals
       case short_for_active
-        allows customer.lifecycle_stage = active
+        allows customer.lifecycle_stage == active
         allows output contains "active"
 
       case redacts_email

@@ -18,7 +18,7 @@ feature account
 
     query.list mine
       filters
-        org_id = ctx.actor.org_id
+        org_id == ctx.actor.org_id
 
   policies
     authenticated: @scope.authenticated

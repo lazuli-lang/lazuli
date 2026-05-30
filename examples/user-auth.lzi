@@ -54,7 +54,7 @@ feature user
         user_id: ID
 
       filters
-        user.id = params.user_id
+        user.id == params.user_id
         expires_at > ctx.now
 
     event user_registered

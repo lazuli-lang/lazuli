@@ -17,14 +17,14 @@
               "only_when_lifecycle": {
                 "resource": "Host",
                 "span_ref": {
-                  "end": 472,
-                  "start": 431
+                  "end": 473,
+                  "start": 432
                 },
                 "state": "complete"
               },
               "span_ref": {
-                "end": 472,
-                "start": 375
+                "end": 473,
+                "start": 376
               }
             }
           ],
@@ -42,7 +42,7 @@
               "field": "is_phone_verified",
               "on_unmet_redirect": "/demo/phone-verify",
               "span_ref": {
-                "end": 374,
+                "end": 375,
                 "start": 277
               }
             }
@@ -59,14 +59,14 @@
             }
           },
           "span_ref": {
-            "end": 472,
+            "end": 473,
             "start": 131
           }
         },
         "name": "roundtrip_canonical_demo",
         "path": "/demo/roundtrip",
         "span_ref": {
-          "end": 472,
+          "end": 473,
           "start": 0
         },
         "surface": "host web",

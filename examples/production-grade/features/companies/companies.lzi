@@ -58,7 +58,7 @@ feature companies
         company_id: ID
 
       filters
-        company.id = params.company_id
+        company.id == params.company_id
 
       order invited_at desc
       paginate 100
@@ -66,7 +66,7 @@ feature companies
     event_group company_* on Company
       payload
         company_id = id
-        by_id = ctx.user.id when @actor.user
+        by_id == ctx.user.id when @actor.user
 
       event created
       event suspended

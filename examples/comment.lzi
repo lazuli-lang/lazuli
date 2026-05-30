@@ -46,7 +46,7 @@ feature comment
         issue_id: ID
 
       filters
-        issue.id = params.issue_id
+        issue.id == params.issue_id
 
       order created_at asc
 
@@ -55,7 +55,7 @@ feature comment
         parent_id: ID
 
       filters
-        parent.id = params.parent_id
+        parent.id == params.parent_id
 
       order created_at asc
 

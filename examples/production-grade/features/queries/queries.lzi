@@ -114,7 +114,7 @@ feature queries
         query_id: ID
 
       filters
-        query.id = params.query_id
+        query.id == params.query_id
 
       order provider asc
 
@@ -123,7 +123,7 @@ feature queries
         provider: Provider optional
 
       filters
-        resolved_at = nil
+        resolved_at == nil
         next_check_at < ctx.now
         provider when params.provider
 
@@ -135,7 +135,7 @@ feature queries
         query_id = id
         company_id = company.id
         user_id = user.id
-        by_id = ctx.user.id when @actor.user
+        by_id == ctx.user.id when @actor.user
 
       event dispatched
         providers: JSON

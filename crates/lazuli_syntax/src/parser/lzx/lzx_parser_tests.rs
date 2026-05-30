@@ -469,7 +469,7 @@ experience customer_tags
 // ir-route-guard-escape-hatch-2026-05-28 §4.1 — escape-hatch surface tests.
 // Cell A: parser must accept `requires_lifecycle_in`, the composed
 // `forbid_when ... only_when lifecycle ...` shape, and the
-// `requires <feature>.lookup_my.<field> = <literal> on_unmet redirect "..."`
+// `requires <feature>.lookup_my.<field> == <literal> on_unmet redirect "..."`
 // row-field predicate.
 // =============================================================================
 
@@ -598,7 +598,7 @@ route host_address
   path "/onboarding/host/address"
   policy @policy.authenticated
     on_unauthenticated redirect "/sign-in"
-    requires user.lookup_my.is_phone_verified = true
+    requires user.lookup_my.is_phone_verified == true
       on_unmet redirect "/onboarding/host/phone-verification"
 "#;
 
@@ -618,7 +618,7 @@ fn parses_lzx_requires_field_string_literal() {
 route preferred_locale
   path "/locale"
   policy @policy.authenticated
-    requires traveler_profile.lookup_my.preferred_language = "pt-BR"
+    requires traveler_profile.lookup_my.preferred_language == "pt-BR"
       on_unmet redirect "/locale"
 "#;
 
@@ -639,7 +639,7 @@ fn parses_lzx_requires_field_null_literal() {
 route kyc_gate
   path "/kyc"
   policy @policy.authenticated
-    requires user.lookup_my.kyc_passed_at = null
+    requires user.lookup_my.kyc_passed_at == null
       on_unmet redirect "/onboarding/kyc"
 "#;
 
@@ -661,7 +661,7 @@ fn rejects_lzx_requires_field_with_missing_lookup_my_literal() {
 route bad
   path "/bad"
   policy @policy.authenticated
-    requires user.is_phone_verified = true
+    requires user.is_phone_verified == true
       on_unmet redirect "/x"
 "#;
     let err = parse_lzx_document(source).expect_err("missing lookup_my must fail");

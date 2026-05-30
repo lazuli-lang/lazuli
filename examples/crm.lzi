@@ -67,7 +67,7 @@ feature crm
       payload
         customer_id = id
         org_id = org.id
-        by_id = ctx.user.id when @actor.user
+        by_id == ctx.user.id when @actor.user
 
       event created
         email: Email @pii.contact

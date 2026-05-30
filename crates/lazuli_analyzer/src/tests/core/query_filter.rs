@@ -14,7 +14,7 @@
 
     #[test]
     fn query_filter_line_lowers_dotted_path() {
-        let filter = parse_query_filter_line("org_id = ctx.actor.org_id")
+        let filter = parse_query_filter_line("org_id == ctx.actor.org_id")
             .expect("dotted path filter parses");
         let ir::Predicate::Comparison { left, op, right } = filter.predicate else {
             panic!("expected Comparison predicate");
@@ -37,7 +37,7 @@
 
     #[test]
     fn query_filter_line_lowers_bool_literal() {
-        let filter = parse_query_filter_line("is_public = false").unwrap();
+        let filter = parse_query_filter_line("is_public == false").unwrap();
         let ir::Predicate::Comparison { right, .. } = filter.predicate else {
             panic!("expected Comparison predicate");
         };
@@ -46,10 +46,10 @@
 
     #[test]
     fn query_filter_line_lifts_bare_identifier_to_enum_literal() {
-        // WAR-VOCAB-QUERY-ENUM-01 closure: `status = approved` must
+        // WAR-VOCAB-QUERY-ENUM-01 closure: `status == approved` must
         // lift `approved` to `Expr::Enum` so codegen emits a TEXT
         // const bind, NOT a runtime input lookup.
-        let filter = parse_query_filter_line("status = approved").unwrap();
+        let filter = parse_query_filter_line("status == approved").unwrap();
         let ir::Predicate::Comparison { right, .. } = filter.predicate else {
             panic!("expected Comparison predicate");
         };
@@ -86,12 +86,12 @@
     fn query_filter_line_drops_blanks_and_comments() {
         assert!(parse_query_filter_line("").is_none());
         assert!(parse_query_filter_line("   ").is_none());
-        assert!(parse_query_filter_line("# org_id = ctx.actor.org_id").is_none());
+        assert!(parse_query_filter_line("# org_id == ctx.actor.org_id").is_none());
     }
 
     #[test]
     fn query_filter_line_lowers_quoted_string() {
-        let filter = parse_query_filter_line("name = \"hello\"").unwrap();
+        let filter = parse_query_filter_line("name == \"hello\"").unwrap();
         if let ir::Predicate::Comparison { right, .. } = filter.predicate {
             assert_eq!(right, ir::Expr::String("hello".to_owned()));
         } else {
@@ -107,7 +107,7 @@
         } else {
             panic!("expected Comparison");
         }
-        let f2 = parse_query_filter_line("deleted_at = nil").unwrap();
+        let f2 = parse_query_filter_line("deleted_at == nil").unwrap();
         if let ir::Predicate::Comparison { right, .. } = f2.predicate {
             assert_eq!(right, ir::Expr::Nil);
         } else {
