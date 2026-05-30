@@ -125,14 +125,17 @@ pub(crate) fn defaults_policy_syntax_diagnostics(source: &str) -> Vec<Diagnostic
 
 pub(crate) fn namespace_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
+    // SPEC-01: the allow-list message derives from the single source
+    // (`lazuli_keywords::REFERENCE_NAMESPACES`) instead of a hand-kept copy.
+    let allowed = lazuli_keywords::REFERENCE_NAMESPACES
+        .iter()
+        .map(|n| format!("`@{n}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
 
     for (line_index, line) in source.lines().enumerate() {
-        // 2026-05-27 — skip comment lines. The rule looks for typed
-        // `@<ns>.<x>` refs that the IR will resolve at lower time;
-        // those have semantic meaning. Comments (including the
-        // canonical `# doctor:allow @info.<code>` opt-out) carry rule
-        // CODES as documentation, not as IR refs, so an `@info.x` in
-        // a comment is documentation, not a real namespace ref.
+        // skip comment lines — an `@info.x` in a comment is documentation,
+        // not an IR ref.
         if line.trim_start().starts_with('#') {
             continue;
         }
@@ -143,7 +146,7 @@ pub(crate) fn namespace_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
                     line,
                     DiagnosticSeverity::WARNING,
                     "namespace-catalog",
-                    "unknown `@...` namespace. Allowed namespaces are `@role`, `@scope`, `@actor`, `@policy`, `@semantic`, `@cap`, `@pii`, `@key`, `@fn`, `@hook`, `@validator`, `@adapter`, `@client`, `@query_modifier`, `@anchor`, `@llm`, `@tool`, `@trace`, `@translation`, `@feature`, `@command`, `@file`, and `@audience`.",
+                    &format!("unknown `@...` namespace. Allowed namespaces: {allowed}."),
                 ));
                 break;
             }
@@ -151,6 +154,54 @@ pub(crate) fn namespace_reference_diagnostics(source: &str) -> Vec<Diagnostic> {
     }
 
     diagnostics
+}
+
+/// VOCAB-SCALAR-ALIAS-001 — a field/slot type written with a non-canonical
+/// scalar alias (`Int`/`Bool`/`Float`/`String`/`Id`/`Json`). The analyzer still
+/// resolves these, but silently — this surfaces them with the canonical fix so
+/// the alias never reaches the IR unannounced (`lazuli fmt` normalizes them).
+pub(crate) fn scalar_alias_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    for (line_index, line) in source.lines().enumerate() {
+        if line.trim_start().starts_with('#') {
+            continue;
+        }
+        if let Some(alias) = type_position_alias(line) {
+            let canonical = lazuli_keywords::canonical_scalar(alias).unwrap_or(alias);
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "scalar-alias",
+                &format!(
+                    "non-canonical scalar `{alias}` — use `{canonical}` (the closed \
+                     catalog spelling; `lazuli fmt` normalizes it). VOCAB-SCALAR-ALIAS-001."
+                ),
+            ));
+        }
+    }
+    diagnostics
+}
+
+/// The first scalar alias appearing in a type position (`<name>: <Alias>`) on
+/// the line, if any. Walks each `:` and checks the following bare word.
+fn type_position_alias(line: &str) -> Option<&'static str> {
+    let mut start = 0;
+    while let Some(rel) = line[start..].find(':') {
+        let colon = start + rel;
+        let after = line[colon + 1..].trim_start();
+        let word: String = after
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
+        for &(alias, _) in lazuli_keywords::SCALAR_ALIASES {
+            if word == alias {
+                return Some(alias);
+            }
+        }
+        start = colon + 1;
+    }
+    None
 }
 
 pub(crate) fn namespace_references(line: &str) -> Vec<&str> {
@@ -218,4 +269,22 @@ pub(crate) fn is_allowed_reference_namespace(namespace: &str) -> bool {
     // rows. The LSP and the doctor (`refs.rs`) derive from it so they cannot
     // drift apart (they previously did: LSP=23, doctor=18).
     lazuli_keywords::is_reference_namespace(namespace)
+}
+
+#[cfg(test)]
+mod alias_tests {
+    use super::*;
+
+    #[test]
+    fn flags_scalar_alias_in_type_position() {
+        let d = scalar_alias_diagnostics("resource R\n  count: Int required\n  ok: Bool\n");
+        assert_eq!(d.len(), 2, "expected Int + Bool flagged");
+        assert!(d[0].message.contains("Integer"), "message was: {}", d[0].message);
+    }
+
+    #[test]
+    fn ignores_canonical_types_and_comments() {
+        let src = "resource R\n  count: Integer\n  # note: Int in a comment is fine\n";
+        assert!(scalar_alias_diagnostics(src).is_empty());
+    }
 }

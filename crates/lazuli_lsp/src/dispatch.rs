@@ -57,6 +57,7 @@ use crate::{
     idempotency_key_diagnostics, is_canonical_source, is_lzx_source, lookup_shorthand_diagnostics,
     lzx_contract_diagnostics, lzx_route_contract_diagnostics, namespace_reference_diagnostics,
     non_goals_shape_diagnostics, notification_contract_diagnostics, policy_namespace_diagnostics,
+    scalar_alias_diagnostics,
     previously_mode_diagnostics, profile_contract_diagnostics, query_filter_index_diagnostics,
     query_mode_diagnostics, query_order_default_diagnostics, query_pagination_diagnostics,
     query_search_syntax_diagnostics, query_statement_unknown_diagnostics, range_from_span,
@@ -103,6 +104,7 @@ pub(crate) fn diagnostics_for_with_profile_inner(
         diagnostics.extend(defaults_policy_syntax_diagnostics(source));
         diagnostics.extend(lookup_shorthand_diagnostics(source));
         diagnostics.extend(namespace_reference_diagnostics(source));
+        diagnostics.extend(scalar_alias_diagnostics(source));
         diagnostics.extend(refs_block_diagnostics(source));
         diagnostics.extend(policy_namespace_diagnostics(source));
         diagnostics.extend(scope_override_policy_diagnostics(source));
@@ -173,6 +175,7 @@ pub(crate) fn diagnostics_for_with_profile_inner(
         let mut diagnostics = lzx_contract_diagnostics(source);
         diagnostics.extend(lzx_route_contract_diagnostics(source));
         diagnostics.extend(namespace_reference_diagnostics(source));
+        diagnostics.extend(scalar_alias_diagnostics(source));
         diagnostics.extend(extension_reference_diagnostics(source));
         return diagnostics;
     }
