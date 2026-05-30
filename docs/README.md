@@ -1,6 +1,6 @@
 # Lazuli Documentation
 
-This is the framework canon for Lazuli. 30 markdown files, ~10k lines, organized by audience and depth.
+This is the framework canon for Lazuli, organized by audience and depth. The catalog/keyword references are *generated* from the compiler and gated for freshness; prose docs are continuously verified against the code (see [Staying current](#staying-current)) — the canon cannot silently rot.
 
 Operational artifacts (proposals, audits, roadmaps, per-pilot state, swarm tooling) live in a separate private repo and are referenced from here as text-only mentions (`the <name> proposal (operational archive)`) so the link doesn't dangle.
 
@@ -82,6 +82,25 @@ Operational artifacts (proposals, audits, roadmaps, per-pilot state, swarm tooli
 1. `plugin-authoring.md`
 2. `capability-layering.md`
 3. `style-guide.md` (for plugin-contributed semantic types)
+
+## Generated references (never hand-edited)
+
+| Doc | Generated from | Freshness gate |
+|---|---|---|
+| [`closed-catalogs.md`](closed-catalogs.md) | `lazuli_keywords` — reference namespaces / scalars / semantic scalars / aliases | `catalog_reference_fresh` |
+| [`keyword-reference.md`](keyword-reference.md) | `lazuli_keywords::ALL` — the keyword registry | `keyword_reference_fresh` |
+
+Regenerate with `cargo run -p xtask -- gen-catalog-reference` / `gen-keyword-reference`.
+
+## Staying current
+
+Docs are held to the code by three tiers, so the canon cannot drift unnoticed:
+
+1. **Generated** — the references above are rendered from the compiler; a hand-edit or a source change without a regen fails the build.
+2. **Verified** — `docs_hygiene` (`cargo test -p lazuli_cli --test docs_hygiene`) asserts that every `path/file.ext[:line]` citation and every `[link](x.md)` in a maintained doc resolves. A moved source file or a deleted doc fails CI.
+3. **Reviewed** — `cargo run -p xtask -- docs-staleness` flags any doc whose cited source files changed *after* the doc was last touched. Self-maintaining: no `last_reviewed` date to remember — git is the source of truth. Run it periodically (a nightly/weekly job), not on every build.
+
+`docs/proposals/*` are archived design snapshots (the live archive moved to the operational repo); they are frozen and exempt from the gates.
 
 ## Conventions used in this doc set
 
