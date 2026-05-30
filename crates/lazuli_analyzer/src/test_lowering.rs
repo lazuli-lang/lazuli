@@ -47,7 +47,10 @@ use lazuli_syntax as syntax;
 /// doctor's `block_has_substance` check relies on: a present `TestBlock`
 /// always carries at least one assertion).
 pub(crate) fn lower_test_block(lines: &[String], span: syntax::Span) -> Option<ir::TestBlock> {
-    let assertions: Vec<_> = lines.iter().filter_map(|line| lower_test_line(line)).collect();
+    let assertions: Vec<_> = lines
+        .iter()
+        .filter_map(|line| lower_test_line(line))
+        .collect();
     if assertions.is_empty() {
         return None;
     }
