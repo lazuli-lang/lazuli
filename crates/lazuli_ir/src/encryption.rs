@@ -111,17 +111,17 @@ impl EncryptionTemplate {
         let bytes = literal.as_bytes();
         let mut i = 0;
         while i < bytes.len() {
-            if bytes[i] == b'{' {
-                if let Some(end) = literal[i + 1..].find('}') {
-                    let axis_name = &literal[i + 1..i + 1 + end];
-                    if let Some(axis) = EncryptionTemplateAxis::parse(axis_name) {
-                        if !axes.contains(&axis) {
-                            axes.push(axis);
-                        }
-                    }
-                    i += end + 2;
-                    continue;
+            if bytes[i] == b'{'
+                && let Some(end) = literal[i + 1..].find('}')
+            {
+                let axis_name = &literal[i + 1..i + 1 + end];
+                if let Some(axis) = EncryptionTemplateAxis::parse(axis_name)
+                    && !axes.contains(&axis)
+                {
+                    axes.push(axis);
                 }
+                i += end + 2;
+                continue;
             }
             i += 1;
         }

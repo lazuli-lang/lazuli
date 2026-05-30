@@ -164,7 +164,7 @@ pub(crate) fn lifecycle_resume_arm_insertion_line(resume: &LifecycleResumeBlock)
         .iter()
         .map(|arm| arm.line + 1)
         .max()
-        .unwrap_or_else(|| resume.end_line)
+        .unwrap_or(resume.end_line)
 }
 
 pub(crate) fn lifecycle_resume_for_resource(

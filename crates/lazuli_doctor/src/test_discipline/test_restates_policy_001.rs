@@ -98,7 +98,7 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
                         construct_kind: "command".to_owned(),
                         construct: cmd.name.clone(),
                         actor,
-                        span: tests.span_ref.clone(),
+                        span: tests.span_ref,
                     });
                 }
             }
@@ -178,7 +178,7 @@ fn visit(
                 construct_kind: construct_kind.to_owned(),
                 construct: construct.to_owned(),
                 actor,
-                span: tests.span_ref.clone(),
+                span: tests.span_ref,
             });
         }
     }

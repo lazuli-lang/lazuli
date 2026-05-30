@@ -60,16 +60,16 @@ pub fn check(module: &Module) -> Vec<Finding> {
         for surface in &feature.surfaces {
             for audience in &surface.audiences {
                 for view in &audience.views {
-                    if let View::List(list) = view {
-                        if matches!(list.render, ListRender::Cells { .. }) && !list.cells.is_empty()
-                        {
-                            out.push(Finding {
-                                feature: feature.name.clone(),
-                                view: list.name.clone(),
-                                line: list.line,
-                                message: Finding::message(&list.name),
-                            });
-                        }
+                    if let View::List(list) = view
+                        && matches!(list.render, ListRender::Cells { .. })
+                        && !list.cells.is_empty()
+                    {
+                        out.push(Finding {
+                            feature: feature.name.clone(),
+                            view: list.name.clone(),
+                            line: list.line,
+                            message: Finding::message(&list.name),
+                        });
                     }
                 }
             }

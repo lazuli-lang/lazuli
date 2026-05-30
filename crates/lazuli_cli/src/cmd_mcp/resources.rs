@@ -118,38 +118,38 @@ fn read_feature_bundle(uri: &str, name: &str) -> std::result::Result<Value, McpE
     let mut bundle = String::new();
     let mut found_any = false;
     for candidate in &candidates {
-        if candidate.exists() {
-            if let Ok(text) = fs::read_to_string(candidate) {
-                bundle.push_str(&format!("// === {} ===\n", candidate.display()));
-                bundle.push_str(&text);
-                bundle.push('\n');
-                found_any = true;
-                // Also pick up sibling .lzx files in the same directory.
-                if let Some(parent) = candidate.parent() {
-                    if let Ok(read_dir) = fs::read_dir(parent) {
-                        let mut lzx_paths: Vec<PathBuf> = read_dir
-                            .filter_map(|e| e.ok())
-                            .map(|e| e.path())
-                            .filter(|p| {
-                                p.extension().and_then(|e| e.to_str()) == Some("lzx")
-                                    && p.file_stem()
-                                        .and_then(|s| s.to_str())
-                                        .map(|s| s.starts_with(name) || s == name)
-                                        .unwrap_or(false)
-                            })
-                            .collect();
-                        lzx_paths.sort();
-                        for lzx in lzx_paths {
-                            if let Ok(text) = fs::read_to_string(&lzx) {
-                                bundle.push_str(&format!("// === {} ===\n", lzx.display()));
-                                bundle.push_str(&text);
-                                bundle.push('\n');
-                            }
-                        }
+        if candidate.exists()
+            && let Ok(text) = fs::read_to_string(candidate)
+        {
+            bundle.push_str(&format!("// === {} ===\n", candidate.display()));
+            bundle.push_str(&text);
+            bundle.push('\n');
+            found_any = true;
+            // Also pick up sibling .lzx files in the same directory.
+            if let Some(parent) = candidate.parent()
+                && let Ok(read_dir) = fs::read_dir(parent)
+            {
+                let mut lzx_paths: Vec<PathBuf> = read_dir
+                    .filter_map(|e| e.ok())
+                    .map(|e| e.path())
+                    .filter(|p| {
+                        p.extension().and_then(|e| e.to_str()) == Some("lzx")
+                            && p.file_stem()
+                                .and_then(|s| s.to_str())
+                                .map(|s| s.starts_with(name) || s == name)
+                                .unwrap_or(false)
+                    })
+                    .collect();
+                lzx_paths.sort();
+                for lzx in lzx_paths {
+                    if let Ok(text) = fs::read_to_string(&lzx) {
+                        bundle.push_str(&format!("// === {} ===\n", lzx.display()));
+                        bundle.push_str(&text);
+                        bundle.push('\n');
                     }
                 }
-                break;
             }
+            break;
         }
     }
     if !found_any {

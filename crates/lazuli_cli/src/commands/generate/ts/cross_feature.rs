@@ -100,9 +100,7 @@ fn collect_cross_feature_refs(
                 lazuli_ir::TypeRef::Many(inner) => stack.push(inner),
                 lazuli_ir::TypeRef::EnumRef(qn) | lazuli_ir::TypeRef::UserDefined(qn) => {
                     if let Some(owner) = owner_feature_for_type(qn, module, feature) {
-                        out.entry(owner)
-                            .or_insert_with(BTreeSet::new)
-                            .insert(qn.name.clone());
+                        out.entry(owner).or_default().insert(qn.name.clone());
                     }
                 }
                 _ => {}
@@ -157,10 +155,10 @@ fn owner_feature_for_type(
         return None;
     }
     // Honor the QualifiedName.feature hint if present (preferred owner).
-    if let Some(hint) = qn.feature.as_deref() {
-        if module.features.iter().any(|f| f.name == hint) {
-            return Some(hint.to_owned());
-        }
+    if let Some(hint) = qn.feature.as_deref()
+        && module.features.iter().any(|f| f.name == hint)
+    {
+        return Some(hint.to_owned());
     }
     // Otherwise, find the first feature that declares this enum/record.
     for feature in &module.features {

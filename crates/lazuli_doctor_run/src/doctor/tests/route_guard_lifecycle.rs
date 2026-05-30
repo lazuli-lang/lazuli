@@ -44,14 +44,14 @@
     const LIFECYCLE_GATE_CROSS_FEATURE_LZX: &str =
         include_str!("../../../tests/fixtures/lifecycle-gate/cross_feature_resume.lzx");
 
-    fn route_guard_diags<'a>(diagnostics: &'a [DoctorDiagnostic]) -> Vec<&'a DoctorDiagnostic> {
+    fn route_guard_diags(diagnostics: &[DoctorDiagnostic]) -> Vec<&DoctorDiagnostic> {
         diagnostics
             .iter()
             .filter(|d| d.code.starts_with("ROUTE-GUARD-"))
             .collect()
     }
 
-    fn lifecycle_gate_diags<'a>(diagnostics: &'a [DoctorDiagnostic]) -> Vec<&'a DoctorDiagnostic> {
+    fn lifecycle_gate_diags(diagnostics: &[DoctorDiagnostic]) -> Vec<&DoctorDiagnostic> {
         diagnostics
             .iter()
             .filter(|d| d.code.starts_with("LIFECYCLE-GATE-"))
@@ -93,7 +93,7 @@
     const AUTH_REFRESH_009: &str =
         include_str!("../../../tests/fixtures/auth-refresh/cookie_domain_missing.lzi");
 
-    fn auth_refresh_diags<'a>(diagnostics: &'a [DoctorDiagnostic]) -> Vec<&'a DoctorDiagnostic> {
+    fn auth_refresh_diags(diagnostics: &[DoctorDiagnostic]) -> Vec<&DoctorDiagnostic> {
         diagnostics
             .iter()
             .filter(|d| d.code.starts_with("AUTH-REFRESH-"))

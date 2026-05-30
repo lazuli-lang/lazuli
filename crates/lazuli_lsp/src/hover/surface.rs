@@ -158,9 +158,8 @@ pub(crate) fn keyword_description(keyword: &str) -> Option<&'static str> {
         "report" => Some(
             "Declares a tabular export contract (CSV / XLSX) on a feature. Replaces the `api + opaque handler` pattern for static-column exports. Body: `source <query_ref>`, `columns`, `formats csv|xlsx`, optional `storage`, `visibility`, `signed_ttl`, `filename`, `policy`, `rate_limit`, `audit`.",
         ),
-        "columns" => Some(
-            "On a `report`, declares the column list at compile time. Each row: `<name> from row.<field> | @fn.<name>(args) [label \"...\"] [format \"...\"]`. Doctor cross-checks `row.<field>` against the source query's projection via `REPORT-COLUMN-MISMATCH-001`.",
-        ),
+        // (`columns` is described by the list-view arm above; the report-column
+        // form is unreachable through this surface keyword, so it is omitted.)
         "formats" => Some(
             "On a `report`, declares the export formats. Closed catalog: `csv`, `xlsx`. Each entry auto-mounts `GET /api/reports/<name>.<format>`. Unknown formats raise `REPORT-FORMAT-UNKNOWN-001`.",
         ),

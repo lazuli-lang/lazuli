@@ -8,3 +8,6 @@ authors.workspace = true
 [dependencies]
 lazuli_ir = { path = "../lazuli_ir" }
 
+
+[lints]
+workspace = true

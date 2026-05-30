@@ -153,7 +153,7 @@ pub fn run(manifest: Option<&Manifest>, project_root: &Path) -> Result<LayerResu
 }
 
 #[derive(Debug, Default)]
-struct ParsedRun {
+pub(crate) struct ParsedRun {
     tests_run: u32,
     tests_passed: u32,
     tests_failed: u32,
@@ -221,7 +221,7 @@ struct PwError {
 /// use lazuli_cli::runners::playwright::parse_playwright_json;
 /// let run = parse_playwright_json(b"{}");
 /// ```
-pub fn parse_playwright_json(stdout: &[u8]) -> ParsedRun {
+pub(crate) fn parse_playwright_json(stdout: &[u8]) -> ParsedRun {
     let report: PwReport = match serde_json::from_slice(stdout) {
         Ok(r) => r,
         Err(_) => return ParsedRun::default(),

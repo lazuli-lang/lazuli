@@ -46,7 +46,7 @@ pub(crate) fn validation_syntax_diagnostics(source: &str) -> Vec<Diagnostic> {
         // warn — the validator's `Validator[<scope>]` type already carries the
         // scope, so repeating it at the call site is redundant.
         let (legacy_form, target) = if let Some(field_rest) = argument.strip_prefix("field ") {
-            let target = field_rest.split_whitespace().skip(1).next().unwrap_or("");
+            let target = field_rest.split_whitespace().nth(1).unwrap_or("");
             ("legacy-scoped-field", target)
         } else if let Some(resource_rest) = argument.strip_prefix("resource") {
             ("legacy-scoped-resource", resource_rest.trim())

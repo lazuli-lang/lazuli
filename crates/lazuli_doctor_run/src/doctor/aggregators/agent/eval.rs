@@ -53,17 +53,17 @@ pub(crate) fn agent_eval_diagnostics(agents: &[AgentFacts]) -> Vec<DoctorDiagnos
             for assertion in &case.assertions {
                 if let ir::EvalPredicate::Closed(ir::Predicate::Comparison { left, op, right }) =
                     &assertion.predicate
-                {
-                    if matches!(
+                    && matches!(
                         op,
                         ir::CompareOp::Lt
                             | ir::CompareOp::Le
                             | ir::CompareOp::Gt
                             | ir::CompareOp::Ge
-                    ) && !operand_resolves_numeric(left)
-                        && !operand_resolves_numeric(right)
-                    {
-                        diagnostics.push(DoctorDiagnostic {
+                    )
+                    && !operand_resolves_numeric(left)
+                    && !operand_resolves_numeric(right)
+                {
+                    diagnostics.push(DoctorDiagnostic {
                             path: fact.path.clone(),
                             line: fact.line,
                             column: 1,
@@ -79,7 +79,6 @@ pub(crate) fn agent_eval_diagnostics(agents: &[AgentFacts]) -> Vec<DoctorDiagnos
                             fix: None,
                             group: None,
                         });
-                    }
                 }
             }
         }

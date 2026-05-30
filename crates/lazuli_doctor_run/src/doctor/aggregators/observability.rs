@@ -51,29 +51,30 @@ pub(crate) fn logging_tracing_diagnostics(
     let manifest_path = app_manifest.path.clone();
 
     if let Some(logging) = app_manifest.manifest.logging.as_ref() {
-        if let Some(level) = logging.level.as_deref() {
-            if !LOG_LEVEL_CATALOG.contains(&level) {
-                diagnostics.push(DoctorDiagnostic {
-                    path: manifest_path.clone(),
-                    line: 1,
-                    column: 1,
-                    severity: DoctorSeverity::Error,
-                    code: "app_logging_level_invalid_diagnostics".to_owned(),
-                    message: format!(
-                        "`app.logging.level {level}` is not in the closed catalog. Allowed values: {}.",
-                        catalog_list(LOG_LEVEL_CATALOG),
-                    ),
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                });
-            }
+        if let Some(level) = logging.level.as_deref()
+            && !LOG_LEVEL_CATALOG.contains(&level)
+        {
+            diagnostics.push(DoctorDiagnostic {
+                path: manifest_path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "app_logging_level_invalid_diagnostics".to_owned(),
+                message: format!(
+                    "`app.logging.level {level}` is not in the closed catalog. Allowed values: {}.",
+                    catalog_list(LOG_LEVEL_CATALOG),
+                ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            });
         }
-        if let Some(format) = logging.format.as_deref() {
-            if !LOG_FORMAT_CATALOG.contains(&format) {
-                diagnostics.push(DoctorDiagnostic {
+        if let Some(format) = logging.format.as_deref()
+            && !LOG_FORMAT_CATALOG.contains(&format)
+        {
+            diagnostics.push(DoctorDiagnostic {
                     path: manifest_path.clone(),
                     line: 1,
                     column: 1,
@@ -89,11 +90,11 @@ pub(crate) fn logging_tracing_diagnostics(
                     fix: None,
                     group: None,
                 });
-            }
         }
-        if let Some(redact) = logging.redact.as_deref() {
-            if !LOG_REDACT_CATALOG.contains(&redact) {
-                diagnostics.push(DoctorDiagnostic {
+        if let Some(redact) = logging.redact.as_deref()
+            && !LOG_REDACT_CATALOG.contains(&redact)
+        {
+            diagnostics.push(DoctorDiagnostic {
                     path: manifest_path.clone(),
                     line: 1,
                     column: 1,
@@ -109,11 +110,11 @@ pub(crate) fn logging_tracing_diagnostics(
                     fix: None,
                     group: None,
                 });
-            }
         }
-        if let Some(rate) = logging.sample_rate {
-            if !(0.0..=1.0).contains(&rate) {
-                diagnostics.push(DoctorDiagnostic {
+        if let Some(rate) = logging.sample_rate
+            && !(0.0..=1.0).contains(&rate)
+        {
+            diagnostics.push(DoctorDiagnostic {
                     path: manifest_path.clone(),
                     line: 1,
                     column: 1,
@@ -128,14 +129,14 @@ pub(crate) fn logging_tracing_diagnostics(
                     fix: None,
                     group: None,
                 });
-            }
         }
     }
 
     if let Some(tracing) = app_manifest.manifest.tracing.as_ref() {
-        if let Some(rate) = tracing.sample_rate {
-            if !(0.0..=1.0).contains(&rate) {
-                diagnostics.push(DoctorDiagnostic {
+        if let Some(rate) = tracing.sample_rate
+            && !(0.0..=1.0).contains(&rate)
+        {
+            diagnostics.push(DoctorDiagnostic {
                     path: manifest_path.clone(),
                     line: 1,
                     column: 1,
@@ -150,7 +151,6 @@ pub(crate) fn logging_tracing_diagnostics(
                     fix: None,
                     group: None,
                 });
-            }
         }
         if let Some(exporter) = tracing.exporter.as_deref() {
             // The exporter slot must resolve to a `registry.capabilities

@@ -245,7 +245,7 @@ fn extract_enum_names(source: &str) -> Vec<String> {
     source
         .lines()
         .filter_map(|line| {
-            let mut parts = line.trim().split_whitespace();
+            let mut parts = line.split_whitespace();
             match (parts.next(), parts.next()) {
                 (Some("enum"), Some(name)) => Some(clean_identifier(name).to_owned()),
                 _ => None,

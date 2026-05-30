@@ -299,18 +299,17 @@ pub fn generate_go(
             // `handlers/` segment that the canonical path carries.
             let canonical = &file.path;
             let mut legacy_skipped = false;
-            if let Some(after_features) = canonical.strip_prefix("app/features/") {
-                if let Some((feature, after_feature)) = after_features.split_once('/') {
-                    if let Some(name) = after_feature.strip_prefix("handlers/") {
-                        let legacy_flat_app = format!("app/features/{feature}/{name}");
-                        let legacy_dist = format!("dist/go/{feature}/{name}");
-                        for legacy in [legacy_flat_app, legacy_dist] {
-                            if project_root.join(&legacy).exists() {
-                                handler_stubs_skipped += 1;
-                                legacy_skipped = true;
-                                break;
-                            }
-                        }
+            if let Some(after_features) = canonical.strip_prefix("app/features/")
+                && let Some((feature, after_feature)) = after_features.split_once('/')
+                && let Some(name) = after_feature.strip_prefix("handlers/")
+            {
+                let legacy_flat_app = format!("app/features/{feature}/{name}");
+                let legacy_dist = format!("dist/go/{feature}/{name}");
+                for legacy in [legacy_flat_app, legacy_dist] {
+                    if project_root.join(&legacy).exists() {
+                        handler_stubs_skipped += 1;
+                        legacy_skipped = true;
+                        break;
                     }
                 }
             }

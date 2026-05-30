@@ -344,7 +344,7 @@ feature customer
     // the parser accepts and lowering rejects.
     let parsed = parse_feature_skeletons(source);
     match parsed {
-        Err(_) => return, // parser caught it — equally valid
+        Err(_) => (), // parser caught it — equally valid
         Ok(features) => {
             let err = lower_feature_skeleton(&features[0]).unwrap_err();
             match err {

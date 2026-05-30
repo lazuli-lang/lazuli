@@ -210,10 +210,10 @@ pub(crate) fn anchor_whitelist_diagnostics(source: &str) -> Vec<Diagnostic> {
             }
             2 => {
                 current_view_anchor = None;
-                if let Some(anchor) = extends_anchor(trimmed) {
-                    if let Some(feature) = current_feature.as_deref() {
-                        extensions.insert((anchor.to_owned(), feature.to_owned()));
-                    }
+                if let Some(anchor) = extends_anchor(trimmed)
+                    && let Some(feature) = current_feature.as_deref()
+                {
+                    extensions.insert((anchor.to_owned(), feature.to_owned()));
                 }
             }
             4 => {

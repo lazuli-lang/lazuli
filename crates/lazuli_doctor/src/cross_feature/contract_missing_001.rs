@@ -339,20 +339,19 @@ fn inspect_type_ref(
 ) {
     match type_ref {
         TypeRef::UserDefined(qn) | TypeRef::EnumRef(qn) => {
-            if let Some(origin_feature) = resolve_origin_feature(consumer, qn, symbols) {
-                if origin_feature != consumer.name
-                    && !contracts
-                        .get(&(origin_feature.clone(), qn.name.clone()))
-                        .copied()
-                        .unwrap_or(false)
-                {
-                    out.push(Finding {
-                        consumer_feature: consumer.name.clone(),
-                        origin_feature,
-                        symbol: qn.name.clone(),
-                        consumer_site,
-                    });
-                }
+            if let Some(origin_feature) = resolve_origin_feature(consumer, qn, symbols)
+                && origin_feature != consumer.name
+                && !contracts
+                    .get(&(origin_feature.clone(), qn.name.clone()))
+                    .copied()
+                    .unwrap_or(false)
+            {
+                out.push(Finding {
+                    consumer_feature: consumer.name.clone(),
+                    origin_feature,
+                    symbol: qn.name.clone(),
+                    consumer_site,
+                });
             }
         }
         TypeRef::Many(inner) => {

@@ -188,16 +188,16 @@ pub fn run(
 }
 
 fn default_package_pattern(manifest: Option<&Manifest>) -> String {
-    if let Some(m) = manifest {
-        if let Some(subdir) = m.lazurite.as_ref().and_then(|l| l.app_dir.as_deref()) {
-            return format!("./{subdir}/features/...");
-        }
+    if let Some(m) = manifest
+        && let Some(subdir) = m.lazurite.as_ref().and_then(|l| l.app_dir.as_deref())
+    {
+        return format!("./{subdir}/features/...");
     }
     "./...".to_string()
 }
 
 #[derive(Debug, Default)]
-struct ParsedRun {
+pub(crate) struct ParsedRun {
     tests_run: u32,
     tests_passed: u32,
     tests_failed: u32,
@@ -228,7 +228,7 @@ struct GoTestEvent {
 ///
 /// // let run = parse_go_test_json(stdout_bytes);
 /// ```
-pub fn parse_go_test_json(stdout: &[u8]) -> ParsedRun {
+pub(crate) fn parse_go_test_json(stdout: &[u8]) -> ParsedRun {
     parse_go_test_json_impl(stdout)
 }
 

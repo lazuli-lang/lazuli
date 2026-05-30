@@ -191,10 +191,10 @@ pub fn import(from: &Path, format: ImportFormat, out: &Path, overwrite: bool) ->
         );
     }
 
-    if let Some(parent) = out.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
-        }
+    if let Some(parent) = out.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
     write_design(out, &incoming).with_context(|| format!("writing {}", out.display()))?;
     Ok(())
@@ -223,10 +223,10 @@ pub fn export(out: &Path, target: ExportTarget, design: &Design) -> Result<()> {
     let pretty =
         serde_json::to_string_pretty(&value).context("serialising token catalog to JSON")?;
 
-    if let Some(parent) = out.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
-        }
+    if let Some(parent) = out.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
     fs::write(out, pretty.as_bytes()).with_context(|| format!("writing {}", out.display()))?;
     Ok(())

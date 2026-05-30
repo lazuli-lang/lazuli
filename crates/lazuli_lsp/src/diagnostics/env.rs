@@ -55,16 +55,17 @@ pub(crate) fn env_top_level_legacy_diagnostics(source: &str) -> Vec<Diagnostic> 
         }
     }
 
-    if let Some((line_index, line)) = env_at_top {
-        if has_feature_or_app && !has_registry {
-            diagnostics.push(simple_canonical_diagnostic(
+    if let Some((line_index, line)) = env_at_top
+        && has_feature_or_app
+        && !has_registry
+    {
+        diagnostics.push(simple_canonical_diagnostic(
                 line_index,
                 &line,
                 DiagnosticSeverity::WARNING,
                 "env-top-level-legacy",
                 "top-level `env` blocks in `.lzi` feature/app sources are legacy. Move env schema to `registry.lzi` (or `registry.env` inside the same package) so the declaration has a single source of truth.",
             ));
-        }
     }
 
     diagnostics

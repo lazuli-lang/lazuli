@@ -291,13 +291,13 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
             // §8.3 — owner-scope WHERE on LOOKUP. The Lookup query's
             // canonical keys (id = $1) get extended with the chain
             // predicate emitted by codegen via `owner_scope_sql`.
-            if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
-                if let ir::Query::Lookup(lq) = &mut canonical_lookup {
-                    lq.owner_scope_sql = Some(ir::OwnerScopeSql {
-                        cte_owner_check: None,
-                        ..scope.clone()
-                    });
-                }
+            if let OwnerScopeResolution::Scoped(scope) = &owner_scope
+                && let ir::Query::Lookup(lq) = &mut canonical_lookup
+            {
+                lq.owner_scope_sql = Some(ir::OwnerScopeSql {
+                    cte_owner_check: None,
+                    ..scope.clone()
+                });
             }
             if existing_query_names.contains(&lookup_name) {
                 if let Some(reason) =
@@ -325,13 +325,13 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
             let mut canonical_list = build_list_query(&list_name, &resource.name);
             // §8.4 — owner-scope WHERE on LIST. Same predicate; the
             // synth's pagination shape is unaffected.
-            if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
-                if let ir::Query::List(lq) = &mut canonical_list {
-                    lq.owner_scope_sql = Some(ir::OwnerScopeSql {
-                        cte_owner_check: None,
-                        ..scope.clone()
-                    });
-                }
+            if let OwnerScopeResolution::Scoped(scope) = &owner_scope
+                && let ir::Query::List(lq) = &mut canonical_list
+            {
+                lq.owner_scope_sql = Some(ir::OwnerScopeSql {
+                    cte_owner_check: None,
+                    ..scope.clone()
+                });
             }
             if existing_query_names.contains(&list_name) {
                 if let Some(reason) =
@@ -428,13 +428,13 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
                         // §11.1 collision check, so this path only
                         // attaches scope when the resource is NOT
                         // user-keyed and the resolution succeeded.
-                        if let OwnerScopeResolution::Scoped(scope) = &owner_scope {
-                            if let ir::Query::Lookup(lq) = &mut q {
-                                lq.owner_scope_sql = Some(ir::OwnerScopeSql {
-                                    cte_owner_check: None,
-                                    ..scope.clone()
-                                });
-                            }
+                        if let OwnerScopeResolution::Scoped(scope) = &owner_scope
+                            && let ir::Query::Lookup(lq) = &mut q
+                        {
+                            lq.owner_scope_sql = Some(ir::OwnerScopeSql {
+                                cte_owner_check: None,
+                                ..scope.clone()
+                            });
                         }
                         to_add_queries.push(q);
                         synth_origins_inserts.push((

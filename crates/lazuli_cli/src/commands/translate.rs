@@ -120,10 +120,10 @@ pub fn translate_extract_command(
             }
         }
         for locale in &supported {
-            if let Some(filter) = locale_filter {
-                if filter != locale.as_str() {
-                    continue;
-                }
+            if let Some(filter) = locale_filter
+                && filter != locale.as_str()
+            {
+                continue;
             }
             let catalog_path = translation.catalog.replace("<locale>", locale);
             let stub_path = out
@@ -157,12 +157,11 @@ pub fn translate_extract_command(
                 ));
             }
             json.push_str("}\n");
-            if let Some(parent) = stub_path.parent() {
-                if !parent.as_os_str().is_empty() {
-                    fs::create_dir_all(parent).with_context(|| {
-                        format!("creating output directory {}", parent.display())
-                    })?;
-                }
+            if let Some(parent) = stub_path.parent()
+                && !parent.as_os_str().is_empty()
+            {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("creating output directory {}", parent.display()))?;
             }
             fs::write(&stub_path, &json)
                 .with_context(|| format!("writing {}", stub_path.display()))?;

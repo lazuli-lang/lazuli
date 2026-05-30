@@ -286,10 +286,10 @@ fn emit_cors_contract(p: &mut GoPrinter, cors: &AppCors, has_locale: bool) {
     if cors.allow_credentials {
         p.line("AllowCredentials: true,");
     }
-    if let Some(max_age) = cors.max_age.as_deref() {
-        if let Some(seconds) = parse_duration_to_seconds(max_age) {
-            p.line(&format!("MaxAge: {},", seconds));
-        }
+    if let Some(max_age) = cors.max_age.as_deref()
+        && let Some(seconds) = parse_duration_to_seconds(max_age)
+    {
+        p.line(&format!("MaxAge: {},", seconds));
     }
     p.dedent();
     p.line("}");

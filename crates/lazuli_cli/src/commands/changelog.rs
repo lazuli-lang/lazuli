@@ -50,12 +50,11 @@ pub fn changelog_command(from: &Path, to: &Path, output: Option<&Path>) -> Resul
     let md = lazuli_changelog::render_markdown(&report);
     match output {
         Some(path) => {
-            if let Some(parent) = path.parent() {
-                if !parent.as_os_str().is_empty() {
-                    fs::create_dir_all(parent).with_context(|| {
-                        format!("creating output directory {}", parent.display())
-                    })?;
-                }
+            if let Some(parent) = path.parent()
+                && !parent.as_os_str().is_empty()
+            {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("creating output directory {}", parent.display()))?;
             }
             fs::write(path, &md)
                 .with_context(|| format!("writing changelog to {}", path.display()))?;

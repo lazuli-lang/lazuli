@@ -103,13 +103,12 @@ pub fn check_queries(feature_name: &str, queries: &[Query], path: &Path) -> Vec<
 
     counts
         .into_iter()
-        .filter_map(|(query_name, occurrences)| {
-            (occurrences > 1).then(|| Finding {
-                path: path.to_path_buf(),
-                feature: feature_name.to_owned(),
-                query_name: query_name.to_owned(),
-                occurrences,
-            })
+        .filter(|&(_query_name, occurrences)| occurrences > 1)
+        .map(|(query_name, occurrences)| Finding {
+            path: path.to_path_buf(),
+            feature: feature_name.to_owned(),
+            query_name: query_name.to_owned(),
+            occurrences,
         })
         .collect()
 }

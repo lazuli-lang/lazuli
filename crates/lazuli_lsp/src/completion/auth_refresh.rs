@@ -299,8 +299,7 @@ pub(crate) fn has_auth_parent(lines: &[&str], line_idx: usize, child_indent: usi
 }
 
 pub(crate) fn block_end_line(lines: &[&str], start_idx: usize, block_indent: usize) -> usize {
-    for idx in (start_idx + 1)..lines.len() {
-        let line = lines[idx];
+    for (idx, line) in lines.iter().enumerate().skip(start_idx + 1) {
         if is_trivia_line(line) {
             continue;
         }
@@ -317,12 +316,15 @@ pub(crate) fn auth_sessions_has_child(
     keyword: &str,
 ) -> bool {
     let lines: Vec<&str> = source.lines().collect();
-    for idx in (block.line_idx + 1)..block.end_line.min(lines.len()) {
-        let line = lines[idx];
+    for line in lines
+        .iter()
+        .take(block.end_line.min(lines.len()))
+        .skip(block.line_idx + 1)
+    {
         if is_trivia_line(line) || leading_spaces(line) <= block.indent {
             continue;
         }
-        if line.trim_start().split_whitespace().next() == Some(keyword) {
+        if line.split_whitespace().next() == Some(keyword) {
             return true;
         }
     }
@@ -331,8 +333,7 @@ pub(crate) fn auth_sessions_has_child(
 
 pub(crate) fn auth_rotation_has_children(source: &str, rotation: AuthRotationBlock) -> bool {
     let lines: Vec<&str> = source.lines().collect();
-    for idx in (rotation.line_idx + 1)..lines.len() {
-        let line = lines[idx];
+    for line in lines.iter().skip(rotation.line_idx + 1) {
         if is_trivia_line(line) {
             continue;
         }

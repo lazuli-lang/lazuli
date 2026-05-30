@@ -1,9 +1,3 @@
-impl Default for RouteSlotKind {
-    fn default() -> Self {
-        RouteSlotKind::Plain
-    }
-}
-
 fn is_plain_route_slot_kind(kind: &RouteSlotKind) -> bool {
     matches!(kind, RouteSlotKind::Plain)
 }

@@ -55,10 +55,10 @@ fn collect_includes(node: &Value, out: &mut Vec<String>) {
         Value::Object(map) => {
             for (key, value) in map {
                 if key == "include" {
-                    if let Value::String(s) = value {
-                        if let Some(name) = s.strip_prefix('#') {
-                            out.push(name.to_string());
-                        }
+                    if let Value::String(s) = value
+                        && let Some(name) = s.strip_prefix('#')
+                    {
+                        out.push(name.to_string());
                     }
                 } else {
                     collect_includes(value, out);

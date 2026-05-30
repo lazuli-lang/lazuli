@@ -105,12 +105,11 @@ pub(crate) fn extract_go_work_use_entries(contents: &str) -> Vec<String> {
             continue;
         }
 
-        if let Some(entry) = trimmed.strip_prefix("use ") {
-            if entry.trim() != "(" {
-                if let Some(entry) = go_work_entry_from_line(entry.trim()) {
-                    entries.push(entry);
-                }
-            }
+        if let Some(entry) = trimmed.strip_prefix("use ")
+            && entry.trim() != "("
+            && let Some(entry) = go_work_entry_from_line(entry.trim())
+        {
+            entries.push(entry);
         }
     }
 

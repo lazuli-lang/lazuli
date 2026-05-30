@@ -125,33 +125,33 @@ pub(crate) fn render_inspect_symbol_lazuli(symbol: &str, output: &serde_json::Va
         "{name} ({kind}) — feature `{feature}`, defined in: {location}"
     )];
 
-    if let Some(prev) = output.get("previous_names").and_then(|v| v.as_array()) {
-        if !prev.is_empty() {
-            let names: Vec<&str> = prev.iter().filter_map(|v| v.as_str()).collect();
-            if !names.is_empty() {
-                lines.push(format!("  previously: {}", names.join(", ")));
-            }
+    if let Some(prev) = output.get("previous_names").and_then(|v| v.as_array())
+        && !prev.is_empty()
+    {
+        let names: Vec<&str> = prev.iter().filter_map(|v| v.as_str()).collect();
+        if !names.is_empty() {
+            lines.push(format!("  previously: {}", names.join(", ")));
         }
     }
 
-    if let Some(imported) = output.get("imported_via").and_then(|v| v.as_object()) {
-        if let Some(feat) = imported.get("feature").and_then(|v| v.as_str()) {
-            // Optional line/file anchor for the `uses <feat>` clause.
-            let uses_anchor = imported
-                .get("uses_at")
-                .and_then(|v| v.as_object())
-                .and_then(|obj| {
-                    let file = obj.get("file").and_then(|v| v.as_str());
-                    let line = obj.get("line").and_then(|v| v.as_u64());
-                    match (file, line) {
-                        (Some(f), Some(l)) => Some(format!(" at {f}:{l}")),
-                        (Some(f), None) => Some(format!(" at {f}")),
-                        _ => None,
-                    }
-                })
-                .unwrap_or_default();
-            lines.push(format!("  imported via: uses {feat}{uses_anchor}"));
-        }
+    if let Some(imported) = output.get("imported_via").and_then(|v| v.as_object())
+        && let Some(feat) = imported.get("feature").and_then(|v| v.as_str())
+    {
+        // Optional line/file anchor for the `uses <feat>` clause.
+        let uses_anchor = imported
+            .get("uses_at")
+            .and_then(|v| v.as_object())
+            .and_then(|obj| {
+                let file = obj.get("file").and_then(|v| v.as_str());
+                let line = obj.get("line").and_then(|v| v.as_u64());
+                match (file, line) {
+                    (Some(f), Some(l)) => Some(format!(" at {f}:{l}")),
+                    (Some(f), None) => Some(format!(" at {f}")),
+                    _ => None,
+                }
+            })
+            .unwrap_or_default();
+        lines.push(format!("  imported via: uses {feat}{uses_anchor}"));
     }
 
     lines.join("\n")

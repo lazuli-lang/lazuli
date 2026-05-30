@@ -52,11 +52,7 @@ pub(super) fn parse_source(
 pub(super) fn parse_requires(text: &str) -> Option<(String, String)> {
     let rest = text.trim().strip_prefix("requires_lifecycle")?.trim();
     let (resource, state) = rest.split_once('=')?;
-    let state = state
-        .trim()
-        .split_whitespace()
-        .next()
-        .unwrap_or(state.trim());
+    let state = state.split_whitespace().next().unwrap_or(state.trim());
     Some((resource.trim().to_owned(), state.to_owned()))
 }
 

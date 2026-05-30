@@ -50,10 +50,9 @@ mod tests {
     #[test]
     fn parse_mcp_auth_lifts_bearer_env_form() {
         let auth = parse_mcp_auth("bearer env.MCP_TOKEN").expect("bearer env. form parses");
-        match auth {
-            ir::MCPAuth::BearerEnvVar { env } => assert_eq!(env, "MCP_TOKEN"),
-            _ => panic!("expected BearerEnvVar"),
-        }
+        // `MCPAuth::BearerEnvVar` is the sole variant today — exhaustive match.
+        let ir::MCPAuth::BearerEnvVar { env } = auth;
+        assert_eq!(env, "MCP_TOKEN");
     }
 
     #[test]

@@ -152,19 +152,19 @@ fn parse_binding_ref(line: &SourceLine<'_>, raw: &str) -> Result<BindingRefAst, 
     if raw == "selection" {
         return Ok(BindingRefAst::SelectionScalar);
     }
-    if let Some(name) = raw.strip_prefix("filters.") {
-        if !name.is_empty() {
-            return Ok(BindingRefAst::Filter {
-                name: name.to_owned(),
-            });
-        }
+    if let Some(name) = raw.strip_prefix("filters.")
+        && !name.is_empty()
+    {
+        return Ok(BindingRefAst::Filter {
+            name: name.to_owned(),
+        });
     }
-    if let Some(name) = raw.strip_prefix("source.") {
-        if !name.is_empty() {
-            return Ok(BindingRefAst::SourceInput {
-                name: name.to_owned(),
-            });
-        }
+    if let Some(name) = raw.strip_prefix("source.")
+        && !name.is_empty()
+    {
+        return Ok(BindingRefAst::SourceInput {
+            name: name.to_owned(),
+        });
     }
     Err(line_error(
         line,

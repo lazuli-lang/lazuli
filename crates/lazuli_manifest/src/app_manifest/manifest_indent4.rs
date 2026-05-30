@@ -360,10 +360,10 @@ pub(super) fn handle_indent4(
                 logging.format = Some(rest.trim().to_owned());
             } else if let Some(rest) = trimmed.strip_prefix("redact ") {
                 logging.redact = Some(rest.trim().to_owned());
-            } else if let Some(rest) = trimmed.strip_prefix("sample_rate ") {
-                if let Ok(value) = rest.trim().parse::<f64>() {
-                    logging.sample_rate = Some(value);
-                }
+            } else if let Some(rest) = trimmed.strip_prefix("sample_rate ")
+                && let Ok(value) = rest.trim().parse::<f64>()
+            {
+                logging.sample_rate = Some(value);
             }
         }
         // Observability bucket cycle row 36 — `app.tracing`
@@ -395,10 +395,10 @@ pub(super) fn handle_indent4(
                     .map(|item| item.trim().to_owned())
                     .filter(|item| !item.is_empty())
                     .collect();
-            } else if let Some(rest) = trimmed.strip_prefix("panic_recover ") {
-                if let Some(value) = parse_bool(rest.trim()) {
-                    observability.panic_recover = value;
-                }
+            } else if let Some(rest) = trimmed.strip_prefix("panic_recover ")
+                && let Some(value) = parse_bool(rest.trim())
+            {
+                observability.panic_recover = value;
             }
         }
         // i18n bucket cycle — `app.locale` block. `default`
@@ -419,13 +419,13 @@ pub(super) fn handle_indent4(
                         locale.supported.push(unquoted);
                     }
                 }
-            } else if let Some(rest) = trimmed.strip_prefix("fallback ") {
-                if let Some((from_part, to_part)) = rest.split_once("->") {
-                    let from = unquote(from_part.trim()).to_owned();
-                    let to = unquote(to_part.trim()).to_owned();
-                    if !from.is_empty() && !to.is_empty() {
-                        locale.fallbacks.push(LocaleFallback { from, to });
-                    }
+            } else if let Some(rest) = trimmed.strip_prefix("fallback ")
+                && let Some((from_part, to_part)) = rest.split_once("->")
+            {
+                let from = unquote(from_part.trim()).to_owned();
+                let to = unquote(to_part.trim()).to_owned();
+                if !from.is_empty() && !to.is_empty() {
+                    locale.fallbacks.push(LocaleFallback { from, to });
                 }
             }
         }

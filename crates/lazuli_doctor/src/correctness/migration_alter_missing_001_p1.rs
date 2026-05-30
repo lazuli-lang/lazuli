@@ -271,11 +271,10 @@ fn migration_matches(stem: &str, prefix: &str) -> bool {
     if stem == prefix {
         return true;
     }
-    if let Some(rest) = stem.strip_prefix(&format!("{prefix}_")) {
-        if !rest.is_empty() {
+    if let Some(rest) = stem.strip_prefix(&format!("{prefix}_"))
+        && !rest.is_empty() {
             return true;
         }
-    }
     false
 }
 
@@ -318,11 +317,10 @@ fn expected_columns_for(feature: &Feature, resource: &Resource) -> BTreeSet<Stri
             continue;
         }
         cols.insert(field.name.clone());
-        if let TypeRef::Builtin(BuiltinType::SemanticMoney { .. }) = field.type_ref {
-            if !explicit_currency_overrides.contains(&field.name) {
+        if let TypeRef::Builtin(BuiltinType::SemanticMoney { .. }) = field.type_ref
+            && !explicit_currency_overrides.contains(&field.name) {
                 cols.insert(format!("{}_currency", field.name));
             }
-        }
     }
 
     let timestamps = resource.timestamps.unwrap_or(feature.defaults.timestamps);

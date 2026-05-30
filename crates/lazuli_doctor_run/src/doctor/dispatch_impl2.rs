@@ -160,15 +160,14 @@ impl DoctorPackage {
                 .map(|fact| {
                     let mut sites = Vec::new();
                     for command in &fact.commands {
-                        if let Some(audit) = &command.audit {
-                            if let Some(m) = &audit.materialize {
+                        if let Some(audit) = &command.audit
+                            && let Some(m) = &audit.materialize {
                                 sites.push(amt::AuditMaterializeSite {
                                     command: command.name.clone(),
                                     target_feature: m.feature.clone(),
                                     target_resource: m.resource.clone(),
                                 });
                             }
-                        }
                     }
                     amt::FeatureAuditMaterializeView {
                         feature: fact.feature.clone(),
@@ -272,12 +271,12 @@ impl DoctorPackage {
         // call site so the existing walker code stays untouched.
         // See `docs/proposals/semantic-types-plugin-locales.md`
         // §New diagnostics.
-        if let Some(manifest) = self.lazurite_manifest.as_ref() {
-            if let Ok(alias_map) = lazuli_manifest::plugin_manifest::build_alias_map(
+        if let Some(manifest) = self.lazurite_manifest.as_ref()
+            && let Ok(alias_map) = lazuli_manifest::plugin_manifest::build_alias_map(
                 Some(manifest),
                 &self.project_root,
-            ) {
-                if !alias_map.is_empty() {
+            )
+                && !alias_map.is_empty() {
                     diagnostics.retain(|d| {
                         if d.code != "semantic_type_unknown" {
                             return true;
@@ -294,8 +293,6 @@ impl DoctorPackage {
                         !alias_map.contains_key(alias)
                     });
                 }
-            }
-        }
 
     }
 }

@@ -69,10 +69,10 @@ pub fn build_coverage_report(
     // Handler (Go) — look for coverprofile artifacts on each handler
     // layer.
     for layer in layers.iter().filter(|l| l.layer == Layer::Handler) {
-        if let Some(path) = layer.runner_native_only.as_deref() {
-            if let Some(metric) = handler_coverage::parse_coverprofile(Path::new(path)) {
-                metrics.push(metric);
-            }
+        if let Some(path) = layer.runner_native_only.as_deref()
+            && let Some(metric) = handler_coverage::parse_coverprofile(Path::new(path))
+        {
+            metrics.push(metric);
         }
     }
 

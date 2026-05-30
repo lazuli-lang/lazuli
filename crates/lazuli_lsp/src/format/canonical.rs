@@ -97,22 +97,14 @@ pub(crate) fn format_feature_lines(lines: &[&str]) -> Vec<String> {
         let start = index;
         index += 1;
 
-        if kind.is_some() {
-            while index < rest.len() {
-                let next = rest[index];
-                if leading_spaces(next) == 2 && canonical_block_kind(next.trim_start()).is_some() {
-                    break;
-                }
-                index += 1;
+        // Advance to the next indent-2 canonical block header — same scan
+        // whether or not this segment had a recognized `kind`.
+        while index < rest.len() {
+            let next = rest[index];
+            if leading_spaces(next) == 2 && canonical_block_kind(next.trim_start()).is_some() {
+                break;
             }
-        } else {
-            while index < rest.len() {
-                let next = rest[index];
-                if leading_spaces(next) == 2 && canonical_block_kind(next.trim_start()).is_some() {
-                    break;
-                }
-                index += 1;
-            }
+            index += 1;
         }
 
         segments.push(FeatureBlockSegment {

@@ -185,21 +185,21 @@ pub fn check_with_config(
         // by (position, token); pick the largest cluster overall.
         let mut clusters: HashMap<(TokenPosition, String), Vec<String>> = HashMap::new();
         for &name in &post_filter_fields {
-            if let Some(token) = leading_token(name) {
-                if is_eligible_token(&token, excluded_tokens) {
-                    clusters
-                        .entry((TokenPosition::Leading, token))
-                        .or_default()
-                        .push(name.to_owned());
-                }
+            if let Some(token) = leading_token(name)
+                && is_eligible_token(&token, excluded_tokens)
+            {
+                clusters
+                    .entry((TokenPosition::Leading, token))
+                    .or_default()
+                    .push(name.to_owned());
             }
-            if let Some(token) = trailing_token(name) {
-                if is_eligible_token(&token, excluded_tokens) {
-                    clusters
-                        .entry((TokenPosition::Trailing, token))
-                        .or_default()
-                        .push(name.to_owned());
-                }
+            if let Some(token) = trailing_token(name)
+                && is_eligible_token(&token, excluded_tokens)
+            {
+                clusters
+                    .entry((TokenPosition::Trailing, token))
+                    .or_default()
+                    .push(name.to_owned());
             }
         }
 
@@ -244,7 +244,7 @@ fn is_eligible_token(token: &str, excluded: &[&str]) -> bool {
     if token.len() < 2 {
         return false;
     }
-    !excluded.iter().any(|x| *x == token)
+    !excluded.contains(&token)
 }
 
 #[cfg(test)]

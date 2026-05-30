@@ -106,10 +106,10 @@ pub fn check(source: &str, path: &Path) -> Vec<Finding> {
         }
         let indent = raw.len() - raw.trim_start().len();
         // Close the policies block on dedent to its level or shallower.
-        if let Some(p_indent) = policies_indent {
-            if indent <= p_indent {
-                policies_indent = None;
-            }
+        if let Some(p_indent) = policies_indent
+            && indent <= p_indent
+        {
+            policies_indent = None;
         }
         if trimmed == "policies" {
             policies_indent = Some(indent);
@@ -124,14 +124,14 @@ pub fn check(source: &str, path: &Path) -> Vec<Finding> {
         if indent != p_indent + 2 {
             continue;
         }
-        if let Some(name) = category_name(trimmed) {
-            if EFFECT_SHADOWS.contains(&name) {
-                findings.push(Finding {
-                    path: path.to_path_buf(),
-                    line: idx + 1,
-                    category: name.to_string(),
-                });
-            }
+        if let Some(name) = category_name(trimmed)
+            && EFFECT_SHADOWS.contains(&name)
+        {
+            findings.push(Finding {
+                path: path.to_path_buf(),
+                line: idx + 1,
+                category: name.to_string(),
+            });
         }
     }
     findings

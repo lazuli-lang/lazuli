@@ -40,9 +40,8 @@ use go_mod::{
 use helpers::to_kebab;
 use per_feature::emit_feature_files;
 
-/// Default Go module path used when the caller did not supply one and
-/// the IR exposes no `app.name`. Matches proposal §1.1's "fallback
-/// `lazuli/app`" rule.
+// Default Go module path (when the caller supplies none and the IR exposes no
+// `app.name`) matches proposal §1.1's "fallback `lazuli/app`" rule.
 
 /// Walk the IR module and produce every `.gen.go` plus the root
 /// `go.mod`. Per cell E1 this only emits the file skeleton; kinds
@@ -177,13 +176,13 @@ pub fn emit_module(
     // surfaced plan facts. The file is skipped when the package
     // declares no `plan` blocks (the runtime defaults to "no
     // subscription gating").
-    if let Some(facts) = &options.plan_gate {
-        if let Some(contents) = crate::emitter::plan::emit_plan_catalog_file(facts) {
-            files.push(GeneratedFile {
-                path: "plan/catalog.gen.go".to_owned(),
-                contents,
-            });
-        }
+    if let Some(facts) = &options.plan_gate
+        && let Some(contents) = crate::emitter::plan::emit_plan_catalog_file(facts)
+    {
+        files.push(GeneratedFile {
+            path: "plan/catalog.gen.go".to_owned(),
+            contents,
+        });
     }
 
     // RB.C — emit `dist/go/rbac/rbac.gen.go` when the package declares

@@ -70,13 +70,13 @@ pub(super) fn resolve_policy(
     policies: &BTreeMap<(String, String), Vec<RoutePolicyAtom>>,
     default_feature: &str,
 ) -> ResolvedPolicy {
-    if !policy.starts_with("@policy.") {
-        if let Some(atom) = parse_policy_atom(policy) {
-            return ResolvedPolicy {
-                name: None,
-                atoms: vec![atom],
-            };
-        }
+    if !policy.starts_with("@policy.")
+        && let Some(atom) = parse_policy_atom(policy)
+    {
+        return ResolvedPolicy {
+            name: None,
+            atoms: vec![atom],
+        };
     }
 
     if let Some((feature, category)) = parse_policy_ref(policy, default_feature) {

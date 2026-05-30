@@ -76,13 +76,13 @@ pub(super) fn path_exists(existing_files: &BTreeSet<PathBuf>, relative_path: &st
             // `handlers/` segment to derive `<feature>/<name>.go` —
             // matches the flat-pivot layout.
             let mut alts = Vec::with_capacity(2);
-            if let Some((feature, after)) = tail.split_once('/') {
-                if let Some(name) = after.strip_prefix("handlers/") {
-                    let flat_app = format!("{APP_FEATURES_PREFIX}/{feature}/{name}");
-                    let flat_dist = format!("{DIST_GO_PREFIX}/{feature}/{name}");
-                    alts.push(flat_app);
-                    alts.push(flat_dist);
-                }
+            if let Some((feature, after)) = tail.split_once('/')
+                && let Some(name) = after.strip_prefix("handlers/")
+            {
+                let flat_app = format!("{APP_FEATURES_PREFIX}/{feature}/{name}");
+                let flat_dist = format!("{DIST_GO_PREFIX}/{feature}/{name}");
+                alts.push(flat_app);
+                alts.push(flat_dist);
             }
             alts
         } else {
@@ -160,5 +160,5 @@ pub(super) fn escape_string(raw: &str) -> String {
 }
 
 pub(super) fn escape_comment(raw: &str) -> String {
-    raw.replace('\n', " ").replace('\r', " ")
+    raw.replace(['\n', '\r'], " ")
 }

@@ -21,7 +21,7 @@ fn strip_string_literals(line: &str) -> String {
             if j < bytes.len() && bytes[j] == b'"' {
                 // Skip the body; replace with spaces up to closing
                 // `"` followed by hash_count `#`s.
-                out.extend(std::iter::repeat(b' ').take(j - i + 1));
+                out.extend(std::iter::repeat_n(b' ', j - i + 1));
                 let mut k = j + 1;
                 while k < bytes.len() {
                     if bytes[k] == b'"' {
@@ -31,7 +31,7 @@ fn strip_string_literals(line: &str) -> String {
                             h += 1;
                         }
                         if h == hash_count {
-                            out.extend(std::iter::repeat(b' ').take(1 + hash_count));
+                            out.extend(std::iter::repeat_n(b' ', 1 + hash_count));
                             k += 1 + hash_count;
                             break;
                         }

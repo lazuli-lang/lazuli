@@ -106,18 +106,18 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
 
     let mut out = Vec::new();
     for field in &resource.fields {
-        if let Some(axis) = cap_hashed_algorithm(&field.type_ref) {
-            if axis != pw_algo {
-                out.push(Finding {
-                    path: path.to_path_buf(),
-                    feature: feature.name.clone(),
-                    password_algorithm: pw_algo.to_owned(),
-                    session_resource: session_resource_name.to_owned(),
-                    session_field: field.name.clone(),
-                    resource_algorithm: axis.to_owned(),
-                });
-                break;
-            }
+        if let Some(axis) = cap_hashed_algorithm(&field.type_ref)
+            && axis != pw_algo
+        {
+            out.push(Finding {
+                path: path.to_path_buf(),
+                feature: feature.name.clone(),
+                password_algorithm: pw_algo.to_owned(),
+                session_resource: session_resource_name.to_owned(),
+                session_field: field.name.clone(),
+                resource_algorithm: axis.to_owned(),
+            });
+            break;
         }
     }
     out

@@ -117,15 +117,14 @@ pub(super) fn audit_event_health_diagnostics(
                     .map(str::to_owned);
                 continue;
             }
-            if let Some(feature) = current_feature.as_ref() {
-                if let Some(rest) = trimmed.strip_prefix("event_group ") {
-                    if let Some(name) = rest.split_whitespace().next() {
-                        feature_event_groups
-                            .entry(feature.clone())
-                            .or_default()
-                            .insert(name.to_owned());
-                    }
-                }
+            if let Some(feature) = current_feature.as_ref()
+                && let Some(rest) = trimmed.strip_prefix("event_group ")
+                && let Some(name) = rest.split_whitespace().next()
+            {
+                feature_event_groups
+                    .entry(feature.clone())
+                    .or_default()
+                    .insert(name.to_owned());
             }
         }
     }
@@ -218,10 +217,10 @@ pub(super) fn audit_event_health_diagnostics(
             }
             // Track `command <name>` headers so we can skip their
             // bodies — the IR walker handles command audit emit_to.
-            if let Some(command_indent) = in_command {
-                if leading <= command_indent {
-                    in_command = None;
-                }
+            if let Some(command_indent) = in_command
+                && leading <= command_indent
+            {
+                in_command = None;
             }
             if trimmed.starts_with("command ") {
                 in_command = Some(leading);
@@ -240,51 +239,51 @@ pub(super) fn audit_event_health_diagnostics(
             if let Some((_, audit_indent)) = audit_pending {
                 if leading <= audit_indent {
                     audit_pending = None;
-                } else if leading == audit_indent + 2 {
-                    if let Some(rest) = trimmed.strip_prefix("emit_to ") {
-                        let target = rest.trim();
-                        let resolved = if RESERVED_AUDIT_STREAMS.contains(&target) {
-                            true
-                        } else if let Some(feature) = current_feature.as_ref() {
-                            feature_event_groups
-                                .get(feature)
-                                .is_some_and(|set| set.contains(target))
-                        } else {
-                            false
-                        };
-                        if !resolved && !command_audit_keys.contains(&(file.path.clone(), i + 1)) {
-                            let mut allowed: Vec<String> = RESERVED_AUDIT_STREAMS
-                                .iter()
-                                .map(|s| (*s).to_owned())
-                                .collect();
-                            if let Some(feature) = current_feature.as_ref() {
-                                if let Some(set) = feature_event_groups.get(feature) {
-                                    allowed.extend(set.iter().cloned());
-                                }
-                            }
-                            diagnostics.push(DoctorDiagnostic {
-                                path: file.path.clone(),
-                                line: i + 1,
-                                column: leading + 1,
-                                severity: DoctorSeverity::Error,
-                                code: "audit_emit_to_unknown_diagnostics".to_owned(),
-                                message: format!(
-                                    "`audit emit_to {target}` does not resolve. Allowed: {}.",
-                                    allowed
-                                        .iter()
-                                        .map(|s| format!("`{s}`"))
-                                        .collect::<Vec<_>>()
-                                        .join(", "),
-                                ),
-                                category: None,
-                                feature_name: None,
-                                construct: None,
-                                fix: None,
-                                group: None,
-                            });
+                } else if leading == audit_indent + 2
+                    && let Some(rest) = trimmed.strip_prefix("emit_to ")
+                {
+                    let target = rest.trim();
+                    let resolved = if RESERVED_AUDIT_STREAMS.contains(&target) {
+                        true
+                    } else if let Some(feature) = current_feature.as_ref() {
+                        feature_event_groups
+                            .get(feature)
+                            .is_some_and(|set| set.contains(target))
+                    } else {
+                        false
+                    };
+                    if !resolved && !command_audit_keys.contains(&(file.path.clone(), i + 1)) {
+                        let mut allowed: Vec<String> = RESERVED_AUDIT_STREAMS
+                            .iter()
+                            .map(|s| (*s).to_owned())
+                            .collect();
+                        if let Some(feature) = current_feature.as_ref()
+                            && let Some(set) = feature_event_groups.get(feature)
+                        {
+                            allowed.extend(set.iter().cloned());
                         }
-                        audit_pending = None;
+                        diagnostics.push(DoctorDiagnostic {
+                            path: file.path.clone(),
+                            line: i + 1,
+                            column: leading + 1,
+                            severity: DoctorSeverity::Error,
+                            code: "audit_emit_to_unknown_diagnostics".to_owned(),
+                            message: format!(
+                                "`audit emit_to {target}` does not resolve. Allowed: {}.",
+                                allowed
+                                    .iter()
+                                    .map(|s| format!("`{s}`"))
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                            ),
+                            category: None,
+                            feature_name: None,
+                            construct: None,
+                            fix: None,
+                            group: None,
+                        });
                     }
+                    audit_pending = None;
                 }
             }
         }

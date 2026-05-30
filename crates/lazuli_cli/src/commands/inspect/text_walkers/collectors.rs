@@ -107,12 +107,12 @@ pub(in crate::commands::inspect) fn collect_workflow_summaries(
             continue;
         }
 
-        if leading_spaces(line) == 4 && is_transition_line(trimmed) {
-            if let Some(workflow) = current.as_mut() {
-                if let Some(transition) = transition_name(trimmed) {
-                    workflow.transitions.push(transition.to_owned());
-                }
-            }
+        if leading_spaces(line) == 4
+            && is_transition_line(trimmed)
+            && let Some(workflow) = current.as_mut()
+            && let Some(transition) = transition_name(trimmed)
+        {
+            workflow.transitions.push(transition.to_owned());
         }
     }
 

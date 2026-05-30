@@ -143,7 +143,7 @@ pub(super) fn route_target_view_name(to: Option<&str>) -> Option<String> {
 
 pub(super) fn surface_feature(surface: Option<&str>) -> Option<String> {
     surface?
-        .split(|ch: char| ch == ' ' || ch == '.')
+        .split([' ', '.'])
         .next()
         .filter(|feature| !feature.is_empty())
         .map(str::to_owned)

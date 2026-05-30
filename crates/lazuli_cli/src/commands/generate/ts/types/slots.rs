@@ -78,22 +78,21 @@ pub(crate) fn query_args(
             let mut slots: Vec<TsSlot> = q.params.iter().map(ts_slot_from_typed).collect();
             if slots.is_empty() {
                 for key in &q.keys {
-                    if let lazuli_ir::Expr::Path(path) = &key.equals {
-                        if path.segments.first().is_some_and(|s| s == "input") {
-                            if let Some(name) = path.segments.get(1) {
-                                slots.push(query_input_slot(feature, module, name));
-                            }
-                        }
+                    if let lazuli_ir::Expr::Path(path) = &key.equals
+                        && path.segments.first().is_some_and(|s| s == "input")
+                        && let Some(name) = path.segments.get(1)
+                    {
+                        slots.push(query_input_slot(feature, module, name));
                     }
                 }
             }
             if slots.is_empty() {
                 collect_input_slots_from_filters(feature, module, &q.filters, &mut slots);
             }
-            if slots.is_empty() {
-                if let Some(name) = q.name.strip_prefix("by_") {
-                    slots.push(query_input_slot(feature, module, name));
-                }
+            if slots.is_empty()
+                && let Some(name) = q.name.strip_prefix("by_")
+            {
+                slots.push(query_input_slot(feature, module, name));
             }
             slots
         }
@@ -146,10 +145,10 @@ fn collect_input_slot_from_expr(
     let lazuli_ir::Expr::Path(path) = expr else {
         return;
     };
-    if !path
+    if path
         .segments
         .first()
-        .is_some_and(|segment| segment == "input")
+        .is_none_or(|segment| segment != "input")
     {
         return;
     }

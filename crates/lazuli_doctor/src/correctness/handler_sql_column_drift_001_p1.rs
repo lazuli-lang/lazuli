@@ -206,11 +206,10 @@ fn has_allow_comment_above(source: &str, stmt_line: usize) -> bool {
         &[stmt_line - 1]
     };
     for idx in candidates {
-        if let Some(line) = lines.get(*idx) {
-            if line.to_ascii_lowercase().contains(&needle) {
+        if let Some(line) = lines.get(*idx)
+            && line.to_ascii_lowercase().contains(&needle) {
                 return true;
             }
-        }
     }
     // Fall back on the canonical `#`-prefixed form anywhere in the
     // file (parity with the rest of the doctor crate).

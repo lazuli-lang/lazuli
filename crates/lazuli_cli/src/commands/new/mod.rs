@@ -106,13 +106,13 @@ fn new_project_command(
         // for installed (system) Lazuli binaries: if no runtime is
         // discovered the file stays as the user can wire the path
         // manually following the README hint.
-        if let Some(runtime_dir) = locate_lazuli_runtime_dir() {
-            if let Err(err) = inject_runtime_into_go_work(project, &runtime_dir) {
-                eprintln!(
-                    "warning: failed to write runtime path into go.work ({}): {err:#}",
-                    runtime_dir.display()
-                );
-            }
+        if let Some(runtime_dir) = locate_lazuli_runtime_dir()
+            && let Err(err) = inject_runtime_into_go_work(project, &runtime_dir)
+        {
+            eprintln!(
+                "warning: failed to write runtime path into go.work ({}): {err:#}",
+                runtime_dir.display()
+            );
         }
 
         if let Err(err) = run_go_mod_tidy(project) {

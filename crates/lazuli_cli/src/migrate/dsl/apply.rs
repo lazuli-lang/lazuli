@@ -89,14 +89,12 @@ pub(super) fn process_file(
     // parsed and the rewrite fails, drop the rewrite and surface
     // the error.
     let original_ok = parse_check(ext, &original).is_ok();
-    if original_ok {
-        if let Err(err) = parse_check(ext, &current) {
-            report.rolled_back.push((
-                file.to_path_buf(),
-                format!("post-transform parse failure: {err}"),
-            ));
-            return Ok(());
-        }
+    if original_ok && let Err(err) = parse_check(ext, &current) {
+        report.rolled_back.push((
+            file.to_path_buf(),
+            format!("post-transform parse failure: {err}"),
+        ));
+        return Ok(());
     }
 
     if dry_run {

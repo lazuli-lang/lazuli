@@ -211,10 +211,9 @@ fn parse_pub_struct_or_enum(line: &str) -> Option<(&'static str, &str)> {
         Some(("enum", rest))
     } else if let Some(rest) = line.strip_prefix("pub(crate) struct ") {
         Some(("struct", rest))
-    } else if let Some(rest) = line.strip_prefix("pub(crate) enum ") {
-        Some(("enum", rest))
     } else {
-        None
+        line.strip_prefix("pub(crate) enum ")
+            .map(|rest| ("enum", rest))
     };
     let (kind, rest) = after_pub?;
     // Identifier ends at first non-ident char.

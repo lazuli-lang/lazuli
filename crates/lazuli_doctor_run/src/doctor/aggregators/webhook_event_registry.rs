@@ -21,9 +21,10 @@ pub(crate) fn diagnostics(registry: Option<&DoctorAppRegistry>) -> Vec<DoctorDia
     let mut diagnostics = Vec::new();
 
     for event in &registry.manifest.webhook_events {
-        if let Some(previous_version) = event.previous_version {
-            if previous_version > event.version {
-                diagnostics.push(DoctorDiagnostic {
+        if let Some(previous_version) = event.previous_version
+            && previous_version > event.version
+        {
+            diagnostics.push(DoctorDiagnostic {
                     path: registry.path.clone(),
                     line: 1,
                     column: 1,
@@ -39,7 +40,6 @@ pub(crate) fn diagnostics(registry: Option<&DoctorAppRegistry>) -> Vec<DoctorDia
                     fix: None,
                     group: None,
                 });
-            }
         }
 
         if event.payload.is_empty() {

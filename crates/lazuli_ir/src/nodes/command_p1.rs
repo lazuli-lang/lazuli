@@ -373,10 +373,11 @@ pub struct RouteSlot {
 /// (typed identifier); `OpaqueToken` covers `route opaque token: Text` (no
 /// id leakage); `SignedToken` covers `route signed_token` (HMAC-signed
 /// stateless tokens decoded by the runtime).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RouteSlotKind {
     /// Default — plain typed parameter (`route id: ID`).
+    #[default]
     Plain,
     /// `route opaque token: Text` — runtime hides the underlying id.
     OpaqueToken,

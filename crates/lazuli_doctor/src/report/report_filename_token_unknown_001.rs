@@ -93,12 +93,12 @@ fn extract_placeholders(literal: &str) -> Vec<String> {
     let bytes = literal.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'{' {
-            if let Some(close) = literal[i + 1..].find('}') {
-                out.push(literal[i + 1..i + 1 + close].to_owned());
-                i = i + 1 + close + 1;
-                continue;
-            }
+        if bytes[i] == b'{'
+            && let Some(close) = literal[i + 1..].find('}')
+        {
+            out.push(literal[i + 1..i + 1 + close].to_owned());
+            i = i + 1 + close + 1;
+            continue;
         }
         i += 1;
     }

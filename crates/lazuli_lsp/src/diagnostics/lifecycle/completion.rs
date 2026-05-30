@@ -325,7 +325,7 @@ pub(crate) fn lifecycle_view_slot_trigger(source: &str, position: Position, befo
         .any(|(_, line)| {
             leading_spaces(line) == view.header_indent + 2
                 && matches!(
-                    line.trim_start().split_whitespace().next(),
+                    line.split_whitespace().next(),
                     Some("policy" | "path" | "submit")
                 )
         })
@@ -396,34 +396,34 @@ pub fn lifecycle_gate_completions(source: &str, position: Position) -> Option<Ve
         ));
     }
 
-    if let Some(rest) = trimmed_before.strip_prefix("requires_lifecycle ") {
-        if lifecycle_identifier_prefix(rest) {
-            let feature = crate::route_guard_context_feature(source, position);
-            return Some(lifecycle_resource_completion_items(
-                source,
-                feature.as_deref(),
-            ));
-        }
+    if let Some(rest) = trimmed_before.strip_prefix("requires_lifecycle ")
+        && lifecycle_identifier_prefix(rest)
+    {
+        let feature = crate::route_guard_context_feature(source, position);
+        return Some(lifecycle_resource_completion_items(
+            source,
+            feature.as_deref(),
+        ));
     }
 
-    if let Some(rest) = trimmed_before.strip_prefix("on_lifecycle_pending @resume ") {
-        if lifecycle_identifier_prefix(rest) {
-            let feature = crate::route_guard_context_feature(source, position);
-            return Some(lifecycle_resume_completion_items(
-                source,
-                feature.as_deref(),
-            ));
-        }
+    if let Some(rest) = trimmed_before.strip_prefix("on_lifecycle_pending @resume ")
+        && lifecycle_identifier_prefix(rest)
+    {
+        let feature = crate::route_guard_context_feature(source, position);
+        return Some(lifecycle_resume_completion_items(
+            source,
+            feature.as_deref(),
+        ));
     }
 
     if let Some(resume) = enclosing_lifecycle_resume_block(source, position) {
-        if let Some(rest) = trimmed_before.strip_prefix("source query.lookup ") {
-            if lifecycle_identifier_prefix(rest) {
-                return Some(lifecycle_lookup_query_completion_items(
-                    source,
-                    resume.feature_hint.as_deref(),
-                ));
-            }
+        if let Some(rest) = trimmed_before.strip_prefix("source query.lookup ")
+            && lifecycle_identifier_prefix(rest)
+        {
+            return Some(lifecycle_lookup_query_completion_items(
+                source,
+                resume.feature_hint.as_deref(),
+            ));
         }
 
         if resume_arm_view_target_trigger(trimmed_before) {

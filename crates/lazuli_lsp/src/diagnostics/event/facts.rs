@@ -111,17 +111,18 @@ pub(crate) fn collect_trace_events(source: &str) -> HashSet<String> {
             ) {
                 events.insert(format!("{feature}.{event}"));
             }
-        } else if leading_spaces(line) == 6 && trimmed.starts_with("event.trace ") {
-            if let (Some(feature), Some(prefix), Some(event)) = (
+        } else if leading_spaces(line) == 6
+            && trimmed.starts_with("event.trace ")
+            && let (Some(feature), Some(prefix), Some(event)) = (
                 current_feature.as_deref(),
                 current_group_prefix.as_deref(),
                 trimmed.split_whitespace().nth(1),
-            ) {
-                events.insert(format!(
-                    "{feature}.{}",
-                    qualify_group_event_name(prefix, event)
-                ));
-            }
+            )
+        {
+            events.insert(format!(
+                "{feature}.{}",
+                qualify_group_event_name(prefix, event)
+            ));
         }
     }
 
@@ -262,13 +263,13 @@ pub(crate) fn collect_event_contracts(source: &str) -> HashMap<String, HashSet<S
                     } else {
                         in_group_payload = false;
                     }
-                } else if let Some(event_key) = current_event.as_deref() {
-                    if let Some((field, _)) = typed_param(trimmed) {
-                        event_fields
-                            .entry(event_key.to_owned())
-                            .or_default()
-                            .insert(field.to_owned());
-                    }
+                } else if let Some(event_key) = current_event.as_deref()
+                    && let Some((field, _)) = typed_param(trimmed)
+                {
+                    event_fields
+                        .entry(event_key.to_owned())
+                        .or_default()
+                        .insert(field.to_owned());
                 }
             }
             8 if current_top == Some("domain") => {

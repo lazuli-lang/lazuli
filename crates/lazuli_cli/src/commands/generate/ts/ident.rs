@@ -55,19 +55,19 @@ pub(crate) fn command_export_ident(
     command: &lazuli_ir::Command,
     module: &lazuli_ir::Module,
 ) -> String {
-    if command_is_pure_read(command) {
-        if let Some(resource_pascal) = command_return_resource_pascal(command, module) {
-            let resource_plural = lazuli_codegen_ts::pluralize(&resource_pascal);
-            if command.name.eq_ignore_ascii_case("list") {
-                return format!("list{resource_plural}");
-            }
-            if let Some(rest) = strip_query_verb_prefix(&command.name, "list_") {
-                let rest_pascal = pascal_case(rest);
-                return format!(
-                    "list{}",
-                    list_subject_pascal(&rest_pascal, &resource_pascal, &resource_plural)
-                );
-            }
+    if command_is_pure_read(command)
+        && let Some(resource_pascal) = command_return_resource_pascal(command, module)
+    {
+        let resource_plural = lazuli_codegen_ts::pluralize(&resource_pascal);
+        if command.name.eq_ignore_ascii_case("list") {
+            return format!("list{resource_plural}");
+        }
+        if let Some(rest) = strip_query_verb_prefix(&command.name, "list_") {
+            let rest_pascal = pascal_case(rest);
+            return format!(
+                "list{}",
+                list_subject_pascal(&rest_pascal, &resource_pascal, &resource_plural)
+            );
         }
     }
 

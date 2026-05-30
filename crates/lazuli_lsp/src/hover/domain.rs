@@ -319,9 +319,8 @@ pub(crate) fn keyword_description(keyword: &str) -> Option<&'static str> {
         "source" => Some(
             "Inside `locale_negotiate`: the request axis the runtime reads to determine the locale. Closed catalog: `accept_language`, `query_param`, `cookie`, `user_profile`, `subdomain`.",
         ),
-        "supported" => Some(
-            "List of BCP-47 tags `app` accepts. The negotiation middleware matches `Accept-Language` against this list; `app.locale.default` must appear here.",
-        ),
+        // (`supported` is described by the `locale`-block arm above; this is the
+        // same BCP-47 tag list, so no duplicate arm here.)
         "plural" => Some(
             "CLDR plural arm. Closed catalog: `zero`, `one`, `two`, `few`, `many`, `other`. The actual rule for which arm fires is locale data from CLDR, not language-declared.",
         ),

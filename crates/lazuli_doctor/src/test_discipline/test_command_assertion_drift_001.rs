@@ -293,10 +293,10 @@ fn backing_guard_exists(
     // state machine is the WHERE clause. The `leave_host_reply` bug
     // had `status` as a non-lifecycle field, so this guard does NOT
     // trigger for that pattern (which is what we want).
-    if let Some(lifecycle) = &resource.lifecycle {
-        if lifecycle.discriminator_field == field {
-            return true;
-        }
+    if let Some(lifecycle) = &resource.lifecycle
+        && lifecycle.discriminator_field == field
+    {
+        return true;
     }
 
     false

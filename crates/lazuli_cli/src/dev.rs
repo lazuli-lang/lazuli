@@ -61,11 +61,8 @@ pub fn run_dev(opts: DevOptions) -> Result<()> {
         .watch(&watch_path, RecursiveMode::Recursive)
         .with_context(|| format!("watching {}", watch_path.display()))?;
 
-    loop {
-        let mut changed_paths = match rx.recv() {
-            Ok(event) => interesting_paths(event, &out_dir),
-            Err(_) => break,
-        };
+    while let Ok(event) = rx.recv() {
+        let mut changed_paths = interesting_paths(event, &out_dir);
 
         loop {
             match rx.recv_timeout(opts.debounce) {

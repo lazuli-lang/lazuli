@@ -93,10 +93,7 @@ fn unsupported_kind(quirk: &PollerRetryQuirk) -> Option<String> {
 
 fn debug_variant_to_snake_case(quirk: &PollerRetryQuirk) -> String {
     let debug = format!("{quirk:?}");
-    let variant = debug
-        .split(|c: char| c == ' ' || c == '(' || c == '{')
-        .next()
-        .unwrap_or("unknown");
+    let variant = debug.split([' ', '(', '{']).next().unwrap_or("unknown");
     let mut out = String::new();
 
     for (idx, ch) in variant.chars().enumerate() {

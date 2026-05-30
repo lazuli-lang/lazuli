@@ -27,20 +27,20 @@ pub(super) fn build_plan_gate_facts(
         if let Ok(blocks) = lazuli_syntax::parse_plan_blocks(&file.source) {
             plan_blocks_raw.extend(blocks);
         }
-        if let Ok(fg) = lazuli_syntax::parse_feature_gates(&file.source) {
-            if !fg.callables.is_empty() {
-                // Derive feature name from the file's first
-                // `feature <name>` header (mirrors the existing
-                // doctor convention).
-                let feature_name = derive_feature_name(&file.source).unwrap_or_else(|| {
-                    file.path
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("unknown")
-                        .to_owned()
-                });
-                feature_gates_raw.push((feature_name, fg));
-            }
+        if let Ok(fg) = lazuli_syntax::parse_feature_gates(&file.source)
+            && !fg.callables.is_empty()
+        {
+            // Derive feature name from the file's first
+            // `feature <name>` header (mirrors the existing
+            // doctor convention).
+            let feature_name = derive_feature_name(&file.source).unwrap_or_else(|| {
+                file.path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown")
+                    .to_owned()
+            });
+            feature_gates_raw.push((feature_name, fg));
         }
     }
     let anchor = app.and_then(|a| lazuli_analyzer::parse_subscription_anchor(&a.source));

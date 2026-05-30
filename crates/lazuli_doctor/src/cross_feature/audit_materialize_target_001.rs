@@ -232,14 +232,14 @@ pub fn views_from_features(
         .map(|feature| {
             let mut sites = Vec::new();
             for command in &feature.commands {
-                if let Some(audit) = &command.audit {
-                    if let Some(m) = &audit.materialize {
-                        sites.push(AuditMaterializeSite {
-                            command: command.name.clone(),
-                            target_feature: m.feature.clone(),
-                            target_resource: m.resource.clone(),
-                        });
-                    }
+                if let Some(audit) = &command.audit
+                    && let Some(m) = &audit.materialize
+                {
+                    sites.push(AuditMaterializeSite {
+                        command: command.name.clone(),
+                        target_feature: m.feature.clone(),
+                        target_resource: m.resource.clone(),
+                    });
                 }
             }
             FeatureAuditMaterializeView {

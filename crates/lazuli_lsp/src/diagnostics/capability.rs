@@ -214,9 +214,7 @@ pub(crate) fn is_retention_duration_literal(value: &str) -> bool {
 }
 
 pub(crate) fn is_key_scope(value: &str) -> bool {
-    value
-        .strip_prefix("@key.")
-        .is_some_and(|scope| is_identifier(scope))
+    value.strip_prefix("@key.").is_some_and(is_identifier)
 }
 
 pub(crate) fn is_float_in_range(value: &str, min: f64, max: f64) -> bool {

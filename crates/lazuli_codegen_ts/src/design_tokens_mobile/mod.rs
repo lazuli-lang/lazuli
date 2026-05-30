@@ -242,16 +242,16 @@ fn state_kind_key(kind: ColorStateKind) -> &'static str {
 /// surface the malformed value).
 fn to_px(value: &str, rem_base: u32) -> String {
     let trimmed = value.trim();
-    if let Some(num) = trimmed.strip_suffix("rem") {
-        if let Ok(parsed) = num.trim().parse::<f64>() {
-            let px = (parsed * rem_base as f64).round() as i64;
-            return px.to_string();
-        }
+    if let Some(num) = trimmed.strip_suffix("rem")
+        && let Ok(parsed) = num.trim().parse::<f64>()
+    {
+        let px = (parsed * rem_base as f64).round() as i64;
+        return px.to_string();
     }
-    if let Some(num) = trimmed.strip_suffix("px") {
-        if let Ok(parsed) = num.trim().parse::<f64>() {
-            return (parsed.round() as i64).to_string();
-        }
+    if let Some(num) = trimmed.strip_suffix("px")
+        && let Ok(parsed) = num.trim().parse::<f64>()
+    {
+        return (parsed.round() as i64).to_string();
     }
     if let Ok(parsed) = trimmed.parse::<f64>() {
         return (parsed.round() as i64).to_string();
@@ -262,15 +262,15 @@ fn to_px(value: &str, rem_base: u32) -> String {
 
 fn strip_ms(value: &str) -> String {
     let trimmed = value.trim();
-    if let Some(num) = trimmed.strip_suffix("ms") {
-        if let Ok(parsed) = num.trim().parse::<f64>() {
-            return (parsed.round() as i64).to_string();
-        }
+    if let Some(num) = trimmed.strip_suffix("ms")
+        && let Ok(parsed) = num.trim().parse::<f64>()
+    {
+        return (parsed.round() as i64).to_string();
     }
-    if let Some(num) = trimmed.strip_suffix('s') {
-        if let Ok(parsed) = num.trim().parse::<f64>() {
-            return ((parsed * 1000.0).round() as i64).to_string();
-        }
+    if let Some(num) = trimmed.strip_suffix('s')
+        && let Ok(parsed) = num.trim().parse::<f64>()
+    {
+        return ((parsed * 1000.0).round() as i64).to_string();
     }
     if let Ok(parsed) = trimmed.parse::<f64>() {
         return (parsed.round() as i64).to_string();
@@ -283,10 +283,9 @@ fn to_unitless(value: &str) -> String {
     if let Some(num) = trimmed
         .strip_suffix("em")
         .or_else(|| trimmed.strip_suffix("px"))
+        && let Ok(parsed) = num.trim().parse::<f64>()
     {
-        if let Ok(parsed) = num.trim().parse::<f64>() {
-            return format!("{}", parsed);
-        }
+        return format!("{}", parsed);
     }
     if let Ok(parsed) = trimmed.parse::<f64>() {
         return format!("{}", parsed);

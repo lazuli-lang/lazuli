@@ -124,14 +124,14 @@ pub fn analyze_rbac_catalog(pkg: &PackageSkeleton) -> (Option<ir::RbacCatalog>, 
     let role_names_for_inherit: BTreeSet<String> =
         role_entries.iter().map(|r| r.name.clone()).collect();
     for r in &pkg.roles {
-        if let Some(parent) = &r.inherits {
-            if !role_names_for_inherit.contains(parent) {
-                issues.push(RbacIssue {
-                    code: "RBAC-ROLE-INHERIT-UNKNOWN-001",
-                    message: format!("role `{}` inherits from unknown role `{}`", r.name, parent),
-                    span: Some((r.span.start, r.span.end)),
-                });
-            }
+        if let Some(parent) = &r.inherits
+            && !role_names_for_inherit.contains(parent)
+        {
+            issues.push(RbacIssue {
+                code: "RBAC-ROLE-INHERIT-UNKNOWN-001",
+                message: format!("role `{}` inherits from unknown role `{}`", r.name, parent),
+                span: Some((r.span.start, r.span.end)),
+            });
         }
     }
 

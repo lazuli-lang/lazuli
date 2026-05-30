@@ -48,16 +48,16 @@ pub(crate) fn semantic_type_unknown_diagnostics_for_syntax_feature(
                 &mut diagnostics,
             );
         }
-        if let Some(handler) = command.handler.as_ref() {
-            if let Some(returns) = handler.returns.as_deref() {
-                push_unknown_semantic_type_text(
-                    path,
-                    source,
-                    returns,
-                    command.span.start,
-                    &mut diagnostics,
-                );
-            }
+        if let Some(handler) = command.handler.as_ref()
+            && let Some(returns) = handler.returns.as_deref()
+        {
+            push_unknown_semantic_type_text(
+                path,
+                source,
+                returns,
+                command.span.start,
+                &mut diagnostics,
+            );
         }
     }
 
@@ -135,16 +135,16 @@ pub(crate) fn semantic_type_unknown_diagnostics_for_syntax_feature(
     }
 
     for webhook in &feature.webhooks {
-        if let Some(handler) = webhook.handler.as_ref() {
-            if let Some(returns) = handler.returns.as_deref() {
-                push_unknown_semantic_type_text(
-                    path,
-                    source,
-                    returns,
-                    webhook.span.start,
-                    &mut diagnostics,
-                );
-            }
+        if let Some(handler) = webhook.handler.as_ref()
+            && let Some(returns) = handler.returns.as_deref()
+        {
+            push_unknown_semantic_type_text(
+                path,
+                source,
+                returns,
+                webhook.span.start,
+                &mut diagnostics,
+            );
         }
     }
 

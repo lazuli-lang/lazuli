@@ -297,18 +297,17 @@ fn classify_bare_word(
     // Keyword is a declaration/section/statement opener, which is exactly
     // what head position means.
     if let Some(spec) = find(word) {
-        match spec.token {
-            SemanticToken::Keyword => out.push(ClassifiedToken {
+        // Other token kinds (Modifier / Operator / EnumMember) are
+        // context-sensitive even in head position (e.g. a policy expression can
+        // begin with the `not` operator); under-classify and leave them to the
+        // tmLanguage fallback.
+        if spec.token == SemanticToken::Keyword {
+            out.push(ClassifiedToken {
                 line: line_idx,
                 start_col: start,
                 len: word.len(),
                 token: SemanticToken::Keyword,
-            }),
-            // Other token kinds (Modifier / Operator / EnumMember) are
-            // context-sensitive even in head position (e.g. a policy
-            // expression can begin with the `not` operator). Under-
-            // classify: leave them to the tmLanguage fallback.
-            _ => {}
+            });
         }
     }
 }

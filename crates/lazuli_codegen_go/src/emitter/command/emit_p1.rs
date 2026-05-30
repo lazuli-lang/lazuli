@@ -197,11 +197,10 @@ pub(super) fn emit_command(
     // `owner_scope_sql: None` (handled by the analyzer); they may
     // still emit `@scope.owner` via the legacy path above. We dedupe
     // so a single resource doesn't get the same FK column bound twice.
-    if let Some(binding) = owner_scope_binding(command.owner_scope_sql.as_ref()) {
-        if !scope_bindings.iter().any(|b| b.column == binding.column) {
+    if let Some(binding) = owner_scope_binding(command.owner_scope_sql.as_ref())
+        && !scope_bindings.iter().any(|b| b.column == binding.column) {
             scope_bindings.push(binding);
         }
-    }
     let scope_bindings = scope_bindings;
 
     emit_effect(
@@ -326,7 +325,7 @@ fn emit_command_handler_wrapper(
 /// PG.C.1 — split the authored gate list into the two evaluation
 /// buckets. `gate behind plan.feature` checks fire first; `gate quota
 /// plan.limit` checks (and their post-success increments) fire after.
-fn partition_gates<'a>(gates: &'a [Gate]) -> (Vec<&'a str>, Vec<&'a str>) {
+fn partition_gates(gates: &[Gate]) -> (Vec<&str>, Vec<&str>) {
     let mut behinds = Vec::new();
     let mut quotas = Vec::new();
     for gate in gates {

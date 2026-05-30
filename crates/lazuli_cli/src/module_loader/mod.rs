@@ -181,12 +181,11 @@ pub(crate) fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> 
     // site. See `docs/proposals/semantic-types-plugin-locales.md`.
     if input.is_dir() {
         let project_root = project_root_for_input(input);
-        if let Ok(manifest) = lazurite_manifest::load(&project_root) {
-            if let Ok(alias_map) =
+        if let Ok(manifest) = lazurite_manifest::load(&project_root)
+            && let Ok(alias_map) =
                 plugin_manifest::build_alias_map(manifest.as_ref(), &project_root)
-            {
-                plugin_semantic_resolver::apply_plugin_semantic_resolution(&mut module, &alias_map);
-            }
+        {
+            plugin_semantic_resolver::apply_plugin_semantic_resolution(&mut module, &alias_map);
         }
     }
 
@@ -221,10 +220,10 @@ pub(crate) fn build_module_with_source_from_path(
         if design_path.is_file() {
             let source = fs::read_to_string(&design_path)
                 .with_context(|| format!("reading {}", design_path.display()))?;
-            if let Ok(ast) = lazuli_syntax::parse_design_document(&source) {
-                if let Ok(design) = lazuli_analyzer::lower_design(&ast) {
-                    module.design = Some(design);
-                }
+            if let Ok(ast) = lazuli_syntax::parse_design_document(&source)
+                && let Ok(design) = lazuli_analyzer::lower_design(&ast)
+            {
+                module.design = Some(design);
             }
         }
     }
@@ -370,32 +369,32 @@ pub(crate) fn collect_plan_gate_facts_for_generate(
         let Ok(source) = fs::read_to_string(&path) else {
             continue;
         };
-        if anchor.is_none() {
-            if let Some(a) = lazuli_analyzer::parse_subscription_anchor(&source) {
-                anchor = Some(a);
-            }
+        if anchor.is_none()
+            && let Some(a) = lazuli_analyzer::parse_subscription_anchor(&source)
+        {
+            anchor = Some(a);
         }
         if let Ok(blocks) = lazuli_syntax::parse_plan_blocks(&source) {
             plan_blocks.extend(blocks);
         }
-        if let Ok(fg) = lazuli_syntax::parse_feature_gates(&source) {
-            if !fg.callables.is_empty() {
-                let feature_name = source
-                    .lines()
-                    .find_map(|l| {
-                        l.trim_start()
-                            .strip_prefix("feature ")
-                            .map(|s| s.to_owned())
-                    })
-                    .and_then(|s| s.split_whitespace().next().map(|s| s.to_owned()))
-                    .unwrap_or_else(|| {
-                        path.file_stem()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("unknown")
-                            .to_owned()
-                    });
-                feature_gates.push((feature_name, fg));
-            }
+        if let Ok(fg) = lazuli_syntax::parse_feature_gates(&source)
+            && !fg.callables.is_empty()
+        {
+            let feature_name = source
+                .lines()
+                .find_map(|l| {
+                    l.trim_start()
+                        .strip_prefix("feature ")
+                        .map(|s| s.to_owned())
+                })
+                .and_then(|s| s.split_whitespace().next().map(|s| s.to_owned()))
+                .unwrap_or_else(|| {
+                    path.file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("unknown")
+                        .to_owned()
+                });
+            feature_gates.push((feature_name, fg));
         }
     }
 

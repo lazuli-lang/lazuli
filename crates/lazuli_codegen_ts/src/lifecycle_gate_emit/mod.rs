@@ -109,23 +109,12 @@ struct LifecycleGate {
     guard: RouteGuardShape,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct RouteGuardShape {
     name: Option<String>,
     atoms: Vec<PolicyAtom>,
     on_unauthenticated: Option<String>,
     on_unauthorized: Option<String>,
-}
-
-impl Default for RouteGuardShape {
-    fn default() -> Self {
-        Self {
-            name: None,
-            atoms: Vec::new(),
-            on_unauthenticated: None,
-            on_unauthorized: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

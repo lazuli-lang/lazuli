@@ -199,12 +199,10 @@ pub(super) fn parse_notification(
     ))
 }
 
-/// Notifications expanded bucket cycle — parse the `digest` sub-block
-/// of a `notification`. Header line is bare `digest` at indent 4;
-/// children at indent 6 are `every "<duration>"` (required),
-/// `group_by <path>` (optional), `max_size <N>` (optional), and
-/// `template_strategy <merge|append>` (optional). All other child
-/// keys are rejected to keep the catalog closed.
+// Notifications expanded bucket cycle — the `digest` sub-block parser (header
+// `digest` at indent 4; indent-6 children `every "<duration>"` (required),
+// `group_by <path>`, `max_size <N>`, `template_strategy <merge|append>`; all
+// other child keys rejected to keep the catalog closed) lives above.
 
 // =============================================================================
 // Notifications expanded bucket cycle — digest/throttle parser tests.

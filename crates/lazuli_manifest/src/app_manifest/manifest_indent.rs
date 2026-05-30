@@ -100,10 +100,10 @@ impl ManifestParseState {
 /// `integrations` arm) and writes back via `&mut app`.
 pub(super) fn handle_indent6(trimmed: &str, app: &mut AppManifest, state: &mut ManifestParseState) {
     if state.current_child == Some("env") {
-        if let Some(group) = state.current_env_group.as_deref() {
-            if let Some(env_var) = parse_app_env_var(trimmed, Some(group)) {
-                app.env.push(env_var);
-            }
+        if let Some(group) = state.current_env_group.as_deref()
+            && let Some(env_var) = parse_app_env_var(trimmed, Some(group))
+        {
+            app.env.push(env_var);
         }
     } else if state.current_child == Some("integrations") {
         let Some(integration_index) = state.current_integration else {
@@ -181,12 +181,9 @@ pub(super) fn handle_indent6(trimmed: &str, app: &mut AppManifest, state: &mut M
             let raw = rest.trim();
             let template = if let Some(literal) = raw.strip_prefix("env.") {
                 Some(EncryptionSource::Env(EncryptionTemplate::parse(literal)))
-            } else if let Some(literal) = raw.strip_prefix("secrets.") {
-                Some(EncryptionSource::Secrets(EncryptionTemplate::parse(
-                    literal,
-                )))
             } else {
-                None
+                raw.strip_prefix("secrets.")
+                    .map(|literal| EncryptionSource::Secrets(EncryptionTemplate::parse(literal)))
             };
             if let Some(source) = template {
                 binding.source = source;
@@ -205,10 +202,10 @@ pub(super) fn handle_indent6(trimmed: &str, app: &mut AppManifest, state: &mut M
             if !name.is_empty() {
                 binding.rotation_profile = Some(name);
             }
-        } else if let Some(rest) = trimmed.strip_prefix("rotation ") {
-            if let Some(rot) = EncryptionRotation::parse(rest.trim()) {
-                binding.rotation = rot;
-            }
+        } else if let Some(rest) = trimmed.strip_prefix("rotation ")
+            && let Some(rot) = EncryptionRotation::parse(rest.trim())
+        {
+            binding.rotation = rot;
         }
     } else if state.current_child == Some("headers") && state.in_headers_hsts {
         // Roadmap §1.10 — six-space HSTS body. Children

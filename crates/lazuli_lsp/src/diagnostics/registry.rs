@@ -181,16 +181,14 @@ pub(crate) fn registry_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                     } else {
                         validate_registry_pack_child(&mut diagnostics, line_index, line, trimmed);
                     }
-                } else if current_child == Some("webhook_event") {
-                    if !trimmed.contains(':') {
-                        diagnostics.push(simple_canonical_diagnostic(
-                            line_index,
-                            line,
-                            DiagnosticSeverity::WARNING,
-                            "registry-contract",
-                            "`webhook_event payload` fields use `<name>: <Type>`.",
-                        ));
-                    }
+                } else if current_child == Some("webhook_event") && !trimmed.contains(':') {
+                    diagnostics.push(simple_canonical_diagnostic(
+                        line_index,
+                        line,
+                        DiagnosticSeverity::WARNING,
+                        "registry-contract",
+                        "`webhook_event payload` fields use `<name>: <Type>`.",
+                    ));
                 }
             }
             8 => {

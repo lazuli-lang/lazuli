@@ -66,25 +66,25 @@ pub(crate) fn validate_constraint_range_invariant(
     field: &str,
     c: &syntax::FieldConstraintsDecl,
 ) -> Result<(), AnalyzeError> {
-    if let (Some(min), Some(max)) = (c.min, c.max) {
-        if min > max {
-            return Err(AnalyzeError::InlineValidatorRangeInvariant {
-                field: field.to_owned(),
-                rule: "min>max".to_owned(),
-                low: min.to_string(),
-                high: max.to_string(),
-            });
-        }
+    if let (Some(min), Some(max)) = (c.min, c.max)
+        && min > max
+    {
+        return Err(AnalyzeError::InlineValidatorRangeInvariant {
+            field: field.to_owned(),
+            rule: "min>max".to_owned(),
+            low: min.to_string(),
+            high: max.to_string(),
+        });
     }
-    if let Some((a, b)) = c.between {
-        if a > b {
-            return Err(AnalyzeError::InlineValidatorRangeInvariant {
-                field: field.to_owned(),
-                rule: "between".to_owned(),
-                low: a.to_string(),
-                high: b.to_string(),
-            });
-        }
+    if let Some((a, b)) = c.between
+        && a > b
+    {
+        return Err(AnalyzeError::InlineValidatorRangeInvariant {
+            field: field.to_owned(),
+            rule: "between".to_owned(),
+            low: a.to_string(),
+            high: b.to_string(),
+        });
     }
     Ok(())
 }
@@ -346,14 +346,14 @@ pub(crate) fn validate_default_against_constraints(
     let as_int = unquoted.parse::<i64>().ok();
     // length check (string only — applies to char count of the
     // unquoted literal).
-    if let Some(n) = c.length {
-        if unquoted.chars().count() != n {
-            return Err(AnalyzeError::DefaultViolatesConstraint {
-                field: field.to_owned(),
-                value: default_raw.to_owned(),
-                rule: format!("length={}", n),
-            });
-        }
+    if let Some(n) = c.length
+        && unquoted.chars().count() != n
+    {
+        return Err(AnalyzeError::DefaultViolatesConstraint {
+            field: field.to_owned(),
+            value: default_raw.to_owned(),
+            rule: format!("length={}", n),
+        });
     }
     // min on numerics OR text length.
     if let Some(min) = c.min {
@@ -397,16 +397,15 @@ pub(crate) fn validate_default_against_constraints(
             }
         }
     }
-    if let Some((lo, hi)) = c.between {
-        if let Some(n) = as_int {
-            if n < lo || n > hi {
-                return Err(AnalyzeError::DefaultViolatesConstraint {
-                    field: field.to_owned(),
-                    value: default_raw.to_owned(),
-                    rule: format!("between={}..{}", lo, hi),
-                });
-            }
-        }
+    if let Some((lo, hi)) = c.between
+        && let Some(n) = as_int
+        && (n < lo || n > hi)
+    {
+        return Err(AnalyzeError::DefaultViolatesConstraint {
+            field: field.to_owned(),
+            value: default_raw.to_owned(),
+            rule: format!("between={}..{}", lo, hi),
+        });
     }
     if let Some(values) = &c.r#in {
         // For text: compare unquoted string against the list verbatim.

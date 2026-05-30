@@ -17,3 +17,6 @@ serde = ["dep:serde"]
 [dev-dependencies]
 # The proven-complete test scans the parser source tree at the workspace
 # root using only std + a hand-rolled literal extractor. No external deps.
+
+[lints]
+workspace = true

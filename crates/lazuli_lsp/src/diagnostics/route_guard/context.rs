@@ -235,10 +235,10 @@ pub(crate) fn collect_route_paths(source: &str) -> Vec<String> {
         let Some(rest) = trimmed.strip_prefix("path ") else {
             continue;
         };
-        if let Some(path) = first_quoted_value(rest) {
-            if seen.insert(path.clone()) {
-                paths.push(path);
-            }
+        if let Some(path) = first_quoted_value(rest)
+            && seen.insert(path.clone())
+        {
+            paths.push(path);
         }
     }
     paths

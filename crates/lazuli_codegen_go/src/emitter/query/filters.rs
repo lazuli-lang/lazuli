@@ -67,9 +67,7 @@ pub(super) fn emit_filters(
     // emitted SQL matches spec §8.4 verbatim after the existing tenant
     // predicates.
     if let Some((column, source)) = owner_scope_entry {
-        p.line(&format!(
-            "// owner-scope: synth from @owner_axis (cell O2 + codegen-os projection)",
-        ));
+        p.line("// owner-scope: synth from @owner_axis (cell O2 + codegen-os projection)");
         p.line(&format!(
             "{{Column: \"{}\", When: {source}}},",
             escape_string(&column)
@@ -116,7 +114,7 @@ pub(super) fn emit_order(
         let column = normalize_resource_column(
             feature,
             resource,
-            &column_from_segments(&[clause.field.clone()]),
+            &column_from_segments(std::slice::from_ref(&clause.field)),
         );
         p.line(&format!(
             "{{Column: \"{}\", Desc: {desc}}},",
@@ -215,16 +213,16 @@ fn filter_rule(
     // `<col> IN (SELECT id FROM <related> WHERE user = $N)` via
     // `FromCtxOwnedVia`. Closes the catalog `mine_*` filter shape
     // (host_id = ctx.actor.user_id) without a per-app handler.
-    if filter.when.is_none() {
-        if let Some(owned_via) = owned_via_source(&column, value_expr, feature, resource) {
-            return Ok((column, owned_via));
-        }
+    if filter.when.is_none()
+        && let Some(owned_via) = owned_via_source(&column, value_expr, feature, resource)
+    {
+        return Ok((column, owned_via));
     }
 
     let source = match &filter.when {
         Some(param) => format!(
             "lazuli.FromInput(\"{}\")",
-            input_source_path(&[param.clone()])
+            input_source_path(std::slice::from_ref(param))
         ),
         None => format_source_expr(value_expr),
     };

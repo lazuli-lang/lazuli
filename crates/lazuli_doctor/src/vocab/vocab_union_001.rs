@@ -336,7 +336,7 @@ mod tests {
             findings[0].correlated,
             vec!["bridge_fee".to_string(), "bridge_url".to_string()]
         );
-        assert!(findings[0].message().contains("VOCAB-UNION-001") || true); // message doesn't embed code; code is on Finding::CODE
+        // The message does not embed the code; the code lives on `Finding::CODE`.
         assert_eq!(Finding::CODE, "VOCAB-UNION-001");
     }
 

@@ -273,12 +273,11 @@ fn extract_declared_type_names(source: &str) -> Vec<String> {
 
         let after_export = trimmed.strip_prefix("export ").unwrap_or(trimmed);
         for prefix in &["interface ", "type "] {
-            if let Some(rest) = after_export.strip_prefix(prefix) {
-                if let Some(name) = first_identifier(rest) {
-                    if !name.is_empty() {
-                        out.push(name.to_owned());
-                    }
-                }
+            if let Some(rest) = after_export.strip_prefix(prefix)
+                && let Some(name) = first_identifier(rest)
+                && !name.is_empty()
+            {
+                out.push(name.to_owned());
             }
         }
     }

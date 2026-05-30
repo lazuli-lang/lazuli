@@ -68,24 +68,19 @@ pub fn auth_refresh_code_actions(
     let line = source.lines().nth(position.line as usize).unwrap_or("");
     let trimmed = line.trim_start();
 
-    if is_rotation_line(trimmed) {
-        if let Some(rotation) = enclosing_auth_rotation_block(source, position) {
-            if !auth_rotation_has_children(source, rotation) {
-                if let Some(action) = build_scaffold_rotation_block_action(source, uri, rotation) {
-                    actions.push(action.into());
-                }
-            }
-        }
+    if is_rotation_line(trimmed)
+        && let Some(rotation) = enclosing_auth_rotation_block(source, position)
+        && !auth_rotation_has_children(source, rotation)
+        && let Some(action) = build_scaffold_rotation_block_action(source, uri, rotation)
+    {
+        actions.push(action.into());
     }
 
-    if let Some(sessions) = enclosing_auth_sessions_block(source, position) {
-        if !auth_sessions_has_child(source, sessions, "rotation") {
-            if let Some(action) =
-                build_promote_single_token_to_rotation_action(source, uri, sessions)
-            {
-                actions.push(action.into());
-            }
-        }
+    if let Some(sessions) = enclosing_auth_sessions_block(source, position)
+        && !auth_sessions_has_child(source, sessions, "rotation")
+        && let Some(action) = build_promote_single_token_to_rotation_action(source, uri, sessions)
+    {
+        actions.push(action.into());
     }
 
     actions

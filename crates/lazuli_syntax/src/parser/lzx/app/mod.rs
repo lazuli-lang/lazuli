@@ -120,7 +120,7 @@ pub fn parse_lzx_document(source: &str) -> Result<LzxDocument, ParseError> {
 
 fn parse_lzx_app(lines: &[SourceLine<'_>], start: usize) -> Result<(LzxApp, usize), ParseError> {
     let header = &lines[start];
-    let parts: Vec<_> = header.text.trim_start().split_whitespace().collect();
+    let parts: Vec<_> = header.text.split_whitespace().collect();
     if parts.len() != 2 {
         return Err(line_error(header, "app manifests use `app <name>`"));
     }

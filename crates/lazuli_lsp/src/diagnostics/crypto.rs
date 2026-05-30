@@ -40,9 +40,9 @@ pub(crate) fn crypto_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
 
         let hashed_args = capability_args(line, "Hashed");
         if line.contains("@cap.Hashed")
-            && !hashed_args
+            && hashed_args
                 .as_deref()
-                .is_some_and(|args| capability_arg(args, "algorithm").is_some())
+                .is_none_or(|args| capability_arg(args, "algorithm").is_none())
         {
             diagnostics.push(simple_canonical_diagnostic(
                 line_index,
@@ -77,9 +77,9 @@ pub(crate) fn crypto_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
         for capability in ["Encrypted", "E2ee"] {
             let args = capability_args(line, capability);
             if line.contains(&format!("@cap.{capability}"))
-                && !args
+                && args
                     .as_deref()
-                    .is_some_and(|args| capability_arg(args, "key").is_some())
+                    .is_none_or(|args| capability_arg(args, "key").is_none())
             {
                 diagnostics.push(simple_canonical_diagnostic(
                     line_index,
@@ -130,9 +130,9 @@ pub(crate) fn crypto_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                     "`@cap.Token` should declare `store:hashed` or another explicit storage strategy.",
                 ),
             ] {
-                if !token_args
+                if token_args
                     .as_deref()
-                    .is_some_and(|args| capability_arg(args, required).is_some())
+                    .is_none_or(|args| capability_arg(args, required).is_none())
                 {
                     diagnostics.push(simple_canonical_diagnostic(
                         line_index,

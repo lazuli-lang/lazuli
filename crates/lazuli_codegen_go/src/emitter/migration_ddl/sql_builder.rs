@@ -181,7 +181,7 @@ pub(super) fn quote_ident(raw: &str) -> String {
 }
 
 pub(super) fn comment_value(raw: &str) -> String {
-    raw.replace('\n', " ").replace('\r', " ")
+    raw.replace(['\n', '\r'], " ")
 }
 
 pub(super) fn lower_snake(raw: &str) -> String {

@@ -72,12 +72,11 @@ fn infer_lookup_type(key: &KeyClause, resource: Option<&Resource>) -> TypeRef {
     if key.path.segments.last().map(|s| s == "id").unwrap_or(false) {
         return TypeRef::Builtin(BuiltinType::Id);
     }
-    if let Some(resource) = resource {
-        if let Some(head) = key.path.segments.first() {
-            if let Some(field) = resource.fields.iter().find(|field| &field.name == head) {
-                return field.type_ref.clone();
-            }
-        }
+    if let Some(resource) = resource
+        && let Some(head) = key.path.segments.first()
+        && let Some(field) = resource.fields.iter().find(|field| &field.name == head)
+    {
+        return field.type_ref.clone();
     }
     TypeRef::Builtin(BuiltinType::Text)
 }

@@ -290,9 +290,10 @@ pub(crate) fn diagnostics(
                 .unwrap_or(feature.feature_line);
 
             // (1) Empty quoted prose TTL.
-            if let lazuli_ir::CacheTtl::Quoted(prose) = &profile.ttl {
-                if prose.trim().is_empty() {
-                    diagnostics.push(DoctorDiagnostic {
+            if let lazuli_ir::CacheTtl::Quoted(prose) = &profile.ttl
+                && prose.trim().is_empty()
+            {
+                diagnostics.push(DoctorDiagnostic {
                         path: feature.path.clone(),
                         line,
                         column: 1,
@@ -308,17 +309,17 @@ pub(crate) fn diagnostics(
                         fix: None,
                         group: None,
                     });
-                }
             }
 
             // (2) SWR > TTL.
-            if let Some(swr) = &profile.stale_while_revalidate {
-                if let (Some(ttl_secs), Some(swr_secs)) = (
+            if let Some(swr) = &profile.stale_while_revalidate
+                && let (Some(ttl_secs), Some(swr_secs)) = (
                     cache_ttl_as_seconds(&profile.ttl),
                     cache_ttl_as_seconds(swr),
-                ) {
-                    if swr_secs > ttl_secs {
-                        diagnostics.push(DoctorDiagnostic {
+                )
+                && swr_secs > ttl_secs
+            {
+                diagnostics.push(DoctorDiagnostic {
                             path: feature.path.clone(),
                             line,
                             column: 1,
@@ -334,8 +335,6 @@ pub(crate) fn diagnostics(
                             fix: None,
                             group: None,
                         });
-                    }
-                }
             }
 
             // (3) `sliding true` without a typed TTL literal.

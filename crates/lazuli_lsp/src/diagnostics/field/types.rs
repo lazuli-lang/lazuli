@@ -148,7 +148,7 @@ pub(crate) fn is_builtin_return_type(return_type: &str) -> bool {
 
 pub(crate) fn typed_line_type(trimmed_line: &str) -> Option<&str> {
     let (_, rhs) = trimmed_line.split_once(':')?;
-    let ty = rhs.trim().split_whitespace().next()?;
+    let ty = rhs.split_whitespace().next()?;
 
     if ty.starts_with('"') || ty.is_empty() {
         None

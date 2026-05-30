@@ -114,10 +114,10 @@ pub(crate) fn scope_owner_column_diagnostics(
             // Only resolve when the resource lives in this feature.
             // Cross-feature scope lowering is a follow-up (would need
             // the module-level resource index).
-            if let Some(feature_part) = &resource_qname.feature {
-                if feature_part != &feature.feature {
-                    continue;
-                }
+            if let Some(feature_part) = &resource_qname.feature
+                && feature_part != &feature.feature
+            {
+                continue;
             }
             let Some(resource) = feature
                 .resources

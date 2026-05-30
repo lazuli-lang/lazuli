@@ -85,10 +85,10 @@ pub(crate) fn collect_known_roles(files: &[DoctorFile]) -> BTreeSet<String> {
             }
             // Top-level `app.lzi` `policy_for <kinds>: @role.x, ...`
             // (or feature-level `policy_for` inside `defaults`).
-            if let Some(rest) = trimmed.strip_prefix("policy_for ") {
-                if let Some((_, refs)) = rest.split_once(':') {
-                    extract_role_atoms(refs, &mut roles);
-                }
+            if let Some(rest) = trimmed.strip_prefix("policy_for ")
+                && let Some((_, refs)) = rest.split_once(':')
+            {
+                extract_role_atoms(refs, &mut roles);
             }
             i += 1;
         }

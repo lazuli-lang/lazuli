@@ -39,15 +39,16 @@ pub(in crate::commands::inspect) fn inspect_dependencies(
             {
                 dependencies.push(inspect_dependency("uses", feature, target, "uses"));
             }
-        } else if leading_spaces(line) == 2 && trimmed.starts_with("extends @anchor.") {
-            if let Some(anchor) = trimmed.split_whitespace().nth(1) {
-                dependencies.push(inspect_dependency(
-                    "extends_anchor",
-                    feature,
-                    anchor,
-                    "extends",
-                ));
-            }
+        } else if leading_spaces(line) == 2
+            && trimmed.starts_with("extends @anchor.")
+            && let Some(anchor) = trimmed.split_whitespace().nth(1)
+        {
+            dependencies.push(inspect_dependency(
+                "extends_anchor",
+                feature,
+                anchor,
+                "extends",
+            ));
         }
     }
 
@@ -67,15 +68,15 @@ pub(in crate::commands::inspect) fn inspect_dependencies(
     for block in top_level_blocks(lines, "job ") {
         let name = named_top_block_name(block[0].trim_start()).unwrap_or("unknown");
         let subject = format!("{feature}.job.{name}");
-        if let Some(trigger) = direct_child_value(block, "trigger ") {
-            if let Some(event) = trigger.strip_prefix("event ") {
-                dependencies.push(inspect_dependency(
-                    "trigger_event",
-                    subject.clone(),
-                    qualify_event_ref(feature, event.trim()),
-                    "job.trigger",
-                ));
-            }
+        if let Some(trigger) = direct_child_value(block, "trigger ")
+            && let Some(event) = trigger.strip_prefix("event ")
+        {
+            dependencies.push(inspect_dependency(
+                "trigger_event",
+                subject.clone(),
+                qualify_event_ref(feature, event.trim()),
+                "job.trigger",
+            ));
         }
         dependencies.extend(emits_dependencies(feature, &subject, block));
         dependencies.extend(query_reference_dependencies(&subject, block));

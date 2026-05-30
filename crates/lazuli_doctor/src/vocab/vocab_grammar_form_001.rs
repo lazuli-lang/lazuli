@@ -194,8 +194,22 @@ fn check_resource(source: &str, resource: &ResourceDecl, path: &Path) -> Vec<Fin
         }
     }
 
-    if let Some(header) = line_at_offset(source, resource.span.start) {
-        if let Some((old, new, column)) = inline_previously_header_form(header.text) {
+    if let Some(header) = line_at_offset(source, resource.span.start)
+        && let Some((old, new, column)) = inline_previously_header_form(header.text)
+    {
+        findings.push(Finding {
+            path: path.to_path_buf(),
+            line: header.line,
+            column,
+            old,
+            new,
+        });
+    }
+
+    for field in &resource.fields {
+        if let Some(header) = line_at_offset(source, field.span.start)
+            && let Some((old, new, column)) = inline_previously_header_form(header.text)
+        {
             findings.push(Finding {
                 path: path.to_path_buf(),
                 line: header.line,
@@ -203,20 +217,6 @@ fn check_resource(source: &str, resource: &ResourceDecl, path: &Path) -> Vec<Fin
                 old,
                 new,
             });
-        }
-    }
-
-    for field in &resource.fields {
-        if let Some(header) = line_at_offset(source, field.span.start) {
-            if let Some((old, new, column)) = inline_previously_header_form(header.text) {
-                findings.push(Finding {
-                    path: path.to_path_buf(),
-                    line: header.line,
-                    column,
-                    old,
-                    new,
-                });
-            }
         }
     }
 

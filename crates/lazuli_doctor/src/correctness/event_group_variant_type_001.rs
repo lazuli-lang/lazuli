@@ -124,17 +124,17 @@ fn check_variant(
     out: &mut Vec<Finding>,
 ) {
     for field in &variant.fields {
-        if let TypeRef::UserDefined(qname) = &field.type_ref {
-            if !user_defined_resolves(qname, resource_names, record_names, enum_names) {
-                out.push(Finding {
-                    path: file_path.to_path_buf(),
-                    feature: feature.name.clone(),
-                    group_pattern: group_pattern.to_owned(),
-                    variant_name: variant.name.clone(),
-                    field_name: field.name.clone(),
-                    authored_type: qname_string(qname),
-                });
-            }
+        if let TypeRef::UserDefined(qname) = &field.type_ref
+            && !user_defined_resolves(qname, resource_names, record_names, enum_names)
+        {
+            out.push(Finding {
+                path: file_path.to_path_buf(),
+                feature: feature.name.clone(),
+                group_pattern: group_pattern.to_owned(),
+                variant_name: variant.name.clone(),
+                field_name: field.name.clone(),
+                authored_type: qname_string(qname),
+            });
         }
     }
 }
@@ -146,9 +146,7 @@ fn user_defined_resolves(
     enums: &[&str],
 ) -> bool {
     let name = qname.name.as_str();
-    resources.iter().any(|r| *r == name)
-        || records.iter().any(|r| *r == name)
-        || enums.iter().any(|e| *e == name)
+    resources.contains(&name) || records.contains(&name) || enums.contains(&name)
 }
 
 fn qname_string(qname: &QualifiedName) -> String {

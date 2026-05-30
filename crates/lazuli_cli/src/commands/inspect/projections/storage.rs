@@ -70,36 +70,31 @@ pub(in crate::commands::inspect) fn inspect_storage_projection(lines: &[String])
         }
 
         // Try a resource-field shape: `<field>: @cap.File(...)`.
-        if let Some(resource) = current_resource.as_deref() {
-            if let Some((field_name, cap_text)) = extract_cap_file_field(trimmed) {
-                if let lazuli_ir::TypeRef::Capability(lazuli_ir::CapabilityRef::File(file)) =
-                    lazuli_analyzer::type_ref_from_syntax_public(&cap_text)
-                {
-                    fields.push(InspectStorageField {
-                        resource: resource.to_owned(),
-                        field: field_name,
-                        file_capability: project_file_capability(&file),
-                    });
-                }
-            }
+        if let Some(resource) = current_resource.as_deref()
+            && let Some((field_name, cap_text)) = extract_cap_file_field(trimmed)
+            && let lazuli_ir::TypeRef::Capability(lazuli_ir::CapabilityRef::File(file)) =
+                lazuli_analyzer::type_ref_from_syntax_public(&cap_text)
+        {
+            fields.push(InspectStorageField {
+                resource: resource.to_owned(),
+                field: field_name,
+                file_capability: project_file_capability(&file),
+            });
         }
 
         // Try an api-output shape: `output @cap.File(...)`.
-        if let Some(api) = current_api.as_deref() {
-            if let Some(cap_text) = trimmed
+        if let Some(api) = current_api.as_deref()
+            && let Some(cap_text) = trimmed
                 .strip_prefix("output ")
                 .map(str::trim)
                 .filter(|rest| rest.starts_with("@cap.File("))
-            {
-                if let lazuli_ir::TypeRef::Capability(lazuli_ir::CapabilityRef::File(file)) =
-                    lazuli_analyzer::type_ref_from_syntax_public(cap_text)
-                {
-                    api_outputs.push(InspectStorageApiOutput {
-                        api: api.to_owned(),
-                        file_capability: project_file_capability(&file),
-                    });
-                }
-            }
+            && let lazuli_ir::TypeRef::Capability(lazuli_ir::CapabilityRef::File(file)) =
+                lazuli_analyzer::type_ref_from_syntax_public(cap_text)
+        {
+            api_outputs.push(InspectStorageApiOutput {
+                api: api.to_owned(),
+                file_capability: project_file_capability(&file),
+            });
         }
     }
 

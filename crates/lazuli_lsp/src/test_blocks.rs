@@ -41,11 +41,11 @@ pub(crate) fn test_block_diagnostics(source: &str) -> Vec<Diagnostic> {
             stack.pop();
         }
 
-        if let Some(block_indent) = test_block_indent {
-            if indent <= block_indent {
-                current_test_context = None;
-                test_block_indent = None;
-            }
+        if let Some(block_indent) = test_block_indent
+            && indent <= block_indent
+        {
+            current_test_context = None;
+            test_block_indent = None;
         }
 
         if trimmed == "tests" {

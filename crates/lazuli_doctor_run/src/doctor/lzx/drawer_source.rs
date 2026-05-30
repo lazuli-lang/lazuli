@@ -88,41 +88,41 @@ pub fn check(module: &Module) -> Vec<Finding> {
                         Some((drawer_feature, drawer_query, drawer_resource)),
                     ) = (host, drawer_query)
                     {
-                        if let Some(binding) = &drawer.route_binding {
-                            if binding.source == DrawerBindingSource::Selection {
-                                let source_ref = format_query_ref(feature, &drawer.source);
-                                match find_input(drawer_query, &binding.target) {
-                                    Some(input)
-                                        if !types_compatible(
-                                            &input.type_label,
-                                            &host_resource.id_type,
-                                        ) =>
-                                    {
-                                        out.push(Finding {
-                                            feature: feature.name.clone(),
-                                            view: list.name.clone(),
-                                            line: binding.line,
-                                            message: Finding::type_mismatch(
-                                                &drawer.name,
-                                                &source_ref,
-                                                &binding.target,
-                                                &input.type_label,
-                                                &host_resource.id_type,
-                                            ),
-                                        });
-                                    }
-                                    Some(_) => {}
-                                    None => out.push(Finding {
+                        if let Some(binding) = &drawer.route_binding
+                            && binding.source == DrawerBindingSource::Selection
+                        {
+                            let source_ref = format_query_ref(feature, &drawer.source);
+                            match find_input(drawer_query, &binding.target) {
+                                Some(input)
+                                    if !types_compatible(
+                                        &input.type_label,
+                                        &host_resource.id_type,
+                                    ) =>
+                                {
+                                    out.push(Finding {
                                         feature: feature.name.clone(),
                                         view: list.name.clone(),
                                         line: binding.line,
-                                        message: Finding::missing_input(
+                                        message: Finding::type_mismatch(
                                             &drawer.name,
                                             &source_ref,
                                             &binding.target,
+                                            &input.type_label,
+                                            &host_resource.id_type,
                                         ),
-                                    }),
+                                    });
                                 }
+                                Some(_) => {}
+                                None => out.push(Finding {
+                                    feature: feature.name.clone(),
+                                    view: list.name.clone(),
+                                    line: binding.line,
+                                    message: Finding::missing_input(
+                                        &drawer.name,
+                                        &source_ref,
+                                        &binding.target,
+                                    ),
+                                }),
                             }
                         }
 

@@ -142,17 +142,17 @@ pub(crate) fn canonical_order_diagnostics(source: &str) -> Vec<Diagnostic> {
             continue;
         };
 
-        if let Some(previous) = feature.last_kind {
-            if kind.rank() < previous.rank() {
-                diagnostics.push(canonical_order_diagnostic(
-                    line_index,
-                    line,
-                    &feature.name,
-                    kind,
-                    previous,
-                ));
-                continue;
-            }
+        if let Some(previous) = feature.last_kind
+            && kind.rank() < previous.rank()
+        {
+            diagnostics.push(canonical_order_diagnostic(
+                line_index,
+                line,
+                &feature.name,
+                kind,
+                previous,
+            ));
+            continue;
         }
 
         feature.last_kind = Some(kind);

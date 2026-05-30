@@ -104,10 +104,10 @@ pub fn config_noise_metrics(contents: &str) -> ConfigNoiseMetrics {
             continue;
         }
         semantic_lines += 1;
-        if let Some(hash_idx) = trimmed.find('#') {
-            if hash_idx > 0 {
-                comment_lines += 1;
-            }
+        if let Some(hash_idx) = trimmed.find('#')
+            && hash_idx > 0
+        {
+            comment_lines += 1;
         }
     }
     ConfigNoiseMetrics {

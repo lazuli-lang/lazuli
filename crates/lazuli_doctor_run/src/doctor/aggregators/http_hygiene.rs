@@ -34,9 +34,10 @@ pub(crate) fn cookie_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorD
     };
 
     for profile in &cookie.profiles {
-        if let Some(token) = profile.same_site.as_deref() {
-            if !COOKIE_SAME_SITE_CATALOG.contains(&token) {
-                diagnostics.push(DoctorDiagnostic {
+        if let Some(token) = profile.same_site.as_deref()
+            && !COOKIE_SAME_SITE_CATALOG.contains(&token)
+        {
+            diagnostics.push(DoctorDiagnostic {
                     path: app_manifest.path.clone(),
                     line: 1,
                     column: 1,
@@ -53,11 +54,11 @@ pub(crate) fn cookie_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorD
                     fix: None,
                     group: None,
                 });
-            }
         }
-        if let Some(raw) = profile.max_age.as_deref() {
-            if !is_parseable_duration(raw) {
-                diagnostics.push(DoctorDiagnostic {
+        if let Some(raw) = profile.max_age.as_deref()
+            && !is_parseable_duration(raw)
+        {
+            diagnostics.push(DoctorDiagnostic {
                     path: app_manifest.path.clone(),
                     line: 1,
                     column: 1,
@@ -73,7 +74,6 @@ pub(crate) fn cookie_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorD
                     fix: None,
                     group: None,
                 });
-            }
         }
     }
 
@@ -125,9 +125,10 @@ pub(crate) fn proxy_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorDi
         ),
     ];
     for (slot, value) in header_slots {
-        if let Some(name) = value {
-            if name.trim().is_empty() {
-                diagnostics.push(DoctorDiagnostic {
+        if let Some(name) = value
+            && name.trim().is_empty()
+        {
+            diagnostics.push(DoctorDiagnostic {
                     path: app_manifest.path.clone(),
                     line: 1,
                     column: 1,
@@ -142,7 +143,6 @@ pub(crate) fn proxy_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorDi
                     fix: None,
                     group: None,
                 });
-            }
         }
     }
 
@@ -164,9 +164,10 @@ pub(crate) fn limits_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorD
         ("upload_size", limits.upload_size.as_ref()),
     ];
     for (slot, value) in size_slots {
-        if let Some(raw) = value {
-            if !is_parseable_size(raw) {
-                diagnostics.push(DoctorDiagnostic {
+        if let Some(raw) = value
+            && !is_parseable_size(raw)
+        {
+            diagnostics.push(DoctorDiagnostic {
                     path: app_manifest.path.clone(),
                     line: 1,
                     column: 1,
@@ -181,13 +182,13 @@ pub(crate) fn limits_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorD
                     fix: None,
                     group: None,
                 });
-            }
         }
     }
 
-    if let Some(raw) = limits.timeout.as_ref() {
-        if !is_parseable_duration(raw) {
-            diagnostics.push(DoctorDiagnostic {
+    if let Some(raw) = limits.timeout.as_ref()
+        && !is_parseable_duration(raw)
+    {
+        diagnostics.push(DoctorDiagnostic {
                 path: app_manifest.path.clone(),
                 line: 1,
                 column: 1,
@@ -202,7 +203,6 @@ pub(crate) fn limits_diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorD
                 fix: None,
                 group: None,
             });
-        }
     }
 
     diagnostics

@@ -114,20 +114,16 @@ pub struct AuthPassword {
 /// See `docs/proposals/ir-auth-refresh-rotation.md` §3.1, §2.H.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum TheftAction {
     /// Walk the family chain (parents + descendants) of the offending
     /// session; revoke every row. The user stays logged in on other
     /// devices (other session families are untouched). Recommended default.
+    #[default]
     RevokeSessionFamily,
     /// Revoke ALL sessions for the user. The user is logged out on every
     /// device. Stronger blast radius — reserve for high-stakes apps.
     RevokeUser,
-}
-
-impl Default for TheftAction {
-    fn default() -> Self {
-        TheftAction::RevokeSessionFamily
-    }
 }
 
 /// Rotation policy for refresh tokens. Present iff the author declared a

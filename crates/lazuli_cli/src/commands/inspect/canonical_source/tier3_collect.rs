@@ -158,10 +158,10 @@ pub(super) fn collect_auth_by_feature(source: &str) -> BTreeMap<String, lazuli_i
         return map;
     };
     for feature in features {
-        if let Some(auth_ast) = feature.auth.as_ref() {
-            if let Ok(auth_ir) = lazuli_analyzer::lower_auth(auth_ast) {
-                map.insert(feature.name.clone(), auth_ir);
-            }
+        if let Some(auth_ast) = feature.auth.as_ref()
+            && let Ok(auth_ir) = lazuli_analyzer::lower_auth(auth_ast)
+        {
+            map.insert(feature.name.clone(), auth_ir);
         }
     }
     map

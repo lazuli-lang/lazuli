@@ -113,13 +113,13 @@ fn parse_ir_feature(lzi_path: &Path, source: &str) -> Result<Feature> {
 /// Otherwise emit a generic table-driven stub that compiles with stdlib
 /// only — same shape, fewer hints.
 fn render_test_for(ir_feature: &Option<Feature>, feature_name: &str, handler_name: &str) -> String {
-    if let Some(feature) = ir_feature {
-        if let Some(site) = find_handler_site(feature, handler_name) {
-            return render_test_stub(&StubContext {
-                feature,
-                site: &site,
-            });
-        }
+    if let Some(feature) = ir_feature
+        && let Some(site) = find_handler_site(feature, handler_name)
+    {
+        return render_test_stub(&StubContext {
+            feature,
+            site: &site,
+        });
     }
     render_generic_test_stub(feature_name, handler_name)
 }

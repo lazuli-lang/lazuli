@@ -123,14 +123,13 @@ pub fn read_allowlist(root: &Path) -> Option<Allowlist> {
         .join("ts-web")
         .join("design")
         .join("allowlist.extension.json");
-    if let Ok(ext_raw) = fs::read_to_string(&extension_path) {
-        if let Ok(ext) = serde_json::from_str::<Allowlist>(&ext_raw) {
+    if let Ok(ext_raw) = fs::read_to_string(&extension_path)
+        && let Ok(ext) = serde_json::from_str::<Allowlist>(&ext_raw) {
             for (prefix, mut suffixes) in ext.buckets {
                 let bucket = allowlist.buckets.entry(prefix).or_default();
                 bucket.append(&mut suffixes);
             }
         }
-    }
 
     Some(allowlist)
 }
@@ -353,7 +352,7 @@ fn find_class_attr(s: &str) -> Option<(usize, usize)> {
                 None => true,
                 Some(b) => !is_ident_byte(b),
             };
-            if ok && best.map_or(true, |(b, _)| idx < b) {
+            if ok && best.is_none_or(|(b, _)| idx < b) {
                 best = Some((idx, key_len));
             }
         }

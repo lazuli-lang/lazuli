@@ -97,7 +97,7 @@ fn span_of_message(entry: &FeatureErrorMessage) -> Option<SpanRef> {
 }
 
 fn is_known_error_code(code: &str) -> bool {
-    FRAMEWORK_ERROR_CODES.iter().any(|c| *c == code)
+    FRAMEWORK_ERROR_CODES.contains(&code)
 }
 
 #[cfg(test)]

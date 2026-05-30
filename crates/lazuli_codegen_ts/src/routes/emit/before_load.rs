@@ -66,28 +66,28 @@ pub(super) fn emit_before_load(out: &mut String, spec: &RouteSpec) {
             let mut emitted_lc_features: std::collections::BTreeSet<String> =
                 std::collections::BTreeSet::new();
             for fw in &guard.forbid_when {
-                if let Some(only) = &fw.only_when_lifecycle {
-                    if emitted_lc_features.insert(only.feature.clone()) {
-                        let cache_var = forbid_lc_row_var(&only.feature);
-                        out.push_str(&format!(
-                            "        const {cache} = await params.context.queryClient.fetchQuery({{\n",
-                            cache = cache_var,
-                        ));
-                        out.push_str(&format!(
-                            "          queryKey: queryKeyFor({}, {{}}),\n",
-                            only.lookup_export
-                        ));
-                        out.push_str(&format!(
-                            "          queryFn: () => params.context.client.runQuery({}, {{}}),\n",
-                            only.lookup_export
-                        ));
-                        out.push_str("        });\n");
-                        out.push_str(&format!(
+                if let Some(only) = &fw.only_when_lifecycle
+                    && emitted_lc_features.insert(only.feature.clone())
+                {
+                    let cache_var = forbid_lc_row_var(&only.feature);
+                    out.push_str(&format!(
+                        "        const {cache} = await params.context.queryClient.fetchQuery({{\n",
+                        cache = cache_var,
+                    ));
+                    out.push_str(&format!(
+                        "          queryKey: queryKeyFor({}, {{}}),\n",
+                        only.lookup_export
+                    ));
+                    out.push_str(&format!(
+                        "          queryFn: () => params.context.client.runQuery({}, {{}}),\n",
+                        only.lookup_export
+                    ));
+                    out.push_str("        });\n");
+                    out.push_str(&format!(
                             "        const {state} = ({cache} as {{ lifecycleState?: string }}).lifecycleState ?? null;\n",
                             state = forbid_lc_state_var(&only.feature),
                             cache = cache_var,
                         ));
-                    }
                 }
             }
             for fw in &guard.forbid_when {

@@ -16,3 +16,6 @@ serde_json.workspace = true
 [dev-dependencies]
 lazuli_analyzer = { path = "../lazuli_analyzer" }
 lazuli_syntax = { path = "../lazuli_syntax" }
+
+[lints]
+workspace = true

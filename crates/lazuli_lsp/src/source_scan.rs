@@ -240,12 +240,13 @@ pub fn collect_translation_keys_for_feature(source: &str, feature_name: &str) ->
             in_translation = trimmed == "translation" || trimmed.starts_with("translation ");
             continue;
         }
-        if in_translation && indent == 4 {
-            if let Some(rest) = trimmed.strip_prefix("key ") {
-                let name = rest.split_whitespace().next().unwrap_or("");
-                if !name.is_empty() && seen.insert(name.to_owned()) {
-                    keys.push(name.to_owned());
-                }
+        if in_translation
+            && indent == 4
+            && let Some(rest) = trimmed.strip_prefix("key ")
+        {
+            let name = rest.split_whitespace().next().unwrap_or("");
+            if !name.is_empty() && seen.insert(name.to_owned()) {
+                keys.push(name.to_owned());
             }
         }
     }

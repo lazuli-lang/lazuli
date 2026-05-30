@@ -176,7 +176,7 @@ pub fn run_once(opts: &TestOptions) -> Result<i32> {
         if let Some(em) = ndjson_emitter.as_mut() {
             em.layer_start(*layer, runner_name(*layer), None);
         }
-        let result = execute_layer(*layer, &opts, manifest.as_ref(), &project_root)?;
+        let result = execute_layer(*layer, opts, manifest.as_ref(), &project_root)?;
         if let Some(em) = ndjson_emitter.as_mut() {
             em.layer_complete(&result);
         }

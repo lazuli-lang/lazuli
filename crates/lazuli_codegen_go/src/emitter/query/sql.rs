@@ -122,10 +122,10 @@ pub(super) fn sql_query_returns_many(query: &SqlQuery) -> bool {
 /// because `SQLMany` already carries the multiplicity axis; for
 /// non-view `query.sql` the returns ref is used verbatim.
 pub(super) fn sql_query_row_type(query: &SqlQuery) -> &TypeRef {
-    if query.sql_kind == lazuli_ir::SqlQueryKind::View {
-        if let TypeRef::Many(inner) = &query.returns {
-            return inner;
-        }
+    if query.sql_kind == lazuli_ir::SqlQueryKind::View
+        && let TypeRef::Many(inner) = &query.returns
+    {
+        return inner;
     }
     &query.returns
 }

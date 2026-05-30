@@ -70,7 +70,7 @@ pub(super) fn emit_resource_migration<'a>(
         comment_value(&feature.name),
         comment_value(&resource.name)
     );
-    writeln!(sql);
+    let _ = writeln!(sql);
 
     if resource_uses_postgis(resource) {
         let _ = writeln!(sql, "CREATE EXTENSION IF NOT EXISTS postgis;");
@@ -96,7 +96,7 @@ pub(super) fn emit_resource_migration<'a>(
                 body = column.render_body(),
             );
         } else {
-            writeln!(sql, "    {}{}", column.render_body(), comma);
+            let _ = writeln!(sql, "    {}{}", column.render_body(), comma);
         }
     }
     let _ = writeln!(sql, ");");
@@ -114,7 +114,7 @@ pub(super) fn emit_resource_migration<'a>(
 
     // Roadmap §1.5 (CL.C.2) — `@full_text` fields → GIN tsvector index.
     for field in full_text_fields {
-        writeln!(sql);
+        let _ = writeln!(sql);
         let _ = writeln!(
             sql,
             "CREATE INDEX {} ON {} USING GIN (to_tsvector('english', {}));",
@@ -130,7 +130,7 @@ pub(super) fn emit_resource_migration<'a>(
         };
         authored_index_sql(&table_name, index)
     }) {
-        writeln!(sql);
+        let _ = writeln!(sql);
         let _ = writeln!(sql, "{index}");
     }
 
@@ -143,21 +143,21 @@ pub(super) fn emit_resource_migration<'a>(
         };
         partial_unique_index_sql(&table_name, unique)
     }) {
-        writeln!(sql);
+        let _ = writeln!(sql);
         let _ = writeln!(sql, "{index}");
     }
 
     // GAP-12 — cross-feature `target @feature.X.Y` FK fields get a logical
     // btree index (no hard DB FK across migration-set boundaries).
     for index in cross_feature_target_indexes(&table_name, resource) {
-        writeln!(sql);
+        let _ = writeln!(sql);
         let _ = writeln!(sql, "{index}");
     }
 
     // GAP-13 — polymorphic_ref discriminated FKs get a composite
     // (type_field, id_field) index for fast discriminated lookups.
     for index in polymorphic_ref_indexes(&table_name, resource) {
-        writeln!(sql);
+        let _ = writeln!(sql);
         let _ = writeln!(sql, "{index}");
     }
 

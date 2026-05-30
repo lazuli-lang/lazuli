@@ -209,11 +209,10 @@ fn first_ident(s: &str) -> String {
     if s.is_empty() {
         return String::new();
     }
-    if let Some(rest) = s.strip_prefix('"') {
-        if let Some(end) = rest.find('"') {
+    if let Some(rest) = s.strip_prefix('"')
+        && let Some(end) = rest.find('"') {
             return rest[..end].to_owned();
         }
-    }
     let token = s
         .split(|c: char| c.is_whitespace() || c == ',')
         .next()

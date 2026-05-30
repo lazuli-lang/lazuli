@@ -220,7 +220,7 @@ mod tests {
     }
 
     fn mk_feature(webhooks: Vec<Webhook>) -> Feature {
-        let mut feature = lazuli_ir::Feature {
+        lazuli_ir::Feature {
             name: "payments".to_owned(),
             purpose: None,
             non_goals: Vec::new(),
@@ -263,9 +263,7 @@ mod tests {
             previous_names: Vec::new(),
             synth_origins: std::collections::BTreeMap::new(),
             span_ref: None,
-        };
-        feature.webhooks = feature.webhooks;
-        feature
+        }
     }
 
     fn webhook_event_with_status() -> WebhookEvent {

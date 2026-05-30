@@ -89,10 +89,10 @@ pub(super) fn emit_nav_helpers(out: &mut String, specs: &[RouteSpec]) {
 pub(super) fn path_params(path: &str) -> Vec<String> {
     let mut out = Vec::new();
     for segment in path.split('/') {
-        if let Some(name) = segment.strip_prefix('$') {
-            if !name.is_empty() {
-                out.push(name.to_owned());
-            }
+        if let Some(name) = segment.strip_prefix('$')
+            && !name.is_empty()
+        {
+            out.push(name.to_owned());
         }
     }
     out

@@ -159,7 +159,7 @@ pub fn check(module: &ExperienceModule, path: &Path) -> Vec<Finding> {
                         anchor: view_anchor.clone(),
                         target_feature: feature.clone(),
                         kind: FindingKind::MissingFeature,
-                        span_ref: span_ref.clone(),
+                        span_ref: *span_ref,
                     });
                     continue;
                 };
@@ -177,7 +177,7 @@ pub fn check(module: &ExperienceModule, path: &Path) -> Vec<Finding> {
                         anchor: view_anchor.clone(),
                         target_feature: feature.clone(),
                         kind: FindingKind::MissingAnchorExtension,
-                        span_ref: span_ref.clone(),
+                        span_ref: *span_ref,
                     });
                 }
             }

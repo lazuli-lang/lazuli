@@ -52,12 +52,11 @@ pub fn generate_openapi(
     let yaml = lazuli_openapi::emit(&module, opts);
     match output {
         Some(path) => {
-            if let Some(parent) = path.parent() {
-                if !parent.as_os_str().is_empty() {
-                    fs::create_dir_all(parent).with_context(|| {
-                        format!("creating output directory {}", parent.display())
-                    })?;
-                }
+            if let Some(parent) = path.parent()
+                && !parent.as_os_str().is_empty()
+            {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("creating output directory {}", parent.display()))?;
             }
             fs::write(path, &yaml)
                 .with_context(|| format!("writing OpenAPI spec to {}", path.display()))?;

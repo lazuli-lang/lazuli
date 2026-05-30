@@ -27,11 +27,10 @@
 /// assert!(!text.is_empty());
 /// ```
 pub fn error_vocab_resolved_text(source: &str, feature_name: &str, code: &str) -> Option<String> {
-    if let Some(key) = lookup_feature_error_key(source, feature_name, code) {
-        if let Some(text) = lookup_translation_first_variant(source, feature_name, &key) {
+    if let Some(key) = lookup_feature_error_key(source, feature_name, code)
+        && let Some(text) = lookup_translation_first_variant(source, feature_name, &key) {
             return Some(text);
         }
-    }
     error_vocab_code_builtin_en_us(code).map(str::to_owned)
 }
 
@@ -217,8 +216,8 @@ pub fn error_vocab_completions(source: &str, position: Position) -> Option<Vec<C
     }
 
     // Position 6 — `default ` inside `errors` block (`hide`/`expose`).
-    if let Some(rest) = trimmed_before.strip_prefix("default ") {
-        if rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    if let Some(rest) = trimmed_before.strip_prefix("default ")
+        && rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
             && in_feature_errors_block(source, position)
         {
             return Some(
@@ -243,7 +242,6 @@ pub fn error_vocab_completions(source: &str, position: Position) -> Option<Vec<C
                     .collect(),
             );
         }
-    }
 
     // Positions 4 + 5 — `expose client 4xx ` / `expose client 5xx `.
     // Trigger when the cursor sits after the third token; offer the

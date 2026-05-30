@@ -36,7 +36,7 @@ pub(super) fn parse_lzx_resume_router(
     start: usize,
 ) -> Result<(LzxResumeRouter, usize), ParseError> {
     let header = &lines[start];
-    let parts: Vec<_> = header.text.trim_start().split_whitespace().collect();
+    let parts: Vec<_> = header.text.split_whitespace().collect();
     if parts.len() != 2 {
         return Err(line_error(header, "resume blocks use `resume <name>`"));
     }

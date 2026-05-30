@@ -74,30 +74,31 @@ pub fn route_guard_code_actions(
     let line = lines.get(line_idx).copied().unwrap_or("");
     let trimmed = line.trim_start();
 
-    if trimmed.starts_with("view ") {
-        if let Some(action) = build_scaffold_view_guard_action(source, uri, line_idx) {
-            actions.push(action.into());
-        }
+    if trimmed.starts_with("view ")
+        && let Some(action) = build_scaffold_view_guard_action(source, uri, line_idx)
+    {
+        actions.push(action.into());
     }
 
-    if trimmed.starts_with("on_unauthenticated redirect ")
-        || trimmed.starts_with("on_unauthorized redirect ")
+    if (trimmed.starts_with("on_unauthenticated redirect ")
+        || trimmed.starts_with("on_unauthorized redirect "))
+        && let Some(action) = build_promote_redirect_default_action(source, uri, line_idx)
     {
-        if let Some(action) = build_promote_redirect_default_action(source, uri, line_idx) {
-            actions.push(action.into());
-        }
+        actions.push(action.into());
     }
 
     if in_app_body_context(source, position) {
-        if has_actor_query(source) && !route_guard_has_default_redirects(source) {
-            if let Some(action) = build_scaffold_route_guard_defaults_action(source, uri) {
-                actions.push(action.into());
-            }
+        if has_actor_query(source)
+            && !route_guard_has_default_redirects(source)
+            && let Some(action) = build_scaffold_route_guard_defaults_action(source, uri)
+        {
+            actions.push(action.into());
         }
-        if app_route_guard_block(source).is_some() && !has_actor_query(source) {
-            if let Some(action) = build_insert_actor_query_action(source, uri) {
-                actions.push(action.into());
-            }
+        if app_route_guard_block(source).is_some()
+            && !has_actor_query(source)
+            && let Some(action) = build_insert_actor_query_action(source, uri)
+        {
+            actions.push(action.into());
         }
     }
 

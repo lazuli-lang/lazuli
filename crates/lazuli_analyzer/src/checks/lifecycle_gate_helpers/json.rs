@@ -28,24 +28,26 @@ pub(super) fn input_from_json(
     app: Option<&AppManifest>,
     features: &[Feature],
 ) -> LifecycleGateInput {
-    let mut input = LifecycleGateInput::default();
-    input.app_on_lifecycle_pending =
-        app.and_then(|app| serde_json::to_value(app).ok())
-            .and_then(|value| {
+    let mut input = LifecycleGateInput {
+        app_on_lifecycle_pending: app.and_then(|app| serde_json::to_value(app).ok()).and_then(
+            |value| {
                 value
                     .pointer("/route_guard/on_lifecycle_pending")
                     .and_then(Value::as_str)
                     .map(str::to_owned)
-            });
+            },
+        ),
+        ..Default::default()
+    };
     for feature in features {
-        if let Ok(value) = serde_json::to_value(feature) {
-            if let Some(resumes) = value.get("resume_routers").and_then(Value::as_array) {
-                input.resumes.extend(
-                    resumes
-                        .iter()
-                        .filter_map(|r| resume_from_json(&feature.name, r)),
-                );
-            }
+        if let Ok(value) = serde_json::to_value(feature)
+            && let Some(resumes) = value.get("resume_routers").and_then(Value::as_array)
+        {
+            input.resumes.extend(
+                resumes
+                    .iter()
+                    .filter_map(|r| resume_from_json(&feature.name, r)),
+            );
         }
     }
     if let Ok(value) = serde_json::to_value(module) {

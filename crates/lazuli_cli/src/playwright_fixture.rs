@@ -119,7 +119,7 @@ fn normalized_components(path: &Path) -> Vec<String> {
 
 fn playwright_fixture_pascal_case(value: &str) -> String {
     let mut out = String::new();
-    for word in value.split(|ch: char| ch == '_' || ch == '-' || ch == ' ') {
+    for word in value.split(['_', '-', ' ']) {
         if word.is_empty() {
             continue;
         }

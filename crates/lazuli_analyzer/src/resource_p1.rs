@@ -25,7 +25,7 @@ pub(crate) fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resour
     // `validates @validator.tier_check` collapses onto `Resource.validate`
     // for a single-entry case (the fixture pattern). Multi-entry would
     // need a `Vec`; defer until pilot evidence demands it.
-    let validate = r.validates.first().map(|v| ir::PathRef::authored(v));
+    let validate = r.validates.first().map(ir::PathRef::authored);
     // CL.C.4 — lower resource-scoped `invariant <name>` blocks.
     let invariants = r
         .invariants

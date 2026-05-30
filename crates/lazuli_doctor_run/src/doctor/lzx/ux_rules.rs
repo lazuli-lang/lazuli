@@ -80,9 +80,7 @@ pub fn check(module: &Module) -> Vec<Finding> {
                         View::Create(_) => continue,
                     };
                     let Some(ux) = ux else { continue };
-                    let resource = source
-                        .and_then(|s| resolve_resource(module, &feature.name, s))
-                        .map(|(feat, res)| (feat, res));
+                    let resource = source.and_then(|s| resolve_resource(module, &feature.name, s));
                     check_view_ux(feature, view_name, ux, resource, &mut out);
                 }
             }
@@ -225,9 +223,10 @@ fn check_view_ux(
         // command→resource targeting is not carried on `CommandRef`, so we
         // verify existence here and leave deeper target matching to the
         // command-routing rules.
-        let cmd_known = (cmd_feature == feature.name
-            && feature.commands.iter().any(|c| c.name == cmd_name))
-            || cmd_feature != feature.name; // cross-feature: trust resolution
+        // `(A && X) || !A` ≡ `!A || X`: cross-feature refs are trusted (resolution
+        // happens elsewhere); same-feature refs must name a real command.
+        let cmd_known =
+            cmd_feature != feature.name || feature.commands.iter().any(|c| c.name == cmd_name);
         if !cmd_known {
             out.push(Finding {
                 code: VIEW_MODE_CODE,

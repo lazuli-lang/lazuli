@@ -70,14 +70,13 @@ pub fn lifecycle_gate_hover(
     }
 
     let word = word?;
-    if word == "source" || word == "query.lookup" {
-        if line.trim_start().starts_with("source query.lookup ")
-            && enclosing_lifecycle_resume_block(source, position).is_some()
-        {
-            return Some(format!(
-                "`source query.lookup`\n\n{LIFECYCLE_SOURCE_QUERY_HOVER}"
-            ));
-        }
+    if (word == "source" || word == "query.lookup")
+        && line.trim_start().starts_with("source query.lookup ")
+        && enclosing_lifecycle_resume_block(source, position).is_some()
+    {
+        return Some(format!(
+            "`source query.lookup`\n\n{LIFECYCLE_SOURCE_QUERY_HOVER}"
+        ));
     }
 
     match word {

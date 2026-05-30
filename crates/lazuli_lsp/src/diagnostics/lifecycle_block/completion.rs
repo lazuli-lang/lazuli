@@ -54,10 +54,10 @@ pub fn lifecycle_block_completions(
 
     // Trigger 1: `invariant ` followed by a partial-word — offer the
     // closed catalog (proposal §3.4).
-    if let Some(rest) = trimmed_before.strip_prefix("invariant ") {
-        if is_partial_identifier(rest) {
-            return Some(invariant_catalog_completion_items());
-        }
+    if let Some(rest) = trimmed_before.strip_prefix("invariant ")
+        && is_partial_identifier(rest)
+    {
+        return Some(invariant_catalog_completion_items());
     }
 
     // Trigger 3 takes precedence over trigger 2 — a `transition` child

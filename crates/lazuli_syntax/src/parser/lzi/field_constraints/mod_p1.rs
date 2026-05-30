@@ -242,7 +242,7 @@ pub(super) fn extract_field_constraints(
         let scan = head.clone();
         if let Some((before, rest)) = find_constraint_keyword(&scan) {
             let rest = rest.trim_start();
-            match before_keyword_after(&scan, &rest) {
+            match before_keyword_after(&scan, rest) {
                 // `in [...]` — bracketed list.
                 ConstraintKw::In => {
                     let (values, tail) = parse_constraint_in_list(line, rest)?;

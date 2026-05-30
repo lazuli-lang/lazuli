@@ -300,10 +300,7 @@ fn qualified_type_label(name: &lazuli_ir::QualifiedName) -> String {
 }
 
 fn sanitize_ts_block_comment(value: &str) -> String {
-    value
-        .replace("*/", "* /")
-        .replace('\r', " ")
-        .replace('\n', " ")
+    value.replace("*/", "* /").replace(['\r', '\n'], " ")
 }
 
 fn zod_is_text_base(type_ref: &lazuli_ir::TypeRef) -> bool {

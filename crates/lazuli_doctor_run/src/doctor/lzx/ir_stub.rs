@@ -128,20 +128,15 @@ pub struct Command {
 /// Typed input shape of a `command` — consumed by
 /// `lzx-bulk-action-input-shape` to decide which input form the
 /// bulk-action rule applies to.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum CommandInput {
     /// `input field1, field2` short form — list of slot names.
     Short(Vec<String>),
     /// Typed slots (`input { field: Type }`).
     Typed(Vec<TypedSlot>),
     /// No input block at all.
+    #[default]
     Empty,
-}
-
-impl Default for CommandInput {
-    fn default() -> Self {
-        CommandInput::Empty
-    }
 }
 
 /// Closed type catalog the bulk-action input rule walks.

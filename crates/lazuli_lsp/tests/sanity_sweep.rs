@@ -130,7 +130,7 @@ fn regenerate_sanity_sweep() {
     );
     out.push_str("#   - Refactors that silenced an existing diagnostic (good or regression?).\n");
     out.push_str("#   - Examples that drifted from clean to noisy (cleanup target).\n");
-    out.push_str("\n");
+    out.push('\n');
     out.push_str(&format!("files scanned: {}\n", files.len()));
     out.push_str(&format!(
         "files with diagnostics: {}\n",
@@ -138,7 +138,7 @@ fn regenerate_sanity_sweep() {
     ));
     out.push_str(&format!("total diagnostics: {}\n", total_diagnostics));
     out.push_str(&format!("unique diagnostic codes: {}\n", code_counts.len()));
-    out.push_str("\n");
+    out.push('\n');
     out.push_str("## diagnostic codes by frequency (top 25)\n");
     for (code, count) in by_freq.iter().take(25) {
         out.push_str(&format!("{:>6}  {}\n", count, code));
@@ -149,19 +149,19 @@ fn regenerate_sanity_sweep() {
             by_freq.len() - 25
         ));
     }
-    out.push_str("\n");
+    out.push('\n');
     out.push_str("## all diagnostic codes (alphabetical)\n");
     let mut alpha: Vec<(&String, &usize)> = code_counts.iter().collect();
     alpha.sort();
     for (code, count) in alpha {
         out.push_str(&format!("{:>6}  {}\n", count, code));
     }
-    out.push_str("\n");
+    out.push('\n');
     out.push_str("## noisiest files (top 25)\n");
     for (file, count) in by_file_freq.iter().take(25) {
         out.push_str(&format!("{:>6}  {}\n", count, file));
     }
-    out.push_str("\n");
+    out.push('\n');
     out.push_str("## per-file breakdown\n");
     for (file, total, codes) in &per_file {
         out.push_str(&format!("\n{}  ({} total)\n", file, total));

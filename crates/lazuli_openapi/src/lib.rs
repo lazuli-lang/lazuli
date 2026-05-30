@@ -42,20 +42,12 @@ use crate::yaml::YamlEmitter;
 /// the bar is "the doctor / build pipeline cannot produce a correct
 /// spec without it". Anything stylistic belongs in a downstream
 /// formatter, not here.
+#[derive(Default)]
 pub struct EmitOptions {
     /// API version reported in `info.version`. Defaults to "0.0.0".
     pub api_version: Option<String>,
     /// When true, omit operations whose IR shape is text-pattern only.
     pub strict_typed_only: bool,
-}
-
-impl Default for EmitOptions {
-    fn default() -> Self {
-        Self {
-            api_version: None,
-            strict_typed_only: false,
-        }
-    }
 }
 
 /// Emit OpenAPI 3.1.0 YAML from a Lazuli `Module`.

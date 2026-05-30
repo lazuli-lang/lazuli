@@ -153,12 +153,12 @@ pub(crate) fn collect_feature_adapters(
                 }
                 if let Some(rest) = inner_trim.strip_prefix("adapter ") {
                     let name_segment = rest.split([':', ' ']).next().unwrap_or("").trim();
-                    if !name_segment.is_empty() {
-                        if let Some(feature_name) = feature.as_ref() {
-                            out.entry(feature_name.clone())
-                                .or_default()
-                                .insert(name_segment.to_owned());
-                        }
+                    if !name_segment.is_empty()
+                        && let Some(feature_name) = feature.as_ref()
+                    {
+                        out.entry(feature_name.clone())
+                            .or_default()
+                            .insert(name_segment.to_owned());
                     }
                 }
                 j += 1;
@@ -197,24 +197,24 @@ pub(crate) fn collect_feature_uses(
             i += 1;
             continue;
         }
-        if leading_spaces(line) == 2 && trimmed.starts_with("uses ") {
-            if let Some(rest) = trimmed.strip_prefix("uses ") {
-                if let Some(feature_name) = feature.as_ref() {
-                    // Cross-feature contracts §5.4 — strip the optional
-                    // trailing `version v<N>` pin BEFORE comma-splitting.
-                    // The pin applies to all entries on the line, but the
-                    // legacy uses-map only tracks feature names.
-                    let list_part = match rest.find(" version ") {
-                        Some(idx) => &rest[..idx],
-                        None => rest,
-                    };
-                    let entry = out.entry(feature_name.clone()).or_default();
-                    for token in list_part.split(',') {
-                        let name = token.trim();
-                        if !name.is_empty() {
-                            entry.insert(name.to_owned());
-                        }
-                    }
+        if leading_spaces(line) == 2
+            && trimmed.starts_with("uses ")
+            && let Some(rest) = trimmed.strip_prefix("uses ")
+            && let Some(feature_name) = feature.as_ref()
+        {
+            // Cross-feature contracts §5.4 — strip the optional
+            // trailing `version v<N>` pin BEFORE comma-splitting.
+            // The pin applies to all entries on the line, but the
+            // legacy uses-map only tracks feature names.
+            let list_part = match rest.find(" version ") {
+                Some(idx) => &rest[..idx],
+                None => rest,
+            };
+            let entry = out.entry(feature_name.clone()).or_default();
+            for token in list_part.split(',') {
+                let name = token.trim();
+                if !name.is_empty() {
+                    entry.insert(name.to_owned());
                 }
             }
         }
@@ -281,15 +281,15 @@ pub(crate) fn collect_file_capability_facts(
             current_resource = None;
             continue;
         }
-        if let Some((_, header_indent)) = &current_resource {
-            if indent <= *header_indent {
-                current_resource = None;
-            }
+        if let Some((_, header_indent)) = &current_resource
+            && indent <= *header_indent
+        {
+            current_resource = None;
         }
-        if let Some((_, header_indent)) = &current_api {
-            if indent <= *header_indent {
-                current_api = None;
-            }
+        if let Some((_, header_indent)) = &current_api
+            && indent <= *header_indent
+        {
+            current_api = None;
         }
 
         let Some(feature) = current_feature.as_deref() else {
@@ -297,47 +297,44 @@ pub(crate) fn collect_file_capability_facts(
         };
 
         // Resource field shape: `<field>: @cap.File(...)`.
-        if let Some((resource, _)) = &current_resource {
-            if let Some((field_name, cap_text)) = extract_cap_file_field_line(trimmed) {
+        if let Some((resource, _)) = &current_resource
+            && let Some((field_name, cap_text)) = extract_cap_file_field_line(trimmed)
+            && let lazuli_ir::TypeRef::Capability(lazuli_ir::CapabilityRef::File(file_cap)) =
+                lazuli_analyzer::type_ref_from_syntax_public(&cap_text)
+        {
+            operational.file_capability_facts.push(FileCapabilityFact {
+                path: file.path.clone(),
+                line: line_number,
+                column,
+                feature: feature.to_owned(),
+                binding: FileCapabilityBinding::ResourceField {
+                    resource: resource.clone(),
+                    field: field_name,
+                },
+                capability: file_cap,
+            });
+        }
+
+        // Api output shape: `output @cap.File(...)`.
+        if let Some((api, _)) = &current_api
+            && let Some(rest) = trimmed.strip_prefix("output ")
+        {
+            let rest = rest.trim();
+            if rest.starts_with("@cap.File(")
+                && let Some(close) = rest.find(')')
+            {
+                let cap_text = &rest[..=close];
                 if let lazuli_ir::TypeRef::Capability(lazuli_ir::CapabilityRef::File(file_cap)) =
-                    lazuli_analyzer::type_ref_from_syntax_public(&cap_text)
+                    lazuli_analyzer::type_ref_from_syntax_public(cap_text)
                 {
                     operational.file_capability_facts.push(FileCapabilityFact {
                         path: file.path.clone(),
                         line: line_number,
                         column,
                         feature: feature.to_owned(),
-                        binding: FileCapabilityBinding::ResourceField {
-                            resource: resource.clone(),
-                            field: field_name,
-                        },
+                        binding: FileCapabilityBinding::ApiOutput { api: api.clone() },
                         capability: file_cap,
                     });
-                }
-            }
-        }
-
-        // Api output shape: `output @cap.File(...)`.
-        if let Some((api, _)) = &current_api {
-            if let Some(rest) = trimmed.strip_prefix("output ") {
-                let rest = rest.trim();
-                if rest.starts_with("@cap.File(") {
-                    if let Some(close) = rest.find(')') {
-                        let cap_text = &rest[..=close];
-                        if let lazuli_ir::TypeRef::Capability(lazuli_ir::CapabilityRef::File(
-                            file_cap,
-                        )) = lazuli_analyzer::type_ref_from_syntax_public(cap_text)
-                        {
-                            operational.file_capability_facts.push(FileCapabilityFact {
-                                path: file.path.clone(),
-                                line: line_number,
-                                column,
-                                feature: feature.to_owned(),
-                                binding: FileCapabilityBinding::ApiOutput { api: api.clone() },
-                                capability: file_cap,
-                            });
-                        }
-                    }
                 }
             }
         }

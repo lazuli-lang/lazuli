@@ -164,14 +164,14 @@ pub fn check_invalid_value(design: &Design) -> Vec<InvalidValueFinding> {
                 is_dark: false,
             });
         }
-        if let Some(dark) = &tok.dark {
-            if !is_valid_hex(dark) {
-                out.push(InvalidValueFinding {
-                    name: tok.name.clone(),
-                    value: dark.clone(),
-                    is_dark: true,
-                });
-            }
+        if let Some(dark) = &tok.dark
+            && !is_valid_hex(dark)
+        {
+            out.push(InvalidValueFinding {
+                name: tok.name.clone(),
+                value: dark.clone(),
+                is_dark: true,
+            });
         }
     }
     out.sort_by(|a, b| a.name.cmp(&b.name).then(a.is_dark.cmp(&b.is_dark)));
@@ -226,7 +226,7 @@ pub fn check_reserved_name(design: &Design) -> Vec<ReservedNameFinding> {
     let mut out: Vec<ReservedNameFinding> = design
         .custom
         .iter()
-        .filter(|tok| RESERVED_NAMES.iter().any(|r| *r == tok.name.as_str()))
+        .filter(|tok| RESERVED_NAMES.contains(&tok.name.as_str()))
         .map(|tok| ReservedNameFinding {
             name: tok.name.clone(),
         })

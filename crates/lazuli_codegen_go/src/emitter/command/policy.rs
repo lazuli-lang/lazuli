@@ -201,10 +201,10 @@ pub(super) fn format_policy_with_expr(
             // to the Name-only render when the name doesn't resolve
             // (analyzer should have caught that, but we degrade
             // gracefully) or when no `Policies` was threaded through.
-            if let Some(p) = policies {
-                if let Some(rendered) = format_local_policy(name, p) {
-                    return rendered;
-                }
+            if let Some(p) = policies
+                && let Some(rendered) = format_local_policy(name, p)
+            {
+                return rendered;
             }
             format!(
                 "lazuli.Policy{{Name: \"@policy.{}\"}},",
@@ -225,10 +225,10 @@ pub(super) fn format_policy_with_expr(
             // Falls back to Name-only render if no `Policies` available
             // or name not in catalog.
             if let Some(local) = stripped.strip_prefix("policy.") {
-                if let Some(p) = policies {
-                    if let Some(rendered) = format_local_policy(local, p) {
-                        return rendered;
-                    }
+                if let Some(p) = policies
+                    && let Some(rendered) = format_local_policy(local, p)
+                {
+                    return rendered;
                 }
                 return format!(
                     "lazuli.Policy{{Name: \"@policy.{}\"}},",

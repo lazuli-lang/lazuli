@@ -97,10 +97,10 @@ fn arm_target_path(
     feature: &str,
     view_paths: &BTreeMap<(String, String), String>,
 ) -> Option<String> {
-    if let Some(path) = string_field(value, "path").or_else(|| value.as_str()) {
-        if path.starts_with('/') {
-            return Some(path.to_owned());
-        }
+    if let Some(path) = string_field(value, "path").or_else(|| value.as_str())
+        && path.starts_with('/')
+    {
+        return Some(path.to_owned());
     }
     let view = string_field(value, "view")
         .or_else(|| string_field(value, "target_view"))

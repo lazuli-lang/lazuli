@@ -396,7 +396,6 @@ pub(crate) fn make_synthetic_feature_for_correctness(
         }),
         policy: fact.defaults_policy.clone(),
         timestamps: fact.defaults_timestamps,
-        ..lazuli_ir::Defaults::default()
     };
     lazuli_ir::Feature {
         name: fact.feature.clone(),

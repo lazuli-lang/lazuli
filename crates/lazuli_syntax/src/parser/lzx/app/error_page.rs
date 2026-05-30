@@ -27,7 +27,7 @@ pub(super) fn parse_lzx_error_page(
     start: usize,
 ) -> Result<(LzxErrorPage, usize), ParseError> {
     let header = &lines[start];
-    let parts: Vec<_> = header.text.trim_start().split_whitespace().collect();
+    let parts: Vec<_> = header.text.split_whitespace().collect();
     if parts.len() != 2 || parts[0] != "error_page" {
         return Err(line_error(header, "error pages use `error_page <status>`"));
     }

@@ -318,12 +318,13 @@ fn collect_agent_eval_case_names(block: &[String]) -> Vec<String> {
             in_block = trimmed == "evals";
             continue;
         }
-        if in_block && leading == grandchild_indent {
-            if let Some(rest) = trimmed.strip_prefix("case ") {
-                let name = rest.split_whitespace().next().unwrap_or("").to_owned();
-                if !name.is_empty() {
-                    cases.push(name);
-                }
+        if in_block
+            && leading == grandchild_indent
+            && let Some(rest) = trimmed.strip_prefix("case ")
+        {
+            let name = rest.split_whitespace().next().unwrap_or("").to_owned();
+            if !name.is_empty() {
+                cases.push(name);
             }
         }
     }

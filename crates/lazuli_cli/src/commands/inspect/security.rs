@@ -236,10 +236,11 @@ pub(super) fn scope_override_reason(lines: &[String]) -> Option<String> {
             in_scope_override = false;
         }
 
-        if in_scope_override && indent == 8 {
-            if let Some(reason) = trimmed.strip_prefix("reason ") {
-                return Some(reason.trim().to_owned());
-            }
+        if in_scope_override
+            && indent == 8
+            && let Some(reason) = trimmed.strip_prefix("reason ")
+        {
+            return Some(reason.trim().to_owned());
         }
     }
 

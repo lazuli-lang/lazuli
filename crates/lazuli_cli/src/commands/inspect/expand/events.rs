@@ -153,7 +153,7 @@ pub(super) fn qualify_group_event_name(prefix: &str, raw_name: &str) -> String {
 pub(super) fn is_event_group_start(line: &str) -> bool {
     leading_spaces(line) == 4
         && matches!(
-            line.trim_start().split_whitespace().next(),
+            line.split_whitespace().next(),
             Some("event_group" | "events")
         )
 }

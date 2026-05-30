@@ -75,7 +75,7 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
         .iter()
         .filter_map(|poller| {
             let keys = poller.idempotency.by.segments.clone();
-            if keys.is_empty() || keys.iter().any(is_attempts_key) {
+            if keys.is_empty() || keys.iter().any(|k| is_attempts_key(k)) {
                 return None;
             }
 
@@ -89,7 +89,7 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
         .collect()
 }
 
-fn is_attempts_key(key: &String) -> bool {
+fn is_attempts_key(key: &str) -> bool {
     let key = key.trim();
     key == "row.attempts" || key.ends_with(".attempts")
 }

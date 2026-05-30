@@ -39,9 +39,10 @@ pub(crate) fn diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> 
                 if let (Some(group_prefix), Some(other_prefix)) = (
                     group.pattern.strip_suffix('*'),
                     other.pattern.strip_suffix('*'),
-                ) {
-                    if other_prefix.starts_with(group_prefix) && other_prefix != group_prefix {
-                        diagnostics.push(DoctorDiagnostic {
+                ) && other_prefix.starts_with(group_prefix)
+                    && other_prefix != group_prefix
+                {
+                    diagnostics.push(DoctorDiagnostic {
                             path: feature.path.clone(),
                             line,
                             column: 1,
@@ -57,7 +58,6 @@ pub(crate) fn diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> 
                             fix: None,
                             group: None,
                         });
-                    }
                 }
             }
 
@@ -70,25 +70,26 @@ pub(crate) fn diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> 
             // when the same feature declares *another* group whose
             // prefix matches the event — then the author probably
             // wrote the event under the wrong group.
-            if let Some(prefix) = group.pattern.strip_suffix('*') {
-                if !prefix.is_empty() {
-                    for event_name in &group.events {
-                        if event_name.starts_with(prefix) {
-                            continue;
+            if let Some(prefix) = group.pattern.strip_suffix('*')
+                && !prefix.is_empty()
+            {
+                for event_name in &group.events {
+                    if event_name.starts_with(prefix) {
+                        continue;
+                    }
+                    // Look for another group whose prefix the
+                    // event matches; only then is misrouting likely.
+                    let other_owner = feature.event_groups.iter().find(|other| {
+                        if other.pattern == group.pattern {
+                            return false;
                         }
-                        // Look for another group whose prefix the
-                        // event matches; only then is misrouting likely.
-                        let other_owner = feature.event_groups.iter().find(|other| {
-                            if other.pattern == group.pattern {
-                                return false;
-                            }
-                            let Some(other_prefix) = other.pattern.strip_suffix('*') else {
-                                return false;
-                            };
-                            !other_prefix.is_empty() && event_name.starts_with(other_prefix)
-                        });
-                        if let Some(other) = other_owner {
-                            diagnostics.push(DoctorDiagnostic {
+                        let Some(other_prefix) = other.pattern.strip_suffix('*') else {
+                            return false;
+                        };
+                        !other_prefix.is_empty() && event_name.starts_with(other_prefix)
+                    });
+                    if let Some(other) = other_owner {
+                        diagnostics.push(DoctorDiagnostic {
                                 path: feature.path.clone(),
                                 line,
                                 column: 1,
@@ -104,7 +105,6 @@ pub(crate) fn diagnostics(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> 
                                 fix: None,
                                 group: None,
                             });
-                        }
                     }
                 }
             }

@@ -49,7 +49,7 @@ pub(super) fn parse_lzx_experience(
     start: usize,
 ) -> Result<(LzxExperience, usize), ParseError> {
     let header = &lines[start];
-    let parts: Vec<_> = header.text.trim_start().split_whitespace().collect();
+    let parts: Vec<_> = header.text.split_whitespace().collect();
     if parts.len() != 2 {
         return Err(line_error(header, "`experience` uses `experience <name>`"));
     }
@@ -121,7 +121,7 @@ fn parse_lzx_experience_view(
     start: usize,
 ) -> Result<(LzxExperienceView, usize), ParseError> {
     let header = &lines[start];
-    let parts: Vec<_> = header.text.trim_start().split_whitespace().collect();
+    let parts: Vec<_> = header.text.split_whitespace().collect();
     if parts.len() != 2 && !(parts.len() == 4 && parts[2] == "id") {
         return Err(line_error(
             header,
@@ -349,7 +349,7 @@ pub(super) fn parse_lzx_surface(
     start: usize,
 ) -> Result<(LzxSurface, usize), ParseError> {
     let header = &lines[start];
-    let parts: Vec<_> = header.text.trim_start().split_whitespace().collect();
+    let parts: Vec<_> = header.text.split_whitespace().collect();
     if parts.len() != 3 {
         return Err(line_error(
             header,

@@ -98,10 +98,11 @@ pub(crate) fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
     // `lazuli.ID` type. Member access on non-ID fields is rejected
     // (falls through to `UserDefined` with the dotted name; doctor
     // will surface as unresolved).
-    if let Some(prefix) = ty.strip_suffix(".ID").or_else(|| ty.strip_suffix(".Id")) {
-        if !prefix.is_empty() && !prefix.contains('.') {
-            return ir::TypeRef::Builtin(ir::BuiltinType::Id);
-        }
+    if let Some(prefix) = ty.strip_suffix(".ID").or_else(|| ty.strip_suffix(".Id"))
+        && !prefix.is_empty()
+        && !prefix.contains('.')
+    {
+        return ir::TypeRef::Builtin(ir::BuiltinType::Id);
     }
     // Phase L Tier 2 — typed `@cap.File(...)` capability.
     if let Some(file) = parse_cap_file_type(ty) {
@@ -285,7 +286,7 @@ pub(crate) fn parse_cap_file_type(ty: &str) -> Option<ir::FileCapability> {
         .get("visibility")
         .map(|s| s.as_str())
         .and_then(parse_file_visibility);
-    let signed_ttl = args.get("signed_ttl").map(|s| s.clone());
+    let signed_ttl = args.get("signed_ttl").cloned();
     let auto_photo_policy = args.get("auto_photo_policy").cloned();
 
     Some(ir::FileCapability {

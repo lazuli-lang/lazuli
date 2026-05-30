@@ -29,4 +29,7 @@
 //!
 //! Reference: `docs/proposals/ir-error-messages-vocab.md` §6 §11 Cell ANALYZE-1.
 
+// Intentional: the `error_vocab` engine submodule keeps the family name; the
+// parent `error_vocab/mod.rs` is a thin re-export root (SPEC-19 split).
+#[allow(clippy::module_inception)]
 pub mod error_vocab;

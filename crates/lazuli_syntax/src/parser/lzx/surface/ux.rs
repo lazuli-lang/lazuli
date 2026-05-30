@@ -265,7 +265,6 @@ pub(in crate::parser::lzx) fn parse_tab_group_block(
     Ok((i, last_end))
 }
 
-/// Parse one `case <V1, V2> -> tab "<label>"` arm.
-
+// Parse one `case <V1, V2> -> tab "<label>"` arm (defined in ux_p1.rs).
 include!("ux_p1.rs");
 include!("ux_p2.rs");

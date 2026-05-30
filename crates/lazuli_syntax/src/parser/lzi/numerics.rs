@@ -180,9 +180,7 @@ mod rate_limit_env_aware_tests {
         )
     }
 
-    fn single_command<'a>(
-        features: &'a [crate::ast::FeatureSkeleton],
-    ) -> &'a crate::ast::CommandDecl {
+    fn single_command(features: &[crate::ast::FeatureSkeleton]) -> &crate::ast::CommandDecl {
         let feature = features.first().expect("one feature parsed");
         feature.commands.first().expect("one command parsed")
     }

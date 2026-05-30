@@ -349,7 +349,7 @@ fn render_alter_up(
         .collect();
     let unsafe_present = !unsafe_type_changes.is_empty();
     if drops_commented || unsafe_present {
-        writeln!(sql);
+        let _ = writeln!(sql);
         let _ = writeln!(sql, "-- WARNING:");
         if drops_commented {
             let _ = writeln!(
@@ -369,7 +369,7 @@ fn render_alter_up(
             );
         }
     }
-    writeln!(sql);
+    let _ = writeln!(sql);
 
     if !diff.adds.is_empty() {
         let _ = writeln!(sql, "-- ADDS");
@@ -431,7 +431,7 @@ fn render_alter_down(
         comment_value(feature),
         comment_value(resource),
     );
-    writeln!(sql);
+    let _ = writeln!(sql);
 
     if !diff.type_changes.is_empty() {
         let _ = writeln!(sql, "-- TYPE CHANGES (inverse)");

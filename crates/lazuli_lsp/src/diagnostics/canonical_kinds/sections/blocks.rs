@@ -254,10 +254,10 @@ pub(crate) fn view_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
         let leading = leading_spaces(line);
 
         // Close view scope when indentation returns to (or above) the header.
-        if let Some((header_indent, _body_indent)) = current_view {
-            if leading <= header_indent {
-                current_view = None;
-            }
+        if let Some((header_indent, _body_indent)) = current_view
+            && leading <= header_indent
+        {
+            current_view = None;
         }
 
         if current_view.is_none() {
@@ -326,10 +326,10 @@ pub(crate) fn surface_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> 
         }
         let leading = leading_spaces(line);
 
-        if let Some((header_indent, _body_indent)) = current_surface {
-            if leading <= header_indent {
-                current_surface = None;
-            }
+        if let Some((header_indent, _body_indent)) = current_surface
+            && leading <= header_indent
+        {
+            current_surface = None;
         }
 
         if current_surface.is_none() {

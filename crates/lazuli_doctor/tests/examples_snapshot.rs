@@ -58,10 +58,11 @@ fn lower_feature(source: &str) -> lazuli_ir::Feature {
         feature.enums.iter().map(|decl| decl.name.clone()).collect();
     for resource in &mut feature.resources {
         for field in &mut resource.fields {
-            if let TypeRef::UserDefined(name) = &field.type_ref {
-                if name.feature.is_none() && enum_names.contains(&name.name) {
-                    field.type_ref = TypeRef::EnumRef(name.clone());
-                }
+            if let TypeRef::UserDefined(name) = &field.type_ref
+                && name.feature.is_none()
+                && enum_names.contains(&name.name)
+            {
+                field.type_ref = TypeRef::EnumRef(name.clone());
             }
         }
     }

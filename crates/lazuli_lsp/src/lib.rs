@@ -391,7 +391,7 @@ pub(crate) fn has_lzx_top_level_contract(source: &str) -> bool {
     source.lines().any(|line| {
         leading_spaces(line) == 0
             && matches!(
-                line.trim_start().split_whitespace().next(),
+                line.split_whitespace().next(),
                 Some("route" | "experience" | "surface")
             )
     })

@@ -169,16 +169,16 @@ fn scan_file(path: &Path, source: &str, out: &mut Vec<Finding>) {
         }
 
         // Non-attribute line: this is the item line (or unrelated code).
-        if in_attr_block && block_has_derive_error {
-            if let Some(name) = parse_pub_enum(trimmed) {
-                if !block_has_non_exhaustive {
-                    out.push(Finding {
-                        path: path.to_path_buf(),
-                        line: idx + 1,
-                        type_name: name.to_owned(),
-                    });
-                }
-            }
+        if in_attr_block
+            && block_has_derive_error
+            && let Some(name) = parse_pub_enum(trimmed)
+            && !block_has_non_exhaustive
+        {
+            out.push(Finding {
+                path: path.to_path_buf(),
+                line: idx + 1,
+                type_name: name.to_owned(),
+            });
         }
         // Always reset block state at the first non-attribute line.
         in_attr_block = false;

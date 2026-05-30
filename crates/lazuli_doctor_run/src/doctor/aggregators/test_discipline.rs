@@ -63,10 +63,10 @@ pub(crate) fn diagnostics(
     // `Error` for every TEST-* / DOCTOR-* / MIGRATION-* / RUNTIME-* code;
     // other presets either uniform-override or defer (None).
     let resolve_severity = |default: DoctorSeverity, code: &str| -> DoctorSeverity {
-        if let Some(preset) = preset {
-            if let Some(override_sev) = preset_rule_severity(preset, code) {
-                return override_sev.into();
-            }
+        if let Some(preset) = preset
+            && let Some(override_sev) = preset_rule_severity(preset, code)
+        {
+            return override_sev.into();
         }
         default
     };

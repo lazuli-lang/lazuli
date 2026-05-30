@@ -256,15 +256,14 @@ fn write_routes_by_role(s: &mut String, routes: &BTreeMap<String, BTreeSet<Strin
         s.push_str(role);
         s.push_str(": [");
         let paths = routes.get(role);
-        if let Some(paths) = paths {
-            if !paths.is_empty() {
+        if let Some(paths) = paths
+            && !paths.is_empty() {
                 s.push('\n');
                 for path in paths {
                     writeln!(s, "    '{}',", escape_ts_single_quoted(path)).ok();
                 }
                 s.push_str("  ");
             }
-        }
         s.push_str("],\n");
     }
     s.push_str("} as const satisfies Record<FixtureRole, readonly string[]>;\n\n");
@@ -320,8 +319,7 @@ fn lifecycle_specs_by_role(module: &Module) -> BTreeMap<String, LifecycleSpec> {
             .features
             .iter()
             .find_map(|feature| lifecycle_resource_for_role(feature, role).map(|r| (feature, r)))
-        {
-            if let Some(lifecycle) = resource.lifecycle.as_ref() {
+            && let Some(lifecycle) = resource.lifecycle.as_ref() {
                 out.insert(
                     role.to_owned(),
                     LifecycleSpec {
@@ -333,7 +331,6 @@ fn lifecycle_specs_by_role(module: &Module) -> BTreeMap<String, LifecycleSpec> {
                     },
                 );
             }
-        }
     }
     out
 }

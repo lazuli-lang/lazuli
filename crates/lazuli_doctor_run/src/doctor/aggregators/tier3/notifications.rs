@@ -109,9 +109,10 @@ pub(super) fn tier3_notification_diagnostics(
         // Above the ceiling, the adapter would buffer arbitrarily
         // many payloads per window; doctor caps it explicitly so the
         // contract states the bound rather than leaving it implicit.
-        if let Some(max_size) = digest.max_size {
-            if max_size == 0 || max_size > 10_000 {
-                diagnostics.push(DoctorDiagnostic {
+        if let Some(max_size) = digest.max_size
+            && (max_size == 0 || max_size > 10_000)
+        {
+            diagnostics.push(DoctorDiagnostic {
                     path: feature.path.clone(),
                     line,
                     column: 1,
@@ -127,7 +128,6 @@ pub(super) fn tier3_notification_diagnostics(
                     fix: None,
                     group: None,
                 });
-            }
         }
 
         // NOTIF-DIGEST-003 — `template_strategy` is a closed catalog.
@@ -176,9 +176,10 @@ pub(super) fn tier3_notification_diagnostics(
             // NOTIF-THROTTLE-002 — `burst` cannot exceed the max-per
             // window expressed in seconds. This keeps an immediate
             // burst from being larger than the configured bucket.
-            if let Some(burst) = throttle.burst {
-                if u64::from(burst) > max_per_seconds {
-                    diagnostics.push(DoctorDiagnostic {
+            if let Some(burst) = throttle.burst
+                && u64::from(burst) > max_per_seconds
+            {
+                diagnostics.push(DoctorDiagnostic {
                         path: feature.path.clone(),
                         line,
                         column: 1,
@@ -194,7 +195,6 @@ pub(super) fn tier3_notification_diagnostics(
                         fix: None,
                         group: None,
                     });
-                }
             }
         } else {
             // NOTIF-THROTTLE-003 — `max_per` must parse as `<N> <unit>`.

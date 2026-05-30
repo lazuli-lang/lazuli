@@ -11,9 +11,8 @@
 use super::parse_lzx_document;
 use crate::{LzxPlatform, LzxScalarLiteral, LzxViewTestAssertion};
 
-/// Wave 4 — parser must lift view `tests` into the typed
-/// `LzxViewTestAssertion` enum. `allows extension` / `denies extension` are
-/// the only admissible shapes; anything else is a hard parse error.
-
+// Wave 4 — parser must lift view `tests` into the typed
+// `LzxViewTestAssertion` enum. `allows extension` / `denies extension` are
+// the only admissible shapes; anything else is a hard parse error.
 include!("lzx_parser_p1_tests.rs");
 include!("lzx_parser_p2_tests.rs");

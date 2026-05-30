@@ -98,9 +98,7 @@ pub(super) fn resolve_lifecycle_emit(
         let Some(resource) = feature.resources.iter().find(|r| r.name == rl.resource) else {
             continue;
         };
-        if resource.lifecycle_routes.is_none() {
-            return None;
-        }
+        resource.lifecycle_routes.as_ref()?;
         // The lookup query must exist on the same feature.
         let has_lookup = feature
             .queries
@@ -137,9 +135,7 @@ pub(super) fn resolve_lifecycle_in_emit(
         let Some(resource) = feature.resources.iter().find(|r| r.name == rli.resource) else {
             continue;
         };
-        if resource.lifecycle_routes.is_none() {
-            return None;
-        }
+        resource.lifecycle_routes.as_ref()?;
         let has_lookup = feature
             .queries
             .iter()
@@ -213,32 +209,6 @@ fn snake_to_lower_camel(snake: &str) -> String {
     out
 }
 
-#[cfg(test)]
-mod snake_to_lower_camel_tests {
-    use super::snake_to_lower_camel;
-
-    #[test]
-    fn single_word_passthrough() {
-        assert_eq!(snake_to_lower_camel("phone"), "phone");
-    }
-
-    #[test]
-    fn boolean_flag_three_words() {
-        assert_eq!(snake_to_lower_camel("is_phone_verified"), "isPhoneVerified");
-    }
-
-    #[test]
-    fn already_lower_camel_passthrough() {
-        // Non-snake input stays as-is — the converter only acts on `_`.
-        assert_eq!(snake_to_lower_camel("isPhoneVerified"), "isPhoneVerified");
-    }
-
-    #[test]
-    fn trailing_underscore_ignored() {
-        assert_eq!(snake_to_lower_camel("verified_"), "verified");
-    }
-}
-
 /// Render a [`DefaultValue`] as a TS literal string for inline use
 /// inside a `!==` comparison. Returns `None` for shapes the field
 /// gate doesn't support (enum literals + nil currently — doctor
@@ -296,4 +266,30 @@ fn parse_atom_string(s: &str) -> Option<(String, String)> {
     // args, and route guards don't use it).
     let name = rest.split('(').next().unwrap_or(rest);
     Some((ns.to_owned(), name.to_owned()))
+}
+
+#[cfg(test)]
+mod snake_to_lower_camel_tests {
+    use super::snake_to_lower_camel;
+
+    #[test]
+    fn single_word_passthrough() {
+        assert_eq!(snake_to_lower_camel("phone"), "phone");
+    }
+
+    #[test]
+    fn boolean_flag_three_words() {
+        assert_eq!(snake_to_lower_camel("is_phone_verified"), "isPhoneVerified");
+    }
+
+    #[test]
+    fn already_lower_camel_passthrough() {
+        // Non-snake input stays as-is — the converter only acts on `_`.
+        assert_eq!(snake_to_lower_camel("isPhoneVerified"), "isPhoneVerified");
+    }
+
+    #[test]
+    fn trailing_underscore_ignored() {
+        assert_eq!(snake_to_lower_camel("verified_"), "verified");
+    }
 }

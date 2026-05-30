@@ -127,16 +127,16 @@ pub fn iter_handler_sites(feature: &Feature) -> Vec<HandlerSite> {
 
     // Resource.validate / Resource.validates[*] / Resource.lifecycle.invariant_handlers
     for res in &feature.resources {
-        if let Some(pref) = &res.validate {
-            if let Some(name) = path_ref_stem(pref) {
-                sites.push(HandlerSite {
-                    kind: HandlerSiteKind::ResourceValidate,
-                    feature_name: feature_name.clone(),
-                    construct_name: res.name.clone(),
-                    handler_namespace: "validator".to_owned(),
-                    handler_name: name,
-                });
-            }
+        if let Some(pref) = &res.validate
+            && let Some(name) = path_ref_stem(pref)
+        {
+            sites.push(HandlerSite {
+                kind: HandlerSiteKind::ResourceValidate,
+                feature_name: feature_name.clone(),
+                construct_name: res.name.clone(),
+                handler_namespace: "validator".to_owned(),
+                handler_name: name,
+            });
         }
         for fv in &res.validates {
             if let Some(name) = path_ref_stem(&fv.path) {
@@ -164,16 +164,16 @@ pub fn iter_handler_sites(feature: &Feature) -> Vec<HandlerSite> {
 
     // Job.body = Handler(JobHandler { path: PathRef, ... })
     for job in &feature.jobs {
-        if let JobBody::Handler(jh) = &job.body {
-            if let Some(name) = path_ref_stem(&jh.path) {
-                sites.push(HandlerSite {
-                    kind: HandlerSiteKind::JobHandler,
-                    feature_name: feature_name.clone(),
-                    construct_name: job.name.clone(),
-                    handler_namespace: "job".to_owned(),
-                    handler_name: name,
-                });
-            }
+        if let JobBody::Handler(jh) = &job.body
+            && let Some(name) = path_ref_stem(&jh.path)
+        {
+            sites.push(HandlerSite {
+                kind: HandlerSiteKind::JobHandler,
+                feature_name: feature_name.clone(),
+                construct_name: job.name.clone(),
+                handler_namespace: "job".to_owned(),
+                handler_name: name,
+            });
         }
     }
 

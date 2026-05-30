@@ -111,10 +111,10 @@ pub(crate) fn input_dot_trigger(before: &str) -> Option<&str> {
     // The `input.` token must be at a word boundary — guard against a
     // suffix match inside a longer identifier like `payload_input.x`.
     let prefix = &before[..dot];
-    if let Some(last) = prefix.chars().last() {
-        if last.is_ascii_alphanumeric() || last == '_' {
-            return None;
-        }
+    if let Some(last) = prefix.chars().last()
+        && (last.is_ascii_alphanumeric() || last == '_')
+    {
+        return None;
     }
     Some(after_dot)
 }

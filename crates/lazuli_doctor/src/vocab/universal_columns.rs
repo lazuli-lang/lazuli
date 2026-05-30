@@ -73,25 +73,24 @@ pub fn is_universal_column(
     // FK to tenancy axis declared in the feature `defaults`.
     if let Some(tenancy) = &feature.defaults.tenancy {
         let tenancy_field_name = tenancy_field_name(tenancy);
-        if let Some(expected) = tenancy_field_name.as_deref() {
-            if field.name == expected
-                && type_resolves_to_resource(
-                    &field.type_ref,
-                    expected_resource_name(tenancy).as_deref(),
-                    feature,
-                    module,
-                )
-            {
-                return true;
-            }
+        if let Some(expected) = tenancy_field_name.as_deref()
+            && field.name == expected
+            && type_resolves_to_resource(
+                &field.type_ref,
+                expected_resource_name(tenancy).as_deref(),
+                feature,
+                module,
+            )
+        {
+            return true;
         }
     }
 
     // FK to a peer resource in the capsule.
-    if let TypeRef::UserDefined(qname) = &field.type_ref {
-        if resolves_to_resource_anywhere(qname, feature, module) {
-            return true;
-        }
+    if let TypeRef::UserDefined(qname) = &field.type_ref
+        && resolves_to_resource_anywhere(qname, feature, module)
+    {
+        return true;
     }
 
     // Aggregation snapshot fields: `<x>_count: Integer required = 0`.
@@ -192,10 +191,10 @@ fn resolves_to_resource_anywhere(
         return true;
     }
     for used in &feature.uses {
-        if let Some(other) = module.features.iter().find(|f| &f.name == used) {
-            if other.resources.iter().any(|r| r.name == qname.name) {
-                return true;
-            }
+        if let Some(other) = module.features.iter().find(|f| &f.name == used)
+            && other.resources.iter().any(|r| r.name == qname.name)
+        {
+            return true;
         }
     }
     false

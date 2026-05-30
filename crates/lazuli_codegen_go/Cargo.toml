@@ -16,3 +16,6 @@ lazuli_codegen_spec = { path = "../lazuli_codegen_spec" }
 [dev-dependencies]
 lazuli_analyzer = { path = "../lazuli_analyzer" }
 lazuli_syntax = { path = "../lazuli_syntax" }
+
+[lints]
+workspace = true

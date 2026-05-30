@@ -57,13 +57,13 @@ pub(super) fn resolve_policy_atoms(
     if let Some(atom) = parse_policy_atom(policy) {
         return vec![atom];
     }
-    if let Some(role) = policy.strip_prefix("@policy.role.") {
-        if FIXTURE_ROLES.contains(&role) {
-            return vec![PolicyAtom {
-                namespace: "role".to_owned(),
-                name: role.to_owned(),
-            }];
-        }
+    if let Some(role) = policy.strip_prefix("@policy.role.")
+        && FIXTURE_ROLES.contains(&role)
+    {
+        return vec![PolicyAtom {
+            namespace: "role".to_owned(),
+            name: role.to_owned(),
+        }];
     }
     let Some((feature, category)) = parse_policy_ref(policy, default_feature) else {
         return Vec::new();

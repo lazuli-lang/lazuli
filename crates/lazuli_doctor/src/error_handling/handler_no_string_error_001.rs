@@ -279,16 +279,13 @@ fn is_sentinel_var_decl(trimmed: &str) -> bool {
     // start with `ErrX` (no `var` keyword). Be conservative: require
     // the line to start with `Err` followed by uppercase letter or `_`,
     // and contain ` = ` before the constructor.
-    if let Some(rest) = trimmed.strip_prefix("Err") {
-        if let Some(next) = rest.chars().next() {
-            if next.is_ascii_uppercase() || next == '_' || next.is_ascii_alphanumeric() {
-                if trimmed.contains('=')
-                    && (trimmed.contains("errors.New(") || trimmed.contains("fmt.Errorf("))
-                {
-                    return true;
-                }
-            }
-        }
+    if let Some(rest) = trimmed.strip_prefix("Err")
+        && let Some(next) = rest.chars().next()
+        && (next.is_ascii_uppercase() || next == '_' || next.is_ascii_alphanumeric())
+        && trimmed.contains('=')
+        && (trimmed.contains("errors.New(") || trimmed.contains("fmt.Errorf("))
+    {
+        return true;
     }
     false
 }

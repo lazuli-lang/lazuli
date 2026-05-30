@@ -188,16 +188,16 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
         }
     }
 
-    if app.route_guard.is_none() {
-        if let Some(redirect) = app.auth_failed_redirect.clone() {
-            app.route_guard = Some(RouteGuardDefaults {
-                default_policy: None,
-                on_unauthenticated: Some(redirect),
-                on_unauthorized: None,
-                skeleton: None,
-                span_ref: Some(line_span_ref(&line_starts, start, lines[start])),
-            });
-        }
+    if app.route_guard.is_none()
+        && let Some(redirect) = app.auth_failed_redirect.clone()
+    {
+        app.route_guard = Some(RouteGuardDefaults {
+            default_policy: None,
+            on_unauthenticated: Some(redirect),
+            on_unauthorized: None,
+            skeleton: None,
+            span_ref: Some(line_span_ref(&line_starts, start, lines[start])),
+        });
     }
 
     Some(app)

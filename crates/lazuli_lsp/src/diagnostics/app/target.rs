@@ -172,10 +172,10 @@ pub(crate) fn validate_registry_pack_child(
     line: &str,
     trimmed: &str,
 ) {
-    if let Some(version) = trimmed.strip_prefix("version ") {
-        if is_quoted_lzx_literal(version.trim()) {
-            return;
-        }
+    if let Some(version) = trimmed.strip_prefix("version ")
+        && is_quoted_lzx_literal(version.trim())
+    {
+        return;
     }
 
     let parts: Vec<_> = trimmed.split_whitespace().collect();

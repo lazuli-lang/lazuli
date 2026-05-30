@@ -117,10 +117,10 @@ pub(crate) fn command_statement_unknown_diagnostics(source: &str) -> Vec<Diagnos
         }
         let leading = leading_spaces(line);
 
-        if let Some((header_indent, _body_indent)) = current_command {
-            if leading <= header_indent {
-                current_command = None;
-            }
+        if let Some((header_indent, _body_indent)) = current_command
+            && leading <= header_indent
+        {
+            current_command = None;
         }
 
         if current_command.is_none() {
@@ -199,10 +199,10 @@ pub(crate) fn query_statement_unknown_diagnostics(source: &str) -> Vec<Diagnosti
         }
         let leading = leading_spaces(line);
 
-        if let Some((header_indent, _body_indent)) = current_query {
-            if leading <= header_indent {
-                current_query = None;
-            }
+        if let Some((header_indent, _body_indent)) = current_query
+            && leading <= header_indent
+        {
+            current_query = None;
         }
 
         if current_query.is_none() {
@@ -273,10 +273,10 @@ pub(crate) fn audience_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic>
         }
         let leading = leading_spaces(line);
 
-        if let Some((header_indent, _body_indent)) = current_audience {
-            if leading <= header_indent {
-                current_audience = None;
-            }
+        if let Some((header_indent, _body_indent)) = current_audience
+            && leading <= header_indent
+        {
+            current_audience = None;
         }
 
         if current_audience.is_none() {
@@ -364,11 +364,11 @@ pub(crate) fn sessions_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic>
 
         // Close the sessions scope when indentation returns to (or above)
         // the header. Closing sessions also closes any open cookie block.
-        if let Some((header_indent, _body_indent)) = current_sessions {
-            if leading <= header_indent {
-                current_sessions = None;
-                cookie_body_indent = None;
-            }
+        if let Some((header_indent, _body_indent)) = current_sessions
+            && leading <= header_indent
+        {
+            current_sessions = None;
+            cookie_body_indent = None;
         }
 
         if current_sessions.is_none() {
@@ -384,10 +384,10 @@ pub(crate) fn sessions_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic>
 
         // A line at (or above) the sessions body indent closes any open
         // cookie sub-block before we re-classify it.
-        if let Some(c_indent) = cookie_body_indent {
-            if leading < c_indent {
-                cookie_body_indent = None;
-            }
+        if let Some(c_indent) = cookie_body_indent
+            && leading < c_indent
+        {
+            cookie_body_indent = None;
         }
 
         let Some(first) = trimmed.split_whitespace().next() else {

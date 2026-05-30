@@ -192,8 +192,8 @@ impl LiteralRow {
 fn emit_literal_rows(p: &mut GoPrinter, rows: &[LiteralRow]) {
     let key_width = rows
         .iter()
-        .filter_map(|row| match row {
-            LiteralRow::Field { key, .. } | LiteralRow::Block { key, .. } => Some(key.len()),
+        .map(|row| match row {
+            LiteralRow::Field { key, .. } | LiteralRow::Block { key, .. } => key.len(),
         })
         .max()
         .unwrap_or(0);

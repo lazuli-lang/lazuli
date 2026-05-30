@@ -13,15 +13,11 @@ use serde::{Deserialize, Serialize};
 /// `Guaranteed` opts the event into the transactional outbox.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum OutboxMode {
+    #[default]
     None,
     Guaranteed,
-}
-
-impl Default for OutboxMode {
-    fn default() -> Self {
-        OutboxMode::None
-    }
 }
 
 impl OutboxMode {

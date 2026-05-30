@@ -123,16 +123,16 @@ pub(crate) fn agent_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
                 "agent-contract",
                 "`agent` declarations must declare a `model @llm.<name>`.",
             ));
-        } else if let Some(value) = model_value {
-            if !value.starts_with("@llm.") {
-                diagnostics.push(simple_canonical_diagnostic(
-                    header_index,
-                    lines[header_index],
-                    DiagnosticSeverity::ERROR,
-                    "agent-contract",
-                    "`model` on an `agent` must be a `@llm.<name>` reference.",
-                ));
-            }
+        } else if let Some(value) = model_value
+            && !value.starts_with("@llm.")
+        {
+            diagnostics.push(simple_canonical_diagnostic(
+                header_index,
+                lines[header_index],
+                DiagnosticSeverity::ERROR,
+                "agent-contract",
+                "`model` on an `agent` must be a `@llm.<name>` reference.",
+            ));
         }
         if !has_prompt {
             diagnostics.push(simple_canonical_diagnostic(

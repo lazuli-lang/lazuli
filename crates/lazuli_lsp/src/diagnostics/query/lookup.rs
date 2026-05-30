@@ -69,10 +69,11 @@ pub(crate) fn lookup_shorthand_diagnostics(source: &str) -> Vec<Diagnostic> {
             } else {
                 current_child = None;
             }
-        } else if leading_spaces(line) == 8 && current_child == Some("params") {
-            if let Some((name, ty)) = typed_param(trimmed) {
-                query.params.push((name.to_owned(), ty.to_owned()));
-            }
+        } else if leading_spaces(line) == 8
+            && current_child == Some("params")
+            && let Some((name, ty)) = typed_param(trimmed)
+        {
+            query.params.push((name.to_owned(), ty.to_owned()));
         }
     }
 
@@ -105,7 +106,7 @@ pub(crate) fn lookup_query_diagnostics(query: LookupQueryFacts) -> Vec<Diagnosti
 pub(crate) fn typed_param(trimmed_line: &str) -> Option<(&str, &str)> {
     let (name, rest) = trimmed_line.split_once(':')?;
     let name = name.trim();
-    let ty = rest.trim().split_whitespace().next()?;
+    let ty = rest.split_whitespace().next()?;
 
     if name.is_empty() || ty.is_empty() {
         None

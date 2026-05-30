@@ -329,7 +329,6 @@ pub(super) fn doctor_self_command(input: &Path, opts: &DoctorRuntimeOptions) -> 
                 .any(|d| lazuli_doctor::RuleCategory::from_code_prefix(&d.code) == *c),
             crate::doctor_report::FailOnSpec::Rule(r) => diagnostics.iter().any(|d| &d.code == r),
             crate::doctor_report::FailOnSpec::Severity(_) => has_error,
-            _ => false,
         });
 
     if has_error || gate_fail {

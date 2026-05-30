@@ -242,7 +242,7 @@ pub fn lower_poller(poller: &syntax::PollerBlockAst) -> Result<ir::Poller, Analy
 
     let idempotency = ir::IdempotencyKey {
         by: ir::Path {
-            segments: poller.idempotency.iter().cloned().collect(),
+            segments: poller.idempotency.to_vec(),
         },
     };
 

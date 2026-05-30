@@ -76,15 +76,15 @@ pub(in crate::commands::inspect) fn emits_dependencies(
                     origin,
                 ));
             }
-        } else if is_transition_line(trimmed) {
-            if let Some(event) = trailing_scalar_value_after(trimmed, "emits") {
-                dependencies.push(inspect_dependency(
-                    "emits_event",
-                    subject,
-                    qualify_event_ref(feature, event),
-                    "transition.emits",
-                ));
-            }
+        } else if is_transition_line(trimmed)
+            && let Some(event) = trailing_scalar_value_after(trimmed, "emits")
+        {
+            dependencies.push(inspect_dependency(
+                "emits_event",
+                subject,
+                qualify_event_ref(feature, event),
+                "transition.emits",
+            ));
         }
     }
 
@@ -101,20 +101,19 @@ pub(in crate::commands::inspect) fn query_reference_dependencies(
         let trimmed = line.trim_start();
 
         for prefix in ["target ", "source "] {
-            if let Some(value) = trimmed.strip_prefix(prefix) {
-                if let Some(query) = value
+            if let Some(value) = trimmed.strip_prefix(prefix)
+                && let Some(query) = value
                     .split_once('(')
                     .map(|(query, _)| query)
                     .or_else(|| value.split_whitespace().next())
                     .filter(|query| query.contains("query."))
-                {
-                    dependencies.push(inspect_dependency(
-                        "query_ref",
-                        subject,
-                        query.trim(),
-                        prefix.trim(),
-                    ));
-                }
+            {
+                dependencies.push(inspect_dependency(
+                    "query_ref",
+                    subject,
+                    query.trim(),
+                    prefix.trim(),
+                ));
             }
         }
     }
@@ -156,15 +155,14 @@ pub(in crate::commands::inspect) fn query_param_names(lines: &[String]) -> Vec<S
         }
     }
 
-    if params.is_empty() {
-        if let Some(key) = lines
+    if params.is_empty()
+        && let Some(key) = lines
             .first()
             .and_then(|line| line.trim_start().split(" by ").nth(1))
             .and_then(|rest| rest.split_once(':').map(|(name, _)| name.trim()))
             .filter(|name| !name.is_empty())
-        {
-            params.push(key.to_owned());
-        }
+    {
+        params.push(key.to_owned());
     }
 
     params

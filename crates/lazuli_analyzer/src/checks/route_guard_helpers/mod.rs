@@ -123,16 +123,17 @@ pub fn check(
             platform_view.guard.as_ref(),
             experience_view.guard.as_ref(),
             audience.guard.as_ref(),
-        ] {
-            if let Some(guard) = guard {
-                check_guard_redirects(
-                    guard,
-                    &route_names,
-                    &route_paths,
-                    &mut seen_redirects,
-                    &mut out,
-                );
-            }
+        ]
+        .into_iter()
+        .flatten()
+        {
+            check_guard_redirects(
+                guard,
+                &route_names,
+                &route_paths,
+                &mut seen_redirects,
+                &mut out,
+            );
         }
 
         for backend in backend_policies(&ctx.feature, experience_view, platform_view, features) {
@@ -220,7 +221,11 @@ fn resolve_guard(
     app: Option<&RouteGuardDefaults>,
     features: &[Feature],
 ) -> ResolvedGuard {
-    for guard in [route, platform, view, audience].into_iter().flatten() {
+    if let Some(guard) = [route, platform, view, audience]
+        .into_iter()
+        .flatten()
+        .next()
+    {
         // OR-semantics over the policy list: any matching policy admits.
         // Concatenating per-policy atom sets keeps the existing
         // OR-on-atoms runtime contract.
@@ -264,7 +269,7 @@ pub(super) fn target_view(to: Option<&str>) -> Option<(String, String)> {
 
 pub(super) fn surface_feature(surface: &str) -> Option<String> {
     surface
-        .split(|ch: char| ch == ' ' || ch == '.')
+        .split([' ', '.'])
         .next()
         .filter(|feature| !feature.is_empty())
         .map(str::to_owned)

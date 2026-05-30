@@ -157,32 +157,6 @@ fn ensure_resolves(
     });
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn finding_code_is_stable() {
-        assert_eq!(KeyUnknownFinding::CODE, "ERR-VOCAB-002");
-    }
-
-    #[test]
-    fn message_renders_declared_keys_when_present() {
-        let f = KeyUnknownFinding {
-            path: PathBuf::from("billing.lzi"),
-            feature: "billing".to_owned(),
-            key: "missing.key".to_owned(),
-            site: "errors `billing.policy_denied`".to_owned(),
-            span: None,
-        };
-        let with_some = f.message(&["greeting", "farewell"]);
-        assert!(with_some.contains("greeting, farewell"));
-        let with_none = f.message(&[]);
-        assert!(with_none.contains("<none declared>"));
-        assert!(with_none.contains("missing.key"));
-    }
-}
-
 fn visible_translation_keys(
     feature: &Feature,
     keys_by_feature: &BTreeMap<String, BTreeSet<String>>,
@@ -207,4 +181,30 @@ fn visible_translation_keys(
         }
     }
     visible
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finding_code_is_stable() {
+        assert_eq!(KeyUnknownFinding::CODE, "ERR-VOCAB-002");
+    }
+
+    #[test]
+    fn message_renders_declared_keys_when_present() {
+        let f = KeyUnknownFinding {
+            path: PathBuf::from("billing.lzi"),
+            feature: "billing".to_owned(),
+            key: "missing.key".to_owned(),
+            site: "errors `billing.policy_denied`".to_owned(),
+            span: None,
+        };
+        let with_some = f.message(&["greeting", "farewell"]);
+        assert!(with_some.contains("greeting, farewell"));
+        let with_none = f.message(&[]);
+        assert!(with_none.contains("<none declared>"));
+        assert!(with_none.contains("missing.key"));
+    }
 }

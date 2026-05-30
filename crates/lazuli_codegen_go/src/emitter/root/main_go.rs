@@ -249,7 +249,7 @@ fn emit_main_imports(
     p.line("\"lazuli.dev/runtime/lazuli\"");
     if !feature_imports.is_empty() {
         p.blank();
-        for (_name, path) in feature_imports {
+        for path in feature_imports.values() {
             // `_` alias triggers init() without exposing identifiers.
             p.line(&format!("_ \"{}\"", path));
         }
@@ -266,7 +266,7 @@ fn emit_main_imports(
         p.line("// User-authored handler packages — init() blocks self-register");
         p.line("// with `lazuli.RegisterFn(...)` so generated command Effect");
         p.line("// `lazuli.ReturnsFromRegistry[I, O](\"<feature>.<name>\")` can resolve.");
-        for (_name, path) in handler_imports {
+        for path in handler_imports.values() {
             p.line(&format!("_ \"{}\"", path));
         }
     }

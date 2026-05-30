@@ -149,16 +149,14 @@ fn find_resource_for_query<'a>(feature: &'a Feature, query_ref: &QueryRef) -> Op
         .iter()
         .find(|query| query_matches_ref(query, query_ref))?;
 
-    if let Query::Sql(sql) = query {
-        if let Some(resource_name) = resource_name_from_type_ref(&sql.returns) {
-            if let Some(resource) = feature
-                .resources
-                .iter()
-                .find(|resource| resource.name == resource_name)
-            {
-                return Some(resource);
-            }
-        }
+    if let Query::Sql(sql) = query
+        && let Some(resource_name) = resource_name_from_type_ref(&sql.returns)
+        && let Some(resource) = feature
+            .resources
+            .iter()
+            .find(|resource| resource.name == resource_name)
+    {
+        return Some(resource);
     }
 
     if feature.resources.len() == 1 {

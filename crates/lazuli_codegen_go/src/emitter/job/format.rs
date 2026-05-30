@@ -200,5 +200,5 @@ pub(super) fn escape_string(raw: &str) -> String {
 }
 
 pub(super) fn escape_comment(raw: &str) -> String {
-    raw.replace('\n', " ").replace('\r', " ")
+    raw.replace(['\n', '\r'], " ")
 }

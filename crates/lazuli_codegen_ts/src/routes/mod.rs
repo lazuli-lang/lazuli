@@ -166,10 +166,10 @@ fn route_matches_target(
     experiences: &[Experience],
     target: RoutesTarget,
 ) -> bool {
-    if let Some(surface) = route.surface.as_deref() {
-        if let Some(platform) = surface_platform_label(surface) {
-            return platform == target.platform_label();
-        }
+    if let Some(surface) = route.surface.as_deref()
+        && let Some(platform) = surface_platform_label(surface)
+    {
+        return platform == target.platform_label();
     }
     let Some(surface) = matching_surface(route, surfaces, experiences, target) else {
         return target == RoutesTarget::Web;

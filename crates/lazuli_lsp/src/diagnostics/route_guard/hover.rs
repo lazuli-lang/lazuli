@@ -38,10 +38,10 @@ use super::context::{
 /// assert!(hover.is_none());
 /// ```
 pub fn route_guard_hover(source: &str, position: Position, word: &str) -> Option<String> {
-    if word.starts_with("policy.") {
-        if let Some(hover) = route_guard_policy_ref_hover(source, position, word) {
-            return Some(hover);
-        }
+    if word.starts_with("policy.")
+        && let Some(hover) = route_guard_policy_ref_hover(source, position, word)
+    {
+        return Some(hover);
     }
 
     match word {

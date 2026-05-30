@@ -217,10 +217,11 @@ pub(crate) fn is_parseable_duration(raw: &str) -> bool {
     }
     let suffixes = ["ms", "s", "m", "h", "d"];
     for suffix in suffixes {
-        if let Some(head) = trimmed.strip_suffix(suffix) {
-            if !head.is_empty() && head.chars().all(|c| c.is_ascii_digit()) {
-                return true;
-            }
+        if let Some(head) = trimmed.strip_suffix(suffix)
+            && !head.is_empty()
+            && head.chars().all(|c| c.is_ascii_digit())
+        {
+            return true;
         }
     }
     false
@@ -236,10 +237,11 @@ pub(crate) fn is_parseable_size(raw: &str) -> bool {
     }
     let suffixes = ["tb", "gb", "mb", "kb", "b"];
     for suffix in suffixes {
-        if let Some(head) = trimmed.strip_suffix(suffix) {
-            if !head.is_empty() && head.chars().all(|c| c.is_ascii_digit()) {
-                return true;
-            }
+        if let Some(head) = trimmed.strip_suffix(suffix)
+            && !head.is_empty()
+            && head.chars().all(|c| c.is_ascii_digit())
+        {
+            return true;
         }
     }
     false

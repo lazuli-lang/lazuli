@@ -256,14 +256,14 @@ pub(crate) fn lower_design_color_token(
                 value: state.value.clone(),
             });
         }
-        if let Some(dark) = state.dark.as_deref() {
-            if !is_valid_design_hex(dark) {
-                return Err(AnalyzeError::DesignColorHexInvalid {
-                    token: token.name.clone(),
-                    state: format!("{}.dark", state.kind),
-                    value: dark.to_owned(),
-                });
-            }
+        if let Some(dark) = state.dark.as_deref()
+            && !is_valid_design_hex(dark)
+        {
+            return Err(AnalyzeError::DesignColorHexInvalid {
+                token: token.name.clone(),
+                state: format!("{}.dark", state.kind),
+                value: dark.to_owned(),
+            });
         }
         states.push(ir::ColorState {
             kind,

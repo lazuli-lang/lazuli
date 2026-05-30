@@ -123,10 +123,10 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
         // The effect resource is feature-local (commands write their own
         // feature's resources); an explicit cross-feature `feature` is not
         // the append-only owner here, so only match unqualified / same-feature.
-        if let Some(feat) = target.feature.as_deref() {
-            if feat != feature.name {
-                continue;
-            }
+        if let Some(feat) = target.feature.as_deref()
+            && feat != feature.name
+        {
+            continue;
         }
         if append_only.contains(target.name.as_str()) {
             findings.push(Finding {

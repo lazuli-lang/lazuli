@@ -67,10 +67,10 @@ pub(super) fn parse_hsts_inline(rest: &str, hsts: &mut AppHsts) {
     while let Some(token) = tokens.next() {
         match token {
             "max_age" => {
-                if let Some(value) = tokens.next() {
-                    if let Ok(n) = value.parse::<u64>() {
-                        hsts.max_age = n;
-                    }
+                if let Some(value) = tokens.next()
+                    && let Ok(n) = value.parse::<u64>()
+                {
+                    hsts.max_age = n;
                 }
             }
             "include_subdomains" => {

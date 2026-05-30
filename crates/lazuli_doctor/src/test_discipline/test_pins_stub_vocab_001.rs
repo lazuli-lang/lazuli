@@ -323,12 +323,10 @@ fn extract_string_literals_in_call(line: &str, start: usize) -> Option<Vec<(Stri
 /// in `literal`, or `None` if no token matches.
 fn match_stub_vocab(literal: &str) -> Option<&'static str> {
     let lower = literal.to_ascii_lowercase();
-    for token in STUB_VOCAB {
-        if lower.contains(token) {
-            return Some(token);
-        }
-    }
-    None
+    STUB_VOCAB
+        .iter()
+        .find(|&token| lower.contains(token))
+        .map(|v| v as _)
 }
 
 /// `assert.Contains(` (etc.) must be preceded by start-of-line or one

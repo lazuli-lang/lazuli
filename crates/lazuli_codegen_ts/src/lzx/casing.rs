@@ -8,7 +8,7 @@
 /// segments to match the runtime emitter's casing conventions.
 pub(crate) fn pascal_case(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
-    for word in s.split(|c: char| c == '_' || c == '-' || c == ' ') {
+    for word in s.split(['_', '-', ' ']) {
         if word.is_empty() {
             continue;
         }

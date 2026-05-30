@@ -99,13 +99,14 @@ fn parse_emit_predicate_kind(text: &str) -> Option<ir::EmitPredicateKind> {
     if let Some((lhs, rhs)) = text.split_once("==") {
         let path = lhs.trim();
         let literal_raw = rhs.trim();
-        if !path.is_empty() && !path.contains(' ') {
-            if let Some(literal) = strip_quotes(literal_raw) {
-                return Some(ir::EmitPredicateKind::Equals {
-                    path: path.to_owned(),
-                    literal: literal.to_owned(),
-                });
-            }
+        if !path.is_empty()
+            && !path.contains(' ')
+            && let Some(literal) = strip_quotes(literal_raw)
+        {
+            return Some(ir::EmitPredicateKind::Equals {
+                path: path.to_owned(),
+                literal: literal.to_owned(),
+            });
         }
     }
     // `path in ("a", "b", ...)`
@@ -318,7 +319,7 @@ pub(crate) fn lower_job_body(body: &syntax::JobBody) -> ir::JobBody {
     match body {
         syntax::JobBody::Handler(h) => ir::JobBody::Handler(ir::JobHandler {
             path: ir::PathRef::authored(&h.path),
-            returns: h.returns.as_deref().map(|t| type_ref_from_text(t)),
+            returns: h.returns.as_deref().map(type_ref_from_text),
         }),
         syntax::JobBody::Declarative(d) => ir::JobBody::Declarative(ir::JobDeclarative {
             target: d.target.as_ref().map(lower_target_expr),

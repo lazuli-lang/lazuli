@@ -50,7 +50,7 @@ feature customer
       name = input.name
     where (id = input.
 ";
-    let position = cursor_after_last(&source, "where (id = input.");
+    let position = cursor_after_last(source, "where (id = input.");
     let items = items(source, position);
 
     let id_item = label_with_detail(&items, "id").expect("expected `id` completion; got {items:?}");
@@ -77,7 +77,7 @@ feature customer
     updates Customer
       email = input.
 ";
-    let position = cursor_after_last(&source, "email = input.");
+    let position = cursor_after_last(source, "email = input.");
     let items = items(source, position);
 
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
@@ -109,7 +109,7 @@ feature billing
     creates Charge from input
     where (order_id = input.
 ";
-    let position = cursor_after_last(&source, "where (order_id = input.");
+    let position = cursor_after_last(source, "where (order_id = input.");
     let items = items(source, position);
 
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
@@ -138,7 +138,7 @@ fn no_completion_outside_command_block() {
     // Sanity: cursor sitting in `input.` at the top level (not inside
     // a command) returns None so the global keyword list still fires.
     let source = "input.\n";
-    let position = cursor_after_last(&source, "input.");
+    let position = cursor_after_last(source, "input.");
     assert!(
         input_field_completions(source, position).is_none(),
         "must not fire outside a command block",
@@ -156,7 +156,7 @@ feature customer
     updates Customer
       name = input.i
 ";
-    let position = cursor_after_last(&source, "name = input.i");
+    let position = cursor_after_last(source, "name = input.i");
     let items = items(source, position);
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
     assert!(labels.contains(&"id"), "expected `id` in {labels:?}");

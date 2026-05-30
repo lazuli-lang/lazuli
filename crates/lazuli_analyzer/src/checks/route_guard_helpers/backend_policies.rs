@@ -147,10 +147,10 @@ pub(super) fn policy_text_atoms(
     if let Some(tail) = raw.strip_prefix("policy.") {
         let mut parts = tail.splitn(2, '.');
         let first = parts.next().unwrap_or_default();
-        if let Some(second) = parts.next() {
-            if features.iter().any(|f| f.name == first) {
-                return category_atoms(first, second, features);
-            }
+        if let Some(second) = parts.next()
+            && features.iter().any(|f| f.name == first)
+        {
+            return category_atoms(first, second, features);
         }
         return category_atoms(default_feature, tail, features);
     }

@@ -32,10 +32,7 @@ pub(crate) fn emit_command(out: &mut YamlEmitter, feature: &str, cmd: &ir::Comma
     if !cmd.emits.is_empty() {
         out.kv(
             "x-lazuli-emits",
-            &format!(
-                "[{}]",
-                cmd.emits.iter().cloned().collect::<Vec<_>>().join(", ")
-            ),
+            &format!("[{}]", cmd.emits.to_vec().join(", ")),
         );
     }
     if let Some(audit) = &cmd.audit {

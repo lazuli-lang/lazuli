@@ -158,7 +158,7 @@ fn visit(
                 construct: construct.to_owned(),
                 literal,
                 shape,
-                span: tests.span_ref.clone(),
+                span: tests.span_ref,
             });
         }
     }
@@ -192,10 +192,10 @@ fn walk(predicate: &Predicate, out: &mut Vec<(String, &'static str)>) {
 }
 
 fn check_expr(expr: &Expr, out: &mut Vec<(String, &'static str)>) {
-    if let Expr::String(s) = expr {
-        if let Some(shape) = classify_string(s) {
-            out.push((s.clone(), shape));
-        }
+    if let Expr::String(s) = expr
+        && let Some(shape) = classify_string(s)
+    {
+        out.push((s.clone(), shape));
     }
 }
 

@@ -167,15 +167,15 @@ pub(crate) fn lower_report_filename(literal: &str) -> ir::ReportFilenamePattern 
     let bytes = literal.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'{' {
-            if let Some(close) = literal[i + 1..].find('}') {
-                let raw = &literal[i + 1..i + 1 + close];
-                if let Some(token) = parse_filename_token(raw) {
-                    tokens.push(token);
-                }
-                i = i + 1 + close + 1;
-                continue;
+        if bytes[i] == b'{'
+            && let Some(close) = literal[i + 1..].find('}')
+        {
+            let raw = &literal[i + 1..i + 1 + close];
+            if let Some(token) = parse_filename_token(raw) {
+                tokens.push(token);
             }
+            i = i + 1 + close + 1;
+            continue;
         }
         i += 1;
     }

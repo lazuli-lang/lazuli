@@ -257,21 +257,21 @@ fn parse_int_setting(
             "int setting default must be an integer within the declared range",
         )
     })?;
-    if let Some(min) = min {
-        if default_value < min {
-            return Err(line_error(
-                line,
-                "int setting default is below the declared `min`",
-            ));
-        }
+    if let Some(min) = min
+        && default_value < min
+    {
+        return Err(line_error(
+            line,
+            "int setting default is below the declared `min`",
+        ));
     }
-    if let Some(max) = max {
-        if default_value > max {
-            return Err(line_error(
-                line,
-                "int setting default is above the declared `max`",
-            ));
-        }
+    if let Some(max) = max
+        && default_value > max
+    {
+        return Err(line_error(
+            line,
+            "int setting default is above the declared `max`",
+        ));
     }
     Ok((SettingValueSpaceAst::Int { min, max }, default))
 }

@@ -93,10 +93,10 @@ pub fn resolve_plugin_root(
     // `dev.plugin_paths` override takes precedence regardless of the
     // base plugin shape. This mirrors the existing `go.mod replace`
     // emission at `crates/lazuli_codegen_go/src/emitter/module.rs:842`.
-    if let Some(dev) = manifest.dev.as_ref() {
-        if let Some(path) = dev.plugin_paths.get(plugin_ref) {
-            return Some(absolutise(project_root, Path::new(path)));
-        }
+    if let Some(dev) = manifest.dev.as_ref()
+        && let Some(path) = dev.plugin_paths.get(plugin_ref)
+    {
+        return Some(absolutise(project_root, Path::new(path)));
     }
     match plugin {
         Plugin::Local { path } => Some(absolutise(project_root, Path::new(path))),

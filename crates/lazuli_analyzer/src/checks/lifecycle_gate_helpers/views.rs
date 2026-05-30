@@ -88,9 +88,10 @@ pub(super) fn check_views(
         let Some(hit) = valid_lookup_source(index, resume, out) else {
             continue;
         };
-        if let Some(source_resource) = hit.resource {
-            if source_resource.name != req.resource {
-                out.push(diag(
+        if let Some(source_resource) = hit.resource
+            && source_resource.name != req.resource
+        {
+            out.push(diag(
                     "LIFECYCLE-GATE-007",
                     LifecycleGateSeverity::Error,
                     req.span.or(view.span),
@@ -99,7 +100,6 @@ pub(super) fn check_views(
                         view.name, req.resource, resume_ref, resume.name, source_resource.name
                     ),
                 ));
-            }
         }
         if let Some(substep) = req.substep.as_deref()
             && !has_matching_substep(input, view, resume, substep)

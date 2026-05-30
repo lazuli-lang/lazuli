@@ -38,7 +38,6 @@ pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
     let Some(start) = lines.iter().position(|line| {
         leading_spaces(line) == 0
             && line
-                .trim_start()
                 .split_whitespace()
                 .next()
                 .is_some_and(|keyword| keyword == "registry")
@@ -114,8 +113,8 @@ pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
                     // Roadmap §1.10 — `secret_rotation <name>` opens a
                     // named block at indent-2. Stage the entry on the
                     // registry; indent-4 children populate it.
-                    if current_child == Some("secret_rotation") {
-                        if let Some(rest) = trimmed.strip_prefix("secret_rotation ") {
+                    if current_child == Some("secret_rotation")
+                        && let Some(rest) = trimmed.strip_prefix("secret_rotation ") {
                             let name = rest.trim().to_owned();
                             if !name.is_empty() && !name.contains(char::is_whitespace) {
                                 registry.secret_rotations.push(SecretRotation {
@@ -129,7 +128,6 @@ pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
                                     registry.secret_rotations.len().checked_sub(1);
                             }
                         }
-                    }
                 }
             }
             4 => match current_child {
@@ -237,11 +235,10 @@ pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
                             if let Ok(version) = rest.trim().parse::<u32>() {
                                 registry.webhook_events[idx].previous_version = Some(version);
                             }
-                        } else if let Some(rest) = trimmed.strip_prefix("deprecated ") {
-                            if let Some(value) = parse_bool(rest.trim()) {
+                        } else if let Some(rest) = trimmed.strip_prefix("deprecated ")
+                            && let Some(value) = parse_bool(rest.trim()) {
                                 registry.webhook_events[idx].deprecated = value;
                             }
-                        }
                     }
                 }
                 // Roadmap §1.10 — body of the currently open
@@ -257,11 +254,10 @@ pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
                         rotation.cadence = rest.trim().to_owned();
                     } else if let Some(rest) = trimmed.strip_prefix("overlap ") {
                         rotation.overlap = rest.trim().to_owned();
-                    } else if let Some(rest) = trimmed.strip_prefix("auto_rollback ") {
-                        if let Some(value) = parse_bool(rest.trim()) {
+                    } else if let Some(rest) = trimmed.strip_prefix("auto_rollback ")
+                        && let Some(value) = parse_bool(rest.trim()) {
                             rotation.auto_rollback = value;
                         }
-                    }
                 }
                 _ => {}
             },
@@ -353,14 +349,9 @@ pub fn parse_app_registry_with_defects(source: &str) -> RegistryParseOutput {
                             name: rest.trim().to_owned(),
                         });
                     }
-                } else if current_child == Some("webhook_events") {
-                    let Some(idx) = current_webhook_event_index else {
-                        continue;
-                    };
-                    if let Some(field) = parse_webhook_event_field(trimmed) {
-                        registry.webhook_events[idx].payload.push(field);
-                    }
-                } else if current_child == Some("webhook_event") && in_webhook_event_payload {
+                } else if current_child == Some("webhook_events")
+                    || (current_child == Some("webhook_event") && in_webhook_event_payload)
+                {
                     let Some(idx) = current_webhook_event_index else {
                         continue;
                     };

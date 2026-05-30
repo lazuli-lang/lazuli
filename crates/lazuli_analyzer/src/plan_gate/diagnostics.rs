@@ -94,11 +94,12 @@ pub fn diagnose_plan_gate_facts(
                                 ),
                                 span: syntax::Span::new(0, 0),
                             });
-                        } else if let Some(declaring) = limit_to_plans.get(limit.as_str()) {
-                            if declaring != &all_plans {
-                                let missing: Vec<&str> =
-                                    all_plans.difference(declaring).copied().collect::<Vec<_>>();
-                                out.push(PlanGateDiagnostic {
+                        } else if let Some(declaring) = limit_to_plans.get(limit.as_str())
+                            && declaring != &all_plans
+                        {
+                            let missing: Vec<&str> =
+                                all_plans.difference(declaring).copied().collect::<Vec<_>>();
+                            out.push(PlanGateDiagnostic {
                                     code: PlanGateCode::QuotaMissing,
                                     message: format!(
                                         "gate `quota plan.limit: {}` on `{}` is not declared by plan(s) {}; quota gates must be honored by every tier (set `<X> unlimited` to opt out)",
@@ -106,7 +107,6 @@ pub fn diagnose_plan_gate_facts(
                                     ),
                                     span: syntax::Span::new(0, 0),
                                 });
-                            }
                         }
                     }
                 }
@@ -178,22 +178,23 @@ pub fn diagnose_plan_gate_facts(
     // is absent. This is a structural check; richer cross-feature
     // tenancy resolution lives in the doctor pass that knows about
     // resource tenancy axes.
-    if let Some(anchor) = &facts.subscription_anchor {
-        if anchor.tenancy_axis.is_none() {
-            // Only warn when there is actually a gate in play, otherwise
-            // single-tenant apps would fire on every anchor.
-            // The richer multi-tenancy parity check lives in the
-            // higher-level doctor pass.
-            let _ = anchor;
-        }
+    if let Some(anchor) = &facts.subscription_anchor
+        && anchor.tenancy_axis.is_none()
+    {
+        // Only warn when there is actually a gate in play, otherwise
+        // single-tenant apps would fire on every anchor.
+        // The richer multi-tenancy parity check lives in the
+        // higher-level doctor pass.
+        let _ = anchor;
     }
 
     // GATE-EVAL-ORDER-001 — gate after policy in source order.
     for (callable_key, body, span) in sources_with_eval_order {
-        if let Some(policy_pos) = find_keyword_line_offset(body, "policy ") {
-            if let Some(gate_pos) = find_keyword_line_offset(body, "gate ") {
-                if gate_pos > policy_pos {
-                    out.push(PlanGateDiagnostic {
+        if let Some(policy_pos) = find_keyword_line_offset(body, "policy ")
+            && let Some(gate_pos) = find_keyword_line_offset(body, "gate ")
+            && gate_pos > policy_pos
+        {
+            out.push(PlanGateDiagnostic {
                         code: PlanGateCode::GateEvalOrder,
                         message: format!(
                             "callable `{}` declares `gate` after `policy`; gates evaluate before policy and must be authored in that order",
@@ -201,8 +202,6 @@ pub fn diagnose_plan_gate_facts(
                         ),
                         span: *span,
                     });
-                }
-            }
         }
     }
 

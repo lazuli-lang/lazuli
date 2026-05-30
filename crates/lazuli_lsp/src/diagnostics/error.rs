@@ -88,16 +88,16 @@ pub(crate) fn error_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
             continue;
         }
 
-        if trimmed.starts_with("error ") {
-            if let Some(message) = error_case_contract_error(trimmed) {
-                diagnostics.push(simple_canonical_diagnostic(
-                    line_index,
-                    line,
-                    DiagnosticSeverity::WARNING,
-                    "error-contract",
-                    message,
-                ));
-            }
+        if trimmed.starts_with("error ")
+            && let Some(message) = error_case_contract_error(trimmed)
+        {
+            diagnostics.push(simple_canonical_diagnostic(
+                line_index,
+                line,
+                DiagnosticSeverity::WARNING,
+                "error-contract",
+                message,
+            ));
         }
 
         if in_command_errors && leading_spaces(line) == 6 {

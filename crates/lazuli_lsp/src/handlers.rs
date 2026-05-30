@@ -109,10 +109,10 @@ pub(crate) fn code_actions_for_position(
         return None;
     }
     for action in &mut actions {
-        if let CodeActionOrCommand::CodeAction(ca) = action {
-            if ca.kind.is_none() {
-                ca.kind = Some(CodeActionKind::QUICKFIX);
-            }
+        if let CodeActionOrCommand::CodeAction(ca) = action
+            && ca.kind.is_none()
+        {
+            ca.kind = Some(CodeActionKind::QUICKFIX);
         }
     }
     Some(actions)

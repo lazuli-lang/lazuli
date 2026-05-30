@@ -135,15 +135,15 @@ pub fn diff(old: &ir::Module, new: &ir::Module) -> ChangelogReport {
                     });
                 }
                 // Deprecation flagged in new but not old?
-                if old_cmd.deprecated.is_none() {
-                    if let Some(dep) = new_cmd.deprecated.as_ref() {
-                        deprecated.push(DeprecatedEntry {
-                            op: operation_ref(&key.0, new_cmd),
-                            since: dep.since.clone(),
-                            replacement: dep.replacement.as_ref().map(render_replacement),
-                            sunset: dep.sunset.clone(),
-                        });
-                    }
+                if old_cmd.deprecated.is_none()
+                    && let Some(dep) = new_cmd.deprecated.as_ref()
+                {
+                    deprecated.push(DeprecatedEntry {
+                        op: operation_ref(&key.0, new_cmd),
+                        since: dep.since.clone(),
+                        replacement: dep.replacement.as_ref().map(render_replacement),
+                        sunset: dep.sunset.clone(),
+                    });
                 }
                 // Added optional input field is non-breaking.
                 if let Some(reason) = input_non_breaking_change(&old_cmd.input, &new_cmd.input) {
@@ -329,15 +329,14 @@ fn input_breaking_change(old: &ir::CommandInput, new: &ir::CommandInput) -> Opti
                     return Some(format!("added required input field `{}`", new_slot.name));
                 }
                 // Optional -> required?
-                if new_slot.required {
-                    if let Some(old_slot) = old_slots.iter().find(|s| s.name == new_slot.name) {
-                        if !old_slot.required {
-                            return Some(format!(
-                                "input field `{}` changed from optional to required",
-                                new_slot.name
-                            ));
-                        }
-                    }
+                if new_slot.required
+                    && let Some(old_slot) = old_slots.iter().find(|s| s.name == new_slot.name)
+                    && !old_slot.required
+                {
+                    return Some(format!(
+                        "input field `{}` changed from optional to required",
+                        new_slot.name
+                    ));
                 }
             }
             None

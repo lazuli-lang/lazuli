@@ -55,11 +55,9 @@ use super::correctness::make_synthetic_feature_for_correctness;
 use crate::doctor::diagnostic::DoctorSeverityOverride;
 use crate::doctor::{DoctorDiagnostic, Tier3FeatureFacts, doctor_severity_for};
 
-/// Aggregate every `LIFECYCLE-*` finding across the package's Tier 3
-/// facts into the canonical `DoctorDiagnostic` envelope.
-///
-/// Returns an empty vec when `security_profile == Prototype` — the
-/// family is opt-in at strict/production.
-
+// Aggregate every `LIFECYCLE-*` finding across the package's Tier 3 facts into
+// the canonical `DoctorDiagnostic` envelope (`diagnostics`, in lifecycle_p1.rs).
+// Returns an empty vec when `security_profile == Prototype` — the family is
+// opt-in at strict/production.
 include!("lifecycle_p1.rs");
 include!("lifecycle_p2.rs");

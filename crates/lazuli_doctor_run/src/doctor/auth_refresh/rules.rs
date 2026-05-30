@@ -192,10 +192,11 @@ fn session_resource<'a>(
 }
 
 fn has_user_fk(resource: &super::super::ResourceFact) -> bool {
+    // A `user_id` field (FK convention) or a `user` field of a user-defined
+    // type. (A prior third clause `name == "user_id" && Builtin(Id)` was dead —
+    // subsumed by the bare `name == "user_id"` — so it is dropped.)
     resource.fields.iter().any(|(name, field)| {
-        name == "user_id"
-            || (name == "user" && matches!(&field.type_ref, TypeRef::UserDefined(_)))
-            || (name == "user_id" && matches!(&field.type_ref, TypeRef::Builtin(BuiltinType::Id)))
+        name == "user_id" || (name == "user" && matches!(&field.type_ref, TypeRef::UserDefined(_)))
     })
 }
 
@@ -269,7 +270,7 @@ impl ProjectMarkers {
     }
 }
 
-fn source_lines<'a>(files: &'a [super::super::DoctorFile]) -> impl Iterator<Item = &'a str> {
+fn source_lines(files: &[super::super::DoctorFile]) -> impl Iterator<Item = &str> {
     files.iter().flat_map(|file| {
         file.source.lines().filter_map(|line| {
             let trimmed = line.trim_start();

@@ -10,3 +10,6 @@ lazuli_keywords = { path = "../lazuli_keywords" }
 lazuli_doctor = { path = "../lazuli_doctor" }
 
 [dev-dependencies]
+
+[lints]
+workspace = true

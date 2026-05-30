@@ -370,7 +370,7 @@ fn ts_param_name(raw: &str) -> String {
 fn ts_lower_camel(raw: &str) -> String {
     let mut out = String::new();
     for (index, word) in raw
-        .split(|ch: char| ch == '_' || ch == '-' || ch == ' ')
+        .split(['_', '-', ' '])
         .filter(|word| !word.is_empty())
         .enumerate()
     {
@@ -399,10 +399,7 @@ fn type_pascal_case(raw: &str) -> String {
         return out;
     }
     let mut out = String::new();
-    for word in raw
-        .split(|ch: char| ch == '_' || ch == '-' || ch == ' ')
-        .filter(|word| !word.is_empty())
-    {
+    for word in raw.split(['_', '-', ' ']).filter(|word| !word.is_empty()) {
         let mut chars = word.chars();
         if let Some(first) = chars.next() {
             out.extend(first.to_uppercase());

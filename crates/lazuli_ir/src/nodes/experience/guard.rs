@@ -31,7 +31,7 @@ use crate::{DefaultValue, PolicyAtom, SpanRef};
 /// are local-path string slots.
 ///
 /// See `docs/proposals/ir-route-guards.md` §3.1, §2.A.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ViewGuard {
     /// Audience policies admitted — OR-semantics. Single-policy form
     /// `policy @policy.X` parses to `vec!["@policy.X"]`; list form
@@ -80,22 +80,6 @@ pub struct ViewGuard {
     pub requires_field: Vec<RequiresField>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span_ref: Option<SpanRef>,
-}
-
-impl Default for ViewGuard {
-    fn default() -> Self {
-        Self {
-            policy: Vec::new(),
-            on_unauthenticated: None,
-            on_unauthorized: None,
-            requires_lifecycle: None,
-            on_lifecycle_pending: None,
-            forbid_when: Vec::new(),
-            requires_lifecycle_in: None,
-            requires_field: Vec::new(),
-            span_ref: None,
-        }
-    }
 }
 
 /// `requires_lifecycle_in <Resource> [<state>, ...]` allow-list slot.

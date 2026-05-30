@@ -197,7 +197,7 @@ impl<'a> EmitContext<'a> {
     /// assert!(lit.starts_with("lazuli.SourceTag{"));
     /// ```
     pub fn source_tag_literal(&self, kind: &str, op: &str, span: Option<SpanRef>) -> String {
-        let source = self.source_loc_string(span).unwrap_or_else(String::new);
+        let source = self.source_loc_string(span).unwrap_or_default();
         format!(
             "lazuli.SourceTag{{Capsule: {:?}, Feature: {:?}, Kind: {:?}, Op: {:?}, Source: {:?}}}",
             self.capsule_name, self.current_feature, kind, op, source
@@ -232,7 +232,7 @@ impl<'a> EmitContext<'a> {
         p.line(&format!("Op:      {:?},", op));
         p.line(&format!(
             "Source:  {:?},",
-            self.source_loc_string(span).unwrap_or_else(String::new)
+            self.source_loc_string(span).unwrap_or_default()
         ));
         p.dedent();
         p.line("})");

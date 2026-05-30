@@ -5,6 +5,7 @@
 //! strings the tests assert against.
 
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod tests {
     // Top-level imports were used by tests now extracted into sibling
     // sub-modules under `tests/`. Each included file carries its own

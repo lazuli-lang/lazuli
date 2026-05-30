@@ -200,10 +200,10 @@ fn extract_hex_literals(segment: &str) -> Vec<String> {
             break;
         }
         let inner = &segment[after..end];
-        if let Some(stripped) = inner.strip_prefix('#') {
-            if is_valid_hex(stripped) {
-                out.push(stripped.to_string());
-            }
+        if let Some(stripped) = inner.strip_prefix('#')
+            && is_valid_hex(stripped)
+        {
+            out.push(stripped.to_string());
         }
         i = end + 1;
     }

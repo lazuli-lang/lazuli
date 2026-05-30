@@ -132,18 +132,17 @@ fn collect_predicate(
             let rhs_currency = expr_money_currency(resource, right);
             if let (Some((lhs_name, lhs_cur)), Some((rhs_name, rhs_cur))) =
                 (lhs_currency, rhs_currency)
+                && lhs_cur != rhs_cur
             {
-                if lhs_cur != rhs_cur {
-                    out.push(Finding {
-                        path: path.to_path_buf(),
-                        feature: feature.name.clone(),
-                        resource: resource.name.clone(),
-                        left: format!("{}.{}", resource.name, lhs_name),
-                        right: format!("{}.{}", resource.name, rhs_name),
-                        left_currency: lhs_cur,
-                        right_currency: rhs_cur,
-                    });
-                }
+                out.push(Finding {
+                    path: path.to_path_buf(),
+                    feature: feature.name.clone(),
+                    resource: resource.name.clone(),
+                    left: format!("{}.{}", resource.name, lhs_name),
+                    right: format!("{}.{}", resource.name, rhs_name),
+                    left_currency: lhs_cur,
+                    right_currency: rhs_cur,
+                });
             }
         }
         Predicate::And(parts) | Predicate::Or(parts) => {

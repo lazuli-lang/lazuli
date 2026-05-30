@@ -54,10 +54,10 @@ pub(super) fn feature_has_semantic_preflight(feature: &lazuli_ir::Feature) -> bo
                 ts_package,
                 ..
             }) = &slot.type_ref
+                && !ts_validator.is_empty()
+                && !ts_package.is_empty()
             {
-                if !ts_validator.is_empty() && !ts_package.is_empty() {
-                    return true;
-                }
+                return true;
             }
         }
     }

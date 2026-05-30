@@ -177,14 +177,12 @@ fn fk_target_table_matches_actual_create_table_name() {
             if let Some(rest) = line
                 .trim_start()
                 .strip_prefix("CREATE TABLE IF NOT EXISTS ")
-            {
-                if let Some(name) = rest
+                && let Some(name) = rest
                     .split_whitespace()
                     .next()
                     .and_then(|tok| tok.strip_prefix('"').and_then(|s| s.strip_suffix('"')))
-                {
-                    created.insert(name.to_owned());
-                }
+            {
+                created.insert(name.to_owned());
             }
             if let Some(idx) = line.find("REFERENCES \"") {
                 let after = &line[idx + "REFERENCES \"".len()..];

@@ -94,10 +94,10 @@ fn diff_bool(
     app: Option<bool>,
     session: Option<bool>,
 ) {
-    if let (Some(a), Some(s)) = (app, session) {
-        if a != s {
-            out.push((axis, a.to_string(), s.to_string()));
-        }
+    if let (Some(a), Some(s)) = (app, session)
+        && a != s
+    {
+        out.push((axis, a.to_string(), s.to_string()));
     }
 }
 

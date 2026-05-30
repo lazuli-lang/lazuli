@@ -89,7 +89,8 @@ pub(super) fn topo_sort_resources<'a>(
     // dependents, requeue any that hit zero.
     let mut ready: BTreeSet<Key> = in_degree
         .iter()
-        .filter_map(|(k, &deg)| (deg == 0).then(|| k.clone()))
+        .filter(|&(_k, &deg)| deg == 0)
+        .map(|(k, &_deg)| k.clone())
         .collect();
 
     let mut ordered: Vec<(&'a Feature, &'a Resource)> = Vec::with_capacity(resources.len());
@@ -103,12 +104,12 @@ pub(super) fn topo_sort_resources<'a>(
         }
         if let Some(deps) = dependents.get(&next_key) {
             for dependent in deps {
-                if let Some(deg) = in_degree.get_mut(dependent) {
-                    if *deg > 0 {
-                        *deg -= 1;
-                        if *deg == 0 {
-                            ready.insert(dependent.clone());
-                        }
+                if let Some(deg) = in_degree.get_mut(dependent)
+                    && *deg > 0
+                {
+                    *deg -= 1;
+                    if *deg == 0 {
+                        ready.insert(dependent.clone());
                     }
                 }
             }

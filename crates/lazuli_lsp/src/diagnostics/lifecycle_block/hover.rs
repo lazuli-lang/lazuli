@@ -89,9 +89,7 @@ pub fn lifecycle_block_hover(
     position: Position,
     word: Option<&str>,
 ) -> Option<String> {
-    let Some(block) = enclosing_lifecycle_block(source, position) else {
-        return None;
-    };
+    let block = enclosing_lifecycle_block(source, position)?;
     let word = word?;
     let line = source.lines().nth(position.line as usize).unwrap_or("");
     let trimmed_line = line.trim_start();

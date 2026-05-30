@@ -119,7 +119,7 @@ fn has_any_test_block(feature: &Feature) -> bool {
                 .any(|transition| block_has_substance(transition.tests.as_ref()))
         })
         || feature.resources.iter().any(|resource| {
-            resource.lifecycle.as_ref().map_or(false, |lifecycle| {
+            resource.lifecycle.as_ref().is_some_and(|lifecycle| {
                 lifecycle
                     .transitions
                     .iter()

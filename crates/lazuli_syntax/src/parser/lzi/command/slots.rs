@@ -152,12 +152,12 @@ pub(in crate::parser::lzi) fn split_command_input_modifiers(rest: &str) -> (Stri
     let mut optional = false;
     loop {
         let trimmed = type_text.trim_end();
-        if trimmed.ends_with(" required") {
+        if let Some(rest) = trimmed.strip_suffix(" required") {
             required = true;
-            type_text = trimmed[..trimmed.len() - " required".len()].to_owned();
-        } else if trimmed.ends_with(" optional") {
+            type_text = rest.to_owned();
+        } else if let Some(rest) = trimmed.strip_suffix(" optional") {
             optional = true;
-            type_text = trimmed[..trimmed.len() - " optional".len()].to_owned();
+            type_text = rest.to_owned();
         } else {
             type_text = trimmed.to_owned();
             break;

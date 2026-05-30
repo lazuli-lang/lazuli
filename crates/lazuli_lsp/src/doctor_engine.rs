@@ -129,7 +129,7 @@ fn to_lsp_diagnostic(doc_source: &str, finding: &DoctorDiagnostic) -> Diagnostic
             .feature_name
             .as_deref()
             .and_then(|name| feature_header_range(doc_source, name))
-            .unwrap_or_else(|| Range {
+            .unwrap_or(Range {
                 start: Position {
                     line: 0,
                     character: 0,

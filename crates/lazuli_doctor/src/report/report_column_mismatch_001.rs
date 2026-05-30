@@ -91,17 +91,17 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
             continue;
         };
         for col in &r.columns {
-            if let ReportColumnSource::RowField(field) = &col.source {
-                if !projection.contains(field) {
-                    findings.push(Finding {
-                        path: path.to_path_buf(),
-                        feature: feature.name.clone(),
-                        report: r.name.clone(),
-                        column: col.name.clone(),
-                        unresolved_field: field.clone(),
-                        source_name: qn.name.clone(),
-                    });
-                }
+            if let ReportColumnSource::RowField(field) = &col.source
+                && !projection.contains(field)
+            {
+                findings.push(Finding {
+                    path: path.to_path_buf(),
+                    feature: feature.name.clone(),
+                    report: r.name.clone(),
+                    column: col.name.clone(),
+                    unresolved_field: field.clone(),
+                    source_name: qn.name.clone(),
+                });
             }
         }
     }

@@ -102,9 +102,10 @@ pub(crate) fn headers_diagnostics(
     // profile — `nosniff` is the only legal X-Content-Type-Options
     // token anywhere, etc.
     if let Some(headers) = headers {
-        if let Some(value) = headers.x_content_type_options.as_deref() {
-            if !ir::AppHeaders::is_x_content_type_options_known(value) {
-                diagnostics.push(DoctorDiagnostic {
+        if let Some(value) = headers.x_content_type_options.as_deref()
+            && !ir::AppHeaders::is_x_content_type_options_known(value)
+        {
+            diagnostics.push(DoctorDiagnostic {
                     path: manifest_path.clone(),
                     line: 1,
                     column: 1,
@@ -119,11 +120,11 @@ pub(crate) fn headers_diagnostics(
                     fix: None,
                     group: None,
                 });
-            }
         }
-        if let Some(value) = headers.x_frame_options.as_deref() {
-            if !ir::AppHeaders::is_x_frame_options_known(value) {
-                diagnostics.push(DoctorDiagnostic {
+        if let Some(value) = headers.x_frame_options.as_deref()
+            && !ir::AppHeaders::is_x_frame_options_known(value)
+        {
+            diagnostics.push(DoctorDiagnostic {
                     path: manifest_path.clone(),
                     line: 1,
                     column: 1,
@@ -138,31 +139,31 @@ pub(crate) fn headers_diagnostics(
                     fix: None,
                     group: None,
                 });
-            }
         }
-        if let Some(value) = headers.referrer_policy.as_deref() {
-            if !ir::AppHeaders::is_referrer_policy_known(value) {
-                diagnostics.push(DoctorDiagnostic {
-                    path: manifest_path.clone(),
-                    line: 1,
-                    column: 1,
-                    severity: DoctorSeverity::Error,
-                    code: "headers-contract".to_owned(),
-                    message: format!(
-                        "`app.headers referrer_policy {value}` is invalid — closed catalog is [{}].",
-                        ir::AppHeaders::REFERRER_POLICY_CATALOG.join(", "),
-                    ),
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                });
-            }
+        if let Some(value) = headers.referrer_policy.as_deref()
+            && !ir::AppHeaders::is_referrer_policy_known(value)
+        {
+            diagnostics.push(DoctorDiagnostic {
+                path: manifest_path.clone(),
+                line: 1,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: "headers-contract".to_owned(),
+                message: format!(
+                    "`app.headers referrer_policy {value}` is invalid — closed catalog is [{}].",
+                    ir::AppHeaders::REFERRER_POLICY_CATALOG.join(", "),
+                ),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            });
         }
-        if let Some(hsts) = headers.hsts.as_ref() {
-            if hsts.max_age == 0 {
-                diagnostics.push(DoctorDiagnostic {
+        if let Some(hsts) = headers.hsts.as_ref()
+            && hsts.max_age == 0
+        {
+            diagnostics.push(DoctorDiagnostic {
                     path: manifest_path.clone(),
                     line: 1,
                     column: 1,
@@ -175,7 +176,6 @@ pub(crate) fn headers_diagnostics(
                     fix: None,
                     group: None,
                 });
-            }
         }
     }
 
@@ -194,18 +194,19 @@ pub(crate) fn secret_rotation_diagnostics(
         for rotation in &registry.secret_rotations {
             let cadence_secs = ir::security_duration::duration_seconds(&rotation.cadence);
             let overlap_secs = ir::security_duration::duration_seconds(&rotation.overlap);
-            if let (Some(cadence), Some(overlap)) = (cadence_secs, overlap_secs) {
-                if overlap > cadence {
-                    // We don't have a registry path on AppRegistry; use
-                    // the app path as a fallback because both files
-                    // live next to each other and the message names the
-                    // profile explicitly. If the app manifest is also
-                    // missing, fall through to a synthesized
-                    // `registry.lzi` path.
-                    let path = app
-                        .map(|a| a.path.clone())
-                        .unwrap_or_else(|| PathBuf::from("registry.lzi"));
-                    diagnostics.push(DoctorDiagnostic {
+            if let (Some(cadence), Some(overlap)) = (cadence_secs, overlap_secs)
+                && overlap > cadence
+            {
+                // We don't have a registry path on AppRegistry; use
+                // the app path as a fallback because both files
+                // live next to each other and the message names the
+                // profile explicitly. If the app manifest is also
+                // missing, fall through to a synthesized
+                // `registry.lzi` path.
+                let path = app
+                    .map(|a| a.path.clone())
+                    .unwrap_or_else(|| PathBuf::from("registry.lzi"));
+                diagnostics.push(DoctorDiagnostic {
                         path,
                         line: 1,
                         column: 1,
@@ -223,7 +224,6 @@ pub(crate) fn secret_rotation_diagnostics(
                         fix: None,
                         group: None,
                     });
-                }
             }
         }
     }

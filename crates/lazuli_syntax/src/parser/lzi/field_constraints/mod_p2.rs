@@ -65,15 +65,15 @@ fn split_type_and_modifiers(text: &str) -> (String, String) {
     let mut modifiers = Vec::new();
     loop {
         let trimmed = head.trim_end();
-        if trimmed.ends_with(" required") {
+        if let Some(rest) = trimmed.strip_suffix(" required") {
             modifiers.push("required");
-            head = trimmed[..trimmed.len() - " required".len()].to_owned();
-        } else if trimmed.ends_with(" optional") {
+            head = rest.to_owned();
+        } else if let Some(rest) = trimmed.strip_suffix(" optional") {
             modifiers.push("optional");
-            head = trimmed[..trimmed.len() - " optional".len()].to_owned();
-        } else if trimmed.ends_with(" unique") {
+            head = rest.to_owned();
+        } else if let Some(rest) = trimmed.strip_suffix(" unique") {
             modifiers.push("unique");
-            head = trimmed[..trimmed.len() - " unique".len()].to_owned();
+            head = rest.to_owned();
         } else {
             head = trimmed.to_owned();
             break;

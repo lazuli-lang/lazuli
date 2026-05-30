@@ -33,11 +33,11 @@ use anyhow::{Context, Result};
 /// // init_command(Path::new("scratch/app.lzi"), "feature Foo {}\n")?;
 /// ```
 pub fn init_command(path: &Path, template: &str) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create directory {}", parent.display()))?;
-        }
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create directory {}", parent.display()))?;
     }
 
     fs::write(path, template).with_context(|| format!("failed to write {}", path.display()))?;

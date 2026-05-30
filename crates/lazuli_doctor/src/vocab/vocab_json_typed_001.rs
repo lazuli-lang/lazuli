@@ -172,10 +172,10 @@ fn collect_referenced_enums(feature: &Feature) -> HashSet<&str> {
         collect_query_refs(query, &mut refs);
     }
     for job in &feature.jobs {
-        if let JobBody::Handler(handler) = &job.body {
-            if let Some(return_type) = &handler.returns {
-                collect_type_ref(return_type, &mut refs);
-            }
+        if let JobBody::Handler(handler) = &job.body
+            && let Some(return_type) = &handler.returns
+        {
+            collect_type_ref(return_type, &mut refs);
         }
     }
     for webhook in &feature.webhooks {

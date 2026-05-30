@@ -22,7 +22,7 @@
     const ERR_VOCAB_HAPPY_FIXTURE: &str =
         include_str!("../../../tests/fixtures/error-vocab/happy.lzi");
 
-    fn err_vocab_diags<'a>(diagnostics: &'a [DoctorDiagnostic]) -> Vec<&'a DoctorDiagnostic> {
+    fn err_vocab_diags(diagnostics: &[DoctorDiagnostic]) -> Vec<&DoctorDiagnostic> {
         diagnostics
             .iter()
             .filter(|d| d.code.starts_with("ERR-VOCAB-"))

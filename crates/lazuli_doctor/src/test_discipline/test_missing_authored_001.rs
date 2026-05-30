@@ -92,7 +92,7 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
                 feature: feature.name.clone(),
                 construct_kind: "command".to_owned(),
                 construct: cmd.name.clone(),
-                span: cmd.span_ref.clone(),
+                span: cmd.span_ref,
             });
         }
     }
@@ -109,7 +109,7 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
             feature: feature.name.clone(),
             construct_kind: "rule".to_owned(),
             construct: rule.title.clone(),
-            span: rule.span_ref.clone(),
+            span: rule.span_ref,
         });
     }
 
@@ -128,7 +128,7 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
                     feature: feature.name.clone(),
                     construct_kind: "workflow_transition".to_owned(),
                     construct: format!("{}.{}", workflow.name, transition.name),
-                    span: transition.span_ref.clone(),
+                    span: transition.span_ref,
                 });
             }
         }
@@ -149,7 +149,7 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
                         feature: feature.name.clone(),
                         construct_kind: "lifecycle_transition".to_owned(),
                         construct: format!("{}.{}", resource.name, transition.name),
-                        span: transition.span_ref.clone(),
+                        span: transition.span_ref,
                     });
                 }
             }

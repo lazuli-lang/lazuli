@@ -43,25 +43,25 @@ pub(super) fn tier3_job_diagnostics(
     }
 
     // JOB-FANOUT-001: fanout.axis must match the feature's tenancy axis.
-    if let (Some(fanout), Some(axis)) = (&job.fanout, &feature.tenancy_axis) {
-        if &fanout.axis != axis {
-            diagnostics.push(DoctorDiagnostic {
-                path: feature.path.clone(),
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: "JOB-FANOUT-001".to_owned(),
-                message: format!(
-                    "job `{}` declares `fanout tenants {}` but feature `{}` uses tenancy axis `{}`.",
-                    job.name, fanout.axis, feature.feature, axis
-                ),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
+    if let (Some(fanout), Some(axis)) = (&job.fanout, &feature.tenancy_axis)
+        && &fanout.axis != axis
+    {
+        diagnostics.push(DoctorDiagnostic {
+            path: feature.path.clone(),
+            line,
+            column: 1,
+            severity: DoctorSeverity::Error,
+            code: "JOB-FANOUT-001".to_owned(),
+            message: format!(
+                "job `{}` declares `fanout tenants {}` but feature `{}` uses tenancy axis `{}`.",
+                job.name, fanout.axis, feature.feature, axis
+            ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
+        });
     }
 
     // JOB-FANOUT-002: scheduled job declares fanout but no idempotency

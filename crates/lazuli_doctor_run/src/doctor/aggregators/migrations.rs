@@ -436,15 +436,16 @@ fn deploy_checkpoint_diagnostics(app: &DoctorAppManifest, diagnostics: &mut Vec<
     // DEPLOY-CHECKPOINT-002 — load snapshot and verify `lazuli_version`
     // (a top-level JSON field). Stale = warning, not error: the snapshot
     // file existed but is older than the analyzer's expected schema.
-    if let Ok(text) = std::fs::read_to_string(&candidate) {
-        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
-            let snapshot_version = value
-                .get("lazuli_version")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let expected = env!("CARGO_PKG_VERSION");
-            if !snapshot_version.is_empty() && snapshot_version != expected {
-                diagnostics.push(DoctorDiagnostic {
+    if let Ok(text) = std::fs::read_to_string(&candidate)
+        && let Ok(value) = serde_json::from_str::<serde_json::Value>(&text)
+    {
+        let snapshot_version = value
+            .get("lazuli_version")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let expected = env!("CARGO_PKG_VERSION");
+        if !snapshot_version.is_empty() && snapshot_version != expected {
+            diagnostics.push(DoctorDiagnostic {
                     path: app.path.clone(),
                     line: 1,
                     column: 1,
@@ -460,7 +461,6 @@ fn deploy_checkpoint_diagnostics(app: &DoctorAppManifest, diagnostics: &mut Vec<
                     fix: None,
                     group: None,
                 });
-            }
         }
     }
 }

@@ -80,48 +80,48 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 
     for cmd in &feature.commands {
-        if let Some(tests) = &cmd.tests {
-            if let Some(side) = predicate_one_side(tests) {
-                findings.push(Finding {
-                    path: path.to_path_buf(),
-                    feature: feature.name.clone(),
-                    construct_kind: "command".to_owned(),
-                    construct: cmd.name.clone(),
-                    side,
-                    span: tests.span_ref.clone(),
-                });
-            }
+        if let Some(tests) = &cmd.tests
+            && let Some(side) = predicate_one_side(tests)
+        {
+            findings.push(Finding {
+                path: path.to_path_buf(),
+                feature: feature.name.clone(),
+                construct_kind: "command".to_owned(),
+                construct: cmd.name.clone(),
+                side,
+                span: tests.span_ref,
+            });
         }
     }
 
     for rule in &feature.rules {
-        if let Some(tests) = &rule.tests {
-            if let Some(side) = predicate_one_side(tests) {
-                findings.push(Finding {
-                    path: path.to_path_buf(),
-                    feature: feature.name.clone(),
-                    construct_kind: "rule".to_owned(),
-                    construct: rule.title.clone(),
-                    side,
-                    span: tests.span_ref.clone(),
-                });
-            }
+        if let Some(tests) = &rule.tests
+            && let Some(side) = predicate_one_side(tests)
+        {
+            findings.push(Finding {
+                path: path.to_path_buf(),
+                feature: feature.name.clone(),
+                construct_kind: "rule".to_owned(),
+                construct: rule.title.clone(),
+                side,
+                span: tests.span_ref,
+            });
         }
     }
 
     for workflow in &feature.workflows {
         for transition in &workflow.transitions {
-            if let Some(tests) = &transition.tests {
-                if let Some(side) = predicate_one_side(tests) {
-                    findings.push(Finding {
-                        path: path.to_path_buf(),
-                        feature: feature.name.clone(),
-                        construct_kind: "workflow_transition".to_owned(),
-                        construct: format!("{}.{}", workflow.name, transition.name),
-                        side,
-                        span: tests.span_ref.clone(),
-                    });
-                }
+            if let Some(tests) = &transition.tests
+                && let Some(side) = predicate_one_side(tests)
+            {
+                findings.push(Finding {
+                    path: path.to_path_buf(),
+                    feature: feature.name.clone(),
+                    construct_kind: "workflow_transition".to_owned(),
+                    construct: format!("{}.{}", workflow.name, transition.name),
+                    side,
+                    span: tests.span_ref,
+                });
             }
         }
     }
@@ -129,17 +129,17 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     for resource in &feature.resources {
         if let Some(lifecycle) = &resource.lifecycle {
             for transition in &lifecycle.transitions {
-                if let Some(tests) = &transition.tests {
-                    if let Some(side) = predicate_one_side(tests) {
-                        findings.push(Finding {
-                            path: path.to_path_buf(),
-                            feature: feature.name.clone(),
-                            construct_kind: "lifecycle_transition".to_owned(),
-                            construct: format!("{}.{}", resource.name, transition.name),
-                            side,
-                            span: tests.span_ref.clone(),
-                        });
-                    }
+                if let Some(tests) = &transition.tests
+                    && let Some(side) = predicate_one_side(tests)
+                {
+                    findings.push(Finding {
+                        path: path.to_path_buf(),
+                        feature: feature.name.clone(),
+                        construct_kind: "lifecycle_transition".to_owned(),
+                        construct: format!("{}.{}", resource.name, transition.name),
+                        side,
+                        span: tests.span_ref,
+                    });
                 }
             }
         }

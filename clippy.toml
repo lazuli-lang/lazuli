@@ -16,13 +16,13 @@ too-many-lines-threshold = 500
 # methods composed via inheritance/concerns".
 cognitive-complexity-threshold = 25
 
-# Avoid `unwrap`/`expect` proliferation in non-test code. Test code can
-# unwrap freely (clippy's default carve-out applies).
-disallowed-methods = [
-    # Hot-path Result/Option escapes: prefer ?-operator or context().
-    { path = "std::option::Option::unwrap", reason = "use ? operator, .ok_or(), or context() — INTERNAL-NO-UNWRAP candidate" },
-    { path = "std::result::Result::unwrap", reason = "use ? operator or context() — INTERNAL-NO-UNWRAP candidate" },
-]
+# Unwrap discipline is enforced by the doctor rule INTERNAL-PANIC-UNWRAP-001,
+# NOT by a clippy `disallowed-methods` entry. That rule is TEST-AWARE (tracks
+# `#[cfg(test)] mod` depth so test code unwraps freely) and is deliberately
+# warn-only under the workspace `[doctor.error_handling]` posture until the W7
+# production-unwrap sweep. clippy `disallowed-methods` has NO test carve-out, so
+# under `--all-targets -D warnings` it fired on ~630 idiomatic test unwraps and
+# contradicted the doctor rule's warn-only stance. The doctor rule is canonical.
 
 # Allow longer docstring example blocks (Rails-style docs have multi-step
 # `## Examples` that compile via `cargo test --doc`).

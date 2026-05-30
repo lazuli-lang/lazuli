@@ -211,16 +211,14 @@ impl Manifest {
         match (authored, layout) {
             (Some(cfg), layout) => {
                 let mut cfg = cfg.clone();
-                if cfg.config.is_none() {
-                    if let Some(l) = layout.as_ref() {
+                if cfg.config.is_none()
+                    && let Some(l) = layout.as_ref() {
                         cfg.config = Some(format!("{l}/vite.config.ts"));
                     }
-                }
-                if cfg.discovery_root.is_none() {
-                    if let Some(l) = layout.as_ref() {
+                if cfg.discovery_root.is_none()
+                    && let Some(l) = layout.as_ref() {
                         cfg.discovery_root = Some(format!("{l}/src"));
                     }
-                }
                 Some(cfg)
             }
             (None, Some(l)) => Some(TestingTs {
@@ -253,16 +251,14 @@ impl Manifest {
         match (authored, layout) {
             (Some(cfg), layout) => {
                 let mut cfg = cfg.clone();
-                if cfg.config.is_none() {
-                    if let Some(l) = layout.as_ref() {
+                if cfg.config.is_none()
+                    && let Some(l) = layout.as_ref() {
                         cfg.config = Some(format!("{l}/playwright.config.ts"));
                     }
-                }
-                if cfg.discovery_root.is_none() {
-                    if let Some(l) = layout.as_ref() {
+                if cfg.discovery_root.is_none()
+                    && let Some(l) = layout.as_ref() {
                         cfg.discovery_root = Some(format!("{l}/e2e"));
                     }
-                }
                 if cfg.workers.is_none() {
                     cfg.workers = Some(4);
                 }

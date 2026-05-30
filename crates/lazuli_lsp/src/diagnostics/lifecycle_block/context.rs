@@ -58,24 +58,9 @@ pub(crate) fn enclosing_lifecycle_block(
         }
         let indent = leading_spaces(line);
         if idx == cursor_line_idx {
-            if let Some(rest) = trimmed.strip_prefix("lifecycle ") {
-                if let Some(field) = lifecycle_block_field(rest) {
-                    let end_line = find_lifecycle_block_end(&lines, idx, indent);
-                    return Some(LifecycleBlock {
-                        header_line: idx,
-                        header_indent: indent,
-                        field_name: field,
-                        end_line,
-                    });
-                }
-            }
-            continue;
-        }
-        if indent >= cursor_indent {
-            continue;
-        }
-        if let Some(rest) = trimmed.strip_prefix("lifecycle ") {
-            if let Some(field) = lifecycle_block_field(rest) {
+            if let Some(rest) = trimmed.strip_prefix("lifecycle ")
+                && let Some(field) = lifecycle_block_field(rest)
+            {
                 let end_line = find_lifecycle_block_end(&lines, idx, indent);
                 return Some(LifecycleBlock {
                     header_line: idx,
@@ -84,6 +69,21 @@ pub(crate) fn enclosing_lifecycle_block(
                     end_line,
                 });
             }
+            continue;
+        }
+        if indent >= cursor_indent {
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("lifecycle ")
+            && let Some(field) = lifecycle_block_field(rest)
+        {
+            let end_line = find_lifecycle_block_end(&lines, idx, indent);
+            return Some(LifecycleBlock {
+                header_line: idx,
+                header_indent: indent,
+                field_name: field,
+                end_line,
+            });
         }
         if indent == 0 {
             return None;
@@ -179,7 +179,7 @@ mod tests {
     fn detects_lifecycle_block_at_header_line() {
         let source = "feature billing\n  domain\n    resource Publication\n      lifecycle status\n        state draft initial\n";
         let block = enclosing_lifecycle_block(
-            &source,
+            source,
             Position {
                 line: 3,
                 character: 6,

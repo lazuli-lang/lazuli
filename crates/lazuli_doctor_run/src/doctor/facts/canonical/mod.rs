@@ -60,24 +60,25 @@ pub(crate) fn collect_callable_bodies_for_eval_order(
             let line_len = line.len();
             let trimmed = line.trim_start();
             let indent = line.len() - trimmed.len();
-            if let Some((_, header_indent, _, _)) = &current {
-                if !trimmed.is_empty() && indent <= *header_indent {
-                    // Close current.
-                    if let Some((key, _, body_start, body)) = current.take() {
-                        out.push((
-                            format!("{}/{}", feature, key),
-                            body,
-                            Span::new(body_start, offset),
-                        ));
-                    }
+            if let Some((_, header_indent, _, _)) = &current
+                && !trimmed.is_empty()
+                && indent <= *header_indent
+            {
+                // Close current.
+                if let Some((key, _, body_start, body)) = current.take() {
+                    out.push((
+                        format!("{}/{}", feature, key),
+                        body,
+                        Span::new(body_start, offset),
+                    ));
                 }
             }
-            if let Some(key) = callable_header_key_from_trimmed(trimmed) {
-                if indent == 2 {
-                    current = Some((key, indent, offset + line_len + 1, String::new()));
-                    offset += line_len + 1;
-                    continue;
-                }
+            if let Some(key) = callable_header_key_from_trimmed(trimmed)
+                && indent == 2
+            {
+                current = Some((key, indent, offset + line_len + 1, String::new()));
+                offset += line_len + 1;
+                continue;
             }
             if let Some((_, _, _, body)) = &mut current {
                 body.push_str(line);
@@ -180,19 +181,19 @@ pub(crate) fn collect_feature_integration_requirements(
 
         if leading == 2 {
             in_requires_block = trimmed == "requires";
-            if let Some(requirement) = trimmed.strip_prefix("requires ") {
-                if let Some((slot, contract)) = parse_integration_requirement(requirement) {
-                    operational
-                        .integration_requirements
-                        .push(IntegrationRequirementFact {
-                            path: file.path.clone(),
-                            line: feature_start + offset + 1,
-                            column: leading + 1,
-                            feature: feature.to_owned(),
-                            slot: slot.to_owned(),
-                            contract: contract.to_owned(),
-                        });
-                }
+            if let Some(requirement) = trimmed.strip_prefix("requires ")
+                && let Some((slot, contract)) = parse_integration_requirement(requirement)
+            {
+                operational
+                    .integration_requirements
+                    .push(IntegrationRequirementFact {
+                        path: file.path.clone(),
+                        line: feature_start + offset + 1,
+                        column: leading + 1,
+                        feature: feature.to_owned(),
+                        slot: slot.to_owned(),
+                        contract: contract.to_owned(),
+                    });
             }
             continue;
         }
@@ -239,18 +240,19 @@ pub(crate) fn collect_operational_lzi_facts(
             continue;
         }
 
-        if leading_spaces(line) == 0 && trimmed.starts_with("feature ") {
-            if let Some(feature) = trimmed.split_whitespace().nth(1) {
-                operational.features.insert(
-                    feature.to_owned(),
-                    SourceFact {
-                        path: file.path.clone(),
-                        line: line_number,
-                        column,
-                        name: feature.to_owned(),
-                    },
-                );
-            }
+        if leading_spaces(line) == 0
+            && trimmed.starts_with("feature ")
+            && let Some(feature) = trimmed.split_whitespace().nth(1)
+        {
+            operational.features.insert(
+                feature.to_owned(),
+                SourceFact {
+                    path: file.path.clone(),
+                    line: line_number,
+                    column,
+                    name: feature.to_owned(),
+                },
+            );
         }
 
         for reference in path_references(trimmed, "env.") {

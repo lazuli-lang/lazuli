@@ -79,7 +79,7 @@ pub(crate) fn events_resource_name(trimmed_line: &str) -> Option<&str> {
 
 pub(crate) fn field_name(trimmed_line: &str) -> Option<&str> {
     let (head, _) = trimmed_line.split_once(':')?;
-    let name = head.trim().split_whitespace().next()?;
+    let name = head.split_whitespace().next()?;
 
     if name
         .bytes()

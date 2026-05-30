@@ -214,19 +214,15 @@ pub struct CommandRouteSlot {
 /// `signed_token`). Drives how the runtime decodes the URL placeholder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum CommandRouteSlotKind {
     /// Untransformed identifier (e.g. `id: ID`).
+    #[default]
     Plain,
     /// Opaque token issued by the framework; lookup decodes server-side.
     OpaqueToken,
     /// Signed token (HMAC-derived) carrying its own integrity envelope.
     SignedToken,
-}
-
-impl Default for CommandRouteSlotKind {
-    fn default() -> Self {
-        CommandRouteSlotKind::Plain
-    }
 }
 
 fn is_plain_command_route_slot_kind(kind: &CommandRouteSlotKind) -> bool {

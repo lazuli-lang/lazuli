@@ -136,16 +136,16 @@ pub(super) fn walk_webhooks(
                 stubs,
             );
         }
-        if let Some(replay) = &webhook.replay {
-            if let Some(dedupe_by) = &replay.dedupe_by {
-                collect_path_refs(
-                    dedupe_by,
-                    feature_name,
-                    &format!("webhook.{}.replay.dedupe_by", webhook.name),
-                    signatures,
-                    stubs,
-                );
-            }
+        if let Some(replay) = &webhook.replay
+            && let Some(dedupe_by) = &replay.dedupe_by
+        {
+            collect_path_refs(
+                dedupe_by,
+                feature_name,
+                &format!("webhook.{}.replay.dedupe_by", webhook.name),
+                signatures,
+                stubs,
+            );
         }
         if let Some(returns) = &webhook.returns {
             collect_type_ref(returns, feature_name, &site, signatures, stubs);

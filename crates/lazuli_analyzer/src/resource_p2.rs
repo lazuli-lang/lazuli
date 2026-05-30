@@ -14,14 +14,14 @@ fn peel_trailing_field_modifiers(text: &str) -> RecoveredFieldType {
     let mut unique = false;
     loop {
         let trimmed = head.trim_end();
-        if trimmed.ends_with(" required") {
+        if let Some(rest) = trimmed.strip_suffix(" required") {
             required = true;
-            head = trimmed[..trimmed.len() - " required".len()].to_owned();
-        } else if trimmed.ends_with(" optional") {
-            head = trimmed[..trimmed.len() - " optional".len()].to_owned();
-        } else if trimmed.ends_with(" unique") {
+            head = rest.to_owned();
+        } else if let Some(rest) = trimmed.strip_suffix(" optional") {
+            head = rest.to_owned();
+        } else if let Some(rest) = trimmed.strip_suffix(" unique") {
             unique = true;
-            head = trimmed[..trimmed.len() - " unique".len()].to_owned();
+            head = rest.to_owned();
         } else {
             head = trimmed.to_owned();
             break;
@@ -82,11 +82,10 @@ fn find_field_level_cap_pii_span(text: &str) -> Option<(usize, usize)> {
         }
         if depth == 0 && &bytes[i..i + PREFIX.len()] == PREFIX {
             let before_ok = i == 0 || (bytes[i - 1] as char).is_whitespace();
-            if before_ok {
-                if let Some(end) = find_balanced_decorator_end(text, i) {
+            if before_ok
+                && let Some(end) = find_balanced_decorator_end(text, i) {
                     return Some((i, end));
                 }
-            }
         }
         match ch {
             '"' => in_string = true,

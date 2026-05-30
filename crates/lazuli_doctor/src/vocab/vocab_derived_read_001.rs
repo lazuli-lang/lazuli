@@ -113,7 +113,7 @@ fn check_resource(
     // that resource may be written via the input mapping; skip to avoid FPs.
     if written
         .get(&resource.name)
-        .map_or(false, |s| s.contains(FROM_INPUT_SENTINEL))
+        .is_some_and(|s| s.contains(FROM_INPUT_SENTINEL))
     {
         return out;
     }
@@ -157,7 +157,7 @@ fn should_skip(field: &ir::Field, written_fields: Option<&BTreeSet<String>>) -> 
         return true;
     }
     // Field is explicitly assigned in at least one write site.
-    if written_fields.map_or(false, |s| s.contains(&field.name)) {
+    if written_fields.is_some_and(|s| s.contains(&field.name)) {
         return true;
     }
     false

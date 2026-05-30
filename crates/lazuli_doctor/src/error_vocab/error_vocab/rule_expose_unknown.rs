@@ -126,11 +126,11 @@ pub fn check_expose_unknown(feature: &Feature, path: &Path) -> Vec<ExposeUnknown
 }
 
 fn is_known_4xx_field(field: &str) -> bool {
-    EXPOSE_4XX_FIELDS.iter().any(|f| *f == field)
+    EXPOSE_4XX_FIELDS.contains(&field)
 }
 
 fn is_known_5xx_field(field: &str) -> bool {
-    EXPOSE_5XX_FIELDS.iter().any(|f| *f == field)
+    EXPOSE_5XX_FIELDS.contains(&field)
 }
 
 #[cfg(test)]

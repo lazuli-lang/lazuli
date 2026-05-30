@@ -112,10 +112,15 @@ pub(crate) fn populate_command_external_calls_from_ir(
             let needle = format!("calls {}.{}", call.slot, call.op);
             let mut call_line = header_line + 1; // fall back to header
             let mut call_column = 1;
-            for i in (header_line + 1)..block_end {
-                if source_lines[i].trim_start().starts_with(needle.as_str()) {
+            for (i, line) in source_lines
+                .iter()
+                .enumerate()
+                .take(block_end)
+                .skip(header_line + 1)
+            {
+                if line.trim_start().starts_with(needle.as_str()) {
                     call_line = i + 1;
-                    call_column = leading_spaces(source_lines[i]) + 1;
+                    call_column = leading_spaces(line) + 1;
                     break;
                 }
             }

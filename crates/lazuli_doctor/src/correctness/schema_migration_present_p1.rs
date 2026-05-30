@@ -330,11 +330,10 @@ fn expected_columns_for(feature: &Feature, resource: &Resource) -> BTreeSet<Stri
             continue;
         }
         cols.insert(field.name.clone());
-        if let TypeRef::Builtin(BuiltinType::SemanticMoney { .. }) = field.type_ref {
-            if !explicit_currency_overrides.contains(&field.name) {
+        if let TypeRef::Builtin(BuiltinType::SemanticMoney { .. }) = field.type_ref
+            && !explicit_currency_overrides.contains(&field.name) {
                 cols.insert(format!("{}_currency", field.name));
             }
-        }
     }
 
     let timestamps = resource.timestamps.unwrap_or(feature.defaults.timestamps);

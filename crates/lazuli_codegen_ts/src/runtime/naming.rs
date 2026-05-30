@@ -36,7 +36,7 @@ pub fn lower_camel_export(s: &str) -> String {
 
 pub(super) fn pascal_case(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
-    for word in s.split(|c: char| c == '_' || c == '-') {
+    for word in s.split(['_', '-']) {
         if word.is_empty() {
             continue;
         }
@@ -58,7 +58,7 @@ pub(super) fn pascal_case(s: &str) -> String {
 pub(super) fn lower_camel(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut first = true;
-    for word in s.split(|c: char| c == '_' || c == '-') {
+    for word in s.split(['_', '-']) {
         if word.is_empty() {
             continue;
         }

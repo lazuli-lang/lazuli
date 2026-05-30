@@ -124,6 +124,45 @@ fn duration_literal(literal: &str) -> String {
     }
 }
 
+fn emit_gate_helpers(out: &mut String, gates: &std::collections::BTreeMap<String, Vec<Gate>>) {
+    // Emit a single per-callable comment listing the gates that
+    // apply. The runtime helpers (`billing.CheckFeature`,
+    // `billing.CheckQuota`, `billing.IncrQuota`) are called directly
+    // from authored handler code; the codegen records the gates here
+    // so cold-readers (and the doctor introspection layer) can see
+    // every gated callable from the plan package file alone.
+    if gates.is_empty() {
+        return;
+    }
+    out.push_str("// GatedCallables enumerates every callable carrying a gate\n");
+    out.push_str("// directive, keyed by `<feature>/<callable_kind>:<callable_name>`.\n");
+    out.push_str("// Handler bodies invoke billing.CheckFeature / billing.CheckQuota\n");
+    out.push_str("// directly against `Catalog`; this map exists for inspection /\n");
+    out.push_str("// runtime debug surfacing.\n");
+    out.push_str("var GatedCallables = map[string][]billing.GateRef{\n");
+    for (key, gate_list) in gates {
+        out.push_str(&format!("\t{:?}: {{\n", key));
+        for gate in gate_list {
+            match gate {
+                Gate::Behind { feature } => {
+                    out.push_str(&format!(
+                        "\t\t{{Kind: billing.GateBehind, Name: {:?}}},\n",
+                        feature
+                    ));
+                }
+                Gate::Quota { limit } => {
+                    out.push_str(&format!(
+                        "\t\t{{Kind: billing.GateQuota, Name: {:?}}},\n",
+                        limit
+                    ));
+                }
+            }
+        }
+        out.push_str("\t},\n");
+    }
+    out.push_str("}\n");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -215,43 +254,4 @@ mod tests {
         assert!(out.contains("billing.GateQuota"));
         assert!(out.contains("billing.GateBehind"));
     }
-}
-
-fn emit_gate_helpers(out: &mut String, gates: &std::collections::BTreeMap<String, Vec<Gate>>) {
-    // Emit a single per-callable comment listing the gates that
-    // apply. The runtime helpers (`billing.CheckFeature`,
-    // `billing.CheckQuota`, `billing.IncrQuota`) are called directly
-    // from authored handler code; the codegen records the gates here
-    // so cold-readers (and the doctor introspection layer) can see
-    // every gated callable from the plan package file alone.
-    if gates.is_empty() {
-        return;
-    }
-    out.push_str("// GatedCallables enumerates every callable carrying a gate\n");
-    out.push_str("// directive, keyed by `<feature>/<callable_kind>:<callable_name>`.\n");
-    out.push_str("// Handler bodies invoke billing.CheckFeature / billing.CheckQuota\n");
-    out.push_str("// directly against `Catalog`; this map exists for inspection /\n");
-    out.push_str("// runtime debug surfacing.\n");
-    out.push_str("var GatedCallables = map[string][]billing.GateRef{\n");
-    for (key, gate_list) in gates {
-        out.push_str(&format!("\t{:?}: {{\n", key));
-        for gate in gate_list {
-            match gate {
-                Gate::Behind { feature } => {
-                    out.push_str(&format!(
-                        "\t\t{{Kind: billing.GateBehind, Name: {:?}}},\n",
-                        feature
-                    ));
-                }
-                Gate::Quota { limit } => {
-                    out.push_str(&format!(
-                        "\t\t{{Kind: billing.GateQuota, Name: {:?}}},\n",
-                        limit
-                    ));
-                }
-            }
-        }
-        out.push_str("\t},\n");
-    }
-    out.push_str("}\n");
 }

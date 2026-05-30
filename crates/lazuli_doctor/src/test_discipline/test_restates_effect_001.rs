@@ -99,7 +99,7 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
                             construct_kind: "command".to_owned(),
                             construct: cmd.name.clone(),
                             field,
-                            span: tests.span_ref.clone(),
+                            span: tests.span_ref,
                         });
                     }
                 }
@@ -128,7 +128,7 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
                                     construct_kind: "lifecycle_transition".to_owned(),
                                     construct: format!("{}.{}", resource.name, transition.name),
                                     field,
-                                    span: tests.span_ref.clone(),
+                                    span: tests.span_ref,
                                 });
                             }
                         }
@@ -175,10 +175,11 @@ fn restated_fields(predicate: &Predicate, writes: &BTreeSet<String>) -> Vec<Stri
 fn collect(predicate: &Predicate, writes: &BTreeSet<String>, out: &mut Vec<String>) {
     match predicate {
         Predicate::Comparison { left, right, .. } => {
-            if let Some(field) = leaf_self_field(left) {
-                if writes.contains(&field) && is_literal(right) {
-                    out.push(field);
-                }
+            if let Some(field) = leaf_self_field(left)
+                && writes.contains(&field)
+                && is_literal(right)
+            {
+                out.push(field);
             }
         }
         Predicate::And(parts) | Predicate::Or(parts) => {

@@ -27,10 +27,10 @@ pub(in crate::commands::inspect) fn inspect_requirements(
 
         if leading == 2 {
             in_requires_block = trimmed == "requires";
-            if let Some(requirement) = trimmed.strip_prefix("requires ") {
-                if let Some(parsed) = parse_inspect_requirement(requirement, "requires inline") {
-                    requirements.push(parsed);
-                }
+            if let Some(requirement) = trimmed.strip_prefix("requires ")
+                && let Some(parsed) = parse_inspect_requirement(requirement, "requires inline")
+            {
+                requirements.push(parsed);
             }
             continue;
         }
@@ -39,10 +39,11 @@ pub(in crate::commands::inspect) fn inspect_requirements(
             in_requires_block = false;
         }
 
-        if in_requires_block && leading == 4 {
-            if let Some(parsed) = parse_inspect_requirement(trimmed, "requires block") {
-                requirements.push(parsed);
-            }
+        if in_requires_block
+            && leading == 4
+            && let Some(parsed) = parse_inspect_requirement(trimmed, "requires block")
+        {
+            requirements.push(parsed);
         }
     }
 

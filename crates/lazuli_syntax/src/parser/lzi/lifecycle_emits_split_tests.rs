@@ -18,7 +18,7 @@ use super::parse_feature_skeletons;
 
 /// Walk `feature → resource → lifecycle → transition[name]` and return its
 /// `emits` list. Keeps each test focused on the assertion, not navigation.
-fn transition_emits<'a>(source: &str, transition: &str) -> Vec<String> {
+fn transition_emits(source: &str, transition: &str) -> Vec<String> {
     let features = parse_feature_skeletons(source).unwrap();
     let lifecycle = features[0].resources[0]
         .lifecycle

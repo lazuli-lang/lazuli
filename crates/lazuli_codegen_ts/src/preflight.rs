@@ -87,7 +87,7 @@ pub fn emit_preflight_index_ts(module: &Module) -> Option<String> {
 /// let _ = feature_has_eligible_command(&feature);
 /// ```
 pub fn feature_has_eligible_command(feature: &Feature) -> bool {
-    feature.commands.iter().any(|c| has_eligible_slot(c))
+    feature.commands.iter().any(has_eligible_slot)
 }
 
 fn has_eligible_slot(command: &Command) -> bool {
@@ -158,7 +158,7 @@ pub fn emit_preflight_ts(feature: &Feature) -> Option<String> {
     }
     s.push('\n');
     for pc in &commands {
-        emit_one(&mut s, &pc);
+        emit_one(&mut s, pc);
         s.push('\n');
     }
     Some(s)
@@ -181,11 +181,10 @@ fn emit_one(s: &mut String, pc: &PreflightCommand) {
             "  {{\n    const v = input[{:?}];\n",
             sl.json_field
         ));
-        if sl.optional {
-            s.push_str("    if (typeof v === \"string\" && v !== \"\") {\n");
-        } else {
-            s.push_str("    if (typeof v === \"string\" && v !== \"\") {\n");
-        }
+        // Same guard for optional and required today: an empty string is
+        // treated as "absent" for both, so validation is skipped on `""`.
+        let _ = sl.optional;
+        s.push_str("    if (typeof v === \"string\" && v !== \"\") {\n");
         s.push_str(&format!("      const err = {}(v);\n", sl.call));
         s.push_str("      if (err) {\n");
         s.push_str(&format!(

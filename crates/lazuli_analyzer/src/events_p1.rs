@@ -53,7 +53,7 @@ pub fn lower_webhook(webhook: &syntax::Webhook) -> Result<ir::Webhook, AnalyzeEr
     let (handler, returns) = match &webhook.handler {
         Some(h) => (
             ir::PathRef::authored(&h.path),
-            h.returns.as_deref().map(|t| type_ref_from_text(t)),
+            h.returns.as_deref().map(type_ref_from_text),
         ),
         None => (
             ir::PathRef::convention(format!("./webhooks/{}.go", webhook.name)),

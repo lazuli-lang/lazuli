@@ -392,7 +392,7 @@ fn escape_string(raw: &str) -> String {
 }
 
 fn escape_comment(raw: &str) -> String {
-    raw.replace('\n', " ").replace('\r', " ")
+    raw.replace(['\n', '\r'], " ")
 }
 
 fn write_section_banner(p: &mut GoPrinter, lines: &[String]) {

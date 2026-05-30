@@ -42,7 +42,7 @@ pub(super) fn parse_lzx_audience(
     start: usize,
 ) -> Result<(LzxAudience, usize), ParseError> {
     let header = &lines[start];
-    let parts: Vec<_> = header.text.trim_start().split_whitespace().collect();
+    let parts: Vec<_> = header.text.split_whitespace().collect();
     if parts.len() < 2 {
         return Err(line_error(header, "audience blocks use `audience <name>`"));
     }
@@ -119,7 +119,7 @@ fn parse_lzx_platform_view(
     start: usize,
 ) -> Result<(LzxPlatformView, usize), ParseError> {
     let header = &lines[start];
-    let parts: Vec<_> = header.text.trim_start().split_whitespace().collect();
+    let parts: Vec<_> = header.text.split_whitespace().collect();
     if parts.len() != 3 {
         return Err(line_error(
             header,

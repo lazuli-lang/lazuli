@@ -95,7 +95,7 @@ pub(in crate::commands::inspect) fn strip_quotes(value: &str) -> String {
 pub(in crate::commands::inspect) fn typed_declaration(trimmed_line: &str) -> Option<(&str, &str)> {
     let (name, rest) = trimmed_line.split_once(':')?;
     let name = name.trim();
-    let ty = rest.trim().split_whitespace().next()?;
+    let ty = rest.split_whitespace().next()?;
 
     if name.is_empty() || ty.is_empty() {
         None

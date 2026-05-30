@@ -200,7 +200,7 @@ fn inline_column_match(before: &str, col: &str) -> bool {
         .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
         .filter(|t| !t.is_empty())
         .collect();
-    tokens.iter().any(|t| *t == col)
+    tokens.contains(&col)
 }
 
 #[cfg(test)]

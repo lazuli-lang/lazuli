@@ -43,16 +43,16 @@ pub(crate) fn extension_declaration_diagnostics(source: &str) -> Vec<Diagnostic>
                 "extension-declaration-namespace",
                 "extension declarations should use the same namespace keyword as their call site, e.g. `fn`, `hook`, `validator`, `adapter`, `query_modifier`, or `client`, not `server`.",
             ));
-        } else if let Some(expected) = expected {
-            if keyword != expected {
-                diagnostics.push(simple_canonical_diagnostic(
+        } else if let Some(expected) = expected
+            && keyword != expected
+        {
+            diagnostics.push(simple_canonical_diagnostic(
                     line_index,
                     line,
                     DiagnosticSeverity::WARNING,
                     "extension-declaration-namespace",
                     "extension declaration keyword should match the contract namespace used at call sites.",
                 ));
-            }
         }
     }
 

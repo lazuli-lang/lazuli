@@ -62,12 +62,13 @@ pub(crate) fn agent_expose_diagnostics(source: &str) -> Vec<Diagnostic> {
                 continue;
             }
 
-            if in_input && leading == 6 {
-                if let Some((name_part, _)) = trimmed.split_once(':') {
-                    let name = name_part.trim().to_owned();
-                    if !name.is_empty() {
-                        input_slot_names.push(name);
-                    }
+            if in_input
+                && leading == 6
+                && let Some((name_part, _)) = trimmed.split_once(':')
+            {
+                let name = name_part.trim().to_owned();
+                if !name.is_empty() {
+                    input_slot_names.push(name);
                 }
             }
 
@@ -81,10 +82,10 @@ pub(crate) fn agent_expose_diagnostics(source: &str) -> Vec<Diagnostic> {
                         .and_then(|s| s.strip_suffix('"'))
                         .unwrap_or(rest.trim());
                     expose_path = Some((line_index, unquoted.to_owned()));
-                } else if let Some(rest) = trimmed.strip_prefix("route ") {
-                    if let Some((name_part, _)) = rest.split_once(':') {
-                        expose_route_slots.push(name_part.trim().to_owned());
-                    }
+                } else if let Some(rest) = trimmed.strip_prefix("route ")
+                    && let Some((name_part, _)) = rest.split_once(':')
+                {
+                    expose_route_slots.push(name_part.trim().to_owned());
                 }
             }
         }

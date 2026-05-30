@@ -76,18 +76,15 @@ pub(crate) fn agent_tool_diagnostics(
                 // guard for this binding, regardless of the agent's
                 // own `safety` list.
                 let approved = match &binding.reference {
-                    lazuli_ir::QualifiedToolRef::Local { kind, name }
-                        if matches!(kind, lazuli_ir::ToolKind::Command) =>
-                    {
-                        approval_index.contains(&(fact.feature.clone(), name.clone()))
-                    }
+                    lazuli_ir::QualifiedToolRef::Local {
+                        kind: lazuli_ir::ToolKind::Command,
+                        name,
+                    } => approval_index.contains(&(fact.feature.clone(), name.clone())),
                     lazuli_ir::QualifiedToolRef::CrossFeature {
                         feature,
-                        kind,
+                        kind: lazuli_ir::ToolKind::Command,
                         name,
-                    } if matches!(kind, lazuli_ir::ToolKind::Command) => {
-                        approval_index.contains(&(feature.clone(), name.clone()))
-                    }
+                    } => approval_index.contains(&(feature.clone(), name.clone())),
                     _ => false,
                 };
                 if !approved {
@@ -104,9 +101,10 @@ pub(crate) fn agent_tool_diagnostics(
             // sides resolve and the tool's policy is *more* restrictive
             // by surface (atom set is a strict superset). Full lattice
             // ranking lands when the policy lattice helper migrates here.
-            if let Some(tool_policy) = &resolved.policy {
-                if policy_atoms_more_restrictive(tool_policy, &agent_policy_text) {
-                    diagnostics.push(DoctorDiagnostic {
+            if let Some(tool_policy) = &resolved.policy
+                && policy_atoms_more_restrictive(tool_policy, &agent_policy_text)
+            {
+                diagnostics.push(DoctorDiagnostic {
                         path: fact.path.clone(),
                         line: fact.line,
                         column: 1,
@@ -125,7 +123,6 @@ pub(crate) fn agent_tool_diagnostics(
                         fix: None,
                         group: None,
                     });
-                }
             }
         }
 

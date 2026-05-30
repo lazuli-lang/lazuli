@@ -117,11 +117,10 @@ fn emit_report(p: &mut GoPrinter, feature: &Feature, report: &Report) {
         visibility_const(report.visibility)
     ));
 
-    if let Some(ttl) = &report.signed_ttl {
-        if let Some(duration) = render_duration(ttl) {
+    if let Some(ttl) = &report.signed_ttl
+        && let Some(duration) = render_duration(ttl) {
             p.line(&format!("SignedTTL: {},", duration));
         }
-    }
 
     if let Some(filename) = &report.filename {
         p.line(&format!(
@@ -194,9 +193,7 @@ fn emit_report(p: &mut GoPrinter, feature: &Feature, report: &Report) {
     p.line(&format!(
         "// {runner_name} is the auto-mount runner override hook. See {var_name}'s",
     ));
-    p.line(&format!(
-        "// auto-mount registration in `init()` at the end of this file."
-    ));
+    p.line("// auto-mount registration in `init()` at the end of this file.");
     p.line(&format!("var {runner_name} report.Runner"));
 
     // Per proposal §Codegen worked example, emit a Run<Name> entry
@@ -212,9 +209,7 @@ fn emit_report(p: &mut GoPrinter, feature: &Feature, report: &Report) {
         "// The auto-mounted HTTP handler at `/api/reports/{}.<format>`",
         report.name
     ));
-    p.line(&format!(
-        "// calls this entry point. SourceFn wiring is the user's",
-    ));
+    p.line("// calls this entry point. SourceFn wiring is the user's");
     p.line(&format!(
         "// responsibility (typically `{}.List(ctx, args)`).",
         feature.name

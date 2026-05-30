@@ -51,44 +51,41 @@ pub fn route_guard_completions(source: &str, position: Position) -> Option<Vec<C
         ));
     }
 
-    if let Some(rest) = trimmed_before.strip_prefix("actor_query ") {
-        if rest
+    if let Some(rest) = trimmed_before.strip_prefix("actor_query ")
+        && rest
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
-            && at_app_child_completion_line(source, position)
-        {
-            return Some(query_ref_completion_items(source));
-        }
+        && at_app_child_completion_line(source, position)
+    {
+        return Some(query_ref_completion_items(source));
     }
 
-    if let Some(rest) = trimmed_before.strip_prefix("default_policy ") {
-        if rest
+    if let Some(rest) = trimmed_before.strip_prefix("default_policy ")
+        && rest
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '@' || c == '.')
-            && in_app_route_guard_block(source, position).is_some()
-        {
-            let feature = route_guard_context_feature(source, position);
-            return Some(policy_ref_completion_items(
-                source,
-                feature.as_deref(),
-                true,
-            ));
-        }
+        && in_app_route_guard_block(source, position).is_some()
+    {
+        let feature = route_guard_context_feature(source, position);
+        return Some(policy_ref_completion_items(
+            source,
+            feature.as_deref(),
+            true,
+        ));
     }
 
-    if let Some(rest) = trimmed_before.strip_prefix("policy ") {
-        if rest
+    if let Some(rest) = trimmed_before.strip_prefix("policy ")
+        && rest
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '@' || c == '.')
-            && in_view_or_audience_guard_context(source, position)
-        {
-            let feature = route_guard_context_feature(source, position);
-            return Some(policy_ref_completion_items(
-                source,
-                feature.as_deref(),
-                true,
-            ));
-        }
+        && in_view_or_audience_guard_context(source, position)
+    {
+        let feature = route_guard_context_feature(source, position);
+        return Some(policy_ref_completion_items(
+            source,
+            feature.as_deref(),
+            true,
+        ));
     }
 
     let is_blank_indented = trimmed_before.is_empty() && !before.is_empty();

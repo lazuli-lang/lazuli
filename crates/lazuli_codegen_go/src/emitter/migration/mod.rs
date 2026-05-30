@@ -294,7 +294,7 @@ fn escape_string(raw: &str) -> String {
 }
 
 fn escape_comment(raw: &str) -> String {
-    raw.replace('\n', " ").replace('\r', " ")
+    raw.replace(['\n', '\r'], " ")
 }
 
 #[cfg(test)]

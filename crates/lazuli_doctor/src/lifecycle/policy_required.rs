@@ -261,8 +261,10 @@ mod tests {
     #[test]
     fn negative_transition_inherits_feature_default_policy() {
         let lifecycle = mk_lifecycle(vec![mk_transition("publish", None)]);
-        let mut defaults = Defaults::default();
-        defaults.policy = Some(mk_policy_ref("admin"));
+        let defaults = Defaults {
+            policy: Some(mk_policy_ref("admin")),
+            ..Default::default()
+        };
         let feature = mk_feature("Publication", lifecycle, defaults);
 
         assert!(check(&feature, Path::new("publishing.lzi")).is_empty());

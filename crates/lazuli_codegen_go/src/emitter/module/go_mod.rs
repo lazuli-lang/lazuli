@@ -145,23 +145,23 @@ pub(super) fn emit_go_mod(
         p.blank();
         p.line(&format!("replace lazuli.dev/runtime => {}", path));
     }
-    if let Some(manifest) = manifest {
-        if let Some(dev) = manifest.dev.as_ref() {
-            let mut replacements = Vec::new();
-            for (ref_str, path) in &dev.plugin_paths {
-                let Some(plugin) = manifest.plugins.get(ref_str) else {
-                    continue;
-                };
-                let Some(module) = plugin.module.as_deref() else {
-                    continue;
-                };
-                replacements.push((module, path.as_str()));
-            }
-            if !replacements.is_empty() {
-                p.blank();
-                for (module, path) in replacements {
-                    p.line(&format!("replace {} => {}", module, path));
-                }
+    if let Some(manifest) = manifest
+        && let Some(dev) = manifest.dev.as_ref()
+    {
+        let mut replacements = Vec::new();
+        for (ref_str, path) in &dev.plugin_paths {
+            let Some(plugin) = manifest.plugins.get(ref_str) else {
+                continue;
+            };
+            let Some(module) = plugin.module.as_deref() else {
+                continue;
+            };
+            replacements.push((module, path.as_str()));
+        }
+        if !replacements.is_empty() {
+            p.blank();
+            for (module, path) in replacements {
+                p.line(&format!("replace {} => {}", module, path));
             }
         }
     }
@@ -187,7 +187,7 @@ pub(super) fn emit_go_work(
             .dev
             .as_ref()
             .map(|d| &d.plugin_paths)
-            .map(|p| p.clone())
+            .cloned()
             .unwrap_or_default();
         for (namespace, plugin) in &m.plugins {
             let path = dev_overrides

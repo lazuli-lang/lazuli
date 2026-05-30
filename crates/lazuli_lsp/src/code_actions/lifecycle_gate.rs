@@ -77,10 +77,10 @@ pub fn lifecycle_gate_code_actions(
     let line = lines.get(line_idx).copied().unwrap_or("");
     let trimmed = line.trim_start();
 
-    if trimmed.starts_with("view ") {
-        if let Some(action) = build_add_lifecycle_gate_action(source, uri, line_idx) {
-            actions.push(action.into());
-        }
+    if trimmed.starts_with("view ")
+        && let Some(action) = build_add_lifecycle_gate_action(source, uri, line_idx)
+    {
+        actions.push(action.into());
     }
 
     if let Some(resume) = enclosing_lifecycle_resume_block(source, position) {
@@ -94,11 +94,10 @@ pub fn lifecycle_gate_code_actions(
             if let Some(action) = build_add_missing_lifecycle_arms_action(uri, &resume, &missing) {
                 actions.push(action.into());
             }
-            if missing.len() >= 2 {
-                if let Some(action) = build_convert_lifecycle_arms_to_wildcard_action(uri, &resume)
-                {
-                    actions.push(action.into());
-                }
+            if missing.len() >= 2
+                && let Some(action) = build_convert_lifecycle_arms_to_wildcard_action(uri, &resume)
+            {
+                actions.push(action.into());
             }
         }
     }

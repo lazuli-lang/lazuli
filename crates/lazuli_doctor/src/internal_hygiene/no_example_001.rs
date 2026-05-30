@@ -211,9 +211,7 @@ fn doc_block_has_example(doc_lines: &[String]) -> bool {
 }
 
 fn extract_signature(line: &str) -> String {
-    let end = line
-        .find(|c: char| c == '{' || c == '(' || c == '<' || c == ';')
-        .unwrap_or(line.len());
+    let end = line.find(['{', '(', '<', ';']).unwrap_or(line.len());
     line[..end].trim().to_owned()
 }
 

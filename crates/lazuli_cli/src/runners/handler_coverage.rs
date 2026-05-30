@@ -38,8 +38,8 @@ pub fn parse_coverprofile(path: &Path) -> Option<CoverageMetric> {
     };
     Some(CoverageMetric {
         id: "handler_go".into(),
-        covered: covered as u64,
-        total: total as u64,
+        covered,
+        total,
         pct: round2(pct),
         // Verdict is set by the aggregator once thresholds are
         // resolved; we default to pass and let it overwrite.

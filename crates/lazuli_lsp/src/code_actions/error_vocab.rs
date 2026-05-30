@@ -74,14 +74,15 @@ pub fn error_vocab_code_actions(
     // Action 1 — scaffold `errors` block + 8 stub translation keys. Fires
     // when the cursor is on a `feature <name>` header (indent 0) AND the
     // feature has no `errors` block yet.
-    if line_indent == 0 {
-        if let Some(rest) = trimmed.strip_prefix("feature ") {
-            let feature_name = rest.split_whitespace().next().unwrap_or("");
-            if !feature_name.is_empty() && !feature_has_errors_block(source, feature_name) {
-                if let Some(action) = build_scaffold_errors_action(source, uri, feature_name) {
-                    actions.push(action.into());
-                }
-            }
+    if line_indent == 0
+        && let Some(rest) = trimmed.strip_prefix("feature ")
+    {
+        let feature_name = rest.split_whitespace().next().unwrap_or("");
+        if !feature_name.is_empty()
+            && !feature_has_errors_block(source, feature_name)
+            && let Some(action) = build_scaffold_errors_action(source, uri, feature_name)
+        {
+            actions.push(action.into());
         }
     }
 
@@ -89,30 +90,26 @@ pub fn error_vocab_code_actions(
     // `policies.<category>:` line.
     if let Some(category) =
         policies_category_name(&line).filter(|_| in_policies_block(source, position))
+        && !has_when_denied_child(source, position.line as usize, line_indent)
+        && let Some(action) = build_add_when_denied_policies_action(
+            source,
+            uri,
+            position.line as usize,
+            line_indent,
+            &category,
+        )
     {
-        if !has_when_denied_child(source, position.line as usize, line_indent) {
-            if let Some(action) = build_add_when_denied_policies_action(
-                source,
-                uri,
-                position.line as usize,
-                line_indent,
-                &category,
-            ) {
-                actions.push(action.into());
-            }
-        }
+        actions.push(action.into());
     }
 
     // Action 3 — add `when_denied @translation.<stub>` to a
     // `command.policy @policy.<name>` line.
     if trimmed.starts_with("policy @policy.")
         && !has_when_denied_child(source, position.line as usize, line_indent)
-    {
-        if let Some(action) =
+        && let Some(action) =
             build_add_when_denied_command_action(source, uri, position.line as usize, line_indent)
-        {
-            actions.push(action.into());
-        }
+    {
+        actions.push(action.into());
     }
 
     actions
@@ -182,8 +179,7 @@ pub(crate) fn in_policies_block(source: &str, position: Position) -> bool {
 /// form starts with `when_denied`.
 pub(crate) fn has_when_denied_child(source: &str, line_idx: usize, parent_indent: usize) -> bool {
     let lines: Vec<&str> = source.lines().collect();
-    for idx in (line_idx + 1)..lines.len() {
-        let line = lines[idx];
+    for line in lines.iter().skip(line_idx + 1) {
         let trimmed = line.trim_start();
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;

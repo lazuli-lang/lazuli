@@ -369,10 +369,10 @@ pub fn parse_feature_gates(source: &str) -> Result<FeatureGatesAst, ParseError> 
 
         // Has the current callable scope ended? (Sibling header at the
         // same indent or shallower.)
-        if let Some((_, header_indent)) = &current {
-            if line.indent <= *header_indent {
-                current = None;
-            }
+        if let Some((_, header_indent)) = &current
+            && line.indent <= *header_indent
+        {
+            current = None;
         }
 
         // Detect a new callable header.
@@ -386,10 +386,7 @@ pub fn parse_feature_gates(source: &str) -> Result<FeatureGatesAst, ParseError> 
             let directive = parse_gate_directive_line(line, rest)?;
             match &current {
                 Some((key, _)) => {
-                    callables
-                        .entry(key.clone())
-                        .or_insert_with(Vec::new)
-                        .push(directive);
+                    callables.entry(key.clone()).or_default().push(directive);
                 }
                 None => {
                     return Err(line_error(

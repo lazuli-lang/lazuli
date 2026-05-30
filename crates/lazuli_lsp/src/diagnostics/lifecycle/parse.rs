@@ -40,7 +40,7 @@ pub(crate) fn lifecycle_uses_in_block(lines: &[&str], start: usize, end: usize) 
                 if leading_spaces(child) <= indent {
                     break;
                 }
-                let name = child.trim_start().split_whitespace().next().unwrap_or("");
+                let name = child.split_whitespace().next().unwrap_or("");
                 if lifecycle_ident(name) && seen.insert(name.to_owned()) {
                     uses.push(name.to_owned());
                 }

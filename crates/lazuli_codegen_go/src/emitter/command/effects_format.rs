@@ -104,15 +104,15 @@ pub(super) fn format_path_source(
     let_bindings: &BTreeMap<&str, &Expr>,
     optional_inputs: &BTreeSet<&str>,
 ) -> String {
-    if let [name] = segments {
-        if let Some(target_expr) = let_bindings.get(name.as_str()) {
-            return format!(
-                "lazuli.FromConst(\"{}\") /* let {} = {} */",
-                escape_string(name),
-                name,
-                format_expr(target_expr)
-            );
-        }
+    if let [name] = segments
+        && let Some(target_expr) = let_bindings.get(name.as_str())
+    {
+        return format!(
+            "lazuli.FromConst(\"{}\") /* let {} = {} */",
+            escape_string(name),
+            name,
+            format_expr(target_expr)
+        );
     }
 
     let head = segments.first().map(|s| s.as_str()).unwrap_or("");

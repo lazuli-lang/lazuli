@@ -62,10 +62,10 @@ pub(in crate::commands::inspect) fn inspect_expose_projection(
             if leading_spaces(inner) != child_indent {
                 continue;
             }
-            if let Some(rest) = trimmed.strip_prefix("route ") {
-                if let Some((slot, _)) = rest.split_once(':') {
-                    route_slots.push(slot.trim().to_owned());
-                }
+            if let Some(rest) = trimmed.strip_prefix("route ")
+                && let Some((slot, _)) = rest.split_once(':')
+            {
+                route_slots.push(slot.trim().to_owned());
             }
         }
 

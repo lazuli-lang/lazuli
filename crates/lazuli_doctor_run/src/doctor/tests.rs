@@ -4,6 +4,7 @@
 //! Do not add new tests outside of this `mod tests { ... }` block - the
 //! wrapper preserves string-literal indentation for the existing tests.
 
+#[allow(clippy::module_inception)]
 mod tests {
     // Imports trimmed after the R10-A split: every `#[test]` body now lives in
     // a sibling sub-module under `tests/` and carries its own `use` lines.

@@ -38,7 +38,6 @@ pub(crate) fn validate_app_capability_line(
                 | "storage"
                 | "secret_provider"
                 | "integration"
-                | "secret_provider"
                 | "payment_gateway"
                 | "credit_bureau"
                 // 2026-05-27 — auth-refresh capability axis. Used by

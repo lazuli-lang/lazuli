@@ -108,7 +108,7 @@ pub fn check(feature: &Feature, source_path: &Path) -> Vec<Finding> {
                     command: cmd.name.clone(),
                     resource: resource.name.clone(),
                     field: field.clone(),
-                    span: cmd.span_ref.clone(),
+                    span: cmd.span_ref,
                 });
             }
         }

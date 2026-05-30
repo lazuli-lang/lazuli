@@ -135,7 +135,7 @@ pub(super) fn field_kind_go(kind: FieldKind) -> &'static str {
 /// uses `ID`, `URL`, etc. — never `Id` / `Url`.
 pub(super) fn pascal_case(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
-    for word in s.split(|c: char| c == '_' || c == '-') {
+    for word in s.split(['_', '-']) {
         if word.is_empty() {
             continue;
         }
@@ -159,7 +159,7 @@ pub(super) fn pascal_case(s: &str) -> String {
 pub(super) fn lower_camel(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut first = true;
-    for word in s.split(|c: char| c == '_' || c == '-') {
+    for word in s.split(['_', '-']) {
         if word.is_empty() {
             continue;
         }

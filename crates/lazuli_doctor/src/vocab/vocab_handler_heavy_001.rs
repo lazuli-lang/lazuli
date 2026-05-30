@@ -154,7 +154,7 @@ fn expr_contains_fn_ref(expr: &Expr) -> bool {
         Expr::Path(path) => {
             path.segments
                 .first()
-                .map_or(false, |segment| segment == "@fn")
+                .is_some_and(|segment| segment == "@fn")
                 || path.segments.join(".").contains("@fn.")
         }
         Expr::FnCall(_) => true,

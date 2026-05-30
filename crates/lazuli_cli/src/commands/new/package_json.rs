@@ -70,10 +70,10 @@ fn merge_package_json_object(
         .ok_or_else(|| anyhow::anyhow!("package.json template root must be a JSON object"))?;
 
     for key in ["name", "private", "type"] {
-        if !existing_obj.contains_key(key) {
-            if let Some(value) = template_obj.get(key) {
-                existing_obj.insert(key.to_string(), value.clone());
-            }
+        if !existing_obj.contains_key(key)
+            && let Some(value) = template_obj.get(key)
+        {
+            existing_obj.insert(key.to_string(), value.clone());
         }
     }
 

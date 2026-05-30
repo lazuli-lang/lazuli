@@ -138,7 +138,7 @@ pub(in crate::commands::inspect) fn named_block_name<'a>(
 
 pub(in crate::commands::inspect) fn field_name_from_typed_line(trimmed_line: &str) -> Option<&str> {
     let (head, _) = trimmed_line.split_once(':')?;
-    let name = head.trim().split_whitespace().next()?;
+    let name = head.split_whitespace().next()?;
 
     if name
         .bytes()

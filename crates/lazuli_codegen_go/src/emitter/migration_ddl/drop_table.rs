@@ -98,7 +98,7 @@ pub(super) fn emit_resource_down_migration(feature: &Feature, resource: &Resourc
         })
         .collect();
     if !authored_indexes.is_empty() {
-        writeln!(sql);
+        let _ = writeln!(sql);
         for name in authored_indexes {
             let _ = writeln!(sql, "-- DROP INDEX {};", sql_ident(&name));
         }

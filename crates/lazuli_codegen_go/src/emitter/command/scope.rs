@@ -58,13 +58,13 @@ pub(super) fn resolve_where_keys(command: &Command) -> Vec<WhereKeyBinding> {
             })
             .collect();
     }
-    if let CommandInput::Typed(slots) = &command.input {
-        if slots.len() == 1 {
-            return vec![WhereKeyBinding {
-                column: slots[0].name.clone(),
-                input_field: pascal_case(&slots[0].name),
-            }];
-        }
+    if let CommandInput::Typed(slots) = &command.input
+        && slots.len() == 1
+    {
+        return vec![WhereKeyBinding {
+            column: slots[0].name.clone(),
+            input_field: pascal_case(&slots[0].name),
+        }];
     }
     vec![WhereKeyBinding {
         column: "id".to_owned(),
@@ -212,10 +212,10 @@ pub(super) fn resolve_scope_bindings(command: &Command, feature: &Feature) -> Ve
     };
     // Only resolve when the resource lives in this feature. Cross-feature
     // scope lowering is a follow-up (would need the full Module).
-    if let Some(feature_part) = &resource_qname.feature {
-        if feature_part != &feature.name {
-            return Vec::new();
-        }
+    if let Some(feature_part) = &resource_qname.feature
+        && feature_part != &feature.name
+    {
+        return Vec::new();
     }
     let Some(resource) = feature
         .resources
@@ -405,10 +405,10 @@ pub(super) fn command_policy_atoms(command: &Command, policies: &Policies) -> Ve
 ///   `FromInputOptional` behaviour).
 #[cfg(test)]
 mod tests {
-    //! Residual scope-adjacent inline test — `CommandEffect::None` +
-    //! `@fn.*` handler shape. Kept inline because it's a single
-    //! ~30-LOC test that doesn't fit any of the three sibling test-host
-    //! files' sub-concerns. Moving it solo would be churn, not clarity.
+    // Residual scope-adjacent inline test — `CommandEffect::None` +
+    // `@fn.*` handler shape. Kept inline because it's a single ~30-LOC test
+    // that doesn't fit any of the three sibling test-host files' sub-concerns.
+    // Moving it solo would be churn, not clarity.
     use super::super::test_support::{
         base_command, base_feature, emit_with_customer_fallback as emit,
     };

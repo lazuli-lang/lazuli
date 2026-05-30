@@ -186,15 +186,14 @@ pub(super) fn pg_type_for_field<'a>(
     // A8: `many <Record>` collapses to a SINGLE `JSONB` document rather
     // than `JSONB[]` — the Postgres array of jsonb breaks pgx's struct
     // scan path for `[]X` whereas a JSONB array document round-trips.
-    if let TypeRef::Many(inner) = &field.type_ref {
-        if let TypeRef::UserDefined(inner_q) = inner.as_ref() {
-            if cross_index.kind(inner_q.name.as_str()) == Some(DeclKind::Record) {
-                return PgType {
-                    sql: "JSONB".to_owned(),
-                    uses_postgis: false,
-                };
-            }
-        }
+    if let TypeRef::Many(inner) = &field.type_ref
+        && let TypeRef::UserDefined(inner_q) = inner.as_ref()
+        && cross_index.kind(inner_q.name.as_str()) == Some(DeclKind::Record)
+    {
+        return PgType {
+            sql: "JSONB".to_owned(),
+            uses_postgis: false,
+        };
     }
 
     pg_type_for(&field.type_ref)

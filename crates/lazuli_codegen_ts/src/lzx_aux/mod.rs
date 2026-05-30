@@ -310,7 +310,7 @@ fn bulk_return_key(cmd: &CommandRef) -> String {
 
 fn upper_snake(value: &str) -> String {
     value
-        .split(|c: char| c == '-' || c == '_' || c == ' ')
+        .split(['-', '_', ' '])
         .filter(|part| !part.is_empty())
         .map(|part| part.to_ascii_uppercase())
         .collect::<Vec<_>>()
@@ -319,7 +319,7 @@ fn upper_snake(value: &str) -> String {
 
 fn kebab_case(value: &str) -> String {
     value
-        .split(|c: char| c == '-' || c == '_' || c == ' ')
+        .split(['-', '_', ' '])
         .filter(|part| !part.is_empty())
         .map(|part| part.to_ascii_lowercase())
         .collect::<Vec<_>>()

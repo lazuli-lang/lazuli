@@ -134,14 +134,14 @@ pub(crate) fn agent_run_trace_diagnostics(files: &[DoctorFile]) -> Vec<DoctorDia
                         .strip_prefix("trigger event.trace ")
                         .map(|rest| rest.split_whitespace().next().unwrap_or("").to_owned())
                 });
-            if let Some(name) = trace_ref {
-                if !name.is_empty()
-                    && !built_in_names.contains(&name)
-                    && !authored_trace_names.contains(&name)
-                {
-                    let mut known: Vec<String> = built_in_names.iter().cloned().collect();
-                    known.extend(authored_trace_names.iter().cloned());
-                    diagnostics.push(DoctorDiagnostic {
+            if let Some(name) = trace_ref
+                && !name.is_empty()
+                && !built_in_names.contains(&name)
+                && !authored_trace_names.contains(&name)
+            {
+                let mut known: Vec<String> = built_in_names.iter().cloned().collect();
+                known.extend(authored_trace_names.iter().cloned());
+                diagnostics.push(DoctorDiagnostic {
                         path: file.path.clone(),
                         line: i + 1,
                         column: leading_spaces(line) + 1,
@@ -158,7 +158,6 @@ pub(crate) fn agent_run_trace_diagnostics(files: &[DoctorFile]) -> Vec<DoctorDia
                         fix: None,
                         group: None,
                     });
-                }
             }
 
             i += 1;

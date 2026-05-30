@@ -235,9 +235,10 @@ pub(crate) fn approval_diagnostics(
                 .unwrap_or(feature.feature_line);
 
             // Timeout shape (when authored).
-            if let Some(timeout) = approval.timeout.as_deref() {
-                if !approval_timeout_well_formed(timeout) {
-                    diagnostics.push(DoctorDiagnostic {
+            if let Some(timeout) = approval.timeout.as_deref()
+                && !approval_timeout_well_formed(timeout)
+            {
+                diagnostics.push(DoctorDiagnostic {
                         path: feature.path.clone(),
                         line,
                         column: 1,
@@ -253,7 +254,6 @@ pub(crate) fn approval_diagnostics(
                         fix: None,
                         group: None,
                     });
-                }
             }
 
             // W4 GAP-06 — APPROVAL-CHAIN-ORDER-001. Validate the ordered

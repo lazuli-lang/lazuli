@@ -48,15 +48,15 @@ pub(crate) fn cache_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
             continue;
         }
 
-        if leading_spaces(line) <= 4 {
-            if let Some(cache) = current_cache.take() {
-                diagnostics.extend(query_cache_diagnostics(cache));
-            }
+        if leading_spaces(line) <= 4
+            && let Some(cache) = current_cache.take()
+        {
+            diagnostics.extend(query_cache_diagnostics(cache));
         }
-        if leading_spaces(line) <= 4 {
-            if let Some(invalidates) = current_invalidates.take() {
-                diagnostics.extend(command_invalidation_diagnostics(invalidates));
-            }
+        if leading_spaces(line) <= 4
+            && let Some(invalidates) = current_invalidates.take()
+        {
+            diagnostics.extend(command_invalidation_diagnostics(invalidates));
         }
 
         match leading_spaces(line) {

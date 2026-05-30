@@ -183,10 +183,10 @@ fn find_op_in_ir(
         .iter()
         .find(|candidate| candidate.get("name").and_then(|v| v.as_str()) == Some(feature))?;
 
-    if kind == "agent" {
-        if let Some(agent) = find_named_object(feature_json.get("agents"), op) {
-            return Some(agent.clone());
-        }
+    if kind == "agent"
+        && let Some(agent) = find_named_object(feature_json.get("agents"), op)
+    {
+        return Some(agent.clone());
     }
 
     if let Some(summary) = feature_json.get("summary") {
@@ -269,8 +269,7 @@ pub fn extract_lzi_block(
 
     let header_indent = indentation(lines[block_start]);
     let mut block_end = lines.len();
-    for idx in (block_start + 1)..lines.len() {
-        let current = lines[idx];
+    for (idx, current) in lines.iter().enumerate().skip(block_start + 1) {
         if current.trim().is_empty() {
             continue;
         }

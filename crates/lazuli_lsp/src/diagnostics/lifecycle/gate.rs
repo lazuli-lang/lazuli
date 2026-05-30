@@ -33,7 +33,10 @@ pub(crate) fn lifecycle_gate_candidate_for_view(
     source: &str,
     view: &RouteGuardViewBlock,
 ) -> Option<LifecycleGateCandidate> {
-    for resource in lifecycle_resources_hosted_by_view(source, view) {
+    if let Some(resource) = lifecycle_resources_hosted_by_view(source, view)
+        .into_iter()
+        .next()
+    {
         let state = lifecycle_state_from_view_path(source, view, &resource).or_else(|| {
             lifecycle_default_gate_state(source, view.feature_hint.as_deref(), &resource)
         })?;
@@ -61,13 +64,12 @@ pub(crate) fn lifecycle_resources_hosted_by_view(
         } else {
             None
         };
-        if let Some(resource) = hosted {
-            if lifecycle_resource_for_name(source, view.feature_hint.as_deref(), &resource)
+        if let Some(resource) = hosted
+            && lifecycle_resource_for_name(source, view.feature_hint.as_deref(), &resource)
                 .is_some()
-                && seen.insert(resource.clone())
-            {
-                resources.push(resource);
-            }
+            && seen.insert(resource.clone())
+        {
+            resources.push(resource);
         }
     }
     resources
@@ -146,17 +148,17 @@ pub(crate) fn lifecycle_state_from_view_path(
 pub(crate) fn lifecycle_view_path(source: &str, view: &RouteGuardViewBlock) -> Option<String> {
     let lines: Vec<&str> = source.lines().collect();
     for line in lines.iter().take(view.end_line).skip(view.header_line + 1) {
-        if leading_spaces(line) == view.header_indent + 2 {
-            if let Some(rest) = line.trim_start().strip_prefix("path ") {
-                let trimmed = rest.trim();
-                return first_quoted_value(trimmed).or_else(|| {
-                    trimmed
-                        .split_whitespace()
-                        .next()
-                        .filter(|path| path.starts_with('/'))
-                        .map(str::to_owned)
-                });
-            }
+        if leading_spaces(line) == view.header_indent + 2
+            && let Some(rest) = line.trim_start().strip_prefix("path ")
+        {
+            let trimmed = rest.trim();
+            return first_quoted_value(trimmed).or_else(|| {
+                trimmed
+                    .split_whitespace()
+                    .next()
+                    .filter(|path| path.starts_with('/'))
+                    .map(str::to_owned)
+            });
         }
     }
     None

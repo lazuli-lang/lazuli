@@ -200,11 +200,10 @@ fn resolve_levels_1_to_3(
     // Level 1 — manifest per-rule override wins absolutely (when its
     // severity string parses). Matches `doctor_severity_for` and the
     // `context_vocab_diagnostics` closure.
-    if let Some(ov) = config.overrides.get(code) {
-        if let Some(parsed) = parse_severity(&ov.severity) {
+    if let Some(ov) = config.overrides.get(code)
+        && let Some(parsed) = parse_severity(&ov.severity) {
             return Resolution::Severity(parsed);
         }
-    }
 
     // Level 2 — coverage-preset escalation map. The `Off` preset
     // suppresses the VOCAB-CONTEXT family entirely (silent → Suppress),
@@ -215,11 +214,10 @@ fn resolve_levels_1_to_3(
             return Resolution::Suppress;
         }
         let escalations = preset_severity_overrides(preset);
-        if let Some(sev_str) = escalations.get(code) {
-            if let Some(parsed) = parse_severity(sev_str) {
+        if let Some(sev_str) = escalations.get(code)
+            && let Some(parsed) = parse_severity(sev_str) {
                 return Resolution::Severity(parsed);
             }
-        }
     }
 
     // Level 3 — per-category preset escalation. Dispatched on the

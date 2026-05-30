@@ -292,7 +292,7 @@ fn flag_summary(runner: TsRunner, cfg: &TestingTs) -> String {
 }
 
 #[derive(Debug, Default)]
-struct ParsedRun {
+pub(crate) struct ParsedRun {
     tests_run: u32,
     tests_passed: u32,
     tests_failed: u32,
@@ -350,7 +350,7 @@ struct JsonAssertion {
 /// use lazuli_cli::runners::ts_test::parse_vitest_json;
 /// let parsed = parse_vitest_json(b"{}");
 /// ```
-pub fn parse_vitest_json(stdout: &[u8]) -> ParsedRun {
+pub(crate) fn parse_vitest_json(stdout: &[u8]) -> ParsedRun {
     parse_jest_style(stdout)
 }
 
@@ -362,7 +362,7 @@ pub fn parse_vitest_json(stdout: &[u8]) -> ParsedRun {
 /// use lazuli_cli::runners::ts_test::parse_jest_json;
 /// let parsed = parse_jest_json(b"{}");
 /// ```
-pub fn parse_jest_json(stdout: &[u8]) -> ParsedRun {
+pub(crate) fn parse_jest_json(stdout: &[u8]) -> ParsedRun {
     parse_jest_style(stdout)
 }
 

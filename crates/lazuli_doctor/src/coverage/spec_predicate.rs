@@ -92,10 +92,10 @@ fn count_rule(rule: &Rule, total: &mut usize, covered: &mut usize) {
     let tests = rule.tests.as_ref();
     for path in &branch_paths {
         *total += 1;
-        if let Some(tb) = tests {
-            if has_both_sides_for_path(tb, path) {
-                *covered += 1;
-            }
+        if let Some(tb) = tests
+            && has_both_sides_for_path(tb, path)
+        {
+            *covered += 1;
         }
     }
 }
@@ -175,10 +175,10 @@ fn touched_paths(tests: &TestBlock) -> Vec<Path> {
             _ => continue,
         };
         for leaf in enumerate_branches(pred) {
-            if let Some(p) = extract_path(&leaf) {
-                if !seen.iter().any(|existing| paths_eq(existing, &p)) {
-                    seen.push(p);
-                }
+            if let Some(p) = extract_path(&leaf)
+                && !seen.iter().any(|existing| paths_eq(existing, &p))
+            {
+                seen.push(p);
             }
         }
     }
@@ -211,10 +211,10 @@ fn has_both_sides_for_path(tests: &TestBlock, target: &Path) -> bool {
 
 fn predicate_touches_path(p: &Predicate, target: &Path) -> bool {
     for leaf in enumerate_branches(p) {
-        if let Some(leaf_path) = extract_path(&leaf) {
-            if paths_eq(&leaf_path, target) {
-                return true;
-            }
+        if let Some(leaf_path) = extract_path(&leaf)
+            && paths_eq(&leaf_path, target)
+        {
+            return true;
         }
     }
     false

@@ -35,66 +35,67 @@ pub(super) fn check_locale_negotiate(
     line: usize,
     diagnostics: &mut Vec<DoctorDiagnostic>,
 ) {
-    if let Some(source) = &ln.source {
-        if !LOCALE_NEGOTIATE_SOURCES.contains(&source.as_str()) {
-            diagnostics.push(DoctorDiagnostic {
-                path: path.to_path_buf(),
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: "locale_negotiate_source_invalid".to_owned(),
-                message: format!(
-                    "`locale_negotiate.source` `{}` must be one of: {}.",
-                    source,
-                    LOCALE_NEGOTIATE_SOURCES.join(", ")
-                ),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
+    if let Some(source) = &ln.source
+        && !LOCALE_NEGOTIATE_SOURCES.contains(&source.as_str())
+    {
+        diagnostics.push(DoctorDiagnostic {
+            path: path.to_path_buf(),
+            line,
+            column: 1,
+            severity: DoctorSeverity::Error,
+            code: "locale_negotiate_source_invalid".to_owned(),
+            message: format!(
+                "`locale_negotiate.source` `{}` must be one of: {}.",
+                source,
+                LOCALE_NEGOTIATE_SOURCES.join(", ")
+            ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
+        });
     }
-    if let Some(strategy) = &ln.strategy {
-        if !LOCALE_NEGOTIATE_STRATEGIES.contains(&strategy.as_str()) {
-            diagnostics.push(DoctorDiagnostic {
-                path: path.to_path_buf(),
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: "locale_negotiate_strategy_invalid".to_owned(),
-                message: format!(
-                    "`locale_negotiate.strategy` `{}` must be one of: {}.",
-                    strategy,
-                    LOCALE_NEGOTIATE_STRATEGIES.join(", ")
-                ),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
+    if let Some(strategy) = &ln.strategy
+        && !LOCALE_NEGOTIATE_STRATEGIES.contains(&strategy.as_str())
+    {
+        diagnostics.push(DoctorDiagnostic {
+            path: path.to_path_buf(),
+            line,
+            column: 1,
+            severity: DoctorSeverity::Error,
+            code: "locale_negotiate_strategy_invalid".to_owned(),
+            message: format!(
+                "`locale_negotiate.strategy` `{}` must be one of: {}.",
+                strategy,
+                LOCALE_NEGOTIATE_STRATEGIES.join(", ")
+            ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
+        });
     }
-    if let Some(fallback) = &ln.fallback {
-        if !supported.is_empty() && !supported.contains(fallback) {
-            diagnostics.push(DoctorDiagnostic {
-                path: path.to_path_buf(),
-                line,
-                column: 1,
-                severity: DoctorSeverity::Error,
-                code: "app_locale_fallback_unknown_dest".to_owned(),
-                message: format!(
-                    "`locale_negotiate.fallback` `{}` is not in `app.locale.supported`.",
-                    fallback
-                ),
-                category: None,
-                feature_name: None,
-                construct: None,
-                fix: None,
-                group: None,
-            });
-        }
+    if let Some(fallback) = &ln.fallback
+        && !supported.is_empty()
+        && !supported.contains(fallback)
+    {
+        diagnostics.push(DoctorDiagnostic {
+            path: path.to_path_buf(),
+            line,
+            column: 1,
+            severity: DoctorSeverity::Error,
+            code: "app_locale_fallback_unknown_dest".to_owned(),
+            message: format!(
+                "`locale_negotiate.fallback` `{}` is not in `app.locale.supported`.",
+                fallback
+            ),
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
+        });
     }
 }

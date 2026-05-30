@@ -193,9 +193,7 @@ fn has_doc_or_hidden_above(lines: &[&str], idx: usize) -> bool {
 /// Extract a short identifier from the declaration line (everything up
 /// to `{` or `(` or `<`, whichever comes first).
 fn extract_item_signature(line: &str) -> String {
-    let end = line
-        .find(|c: char| c == '{' || c == '(' || c == '<' || c == '=' || c == ';')
-        .unwrap_or(line.len());
+    let end = line.find(['{', '(', '<', '=', ';']).unwrap_or(line.len());
     line[..end].trim().to_owned()
 }
 

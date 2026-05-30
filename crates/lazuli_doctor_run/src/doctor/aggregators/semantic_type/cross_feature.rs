@@ -383,10 +383,10 @@ pub(crate) fn collect_cross_feature_type_ref_owners(
                 .feature
                 .as_deref()
                 .or_else(|| type_owners.owner(&qname.name));
-            if let Some(owner) = owner {
-                if owner != feature {
-                    owners.insert(owner.to_owned());
-                }
+            if let Some(owner) = owner
+                && owner != feature
+            {
+                owners.insert(owner.to_owned());
             }
         }
         ir::TypeRef::Many(inner) => {
@@ -399,10 +399,10 @@ pub(crate) fn collect_cross_feature_type_ref_owners(
             if name.starts_with('@') {
                 return;
             }
-            if let Some(owner) = type_owners.owner(name) {
-                if owner != feature {
-                    owners.insert(owner.to_owned());
-                }
+            if let Some(owner) = type_owners.owner(name)
+                && owner != feature
+            {
+                owners.insert(owner.to_owned());
             }
         }
         _ => {}
