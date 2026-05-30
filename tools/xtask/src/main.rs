@@ -10,9 +10,10 @@
 
 use std::process::ExitCode;
 
-use xtask::{keyword_reference, tmlanguage};
+use xtask::{catalog_reference, keyword_reference, tmlanguage};
 
-const USAGE: &str = "usage: cargo xtask <gen-tmlanguage | gen-keyword-reference> [--check]";
+const USAGE: &str =
+    "usage: cargo xtask <gen-tmlanguage | gen-keyword-reference | gen-catalog-reference> [--check]";
 
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
@@ -25,6 +26,10 @@ fn main() -> ExitCode {
         Some("gen-keyword-reference") => {
             let check = args.any(|a| a == "--check");
             finish(keyword_reference::run(check))
+        }
+        Some("gen-catalog-reference") => {
+            let check = args.any(|a| a == "--check");
+            finish(catalog_reference::run(check))
         }
         Some("dump-groups") => {
             tmlanguage::dump_groups();
