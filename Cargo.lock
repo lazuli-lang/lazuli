@@ -591,6 +591,7 @@ name = "lazuli_analyzer"
 version = "0.1.0"
 dependencies = [
  "lazuli_ir",
+ "lazuli_keywords",
  "lazuli_syntax",
  "serde",
  "serde_json",
