@@ -60,3 +60,29 @@ fn every_alias_resolves_like_its_canonical() {
         );
     }
 }
+
+/// SPEC-04 — capability types resolve in canonical bare form `<Name>(...)`,
+/// identically to the deprecated `@cap.<Name>(...)` alias.
+#[test]
+fn bare_cap_types_resolve_like_sigil_form() {
+    let cases = [
+        ("Hashed(algorithm:argon2id)", "@cap.Hashed(algorithm:argon2id)"),
+        ("Encrypted(key:@key.tenant)", "@cap.Encrypted(key:@key.tenant)"),
+        (
+            "Token(ttl:1h,single_use:true,store:hashed)",
+            "@cap.Token(ttl:1h,single_use:true,store:hashed)",
+        ),
+    ];
+    for (bare, sigil) in cases {
+        let resolved = type_ref_from_syntax_public(bare);
+        assert!(
+            matches!(resolved, TypeRef::Capability(_)),
+            "bare cap `{bare}` must resolve to a Capability",
+        );
+        assert_eq!(
+            resolved,
+            type_ref_from_syntax_public(sigil),
+            "bare `{bare}` must resolve identically to `{sigil}`",
+        );
+    }
+}

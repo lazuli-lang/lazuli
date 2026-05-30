@@ -193,12 +193,22 @@ pub(crate) fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
     }
 }
 
+/// SPEC-04 — accept a capability type in canonical BARE form `<Name>(...)` OR
+/// the deprecated `@cap.<Name>(...)` alias (`lazuli fmt` normalizes to bare).
+/// Returns the inner args (sans the trailing `)`).
+fn strip_cap<'a>(ty: &'a str, name: &str) -> Option<&'a str> {
+    let inner = ty
+        .strip_prefix(format!("@cap.{name}(").as_str())
+        .or_else(|| ty.strip_prefix(format!("{name}(").as_str()))?;
+    inner.strip_suffix(')')
+}
+
 /// Phase L Tier 4 follow-up — `@cap.Hashed(algorithm:<X>)`. Closed
 /// catalog `{argon2id, bcrypt}`. Returns `None` if the algorithm is
 /// missing or unrecognised so callers fall through to `UserDefined`
 /// (LSP surfaces shape errors).
 fn parse_cap_hashed_type(ty: &str) -> Option<ir::HashedCapability> {
-    let inner = ty.strip_prefix("@cap.Hashed(")?.strip_suffix(')')?;
+    let inner = strip_cap(ty, "Hashed")?;
     let args = parse_capability_args(inner);
     let algorithm = match args.get("algorithm")?.as_str() {
         "argon2id" => ir::HashAlgorithm::Argon2id,
@@ -211,7 +221,7 @@ fn parse_cap_hashed_type(ty: &str) -> Option<ir::HashedCapability> {
 /// Phase L Tier 4 follow-up — `@cap.Encrypted(key:@key.<scope>)`. Key
 /// reference is stored verbatim with its `@key.` prefix.
 fn parse_cap_encrypted_type(ty: &str) -> Option<ir::EncryptedCapability> {
-    let inner = ty.strip_prefix("@cap.Encrypted(")?.strip_suffix(')')?;
+    let inner = strip_cap(ty, "Encrypted")?;
     let args = parse_capability_args(inner);
     let key = args.get("key")?.clone();
     if !key.starts_with("@key.") {
@@ -225,7 +235,7 @@ fn parse_cap_encrypted_type(ty: &str) -> Option<ir::EncryptedCapability> {
 /// the server stores but never reads.
 /// See `docs/proposals/encryption-vocab.md` §Lowering.
 fn parse_cap_e2ee_type(ty: &str) -> Option<ir::E2eeCapability> {
-    let inner = ty.strip_prefix("@cap.E2ee(")?.strip_suffix(')')?;
+    let inner = strip_cap(ty, "E2ee")?;
     let args = parse_capability_args(inner);
     let key = args.get("key")?.clone();
     if !key.starts_with("@key.") {
@@ -238,7 +248,7 @@ fn parse_cap_e2ee_type(ty: &str) -> Option<ir::E2eeCapability> {
 /// store:<storage>)`. All three dimensions are mandatory; closed
 /// catalog `store:{hashed}` and `single_use:{true,false}`.
 fn parse_cap_token_type(ty: &str) -> Option<ir::TokenCapability> {
-    let inner = ty.strip_prefix("@cap.Token(")?.strip_suffix(')')?;
+    let inner = strip_cap(ty, "Token")?;
     let args = parse_capability_args(inner);
     let ttl = args.get("ttl")?.clone();
     let single_use = match args.get("single_use")?.as_str() {
@@ -263,7 +273,7 @@ fn parse_cap_token_type(ty: &str) -> Option<ir::TokenCapability> {
 /// already surfaces shape errors for the same patterns.
 pub(crate) fn parse_cap_file_type(ty: &str) -> Option<ir::FileCapability> {
     let ty = first_paren_balanced_token(ty);
-    let inner = ty.strip_prefix("@cap.File(")?.strip_suffix(')')?;
+    let inner = strip_cap(ty, "File")?;
     let args = parse_capability_args(inner);
 
     let max_size = parse_file_size(args.get("max_size")?)?;
@@ -292,7 +302,7 @@ pub(crate) fn parse_cap_file_type(ty: &str) -> Option<ir::FileCapability> {
 /// are optional passive slots for follow-up doctor/runtime cells.
 pub(crate) fn parse_cap_pii_type(ty: &str) -> Option<ir::PiiCapability> {
     let ty = first_paren_balanced_token(ty);
-    let inner = ty.strip_prefix("@cap.PII(")?.strip_suffix(')')?;
+    let inner = strip_cap(ty, "PII")?;
     let args = parse_capability_args(inner);
     let class = unquote_capability_arg(args.get("class")?).to_owned();
     if class.is_empty() {
@@ -331,7 +341,12 @@ fn unquote_capability_arg(value: &str) -> &str {
 /// All four cases fall through to the existing `UserDefined`-with-
 /// diagnostic path so authors see a single consistent error surface.
 fn parse_semantic_money_type(ty: &str) -> Option<ir::BuiltinType> {
-    let inner = ty.strip_prefix("@semantic.Money(")?.strip_suffix(')')?;
+    // SPEC-04 — canonical bare `Money(currency:<ISO>)` or the deprecated
+    // `@semantic.Money(...)` alias.
+    let inner = ty
+        .strip_prefix("@semantic.Money(")
+        .or_else(|| ty.strip_prefix("Money("))?
+        .strip_suffix(')')?;
     let args = parse_capability_args(inner);
     let raw = args.get("currency")?;
     let currency = ir::CurrencyCode::from_iso(raw)?;
