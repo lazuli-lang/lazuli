@@ -289,7 +289,9 @@ fn expected_doctor_owned_cell(
 ) -> Option<Option<DiagnosticSeverity>> {
     use DiagnosticSeverity as DS;
     let vocab_default = match profile {
-        DoctorProfile::Production => DS::ERROR,
+        // IronHand mirrors Production for category defaults (doctor config
+        // lib.rs: `(_, Production | IronHand) => Error`).
+        DoctorProfile::Production | DoctorProfile::IronHand => DS::ERROR,
         DoctorProfile::Prototype | DoctorProfile::Strict => DS::WARNING,
     };
     match code {
@@ -311,7 +313,7 @@ fn expected_doctor_owned_cell(
         // per-profile category default (WARNING at proto/strict, ERROR at
         // production) — the coverage preset does not govern it.
         "HOOK-TARGET-001" => Some(Some(match profile {
-            DoctorProfile::Production => DS::ERROR,
+            DoctorProfile::Production | DoctorProfile::IronHand => DS::ERROR,
             DoctorProfile::Prototype | DoctorProfile::Strict => DS::WARNING,
         })),
         // TestDiscipline default per profile: Info@proto, Warning@strict,
@@ -321,7 +323,7 @@ fn expected_doctor_owned_cell(
         "TEST-MISSING-AUTHORED-001" => Some(Some(match profile {
             DoctorProfile::Prototype => DS::INFORMATION,
             DoctorProfile::Strict => DS::WARNING,
-            DoctorProfile::Production => DS::ERROR,
+            DoctorProfile::Production | DoctorProfile::IronHand => DS::ERROR,
         })),
         _ => None,
     }

@@ -540,3 +540,60 @@ pub fn all_literals() -> impl Iterator<Item = &'static str> {
 pub fn find(literal: &str) -> Option<&'static CapabilitySpec> {
     ALL.iter().find(|c| c.literal == literal)
 }
+
+/// The closed catalog of `@`-reference namespaces — the **single source** for
+/// "is `@<ns>.<target>` a valid reference?". `lazuli_lsp` (`vocab.rs`) and
+/// `lazuli_doctor` (`refs.rs`) derive their allow-checks from this instead of
+/// each keeping a divergent hand-maintained copy: before this, the LSP allowed
+/// 23 namespaces and the doctor only 18 (silently rejecting `@feature` /
+/// `@translation` / `@command` / `@file` / `@audience` that the LSP accepted).
+///
+/// Gated against the registry's `@`-decorator rows by
+/// [`reference_namespaces_cover_registry_decorators`] (below): every decorator
+/// that is not a bare field-marker (`@slug` / `@full_text` / `@owner_axis`) or
+/// the `@resume` flow-sigil must appear here, so a new `@`-namespace cannot
+/// enter the registry without surfacing in this catalog.
+pub const REFERENCE_NAMESPACES: &[&str] = &[
+    "role", "scope", "actor", "policy", // identity / authorization
+    "semantic", "cap", "pii", "key", // data classification / typed
+    "fn", "hook", "validator", "adapter", // extension surface
+    "client", "query_modifier", "anchor", //
+    "llm", "tool", // AI
+    "trace", "translation", "feature", // observability / i18n / cross-feature
+    "command", "file", "audience", // named references
+];
+
+/// Whether `ns` (the segment after `@`, e.g. `"policy"` in `@policy.update`) is
+/// a valid reference namespace. The closed-catalog contract — unknown
+/// namespaces are diagnostics. See [`REFERENCE_NAMESPACES`].
+pub fn is_reference_namespace(ns: &str) -> bool {
+    REFERENCE_NAMESPACES.contains(&ns)
+}
+
+#[cfg(test)]
+mod catalog_tests {
+    use super::*;
+
+    /// Registry `@`-decorators that are NOT `.target` reference namespaces:
+    /// bare field flags + the `@resume` lifecycle flow-sigil.
+    const NON_REFERENCE_DECORATORS: &[&str] = &["slug", "full_text", "owner_axis", "resume"];
+
+    #[test]
+    fn reference_namespaces_cover_registry_decorators() {
+        for spec in ALL.iter() {
+            let lit = spec.literal;
+            if !lit.starts_with('@') || lit.contains('/') {
+                continue; // skip non-decorators + `@runtime/…` pack refs
+            }
+            let ns = lit.trim_start_matches('@');
+            if NON_REFERENCE_DECORATORS.contains(&ns) {
+                continue;
+            }
+            assert!(
+                REFERENCE_NAMESPACES.contains(&ns),
+                "registry decorator `@{ns}` is missing from REFERENCE_NAMESPACES \
+                 (catalog drift) — add it to the catalog or to NON_REFERENCE_DECORATORS",
+            );
+        }
+    }
+}

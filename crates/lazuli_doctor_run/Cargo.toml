@@ -10,6 +10,7 @@ lazuli_analyzer = { path = "../lazuli_analyzer" }
 lazuli_doctor = { path = "../lazuli_doctor" }
 lazuli_doctor_config = { path = "../lazuli_doctor_config" }
 lazuli_ir = { path = "../lazuli_ir" }
+lazuli_keywords = { path = "../lazuli_keywords" }
 lazuli_manifest = { path = "../lazuli_manifest" }
 lazuli_syntax = { path = "../lazuli_syntax" }
 anyhow.workspace = true

@@ -213,56 +213,9 @@ pub(crate) fn namespace_references(line: &str) -> Vec<&str> {
 }
 
 pub(crate) fn is_allowed_reference_namespace(namespace: &str) -> bool {
-    matches!(
-        namespace,
-        "role"
-            | "scope"
-            | "actor"
-            | "policy"
-            | "semantic"
-            | "cap"
-            | "pii"
-            | "key"
-            | "fn"
-            | "hook"
-            | "validator"
-            | "adapter"
-            | "client"
-            | "query_modifier"
-            | "anchor"
-            | "llm"
-            | "tool"
-            // Observability bucket cycle row 35 — reference-only namespace
-            // for `trigger @trace.<name>` on subscriber jobs. Reserved
-            // names live in `lazuli_ir::built_in_trace_events()`; LSP
-            // checks resolution in `trigger_trace_unknown_diagnostics`.
-            | "trace"
-            // i18n bucket cycle row 54 — reference-only namespace for
-            // `rule message @translation.<key>` (and post-pilot surface
-            // labels). Keys are declared in feature `translation` blocks;
-            // doctor's `rule_message_ref_unresolved` validates resolution.
-            | "translation"
-            // GAP-12 / GAP-AUDIT-01 — cross-feature reference namespace for
-            // `@feature.<feature>.<Resource>` on `target` (effect-target
-            // resolution) and `audit ... materialize @feature.x.OperationLog`.
-            // Resolves to a resource declared in a sibling feature block.
-            | "feature"
-            // Registry-parity backfill (Guard B / F3 class) — three
-            // reference namespaces the `lazuli_keywords` registry carries as
-            // `@`-decorators but the catalog had silently dropped (caught by
-            // `registry_decorator_namespaces_are_allowed_references`):
-            //   * `@command.<name>` — `view.inline_table on_change @command.X`
-            //     binds an inline-edit row mutation to a sibling command
-            //     (`docs/grammar.lzx.md`, `docs/quickref.md`).
-            //   * `@file.<name>` — `query.sql foo / @file.foo.sql` and
-            //     template references (`@file.welcome`) point at a path-
-            //     convention file (`docs/project-structure.md`,
-            //     `docs/scope-discipline.md`).
-            //   * `@audience.<name>` — `audience @audience.<name>` /
-            //     `expose to @audience <name>` restricts a surface/error to a
-            //     declared audience (`lazuli_syntax::ast::feature::errors`).
-            | "command"
-            | "file"
-            | "audience"
-    )
+    // SPEC-01: the closed catalog is single-sourced in `lazuli_keywords`
+    // (`REFERENCE_NAMESPACES`) and gated against the registry's `@`-decorator
+    // rows. The LSP and the doctor (`refs.rs`) derive from it so they cannot
+    // drift apart (they previously did: LSP=23, doctor=18).
+    lazuli_keywords::is_reference_namespace(namespace)
 }

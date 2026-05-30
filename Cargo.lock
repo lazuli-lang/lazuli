@@ -708,6 +708,7 @@ dependencies = [
  "lazuli_doctor",
  "lazuli_doctor_config",
  "lazuli_ir",
+ "lazuli_keywords",
  "lazuli_manifest",
  "lazuli_syntax",
  "serde_json",

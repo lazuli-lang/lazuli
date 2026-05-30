@@ -202,32 +202,13 @@ pub(crate) fn reference_namespace(reference: &str) -> Option<&str> {
     (end > 0).then_some(&after_at[..end])
 }
 
-/// Doctor-side namespace catalog. Mirrors `lazuli_lsp`'s
-/// `is_allowed_reference_namespace`, but lives here so the doctor
-/// aggregators can cross-check `@<ns>.<name>` references without
-/// reaching into the LSP crate's private items.
+/// Doctor-side namespace catalog. SPEC-01: derives from the single source
+/// (`lazuli_keywords::REFERENCE_NAMESPACES`) instead of a hand-maintained
+/// `matches!`. Before this it silently diverged from the LSP — it stopped at
+/// `trace` and rejected `@translation` / `@feature` / `@command` / `@file` /
+/// `@audience`, which the LSP and the canonical fixture both accept.
 pub(crate) fn is_allowed_reference_namespace_for_doctor(namespace: &str) -> bool {
-    matches!(
-        namespace,
-        "role"
-            | "scope"
-            | "actor"
-            | "policy"
-            | "semantic"
-            | "cap"
-            | "pii"
-            | "key"
-            | "fn"
-            | "hook"
-            | "validator"
-            | "adapter"
-            | "client"
-            | "query_modifier"
-            | "anchor"
-            | "llm"
-            | "tool"
-            | "trace"
-    )
+    lazuli_keywords::is_reference_namespace(namespace)
 }
 
 /// Best-effort `lazuli.dev/runtime <version>` reader for a `go.mod`
