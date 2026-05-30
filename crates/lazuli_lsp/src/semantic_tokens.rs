@@ -89,6 +89,14 @@ fn token_modifiers() -> Vec<SemanticTokenModifier> {
 /// Build the [`SemanticTokensLegend`] advertised in the server
 /// capabilities. `token_types` is the registry projection (legend order);
 /// `token_modifiers` is the minimal set above.
+///
+/// ## Examples
+///
+/// ```no_run
+/// use lazuli_lsp::test_surface::legend;
+///
+/// assert!(!legend().token_types.is_empty());
+/// ```
 pub fn legend() -> SemanticTokensLegend {
     SemanticTokensLegend {
         token_types: SEMANTIC_TOKEN_ORDER
@@ -112,6 +120,15 @@ pub fn legend() -> SemanticTokensLegend {
 /// the client requests it — VS Code defaults to UTF-16 but ASCII-only
 /// keyword/decorator spans make byte == UTF-16 length here, and the
 /// classifier never emits a token straddling a multi-byte run).
+///
+/// ## Examples
+///
+/// ```no_run
+/// use lazuli_lsp::test_surface::encode_delta;
+///
+/// // An empty token list encodes to an empty delta stream.
+/// assert!(encode_delta(&[]).is_empty());
+/// ```
 pub fn encode_delta(tokens: &[ClassifiedToken]) -> Vec<LspSemanticToken> {
     let mut out = Vec::with_capacity(tokens.len());
     let mut prev_line = 0u32;
@@ -144,6 +161,15 @@ pub fn encode_delta(tokens: &[ClassifiedToken]) -> Vec<LspSemanticToken> {
 
 /// Classify `source` and produce the full `semanticTokens/full` payload.
 /// The single entry point the backend's trait method calls.
+///
+/// ## Examples
+///
+/// ```no_run
+/// use lazuli_lsp::test_surface::semantic_tokens_full;
+///
+/// let payload = semantic_tokens_full("feature billing\n");
+/// let _ = payload.data; // relative-delta-encoded tokens
+/// ```
 pub fn semantic_tokens_full(source: &str) -> SemanticTokens {
     SemanticTokens {
         result_id: None,

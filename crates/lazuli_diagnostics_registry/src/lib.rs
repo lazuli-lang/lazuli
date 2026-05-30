@@ -42,6 +42,15 @@ use lazuli_keywords::{ALL, DiagnosticFacet, GLOBAL_DIAGNOSTICS};
 /// This is the "code matrix" the doctor severity-parity test (Wave D4) sources
 /// from — closing the loop: the codes the doctor escalates are exactly the
 /// codes capabilities declare they produce.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_diagnostics_registry::claimed_facets;
+///
+/// // Every claimed facet carries a non-empty code + severity + category.
+/// assert!(claimed_facets().all(|f| !f.code.is_empty()));
+/// ```
 pub fn claimed_facets() -> impl Iterator<Item = &'static DiagnosticFacet> {
     ALL.iter()
         .flat_map(|c| c.produces.iter())
@@ -51,6 +60,14 @@ pub fn claimed_facets() -> impl Iterator<Item = &'static DiagnosticFacet> {
 /// The bare claimed code strings, in declaration order (capability `produces[]`
 /// first, then GLOBAL). May contain duplicates if a code is double-claimed —
 /// the `complete` assert is what rejects that.
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_diagnostics_registry::claimed_codes;
+///
+/// assert!(claimed_codes().any(|c| c == "PREDICATE-EQ-OPERATOR-001"));
+/// ```
 pub fn claimed_codes() -> impl Iterator<Item = &'static str> {
     claimed_facets().map(|f| f.code)
 }

@@ -255,6 +255,16 @@ pub fn diagnostics_for_source_with_profile(
 /// synchronous Layer-1 deliberately does NOT (it gets parse/lower failures
 /// from the debounced Layer-2 `run_package` stream instead, avoiding
 /// per-keystroke double-fire / flicker).
+///
+/// ## Examples
+///
+/// ```no_run
+/// use lazuli_lsp::{diagnostics_for_source_with_profile_cli, SecurityProfile};
+///
+/// let diagnostics =
+///     diagnostics_for_source_with_profile_cli("feature billing\n", SecurityProfile::Strict);
+/// let _ = diagnostics;
+/// ```
 pub fn diagnostics_for_source_with_profile_cli(
     source: &str,
     security_profile: SecurityProfile,

@@ -34,6 +34,14 @@ use crate::{first_line_range, leading_spaces};
 /// `pub` (not `pub(crate)`) only so the anti-drift parity test
 /// (`crate::test_surface`) can reference the exact map the editor
 /// publishes; not part of the LSP's public API contract.
+///
+/// ## Examples
+///
+/// ```no_run
+/// // Exposed for the doctor-severity parity test; production callers reach it
+/// // through the crate-internal path. See `tests/doctor_severity_parity/`.
+/// let _map = lazuli_lsp::test_surface::lsp_severity;
+/// ```
 pub fn lsp_severity(severity: DoctorSeverity) -> DiagnosticSeverity {
     match severity {
         DoctorSeverity::Error => DiagnosticSeverity::ERROR,
@@ -68,6 +76,14 @@ pub fn lsp_severity(severity: DoctorSeverity) -> DiagnosticSeverity {
 /// `pub` (not `pub(crate)`) only so the anti-drift parity test
 /// (`crate::test_surface`) can call the exact severity path the editor
 /// publishes; not part of the LSP's public API contract.
+///
+/// ## Examples
+///
+/// ```no_run
+/// // Exposed for the doctor-severity parity test; see
+/// // `tests/doctor_severity_parity/`.
+/// let _resolver = lazuli_lsp::test_surface::doctor_class_lsp_severity;
+/// ```
 pub fn doctor_class_lsp_severity(
     code: &str,
     base_severity: DiagnosticSeverity,

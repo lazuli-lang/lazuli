@@ -58,6 +58,17 @@ use crate::diagnostics_for_source_with_profile;
 /// `pub` (not `pub(crate)`) only so the anti-drift parity test
 /// (`crate::test_surface`) can assert the partition is total + disjoint
 /// over the sampled codes; not part of the LSP's public API contract.
+///
+/// ## Examples
+///
+/// ```no_run
+/// use lazuli_lsp::test_surface::is_lsp_owned;
+///
+/// // Lower/kebab file-local codes are LSP-owned; SCREAMING-KEBAB rule
+/// // catalog codes are doctor-owned.
+/// assert!(is_lsp_owned("env-schema-contract"));
+/// assert!(!is_lsp_owned("REF-CROSS-FEATURE-UNKNOWN-001"));
+/// ```
 pub fn is_lsp_owned(code: &str) -> bool {
     // Rule-catalog codes are `SCREAMING-KEBAB` optionally suffixed with a
     // `-NNN` numeric tail (e.g. `REF-CROSS-FEATURE-UNKNOWN-001`,
@@ -81,6 +92,15 @@ pub fn is_lsp_owned(code: &str) -> bool {
 /// `pub` (not `pub(crate)`) only so the anti-drift parity test
 /// (`crate::test_surface`) can assert the partition is total + disjoint;
 /// not part of the LSP's public API contract.
+///
+/// ## Examples
+///
+/// ```no_run
+/// use lazuli_lsp::test_surface::is_doctor_owned;
+///
+/// assert!(is_doctor_owned("REF-CROSS-FEATURE-UNKNOWN-001"));
+/// assert!(!is_doctor_owned("env-schema-contract"));
+/// ```
 pub fn is_doctor_owned(code: &str) -> bool {
     !is_lsp_owned(code)
 }
