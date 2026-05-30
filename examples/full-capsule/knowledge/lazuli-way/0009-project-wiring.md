@@ -6,37 +6,23 @@ tier:    approved
 created: 2026-05-30
 updated: 2026-05-30
 tags: [doctrine, app, registry, profiles, workspace, namespace]
+read_when: "writing app.lzi / registry.lzi / profiles / integrations / @runtime vs @plugin"
 ---
 
 # Project wiring
 
-Features describe *what* the app does. The project layer describes *how the app
-runs*: which features participate, which targets get generated, which
-environments exist, and which adapters back the capabilities features depend on.
-Four files own this layer, and only the first two are mandatory.
+Features describe *what* the app does; the project layer describes *how it runs*: which features participate, which targets generate, which environments exist, which adapters back capabilities. Four files own it — only the first two are mandatory.
 
-- **`app.lzi`** — the provider-neutral operational contract: `uses`, `targets`,
-  `environments`, `urls`, `bindings`, `runtime` units, `deploy` gates, plus
-  cross-cutting blocks (`cors`, `env`, `locale`, `logging`, `tracing`).
-- **`registry.lzi`** — the package catalog: env groups, `capabilities`,
-  `integrations`, `packs`. This is *where adapters are named* — the single point
-  where provider provenance enters the project.
-- **`profiles.lzi`** *(optional)* — per-environment overlays that keep
-  environment-specific intent out of `app.lzi`.
-- **`workspace.lzi`** *(optional, distributed-only)* — the multi-app / external-
-  service / gateway contract. A single-app project never needs it, and nothing
-  may make it mandatory.
+- **`app.lzi`** — provider-neutral operational contract: `uses`, `targets`, `environments`, `urls`, `bindings`, `runtime` units, `deploy` gates, plus `cors`, `env`, `locale`, `logging`, `tracing`.
+- **`registry.lzi`** — package catalog: env groups, `capabilities`, `integrations`, `packs`. The *only* place adapters are named — where provider provenance enters.
+- **`profiles.lzi`** *(optional)* — per-env overlays; keeps env-specific intent out of `app.lzi`.
+- **`workspace.lzi`** *(optional, distributed-only)* — multi-app / external-service / gateway contract. A single-app project never needs it; nothing may make it mandatory.
 
-The cardinal rule of this layer: **the language stays provider-neutral; only the
-registry adapters know a vendor's name.** Get that backwards and you've leaked
-Stripe into the grammar.
+Cardinal rule: **the language stays provider-neutral; only registry adapters know a vendor's name.** Get it backwards and you've leaked Stripe into the grammar.
 
 ## `app.lzi` — the operational contract
 
-`app.lzi` is one block per concern. The two load-bearing dependency statements
-are `uses` (which features the app activates) and `bindings` (which integration
-slot resolves to which registry integration). Everything else configures the
-runtime.
+One block per concern. The two load-bearing dependency statements: `uses` (features the app activates) and `bindings` (which integration slot resolves to which registry integration). The rest configures the runtime.
 
 ```lazuli
 app Billing
@@ -94,37 +80,19 @@ app Billing
     rollback on_failed_healthcheck
 ```
 
-A few gaffes the parser and doctor catch immediately:
+Gaffes the parser/doctor catch:
 
-- **Env type names are a closed catalog: `Secret | Text | Url | Boolean |
-  Integer`.** Write `Url`, **not** `URL` — the casing is exact. Each entry is
-  `server|client|mobile NAME: <Type> required|optional [in <environment>]`. The
-  scope prefix (`server`/`client`/`mobile`) decides whether the value reaches the
-  Go server, the web client bundle, or the mobile bundle.
-- **`deploy` values are closed-catalog, not booleans.** `migration_lock
-  required` (not `true`), `migrations before_deploy|manual|disabled`,
-  `destructive_migrations require_approval|forbidden`, `rollback
-  on_failed_healthcheck|manual|disabled`, `strategy rolling|blue_green|canary`.
-- **`runtime` units name the process topology**: `serves` lists what a unit
-  answers (`queries`, `commands`, `webhooks`, `apis`, `surfaces web|mobile`);
-  `runs` lists background work (`jobs *`, `schedules *`). `serves surfaces web`
-  requires `web` to be in `targets`.
+- **`env` type names are a closed catalog: `Secret | Text | Url | Boolean | Integer`** — exact casing (`Url`, **not** `URL`). Each entry: `server|client|mobile NAME: <Type> required|optional [in <environment>]`. The scope prefix decides whether the value reaches the Go server, web bundle, or mobile bundle.
+- **`deploy` values are closed-catalog, not booleans**: `migration_lock required` (not `true`); `migrations before_deploy|manual|disabled`; `destructive_migrations require_approval|forbidden`; `rollback on_failed_healthcheck|manual|disabled`; `strategy rolling|blue_green|canary`.
+- **`runtime` units = process topology.** `serves` lists what a unit answers (`queries`, `commands`, `webhooks`, `apis`, `surfaces web|mobile`); `runs` lists background work (`jobs *`, `schedules *`). `serves surfaces web` requires `web` in `targets`.
 
 ## `uses` is strict — declare only what you reference
 
-`uses` is not a convenience import list; it is a *semantic* dependency edge. List
-a feature in `uses` only when this app (or feature) actually references its
-domain, events, or operations. An unused `uses` entry is dead wiring the doctor
-will flag, and a referenced-but-unlisted feature is an unresolved reference. The
-same discipline applies at the feature level: a feature's own `uses org, user`
-line names exactly the sibling features whose types it touches.
+`uses` is a *semantic* dependency edge, not a convenience import. List a feature only when this app/feature references its domain, events, or operations. Unused entry → dead wiring (doctor flags); referenced-but-unlisted → unresolved reference. Same at feature level: a feature's `uses org, user` names exactly the siblings whose types it touches.
 
-## The dependency model: slots, not instances
+## Dependency model: slots, not instances
 
-Lazuli never lets a feature `new()` a database client or `inject()` a CRM SDK
-(see [the-three-operators](0003-the-three-operators.md) for why the language has
-no construction syntax). Instead a feature *declares a need* and the project
-*satisfies it by binding a slot*:
+Lazuli never lets a feature `new()` a db client or `inject()` a CRM SDK (see [the-three-operators](0003-the-three-operators.md) — no construction syntax). A feature *declares a need*; the project *satisfies it by binding a slot*:
 
 ```lazuli
 feature invoice_import
@@ -139,26 +107,18 @@ feature invoice_import
       total_rows: Integer = 0
 ```
 
-`requires integration crm: CRMProvider` says "I need *some* provider satisfying
-the `CRMProvider` capability, exposed under the local slot name `crm`." The
-feature never knows which vendor fills it. The app wires it in `bindings`:
+`requires integration crm: CRMProvider` = "I need *some* provider satisfying `CRMProvider`, under local slot `crm`." The feature never knows the vendor. The app wires it in `bindings`:
 
 ```text
   bindings
     invoice_import.crm = integrations.crm
 ```
 
-The left side is `<feature>.<slot>`; the right side is `integrations.<name>` from
-the registry. The doctor checks both directions: every `bindings` key must match
-a real `requires integration` slot, and the bound integration must exist in
-`registry.lzi`. This is the same capability-binding pattern fields use for typed
-resources — see [resources-and-fields](0011-resources-and-fields.md).
+Left = `<feature>.<slot>`; right = `integrations.<name>` from the registry. Doctor checks both directions: every `bindings` key must match a real `requires integration` slot, and the bound integration must exist in `registry.lzi`. Same capability-binding pattern fields use for typed resources — see [resources-and-fields](0011-resources-and-fields.md).
 
 ## `registry.lzi` — where adapters get a name
 
-The registry is the *only* place a provider name legitimately appears, and even
-then it appears as an **adapter reference**, never as a keyword. It catalogs env
-groups, capabilities, integrations, and packs:
+The *only* place a provider name legitimately appears — and then as an **adapter reference**, never a keyword. Catalogs env groups, capabilities, integrations, packs:
 
 ```lazuli
 registry
@@ -190,31 +150,19 @@ registry
         webhook_secret env.CRM_WEBHOOK_SECRET
 ```
 
-Watch the small shapes the doctor enforces:
+Shapes the doctor enforces:
 
-- **`capabilities` kinds are a closed catalog**: `database`, `queue`,
-  `object_storage`, `mailer`, `event_bus`, `tracing`, `cache`, `search`, plus
-  `integration <slot>`. Inventing a new capability kind warns — capability kinds
-  move with a language cut, not a registry edit.
-- **`packs` use `<name> from @scope/package`**, then `version`, `provides`,
-  `requires` children. Not `pack <name>` with a nested `name` line.
-- **`credentials` takes a tier label** (`platform`, `tenant`, or `actor`) and its
-  children bind an env var with a *space*, not `=`: `webhook_secret
-  env.CRM_WEBHOOK_SECRET`.
+- **`capabilities` kinds are a closed catalog**: `database`, `queue`, `object_storage`, `mailer`, `event_bus`, `tracing`, `cache`, `search`, plus `integration <slot>`. A new kind warns — kinds move with a language cut, not a registry edit.
+- **`packs` use `<name> from @scope/package`**, then `version`, `provides`, `requires` children. Not `pack <name>` with a nested `name` line.
+- **`credentials` takes a tier label** (`platform`, `tenant`, or `actor`); children bind an env var with a *space*, not `=`: `webhook_secret env.CRM_WEBHOOK_SECRET`.
 
-## The namespace policy — the gaffe magnet
+## Namespace policy — the gaffe magnet
 
-This is where most cold-write mistakes happen. Adapter provenance is a closed
-set, and the prefix encodes *who owns the thing*:
+Most cold-write mistakes land here. Adapter provenance is a closed set; the prefix encodes *who owns the thing*:
 
-- **`@runtime/<name>`** — OSS commodity infrastructure with an open spec or a
-  de-facto-standard layer: Postgres, Redis, S3-protocol signing, SMTP, Kafka,
-  NATS. These live in the Lazuli runtime itself.
-- **`@plugin/<name>`** — a *named vendor SaaS or specific product*, even if it's
-  open source: Stripe, MercadoPago, Sendgrid, Twilio, Algolia, Meilisearch. These
-  live in separate plugin repos.
-- **`@adapter.<local>`** — a local adapter you author in the app for a contract
-  the runtime/plugins don't cover (e.g. a homegrown or legacy CRM).
+- **`@runtime/<name>`** — OSS commodity infra with an open spec or de-facto-standard layer: Postgres, Redis, S3-protocol signing, SMTP, Kafka, NATS. Live in the Lazuli runtime itself.
+- **`@plugin/<name>`** — a *named vendor SaaS or specific product*, even if open source: Stripe, MercadoPago, Sendgrid, Twilio, Algolia, Meilisearch. Live in separate plugin repos.
+- **`@adapter.<local>`** — a local adapter you author for a contract runtime/plugins don't cover (homegrown/legacy CRM).
 
 ```lazuli
 registry
@@ -227,27 +175,15 @@ registry
       adapter @plugin/meilisearch/search
 ```
 
-Three rules that turn this from a guideline into reflex:
+Three rules → reflex:
 
-1. **A provider name is NEVER a core keyword.** There is no `stripe`, `postgres`,
-   `aws`, or `kafka` keyword. The provider only ever appears as the trailing
-   segment of an `@runtime/` / `@plugin/` adapter ref. If you find yourself
-   wanting a vendor keyword, you've found a scope violation — keep the wire thin
-   (see [wire-not-reimplement](0001-wire-not-reimplement.md)).
-2. **The adapter is named after the *provider*, not the consuming product.**
-   MercadoPago is `@plugin/mercadopago`, never `@plugin/<your-app>/mercadopago`.
-   The adapter is generic and reusable; the product is incidental.
-3. **"Is this commodity infra or a named product?"** Ask it before every new
-   adapter. Open spec / de-facto-OSS layer → `@runtime`. A specific named
-   SaaS/tool → `@plugin`. Per-vendor business glue that fits neither →
-   [an escape hatch](0002-five-escape-hatches.md) in your own Go, not the
-   framework.
+1. **A provider name is NEVER a core keyword.** No `stripe`, `postgres`, `aws`, `kafka` keyword. The provider appears only as the trailing segment of an `@runtime/` / `@plugin/` ref. Wanting a vendor keyword = a scope violation; keep the wire thin (see [wire-not-reimplement](0001-wire-not-reimplement.md)).
+2. **Adapter named after the *provider*, not the consuming product.** MercadoPago is `@plugin/mercadopago`, never `@plugin/<your-app>/mercadopago`. The adapter is generic and reusable.
+3. **"Commodity infra or named product?"** — ask before every new adapter. Open spec / de-facto-OSS → `@runtime`. Specific named SaaS/tool → `@plugin`. Per-vendor business glue fitting neither → [an escape hatch](0002-five-escape-hatches.md) in your own Go, not the framework.
 
 ## `profiles.lzi` — per-environment overlays
 
-Profiles keep environment-specific intent out of `app.lzi`. Each `profile
-<env>` block overlays `urls`, `bindings`, `integrations`, and `deploy` for that
-environment, so the base manifest stays a single clean contract:
+Each `profile <env>` block overlays `urls`, `bindings`, `integrations`, `deploy` for that env, keeping the base manifest one clean contract:
 
 ```lazuli
 profile local
@@ -273,16 +209,11 @@ profile production
     rollback on_failed_healthcheck
 ```
 
-The `local` profile binding a `@adapter.fake_crm` is the canonical way to swap a
-real vendor for a fake in dev without touching feature code — the slot is the
-same, only the adapter changes.
+`local` binding `@adapter.fake_crm` is the canonical way to swap a real vendor for a fake in dev without touching feature code — same slot, different adapter.
 
 ## `workspace.lzi` — optional, distributed only
 
-A single app must not have a `workspace.lzi`. Reach for it only when you have
-multiple Lazuli apps, external (non-Lazuli) services, or a shared gateway. It
-declares the apps, the cross-service event `boundaries`, workspace-wide
-`communication` defaults, and a provider-neutral `gateway`:
+A single app must not have one. Reach for it only with multiple Lazuli apps, external (non-Lazuli) services, or a shared gateway. Declares apps, cross-service event `boundaries`, workspace-wide `communication` defaults, a provider-neutral `gateway`:
 
 ```lazuli
 workspace Acme
@@ -308,16 +239,8 @@ workspace Acme
       timeout "5s"
 ```
 
-`boundaries` makes the cross-service event graph statically visible: which app
-produces each event class and which consumes it (the `invoice.*` patterns are the
-same event names features emit — see
-[events-and-event-groups](0012-events-and-event-groups.md)). The `gateway` owns
-only the *shape* — which app mounts which route — never the proxy/mesh
-mechanics, which are runtime concerns.
+`boundaries` makes the cross-service event graph statically visible: which app produces each event class, which consumes it (the `invoice.*` patterns are the same event names features emit — see [events-and-event-groups](0012-events-and-event-groups.md)). The `gateway` owns only the *shape* — which app mounts which route — never proxy/mesh mechanics (runtime concerns).
 
-When the wiring confuses you, ask the compiler rather than guessing: `lazuli
-check <file>` validates a manifest standalone, and `lazuli inspect` shows the
-resolved graph (see [the-compiler-is-the-oracle](0006-the-compiler-is-the-oracle.md)).
+When wiring confuses you, ask the compiler: `lazuli check <file>` validates a manifest standalone; `lazuli inspect` shows the resolved graph (see [the-compiler-is-the-oracle](0006-the-compiler-is-the-oracle.md)).
 
-Authoritative spec: `docs/grammar.app.md`, `docs/grammar.registry.md`,
-`docs/grammar.workspace.md`, and the namespace policy in `CLAUDE.md`.
+Authoritative spec: `docs/grammar.app.md`, `docs/grammar.registry.md`, `docs/grammar.workspace.md`, and the namespace policy in `CLAUDE.md`.

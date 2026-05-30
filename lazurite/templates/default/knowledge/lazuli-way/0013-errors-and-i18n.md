@@ -6,27 +6,18 @@ tier:    approved
 created: 2026-05-30
 updated: 2026-05-30
 tags: [doctrine, errors, i18n, translation, exposure, gaffe]
+read_when: "errors block, error codes, translations / i18n"
 ---
 
 # Errors and i18n: the error contract + the message-key resolver
 
-When an agent invents error handling, it reaches for ad-hoc shapes: a `messages`
-map here, a `status_code:` there, an English string inlined into a `deny`. Lazuli
-has exactly one error contract and one i18n surface, and both are small. The
-error contract decides **which envelope fields reach the wire** and **which
-human string renders for which framework code**; i18n is how every user-facing
-string becomes a `@translation.<key>` token instead of a hard-coded literal.
-Pin these shapes — the doctor rejects everything else.
+Lazuli has exactly one error contract and one i18n surface; the doctor rejects everything else. The `errors` block decides **which envelope fields reach the wire** per HTTP status class. i18n turns every user-facing string into a `@translation.<key>` token, never a hard-coded literal.
 
-The whole surface lives in three sibling feature blocks, in canonical order
-(`policies → errors → translation`), plus a `translation` catalog file per
-locale on disk.
+The whole surface is three sibling feature blocks in canonical order (`policies → errors → translation`), plus one `translation` catalog file per locale on disk.
 
 ## The `errors` block: exposure, not text
 
-The `errors` block governs the **wire envelope**. It does not contain messages —
-it decides whether the resolved message and which other envelope fields leak to
-the client, split by HTTP status class.
+Governs the **wire envelope** only — no messages. Decides whether the resolved message and other fields leak to the client, split by status class.
 
 ```lazuli
   errors
@@ -38,32 +29,20 @@ the client, split by HTTP status class.
     validation_failed message @translation.article_invalid_input
 ```
 
-- `default hide` is the canonical floor — the resolved `message` does **not**
-  reach the wire unless a status class opts it back in. (`default expose` is the
-  other choice; prefer `hide`.)
-- `expose client 4xx <fields>` lists the envelope fields that reach the client on
-  4xx. Closed catalog: `message`, `code`, `data`, `message_key`.
-- `expose client 5xx <fields>` does the same for 5xx. Closed catalog: `code`,
-  `data` — **`message` is rejected here**. 5xx errors are framework-internal;
-  their text can carry stack traces. Writing `expose client 5xx message` is a
-  hard doctor error (`ERR-VOCAB-EXPOSE-5XX-MESSAGE`). The server log still keeps
-  the full message for operators.
+- `default hide` — canonical floor; resolved `message` does **not** reach the wire unless a status class opts it back in. (`default expose` exists; prefer `hide`.)
+- `expose client 4xx <fields>` — fields reaching the client on 4xx. Closed catalog: `message`, `code`, `data`, `message_key`.
+- `expose client 5xx <fields>` — closed catalog: `code`, `data`. **`message` is rejected** (`ERR-VOCAB-EXPOSE-5XX-MESSAGE`): 5xx is framework-internal, text can carry stack traces. Server log still keeps the full message.
+- `message_key` exposes the resolved `@translation.<key>` token itself, so a client shipping its own offline catalog (native mobile) localizes without trusting server-rendered text.
 
-`message_key` is worth knowing: it exposes the resolved `@translation.<key>`
-token itself so a client that ships its own offline catalog (a native mobile app)
-can localize without trusting the server's rendered text.
+## Closed catalog of framework error codes
 
-## The closed catalog of framework error codes
-
-The `<code> message @translation.<key>` rows inside `errors` may only name codes
-the runtime emits on its own. The catalog is **closed** — invent one and you get
-`ERR-VOCAB-CODE-UNKNOWN`. The codes the parser accepts today:
+`<code> message @translation.<key>` rows may only name codes the runtime emits itself. Closed — invent one → `ERR-VOCAB-CODE-UNKNOWN`. Codes the parser accepts:
 
 | Code | Status | Fires when |
 |---|---|---|
 | `policy_denied` | 401/403 | no policy branch matches the active actor |
 | `validation_failed` | 400 | a payload fails its validator / shape contract |
-| `tenant_mismatch` | 400 | the actor's tenant ≠ the resource's tenant axis |
+| `tenant_mismatch` | 400 | actor's tenant ≠ resource's tenant axis |
 | `not_found` | 404 | a referenced row is absent |
 | `rate_limited` | 429 | a rate-limit throttle rejects the request |
 | `bad_request` | 400 | malformed body/headers/path, unknown input field |
@@ -71,36 +50,20 @@ the runtime emits on its own. The catalog is **closed** — invent one and you g
 | `integration_error` | 502 | an adapter call to an external integration fails |
 | `unique_violation` / `foreign_key_violation` / `not_null_violation` / `check_violation` | 4xx/5xx | a database constraint rejects the write |
 
-> The hand-written docs still call this "the eight closed codes"; the **live
-> parser** also accepts the four DB-constraint codes above (surfaced from
-> `runtime/go/lazuli/error.go`). When prose and parser disagree, the parser
-> wins — see [the-compiler-is-the-oracle](0006-the-compiler-is-the-oracle.md).
-> Run `lazuli doctor .` and read the `ERR-VOCAB-CODE-UNKNOWN` message; it prints
-> the current catalog verbatim.
+> Hand docs say "eight closed codes"; the **live parser** also accepts the four DB-constraint codes (from `runtime/go/lazuli/error.go`). Parser wins — see [the-compiler-is-the-oracle](0006-the-compiler-is-the-oracle.md). `lazuli doctor .` prints the current catalog verbatim in `ERR-VOCAB-CODE-UNKNOWN`.
 
-These framework-code rows are *overrides for the built-in message*, not new error
-families. To declare a genuinely new error, see "Named typed errors" below.
+These rows *override the built-in message*; they don't declare new error families (see Named typed errors below).
 
 ## The `when_denied` resolver chain
 
-A user-facing "you can't do that" message is never an inline English string. It
-is a `@translation.<key>` attached at the most specific layer that should own the
-phrasing. The renderer walks most-specific → most-generic and stops at the first
-hit:
+A "you can't do that" message is never an inline English string — it's a `@translation.<key>` attached at the most specific layer that owns the phrasing. Renderer walks most-specific → most-generic, stops at first hit:
 
-1. **Command-level** — `policy @policy.<cat>` carries a `when_denied
-   @translation.<key>` child. One command's exact phrasing.
-2. **Per-policy** — a `policies.<category>` entry carries `when_denied`. Every
-   command using that category inherits it unless it overrides.
-3. **Per-feature** — the `errors` block's `<code> message @translation.<key>`
-   rows: the catch-all for any command emitting that code with no closer
-   override.
-4. **Built-in catalog** — the runtime ships a PT-BR + en-US floor for every
-   code, so a zero-authoring app still emits a human string, not evaluator jargon.
+1. **Command-level** — `policy @policy.<cat>` with a `when_denied @translation.<key>` child. One command's exact phrasing.
+2. **Per-policy** — a `policies.<category>` entry with `when_denied`. Inherited by every command using that category unless overridden.
+3. **Per-feature** — the `errors` block's `<code> message @translation.<key>` rows: catch-all for a code with no closer override.
+4. **Built-in catalog** — runtime ships a PT-BR + en-US floor for every code; zero-authoring apps still emit a human string.
 
-Layers 1 and 2 use `when_denied`; layer 3 uses `<code> message`. All four
-resolve keys through the single `app.locale.fallbacks` graph — there is no second
-fallback chain. Here is `when_denied` at both the policy and command layers:
+Layers 1–2 use `when_denied`; layer 3 uses `<code> message`. All four resolve keys through the single `app.locale.fallbacks` graph — no second fallback chain. `when_denied` at policy and command layers:
 
 ```lazuli
   policies
@@ -120,16 +83,11 @@ fallback chain. Here is `when_denied` at both the policy and command layers:
       body = input.body
 ```
 
-Note the policy categories: `author` / `edit` / `view` / `remove`. Do **not**
-write `create` / `read` / `update` / `delete` — those shadow effect verbs and the
-doctor rejects them (`POLICY-CATEGORY-SHADOWS-EFFECT-001`). See
-[command-and-query-anatomy](0007-command-and-query-anatomy.md).
+Policy categories are `author` / `edit` / `view` / `remove`. Do **not** use `create` / `read` / `update` / `delete` — they shadow effect verbs (`POLICY-CATEGORY-SHADOWS-EFFECT-001`). See [command-and-query-anatomy](0007-command-and-query-anatomy.md).
 
 ## The `translation` block + catalog file convention
 
-The `translation` block declares one `catalog` pointer and the per-key strings.
-Every `@translation.<key>` referenced anywhere in the feature must resolve to a
-`key` here (or in the on-disk catalog):
+Declares one `catalog` pointer plus per-key strings. Every `@translation.<key>` referenced in the feature must resolve to a `key` here (or in the on-disk catalog):
 
 ```lazuli
   translation
@@ -144,10 +102,7 @@ Every `@translation.<key>` referenced anywhere in the feature must resolve to a
       en-US "Please sign in to manage articles."
 ```
 
-The `catalog "./i18n/<name>.<locale>.json"` path uses a literal `<locale>`
-placeholder. The compiler expands it per locale, loading the matching file. The
-feature-local catalog convention is `i18n/<name>.<locale>.json`, one file per
-locale, each a flat `{"<key>": "<string>"}` map:
+The `catalog` path's `<locale>` is a literal placeholder the compiler expands per locale, loading the matching file. Convention: `i18n/<name>.<locale>.json`, one file per locale, each a flat `{"<key>": "<string>"}` map:
 
 ```json
 {
@@ -156,17 +111,11 @@ locale, each a flat `{"<key>": "<string>"}` map:
 }
 ```
 
-App-wide strings shared across features live in `i18n/common.<locale>.json` at the
-project root; feature-local strings live beside the `.lzi` under
-`features/<feature>/i18n/`. Inline `key` blocks and the on-disk catalog merge —
-the inline form is convenient for keys authored alongside the code; the JSON file
-is where translators work.
+App-wide shared strings → `i18n/common.<locale>.json` at project root; feature-local strings → `features/<feature>/i18n/`. Inline `key` blocks and the on-disk catalog merge — inline is for keys authored alongside code; the JSON file is where translators work.
 
 ## `@translation.*` references everywhere a string surfaces
 
-`@translation.<key>` is the only way a literal becomes user-facing. Beyond
-`when_denied` and `<code> message`, it surfaces on `rule` messages and on enum
-labels/hints:
+`@translation.<key>` is the only way a literal becomes user-facing. Beyond `when_denied` and `<code> message`, it surfaces on `rule` messages and enum labels/hints:
 
 ```lazuli
     rule "closed tickets cannot be reopened"
@@ -175,30 +124,16 @@ labels/hints:
       message "Cannot reopen a closed ticket"
 ```
 
-That `rule` also shows the **named typed error** form — `error <Name> status
-<http-status> expose <fields>` declares a *new* error family with its own code and
-its own exposure, orthogonal to the framework-code overrides in the `errors`
-block. Named typed errors are the escape hatch when none of the closed framework
-codes fit your business rule. (A bare-string `message` on a rule is acceptable;
-prefer a `@translation.<key>` when the string is user-facing.)
+This also shows the **named typed error** form — `error <Name> status <http-status> expose <fields>` declares a *new* error family with its own code and exposure, orthogonal to the framework-code overrides in `errors`. It's the escape hatch when no closed framework code fits the business rule. A bare-string `message` on a rule is allowed; prefer `@translation.<key>` when the string is user-facing.
 
 ## The gaffes this doc prevents
 
-- `expose client 5xx message` → `ERR-VOCAB-EXPOSE-5XX-MESSAGE`. 5xx text never
-  hits the wire.
-- A `<code>` that isn't in the closed catalog → `ERR-VOCAB-CODE-UNKNOWN`.
+- `expose client 5xx message` → `ERR-VOCAB-EXPOSE-5XX-MESSAGE`. 5xx text never hits the wire.
+- A `<code>` not in the closed catalog → `ERR-VOCAB-CODE-UNKNOWN`.
 - An inline English string where a user sees it — use `@translation.<key>`.
-- `when_denied` on a policy category nothing references, or pointing at a missing
-  key → `ERR-VOCAB-WHEN-DENIED-*`. Wire the key into the `translation` block.
-- Policy categories named `create`/`read`/`update`/`delete` →
-  `POLICY-CATEGORY-SHADOWS-EFFECT-001`. Use `author`/`view`/`edit`/`remove`.
+- `when_denied` on a category nothing references, or pointing at a missing key → `ERR-VOCAB-WHEN-DENIED-*`. Wire the key into `translation`.
+- Policy categories named `create`/`read`/`update`/`delete` → `POLICY-CATEGORY-SHADOWS-EFFECT-001`. Use `author`/`view`/`edit`/`remove`.
 
-When you are unsure whether a code, field, or exposure spelling is legal, do not
-guess — `lazuli doctor .` prints the exact closed catalog in its diagnostic. The
-blessed reference is `examples/full-capsule/full-capsule.lzi` (the `customer`
-feature's `errors` + `translation` blocks) with its
-`examples/full-capsule/i18n/customer.<locale>.json` catalogs.
+Unsure whether a code, field, or exposure spelling is legal? Don't guess — `lazuli doctor .` prints the exact closed catalog. Blessed reference: `examples/full-capsule/full-capsule.lzi` (`customer` feature's `errors` + `translation` blocks) with `examples/full-capsule/i18n/customer.<locale>.json`.
 
-Authoritative spec: `docs/error-contract.md`, `docs/canonical-semantics.md`
-("Feature-level error contracts" + "Resolver chain"), `docs/quickref.md`,
-`docs/keyword-reference.md` (`Errors` + `Translation` registry sections).
+Authoritative spec: `docs/error-contract.md`, `docs/canonical-semantics.md` ("Feature-level error contracts" + "Resolver chain"), `docs/quickref.md`, `docs/keyword-reference.md` (`Errors` + `Translation` registry sections).

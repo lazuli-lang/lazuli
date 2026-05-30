@@ -6,19 +6,14 @@ tier:    approved
 created: 2026-05-30
 updated: 2026-05-30
 tags: [doctrine, security, opt-out, reason]
+read_when: "skipping a rate_limit, verify, or tenant scope"
 ---
 
 # Justified opt-outs: every escape carries a reason
 
-Lazuli's security defaults are *forcing*: a mutating command must declare a rate
-limit, an inbound webhook must verify signatures, a tenant-scoped resource must
-derive its tenant. You are allowed to step outside each default — but never
-silently. Every opt-out is a distinct keyword **plus a required `reason "..."`
-child**, so the waiver is explicit, auditable, and greppable.
+Lazuli's security defaults are *forcing*: a mutating command must declare a rate limit, an inbound webhook must verify signatures, a tenant-scoped resource must derive its tenant. You may step outside each — never silently. Every opt-out is a distinct keyword **plus a required `reason "..."` child**: explicit, auditable, greppable.
 
-Reaching for the opt-out without the reason is a gaffe (the LSP flags it); so is
-inventing a fake value just to satisfy the default (e.g. a bogus `rate_limit
-"1000000 per second"` instead of an honest opt-out).
+Gaffes (LSP flags them): the opt-out keyword without a `reason`; or a fake value faking compliance (e.g. bogus `rate_limit "1000000 per second"` instead of an honest opt-out).
 
 ## The four opt-outs
 
@@ -60,9 +55,7 @@ inventing a fake value just to satisfy the default (e.g. a bogus `rate_limit
     emits provider_callback_received
 ```
 
-A webhook's dead-letter handling carries the same discipline: a silent drop on
-the dead-letter queue must be an explicit waiver — `dlq drop` with a `reason`
-child, **inside a `webhook`** (it is not a `job` child):
+A silent drop on the dead-letter queue is the same discipline — `dlq drop` + `reason`, a `webhook` child (not a `job` child):
 
 ```lazuli
   webhook flaky_provider
@@ -79,16 +72,8 @@ child, **inside a `webhook`** (it is not a `job` child):
 
 ## Why the reason is load-bearing
 
-The `reason` is not decoration. It is the audit record an operator-of-record
-reads when they ask "why does this trust boundary have a hole?" — and it is the
-thing a production-profile `lazuli doctor` (or a deployment allowlist) checks for
-before letting the opt-out ship. An opt-out without a reason is rejected at the
-authoring layer precisely so the justification can never be lost.
+The `reason` is the audit record an operator-of-record reads when asking "why does this trust boundary have a hole?", and the thing a production-profile `lazuli doctor` (or deploy allowlist) checks before shipping. A reason-less opt-out is rejected at the authoring layer so the justification can never be lost.
 
-`rate_limit none` and `verify none` lower to the same runtime behaviour as "no
-throttle" / "no verifier" respectively — but the *authoring distinction* (you
-were forced to type the word `none` and justify it) is what keeps the security
-posture honest.
+`rate_limit none` / `verify none` lower to the same runtime as "no throttle" / "no verifier" — but the *authoring distinction* (you were forced to type `none` and justify it) keeps the posture honest.
 
-Authoritative spec: `docs/quickref.md` §security, `docs/grammar.lzi.md`
-(`rate_limit_clause`, `verify_value`).
+Authoritative spec: `docs/quickref.md` §security, `docs/grammar.lzi.md` (`rate_limit_clause`, `verify_value`).

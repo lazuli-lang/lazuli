@@ -6,21 +6,16 @@ tier:    approved
 created: 2026-05-30
 updated: 2026-05-30
 tags: [doctrine, command, query, structure]
+read_when: "writing a command or a query"
 ---
 
 # Command and query anatomy
 
-Most structural gaffes come from blurring distinctions Lazuli keeps deliberately
-sharp. Internalise these and the shapes write themselves.
+Lazuli keeps these distinctions sharp; blurring them is the usual structural gaffe.
 
 ## Commands declare exactly one effect
 
-A command mutates state through **exactly one** of `creates`, `updates`, or
-`deletes` — never two, never zero (a side-effect-only command is a `job` or a
-`@fn`). This is canonical doctrine: the analyzer is *intended* to reject multiple
-effects, and even where `lazuli check` does not yet hard-enforce it, keep to one
-effect per command. Effect-block fields use `=`
-([the-three-operators](0003-the-three-operators.md)).
+Exactly one of `creates` / `updates` / `deletes` per command — never two, never zero. A side-effect-only command is a `job` or `@fn`. The analyzer is intended to reject multiple effects; hold to one even where `lazuli check` doesn't yet hard-enforce it. Effect-block fields use `=` ([the-three-operators](0003-the-three-operators.md)).
 
 ```lazuli
   command update_status
@@ -34,33 +29,24 @@ effect per command. Effect-block fields use `=`
     emits invoice_status_changed
 ```
 
-## `route` vs `input` — never conflate them
+## `route` vs `input` — never conflate
 
-- **`route`** slots are routing/context values bound *by name* from the request
-  route (e.g. `route id: ID` → `route.id`). Surfaces supply them from route
-  context; the author never passes them manually.
-- **`input`** slots are *submitted body* values the caller sends explicitly.
+- **`route`** = routing/context values bound *by name* from the request route (`route id: ID` → `route.id`). Surfaces supply them from route context; the author never passes them manually.
+- **`input`** = *submitted body* values the caller sends explicitly.
 
-Any `route.*` reference must be backed by a declared `route` slot, and a surface
-that calls a command passes **only** `input`, never route values. Mixing them is
-a common gaffe that `lazuli check` catches.
+Every `route.*` reference needs a declared `route` slot. A surface calling a command passes **only** `input`, never route values. `lazuli check` catches mixing them.
 
 ## Policy is always explicit
 
-Every command and every `scope override` query declares `policy @policy.*` (or a
-`@role.*` / `@scope.*` / `@actor.*` atom). Effect-derived policy is a *generator
-suggestion*, never an invisible default — if you don't write it, it isn't there.
+Every command and every `scope override` query declares `policy @policy.*` (or a `@role.*` / `@scope.*` / `@actor.*` atom). Effect-derived policy is a generator *suggestion*, never an invisible default — unwritten means absent.
 
-## `returns` is for response data, not events
+## `returns` ≠ `emits`
 
-A command may `returns <Type>` when the immediate caller needs response data
-back. It is **not** a substitute for `emits` — domain events that other features
-react to flow through `emits`/event groups, not through a return value.
+`returns <Type>` gives the immediate caller response data. It is **not** a substitute for `emits`: domain events other features react to flow through `emits`/event groups, not return values.
 
-## Query modes are explicit: `list`, `lookup`, `sql`
+## Query modes are explicit: `list` / `lookup` / `sql`
 
-Pick the declaration mode up front; the compiler will not infer it from body
-shape:
+Declare the mode up front; the compiler won't infer it from body shape.
 
 ```lazuli
     # generated, analyzable — typed list with filters
@@ -79,13 +65,9 @@ shape:
       sql "./queries/revenue_by_month.sql"
 ```
 
-`query.lookup` children are only `policy`, `params`, `filters`, and `gate behind
-...` — there is no `key` child (that was retired; use `filters` with `==`). A
-`scope override` query **must** carry an explicit `policy`, because the override
-replaces the inherited tenant/soft-delete safety scope.
+- `query.lookup` children are only `policy`, `params`, `filters`, `gate behind ...`. No `key` child (retired — use `filters` with `==`).
+- A `scope override` query **must** carry explicit `policy`: the override replaces the inherited tenant/soft-delete safety scope.
 
-When in doubt about any of these, `lazuli inspect <feature> --expand=all` shows
-exactly what the compiler derived — see
-[the-compiler-is-the-oracle](0006-the-compiler-is-the-oracle.md).
+When unsure, `lazuli inspect <feature> --expand=all` shows exactly what the compiler derived — see [the-compiler-is-the-oracle](0006-the-compiler-is-the-oracle.md).
 
 Authoritative spec: `docs/canonical-semantics.md`, `docs/quickref.md`.

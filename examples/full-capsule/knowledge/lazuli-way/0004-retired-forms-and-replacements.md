@@ -6,16 +6,12 @@ tier:    approved
 created: 2026-05-30
 updated: 2026-05-30
 tags: [doctrine, syntax, gaffe, retired]
+read_when: "a form you remember gets rejected — is it retired?"
 ---
 
 # Retired forms and their replacements
 
-The language evolves by **retiring** old spellings, not aliasing them. A retired
-form is hard-rejected by the parser — there is no compatibility fallback. Agents
-trained on older corpora reach for these constantly; this is the canonical
-"don't write that, write this" table. When the parser rejects something, assume
-it is retired (or never existed) and reach for the current form — never invent a
-workaround.
+The language **retires** old spellings instead of aliasing them: a retired form is hard-rejected by the parser, no fallback. Agents trained on older corpora reach for these constantly. If the parser rejects a form, it is retired (or never existed) — reach for the current form, never invent a workaround.
 
 | ❌ Retired / never-existed | ✅ Current form |
 |---|---|
@@ -32,23 +28,14 @@ workaround.
 
 ## Why retire instead of alias
 
-An alias would let two spellings of the same idea coexist, and a cold-reading
-agent could never be sure which is canonical. The framework's "many faces" rule
-(`CLAUDE.md`) says a keyword is only shipped when the parser, IR, LSP, syntax
-highlighting, docs, scaffold, and `examples/` **all** agree on exactly one
-spelling. Retiring keeps that set of one. The cost — a hard parser error on the
-old form — is the point: it surfaces the drift immediately instead of letting
-stale syntax rot silently in a fixture.
+Aliasing lets two spellings coexist, so a cold-reading agent can never know which is canonical. The "many faces" rule (`CLAUDE.md`) ships a keyword only when parser, IR, LSP, syntax highlighting, docs, scaffold, and `examples/` agree on exactly one spelling. Retiring keeps that set of one; the hard parser error on the old form is the point — it surfaces drift immediately instead of letting stale syntax rot in a fixture.
 
 ## How to stay current
 
-Do **not** trust memory for these. The freshest authority is, in order:
+Don't trust memory. Freshest authority, in order:
 
-1. `lazuli check <file>` — the parser is the ground truth; if it rejects a form,
-   that form is not in the language today.
-2. `docs/keyword-reference.md` — generated from the keyword registry, so it can
-   never drift from the parser.
-3. A passing feature already in `app/features/` — copy its shape.
+1. `lazuli check <file>` — the parser is ground truth; a rejected form is not in the language today.
+2. `docs/keyword-reference.md` — generated from the keyword registry, so it can't drift from the parser.
+3. A passing feature in `app/features/` — copy its shape.
 
-Authoritative spec: `docs/keyword-reference.md`, `docs/grammar.lzi.md`,
-`CLAUDE.md` §"Language-surface parity".
+Authoritative spec: `docs/keyword-reference.md`, `docs/grammar.lzi.md`, `CLAUDE.md` §"Language-surface parity".
