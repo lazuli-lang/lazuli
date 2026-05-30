@@ -1,14 +1,14 @@
 feature account
   domain
     resource User
-      email: @semantic.Email required unique
+      email: Email required unique
       name: Text required
-      password_hash: @cap.Hashed(algorithm:argon2id) required
+      password_hash: Hashed(algorithm:argon2id) required
       created_at: DateTime required
 
     resource UserSession
       user: User required
-      token_hash: @cap.Hashed(algorithm:argon2id) required
+      token_hash: Hashed(algorithm:argon2id) required
       expires_at: DateTime required
       created_at: DateTime required
 
@@ -42,7 +42,7 @@ feature account
 
   command signup
     input
-      email: @semantic.Email required
+      email: Email required
       password: Text required
       name: Text required
     policy @policy.public
@@ -56,7 +56,7 @@ feature account
 
   command login
     input
-      email: @semantic.Email required
+      email: Email required
       password: Text required
     policy @policy.public
     rate_limit "5 per 10 minutes per ip"

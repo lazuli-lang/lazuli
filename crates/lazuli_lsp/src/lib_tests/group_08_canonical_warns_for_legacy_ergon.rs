@@ -59,9 +59,9 @@ feature customer
             .iter()
             .any(|message| { message.contains("policy atoms should be namespaced") })
     );
-    assert!(messages.iter().any(|message| {
-        message.contains("semantic types should use the `@semantic.*` namespace")
-    }));
+    // SPEC-04 — the `type-namespace` warning on bare semantic types is retired:
+    // bare PascalCase is now canonical and `lazuli fmt` normalizes the @-form,
+    // so there is no longer a warning to assert here.
     assert!(messages.iter().any(|message| {
         message.contains("extension references should use capability namespaces")
     }));

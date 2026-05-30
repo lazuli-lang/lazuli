@@ -49,13 +49,13 @@ feature customer
       previously migrated Account
       owner: User optional
       name: Text required
-      email: @semantic.Email @pii.contact required
-      brand_color: @semantic.HexColor optional
-      health: @semantic.Percentage = 0
+      email: Email @pii.contact required
+      brand_color: HexColor optional
+      health: Percentage = 0
       tier: CustomerTier = free
       source: CustomerSource = manual
       score: Integer @pii.derived = 0
-      external_id: @cap.Encrypted(key:@key.tenant) @pii.external optional
+      external_id: Encrypted(key:@key.tenant) @pii.external optional
       is_high_value: Boolean derived from score > 80
       renewal_date: Date optional
       reminder_lead_days: Integer = 7
@@ -164,7 +164,7 @@ feature customer
 
     record CustomerLtv
       customer_id: ID
-      amount: @semantic.Money
+      amount: Money
       currency: Text
 
     record CustomerRiskRow
@@ -204,7 +204,7 @@ feature customer
 
     query.lookup by_id by id: ID
 
-    query.lookup by_email by email: @semantic.Email
+    query.lookup by_email by email: Email
 
     query.list global_search
       policy @policy.global_read
@@ -276,7 +276,7 @@ feature customer
         by_id = ctx.user.id when @actor.user
 
       event created
-        email: @semantic.Email @pii.contact
+        email: Email @pii.contact
         source: CustomerSource
 
       event status_changed
@@ -380,7 +380,7 @@ feature customer
   command capture_lead
     input
       name: Text required
-      email: @semantic.Email @pii.contact required
+      email: Email @pii.contact required
     policy @policy.capture_lead
       when_denied @translation.capture_lead_signin_required
     rate_limit "10 per minute per ip"
@@ -399,7 +399,7 @@ feature customer
   command create
     input
       name: Text required
-      email: @semantic.Email @pii.contact required
+      email: Email @pii.contact required
       tier: CustomerTier required
       source: CustomerSource required
     policy @policy.create
@@ -559,7 +559,7 @@ feature customer
 
       case redacts_email
         requires customer.email = "ada@example.com"
-        forbids output contains @semantic.Email
+        forbids output contains Email
 
       case uses_lookup_when_id_known
         requires input.customer_id = "cus_123"
@@ -656,8 +656,8 @@ feature customer_auth
 
     resource CustomerSession
       customer: Customer required on_delete restrict
-      refresh_token_hash: @cap.Hashed(algorithm:argon2id) required
-      provider_access_token: @cap.Encrypted(key:@key.tenant) @pii.credential optional
+      refresh_token_hash: Hashed(algorithm:argon2id) required
+      provider_access_token: Encrypted(key:@key.tenant) @pii.credential optional
       provider: AuthProvider required
       expires_at: DateTime required
       refresh_expires_at: DateTime optional
@@ -671,7 +671,7 @@ feature customer_auth
 
     resource CustomerPasswordReset
       customer: Customer required on_delete cascade
-      token: @cap.Token(ttl:1h,single_use:true,store:hashed) required
+      token: Token(ttl:1h,single_use:true,store:hashed) required
       requested_at: DateTime required
 
     query.list active_sessions
@@ -740,7 +740,7 @@ feature customer_auth
 
   command login
     input
-      email: @semantic.Email
+      email: Email
       password: Text
     policy @policy.login
     rate_limit "5 per 10 minutes per ip"
@@ -761,7 +761,7 @@ feature customer_auth
     emits customer_mfa_enabled
 
   extensions
-    fn hash_customer_password: Function[Text, @cap.Hashed(algorithm:argon2id)] at "./auth/hash_customer_password.go"
+    fn hash_customer_password: Function[Text, Hashed(algorithm:argon2id)] at "./auth/hash_customer_password.go"
     fn verify_customer_password: Function[PasswordVerifyInput, PasswordVerifyResult] at "./auth/verify_customer_password.go"
     adapter google_oauth: IntegrationAdapter[GoogleOAuth] at "./integrations/google_oauth.go"
     fn enroll_customer_totp: Function[Customer, TotpEnrollment] at "./auth/enroll_customer_totp.go"
@@ -920,7 +920,7 @@ feature customer_import
 
     resource CustomerImportBatch
       uploaded_by: User required
-      file: @cap.File(max_size:25mb,accept:text/csv,visibility:private) required
+      file: File(max_size:25mb,accept:text/csv,visibility:private) required
       status: ImportStatus = uploaded
       total_rows: Integer = 0
       valid_rows: Integer = 0
@@ -1076,7 +1076,7 @@ feature account
 
   domain
     resource User
-      email: @semantic.Email @pii.contact required unique
+      email: Email @pii.contact required unique
       name: Text required
       role: Text optional
 

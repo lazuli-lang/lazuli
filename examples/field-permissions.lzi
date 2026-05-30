@@ -16,9 +16,9 @@ feature customer_sensitive
       tenancy org
       customer: Customer required
       legal_name: Text @pii.contact required
-      tax_id: @cap.Encrypted(key:@key.tenant) @pii.identifier required
-      annual_revenue: @cap.Encrypted(key:@key.tenant) @pii.financial optional
-      internal_notes: @cap.Encrypted(key:@key.tenant) @pii.derived optional
+      tax_id: Encrypted(key:@key.tenant) @pii.identifier required
+      annual_revenue: Encrypted(key:@key.tenant) @pii.financial optional
+      internal_notes: Encrypted(key:@key.tenant) @pii.derived optional
 
       soft_delete
       retention 7y then anonymize
@@ -57,7 +57,7 @@ feature customer_sensitive
     input
       legal_name: Text
       tax_id: Text
-      annual_revenue: @semantic.Money optional
+      annual_revenue: Money optional
     target query.by_customer(customer_id: route.customer_id)
     policy @policy.update
     rate_limit "30 per minute per user"

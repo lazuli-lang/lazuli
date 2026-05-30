@@ -1,7 +1,7 @@
 feature account
   domain
     resource User
-      email: @semantic.Email required unique
+      email: Email required unique
       name: Text required
 
   auth

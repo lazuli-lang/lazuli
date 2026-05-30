@@ -1,23 +1,23 @@
 # Rule: VOCAB-DERIVED-READ-001
 # Case: negative - rule SHOULD NOT fire
-# A field with an explicit @cap.Hashed tier has storage semantics.
+# A field with an explicit Hashed tier has storage semantics.
 # That conflicts with `derived from`, even when no command writes it.
 
 feature derived_read_negative_cap_tier
   domain
     resource Account
-      email: @semantic.Email required unique
+      email: Email required unique
       display_name: Text required
       created_at: DateTime required
 
     resource LoginSecret
       account: Account required
-      password_hash: @cap.Hashed(algorithm:argon2id)
+      password_hash: Hashed(algorithm:argon2id)
       rotated_at: DateTime required
 
     record LoginSecretStatus
       login_secret_id: ID required
-      account_email: @semantic.Email required
+      account_email: Email required
       rotated_at: DateTime required
       has_password: Boolean required
 

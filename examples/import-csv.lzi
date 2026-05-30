@@ -27,7 +27,7 @@ feature customer_import
     resource ImportBatch
       tenancy org
       uploaded_by: User required
-      file: @cap.File(max_size:25mb,accept:text/csv) required
+      file: File(max_size:25mb,accept:text/csv) required
       status: ImportStatus = uploaded
       total_rows: Integer = 0
       valid_rows: Integer = 0

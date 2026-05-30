@@ -29,6 +29,6 @@ registry
       id: Text required
       external_reference: Text required
       status: Text required
-      amount: @semantic.Money required
-      currency: @semantic.Currency required
+      amount: Money required
+      currency: Currency required
       received_at: Timestamp required

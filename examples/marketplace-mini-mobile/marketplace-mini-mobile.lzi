@@ -5,8 +5,8 @@ feature catalog
     public contract Listing as v1
     resource Listing
       title: Text required
-      price: @semantic.Money required
-      currency: @semantic.Currency required
+      price: Money required
+      currency: Currency required
       created_at: DateTime required
 
     query.list listings

@@ -23,10 +23,10 @@ feature user
       github
 
     resource User
-      email: @semantic.Email @pii.contact required
+      email: Email @pii.contact required
       display_name: Text optional
       status: UserStatus = invited
-      password_hash: @cap.Hashed(algorithm:argon2id) optional
+      password_hash: Hashed(algorithm:argon2id) optional
       mfa_enabled: Boolean = false
 
       soft_delete
@@ -35,8 +35,8 @@ feature user
 
     resource Session
       user: User required
-      refresh_token_hash: @cap.Hashed(algorithm:argon2id) required
-      provider_access_token: @cap.Encrypted(key:@key.tenant) @pii.credential optional
+      refresh_token_hash: Hashed(algorithm:argon2id) required
+      provider_access_token: Encrypted(key:@key.tenant) @pii.credential optional
       provider: AuthProvider required
       expires_at: DateTime required
 
@@ -45,7 +45,7 @@ feature user
 
     query.lookup by_id by id: ID
 
-    query.lookup by_email by email: @semantic.Email
+    query.lookup by_email by email: Email
 
     query.list active_sessions
       modifier @query_modifier.active_session_scope
@@ -59,7 +59,7 @@ feature user
 
     event user_registered
       user_id: ID
-      email: @semantic.Email @pii.contact
+      email: Email @pii.contact
 
     event user_logged_in
       user_id: ID
@@ -118,7 +118,7 @@ feature user
 
   command register
     input
-      email: @semantic.Email
+      email: Email
       password: Text
       display_name: Text optional
     policy @policy.register
@@ -132,7 +132,7 @@ feature user
 
   command login
     input
-      email: @semantic.Email
+      email: Email
       password: Text
     policy @policy.login
     rate_limit "5 per 10 minutes per ip"
@@ -163,7 +163,7 @@ feature user
       source query.by_id(id: route.id)
 
   extensions
-    fn hash_password: Function[Text, @cap.Hashed(algorithm:argon2id)] at "./auth/hash_password.go"
+    fn hash_password: Function[Text, Hashed(algorithm:argon2id)] at "./auth/hash_password.go"
     fn verify_password: Function[PasswordVerifyInput, PasswordVerifyResult] at "./auth/verify_password.go"
     adapter google_oauth: IntegrationAdapter[GoogleOAuth] at "./integrations/google_oauth.go"
     fn enroll_totp: Function[User, TotpEnrollment] at "./auth/enroll_totp.go"

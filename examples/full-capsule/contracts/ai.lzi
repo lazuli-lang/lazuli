@@ -7,7 +7,7 @@ contract acme.ai.v1
     org_id: ID required
     customer_id: ID required
     name: Text required
-    email: @semantic.Email @pii.contact optional
+    email: Email @pii.contact optional
     status: Text required
 
   record CustomerSummaryResult

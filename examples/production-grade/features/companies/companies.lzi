@@ -20,9 +20,9 @@ feature companies
       retention 7y then anonymize
 
     resource User
-      email: @semantic.Email @pii.contact required unique
+      email: Email @pii.contact required unique
       name: Text required
-      password_hash: @cap.Hashed(algorithm:argon2id) required
+      password_hash: Hashed(algorithm:argon2id) required
 
       soft_delete
       retention 7y then anonymize
@@ -121,7 +121,7 @@ feature companies
   command invite_member
     input
       company_id: ID required
-      user_email: @semantic.Email required
+      user_email: Email required
       role: Text required
     target query.company_by_id(id: input.company_id)
     policy @policy.invite_member

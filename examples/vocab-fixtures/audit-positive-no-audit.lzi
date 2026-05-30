@@ -9,7 +9,7 @@ feature audit_positive_no_audit
       name: Text required
       slug: Text required unique
       description: Text required
-      owner_email: @semantic.Email required
+      owner_email: Email required
       visibility: Text required
       revised_by: Text required
       updated_at: DateTime required
@@ -23,7 +23,7 @@ feature audit_positive_no_audit
       name: Text required
       slug: Text required
       description: Text required
-      owner_email: @semantic.Email required
+      owner_email: Email required
       visibility: Text required
     policy @policy.maintainer
     rate_limit "60 per hour per actor"

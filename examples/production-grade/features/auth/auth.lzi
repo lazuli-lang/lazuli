@@ -61,7 +61,7 @@ feature auth
   domain
     resource UserSession
       user: User required on_delete cascade
-      refresh_token_hash: @cap.Hashed(algorithm:argon2id) required
+      refresh_token_hash: Hashed(algorithm:argon2id) required
       expires_at: DateTime required
       retention 30d then delete
 
@@ -106,7 +106,7 @@ feature auth
 
   command login
     input
-      email: @semantic.Email required
+      email: Email required
       password: Text required
     policy @policy.login
     rate_limit "5 per 10 minutes per ip"
@@ -118,5 +118,5 @@ feature auth
   # and `docs/proposals/rbac-catalog-vocab.md` §Where the catalog lives.
 
   extensions
-    fn hash_password: Function[Text, @cap.Hashed(algorithm:argon2id)] at "./handlers/hash_password.go"
+    fn hash_password: Function[Text, Hashed(algorithm:argon2id)] at "./handlers/hash_password.go"
     fn verify_password: Function[PasswordVerifyInput, PasswordVerifyResult] at "./handlers/verify_password.go"

@@ -75,7 +75,7 @@ app ProductionGrade
     propagate true
     sample_rate 0.1
 
-  # Encryption bucket cycle — bind every `@cap.Encrypted(key:@key.tenant)`
+  # Encryption bucket cycle — bind every `Encrypted(key:@key.tenant)`
   # field on `Credential` (and any other tenant-keyed field) to a per-
   # tenant env var template. See `docs/proposals/encryption-vocab.md`.
   encryption

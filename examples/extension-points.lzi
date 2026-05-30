@@ -8,7 +8,7 @@ feature customer_metrics
   domain
     record CustomerLtv
       customer_id: ID
-      amount: @semantic.Money
+      amount: Money
       currency: Text
 
     query.sql customer_lifetime_value

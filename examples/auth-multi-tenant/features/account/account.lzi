@@ -7,13 +7,13 @@ feature account
   domain
     resource User
       org: Org required
-      email: @semantic.Email required unique
+      email: Email required unique
       name: Text required
 
     resource UserSession
       org: Org required
       user: User required
-      token_hash: @cap.Hashed(algorithm:argon2id) required
+      token_hash: Hashed(algorithm:argon2id) required
       expires_at: DateTime required
 
     query.list mine

@@ -196,9 +196,12 @@ pub(crate) fn validate_eval_predicate_shape(body: &str) -> Option<String> {
         if rhs.is_empty() {
             return Some("`contains` predicate requires a right-hand value".to_owned());
         }
-        if !(rhs.starts_with('"') || rhs.starts_with("@semantic.")) {
+        // SPEC-04 — accept the canonical BARE semantic type (`contains Email`)
+        // alongside a quoted literal or the deprecated `@semantic.<Type>` form.
+        let bare_semantic = lazuli_keywords::SEMANTIC_TYPES.contains(&rhs);
+        if !(rhs.starts_with('"') || rhs.starts_with("@semantic.") || bare_semantic) {
             return Some(
-                "`contains` rhs must be a quoted string literal or a `@semantic.<Type>` reference"
+                "`contains` rhs must be a quoted string literal or a semantic type (e.g. `Email`)"
                     .to_owned(),
             );
         }

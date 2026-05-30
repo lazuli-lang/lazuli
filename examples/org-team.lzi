@@ -83,7 +83,7 @@ feature org
 
   command invite_member
     input
-      email: @semantic.Email
+      email: Email
       role: MembershipRole
       team: Team optional
     policy @policy.invite
@@ -105,4 +105,4 @@ feature org
       columns org, role
 
   extensions
-    fn resolve_or_invite_user: Function[@semantic.Email, User]
+    fn resolve_or_invite_user: Function[Email, User]

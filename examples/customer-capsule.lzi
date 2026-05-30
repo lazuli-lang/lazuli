@@ -23,7 +23,7 @@ feature customer
       tenancy org
       owner: User required
       name: Text required
-      email: @semantic.Email required
+      email: Email required
 
       soft_delete
       timestamps
@@ -70,7 +70,7 @@ feature customer
         by_id = ctx.user.id when @actor.user
 
       event created
-        email: @semantic.Email
+        email: Email
 
       event activated
 

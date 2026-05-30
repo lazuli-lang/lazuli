@@ -179,14 +179,14 @@ const FIXTURE_SENTINELS: &[(&str, &str, &str)] = &[
         "unique is_default when is_default = true",
     ),
     (
-        "@semantic.HexColor",
+        "HexColor",
         "full-capsule.lzi",
-        "@semantic.HexColor",
+        "HexColor",
     ),
     (
-        "@semantic.Percentage",
+        "Percentage",
         "full-capsule.lzi",
-        "@semantic.Percentage",
+        "Percentage",
     ),
     (
         "record (shadow struct)",

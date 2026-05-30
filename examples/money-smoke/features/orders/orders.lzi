@@ -1,6 +1,6 @@
 feature orders
   domain
     resource Order
-      total: @semantic.Money(currency: BRL) required
-      tax: @semantic.Money(currency: BRL)
-      discount: @semantic.Money(currency: BRL)
+      total: Money(currency: BRL) required
+      tax: Money(currency: BRL)
+      discount: Money(currency: BRL)

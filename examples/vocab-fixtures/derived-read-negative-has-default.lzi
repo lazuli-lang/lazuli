@@ -6,7 +6,7 @@
 feature derived_read_negative_has_default
   domain
     resource SupportTicket
-      requester_email: @semantic.Email required
+      requester_email: Email required
       title: Text required
       status_label: Text = "open"
       created_at: DateTime required
@@ -17,7 +17,7 @@ feature derived_read_negative_has_default
 
   command open_ticket
     input
-      requester_email: @semantic.Email required
+      requester_email: Email required
       title: Text required
     policy @policy.public
     rate_limit "20 per hour per actor"

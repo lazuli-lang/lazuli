@@ -22,7 +22,7 @@ feature crm
     resource Customer
       owner: User required
       name: Text @pii.contact required
-      email: @semantic.Email @pii.contact required
+      email: Email @pii.contact required
       status: CustomerStatus = lead
       has_many projects: Project inverse customer
 
@@ -70,7 +70,7 @@ feature crm
         by_id = ctx.user.id when @actor.user
 
       event created
-        email: @semantic.Email @pii.contact
+        email: Email @pii.contact
 
       event qualified
       event opportunity_opened
@@ -103,7 +103,7 @@ feature crm
   command create_customer
     input
       name: Text required
-      email: @semantic.Email @pii.contact required
+      email: Email @pii.contact required
     policy @policy.create
     rate_limit "30 per hour per user"
     audit default

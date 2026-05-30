@@ -1,7 +1,7 @@
 feature orders
   domain
     resource Order
-      total: @semantic.Money(currency: BRL) required
-      paid: @semantic.Money(currency: USD) required
+      total: Money(currency: BRL) required
+      paid: Money(currency: USD) required
       invariant paid_matches_total
         when paid = total

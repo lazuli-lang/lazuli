@@ -128,9 +128,9 @@ app AcmeCRM
     sample_rate 0.1
 
   # Encryption bucket cycle — one binding per `@key.<scope>` referenced
-  # by `@cap.Encrypted` / `@cap.E2ee` field sites in this capsule.
+  # by `Encrypted` / `E2ee` field sites in this capsule.
   # `Customer.external_id` and `CustomerSession.provider_access_token`
-  # are both `@cap.Encrypted(key:@key.tenant)`; the binding below ties
+  # are both `Encrypted(key:@key.tenant)`; the binding below ties
   # that scope to a per-tenant env var template.
   # See `docs/proposals/encryption-vocab.md`.
   encryption

@@ -281,9 +281,15 @@ fn parse_contains_rhs(line: &SourceLine<'_>, rhs: &str) -> Result<ContainsRhs, P
         }
         return Ok(ContainsRhs::SemanticType(rhs.to_owned()));
     }
+    // SPEC-04 — bare canonical semantic type (`contains Email`). Normalize to
+    // the stored `@semantic.<Type>` form so downstream IR is identical to the
+    // deprecated sigil spelling.
+    if lazuli_keywords::SEMANTIC_TYPES.contains(&rhs) {
+        return Ok(ContainsRhs::SemanticType(format!("@semantic.{rhs}")));
+    }
     Err(line_error(
         line,
-        "`contains` rhs must be a quoted string literal or a `@semantic.<Type>` reference",
+        "`contains` rhs must be a quoted string literal or a semantic type (e.g. `Email`)",
     ))
 }
 

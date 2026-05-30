@@ -3,8 +3,8 @@ feature payments
 
   domain
     resource Payment
-      amount: @semantic.Money required
-      currency: @semantic.Currency required
+      amount: Money required
+      currency: Currency required
       external_reference: Text required unique
       captured_at: DateTime required
 
@@ -23,8 +23,8 @@ feature payments
 
   command capture_payment
     input
-      amount: @semantic.Money required
-      currency: @semantic.Currency required
+      amount: Money required
+      currency: Currency required
       external_reference: Text required
       captured_at: DateTime required
     policy @policy.create

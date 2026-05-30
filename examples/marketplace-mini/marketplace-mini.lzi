@@ -3,7 +3,7 @@ feature account
 
   domain
     resource User
-      email: @semantic.Email @pii.contact required unique
+      email: Email @pii.contact required unique
       name: Text required
       retention 7y then anonymize
 
@@ -25,9 +25,9 @@ feature listing
     resource Listing
       seller: User required
       title: Text required
-      price: @semantic.Money required
-      currency: @semantic.Currency required
-      location: @semantic.GeoPoint required
+      price: Money required
+      currency: Currency required
+      location: GeoPoint required
       created_at: DateTime required
 
 feature order
@@ -40,8 +40,8 @@ feature order
       buyer: User required
       listing: Listing required
       placed_at: DateTime required
-      amount: @semantic.Money required
-      currency: @semantic.Currency required
+      amount: Money required
+      currency: Currency required
       payment_reference: Text optional
 
       lifecycle status
@@ -82,8 +82,8 @@ feature payment
     event payment_received
       order_id: ID
       external_reference: Text
-      amount: @semantic.Money
-      currency: @semantic.Currency
+      amount: Money
+      currency: Currency
 
   webhook payment_callback
     path "/webhooks/payment"

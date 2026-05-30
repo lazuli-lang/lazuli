@@ -43,6 +43,6 @@ registry
     crm_customer_upsert
       external_id: Text required
       org_id: ID required
-      email: @semantic.Email @pii.contact optional
+      email: Email @pii.contact optional
       payload_version: Text required
       received_at: Timestamp required
