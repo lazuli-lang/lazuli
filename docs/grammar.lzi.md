@@ -114,6 +114,28 @@ parent construct — for instance, `policy` is a keyword as a child of
 `command`, `agent`, `flow`, etc., but a feature named `policy_holders`
 is fine because feature names use `IDENT_LOWER` and contextual lookup.)
 
+### 1.4 Compound keyword joins
+
+A keyword spelled as more than one lexeme follows one predictable join rule, so
+an author (human or LLM) can infer the spelling of a compound they have not seen.
+The join encodes the *kind* of compound:
+
+- **Dotted (`a.b`)** — `b` selects a **variant within a family** that shares
+  dispatch: `query.list` / `query.lookup` / `query.sql`, `event.trace`. The head
+  is a reusable noun; the tail picks the kind. The dot is reserved for this.
+- **Underscore (`a_b`)** — a single **atomic concept** whose name happens to be
+  two words: `event_group`, `has_many`, `many_through`, `schedule_rule`,
+  `computed_date`, `tenant_from`, `on_delete`, `soft_delete`, `append_only`,
+  `rate_limit`, `escape_route`, `polymorphic_ref`.
+- **Space (`a b`)** — a **reserved modifier applied to a reserved head**, where
+  both words are independently meaningful keywords and the construct reads as
+  "apply `a` to `b`": `public contract`, `scope override`, `previously migrated`
+  / `previously alias`.
+
+So `event_group` is never `event.group` (it is not a variant of `event`), and
+`public contract` is never `public_contract` (it is modifier + head, not one
+atom). Pick the join by classifying the compound, not by taste.
+
 ## 2. File-level structure
 
 ```ebnf
