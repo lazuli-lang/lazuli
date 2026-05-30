@@ -12,18 +12,19 @@
 # round so a genuinely-stuck gate can't trap the session forever.
 #
 # Tiers (see .claude/hooks/README.md for the full rationale + tuning):
-#   * Default (fast, ~0.3 s): `lazuli doctor . --security-profile strict
+#   * Gate 1 (fast, ~0.3 s, always): `lazuli doctor . --security-profile strict
 #     --coverage --fail-on category:TestDiscipline`. Under the `strict`
 #     profile most discipline findings are WARNINGS (exit 0 by default), so we
 #     pass an explicit `--fail-on` to make the test-discipline family actually
 #     block — mirroring the `pnpm lazuli:doctor:gate` script. The doctor `spec`
 #     surface already exercises the spec/actor/predicate/transition rules, so
 #     this alone is a meaningful acceptance gate without codegen.
-#   * Opt-in handler tests: set LAZULI_GATE_RUN_TESTS=1 to also run
-#     `lazuli generate` + `lazuli test . --layer handler`. This is OFF by
-#     default because `lazuli test --layer handler` shells out to `go test`
-#     against the GENERATED `dist/go/` tree and fails spuriously if codegen
-#     hasn't run — so when enabled we always generate first.
+#   * Gate 2 (handler coverage, ON by default once handlers exist): generates
+#     dist/go/ then runs `lazuli test . --layer handler --coverage --fail-on
+#     coverage:handler_go=<pct>` so a coverage % below the bar BLOCKS the stop —
+#     the "coverage forces iterations" mechanism. Auto-skipped until the project
+#     has handler `.go` files; disable with LAZULI_GATE_RUN_TESTS=0, tune the
+#     bar with LAZULI_GATE_HANDLER_COVERAGE (default 90).
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -93,6 +94,10 @@ emit_block() {
   exit 0
 }
 
+# Run from the project root (hooks fire there, but be defensive against a
+# session that `cd`'d elsewhere) so `lazuli doctor .` / `find app/...` resolve.
+cd "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null || true
+
 # If there is no global `lazuli` on PATH we cannot gate — allow the stop
 # rather than wedge every conversation. (Same PATH assumption as package.json.)
 if ! command -v lazuli >/dev/null 2>&1; then
@@ -123,28 +128,42 @@ ${doctor_tail}")
 fi
 
 # ---------------------------------------------------------------------------
-# Gate 2 — handler tests (opt-in via LAZULI_GATE_RUN_TESTS=1). Generates the
-# Go tree first so `go test ./...` has a module to run against, then runs the
-# handler layer. Left off by default to keep the Stop gate fast and free of
-# spurious "no main module" failures on an ungenerated checkout.
+# Gate 2 — handler tests + Go coverage threshold (ON by default; the article's
+# "coverage forces iterations" mechanism). This is what makes a coverage % an
+# actual gate, not just a report: `lazuli test --layer handler --coverage
+# --fail-on coverage:handler_go=<pct>` exits non-zero when handler coverage is
+# below the bar, blocking the stop until you write the missing tests.
+#
+# Robustness so this never wedges a legitimately-early session:
+#   * Skipped entirely when there are no handler `.go` files yet (nothing to
+#     cover) — a fresh/early project isn't punished.
+#   * Disable with LAZULI_GATE_RUN_TESTS=0. Tune the bar with
+#     LAZULI_GATE_HANDLER_COVERAGE (default 90, matching the tdd-strict
+#     `[doctor.coverage]` handler_go block threshold).
+#   * `lazuli test --layer handler` needs the generated dist/go/ tree, so we
+#     codegen first; a codegen failure (often an offline `go mod`) only WARNS —
+#     an environment hiccup must not trap the session.
 # ---------------------------------------------------------------------------
-if [[ "${LAZULI_GATE_RUN_TESTS:-0}" == "1" ]]; then
+handler_coverage="${LAZULI_GATE_HANDLER_COVERAGE:-90}"
+if [[ "${LAZULI_GATE_RUN_TESTS:-1}" != "0" ]] \
+   && find app/features -type f -name '*.go' -path '*/handlers/*' 2>/dev/null | grep -q .; then
   set +e
   gen_output="$(lazuli generate go . --out dist/go 2>&1)"
   gen_status=$?
   set -e
   if [[ ${gen_status} -ne 0 ]]; then
-    gen_tail="$(printf '%s\n' "${gen_output}" | tail -n 20)"
-    failures+=("lazuli generate go (prerequisite for handler tests) FAILED:
-${gen_tail}")
+    echo "lazuli-gate: WARNING — \`lazuli generate go\` failed; skipping the handler" \
+         "coverage gate this round (environment issue, not a code defect?):" >&2
+    printf '%s\n' "${gen_output}" | tail -n 3 >&2
   else
     set +e
-    test_output="$(lazuli test . --layer handler 2>&1)"
+    test_output="$(lazuli test . --layer handler --coverage \
+      --fail-on "coverage:handler_go=${handler_coverage}" 2>&1)"
     test_status=$?
     set -e
     if [[ ${test_status} -ne 0 ]]; then
       test_tail="$(printf '%s\n' "${test_output}" | tail -n 30)"
-      failures+=("lazuli test --layer handler FAILED:
+      failures+=("lazuli test --layer handler (--fail-on coverage:handler_go=${handler_coverage}) FAILED:
 ${test_tail}")
     fi
   fi

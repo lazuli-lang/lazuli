@@ -18,7 +18,7 @@ The harness has two independent levels:
 | Level | Hook event | Script | What it runs | How it blocks |
 |---|---|---|---|---|
 | 1. Immediate post-edit check | `PostToolUse` (Write/Edit/MultiEdit) | `lazuli-check.sh` | `lazuli check <edited file>` (fast, single-file) | **exit 2 + stderr** → the agentic loop halts before the next step until the parse/analyzer error is fixed |
-| 2. Acceptance gate on stop | `Stop` | `lazuli-gate.sh` | `lazuli doctor` (strict + coverage, test-discipline hard-block); opt-in `lazuli test` | **exit 0 + `{"decision":"block","reason":…}`** → Claude refuses to stop and keeps fixing |
+| 2. Acceptance gate on stop | `Stop` | `lazuli-gate.sh` | `lazuli doctor` (strict + coverage, test-discipline hard-block) **+** `lazuli test --layer handler` coverage gate once handlers exist | **exit 0 + `{"decision":"block","reason":…}`** → Claude refuses to stop and keeps fixing |
 
 Both are configured in [`../settings.json`](../settings.json).
 
@@ -80,21 +80,37 @@ allows the stop on the *second* pass, so a gate the agent genuinely can't
 satisfy can't trap the session forever. (Without this guard, block → continue
 → still red → block → … loops until the context limit.)
 
-### Opt-in: handler tests in the gate
+### Handler tests + coverage gate (on by default; auto-skipped until you have handlers)
 
-Set `LAZULI_GATE_RUN_TESTS=1` (e.g. in `.claude/settings.json`'s `env` block,
-or your shell) to also run handler tests in the gate:
+Once the project has handler `.go` files, the gate **also** enforces Go
+coverage — the "coverage forces iterations" mechanism. A coverage number is
+only a real gate if falling below it *blocks*, so the gate runs:
 
 ```bash
-lazuli generate go . --out dist/go   # always generate first…
-lazuli test . --layer handler        # …then run go test against dist/go
+lazuli generate go . --out dist/go                                   # generate first…
+lazuli test . --layer handler --coverage \
+  --fail-on coverage:handler_go=${LAZULI_GATE_HANDLER_COVERAGE:-90}  # …then gate on coverage %
 ```
 
-This is **off by default** because `lazuli test --layer handler` shells out to
-`go test ./...` against the **generated** `dist/go/` tree and fails spuriously
-("directory prefix . does not contain main module") if codegen hasn't run.
-When enabled, the gate always regenerates first so the tests have a module to
-run against. Expect multi-second latency when this is on.
+`lazuli doctor`'s `--coverage` is only a *report* (it never changes doctor's
+exit code); the `test` runner is the surface that owns the
+`coverage:<metric>=<N>` gate, so coverage can only *block* from here. The bar
+defaults to **90** (`handler_go`), matching the `tdd-strict`
+`[doctor.coverage]` handler threshold.
+
+Three robustness rules keep this from ever wedging a legitimately-early
+session:
+
+- **Auto-skipped while there are no handler `.go` files** (`app/features/**/handlers/*.go`).
+  A fresh project with only `.lzi`/`.lzx` isn't punished — the coverage gate
+  switches itself on the moment you write your first handler.
+- **Codegen failure only warns.** `lazuli test --layer handler` shells out to
+  `go test` against the **generated** `dist/go/` tree, so the gate regenerates
+  first; if that codegen fails (often an offline `go mod`), the gate prints a
+  warning and *skips* this round rather than blocking on an environment hiccup.
+- **Disable / tune via env.** `LAZULI_GATE_RUN_TESTS=0` turns the whole tier
+  off; `LAZULI_GATE_HANDLER_COVERAGE=<pct>` moves the bar. Expect multi-second
+  latency on each stop once this tier is active (codegen + `go test`).
 
 ---
 
@@ -115,9 +131,10 @@ preset = "tdd-strict"     # tdd-strict | tdd-mature | tdd-iron-hand | …
   (then even a bare `doctor` blocks; the gate gets stricter automatically).
 - Bump the coverage `preset` (or add per-layer `[doctor.coverage.<layer>]`
   overrides) to raise block thresholds. Note: doctor's `--coverage` report is
-  *informational* and does not change doctor's exit code — to make coverage
-  *block the stop*, enable handler tests (above) and gate on the `test`
-  runner, which is the surface that owns the `coverage:<layer>=<N>` gate.
+  *informational* and does not change doctor's exit code — the coverage *block*
+  comes from the handler-tests tier (above), which gates on the `test` runner,
+  the surface that owns the `coverage:<metric>=<N>` gate. Override the gate's
+  bar without touching the manifest via `LAZULI_GATE_HANDLER_COVERAGE`.
 
 **Add more hard-blocked categories.** Edit the `--fail-on` clauses in
 `lazuli-gate.sh` (they're repeatable):
@@ -134,8 +151,8 @@ lazuli doctor . --security-profile strict --coverage \
 
 **Disable a hook** — three options, least to most invasive:
 
-1. *Per session, gate only:* run with `LAZULI_GATE_RUN_TESTS` unset (default)
-   to keep the gate to the fast doctor-only path.
+1. *Per session, drop the slow tier:* set `LAZULI_GATE_RUN_TESTS=0` to keep the
+   gate on the fast doctor-only path (skips the handler codegen + coverage run).
 2. *Skip one event:* delete that event's block from
    [`../settings.json`](../settings.json) (remove the `PostToolUse` entry to
    drop the per-edit check, or the `Stop` entry to drop the acceptance gate).
