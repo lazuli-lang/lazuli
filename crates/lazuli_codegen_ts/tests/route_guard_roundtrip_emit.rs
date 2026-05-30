@@ -30,10 +30,9 @@ feature host
     authenticated: @scope.authenticated
   query.lookup lookup_my_host
 "#;
-    let skeletons =
-        lazuli_syntax::parse_feature_skeletons(source).expect("host skeleton parses");
-    let mut feature = lazuli_analyzer::lower_feature_skeleton(&skeletons[0])
-        .expect("host feature lowers");
+    let skeletons = lazuli_syntax::parse_feature_skeletons(source).expect("host skeleton parses");
+    let mut feature =
+        lazuli_analyzer::lower_feature_skeleton(&skeletons[0]).expect("host feature lowers");
     feature.resources.push(Resource {
         name: "Host".to_string(),
         public_contract: None,
@@ -85,8 +84,7 @@ fn user_feature() -> Feature {
 feature user
   query.lookup lookup_my_user
 "#;
-    let skeletons =
-        lazuli_syntax::parse_feature_skeletons(source).expect("user skeleton parses");
+    let skeletons = lazuli_syntax::parse_feature_skeletons(source).expect("user skeleton parses");
     lazuli_analyzer::lower_feature_skeleton(&skeletons[0]).expect("user feature lowers")
 }
 
@@ -162,9 +160,8 @@ fn roundtrip_canonical_demo_matches_expected_emit_ts() {
         .contents
         .as_str();
 
-    let expected = include_str!(
-        "../../../examples/full-capsule/route-guard-roundtrip/expected.emit.ts"
-    );
+    let expected =
+        include_str!("../../../examples/full-capsule/route-guard-roundtrip/expected.emit.ts");
 
     assert_eq!(
         actual, expected,

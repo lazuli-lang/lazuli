@@ -44,8 +44,7 @@ pub use contracts::{PublicContractDeclAst, UsesClauseAst};
 pub use defaults::{DefaultsPolicyFor, DefaultsTenancy, FeatureDefaults};
 pub use enums::{EnumDeclAst, EnumStorageValueDecl, EnumVariantDecl};
 pub use errors::{
-    ErrorExposureDefaultAst, FeatureErrorExposeRuleDecl, FeatureErrorMessageDecl,
-    FeatureErrorsDecl,
+    ErrorExposureDefaultAst, FeatureErrorExposeRuleDecl, FeatureErrorMessageDecl, FeatureErrorsDecl,
 };
 pub use policy::{
     FieldPoliciesDecl, FieldPolicyDecl, PoliciesDecl, PolicyAtomAst, PolicyCategoryDecl,

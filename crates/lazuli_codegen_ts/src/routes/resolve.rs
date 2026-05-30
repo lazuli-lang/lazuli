@@ -3,7 +3,9 @@
 //! references into the camelCase exports and atom tuples that
 //! `emit.rs` then writes verbatim.
 
-use lazuli_ir::{DefaultValue, Feature, RequiresField, RequiresLifecycle, RequiresLifecycleIn, ViewGuard};
+use lazuli_ir::{
+    DefaultValue, Feature, RequiresField, RequiresLifecycle, RequiresLifecycleIn, ViewGuard,
+};
 
 use super::spec::{FieldGateEmit, ForbidEmit, GuardEmit, LifecycleEmit, OnlyWhenLifecycleEmit};
 use super::{lower_camel_export, snake_case};
@@ -244,7 +246,11 @@ mod snake_to_lower_camel_tests {
 /// time, but codegen stays defensive to avoid broken emit).
 fn render_default_value_ts(value: &DefaultValue) -> Option<String> {
     match value {
-        DefaultValue::Boolean(b) => Some(if *b { "true".to_owned() } else { "false".to_owned() }),
+        DefaultValue::Boolean(b) => Some(if *b {
+            "true".to_owned()
+        } else {
+            "false".to_owned()
+        }),
         DefaultValue::Integer(n) => Some(n.to_string()),
         DefaultValue::String(s) => Some(format!("{:?}", s)),
         DefaultValue::Nil => Some("null".to_owned()),

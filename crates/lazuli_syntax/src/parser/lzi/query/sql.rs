@@ -8,9 +8,7 @@ use super::super::super::common::{SourceLine, is_trivia, line_error, unquote_lzx
 use super::super::super::error::ParseError;
 use super::super::super::lzx::try_parse_policy_expr;
 use super::blocks::{parse_query_indented_block, parse_query_params_block};
-use crate::ast::{
-    CommandInputSlot, PolicyExprAst, QueryDecl, Span, SqlQueryDecl, SqlQueryKind,
-};
+use crate::ast::{CommandInputSlot, PolicyExprAst, QueryDecl, Span, SqlQueryDecl, SqlQueryKind};
 
 pub(super) fn parse_query_sql_decl(
     lines: &[SourceLine<'_>],

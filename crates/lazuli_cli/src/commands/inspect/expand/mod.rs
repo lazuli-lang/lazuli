@@ -37,15 +37,13 @@ mod shorthands;
 mod targets;
 mod text_utils;
 
-pub(crate) use events::{collect_event_decls, collect_event_groups, EventDecl};
+pub(crate) use events::{EventDecl, collect_event_decls, collect_event_groups};
 pub(crate) use targets::feature_has_id_lookup;
 pub(crate) use text_utils::{
     is_identifier, is_type_name, leading_spaces, namespace_references, parse_ident_list,
 };
 
-use events::{
-    event_name, expand_payload_entry, is_event_group_start, skip_nested_block,
-};
+use events::{event_name, expand_payload_entry, is_event_group_start, skip_nested_block};
 use shorthands::{expand_creates_from_input, expand_lookup_shorthand, expand_transition_clauses};
 use targets::infer_local_targets;
 

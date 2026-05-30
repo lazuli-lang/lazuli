@@ -137,4 +137,3 @@ mod tests {
         assert!(manifest.semantic_types.is_empty());
     }
 }
-

@@ -140,11 +140,7 @@ fn write_imports(out: &mut String, feature: &ir::Feature, sites: &[CapFileHookSi
     // resolve raw `react` / `@tanstack/react-query` (e.g. dist/ts-web/
     // outside the per-app node_modules walk). The runtime re-export
     // funnels them through the same path map the rest of the SDK uses.
-    writeln!(
-        out,
-        "import {{"
-    )
-    .ok();
+    writeln!(out, "import {{").ok();
     writeln!(out, "  useCallback,").ok();
     writeln!(out, "  useState,").ok();
     writeln!(out, "  useQueryClient,").ok();

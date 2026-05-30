@@ -75,7 +75,9 @@ mod smoke {
             .current_dir(tempdir.path())
             .arg("--noEmit")
             .output()
-            .expect("failed to run `tsc --noEmit`; install TypeScript 5+ or make tsc/npx available");
+            .expect(
+                "failed to run `tsc --noEmit`; install TypeScript 5+ or make tsc/npx available",
+            );
         assert_success("tsc --noEmit", &typecheck);
     }
 

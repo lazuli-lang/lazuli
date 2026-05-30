@@ -1,10 +1,14 @@
 //! lazuli_app.gen.go and locale/logging/tracing/cors/encryption tests.
 //! Fixtures live in `test_support`.
 
-use super::*;
 use super::test_support::*;
+use super::*;
 use helpers::parse_duration_to_seconds;
-use lazuli_ir::{AppLocale, AppLogging, AppTracing, AppCors, AppManifest, Feature, LocaleFallback, EncryptionAlgorithm, EncryptionBinding, EncryptionRotation, EncryptionSource, EncryptionTemplate};
+use lazuli_ir::{
+    AppCors, AppLocale, AppLogging, AppManifest, AppTracing, EncryptionAlgorithm,
+    EncryptionBinding, EncryptionRotation, EncryptionSource, EncryptionTemplate, Feature,
+    LocaleFallback,
+};
 
 #[test]
 fn lazuli_app_gen_emits_app_name_for_minimal_manifest() {
@@ -222,9 +226,7 @@ fn lazuli_app_gen_emits_encryption_bindings() {
     let mut app = manifest("AcmeCRM");
     app.encryption_bindings.push(EncryptionBinding {
         scope: "@key.tenant".to_owned(),
-        source: EncryptionSource::Env(EncryptionTemplate::parse(
-            "CRYPT_KEY_TENANT_{tenant_id}",
-        )),
+        source: EncryptionSource::Env(EncryptionTemplate::parse("CRYPT_KEY_TENANT_{tenant_id}")),
         algorithm: EncryptionAlgorithm::Aes256Gcm,
         rotation: EncryptionRotation::Manual,
         rotation_profile: None,

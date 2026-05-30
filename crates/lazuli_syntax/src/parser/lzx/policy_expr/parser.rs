@@ -281,7 +281,9 @@ fn is_valid_permission_ref(s: &str) -> bool {
     }
     for seg in segments {
         let mut chars = seg.chars();
-        let Some(first) = chars.next() else { return false };
+        let Some(first) = chars.next() else {
+            return false;
+        };
         if !first.is_ascii_lowercase() {
             return false;
         }

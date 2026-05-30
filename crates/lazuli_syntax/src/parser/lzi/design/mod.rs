@@ -33,9 +33,7 @@ mod motion;
 mod scales;
 mod typography;
 
-use super::super::common::{
-    SourceLine, is_trivia, line_error, source_lines, strip_inline_comment,
-};
+use super::super::common::{SourceLine, is_trivia, line_error, source_lines, strip_inline_comment};
 use super::super::error::ParseError;
 
 use crate::ast::{
@@ -274,7 +272,6 @@ fn parse_design_decl(
         i,
     ))
 }
-
 
 // =============================================================================
 // L0 #2 — `design.lzi` parser tests.

@@ -2,9 +2,7 @@
 
 use lazuli_ir::{AppManifest, ExperienceModule, Feature, Query, SpanRef, TypeRef};
 
-use super::{
-    RouteGuardDiagnostic, RouteGuardOrigin, RouteGuardSeverity, parse_query_ref,
-};
+use super::{RouteGuardDiagnostic, RouteGuardOrigin, RouteGuardSeverity, parse_query_ref};
 
 pub(super) fn check_actor_query(
     app: Option<&AppManifest>,

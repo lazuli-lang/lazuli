@@ -276,6 +276,5 @@ fn resolve_or_unresolved(
     }
 }
 
-
 #[cfg(test)]
 mod tests;

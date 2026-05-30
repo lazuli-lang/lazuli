@@ -3,8 +3,8 @@
 
 use super::*;
 use crate::design::ir::{
-    ColorState, ColorStateKind, ColorToken, Design, EasingToken, FamilyToken, Motion,
-    ScaleToken, ShadowToken, TextScaleToken, TrackingToken, Typography, WeightToken, ZToken,
+    ColorState, ColorStateKind, ColorToken, Design, EasingToken, FamilyToken, Motion, ScaleToken,
+    ShadowToken, TextScaleToken, TrackingToken, Typography, WeightToken, ZToken,
 };
 use lazuli_ir::CustomToken;
 
@@ -216,9 +216,7 @@ fn custom_token_with_dark_emits_base_dark_pair() {
         span_ref: None,
     });
     let out = emit_tokens_ts(&d);
-    assert!(out.contains(
-        "chatBubbleMine: { base: \"#dcf8c6\", dark: \"#005c4b\" },"
-    ));
+    assert!(out.contains("chatBubbleMine: { base: \"#dcf8c6\", dark: \"#005c4b\" },"));
 }
 
 #[test]

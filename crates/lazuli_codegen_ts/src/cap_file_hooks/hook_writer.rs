@@ -6,8 +6,8 @@ use std::fmt::Write;
 use lazuli_ir as ir;
 
 use super::{
-    command_ident, escape_js_string, file_uri_property_name, format_accept_array, pascal_case,
-    screaming_snake, to_snake_case, CapFileHookSite,
+    CapFileHookSite, command_ident, escape_js_string, file_uri_property_name, format_accept_array,
+    pascal_case, screaming_snake, to_snake_case,
 };
 
 pub(super) fn write_hook(out: &mut String, feature: &ir::Feature, site: &CapFileHookSite<'_>) {

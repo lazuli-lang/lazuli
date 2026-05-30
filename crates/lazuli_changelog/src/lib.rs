@@ -305,11 +305,9 @@ fn render_replacement(r: &ir::DeprecationReplacement) -> String {
             qn.feature.clone().unwrap_or_default(),
             qn.name
         ),
-        ir::DeprecationReplacement::QualifiedApi(qn) => format!(
-            "{}.api.{}",
-            qn.feature.clone().unwrap_or_default(),
-            qn.name
-        ),
+        ir::DeprecationReplacement::QualifiedApi(qn) => {
+            format!("{}.api.{}", qn.feature.clone().unwrap_or_default(), qn.name)
+        }
         ir::DeprecationReplacement::Url(u) => u.clone(),
     }
 }

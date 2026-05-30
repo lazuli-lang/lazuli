@@ -154,7 +154,9 @@ pub(super) fn emit_lifecycle_machines(p: &mut GoPrinter, feature: &Feature) -> b
             p.blank();
         }
         // Filter at line 131 guarantees lifecycle is Some.
-        let Some(lifecycle) = resource.lifecycle.as_ref() else { continue };
+        let Some(lifecycle) = resource.lifecycle.as_ref() else {
+            continue;
+        };
         let enum_name = pascal_case(&lifecycle.generated_enum);
         let initial = initial_lifecycle_state(lifecycle)
             .map(|state| enum_variant_name(&enum_name, state))
@@ -208,12 +210,12 @@ mod tests {
     //! and `emit_transition_advances`. Lifted out of `file_emit.rs`
     //! (wave R8-2b) so the lifecycle concern owns its own behavioural
     //! tests.
+    use super::super::super::printer::GoPrinter;
     use super::super::test_support::{
         base_command, base_feature, emit_with_customer_fallback as emit, local_qname,
         simple_resource,
     };
     use super::*;
-    use super::super::super::printer::GoPrinter;
     use lazuli_ir::{
         CommandEffect, CommandKind, LifecycleState, LifecycleStateKind, LifecycleTransition,
         Resource, UpdateEffect,

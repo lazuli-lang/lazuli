@@ -37,11 +37,7 @@ pub(crate) fn view_spec_const(audience: &str, view_name: &str) -> String {
 /// `useAdminSlugListView`. Note `slug` is not in the hook name — the
 /// dist path already scopes by feature.
 pub(crate) fn view_hook_name(audience: &str, view_name: &str) -> String {
-    format!(
-        "use{}{}View",
-        pascal_case(audience),
-        pascal_case(view_name)
-    )
+    format!("use{}{}View", pascal_case(audience), pascal_case(view_name))
 }
 
 /// Pascal name for an `<Audience><View>` prefix (used for slot

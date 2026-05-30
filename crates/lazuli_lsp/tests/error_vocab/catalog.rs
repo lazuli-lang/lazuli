@@ -74,9 +74,6 @@ fn each_closed_code_has_keyword_description() {
         let detail = keyword_description(code).unwrap_or_else(|| {
             panic!("missing keyword_description for `{code}` (needed by completion list)")
         });
-        assert!(
-            !detail.trim().is_empty(),
-            "empty description for `{code}`"
-        );
+        assert!(!detail.trim().is_empty(), "empty description for `{code}`");
     }
 }

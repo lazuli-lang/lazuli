@@ -74,11 +74,7 @@ mod tests {
 
     #[test]
     fn missing_input_errors() {
-        let result = generate_openapi(
-            Path::new("__lazuli_no_such_input.lzi"),
-            None,
-            None,
-        );
+        let result = generate_openapi(Path::new("__lazuli_no_such_input.lzi"), None, None);
         assert!(result.is_err());
     }
 }

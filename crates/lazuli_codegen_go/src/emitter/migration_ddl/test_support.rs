@@ -34,8 +34,7 @@ pub(super) fn parsed_module(source: &str) -> Module {
         .expect("feature source should parse")
         .into_iter()
         .map(|feature| {
-            lazuli_analyzer::lower_feature_skeleton(&feature)
-                .expect("feature source should lower")
+            lazuli_analyzer::lower_feature_skeleton(&feature).expect("feature source should lower")
         })
         .collect();
     base_module(features)

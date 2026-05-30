@@ -32,7 +32,9 @@ pub fn emit_playwright_lifecycle_gate(resources: &[Resource]) -> String {
         .filter(|resource| resource.lifecycle.is_some())
     {
         // Filter above guarantees lifecycle is Some.
-        let Some(lifecycle) = resource.lifecycle.as_ref() else { continue };
+        let Some(lifecycle) = resource.lifecycle.as_ref() else {
+            continue;
+        };
 
         writeln!(
             s,

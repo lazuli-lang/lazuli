@@ -105,10 +105,12 @@ fn lookup_my_user_query_exposes_is_phone_verified_field_to_client_guard() {
     let resource_file = files
         .iter()
         .find(|f| f.path == "user/resource.gen.go")
-        .unwrap_or_else(|| panic!(
-            "expected user/resource.gen.go to be emitted; got {:#?}",
-            files.iter().map(|f| &f.path).collect::<Vec<_>>(),
-        ));
+        .unwrap_or_else(|| {
+            panic!(
+                "expected user/resource.gen.go to be emitted; got {:#?}",
+                files.iter().map(|f| &f.path).collect::<Vec<_>>(),
+            )
+        });
     assert!(
         resource_file.contents.contains("IsPhoneVerified"),
         "User struct must expose the `IsPhoneVerified` field (the typed \
@@ -116,7 +118,9 @@ fn lookup_my_user_query_exposes_is_phone_verified_field_to_client_guard() {
         resource_file.contents,
     );
     assert!(
-        resource_file.contents.contains("json:\"is_phone_verified\""),
+        resource_file
+            .contents
+            .contains("json:\"is_phone_verified\""),
         "User struct field must carry the `is_phone_verified` JSON tag — \
          the client guard reads `row.is_phone_verified` off the wire \
          response; got:\n{}",
@@ -132,10 +136,12 @@ fn lookup_my_user_query_exposes_is_phone_verified_field_to_client_guard() {
     let query_file = files
         .iter()
         .find(|f| f.path == "user/query.gen.go")
-        .unwrap_or_else(|| panic!(
-            "expected user/query.gen.go to be emitted; got {:#?}",
-            files.iter().map(|f| &f.path).collect::<Vec<_>>(),
-        ));
+        .unwrap_or_else(|| {
+            panic!(
+                "expected user/query.gen.go to be emitted; got {:#?}",
+                files.iter().map(|f| &f.path).collect::<Vec<_>>(),
+            )
+        });
     assert!(
         query_file.contents.contains("func LookupMyUser(")
             && query_file.contents.contains(") (User, error) {"),

@@ -251,7 +251,10 @@ mod tests {
     fn completions_return_none_outside_command_block() {
         let result = input_field_completions(
             "feature billing\n",
-            Position { line: 0, character: 6 },
+            Position {
+                line: 0,
+                character: 6,
+            },
         );
         assert!(result.is_none());
     }

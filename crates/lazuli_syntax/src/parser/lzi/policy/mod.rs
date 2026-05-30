@@ -248,7 +248,6 @@ pub(super) fn parse_policies_decl(
     ))
 }
 
-
 // =============================================================================
 // IR Error-Vocab (Cell PARSE-1) — parser slice tests for `when_denied` on
 // commands and `policies` categories, plus `when_denied_route`.
@@ -421,10 +420,16 @@ feature account
             .iter()
             .find(|c| c.name == "author")
             .expect("author category");
-        assert!(create.atoms.is_empty(), "predicate atoms must not land in `atoms`");
+        assert!(
+            create.atoms.is_empty(),
+            "predicate atoms must not land in `atoms`"
+        );
         assert_eq!(create.conditional_atoms.len(), 2);
         assert_eq!(create.conditional_atoms[0].atom, "@policy.admin");
-        assert_eq!(create.conditional_atoms[0].when, "input.scope = \"production\"");
+        assert_eq!(
+            create.conditional_atoms[0].when,
+            "input.scope = \"production\""
+        );
         assert_eq!(create.conditional_atoms[1].atom, "@policy.manager");
         assert_eq!(create.conditional_atoms[1].when, "input.scope = \"media\"");
     }

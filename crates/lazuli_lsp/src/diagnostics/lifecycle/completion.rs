@@ -479,17 +479,29 @@ mod tests {
 
     #[test]
     fn no_completions_outside_lifecycle_context() {
-        assert!(lifecycle_gate_completions(
-            "feature billing\n",
-            Position { line: 0, character: 0 }
-        )
-        .is_none());
+        assert!(
+            lifecycle_gate_completions(
+                "feature billing\n",
+                Position {
+                    line: 0,
+                    character: 0
+                }
+            )
+            .is_none()
+        );
     }
 
     #[test]
     fn no_completions_for_empty_source() {
         assert!(
-            lifecycle_gate_completions("", Position { line: 0, character: 0 }).is_none()
+            lifecycle_gate_completions(
+                "",
+                Position {
+                    line: 0,
+                    character: 0
+                }
+            )
+            .is_none()
         );
     }
 }

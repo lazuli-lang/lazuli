@@ -150,7 +150,8 @@ pub(crate) fn is_valid_test_assertion(context: &str, trimmed_line: &str) -> bool
             trimmed_line.starts_with("allows when ") || trimmed_line.starts_with("denies when ")
         }
         "anchor" => {
-            trimmed_line.starts_with("allows extension ") || trimmed_line.starts_with("denies extension ")
+            trimmed_line.starts_with("allows extension ")
+                || trimmed_line.starts_with("denies extension ")
         }
         _ => false,
     }

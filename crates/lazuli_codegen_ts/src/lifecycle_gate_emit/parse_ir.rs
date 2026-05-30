@@ -24,9 +24,7 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use super::helpers::{
-    array_field, features, parse_to_view, route_name_feature, string_field,
-};
+use super::helpers::{array_field, features, parse_to_view, route_name_feature, string_field};
 use super::{PolicyAtom, ResumeRef, RouteGuardShape};
 
 pub(super) fn collect_view_paths(root: &Value) -> BTreeMap<(String, String), String> {
@@ -315,7 +313,10 @@ pub(super) fn resume_entries(feature: &Value) -> Vec<(String, &Value)> {
     Vec::new()
 }
 
-pub(super) fn parse_source_query(resume: &Value, default_feature: &str) -> Option<(String, String)> {
+pub(super) fn parse_source_query(
+    resume: &Value,
+    default_feature: &str,
+) -> Option<(String, String)> {
     for key in [
         "source",
         "source_query",

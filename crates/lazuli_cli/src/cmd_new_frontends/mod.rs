@@ -33,8 +33,8 @@ pub use web::scaffold_frontend_web;
 mod tests {
     use std::fs;
 
-    use super::*;
     use super::test_support::tempdir;
+    use super::*;
     use crate::templates;
 
     #[test]
@@ -144,5 +144,4 @@ mod tests {
             );
         }
     }
-
 }

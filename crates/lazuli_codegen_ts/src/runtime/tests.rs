@@ -240,9 +240,11 @@ fn lifecycle_emits_camel_case_action_map() {
     assert!(out.contains(
         "beginPublishing: useLazuliCommand<{ id: ID }, void>(beginPublishingPublication),"
     ));
-    assert!(out.contains(
-        "markPublished: useLazuliCommand<{ id: ID }, void>(markPublishedPublication),"
-    ));
+    assert!(
+        out.contains(
+            "markPublished: useLazuliCommand<{ id: ID }, void>(markPublishedPublication),"
+        )
+    );
     assert!(out.contains(
         "markFailed: useLazuliCommand<{ id: ID; errorReason: string }, void>(markFailedPublication),"
     ));
@@ -398,9 +400,7 @@ fn write_query_pluralizes_list_resource_names() {
         list_query("list_custom_service_categorys"),
     ));
     assert!(out.contains("export const listCustomServiceCategories = defineQuery"));
-    assert!(
-        out.contains("export const listCustomServiceCategorys = listCustomServiceCategories;")
-    );
+    assert!(out.contains("export const listCustomServiceCategorys = listCustomServiceCategories;"));
 }
 
 #[test]

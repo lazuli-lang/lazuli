@@ -180,10 +180,7 @@ fn load_recipe_rules(
 /// Apply the recipe's text rules to every `.lzi`/`.lzx` source under `target`
 /// (or to `target` itself when it is a single source file). Only files that
 /// actually change are rewritten.
-fn apply_text_rules(
-    recipe_path: &Path,
-    target: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn apply_text_rules(recipe_path: &Path, target: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let rules = load_recipe_rules(recipe_path)?;
     let mut files = Vec::new();
     collect_sources(target, &mut files)?;
@@ -203,10 +200,7 @@ fn apply_text_rules(
 /// Recursively collect `.lzi`/`.lzx` sources under `root` (or `root` itself if
 /// it is one). Skips generated/internal trees so a recipe never rewrites
 /// `dist/`, `.lazuli/`, its own `migrations/` fixtures, `.git/`, or `target/`.
-fn collect_sources(
-    root: &Path,
-    out: &mut Vec<PathBuf>,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn collect_sources(root: &Path, out: &mut Vec<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
     if root.is_file() {
         if is_source(root) {
             out.push(root.to_path_buf());
@@ -396,7 +390,11 @@ mod tests {
 
         let src = root.join("app/feature.lzi");
         std::fs::create_dir_all(src.parent().unwrap()).unwrap();
-        std::fs::write(&src, "feature x\n  domain\n    resource R\n      email: @semantic.Email required\n").unwrap();
+        std::fs::write(
+            &src,
+            "feature x\n  domain\n    resource R\n      email: @semantic.Email required\n",
+        )
+        .unwrap();
 
         let report = run_upgrade(&root, "0.11", "0.12", &root, false).unwrap();
         assert!(report.failed.is_empty(), "{:?}", report.failed);

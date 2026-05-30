@@ -116,9 +116,7 @@ pub(crate) fn lower_auth_sessions(sessions: &syntax::AuthSessions) -> ir::AuthSe
 /// through — `None` slots stay `None` so the runtime keeps its hardcoded
 /// literal for that axis. The closed `same_site` value rides as its raw
 /// string (parse-time validated).
-pub(crate) fn lower_auth_session_cookie(
-    cookie: &syntax::AuthSessionCookie,
-) -> ir::SessionCookie {
+pub(crate) fn lower_auth_session_cookie(cookie: &syntax::AuthSessionCookie) -> ir::SessionCookie {
     ir::SessionCookie {
         name: cookie.name.clone(),
         same_site: cookie.same_site.clone(),

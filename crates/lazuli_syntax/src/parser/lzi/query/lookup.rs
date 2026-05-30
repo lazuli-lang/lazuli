@@ -9,9 +9,7 @@ use super::super::super::common::{SourceLine, is_trivia, line_error};
 use super::super::super::error::ParseError;
 use super::super::super::lzx::try_parse_policy_expr;
 use super::blocks::{parse_query_indented_block, parse_query_params_block};
-use crate::ast::{
-    CommandInputSlot, LookupKey, LookupQueryDecl, PolicyExprAst, QueryDecl, Span,
-};
+use crate::ast::{CommandInputSlot, LookupKey, LookupQueryDecl, PolicyExprAst, QueryDecl, Span};
 
 pub(super) fn parse_query_lookup_decl(
     lines: &[SourceLine<'_>],

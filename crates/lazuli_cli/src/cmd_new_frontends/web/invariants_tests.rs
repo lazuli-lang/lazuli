@@ -13,8 +13,8 @@
 
 use std::fs;
 
-use super::{WEB_UI_SUBDIRS, scaffold_frontend_web};
 use super::super::test_support::tempdir;
+use super::{WEB_UI_SUBDIRS, scaffold_frontend_web};
 
 /// Wave K invariant: each Shadcn-seed primitive carries the
 /// scaffold-seed banner ("User owns this file") and references

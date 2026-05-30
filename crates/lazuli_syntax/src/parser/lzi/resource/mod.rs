@@ -405,7 +405,6 @@ fn parse_resource_many_through(
     ))
 }
 
-
 // =============================================================================
 // Phase L Tier 4c — `resource` + lifecycle + aggregate + invariant + slug +
 // owner_axis parser tests.

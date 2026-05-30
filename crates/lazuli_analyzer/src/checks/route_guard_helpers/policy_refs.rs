@@ -8,11 +8,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use lazuli_ir::{AppManifest, ExperienceModule, Feature, PolicyRef, ViewGuard};
 
+use super::backend_policies::{effective_policy, query_policy};
 use super::{
     RouteGuardDiagnostic, RouteGuardOrigin, RouteGuardSeverity, route_feature_from_name,
     surface_feature, target_view,
 };
-use super::backend_policies::{effective_policy, query_policy};
 
 pub(super) fn check_when_denied_route_policy_use(
     module: &ExperienceModule,

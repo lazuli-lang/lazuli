@@ -13,8 +13,8 @@ use std::fmt::Write;
 
 use crate::lzx::lzx_router_adapter::lifecycle_gate_pattern_header;
 
-use super::helpers::ts_string;
 use super::LifecycleGate;
+use super::helpers::ts_string;
 
 pub(super) fn emit_registry_file(gates: &[LifecycleGate]) -> String {
     let mut s = String::new();

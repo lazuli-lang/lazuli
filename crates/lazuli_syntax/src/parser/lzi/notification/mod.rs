@@ -40,8 +40,8 @@ use crate::ast::{
     Span,
 };
 
-pub(super) use channel::parse_channel;
 use blocks::{parse_notification_digest, parse_notification_throttle};
+pub(super) use channel::parse_channel;
 
 pub(super) fn parse_notification(
     lines: &[SourceLine<'_>],

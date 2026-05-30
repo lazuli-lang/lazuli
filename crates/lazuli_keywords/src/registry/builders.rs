@@ -153,7 +153,11 @@ pub(crate) const fn catalog_atom(literal: &'static str, hover: &'static str) -> 
 }
 
 /// A dotted-kind feature-body declaration (`query.list`, `event.trace`).
-pub(crate) const fn dotted(literal: &'static str, context: Context, hover: &'static str) -> CapabilitySpec {
+pub(crate) const fn dotted(
+    literal: &'static str,
+    context: Context,
+    hover: &'static str,
+) -> CapabilitySpec {
     CapabilitySpec {
         literal,
         context,

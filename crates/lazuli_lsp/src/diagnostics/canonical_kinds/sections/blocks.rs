@@ -270,7 +270,9 @@ pub(crate) fn view_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> {
         }
 
         // `current_view.is_none()` continued the loop above, so this is Some.
-        let Some((_header_indent, body_indent)) = current_view else { continue };
+        let Some((_header_indent, body_indent)) = current_view else {
+            continue;
+        };
         if leading != body_indent {
             continue;
         }
@@ -338,7 +340,9 @@ pub(crate) fn surface_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic> 
         }
 
         // `current_surface.is_none()` continued the loop above, so this is Some.
-        let Some((_header_indent, body_indent)) = current_surface else { continue };
+        let Some((_header_indent, body_indent)) = current_surface else {
+            continue;
+        };
         if leading != body_indent {
             continue;
         }

@@ -66,8 +66,14 @@ fn every_alias_resolves_like_its_canonical() {
 #[test]
 fn bare_cap_types_resolve_like_sigil_form() {
     let cases = [
-        ("Hashed(algorithm:argon2id)", "@cap.Hashed(algorithm:argon2id)"),
-        ("Encrypted(key:@key.tenant)", "@cap.Encrypted(key:@key.tenant)"),
+        (
+            "Hashed(algorithm:argon2id)",
+            "@cap.Hashed(algorithm:argon2id)",
+        ),
+        (
+            "Encrypted(key:@key.tenant)",
+            "@cap.Encrypted(key:@key.tenant)",
+        ),
         (
             "Token(ttl:1h,single_use:true,store:hashed)",
             "@cap.Token(ttl:1h,single_use:true,store:hashed)",

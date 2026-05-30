@@ -161,7 +161,8 @@ mod tests {
 
     #[test]
     fn silent_on_canonical_eqeq() {
-        let src = "feature f\n  rule r\n    deny X when self.status == archived AND self.owner != nil\n";
+        let src =
+            "feature f\n  rule r\n    deny X when self.status == archived AND self.owner != nil\n";
         assert!(check(src, Path::new("f.lzi")).is_empty());
     }
 

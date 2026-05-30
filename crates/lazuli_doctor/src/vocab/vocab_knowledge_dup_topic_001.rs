@@ -155,7 +155,10 @@ mod tests {
             doc("0001-charge.md", "charge", Tier::Draft, false),
             doc("0002-charge.md", "charge", Tier::Gold, false),
         ];
-        assert!(check_docs(&docs, "billing").is_empty(), "only one gold => no dup");
+        assert!(
+            check_docs(&docs, "billing").is_empty(),
+            "only one gold => no dup"
+        );
     }
 
     #[test]

@@ -77,7 +77,5 @@ pub(crate) fn line_index_containing(source: &str, needle: &str) -> usize {
     source
         .lines()
         .position(|line| line.contains(needle))
-        .unwrap_or_else(|| {
-            panic!("source does not contain needle `{needle}`:\n{source}")
-        })
+        .unwrap_or_else(|| panic!("source does not contain needle `{needle}`:\n{source}"))
 }

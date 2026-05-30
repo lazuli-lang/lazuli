@@ -45,7 +45,7 @@ mod parse;
 mod test_support;
 
 pub use ir::current_schema_from_ir;
-pub use parse::{parse_baseline_from_migration, parse_baseline_from_str, ParseError};
+pub use parse::{ParseError, parse_baseline_from_migration, parse_baseline_from_str};
 
 /// A single column extracted either from a generated migration or
 /// from an IR resource. The shape is intentionally the lowest

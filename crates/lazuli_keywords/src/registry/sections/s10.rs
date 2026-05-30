@@ -1,9 +1,9 @@
 //! Registry `ALL` section 10/11 (SPEC-19 split; concatenated in `registry::ALL`).
 #![allow(clippy::all, unused_imports)]
 
-use crate::{CapabilitySpec, Context, DiagnosticFacet, SemanticToken, Sigil, Surface};
 use super::super::builders::*;
 use super::super::facets::*;
+use crate::{CapabilitySpec, Context, DiagnosticFacet, SemanticToken, Sigil, Surface};
 
 pub(crate) const ROWS: &[CapabilitySpec] = &[
     // ════════════════════════════════════════════════════════════════
@@ -182,10 +182,22 @@ pub(crate) const ROWS: &[CapabilitySpec] = &[
     // `@role`/`@scope`/`@actor` are APP-LEVEL CATALOG ATOMS (resolve against the
     // registry-declared identity catalog). The identity/authorization axis is
     // preserved — only the named-ref-vs-catalog-atom kind is made explicit.
-    decorator("@policy", "Feature-local policy named reference (`@policy.<category>` → a `policies` block category in this feature)."),
-    catalog_atom("@scope", "Identity-axis catalog atom (`@scope.<name>` → an app-level OAuth/permission scope)."),
-    catalog_atom("@role", "Identity-axis catalog atom (`@role.<name>` → an app-level role from the registry identity catalog)."),
-    catalog_atom("@actor", "Identity-axis catalog atom (`@actor.<name>`, e.g. `@actor.system` → an app-level actor principal)."),
+    decorator(
+        "@policy",
+        "Feature-local policy named reference (`@policy.<category>` → a `policies` block category in this feature).",
+    ),
+    catalog_atom(
+        "@scope",
+        "Identity-axis catalog atom (`@scope.<name>` → an app-level OAuth/permission scope).",
+    ),
+    catalog_atom(
+        "@role",
+        "Identity-axis catalog atom (`@role.<name>` → an app-level role from the registry identity catalog).",
+    ),
+    catalog_atom(
+        "@actor",
+        "Identity-axis catalog atom (`@actor.<name>`, e.g. `@actor.system` → an app-level actor principal).",
+    ),
     decorator("@anchor", "Anchor reference decorator."),
     decorator("@client", "Client extension decorator."),
     produces(

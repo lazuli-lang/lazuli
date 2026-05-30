@@ -7,7 +7,9 @@
 //! `pub(in crate::parser::lzi)` because `api.rs` reuses them — `api`
 //! blocks accept the same deprecation envelope.
 
-use super::super::super::common::{SourceLine, is_trivia, line_error, line_error_owned, unquote_lzx_value};
+use super::super::super::common::{
+    SourceLine, is_trivia, line_error, line_error_owned, unquote_lzx_value,
+};
 use super::super::super::error::ParseError;
 use super::super::{AGENT_INDENT_AGENT_CHILD, AGENT_INDENT_GRANDCHILD};
 
@@ -300,7 +302,9 @@ fn parse_approval_chain(
         other => {
             return Err(line_error_owned(
                 line,
-                format!("`approval chain [...]` only accepts a trailing `sequential` (got `{other}`)"),
+                format!(
+                    "`approval chain [...]` only accepts a trailing `sequential` (got `{other}`)"
+                ),
             ));
         }
     };

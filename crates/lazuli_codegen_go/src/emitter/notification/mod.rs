@@ -427,6 +427,5 @@ fn lower_camel(s: &str) -> String {
     super::casing::lower_camel(s)
 }
 
-
 #[cfg(test)]
 mod feature_emit_tests;

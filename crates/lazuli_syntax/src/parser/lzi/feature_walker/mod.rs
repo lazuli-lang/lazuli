@@ -76,4 +76,3 @@ pub fn parse_feature_skeletons(source: &str) -> Result<Vec<FeatureSkeleton>, Par
 
     Ok(features)
 }
-

@@ -4,10 +4,10 @@
 use serde_json::json;
 
 use lazuli_ir::{
-    AppRoute, AudienceSurface, ExperienceModule, ExperienceView, Feature, PlatformView,
+    AppRoute, AudienceSurface, Experience, ExperienceModule, ExperienceView, Feature, PlatformView,
     RequiresLifecycle, ResolvedLifecycleGate, ResumeArm, ResumeArmKind, ResumeRouter,
     RoleMismatchArm, RouteGuardDefaults, RouteRedirectTarget, SpanRef, ViewGuard,
-    ViewTestAssertion, WhenDeniedRoute, Experience,
+    ViewTestAssertion, WhenDeniedRoute,
 };
 
 use super::round_trip;

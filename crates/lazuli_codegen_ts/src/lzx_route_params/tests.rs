@@ -104,8 +104,7 @@ fn surface_fixture() -> ir::Surface {
             views: vec![ir::View::Detail(ir::ViewDetail {
                 name: "host_service_edit".to_owned(),
                 route: Some(
-                    "/host/property/:property_id/service/:service_id/:kind/:starts_at"
-                        .to_owned(),
+                    "/host/property/:property_id/service/:service_id/:kind/:starts_at".to_owned(),
                 ),
                 source: ir::QueryRef {
                     feature: "host".to_owned(),

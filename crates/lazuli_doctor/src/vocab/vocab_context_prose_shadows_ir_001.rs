@@ -212,8 +212,7 @@ pub fn check(feature: &Feature, lzi_path: &Path) -> Vec<Finding> {
         let mut best: Option<(&str, usize)> = None;
         for (name, fields) in &resources {
             let overlap = header_set.intersection(fields).count();
-            if overlap >= SHADOW_OVERLAP_THRESHOLD
-                && best.map(|(_, b)| overlap > b).unwrap_or(true)
+            if overlap >= SHADOW_OVERLAP_THRESHOLD && best.map(|(_, b)| overlap > b).unwrap_or(true)
             {
                 best = Some((name, overlap));
             }
@@ -293,9 +292,7 @@ fn is_delimiter_row(line: &str) -> bool {
     }
     split_cells(line).iter().all(|cell| {
         let c = cell.trim();
-        !c.is_empty()
-            && c.chars().all(|ch| ch == '-' || ch == ':')
-            && c.contains('-')
+        !c.is_empty() && c.chars().all(|ch| ch == '-' || ch == ':') && c.contains('-')
     }) && !split_cells(line).is_empty()
 }
 

@@ -71,10 +71,7 @@ pub fn is_numeric(builtin: BuiltinType) -> bool {
 /// assert_eq!(zod_constraint_chain(&constraints, true), ".min(3)");
 /// assert_eq!(zod_constraint_chain(&constraints, false), ".gte(3)");
 /// ```
-pub fn zod_constraint_chain(
-    constraints: &FieldConstraints,
-    is_text_base: bool,
-) -> String {
+pub fn zod_constraint_chain(constraints: &FieldConstraints, is_text_base: bool) -> String {
     if constraints.is_empty() {
         return String::new();
     }
@@ -121,10 +118,7 @@ pub fn zod_constraint_chain(
         } else {
             // Numeric in [...] — emit `.refine` since `z.enum` is
             // string-only in Zod.
-            let values_list: Vec<String> = values
-                .iter()
-                .map(|v| v.trim().to_owned())
-                .collect();
+            let values_list: Vec<String> = values.iter().map(|v| v.trim().to_owned()).collect();
             out.push_str(&format!(
                 ".refine((n) => [{}].includes(n), {{ message: \"value must be in [{}]\" }})",
                 values_list.join(", "),

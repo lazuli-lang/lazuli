@@ -84,8 +84,7 @@ fn emits_multi_selection_state_bulk_command_and_return() {
     write_hook_state(&mut state, &surface(), &view);
     // Resource ID type is threaded via indexed-access (`Item["id"]`)
     // so number / string / branded IDs flow without casts.
-    assert!(state
-        .contains("const selection = useMultiSelection<Item[\"id\"]>(query.data ?? []);"));
+    assert!(state.contains("const selection = useMultiSelection<Item[\"id\"]>(query.data ?? []);"));
     assert!(state.contains("const bulkDelete = useLazuliCommand(deleteItem);"));
 
     let mut ret = String::new();
@@ -106,9 +105,7 @@ fn emits_single_selection_state_and_return() {
 
     let mut state = String::new();
     write_hook_state(&mut state, &surface(), &view);
-    assert!(
-        state.contains("const [selectionId, setSelectionId] = useState<string | null>(null);")
-    );
+    assert!(state.contains("const [selectionId, setSelectionId] = useState<string | null>(null);"));
 
     let mut ret = String::new();
     write_return_fields(&mut ret, &view);
@@ -296,8 +293,7 @@ fn multi_selection_threads_resource_id_type() {
 
     let mut state = String::new();
     write_hook_state(&mut state, &surface(), &view);
-    assert!(state
-        .contains("const selection = useMultiSelection<Item[\"id\"]>(query.data ?? []);"));
+    assert!(state.contains("const selection = useMultiSelection<Item[\"id\"]>(query.data ?? []);"));
     // No `<string>` literal anywhere in the multi-selection state.
     assert!(!state.contains("useMultiSelection<string>"));
 }
@@ -348,9 +344,7 @@ fn settings_namespace_is_app_scoped() {
     let mut out = String::new();
     write_setting_keys(&mut out, &surface(), &view, "example");
     assert!(
-        out.contains(
-            "const SETTING_KEY_GRID_SIZE = \"example:item-terminal:grid_size\";"
-        ),
+        out.contains("const SETTING_KEY_GRID_SIZE = \"example:item-terminal:grid_size\";"),
         "expected `example:` prefix; got: {out}"
     );
     // No legacy feature-scoped prefix.

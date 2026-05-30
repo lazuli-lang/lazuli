@@ -3,7 +3,9 @@
 //!
 //! Extracted from the original monolithic `design.rs`.
 
-use super::super::super::common::{SourceLine, is_trivia, line_error, line_error_owned, strip_inline_comment};
+use super::super::super::common::{
+    SourceLine, is_trivia, line_error, line_error_owned, strip_inline_comment,
+};
 use super::super::super::error::ParseError;
 use super::helpers::{parse_design_named_value_block, parse_design_scale_block};
 use crate::ast::{FamilyTokenAst, TrackingTokenAst, TypographyAst, WeightTokenAst};

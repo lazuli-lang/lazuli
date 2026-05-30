@@ -19,8 +19,10 @@ use lazuli_ir::{BuiltinType, CapabilityRef, E2eeCapability, Field, TypeRef};
 #[test]
 fn encrypted_field_emits_encrypt_and_decrypt_helpers_with_runtime_import() {
     let mut feature = base_feature("customer");
-    let resource =
-        simple_resource("customer", vec![encrypted_capability_field("external_id", true)]);
+    let resource = simple_resource(
+        "customer",
+        vec![encrypted_capability_field("external_id", true)],
+    );
     feature.resources.push(resource);
     let out = emit(&feature).expect("must emit");
 
@@ -55,8 +57,10 @@ fn encrypted_field_emits_encrypt_and_decrypt_helpers_with_runtime_import() {
 #[test]
 fn optional_encrypted_field_guards_nil_and_dereferences() {
     let mut feature = base_feature("customer");
-    let resource =
-        simple_resource("customer", vec![encrypted_capability_field("external_id", false)]);
+    let resource = simple_resource(
+        "customer",
+        vec![encrypted_capability_field("external_id", false)],
+    );
     feature.resources.push(resource);
     let out = emit(&feature).expect("must emit");
     assert!(

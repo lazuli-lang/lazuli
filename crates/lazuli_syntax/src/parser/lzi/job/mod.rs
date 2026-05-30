@@ -416,7 +416,6 @@ pub(super) fn parse_external_call(
     ))
 }
 
-
 // =============================================================================
 // Migrations bucket cycle — `tenant_migration` block parser slice tests.
 // =============================================================================

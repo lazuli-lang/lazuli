@@ -462,4 +462,3 @@ feature customer
     assert!(messages.iter().any(|m| m.contains("`model @llm.<name>`")));
     assert!(messages.iter().any(|m| m.contains("prompt")));
 }
-

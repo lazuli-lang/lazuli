@@ -76,10 +76,8 @@ fn citation_path(tok: &str) -> Option<&str> {
 
 /// Split prose into path-shaped tokens (chars valid inside a repo path).
 fn tokens(text: &str) -> impl Iterator<Item = &str> {
-    text.split(|c: char| {
-        !(c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | ':' | '-' | '_'))
-    })
-    .filter(|t| !t.is_empty())
+    text.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | ':' | '-' | '_')))
+        .filter(|t| !t.is_empty())
 }
 
 /// Blank out fenced (```` ``` ````) and inline (`` `...` ``) code spans so a doc
@@ -133,12 +131,20 @@ fn docs_citations_and_links_resolve() {
     let root = workspace_root();
     let mut docs = Vec::new();
     collect_md(&root.join("docs"), &mut docs);
-    assert!(!docs.is_empty(), "no docs/*.md found under {}", root.display());
+    assert!(
+        !docs.is_empty(),
+        "no docs/*.md found under {}",
+        root.display()
+    );
 
     let mut violations: Vec<String> = Vec::new();
 
     for doc in &docs {
-        let rel = doc.strip_prefix(&root).unwrap_or(doc).to_string_lossy().replace('\\', "/");
+        let rel = doc
+            .strip_prefix(&root)
+            .unwrap_or(doc)
+            .to_string_lossy()
+            .replace('\\', "/");
         // archived proposals are frozen snapshots, not maintained — skip.
         if rel.contains("/proposals/") {
             continue;

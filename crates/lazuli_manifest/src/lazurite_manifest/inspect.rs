@@ -7,7 +7,7 @@ use serde::Serialize;
 use super::frontends::FrontendTarget;
 use super::generate::Generate;
 use super::migrations::{DevOverrides, Migrations, Seeds};
-use super::project::{Lazurite, LazuliPin, Project};
+use super::project::{LazuliPin, Lazurite, Project};
 
 /// Borrow-friendly projection of `Lazurite.toml` emitted by
 /// `lazuli inspect --format json`. Avoids cloning the parsed manifest

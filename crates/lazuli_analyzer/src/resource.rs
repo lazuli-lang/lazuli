@@ -61,11 +61,11 @@ use lazuli_syntax as syntax;
 // to sibling modules; re-export so `crate::resource::<sym>` paths used
 // across the analyzer continue to resolve unchanged.
 pub(crate) use crate::resource_rate_limit::lower_rate_limit_spec;
+use crate::resource_validators::validate_default_against_constraints;
 pub(crate) use crate::resource_validators::{
     lift_field_constraints, validate_constraint_combinations, validate_constraint_pattern_compile,
     validate_constraint_range_invariant, validate_constraint_type_compatibility,
 };
-use crate::resource_validators::validate_default_against_constraints;
 
 include!("resource_p1.rs");
 include!("resource_p2.rs");

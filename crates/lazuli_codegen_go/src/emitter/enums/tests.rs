@@ -150,9 +150,7 @@ fn metadata_enum_emits_options_struct_and_values() {
     assert!(out.contains("Value CustomerTier"));
     assert!(out.contains("LabelKey string"));
     assert!(out.contains("var CustomerTierOptions = []CustomerTierOption{"));
-    assert!(
-        out.contains("{Value: CustomerTierFree, LabelKey: \"tier_free\", IconKey: \"gift\"},")
-    );
+    assert!(out.contains("{Value: CustomerTierFree, LabelKey: \"tier_free\", IconKey: \"gift\"},"));
     assert!(out.contains(
         "{Value: CustomerTierEnterprise, LabelKey: \"tier_enterprise\", HintKey: \"tier_enterprise_hint\"},"
     ));

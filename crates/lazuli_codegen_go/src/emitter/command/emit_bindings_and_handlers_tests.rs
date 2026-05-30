@@ -52,9 +52,7 @@ fn bare_identifier_binding_source_traces_command_let() {
 
     let out = emit(&feature).expect("must emit");
     assert!(
-        out.contains(
-            "\"tier\": lazuli.FromConst(\"new_tier\") /* let new_tier = input.tier */,"
-        )
+        out.contains("\"tier\": lazuli.FromConst(\"new_tier\") /* let new_tier = input.tier */,")
     );
 }
 
@@ -115,7 +113,6 @@ fn invalidates_render_as_string_list() {
     assert!(out.contains("Invalidates: []string{\"customer.list\", \"billing.ledger\"},"));
 }
 
-
 #[test]
 fn emit_handler_wraps_known_sentinel() {
     let mut feature = base_feature("account");
@@ -141,7 +138,6 @@ fn emit_handler_wraps_known_sentinel() {
     assert!(out.contains("return &lazuli.FieldError{"));
     assert!(out.contains("Reason:    lazuli.FieldReasonMismatch,"));
 }
-
 
 #[test]
 fn enum_literal_in_assignment_renders_qualified_from_const() {

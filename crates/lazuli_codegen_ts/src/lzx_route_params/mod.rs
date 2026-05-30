@@ -149,7 +149,12 @@ fn write_enum_value_consts(s: &mut String, specs: &[RouteParserSpec], module: &i
 }
 
 fn write_params_interface(s: &mut String, spec: &RouteParserSpec, module: &ir::Module) {
-    writeln!(s, "export interface {}Params {{", pascal_case(&spec.view_name)).ok();
+    writeln!(
+        s,
+        "export interface {}Params {{",
+        pascal_case(&spec.view_name)
+    )
+    .ok();
     for param in &spec.params {
         let key = ts_param_name(&param.name);
         writeln!(
@@ -304,18 +309,17 @@ fn find_enum(raw: &str, module: &ir::Module) -> Option<EnumRef> {
             let type_name = type_pascal_case(&enum_decl.name);
             EnumRef {
                 values_const: enum_value_constant_name(&enum_decl.name),
-                values: enum_decl
-                    .variants
-                    .iter()
-                    .map(enum_variant_value)
-                    .collect(),
+                values: enum_decl.variants.iter().map(enum_variant_value).collect(),
                 type_name,
             }
         })
 }
 
 fn local_type_name(raw: &str) -> String {
-    if let Some(inner) = raw.strip_prefix("EnumRef(").and_then(|s| s.strip_suffix(')')) {
+    if let Some(inner) = raw
+        .strip_prefix("EnumRef(")
+        .and_then(|s| s.strip_suffix(')'))
+    {
         return local_type_name(inner);
     }
     raw.rsplit(['.', ':'])
@@ -446,4 +450,3 @@ fn format_ts_string(value: &str) -> String {
 
 #[cfg(test)]
 mod tests;
-

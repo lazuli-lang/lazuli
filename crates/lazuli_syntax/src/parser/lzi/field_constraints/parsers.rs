@@ -5,7 +5,7 @@
 //!
 //! Extracted from the original monolithic `field_constraints.rs`.
 
-use super::super::super::common::{line_error, line_error_owned, SourceLine};
+use super::super::super::common::{SourceLine, line_error, line_error_owned};
 use super::super::super::error::ParseError;
 use super::super::split_top_level_commas;
 

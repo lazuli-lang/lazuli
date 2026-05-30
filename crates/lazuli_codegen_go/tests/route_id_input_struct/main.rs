@@ -13,9 +13,7 @@
 
 mod builders;
 
-use builders::{
-    base_command, command_gen, empty_feature, local_qname, module_with, resource_with,
-};
+use builders::{base_command, command_gen, empty_feature, local_qname, module_with, resource_with};
 use lazuli_codegen_go::{GoEmitOptions, generate_v1};
 use lazuli_ir::{
     Assignment, BuiltinType, CommandEffect, CommandInput, CommandKind, CreateEffect, DeleteEffect,

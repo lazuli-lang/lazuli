@@ -24,13 +24,9 @@ fn drawer_with_multi_selection_emits_dispatcher_branches() {
     assert!(out.contains("useMultiSelection"));
     // Resource ID type is threaded via indexed-access on the
     // surface feature interface (`Thing["id"]`).
+    assert!(out.contains("const selection = useMultiSelection<Thing[\"id\"]>(query.data ?? [])"));
     assert!(
-        out.contains("const selection = useMultiSelection<Thing[\"id\"]>(query.data ?? [])")
-    );
-    assert!(
-        out.contains(
-            "const cellClick = useCallback((id: string, event: React.MouseEvent) => {"
-        )
+        out.contains("const cellClick = useCallback((id: string, event: React.MouseEvent) => {")
     );
     assert!(out.contains("if (event.shiftKey && lastSelectedId !== null) { selection.selectRange(lastSelectedId, id); setLastSelectedId(id); return; }"));
     assert!(out.contains("if (event.metaKey || event.ctrlKey) { selection.toggle(id); setLastSelectedId(id); return; }"));
@@ -38,9 +34,11 @@ fn drawer_with_multi_selection_emits_dispatcher_branches() {
         "if (selection.ids.size > 0) { selection.toggle(id); setLastSelectedId(id); return; }"
     ));
     assert!(out.contains("drawer.open(id); setLastSelectedId(id);"));
-    assert!(out.contains(
-        "selectionContainsOpenId: drawerId !== null ? selection.has(drawerId) : false"
-    ));
+    assert!(
+        out.contains(
+            "selectionContainsOpenId: drawerId !== null ? selection.has(drawerId) : false"
+        )
+    );
     assert!(out.contains("drawer,"));
     assert!(out.contains("cellClick,"));
 }
@@ -60,9 +58,7 @@ fn drawer_with_single_selection_emits_simple_dispatcher() {
     let out = emit_view_list(&surface, &audience, &view, "");
 
     assert!(
-        out.contains(
-            "const cellClick = useCallback((id: string, _event: React.MouseEvent) => {"
-        )
+        out.contains("const cellClick = useCallback((id: string, _event: React.MouseEvent) => {")
     );
     assert!(out.contains("    drawer.open(id);"));
     assert!(!out.contains("event.shiftKey"));
@@ -99,9 +95,9 @@ fn drawer_delete_action_threads_last_delete_success() {
 
     assert!(out.contains("deleteThing"));
     assert!(out.contains("const drawerDelete = useLazuliCommand(deleteThing);"));
-    assert!(out.contains(
-        "lastDeleteSuccess: drawerDelete.isSuccess ? drawerDelete.submittedAt : null"
-    ));
+    assert!(
+        out.contains("lastDeleteSuccess: drawerDelete.isSuccess ? drawerDelete.submittedAt : null")
+    );
 }
 
 #[test]
@@ -204,9 +200,7 @@ fn segmented_search_emits_parse_segments_and_canonicalize() {
     assert!(out.contains("canonicalizeSearch({"));
     // Return field surfaces segments via parseSegments.
     assert!(
-        out.contains(
-            "segments: parseSegments(searchRaw, SEARCH_KEYWORDS, SEARCH_ALWAYS_ARRAY),"
-        )
+        out.contains("segments: parseSegments(searchRaw, SEARCH_KEYWORDS, SEARCH_ALWAYS_ARRAY),")
     );
 }
 

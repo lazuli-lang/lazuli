@@ -15,7 +15,9 @@ use super::{
 pub(super) fn write_query(s: &mut String, feature: &RuntimeFeature, query: &RuntimeQuery) {
     // Runtime spec invariant: every feature has at least one resource. If
     // somehow absent, skip query emission (nothing to bind to).
-    let Some(resource) = feature.resources.first() else { return };
+    let Some(resource) = feature.resources.first() else {
+        return;
+    };
     let resource_pascal = pascal_case(&resource.name);
     let resource_var = format!("{}Resource", lower_camel(&resource.name));
     // Wire registry key: `<feature>.<query_name>` (cell B1 dropped `.query.` infix).

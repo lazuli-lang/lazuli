@@ -123,8 +123,7 @@ fn typos_fixture_emits_all_expected_diagnostics() {
 fn typos_fixture_covers_all_eight_diagnostic_classes() {
     let expected_path =
         repo_path("editors/vscode/tests/grammar/typos.lzi.expected-diagnostics.json");
-    let expected_raw =
-        std::fs::read_to_string(&expected_path).expect("read expected json");
+    let expected_raw = std::fs::read_to_string(&expected_path).expect("read expected json");
     let expected: Value = serde_json::from_str(&expected_raw).expect("parse expected json");
 
     let codes: std::collections::BTreeSet<&str> = expected
@@ -146,7 +145,11 @@ fn typos_fixture_covers_all_eight_diagnostic_classes() {
         "audience-unknown-kind",
     ];
 
-    let missing: Vec<&str> = required.iter().copied().filter(|c| !codes.contains(c)).collect();
+    let missing: Vec<&str> = required
+        .iter()
+        .copied()
+        .filter(|c| !codes.contains(c))
+        .collect();
     assert!(
         missing.is_empty(),
         "expected typos.lzi.expected-diagnostics.json to cover all 8 R2-Wave-1 classes; \
@@ -157,16 +160,17 @@ fn typos_fixture_covers_all_eight_diagnostic_classes() {
 fn format_diagnostics(diagnostics: &[Diagnostic]) -> String {
     let mut by_line: BTreeMap<u32, Vec<String>> = BTreeMap::new();
     for d in diagnostics {
-        by_line
-            .entry(d.range.start.line)
-            .or_default()
-            .push(format!(
-                "  line {:>3} [{}] {}: {}",
-                d.range.start.line + 1,
-                severity_label(d.severity),
-                diagnostic_code(d).unwrap_or("<numeric>"),
-                d.message,
-            ));
+        by_line.entry(d.range.start.line).or_default().push(format!(
+            "  line {:>3} [{}] {}: {}",
+            d.range.start.line + 1,
+            severity_label(d.severity),
+            diagnostic_code(d).unwrap_or("<numeric>"),
+            d.message,
+        ));
     }
-    by_line.into_values().flatten().collect::<Vec<_>>().join("\n")
+    by_line
+        .into_values()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join("\n")
 }

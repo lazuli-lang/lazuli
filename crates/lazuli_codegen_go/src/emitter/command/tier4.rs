@@ -359,8 +359,8 @@ mod tests {
         base_command, base_feature, emit_with_customer_fallback as emit, local_qname,
     };
     use lazuli_ir::{
-        BackoffStrategy, CommandEffect, CreateEffect, DeprecationReplacement, IdempotencyKey,
-        Path, RetryPolicy, UpdateEffect,
+        BackoffStrategy, CommandEffect, CreateEffect, DeprecationReplacement, IdempotencyKey, Path,
+        RetryPolicy, UpdateEffect,
     };
 
     #[test]

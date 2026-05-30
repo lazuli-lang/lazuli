@@ -160,8 +160,8 @@ fn legacy_verify_path_surfaces_todo() {
     let mut feature = base_feature("legacy");
     feature.webhooks.push(base_webhook("github_ping"));
     let out = emit(&feature).expect("must emit");
-    assert!(out.contains(
-        "// TODO(runtime): legacy verifier path \"./webhooks/github_ping_verify.go\""
-    ));
+    assert!(
+        out.contains("// TODO(runtime): legacy verifier path \"./webhooks/github_ping_verify.go\"")
+    );
     assert!(!out.contains("Verify: webhooks.VerifySpec"));
 }

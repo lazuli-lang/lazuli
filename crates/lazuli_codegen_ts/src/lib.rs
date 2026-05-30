@@ -22,8 +22,8 @@ pub mod cap_file_hooks;
 pub mod design;
 pub mod lifecycle_gate_emit;
 pub mod lzx;
-pub mod lzx_route_params;
 pub mod lzx_audience_slot;
+pub mod lzx_route_params;
 pub mod mobile_runtime;
 pub mod mobile_view_scaffold;
 pub mod playwright;
@@ -183,8 +183,7 @@ fn generate_schema_ts(module: &Module, display_name: &str) -> String {
     // `lazuli_ir::Module` derives Serialize across the whole tree; any
     // failure here is a framework bug, not a user-fixable error. Fall back
     // to an empty object literal so codegen output is still valid TS.
-    let json =
-        serde_json::to_string_pretty(module).unwrap_or_else(|_| "{}".to_owned());
+    let json = serde_json::to_string_pretty(module).unwrap_or_else(|_| "{}".to_owned());
 
     format!(
         r#"// Generated from the Lazuli IR. Read-only — regenerate via `lazuli generate ts`.

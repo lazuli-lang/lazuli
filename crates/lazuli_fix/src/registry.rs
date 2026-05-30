@@ -156,7 +156,9 @@ mod tests {
             column: 1,
             apply: false,
         };
-        let result = reg.execute(&request).expect("unknown rule should not error");
+        let result = reg
+            .execute(&request)
+            .expect("unknown rule should not error");
         assert!(matches!(result.outcome, FixOutcome::Skipped));
     }
 }

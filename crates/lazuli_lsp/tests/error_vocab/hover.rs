@@ -1,8 +1,6 @@
 //! Hover coverage — rich keyword hovers + resolved code hovers.
 
-use lazuli_lsp::{
-    ERROR_VOCAB_CODES, error_vocab_code_resolved_hover, rich_keyword_hover,
-};
+use lazuli_lsp::{ERROR_VOCAB_CODES, error_vocab_code_resolved_hover, rich_keyword_hover};
 use tower_lsp::lsp_types::Position;
 
 use super::{position_at, sample_feature_with_errors_override};
@@ -48,17 +46,13 @@ fn rich_hover_describes_errors_block() {
 
 #[test]
 fn rich_hover_describes_message_key() {
-    let hover =
-        rich_keyword_hover("message_key").expect("message_key hover present");
+    let hover = rich_keyword_hover("message_key").expect("message_key hover present");
     assert!(hover.contains("4xx"), "{hover}");
     assert!(
         hover.contains("offline"),
         "expected offline-catalog rationale: {hover}"
     );
-    assert!(
-        hover.contains("expose client 4xx"),
-        "{hover}"
-    );
+    assert!(hover.contains("expose client 4xx"), "{hover}");
 }
 
 #[test]
@@ -79,8 +73,7 @@ fn resolved_hover_reads_feature_level_override() {
     );
     // Source label points at the feature-level layer.
     assert!(
-        hover.contains("account.errors.policy_denied")
-            || hover.contains("feature.account"),
+        hover.contains("account.errors.policy_denied") || hover.contains("feature.account"),
         "hover should label the resolution source as the feature.errors layer: {hover}"
     );
 }

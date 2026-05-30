@@ -11,9 +11,7 @@ use super::blocks::{
     parse_query_indented_block, parse_query_params_block, parse_query_scope_override_block,
     parse_query_search,
 };
-use crate::ast::{
-    CommandInputSlot, ListQueryDecl, PolicyExprAst, QueryDecl, QuerySearch, Span,
-};
+use crate::ast::{CommandInputSlot, ListQueryDecl, PolicyExprAst, QueryDecl, QuerySearch, Span};
 
 pub(super) fn parse_query_list_decl(
     lines: &[SourceLine<'_>],

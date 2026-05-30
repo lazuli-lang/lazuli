@@ -288,14 +288,13 @@ fn extract_frontmatter(contents: &str) -> Vec<(String, String)> {
     let mut pending_list_key: Option<String> = None;
     let mut pending_list_items: Vec<String> = Vec::new();
 
-    let flush_list = |out: &mut Vec<(String, String)>,
-                      key: &mut Option<String>,
-                      items: &mut Vec<String>| {
-        if let Some(k) = key.take() {
-            out.push((k, format!("[{}]", items.join(", "))));
-            items.clear();
-        }
-    };
+    let flush_list =
+        |out: &mut Vec<(String, String)>, key: &mut Option<String>, items: &mut Vec<String>| {
+            if let Some(k) = key.take() {
+                out.push((k, format!("[{}]", items.join(", "))));
+                items.clear();
+            }
+        };
 
     for line in lines {
         let trimmed = line.trim_end();

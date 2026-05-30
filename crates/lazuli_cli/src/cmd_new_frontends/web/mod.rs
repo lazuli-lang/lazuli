@@ -227,8 +227,8 @@ mod invariants_tests;
 mod tests {
     use std::fs;
 
-    use super::*;
     use super::super::test_support::tempdir;
+    use super::*;
 
     #[test]
     fn scaffold_web_creates_all_expected_files() {
@@ -466,5 +466,4 @@ mod tests {
         let manifest = fs::read_to_string(root.join("Lazurite.toml")).unwrap();
         assert_eq!(manifest.matches("[frontends.web]").count(), 1);
     }
-
 }

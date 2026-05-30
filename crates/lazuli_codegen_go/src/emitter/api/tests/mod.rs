@@ -10,7 +10,7 @@ mod wiring_tests;
 use super::*;
 use lazuli_ir::{
     AppManifest, Defaults, FileCapability, FileSize, FileSizeLiteral, FileVisibility, HttpMethod,
-    MimeType, Module, PathRef, PolicyRef, Policies, Record, Resource, TypeRef,
+    MimeType, Module, PathRef, Policies, PolicyRef, Record, Resource, TypeRef,
 };
 
 pub(super) fn base_feature(name: &str) -> Feature {

@@ -108,11 +108,7 @@ pub fn check(
     app_cookie: Option<&AppCookie>,
     app_declares_cookie: bool,
 ) -> Vec<Finding> {
-    let Some(sessions) = feature
-        .auth
-        .as_ref()
-        .and_then(|a| a.sessions.as_ref())
-    else {
+    let Some(sessions) = feature.auth.as_ref().and_then(|a| a.sessions.as_ref()) else {
         return Vec::new();
     };
     let refresh_flow = sessions.rotation.is_some() || sessions.refresh;

@@ -23,7 +23,9 @@ use super::naming::{field_kind_ts, lower_camel, pascal_case};
 
 pub(super) fn write_command(s: &mut String, feature: &RuntimeFeature, command: &RuntimeCommand) {
     // Runtime spec invariant: every feature has at least one resource.
-    let Some(resource) = feature.resources.first() else { return };
+    let Some(resource) = feature.resources.first() else {
+        return;
+    };
     let resource_pascal = pascal_case(&resource.name);
     let qualified_name = format!("{}.{}", feature.name, command.short_name);
     let input_iface = command_input_struct_name(&command.short_name, &resource_pascal);

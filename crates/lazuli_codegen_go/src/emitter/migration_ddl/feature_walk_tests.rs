@@ -33,10 +33,22 @@ feature staffing
         .expect("synthesized JobMember junction migration should be emitted");
     let sql = &junction.contents;
 
-    assert!(sql.contains("CREATE TABLE IF NOT EXISTS \"job_member\""), "junction table: {sql}");
-    assert!(sql.contains("job_id BIGINT NOT NULL"), "declaring FK column: {sql}");
-    assert!(sql.contains("user_id BIGINT NOT NULL"), "partner FK column: {sql}");
-    assert!(sql.contains("role_in_job TEXT NOT NULL"), "payload column: {sql}");
+    assert!(
+        sql.contains("CREATE TABLE IF NOT EXISTS \"job_member\""),
+        "junction table: {sql}"
+    );
+    assert!(
+        sql.contains("job_id BIGINT NOT NULL"),
+        "declaring FK column: {sql}"
+    );
+    assert!(
+        sql.contains("user_id BIGINT NOT NULL"),
+        "partner FK column: {sql}"
+    );
+    assert!(
+        sql.contains("role_in_job TEXT NOT NULL"),
+        "payload column: {sql}"
+    );
     assert!(
         sql.contains("FOREIGN KEY (job_id) REFERENCES \"job\" (id)"),
         "declaring FK constraint: {sql}"

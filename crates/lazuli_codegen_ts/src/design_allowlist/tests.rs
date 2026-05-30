@@ -3,8 +3,8 @@
 
 use super::*;
 use crate::design::ir::{
-    ColorState, ColorStateKind, ColorToken, Design, FamilyToken, Motion, ScaleToken,
-    ShadowToken, TextScaleToken, Typography, WeightToken, ZToken,
+    ColorState, ColorStateKind, ColorToken, Design, FamilyToken, Motion, ScaleToken, ShadowToken,
+    TextScaleToken, Typography, WeightToken, ZToken,
 };
 use lazuli_ir::CustomToken;
 
@@ -65,9 +65,32 @@ fn minimal_emits_all_top_level_keys() {
     let out = emit_allowlist_json(&minimal());
     assert!(out.starts_with("{\n"));
     for key in [
-        "bg", "text", "border", "ring", "p", "px", "py", "pt", "pr", "pb", "pl", "m", "mx",
-        "my", "mt", "mr", "mb", "ml", "gap", "gap-x", "gap-y", "rounded", "shadow", "z",
-        "font", "text-size",
+        "bg",
+        "text",
+        "border",
+        "ring",
+        "p",
+        "px",
+        "py",
+        "pt",
+        "pr",
+        "pb",
+        "pl",
+        "m",
+        "mx",
+        "my",
+        "mt",
+        "mr",
+        "mb",
+        "ml",
+        "gap",
+        "gap-x",
+        "gap-y",
+        "rounded",
+        "shadow",
+        "z",
+        "font",
+        "text-size",
     ] {
         assert!(out.contains(&format!("\"{}\"", key)), "missing key {key}");
     }
@@ -140,7 +163,10 @@ fn radius_base_collapses_to_rounded_default() {
         .iter()
         .map(|v| v.as_str().unwrap())
         .collect();
-    assert!(rounded.contains(&"DEFAULT"), "rounded should contain DEFAULT: {rounded:?}");
+    assert!(
+        rounded.contains(&"DEFAULT"),
+        "rounded should contain DEFAULT: {rounded:?}"
+    );
     assert!(!rounded.contains(&"base"), "literal `base` must not leak");
 }
 
@@ -268,15 +294,13 @@ fn custom_tokens_expand_to_four_utility_prefixes() {
         span_ref: None,
     });
     let out = emit_allowlist_json(&d);
-    let parsed: serde_json::Value =
-        serde_json::from_str(&out).expect("valid JSON");
+    let parsed: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
     for prefix in ["bg", "text", "border", "ring"] {
         let bucket = parsed
             .get(prefix)
             .and_then(|v| v.as_array())
             .unwrap_or_else(|| panic!("missing prefix `{prefix}`"));
-        let entries: Vec<&str> =
-            bucket.iter().filter_map(|v| v.as_str()).collect();
+        let entries: Vec<&str> = bucket.iter().filter_map(|v| v.as_str()).collect();
         assert!(
             entries.contains(&"chat-bubble-mine"),
             "{prefix} missing chat-bubble-mine: {entries:?}"

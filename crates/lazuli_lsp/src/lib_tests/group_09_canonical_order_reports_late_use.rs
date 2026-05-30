@@ -461,4 +461,3 @@ fn keyword_hover_describes_conventions_slot() {
         "conventions one-liner should anchor the me proposal path; got: {one_liner}"
     );
 }
-

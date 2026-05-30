@@ -52,6 +52,6 @@ pub use alias_map::build_alias_map;
 pub use errors::PluginManifestError;
 pub use loader::{load_plugin_manifest, resolve_plugin_root};
 pub use types::{
-    PluginIdentity, PluginManifest, PluginSemanticTypeDecl, ResolvedPluginSemantic,
-    PLUGIN_MANIFEST_FILENAME,
+    PLUGIN_MANIFEST_FILENAME, PluginIdentity, PluginManifest, PluginSemanticTypeDecl,
+    ResolvedPluginSemantic,
 };

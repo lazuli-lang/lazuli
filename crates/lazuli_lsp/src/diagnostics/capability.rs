@@ -57,7 +57,13 @@ pub(crate) fn file_capability_contract_diagnostics(source: &str) -> Vec<Diagnost
             // arg está presente, codegen sintetiza request/confirm/
             // clear/get_photo_url commands com a policy informada.
             // Hostpoint usa em Host.profile_photo + Traveler.profile_photo.
-            &["max_size", "accept", "visibility", "signed_ttl", "auto_photo_policy"],
+            &[
+                "max_size",
+                "accept",
+                "visibility",
+                "signed_ttl",
+                "auto_photo_policy",
+            ],
         );
 
         if !args.iter().any(|(key, _)| key == "max_size") {

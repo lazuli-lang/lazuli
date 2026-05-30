@@ -131,7 +131,10 @@ mod ux_tests {
             ViewAst::List(v) => v,
             other => panic!("expected list, got {other:?}"),
         };
-        assert_eq!(list.ux.inline_table.as_ref().unwrap().on_change, "update_row");
+        assert_eq!(
+            list.ux.inline_table.as_ref().unwrap().on_change,
+            "update_row"
+        );
     }
 
     #[test]

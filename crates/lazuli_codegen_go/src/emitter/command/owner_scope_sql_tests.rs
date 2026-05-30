@@ -314,9 +314,7 @@ fn create_with_cte_owner_check_emits_creates_with_owner_check() {
 
     let out = emit(&feature).expect("must emit");
     assert!(
-        out.contains(
-            "Effect: lazuli.CreatesWithOwnerCheck(&propertyResource, lazuli.Bindings{"
-        ),
+        out.contains("Effect: lazuli.CreatesWithOwnerCheck(&propertyResource, lazuli.Bindings{"),
         "CREATE with cte_owner_check should emit CreatesWithOwnerCheck:\n{out}"
     );
     assert!(

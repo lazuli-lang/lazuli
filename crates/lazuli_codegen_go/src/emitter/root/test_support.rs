@@ -10,7 +10,6 @@ use lazuli_ir::{
 };
 use std::collections::BTreeMap;
 
-
 pub(super) fn empty_feature(name: &str) -> Feature {
     Feature {
         name: name.to_owned(),
@@ -128,4 +127,3 @@ pub(super) fn lazurite_manifest(project_module: &str) -> LazuriteManifest {
         dev: None,
     }
 }
-

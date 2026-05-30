@@ -10,9 +10,7 @@ use std::collections::HashMap;
 
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 
-use crate::{
-    command_write_effect, feature_name, leading_spaces, simple_canonical_diagnostic,
-};
+use crate::{command_write_effect, feature_name, leading_spaces, simple_canonical_diagnostic};
 
 use super::namespace::policy_statement_ref;
 

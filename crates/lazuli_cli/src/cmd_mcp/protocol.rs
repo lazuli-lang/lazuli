@@ -136,7 +136,10 @@ mod tests {
     #[test]
     fn error_response_envelopes_code_and_message() {
         let response = error_response(Value::from(7), -32601, "method not found".into());
-        assert_eq!(response.get("jsonrpc").and_then(|v| v.as_str()), Some("2.0"));
+        assert_eq!(
+            response.get("jsonrpc").and_then(|v| v.as_str()),
+            Some("2.0")
+        );
         assert_eq!(response.get("id"), Some(&Value::from(7)));
         let error = response.get("error").expect("error envelope");
         assert_eq!(error.get("code").and_then(|v| v.as_i64()), Some(-32601));

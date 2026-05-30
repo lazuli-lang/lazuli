@@ -166,9 +166,9 @@ fn surface_with_audience(audience: Audience) -> Surface {
 /// `Resource["field"]`.
 #[test]
 fn single_binding_emits_field_derived_type() {
-    let surface = surface_with_audience(admin_audience_with_views(vec![
-        slug_list_view(vec![type_badge_cell()]),
-    ]));
+    let surface = surface_with_audience(admin_audience_with_views(vec![slug_list_view(vec![
+        type_badge_cell(),
+    ])]));
 
     let output = emit_slot_interface(&surface, &slug_feature(), "type_badge");
 
@@ -231,12 +231,10 @@ fn cross_view_binding_emits_one_consistent_interface() {
 /// binding anywhere. Emits `value: void; row: <Resource>;`.
 #[test]
 fn section_slot_emits_void_value_with_whole_row() {
-    let surface = surface_with_audience(admin_audience_with_views(vec![
-        slug_detail_view(
-            vec![],
-            vec!["header".to_owned(), "metadata".to_owned()],
-        ),
-    ]));
+    let surface = surface_with_audience(admin_audience_with_views(vec![slug_detail_view(
+        vec![],
+        vec!["header".to_owned(), "metadata".to_owned()],
+    )]));
 
     let output = emit_slot_interface(&surface, &slug_feature(), "header");
 
@@ -265,9 +263,10 @@ fn section_slot_emits_void_value_with_whole_row() {
 #[test]
 fn slot_name_pascal_case_with_props_suffix() {
     // snake_case slot name
-    let surface_snake = surface_with_audience(admin_audience_with_views(vec![
-        slug_list_view(vec![type_badge_cell()]),
-    ]));
+    let surface_snake =
+        surface_with_audience(admin_audience_with_views(vec![slug_list_view(vec![
+            type_badge_cell(),
+        ])]));
     let output_snake = emit_slot_interface(&surface_snake, &slug_feature(), "type_badge");
     assert!(output_snake.contains("export interface TypeBadgeProps"));
 
@@ -276,9 +275,10 @@ fn slot_name_pascal_case_with_props_suffix() {
         field: "tags".to_owned(),
         slot: "quick-action".to_owned(),
     };
-    let surface_kebab = surface_with_audience(admin_audience_with_views(vec![
-        slug_list_view(vec![kebab_cell]),
-    ]));
+    let surface_kebab =
+        surface_with_audience(admin_audience_with_views(vec![slug_list_view(vec![
+            kebab_cell,
+        ])]));
     let output_kebab = emit_slot_interface(&surface_kebab, &slug_feature(), "quick-action");
     assert!(
         output_kebab.contains("export interface QuickActionProps"),
@@ -373,9 +373,7 @@ fn slot_interface_emission_is_deterministic() {
 /// graceful path so generated cells/<x>.gen.ts always type-checks.
 #[test]
 fn slot_with_no_binding_emits_unresolved_fallback() {
-    let surface = surface_with_audience(admin_audience_with_views(vec![
-        slug_list_view(vec![]),
-    ]));
+    let surface = surface_with_audience(admin_audience_with_views(vec![slug_list_view(vec![])]));
 
     let output = emit_slot_interface(&surface, &slug_feature(), "ghost_slot");
 

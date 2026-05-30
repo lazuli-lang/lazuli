@@ -211,4 +211,3 @@ pub fn lazurite_manifest(
         }),
     }
 }
-

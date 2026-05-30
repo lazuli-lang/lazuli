@@ -53,7 +53,12 @@ pub(super) fn emit_shadow(s: &mut String, tok: &ShadowToken) {
                 parsed.offset_x, parsed.offset_y
             )
             .ok();
-            writeln!(s, "      shadowOpacity: {},", format_opacity(parsed.opacity)).ok();
+            writeln!(
+                s,
+                "      shadowOpacity: {},",
+                format_opacity(parsed.opacity)
+            )
+            .ok();
             writeln!(s, "      shadowRadius: {},", parsed.blur).ok();
             writeln!(s, "      elevation: {},", parsed.elevation).ok();
             writeln!(s, "    }},").ok();

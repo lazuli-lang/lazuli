@@ -15,8 +15,8 @@
 
 use std::collections::BTreeMap;
 
-use super::{ColorState, ColorStateKind, Design, DiffReport, TokenDiff};
 use super::figma::color_state_key;
+use super::{ColorState, ColorStateKind, Design, DiffReport, TokenDiff};
 
 pub(super) fn compute_diff(current: &Design, incoming: &Design) -> DiffReport {
     let lhs = flat_view(current);

@@ -176,11 +176,13 @@ pub(super) fn inspect_feature(
     // consumers distinguish "flag not set" from "no intent declared".
     // Reading the on-disk `knowledge/<sector>/` vault is a later
     // concern. See `docs/proposals/knowledge-sector-field.md`.
-    let knowledge_projection = expansions.knowledge.then(|| super::super::InspectKnowledge {
-        purpose: tier3.and_then(|t| t.purpose.clone()),
-        non_goals: tier3.map(|t| t.non_goals.clone()).unwrap_or_default(),
-        sector: tier3.and_then(|t| t.knowledge.clone()),
-    });
+    let knowledge_projection = expansions
+        .knowledge
+        .then(|| super::super::InspectKnowledge {
+            purpose: tier3.and_then(|t| t.purpose.clone()),
+            non_goals: tier3.map(|t| t.non_goals.clone()).unwrap_or_default(),
+            sector: tier3.and_then(|t| t.knowledge.clone()),
+        });
 
     // `cookie-sessions-child` — the security projection now reads the
     // lowered auth lookup (for the `auth.sessions.cookie` envelope), so
@@ -194,15 +196,9 @@ pub(super) fn inspect_feature(
     // already-available projector outputs. Self-contained: it projects
     // the underlying data regardless of which individual sub-axes the
     // user set. See `build_context` below + `report_types/context.rs`.
-    let context_projection = expansions.context.then(|| {
-        build_context(
-            lines,
-            &name,
-            tier3,
-            &policies,
-            auth_by_feature.get(&name),
-        )
-    });
+    let context_projection = expansions
+        .context
+        .then(|| build_context(lines, &name, tier3, &policies, auth_by_feature.get(&name)));
 
     InspectFeature {
         name,

@@ -190,7 +190,11 @@ pub(super) fn inspect_command_effect_to_string(e: &lazuli_ir::CommandEffect) -> 
         ),
         lazuli_ir::CommandEffect::Deletes(d) => format!("deletes {}", format_qname(&d.resource)),
         lazuli_ir::CommandEffect::Reorders(r) => {
-            format!("reorder {} by {}", format_qname(&r.resource), r.position_field)
+            format!(
+                "reorder {} by {}",
+                format_qname(&r.resource),
+                r.position_field
+            )
         }
         lazuli_ir::CommandEffect::Returns(r) => {
             format!("returns {}", type_ref_to_string(&r.return_type))

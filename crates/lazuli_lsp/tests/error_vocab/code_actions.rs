@@ -24,20 +24,23 @@ feature account
     let scaffold = actions
         .iter()
         .find_map(|a| match a {
-            CodeActionOrCommand::CodeAction(ca)
-                if ca.title.contains("Scaffold `errors` block") =>
-            {
+            CodeActionOrCommand::CodeAction(ca) if ca.title.contains("Scaffold `errors` block") => {
                 Some(ca)
             }
             _ => None,
         })
         .expect("expected scaffold-errors code action when feature has no `errors` block");
-    let edit = scaffold.edit.as_ref().expect("scaffold action must carry an edit");
+    let edit = scaffold
+        .edit
+        .as_ref()
+        .expect("scaffold action must carry an edit");
     let changes = edit
         .changes
         .as_ref()
         .expect("scaffold action must use `changes`");
-    let edits = changes.get(&uri).expect("scaffold action must target the active URI");
+    let edits = changes
+        .get(&uri)
+        .expect("scaffold action must target the active URI");
     assert_eq!(edits.len(), 1, "expected one edit, got {edits:?}");
     let inserted = &edits[0].new_text;
     for code in ERROR_VOCAB_CODES {
@@ -49,7 +52,10 @@ feature account
     // The inserted text must contain the exposure rules and a
     // translation block.
     assert!(inserted.contains("default hide"), "{inserted}");
-    assert!(inserted.contains("expose client 4xx message, code"), "{inserted}");
+    assert!(
+        inserted.contains("expose client 4xx message, code"),
+        "{inserted}"
+    );
     assert!(inserted.contains("expose client 5xx code"), "{inserted}");
     assert!(inserted.contains("translation"), "{inserted}");
 }
@@ -72,8 +78,7 @@ feature account
     let actions = error_vocab_code_actions(source, &uri, position);
     assert!(
         !actions.iter().any(|a| match a {
-            CodeActionOrCommand::CodeAction(ca) =>
-                ca.title.contains("Scaffold `errors` block"),
+            CodeActionOrCommand::CodeAction(ca) => ca.title.contains("Scaffold `errors` block"),
             _ => false,
         }),
         "scaffold action should NOT fire when feature already has an `errors` block"
@@ -99,9 +104,7 @@ feature account
     let add_action = actions
         .iter()
         .find_map(|a| match a {
-            CodeActionOrCommand::CodeAction(ca)
-                if ca.title.contains("per-policy default") =>
-            {
+            CodeActionOrCommand::CodeAction(ca) if ca.title.contains("per-policy default") => {
                 Some(ca)
             }
             _ => None,
@@ -143,9 +146,7 @@ feature account
     let add_action = actions
         .iter()
         .find_map(|a| match a {
-            CodeActionOrCommand::CodeAction(ca)
-                if ca.title.contains("per-command override") =>
-            {
+            CodeActionOrCommand::CodeAction(ca) if ca.title.contains("per-command override") => {
                 Some(ca)
             }
             _ => None,

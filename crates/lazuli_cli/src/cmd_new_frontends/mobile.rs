@@ -117,8 +117,8 @@ pub fn scaffold_frontend_mobile(project_root: &Path, _app_name: &str) -> Result<
 mod tests {
     use std::fs;
 
-    use super::*;
     use super::super::test_support::tempdir;
+    use super::*;
 
     #[test]
     fn scaffold_mobile_creates_expected_files_and_appends_manifest() {

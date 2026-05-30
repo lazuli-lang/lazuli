@@ -53,8 +53,7 @@ feature customer
     let position = cursor_after_last(&source, "where (id = input.");
     let items = items(source, position);
 
-    let id_item =
-        label_with_detail(&items, "id").expect("expected `id` completion; got {items:?}");
+    let id_item = label_with_detail(&items, "id").expect("expected `id` completion; got {items:?}");
     assert_eq!(id_item.kind, Some(CompletionItemKind::FIELD));
     assert_eq!(id_item.detail.as_deref(), Some("route param"));
 
@@ -114,8 +113,14 @@ feature billing
     let items = items(source, position);
 
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-    assert!(labels.contains(&"order_id"), "route param missing: {labels:?}");
-    assert!(labels.contains(&"amount"), "typed input missing: {labels:?}");
+    assert!(
+        labels.contains(&"order_id"),
+        "route param missing: {labels:?}"
+    );
+    assert!(
+        labels.contains(&"amount"),
+        "typed input missing: {labels:?}"
+    );
     assert!(labels.contains(&"memo"), "typed input missing: {labels:?}");
 
     assert_eq!(

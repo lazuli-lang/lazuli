@@ -52,7 +52,7 @@ pub use generate::{Generate, GenerateGo};
 pub use inspect::{InspectFrontend, InspectManifest, InspectPlugin};
 pub use knowledge::Knowledge;
 pub use migrations::{DevOverrides, MigrationStrategy, Migrations, Seeds};
-pub use project::{Lazurite, LazuliPin, Plugin, Project};
+pub use project::{LazuliPin, Lazurite, Plugin, Project};
 pub use testing::{Testing, TestingGo, TestingPlaywright, TestingSpec, TestingTs};
 
 use serde::{Deserialize, Serialize};

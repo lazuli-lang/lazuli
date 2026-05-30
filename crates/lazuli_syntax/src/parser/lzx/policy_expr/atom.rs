@@ -2,7 +2,9 @@
 
 use crate::ast::{PolicyAtomAst, Span};
 
-use super::super::super::common::{SourceLine, is_kebab_or_snake_ident, line_error, line_error_owned};
+use super::super::super::common::{
+    SourceLine, is_kebab_or_snake_ident, line_error, line_error_owned,
+};
 use super::super::super::error::ParseError;
 
 /// Parse a `@<namespace>.<name>` policy atom, with an optional raw

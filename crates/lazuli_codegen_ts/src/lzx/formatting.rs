@@ -63,11 +63,7 @@ fn on_success_invalidates(spec: &OnSuccessSpec, host_feature: &str) -> Vec<Strin
     spec.invalidates
         .iter()
         .map(|invalidates| {
-            let feature = invalidates
-                .query
-                .feature
-                .as_deref()
-                .unwrap_or(host_feature);
+            let feature = invalidates.query.feature.as_deref().unwrap_or(host_feature);
             format!("{}.{}", feature, invalidates.query.name)
         })
         .collect()

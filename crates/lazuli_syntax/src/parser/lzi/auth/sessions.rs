@@ -355,9 +355,7 @@ fn parse_same_site(line: &SourceLine<'_>, rest: &str) -> Result<String, ParseErr
         "lax" | "strict" | "none" => Ok(value.to_owned()),
         other => Err(line_error_owned(
             line,
-            format!(
-                "unknown `same_site` `{other}` - closed catalog is `lax`, `strict`, or `none`"
-            ),
+            format!("unknown `same_site` `{other}` - closed catalog is `lax`, `strict`, or `none`"),
         )),
     }
 }

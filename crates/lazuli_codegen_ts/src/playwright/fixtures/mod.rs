@@ -23,9 +23,7 @@ use naming::{
     canonical, escape_ts_single_quoted, lifecycle_type_name, pascal_case, route_feature_from_name,
     route_target_feature, route_target_view_name, surface_feature, view_route,
 };
-use policy::{
-    build_policy_lookup, roles_from_atoms, roles_from_policy_refs, PolicyAtom,
-};
+use policy::{PolicyAtom, build_policy_lookup, roles_from_atoms, roles_from_policy_refs};
 
 include!("mod_p1.rs");
 include!("mod_p2.rs");

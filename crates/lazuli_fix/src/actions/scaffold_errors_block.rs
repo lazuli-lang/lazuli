@@ -35,10 +35,7 @@ impl FixAction for ScaffoldErrorsBlock {
             return Ok(FixResult {
                 outcome: FixOutcome::Skipped,
                 preview: String::new(),
-                note: Some(format!(
-                    "file does not exist: {}",
-                    request.path.display()
-                )),
+                note: Some(format!("file does not exist: {}", request.path.display())),
             });
         }
         let source = fs::read_to_string(&request.path)

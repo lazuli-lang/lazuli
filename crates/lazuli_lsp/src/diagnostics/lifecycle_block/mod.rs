@@ -33,7 +33,7 @@ pub(crate) use completion::{
 };
 #[allow(unused_imports)]
 pub(crate) use context::{
-    enclosing_lifecycle_block, enclosing_transition_block, LifecycleBlock, TransitionBlock,
+    LifecycleBlock, TransitionBlock, enclosing_lifecycle_block, enclosing_transition_block,
 };
 #[allow(unused_imports)]
 pub use hover::lifecycle_block_hover;

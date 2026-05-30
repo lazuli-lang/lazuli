@@ -117,12 +117,12 @@ pub(in crate::commands::inspect) fn inspect_canonical_source_with_aliases(
     // CUT 2 — the composite `--expand=context` axis also reads this
     // lookup for its `authorization` section (policies + auth), so
     // populate it whenever `context` is set as well.
-    let auth_by_feature = if (expansions.auth || expansions.security || expansions.context) && !is_lzx
-    {
-        collect_auth_by_feature(source)
-    } else {
-        BTreeMap::new()
-    };
+    let auth_by_feature =
+        if (expansions.auth || expansions.security || expansions.context) && !is_lzx {
+            collect_auth_by_feature(source)
+        } else {
+            BTreeMap::new()
+        };
 
     // Phase L Tier 3 — collect the lifted `Job`/`Webhook`/
     // `EventGroup` shapes for every feature in one pass. Reuses the

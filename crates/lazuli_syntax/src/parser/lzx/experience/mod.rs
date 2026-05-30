@@ -253,9 +253,7 @@ fn parse_lzx_experience_view(
                 // subject, not a separate verb). Closed catalog: `allows
                 // extension <feature>` / `denies extension <feature>`. Anything
                 // else is a hard parse error (no silent acceptance).
-                let assertion = if let Some(rest) =
-                    test_trimmed.strip_prefix("allows extension ")
-                {
+                let assertion = if let Some(rest) = test_trimmed.strip_prefix("allows extension ") {
                     let feature = rest.trim().to_owned();
                     if feature.is_empty() {
                         return Err(line_error(

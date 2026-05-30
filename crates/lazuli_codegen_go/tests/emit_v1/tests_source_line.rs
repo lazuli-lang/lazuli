@@ -9,9 +9,7 @@ use lazuli_analyzer::source_map::SourceMapResolver;
 use lazuli_codegen_go::{GoEmitOptions, generate_v1_with_manifest_and_source};
 use lazuli_ir::{SourceMap, SpanRef};
 
-use super::builders::{
-    command_gen_contents, empty_command, minimal_module, source_map_context,
-};
+use super::builders::{command_gen_contents, empty_command, minimal_module, source_map_context};
 
 #[test]
 fn emit_command_with_span_emits_line_directive() {

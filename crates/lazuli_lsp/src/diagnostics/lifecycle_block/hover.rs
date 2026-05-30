@@ -237,7 +237,8 @@ mod tests {
 
     #[test]
     fn returns_none_outside_lifecycle_block() {
-        let source = "feature billing\n  domain\n    resource Publication\n      field name: Text\n";
+        let source =
+            "feature billing\n  domain\n    resource Publication\n      field name: Text\n";
         let hover = lifecycle_block_hover(
             source,
             Position {

@@ -437,4 +437,3 @@ feature auth
             .any(|message| message.contains("`auth sessions` must declare `ttl`"))
     );
 }
-

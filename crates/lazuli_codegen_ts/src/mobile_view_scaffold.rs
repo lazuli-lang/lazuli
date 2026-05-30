@@ -69,11 +69,7 @@ pub fn expo_app_file_path(audience: &str, route: &str) -> String {
 /// let body = scaffold_body_for_view("slug", "admin", &view);
 /// assert!(body.contains("SafeAreaView"));
 /// ```
-pub fn scaffold_body_for_view(
-    feature_name: &str,
-    audience: &str,
-    view: &View,
-) -> String {
+pub fn scaffold_body_for_view(feature_name: &str, audience: &str, view: &View) -> String {
     let view_name = match view {
         View::List(v) => v.name.as_str(),
         View::Detail(v) => v.name.as_str(),
@@ -82,7 +78,10 @@ pub fn scaffold_body_for_view(
 
     let hook = view_hook_name(audience, view_name);
     let spec = view_spec_const(audience, view_name);
-    let import_path = format!("@/dist/ts-mobile/{}/views/{}/{}.gen", feature_name, audience, view_name);
+    let import_path = format!(
+        "@/dist/ts-mobile/{}/views/{}/{}.gen",
+        feature_name, audience, view_name
+    );
 
     match view {
         View::List(_) => list_body(&hook, &spec, &import_path, view_name),

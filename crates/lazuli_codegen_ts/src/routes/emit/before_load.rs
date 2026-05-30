@@ -33,10 +33,7 @@ use super::super::spec::RouteSpec;
 /// the consumer's guard is never reached because TanStack's
 /// beforeLoad slot is single-valued.
 pub(super) fn emit_before_load(out: &mut String, spec: &RouteSpec) {
-    if spec.guard_emit.is_none()
-        && spec.lifecycle_emit.is_none()
-        && spec.field_gates.is_empty()
-    {
+    if spec.guard_emit.is_none() && spec.lifecycle_emit.is_none() && spec.field_gates.is_empty() {
         writeln!(
             out,
             "    beforeLoad: options.guards?.{},",

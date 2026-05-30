@@ -32,17 +32,16 @@ mod hover;
 pub use completions::route_guard_completions;
 #[allow(unused_imports)]
 pub(crate) use completions::{
-    policy_ref_completion_items, query_ref_completion_items, redirect_trigger_has_open_quote,
-    route_guard_default_clause_completion_items, route_guard_redirect_path_trigger,
-    route_path_completion_items, snippet_completion, ROUTE_GUARD_DEFAULT_CLAUSES,
+    ROUTE_GUARD_DEFAULT_CLAUSES, policy_ref_completion_items, query_ref_completion_items,
+    redirect_trigger_has_open_quote, route_guard_default_clause_completion_items,
+    route_guard_redirect_path_trigger, route_path_completion_items, snippet_completion,
 };
 #[allow(unused_imports)]
 pub(crate) use context::{
-    app_route_guard_block, at_app_child_completion_line, collect_route_paths,
-    enclosing_audience_block, enclosing_named_block, enclosing_view_block, find_block_end,
-    first_quoted_value, in_app_body_context, in_app_route_guard_block,
+    RouteGuardBlock, RouteGuardViewBlock, app_route_guard_block, at_app_child_completion_line,
+    collect_route_paths, enclosing_audience_block, enclosing_named_block, enclosing_view_block,
+    find_block_end, first_quoted_value, in_app_body_context, in_app_route_guard_block,
     in_guard_policy_child_context, in_view_or_audience_guard_context, route_guard_context_feature,
-    RouteGuardBlock, RouteGuardViewBlock,
 };
 #[allow(unused_imports)]
 pub use hover::route_guard_hover;

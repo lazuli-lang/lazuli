@@ -128,9 +128,10 @@ pub fn emit_lifecycle_route_helpers_ts(feature: &ir::Feature) -> Option<String> 
     for resource in resources {
         let helper = lower_camel_export(&format!("{}_lifecycle_route", resource.name));
         // Filter at line 120 guarantees lifecycle_routes is Some.
-        let Some(table) = resource.lifecycle_routes.as_ref() else { continue };
+        let Some(table) = resource.lifecycle_routes.as_ref() else {
+            continue;
+        };
         write_lifecycle_route_helper(&mut s, &helper, table);
     }
     Some(s)
 }
-

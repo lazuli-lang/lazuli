@@ -6,8 +6,8 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 
 use crate::lzx::{
-    command_ident, lower_camel, pascal_case, CommandRef, SelectionDecl, SelectionMode, SettingDecl,
-    SettingPersistence, SettingValueSpace, SortDecl, SortDir, Surface, ViewList,
+    CommandRef, SelectionDecl, SelectionMode, SettingDecl, SettingPersistence, SettingValueSpace,
+    SortDecl, SortDir, Surface, ViewList, command_ident, lower_camel, pascal_case,
 };
 
 pub(crate) fn needs_use_state(view: &ViewList) -> bool {
@@ -352,4 +352,3 @@ pub(crate) fn unique_bulk_command_imports(view: &ViewList) -> Vec<String> {
 
 #[cfg(test)]
 mod tests;
-

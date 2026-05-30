@@ -5,8 +5,8 @@
 use super::*;
 use crate::emitter::cross_feature::CrossFeatureIndex;
 use lazuli_ir::{
-    AppManifest, BuiltinType, Defaults, EventField, EventKind, Field, Module, OutboxMode,
-    Policies, Resource, TypeRef,
+    AppManifest, BuiltinType, Defaults, EventField, EventKind, Field, Module, OutboxMode, Policies,
+    Resource, TypeRef,
 };
 
 fn base_feature(name: &str) -> Feature {

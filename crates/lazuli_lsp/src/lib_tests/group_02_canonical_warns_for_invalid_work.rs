@@ -192,8 +192,14 @@ fn canonical_examples_satisfy_lsp_contracts() {
             "audit-log.lzi",
             include_str!("../../../../examples/audit-log.lzi"),
         ),
-        ("billing.lzi", include_str!("../../../../examples/billing.lzi")),
-        ("comment.lzi", include_str!("../../../../examples/comment.lzi")),
+        (
+            "billing.lzi",
+            include_str!("../../../../examples/billing.lzi"),
+        ),
+        (
+            "comment.lzi",
+            include_str!("../../../../examples/comment.lzi"),
+        ),
         (
             "customer-capsule.lzi",
             include_str!("../../../../examples/customer-capsule.lzi"),
@@ -420,4 +426,3 @@ fn lzx_examples_satisfy_lsp_contracts() {
         );
     }
 }
-

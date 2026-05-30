@@ -304,10 +304,7 @@ mod tests {
 
     #[test]
     fn positive_integer_position_field_passes() {
-        let resource = mk_resource(
-            "JobStep",
-            vec![mk_field("position", BuiltinType::Integer)],
-        );
+        let resource = mk_resource("JobStep", vec![mk_field("position", BuiltinType::Integer)]);
         let cmd = mk_reorder_command("reorder_steps", "JobStep", "position");
         let feature = mk_feature(vec![resource], vec![cmd]);
         assert!(check(&feature, Path::new("j.lzi")).is_empty());

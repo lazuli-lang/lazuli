@@ -45,9 +45,7 @@ fn feature_emit_entry_point_emits_representative_webhook_file() {
     assert!(out.contains("var MercadopagoCallbackWebhook = webhooks.WebhookContract{"));
     assert!(out.contains("Route:       \"/webhooks/mercadopago\","));
     assert!(out.contains("HandlerPath: \"./webhooks/mercadopago_callback.go\","));
-    assert!(
-        out.contains("Retry:       &jobs.RetryPolicy{Count: 3, Backoff: jobs.BackoffFixed},")
-    );
+    assert!(out.contains("Retry:       &jobs.RetryPolicy{Count: 3, Backoff: jobs.BackoffFixed},"));
 }
 
 #[test]

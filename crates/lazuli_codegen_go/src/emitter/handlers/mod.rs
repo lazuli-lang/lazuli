@@ -164,6 +164,5 @@ impl HandlerNamespace {
 pub(super) type SignatureKey = (String, HandlerNamespace, String);
 pub(super) type SignatureMap = BTreeMap<SignatureKey, HandlerSignature>;
 
-
 #[cfg(test)]
 mod tests;

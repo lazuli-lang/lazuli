@@ -3,8 +3,8 @@
 
 use super::*;
 use crate::design::ir::{
-    ColorState, ColorStateKind, ColorToken, Design, EasingToken, FamilyToken, Motion,
-    ScaleToken, ShadowToken, TextScaleToken, TrackingToken, Typography, WeightToken,
+    ColorState, ColorStateKind, ColorToken, Design, EasingToken, FamilyToken, Motion, ScaleToken,
+    ShadowToken, TextScaleToken, TrackingToken, Typography, WeightToken,
 };
 
 fn minimal() -> Design {

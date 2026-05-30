@@ -57,10 +57,10 @@ pub(crate) const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 mod tests {
     use serde_json::{Value, json};
 
+    use super::MCP_PROTOCOL_VERSION;
     use super::protocol::{dispatch, initialize_result};
     use super::resources::{RESOURCE_PREFIXES, resources_list_result};
     use super::tools_list::{TOOLS, tools_list_result};
-    use super::MCP_PROTOCOL_VERSION;
 
     #[test]
     fn closed_tool_catalog_is_exactly_8() {

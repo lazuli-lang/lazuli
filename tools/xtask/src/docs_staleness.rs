@@ -65,9 +65,9 @@ fn git_mtime(root: &Path, rel_path: &str, cache: &mut HashMap<String, Option<u64
 fn cited_source_files(text: &str, root: &Path) -> Vec<String> {
     const PREFIXES: &[&str] = &["crates/", "tools/", "examples/", "lazurite/", "editors/"];
     let mut out = Vec::new();
-    for tok in text.split(|c: char| {
-        !(c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | ':' | '-' | '_'))
-    }) {
+    for tok in text
+        .split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | ':' | '-' | '_')))
+    {
         if tok.is_empty() || tok.contains("...") || !PREFIXES.iter().any(|p| tok.starts_with(p)) {
             continue;
         }
@@ -118,7 +118,10 @@ pub fn run(check: bool) -> Result<(), String> {
             }
         }
         if !newer.is_empty() {
-            stale.push(format!("{rel} — cited code changed since the doc: {}", newer.join(", ")));
+            stale.push(format!(
+                "{rel} — cited code changed since the doc: {}",
+                newer.join(", ")
+            ));
         }
     }
 
@@ -126,7 +129,10 @@ pub fn run(check: bool) -> Result<(), String> {
         println!("docs-staleness: {scanned} docs scanned, all fresh vs cited code.");
         return Ok(());
     }
-    println!("docs-staleness: {} of {scanned} doc(s) potentially stale:", stale.len());
+    println!(
+        "docs-staleness: {} of {scanned} doc(s) potentially stale:",
+        stale.len()
+    );
     for s in &stale {
         println!("  - {s}");
     }

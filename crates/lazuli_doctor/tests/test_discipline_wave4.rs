@@ -11,8 +11,7 @@
 use std::path::Path;
 
 use lazuli_doctor::test_discipline::{
-    test_command_assertion_drift_001 as cmd_drift,
-    test_view_drift_001 as view_drift,
+    test_command_assertion_drift_001 as cmd_drift, test_view_drift_001 as view_drift,
     test_view_extensibility_001 as view_ext,
 };
 use lazuli_ir::{
@@ -58,11 +57,7 @@ fn module_with_experience(experience: Experience) -> ExperienceModule {
     }
 }
 
-fn experience(
-    name: &str,
-    views: Vec<ExperienceView>,
-    extension_anchors: Vec<&str>,
-) -> Experience {
+fn experience(name: &str, views: Vec<ExperienceView>, extension_anchors: Vec<&str>) -> Experience {
     Experience {
         name: name.into(),
         imports: vec![],
@@ -151,7 +146,10 @@ fn drift_fires_when_target_extends_wrong_anchor() {
     };
     let findings = view_drift::check(&module, Path::new("c.lzx"));
     assert_eq!(findings.len(), 1);
-    assert_eq!(findings[0].kind, view_drift::FindingKind::MissingAnchorExtension);
+    assert_eq!(
+        findings[0].kind,
+        view_drift::FindingKind::MissingAnchorExtension
+    );
     assert_eq!(view_drift::Finding::CODE, "TEST-VIEW-DRIFT-001");
 }
 
@@ -195,11 +193,7 @@ fn mk_field(name: &str) -> Field {
     }
 }
 
-fn mk_resource(
-    name: &str,
-    lifecycle: Option<Lifecycle>,
-    invariants: Vec<Invariant>,
-) -> Resource {
+fn mk_resource(name: &str, lifecycle: Option<Lifecycle>, invariants: Vec<Invariant>) -> Resource {
     Resource {
         name: name.into(),
         public_contract: None,

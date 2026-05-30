@@ -98,11 +98,7 @@ pub(crate) fn enclosing_lifecycle_block(
 /// concern, not the block-vocab concern this module targets.
 fn lifecycle_block_field(rest: &str) -> Option<String> {
     let first = rest.split_whitespace().next()?;
-    if first.is_empty()
-        || !first
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_')
-    {
+    if first.is_empty() || !first.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
         return None;
     }
     // The shorthand `lifecycle status of <Resource>` is parsed
@@ -211,12 +207,18 @@ mod tests {
 
     #[test]
     fn returns_none_outside_any_lifecycle() {
-        let source = "feature billing\n  domain\n    resource Publication\n      field name: Text\n";
-        assert!(enclosing_lifecycle_block(
-            source,
-            Position { line: 3, character: 6 },
-        )
-        .is_none());
+        let source =
+            "feature billing\n  domain\n    resource Publication\n      field name: Text\n";
+        assert!(
+            enclosing_lifecycle_block(
+                source,
+                Position {
+                    line: 3,
+                    character: 6
+                },
+            )
+            .is_none()
+        );
     }
 
     #[test]
@@ -224,10 +226,15 @@ mod tests {
         // `lifecycle status of Foo` is the route-guard shorthand
         // handled by diagnostics::lifecycle, not the block-vocab.
         let source = "feature billing\n  lifecycle status of Publication\n    draft\n";
-        assert!(enclosing_lifecycle_block(
-            source,
-            Position { line: 1, character: 2 },
-        )
-        .is_none());
+        assert!(
+            enclosing_lifecycle_block(
+                source,
+                Position {
+                    line: 1,
+                    character: 2
+                },
+            )
+            .is_none()
+        );
     }
 }

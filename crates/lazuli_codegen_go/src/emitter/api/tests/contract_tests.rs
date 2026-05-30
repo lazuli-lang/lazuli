@@ -4,8 +4,8 @@
 
 use super::super::*;
 use super::{
-    base_feature, emit, emit_from_module, make_file_capability, module_with_features,
-    simple_api, simple_record,
+    base_feature, emit, emit_from_module, make_file_capability, module_with_features, simple_api,
+    simple_record,
 };
 use lazuli_ir::{
     BuiltinType, CapabilityRef, FileSizeLiteral, FileVisibility, HttpMethod, PathRef, PolicyRef,
@@ -35,9 +35,9 @@ fn canonical_file_api_emits_real_type_storage_and_register_placeholder() {
     assert!(out.contains("\"lazuli.dev/runtime/lazuli/storage\""));
     assert!(!out.contains("\"lazuli/test/customer/api\""));
     assert!(out.contains("type CustomerExportApiArgs struct{}"));
-    assert!(out.contains(
-        "var customerExportApi = lazuli.Api[CustomerExportApiArgs, storage.FileRef]{"
-    ));
+    assert!(
+        out.contains("var customerExportApi = lazuli.Api[CustomerExportApiArgs, storage.FileRef]{")
+    );
     assert!(!out.contains("var customerExportApi = struct {"));
     assert!(!out.contains("TODO(runtime):"));
     // Codegen now emits a `func init()` that registers the typed
@@ -77,9 +77,9 @@ fn typed_cap_file_api_output_uses_storage_file_ref() {
 
     let out = emit(&feature).expect("must emit");
     assert!(out.contains("\"lazuli.dev/runtime/lazuli/storage\""));
-    assert!(out.contains(
-        "var customerExportApi = lazuli.Api[CustomerExportApiArgs, storage.FileRef]{"
-    ));
+    assert!(
+        out.contains("var customerExportApi = lazuli.Api[CustomerExportApiArgs, storage.FileRef]{")
+    );
     assert!(!out.contains("_cap_File"));
 }
 
@@ -99,9 +99,9 @@ fn cap_file_literal_api_output_uses_storage_file_ref() {
 
     let out = emit(&feature).expect("must emit");
     assert!(out.contains("\"lazuli.dev/runtime/lazuli/storage\""));
-    assert!(out.contains(
-        "var customerExportApi = lazuli.Api[CustomerExportApiArgs, storage.FileRef]{"
-    ));
+    assert!(
+        out.contains("var customerExportApi = lazuli.Api[CustomerExportApiArgs, storage.FileRef]{")
+    );
     assert!(!out.contains("_cap_File"));
 }
 
@@ -212,9 +212,9 @@ fn cross_feature_output_emits_qualified_type_and_import() {
     let module = module_with_features(vec![customer, org]);
     let out = emit_from_module(&module, 0).expect("must emit");
     assert!(out.contains("\"lazuli/test/org\""));
-    assert!(out.contains(
-        "var ownerProfileApi = lazuli.Api[OwnerProfileApiArgs, orggen.UserProfile]{"
-    ));
+    assert!(
+        out.contains("var ownerProfileApi = lazuli.Api[OwnerProfileApiArgs, orggen.UserProfile]{")
+    );
     assert!(out.contains("Method:  lazuli.MethodPost,"));
     assert!(out.contains("OwnerID lazuli.ID `json:\"owner_id\"`"));
 }

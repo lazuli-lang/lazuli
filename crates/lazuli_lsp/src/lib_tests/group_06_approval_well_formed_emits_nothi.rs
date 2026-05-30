@@ -459,4 +459,3 @@ feature customer
             .contains("`Customer.owner` is declared `required`")
     }));
 }
-

@@ -1,9 +1,9 @@
 //! Registry `ALL` section 6/11 (SPEC-19 split; concatenated in `registry::ALL`).
 #![allow(clippy::all, unused_imports)]
 
-use crate::{CapabilitySpec, Context, DiagnosticFacet, SemanticToken, Sigil, Surface};
 use super::super::builders::*;
 use super::super::facets::*;
+use crate::{CapabilitySpec, Context, DiagnosticFacet, SemanticToken, Sigil, Surface};
 
 pub(crate) const ROWS: &[CapabilitySpec] = &[
     stmt(

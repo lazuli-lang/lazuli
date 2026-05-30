@@ -231,7 +231,6 @@ mod tests {
         assert!(emit(&feature).is_none());
     }
 
-
     #[test]
     fn cross_feature_input_type_emits_lazuli_id() {
         // Command in `customer` takes a `User` (declared in `org`) as
@@ -432,5 +431,4 @@ mod tests {
             "no billing import when no gates"
         );
     }
-
 }

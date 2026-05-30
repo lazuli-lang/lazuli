@@ -490,6 +490,9 @@ mod tests {
             many_through: Vec::new(),
         };
         let s = serde_json::to_string(&r).expect("serialize");
-        assert!(!s.contains("many_through"), "empty many_through omitted: {s}");
+        assert!(
+            !s.contains("many_through"),
+            "empty many_through omitted: {s}"
+        );
     }
 }

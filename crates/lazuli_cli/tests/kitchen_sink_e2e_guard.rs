@@ -153,11 +153,7 @@ const FIXTURE_SENTINELS: &[(&str, &str, &str)] = &[
         "full-capsule.lzi",
         "computed_date from renewal_date offset reminder_lead_days",
     ),
-    (
-        "append_only resource",
-        "full-capsule.lzi",
-        "append_only",
-    ),
+    ("append_only resource", "full-capsule.lzi", "append_only"),
     (
         "many_through junction",
         "full-capsule.lzi",
@@ -178,16 +174,8 @@ const FIXTURE_SENTINELS: &[(&str, &str, &str)] = &[
         "full-capsule.lzi",
         "unique is_default when is_default == true",
     ),
-    (
-        "HexColor",
-        "full-capsule.lzi",
-        "HexColor",
-    ),
-    (
-        "Percentage",
-        "full-capsule.lzi",
-        "Percentage",
-    ),
+    ("HexColor", "full-capsule.lzi", "HexColor"),
+    ("Percentage", "full-capsule.lzi", "Percentage"),
     (
         "record (shadow struct)",
         "full-capsule.lzi",
@@ -293,7 +281,8 @@ fn doctor_exits_zero_with_no_primitive_error_findings() {
     // `summary.errors` must be exactly 0.
     let errors = report["summary"]["errors"].as_u64().unwrap_or(u64::MAX);
     assert_eq!(
-        errors, 0,
+        errors,
+        0,
         "doctor reported {errors} error-severity finding(s); the fixture must \
          carry zero errors. Findings:\n{}",
         render_error_findings(&report)

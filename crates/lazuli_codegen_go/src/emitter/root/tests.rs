@@ -1,8 +1,12 @@
 //! main_go-focused tests. Fixtures live in `test_support`.
 
-use super::*;
 use super::test_support::*;
-use lazuli_ir::{AppLocale, AppLogging, AppTracing, AppCors, AppManifest, Feature, LocaleFallback, EncryptionAlgorithm, EncryptionBinding, EncryptionRotation, EncryptionSource, EncryptionTemplate};
+use super::*;
+use lazuli_ir::{
+    AppCors, AppLocale, AppLogging, AppManifest, AppTracing, EncryptionAlgorithm,
+    EncryptionBinding, EncryptionRotation, EncryptionSource, EncryptionTemplate, Feature,
+    LocaleFallback,
+};
 
 #[test]
 fn main_go_empty_module_emits_boot_skeleton() {
@@ -56,12 +60,10 @@ fn main_go_documents_registry_driven_http_mounting() {
     let module = module_with(vec![empty_feature("customer")], Some(manifest("test_app")));
     let out = emit_main_go(&module, "lazuli/test-app", "test_app", None);
 
-    assert!(out.contains(
-        "// Feature packages are imported above for init-time registry registration."
-    ));
     assert!(
-        out.contains("// lazuli.Mux() walks that registry and attaches command, query, and")
+        out.contains("// Feature packages are imported above for init-time registry registration.")
     );
+    assert!(out.contains("// lazuli.Mux() walks that registry and attaches command, query, and"));
     assert!(out.contains("// healthz routes before the process starts accepting requests."));
 }
 
@@ -122,4 +124,3 @@ fn main_go_imports_handler_package_for_fn_reference() {
         "feature with @fn reference must import handler package:\n{out}"
     );
 }
-

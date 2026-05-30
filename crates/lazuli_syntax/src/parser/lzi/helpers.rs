@@ -20,7 +20,9 @@ use crate::ast::{Span, TargetArgDecl};
 
 pub(in crate::parser) fn is_policy_identifier(text: &str) -> bool {
     let mut chars = text.chars();
-    let Some(first) = chars.next() else { return false };
+    let Some(first) = chars.next() else {
+        return false;
+    };
     if !(first.is_ascii_alphabetic() || first == '_') {
         return false;
     }

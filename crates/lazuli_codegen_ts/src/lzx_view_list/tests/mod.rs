@@ -190,13 +190,9 @@ fn slot_bindings_produce_parallel_import_lines() {
     let surface = minimal_surface(audience.clone());
 
     let out = emit_view_list(&surface, &audience, &view, "");
+    assert!(out.contains("import type { TypeBadgeProps } from \"../../cells/type_badge.gen.js\";"));
     assert!(
-        out.contains("import type { TypeBadgeProps } from \"../../cells/type_badge.gen.js\";")
-    );
-    assert!(
-        out.contains(
-            "import type { UserAvatarProps } from \"../../cells/user_avatar.gen.js\";"
-        )
+        out.contains("import type { UserAvatarProps } from \"../../cells/user_avatar.gen.js\";")
     );
     // Slot interface includes both.
     assert!(out.contains("TypeBadge: React.ComponentType<TypeBadgeProps>"));
@@ -275,9 +271,7 @@ fn multiple_actions_emit_as_object_literal() {
     let out = emit_view_list(&surface, &audience, &view, "");
     // Object literal style + all three resolved identifiers.
     assert!(
-        out.contains(
-            "actions: { create: createSlug, update: updateSlug, archive: archiveSlug }"
-        )
+        out.contains("actions: { create: createSlug, update: updateSlug, archive: archiveSlug }")
     );
     // Hook returns the spread actions map.
     assert!(out.contains("actions: { create, update, archive }"));
@@ -294,4 +288,3 @@ fn omits_search_filter_and_actions_when_empty() {
     assert!(!out.contains("filter:"));
     assert!(!out.contains("actions:"));
 }
-

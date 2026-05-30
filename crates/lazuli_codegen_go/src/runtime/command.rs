@@ -18,7 +18,9 @@ pub(super) fn write_command(s: &mut String, feature: &RuntimeFeature, command: &
     // Runtime spec invariant: every feature has at least one resource. If
     // somehow absent, skip emission of this command (nothing meaningful to
     // bind it to) — the orchestrator surfaces the empty file as a diagnostic.
-    let Some(resource) = feature.resources.first() else { return };
+    let Some(resource) = feature.resources.first() else {
+        return;
+    };
     let resource_pascal = pascal_case(&resource.name);
     let resource_var = format!("{}Resource", lower_camel(&resource.name));
     let qualified_name = format!("{}.{}", feature.name, command.short_name);

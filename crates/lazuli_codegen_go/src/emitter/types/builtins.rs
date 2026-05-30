@@ -120,7 +120,7 @@ pub(super) fn go_type_for_capability(cap: &CapabilityRef) -> (String, Option<&'s
 #[cfg(test)]
 mod tests {
     use super::super::tests_support::{cross_ref_module, type_ctx};
-    use super::super::{go_type_for, go_return_type_for};
+    use super::super::{go_return_type_for, go_type_for};
     use lazuli_ir::{BuiltinType, TypeRef};
 
     #[test]

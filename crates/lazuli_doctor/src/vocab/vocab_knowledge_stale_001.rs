@@ -200,12 +200,42 @@ mod tests {
     fn tabled_cases() {
         // (label, tier, revalidate_by, today, expect)
         let cases: &[(&str, Tier, Option<&str>, &str, bool)] = &[
-            ("gold_past", Tier::Gold, Some("2020-01-01"), "2026-05-29", true),
-            ("gold_future", Tier::Gold, Some("2099-01-01"), "2026-05-29", false),
-            ("gold_equal", Tier::Gold, Some("2026-05-29"), "2026-05-29", false),
-            ("draft_past", Tier::Draft, Some("2020-01-01"), "2026-05-29", false),
+            (
+                "gold_past",
+                Tier::Gold,
+                Some("2020-01-01"),
+                "2026-05-29",
+                true,
+            ),
+            (
+                "gold_future",
+                Tier::Gold,
+                Some("2099-01-01"),
+                "2026-05-29",
+                false,
+            ),
+            (
+                "gold_equal",
+                Tier::Gold,
+                Some("2026-05-29"),
+                "2026-05-29",
+                false,
+            ),
+            (
+                "draft_past",
+                Tier::Draft,
+                Some("2020-01-01"),
+                "2026-05-29",
+                false,
+            ),
             ("gold_none", Tier::Gold, None, "2026-05-29", false),
-            ("gold_garbage", Tier::Gold, Some("soon"), "2026-05-29", false),
+            (
+                "gold_garbage",
+                Tier::Gold,
+                Some("soon"),
+                "2026-05-29",
+                false,
+            ),
         ];
         for (label, tier, rev, today, expect) in cases {
             let docs = vec![doc("0001-x.md", Some(*tier), *rev)];

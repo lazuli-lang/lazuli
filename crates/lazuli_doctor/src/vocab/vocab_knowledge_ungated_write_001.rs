@@ -244,7 +244,10 @@ mod tests {
         assert!(git(root, &["commit", "-q", "-m", "promote"]));
 
         let findings = check(root, "billing");
-        assert!(findings.is_empty(), "gated promotion must not fire: {findings:?}");
+        assert!(
+            findings.is_empty(),
+            "gated promotion must not fire: {findings:?}"
+        );
     }
 
     /// End-to-end: a doc that is gold on its very first commit fires.

@@ -446,4 +446,3 @@ fn rich_hover_for_query_list_calls_out_default_order_and_paginate() {
         ],
     );
 }
-

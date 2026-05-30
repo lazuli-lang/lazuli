@@ -406,4 +406,3 @@ fn effect_verbs_catalog_is_the_canonical_four() {
 
 // `doctor_diagnostics_with_code` lives in `super` (mod.rs) so all
 // sub-modules share it via `use super::*` above.
-

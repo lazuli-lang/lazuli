@@ -264,15 +264,29 @@ mod tests {
 
     #[test]
     fn no_completions_outside_route_guard_trigger() {
-        assert!(route_guard_completions(
-            "feature billing\n",
-            Position { line: 0, character: 0 }
-        )
-        .is_none());
+        assert!(
+            route_guard_completions(
+                "feature billing\n",
+                Position {
+                    line: 0,
+                    character: 0
+                }
+            )
+            .is_none()
+        );
     }
 
     #[test]
     fn no_completions_for_empty_source() {
-        assert!(route_guard_completions("", Position { line: 0, character: 0 }).is_none());
+        assert!(
+            route_guard_completions(
+                "",
+                Position {
+                    line: 0,
+                    character: 0
+                }
+            )
+            .is_none()
+        );
     }
 }

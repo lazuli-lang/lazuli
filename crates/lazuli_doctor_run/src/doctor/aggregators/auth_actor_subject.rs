@@ -36,8 +36,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use lazuli_ir::{CommandEffect, Expr, PolicyRef, Predicate, Query, TypeRef};
 use lazuli_doctor::allow_comment::source_contains_doctor_allow;
+use lazuli_ir::{CommandEffect, Expr, PolicyRef, Predicate, Query, TypeRef};
 
 use crate::doctor::{DoctorAppManifest, DoctorDiagnostic, DoctorSeverity, Tier3FeatureFacts};
 
@@ -276,9 +276,10 @@ fn predicate_touches_ctx_user(predicate: &Predicate) -> bool {
         Predicate::Comparison { left, right, .. } => {
             expr_is_ctx_user(left) || expr_is_ctx_user(right)
         }
-        Predicate::Has { collection, element } => {
-            expr_is_ctx_user(collection) || expr_is_ctx_user(element)
-        }
+        Predicate::Has {
+            collection,
+            element,
+        } => expr_is_ctx_user(collection) || expr_is_ctx_user(element),
         Predicate::And(parts) | Predicate::Or(parts) => {
             parts.iter().any(predicate_touches_ctx_user)
         }

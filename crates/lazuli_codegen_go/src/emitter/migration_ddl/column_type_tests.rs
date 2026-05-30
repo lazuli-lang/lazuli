@@ -77,9 +77,7 @@ fn maps_builtin_types_and_requiredness() {
     // so ALTER-time inserts cannot drift.
     assert!(sql.contains("cents NUMERIC(20,4) NOT NULL"));
     assert!(
-        sql.contains(
-            "cents_currency TEXT NOT NULL CHECK (cents_currency = 'BRL') DEFAULT 'BRL'"
-        )
+        sql.contains("cents_currency TEXT NOT NULL CHECK (cents_currency = 'BRL') DEFAULT 'BRL'")
     );
 }
 
@@ -206,7 +204,9 @@ fn emits_cross_feature_target_as_logical_index_not_hard_fk() {
         .as_str();
 
     assert!(
-        sql.contains("CREATE INDEX agency_default_department_id_fkidx ON \"agency\" (default_department_id);"),
+        sql.contains(
+            "CREATE INDEX agency_default_department_id_fkidx ON \"agency\" (default_department_id);"
+        ),
         "expected logical cross-feature FK index:\n{sql}"
     );
     assert!(
@@ -242,7 +242,9 @@ fn emits_polymorphic_ref_columns_check_and_index() {
         .as_str();
 
     assert!(
-        sql.contains("entity_type TEXT NOT NULL CHECK (entity_type IN ('Job', 'Activity', 'Customer'))"),
+        sql.contains(
+            "entity_type TEXT NOT NULL CHECK (entity_type IN ('Job', 'Activity', 'Customer'))"
+        ),
         "expected discriminator column + CHECK:\n{sql}"
     );
     assert!(
@@ -335,9 +337,9 @@ fn emits_postgis_extension_geography_column_and_gist_index() {
         1
     );
     assert!(sql.contains("coordinates geography(point, 4326) NOT NULL"));
-    assert!(sql.contains(
-        "CREATE INDEX place_coordinates_gist ON \"place\" USING GIST (coordinates);"
-    ));
+    assert!(
+        sql.contains("CREATE INDEX place_coordinates_gist ON \"place\" USING GIST (coordinates);")
+    );
 
     let down = files
         .iter()
@@ -401,9 +403,7 @@ fn maps_capabilities_and_many_to_text_or_array_columns() {
     // envelope; BYTEA + operator-visibility comment with the
     // bound `@key.<scope>`.
     assert!(
-        sql.contains(
-            "encrypted_note BYTEA, -- lazuli:encrypted @key.tenant algorithm=aes_256_gcm"
-        ),
+        sql.contains("encrypted_note BYTEA, -- lazuli:encrypted @key.tenant algorithm=aes_256_gcm"),
         "expected BYTEA + lazuli:encrypted comment, sql:\n{sql}"
     );
     assert!(sql.contains("api_token TEXT NOT NULL,"));

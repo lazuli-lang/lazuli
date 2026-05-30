@@ -164,8 +164,7 @@ mod tests {
     #[test]
     fn check_inputs_single_file_passes_through() {
         // A non-directory path returns itself as the sole input.
-        let result = check_inputs(Path::new("Cargo.toml"))
-            .expect("non-dir path");
+        let result = check_inputs(Path::new("Cargo.toml")).expect("non-dir path");
         assert_eq!(result, vec![PathBuf::from("Cargo.toml")]);
     }
 }

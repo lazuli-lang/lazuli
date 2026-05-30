@@ -372,7 +372,6 @@ fn emit_deletes_effect(
     p.line("}),");
 }
 
-
 /// Collect the set of optional input slot names on `command`. Returns
 /// an empty set when `command.input` is anything other than
 /// `CommandInput::Typed` (Json / Empty inputs have no slots to mark

@@ -399,7 +399,10 @@ mod tests {
     #[test]
     fn parse_go_export_skips_lowercase() {
         assert_eq!(parse_go_export("func helper() {}"), None);
-        assert_eq!(parse_go_export("func PublicAPI()"), Some("PublicAPI".to_owned()));
+        assert_eq!(
+            parse_go_export("func PublicAPI()"),
+            Some("PublicAPI".to_owned())
+        );
     }
 
     #[test]

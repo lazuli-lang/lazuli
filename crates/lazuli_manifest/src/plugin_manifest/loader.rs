@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use crate::lazurite_manifest::{Manifest, Plugin};
 
 use super::errors::PluginManifestError;
-use super::types::{PluginManifest, PLUGIN_MANIFEST_FILENAME};
+use super::types::{PLUGIN_MANIFEST_FILENAME, PluginManifest};
 
 /// `BrazilianCPF` → `cpf_invalid`. Strips a leading nationality prefix
 /// (the common pattern across the scalars-br catalog) and lowercases,

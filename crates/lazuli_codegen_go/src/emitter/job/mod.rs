@@ -238,6 +238,5 @@ fn emit_job(
     emit_ctx.reset_line_directive(p, line_directive_emitted);
 }
 
-
 #[cfg(test)]
 mod feature_emit_tests;

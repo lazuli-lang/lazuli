@@ -493,4 +493,3 @@ feature customer
         diagnostic_codes(&diagnostics)
     );
 }
-

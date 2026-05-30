@@ -26,15 +26,14 @@ mod requirements;
 
 #[allow(unused_imports)]
 pub(crate) use calls::{
-    external_call_block_diagnostics, external_call_contract_diagnostics,
-    parse_external_call_header, ExternalCallBlockFacts, ExternalCallLine,
+    ExternalCallBlockFacts, ExternalCallLine, external_call_block_diagnostics,
+    external_call_contract_diagnostics, parse_external_call_header,
 };
 #[allow(unused_imports)]
 pub(crate) use contract::{
     external_contract_diagnostics, is_contract_name, is_contract_operation_error,
     is_contract_operation_idempotency, is_contract_operation_retry, is_contract_type_token,
-    validate_contract_field_line, validate_contract_import_line,
-    validate_contract_operation_line,
+    validate_contract_field_line, validate_contract_import_line, validate_contract_operation_line,
 };
 #[allow(unused_imports)]
 pub(crate) use requirements::{

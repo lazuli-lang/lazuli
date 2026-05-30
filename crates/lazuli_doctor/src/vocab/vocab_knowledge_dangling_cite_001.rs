@@ -188,7 +188,10 @@ mod tests {
 
     #[test]
     fn resolving_cites_pass() {
-        let docs = vec![doc("0001-x.md", &["billing", "billing.charge", "billing.Invoice"])];
+        let docs = vec![doc(
+            "0001-x.md",
+            &["billing", "billing.charge", "billing.Invoice"],
+        )];
         assert!(check_docs(&docs, "billing", &idx()).is_empty());
     }
 
@@ -204,7 +207,10 @@ mod tests {
 
     #[test]
     fn mixed_resolving_and_dangling_reports_only_dangling() {
-        let docs = vec![doc("0001-x.md", &["billing.charge", "billing.ghost", "other.thing"])];
+        let docs = vec![doc(
+            "0001-x.md",
+            &["billing.charge", "billing.ghost", "other.thing"],
+        )];
         let findings = check_docs(&docs, "billing", &idx());
         assert_eq!(findings.len(), 2);
         let cited: Vec<&str> = findings.iter().map(|f| f.cite.as_str()).collect();

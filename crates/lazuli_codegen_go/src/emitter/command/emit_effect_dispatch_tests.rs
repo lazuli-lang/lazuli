@@ -86,9 +86,7 @@ fn typed_input_creates_command_emits_input_struct_and_creates_bindings() {
     assert!(out.contains("json:\"email\" validate:\"required\""));
     assert!(out.contains("Email lazuli.Email"));
     // Command value shape.
-    assert!(
-        out.contains("var createCustomer = lazuli.Command[CreateCustomerInput, Customer]{")
-    );
+    assert!(out.contains("var createCustomer = lazuli.Command[CreateCustomerInput, Customer]{"));
     assert!(out.contains("Name:      \"customer.create\","));
     assert!(out.contains("Resource:  &customerResource,"));
     assert!(out.contains("lazuli.PolicyAtom{{Namespace: \"role\", Name: \"admin\"}}"));
@@ -134,9 +132,9 @@ fn no_effect_command_emits_nil_effect_without_legacy_todo() {
 
     let out = emit(&feature).expect("must emit");
     assert!(out.contains("Effect: nil,"));
-    assert!(out.contains(
-        "// No-effect commands are pure-read legacy APIs invoked via command.Invoke."
-    ));
+    assert!(
+        out.contains("// No-effect commands are pure-read legacy APIs invoked via command.Invoke.")
+    );
     assert!(!out.contains("TODO(effect):"));
 }
 
@@ -194,9 +192,9 @@ fn updates_emits_updates_effect_with_id_where_clause() {
     feature.commands.push(cmd);
 
     let out = emit(&feature).expect("must emit");
-    assert!(out.contains(
-        "var updateCustomerTier = lazuli.Command[UpdateCustomerTierInput, Customer]{"
-    ));
+    assert!(
+        out.contains("var updateCustomerTier = lazuli.Command[UpdateCustomerTierInput, Customer]{")
+    );
     assert!(out.contains("Effect: lazuli.Updates(&customerResource,"));
     assert!(out.contains("lazuli.Bindings{\"id\": lazuli.FromInput(\"ID\")},"));
     assert!(out.contains("\"tier\": lazuli.FromInput(\"tier\"),"));
@@ -233,7 +231,6 @@ fn updates_emits_updates_effect_with_id_where_clause() {
     assert!(out.contains("lazuli.Policy{Name: \"@policy.update\"},"));
 }
 
-
 #[test]
 fn deletes_emits_deletes_effect_with_id_binding() {
     let mut feature = base_feature("customer");
@@ -246,9 +243,7 @@ fn deletes_emits_deletes_effect_with_id_binding() {
     feature.commands.push(cmd);
 
     let out = emit(&feature).expect("must emit");
-    assert!(
-        out.contains("var archiveCustomer = lazuli.Command[ArchiveCustomerInput, Customer]{")
-    );
+    assert!(out.contains("var archiveCustomer = lazuli.Command[ArchiveCustomerInput, Customer]{"));
     assert!(out.contains("Effect: lazuli.Deletes(&customerResource, lazuli.Bindings{"));
     assert!(out.contains("\"id\": lazuli.FromInput(\"ID\"),"));
 }

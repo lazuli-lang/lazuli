@@ -99,7 +99,11 @@ pub fn check(source: &str, path: &Path) -> Vec<Finding> {
         if let Some(open) = tests_indent {
             if leading <= open {
                 // Block closed; this line may itself open a new `tests`.
-                tests_indent = if trimmed == "tests" { Some(leading) } else { None };
+                tests_indent = if trimmed == "tests" {
+                    Some(leading)
+                } else {
+                    None
+                };
                 continue;
             }
             let verb = if trimmed.starts_with("accepted by ") {

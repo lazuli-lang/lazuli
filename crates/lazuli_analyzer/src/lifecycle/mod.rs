@@ -420,4 +420,3 @@ fn span_of(span: syntax::Span) -> ir::SpanRef {
         end: span.end,
     }
 }
-

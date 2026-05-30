@@ -34,7 +34,9 @@ mod helpers;
 mod per_feature;
 
 pub use context::{EmitContext, GoSourceContext};
-use go_mod::{collect_transitive_deps, emit_go_mod, emit_go_work, resolve_module_name, resolve_source_label};
+use go_mod::{
+    collect_transitive_deps, emit_go_mod, emit_go_work, resolve_module_name, resolve_source_label,
+};
 use helpers::to_kebab;
 use per_feature::emit_feature_files;
 

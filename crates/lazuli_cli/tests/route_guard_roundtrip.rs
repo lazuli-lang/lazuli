@@ -127,7 +127,10 @@ fn route_guard_roundtrip_ir_shape_is_closed_under_re_deserialise() {
     assert_eq!(allow.resource, "Host");
     assert_eq!(
         allow.allowed_states,
-        vec!["basic_details_pending".to_string(), "address_pending".to_string()],
+        vec![
+            "basic_details_pending".to_string(),
+            "address_pending".to_string()
+        ],
     );
     assert_eq!(guard.requires_field.len(), 1);
     let rf = &guard.requires_field[0];

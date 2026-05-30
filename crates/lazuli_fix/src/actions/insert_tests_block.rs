@@ -33,10 +33,7 @@ impl FixAction for InsertTestsBlock {
             return Ok(FixResult {
                 outcome: FixOutcome::Skipped,
                 preview: String::new(),
-                note: Some(format!(
-                    "file does not exist: {}",
-                    request.path.display()
-                )),
+                note: Some(format!("file does not exist: {}", request.path.display())),
             });
         }
         let source = fs::read_to_string(&request.path)
@@ -47,7 +44,10 @@ impl FixAction for InsertTestsBlock {
         // `command create`). The fix inserts a `tests` sub-block
         // immediately after the construct body. Find the end of the
         // construct: the next line whose indent is `<= construct indent`.
-        let anchor_idx = request.line.saturating_sub(1).min(lines.len().saturating_sub(1));
+        let anchor_idx = request
+            .line
+            .saturating_sub(1)
+            .min(lines.len().saturating_sub(1));
         let anchor_line = lines.get(anchor_idx).copied().unwrap_or("");
         let construct_indent = leading_spaces(anchor_line);
         let child_indent = construct_indent + 2;
@@ -66,15 +66,11 @@ impl FixAction for InsertTestsBlock {
                 insertion_idx = offset;
                 break;
             }
-            if indent == child_indent
-                && (trimmed == "tests" || trimmed.starts_with("tests "))
-            {
+            if indent == child_indent && (trimmed == "tests" || trimmed.starts_with("tests ")) {
                 return Ok(FixResult {
                     outcome: FixOutcome::NoChange,
                     preview: String::new(),
-                    note: Some(
-                        "construct already has a tests block; nothing to do".into(),
-                    ),
+                    note: Some("construct already has a tests block; nothing to do".into()),
                 });
             }
         }

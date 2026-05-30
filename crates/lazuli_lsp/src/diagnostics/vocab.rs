@@ -279,7 +279,11 @@ mod alias_tests {
     fn flags_scalar_alias_in_type_position() {
         let d = scalar_alias_diagnostics("resource R\n  count: Int required\n  ok: Bool\n");
         assert_eq!(d.len(), 2, "expected Int + Bool flagged");
-        assert!(d[0].message.contains("Integer"), "message was: {}", d[0].message);
+        assert!(
+            d[0].message.contains("Integer"),
+            "message was: {}",
+            d[0].message
+        );
     }
 
     #[test]

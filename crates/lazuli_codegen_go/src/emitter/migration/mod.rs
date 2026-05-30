@@ -297,6 +297,5 @@ fn escape_comment(raw: &str) -> String {
     raw.replace('\n', " ").replace('\r', " ")
 }
 
-
 #[cfg(test)]
 mod feature_emit_tests;

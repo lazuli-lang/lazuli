@@ -491,6 +491,5 @@ fn format_string_slice(values: &[String]) -> String {
         .join(", ")
 }
 
-
 #[cfg(test)]
 mod tests;

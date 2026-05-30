@@ -174,7 +174,6 @@ pub(super) fn write_section_banner(p: &mut GoPrinter, lines: &[String]) {
     p.blank();
 }
 
-
 #[cfg(test)]
 mod feature_emit_tests {
     use super::*;

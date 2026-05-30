@@ -64,9 +64,7 @@ pub fn lifecycle_block_completions(
     // sits deeper than the lifecycle child indent.
     if let Some(transition) = enclosing_transition_block(source, position, &block) {
         let transition_child_indent = transition.header_indent + 2;
-        if is_partial_or_blank(before, trimmed_before)
-            && cursor_indent == transition_child_indent
-        {
+        if is_partial_or_blank(before, trimmed_before) && cursor_indent == transition_child_indent {
             return Some(transition_child_completion_items());
         }
     }
@@ -74,9 +72,7 @@ pub fn lifecycle_block_completions(
     // Trigger 2: at the lifecycle-block child indent — offer the
     // canonical child keywords.
     let lifecycle_child_indent = block.header_indent + 2;
-    if is_partial_or_blank(before, trimmed_before)
-        && cursor_indent == lifecycle_child_indent
-    {
+    if is_partial_or_blank(before, trimmed_before) && cursor_indent == lifecycle_child_indent {
         return Some(lifecycle_child_completion_items());
     }
 
@@ -219,14 +215,16 @@ mod tests {
 
     #[test]
     fn no_completions_outside_lifecycle_block() {
-        assert!(lifecycle_block_completions(
-            "feature billing\n",
-            Position {
-                line: 0,
-                character: 0,
-            },
-        )
-        .is_none());
+        assert!(
+            lifecycle_block_completions(
+                "feature billing\n",
+                Position {
+                    line: 0,
+                    character: 0,
+                },
+            )
+            .is_none()
+        );
     }
 
     #[test]

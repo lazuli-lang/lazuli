@@ -110,11 +110,7 @@ fn list_prefixed_ident(rest: &str, resource_pascal: &str, resource_plural: &str)
     )
 }
 
-fn list_subject_pascal(
-    short_pascal: &str,
-    resource_pascal: &str,
-    resource_plural: &str,
-) -> String {
+fn list_subject_pascal(short_pascal: &str, resource_pascal: &str, resource_plural: &str) -> String {
     let legacy_plural = format!("{resource_pascal}s");
     if short_pascal == resource_plural || short_pascal.ends_with(resource_plural) {
         short_pascal.to_owned()
@@ -377,7 +373,10 @@ mod tests {
             strip_verb_prefix("lookup_my_host", "lookup_"),
             Some("my_host")
         );
-        assert_eq!(strip_verb_prefix("list_travelers", "list_"), Some("travelers"));
+        assert_eq!(
+            strip_verb_prefix("list_travelers", "list_"),
+            Some("travelers")
+        );
         // No prefix match.
         assert_eq!(strip_verb_prefix("by_email", "lookup_"), None);
         assert_eq!(strip_verb_prefix("mine", "list_"), None);

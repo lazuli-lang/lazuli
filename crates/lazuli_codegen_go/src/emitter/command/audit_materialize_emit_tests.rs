@@ -14,8 +14,8 @@ use super::test_support::{
     base_command, base_feature, emit_with_customer_fallback as emit, local_qname, typed_slot,
 };
 use lazuli_ir::{
-    Assignment, AuditMaterialize, AuditSpec, BuiltinType, CommandEffect, CommandInput, CreateEffect,
-    Expr, Path,
+    Assignment, AuditMaterialize, AuditSpec, BuiltinType, CommandEffect, CommandInput,
+    CreateEffect, Expr, Path,
 };
 
 fn create_customer_cmd(name: &str) -> lazuli_ir::Command {

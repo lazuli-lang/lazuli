@@ -123,10 +123,18 @@ pub fn emit_allowlist_json(design: &Design) -> String {
     // `DEFAULT` slot — `design-token-undefined` looks up the bare
     // `rounded` / `shadow` class against the `DEFAULT` key.
     let rounded = suffixes_with_default(
-        &design.radii.iter().map(|r| r.name.clone()).collect::<Vec<_>>(),
+        &design
+            .radii
+            .iter()
+            .map(|r| r.name.clone())
+            .collect::<Vec<_>>(),
     );
     let shadow = suffixes_with_default(
-        &design.shadows.iter().map(|s| s.name.clone()).collect::<Vec<_>>(),
+        &design
+            .shadows
+            .iter()
+            .map(|s| s.name.clone())
+            .collect::<Vec<_>>(),
     );
     let z: Vec<String> = design.z_indices.iter().map(|t| t.name.clone()).collect();
 
@@ -241,4 +249,3 @@ fn json_escape(value: &str) -> String {
 
 #[cfg(test)]
 mod tests;
-

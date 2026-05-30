@@ -132,10 +132,10 @@ fn render_one_feature(feature: &Feature, out: &mut String) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::test_fixtures::{
         customer_resource, empty_feature, list_query, lookup_query, minimal_command,
     };
+    use super::*;
     use lazuli_ir::{ConventionOrigin, ConventionRef};
 
     /// §8 Customer example: full crud synth, no author overrides.
@@ -405,5 +405,4 @@ feature customer
             "expected author-override row, got:\n{out}"
         );
     }
-
 }

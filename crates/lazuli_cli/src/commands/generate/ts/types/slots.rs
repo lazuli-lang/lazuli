@@ -9,8 +9,8 @@
 //!
 //! Lifted out of the `types` god-file in the rails-style R9 split.
 
-use super::resources::find_resource;
 use super::TsSlot;
+use super::resources::find_resource;
 
 pub(crate) fn command_sdk_slots(
     feature: &lazuli_ir::Feature,

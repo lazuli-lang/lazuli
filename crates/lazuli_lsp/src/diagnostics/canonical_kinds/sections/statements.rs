@@ -78,8 +78,14 @@ pub(crate) const AUDIENCE_BODY_KINDS: &[&str] = &["policy", "requires", "view"];
 /// live one indent deeper, so they are NOT cataloged here — they are
 /// caught by [`SESSIONS_COOKIE_BODY_KINDS`].
 /// Sorted alphabetically for diff hygiene.
-pub(crate) const SESSIONS_BODY_KINDS: &[&str] =
-    &["access_ttl", "cookie", "refresh", "resource", "rotation", "ttl"];
+pub(crate) const SESSIONS_BODY_KINDS: &[&str] = &[
+    "access_ttl",
+    "cookie",
+    "refresh",
+    "resource",
+    "rotation",
+    "ttl",
+];
 
 /// Closed catalog of children inside an `auth ... sessions ... cookie`
 /// block — the six session-cookie transport attributes from
@@ -125,7 +131,9 @@ pub(crate) fn command_statement_unknown_diagnostics(source: &str) -> Vec<Diagnos
         }
 
         // `current_command.is_none()` continued the loop above, so this is Some.
-        let Some((_header_indent, body_indent)) = current_command else { continue };
+        let Some((_header_indent, body_indent)) = current_command else {
+            continue;
+        };
         if leading != body_indent {
             continue;
         }
@@ -209,7 +217,9 @@ pub(crate) fn query_statement_unknown_diagnostics(source: &str) -> Vec<Diagnosti
         }
 
         // `current_query.is_none()` continued the loop above, so this is Some.
-        let Some((_header_indent, body_indent)) = current_query else { continue };
+        let Some((_header_indent, body_indent)) = current_query else {
+            continue;
+        };
         if leading != body_indent {
             continue;
         }
@@ -277,7 +287,9 @@ pub(crate) fn audience_unknown_kind_diagnostics(source: &str) -> Vec<Diagnostic>
         }
 
         // `current_audience.is_none()` continued the loop above, so this is Some.
-        let Some((_header_indent, body_indent)) = current_audience else { continue };
+        let Some((_header_indent, body_indent)) = current_audience else {
+            continue;
+        };
         if leading != body_indent {
             continue;
         }

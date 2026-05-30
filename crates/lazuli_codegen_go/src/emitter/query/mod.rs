@@ -146,8 +146,8 @@ fn emit_query(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::test_support::{base_feature, emit, module_with_features, resource};
+    use super::*;
     use lazuli_ir::{ListQuery, PolicyRef};
 
     #[test]
@@ -314,13 +314,12 @@ mod tests {
             "no billing import when no gates:\n{out}"
         );
     }
-
 }
 
 #[cfg(test)]
 mod feature_emit {
-    use super::*;
     use super::test_support::{base_feature, emit, field, resource, slot};
+    use super::*;
     use lazuli_ir::{BuiltinType, ListQuery, PolicyRef, TypeRef};
 
     #[test]
@@ -359,5 +358,4 @@ mod feature_emit {
         assert!(out.contains("var listCustomers = lazuli.Query[ListCustomersArgs, Customer]{"));
         assert!(out.contains("Paginate: 25,"));
     }
-
 }

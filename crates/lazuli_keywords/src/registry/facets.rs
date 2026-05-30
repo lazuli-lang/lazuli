@@ -5,7 +5,11 @@
 
 use crate::{CapabilitySpec, Context, DiagnosticFacet, SemanticToken, Sigil, Surface};
 
-pub(crate) const fn df(code: &'static str, base: &'static str, cat: &'static str) -> DiagnosticFacet {
+pub(crate) const fn df(
+    code: &'static str,
+    base: &'static str,
+    cat: &'static str,
+) -> DiagnosticFacet {
     DiagnosticFacet {
         code,
         base_severity: base,
@@ -16,7 +20,10 @@ pub(crate) const fn df(code: &'static str, base: &'static str, cat: &'static str
 /// Override the (H1-empty) `produces` facet of a capability row with the
 /// diagnostic codes that capability guards. Const so the registry stays a
 /// zero-cost `const` table.
-pub(crate) const fn produces(mut spec: CapabilitySpec, facets: &'static [DiagnosticFacet]) -> CapabilitySpec {
+pub(crate) const fn produces(
+    mut spec: CapabilitySpec,
+    facets: &'static [DiagnosticFacet],
+) -> CapabilitySpec {
     spec.produces = facets;
     spec
 }
@@ -34,7 +41,8 @@ pub(crate) const P_AUDIT: &[DiagnosticFacet] = &[
     df("VOCAB-AUDIT-002", "warning", "vocabulary"),
 ];
 
-pub(crate) const P_CHANNEL: &[DiagnosticFacet] = &[df("CHANNEL-PAYLOAD-001", "error", "vocabulary")];
+pub(crate) const P_CHANNEL: &[DiagnosticFacet] =
+    &[df("CHANNEL-PAYLOAD-001", "error", "vocabulary")];
 
 pub(crate) const P_COMMAND: &[DiagnosticFacet] = &[
     df("COMMAND-INPUT-SHADOWS-FIELD-001", "error", "vocabulary"),
@@ -45,7 +53,8 @@ pub(crate) const P_COMMAND: &[DiagnosticFacet] = &[
 pub(crate) const P_COMPOSITE_KEY: &[DiagnosticFacet] =
     &[df("COMPOSITE-KEY-CONTRACT-001", "error", "vocabulary")];
 
-pub(crate) const P_COMPUTED_DATE: &[DiagnosticFacet] = &[df("COMPUTED-DATE-EXPR-001", "error", "vocabulary")];
+pub(crate) const P_COMPUTED_DATE: &[DiagnosticFacet] =
+    &[df("COMPUTED-DATE-EXPR-001", "error", "vocabulary")];
 
 pub(crate) const P_UNIQUE: &[DiagnosticFacet] = &[
     df("CONSTRAINT-UNIQUE-WHEN-001", "error", "vocabulary"),
@@ -104,7 +113,8 @@ pub(crate) const P_EMITS: &[DiagnosticFacet] = &[
     df("VOCAB-EVENT-PRODUCER-001", "warning", "vocabulary"),
 ];
 
-pub(crate) const P_FULL_TEXT: &[DiagnosticFacet] = &[df("FULL-TEXT-TYPE-001", "error", "vocabulary")];
+pub(crate) const P_FULL_TEXT: &[DiagnosticFacet] =
+    &[df("FULL-TEXT-TYPE-001", "error", "vocabulary")];
 
 pub(crate) const P_HOOK: &[DiagnosticFacet] = &[
     df("HANDLER-ERROR-WRAP-001", "warning", "error_handling"),
@@ -122,8 +132,11 @@ pub(crate) const P_FN: &[DiagnosticFacet] = &[
 pub(crate) const P_INVARIANTS: &[DiagnosticFacet] =
     &[df("INVARIANT-PREDICATE-INVALID", "error", "vocabulary")];
 
-pub(crate) const P_JOB: &[DiagnosticFacet] =
-    &[df("JOB-DECLARATIVE-BODY-UNSUPPORTED-001", "warning", "error_handling")];
+pub(crate) const P_JOB: &[DiagnosticFacet] = &[df(
+    "JOB-DECLARATIVE-BODY-UNSUPPORTED-001",
+    "warning",
+    "error_handling",
+)];
 
 pub(crate) const P_LIFECYCLE: &[DiagnosticFacet] = &[
     df("LIFECYCLE-ENUM-DUPLICATE", "error", "lifecycle"),
@@ -159,7 +172,8 @@ pub(crate) const P_SEMANTIC: &[DiagnosticFacet] = &[
     df("VOCAB-JSON-TYPED-001", "warning", "vocabulary"),
 ];
 
-pub(crate) const P_POLICY: &[DiagnosticFacet] = &[df("POLICY-PREDICATE-001", "error", "vocabulary")];
+pub(crate) const P_POLICY: &[DiagnosticFacet] =
+    &[df("POLICY-PREDICATE-001", "error", "vocabulary")];
 
 pub(crate) const P_POLLER: &[DiagnosticFacet] = &[
     df("POLLER-CURSOR-MISSING-001", "error", "poller"),
@@ -183,7 +197,8 @@ pub(crate) const P_REF: &[DiagnosticFacet] = &[
     df("REF-POLYMORPHIC-TARGET-001", "error", "vocabulary"),
 ];
 
-pub(crate) const P_REORDER: &[DiagnosticFacet] = &[df("REORDER-POSITION-FIELD-001", "error", "vocabulary")];
+pub(crate) const P_REORDER: &[DiagnosticFacet] =
+    &[df("REORDER-POSITION-FIELD-001", "error", "vocabulary")];
 
 pub(crate) const P_REPORT: &[DiagnosticFacet] = &[
     df("REPORT-COLUMN-MISMATCH-001", "error", "report"),
@@ -204,9 +219,11 @@ pub(crate) const P_REPORT: &[DiagnosticFacet] = &[
     df("REPORT-STORAGE-AMBIGUOUS-001", "error", "report"),
 ];
 
-pub(crate) const P_APPEND_ONLY: &[DiagnosticFacet] = &[df("RESOURCE-APPEND-ONLY-001", "error", "vocabulary")];
+pub(crate) const P_APPEND_ONLY: &[DiagnosticFacet] =
+    &[df("RESOURCE-APPEND-ONLY-001", "error", "vocabulary")];
 
-pub(crate) const P_LOCK: &[DiagnosticFacet] = &[df("RESOURCE-LOCK-CONTRACT-001", "error", "vocabulary")];
+pub(crate) const P_LOCK: &[DiagnosticFacet] =
+    &[df("RESOURCE-LOCK-CONTRACT-001", "error", "vocabulary")];
 
 pub(crate) const P_ROUTE: &[DiagnosticFacet] = &[
     df(
@@ -272,7 +289,11 @@ pub(crate) const P_TESTS: &[DiagnosticFacet] = &[
     ),
     df("TEST-FIXTURE-LITERAL-001", "warning", "test_discipline"),
     df("TEST-HANDLER-MISSING-001", "error", "test_discipline"),
-    df("TEST-MATRIX-VERB-MISPLACED-001", "warning", "test_discipline"),
+    df(
+        "TEST-MATRIX-VERB-MISPLACED-001",
+        "warning",
+        "test_discipline",
+    ),
     df("TEST-MISSING-AUTHORED-001", "warning", "test_discipline"),
     df("TEST-PINS-STUB-VOCAB-001", "warning", "test_discipline"),
     df("TEST-PREDICATE-UNCOVERED-001", "warning", "test_discipline"),
@@ -290,7 +311,8 @@ pub(crate) const P_TESTS: &[DiagnosticFacet] = &[
     df("VOCAB-TESTS-MISSING-001", "warning", "vocabulary"),
 ];
 
-pub(crate) const P_CAP: &[DiagnosticFacet] = &[df("VOCAB-CAP-MISSING-001", "warning", "vocabulary")];
+pub(crate) const P_CAP: &[DiagnosticFacet] =
+    &[df("VOCAB-CAP-MISSING-001", "warning", "vocabulary")];
 
 // Iron-hand context vocabulary — `purpose` / `non_goals` keyword facets.
 // (`attach_ctx` was retired → its row + the `P_ATTACH_CTX` const are
@@ -298,9 +320,11 @@ pub(crate) const P_CAP: &[DiagnosticFacet] = &[df("VOCAB-CAP-MISSING-001", "warn
 // are re-homed onto the surviving bare keywords below, and
 // `VOCAB-CONTEXT-CTXMD-001` — now a convention-derived rule with no
 // keyword owner — moves to `GLOBAL_DIAGNOSTICS`.)
-pub(crate) const P_PURPOSE: &[DiagnosticFacet] = &[df("VOCAB-CONTEXT-PURPOSE-001", "warning", "vocabulary")];
+pub(crate) const P_PURPOSE: &[DiagnosticFacet] =
+    &[df("VOCAB-CONTEXT-PURPOSE-001", "warning", "vocabulary")];
 
-pub(crate) const P_NONGOALS: &[DiagnosticFacet] = &[df("VOCAB-CONTEXT-NONGOALS-001", "warning", "vocabulary")];
+pub(crate) const P_NONGOALS: &[DiagnosticFacet] =
+    &[df("VOCAB-CONTEXT-NONGOALS-001", "warning", "vocabulary")];
 
 // Knowledge-sector vocabulary — the five `VOCAB-KNOWLEDGE-*` rules
 // (`crates/lazuli_doctor/src/vocab/vocab_knowledge_*`) cross-check
@@ -311,13 +335,22 @@ pub(crate) const P_NONGOALS: &[DiagnosticFacet] = &[df("VOCAB-CONTEXT-NONGOALS-0
 pub(crate) const P_KNOWLEDGE: &[DiagnosticFacet] = &[
     df("VOCAB-KNOWLEDGE-DANGLING-CITE-001", "warning", "vocabulary"),
     df("VOCAB-KNOWLEDGE-DUP-TOPIC-001", "warning", "vocabulary"),
-    df("VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001", "warning", "vocabulary"),
-    df("VOCAB-KNOWLEDGE-SINGLE-FEATURE-001", "warning", "vocabulary"),
+    df(
+        "VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001",
+        "warning",
+        "vocabulary",
+    ),
+    df(
+        "VOCAB-KNOWLEDGE-SINGLE-FEATURE-001",
+        "warning",
+        "vocabulary",
+    ),
     df("VOCAB-KNOWLEDGE-STALE-001", "warning", "vocabulary"),
     df("VOCAB-KNOWLEDGE-UNGATED-WRITE-001", "warning", "vocabulary"),
 ];
 
-pub(crate) const P_DERIVED: &[DiagnosticFacet] = &[df("VOCAB-DERIVED-READ-001", "warning", "vocabulary")];
+pub(crate) const P_DERIVED: &[DiagnosticFacet] =
+    &[df("VOCAB-DERIVED-READ-001", "warning", "vocabulary")];
 
 pub(crate) const P_RESOURCE: &[DiagnosticFacet] = &[
     df("VOCAB-RESOURCE-WIDE-CLUSTER-001", "warning", "vocabulary"),
@@ -325,7 +358,8 @@ pub(crate) const P_RESOURCE: &[DiagnosticFacet] = &[
     df("UPDATES-MISSING-UPDATED-AT-001", "warning", "correctness"),
 ];
 
-pub(crate) const P_RECORD: &[DiagnosticFacet] = &[df("VOCAB-SHADOW-RECORD-001", "warning", "vocabulary")];
+pub(crate) const P_RECORD: &[DiagnosticFacet] =
+    &[df("VOCAB-SHADOW-RECORD-001", "warning", "vocabulary")];
 
 pub(crate) const P_UNION: &[DiagnosticFacet] = &[
     df("VOCAB-UNION-001", "warning", "vocabulary"),
@@ -355,7 +389,8 @@ pub(crate) const P_RATE_LIMIT: &[DiagnosticFacet] = &[
     df("rate_limit_unknown_env", "error", "vocabulary"),
 ];
 
-pub(crate) const P_CONVENTIONS: &[DiagnosticFacet] = &[df("conventions_unknown", "warning", "vocabulary")];
+pub(crate) const P_CONVENTIONS: &[DiagnosticFacet] =
+    &[df("conventions_unknown", "warning", "vocabulary")];
 
 pub(crate) const P_DESIGN: &[DiagnosticFacet] = &[
     df("design-custom-duplicate", "error", "vocabulary"),
@@ -370,4 +405,3 @@ pub(crate) const P_DESIGN: &[DiagnosticFacet] = &[
     df("design-token-undefined", "error", "vocabulary"),
     df("design-token-unused", "warning", "vocabulary"),
 ];
-

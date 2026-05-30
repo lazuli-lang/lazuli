@@ -101,9 +101,15 @@ fn file<'a>(files: &'a [GeneratedFile], path: &str) -> &'a str {
 fn policy_list_golden(golden: &str) -> String {
     golden
         .replace("  policy: {\n", "  policy: [{\n")
-        .replace("\n  },\n  onUnauthenticated", "\n  }],\n  onUnauthenticated")
+        .replace(
+            "\n  },\n  onUnauthenticated",
+            "\n  }],\n  onUnauthenticated",
+        )
         .replace("    policy: {\n", "    policy: [{\n")
-        .replace("\n    },\n    unauthenticated", "\n    }],\n    unauthenticated")
+        .replace(
+            "\n    },\n    unauthenticated",
+            "\n    }],\n    unauthenticated",
+        )
 }
 
 #[test]

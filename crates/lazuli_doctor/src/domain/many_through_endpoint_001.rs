@@ -135,8 +135,8 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
             // partner in a dependency is admitted when ANY dependency is
             // declared — same posture as the synthesized FK (logical, no
             // hard cross-set DB FK). Same-feature resolution is exact.
-            let resolved = local_resources.contains(mt.partner.as_str())
-                || !used_features.is_empty();
+            let resolved =
+                local_resources.contains(mt.partner.as_str()) || !used_features.is_empty();
             if !resolved {
                 findings.push(Finding {
                     path: path.to_path_buf(),
@@ -285,7 +285,10 @@ mod tests {
     #[test]
     fn positive_same_feature_partner_resolves() {
         // Job many_through JobMember to User; User declared in same feature.
-        let job = mk_resource("Job", vec![mt("JobMember", "User", vec![text_field("role")])]);
+        let job = mk_resource(
+            "Job",
+            vec![mt("JobMember", "User", vec![text_field("role")])],
+        );
         let user = mk_resource("User", vec![]);
         let feature = mk_feature("ops", vec![], vec![job, user]);
         assert!(check(&feature, Path::new("ops.lzi")).is_empty());
@@ -293,21 +296,24 @@ mod tests {
 
     #[test]
     fn negative_unknown_partner_fires() {
-        let job = mk_resource("Job", vec![mt("JobMember", "Ghost", vec![text_field("role")])]);
+        let job = mk_resource(
+            "Job",
+            vec![mt("JobMember", "Ghost", vec![text_field("role")])],
+        );
         let feature = mk_feature("ops", vec![], vec![job]);
         let findings = check(&feature, Path::new("ops.lzi"));
         assert_eq!(findings.len(), 1);
-        assert_eq!(
-            findings[0].reason,
-            Reason::UnknownPartner("Ghost".into())
-        );
+        assert_eq!(findings[0].reason, Reason::UnknownPartner("Ghost".into()));
         assert_eq!(Finding::CODE, "MANY-THROUGH-ENDPOINT-001");
     }
 
     #[test]
     fn positive_cross_feature_partner_via_uses() {
         // Partner `User` not in this feature, but `auth` is in `uses`.
-        let job = mk_resource("Job", vec![mt("JobMember", "User", vec![text_field("role")])]);
+        let job = mk_resource(
+            "Job",
+            vec![mt("JobMember", "User", vec![text_field("role")])],
+        );
         let feature = mk_feature("ops", vec!["auth".into()], vec![job]);
         assert!(check(&feature, Path::new("ops.lzi")).is_empty());
     }

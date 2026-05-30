@@ -264,6 +264,5 @@ fn escape_json_string(s: &str) -> String {
     out
 }
 
-
 #[cfg(test)]
 mod tests;

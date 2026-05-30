@@ -42,12 +42,7 @@ fn completion_after_when_denied_offers_translation_keys() {
 fn completion_inside_errors_block_offers_eight_codes() {
     // Proposal §7.1 row 4 — bare indented line inside `errors` offers the
     // 8 closed-catalog codes.
-    let source = concat!(
-        "feature account\n",
-        "  errors\n",
-        "    \n",
-        "\n",
-    );
+    let source = concat!("feature account\n", "  errors\n", "    \n", "\n",);
     // Cursor on the third line, four spaces of indent (blank indented
     // line inside the `errors` block).
     let position = Position {
@@ -143,12 +138,7 @@ fn completion_after_expose_client_5xx_excludes_message() {
 
 #[test]
 fn completion_after_default_inside_errors_offers_hide_expose() {
-    let source = concat!(
-        "feature account\n",
-        "  errors\n",
-        "    default \n",
-        "\n",
-    );
+    let source = concat!("feature account\n", "  errors\n", "    default \n", "\n",);
     let position = cursor_after(source, "default ");
     let items = error_vocab_completions(source, position)
         .expect("expected completion items after `default ` inside `errors`");

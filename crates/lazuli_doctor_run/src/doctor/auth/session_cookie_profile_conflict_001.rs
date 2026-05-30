@@ -147,7 +147,12 @@ pub fn check(feature: &Feature, path: &Path, app_cookie: Option<&AppCookie>) -> 
     let mut diffs: Vec<(&'static str, String, String)> = Vec::new();
     // Stable axis order: secure, http_only, same_site, path.
     diff_bool(&mut diffs, "secure", profile.secure, session.secure);
-    diff_bool(&mut diffs, "http_only", profile.http_only, session.http_only);
+    diff_bool(
+        &mut diffs,
+        "http_only",
+        profile.http_only,
+        session.http_only,
+    );
     diff_str(
         &mut diffs,
         "same_site",

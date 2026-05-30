@@ -57,5 +57,8 @@ fn job_multi_name_emit_with_payload_child_is_a_parse_error() {
 "#;
     let err = parse_feature_skeletons(source)
         .expect_err("multi-name job `emits` with a payload child block must be rejected");
-    assert!(format!("{err}").contains("multi-name `emits`"), "got: {err}");
+    assert!(
+        format!("{err}").contains("multi-name `emits`"),
+        "got: {err}"
+    );
 }

@@ -314,7 +314,13 @@ mod tests {
             ("no_knowledge", None, &[], false, false),
             ("empty_slug", Some("  "), &[], false, false),
             ("core_no_folder", Some("decisions"), &[], false, false),
-            ("declared_no_folder", Some("billing"), &["billing"], false, false),
+            (
+                "declared_no_folder",
+                Some("billing"),
+                &["billing"],
+                false,
+                false,
+            ),
             ("undeclared_no_folder", Some("billing"), &[], false, true),
             ("undeclared_with_folder", Some("billing"), &[], true, false),
         ];

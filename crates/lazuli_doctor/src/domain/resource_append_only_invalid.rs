@@ -145,7 +145,7 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
 mod tests {
     use super::*;
     use lazuli_ir::{
-        Command, CommandInput, CommandKind, DeleteEffect, Defaults, Policies, PolicyRef,
+        Command, CommandInput, CommandKind, Defaults, DeleteEffect, Policies, PolicyRef,
         QualifiedName, Resource, UpdateEffect,
     };
 

@@ -33,6 +33,6 @@ pub(crate) use lex::{
 };
 #[allow(unused_imports)]
 pub(crate) use route::{
-    lzx_app_route_diagnostics, lzx_route_contract_diagnostics, lzx_route_view_diagnostics,
-    LzxAppRouteFacts, LzxRouteViewFacts,
+    LzxAppRouteFacts, LzxRouteViewFacts, lzx_app_route_diagnostics, lzx_route_contract_diagnostics,
+    lzx_route_view_diagnostics,
 };

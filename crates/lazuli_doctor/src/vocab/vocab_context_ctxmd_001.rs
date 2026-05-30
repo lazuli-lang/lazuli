@@ -268,7 +268,8 @@ mod tests {
     fn whitespace_only_file_is_treated_as_stub() {
         let (dir, lzi) = temp_setup("catalog");
         // 500 bytes of whitespace — but zero non-whitespace chars.
-        std::fs::write(dir.path().join("catalog.ctx.md"), " \n \t ".repeat(100)).expect("write ctx");
+        std::fs::write(dir.path().join("catalog.ctx.md"), " \n \t ".repeat(100))
+            .expect("write ctx");
         let feature = mk_feature("catalog");
         let findings = check(&feature, &lzi);
         assert_eq!(findings.len(), 1);

@@ -81,7 +81,9 @@ mod tests {
     fn layout_wraps_stack_inside_query_and_lazuli_providers() {
         let body = emit_mobile_runtime_layout();
         let lazuli_idx = body.find("<LazuliProvider").expect("LazuliProvider opens");
-        let query_idx = body.find("<QueryClientProvider").expect("QueryClientProvider opens");
+        let query_idx = body
+            .find("<QueryClientProvider")
+            .expect("QueryClientProvider opens");
         let stack_idx = body.find("<Stack").expect("Stack");
         // Lazuli wraps Query wraps Stack.
         assert!(lazuli_idx < query_idx);

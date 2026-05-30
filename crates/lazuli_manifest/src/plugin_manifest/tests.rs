@@ -12,9 +12,7 @@ use std::path::Path;
 
 use crate::lazurite_manifest::{LazuliPin, Manifest, Plugin, Project};
 
-use super::{
-    build_alias_map, PluginManifestError, PLUGIN_MANIFEST_FILENAME,
-};
+use super::{PLUGIN_MANIFEST_FILENAME, PluginManifestError, build_alias_map};
 
 fn make_manifest(plugins: BTreeMap<String, Plugin>) -> Manifest {
     Manifest {

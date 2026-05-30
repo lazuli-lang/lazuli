@@ -1,7 +1,5 @@
 use super::*;
-use lazuli_ir::{
-    AppManifest, Defaults, Module, Path, PathRef, Policies, TenantMigrationTarget,
-};
+use lazuli_ir::{AppManifest, Defaults, Module, Path, PathRef, Policies, TenantMigrationTarget};
 
 fn base_feature(name: &str) -> Feature {
     Feature {
@@ -163,15 +161,15 @@ fn canonical_migration_emits_contract_value() {
     assert!(out.contains("Feature:     \"customer\","));
     assert!(out.contains("Name:        \"backfill_customer_score\","));
     assert!(out.contains("Target:      migrations.TenantMigrationTarget{Axis: \"org\"},"));
-    assert!(
-        out.contains("Idempotency: migrations.IdempotencyKeySpec{Path: \"tenant.org_id\"},")
-    );
+    assert!(out.contains("Idempotency: migrations.IdempotencyKeySpec{Path: \"tenant.org_id\"},"));
     assert!(out.contains(
         "Retry:       &migrations.RetryPolicy{Count: 3, Backoff: migrations.BackoffExponential},"
     ));
     assert!(out.contains("Timeout:     5 * time.Minute,"));
     assert!(out.contains("HandlerPath: \"./migrations/backfill_customer_score.go\","));
-    assert!(out.contains("// TODO(runtime): TenantMigrationContract has no per-migration PreHook/PostHook fields."));
+    assert!(out.contains(
+        "// TODO(runtime): TenantMigrationContract has no per-migration PreHook/PostHook fields."
+    ));
 }
 
 #[test]

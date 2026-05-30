@@ -40,7 +40,7 @@ pub(crate) use collectors::{
     collect_lzx_experience_module, collect_package_lzi_files, collect_package_lzx_files,
     read_package_lzi_source,
 };
-pub(crate) use lzx_bundle::{collect_lzx_bundle, LzxBundle};
+pub(crate) use lzx_bundle::{LzxBundle, collect_lzx_bundle};
 
 use lzx_bundle::attach_lzx_surfaces;
 

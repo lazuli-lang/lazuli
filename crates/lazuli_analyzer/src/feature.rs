@@ -301,7 +301,9 @@ pub fn resolve_ctx_convention(
     lzi_path: &std::path::Path,
     feature_name: &str,
 ) -> Option<std::path::PathBuf> {
-    let dir = lzi_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let dir = lzi_path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."));
     let candidate = dir.join(format!("{feature_name}.ctx.md"));
     candidate.exists().then_some(candidate)
 }

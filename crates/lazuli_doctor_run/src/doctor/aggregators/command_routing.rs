@@ -387,8 +387,7 @@ mod tests {
     #[test]
     fn ascii_and_unicode_arrows_resolve_to_same_target() {
         let ascii = resolve_platform_action_target("a -> orders.command.ship", "ui", None);
-        let unicode =
-            resolve_platform_action_target("a \u{2192} orders.command.ship", "ui", None);
+        let unicode = resolve_platform_action_target("a \u{2192} orders.command.ship", "ui", None);
         let (a, u) = (ascii.expect("ascii"), unicode.expect("unicode"));
         assert_eq!(a.key, u.key);
         assert_eq!(a.args, u.args);

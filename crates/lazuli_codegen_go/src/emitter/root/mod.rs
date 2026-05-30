@@ -54,7 +54,6 @@ pub(crate) const MAIN_GO_PATH: &str = "main.go";
 /// File path emitted at the root for `lazuli_app.gen.go`.
 pub(crate) const LAZULI_APP_PATH: &str = "lazuli_app.gen.go";
 
-
 #[cfg(test)]
 mod test_support;
 

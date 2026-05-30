@@ -96,6 +96,5 @@ pub fn emit_webhook_file(
     Some(p.finish())
 }
 
-
 #[cfg(test)]
 mod feature_emit_tests;

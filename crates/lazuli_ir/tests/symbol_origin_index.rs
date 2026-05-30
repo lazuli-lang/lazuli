@@ -56,7 +56,7 @@ fn minimal_feature(name: &str) -> Feature {
         apis: Vec::new(),
         records: Vec::new(),
         queries: Vec::new(),
-            resume_routers: Vec::new(),
+        resume_routers: Vec::new(),
         workflows: Vec::new(),
         jobs: Vec::new(),
         webhooks: Vec::new(),
@@ -166,7 +166,11 @@ fn symbol_kind_enum_exhaustiveness() {
     ];
 
     for (kind, expected) in cases {
-        let symbol = origin("Thing", kind, file_location("features/account/account.lzi", 1, 1));
+        let symbol = origin(
+            "Thing",
+            kind,
+            file_location("features/account/account.lzi", 1, 1),
+        );
         let json = serde_json::to_string(&symbol).expect("serialize symbol kind");
         assert!(
             json.contains(&format!("\"kind\":\"{expected}\"")),

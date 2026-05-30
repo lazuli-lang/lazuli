@@ -119,9 +119,7 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
 /// source (REPORT-SOURCE-KIND-001 owns that), so its params are ignored.
 fn local_query_param_names(feature: &Feature, name: &str) -> Option<Vec<String>> {
     feature.queries.iter().find_map(|q| match q {
-        Query::List(q) if q.name == name => {
-            Some(q.params.iter().map(|p| p.name.clone()).collect())
-        }
+        Query::List(q) if q.name == name => Some(q.params.iter().map(|p| p.name.clone()).collect()),
         Query::Sql(q) if q.name == name => Some(q.params.iter().map(|p| p.name.clone()).collect()),
         _ => None,
     })
@@ -250,7 +248,10 @@ mod tests {
         // Source query has only `period_start`; report declares an
         // extra `period_end` that the source can't consume.
         let q = list_query("billing_rows", vec!["period_start"]);
-        let report = mk_report(local("billing_rows"), vec![slot("period_start"), slot("period_end")]);
+        let report = mk_report(
+            local("billing_rows"),
+            vec![slot("period_start"), slot("period_end")],
+        );
         let feature = mk_feature(vec![q], vec![report]);
         let findings = check(&feature, Path::new("billing.lzi"));
         assert_eq!(findings.len(), 1);
@@ -262,7 +263,10 @@ mod tests {
     #[test]
     fn all_inputs_bound_does_not_fire() {
         let q = list_query("billing_rows", vec!["period_start", "period_end"]);
-        let report = mk_report(local("billing_rows"), vec![slot("period_start"), slot("period_end")]);
+        let report = mk_report(
+            local("billing_rows"),
+            vec![slot("period_start"), slot("period_end")],
+        );
         let feature = mk_feature(vec![q], vec![report]);
         assert!(check(&feature, Path::new("billing.lzi")).is_empty());
     }

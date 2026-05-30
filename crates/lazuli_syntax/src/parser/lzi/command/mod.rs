@@ -58,7 +58,9 @@ mod gap_audit01_tests;
 mod w4_tests;
 
 pub(in crate::parser::lzi) use audit::parse_command_audit;
-pub(in crate::parser::lzi) use effect::{parse_command_effect, parse_let_binding, parse_target_expr};
+pub(in crate::parser::lzi) use effect::{
+    parse_command_effect, parse_let_binding, parse_target_expr,
+};
 pub(crate) use invalidates::parse_invalidates_entry;
 pub(in crate::parser::lzi) use lifecycle::{parse_command_deprecated, parse_deprecated_block};
 pub(in crate::parser::lzi) use slots::{

@@ -418,4 +418,3 @@ mod tests;
 
 #[cfg(test)]
 mod feature_emit_tests;
-

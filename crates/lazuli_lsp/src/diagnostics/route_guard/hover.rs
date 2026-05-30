@@ -10,8 +10,8 @@ use tower_lsp::lsp_types::Position;
 use crate::leading_spaces;
 
 use super::context::{
-    enclosing_audience_block, enclosing_view_block, find_block_end,
-    in_view_or_audience_guard_context, route_guard_context_feature, RouteGuardViewBlock,
+    RouteGuardViewBlock, enclosing_audience_block, enclosing_view_block, find_block_end,
+    in_view_or_audience_guard_context, route_guard_context_feature,
 };
 
 /// Public hover entry point for the IR Route-Guards LSP layer. Returns
@@ -309,13 +309,30 @@ mod tests {
     fn hover_for_route_guard_keyword() {
         // `route_guard` itself is a context-free keyword hover — returns
         // text even with no surrounding view block context.
-        let hover = route_guard_hover("", Position { line: 0, character: 0 }, "route_guard");
+        let hover = route_guard_hover(
+            "",
+            Position {
+                line: 0,
+                character: 0,
+            },
+            "route_guard",
+        );
         assert!(hover.is_some());
         assert!(hover.unwrap().contains("route_guard"));
     }
 
     #[test]
     fn returns_none_for_unrelated_word() {
-        assert!(route_guard_hover("", Position { line: 0, character: 0 }, "nonsense").is_none());
+        assert!(
+            route_guard_hover(
+                "",
+                Position {
+                    line: 0,
+                    character: 0
+                },
+                "nonsense"
+            )
+            .is_none()
+        );
     }
 }

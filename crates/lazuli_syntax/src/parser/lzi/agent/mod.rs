@@ -196,7 +196,6 @@ pub(super) fn parse_agent(
     ))
 }
 
-
 fn split_policy_atoms(value: &str) -> Vec<String> {
     value
         .split(',')
@@ -205,7 +204,6 @@ fn split_policy_atoms(value: &str) -> Vec<String> {
         .map(str::to_owned)
         .collect()
 }
-
 
 #[cfg(test)]
 mod agent_parser_tests {

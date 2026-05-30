@@ -104,10 +104,7 @@ pub enum LifecycleInvariantForm {
     /// `invariant terminal_immutable`
     TerminalImmutable,
     /// `invariant single <state> per <scope_field>`
-    SingleStatePerScope {
-        state: String,
-        scope_field: String,
-    },
+    SingleStatePerScope { state: String, scope_field: String },
     /// `invariant no_jump_more_than_one`
     NoJumpMoreThanOne,
 }

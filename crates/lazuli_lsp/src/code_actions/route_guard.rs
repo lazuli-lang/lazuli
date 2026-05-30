@@ -365,7 +365,14 @@ mod tests {
 
     #[test]
     fn no_actions_on_empty_source() {
-        let actions = route_guard_code_actions("", &uri(), Position { line: 0, character: 0 });
+        let actions = route_guard_code_actions(
+            "",
+            &uri(),
+            Position {
+                line: 0,
+                character: 0,
+            },
+        );
         assert!(actions.is_empty());
     }
 

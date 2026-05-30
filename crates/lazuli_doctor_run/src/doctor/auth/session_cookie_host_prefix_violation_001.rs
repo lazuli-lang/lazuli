@@ -143,11 +143,7 @@ mod tests {
     use super::*;
     use crate::doctor::auth::session_cookie_test_support::feature_with_cookie;
 
-    fn host_cookie(
-        domain: Option<&str>,
-        path: Option<&str>,
-        secure: Option<bool>,
-    ) -> Feature {
+    fn host_cookie(domain: Option<&str>, path: Option<&str>, secure: Option<bool>) -> Feature {
         feature_with_cookie(SessionCookie {
             name: Some("__Host-lazuli_session".to_owned()),
             same_site: None,

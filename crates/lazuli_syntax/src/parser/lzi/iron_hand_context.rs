@@ -295,7 +295,8 @@ mod iron_hand_context_tests {
 
     #[test]
     fn duplicate_non_goals_is_rejected() {
-        let source = "\nfeature catalog\n  non_goals\n    \"A\"\n    \"B\"\n  non_goals\n    \"C\"\n";
+        let source =
+            "\nfeature catalog\n  non_goals\n    \"A\"\n    \"B\"\n  non_goals\n    \"C\"\n";
         let err = parse_feature_skeletons(source).expect_err("rejects dup");
         let msg = format!("{err}");
         assert!(msg.contains("at most one `non_goals`"), "got: {msg}");
@@ -371,11 +372,17 @@ mod iron_hand_context_tests {
     fn knowledge_accepts_kebab_and_snake_slugs() {
         let source = "\nfeature ops\n  knowledge tax_reporting\n";
         let features = parse_feature_skeletons(source).expect("parses");
-        assert_eq!(features[0].knowledge.as_ref().unwrap().sector, "tax_reporting");
+        assert_eq!(
+            features[0].knowledge.as_ref().unwrap().sector,
+            "tax_reporting"
+        );
 
         let source = "\nfeature ops\n  knowledge tax-reporting\n";
         let features = parse_feature_skeletons(source).expect("parses");
-        assert_eq!(features[0].knowledge.as_ref().unwrap().sector, "tax-reporting");
+        assert_eq!(
+            features[0].knowledge.as_ref().unwrap().sector,
+            "tax-reporting"
+        );
     }
 
     #[test]

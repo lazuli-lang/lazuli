@@ -5,9 +5,7 @@
 //! re-declaring them. The `#[cfg(test)]` guard sits at the `mod`
 //! declaration in `mod.rs`.
 
-use lazuli_ir::{
-    AppManifest, Defaults, Feature, Module, Policies, Record, Resource,
-};
+use lazuli_ir::{AppManifest, Defaults, Feature, Module, Policies, Record, Resource};
 
 use super::TypeCtx;
 use crate::emitter::cross_feature::CrossFeatureIndex;

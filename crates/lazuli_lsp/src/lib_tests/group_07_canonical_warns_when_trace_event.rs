@@ -433,4 +433,3 @@ feature customer
             .contains("`previously` should declare `migrated` or `alias`")
     }));
 }
-

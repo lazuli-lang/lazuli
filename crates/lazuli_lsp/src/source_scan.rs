@@ -285,7 +285,13 @@ feature billing
     #[test]
     fn enclosing_feature_name_returns_none_above_features() {
         assert_eq!(
-            enclosing_feature_name("# header\n", Position { line: 0, character: 0 }),
+            enclosing_feature_name(
+                "# header\n",
+                Position {
+                    line: 0,
+                    character: 0
+                }
+            ),
             None
         );
     }

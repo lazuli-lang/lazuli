@@ -67,7 +67,11 @@ pub(super) fn emit_cell_slot(
             )
             .ok();
         }
-        writeln!(s, "// v0 picks the first binding's type as the slot contract;").ok();
+        writeln!(
+            s,
+            "// v0 picks the first binding's type as the slot contract;"
+        )
+        .ok();
         writeln!(
             s,
             "// alternative bindings must be cell-shape compatible at use site."
@@ -155,7 +159,12 @@ pub(super) fn emit_section_slot(
     }
 
     if section_bindings.len() > 1 {
-        writeln!(s, "// Bound as section in {} views:", section_bindings.len()).ok();
+        writeln!(
+            s,
+            "// Bound as section in {} views:",
+            section_bindings.len()
+        )
+        .ok();
         for binding in section_bindings {
             writeln!(
                 s,

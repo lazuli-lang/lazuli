@@ -23,9 +23,7 @@
 //! `and`, `or`, `not`, `(`, `)`), plus the original `<ns>` for
 //! embedded `@<ns>.<name>` references (`role`, `scope`, `actor`, ...).
 
-use lazuli_ir::{
-    CompareOp, EvalPredicate, Expr, Policies, PolicyExpr, PolicyRef, Predicate,
-};
+use lazuli_ir::{CompareOp, EvalPredicate, Expr, Policies, PolicyExpr, PolicyRef, Predicate};
 
 use super::escape_string;
 

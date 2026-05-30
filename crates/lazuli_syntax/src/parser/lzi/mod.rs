@@ -81,11 +81,11 @@ mod lifecycle_emits_split_tests;
 // `lzi/*.rs`.
 mod feature_walker;
 
+pub use feature_walker::parse_feature_skeletons;
 pub(super) use feature_walker::{
     AGENT_INDENT_AGENT_CHILD, AGENT_INDENT_FEATURE_CHILD, AGENT_INDENT_GRANDCHILD,
     AGENT_INDENT_GREAT_GRANDCHILD,
 };
-pub use feature_walker::parse_feature_skeletons;
 
 pub(super) use helpers::{
     is_policy_identifier, parse_named_args, split_call_signature, split_first_token,
@@ -114,4 +114,3 @@ pub use types::{
     LifecycleTransitionAst, PollerBlockAst, PollerCursorAst, PollerRetryAst, PollerRetryQuirkAst,
     PollerStateAst, PollerTickAst,
 };
-

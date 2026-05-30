@@ -11,7 +11,9 @@ use lazuli_ir::{Auth, AuthOAuthProvider, AuthSessions, Feature, SessionCookie};
 use super::super::module::EmitContext;
 use super::super::patterns::{PATTERN_AUTH_LOGIN, PATTERN_AUTH_REFRESH, emit_pattern_header};
 use super::super::printer::GoPrinter;
-use super::format::{escape_route_segment, escape_string, write_aligned_kv_rows, write_section_banner};
+use super::format::{
+    escape_route_segment, escape_string, write_aligned_kv_rows, write_section_banner,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct AuthRoute {
@@ -144,16 +146,10 @@ fn emit_session_cookie_config(p: &mut GoPrinter, cookie: &SessionCookie) {
     // the struct literal; ordering follows the IR struct so output is
     // deterministic.
     if let Some(name) = cookie.name.as_ref() {
-        p.line(&format!(
-            "cookieName := \"{}\"",
-            escape_string(name)
-        ));
+        p.line(&format!("cookieName := \"{}\"", escape_string(name)));
     }
     if let Some(same_site) = cookie.same_site.as_ref() {
-        p.line(&format!(
-            "cookieSameSite := {}",
-            same_site_expr(same_site)
-        ));
+        p.line(&format!("cookieSameSite := {}", same_site_expr(same_site)));
     }
     if let Some(secure) = cookie.secure {
         p.line(&format!("cookieSecure := {secure}"));
@@ -162,16 +158,10 @@ fn emit_session_cookie_config(p: &mut GoPrinter, cookie: &SessionCookie) {
         p.line(&format!("cookieHTTPOnly := {http_only}"));
     }
     if let Some(domain) = cookie.domain.as_ref() {
-        p.line(&format!(
-            "cookieDomain := \"{}\"",
-            escape_string(domain)
-        ));
+        p.line(&format!("cookieDomain := \"{}\"", escape_string(domain)));
     }
     if let Some(path) = cookie.path.as_ref() {
-        p.line(&format!(
-            "cookiePath := \"{}\"",
-            escape_string(path)
-        ));
+        p.line(&format!("cookiePath := \"{}\"", escape_string(path)));
     }
 
     p.line("lazuli.ConfigureSessionCookie(lazuli.SessionCookieConfig{");

@@ -160,11 +160,16 @@ mod tests {
     #[test]
     fn returns_none_for_unrelated_word() {
         let source = "feature billing\n  view checkout\n    title \"Checkout\"\n";
-        assert!(lifecycle_gate_hover(
-            source,
-            Position { line: 2, character: 4 },
-            Some("title")
-        )
-        .is_none());
+        assert!(
+            lifecycle_gate_hover(
+                source,
+                Position {
+                    line: 2,
+                    character: 4
+                },
+                Some("title")
+            )
+            .is_none()
+        );
     }
 }

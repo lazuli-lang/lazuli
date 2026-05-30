@@ -77,8 +77,7 @@ mod tests {
 
     use super::super::render_features_summary;
     use super::super::test_fixtures::{
-        empty_feature, list_query, lookup_query, minimal_command,
-        property_resource_with_owner_axis,
+        empty_feature, list_query, lookup_query, minimal_command, property_resource_with_owner_axis,
     };
     use lazuli_ir::{ConventionOrigin, ConventionRef};
 

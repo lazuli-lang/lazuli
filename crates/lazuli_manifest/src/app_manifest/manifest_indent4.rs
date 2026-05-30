@@ -449,8 +449,7 @@ pub(super) fn handle_indent4(
                         rotation_profile: None,
                         span_ref: None,
                     });
-                    state.current_encryption_binding =
-                        app.encryption_bindings.len().checked_sub(1);
+                    state.current_encryption_binding = app.encryption_bindings.len().checked_sub(1);
                 } else {
                     state.current_encryption_binding = None;
                 }

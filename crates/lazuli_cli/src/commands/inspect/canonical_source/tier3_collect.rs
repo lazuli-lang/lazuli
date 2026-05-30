@@ -16,67 +16,67 @@ use std::collections::BTreeMap;
 use crate::{plugin_manifest, plugin_semantic_resolver};
 
 pub(in crate::commands::inspect) struct Tier3FeatureSlice {
-    pub(in crate::commands::inspect)jobs: Vec<lazuli_ir::Job>,
-    pub(in crate::commands::inspect)webhooks: Vec<lazuli_ir::Webhook>,
-    pub(in crate::commands::inspect)event_groups: Vec<lazuli_ir::EventGroup>,
+    pub(in crate::commands::inspect) jobs: Vec<lazuli_ir::Job>,
+    pub(in crate::commands::inspect) webhooks: Vec<lazuli_ir::Webhook>,
+    pub(in crate::commands::inspect) event_groups: Vec<lazuli_ir::EventGroup>,
     /// Migrations bucket cycle Route C — lifted `tenant_migration`
     /// declarations for `--expand=migrations`.
-    pub(in crate::commands::inspect)tenant_migrations: Vec<lazuli_ir::TenantMigration>,
+    pub(in crate::commands::inspect) tenant_migrations: Vec<lazuli_ir::TenantMigration>,
     /// Notifications expanded bucket cycle — lifted `notification`
     /// declarations. Powers the typed `digest`/`throttle` projection
     /// in `inspect_notifications`; the text-walker keeps owning the
     /// scalar fields so the projection stays additive.
-    pub(in crate::commands::inspect)notifications: Vec<lazuli_ir::Notification>,
+    pub(in crate::commands::inspect) notifications: Vec<lazuli_ir::Notification>,
     /// Tier 4 follow-up — lifted `policies` block. Powers the typed
     /// `category -> atoms` lookup that `inspect_policies` and
     /// `inspect_tests` consume; retires the `collect_policy_atoms`
     /// text walker.
-    pub(in crate::commands::inspect)policies: lazuli_ir::Policies,
+    pub(in crate::commands::inspect) policies: lazuli_ir::Policies,
     /// Cache bucket cycle (CL.C.3) — lifted feature-level
     /// `cache <name>` profile declarations. Powers `--expand=caches`.
-    pub(in crate::commands::inspect)caches: Vec<lazuli_ir::CacheProfile>,
+    pub(in crate::commands::inspect) caches: Vec<lazuli_ir::CacheProfile>,
     /// CL.C.4 — lifted `aggregate <Name>` declarations. Powers
     /// `--expand=aggregates`.
-    pub(in crate::commands::inspect)aggregates: Vec<lazuli_ir::Aggregate>,
+    pub(in crate::commands::inspect) aggregates: Vec<lazuli_ir::Aggregate>,
     /// Phase L Tier 4a — lifted feature-level `defaults` block.
     /// Powers `--expand=defaults` IR-driven projection; replaces the
     /// text-pattern walker for the canonical-indent code path.
-    pub(in crate::commands::inspect)defaults: lazuli_ir::Defaults,
+    pub(in crate::commands::inspect) defaults: lazuli_ir::Defaults,
     /// Phase L Tier 4a — resource names lifted from
     /// `Feature.resources`. Used by `--expand=defaults` to compute
     /// `applies_to` for `tenancy`/`timestamps` defaults without
     /// re-walking the source text.
-    pub(in crate::commands::inspect)resource_names: Vec<String>,
+    pub(in crate::commands::inspect) resource_names: Vec<String>,
     /// Phase L Tier 4b — lifted `command <name>` declarations on the
     /// feature. Powers `--expand=commands`; emitted verbatim from IR
     /// so downstream consumers see the typed Command shape (with
     /// audit, approval, invalidates, etc.) without re-deriving from
     /// text.
-    pub(in crate::commands::inspect)commands: Vec<lazuli_ir::Command>,
+    pub(in crate::commands::inspect) commands: Vec<lazuli_ir::Command>,
     /// Phase L Tier 4b — lifted `api <name>` declarations on the
     /// feature. Powers `--expand=apis` (accepting `api` or `apis`).
-    pub(in crate::commands::inspect)apis: Vec<lazuli_ir::Api>,
+    pub(in crate::commands::inspect) apis: Vec<lazuli_ir::Api>,
     /// Phase L Tier 4c — lifted `resource <Name>` declarations on the
     /// feature. Powers `--expand=resources`.
-    pub(in crate::commands::inspect)resources: Vec<lazuli_ir::Resource>,
+    pub(in crate::commands::inspect) resources: Vec<lazuli_ir::Resource>,
     /// Phase L Tier 4d — lifted `query.{list,lookup,sql}` declarations
     /// on the feature. Powers `--expand=queries`.
-    pub(in crate::commands::inspect)queries: Vec<lazuli_ir::Query>,
+    pub(in crate::commands::inspect) queries: Vec<lazuli_ir::Query>,
     /// Phase L Tier 4d — lifted `record <Name>` declarations on the
     /// feature. Powers `--expand=records`.
-    pub(in crate::commands::inspect)records: Vec<lazuli_ir::Record>,
+    pub(in crate::commands::inspect) records: Vec<lazuli_ir::Record>,
     /// IR Error-Vocab (Cell PARSE-1) — lifted `errors` block. `None`
     /// when the feature declared no `errors` block. Powers
     /// `--expand=errors` projection.
-    pub(in crate::commands::inspect)errors: Option<lazuli_ir::FeatureErrors>,
+    pub(in crate::commands::inspect) errors: Option<lazuli_ir::FeatureErrors>,
     /// `knowledge <sector>` (iron-hand context) — lifted `purpose`
     /// text, `non_goals` entries, and the `knowledge` sector slug. The
     /// intent triad `--expand=knowledge` projects from the lowered IR.
     /// `purpose` / `knowledge` are `None` when unset; `non_goals` is an
     /// empty vec. See `docs/proposals/knowledge-sector-field.md`.
-    pub(in crate::commands::inspect)purpose: Option<String>,
-    pub(in crate::commands::inspect)non_goals: Vec<lazuli_ir::NonGoal>,
-    pub(in crate::commands::inspect)knowledge: Option<String>,
+    pub(in crate::commands::inspect) purpose: Option<String>,
+    pub(in crate::commands::inspect) non_goals: Vec<lazuli_ir::NonGoal>,
+    pub(in crate::commands::inspect) knowledge: Option<String>,
 }
 
 /// B3 — variant that applies the plugin alias map to lifted features
@@ -111,7 +111,9 @@ pub(super) fn collect_tier3_by_feature_with_aliases(
             plugin_semantic_resolver::apply_plugin_semantic_resolution(&mut transient, alias_map);
             // Invariant: we pushed exactly one feature above, so pop() yields Some.
             // Fall back to continuing — unreachable in practice but keeps the loop safe.
-            let Some(popped) = transient.features.pop() else { continue };
+            let Some(popped) = transient.features.pop() else {
+                continue;
+            };
             feature_ir = popped;
         }
         map.insert(

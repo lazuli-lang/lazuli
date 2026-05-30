@@ -113,7 +113,11 @@ fn check_scope(source: &str, path: &Path, opener: &str, scope_label: &'static st
         let leading = raw.len() - trimmed.len();
         if let Some(open) = scope_indent {
             if leading <= open {
-                scope_indent = if trimmed == opener { Some(leading) } else { None };
+                scope_indent = if trimmed == opener {
+                    Some(leading)
+                } else {
+                    None
+                };
                 continue;
             }
             let verb = if trimmed.starts_with("permits ") {

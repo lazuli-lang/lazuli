@@ -350,4 +350,3 @@ fn split_emits_when(raw: &str) -> (&str, Option<&str>) {
     }
     (text, None)
 }
-

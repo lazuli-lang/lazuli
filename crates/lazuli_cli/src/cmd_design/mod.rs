@@ -325,7 +325,6 @@ pub fn write_design(path: &Path, design: &Design) -> Result<()> {
 // diff live in sibling modules (format_sniff, figma, style_dictionary,
 // diff). Imports above wire them back in.
 
-
 // =============================================================================
 // Convenience for orchestrator wiring (used by main.rs post-merge)
 // =============================================================================
@@ -357,10 +356,10 @@ mod tests_fixtures;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::tests_fixtures::{
         EXT_LAZULI_DARK, demo_fixture, sort_for_round_trip, unique_temp_dir,
     };
+    use super::*;
     use serde_json::json;
 
     #[test]
@@ -449,7 +448,6 @@ mod tests {
             .unwrap();
         assert_eq!(base_state.dark.as_deref(), Some("#09090b"));
     }
-
 }
 
 #[cfg(test)]

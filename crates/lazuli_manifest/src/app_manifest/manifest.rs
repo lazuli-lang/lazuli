@@ -26,7 +26,9 @@ use lazuli_ir::{AppManifest, ErrorPage, RouteGuardDefaults};
 
 use super::manifest_indent::{ManifestParseState, handle_indent6, handle_indent8};
 use super::manifest_indent4::handle_indent4;
-use super::parsers::{app_child, leading_spaces, line_span_ref, line_start_offsets, split_items, unquote};
+use super::parsers::{
+    app_child, leading_spaces, line_span_ref, line_start_offsets, split_items, unquote,
+};
 
 /// Drive the indented state machine that parses an `app.lzi` body into
 /// an [`AppManifest`].
@@ -172,7 +174,14 @@ pub fn parse_app_manifest(source: &str) -> Option<AppManifest> {
                     state.current_child = None;
                 }
             }
-            4 => handle_indent4(trimmed, line, line_index, &line_starts, &mut app, &mut state),
+            4 => handle_indent4(
+                trimmed,
+                line,
+                line_index,
+                &line_starts,
+                &mut app,
+                &mut state,
+            ),
             6 => handle_indent6(trimmed, &mut app, &mut state),
             8 => handle_indent8(trimmed, &mut app, &state),
             _ => {}

@@ -453,4 +453,3 @@ feature customer
         "transition children should stay contiguous with the header:\n{formatted}"
     );
 }
-

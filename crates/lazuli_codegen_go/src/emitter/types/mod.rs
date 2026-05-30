@@ -294,10 +294,10 @@ fn sanitise_go_ident(raw: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::tests_support::{
         cross_ref_module, empty_feature, make_record, make_resource, module_with_features, type_ctx,
     };
+    use super::*;
     use lazuli_ir::{QualifiedName, Record};
 
     // Suppress unused-import warning when only some test branches

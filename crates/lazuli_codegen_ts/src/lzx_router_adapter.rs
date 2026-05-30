@@ -36,8 +36,7 @@ pub const PATTERN_ROUTE_GUARD: (&str, &str) = ("route_guard", "v1");
 /// Pattern attribution for lifecycle-gate metadata emit. Kept beside the
 /// router adapter because both TanStack beforeLoad and fallback HOC emission
 /// are route-target integrations.
-pub const PATTERN_LIFECYCLE_GATE_METADATA: (&str, &str) =
-    ("pattern_lifecycle_gate_metadata", "v1");
+pub const PATTERN_LIFECYCLE_GATE_METADATA: (&str, &str) = ("pattern_lifecycle_gate_metadata", "v1");
 
 /// Build the `//lazuli:pattern …` header line for route-guard emit.
 ///
@@ -161,9 +160,7 @@ pub fn translate_route_path(target: RouterTarget, route: &str) -> String {
         if bytes[i] == b':' {
             let start = i + 1;
             let mut j = start;
-            while j < bytes.len()
-                && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_')
-            {
+            while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
                 j += 1;
             }
             if j > start {
