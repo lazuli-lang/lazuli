@@ -35,6 +35,9 @@ pub(crate) struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Commands {
+    /// (framework-dev) Dump the parser skeleton AST. Hidden from the
+    /// published surface — contributor tooling, not an app-dev command.
+    #[command(hide = true)]
     Parse {
         input: PathBuf,
     },
@@ -82,7 +85,7 @@ pub(crate) enum Commands {
         /// tests). Pairs with workspace-root
         /// `[doctor.internal_hygiene].preset = "tdd-iron-hand"` for
         /// the framework's CI editorial veto.
-        #[arg(long = "self")]
+        #[arg(long = "self", hide = true)]
         self_audit: bool,
     },
     Inspect {
@@ -119,7 +122,10 @@ pub(crate) enum Commands {
         #[arg(long, default_value = "text")]
         format: String,
     },
-    /// Curated examples for AI authoring and CI validation.
+    /// (framework-dev) Manage this repo's curated example fixtures.
+    /// Hidden from the published surface — operates on the Lazuli repo,
+    /// not an app developer's project.
+    #[command(hide = true)]
     Examples {
         #[command(subcommand)]
         sub: ExamplesCommand,
@@ -162,6 +168,7 @@ pub(crate) enum Commands {
     /// files from a runtime spec. Without `--spec`, uses the in-process
     /// `customer_spike()` fixture; with `--spec <path>`, loads a JSON
     /// `RuntimeFeature` manifest (see `examples/runtime-spec/customer.json`).
+    #[command(hide = true)]
     SpikeGenerate {
         /// Workspace root (defaults to the current directory). The
         /// command writes to `<root>/dist/go/customer/customer.gen.go`
