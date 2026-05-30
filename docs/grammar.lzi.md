@@ -243,7 +243,6 @@ resource_body     = ( previously_clause
                     | audit_decl
                     | field_decl
                     | has_many_decl
-                    | many_decl
                     | many_through_decl
                     | polymorphic_ref_decl
                     | validates_decl
@@ -333,8 +332,6 @@ schedule_rule_clause = "schedule_rule" "from"
 
 has_many_decl     = "has_many" IDENT_LOWER ":" IDENT_UPPER
                     ( "inverse" IDENT_LOWER )? NEWLINE ;
-
-many_decl         = IDENT_LOWER ":" "many" IDENT_UPPER NEWLINE ;
 
 (* GAP-AUDIT-02 — `append_only` resource modifier (bare line, like
    `soft_delete`). Insert-only resource; doctor `RESOURCE-APPEND-ONLY-001`
