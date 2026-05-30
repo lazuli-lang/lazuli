@@ -372,7 +372,7 @@ Inspectable surface constructs (see `grammar.lzx.md` §7a for full grammar):
 view.list customers
   filter created: date_range          # paired from/to picker -> created_from / created_to
   view_mode { table; kanban }         # user-toggleable render modes
-  view.inline_table on_change @command.update_row   # inline-editable rows
+  view.inline_table on_change update_row   # inline-editable rows
   wizard_steps 3 current registration_step          # step indicator bound to an enum field
   tab_group derived_from vehicle_type {             # runtime-data-driven tabs
     case TV, RADIO -> tab "Broadcast"

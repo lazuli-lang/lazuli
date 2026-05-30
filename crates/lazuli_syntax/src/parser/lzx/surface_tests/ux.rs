@@ -96,7 +96,7 @@ mod ux_tests {
       view_mode
         table
         kanban
-      view.inline_table on_change @command.update_row
+      view.inline_table on_change update_row
 "#;
         let surface = parse_surface_document(source).expect("parses view_mode");
         let list = match &surface.audiences[0].views[0] {
@@ -105,7 +105,7 @@ mod ux_tests {
         };
         assert_eq!(list.ux.view_modes, vec!["table", "kanban"]);
         let inline = list.ux.inline_table.as_ref().expect("inline_table");
-        assert_eq!(inline.on_change, "@command.update_row");
+        assert_eq!(inline.on_change, "update_row");
     }
 
     #[test]
@@ -116,10 +116,22 @@ mod ux_tests {
     }
 
     #[test]
-    fn inline_table_requires_command_ref() {
-        let source = "surface a web\n  audience admin\n    view list v\n      source a.query.l\n      columns k\n      view.inline_table on_change update_row\n";
+    fn inline_table_rejects_retired_at_command_sigil() {
+        // SPEC-02 — the `@command.<name>` sigil is retired; commands are bare.
+        let source = "surface a web\n  audience admin\n    view list v\n      source a.query.l\n      columns k\n      view.inline_table on_change @command.update_row\n";
         let err = parse_surface_document(source).unwrap_err();
-        assert!(err.to_string().contains("@command."));
+        assert!(err.to_string().contains("E-AT-COMMAND-RETIRED"));
+    }
+
+    #[test]
+    fn inline_table_accepts_bare_command() {
+        let source = "surface a web\n  audience admin\n    view list v\n      source a.query.l\n      columns k\n      view.inline_table on_change update_row\n";
+        let surface = parse_surface_document(source).expect("bare command accepted");
+        let list = match &surface.audiences[0].views[0] {
+            ViewAst::List(v) => v,
+            other => panic!("expected list, got {other:?}"),
+        };
+        assert_eq!(list.ux.inline_table.as_ref().unwrap().on_change, "update_row");
     }
 
     #[test]

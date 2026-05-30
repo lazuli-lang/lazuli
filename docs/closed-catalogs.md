@@ -32,7 +32,6 @@ A reference `@<ns>.<target>` is valid only when `<ns>` is one of:
 - `@trace`
 - `@translation`
 - `@feature`
-- `@command`
 - `@file`
 - `@audience`
 

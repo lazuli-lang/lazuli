@@ -14,7 +14,7 @@
 //! view_mode
 //!   table
 //!   kanban
-//! view.inline_table on_change @command.update_row
+//! view.inline_table on_change update_row
 //!
 //! # audience-level (sibling to `view`)
 //! tabs
@@ -87,7 +87,7 @@ pub(in crate::parser::lzx) fn parse_wizard_steps_line(
     Ok(())
 }
 
-/// `view.inline_table on_change @command.<name>` — single line. GAP-UX-04.
+/// `view.inline_table on_change <name>` — single line. GAP-UX-04.
 pub(in crate::parser::lzx) fn parse_inline_table_line(
     line: &SourceLine<'_>,
     rest: &str,
@@ -102,21 +102,23 @@ pub(in crate::parser::lzx) fn parse_inline_table_line(
     let command = rest.strip_prefix("on_change ").ok_or_else(|| {
         line_error(
             line,
-            "`view.inline_table` must be `view.inline_table on_change @command.<name>`",
+            "`view.inline_table` must be `view.inline_table on_change <command>`",
         )
     })?;
     let command = command.trim();
-    if !command.starts_with("@command.") {
+    // SPEC-02 — commands are referenced BARE everywhere in the language; the
+    // `@command.<name>` sigil (the only `@command` usage) is retired here.
+    if command.starts_with("@command.") {
         return Err(line_error(
             line,
-            "`view.inline_table on_change` must reference `@command.<name>`",
+            "E-AT-COMMAND-RETIRED: the `@command.<name>` sigil was retired (SPEC-02); \
+             reference the command bare — `view.inline_table on_change <name>`",
         ));
     }
-    let name = &command["@command.".len()..];
-    if !is_kebab_or_snake_ident(name) {
+    if !is_kebab_or_snake_ident(command) {
         return Err(line_error(
             line,
-            "`view.inline_table on_change @command.<name>` requires a command identifier",
+            "`view.inline_table on_change <name>` requires a command identifier",
         ));
     }
     ux.inline_table = Some(InlineTableAst {

@@ -37,7 +37,7 @@
 //!   surface dialect; the experience-surface dialect that `lazuli doctor`
 //!   walks (post-F5) rejects it with `LZX-PARSE` (the platform-view child
 //!   catalog lists `filter`, not `filters`).
-//! - `view.inline_table on_change @command.<x>` — parses in the surface
+//! - `view.inline_table on_change <x>` — parses in the surface
 //!   dialect, but the `@command` namespace is absent from the LSP
 //!   `namespace-catalog` (`lazuli check` / LSP), so the canonical `.lzx`
 //!   LSP-contract test rejects it.

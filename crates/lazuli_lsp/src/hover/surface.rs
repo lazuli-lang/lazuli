@@ -351,7 +351,7 @@ pub(crate) fn keyword_description(keyword: &str) -> Option<&'static str> {
             "View-level UX primitive (`view list` only): block of bare render-mode keywords (e.g. `table`, `kanban`) the list can toggle between. Declared at most once (GAP-UX-04).",
         ),
         "inline_table" => Some(
-            "View-level UX primitive (`view list` only): `view.inline_table on_change @command.<name>` enables inline row editing that dispatches the named command on change. Declared at most once (GAP-UX-04).",
+            "View-level UX primitive (`view list` only): `view.inline_table on_change <name>` enables inline row editing that dispatches the named command on change. Declared at most once (GAP-UX-04).",
         ),
         "board" => Some(
             "View-level UX primitive (`view list` only): `view.board [<name>]` renders a kanban board. Requires a `lanes derived_from <field>` body line (GAP-UX-05).",

@@ -30,7 +30,7 @@ pub struct ViewUx {
     /// (GAP-UX-04). Empty = single fixed render mode.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub view_modes: Vec<RenderMode>,
-    /// `view.inline_table on_change @command.X` — inline-editable rows
+    /// `view.inline_table on_change X` — inline-editable rows
     /// (GAP-UX-04).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inline_table: Option<InlineTable>,
@@ -193,7 +193,7 @@ impl RenderMode {
     }
 }
 
-/// `view.inline_table on_change @command.<name>` — inline-editable rows
+/// `view.inline_table on_change <name>` — inline-editable rows
 /// bound to an update command (GAP-UX-04).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InlineTable {

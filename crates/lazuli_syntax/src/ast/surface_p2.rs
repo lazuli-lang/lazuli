@@ -27,7 +27,7 @@ pub struct ViewUxAst {
     /// `view_mode { table; kanban }` (GAP-UX-04).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub view_modes: Vec<String>,
-    /// `view.inline_table on_change @command.X` (GAP-UX-04).
+    /// `view.inline_table on_change X` (GAP-UX-04).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inline_table: Option<InlineTableAst>,
     /// `view.board <name> / lanes derived_from <field>` (GAP-UX-05).
@@ -126,8 +126,8 @@ pub struct WizardStepAst {
     pub span: Span,
 }
 
-/// `view.inline_table on_change @command.<name>` (GAP-UX-04). `on_change`
-/// is kept as raw `@command.<name>` text; the analyzer normalizes it.
+/// `view.inline_table on_change <name>` (GAP-UX-04). `on_change`
+/// is kept as raw `<name>` text; the analyzer normalizes it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InlineTableAst {
     pub on_change: String,

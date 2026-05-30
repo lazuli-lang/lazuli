@@ -94,6 +94,8 @@ const ALLOWLIST: &[&str] = &[
     "workflow",   // retired `workflow` block (now lifecycle/command effects)
     "accepted",   // SPEC-08: retired .lzx view-test verb (parser hard-errors E-TEST-ACCEPTED-BY-RETIRED; now `allows extension`)
     "rejected",   // SPEC-08: retired .lzx view-test verb (parser hard-errors E-TEST-REJECTED-BY-RETIRED; now `denies extension`)
+    "@command",   // SPEC-02: retired inline_table on_change sigil (parser hard-errors E-AT-COMMAND-RETIRED; commands referenced bare)
+    "@command.",  // ditto — the dotted detection literal
     // ── reference-path roots / dotted references (NOT standalone keywords;
     //    highlighted as support.variable.context / reference paths) ──
     "row",         // `row.<field>` context-variable root

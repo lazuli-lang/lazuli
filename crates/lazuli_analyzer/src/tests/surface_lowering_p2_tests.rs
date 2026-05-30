@@ -56,7 +56,7 @@
     #[test]
     fn lowers_view_mode_and_inline_table() {
         let surface = parse(
-            "surface item web\n  audience admin\n    view list a\n      source item.query.search\n      columns key\n      view_mode\n        table\n        kanban\n      view.inline_table on_change @command.update_row\n",
+            "surface item web\n  audience admin\n    view list a\n      source item.query.search\n      columns key\n      view_mode\n        table\n        kanban\n      view.inline_table on_change update_row\n",
         );
         let view = match &surface.audiences[0].views[0] {
             ir::View::List(v) => v,

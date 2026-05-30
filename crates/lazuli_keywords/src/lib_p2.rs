@@ -85,7 +85,7 @@ pub fn find(literal: &str) -> Option<&'static CapabilitySpec> {
 /// `lazuli_doctor` (`refs.rs`) derive their allow-checks from this instead of
 /// each keeping a divergent hand-maintained copy: before this, the LSP allowed
 /// 23 namespaces and the doctor only 18 (silently rejecting `@feature` /
-/// `@translation` / `@command` / `@file` / `@audience` that the LSP accepted).
+/// `@translation` / `@file` / `@audience` that the LSP accepted).
 ///
 /// Gated against the registry's `@`-decorator rows by
 /// [`reference_namespaces_cover_registry_decorators`] (below): every decorator
@@ -99,7 +99,10 @@ pub const REFERENCE_NAMESPACES: &[&str] = &[
     "client", "query_modifier", "anchor", //
     "llm", "tool", // AI
     "trace", "translation", "feature", // observability / i18n / cross-feature
-    "command", "file", "audience", // named references
+    // SPEC-02 — `@command` retired (commands are referenced bare everywhere;
+    // the only sigil use, `view.inline_table on_change @command.<name>`, now
+    // takes a bare command name).
+    "file", "audience", // named references
 ];
 
 /// Whether `ns` (the segment after `@`, e.g. `"policy"` in `@policy.update`) is

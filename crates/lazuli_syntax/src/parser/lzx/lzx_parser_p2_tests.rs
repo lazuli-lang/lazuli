@@ -242,7 +242,7 @@ surface widget web
       tab_group derived_from status
         case OPEN, PENDING -> tab "Active"
         case CLOSED -> tab "Archived"
-      view.inline_table on_change @command.update_row
+      view.inline_table on_change update_row
       view.board activity
         lanes derived_from status
 

@@ -30,7 +30,7 @@ Columns:
 
 <!-- BEGIN GENERATED BODY -->
 
-_Generated from 685 capability rows across the `lazuli_keywords` registry._
+_Generated from 684 capability rows across the `lazuli_keywords` registry._
 
 ## `.lzi` — feature source
 
@@ -175,7 +175,6 @@ _Generated from 685 capability rows across the `lazuli_keywords` registry._
 | `@audience` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Audience reference decorator. | — |
 | `@cap` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Capability decorator (`@cap.File`). | `VOCAB-CAP-MISSING-001` |
 | `@client` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Client extension decorator. | — |
-| `@command` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Command reference decorator. | — |
 | `@feature` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Feature reference decorator. | — |
 | `@file` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | File reference decorator. | — |
 | `@fn` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Custom-function reference decorator. | `HANDLER-MISSING-001`<br>`HANDLER-SIGNATURE-MISMATCH-001`<br>`HANDLER-SQL-COLUMN-DRIFT-001`<br>`VOCAB-HANDLER-HEAVY-001` |

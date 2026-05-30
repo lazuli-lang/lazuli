@@ -191,7 +191,6 @@ pub(crate) const ROWS: &[CapabilitySpec] = &[
     decorator("@validator", "Validator reference decorator."),
     decorator("@query_modifier", "Query-modifier reference decorator."),
     decorator("@translation", "Translation reference decorator."),
-    decorator("@command", "Command reference decorator."),
     decorator("@file", "File reference decorator."),
     decorator("@feature", "Feature reference decorator."),
     decorator("@resume", "Resume reference decorator."),

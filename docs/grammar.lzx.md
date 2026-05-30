@@ -384,11 +384,11 @@ view_mode_decl    = "view_mode" NEWLINE
 render_mode       = ( "table" | "kanban" | "calendar" | "gallery" ) NEWLINE ;
 
 inline_table_decl = "view" "." "inline_table" "on_change"
-                    "@command." IDENT_LOWER NEWLINE ;
+                    IDENT_LOWER NEWLINE ;
 ```
 
 `view_mode` declares a user-toggleable set of render modes for a list
-view. `view.inline_table on_change @command.X` makes table rows
+view. `view.inline_table on_change X` makes table rows
 inline-editable, binding edits to an update command.
 
 ```
@@ -398,7 +398,7 @@ view list jobs at "/jobs"
   view_mode
     table
     kanban
-  view.inline_table on_change @command.update_row
+  view.inline_table on_change update_row
 ```
 
 Doctor `LZX-VIEW-MODE-001`: each mode must be a known render mode;
