@@ -1,0 +1,102 @@
+# SPEC-01 — Single-source the closed catalogs (reference-namespaces / scalars / semantic-scalars / field-markers) in lazuli_keywords + drift gates
+
+**Breaking:** True | **Est. commits:** 9 | **Depends on:** none | **Parallel with:** SPEC-02, SPEC-03
+
+## Problem
+The "closed catalog" — allowed @-reference-namespaces, the scalar-type catalog, and the @semantic-scalar catalog — is duplicated across FOUR hand-maintained copies that have already drifted, and the registry (crates/lazuli_keywords) that is supposed to be the single source declares every decorator but with NO classification separating the three kinds.
+
+CONFIRMED DRIFT (read, not inferred):
+(a) crates/lazuli_lsp/src/diagnostics/vocab.rs:215-268 `is_allowed_reference_namespace` hardcodes a 23-entry matches! set {role,scope,actor,policy,semantic,cap,pii,key,fn,hook,validator,adapter,client,query_modifier,anchor,llm,tool,trace,translation,feature,command,file,audience}.
+(b) crates/lazuli_doctor_run/src/doctor/refs.rs:209-231 `is_allowed_reference_namespace_for_doctor` hardcodes a DIFFERENT 18-entry set that STOPS at `trace` — literally missing {translation,feature,command,file,audience}. Its own doc-comment (refs.rs:205-208) claims it "mirrors lazuli_lsp" but it does not; a `@feature.x.Resource` the LSP accepts, the doctor rejects. This is the exact divergence the spec kills.
+(c) crates/lazuli_analyzer/src/types.rs:139-183 hardcodes BOTH the @semantic.* list AND the bare scalar catalog, AND silently accepts ALIASES with no diagnostic: types.rs:160-178 lowers Id==ID, String==Text, Bool==Boolean, Int==Integer, Float==Decimal, Json==JSON, and bare un-@ Email==@semantic.Email — six+ silent aliases that defeat peakedness (two spellings reach identical IR with zero nudge to the canonical one).
+(d) Prose docs publish disagreeing catalogs: docs/style-guide.md:385 lists 8 {role,scope,actor,policy,semantic,cap,pii,key}; docs/invariants.md:294-296 lists 17; docs/design-decisions.md:144-149 lists 17 in an axis table — none include the 6 (trace,translation,feature,command,file,audience) the LSP actually accepts. Three prose copies, three counts, all stale vs code.
+
+ROOT CAUSE: crates/lazuli_keywords/src/registry.rs:3179-3222 already declares every @-decorator via decorator() (registry.rs:515-526), and the registry is proven-complete against the parser (tests/proven_complete.rs) and drives tmLanguage + keyword-reference.md (tools/xtask). But a decorator() row carries NO field distinguishing a reference-namespace (@policy.X, validated) from a bare field-marker (@slug/@full_text/@owner_axis/@pii/@key — no .target, never validated) from a type-decorator (@semantic.HexColor, @cap.File). The existing parity test crates/lazuli_lsp/src/lib_tests/group_13_keyword_registry_derivation.rs:399-439 already cross-checks decorators against the LSP catalog but needs a hand-maintained ATTRIBUTE_DECORATORS exclusion (line 379) precisely BECAUSE the registry can't tell the kinds apart. And the scalar/@semantic catalog is not in the registry AT ALL — keyword_surface_parity.rs:67-74 keeps a separate hardcoded SEMANTIC_VALUES and concedes "These are NOT lazuli_keywords literals … so they stay an explicit list." That concession is the gap this spec closes.
+
+## Evidence
+- LSP hardcodes a 23-entry reference-namespace matches! set — `crates/lazuli_lsp/src/diagnostics/vocab.rs:215-268`
+- Doctor hardcodes a DIFFERENT 18-entry set stopping at trace, missing translation/feature/command/file/audience, while its own comment claims it 'mirrors' the LSP — `crates/lazuli_doctor_run/src/doctor/refs.rs:205-231`
+- Analyzer hardcodes the @semantic catalog and the scalar catalog AND silently accepts aliases (Id/String/Bool/Int/Float/Json + bare Email) that lower to identical IR with no diagnostic — `crates/lazuli_analyzer/src/types.rs:139-183`
+- Three prose docs publish disagreeing catalogs: style-guide lists 8, invariants lists 17, design-decisions lists 17 in an axis table; none include the 6 the LSP actually accepts — `docs/style-guide.md:385 vs docs/invariants.md:294-296 vs docs/design-decisions.md:144-149`
+- Registry already declares every @-decorator via the decorator() helper but the row carries no kind-tag separating reference-ns / type-decorator / field-marker — `crates/lazuli_keywords/src/registry.rs:3179-3222 and the decorator() helper at registry.rs:515-526`
+- CapabilitySpec facets are Copy enums (context/surface/sigil/token) precisely so a new categorical facet like CatalogKind matches the existing additive pattern — `crates/lazuli_keywords/src/lib.rs:61-105`
+- The existing registry->namespace parity gate already cross-checks decorators against the LSP catalog but needs a hand-maintained ATTRIBUTE_DECORATORS exclusion BECAUSE the registry can't distinguish field-markers from reference-namespaces — `crates/lazuli_lsp/src/lib_tests/group_13_keyword_registry_derivation.rs:379-439`
+- The surface-parity gate keeps a separate hardcoded SEMANTIC_VALUES list and concedes the semantic scalars 'are NOT lazuli_keywords literals ... so they stay an explicit list' — the exact gap this spec closes — `crates/lazuli_lsp/tests/keyword_surface_parity.rs:67-74 and lines 321-357`
+- xtask gen-keyword-reference is a pure projector (deps lazuli_keywords+std) freshness-gated byte-for-byte, so a catalog section folds in cleanly — `tools/xtask/src/keyword_reference.rs:36-76 and tools/xtask/tests/keyword_reference_fresh.rs:9-17`
+- design-decisions deliberately keeps @* namespaces split by axis (identity/data-class/extension/AI) and treats the closed-and-enforced catalog as the contract — the classification must preserve, not collapse, these axes — `docs/design-decisions.md:131-160`
+- proven_complete already guarantees parser<->registry literal parity and asserts (literal,context) uniqueness, so new Scalar/SemanticScalar rows inherit the anti-drift guarantee — `crates/lazuli_keywords/tests/proven_complete.rs:212-325`
+- The prose-shadows-IR rule is the existing drift-killer doctrine to generalize; it lives under the module-header + trigger-cue convention and is claimed in GLOBAL_DIAGNOSTICS with no keyword owner — `crates/lazuli_doctor/src/vocab/vocab_context_prose_shadows_ir_001.rs:1-67 and crates/lazuli_keywords/src/lib.rs:287-297`
+
+## End state
+crates/lazuli_keywords becomes the SOLE source of the closed catalogs via three changes:
+
+1. CLASSIFICATION on every catalog row. Add a `CatalogKind` enum (#[non_exhaustive]) to lazuli_keywords and a `catalog: Option<CatalogKind>` field on CapabilitySpec (matches the existing Copy-enum facet pattern at lib.rs:61-105). Variants: ReferenceNamespace (validated @<ns>.<target>: policy/scope/role/actor/anchor/adapter/client/fn/hook/validator/query_modifier/llm/tool/trace/translation/feature/command/file/audience), TypeDecorator (@semantic, @cap), FieldMarker (slug/full_text/owner_axis/pii/key/resume), Scalar (Text/Integer/Decimal/Date/DateTime/JSON/ID/Boolean/Money), SemanticScalar (Email/Phone/Url/Uuid/Currency/GeoPoint/HexColor/Percentage). SPEC-04 interaction: SemanticScalar rows already exist as the destination so '@ off types' is a row-retire of the @-forms, not a re-architecture — forward-compatible by design.
+
+2. NEW registry rows for scalars + semantic-scalars (absent today) via scalar()/semantic_scalar() const helpers mirroring decorator(). These are Context::Value / SemanticToken::Type rows so they don't pollute the keyword-token parity gate (which filters SemanticToken::Keyword).
+
+3. THREE pub derive fns: reference_namespaces(), scalar_types(), semantic_types() (literals, sigil-stripped); plus is_reference_namespace(&str)->bool and canonical_scalar(alias)->Option<&'static str> mapping each retired alias to its canonical spelling (drives the doctor rule + lazuli upgrade).
+
+REWIRES (delete the hardcoded copies): vocab.rs:215-268 → lazuli_keywords::is_reference_namespace(); refs.rs:209-231 → same derive (heals the (b) divergence by construction); types.rs:139-183 consults semantic_types()/scalar_types() for membership and the ALIAS arms are REMOVED so they fall through to UserDefined (BREAKING; migration below).
+
+GENERATION + GATES: xtask gen-keyword-reference gains a '## Closed catalogs' section grouped by CatalogKind; prose docs stop inline-enumerating and link to it (kills the (d) three-way disagreement at the root); reference_fresh.rs gates it byte-for-byte. The hand-maintained lists die: group_13 ATTRIBUTE_DECORATORS → FieldMarker filter; keyword_surface_parity SEMANTIC_VALUES → semantic_types(). A generalized catalog-drift doctor rule replaces the single-purpose prose-shadows doctrine.
+
+End invariant: exactly ONE place to add a reference-namespace/scalar/semantic-scalar (a registry row); parser+LSP+doctor+analyzer+tmLanguage+keyword-reference+catalog prose all derive from it; proven_complete + surface_parity + reference_fresh fail the build if any copy is reintroduced.
+
+## Parity surfaces
+- parser (crates/lazuli_syntax/src/parser/lzi/** — scalar/@semantic recognition; head-token already proven-complete against registry)
+- registry (crates/lazuli_keywords/src/lib.rs CapabilitySpec + CatalogKind enum; registry.rs scalar()/semantic_scalar() rows + classification of existing decorator() rows)
+- analyzer lowering (crates/lazuli_analyzer/src/types.rs — derive membership from registry; remove alias arms)
+- LSP completion/hover/typo (crates/lazuli_lsp/src/diagnostics/vocab.rs is_allowed_reference_namespace -> derive)
+- doctor cross-check (crates/lazuli_doctor_run/src/doctor/refs.rs is_allowed_reference_namespace_for_doctor -> derive)
+- tmLanguage (editors/vscode/syntaxes/lazuli.tmLanguage.json @semantic.<Type>/scalar #types rule regenerated via xtask gen-tmlanguage; new Value-context rows stay un-included so no token recolors)
+- keyword-reference.md + new Closed-catalogs section (docs/keyword-reference.md via tools/xtask/src/keyword_reference.rs)
+- curated grammar/teaching docs (docs/grammar.lzi.md, docs/quickref.md, docs/style-guide.md:385, docs/invariants.md:294, docs/design-decisions.md:144 — stop inline-enumerating, link to generated section)
+- Lazurite scaffold + examples (lazurite/templates/default/**, examples/full-capsule/** — aliased spellings migrated to canonical)
+- lazuli upgrade migration recipe (crates/lazuli_cli — alias->canonical rewrite)
+
+## Doctor rules
+- `VOCAB-SCALAR-ALIAS-001` (error (iron-hand); warning during the tdd-strict migration window) — Flags a field/slot/return type written with a retired scalar alias (String->Text, Bool->Boolean, Int->Integer, Float->Decimal, Json->JSON, Id->ID, bare Email->@semantic.Email). Message names the canonical spelling via lazuli_keywords::canonical_scalar(alias). Module header carries severity + trigger cue 'fires when a type token matches a retired alias'.
+- `CATALOG-DRIFT-PROSE-001` (warning) — Generalization of VOCAB-CONTEXT-PROSE-SHADOWS-IR-001: fires when a docs/*.md or *.ctx.md prose block re-enumerates a closed catalog (reference-namespaces/scalars/semantic-scalars) as an inline list/table instead of linking the generated Closed-catalogs section — a hand-maintained copy that will drift from the registry. Reuses SHADOW_OVERLAP_THRESHOLD (=3). No keyword owner; claimed in GLOBAL_DIAGNOSTICS; Vocabulary category; module-header + trigger-cue per convention.
+- `VOCAB-UNKNOWN-NAMESPACE-001` (warning) — Existing namespace-catalog warning (today emitted by the vocab.rs/refs.rs hardcoded sets) re-grounded on lazuli_keywords::is_reference_namespace so LSP and doctor emit IDENTICAL accept/reject decisions — closes the (b) divergence. Not net-new; records the re-rooting requirement that both surfaces share the derive.
+
+## Tests required
+- crates/lazuli_keywords/tests/proven_complete.rs — extend: every CatalogKind::ReferenceNamespace literal is recognized by the parser's @<ns>.<target> path; scalar/semantic-scalar rows round-trip (no new ALLOWLIST entries needed — they are real registry literals).
+- NEW crates/lazuli_keywords/tests/catalog_classification.rs — every @-sigil decorator row has a non-None CatalogKind; ReferenceNamespace set == the 23 the LSP previously hardcoded (pinned snapshot so a silent shrink fails); FieldMarker == {slug,full_text,owner_axis,pii,key,resume}; reference_namespaces()/scalar_types()/semantic_types() non-empty, disjoint where required, no duplicates.
+- crates/lazuli_lsp/tests/keyword_surface_parity.rs — replace SEMANTIC_VALUES (line 67) with lazuli_keywords::semantic_types(); every_semantic_scalar_is_cataloged_and_documented stays green deriving from the registry.
+- crates/lazuli_lsp/src/lib_tests/group_13_keyword_registry_derivation.rs — replace ATTRIBUTE_DECORATORS (line 379) with the FieldMarker filter; registry_decorator_namespaces_are_allowed_references still goes RED on a deliberate removal.
+- NEW lazuli_doctor_run test — is_allowed_reference_namespace_for_doctor and the LSP is_allowed_reference_namespace return IDENTICAL results across the full registry set (regression lock for (b); would have caught the missing translation/feature/command/file/audience).
+- crates/lazuli_analyzer types.rs unit tests — every retired alias (String/Bool/Int/Float/Json/Id/bare-Email) lowers to TypeRef::UserDefined (NOT the canonical builtin); every canonical scalar + @semantic type still lowers to its builtin; membership reads from the registry.
+- crates/lazuli_doctor — VOCAB-SCALAR-ALIAS-001 positive/negative fixtures (each alias fires + names canonical; canonical does not fire) and CATALOG-DRIFT-PROSE-001 fixtures (inline catalog table fires; link-to-generated-section does not).
+- tools/xtask/tests/keyword_reference_fresh.rs green with the new Closed-catalogs section (byte-exact); tools/xtask/tests/tmlanguage_fresh.rs green after gen-tmlanguage with the new Value-context catalog rows.
+- crates/lazuli_cli — lazuli upgrade recipe test: a fixture project using aliases is rewritten to canonical and re-passes doctor.
+- workspace: cargo build --workspace + cargo test for lazuli_keywords/lazuli_lsp/lazuli_analyzer/lazuli_doctor/lazuli_doctor_run/xtask all green; lazuli inspect examples/full-capsule and generate --check confirm canonical scalars reach codegen (NOT lazuli parse — lossy per CLAUDE.md).
+
+## Docs required
+- GENERATED: docs/keyword-reference.md gains a '## Closed catalogs' section (reference-namespaces/scalars/semantic-scalars grouped by CatalogKind) emitted by the extended tools/xtask/src/keyword_reference.rs — the single published catalog.
+- CURATED docs/style-guide.md:385 — replace the inline 8-namespace + scalar list with a link to the generated Closed-catalogs section.
+- CURATED docs/invariants.md:294-296 — replace the inline 17-namespace enumeration with a link; keep normative prose (axes, 'unknown @ are errors') but stop listing members.
+- CURATED docs/design-decisions.md:131-160 — keep the axis-split rationale (deliberate, graded — do not re-litigate) but point the axis table's membership at the generated section.
+- CURATED docs/grammar.lzi.md + docs/quickref.md — scalar/@semantic examples use only canonical spellings; add a one-line 'retired aliases (String/Bool/Int/Float/Json/Id/bare Email) -> use Text/Boolean/Integer/Decimal/JSON/ID/@semantic.Email' note pointing at the upgrade recipe.
+- CLAUDE.md/AGENTS.md §Language-surface parity — add the closed-catalog faces (analyzer membership, LSP+doctor namespace accept, generated catalog section) to the surface map.
+
+## LOC plan (<=500/file)
+"Every touched/new .rs stays <=500 LOC. lazuli_keywords/src/lib.rs (~543 today, near budget): extract the catalog concern into a NEW sibling crates/lazuli_keywords/src/catalog.rs (~180 LOC: CatalogKind enum, reference_namespaces()/scalar_types()/semantic_types()/is_reference_namespace()/canonical_scalar(), the alias->canonical table) re-exported via `pub use catalog::*;`; lib.rs only gains the one `catalog` field on CapabilitySpec (~3 LOC). registry.rs: add scalar()/semantic_scalar() const helpers + three thin classification helpers ref_decorator()/type_decorator()/field_marker() (~50 LOC) and ~17 new Scalar/SemanticScalar rows (~20 LOC); if registry.rs is already >500 (predates the rule), land additions in a NEW registry/catalog_rows.rs included additively (ABI-preserving pub use). vocab.rs NET NEGATIVE (delete ~52-LOC matches!, +3-LOC delegate). refs.rs NET NEGATIVE (delete ~22-LOC matches!, +3-LOC delegate). types.rs LOC-neutral (membership lookups replace arms; ~8 alias LOC removed). keyword_reference.rs (~381) +~60 LOC -> ~440; if it crowds 500, extract the catalog-section renderer into tools/xtask/src/catalog_reference.rs. NEW doctor rule files crates/lazuli_doctor/src/vocab/vocab_scalar_alias_001.rs (~120 LOC) and catalog_drift_prose_001.rs (~150 LOC, reuses the prose-shadows table-parser), each <500, each with //! module header + trigger cue, registered in vocab/mod.rs. All new test files <500. No file crosses 500."
+
+## Acceptance criteria
+- grep for `is_allowed_reference_namespace` returns only the lazuli_keywords derive fn + the two delegating one-liners (vocab.rs, refs.rs) + tests — zero hardcoded matches! namespace bodies remain.
+- Deleting one ReferenceNamespace row makes BOTH the LSP and doctor namespace checks reject the same reference (proves single-source); re-adding heals both.
+- is_allowed_reference_namespace (LSP) and is_allowed_reference_namespace_for_doctor (doctor) return identical booleans for all 23 historical namespaces AND for translation/feature/command/file/audience (the 5 the doctor previously dropped) — the (b) divergence is gone.
+- types.rs lowers String/Bool/Int/Float/Json/Id/bare-Email to TypeRef::UserDefined; Text/Boolean/Integer/Decimal/JSON/ID/@semantic.Email still lower to their builtins; membership reads from lazuli_keywords::scalar_types()/semantic_types().
+- VOCAB-SCALAR-ALIAS-001 fires on each retired alias naming the canonical spelling; does not fire on canonical spellings.
+- docs/keyword-reference.md contains a generated Closed-catalogs section listing exactly the registry's ReferenceNamespace/Scalar/SemanticScalar members; keyword_reference_fresh.rs is green.
+- docs/style-guide.md / invariants.md / design-decisions.md no longer inline-enumerate catalog members (link to the generated section); CATALOG-DRIFT-PROSE-001 would fire if an inline catalog table were reintroduced.
+- keyword_surface_parity.rs derives SEMANTIC_VALUES from semantic_types() and group_13 derives ATTRIBUTE_DECORATORS from the FieldMarker filter — both hardcoded lists deleted; the two dependent tests stay green.
+- cargo build --workspace + per-crate tests (lazuli_keywords, lazuli_lsp, lazuli_analyzer, lazuli_doctor, lazuli_doctor_run, xtask) green; proven_complete, keyword_surface_parity, reference_fresh, tmlanguage_fresh green.
+- lazuli inspect examples/full-capsule and generate --check succeed with canonical scalars reaching codegen; no .rs in the change exceeds 500 LOC.
+- lazuli upgrade rewrites a fixture project's aliased spellings to canonical and the project then passes doctor with no VOCAB-SCALAR-ALIAS-001 findings.
+
+## Migration recipe
+"BREAKING: the scalar aliases String/Bool/Int/Float/Json/Id and the bare un-@ Email stop lowering to their canonical builtins (they become UserDefined and surface 'unknown type'). The reference-namespace catalog gains nothing author-visible (it only stops the doctor under-rejecting). lazuli upgrade recipe (crates/lazuli_cli): (1) driven by lazuli_keywords::canonical_scalar(alias), scan every field/slot/param/return type_text in .lzi/.lzx and rewrite each retired alias to its canonical spelling (String->Text, Bool->Boolean, Int->Integer, Float->Decimal, Json->JSON, Id->ID, bare Email->@semantic.Email), word-boundary-anchored so a UserDefined type whose name merely contains an alias substring (e.g. IntakeForm) is untouched; (2) idempotent + reviewable-by-diff (per Git discipline — re-run yields no change; no stash); (3) emit a per-file rewrite summary; (4) update lazurite/templates/default/** and examples/** in the same wave so fresh scaffolds + full-capsule are alias-free (scaffold smoke runs doctor and would otherwise fire VOCAB-SCALAR-ALIAS-001). Doctor: VOCAB-SCALAR-ALIAS-001 ships warning under tdd-strict for one migration window, then promotes to error under tdd-iron-hand — mirroring the panic/unwrap promotion posture in CLAUDE.md."
+
+## Justification (token / entropy)
+
