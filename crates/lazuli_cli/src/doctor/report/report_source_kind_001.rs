@@ -92,7 +92,7 @@ mod tests {
             extensions: vec![],
             escape_routes: vec![],
             agents: vec![],
-        pollers: vec![],
+            pollers: vec![],
             reports,
             previous_names: vec![],
             span_ref: None,

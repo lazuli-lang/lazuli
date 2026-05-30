@@ -25,11 +25,7 @@ impl Finding {
     }
 }
 
-pub fn check(
-    feature: &Feature,
-    object_storage_caps: &[String],
-    path: &Path,
-) -> Vec<Finding> {
+pub fn check(feature: &Feature, object_storage_caps: &[String], path: &Path) -> Vec<Finding> {
     if object_storage_caps.len() == 1 {
         return Vec::new();
     }
@@ -84,7 +80,7 @@ mod tests {
             extensions: vec![],
             escape_routes: vec![],
             agents: vec![],
-        pollers: vec![],
+            pollers: vec![],
             reports,
             previous_names: vec![],
             span_ref: None,

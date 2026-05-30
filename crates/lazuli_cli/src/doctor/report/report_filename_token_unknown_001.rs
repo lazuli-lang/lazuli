@@ -67,8 +67,7 @@ fn extract_placeholders(literal: &str) -> Vec<String> {
 }
 
 fn is_known_token(raw: &str) -> bool {
-    matches!(raw, "format" | "ctx.user.id" | "ctx.tenant.id")
-        || raw.starts_with("ctx.now:")
+    matches!(raw, "format" | "ctx.user.id" | "ctx.tenant.id") || raw.starts_with("ctx.now:")
 }
 
 #[cfg(test)]
@@ -109,7 +108,7 @@ mod tests {
             extensions: vec![],
             escape_routes: vec![],
             agents: vec![],
-        pollers: vec![],
+            pollers: vec![],
             reports,
             previous_names: vec![],
             span_ref: None,

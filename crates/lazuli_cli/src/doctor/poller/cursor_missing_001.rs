@@ -66,8 +66,8 @@ mod tests {
     use super::*;
     use lazuli_ir::{
         BuiltinType, Defaults, Feature, Field, FieldConstraints, HandlerRef, IdempotencyKey,
-        Path as IrPath, Poller, PollerBackoff, PollerCursor, PollerRetry, PollerState,
-        PollerStateKind, PollerTick, Policies, Resource, TypeRef,
+        Path as IrPath, Policies, Poller, PollerBackoff, PollerCursor, PollerRetry, PollerState,
+        PollerStateKind, PollerTick, Resource, TypeRef,
     };
 
     fn mk_poller(src: &str, next_at: &str, resolved_at: &str, attempts: &str) -> Poller {

@@ -16,8 +16,8 @@ use serde::{Deserialize, Serialize};
 
 pub mod encryption;
 pub use encryption::{
-    E2eeCapability, EncryptionAlgorithm, EncryptionBinding, EncryptionKeyScope,
-    EncryptionRotation, EncryptionSource, EncryptionTemplate, EncryptionTemplateAxis,
+    E2eeCapability, EncryptionAlgorithm, EncryptionBinding, EncryptionKeyScope, EncryptionRotation,
+    EncryptionSource, EncryptionTemplate, EncryptionTemplateAxis,
 };
 
 /// LZIR_SCHEMA — version of the IR JSON ABI. Bumped to 0.13.0 by L.B.1
@@ -1858,10 +1858,7 @@ pub enum LifecycleInvariant {
     TerminalImmutable,
     /// `invariant single <state> per <scope_field>`
     #[serde(rename = "single_state_per_scope")]
-    SingleStatePerScope {
-        state: String,
-        scope_field: String,
-    },
+    SingleStatePerScope { state: String, scope_field: String },
     /// `invariant no_jump_more_than_one`
     #[serde(rename = "no_jump_more_than_one")]
     NoJumpMoreThanOne,

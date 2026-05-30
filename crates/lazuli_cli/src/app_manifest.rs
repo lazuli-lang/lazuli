@@ -2291,11 +2291,13 @@ app AcmeCRM
         assert_eq!(manifest.encryption_bindings.len(), 2);
         assert_eq!(manifest.encryption_bindings[0].scope, "@key.app");
         assert_eq!(manifest.encryption_bindings[1].scope, "@key.tenant");
-        assert!(manifest.encryption_bindings[0]
-            .source
-            .template()
-            .axes
-            .is_empty());
+        assert!(
+            manifest.encryption_bindings[0]
+                .source
+                .template()
+                .axes
+                .is_empty()
+        );
         assert_eq!(
             manifest.encryption_bindings[1].source.template().literal,
             "CRYPT_KEY_TENANT_{tenant_id}"

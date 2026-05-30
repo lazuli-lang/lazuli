@@ -118,11 +118,7 @@ mod tests {
         PolicyRef, QualifiedName, Report, ReportColumn, ReportColumnSource, ReportFormat,
     };
 
-    fn mk_feature(
-        resources: Vec<Resource>,
-        queries: Vec<Query>,
-        reports: Vec<Report>,
-    ) -> Feature {
+    fn mk_feature(resources: Vec<Resource>, queries: Vec<Query>, reports: Vec<Report>) -> Feature {
         Feature {
             name: "customer".into(),
             purpose: None,
@@ -152,7 +148,7 @@ mod tests {
             extensions: vec![],
             escape_routes: vec![],
             agents: vec![],
-        pollers: vec![],
+            pollers: vec![],
             reports,
             previous_names: vec![],
             span_ref: None,

@@ -110,7 +110,10 @@ mod tests {
         let findings = check(&app, Path::new("app.lzi"));
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].scope, "@key.tenant");
-        assert!(matches!(findings[0].reason, AxisMismatch::Missing("tenant_id")));
+        assert!(matches!(
+            findings[0].reason,
+            AxisMismatch::Missing("tenant_id")
+        ));
         assert!(findings[0].message().contains("{tenant_id}"));
     }
 

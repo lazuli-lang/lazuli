@@ -129,10 +129,7 @@ mod tests {
             "editor".to_owned(),
             "viewer".to_owned(),
         ]);
-        assert_eq!(
-            validator_tag_body(&k, false),
-            "oneof=admin editor viewer"
-        );
+        assert_eq!(validator_tag_body(&k, false), "oneof=admin editor viewer");
     }
 
     #[test]

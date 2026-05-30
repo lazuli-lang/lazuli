@@ -16446,16 +16446,14 @@ aggregate Customer {
     // `docs/proposals/encryption-vocab.md` §LSP hovers.
     #[test]
     fn keyword_hover_describes_encryption_block() {
-        let description =
-            keyword_description("encryption").expect("encryption hover present");
+        let description = keyword_description("encryption").expect("encryption hover present");
         assert!(description.contains("@key."));
         assert!(description.contains("@cap.Encrypted"));
     }
 
     #[test]
     fn keyword_hover_describes_rotation_strategy() {
-        let description =
-            keyword_description("rotation").expect("rotation hover present");
+        let description = keyword_description("rotation").expect("rotation hover present");
         assert!(description.contains("manual"));
     }
 

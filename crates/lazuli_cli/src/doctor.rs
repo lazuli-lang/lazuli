@@ -1,5 +1,5 @@
-pub mod design;
 pub mod correctness;
+pub mod design;
 pub mod encryption;
 pub mod folder;
 pub mod lifecycle;
@@ -770,8 +770,7 @@ impl DoctorPackage {
         // anchor from app.lzi. The output is consumed by the doctor
         // diagnostics pass below and by codegen later.
         let mut plan_blocks_raw: Vec<lazuli_syntax::PlanBlockAst> = Vec::new();
-        let mut feature_gates_raw: Vec<(String, lazuli_syntax::FeatureGatesAst)> =
-            Vec::new();
+        let mut feature_gates_raw: Vec<(String, lazuli_syntax::FeatureGatesAst)> = Vec::new();
         for file in &files {
             if !is_lzi_path(&file.path) {
                 continue;
@@ -784,14 +783,13 @@ impl DoctorPackage {
                     // Derive feature name from the file's first
                     // `feature <name>` header (mirrors the existing
                     // doctor convention).
-                    let feature_name = derive_feature_name(&file.source)
-                        .unwrap_or_else(|| {
-                            file.path
-                                .file_stem()
-                                .and_then(|s| s.to_str())
-                                .unwrap_or("unknown")
-                                .to_owned()
-                        });
+                    let feature_name = derive_feature_name(&file.source).unwrap_or_else(|| {
+                        file.path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("unknown")
+                            .to_owned()
+                    });
                     feature_gates_raw.push((feature_name, fg));
                 }
             }
@@ -799,18 +797,16 @@ impl DoctorPackage {
         let anchor = app
             .as_ref()
             .and_then(|a| lazuli_analyzer::parse_subscription_anchor(&a.source));
-        let plan_gate_facts = if plan_blocks_raw.is_empty()
-            && feature_gates_raw.is_empty()
-            && anchor.is_none()
-        {
-            None
-        } else {
-            Some(lazuli_analyzer::aggregate_plan_gate_facts(
-                &plan_blocks_raw,
-                &feature_gates_raw,
-                anchor,
-            ))
-        };
+        let plan_gate_facts =
+            if plan_blocks_raw.is_empty() && feature_gates_raw.is_empty() && anchor.is_none() {
+                None
+            } else {
+                Some(lazuli_analyzer::aggregate_plan_gate_facts(
+                    &plan_blocks_raw,
+                    &feature_gates_raw,
+                    anchor,
+                ))
+            };
 
         Ok(Self {
             project_root,
@@ -8521,9 +8517,7 @@ fn collect_package_rbac_catalog(
     Option<lazuli_ir::RbacCatalog>,
     Vec<(PathBuf, lazuli_analyzer::rbac::RbacIssue)>,
 ) {
-    use lazuli_syntax::{
-        PackageSkeleton, PermissionDeclAst, RoleDeclAst, parse_package_skeleton,
-    };
+    use lazuli_syntax::{PackageSkeleton, PermissionDeclAst, RoleDeclAst, parse_package_skeleton};
 
     let mut all_permissions: Vec<PermissionDeclAst> = Vec::new();
     let mut all_roles: Vec<RoleDeclAst> = Vec::new();
@@ -8561,12 +8555,16 @@ fn collect_package_rbac_catalog(
     // For now, attach the first .lzi file with rbac decls to each issue.
     let representative = files
         .iter()
-        .find(|f| is_lzi_path(&f.path) && f.source.contains("\nrole ") || f.source.starts_with("role "))
+        .find(|f| {
+            is_lzi_path(&f.path) && f.source.contains("\nrole ") || f.source.starts_with("role ")
+        })
         .or_else(|| files.iter().find(|f| is_lzi_path(&f.path)))
         .map(|f| f.path.clone())
         .unwrap_or_default();
-    let issues_with_path: Vec<(PathBuf, _)> =
-        issues.into_iter().map(|i| (representative.clone(), i)).collect();
+    let issues_with_path: Vec<(PathBuf, _)> = issues
+        .into_iter()
+        .map(|i| (representative.clone(), i))
+        .collect();
     (catalog, issues_with_path)
 }
 
@@ -8737,11 +8735,7 @@ fn rbac_missing_policy_diagnostics(files: &[DoctorFile]) -> Vec<DoctorDiagnostic
                     || trimmed.starts_with("query.sql ")
                     || trimmed.starts_with("api "))
             {
-                let name = trimmed
-                    .split_whitespace()
-                    .nth(1)
-                    .unwrap_or("")
-                    .to_owned();
+                let name = trimmed.split_whitespace().nth(1).unwrap_or("").to_owned();
                 // Scan body at indent 4 for a `policy ` line.
                 let mut has_policy = false;
                 let mut j = i + 1;
@@ -10307,9 +10301,7 @@ fn report_diagnostics(
         let mut feature_for_rules = make_synthetic_feature_for_reports(fact);
 
         // Local-only rules consume the synthesized Feature view.
-        for finding in
-            report::report_columns_empty_001::check(&feature_for_rules, &fact.path)
-        {
+        for finding in report::report_columns_empty_001::check(&feature_for_rules, &fact.path) {
             let line = fact
                 .report_lines
                 .get(&finding.report)
@@ -10324,8 +10316,7 @@ fn report_diagnostics(
                 code: report::report_columns_empty_001::Finding::CODE.to_owned(),
             });
         }
-        for finding in
-            report::report_signed_ttl_missing_001::check(&feature_for_rules, &fact.path)
+        for finding in report::report_signed_ttl_missing_001::check(&feature_for_rules, &fact.path)
         {
             let line = fact
                 .report_lines
@@ -10375,9 +10366,7 @@ fn report_diagnostics(
                 code: report::report_filename_token_unknown_001::Finding::CODE.to_owned(),
             });
         }
-        for finding in
-            report::report_source_kind_001::check(&feature_for_rules, &fact.path)
-        {
+        for finding in report::report_source_kind_001::check(&feature_for_rules, &fact.path) {
             let line = fact
                 .report_lines
                 .get(&finding.report)
@@ -10392,10 +10381,9 @@ fn report_diagnostics(
                 code: report::report_source_kind_001::Finding::CODE.to_owned(),
             });
         }
-        for finding in report::report_policy_public_no_rate_limit_001::check(
-            &feature_for_rules,
-            &fact.path,
-        ) {
+        for finding in
+            report::report_policy_public_no_rate_limit_001::check(&feature_for_rules, &fact.path)
+        {
             let line = fact
                 .report_lines
                 .get(&finding.report)
@@ -10410,9 +10398,7 @@ fn report_diagnostics(
                 code: report::report_policy_public_no_rate_limit_001::Finding::CODE.to_owned(),
             });
         }
-        for finding in
-            report::report_column_mismatch_001::check(&feature_for_rules, &fact.path)
-        {
+        for finding in report::report_column_mismatch_001::check(&feature_for_rules, &fact.path) {
             let line = fact
                 .report_lines
                 .get(&finding.report)
@@ -10427,9 +10413,7 @@ fn report_diagnostics(
                 code: report::report_column_mismatch_001::Finding::CODE.to_owned(),
             });
         }
-        for finding in
-            report::report_path_collision_001::check(&feature_for_rules, &fact.path)
-        {
+        for finding in report::report_path_collision_001::check(&feature_for_rules, &fact.path) {
             let line = fact
                 .report_lines
                 .get(&finding.report)
@@ -10485,11 +10469,9 @@ fn report_diagnostics(
 
         // AST-based rule (REPORT-FORMAT-UNKNOWN-001) reads the raw
         // ReportDecl text because lowering drops unknown format tokens.
-        for finding in report::report_format_unknown_001::check(
-            &fact.feature,
-            &fact.report_decls,
-            &fact.path,
-        ) {
+        for finding in
+            report::report_format_unknown_001::check(&fact.feature, &fact.report_decls, &fact.path)
+        {
             let line = fact
                 .report_lines
                 .get(&finding.report)
@@ -10549,7 +10531,7 @@ fn make_synthetic_feature_for_reports(fact: &Tier3FeatureFacts) -> lazuli_ir::Fe
         escape_routes: Vec::new(),
         agents: fact.agents.clone(),
         reports: fact.reports.clone(),
-    pollers: vec![],
+        pollers: vec![],
         previous_names: Vec::new(),
         span_ref: None,
     }

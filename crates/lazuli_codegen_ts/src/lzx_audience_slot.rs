@@ -41,8 +41,8 @@ pub mod ir {
     //! Canonical .lzx IR types — re-exported from lazuli_ir.
     //! (Original stubs replaced after Cell A.1+A.2+A.3 landed in 235d7a7.)
     pub use lazuli_ir::{
-        Surface, SurfaceTarget, Audience, View, ViewList, ViewDetail, ViewCreate,
-        QueryRef, QueryKind, CommandRef, CellBinding, RouteParam, PolicyAtom,
+        Audience, CellBinding, CommandRef, PolicyAtom, QueryKind, QueryRef, RouteParam, Surface,
+        SurfaceTarget, View, ViewCreate, ViewDetail, ViewList,
     };
 }
 

@@ -260,19 +260,27 @@ mod tests {
     #[test]
     fn key_scope_required_axes() {
         assert_eq!(
-            EncryptionKeyScope::parse("@key.tenant").unwrap().required_axis(),
+            EncryptionKeyScope::parse("@key.tenant")
+                .unwrap()
+                .required_axis(),
             Some(EncryptionTemplateAxis::TenantId)
         );
         assert_eq!(
-            EncryptionKeyScope::parse("@key.user").unwrap().required_axis(),
+            EncryptionKeyScope::parse("@key.user")
+                .unwrap()
+                .required_axis(),
             Some(EncryptionTemplateAxis::UserId)
         );
         assert_eq!(
-            EncryptionKeyScope::parse("@key.record").unwrap().required_axis(),
+            EncryptionKeyScope::parse("@key.record")
+                .unwrap()
+                .required_axis(),
             Some(EncryptionTemplateAxis::RecordId)
         );
         assert_eq!(
-            EncryptionKeyScope::parse("@key.app").unwrap().required_axis(),
+            EncryptionKeyScope::parse("@key.app")
+                .unwrap()
+                .required_axis(),
             None
         );
         assert!(EncryptionKeyScope::parse("@key.bogus").is_none());

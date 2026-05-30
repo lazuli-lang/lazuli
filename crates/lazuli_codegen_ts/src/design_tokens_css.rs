@@ -36,13 +36,7 @@ pub fn emit_tokens_css(design: &Design) -> String {
     if !design.typography.families.is_empty() {
         writeln!(s).ok();
         for fam in &design.typography.families {
-            writeln!(
-                s,
-                "  --font-{}: {};",
-                kebab(&fam.name),
-                fam.value
-            )
-            .ok();
+            writeln!(s, "  --font-{}: {};", kebab(&fam.name), fam.value).ok();
         }
     }
 

@@ -87,10 +87,7 @@ pub fn go_type_for(ty: &TypeRef, ctx: &TypeCtx) -> (String, Option<String>) {
 /// Cross-feature resolver for `UserDefined` and `EnumRef` qnames.
 /// Returns the rendered Go type plus the import path to register on
 /// the file's `ImportSet`. See module-level doc for the three cases.
-fn resolve_named(
-    qname: &lazuli_ir::QualifiedName,
-    ctx: &TypeCtx,
-) -> (String, Option<String>) {
+fn resolve_named(qname: &lazuli_ir::QualifiedName, ctx: &TypeCtx) -> (String, Option<String>) {
     // Decorator-prefixed names (e.g. `@semantic.<unknown>` that
     // fell through the builtin match) are not real type refs —
     // sanitise and bail. The analyzer should catch these as
@@ -153,23 +150,17 @@ fn go_type_for_builtin(builtin: BuiltinType) -> (String, Option<&'static str>) {
         BuiltinType::Date => ("lazuli.Date".to_owned(), Some("lazuli.dev/runtime/lazuli")),
         BuiltinType::DateTime => ("lazuli.Time".to_owned(), Some("lazuli.dev/runtime/lazuli")),
         BuiltinType::Json => ("lazuli.JSON".to_owned(), Some("lazuli.dev/runtime/lazuli")),
-        BuiltinType::SemanticEmail => (
-            "lazuli.Email".to_owned(),
-            Some("lazuli.dev/runtime/lazuli"),
-        ),
-        BuiltinType::SemanticMoney => (
-            "lazuli.Money".to_owned(),
-            Some("lazuli.dev/runtime/lazuli"),
-        ),
-        BuiltinType::SemanticPhone => (
-            "lazuli.Phone".to_owned(),
-            Some("lazuli.dev/runtime/lazuli"),
-        ),
+        BuiltinType::SemanticEmail => {
+            ("lazuli.Email".to_owned(), Some("lazuli.dev/runtime/lazuli"))
+        }
+        BuiltinType::SemanticMoney => {
+            ("lazuli.Money".to_owned(), Some("lazuli.dev/runtime/lazuli"))
+        }
+        BuiltinType::SemanticPhone => {
+            ("lazuli.Phone".to_owned(), Some("lazuli.dev/runtime/lazuli"))
+        }
         BuiltinType::SemanticUrl => ("lazuli.URL".to_owned(), Some("lazuli.dev/runtime/lazuli")),
-        BuiltinType::SemanticUuid => (
-            "lazuli.UUID".to_owned(),
-            Some("lazuli.dev/runtime/lazuli"),
-        ),
+        BuiltinType::SemanticUuid => ("lazuli.UUID".to_owned(), Some("lazuli.dev/runtime/lazuli")),
         BuiltinType::SemanticCurrency => (
             "lazuli.Currency".to_owned(),
             Some("lazuli.dev/runtime/lazuli"),
@@ -245,7 +236,12 @@ fn sanitise_go_ident(raw: &str) -> String {
     if out.is_empty() {
         return "lazuliUnresolved".to_owned();
     }
-    if out.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+    if out
+        .chars()
+        .next()
+        .map(|c| c.is_ascii_digit())
+        .unwrap_or(false)
+    {
         out.insert(0, '_');
     }
     out
@@ -311,7 +307,7 @@ mod tests {
                 name: "test".to_owned(),
                 title: None,
                 version: None,
-        lazuli_version: None,
+                lazuli_version: None,
                 targets: Vec::new(),
                 default_locale: None,
                 default_timezone: None,

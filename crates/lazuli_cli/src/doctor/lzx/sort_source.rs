@@ -82,10 +82,16 @@ fn find_query<'a>(
     query_ref: &QueryRef,
 ) -> Option<(&'a str, &'a ListQuery)> {
     let feature = match query_ref.feature.as_deref() {
-        Some(name) => module.features.iter().find(|feature| feature.name == name)?,
+        Some(name) => module
+            .features
+            .iter()
+            .find(|feature| feature.name == name)?,
         None => current_feature,
     };
-    let query = feature.queries.iter().find(|query| query.name == query_ref.name)?;
+    let query = feature
+        .queries
+        .iter()
+        .find(|query| query.name == query_ref.name)?;
     Some((feature.name.as_str(), query))
 }
 
@@ -211,7 +217,11 @@ mod tests {
         let module = module_with(query(vec![slot("sort", "Text")]));
         let findings = check(&module);
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].message.contains("does not accept sort + dir inputs"));
+        assert!(
+            findings[0]
+                .message
+                .contains("does not accept sort + dir inputs")
+        );
         assert!(findings[0].message.contains("sort: Text"));
         assert!(findings[0].message.contains("dir: Text"));
     }

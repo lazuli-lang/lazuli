@@ -6,8 +6,8 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 
 use crate::lzx::{
-    command_ident, lower_camel, pascal_case, CommandRef, SelectionDecl, SelectionMode, SettingDecl,
-    SettingPersistence, SettingValueSpace, SortDecl, SortDir, Surface, ViewList,
+    CommandRef, SelectionDecl, SelectionMode, SettingDecl, SettingPersistence, SettingValueSpace,
+    SortDecl, SortDir, Surface, ViewList, command_ident, lower_camel, pascal_case,
 };
 
 pub(crate) fn needs_use_state(view: &ViewList) -> bool {
@@ -433,8 +433,9 @@ mod tests {
         write_hook_state(&mut state, &surface(), &view);
         // Resource ID type is threaded via indexed-access (`Item["id"]`)
         // so number / string / branded IDs flow without casts.
-        assert!(state
-            .contains("const selection = useMultiSelection<Item[\"id\"]>(query.data ?? []);"));
+        assert!(
+            state.contains("const selection = useMultiSelection<Item[\"id\"]>(query.data ?? []);")
+        );
         assert!(state.contains("const bulkDelete = useLazuliCommand(deleteItem);"));
 
         let mut ret = String::new();
@@ -645,8 +646,9 @@ mod tests {
 
         let mut state = String::new();
         write_hook_state(&mut state, &surface(), &view);
-        assert!(state
-            .contains("const selection = useMultiSelection<Item[\"id\"]>(query.data ?? []);"));
+        assert!(
+            state.contains("const selection = useMultiSelection<Item[\"id\"]>(query.data ?? []);")
+        );
         // No `<string>` literal anywhere in the multi-selection state.
         assert!(!state.contains("useMultiSelection<string>"));
     }
@@ -697,9 +699,7 @@ mod tests {
         let mut out = String::new();
         write_setting_keys(&mut out, &surface(), &view, "pleiades");
         assert!(
-            out.contains(
-                "const SETTING_KEY_GRID_SIZE = \"pleiades:item-terminal:grid_size\";"
-            ),
+            out.contains("const SETTING_KEY_GRID_SIZE = \"pleiades:item-terminal:grid_size\";"),
             "expected `pleiades:` prefix; got: {out}"
         );
         // No legacy feature-scoped prefix.

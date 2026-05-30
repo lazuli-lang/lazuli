@@ -150,7 +150,8 @@ mod tests {
             extensions: vec![],
             escape_routes: vec![],
             agents: vec![],
-            reports: vec![],            previous_names: vec![],
+            reports: vec![],
+            previous_names: vec![],
             span_ref: None,
         }
     }
@@ -236,9 +237,11 @@ mod tests {
         assert_eq!(findings[0].resource, "Publication");
         assert_eq!(findings[0].kind, UnresolvedKind::ScopeField);
         assert_eq!(findings[0].name, "nonexistent_fk");
-        assert!(findings[0]
-            .message()
-            .contains("unknown scope field `nonexistent_fk`"));
+        assert!(
+            findings[0]
+                .message()
+                .contains("unknown scope field `nonexistent_fk`")
+        );
     }
 
     #[test]

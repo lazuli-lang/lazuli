@@ -358,9 +358,7 @@ fn emit_command_handler_wrapper(
         // result, then conditionally bump every quota counter before
         // returning. Increment errors are swallowed (logged by the
         // runtime); the user-visible response is the handler's result.
-        p.line(&format!(
-            "out, err := {var_name}.Handle(ctx, input)"
-        ));
+        p.line(&format!("out, err := {var_name}.Handle(ctx, input)"));
         p.line("if err == nil {");
         p.indent();
         for limit in &quota_gates {
@@ -480,15 +478,11 @@ fn emit_input_struct(p: &mut GoPrinter, name: &str, slots: &[TypedSlot], ctx: &T
         // tag chain stays deterministic: `json:"…"` then optional
         // `validate:"…"` (only when the slot is required OR carries
         // at least one constraint).
-        let validate_body =
-            super::validator_tag_body(&slot.constraints, slot.required);
+        let validate_body = super::validator_tag_body(&slot.constraints, slot.required);
         let tag = if validate_body.is_empty() {
             format!("`json:\"{}\"`", json_suffix)
         } else {
-            format!(
-                "`json:\"{}\" validate:\"{}\"`",
-                json_suffix, validate_body
-            )
+            format!("`json:\"{}\" validate:\"{}\"`", json_suffix, validate_body)
         };
         rows.push((pascal_case(&slot.name), final_type, tag));
     }
@@ -1090,10 +1084,7 @@ fn format_policy_with_expr(policy: &PolicyRef, policy_expr: Option<&PolicyExpr>)
         let atoms = render_policy_expr_atoms(expr);
         let name = policy_expr_display_name(expr);
         if atoms.is_empty() {
-            return format!(
-                "lazuli.Policy{{Name: {:?}}},",
-                name
-            );
+            return format!("lazuli.Policy{{Name: {:?}}},", name);
         }
         let inner = atoms.join(", ");
         return format!(
@@ -1163,13 +1154,12 @@ fn render_policy_expr_atoms(expr: &PolicyExpr) -> Vec<String> {
 
 fn walk_policy_expr_atoms(expr: &PolicyExpr, out: &mut Vec<String>) {
     match expr {
-        PolicyExpr::Authenticated => out.push(
-            "{Namespace: \"predicate\", Name: \"authenticated\"}".to_owned(),
-        ),
-        PolicyExpr::HasRole(name) => out.push(format!(
-            "{{Namespace: \"rbac.role\", Name: {:?}}}",
-            name
-        )),
+        PolicyExpr::Authenticated => {
+            out.push("{Namespace: \"predicate\", Name: \"authenticated\"}".to_owned())
+        }
+        PolicyExpr::HasRole(name) => {
+            out.push(format!("{{Namespace: \"rbac.role\", Name: {:?}}}", name))
+        }
         PolicyExpr::HasPermission(perm) => out.push(format!(
             "{{Namespace: \"rbac.permission\", Name: {:?}}}",
             perm
@@ -1182,9 +1172,7 @@ fn walk_policy_expr_atoms(expr: &PolicyExpr, out: &mut Vec<String>) {
             out.push("{Namespace: \"predicate\", Name: \"(\"}".to_owned());
             for (i, term) in terms.iter().enumerate() {
                 if i > 0 {
-                    out.push(
-                        "{Namespace: \"predicate\", Name: \"and\"}".to_owned(),
-                    );
+                    out.push("{Namespace: \"predicate\", Name: \"and\"}".to_owned());
                 }
                 walk_policy_expr_atoms(term, out);
             }
@@ -1194,9 +1182,7 @@ fn walk_policy_expr_atoms(expr: &PolicyExpr, out: &mut Vec<String>) {
             out.push("{Namespace: \"predicate\", Name: \"(\"}".to_owned());
             for (i, term) in terms.iter().enumerate() {
                 if i > 0 {
-                    out.push(
-                        "{Namespace: \"predicate\", Name: \"or\"}".to_owned(),
-                    );
+                    out.push("{Namespace: \"predicate\", Name: \"or\"}".to_owned());
                 }
                 walk_policy_expr_atoms(term, out);
             }

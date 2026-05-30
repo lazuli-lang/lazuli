@@ -211,10 +211,7 @@ mod tests {
     }
 }
 
-fn emit_gate_helpers(
-    out: &mut String,
-    gates: &std::collections::BTreeMap<String, Vec<Gate>>,
-) {
+fn emit_gate_helpers(out: &mut String, gates: &std::collections::BTreeMap<String, Vec<Gate>>) {
     // Emit a single per-callable comment listing the gates that
     // apply. The runtime helpers (`billing.CheckFeature`,
     // `billing.CheckQuota`, `billing.IncrQuota`) are called directly

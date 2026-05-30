@@ -262,10 +262,7 @@ pub fn import(from: &Path, format: ImportFormat, out: &Path, overwrite: bool) ->
 
     if out.exists() && !overwrite {
         let existing = read_design(out).with_context(|| {
-            format!(
-                "reading existing {} to compute import diff",
-                out.display()
-            )
+            format!("reading existing {} to compute import diff", out.display())
         })?;
         let report = compute_diff(&existing, &incoming);
         eprintln!(
@@ -281,12 +278,10 @@ pub fn import(from: &Path, format: ImportFormat, out: &Path, overwrite: bool) ->
 
     if let Some(parent) = out.parent() {
         if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("creating {}", parent.display()))?;
+            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
         }
     }
-    write_design(out, &incoming)
-        .with_context(|| format!("writing {}", out.display()))?;
+    write_design(out, &incoming).with_context(|| format!("writing {}", out.display()))?;
     Ok(())
 }
 
@@ -301,17 +296,15 @@ pub fn export(out: &Path, target: ExportTarget, design: &Design) -> Result<()> {
         ExportTarget::Figma => design_to_figma(design),
         ExportTarget::StyleDictionary => design_to_style_dictionary(design),
     };
-    let pretty = serde_json::to_string_pretty(&value)
-        .context("serialising token catalog to JSON")?;
+    let pretty =
+        serde_json::to_string_pretty(&value).context("serialising token catalog to JSON")?;
 
     if let Some(parent) = out.parent() {
         if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("creating {}", parent.display()))?;
+            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
         }
     }
-    fs::write(out, pretty.as_bytes())
-        .with_context(|| format!("writing {}", out.display()))?;
+    fs::write(out, pretty.as_bytes()).with_context(|| format!("writing {}", out.display()))?;
     Ok(())
 }
 
@@ -362,10 +355,8 @@ pub fn read_design(path: &Path) -> Result<Design> {
 /// diffs; emission order inside the IR is preserved by the IR types
 /// themselves (Vec-of-token preserves authored order).
 pub fn write_design(path: &Path, design: &Design) -> Result<()> {
-    let pretty = serde_json::to_string_pretty(design)
-        .context("serialising Design IR to JSON")?;
-    fs::write(path, pretty.as_bytes())
-        .with_context(|| format!("writing {}", path.display()))?;
+    let pretty = serde_json::to_string_pretty(design).context("serialising Design IR to JSON")?;
+    fs::write(path, pretty.as_bytes()).with_context(|| format!("writing {}", path.display()))?;
     Ok(())
 }
 
@@ -377,9 +368,7 @@ pub fn write_design(path: &Path, design: &Design) -> Result<()> {
 /// Dictionary; otherwise inspect the JSON for the W3C `$value` /
 /// `$type` markers.
 fn sniff_format(path: &Path) -> Result<ImportFormat> {
-    let lower = path
-        .to_string_lossy()
-        .to_ascii_lowercase();
+    let lower = path.to_string_lossy().to_ascii_lowercase();
     if lower.ends_with(".figma.json") {
         return Ok(ImportFormat::Figma);
     }
@@ -388,8 +377,7 @@ fn sniff_format(path: &Path) -> Result<ImportFormat> {
     }
     // Fallback to JSON inspection. Look for any `$value` field anywhere
     // in the tree — present in W3C, absent in Style Dictionary.
-    let raw = fs::read_to_string(path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let raw = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let value: Value = serde_json::from_str(&raw)
         .with_context(|| format!("parsing JSON at {}", path.display()))?;
     if json_contains_key(&value, "$value") {
@@ -433,7 +421,10 @@ fn design_to_figma(design: &Design) -> Value {
             // Flat form: a single `Base` state.
             if tok.states.len() == 1 && tok.states[0].kind == ColorStateKind::Base {
                 let state = &tok.states[0];
-                color.insert(tok.name.clone(), color_leaf(&state.value, state.dark.as_deref()));
+                color.insert(
+                    tok.name.clone(),
+                    color_leaf(&state.value, state.dark.as_deref()),
+                );
             } else {
                 let mut sub = Map::new();
                 for state in &tok.states {
@@ -671,8 +662,8 @@ fn figma_to_design(value: &Value) -> Result<Design> {
     }
     if let Some(z) = root.get("z").and_then(|v| v.as_object()) {
         for (name, entry) in z {
-            let value = read_int_value(entry, true)?
-                .ok_or_else(|| anyhow!("z.{name}: missing $value"))?;
+            let value =
+                read_int_value(entry, true)?.ok_or_else(|| anyhow!("z.{name}: missing $value"))?;
             design.z_indices.push(ZToken {
                 name: name.clone(),
                 value,
@@ -684,9 +675,9 @@ fn figma_to_design(value: &Value) -> Result<Design> {
 }
 
 fn parse_color_token(name: &str, value: &Value, figma: bool) -> Result<ColorToken> {
-    let obj = value.as_object().ok_or_else(|| {
-        anyhow!("color.{name}: expected object (single value or sub-block)")
-    })?;
+    let obj = value
+        .as_object()
+        .ok_or_else(|| anyhow!("color.{name}: expected object (single value or sub-block)"))?;
 
     let value_key = if figma { "$value" } else { "value" };
 
@@ -716,9 +707,8 @@ fn parse_color_token(name: &str, value: &Value, figma: bool) -> Result<ColorToke
     ] {
         let key = color_state_key(kind);
         if let Some(entry) = obj.get(key) {
-            let hex = read_scalar_value(entry, figma)?.ok_or_else(|| {
-                anyhow!("color.{name}.{key}: missing {value_key}")
-            })?;
+            let hex = read_scalar_value(entry, figma)?
+                .ok_or_else(|| anyhow!("color.{name}.{key}: missing {value_key}"))?;
             let dark = read_dark_extension(entry, figma);
             states.push(ColorState {
                 kind,
@@ -750,9 +740,8 @@ fn parse_typography(map: &Map<String, Value>, figma: bool) -> Result<Typography>
 
     if let Some(family) = map.get("family").and_then(|v| v.as_object()) {
         for (name, entry) in family {
-            let value = read_scalar_value(entry, figma)?.ok_or_else(|| {
-                anyhow!("typography.family.{name}: missing {value_key}")
-            })?;
+            let value = read_scalar_value(entry, figma)?
+                .ok_or_else(|| anyhow!("typography.family.{name}: missing {value_key}"))?;
             typography.families.push(FamilyToken {
                 name: name.clone(),
                 value,
@@ -772,16 +761,12 @@ fn parse_typography(map: &Map<String, Value>, figma: bool) -> Result<Typography>
             let size = inner
                 .get("fontSize")
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| {
-                    anyhow!("typography.scale.{name}: missing fontSize")
-                })?
+                .ok_or_else(|| anyhow!("typography.scale.{name}: missing fontSize"))?
                 .to_string();
             let line_height = inner
                 .get("lineHeight")
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| {
-                    anyhow!("typography.scale.{name}: missing lineHeight")
-                })?
+                .ok_or_else(|| anyhow!("typography.scale.{name}: missing lineHeight"))?
                 .to_string();
             typography.scale.push(TextScaleToken {
                 name: name.clone(),
@@ -792,32 +777,25 @@ fn parse_typography(map: &Map<String, Value>, figma: bool) -> Result<Typography>
     }
     if let Some(weight) = map.get("weight").and_then(|v| v.as_object()) {
         for (name, entry) in weight {
-            let raw = entry.get(value_key).ok_or_else(|| {
-                anyhow!("typography.weight.{name}: missing {value_key}")
-            })?;
+            let raw = entry
+                .get(value_key)
+                .ok_or_else(|| anyhow!("typography.weight.{name}: missing {value_key}"))?;
             let n = raw
                 .as_u64()
                 .or_else(|| raw.as_str().and_then(|s| s.parse::<u64>().ok()))
-                .ok_or_else(|| {
-                    anyhow!(
-                        "typography.weight.{name}: expected integer (got {raw})"
-                    )
-                })?;
+                .ok_or_else(|| anyhow!("typography.weight.{name}: expected integer (got {raw})"))?;
             typography.weights.push(WeightToken {
                 name: name.clone(),
                 value: u16::try_from(n).map_err(|_| {
-                    anyhow!(
-                        "typography.weight.{name}: weight {n} exceeds u16 range"
-                    )
+                    anyhow!("typography.weight.{name}: weight {n} exceeds u16 range")
                 })?,
             });
         }
     }
     if let Some(tracking) = map.get("tracking").and_then(|v| v.as_object()) {
         for (name, entry) in tracking {
-            let value = read_scalar_value(entry, figma)?.ok_or_else(|| {
-                anyhow!("typography.tracking.{name}: missing {value_key}")
-            })?;
+            let value = read_scalar_value(entry, figma)?
+                .ok_or_else(|| anyhow!("typography.tracking.{name}: missing {value_key}"))?;
             typography.tracking.push(TrackingToken {
                 name: name.clone(),
                 value,
@@ -858,9 +836,9 @@ fn read_int_value(entry: &Value, figma: bool) -> Result<Option<i32>> {
         .as_i64()
         .or_else(|| raw.as_str().and_then(|s| s.parse::<i64>().ok()))
         .ok_or_else(|| anyhow!("expected integer, got {raw}"))?;
-    i32::try_from(n).map(Some).map_err(|_| {
-        anyhow!("z value {n} exceeds i32 range")
-    })
+    i32::try_from(n)
+        .map(Some)
+        .map_err(|_| anyhow!("z value {n} exceeds i32 range"))
 }
 
 fn value_to_string(raw: &Value) -> String {
@@ -925,9 +903,12 @@ fn convert_keys_dollar_to_plain(value: Value) -> Value {
             }
             Value::Object(out)
         }
-        Value::Array(items) => {
-            Value::Array(items.into_iter().map(convert_keys_dollar_to_plain).collect())
-        }
+        Value::Array(items) => Value::Array(
+            items
+                .into_iter()
+                .map(convert_keys_dollar_to_plain)
+                .collect(),
+        ),
         other => other,
     }
 }
@@ -969,11 +950,7 @@ fn flat_view(design: &Design) -> BTreeMap<String, String> {
             out.insert(format!("color.{}", tok.name), encode_color(state));
         } else {
             for state in &tok.states {
-                let key = format!(
-                    "color.{}.{}",
-                    tok.name,
-                    color_state_key(state.kind)
-                );
+                let key = format!("color.{}.{}", tok.name, color_state_key(state.kind));
                 out.insert(key, encode_color(state));
             }
         }
@@ -1009,16 +986,10 @@ fn flat_view(design: &Design) -> BTreeMap<String, String> {
         out.insert(format!("shadow.{}", tok.name), tok.value.clone());
     }
     for tok in &design.motion.durations {
-        out.insert(
-            format!("motion.duration.{}", tok.name),
-            tok.value.clone(),
-        );
+        out.insert(format!("motion.duration.{}", tok.name), tok.value.clone());
     }
     for tok in &design.motion.easings {
-        out.insert(
-            format!("motion.easing.{}", tok.name),
-            tok.value.clone(),
-        );
+        out.insert(format!("motion.easing.{}", tok.name), tok.value.clone());
     }
     for tok in &design.breakpoints {
         out.insert(format!("breakpoint.{}", tok.name), tok.value.clone());
@@ -1238,10 +1209,19 @@ mod tests {
     /// sides before comparing structural equality.
     fn sort_for_round_trip(design: &mut Design) {
         design.colors.sort_by(|a, b| a.name.cmp(&b.name));
-        design.typography.families.sort_by(|a, b| a.name.cmp(&b.name));
+        design
+            .typography
+            .families
+            .sort_by(|a, b| a.name.cmp(&b.name));
         design.typography.scale.sort_by(|a, b| a.name.cmp(&b.name));
-        design.typography.weights.sort_by(|a, b| a.name.cmp(&b.name));
-        design.typography.tracking.sort_by(|a, b| a.name.cmp(&b.name));
+        design
+            .typography
+            .weights
+            .sort_by(|a, b| a.name.cmp(&b.name));
+        design
+            .typography
+            .tracking
+            .sort_by(|a, b| a.name.cmp(&b.name));
         design.spaces.sort_by(|a, b| a.name.cmp(&b.name));
         design.radii.sort_by(|a, b| a.name.cmp(&b.name));
         design.shadows.sort_by(|a, b| a.name.cmp(&b.name));
@@ -1329,7 +1309,10 @@ mod tests {
         import(&external, ImportFormat::Figma, &out, true).unwrap();
 
         let after = read_design(&out).unwrap();
-        assert!(!after.colors.is_empty(), "import should have replaced design");
+        assert!(
+            !after.colors.is_empty(),
+            "import should have replaced design"
+        );
         assert!(after.spaces.iter().any(|t| t.name == "1"));
 
         let _ = fs::remove_dir_all(tmp);

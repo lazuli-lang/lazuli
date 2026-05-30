@@ -270,7 +270,11 @@ fn emit_cell_slot(
             )
             .ok();
         }
-        writeln!(s, "// v0 picks the first binding's type as the slot contract;").ok();
+        writeln!(
+            s,
+            "// v0 picks the first binding's type as the slot contract;"
+        )
+        .ok();
         writeln!(
             s,
             "// alternative bindings must be cell-shape compatible at use site."
@@ -358,7 +362,12 @@ fn emit_section_slot(
     }
 
     if section_bindings.len() > 1 {
-        writeln!(s, "// Bound as section in {} views:", section_bindings.len()).ok();
+        writeln!(
+            s,
+            "// Bound as section in {} views:",
+            section_bindings.len()
+        )
+        .ok();
         for binding in section_bindings {
             writeln!(
                 s,
@@ -591,9 +600,9 @@ mod tests {
     /// `Resource["field"]`.
     #[test]
     fn single_binding_emits_field_derived_type() {
-        let surface = surface_with_audience(admin_audience_with_views(vec![
-            slug_list_view(vec![type_badge_cell()]),
-        ]));
+        let surface = surface_with_audience(admin_audience_with_views(vec![slug_list_view(vec![
+            type_badge_cell(),
+        ])]));
 
         let output = emit_slot_interface(&surface, &slug_feature(), "type_badge");
 
@@ -656,12 +665,10 @@ mod tests {
     /// binding anywhere. Emits `value: void; row: <Resource>;`.
     #[test]
     fn section_slot_emits_void_value_with_whole_row() {
-        let surface = surface_with_audience(admin_audience_with_views(vec![
-            slug_detail_view(
-                vec![],
-                vec!["header".to_owned(), "metadata".to_owned()],
-            ),
-        ]));
+        let surface = surface_with_audience(admin_audience_with_views(vec![slug_detail_view(
+            vec![],
+            vec!["header".to_owned(), "metadata".to_owned()],
+        )]));
 
         let output = emit_slot_interface(&surface, &slug_feature(), "header");
 
@@ -690,9 +697,10 @@ mod tests {
     #[test]
     fn slot_name_pascal_case_with_props_suffix() {
         // snake_case slot name
-        let surface_snake = surface_with_audience(admin_audience_with_views(vec![
-            slug_list_view(vec![type_badge_cell()]),
-        ]));
+        let surface_snake =
+            surface_with_audience(admin_audience_with_views(vec![slug_list_view(vec![
+                type_badge_cell(),
+            ])]));
         let output_snake = emit_slot_interface(&surface_snake, &slug_feature(), "type_badge");
         assert!(output_snake.contains("export interface TypeBadgeProps"));
 
@@ -701,9 +709,10 @@ mod tests {
             field: "tags".to_owned(),
             slot: "quick-action".to_owned(),
         };
-        let surface_kebab = surface_with_audience(admin_audience_with_views(vec![
-            slug_list_view(vec![kebab_cell]),
-        ]));
+        let surface_kebab =
+            surface_with_audience(admin_audience_with_views(vec![slug_list_view(vec![
+                kebab_cell,
+            ])]));
         let output_kebab = emit_slot_interface(&surface_kebab, &slug_feature(), "quick-action");
         assert!(
             output_kebab.contains("export interface QuickActionProps"),
@@ -795,9 +804,8 @@ mod tests {
     /// graceful path so generated cells/<x>.gen.ts always type-checks.
     #[test]
     fn slot_with_no_binding_emits_unresolved_fallback() {
-        let surface = surface_with_audience(admin_audience_with_views(vec![
-            slug_list_view(vec![]),
-        ]));
+        let surface =
+            surface_with_audience(admin_audience_with_views(vec![slug_list_view(vec![])]));
 
         let output = emit_slot_interface(&surface, &slug_feature(), "ghost_slot");
 

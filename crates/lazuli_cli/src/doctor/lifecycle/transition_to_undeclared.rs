@@ -131,7 +131,8 @@ mod tests {
             extensions: vec![],
             escape_routes: vec![],
             agents: vec![],
-            reports: vec![],            previous_names: vec![],
+            reports: vec![],
+            previous_names: vec![],
             span_ref: None,
         }
     }

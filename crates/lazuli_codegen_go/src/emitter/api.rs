@@ -126,10 +126,7 @@ fn emit_api(
         ),
         (
             "Policy:".to_owned(),
-            super::command::format_policy_with_expr_public(
-                &api.policy,
-                api.policy_expr.as_ref(),
-            ),
+            super::command::format_policy_with_expr_public(&api.policy, api.policy_expr.as_ref()),
         ),
     ];
     if let Some(rate_limit) = &api.rate_limit {
@@ -160,7 +157,9 @@ fn emit_api(
     // inert `// TODO(extension-points): ...` comment with no
     // registration; the endpoint vanished into the void unless the
     // user happened to call `RegisterApi` themselves.
-    p.line(&format!("func init() {{ lazuli.RegisterApi(&{var_name}) }}"));
+    p.line(&format!(
+        "func init() {{ lazuli.RegisterApi(&{var_name}) }}"
+    ));
     p.line(&format!(
         "// Wire {var_name}.Handler in your application code, then call"
     ));
@@ -186,10 +185,7 @@ fn emit_gate_annotations(p: &mut GoPrinter, gates: &[Gate]) {
                 ));
             }
             Gate::Quota { limit } => {
-                p.line(&format!(
-                    "{{Kind: billing.GateQuota, Name: {:?}}},",
-                    limit
-                ));
+                p.line(&format!("{{Kind: billing.GateQuota, Name: {:?}}},", limit));
             }
         }
     }
@@ -799,7 +795,10 @@ func init() { lazuli.RegisterApi(&customerSummary) }
             out.contains("\"lazuli.dev/runtime/lazuli/billing\""),
             "billing import missing:\n{out}"
         );
-        assert!(out.contains("\"billing-app/plan\""), "plan import missing:\n{out}");
+        assert!(
+            out.contains("\"billing-app/plan\""),
+            "plan import missing:\n{out}"
+        );
         assert!(
             out.contains("Prelude: []billing.GateRef{"),
             "Prelude field missing:\n{out}"

@@ -107,7 +107,10 @@ impl<'a> EmitContext<'a> {
         let Some(map) = self.gates else {
             return &[];
         };
-        let key = format!("{}/{}:{}", self.current_feature, callable_kind, callable_name);
+        let key = format!(
+            "{}/{}:{}",
+            self.current_feature, callable_kind, callable_name
+        );
         map.get(&key).map(|v| v.as_slice()).unwrap_or(&[])
     }
 
@@ -572,9 +575,13 @@ pub fn emit_module(
             let emit_ctx =
                 EmitContext::for_feature(source_context, &source_label, &feature.name, &api_path)
                     .with_gates(gate_map);
-            if let Some(contents) =
-                emit_api_file(&source_label, feature, &module_name, &cross_index, &emit_ctx)
-            {
+            if let Some(contents) = emit_api_file(
+                &source_label,
+                feature,
+                &module_name,
+                &cross_index,
+                &emit_ctx,
+            ) {
                 files.push(GeneratedFile {
                     path: api_path,
                     contents,

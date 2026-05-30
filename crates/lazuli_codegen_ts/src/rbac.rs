@@ -59,9 +59,7 @@ pub fn emit_rbac_ts(module: &Module) -> Option<String> {
     out.push_str("export type RoleName = (typeof Roles)[keyof typeof Roles]['name'];\n\n");
 
     // hasPermission helper.
-    out.push_str(
-        "export function hasPermission(role: string, perm: Permission): boolean {\n",
-    );
+    out.push_str("export function hasPermission(role: string, perm: Permission): boolean {\n");
     out.push_str("  for (const key in Roles) {\n");
     out.push_str("    const r = (Roles as Record<string, { name: string; grants: readonly string[] }>)[key];\n");
     out.push_str("    if (r.name === role) {\n");

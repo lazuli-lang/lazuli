@@ -46,9 +46,7 @@ use lazuli_ir::{
 };
 
 use super::imports::ImportSet;
-use super::patterns::{
-    PATTERN_ENCRYPTION_REGISTER, PATTERN_MAIN_ENTRYPOINT, emit_pattern_header,
-};
+use super::patterns::{PATTERN_ENCRYPTION_REGISTER, PATTERN_MAIN_ENTRYPOINT, emit_pattern_header};
 use super::printer::GoPrinter;
 use crate::LazuriteManifest;
 
@@ -439,12 +437,8 @@ fn emit_tracing_contract(p: &mut GoPrinter, tracing: &AppTracing) {
 /// the wire-thin principle: this emitter is ~50 LOC of `import + call`,
 /// not a homegrown crypto envelope.
 fn emit_encryption_bindings(p: &mut GoPrinter, bindings: &[EncryptionBinding]) {
-    p.line(
-        "// EncryptionBindings is the lowered `app.encryption` catalog from app.lzi.",
-    );
-    p.line(
-        "// One entry per `@key.<scope>` referenced by any `@cap.Encrypted` /",
-    );
+    p.line("// EncryptionBindings is the lowered `app.encryption` catalog from app.lzi.");
+    p.line("// One entry per `@key.<scope>` referenced by any `@cap.Encrypted` /");
     p.line("// `@cap.E2ee` field. The `init()` below registers each binding with");
     p.line("// the runtime registry so `encryption.For(ctx, \"@key.<scope>\")` resolves");
     p.line("// the per-tenant cipher on demand.");
@@ -478,10 +472,7 @@ fn emit_encryption_binding_literal(p: &mut GoPrinter, binding: &EncryptionBindin
         EncryptionSource::Secrets(t) => ("encryption.SourceSecrets", t),
     };
     rows.push(("Source:".to_owned(), format!("{},", source_const)));
-    rows.push((
-        "Template:".to_owned(),
-        format!("{:?},", template.literal),
-    ));
+    rows.push(("Template:".to_owned(), format!("{:?},", template.literal)));
     let axis_consts: Vec<&'static str> = template
         .axes
         .iter()
@@ -721,9 +712,7 @@ mod tests {
             "// Feature packages are imported above for init-time registry registration."
         ));
         assert!(
-            out.contains(
-                "// lazuli.Mux() walks that registry and attaches command, query, and"
-            )
+            out.contains("// lazuli.Mux() walks that registry and attaches command, query, and")
         );
         assert!(out.contains("// healthz routes before the process starts accepting requests."));
     }

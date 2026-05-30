@@ -77,7 +77,7 @@ fn is_internal_kind(kind: &EventKind) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{check, Finding};
+    use super::{Finding, check};
     use std::path::Path;
 
     use lazuli_ir::{
@@ -186,7 +186,8 @@ mod tests {
             extensions: vec![],
             escape_routes: vec![],
             agents: vec![],
-            reports: vec![],            previous_names: vec![],
+            reports: vec![],
+            previous_names: vec![],
             span_ref: None,
         }
     }

@@ -361,8 +361,7 @@ mod tests {
     #[test]
     fn admin_audience_admits_admin_command() {
         let feature = slug_feature();
-        let projection =
-            compute_audience_projection(&feature, &[admin_audience()]);
+        let projection = compute_audience_projection(&feature, &[admin_audience()]);
 
         assert!(projection.allowed_commands.contains("create"));
         assert!(projection.allowed_commands.contains("delete"));
@@ -374,8 +373,7 @@ mod tests {
     #[test]
     fn public_audience_excludes_admin_only_command() {
         let feature = slug_feature();
-        let projection =
-            compute_audience_projection(&feature, &[public_audience()]);
+        let projection = compute_audience_projection(&feature, &[public_audience()]);
 
         assert!(!projection.allowed_commands.contains("create"));
         assert!(!projection.allowed_commands.contains("delete"));
@@ -391,10 +389,8 @@ mod tests {
     #[test]
     fn multiple_audiences_union_correctly() {
         let feature = slug_feature();
-        let projection = compute_audience_projection(
-            &feature,
-            &[public_audience(), admin_audience()],
-        );
+        let projection =
+            compute_audience_projection(&feature, &[public_audience(), admin_audience()]);
 
         assert!(projection.allowed_commands.contains("create"));
         assert!(projection.allowed_commands.contains("delete"));
@@ -426,8 +422,7 @@ mod tests {
     #[test]
     fn emit_filtered_sdk_excludes_admin_commands_for_public() {
         let feature = slug_feature();
-        let projection =
-            compute_audience_projection(&feature, &[public_audience()]);
+        let projection = compute_audience_projection(&feature, &[public_audience()]);
         let output = emit_feature_sdk_filtered(&feature, &projection);
 
         // `rename` is the only member-gated command — its identifier
@@ -452,14 +447,8 @@ mod tests {
     #[test]
     fn projection_emission_is_deterministic() {
         let feature = slug_feature();
-        let proj_a = compute_audience_projection(
-            &feature,
-            &[admin_audience(), public_audience()],
-        );
-        let proj_b = compute_audience_projection(
-            &feature,
-            &[public_audience(), admin_audience()],
-        );
+        let proj_a = compute_audience_projection(&feature, &[admin_audience(), public_audience()]);
+        let proj_b = compute_audience_projection(&feature, &[public_audience(), admin_audience()]);
         assert_eq!(proj_a, proj_b);
 
         let out_a = emit_feature_sdk_filtered(&feature, &proj_a);

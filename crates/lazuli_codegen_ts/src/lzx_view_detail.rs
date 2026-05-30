@@ -8,12 +8,12 @@
 
 use std::fmt::Write;
 
+use crate::lzx::lzx_router_adapter::{RouterTarget, router_useparams_import, translate_route_path};
 use crate::lzx::{
     Audience, CommandRef, RouteParam, Surface, ViewDetail, audience_view_pascal, banner,
     command_action_key, command_ident, format_cells_literal, lower_camel, pascal_case, query_ident,
     view_hook_name, view_spec_const,
 };
-use crate::lzx::lzx_router_adapter::{RouterTarget, router_useparams_import, translate_route_path};
 
 /// Emit `dist/ts-<target>/<feat>/views/<audience>/<view-name>.gen.ts`
 /// for a `view detail` view.
@@ -82,12 +82,7 @@ fn write_spec_const(s: &mut String, audience: &Audience, view: &ViewDetail, targ
     }
     if !view.sections.is_empty() {
         let sections: Vec<String> = view.sections.iter().map(|s| format!("\"{}\"", s)).collect();
-        writeln!(
-            s,
-            "  sections: [{}] as const,",
-            sections.join(", ")
-        )
-        .ok();
+        writeln!(s, "  sections: [{}] as const,", sections.join(", ")).ok();
     }
     writeln!(s, "  cells: {},", format_cells_literal(&view.cells)).ok();
     if !view.actions.is_empty() {
@@ -121,11 +116,7 @@ fn write_sections_interface(
     let feature_pascal = pascal_case(&surface.feature);
     let row_param = lower_camel(&surface.feature);
 
-    writeln!(
-        s,
-        "// Section slot contract — V implements each Component."
-    )
-    .ok();
+    writeln!(s, "// Section slot contract — V implements each Component.").ok();
     writeln!(s, "export interface {} {{", iface).ok();
     for section in &view.sections {
         let pascal = pascal_case(section);
@@ -244,8 +235,8 @@ fn format_route_args(params: &[RouteParam]) -> String {
 mod tests {
     use super::*;
     use crate::lzx::ir::*;
-    use crate::lzx::test_fixtures;
     use crate::lzx::lzx_router_adapter::RouterTarget;
+    use crate::lzx::test_fixtures;
 
     fn minimal_view_detail() -> ViewDetail {
         ViewDetail {
@@ -322,9 +313,7 @@ mod tests {
         // Route — translated to TanStack Router syntax for vite-react.
         assert!(out.contains("route: \"/slugs/$key\""));
         // Sections array in the spec.
-        assert!(
-            out.contains("sections: [\"header\", \"metadata\", \"related_items\"] as const")
-        );
+        assert!(out.contains("sections: [\"header\", \"metadata\", \"related_items\"] as const"));
         // Sections interface emitted with each section pascal-cased.
         assert!(out.contains("export interface AdminSlugDetailSections"));
         assert!(out.contains("Header: React.ComponentType<{ slug: Slug }>"));
@@ -340,7 +329,9 @@ mod tests {
         assert!(out.contains("useLazuliQuery(adminSlugDetailView.source, { key })"));
         // Actions: update + delete.
         assert!(out.contains("actions: { update: updateSlug, delete: deleteSlug }"));
-        assert!(out.contains("const delete_ = useLazuliCommand(adminSlugDetailView.actions.delete)"));
+        assert!(
+            out.contains("const delete_ = useLazuliCommand(adminSlugDetailView.actions.delete)")
+        );
     }
 
     #[test]
@@ -377,12 +368,14 @@ mod tests {
         let surface = minimal_surface(audience.clone());
 
         let out = emit_view_detail(&surface, &audience, &view, RouterTarget::ViteReact);
-        assert!(out.contains(
-            "import type { TypeBadgeProps } from \"../../cells/type_badge.gen.js\";"
-        ));
-        assert!(out.contains(
-            "import type { UserAvatarProps } from \"../../cells/user_avatar.gen.js\";"
-        ));
+        assert!(
+            out.contains("import type { TypeBadgeProps } from \"../../cells/type_badge.gen.js\";")
+        );
+        assert!(
+            out.contains(
+                "import type { UserAvatarProps } from \"../../cells/user_avatar.gen.js\";"
+            )
+        );
         assert!(out.contains("TypeBadge: React.ComponentType<TypeBadgeProps>"));
         assert!(out.contains("UserAvatar: React.ComponentType<UserAvatarProps>"));
     }

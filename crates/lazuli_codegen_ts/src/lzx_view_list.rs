@@ -8,14 +8,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
-use crate::lzx::{
-    Audience, CommandRef, Surface, ViewList, audience_view_pascal, banner, command_action_key,
-    command_ident, format_cells_literal, format_string_array, lower_camel, pascal_case, query_ident,
-    view_hook_name, view_spec_const,
-};
 use crate::lzx::lzx_aux;
 use crate::lzx::lzx_filters;
 use crate::lzx::lzx_search;
+use crate::lzx::{
+    Audience, CommandRef, Surface, ViewList, audience_view_pascal, banner, command_action_key,
+    command_ident, format_cells_literal, format_string_array, lower_camel, pascal_case,
+    query_ident, view_hook_name, view_spec_const,
+};
 use crate::lzx::{ListRender, SearchDecl, SearchMode, SelectionMode};
 
 /// Emit `dist/ts-<target>/<feat>/views/<audience>/<view-name>.gen.ts`.
@@ -184,7 +184,6 @@ fn write_imports(s: &mut String, surface: &Surface, view: &ViewList) {
     s.push('\n');
 }
 
-
 fn write_spec_const(s: &mut String, audience: &Audience, view: &ViewList) {
     let const_name = view_spec_const(&audience.name, &view.name);
     let search_columns = view_search_columns(view);
@@ -199,12 +198,7 @@ fn write_spec_const(s: &mut String, audience: &Audience, view: &ViewList) {
     writeln!(s, "  source: {},", query_ident(&view.source)).ok();
     match &view.render {
         ListRender::Table { columns } => {
-            writeln!(
-                s,
-                "  columns: {} as const,",
-                format_string_array(columns)
-            )
-            .ok();
+            writeln!(s, "  columns: {} as const,", format_string_array(columns)).ok();
         }
         ListRender::Cells { slot } => {
             writeln!(s, "  cells: \"@client.{}\" as const,", slot).ok();
@@ -903,7 +897,9 @@ mod tests {
         assert!(out.contains("useMultiSelection"));
         // Resource ID type is threaded via indexed-access on the
         // surface feature interface (`Thing["id"]`).
-        assert!(out.contains("const selection = useMultiSelection<Thing[\"id\"]>(query.data ?? [])"));
+        assert!(
+            out.contains("const selection = useMultiSelection<Thing[\"id\"]>(query.data ?? [])")
+        );
         assert!(
             out.contains(
                 "const cellClick = useCallback((id: string, event: React.MouseEvent) => {"
@@ -1080,9 +1076,11 @@ mod tests {
         assert!(out.contains("parseSearchQuery(input,"));
         assert!(out.contains("canonicalizeSearch({"));
         // Return field surfaces segments via parseSegments.
-        assert!(out.contains(
-            "segments: parseSegments(searchRaw, SEARCH_KEYWORDS, SEARCH_ALWAYS_ARRAY),"
-        ));
+        assert!(
+            out.contains(
+                "segments: parseSegments(searchRaw, SEARCH_KEYWORDS, SEARCH_ALWAYS_ARRAY),"
+            )
+        );
     }
 
     #[test]

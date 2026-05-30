@@ -473,9 +473,10 @@ fn pg_type_for_capability(capability: &CapabilityRef) -> PgType {
 /// each encrypted column resolves through.
 fn encryption_marker_for(field: &Field) -> Option<String> {
     match &field.type_ref {
-        TypeRef::Capability(CapabilityRef::Encrypted(cap)) => {
-            Some(format!("lazuli:encrypted {} algorithm=aes_256_gcm", cap.key))
-        }
+        TypeRef::Capability(CapabilityRef::Encrypted(cap)) => Some(format!(
+            "lazuli:encrypted {} algorithm=aes_256_gcm",
+            cap.key
+        )),
         TypeRef::Capability(CapabilityRef::E2ee(cap)) => {
             Some(format!("lazuli:e2ee {} algorithm=aes_256_gcm", cap.key))
         }
@@ -1162,7 +1163,10 @@ DROP TABLE IF EXISTS \"customer\";
         let mut referenced: HashSet<String> = HashSet::new();
         for file in &files {
             for line in file.contents.lines() {
-                if let Some(rest) = line.trim_start().strip_prefix("CREATE TABLE IF NOT EXISTS ") {
+                if let Some(rest) = line
+                    .trim_start()
+                    .strip_prefix("CREATE TABLE IF NOT EXISTS ")
+                {
                     if let Some(name) = rest
                         .split_whitespace()
                         .next()

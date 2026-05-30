@@ -108,10 +108,7 @@ mod tests {
     #[test]
     fn negative_binding_declared_does_not_fire() {
         let mut app = empty_app();
-        app.encryption_bindings = vec![make_binding(
-            "@key.tenant",
-            "CRYPT_KEY_TENANT_{tenant_id}",
-        )];
+        app.encryption_bindings = vec![make_binding("@key.tenant", "CRYPT_KEY_TENANT_{tenant_id}")];
         let feature = feature_with_encrypted("@key.tenant");
 
         let findings = check(&feature, &app, Path::new("f.lzi"));

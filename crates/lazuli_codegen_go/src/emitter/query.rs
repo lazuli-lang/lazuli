@@ -65,9 +65,11 @@ pub fn emit_query_file(
     // GateQuota) and `<module>/plan` (the package-wide Catalog;
     // unused here but kept in scope for handler-authored
     // `billing.CheckFeature(ctx, plan.Catalog, ...)` calls).
-    let any_gated = queries
-        .iter()
-        .any(|q| !emit_ctx.gates_for(query_callable_kind(q), q.name()).is_empty());
+    let any_gated = queries.iter().any(|q| {
+        !emit_ctx
+            .gates_for(query_callable_kind(q), q.name())
+            .is_empty()
+    });
     if any_gated {
         imports.add("lazuli.dev/runtime/lazuli/billing");
         imports.add(&format!("{module_name}/plan"));
@@ -912,10 +914,7 @@ fn emit_gate_annotations(p: &mut GoPrinter, gates: &[Gate]) {
                 ));
             }
             Gate::Quota { limit } => {
-                p.line(&format!(
-                    "{{Kind: billing.GateQuota, Name: {:?}}},",
-                    limit
-                ));
+                p.line(&format!("{{Kind: billing.GateQuota, Name: {:?}}},", limit));
             }
         }
     }
@@ -1288,7 +1287,9 @@ mod tests {
         let out = emit(&feature).expect("must emit");
         assert!(out.contains("type LifetimeValueArgs struct {"));
         assert!(out.contains("MinScore *int64 `json:\"min_score,omitempty\"`"));
-        assert!(out.contains("var lifetimeValue = lazuli.Query[LifetimeValueArgs, []CustomerLtv]{"));
+        assert!(
+            out.contains("var lifetimeValue = lazuli.Query[LifetimeValueArgs, []CustomerLtv]{")
+        );
         assert!(out.contains("Kind:     lazuli.QuerySQL,"));
         assert!(out.contains("SQL:     \"./queries/lifetime_value.sql\","));
         assert!(out.contains("Returns: \"CustomerLtv[]\","));
@@ -1424,7 +1425,10 @@ mod tests {
             span_ref: None,
         }));
         let out = emit(&feature).expect("must emit");
-        assert!(!out.contains("Prelude:"), "no Prelude when no gates:\n{out}");
+        assert!(
+            !out.contains("Prelude:"),
+            "no Prelude when no gates:\n{out}"
+        );
         assert!(
             !out.contains("\"lazuli.dev/runtime/lazuli/billing\""),
             "no billing import when no gates:\n{out}"
@@ -1480,7 +1484,13 @@ mod feature_emit {
         };
         let index = CrossFeatureIndex::build(&module);
         let emit_ctx = EmitContext::no_source("customer/query.gen.go");
-        emit_query_file("features/customer/customer.lzi", feature, "lazuli/test", &index, &emit_ctx)
+        emit_query_file(
+            "features/customer/customer.lzi",
+            feature,
+            "lazuli/test",
+            &index,
+            &emit_ctx,
+        )
     }
 
     fn base_feature(name: &str) -> Feature {

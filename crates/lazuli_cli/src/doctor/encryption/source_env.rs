@@ -41,11 +41,7 @@ impl Finding {
 /// brace-bearing literal** verbatim: the registry pattern
 /// `CRYPT_KEY_TENANT_{tenant_id}` must appear in the env schema to
 /// satisfy this check.
-pub fn check(
-    app: &AppManifest,
-    registry: Option<&AppRegistry>,
-    path: &Path,
-) -> Vec<Finding> {
+pub fn check(app: &AppManifest, registry: Option<&AppRegistry>, path: &Path) -> Vec<Finding> {
     let mut declared: HashSet<&str> = HashSet::new();
     for env in &app.env {
         declared.insert(env.name.as_str());
@@ -115,9 +111,8 @@ mod tests {
         let mut app = empty_app();
         let mut binding = make_binding("@key.tenant", "ignored");
         // Forge a secrets-source binding directly.
-        binding.source = lazuli_ir::EncryptionSource::Secrets(
-            lazuli_ir::EncryptionTemplate::parse("vault_key"),
-        );
+        binding.source =
+            lazuli_ir::EncryptionSource::Secrets(lazuli_ir::EncryptionTemplate::parse("vault_key"));
         app.encryption_bindings.push(binding);
         // Even with no env entries, secrets-source bindings don't fire
         // this rule.

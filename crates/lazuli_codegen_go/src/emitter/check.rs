@@ -814,7 +814,7 @@ mod tests {
             name: "test".to_owned(),
             title: None,
             version: None,
-        lazuli_version: None,
+            lazuli_version: None,
             targets: Vec::new(),
             default_locale: None,
             default_timezone: None,
@@ -1006,9 +1006,11 @@ mod tests {
     #[test]
     fn bare_unresolved_type_reference_reports_type_007() {
         let mut feature = empty_feature("orders");
-        feature.resources.push(resource_with_field(TypeRef::Unresolved(
-            "MysteryShape".to_owned(),
-        )));
+        feature
+            .resources
+            .push(resource_with_field(TypeRef::Unresolved(
+                "MysteryShape".to_owned(),
+            )));
 
         let issues = run_checks(&module_with_feature(feature));
 
@@ -1025,9 +1027,11 @@ mod tests {
     #[test]
     fn bare_unresolved_inside_many_still_reports_type_007() {
         let mut feature = empty_feature("orders");
-        feature.resources.push(resource_with_field(TypeRef::Many(Box::new(
-            TypeRef::Unresolved("MysteryShape".to_owned()),
-        ))));
+        feature
+            .resources
+            .push(resource_with_field(TypeRef::Many(Box::new(
+                TypeRef::Unresolved("MysteryShape".to_owned()),
+            ))));
 
         let issues = run_checks(&module_with_feature(feature));
 
@@ -1040,9 +1044,11 @@ mod tests {
         // the bare-name branch must NOT fire — the namespace-specific
         // code (CODE_SEMANTIC/CAP/etc.) wins.
         let mut feature = empty_feature("customer");
-        feature.resources.push(resource_with_field(TypeRef::Unresolved(
-            "@semantic.Locale".to_owned(),
-        )));
+        feature
+            .resources
+            .push(resource_with_field(TypeRef::Unresolved(
+                "@semantic.Locale".to_owned(),
+            )));
 
         let issues = run_checks(&module_with_feature(feature));
 

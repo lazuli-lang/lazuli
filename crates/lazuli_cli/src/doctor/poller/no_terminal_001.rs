@@ -46,8 +46,8 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
 mod tests {
     use super::*;
     use lazuli_ir::{
-        Defaults, Feature, HandlerRef, IdempotencyKey, Path as IrPath, Poller, PollerBackoff,
-        PollerCursor, PollerRetry, PollerState, PollerStateKind, PollerTick, Policies,
+        Defaults, Feature, HandlerRef, IdempotencyKey, Path as IrPath, Policies, Poller,
+        PollerBackoff, PollerCursor, PollerRetry, PollerState, PollerStateKind, PollerTick,
     };
 
     fn mk_poller(states: Vec<(&str, PollerStateKind)>) -> Poller {

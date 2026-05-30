@@ -105,10 +105,7 @@ fn check_resource(
 }
 
 /// Returns `true` if the field should NOT trigger the diagnostic.
-fn should_skip(
-    field: &ir::Field,
-    written_fields: Option<&BTreeSet<String>>,
-) -> bool {
+fn should_skip(field: &ir::Field, written_fields: Option<&BTreeSet<String>>) -> bool {
     // Primary key — runtime-managed, never a derived candidate.
     if field.name == "id" {
         return true;
@@ -157,10 +154,7 @@ fn collect_write_sites(
     written
 }
 
-fn add_effect_writes(
-    effect: &CommandEffect,
-    written: &mut BTreeMap<String, BTreeSet<String>>,
-) {
+fn add_effect_writes(effect: &CommandEffect, written: &mut BTreeMap<String, BTreeSet<String>>) {
     match effect {
         CommandEffect::Creates(c) => {
             let entry = written.entry(c.resource.name.clone()).or_default();
@@ -191,8 +185,8 @@ mod tests {
 
     use lazuli_ir::{
         Assignment, BuiltinType, CapabilityRef, CommandInput, CommandKind, CreateEffect,
-        DefaultValue, Defaults, Expr, Feature, Field, HashedCapability, HashAlgorithm,
-        Job, JobBody, JobDeclarative, JobTrigger, Policies, QualifiedName, Resource, TypeRef,
+        DefaultValue, Defaults, Expr, Feature, Field, HashAlgorithm, HashedCapability, Job,
+        JobBody, JobDeclarative, JobTrigger, Policies, QualifiedName, Resource, TypeRef,
     };
     use std::path::Path;
 
@@ -229,7 +223,8 @@ mod tests {
             extensions: vec![],
             escape_routes: vec![],
             agents: vec![],
-            reports: vec![],            previous_names: vec![],
+            reports: vec![],
+            previous_names: vec![],
             span_ref: None,
         }
     }
@@ -473,10 +468,7 @@ mod tests {
         let resource = mk_resource("Post", vec![derived_field]);
         let feature = mk_feature(vec![resource], vec![], vec![]);
         let findings = check(&feature, Path::new("features/post/post.lzi"));
-        assert!(
-            findings.is_empty(),
-            "already-derived field must not fire"
-        );
+        assert!(findings.is_empty(), "already-derived field must not fire");
     }
 
     // ── positive: declarative job write site suppresses ──────────────────────
