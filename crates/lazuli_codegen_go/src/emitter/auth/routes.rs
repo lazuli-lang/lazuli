@@ -128,7 +128,7 @@ pub(super) fn emit_session_resolver_register(
 
 /// Emit the `lazuli.ConfigureSessionCookie(...)` call lowering a
 /// `auth.sessions.cookie` block's transport axes into the runtime's
-/// process-wide [`SessionCookieConfig`]. Each declared axis becomes an
+/// process-wide `SessionCookieConfig`. Each declared axis becomes an
 /// addressable local then a `&local` field on the config literal; absent
 /// axes leave the field nil so the runtime keeps its hardcoded default
 /// (so a partial block only overrides the axes it names). When the whole

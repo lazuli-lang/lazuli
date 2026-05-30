@@ -137,7 +137,7 @@ pub fn preset_severity_overrides(preset: CoveragePreset) -> BTreeMap<String, &'s
 }
 
 /// Preset-derived thresholds. Independent of `CoverageProfile` —
-/// the two compose via [`resolve_coverage_thresholds`].
+/// the two compose via `resolve_coverage_thresholds`.
 ///
 /// ## Examples
 ///

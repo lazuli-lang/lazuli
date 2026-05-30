@@ -172,7 +172,7 @@ pub fn is_exempt_path(relative_path: &Path, file_name: &str) -> bool {
 
 /// `true` when the source's first non-blank line is a `# @generated`
 /// or `# Code generated` marker. Mirrors the analogous carve-out in
-/// [`crate::internal_hygiene::file_size_001::is_generated_rust`].
+/// `crate::internal_hygiene::file_size_001::is_generated_rust`.
 fn is_generated_source(source: &str) -> bool {
     for line in source.lines() {
         let t = line.trim();

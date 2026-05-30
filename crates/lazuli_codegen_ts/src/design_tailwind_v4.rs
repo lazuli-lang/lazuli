@@ -9,6 +9,8 @@
 //! location to update.
 //!
 //! Key mappings (v4 token naming, from the proposal example):
+//!
+//! ```text
 //!   - color (single Base)    → `--color-<name>: var(--color-<name>);`
 //!   - color (multi-state)    → `--color-<name>: var(--color-<name>-base);`
 //!                              plus `--color-<name>-<state>` for each state.
@@ -25,6 +27,7 @@
 //!                              consumes the literal value directly so users
 //!                              can author `@media (min-width: theme(…))`).
 //!   - z.<n>                  → `--z-<n>: var(--z-<n>);`
+//! ```
 
 use std::fmt::Write;
 

@@ -37,6 +37,12 @@
 //! `lazuli_lsp`; the `--fail-on` / `--format` output gates stay in the
 //! CLI. This keeps the crate a true leaf над `lazuli_doctor`.
 
+// Internal-tooling workspace: rustdoc cross-refs routinely point to
+// `#[cfg(test)]` proof-tests and `pub(crate)` helpers (valid navigation under
+// `--document-private-items`, but unresolvable to a public-API resolver). CI
+// keeps `-D broken_intra_doc_links` on; this is the deliberate posture for these
+// internal crates (genuine wrong refs are still fixed inline).
+#![allow(rustdoc::broken_intra_doc_links, rustdoc::private_intra_doc_links)]
 use std::collections::BTreeMap;
 
 use lazuli_doctor::coverage::{CoveragePreset, preset_severity_overrides};

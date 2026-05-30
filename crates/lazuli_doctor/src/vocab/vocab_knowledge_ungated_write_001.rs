@@ -11,7 +11,7 @@
 //! frontmatter via `git show`.
 //!
 //! Conservative by construction: when git is unavailable, the file is
-//! untracked, or history is unreadable, [`knowledge_vault::passed_through_draft`]
+//! untracked, or history is unreadable, `knowledge_vault::passed_through_draft`
 //! returns `None` and this rule **skips** — it never fires on a state it
 //! cannot prove, matching the test-harness "skip, don't fail when the
 //! environment is unreachable" discipline. Local `cargo test` and

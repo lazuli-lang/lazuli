@@ -1,6 +1,6 @@
 //! Shared severity enum for doctor rules.
 //!
-//! Historically [`lazuli_cli::doctor::DoctorSeverity`] was private to
+//! Historically `lazuli_cli::doctor::DoctorSeverity` was private to
 //! the CLI crate because rules emitted `Finding` values and the
 //! dispatcher classified severity downstream. Wave 1.5 surfaces a
 //! shared `DoctorSeverity` in `lazuli_doctor` so the preset machinery

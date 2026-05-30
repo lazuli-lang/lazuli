@@ -18,6 +18,12 @@
 //! Plan reference: `docs/proposals/ai-primitives-v0-implementation.md`
 //! §9.1. Runtime team: `docs/runtime-handoff.md`.
 
+// Internal-tooling workspace: rustdoc cross-refs routinely point to
+// `#[cfg(test)]` proof-tests and `pub(crate)` helpers (valid navigation under
+// `--document-private-items`, but unresolvable to a public-API resolver). CI
+// keeps `-D broken_intra_doc_links` on; this is the deliberate posture for these
+// internal crates (genuine wrong refs are still fixed inline).
+#![allow(rustdoc::broken_intra_doc_links, rustdoc::private_intra_doc_links)]
 pub mod cap_file_hooks;
 pub mod design;
 pub mod lifecycle_gate_emit;

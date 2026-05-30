@@ -252,6 +252,8 @@ pub fn emit_operation_error_keys(
 /// signal-rich).
 ///
 /// Runtime contract (Cell RUNTIME-1):
+///
+/// ```text
 ///   type FeatureErrorContract struct {
 ///       Default          ErrorExposureDefault
 ///       ExposeClient4xx  []string
@@ -261,6 +263,7 @@ pub fn emit_operation_error_keys(
 ///   }
 ///   type ErrorExposureDefault uint8
 ///   const ( ExposureHide ErrorExposureDefault = iota; ExposureExpose )
+/// ```
 ///
 /// ## Examples
 ///

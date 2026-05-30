@@ -10,7 +10,7 @@
 //! `docs/proposals/tdd-bdd-first-2026-05-23.md` §W4.1) splits the IR by
 //! **type family**, each family living in its own file with Rails-style
 //! prose at the top. The split is **purely organizational** — the ABI
-//! surface is unchanged because [`crate::lib`] re-exports every public
+//! surface is unchanged because the crate root re-exports every public
 //! type via `pub use nodes::<family>::*`.
 //!
 //! ## Wire-thin guarantee

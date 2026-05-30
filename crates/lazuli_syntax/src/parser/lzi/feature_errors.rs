@@ -8,11 +8,13 @@
 //! Closed-catalog grammar (verbatim from
 //! `docs/proposals/ir-error-messages-vocab.md` §2.C):
 //!
+//! ```text
 //!   errors
 //!     default hide
 //!     expose client 4xx <comma-list>
 //!     expose client 5xx <comma-list>
 //!     <code> message @translation.<key>          (zero or more)
+//! ```
 //!
 //! Closed-catalog enforcement (allowed codes, allowed field-name lists)
 //! lives analyzer-side / doctor-side (see ERR-VOCAB-CODE-UNKNOWN /

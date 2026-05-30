@@ -6,7 +6,7 @@
 //!
 //! Rails-style R9 layout: the JS-flavored fixture-file lexer + object key
 //! extractor lives in [`object_lex`]; tests live alongside in
-//! [`tests`]. The slice you're reading owns workspace manifest loading,
+//! `tests`. The slice you're reading owns workspace manifest loading,
 //! plugin resolution, `.lzi` traversal, and the public [`check`] entry.
 
 mod object_lex;

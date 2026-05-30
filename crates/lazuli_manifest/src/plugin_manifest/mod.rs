@@ -33,13 +33,13 @@
 //!
 //! ## Sub-files (rails-style split)
 //!
-//! * [`types`] — `PluginManifest`, `PluginIdentity`,
+//! * `types` — `PluginManifest`, `PluginIdentity`,
 //!   `PluginSemanticTypeDecl`, `ResolvedPluginSemantic`,
 //!   `PLUGIN_MANIFEST_FILENAME`.
-//! * [`errors`] — `PluginManifestError` + `Display`/`Error` impls.
-//! * [`loader`] — `load_plugin_manifest`, `resolve_plugin_root`, plus
+//! * `errors` — `PluginManifestError` + `Display`/`Error` impls.
+//! * `loader` — `load_plugin_manifest`, `resolve_plugin_root`, plus
 //!   the `default_error_code` + `absolutise` helpers.
-//! * [`alias_map`] — `build_alias_map`, the orchestrator.
+//! * `alias_map` — `build_alias_map`, the orchestrator.
 
 mod alias_map;
 mod errors;

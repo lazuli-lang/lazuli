@@ -65,7 +65,7 @@ pub struct ApiDecl {
     #[serde(default)]
     pub route: Vec<CommandRouteSlot>,
     /// `input` block — typed body fields. Captured verbatim; codegen
-    /// does not lower these yet (handler @fn.<name> reads the request
+    /// does not lower these yet (handler `@fn.<name>` reads the request
     /// body itself).
     #[serde(default)]
     pub input: Option<CommandInputDecl>,

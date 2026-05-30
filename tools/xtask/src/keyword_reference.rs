@@ -181,7 +181,7 @@ fn context_order(c: Context) -> u16 {
     }
 }
 
-/// Map a [`SemanticToken`] to its lower-case LSP standard token-type name.
+/// Map a [`lazuli_keywords::SemanticToken`] to its lower-case LSP token-type name.
 fn token_name(c: &CapabilitySpec) -> &'static str {
     use lazuli_keywords::SemanticToken::*;
     match c.token {

@@ -27,7 +27,7 @@
 //! ## What this module is NOT for
 //!
 //! - The emitted `dist/go/` Go code — that's covered by emitter test
-//!   coverage in [`crates/lazuli_codegen_go`], not by lint rules.
+//!   coverage in `crates/lazuli_codegen_go`, not by lint rules.
 //! - Frontend `.tsx` / `.ts` in arbitrary slots — surface is too narrow
 //!   for a generic rule.
 //!

@@ -15,7 +15,7 @@
 //! decision in one lookup — never recompute closures at runtime, never
 //! recurse through inheritance graphs in three different consumers.
 //!
-//! [`lazuli_analyzer::analyze_rbac_catalog`] performs the closure once,
+//! `lazuli_analyzer::analyze_rbac_catalog` performs the closure once,
 //! producing [`RoleEntry::closure`] sorted lexicographically. The wire-thin
 //! discipline of `lazuli_ir`: types here only **carry** the closure result;
 //! they never compute it.

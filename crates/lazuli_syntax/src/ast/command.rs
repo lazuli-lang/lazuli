@@ -184,7 +184,7 @@ pub struct CommandWriteWindow {
 }
 
 /// OpenAPI bucket — `deprecated [since "..." replacement <ref> sunset "..."]`
-/// metadata authored on a [`CommandDecl`] / [`ApiDecl`].
+/// metadata authored on a [`CommandDecl`] / `ApiDecl`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandDeprecatedDecl {
     /// Authored `since "<version>"` — verbatim (semver, calendar, git-sha).
@@ -197,7 +197,7 @@ pub struct CommandDeprecatedDecl {
 }
 
 /// One `route <name>: <Type>` placeholder inside a [`CommandDecl`] /
-/// [`ApiDecl`] route slot list.
+/// `ApiDecl` route slot list.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandRouteSlot {
     pub name: String,

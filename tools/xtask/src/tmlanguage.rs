@@ -4,12 +4,12 @@
 //!
 //! The **keyword-alternation repository rules** (`#kw-*`) of the VS Code
 //! grammar — one repo rule per `(Context, scope, sigil-shape)` group in the
-//! [`GROUPS`] allowlist. Each rule's match is `^\s+(<literals, longest-first>)\b`
+//! `GROUPS` allowlist. Each rule's match is `^\s+(<literals, longest-first>)\b`
 //! and its `name` is the group's TextMate scope leaf. Because a literal valid
 //! in N contexts is N rows in the registry (context-as-data), grouping by
 //! `(Context, scope)` reproduces the grammar's per-block scope leaves exactly.
 //!
-//! Two tiers (see [`GROUPS`]):
+//! Two tiers (see `GROUPS`):
 //!
 //! 1. **Wired** rules an `include` in a hand-written `begin/end` block points
 //!    at (`kw-cookie`, `kw-audit`, …) — editing the registry widens the live

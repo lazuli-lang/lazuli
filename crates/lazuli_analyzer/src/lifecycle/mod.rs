@@ -3,7 +3,7 @@
 //! commands for every `lifecycle <field>` block on a resource. Called
 //! from `feature::lower_feature_skeleton` after resources are lowered.
 //!
-//! Tests live alongside in [`tests`] (Rails-style R9 split).
+//! Tests live alongside in `tests` (Rails-style R9 split).
 
 use lazuli_ir as ir;
 use lazuli_syntax as syntax;

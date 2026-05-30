@@ -20,7 +20,7 @@ use crate::lzx::{
 ///
 /// Detail views resolve their record from the route's path params, so
 /// the target's `useParams` hook is imported via
-/// [`crate::lzx_router_adapter::router_useparams_import`]. The hook
+/// `crate::lzx_router_adapter::router_useparams_import`. The hook
 /// itself wires the typed `Params` interface against the bound query.
 ///
 /// ## Examples

@@ -2,7 +2,7 @@
 //! `view_mode`, `view.inline_table`) and audience-level (`tabs`, `wizard`).
 //!
 //! These close pauta UX gaps GAP-UX-01..04. The view-level helpers mutate the
-//! shared [`ViewBodyState`]; the audience-level helpers return their own AST
+//! shared `ViewBodyState`; the audience-level helpers return their own AST
 //! and are dispatched from `mod.rs`.
 //!
 //! ```text

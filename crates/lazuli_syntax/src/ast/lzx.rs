@@ -175,7 +175,7 @@ pub struct LzxRequiresField {
 
 /// Scalar literal accepted on the right-hand side of `requires
 /// <feature>.lookup_my.<field> = <literal>`. Mirrors the IR's
-/// [`lazuli_ir::DefaultValue`] (minus enum literals — the route-guard
+/// `lazuli_ir::DefaultValue` (minus enum literals — the route-guard
 /// surface admits only primitive scalars per §4.1.1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]

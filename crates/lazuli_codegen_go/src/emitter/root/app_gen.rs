@@ -240,6 +240,8 @@ fn emit_tracing_contract(p: &mut GoPrinter, tracing: &AppTracing) {
 ///   max_age "1h"
 ///
 /// Emits as:
+///
+/// ```text
 ///   var CorsContract = lazuli.AppCors{
 ///       AllowOrigins: map[string][]string{
 ///           "production": {"https://app.example.com"},
@@ -249,6 +251,7 @@ fn emit_tracing_contract(p: &mut GoPrinter, tracing: &AppTracing) {
 ///       MaxAge:           3600,
 ///   }
 ///   func init() { lazuli.SetCorsContract(&CorsContract) }
+/// ```
 fn emit_cors_contract(p: &mut GoPrinter, cors: &AppCors, has_locale: bool) {
     p.line("// CorsContract is the lowered `app.cors` block from app.lzi.");
     p.line("// Origins are keyed by environment (matches `app.environments`).");

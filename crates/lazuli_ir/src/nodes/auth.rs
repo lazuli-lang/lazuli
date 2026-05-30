@@ -23,7 +23,7 @@
 //!   `Some(_)`, the legacy slots are silent and the runtime uses the
 //!   two-token path.
 //!
-//! The [`AuthSessions::resolved_*`] helpers read whichever shape is
+//! The `AuthSessions::resolved_*` helpers read whichever shape is
 //! configured and surface the resolved values (defaults baked in) so codegen
 //! and the runtime don't have to re-derive the dispatch each time.
 //!
@@ -166,7 +166,7 @@ pub struct RotationConfig {
 /// there is one transport-attribute vocabulary with two anchor positions
 /// (the app manifest and `auth.sessions`).
 ///
-/// `http_only` is the author-facing axis; the runtime sink ([`CookieOpts`]
+/// `http_only` is the author-facing axis; the runtime sink (`CookieOpts`
 /// in `runtime/go/lazuli/http_cookies.go`) is keyed on the inverse
 /// `AllowJS`, so `http_only = true` lowers to `AllowJS = false`.
 ///

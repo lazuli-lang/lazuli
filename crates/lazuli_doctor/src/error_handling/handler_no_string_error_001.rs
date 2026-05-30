@@ -352,7 +352,7 @@ fn has_call_boundary_before(line: &str, idx: usize) -> bool {
     !(prev.is_ascii_alphanumeric() || prev == b'_')
 }
 
-/// See [`super::handler_no_panic_001::strip_block_comments`] — same
+/// See `super::handler_no_panic_001::strip_block_comments` — same
 /// shape, kept private here to avoid cross-rule visibility leakage.
 fn strip_block_comments(line: &str, mut depth: usize) -> (String, usize) {
     let mut out = String::with_capacity(line.len());

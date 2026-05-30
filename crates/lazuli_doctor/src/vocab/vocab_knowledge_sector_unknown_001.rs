@@ -4,7 +4,7 @@
 //!
 //! Trigger cue: a feature declares `knowledge <sector>` but the slug is
 //! UNKNOWN — i.e. it is NONE of:
-//!   * a member of the closed [`CORE_KNOWLEDGE_SECTORS`] catalog
+//!   * a member of the closed `CORE_KNOWLEDGE_SECTORS` catalog
 //!     (`decisions`, `changes`, `gaps`, `lazuli-way`), nor
 //!   * a custom sector declared under `[knowledge.sectors]` in
 //!     `Lazurite.toml`, nor
@@ -78,7 +78,7 @@ impl Finding {
 ///
 /// A `knowledge <sector>` is KNOWN — and the rule stays silent — when the
 /// slug is ANY of:
-///   1. a member of the closed [`CORE_KNOWLEDGE_SECTORS`] catalog;
+///   1. a member of the closed `CORE_KNOWLEDGE_SECTORS` catalog;
 ///   2. listed in `declared_sectors` (the project's `[knowledge.sectors]`
 ///      table from `Lazurite.toml`);
 ///   3. backed by a `knowledge/<sector>/` folder under `project_root`.
@@ -94,7 +94,7 @@ impl Finding {
 /// still honored, and a non-core/undeclared sector stays silent (skip,
 /// don't false-fire — the canonical `attach_ctx` precedent).
 ///
-/// [`CORE_KNOWLEDGE_SECTORS`]: super::knowledge_vault::CORE_KNOWLEDGE_SECTORS
+/// `CORE_KNOWLEDGE_SECTORS`: super::knowledge_vault::CORE_KNOWLEDGE_SECTORS
 ///
 /// ## Examples
 ///

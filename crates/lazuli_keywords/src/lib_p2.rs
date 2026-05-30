@@ -87,8 +87,8 @@ pub fn find(literal: &str) -> Option<&'static CapabilitySpec> {
 /// 23 namespaces and the doctor only 18 (silently rejecting `@feature` /
 /// `@translation` / `@file` / `@audience` that the LSP accepted).
 ///
-/// Gated against the registry's `@`-decorator rows by
-/// [`reference_namespaces_cover_registry_decorators`] (below): every decorator
+/// Gated against the registry's `@`-decorator rows by the
+/// `reference_namespaces_cover_registry_decorators` test (below): every decorator
 /// that is not a bare field-marker (`@slug` / `@full_text` / `@owner_axis`) or
 /// the `@resume` flow-sigil must appear here, so a new `@`-namespace cannot
 /// enter the registry without surfacing in this catalog.

@@ -4,7 +4,7 @@
 //! test_discipline category. A single workspace-root config line —
 //! `[doctor.test_discipline] preset = "tdd-iron-hand"` — escalates every
 //! `TEST-*` and `DOCTOR-*` rule to `error` severity regardless of the
-//! active [`SecurityProfile`]. No-escape gate; the editorial veto
+//! active `SecurityProfile`. No-escape gate; the editorial veto
 //! mechanism for Lazuli framework's own CI (analogous to Rails'
 //! `.rubocop.yml` + `.rspec` consolidated config).
 //!
@@ -27,8 +27,8 @@
 //!
 //! `[doctor.test_discipline].severity_override.<RULE>` (per-rule, requires
 //! `reason` per `DOCTOR-OVERRIDE-NEEDS-REASON-001`) wins over preset, which
-//! wins over [`SecurityProfile`]-derived defaults. See
-//! [`crate::test_discipline::preset::resolve_test_discipline_severity`].
+//! wins over `SecurityProfile`-derived defaults. See
+//! `crate::test_discipline::preset::resolve_test_discipline_severity`.
 //!
 //! ## Examples
 //!
@@ -140,7 +140,7 @@ impl TestDisciplinePreset {
 
 /// Returns the severity that the given rule fires at under the active
 /// preset. `None` means "preset has no opinion — fall back to per-rule
-/// default or [`SecurityProfile`]-derived value".
+/// default or `SecurityProfile`-derived value".
 ///
 /// Today the contract is uniform per preset (iron-hand → Error for all
 /// codes in the catalog; strict → Warning; mature → None (defer to
