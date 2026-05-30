@@ -63,8 +63,11 @@ app_body          = ( meta_stmt
 
 meta_stmt         = "title" STRING NEWLINE
                   | "version" STRING NEWLINE
+                  | "lazuli_version" STRING NEWLINE
                   | "default_locale" STRING NEWLINE
-                  | "default_timezone" STRING NEWLINE ;
+                  | "default_timezone" STRING NEWLINE
+                  | "subscription" "resource" qualified_resource NEWLINE ;
+qualified_resource = IDENT_LOWER "." IDENT_LOWER ;
 
 not_found_redirect = "not_found" IDENT_LOWER NEWLINE ;
 auth_failed_redirect = "auth_failed_redirect" IDENT_LOWER NEWLINE ;
@@ -207,6 +210,47 @@ platform_target   = "web" | "mobile" ;
 ident_list        = IDENT_LOWER ( "," IDENT_LOWER )* ;
 ```
 
+## 6.1. Request locale negotiation in runtime units
+
+The `locale_negotiate` block optionally decorates a `unit` declaration (typically `unit api`) to specify how the runtime selects the effective locale for a request. All three children are optional; the runtime defaults to `source accept_language` and `strategy best_match` when the block is omitted entirely.
+
+```ebnf
+locale_negotiate_block = "locale_negotiate" NEWLINE
+                         INDENT locale_negotiate_body DEDENT ;
+
+locale_negotiate_body = ( "source" source_axis NEWLINE
+                        | "strategy" match_strategy NEWLINE
+                        | "fallback" STRING NEWLINE
+                        )* ;
+
+source_axis           = "accept_language" | "query_param" | "cookie"
+                      | "user_profile" | "subdomain" ;
+
+match_strategy        = "best_match" | "prefix_match" | "exact_match" ;
+```
+
+When present, `locale_negotiate` declares three orthogonal axes:
+
+- **`source <axis>`** — Where the runtime reads the locale hint from the request: request `Accept-Language` header (default), query parameter, cookie, user profile, or subdomain. Parsed by `crates/lazuli_syntax/src/parser/lzi/locale.rs:56-57`.
+- **`strategy <name>`** — How the runtime matches the hint against `app.locale.supported` tags: best-match (prefer longest prefix; default), prefix-match (any prefix), or exact-match (exact BCP-47 tag). Parsed by `crates/lazuli_syntax/src/parser/lzi/locale.rs:60-61`.
+- **`fallback "<locale>"`** — A BCP-47 tag to use if negotiation fails. Must appear in `app.locale.supported`. Parsed by `crates/lazuli_syntax/src/parser/lzi/locale.rs:64-65`.
+
+This block lowers to `lazuli_ir::nodes::locale_negotiate::LocaleNegotiate` (`crates/lazuli_ir/src/nodes/app_manifest/locale.rs:53-71`).
+
+**Example:**
+
+```
+  runtime
+    unit api
+      serves queries, commands, webhooks, apis
+      locale_negotiate
+        source accept_language
+        strategy best_match
+        fallback "pt-BR"
+```
+
+(From `examples/full-capsule/app.lzi:96-99`)
+
 ## 7. Capabilities
 
 ```ebnf
@@ -280,7 +324,185 @@ migration_entry   = "migration_lock" boolean NEWLINE
 compatibility_kind = "backward" | "forward" | "none" ;
 ```
 
-## 10. Validations not in this grammar
+## 10. Locale, CORS, logging, tracing, and encryption
+
+```ebnf
+locale_block      = "locale" NEWLINE
+                    INDENT locale_entry+ DEDENT ;
+
+locale_entry      = "default" STRING NEWLINE
+                  | "supported" string_list NEWLINE
+                  | "fallback" STRING "->" STRING NEWLINE ;
+
+string_list       = STRING ( "," STRING )* ;
+
+cors_block        = "cors" NEWLINE
+                    INDENT cors_entry+ DEDENT ;
+
+cors_entry        = "allow_origins" IDENT_LOWER string_list NEWLINE
+                  | "allow_credentials" boolean NEWLINE
+                  | "max_age" STRING NEWLINE ;
+
+logging_block     = "logging" NEWLINE
+                    INDENT logging_entry+ DEDENT ;
+
+logging_entry     = "level" logging_level NEWLINE
+                  | "format" log_format NEWLINE
+                  | "redact" redact_policy NEWLINE
+                  | "sample_rate" FLOAT NEWLINE ;
+
+logging_level     = "debug" | "info" | "warn" | "error" ;
+log_format        = "json" | "text" ;
+redact_policy     = "pii" | "none" ;
+
+tracing_block     = "tracing" NEWLINE
+                    INDENT tracing_entry+ DEDENT ;
+
+tracing_entry     = "propagate" boolean NEWLINE
+                  | "sample_rate" FLOAT NEWLINE
+                  | "exporter" IDENT_LOWER NEWLINE ;
+
+encryption_block  = "encryption" NEWLINE
+                    INDENT encryption_binding+ DEDENT ;
+
+encryption_binding = "key" key_scope NEWLINE
+                     INDENT encryption_body DEDENT ;
+
+key_scope         = "@key." ( "app" | "tenant" | "user" | "record" ) ;
+
+encryption_body   = ( "source" encryption_source NEWLINE
+                    | "algorithm" encryption_algorithm NEWLINE
+                    | "rotation" encryption_rotation NEWLINE
+                    )+ ;
+
+encryption_source = "env." IDENT_UPPER ( "{" template_axes "}" )?
+                  | "secrets." IDENT_LOWER ( "{" template_axes "}" )? ;
+
+template_axes     = "{" IDENT_LOWER "}" ( "_{" IDENT_LOWER "}" )* ;
+encryption_algorithm = "aes_256_gcm" ;
+encryption_rotation = "manual" ;
+```
+
+The `locale` block declares supported BCP-47 language tags and fallback edges. The `cors` block specifies per-environment origin allowlists. `logging` / `tracing` declare the observability contract (level, format, sampling rate, propagation). `encryption` binds `@key.<scope>` references to their source (env var or secrets backend) with an algorithm and rotation strategy.
+
+Example (from `examples/full-capsule/app.lzi`):
+```
+locale
+  default "pt-BR"
+  supported "pt-BR", "en-US"
+  fallback "en-US" -> "pt-BR"
+
+cors
+  allow_origins production "https://app.acme.example"
+  allow_origins local "http://localhost:3000"
+  allow_credentials true
+  max_age "1h"
+
+logging
+  level info
+  format json
+  redact pii
+
+tracing
+  propagate true
+  sample_rate 0.1
+
+encryption
+  key @key.tenant
+    source env.CRYPT_KEY_TENANT_{tenant_id}
+    algorithm aes_256_gcm
+    rotation manual
+```
+
+## 11. Security and locality blocks
+
+```ebnf
+headers_block     = "headers" NEWLINE
+                    INDENT headers_entry* DEDENT ;
+
+headers_entry     = "csp" STRING NEWLINE
+                  | "hsts" ( hsts_inline )? NEWLINE
+                    ( INDENT hsts_child* DEDENT )?
+                  | "x_frame_options" STRING NEWLINE
+                  | "x_content_type_options" STRING NEWLINE
+                  | "referrer_policy" STRING NEWLINE
+                  | "permissions_policy" STRING NEWLINE ;
+
+hsts_inline       = "max_age" INTEGER ( "include_subdomains" )? ( "preload" )? ;
+
+hsts_child        = "max_age" INTEGER NEWLINE
+                  | "include_subdomains" NEWLINE
+                  | "preload" NEWLINE ;
+
+cookie_block      = "cookie" NEWLINE
+                    INDENT cookie_profile+ DEDENT ;
+
+cookie_profile    = IDENT_LOWER NEWLINE
+                    INDENT cookie_profile_entry* DEDENT ;
+
+cookie_profile_entry = "signed" boolean NEWLINE
+                     | "secure" boolean NEWLINE
+                     | "http_only" boolean NEWLINE
+                     | "same_site" ( "lax" | "strict" | "none" ) NEWLINE
+                     | "max_age" STRING NEWLINE ;
+
+proxy_block       = "proxy" NEWLINE
+                    INDENT proxy_entry* DEDENT ;
+
+proxy_entry       = "trusted" cidr_list NEWLINE
+                  | "real_ip_header" STRING NEWLINE
+                  | "forwarded_proto_header" STRING NEWLINE
+                  | "forwarded_host_header" STRING NEWLINE ;
+
+cidr_list         = IDENT_LOWER ( "," IDENT_LOWER )* ;
+
+limits_block      = "limits" NEWLINE
+                    INDENT limits_entry* DEDENT ;
+
+limits_entry      = "body_size" STRING NEWLINE
+                  | "header_size" STRING NEWLINE
+                  | "upload_size" STRING NEWLINE
+                  | "timeout" STRING NEWLINE ;
+
+boolean           = "true" | "false" ;
+```
+
+HTTP security and request-shaping blocks declare the runtime's edge-layer policy for cookies (RFC 6265 with same-site/signed/secure attributes), trusted upstream proxies (real-IP header overrides), request ceilings (body/header/upload size + timeout), and HTTP security headers (CSP, HSTS, frame-options, etc.). All blocks are optional; `None` in any slot means "runtime default applies."
+
+**Fixture example:**
+
+```
+app MyApp
+  cookie
+    default
+      signed true
+      secure true
+      http_only true
+      same_site strict
+      max_age "7d"
+    session
+      same_site lax
+
+  proxy
+    trusted 10.0.0.0/8, 172.16.0.0/12
+    real_ip_header X-Forwarded-For
+    forwarded_proto_header X-Forwarded-Proto
+
+  limits
+    body_size "10mb"
+    header_size "16kb"
+    timeout "30s"
+
+  headers
+    csp "default-src 'self'"
+    hsts max_age 31536000 include_subdomains preload
+    x_frame_options DENY
+    x_content_type_options nosniff
+    referrer_policy strict-origin-when-cross-origin
+    permissions_policy "geolocation=()"
+```
+
+## 12. Validations not in this grammar
 
 - `bindings` keys must reference a feature `requires integration`
   slot.
@@ -305,5 +527,15 @@ compatibility_kind = "backward" | "forward" | "none" ;
   `.lzx` route declarations.
 - `architecture mode microservices` requires
   `enforce_service_boundaries true`.
+
+- `cookie` profile names must be valid identifiers (`[a-z_][a-z0-9_]*`);
+- `cookie` `same_site` values are closed-catalog: `lax`, `strict`, `none`.
+- `cookie` `signed`, `secure`, `http_only` accept boolean literals.
+- `proxy` `trusted` entries are CIDR notation; doctor validates syntax.
+- `limits` size/duration values are quoted strings; doctor validates
+- `headers` `x_content_type_options` only admits `nosniff`.
+- `headers` `x_frame_options` admits `DENY`, `SAMEORIGIN`, or
+- `headers` `referrer_policy` is closed-catalog per W3C spec.
+- `headers` `hsts` `max_age` must be a non-negative integer (seconds);
 
 Doctor (`crates/lazuli_cli/src/doctor.rs`) enforces these.

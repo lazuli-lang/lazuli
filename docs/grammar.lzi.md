@@ -386,7 +386,21 @@ unique_entry      = ident_list NEWLINE ;
 
 enum_decl         = "enum" IDENT_UPPER NEWLINE
                     INDENT enum_variant+ DEDENT ;
-enum_variant      = IDENT_LOWER ( "value" STRING )? NEWLINE ;
+enum_variant      = IDENT_LOWER enum_storage? enum_variant_metadata? NEWLINE ;
+
+(* Storage value — closed two-arm catalog (integer or quoted string). The
+   retired `value` keyword does NOT parse; `=` separates name from value.
+   crates/lazuli_syntax/src/parser/lzi/enums.rs:60-76. *)
+enum_storage      = "=" ( INTEGER | STRING ) ;
+
+(* Optional UI metadata, colon-introduced. `label` is mandatory when metadata
+   is present; `hint` / `icon` follow. Storage and metadata are independent
+   optional slots. crates/lazuli_syntax/src/parser/lzi/enums.rs:106-179. *)
+enum_variant_metadata = ":" enum_metadata_item ( "," enum_metadata_item )* ;
+enum_metadata_item = "label" metadata_key
+                  | "hint" metadata_key
+                  | "icon" STRING ;
+metadata_key      = "@translation." IDENT_LOWER | IDENT_LOWER ;
 
 record_decl       = "record" IDENT_UPPER NEWLINE
                     INDENT field_decl+ DEDENT ;
