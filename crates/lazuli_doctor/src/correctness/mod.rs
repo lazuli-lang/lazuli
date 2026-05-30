@@ -23,6 +23,7 @@ pub mod migration_alter_missing_001;
 pub mod migration_idempotent_create_001;
 pub mod missing_policy_on_query_001;
 pub mod mutation_without_readback;
+pub mod predicate_eq_operator_001;
 pub mod record_column_storage;
 pub mod resource_lock_contract_001;
 pub mod route_id_effect_consistency;

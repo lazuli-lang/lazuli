@@ -152,6 +152,14 @@ pub struct DiagnosticFacet {
 /// `produces`). A future diagnostic added without a capability home must land
 /// here explicitly or the `complete` test fails the build.
 pub const GLOBAL_DIAGNOSTICS: &[DiagnosticFacet] = &[
+    // SPEC-05 — bare `=` used as equality in a closed predicate. Genuinely
+    // cross-cutting: fires across rule/test/filter/policy/invariant/route-guard/
+    // webhook-emit predicate contexts, owned by no single keyword.
+    DiagnosticFacet {
+        code: "PREDICATE-EQ-OPERATOR-001",
+        base_severity: "error",
+        category: "correctness",
+    },
     // ── migration codegen / runtime update-builder (over generated artifacts) ──
     DiagnosticFacet {
         code: "MIGRATION-ALTER-MISSING-001",

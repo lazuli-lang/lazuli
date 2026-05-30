@@ -44,7 +44,7 @@ pub(crate) fn diagnostics(
     security_profile: SecurityProfile,
     preset: Option<lazuli_doctor::test_discipline::preset::TestDisciplinePreset>,
 ) -> Vec<DoctorDiagnostic> {
-    use lazuli_doctor::correctness::handler_missing_001;
+    use lazuli_doctor::correctness::{handler_missing_001, predicate_eq_operator_001};
     use lazuli_doctor::test_discipline::preset::preset_rule_severity;
     use lazuli_doctor::test_discipline::{
         migration_dsl_unique_001, runtime_update_builder_jsonb_001,
@@ -213,6 +213,28 @@ pub(crate) fn diagnostics(
             column: finding.column,
             severity: resolve_severity(DoctorSeverity::Warning, test_stub_001::Finding::CODE),
             code: test_stub_001::Finding::CODE.to_owned(),
+            message,
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
+        });
+    }
+    // SPEC-05 — PREDICATE-EQ-OPERATOR-001: bare `=` used as equality in a
+    // closed-predicate context (source scan; the analyzer drops such
+    // predicates to Unparsed, so this restores the precise `=`→`==` fix-it).
+    for finding in predicate_eq_operator_001::check(source, path) {
+        let message = finding.message();
+        out.push(DoctorDiagnostic {
+            path: finding.path,
+            line: finding.line,
+            column: 1,
+            severity: resolve_severity(
+                DoctorSeverity::Error,
+                predicate_eq_operator_001::Finding::CODE,
+            ),
+            code: predicate_eq_operator_001::Finding::CODE.to_owned(),
             message,
             category: None,
             feature_name: None,

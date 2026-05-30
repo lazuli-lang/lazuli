@@ -107,7 +107,7 @@ impl RuleCategory {
             }
             Some("HOOK") | Some("DUPLICATE") | Some("ROUTE") | Some("UPDATES")
             | Some("MUTATION") | Some("MISSING") | Some("MANUAL") | Some("IMPORT")
-            | Some("CAP") | Some("SCHEMA") => Self::Correctness,
+            | Some("CAP") | Some("SCHEMA") | Some("PREDICATE") => Self::Correctness,
             // `LZX-*` — `.lzx` ViewModel-surface rules (route binding, view
             // mode, tab/wizard refs, cells-mixed-form, arrow-glyph-mixed
             // hygiene). They audit user `.lzx` source shape; route them to
