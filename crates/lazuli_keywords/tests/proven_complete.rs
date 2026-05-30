@@ -77,6 +77,13 @@ const ALLOWLIST: &[&str] = &[
     //    (highlighted generically by constant.language rules; not
     //    keywords) ──
     "select",    // SQL/projection value fragment
+    // ── query.compose projection-source / predicate-combinator tokens that
+    //    are VALUES/operators, not block keywords (the block keywords —
+    //    `join`/`subselect`/`related_by`/`where`/`negate` and the kind/fn
+    //    values `count`/`latest`/`sum`/`avg`/`count_distinct` — ARE in ALL) ──
+    "self", // query.compose projection root (`self.<col>`) — a reference root, not a keyword
+    "AND",  // query.compose sub-select predicate combinator (uppercase) — operator value
+    "OR",   // query.compose sub-select predicate combinator (uppercase) — operator value
     "open",      // drawer-trigger value (`on open`)
     "cap",       // `@cap` namespace sub-token bare in a match arm
     "*",         // bare wildcard token (constant.language.wildcard.lazuli) — a value
@@ -114,6 +121,20 @@ const ALLOWLIST: &[&str] = &[
     "no_jump_more_than_one",
     "summarize_customer",
     "terminal_immutable",
+    // ── query.compose (W1) parser-test fixture identifiers — resource names,
+    //    field/column names, join aliases, and a `ctx.*` reference path used in
+    //    the `query_parser_tests` `==` assertions in
+    //    `lazuli_syntax/src/parser/lzi/query/mod.rs`. NOT language keywords (the
+    //    compose KEYWORDS — `compose`/`join`/`subselect`/`related_by`/`where`/
+    //    `negate`/`count`/`latest`/`sum`/`count_distinct` — are in ALL). ──
+    "ChatMessage",        // fixture resource name (subselect `of <Resource>`)
+    "Review",             // fixture resource name
+    "ServiceTransaction", // fixture resource name
+    "already_reviewed",   // fixture subselect / projection name
+    "body",               // fixture column name (`latest body of ...`)
+    "ctx.user.id",        // ctx reference path in a subselect `where` RHS
+    "p",                  // fixture join alias (`join ... as p`)
+    "total_amount_cents", // fixture column name (`aggregate sum <col> of ...`)
 ];
 
 /// Files whose literals are NOT parser spec — scan-excluded. Anything

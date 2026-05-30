@@ -200,6 +200,10 @@ pub(super) fn attach_public_contract_to_query(
             q.public_contract =
                 take_matching_public_contract(line, pending_contract, kind, &q.name)?;
         }
+        QueryDecl::Compose(q) => {
+            q.public_contract =
+                take_matching_public_contract(line, pending_contract, "query.compose", &q.name)?;
+        }
     }
     Ok(())
 }

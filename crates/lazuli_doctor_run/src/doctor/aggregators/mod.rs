@@ -32,6 +32,7 @@ pub(crate) mod auth;
 pub(crate) mod auth_actor_subject;
 pub(crate) mod cache;
 pub(crate) mod command_routing;
+pub(crate) mod compose;
 pub(crate) mod correctness;
 pub(crate) mod cors;
 pub(crate) mod cross_feature;

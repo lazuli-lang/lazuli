@@ -190,6 +190,8 @@ fn query_span_start(query: &Query) -> Option<usize> {
         Query::List(q) => q.span_ref.map(|s| s.start),
         Query::Lookup(q) => q.span_ref.map(|s| s.start),
         Query::Sql(q) => q.span_ref.map(|s| s.start),
+        // query.compose: W2/W3 — span accessor is real (field exists).
+        Query::Compose(q) => q.span_ref.map(|s| s.start),
     }
 }
 
@@ -247,6 +249,9 @@ fn first_ctx_user_or_scope_site(tier3_facts: &[Tier3FeatureFacts]) -> Option<Str
                 Query::List(q) => (&q.scope, &q.policy),
                 Query::Lookup(q) => (&q.scope, &q.policy),
                 Query::Sql(q) => (&q.scope, &q.policy),
+                // query.compose: W2/W3 — scope + policy accessors are real,
+                // so actor/owner-scope site detection covers compose reads.
+                Query::Compose(q) => (&q.scope, &q.policy),
             };
             if scope.iter().any(predicate_touches_ctx_user) {
                 return Some(format!("{}.query.{}", feature.feature, query.name()));

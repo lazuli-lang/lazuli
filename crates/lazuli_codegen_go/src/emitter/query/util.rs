@@ -68,6 +68,9 @@ pub(super) fn query_kind_rank(query: &Query) -> u8 {
         Query::Lookup(_) => 1,
         Query::Sql(q) if q.sql_kind == lazuli_ir::SqlQueryKind::View => 2,
         Query::Sql(_) => 3,
+        // query.compose: W5 — sorts last for now; the determinism rank only
+        // needs a total order, refined when compose codegen lands.
+        Query::Compose(_) => 4,
     }
 }
 

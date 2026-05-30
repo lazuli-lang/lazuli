@@ -170,6 +170,15 @@ fn build_contract_map(module: &Module) -> BTreeMap<(String, String), bool> {
                     &query.name,
                     query.public_contract.as_ref(),
                 ),
+                // query.compose: W2/W3 — contract registration is real (same
+                // name + public_contract fields), so cross-feature contract
+                // checks cover compose reads.
+                Query::Compose(query) => insert_contract(
+                    &mut contracts,
+                    feature,
+                    &query.name,
+                    query.public_contract.as_ref(),
+                ),
             }
         }
         for event in &feature.events {
@@ -307,6 +316,28 @@ fn walk_feature(
                     feature,
                     &query.returns,
                     format!("return type of query.sql `{}`", query.name),
+                    contracts,
+                    symbols,
+                    out,
+                );
+            }
+            // query.compose: W2/W3 — param + generated-return type refs are
+            // real, so cross-feature type-ref inspection covers compose.
+            Query::Compose(query) => {
+                for param in &query.params {
+                    inspect_type_ref(
+                        feature,
+                        &param.type_ref,
+                        format!("param `{}` of query.compose `{}`", param.name, query.name),
+                        contracts,
+                        symbols,
+                        out,
+                    );
+                }
+                inspect_type_ref(
+                    feature,
+                    &query.returns,
+                    format!("return type of query.compose `{}`", query.name),
                     contracts,
                     symbols,
                     out,

@@ -49,6 +49,14 @@ use crate::{AnalyzeError, lower_public_contract, type_ref_from_text};
 use lazuli_ir as ir;
 use lazuli_syntax as syntax;
 
+// `query.compose` W2 — the composite-read lowering is split across two
+// concern files (Rails-style ≤500-LOC ceiling): `compose` (root/join/
+// projection/subselect resolution + the resolved-form assembly) and
+// `compose_predicates` (the closed-predicate / order / key lifters it uses).
+mod compose;
+mod compose_predicates;
+pub(crate) use compose::lower_compose_decl;
+
 /// Phase L Tier 4d — lower a canonical-indent `query` block into
 /// `ir::Query`. The three shapes (`query.list` / `query.lookup` /
 /// `query.sql` / `query.view`) project onto the existing IR variants.
@@ -62,6 +70,7 @@ pub(crate) fn lower_query_decl(
     feature_name: &str,
     q: &syntax::QueryDecl,
     caches: &[syntax::CacheProfileDecl],
+    resources: &[ir::Resource],
 ) -> Result<ir::Query, AnalyzeError> {
     match q {
         syntax::QueryDecl::List(list) => Ok(ir::Query::List(ir::ListQuery {
@@ -158,9 +167,16 @@ pub(crate) fn lower_query_decl(
             previous_names: Vec::new(),
             span_ref: Some(span_of(sql.span)),
         })),
+        // query.compose: W2 — declarative composite-read lowering.
+        // Resolves the `from` root + each `join` FK-path against the
+        // in-feature relation graph, lowers projection sources + the
+        // closed-catalog subselects, and stamps the inherited-scope origin
+        // (the load-bearing verifiability artifact). See `lower_compose_decl`.
+        syntax::QueryDecl::Compose(compose) => Ok(ir::Query::Compose(lower_compose_decl(
+            compose, resources,
+        )?)),
     }
 }
-
 pub(crate) fn lower_sql_file_ref(feature_name: &str, source: &str) -> String {
     let trimmed = source.trim();
     let Some(rest) = trimmed.strip_prefix("@file.") else {
@@ -252,7 +268,10 @@ fn filter_lhs_expr(text: &str) -> ir::Expr {
 /// query codegen would render as `lazuli.FromInput(...)` (a runtime
 /// input lookup); the correct semantic is "const string equal to the
 /// enum variant name," so we lift to `Expr::Enum`.
-fn filter_rhs_expr(text: &str) -> ir::Expr {
+///
+/// `pub(super)` so the `compose` / `compose_predicates` sibling modules can
+/// reuse the same RHS-value lifter for subselect predicates + `key` clauses.
+pub(super) fn filter_rhs_expr(text: &str) -> ir::Expr {
     let text = text.trim();
     if let Some(stripped) = text.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
         return ir::Expr::String(stripped.to_owned());

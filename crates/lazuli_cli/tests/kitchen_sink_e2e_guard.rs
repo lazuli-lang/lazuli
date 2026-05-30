@@ -100,6 +100,15 @@ const PRIMITIVE_ERROR_CODES: &[&str] = &[
     // append-only resource + reorder command
     "RESOURCE-APPEND-ONLY-001",
     "REORDER-POSITION-FIELD-001",
+    // query.compose composite-read structural / security codes (W7 — now
+    // dispatched in `lazuli doctor`). The valid `customer_overview` compose
+    // must trip none of these at error severity.
+    "COMPOSE-JOIN-PATH-001",
+    "COMPOSE-PROJECTION-SOURCE-001",
+    "COMPOSE-SUBSELECT-RELATION-001",
+    "COMPOSE-SUBSELECT-PREDICATE-FIELD-001",
+    "COMPOSE-SCOPE-UNGROUNDED-001",
+    "COMPOSE-SUBSELECT-CATALOG-001",
     // §7a surface UX primitives (experience-surface dialect)
     "LZX-PARSE",
     "LZX-VIEW-MODE-001",
@@ -197,6 +206,11 @@ const FIXTURE_SENTINELS: &[(&str, &str, &str)] = &[
         "report input/source/columns",
         "full-capsule.lzi",
         "report monthly_audit",
+    ),
+    (
+        "query.compose (composite read)",
+        "full-capsule.lzi",
+        "query.compose customer_overview",
     ),
     // §7a surface UX primitives, experience-surface dialect (F5).
     (

@@ -136,7 +136,13 @@ func (q *Query[A, R]) RunSQL(ctx *Ctx, args A) (any, error) {
 		return nil, err
 	}
 	var values []any
-	if q.SQLArgs != nil {
+	switch {
+	case q.SQLArgsCtx != nil:
+		// `query.compose` — ctx-aware bind projection. The generated tenant
+		// `org_id` + actor refs are resolved from ctx here, so the author
+		// cannot omit them (proposal §5.2).
+		values = q.SQLArgsCtx(ctx, args)
+	case q.SQLArgs != nil:
 		values = q.SQLArgs(args)
 	}
 

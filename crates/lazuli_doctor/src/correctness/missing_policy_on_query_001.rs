@@ -188,6 +188,15 @@ fn query_policy_facts(query: &Query) -> (&'static str, &str, &PolicyRef, Option<
             &query.policy,
             query.policy_expr.as_ref(),
         ),
+        // query.compose: W2/W3 — policy facts are real (same policy fields),
+        // so MISSING-POLICY-ON-QUERY-001 correctly guards compose reads from
+        // day one (a compose read is an HTTP boundary like any other query).
+        Query::Compose(query) => (
+            "compose",
+            query.name.as_str(),
+            &query.policy,
+            query.policy_expr.as_ref(),
+        ),
     }
 }
 

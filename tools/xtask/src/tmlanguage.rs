@@ -362,6 +362,24 @@ const GROUPS: &[Group] = &[
         Context::ResourceBody,
         "entity.name.function.statement.resource.lazuli",
     ),
+    // `query.<mode>` body statements/sections. The `query.compose` dialect
+    // (proposal `ir-composite-read-primitive-2026-05-29.md`) added
+    // `join`/`related_by`/`where`/`negate` (STMT) and `select`/`subselect`
+    // (SECTION) under `Context::Query`; these groups project them into the
+    // grammar so the `keyword_surface_parity` highlight half is satisfied by
+    // construction. Like the other tier-2 groups they are generated but left
+    // un-`include`d — the editor color comes from the hand-written `query`
+    // block rules, so this is snapshot-neutral.
+    bare(
+        "kw-query-stmt",
+        Context::Query,
+        "keyword.control.statement.lazuli",
+    ),
+    bare(
+        "kw-query-section",
+        Context::Query,
+        "keyword.control.section.lazuli",
+    ),
 ];
 
 /// Marker written into every generated `#kw-*` rule so a reader (and the

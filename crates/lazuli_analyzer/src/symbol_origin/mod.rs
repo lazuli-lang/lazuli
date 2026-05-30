@@ -234,6 +234,14 @@ fn query_facts(query: &Query) -> (&str, Option<SpanRef>, &[String], Option<u16>)
             q.previous_names.as_slice(),
             q.public_contract.as_ref().map(|c| c.version),
         ),
+        // query.compose: W2/W3 — symbol-origin facts are real (same
+        // name/span/previous_names/contract fields as the other kinds).
+        Query::Compose(q) => (
+            q.name.as_str(),
+            q.span_ref,
+            q.previous_names.as_slice(),
+            q.public_contract.as_ref().map(|c| c.version),
+        ),
     }
 }
 

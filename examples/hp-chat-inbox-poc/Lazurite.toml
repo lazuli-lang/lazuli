@@ -1,0 +1,20 @@
+# Sandbox POC for the W8 `query.compose` migration proof.
+#
+# This is a TRIMMED, READ-ONLY mirror of a slice of the production Hostpoint
+# repo (`c:\Users\lucas\hostpoint`) — just the org/account/messaging shapes
+# needed to author the `query.compose list_chat_inbox` equivalent of the
+# hand-written `messaging.list_chat_inbox` composite read. The production repo
+# is NOT touched; a real swap there awaits the lazuli runtime release of
+# SQLArgsCtx/CtxValue + this `feat/query-compose` branch merging.
+#
+# The marker scopes `lazuli check`/`doctor`/`generate` walks to this directory
+# so the binary does not walk up to the worktree root and trip over the
+# intentionally-malformed `crates/lazuli_cli/tests/fixtures/` entries.
+
+[project]
+name = "hp-chat-inbox-poc"
+module = "github.com/hostpointapp/hostpoint-chat-inbox-poc"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"

@@ -194,6 +194,10 @@ impl ReadIndex {
                 Query::Lookup(q) => self.entries.push((feature_name.to_owned(), q.name.clone())),
                 Query::List(q) => self.entries.push((feature_name.to_owned(), q.name.clone())),
                 Query::Sql(_) => {}
+                // query.compose: W2/W3 — readback indexing needs the
+                // resolved root resource (W2 FK-path lowering). Mirror the
+                // `Sql` no-op until then.
+                Query::Compose(_) => {}
             }
         }
     }

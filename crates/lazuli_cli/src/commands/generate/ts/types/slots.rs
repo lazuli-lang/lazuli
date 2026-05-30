@@ -74,6 +74,9 @@ pub(crate) fn query_args(
     match query {
         lazuli_ir::Query::List(q) => q.params.iter().map(ts_slot_from_typed).collect(),
         lazuli_ir::Query::Sql(q) => q.params.iter().map(ts_slot_from_typed).collect(),
+        // query.compose: W5 — params carry real TypedSlots, so TS arg slots
+        // are derived the same way as query.sql / query.list.
+        lazuli_ir::Query::Compose(q) => q.params.iter().map(ts_slot_from_typed).collect(),
         lazuli_ir::Query::Lookup(q) => {
             let mut slots: Vec<TsSlot> = q.params.iter().map(ts_slot_from_typed).collect();
             if slots.is_empty() {

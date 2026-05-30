@@ -127,6 +127,8 @@ pub(crate) fn query_line_col(source: &str, query: &lazuli_ir::Query) -> Option<(
         lazuli_ir::Query::List(query) => span_line_col(source, query.span_ref.as_ref()),
         lazuli_ir::Query::Lookup(query) => span_line_col(source, query.span_ref.as_ref()),
         lazuli_ir::Query::Sql(query) => span_line_col(source, query.span_ref.as_ref()),
+        // query.compose: W2/W3 — span accessor is real.
+        lazuli_ir::Query::Compose(query) => span_line_col(source, query.span_ref.as_ref()),
     }
 }
 

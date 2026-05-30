@@ -85,6 +85,16 @@ type Query[A, R any] struct {
 	// Used by `query.view`; nil means no args.
 	SQLArgs func(A) []any
 
+	// SQLArgsCtx is the ctx-aware positional bind projection for
+	// `query.compose`. Unlike SQLArgs it also receives the request Ctx, so
+	// codegen can bind values the author never wrote — the generated tenant
+	// `org_id` (from ctx.Tenant.OrgID) and actor-axis refs (ctx.user.id …) —
+	// alongside the typed `params`. When set it takes precedence over
+	// SQLArgs in RunSQL. This is how the GENERATED tenant/soft-delete scope
+	// predicate (see proposal §5.2) gets its bind without the author being
+	// able to omit or mis-bind it. Nil falls back to SQLArgs.
+	SQLArgsCtx func(*Ctx, A) []any
+
 	// SQLMany says the SQL-backed query returns many rows. When false, RunSQL
 	// returns exactly one row or a not_found error.
 	SQLMany bool

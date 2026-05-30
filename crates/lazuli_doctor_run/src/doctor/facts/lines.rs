@@ -61,6 +61,8 @@ pub(crate) fn collect_query_lines(
             lazuli_ir::Query::List(l) => l.name.as_str(),
             lazuli_ir::Query::Lookup(l) => l.name.as_str(),
             lazuli_ir::Query::Sql(s) => s.name.as_str(),
+            // query.compose: W2/W3 — name accessor is real.
+            lazuli_ir::Query::Compose(c) => c.name.as_str(),
         })
         .collect();
     for (idx, line) in source.lines().enumerate() {
@@ -69,7 +71,9 @@ pub(crate) fn collect_query_lines(
             .strip_prefix("query.list ")
             .or_else(|| trimmed.strip_prefix("query.lookup "))
             .or_else(|| trimmed.strip_prefix("query.sql "))
-            .or_else(|| trimmed.strip_prefix("query.view "));
+            .or_else(|| trimmed.strip_prefix("query.view "))
+            // query.compose: W2/W3 — find compose query header line numbers.
+            .or_else(|| trimmed.strip_prefix("query.compose "));
         let Some(rest) = after else {
             continue;
         };

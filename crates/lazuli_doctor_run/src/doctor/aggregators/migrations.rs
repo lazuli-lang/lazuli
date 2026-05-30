@@ -79,6 +79,8 @@ fn query_name(query: &lazuli_ir::Query) -> &str {
         lazuli_ir::Query::List(q) => &q.name,
         lazuli_ir::Query::Lookup(q) => &q.name,
         lazuli_ir::Query::Sql(q) => &q.name,
+        // query.compose: W2/W3 — name accessor is real.
+        lazuli_ir::Query::Compose(q) => &q.name,
     }
 }
 

@@ -414,6 +414,8 @@ pub(crate) fn query_params(query: &ir::Query) -> &[ir::TypedSlot] {
         ir::Query::List(query) => &query.params,
         ir::Query::Lookup(query) => &query.params,
         ir::Query::Sql(query) => &query.params,
+        // query.compose: W2/W3 — params accessor is real.
+        ir::Query::Compose(query) => &query.params,
     }
 }
 
@@ -422,6 +424,8 @@ pub(crate) fn query_span_ref(query: &ir::Query) -> Option<ir::SpanRef> {
         ir::Query::List(query) => query.span_ref,
         ir::Query::Lookup(query) => query.span_ref,
         ir::Query::Sql(query) => query.span_ref,
+        // query.compose: W2/W3 — span accessor is real.
+        ir::Query::Compose(query) => query.span_ref,
     }
 }
 

@@ -121,6 +121,10 @@ fn resolve_local_projection(feature: &Feature, query_name: &str) -> Option<HashS
         }
         Query::Sql(q) => projection_from_type_ref(feature, &q.returns),
         Query::Lookup(_) => None,
+        // query.compose: W2/W3 — the generated return record is a real
+        // TypeRef, so a `report` sourcing a compose read gets column-mismatch
+        // checking like one sourcing a query.sql.
+        Query::Compose(q) => projection_from_type_ref(feature, &q.returns),
     }
 }
 

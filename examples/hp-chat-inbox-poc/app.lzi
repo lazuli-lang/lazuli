@@ -1,0 +1,25 @@
+# Minimal app manifest for the chat-inbox query.compose POC.
+# Mirrors the org/account/messaging tenancy slice of production Hostpoint.
+app HostpointChatInboxPoc
+  uses org
+  uses account
+  uses messaging
+
+  targets
+    backend go
+
+  environments
+    dev
+
+  urls
+    api dev "http://localhost:8088"
+
+  runtime
+    unit api
+      serves queries, commands, apis
+      healthcheck "/healthz"
+
+  deploy
+    migrations disabled
+    destructive_migrations forbidden
+    rollback disabled

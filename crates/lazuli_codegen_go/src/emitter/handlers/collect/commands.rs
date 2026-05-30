@@ -332,6 +332,9 @@ pub(super) fn collect_query_refs(
                 collect_cache_refs(cache, feature, &site, signatures, stubs);
             }
         }
+        // query.compose: W3/W5 — handler-stub collection over the composite
+        // read lands with the compose analyzer + codegen cells.
+        Query::Compose(_) => {}
     }
 }
 

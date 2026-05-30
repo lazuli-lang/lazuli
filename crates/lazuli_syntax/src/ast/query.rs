@@ -26,8 +26,9 @@ use serde::{Deserialize, Serialize};
 
 use super::{CommandInputSlot, PolicyExprAst, PublicContractDeclAst, ResourceFieldDecl, Span};
 
-/// Three-arm catalog of query shapes — `query.list` / `query.lookup` /
-/// `query.sql`. See module-level docs for the surface of each.
+/// Four-arm catalog of query shapes — `query.list` / `query.lookup` /
+/// `query.sql` / `query.compose`. See module-level docs for the surface
+/// of each.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum QueryDecl {
@@ -37,6 +38,11 @@ pub enum QueryDecl {
     Lookup(LookupQueryDecl),
     /// `query.sql <name>` — SQL-backed query with `returns <Type>`.
     Sql(SqlQueryDecl),
+    /// `query.compose <name>` — declarative composite read (root resource
+    /// + FK-path JOIN projection + closed sub-select catalog). See
+    /// [`ComposeQueryDecl`] and
+    /// `docs/proposals/ir-composite-read-primitive-2026-05-29.md`.
+    Compose(ComposeQueryDecl),
 }
 
 impl QueryDecl {
@@ -63,6 +69,7 @@ impl QueryDecl {
             QueryDecl::List(q) => &q.name,
             QueryDecl::Lookup(q) => &q.name,
             QueryDecl::Sql(q) => &q.name,
+            QueryDecl::Compose(q) => &q.name,
         }
     }
 }
@@ -208,6 +215,204 @@ impl SqlQueryKind {
     pub fn is_sql(&self) -> bool {
         matches!(self, Self::Sql)
     }
+}
+
+/// `query.compose <name>` — declarative composite read AST.
+///
+/// Rooted at exactly one resource (`from <Resource>`), projecting columns
+/// from itself and FK-reachable neighbors (`join <fk.path>` + `select`),
+/// plus a **closed 4-member** per-row sub-select catalog (`count` /
+/// `exists` / `latest` / `aggregate`). Inherits tenant/soft-delete scope
+/// like `query.list`; lowers (W2+) to one analyzable SELECT. See
+/// `docs/proposals/ir-composite-read-primitive-2026-05-29.md` §3.
+///
+/// Parser-enforced invariants (§3.1/§3.2): exactly one `from` root;
+/// JOINs are FK paths only; sub-select predicates use the closed
+/// language (`=`/`!=`/`has`/`AND`/`OR`) plus `in` with a **literal-set
+/// RHS only** — `in (subselect)`, `in params.x`, `in <expr>` are not
+/// productions and are rejected at parse time. `key` presence makes the
+/// read single-row (`not_found` on zero rows, mirroring `query.lookup`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ComposeQueryDecl {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_contract: Option<PublicContractDeclAst>,
+    /// `policy @policy.<name>`.
+    pub policy: Option<String>,
+    /// RB.S6 — structured policy expression form.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_expr: Option<PolicyExprAst>,
+    /// `from <Resource>` — the single root resource (required, exactly 1).
+    pub root: String,
+    /// `params` block (typed slots).
+    pub params: Vec<CommandInputSlot>,
+    /// `join <fk.path> [as <alias>] [optional]` declarations (0..N).
+    pub joins: Vec<ComposeJoinDecl>,
+    /// `select` projections (required, ≥1).
+    pub projections: Vec<ComposeProjectionDecl>,
+    /// `subselect <name> = <kind>` declarations (0..N) — closed catalog.
+    pub subselects: Vec<ComposeSubselectDecl>,
+    /// `filters` block lines (verbatim; lowered by the analyzer).
+    pub filters: Vec<String>,
+    /// `key <path> = <expr>` clause. Presence ⇒ single-row ⇒ `not_found`
+    /// on zero rows (§3.2 #6). `None` ⇒ list semantics.
+    pub key: Option<String>,
+    /// `scope` block (without `override`) — verbatim lines.
+    pub scope_lines: Vec<String>,
+    /// `scope override` flag — when set, opts out of feature default tenancy.
+    pub scope_override: bool,
+    /// `scope override\n  reason "..."` text.
+    pub scope_reason: Option<String>,
+    /// `scope override` raw assignments captured for cross-check.
+    pub scope_assignments: Vec<String>,
+    /// `order <field> <asc|desc>` declarations.
+    pub order: Vec<String>,
+    /// `paginate <N>` page size.
+    pub paginate: Option<u32>,
+    /// `returns <Type>` generated record name; defaults to `<Compose>Row`
+    /// at lowering when omitted.
+    pub returns: Option<String>,
+    pub span: Span,
+}
+
+/// One `join <fk.path> [as <alias>] [optional]` inside a
+/// [`ComposeQueryDecl`]. The path resolves (W2+) against the IR relation
+/// graph; never an `ON`-clause string. `optional` ⇒ LEFT JOIN (nullable);
+/// default ⇒ INNER.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ComposeJoinDecl {
+    /// FK path, e.g. `host.user`. Dotted segments, IDENT_LOWER.
+    pub path: String,
+    /// `as <alias>` — names the joined node for select/subselect refs.
+    /// `None` defaults (W2) to the last path segment.
+    pub alias: Option<String>,
+    /// `optional` ⇒ LEFT JOIN (nullable). Default ⇒ INNER.
+    pub nullable: bool,
+    pub span: Span,
+}
+
+/// One `<name> = <source>` projection inside a [`ComposeQueryDecl`]'s
+/// `select` block.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ComposeProjectionDecl {
+    /// Output field name on the generated record.
+    pub name: String,
+    /// The projection source — `self.<col>`, `<alias>.<col>`, or a
+    /// declared subselect name.
+    pub source: ComposeProjectionSourceDecl,
+    pub span: Span,
+}
+
+/// Where a [`ComposeProjectionDecl`] reads from. Closed three-arm form
+/// per §3.1 `projection_source`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum ComposeProjectionSourceDecl {
+    /// `self.<column>` — a column on the root resource.
+    SelfColumn(String),
+    /// `<alias>.<column>` — a column on a joined node.
+    Joined { alias: String, column: String },
+    /// A bare identifier referencing a declared `subselect`.
+    Subselect(String),
+}
+
+/// One `subselect <name> = <kind>` declaration — the **closed 4-member**
+/// per-row sub-select catalog (`count`/`exists`/`latest`/`aggregate`).
+/// Adding a kind is a spec edit, not author freedom (§3.1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ComposeSubselectDecl {
+    /// The declared subselect name (referenced from `select`/`filters`).
+    pub name: String,
+    /// Closed-catalog kind + its target resource.
+    pub kind: ComposeSubselectKindDecl,
+    /// `related_by <fk.path>` — how the child joins to root (required by
+    /// the analyzer; carried as `Option` so the parser can surface a
+    /// targeted error rather than a structural one).
+    pub related_by: Option<String>,
+    /// `where <closed-predicate>` — scalar-literal predicate (and the
+    /// literal-set `in [...]` form). Parsed, narrowed.
+    pub where_pred: Vec<ComposeSubselectPred>,
+    /// `filter <closed-predicate>` — SQL `FILTER (WHERE ...)` on an
+    /// aggregate. Same narrowed predicate language as `where`.
+    pub filter_pred: Vec<ComposeSubselectPred>,
+    /// `order <field> <asc|desc>` — for `latest`.
+    pub order: Vec<String>,
+    /// `negate` — NOT EXISTS (anti-join); only meaningful for `exists`.
+    pub negate: bool,
+    pub span: Span,
+}
+
+/// The closed 4-member sub-select kind catalog (§3.1 `subselect_kind`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum ComposeSubselectKindDecl {
+    /// `count <Resource>`.
+    Count { resource: String },
+    /// `exists <Resource>`.
+    Exists { resource: String },
+    /// `latest <column> of <Resource>`.
+    Latest { column: String, resource: String },
+    /// `aggregate <fn> <column> of <Resource>`.
+    Aggregate {
+        func: ComposeAggFnDecl,
+        column: String,
+        resource: String,
+    },
+}
+
+/// The closed 5-member aggregate-function catalog (§3.1 `agg_fn`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ComposeAggFnDecl {
+    Sum,
+    Avg,
+    Min,
+    Max,
+    CountDistinct,
+}
+
+/// One predicate inside a `subselect` `where`/`filter` (§3.1
+/// `subselect_pred`). The closed operator set is `=`/`!=`/`has` plus the
+/// `in [literal,...]` literal-set form. `AND`/`OR` between predicates is
+/// carried by the surrounding `Vec` + [`ComposeSubselectPred::combinator`].
+/// The parser REJECTS `in (subselect)`, `in params.x`, and `in <expr>`
+/// before constructing this — only a literal-set RHS produces an `In`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ComposeSubselectPred {
+    /// Boolean combinator joining this predicate to the PREVIOUS one.
+    /// `None` on the first predicate of the list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub combinator: Option<ComposePredCombinator>,
+    /// Left-hand scalar reference (`self.x` / `<alias>.x` / `ctx.x...`).
+    pub left: String,
+    /// The operator + right-hand side.
+    pub op: ComposeSubselectPredOp,
+    pub span: Span,
+}
+
+/// The `AND` / `OR` combinator joining two [`ComposeSubselectPred`]s.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum ComposePredCombinator {
+    And,
+    Or,
+}
+
+/// Operator + RHS for a [`ComposeSubselectPred`]. The `In` arm is the
+/// ONLY set-membership form and carries a literal-set RHS exclusively —
+/// the correlated-subquery / dynamic-set backdoor (`in (subselect)`,
+/// `in params.x`, `in <expr>`) is rejected at parse time (§3.1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum ComposeSubselectPredOp {
+    /// `<left> = <rhs>`.
+    Eq(String),
+    /// `<left> != <rhs>`.
+    Ne(String),
+    /// `<left> has <rhs>` — collection contains element.
+    Has(String),
+    /// `<left> in [<literal>, ...]` — literal-set membership ONLY.
+    In(Vec<String>),
 }
 
 /// `search params.<key> over <fields>` clause inside a [`ListQueryDecl`].

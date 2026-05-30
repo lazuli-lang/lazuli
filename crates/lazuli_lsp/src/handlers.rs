@@ -163,6 +163,9 @@ pub(crate) fn document_symbols_for_source(source: &str) -> Option<Vec<DocumentSy
                     lazuli_syntax::QueryDecl::List(query) => (&query.name, query.span),
                     lazuli_syntax::QueryDecl::Lookup(query) => (&query.name, query.span),
                     lazuli_syntax::QueryDecl::Sql(query) => (&query.name, query.span),
+                    // query.compose: W4 — name + span are real, so a compose
+                    // query appears in the LSP document-symbol outline.
+                    lazuli_syntax::QueryDecl::Compose(query) => (&query.name, query.span),
                 };
                 make_symbol(
                     name.clone(),

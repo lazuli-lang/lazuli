@@ -49,16 +49,22 @@ pub(crate) const COMMAND_STATEMENT_KINDS: &[&str] = &[
 ];
 
 /// Closed catalog of indent-4 statement keywords inside `query.list`,
-/// `query.lookup`, `query.sql`, and `query.view` bodies. Mirrors the prefix-dispatch
-/// arms in `parse_query_list_decl`, `parse_query_lookup_decl`, and
-/// `parse_query_sql_decl`. Includes the union (a `query.lookup` body
+/// `query.lookup`, `query.sql`, `query.view`, and `query.compose` bodies.
+/// Mirrors the prefix-dispatch arms in `parse_query_list_decl`,
+/// `parse_query_lookup_decl`, `parse_query_sql_decl`, and
+/// `parse_query_compose_decl`. Includes the union (a `query.lookup` body
 /// will never use `cache`/`paginate`/`order` — but flagging those as
 /// typos would cause false positives across query kinds, so we accept
-/// them and let the parser emit the precise per-kind error).
+/// them and let the parser emit the precise per-kind error). The
+/// `query.compose` dialect contributes `join`/`select`/`subselect` plus
+/// the sub-select children `related_by`/`where`/`negate`; these keep the
+/// LSP typo catalog at parity with the `Context::Query` registry literals
+/// (`group_13_keyword_registry_derivation`).
 /// Sorted alphabetically.
 pub(crate) const QUERY_STATEMENT_KINDS: &[&str] = &[
-    "cache", "filters", "gate", "modifier", "order", "paginate", "params", "policy", "returns",
-    "scope", "search", "source", "sql",
+    "cache", "filters", "gate", "join", "modifier", "negate", "order", "paginate", "params",
+    "policy", "related_by", "returns", "scope", "search", "select", "source", "sql", "subselect",
+    "where",
 ];
 
 /// Closed catalog of children inside `audience <name>` blocks.

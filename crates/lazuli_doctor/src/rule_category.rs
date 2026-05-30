@@ -108,6 +108,14 @@ impl RuleCategory {
             Some("HOOK") | Some("DUPLICATE") | Some("ROUTE") | Some("UPDATES")
             | Some("MUTATION") | Some("MISSING") | Some("MANUAL") | Some("IMPORT")
             | Some("CAP") | Some("SCHEMA") => Self::Correctness,
+            // `COMPOSE-*` — the `query.compose` composite-read structural /
+            // security codes (`docs/proposals/ir-composite-read-primitive-2026-05-29.md`
+            // §7). They make a malformed composite read a build-time
+            // failure; route them to Correctness alongside the other
+            // query-shape checks (rather than the Vocabulary catch-all) so
+            // `summary.by_category` + `--fail-on category:correctness` bucket
+            // them correctly.
+            Some("COMPOSE") => Self::Correctness,
             // `LZX-*` — `.lzx` ViewModel-surface rules (route binding, view
             // mode, tab/wizard refs, cells-mixed-form, arrow-glyph-mixed
             // hygiene). They audit user `.lzx` source shape; route them to

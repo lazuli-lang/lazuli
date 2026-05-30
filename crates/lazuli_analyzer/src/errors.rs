@@ -298,6 +298,53 @@ pub enum AnalyzeError {
         target: String,
         target_feature: String,
     },
+
+    /// `query.compose` W2 — a `join <fk.path>` whose FIRST segment is not
+    /// a declared FK relation on the prior node (the root resource, when
+    /// the root is in-feature). The carrier for W3
+    /// `COMPOSE-JOIN-PATH-001`: the analyzer surfaces a clean rejection
+    /// (NOT a panic) so the JOIN-target-is-a-string failure becomes a
+    /// build error instead of a silent runtime break. Cross-feature
+    /// targets (root not resolvable in-feature, or a multi-hop segment
+    /// leaving the feature) are TRUSTED here and validated by doctor with
+    /// Module context — mirrors the owner-scope synth's cross-feature
+    /// deferral (`conventions/owner_scope.rs`).
+    #[error(
+        "COMPOSE-JOIN-PATH-001: query.compose `{query}` join `{path}` — `{segment}` is not a declared FK relation on resource `{on_resource}`"
+    )]
+    ComposeJoinPathUnresolved {
+        query: String,
+        path: String,
+        segment: String,
+        on_resource: String,
+    },
+
+    /// `query.compose` W2 — a `select <field> = <alias>.<col>` /
+    /// `= <subselect>` whose `<alias>` is not a declared join alias, or
+    /// whose bare-identifier source names no declared `subselect`. The
+    /// carrier for W3 `COMPOSE-PROJECTION-SOURCE-001`: a projection with
+    /// no resolvable source is a build error, so the return record and the
+    /// read cannot drift (the gap `query.sql` `returns` leaves open).
+    #[error(
+        "COMPOSE-PROJECTION-SOURCE-001: query.compose `{query}` projection `{field}` — source `{source_text}` resolves to no declared {kind}"
+    )]
+    ComposeProjectionSourceUnresolved {
+        query: String,
+        field: String,
+        source_text: String,
+        kind: String,
+    },
+
+    /// `query.compose` W2 — a `subselect <name>` missing its required
+    /// `related_by <fk.path>` correlation. The carrier for W3
+    /// `COMPOSE-SUBSELECT-RELATION-001`: without a declared FK correlation
+    /// the analyzer cannot generate `WHERE child.<fk> = root.id`, so the
+    /// subselect would silently produce a cartesian/empty result. Reject
+    /// at build time rather than emit an uncorrelated subquery.
+    #[error(
+        "COMPOSE-SUBSELECT-RELATION-001: query.compose `{query}` subselect `{name}` is missing its required `related_by <fk.path>` correlation"
+    )]
+    ComposeSubselectMissingRelation { query: String, name: String },
 }
 
 impl AnalyzeError {

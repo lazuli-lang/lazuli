@@ -85,6 +85,27 @@ const P_COMMAND: &[DiagnosticFacet] = &[
 const P_COMPOSITE_KEY: &[DiagnosticFacet] =
     &[df("COMPOSITE-KEY-CONTRACT-001", "error", "vocabulary")];
 
+// `query.compose` (W3) — the composite-read doctor codes, homed under
+// `crates/lazuli_doctor/src/compose/`. Six error-tier correctness/security
+// codes + two warning-tier hygiene codes. Categories are the verbatim
+// `RuleCategory::from_code_prefix` output (W7 added a dedicated `COMPOSE-`
+// arm mapping to `correctness` — asserted equal by the
+// `lazuli_diagnostics_registry` bridge). See proposal §7.
+const P_COMPOSE: &[DiagnosticFacet] = &[
+    df("COMPOSE-JOIN-PATH-001", "error", "correctness"),
+    df("COMPOSE-PROJECTION-SOURCE-001", "error", "correctness"),
+    df("COMPOSE-SUBSELECT-RELATION-001", "error", "correctness"),
+    df("COMPOSE-SUBSELECT-PREDICATE-FIELD-001", "error", "correctness"),
+    df("COMPOSE-SCOPE-UNGROUNDED-001", "error", "correctness"),
+    df("COMPOSE-SUBSELECT-CATALOG-001", "error", "correctness"),
+    df("COMPOSE-NULLABILITY-MISMATCH-001", "warning", "correctness"),
+    df("COMPOSE-DEMOTABLE-TO-LIST-001", "warning", "correctness"),
+];
+
+// `query.sql` (W3) — the symmetric Prisma-trap nudge toward `query.compose`.
+// Warning-only (it reads opaque SQL text the framework does not fully parse).
+const P_SQL: &[DiagnosticFacet] = &[df("VOCAB-SQL-COMPOSABLE-001", "warning", "vocabulary")];
+
 const P_COMPUTED_DATE: &[DiagnosticFacet] = &[df("COMPUTED-DATE-EXPR-001", "error", "vocabulary")];
 
 const P_UNIQUE: &[DiagnosticFacet] = &[
@@ -1705,15 +1726,26 @@ pub const ALL: &[CapabilitySpec] = &[
         Context::FeatureHeader,
         "Declares a lookup query (single-record fetch).",
     ),
-    dotted(
-        "query.sql",
-        Context::FeatureHeader,
-        "Declares a raw-SQL query.",
+    produces(
+        dotted(
+            "query.sql",
+            Context::FeatureHeader,
+            "Declares a raw-SQL query.",
+        ),
+        P_SQL,
     ),
     dotted(
         "query.view",
         Context::FeatureHeader,
         "Declares a database-view-backed query.",
+    ),
+    produces(
+        dotted(
+            "query.compose",
+            Context::FeatureHeader,
+            "Declares a composite read (root resource + FK-path JOIN projection + closed sub-select catalog).",
+        ),
+        P_COMPOSE,
     ),
     dotted(
         "event.trace",
@@ -2164,6 +2196,44 @@ pub const ALL: &[CapabilitySpec] = &[
     stmt("sql", Context::Query, STMT, "Raw SQL body."),
     stmt("source", Context::Query, STMT, "Query source resource."),
     stmt("params", Context::Query, SECTION, "Query parameter block."),
+    // query.compose body — composite-read children (proposal
+    // `ir-composite-read-primitive-2026-05-29.md` §3.1).
+    stmt(
+        "join",
+        Context::Query,
+        STMT,
+        "query.compose FK-path JOIN (`join <fk.path> [as <alias>] [optional]`).",
+    ),
+    stmt(
+        "select",
+        Context::Query,
+        SECTION,
+        "query.compose projection block (`<field> = self.<col> | <alias>.<col> | <subselect>`).",
+    ),
+    stmt(
+        "subselect",
+        Context::Query,
+        SECTION,
+        "query.compose closed sub-select (`count`/`exists`/`latest`/`aggregate`).",
+    ),
+    stmt(
+        "related_by",
+        Context::Query,
+        STMT,
+        "query.compose sub-select correlation FK path to root.",
+    ),
+    stmt(
+        "where",
+        Context::Query,
+        STMT,
+        "query.compose sub-select closed predicate (scalar literals + `in [...]`).",
+    ),
+    stmt(
+        "negate",
+        Context::Query,
+        STMT,
+        "query.compose `exists` sub-select → NOT EXISTS anti-join.",
+    ),
     // ════════════════════════════════════════════════════════════════
     // Job / webhook / agent / notification / poller / report / channel
     // ════════════════════════════════════════════════════════════════
@@ -3167,6 +3237,14 @@ pub const ALL: &[CapabilitySpec] = &[
     op("pattern", OP_PREDICATE),
     op("min", OP_PREDICATE),
     op("max", OP_PREDICATE),
+    // query.compose closed sub-select kind / aggregate-fn catalog values
+    // (proposal `ir-composite-read-primitive-2026-05-29.md` §3.1). `exists`
+    // / `min` / `max` already live above; these complete the set.
+    op("count", OP_PREDICATE),
+    op("latest", OP_PREDICATE),
+    op("sum", OP_PREDICATE),
+    op("avg", OP_PREDICATE),
+    op("count_distinct", OP_PREDICATE),
     op("excludes", OP_PREDICATE),
     op("includes", OP_PREDICATE),
     op("covers_pii", OP_PREDICATE),

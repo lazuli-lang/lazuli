@@ -15,6 +15,7 @@
 //! that stub, after which `lzx/` can move too.
 
 pub mod allow_comment;
+pub mod compose;
 pub mod config_noise;
 pub mod correctness;
 pub mod coverage;

@@ -292,6 +292,9 @@ fn write_query_sdk(
         lazuli_ir::Query::Lookup(_) => resource_ty,
         lazuli_ir::Query::List(_) => format!("{resource_ty}[]"),
         lazuli_ir::Query::Sql(q) => ts_type_for_type_ref(&q.returns, module),
+        // query.compose: W5 — the generated return record is a real TypeRef,
+        // so the TS return type is derived the same way as query.sql.
+        lazuli_ir::Query::Compose(q) => ts_type_for_type_ref(&q.returns, module),
     };
     let query_ref_kind = match query {
         lazuli_ir::Query::List(_) => lazuli_ir::QueryKind::List,
@@ -300,6 +303,9 @@ fn write_query_sdk(
             lazuli_ir::SqlQueryKind::Sql => lazuli_ir::QueryKind::Sql,
             lazuli_ir::SqlQueryKind::View => lazuli_ir::QueryKind::View,
         },
+        // query.compose: W4/W6 — `QueryKind` gains a `Compose` arm in the
+        // LSP/inspect cells; map to `Sql` (SELECT-shaped) until then.
+        lazuli_ir::Query::Compose(_) => lazuli_ir::QueryKind::Sql,
     };
     // Query-side operational metadata (review bug #7, 2026-05-15).
     // Today `lazuli_ir::Query` carries no explicit policy/rate_limit at

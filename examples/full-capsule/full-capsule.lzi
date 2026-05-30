@@ -241,6 +241,48 @@ feature customer
 
       sql "./queries/customer_churn_risk.sql"
 
+    # query.compose — the fourth query.<mode> (composite read). Models a
+    # Hostpoint-style read: a tenant-scoped root (Customer, tenancy org → the
+    # tenant + soft-delete predicate is GENERATED, not hand-written), an FK-path
+    # JOIN (customer.owner → User, cross-feature), a count sub-select (notes),
+    # and a latest sub-select (most-recent note). Inherits tenancy scope (no
+    # `scope override`) so COMPOSE-SCOPE-UNGROUNDED-001 stays silent; passes
+    # both `lazuli check` and `lazuli doctor`.
+    record CustomerOverviewRow
+      customer_id: ID
+      customer_name: Text
+      owner_name: Text optional
+      notes_count: Integer
+      pinned_notes_count: Integer
+      latest_note_at: DateTime optional
+
+    query.compose customer_overview
+      from Customer
+      join customer.owner as owner optional
+
+      subselect notes_count = count CustomerNote
+        related_by customer_note.customer
+      subselect pinned_notes_count = count CustomerNote
+        related_by customer_note.customer
+        where pinned = true
+      subselect latest_note_at = latest created_at of CustomerNote
+        related_by customer_note.customer
+        order created_at desc
+
+      select
+        customer_id       = self.id
+        customer_name     = self.name
+        owner_name        = owner.name
+        notes_count       = notes_count
+        pinned_notes_count = pinned_notes_count
+        latest_note_at    = latest_note_at
+
+      scope
+        deleted_at = nil
+      order latest_note_at desc
+      policy @policy.read
+      returns CustomerOverviewRow
+
     rule "archived customers cannot be reassigned"
       deny Customer.reassign when self.status = CustomerStatus.archived
       message @translation.archive_archived_blocked

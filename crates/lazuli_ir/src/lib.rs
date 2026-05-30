@@ -109,9 +109,10 @@ pub use nodes::poller::{
     PollerStateKind, PollerTick,
 };
 pub use nodes::query::{
-    CacheProfile, CacheTtl, CacheTtlLiteral, CompareOp, Expr, Filter, FnCallExpr, KeyClause,
-    ListQuery, LookupQuery, OrderBy, OrderDir, Path, Predicate, Query, QueryCache, SqlQuery,
-    SqlQueryKind,
+    AggFn, CacheProfile, CacheTtl, CacheTtlLiteral, CompareOp, ComposeJoin, ComposeProjection,
+    ComposeQuery, ComposeScopeOrigin, ComposeSubselect, Expr, Filter, FkPath, FnCallExpr, KeyClause,
+    ListQuery, LookupQuery, OrderBy, OrderDir, Path, Predicate, ProjectionSource, Query, QueryCache,
+    SqlQuery, SqlQueryKind, SubselectKind,
 };
 pub use nodes::rate_limit::{EnvName, RateLimitByEnv, RateLimitSpec};
 pub use nodes::rbac::{PermissionEntry, RbacCatalog, RoleEntry, RoleGrants};

@@ -70,6 +70,7 @@ pub mod vocab_lifecycle_001;
 pub mod vocab_money_multi_currency_001;
 pub mod vocab_resource_wide_cluster_001;
 pub mod vocab_shadow_record_001;
+pub mod vocab_sql_composable_001;
 pub mod vocab_tests_missing_001;
 pub mod vocab_union_001;
 pub mod vocab_union_002;

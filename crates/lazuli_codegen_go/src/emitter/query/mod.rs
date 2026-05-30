@@ -48,6 +48,9 @@ pub(super) use lookup::lookup_var_name;
 mod lookup_args;
 mod lookup_wrapper;
 
+mod compose;
+use compose::emit_compose_query;
+
 #[cfg(test)]
 mod test_support;
 
@@ -141,6 +144,10 @@ fn emit_query(
         Query::List(q) => emit_list_query(p, feature, q, ctx, emit_ctx),
         Query::Lookup(q) => emit_lookup_query(p, feature, q, ctx, emit_ctx),
         Query::Sql(q) => emit_sql_query(p, feature, q, ctx, emit_ctx),
+        // query.compose (W5): lower the composite read to ONE parameterized
+        // SELECT embedded in query.gen.go (SQLText on the shared QueryView
+        // runtime path) + the generated return-record struct.
+        Query::Compose(q) => emit_compose_query(p, feature, q, ctx, emit_ctx),
     }
 }
 

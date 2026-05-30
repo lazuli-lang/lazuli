@@ -184,6 +184,14 @@ fn build_contract_map(module: &Module) -> BTreeMap<(String, String), u16> {
                     &query.name,
                     query.public_contract.as_ref(),
                 ),
+                // query.compose: W2/W3 — real contract registration (same
+                // name + public_contract fields).
+                Query::Compose(query) => insert_contract(
+                    &mut contracts,
+                    feature,
+                    &query.name,
+                    query.public_contract.as_ref(),
+                ),
             }
         }
     }
@@ -341,6 +349,30 @@ fn walk_feature(
                     pins,
                     &query.returns,
                     format!("return type of query.sql `{}`", query.name),
+                    contracts,
+                    symbols,
+                    out,
+                );
+            }
+            // query.compose: W2/W3 — param + generated-return type refs are
+            // real, so version-drift inspection covers compose.
+            Query::Compose(query) => {
+                for param in &query.params {
+                    inspect_type_ref(
+                        feature,
+                        pins,
+                        &param.type_ref,
+                        format!("param `{}` of query.compose `{}`", param.name, query.name),
+                        contracts,
+                        symbols,
+                        out,
+                    );
+                }
+                inspect_type_ref(
+                    feature,
+                    pins,
+                    &query.returns,
+                    format!("return type of query.compose `{}`", query.name),
                     contracts,
                     symbols,
                     out,

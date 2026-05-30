@@ -126,6 +126,15 @@ fn collect_feature_formatters(feature: &Feature, out: &mut BTreeSet<SemanticForm
                 }
                 collect_type_ref(&q.returns, out);
             }
+            // query.compose: W5 — params + generated return record carry
+            // real TypeRefs, so semantic-formatter collection is real even
+            // before compose TS codegen lands.
+            Query::Compose(q) => {
+                for slot in &q.params {
+                    collect_type_ref(&slot.type_ref, out);
+                }
+                collect_type_ref(&q.returns, out);
+            }
         }
     }
 }

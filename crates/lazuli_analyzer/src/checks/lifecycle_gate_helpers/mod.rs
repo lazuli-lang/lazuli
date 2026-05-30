@@ -215,6 +215,9 @@ pub(super) fn query_kind(query: &Query) -> &'static str {
         Query::List(_) => "list",
         Query::Lookup(_) => "lookup",
         Query::Sql(_) => "sql",
+        // query.compose: W2/W3 — accessor returns the kind tag; gate
+        // checks treat it like any read until compose-specific rules land.
+        Query::Compose(_) => "compose",
     }
 }
 
@@ -223,6 +226,8 @@ fn query_span(query: &Query) -> Option<SpanRef> {
         Query::List(q) => q.span_ref,
         Query::Lookup(q) => q.span_ref,
         Query::Sql(q) => q.span_ref,
+        // query.compose: W2/W3 — span accessor is real (field exists).
+        Query::Compose(q) => q.span_ref,
     }
 }
 

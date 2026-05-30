@@ -1,7 +1,7 @@
 //! `query.<mode>` header recognition.
 //!
 //! Rejects legacy bare `query` declarations and unknown mode suffixes.
-//! The closed set is `list | lookup | sql | view`.
+//! The closed set is `list | lookup | sql | view | compose`.
 
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 
@@ -36,7 +36,7 @@ pub(crate) fn query_mode_diagnostics(source: &str) -> Vec<Diagnostic> {
                 line,
                 DiagnosticSeverity::WARNING,
                 "query-mode",
-                "query declarations should use an explicit mode: `query.list <name>`, `query.lookup <name>`, `query.sql <name>`, or `query.view <name>`. The kind belongs in the header so cold-readers see it before the body.",
+                "query declarations should use an explicit mode: `query.list <name>`, `query.lookup <name>`, `query.sql <name>`, `query.view <name>`, or `query.compose <name>`. The kind belongs in the header so cold-readers see it before the body.",
             ));
         } else if let Some(mode) = first.strip_prefix("query.") {
             // Strip parens/args used in references like `query.by_id(id: route.id)`.
@@ -44,13 +44,13 @@ pub(crate) fn query_mode_diagnostics(source: &str) -> Vec<Diagnostic> {
                 .split(|c: char| !c.is_alphanumeric() && c != '_')
                 .next()
                 .unwrap_or("");
-            if !matches!(mode, "list" | "lookup" | "sql" | "view") {
+            if !matches!(mode, "list" | "lookup" | "sql" | "view" | "compose") {
                 diagnostics.push(simple_canonical_diagnostic(
                     line_index,
                     line,
                     DiagnosticSeverity::WARNING,
                     "query-mode",
-                    "unknown query mode. Use `query.list`, `query.lookup`, `query.sql`, or `query.view`.",
+                    "unknown query mode. Use `query.list`, `query.lookup`, `query.sql`, `query.view`, or `query.compose`.",
                 ));
             }
         }

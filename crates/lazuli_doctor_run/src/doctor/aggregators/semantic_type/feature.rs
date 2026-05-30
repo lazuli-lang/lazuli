@@ -107,6 +107,18 @@ pub(crate) fn semantic_type_unknown_diagnostics_for_feature(
                 );
                 push_unknown_semantic_type(path, &query.returns, query_loc, &mut diagnostics);
             }
+            // query.compose: W2/W3 — params + generated return record carry
+            // real TypeRefs, so unknown-semantic-type checking covers compose.
+            lazuli_ir::Query::Compose(query) => {
+                check_typed_slots_for_unknown_semantics(
+                    path,
+                    source,
+                    &query.params,
+                    query_loc,
+                    &mut diagnostics,
+                );
+                push_unknown_semantic_type(path, &query.returns, query_loc, &mut diagnostics);
+            }
         }
     }
 

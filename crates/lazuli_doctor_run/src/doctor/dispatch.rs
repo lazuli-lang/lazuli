@@ -229,6 +229,20 @@ impl DoctorPackage {
             self.security_profile,
             self.single_file_input,
         ));
+        // `query.compose` (W7) — wires the nine composite-read codes
+        // (`lazuli_doctor::compose::*` + `vocab_sql_composable_001`) into the
+        // real `lazuli doctor` dispatch. W3 shipped the rules with passing
+        // unit tests but left them declared-but-not-dispatched (the
+        // dormant-rule anti-pattern); this closes that gap so a malformed
+        // `query.compose` (dropped tenant scope, wrong FK join, mistyped
+        // anti-join) becomes a build-time error. COMPOSE-JOIN-PATH-001 runs
+        // through the Module-graph path; VOCAB-SQL-COMPOSABLE-001 reads the
+        // `query.sql` body off `sql_path` (resolved under `project_root`).
+        // See `docs/proposals/ir-composite-read-primitive-2026-05-29.md` §7.
+        diagnostics.extend(aggregators::compose::diagnostics(
+            &self.tier3_facts,
+            &self.project_root,
+        ));
         // JOB-* runtime-gap rules over the lifted `Feature.jobs` —
         // today `JOB-DECLARATIVE-BODY-UNSUPPORTED-001`, which fires when
         // a declarative job body lowers to a no-op (the runtime has no

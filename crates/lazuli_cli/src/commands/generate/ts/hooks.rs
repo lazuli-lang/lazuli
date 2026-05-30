@@ -285,6 +285,8 @@ fn query_previous_names(query: &lazuli_ir::Query) -> &[String] {
         lazuli_ir::Query::List(query) => &query.previous_names,
         lazuli_ir::Query::Lookup(query) => &query.previous_names,
         lazuli_ir::Query::Sql(query) => &query.previous_names,
+        // query.compose: W2/W3 — previous_names accessor is real.
+        lazuli_ir::Query::Compose(query) => &query.previous_names,
     }
 }
 
@@ -293,6 +295,11 @@ fn react_query_kind(query: &lazuli_ir::Query) -> lazuli_ir::QueryKind {
         lazuli_ir::Query::List(_) => lazuli_ir::QueryKind::List,
         lazuli_ir::Query::Lookup(_) => lazuli_ir::QueryKind::Lookup,
         lazuli_ir::Query::Sql(_) => lazuli_ir::QueryKind::Sql,
+        // query.compose: W4/W6 — `QueryKind` (a surface/inspect enum) has no
+        // `Compose` arm yet; that lands with the LSP/inspect cells. A compose
+        // read is SELECT-shaped, so map to `Sql` until then to keep TS hook
+        // generation panic-free for features that mix compose with others.
+        lazuli_ir::Query::Compose(_) => lazuli_ir::QueryKind::Sql,
     }
 }
 

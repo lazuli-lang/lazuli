@@ -121,6 +121,15 @@ pub(super) fn query_policy_denied_key<'a>(
             q.policy_expr.as_ref(),
             q.policy_when_denied.as_ref(),
         ),
+        // query.compose: W5 — policy-denied key resolution is real (same
+        // policy fields as the other kinds), so error messages work even
+        // before compose codegen emission lands.
+        Query::Compose(q) => query_policy_denied_key_for_parts(
+            feature,
+            &q.policy,
+            q.policy_expr.as_ref(),
+            q.policy_when_denied.as_ref(),
+        ),
     }
 }
 
@@ -206,5 +215,7 @@ pub(super) fn query_callable_kind(query: &Query) -> &'static str {
         Query::List(_) => "query.list",
         Query::Lookup(_) => "query.lookup",
         Query::Sql(q) => sql_query_callable_kind(q),
+        // query.compose: W5 — callable-kind key for the emit-time gate map.
+        Query::Compose(_) => "query.compose",
     }
 }

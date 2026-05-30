@@ -207,6 +207,12 @@ fn collect_query_refs<'a>(query: &'a Query, refs: &mut HashSet<&'a str>) {
             collect_typed_slot_refs(&q.params, refs);
             collect_type_ref(&q.returns, refs);
         }
+        // query.compose: W2/W3 — params + generated return record carry real
+        // TypeRefs, so JSON-typed enum-ref collection covers compose.
+        Query::Compose(q) => {
+            collect_typed_slot_refs(&q.params, refs);
+            collect_type_ref(&q.returns, refs);
+        }
     }
 }
 

@@ -1,0 +1,37 @@
+# Trimmed from production hostpoint app/features/account/account.lzi.
+# Only the User shape (counterpart-name source for the inbox join) plus the
+# authenticated policy/scope the messaging compose query references.
+feature account
+  defaults
+    tenancy org
+
+  uses org
+
+  domain
+    resource User
+      org: Org required
+      email: @semantic.Email required unique
+      name: Text required
+
+    resource UserSession
+      org: Org required
+      user: User required
+      token_hash: @cap.Hashed(algorithm:argon2id) required
+      expires_at: DateTime required
+
+  policies
+    authenticated: @scope.authenticated
+
+    fields UserSession
+      token_hash
+        read: @actor.system
+        write: @actor.system
+
+  auth identity User.email
+  auth password
+    algorithm: argon2id
+    hash @fn.hash_password
+    verify @fn.verify_password
+  auth sessions
+    resource UserSession
+    ttl "7 days"

@@ -122,10 +122,16 @@ pub fn lower_feature_skeleton(
         })
         .collect();
     resources.extend(synthesized_junctions);
+    // `query.compose` (W2) resolves its FK paths / projection sources
+    // against the relation graph. The lowered `resources` (incl. the
+    // GAP-07 synthesized junctions) are already in hand here, so we pass
+    // them as the in-feature resolution context. Cross-feature targets are
+    // trusted at lowering and validated by doctor with Module context —
+    // mirrors the owner-scope synth's cross-feature deferral.
     let queries = skeleton
         .queries
         .iter()
-        .map(|q| lower_query_decl(&skeleton.name, q, &skeleton.caches))
+        .map(|q| lower_query_decl(&skeleton.name, q, &skeleton.caches, &resources))
         .collect::<Result<Vec<_>, _>>()?;
     let records = skeleton
         .records

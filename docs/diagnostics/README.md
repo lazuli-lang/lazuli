@@ -15,6 +15,7 @@ This catalog mines each rule's module-header docstring (the canonical source of 
 | Category | Module | Rule count | Theme |
 |---|---|---|---|
 | [Correctness](#correctness) | `correctness/` | 14 | Dangling references, shape mismatches, codegen contract violations |
+| [Compose](#compose) | `compose/` | 8 | `query.compose` composite-read well-formedness (FK joins, projection sources, sub-select correlation/catalog, tenant scope, nullability) |
 | [Cross-feature contracts](#cross-feature-contracts) | `cross_feature/` | 3 | Microservices-mode contract gating |
 | [Lifecycle](#lifecycle) | `lifecycle/` | 10 | State-machine well-formedness |
 | [Poller](#poller) | `poller/` | 12 | Background poller invariants |
@@ -22,9 +23,9 @@ This catalog mines each rule's module-header docstring (the canonical source of 
 | [Domain](#domain) | `domain/` | 4 | `aggregate` / `invariant` / `@slug` |
 | [Design tokens](#design-tokens) | `design/` | 11 | Tailwind / inline-style token enforcement |
 | [Error vocabulary](#error-vocabulary) | `error_vocab/` | 7 | Typed error-message resolution chain |
-| [Vocabulary (Rule Zero)](#vocabulary-rule-zero) | `vocab/` | 36 | Vocabulary fitness — `VOCAB-*`, `MONEY-*`, `@owner_axis`, `conventions`, `rate_limit` |
+| [Vocabulary (Rule Zero)](#vocabulary-rule-zero) | `vocab/` | 37 | Vocabulary fitness — `VOCAB-*`, `MONEY-*`, `@owner_axis`, `conventions`, `rate_limit` |
 
-**Total: 103 rules.**
+**Total: 112 rules.**
 
 ---
 
@@ -48,6 +49,21 @@ Source: [`crates/lazuli_doctor/src/correctness/`](../../crates/lazuli_doctor/src
 | `ROUTE-ID-UNUSED-IN-EFFECT-001` (`@correctness.route_id_unused_in_effect`) | error | `correctness/route_id_effect_consistency.rs` | `command.route <name>: <Type>` (no `from ctx.<expr>`) isn't reachable from `CommandInput`; codegen would read zero-valued `id`. |
 | `@correctness.migration_out_of_sync` | warning | `correctness/schema_migration_present.rs` | IR resource columns drift from the highest-numbered emitted `dist/go/migrations/NNN_<feature>_<resource>*.sql`. |
 | `WEBHOOK-EMIT-PREDICATE-FIELD-001` | error | `correctness/webhook_emit_predicate_field_001.rs` | Webhook `emits ... when <path> = ...` path doesn't resolve against the webhook's payload contract. |
+
+## Compose
+
+Source: [`crates/lazuli_doctor/src/compose/`](../../crates/lazuli_doctor/src/compose/). The `query.compose` composite-read codes (proposal `ir-composite-read-primitive-2026-05-29.md` §7, cell W3). Six error-tier correctness/security codes make a malformed composite read a build-time failure; two warning-tier codes are determinism/hygiene nudges. Every rule reads the resolved `ir::ComposeQuery` off the lowered feature (the `COMPOSE-JOIN-PATH-001` cross-feature resolution reads the Module graph) — never the SQL text. The symmetric `VOCAB-SQL-COMPOSABLE-001` lives under `vocab/` (it nudges from the `query.sql` side).
+
+| Code | Severity | Anchor | Summary |
+|---|---|---|---|
+| `COMPOSE-JOIN-PATH-001` | error | `compose/join_path_001.rs` | A `join <fk.path>` segment is not a declared FK relation on the prior resource, resolved against the Module graph (the cross-feature hops W2 trusts/defers). |
+| `COMPOSE-PROJECTION-SOURCE-001` | error | `compose/projection_source_001.rs` | A projection `self.<col>` / `<alias>.<col>` names a column with no resolvable source on its root/joined resource. |
+| `COMPOSE-SUBSELECT-RELATION-001` | error | `compose/subselect_relation_001.rs` | A subselect `related_by <fk.path>` does not correlate its child resource back to the compose root (wrong FK, or wrong landing resource). |
+| `COMPOSE-SUBSELECT-PREDICATE-FIELD-001` | error | `compose/subselect_predicate_field_001.rs` | A subselect `where`/`filter` references a field absent on the subselect resource, or uses a forbidden ordered operator (`<`/`>`); covers `in [...]` literal-set member field-typing. |
+| `COMPOSE-SCOPE-UNGROUNDED-001` | error | `compose/scope_ungrounded_001.rs` | A tenant-bearing root has its inherited tenant scope overridden (`scope_origin == Overridden`) with no policy — a cross-tenant leak. |
+| `COMPOSE-SUBSELECT-CATALOG-001` | error | `compose/subselect_catalog_001.rs` | A `count`/`exists`/`aggregate` sub-select declares `order` (the grouped/ordered-sub-list fingerprint); `order` is valid only on `latest`. |
+| `COMPOSE-NULLABILITY-MISMATCH-001` | warning | `compose/nullability_mismatch_001.rs` | A projection from an `optional` (LEFT) join or a `latest` sub-select maps to a non-optional return-record field. |
+| `COMPOSE-DEMOTABLE-TO-LIST-001` | warning | `compose/demotable_to_list_001.rs` | A `query.compose` with zero `join` and zero `subselect` should be a `query.list` (one canonical form). |
 
 ## Cross-feature contracts
 
@@ -173,6 +189,7 @@ Source: [`crates/lazuli_doctor/src/vocab/`](../../crates/lazuli_doctor/src/vocab
 | `VOCAB-MONEY-MULTI-CURRENCY-001` | warning | `vocab/vocab_money_multi_currency_001.rs` | Resource with 2+ `Money` fields and no per-field `<money>_currency: Currency` opt-out. |
 | `VOCAB-RESOURCE-WIDE-CLUSTER-001` | warning (strict) / info (production) | `vocab/vocab_resource_wide_cluster_001.rs` | Resource >K post-filter fields and ≥M sharing a leading/trailing snake-case token — candidate for record extraction. |
 | `VOCAB-SHADOW-RECORD-001` | warning | `vocab/vocab_shadow_record_001.rs` | Two declaration sites in one feature share ≥N `(name, type_ref)` pairs and ≥50% intersection — candidate for shared record. |
+| `VOCAB-SQL-COMPOSABLE-001` | warning | `vocab/vocab_sql_composable_001.rs` | A `query.sql` body is a pure FK-JOIN + scalar sub-select read (no `GROUP BY`/window/ordered/geo) — could be a checked `query.compose`. Heuristic nudge, never an error. |
 | `VOCAB-TESTS-MISSING-001` | warning | `vocab/vocab_tests_missing_001.rs` | Feature with resources / commands but zero inline `test` blocks anywhere. |
 | `VOCAB-UNION-001` | warning | `vocab/vocab_union_001.rs` | Enum-typed "kind" axis + optional fields prefixed by variant names — refactor to discriminated `union`. |
 | `VOCAB-UNION-002` | warning (strict) / error (production) | `vocab/vocab_union_002.rs` | Polymorphic FK shape (`target: <Enum> + target_id: ID`) — refactor to typed FKs per variant. |

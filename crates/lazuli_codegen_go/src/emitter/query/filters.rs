@@ -440,7 +440,7 @@ fn is_fk_field(field: &Field) -> bool {
     matches!(&field.type_ref, TypeRef::UserDefined(_))
 }
 
-fn effective_tenancy(feature: &Feature, resource: &Resource) -> Tenancy {
+pub(super) fn effective_tenancy(feature: &Feature, resource: &Resource) -> Tenancy {
     resource
         .tenancy
         .clone()

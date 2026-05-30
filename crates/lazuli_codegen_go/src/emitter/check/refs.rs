@@ -282,6 +282,10 @@ fn collect_query_refs(query: &Query, feature: &str, refs: &mut Vec<RefUse>) {
             }
             collect_type_ref(&query.returns, feature, &site, refs);
         }
+        // query.compose: W3/W5 — ref collection over the composite read's
+        // root/joins/projections/subselects (FK-path + projection-source
+        // resolution) lands with the compose analyzer + doctor cells.
+        Query::Compose(_) => {}
     }
 }
 

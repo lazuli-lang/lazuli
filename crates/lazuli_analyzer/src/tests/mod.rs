@@ -15,4 +15,5 @@ mod conventions_owner_scope_synth_tests;
 mod conventions_unknown_diagnostic_tests;
 mod core;
 mod field_constraint_lowering_tests;
+mod query_compose_lowering_tests;
 mod surface_lowering_tests;

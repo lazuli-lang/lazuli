@@ -1,0 +1,80 @@
+# Trimmed from production hostpoint app/features/messaging/messaging.lzi.
+# Carries only the Chat / ChatMessage resources + the ChatListEntry record +
+# the `query.compose list_chat_inbox` that replaces the hand-written
+# `messaging/handlers/list_chat_inbox.go` composite read.
+#
+# Dropped from the real feature for this POC (not needed to prove the
+# compose lowering): WebPushSubscription, NotificationDelivery, the
+# send/mark/notification commands, MessageKind/DeliveryStatus/DeliveryChannel
+# enums, the `transaction` FK on Chat, and the translation catalog.
+feature messaging
+  purpose "Mensageria entre viajante e anfitriã: chat assíncrono."
+
+  defaults
+    tenancy org
+
+  uses org
+  uses account
+
+  domain
+    resource Chat
+      org: Org required
+      participant_a: User required
+      participant_b: User required
+      last_message_at: DateTime optional = nil
+      created_at: DateTime required
+
+    resource ChatMessage
+      org: Org required
+      chat: Chat required
+      sender: User required
+      body: Text required validate utf8_safe validate max_size: 5000
+      read_at: DateTime optional = nil
+      created_at: DateTime required
+
+    # Denormalized chat list item — the one-round-trip inbox row. Mirrors the
+    # real ChatListEntry, trimmed of the property_* columns this POC slice
+    # does not model (Hostpoint binds those from the operations feature).
+    record ChatListEntry
+      chat_id: ID required
+      counterpart_user_id: ID optional
+      counterpart_name: Text optional
+      last_message_preview: Text optional
+      last_message_at: DateTime optional
+      unread_count: Integer required = 0
+
+    # The migration target: the declarative equivalent of
+    # ListChatInbox (handler + test + RegisterFn + @fn decl). A tenant-scoped
+    # root (Chat, tenancy org → the `org_id` predicate is GENERATED, not
+    # hand-written), an FK-path JOIN to the counterpart User, a `latest`
+    # sub-select for the last-message preview, and a `count` sub-select for
+    # the unread tally. Inherits tenancy scope (no `scope override`) so
+    # COMPOSE-SCOPE-UNGROUNDED-001 stays silent.
+    query.compose list_chat_inbox
+      from Chat
+      join chat.participant_b as counterpart optional
+
+      subselect last_message_preview = latest body of ChatMessage
+        related_by chat_message.chat
+        order created_at desc
+      subselect last_message_at = latest created_at of ChatMessage
+        related_by chat_message.chat
+        order created_at desc
+      subselect unread_count = count ChatMessage
+        related_by chat_message.chat
+        where read_at = nil
+
+      select
+        chat_id              = self.id
+        counterpart_user_id  = counterpart.id
+        counterpart_name     = counterpart.name
+        last_message_preview = last_message_preview
+        last_message_at      = last_message_at
+        unread_count         = unread_count
+
+      order last_message_at desc
+      policy @policy.authenticated
+      returns ChatListEntry
+
+  policies
+    authenticated: @scope.authenticated

@@ -103,6 +103,29 @@ pub(crate) fn semantic_type_unknown_diagnostics_for_syntax_feature(
                     &mut diagnostics,
                 );
             }
+            // query.compose: W2/W3 — params carry real type_text, so the
+            // unknown-semantic-type text scan covers compose params + the
+            // optional `returns` generated-record name.
+            lazuli_syntax::QueryDecl::Compose(query) => {
+                for param in &query.params {
+                    push_unknown_semantic_type_text(
+                        path,
+                        source,
+                        &param.type_text,
+                        param.span.start,
+                        &mut diagnostics,
+                    );
+                }
+                if let Some(returns) = &query.returns {
+                    push_unknown_semantic_type_text(
+                        path,
+                        source,
+                        returns,
+                        query.span.start,
+                        &mut diagnostics,
+                    );
+                }
+            }
         }
     }
 

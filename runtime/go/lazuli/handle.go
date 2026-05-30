@@ -1242,6 +1242,22 @@ func readCtx(ctx *Ctx, path string) (any, error) {
 	}
 }
 
+// CtxValue resolves a canonical ctx dotted path (e.g. "tenant.org_id",
+// "user.id", "actor.user_id") to its value, for the GENERATED `query.compose`
+// SQLArgsCtx bind projection. It delegates to the same `readCtx` resolver the
+// filter/binding sources use, so a compose's generated tenant/actor binds stay
+// byte-consistent with `query.list` scope resolution. Unknown or
+// unauthenticated paths resolve to nil (the bind becomes NULL); the policy
+// gate + the generated WHERE predicate are the fail-closed guards, not this
+// accessor. Codegen-only entry point.
+func CtxValue(ctx *Ctx, path string) any {
+	v, err := readCtx(ctx, path)
+	if err != nil {
+		return nil
+	}
+	return v
+}
+
 // pascalCase converts snake_case to PascalCase ("first_name" -> "FirstName").
 func pascalCase(s string) string {
 	parts := strings.Split(s, "_")

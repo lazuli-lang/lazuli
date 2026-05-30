@@ -424,5 +424,8 @@ fn query_name_and_cache(q: &lazuli_ir::Query) -> (&str, Option<&lazuli_ir::Query
         lazuli_ir::Query::List(l) => (l.name.as_str(), l.cache.as_ref()),
         lazuli_ir::Query::Lookup(l) => (l.name.as_str(), None),
         lazuli_ir::Query::Sql(s) => (s.name.as_str(), s.cache.as_ref()),
+        // query.compose: W5 — ComposeQuery has no `cache` slot yet (a cache
+        // decorator on compose is deferred), so it behaves like Lookup here.
+        lazuli_ir::Query::Compose(c) => (c.name.as_str(), None),
     }
 }

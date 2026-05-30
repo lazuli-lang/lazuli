@@ -423,6 +423,7 @@ pub(super) fn parse_feature_skeleton(
             || trimmed.starts_with("query.lookup ")
             || trimmed.starts_with("query.sql ")
             || trimmed.starts_with("query.view ")
+            || trimmed.starts_with("query.compose ")
         {
             let (mut parsed, next) = query::parse_query_decl(lines, i)?;
             attach_public_contract_to_query(line, &mut pending_contract, &mut parsed)?;

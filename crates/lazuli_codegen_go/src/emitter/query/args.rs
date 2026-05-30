@@ -169,6 +169,20 @@ pub(super) fn register_imports_for_query(
                 imports.add("time");
             }
         }
+        // query.compose (W5) — register imports for the typed args struct
+        // (params) and the generated return-record fields. The record's Go
+        // types are inferred from the root/joined resource columns the
+        // `select` projections read, so a projected `DateTime`/`Money`/
+        // cross-feature FK column pulls its package (e.g. `time`) into scope
+        // exactly as the resource struct emitter would.
+        Query::Compose(q) => {
+            for slot in &q.params {
+                register_imports_for_query_arg_type(&slot.type_ref, ctx, imports);
+            }
+            for type_ref in super::compose::compose_projection_import_types(q, feature) {
+                register_imports_for_type(&type_ref, ctx, imports);
+            }
+        }
     }
 }
 

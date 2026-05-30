@@ -1,4 +1,4 @@
-//! Diagnostics for the `query.*` family (list / lookup / sql / view).
+//! Diagnostics for the `query.*` family (list / lookup / sql / view / compose).
 //!
 //! Largest single Lazuli vocabulary surface in canonical source — every
 //! read path is declared here. Sub-concerns split per shape:

@@ -64,6 +64,11 @@ pub fn emit_register_file(source_label: &str, feature: &Feature) -> Option<Strin
                 lookup_var_name(&q.name, &axis)
             }
             Query::Sql(q) => lower_camel(&q.name),
+            // query.compose: W5 — RegisterFn var name. Default to the
+            // lower-camel name (matching the sql shape) so this collection
+            // pass stays panic-free for features that mix a compose query
+            // with normal queries; the real registration lands in W5.
+            Query::Compose(q) => lower_camel(&q.name),
         };
         var_refs.push(format!("&{var}"));
     }

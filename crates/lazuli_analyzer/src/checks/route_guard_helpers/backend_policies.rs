@@ -104,6 +104,8 @@ pub(super) fn query_policy(query: &Query) -> &PolicyRef {
         Query::List(q) => &q.policy,
         Query::Lookup(q) => &q.policy,
         Query::Sql(q) => &q.policy,
+        // query.compose: W2/W3 — policy accessor is real (field exists).
+        Query::Compose(q) => &q.policy,
     }
 }
 

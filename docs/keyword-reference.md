@@ -30,7 +30,7 @@ Columns:
 
 <!-- BEGIN GENERATED BODY -->
 
-_Generated from 675 capability rows across the `lazuli_keywords` registry._
+_Generated from 687 capability rows across the `lazuli_keywords` registry._
 
 ## `.lzi` — feature source
 
@@ -137,7 +137,7 @@ _Generated from 675 capability rows across the `lazuli_keywords` registry._
 | `imports` | `keyword.control.statement.lazuli` | `keyword` | — | Declares feature imports. | — |
 | `invariants` | `keyword.control.section.lazuli` | `keyword` | — | Declares the invariants block. | `INVARIANT-PREDICATE-INVALID` |
 | `job` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a background job. | `JOB-DECLARATIVE-BODY-UNSUPPORTED-001` |
-| `knowledge` | `keyword.control.statement.lazuli` | `keyword` | — | Feature knowledge sector (iron-hand context). | `VOCAB-KNOWLEDGE-DANGLING-CITE-001`<br>`VOCAB-KNOWLEDGE-DUP-TOPIC-001`<br>`VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001`<br>`VOCAB-KNOWLEDGE-STALE-001`<br>`VOCAB-KNOWLEDGE-UNGATED-WRITE-001` |
+| `knowledge` | `keyword.control.statement.lazuli` | `keyword` | — | Feature knowledge sector (iron-hand context). | `VOCAB-KNOWLEDGE-DANGLING-CITE-001`<br>`VOCAB-KNOWLEDGE-DUP-TOPIC-001`<br>`VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001`<br>`VOCAB-KNOWLEDGE-SINGLE-FEATURE-001`<br>`VOCAB-KNOWLEDGE-STALE-001`<br>`VOCAB-KNOWLEDGE-UNGATED-WRITE-001` |
 | `mcp_server` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares an MCP server surface. | — |
 | `non_goals` | `keyword.control.section.lazuli` | `keyword` | — | Feature non-goals (iron-hand context). | `VOCAB-CONTEXT-NONGOALS-001` |
 | `notification` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a notification. | — |
@@ -147,9 +147,10 @@ _Generated from 675 capability rows across the `lazuli_keywords` registry._
 | `policies` | `keyword.control.section.lazuli` | `keyword` | — | Declares the policy block. | `POLICY-PREDICATE-001` |
 | `poller` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a polling integration. | `POLLER-CURSOR-MISSING-001`<br>`POLLER-DUAL-SCHEDULER-001`<br>`POLLER-HANDLER-ORPHAN-001`<br>`POLLER-IDEMPOTENCY-ATTEMPTS-MISSING-001`<br>`POLLER-MAX-RETRIES-UNBOUNDED-001`<br>`POLLER-NO-TERMINAL-001`<br>`POLLER-QUIRK-CATALOG-MISMATCH-001`<br>`POLLER-TERMINAL-FIELD-ENUM-001`<br>`POLLER-TERMINAL-NO-EMIT-001`<br>`POLLER-TICK-TOO-FAST-001` |
 | `purpose` | `keyword.control.statement.lazuli` | `keyword` | — | Feature purpose (iron-hand context). | `VOCAB-CONTEXT-PURPOSE-001` |
+| `query.compose` | `keyword.control.declaration.structural.lazuli` | `keyword` | `.` (dotted kind) | Declares a composite read (root resource + FK-path JOIN projection + closed sub-select catalog). | `COMPOSE-DEMOTABLE-TO-LIST-001`<br>`COMPOSE-JOIN-PATH-001`<br>`COMPOSE-NULLABILITY-MISMATCH-001`<br>`COMPOSE-PROJECTION-SOURCE-001`<br>`COMPOSE-SCOPE-UNGROUNDED-001`<br>`COMPOSE-SUBSELECT-CATALOG-001`<br>`COMPOSE-SUBSELECT-PREDICATE-FIELD-001`<br>`COMPOSE-SUBSELECT-RELATION-001` |
 | `query.list` | `keyword.control.declaration.structural.lazuli` | `keyword` | `.` (dotted kind) | Declares a list query (collection projection). | `DUPLICATE-QUERY-NAME-001`<br>`MISSING-POLICY-ON-QUERY-001` |
 | `query.lookup` | `keyword.control.declaration.structural.lazuli` | `keyword` | `.` (dotted kind) | Declares a lookup query (single-record fetch). | — |
-| `query.sql` | `keyword.control.declaration.structural.lazuli` | `keyword` | `.` (dotted kind) | Declares a raw-SQL query. | — |
+| `query.sql` | `keyword.control.declaration.structural.lazuli` | `keyword` | `.` (dotted kind) | Declares a raw-SQL query. | `VOCAB-SQL-COMPOSABLE-001` |
 | `query.view` | `keyword.control.declaration.structural.lazuli` | `keyword` | `.` (dotted kind) | Declares a database-view-backed query. | — |
 | `record` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a value-object record. | `VOCAB-SHADOW-RECORD-001` |
 | `refs` | `keyword.control.section.lazuli` | `keyword` | — | Declares cross-feature references. | `CROSS-FEATURE-CONTRACT-MISSING-001`<br>`CROSS-FEATURE-CONTRACT-VERSION-DRIFT-001`<br>`CROSS-FEATURE-WORKFLOW-SPAN-001` |
@@ -264,13 +265,19 @@ _Generated from 675 capability rows across the `lazuli_keywords` registry._
 | keyword / literal | scope | semantic token | sigil | hover | produces |
 | --- | --- | --- | --- | --- | --- |
 | `filters` | `keyword.control.section.lazuli` | `keyword` | — | Filter predicate block. | — |
+| `join` | `keyword.control.statement.lazuli` | `keyword` | — | query.compose FK-path JOIN (`join <fk.path> [as <alias>] [optional]`). | — |
 | `modifier` | `keyword.control.statement.lazuli` | `keyword` | — | Query modifier reference. | — |
+| `negate` | `keyword.control.statement.lazuli` | `keyword` | — | query.compose `exists` sub-select → NOT EXISTS anti-join. | — |
 | `order` | `keyword.control.statement.lazuli` | `keyword` | — | Default ordering. | — |
 | `params` | `keyword.control.section.lazuli` | `keyword` | — | Query parameter block. | — |
+| `related_by` | `keyword.control.statement.lazuli` | `keyword` | — | query.compose sub-select correlation FK path to root. | — |
 | `scope` | `keyword.control.section.lazuli` | `keyword` | — | Query scope block. | — |
 | `search` | `keyword.control.statement.lazuli` | `keyword` | — | Full-text search declaration. | — |
+| `select` | `keyword.control.section.lazuli` | `keyword` | — | query.compose projection block (`<field> = self.<col> \| <alias>.<col> \| <subselect>`). | — |
 | `source` | `keyword.control.statement.lazuli` | `keyword` | — | Query source resource. | — |
 | `sql` | `keyword.control.statement.lazuli` | `keyword` | — | Raw SQL body. | — |
+| `subselect` | `keyword.control.section.lazuli` | `keyword` | — | query.compose closed sub-select (`count`/`exists`/`latest`/`aggregate`). | — |
+| `where` | `keyword.control.statement.lazuli` | `keyword` | — | query.compose sub-select closed predicate (scalar literals + `in [...]`). | — |
 
 ### Job
 
@@ -818,9 +825,12 @@ _Generated from 675 capability rows across the `lazuli_keywords` registry._
 | keyword / literal | scope | semantic token | sigil | hover | produces |
 | --- | --- | --- | --- | --- | --- |
 | `and` | `keyword.operator.logical.lazuli` | `operator` | — | — | — |
+| `avg` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
 | `behind` | `keyword.operator.plan-and-gate.lazuli` | `operator` | — | — | — |
 | `between` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
 | `contains` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
+| `count` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
+| `count_distinct` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
 | `covers_pii` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
 | `eligible_when` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
 | `excludes` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
@@ -831,6 +841,7 @@ _Generated from 675 capability rows across the `lazuli_keywords` registry._
 | `in` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
 | `includes` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
 | `is` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
+| `latest` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
 | `length` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
 | `level` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
 | `list_of` | `support.function.type-constructor.lazuli` | `type` | — | `list_of` collection type constructor. | — |
@@ -845,6 +856,7 @@ _Generated from 675 capability rows across the `lazuli_keywords` registry._
 | `quota` | `keyword.operator.plan-and-gate.lazuli` | `operator` | — | — | — |
 | `ref` | `support.function.type-constructor.lazuli` | `type` | — | `ref` reference type constructor. | — |
 | `required_when` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
+| `sum` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
 | `when` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
 | `when_denied` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
 

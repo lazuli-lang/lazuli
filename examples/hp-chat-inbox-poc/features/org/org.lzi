@@ -1,0 +1,8 @@
+# Trimmed from production hostpoint app/features/org/org.lzi.
+# Org is the tenant model — provides the `tenancy org` axis that the
+# compose moat reads as `org_id`.
+feature org
+  domain
+    resource Org
+      name: Text required
+      slug: Text required unique
