@@ -32,6 +32,24 @@ fn every_semantic_type_resolves_to_a_builtin() {
     }
 }
 
+/// SPEC-04 — the closed core semantic catalog is spelled BARE (canonical), and
+/// the bare form must resolve identically to the deprecated `@semantic.X` alias.
+#[test]
+fn every_semantic_type_resolves_bare_like_its_sigil_form() {
+    for name in SEMANTIC_TYPES {
+        let bare = type_ref_from_syntax_public(name);
+        assert!(
+            matches!(bare, TypeRef::Builtin(_)),
+            "bare semantic `{name}` must resolve to a Builtin (SPEC-04 @ off types)",
+        );
+        assert_eq!(
+            bare,
+            type_ref_from_syntax_public(&format!("@semantic.{name}")),
+            "bare `{name}` must resolve identically to `@semantic.{name}`",
+        );
+    }
+}
+
 #[test]
 fn every_alias_resolves_like_its_canonical() {
     for (alias, canonical) in SCALAR_ALIASES {

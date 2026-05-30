@@ -131,25 +131,35 @@ pub(crate) fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
     if let Some(money) = parse_semantic_money_type(ty) {
         return ir::TypeRef::Builtin(money);
     }
-    // Phase L Tier 4 follow-up — typed `@semantic.*` shorthand for the
-    // closed catalog (Email/Phone/Url/Uuid). Other `@semantic.<X>`
-    // names still fall through to `UserDefined` so the language can
-    // surface "unknown semantic" diagnostics rather than silently
-    // accepting them.
+    // SPEC-04 — the closed CORE semantic catalog is spelled BARE (a reserved
+    // PascalCase type name, like `Text`); the `@semantic.X` form is the
+    // deprecated alias `lazuli fmt` normalizes. The sigil survives only for
+    // OPEN plugin-declared scalars (`@semantic.TaxID`), which still fall
+    // through to `UserDefined` here. Both spellings resolve to the same IR.
     match ty {
-        "@semantic.Email" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticEmail),
-        "@semantic.Phone" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticPhone),
-        "@semantic.Url" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticUrl),
-        "@semantic.Uuid" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticUuid),
-        "@semantic.Currency" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticCurrency),
-        "@semantic.GeoPoint" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticGeoPoint),
-        "@semantic.HexColor" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticHexColor),
-        "@semantic.Percentage" => {
+        "Email" | "@semantic.Email" => {
+            return ir::TypeRef::Builtin(ir::BuiltinType::SemanticEmail);
+        }
+        "Phone" | "@semantic.Phone" => {
+            return ir::TypeRef::Builtin(ir::BuiltinType::SemanticPhone);
+        }
+        "Url" | "@semantic.Url" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticUrl),
+        "Uuid" | "@semantic.Uuid" => return ir::TypeRef::Builtin(ir::BuiltinType::SemanticUuid),
+        "Currency" | "@semantic.Currency" => {
+            return ir::TypeRef::Builtin(ir::BuiltinType::SemanticCurrency);
+        }
+        "GeoPoint" | "@semantic.GeoPoint" => {
+            return ir::TypeRef::Builtin(ir::BuiltinType::SemanticGeoPoint);
+        }
+        "HexColor" | "@semantic.HexColor" => {
+            return ir::TypeRef::Builtin(ir::BuiltinType::SemanticHexColor);
+        }
+        "Percentage" | "@semantic.Percentage" => {
             return ir::TypeRef::Builtin(ir::BuiltinType::SemanticPercentage);
         }
-        // Bare `@semantic.Money` (no args) is canonical-pilot reality:
-        // single-currency app, defaults to BRL.
-        "@semantic.Money" => {
+        // Bare `Money` (no args) is canonical-pilot reality: single-currency
+        // app, defaults to BRL.
+        "Money" | "@semantic.Money" => {
             return ir::TypeRef::Builtin(ir::BuiltinType::SemanticMoney {
                 currency: ir::CurrencyCode::BRL,
             });
