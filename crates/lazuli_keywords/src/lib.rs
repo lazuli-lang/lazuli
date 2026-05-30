@@ -570,9 +570,60 @@ pub fn is_reference_namespace(ns: &str) -> bool {
     REFERENCE_NAMESPACES.contains(&ns)
 }
 
+/// The closed scalar type catalog (bare PascalCase). Single source for the
+/// generated catalog docs and the analyzer's membership gate. Authored as the
+/// canonical spelling only — aliases live in [`SCALAR_ALIASES`].
+pub const SCALAR_TYPES: &[&str] =
+    &["ID", "Text", "Boolean", "Integer", "Decimal", "Date", "DateTime", "JSON"];
+
+/// The closed semantic-scalar catalog. Today these are spelled `@semantic.<X>`;
+/// SPEC-04 retires the sigil and they become bare reserved type names (which is
+/// why they live in the type catalog, not the decorator rows).
+pub const SEMANTIC_TYPES: &[&str] = &[
+    "Email", "Phone", "Url", "Uuid", "Currency", "GeoPoint", "HexColor", "Percentage", "Money",
+];
+
+/// Non-canonical scalar aliases the analyzer historically resolved **silently**
+/// (the bug SPEC-01 ends): `Int`->`Integer`, `Bool`->`Boolean`, etc. They map
+/// alias -> canonical so `VOCAB-SCALAR-ALIAS-001` can name the fix and
+/// `lazuli fmt` can normalize. Reject+autocorrect, never silently tolerate.
+pub const SCALAR_ALIASES: &[(&str, &str)] = &[
+    ("Id", "ID"),
+    ("String", "Text"),
+    ("Bool", "Boolean"),
+    ("Int", "Integer"),
+    ("Float", "Decimal"),
+    ("Json", "JSON"),
+];
+
+/// The canonical scalar spelling for `name` if it is a known alias, else `None`.
+pub fn canonical_scalar(name: &str) -> Option<&'static str> {
+    SCALAR_ALIASES
+        .iter()
+        .find(|(alias, _)| *alias == name)
+        .map(|(_, canonical)| *canonical)
+}
+
 #[cfg(test)]
 mod catalog_tests {
     use super::*;
+
+    #[test]
+    fn scalar_and_semantic_catalogs_are_disjoint_and_canonical() {
+        for s in SEMANTIC_TYPES {
+            assert!(!SCALAR_TYPES.contains(s), "{s} is in both scalar and semantic");
+        }
+        for (alias, canonical) in SCALAR_ALIASES {
+            assert!(
+                SCALAR_TYPES.contains(canonical),
+                "alias {alias} maps to {canonical}, which is not a canonical scalar",
+            );
+            assert!(
+                !SCALAR_TYPES.contains(alias) && !SEMANTIC_TYPES.contains(alias),
+                "alias {alias} must not also be a canonical type name",
+            );
+        }
+    }
 
     /// Registry `@`-decorators that are NOT `.target` reference namespaces:
     /// bare field flags + the `@resume` lifecycle flow-sigil.
