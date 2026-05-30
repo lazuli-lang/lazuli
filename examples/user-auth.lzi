@@ -73,9 +73,9 @@ feature user
   policies
     register: @scope.public
     login: @scope.public
-    read: @scope.self, @role.admin
-    update: @scope.self, @role.admin
-    delete: @role.admin
+    view: @scope.self, @role.admin
+    edit: @scope.self, @role.admin
+    remove: @role.admin
 
     fields User
       email
@@ -143,7 +143,7 @@ feature user
     route id: ID
     input
       totp_code: Text
-    policy @policy.update
+    policy @policy.edit
     rate_limit "10 per minute per user"
     updates User
       mfa_enabled = true

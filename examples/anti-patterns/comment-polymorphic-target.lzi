@@ -91,16 +91,16 @@ feature comment
       target_id: ID
 
   policies
-    create: @scope.same_org
-    update: @scope.owner, @role.admin
-    delete: @scope.owner, @role.admin
-    read: @scope.same_org
+    author: @scope.same_org
+    edit: @scope.owner, @role.admin
+    remove: @scope.owner, @role.admin
+    view: @scope.same_org
 
   command create_for_issue
     input
       issue_id: ID
       body: Text
-    policy @policy.create
+    policy @policy.author
     rate_limit "60 per minute per user"
     creates Comment
       target = CommentTarget.issue
@@ -113,7 +113,7 @@ feature comment
     input
       customer_id: ID
       body: Text
-    policy @policy.create
+    policy @policy.author
     rate_limit "60 per minute per user"
     creates Comment
       target = CommentTarget.customer

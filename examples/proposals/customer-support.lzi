@@ -24,7 +24,7 @@ feature customer_support
     policy_for jobs, webhooks: @actor.system
 
   policies
-    read: @role.support, @role.admin, @scope.same_org
+    view: @role.support, @role.admin, @scope.same_org
     write: @role.support_lead, @role.admin, @scope.same_org
 
   enum Intent
@@ -36,7 +36,7 @@ feature customer_support
   agent classify_intent
     input
       message: Text required
-    policy @policy.read
+    policy @policy.view
     output discriminator Intent
     model @llm.classifier
     temperature 0
@@ -64,7 +64,7 @@ feature customer_support
   agent summarize_customer
     input
       customer_id: Customer.ID required
-    policy @policy.read
+    policy @policy.view
     output stream Text
     model @llm.default
     temperature 0

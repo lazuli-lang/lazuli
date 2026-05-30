@@ -4,7 +4,7 @@ surface customer web
   uses experience customer
 
   audience admin
-    policy @policy.update
+    policy @policy.edit
 
     view list Table
       columns name, email, status, tier, score, owner, created_at
@@ -71,7 +71,7 @@ surface customer_audit web
   uses experience customer_audit
 
   audience admin
-    policy @policy.read
+    policy @policy.view
 
     view ledger Table
       columns operation, actor, occurred_at

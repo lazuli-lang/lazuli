@@ -4,7 +4,7 @@ surface customer mobile
   uses experience customer
 
   audience sales
-    policy @policy.update
+    policy @policy.edit
 
     view list List
       fields name, status, tier

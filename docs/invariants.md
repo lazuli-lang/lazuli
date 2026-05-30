@@ -311,20 +311,32 @@ source that only fails later.
 
 ## Policies
 
-- Policy atoms in `policies` are namespaced by semantic category: `@role.*`,
-  `@scope.*`, or `@actor.*`.
-- Feature-local policy categories are referenced with `@policy.*`.
-- `policy @policy.update` resolves inside the current feature unless a
-  feature-qualified policy reference is used.
-- Commands and workflows use `policy @policy.*`; put direct `@role.*`,
-  `@scope.*`, and `@actor.*` atoms in the `policies` dictionary. Jobs,
-  webhooks, escape routes, and defaults may use direct atoms where appropriate.
-- Do not replace canonical command/workflow policy references with bare
-  `policy create`/`policy update`. The `@policy.*` prefix is deliberate: it
-  distinguishes feature-local authorization categories from write effects,
-  verbs, actors, roles, and scopes, and gives tools a clear syntactic boundary.
+- **One uniform rule across every callable (SPEC-07 A).** A `policy <ref>`
+  reference uses the SAME grammar at command, workflow, query, api, job,
+  webhook, escape route, lifecycle transition, view/route guard, and
+  `policy_for` default. A reference is well-formed iff it is (a)
+  `@policy.<category>` resolving to a feature-local category, (b) a namespaced
+  catalog atom `@role.*` / `@scope.*` / `@actor.*`, or (c) a structured policy
+  expression. There is no per-construct table — the old "commands/workflows
+  must use `@policy.*` while jobs/webhooks/escape-routes/defaults may inline
+  atoms" asymmetry is retired.
+- **Two kinds of reference, named (SPEC-07 B, per SPEC-04's `@`-doctrine).**
+  `@policy.<category>` is the **feature-local named reference** (resolves to a
+  `policies` block in the current feature unless feature-qualified). `@role` /
+  `@scope` / `@actor` are **app-level catalog atoms** (resolve against the
+  registry identity catalog). Both stay on the identity/authorization axis; the
+  registry records the kind via distinct scope leaves.
+- **No CRUD-named categories (SPEC-07 C).** A `policies` category must NOT
+  shadow a command effect verb — neither the plural `creates`/`updates`/
+  `deletes`/`reads` nor the bare-singular `create`/`update`/`delete`/`read`
+  (which read as a write *effect* at a `policy @policy.<x>` site). Use semantic
+  authorization names: `author` / `view` / `edit` / `remove` / `manage`.
+  Enforced by `POLICY-CATEGORY-SHADOWS-EFFECT-001` (warning under strict for the
+  migration window, error under iron-hand + production). The `@policy.` prefix is
+  therefore the SPEC-04 named-reference marker — NOT a disambiguation hack
+  papering over the collision.
 - Commands declare `policy` explicitly. There is no implicit
-  `creates -> @policy.create` or `updates -> @policy.update` rule.
+  `creates -> @policy.author` rule.
 - Workflow `policy` is a transition default. A transition uses
   `requires @policy.<name>` for stronger authority; transition-level `policy`
   is not canonical v0.

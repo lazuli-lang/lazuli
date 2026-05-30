@@ -47,14 +47,14 @@ feature queries
         transition complete
           from processing
           to completed
-          policy @policy.update
+          policy @policy.edit
           audit default
           emits query_completed, query_status_changed
 
         transition fail
           from processing
           to failed
-          policy @policy.update
+          policy @policy.edit
           audit default
           emits query_failed, query_status_changed
 
@@ -154,7 +154,7 @@ feature queries
     # NOTE: when plan-and-gate vocab lands, these become gated by
     # billing.subscription.plan — see GAPS.md.
     start_query: @scope.same_company
-    update: @scope.same_company
+    edit: @scope.same_company
     read_query: @scope.same_company
     download_results: @scope.same_company
 

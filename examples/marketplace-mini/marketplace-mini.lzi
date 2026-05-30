@@ -8,8 +8,8 @@ feature account
       retention 7y then anonymize
 
   policies
-    read: @scope.self, @role.admin
-    update: @scope.self, @role.admin
+    view: @scope.self, @role.admin
+    edit: @scope.self, @role.admin
 
     fields User
       email

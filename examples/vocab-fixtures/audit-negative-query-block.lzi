@@ -29,11 +29,11 @@ feature audit_negative_query_block
       paginate 25
 
   policies
-    read: @scope.public
+    view: @scope.public
 
   api published
     method GET
     path "/published"
     output Publication
-    policy @policy.read
+    policy @policy.view
     handler @fn.list_published

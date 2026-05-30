@@ -66,15 +66,15 @@ feature org
       role: MembershipRole
 
   policies
-    create: @scope.authenticated
-    read: @scope.org_member
-    update: @role.org_admin
-    delete: @role.org_owner
+    author: @scope.authenticated
+    view: @scope.org_member
+    edit: @role.org_admin
+    remove: @role.org_owner
     invite: @role.org_admin
 
   command create
     input name, slug
-    policy @policy.create
+    policy @policy.author
     rate_limit "30 per hour per user"
     creates Org
       name = input.name

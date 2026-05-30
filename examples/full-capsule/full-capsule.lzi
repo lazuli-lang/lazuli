@@ -86,7 +86,7 @@ feature customer
         transition activate
           from lead
           to active
-          policy @policy.update
+          policy @policy.edit
           emits customer_activated, customer_status_changed
           tests
             allows from lead
@@ -98,7 +98,7 @@ feature customer
         transition pause
           from active
           to paused
-          policy @policy.update
+          policy @policy.edit
           emits customer_paused, customer_status_changed
           tests
             allows from active
@@ -108,7 +108,7 @@ feature customer
         transition resume
           from paused
           to active
-          policy @policy.update
+          policy @policy.edit
           emits customer_status_changed
           tests
             allows from paused
@@ -118,8 +118,8 @@ feature customer
         transition archive
           from active
           to archived
-          policy @policy.update
-          requires @policy.delete
+          policy @policy.edit
+          requires @policy.remove
           emits customer_archived, customer_status_changed
           previously migrated deactivate
           tests
@@ -298,11 +298,11 @@ feature customer
 
   policies
     capture_lead: @scope.public
-    create: @role.admin, @role.sales
-    update: @role.admin, @role.sales
+    author: @role.admin, @role.sales
+    edit: @role.admin, @role.sales
       when_denied @translation.customer_update_admin_only
-    delete: @role.admin
-    read: @scope.same_org
+    remove: @role.admin
+    view: @scope.same_org
     global_read: @role.admin
 
     fields Customer
@@ -402,7 +402,7 @@ feature customer
       email: Email @pii.contact required
       tier: CustomerTier required
       source: CustomerSource required
-    policy @policy.create
+    policy @policy.author
     rate_limit "30 per hour per ip"
     creates Customer
       name = input.name
@@ -422,7 +422,7 @@ feature customer
     input
       owner_id: User.ID required
     let resolved_owner = user.query.by_id(id: input.owner_id)
-    policy @policy.update
+    policy @policy.edit
     rate_limit "60 per minute per user"
     audit actor, target.id, input.owner_id
       emit_to audit_log
@@ -448,7 +448,7 @@ feature customer
     route id: ID
     input
       tier: CustomerTier required
-    policy @policy.update
+    policy @policy.edit
     rate_limit "30 per minute per user"
     updates Customer
       tier = input.tier
@@ -461,7 +461,7 @@ feature customer
     input
       owner_id: User.ID required
     let resolved_owner = user.query.by_id(id: input.owner_id)
-    policy @policy.update
+    policy @policy.edit
     rate_limit "30 per minute per user"
     # The command owns the write; the lifecycle owns the state edge.
     # Backend gates on `Customer.status == activate.from` (lead), runs the
@@ -478,7 +478,7 @@ feature customer
     route id: ID
     input
       reason: Text required
-    policy @policy.update
+    policy @policy.edit
     rate_limit "10 per minute per user"
     # Multi-approver sign-off: a compliance reviewer then an admin must
     # approve in strict order; on timeout/denial the request escalates.
@@ -504,7 +504,7 @@ feature customer
     route id: ID
     input
       ordered_ids: JSON required
-    policy @policy.update
+    policy @policy.edit
     rate_limit "30 per minute per user"
     reorder CustomerNote by position
     invalidates
@@ -535,7 +535,7 @@ feature customer
       customer_id: Customer.ID required
       prompt: Text required
     context customer.query.by_id(id: input.customer_id)
-    policy @policy.read
+    policy @policy.view
     rate_limit "20 per hour per user"
     output stream Text
     model @llm.default
@@ -571,7 +571,7 @@ feature customer
   agent classify_intent
     input
       message: Text required
-    policy @policy.read
+    policy @policy.view
     rate_limit "60 per minute per user"
     output discriminator CustomerStatus
     model @llm.classifier
@@ -608,7 +608,7 @@ feature customer
 
   channel customer_activity
     tenant_from org
-    policy @policy.read
+    policy @policy.view
     payload CustomerActivityEvent
 
   extensions
@@ -695,8 +695,8 @@ feature customer_auth
 
   policies
     login: @scope.public
-    update: @scope.same_org
-    read: @scope.same_org
+    edit: @scope.same_org
+    view: @scope.same_org
 
     fields CustomerSession
       refresh_token_hash
@@ -753,7 +753,7 @@ feature customer_auth
       totp_code: Text required
     target customer.query.by_id(id: route.customer_id)
     validate @validator.verify_customer_totp(customer_id: route.customer_id, code: input.totp_code)
-    policy @policy.update
+    policy @policy.edit
     rate_limit "10 per minute per user"
     creates CustomerMfaConfig
       customer = target
@@ -847,16 +847,16 @@ feature customer_tags
       org_id: ID
 
   policies
-    create: @role.admin, @role.sales_ops
-    update: @role.admin, @role.sales_ops
-    delete: @role.admin
-    read: @scope.same_org
+    author: @role.admin, @role.sales_ops
+    edit: @role.admin, @role.sales_ops
+    remove: @role.admin
+    view: @scope.same_org
 
   command create_tag
     input
       name: Text required
       color: Text optional
-    policy @policy.create
+    policy @policy.author
     rate_limit "30 per minute per user"
     creates CustomerTag
       name = input.name
@@ -869,7 +869,7 @@ feature customer_tags
       tag_id: ID required
     target customer.query.by_id(id: input.customer_id)
     let resolved_tag = query.tag_by_id(id: input.tag_id)
-    policy @policy.update
+    policy @policy.edit
     rate_limit "60 per minute per user"
     creates CustomerTagAssignment
       customer = target
@@ -883,7 +883,7 @@ feature customer_tags
       customer_id: ID required
       tag_id: ID required
     target query.assignment_by_customer_tag(customer_id: input.customer_id, tag_id: input.tag_id)
-    policy @policy.update
+    policy @policy.edit
     rate_limit "60 per minute per user"
     deletes CustomerTagAssignment
     emits tag_assignment_removed
@@ -962,8 +962,8 @@ feature customer_import
 
   policies
     import: @role.admin, @role.sales_ops
-    read: @scope.same_org
-    delete: @role.admin
+    view: @scope.same_org
+    remove: @role.admin
 
   command upload
     input file
@@ -1083,8 +1083,8 @@ feature account
       retention forever then anonymize
 
   policies
-    read: @scope.same_org
-    update: @role.admin
+    view: @scope.same_org
+    edit: @role.admin
 
     fields User
       email
@@ -1141,4 +1141,4 @@ feature customer_audit
         allows when self.detail == nil
 
   policies
-    read: @role.admin, @role.compliance
+    view: @role.admin, @role.compliance

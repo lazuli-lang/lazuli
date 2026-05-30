@@ -87,10 +87,10 @@ feature crm
         title: Text
 
   policies
-    create: @role.admin, @role.sales
-    update: @role.admin, @role.sales
-    delete: @role.admin
-    read: @scope.same_org
+    author: @role.admin, @role.sales
+    edit: @role.admin, @role.sales
+    remove: @role.admin
+    view: @scope.same_org
 
     fields Customer
       name
@@ -104,7 +104,7 @@ feature crm
     input
       name: Text required
       email: Email @pii.contact required
-    policy @policy.create
+    policy @policy.author
     rate_limit "30 per hour per user"
     audit default
     creates Customer
@@ -118,7 +118,7 @@ feature crm
 
   command qualify_customer
     route id: ID
-    policy @policy.update
+    policy @policy.edit
     rate_limit "30 per minute per user"
     audit default
     updates Customer
@@ -130,7 +130,7 @@ feature crm
 
   command open_opportunity
     route id: ID
-    policy @policy.update
+    policy @policy.edit
     rate_limit "30 per minute per user"
     audit default
     updates Customer
@@ -142,7 +142,7 @@ feature crm
 
   command mark_won
     route id: ID
-    policy @policy.update
+    policy @policy.edit
     rate_limit "30 per minute per user"
     audit default
     updates Customer
@@ -154,7 +154,7 @@ feature crm
 
   command mark_lost
     route id: ID
-    policy @policy.update
+    policy @policy.edit
     rate_limit "30 per minute per user"
     audit default
     updates Customer
@@ -168,7 +168,7 @@ feature crm
     input
       customer_id: Customer.ID required
       title: Text required
-    policy @policy.create
+    policy @policy.author
     rate_limit "60 per hour per user"
     audit default
     creates Project

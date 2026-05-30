@@ -31,9 +31,9 @@ feature customer_sensitive
       key customer.id = params.customer_id
 
   policies
-    read: @scope.same_org
-    update: @role.admin, @role.finance_admin
-    delete: @role.admin
+    view: @scope.same_org
+    edit: @role.admin, @role.finance_admin
+    remove: @role.admin
 
     fields CustomerSensitiveProfile
       legal_name
@@ -59,7 +59,7 @@ feature customer_sensitive
       tax_id: Text
       annual_revenue: Money optional
     target query.by_customer(customer_id: route.customer_id)
-    policy @policy.update
+    policy @policy.edit
     rate_limit "30 per minute per user"
     audit default
     updates CustomerSensitiveProfile

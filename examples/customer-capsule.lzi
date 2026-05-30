@@ -36,13 +36,13 @@ feature customer
         transition activate
           from lead
           to active
-          policy @policy.update
+          policy @policy.edit
           emits customer_activated
 
         transition archive
           from active
           to archived
-          policy @policy.update
+          policy @policy.edit
           emits customer_archived
 
     constraints
@@ -77,14 +77,14 @@ feature customer
       event archived
 
   policies
-    create: @role.admin, @role.sales
-    update: @role.admin, @role.sales
-    delete: @role.admin
-    read: @scope.same_org
+    author: @role.admin, @role.sales
+    edit: @role.admin, @role.sales
+    remove: @role.admin
+    view: @scope.same_org
 
   command create
     input name, email
-    policy @policy.create
+    policy @policy.author
     rate_limit "30 per hour per user"
     creates Customer
       name = input.name

@@ -324,14 +324,14 @@ feature account
             .find(|f| f.name == "customer")
             .expect("customer feature");
 
-        // Per-policy when_denied: `update` category gained one in the
-        // PARSE-1 fixture extension.
+        // Per-policy when_denied: the `edit` category (SPEC-07 C semantic
+        // rename of the former `update`) gained one in the PARSE-1 fixture.
         let policies = customer.policies.as_ref().expect("policies block present");
         let update = policies
             .categories
             .iter()
-            .find(|c| c.name == "update")
-            .expect("update category");
+            .find(|c| c.name == "edit")
+            .expect("edit category");
         assert_eq!(
             update.when_denied.as_ref().map(|k| k.key.as_str()),
             Some("customer_update_admin_only")

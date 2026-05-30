@@ -18,8 +18,8 @@ feature payments
         outbox guaranteed
 
   policies
-    read: @role.admin
-    create: @actor.system
+    view: @role.admin
+    author: @actor.system
 
   command capture_payment
     input
@@ -27,7 +27,7 @@ feature payments
       currency: Currency required
       external_reference: Text required
       captured_at: DateTime required
-    policy @policy.create
+    policy @policy.author
     rate_limit none
       reason "internal system command, called from payment webhook"
     creates Payment

@@ -105,6 +105,13 @@ const ALLOWLIST: &[&str] = &[
     //    keywords; they are user-domain names used in inline checks) ──
     "account",
     "admin_only",
+    // SPEC-07 C: canonical (non-CRUD-shadowing) policy-category names used in
+    // parser fixtures + round-trip assertions (author/view/edit/remove replace
+    // the forbidden create/read/update/delete spellings).
+    "author",
+    "edit",
+    "remove",
+    "view",
     "capture_lead",
     "choose_role",
     "customer",

@@ -64,7 +64,7 @@ feature customer
     query.list list
 
   command save
-    policy @policy.update
+    policy @policy.edit
     updates Customer
     invalidates
       query.list
@@ -86,7 +86,7 @@ feature bar
 
 feature customer
   command save
-    policy @policy.update
+    policy @policy.edit
     updates Customer
     invalidates
       bar.query.baz
@@ -109,7 +109,7 @@ feature customer
         let source = r#"
 feature customer
   command save
-    policy @policy.update
+    policy @policy.edit
     updates Customer
     invalidates
       nope.query.x
@@ -308,7 +308,7 @@ surface customer web
 
         assert_eq!(
             &guard.policy[..],
-            vec!["@policy.update".to_owned()].as_slice()
+            vec!["@policy.edit".to_owned()].as_slice()
         );
         assert_eq!(guard.on_unauthenticated.as_deref(), Some("/login"));
 

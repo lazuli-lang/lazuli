@@ -7,13 +7,13 @@
 //!
 //! ```text
 //! policies
-//!   create: @actor.staff, @actor.owner
+//!   author: @actor.staff, @actor.owner
 //!     when_denied @translation.errors.forbidden
 //!     when_denied_route
 //!       unauthenticated -> view sign_in
 //!       role_mismatch staff -> path "/dashboard"
 //!       default -> view forbidden
-//!   update: @policy.owner
+//!   edit: @policy.owner
 //!   fields Customer
 //!     email
 //!       read: @actor.staff, @actor.owner
@@ -406,18 +406,21 @@ feature account
     fn policy_category_input_predicate_lifts_conditional_atoms() {
         // GAP-09 — canonical syntax: predicate-gated atoms split off into
         // `conditional_atoms`, leaving `atoms` empty for this category.
+        // SPEC-07 C — canon uses semantic (non-CRUD-shadowing) category names
+        // (`author`, not `create`); the CRUD/effect collision is forbidden by
+        // POLICY-CATEGORY-SHADOWS-EFFECT-001.
         let source = r#"
 feature account
   policies
-    create: @policy.admin when input.scope = "production", @policy.manager when input.scope = "media"
+    author: @policy.admin when input.scope = "production", @policy.manager when input.scope = "media"
 "#;
         let features = super::super::parse_feature_skeletons(source).expect("parses");
         let policies = features[0].policies.as_ref().expect("policies block");
         let create = policies
             .categories
             .iter()
-            .find(|c| c.name == "create")
-            .expect("create category");
+            .find(|c| c.name == "author")
+            .expect("author category");
         assert!(create.atoms.is_empty(), "predicate atoms must not land in `atoms`");
         assert_eq!(create.conditional_atoms.len(), 2);
         assert_eq!(create.conditional_atoms[0].atom, "@policy.admin");
@@ -431,7 +434,7 @@ feature account
         let source = r#"
 feature account
   policies
-    create: @role.owner, @policy.admin when input.scope = "production"
+    author: @role.owner, @policy.admin when input.scope = "production"
 "#;
         let features = super::super::parse_feature_skeletons(source).expect("parses");
         let create = features[0]
@@ -440,7 +443,7 @@ feature account
             .unwrap()
             .categories
             .iter()
-            .find(|c| c.name == "create")
+            .find(|c| c.name == "author")
             .unwrap();
         assert_eq!(create.atoms, vec!["@role.owner".to_owned()]);
         assert_eq!(create.conditional_atoms.len(), 1);

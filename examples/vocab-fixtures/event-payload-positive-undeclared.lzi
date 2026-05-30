@@ -14,13 +14,13 @@ feature foo
       published_at: DateTime required
 
   policies
-    create: @scope.authenticated
+    author: @scope.authenticated
 
   command publish
     input
       title: Text required
       body: Text required
-    policy @policy.create
+    policy @policy.author
     rate_limit "30 per minute per actor"
     creates Note
       title = input.title

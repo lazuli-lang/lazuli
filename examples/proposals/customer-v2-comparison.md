@@ -114,7 +114,7 @@ command create
   input
     name: Text required
     email: @semantic.Email required
-  policy @policy.create
+  policy @policy.author
   rate_limit "10 per hour per ip"
   creates Customer
     name = input.name
@@ -131,7 +131,7 @@ command create
     email: @semantic.Email required
   end input
 
-  policy @policy.create
+  policy @policy.author
   rate_limit "10 per hour per ip"
 
   creates Customer
@@ -219,7 +219,7 @@ agent summarize_customer
     customer_id: Customer.ID required
     prompt: Text required
   context customer.query.by_id(id: input.customer_id)
-  policy @policy.read
+  policy @policy.view
   rate_limit "20 per hour per user"
   output stream Text
   model @llm.default
@@ -238,7 +238,7 @@ agent summarize_customer
     customer_id: Customer.ID required
     prompt: Text required
   context customer.query.by_id(id: input.customer_id)
-  policy @policy.read
+  policy @policy.view
   rate_limit "20 per hour per user"
   output stream Text
   model @llm.default

@@ -439,6 +439,13 @@ policies_block    = "policies" NEWLINE
 policy_entry      = IDENT_LOWER ":" policy_atom_list NEWLINE
                     ( INDENT when_denied_clause DEDENT )?
                   | "fields" NEWLINE INDENT field_policy+ DEDENT ;
+(* SPEC-07 C: the category IDENT_LOWER must NOT be a command effect verb —
+   not `create`/`read`/`update`/`delete` nor the plural `creates`/`updates`/
+   `deletes`/`reads`. At a `policy @policy.<x>` site a CRUD name reads as a
+   write effect, not an authorization category. Use semantic names
+   (`author`/`view`/`edit`/`remove`/`manage`); enforced by
+   POLICY-CATEGORY-SHADOWS-EFFECT-001. NOTE: the field_policy_axis `read` /
+   `write` below are access DIRECTIONS, a different closed catalog — allowed. *)
 
 when_denied_clause = "when_denied" translation_key_ref NEWLINE ;
 translation_key_ref = "@translation." IDENT_LOWER

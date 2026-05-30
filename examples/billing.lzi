@@ -68,28 +68,28 @@ feature billing
         transition open
           from draft
           to open
-          policy @policy.update
+          policy @policy.edit
           audit default
           emits invoice_status_changed
 
         transition mark_paid
           from open
           to paid
-          policy @policy.update
+          policy @policy.edit
           audit default
           emits invoice_paid, invoice_status_changed
 
         transition fail
           from open
           to failed
-          policy @policy.update
+          policy @policy.edit
           audit default
           emits invoice_status_changed
 
         transition void
           from open
           to void
-          policy @policy.update
+          policy @policy.edit
           audit default
           emits invoice_status_changed
 
@@ -131,17 +131,17 @@ feature billing
       payload BillingWebhook
 
   policies
-    create: @role.admin, @role.billing_admin
-    update: @role.billing_admin
-    read: @scope.same_org
-    delete: @role.billing_admin
+    author: @role.admin, @role.billing_admin
+    edit: @role.billing_admin
+    view: @scope.same_org
+    remove: @role.billing_admin
 
   command create
     input customer, amount_cents, currency, issued_at
     gate behind plan.feature: create_invoice
     gate quota plan.limit: invoices_per_month
     write_window by input.issued_at within billing.open_period
-    policy @policy.create
+    policy @policy.author
     rate_limit "30 per minute per user"
     creates Invoice
       customer = input.customer

@@ -109,6 +109,14 @@ pub const GLOBAL_DIAGNOSTICS: &[DiagnosticFacet] = &[
         base_severity: "error",
         category: "correctness",
     },
+    // SPEC-07 C — a `policies` category named after a CRUD/effect verb. Source
+    // scan over the policy-category position; owned by no single keyword (the
+    // `policies` block + its `@policy.<cat>` reference sites both carry it).
+    DiagnosticFacet {
+        code: "POLICY-CATEGORY-SHADOWS-EFFECT-001",
+        base_severity: "error",
+        category: "correctness",
+    },
     // ── migration codegen / runtime update-builder (over generated artifacts) ──
     DiagnosticFacet {
         code: "MIGRATION-ALTER-MISSING-001",

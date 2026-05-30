@@ -69,14 +69,14 @@ feature customer_import
       failed_rows: Integer
 
   policies
-    create: @role.admin, @role.sales_ops
-    read: @scope.same_org
-    update: @actor.system
-    delete: @role.admin
+    author: @role.admin, @role.sales_ops
+    view: @scope.same_org
+    edit: @actor.system
+    remove: @role.admin
 
   command upload
     input file
-    policy @policy.create
+    policy @policy.author
     rate_limit "20 per hour per user"
     creates ImportBatch
       file = input.file

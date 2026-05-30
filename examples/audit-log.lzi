@@ -41,10 +41,10 @@ feature audit_log
       paginate 100
 
   policies
-    create: @actor.system
-    read: @role.admin, @role.support_agent
-    update: @scope.none
-    delete: @scope.none
+    author: @actor.system
+    view: @role.admin, @role.support_agent
+    edit: @scope.none
+    remove: @scope.none
 
   job record_customer_created
     trigger event customer.customer_created

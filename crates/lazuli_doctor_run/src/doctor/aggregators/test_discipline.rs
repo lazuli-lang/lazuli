@@ -44,7 +44,9 @@ pub(crate) fn diagnostics(
     security_profile: SecurityProfile,
     preset: Option<lazuli_doctor::test_discipline::preset::TestDisciplinePreset>,
 ) -> Vec<DoctorDiagnostic> {
-    use lazuli_doctor::correctness::{handler_missing_001, predicate_eq_operator_001};
+    use lazuli_doctor::correctness::{
+        handler_missing_001, policy_category_shadows_effect_001, predicate_eq_operator_001,
+    };
     use lazuli_doctor::test_discipline::preset::preset_rule_severity;
     use lazuli_doctor::test_discipline::{
         migration_dsl_unique_001, runtime_update_builder_jsonb_001,
@@ -235,6 +237,29 @@ pub(crate) fn diagnostics(
                 predicate_eq_operator_001::Finding::CODE,
             ),
             code: predicate_eq_operator_001::Finding::CODE.to_owned(),
+            message,
+            category: None,
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
+        });
+    }
+    // SPEC-07 C — POLICY-CATEGORY-SHADOWS-EFFECT-001: a `policies` category
+    // named after a CRUD/effect verb (`create`/`read`/`update`/`delete` or the
+    // plural effect spellings). Source scan; error under iron-hand+production,
+    // warning under strict for the migration window.
+    for finding in policy_category_shadows_effect_001::check(source, path) {
+        let message = finding.message();
+        out.push(DoctorDiagnostic {
+            path: finding.path,
+            line: finding.line,
+            column: 1,
+            severity: resolve_severity(
+                DoctorSeverity::Error,
+                policy_category_shadows_effect_001::Finding::CODE,
+            ),
+            code: policy_category_shadows_effect_001::Finding::CODE.to_owned(),
             message,
             category: None,
             feature_name: None,

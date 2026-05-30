@@ -160,6 +160,16 @@ named-ref-vs-catalog-atom kind is made explicit, surfacing in hover and the
 generated `docs/keyword-reference.md` scope column. Enforced by
 `identity_catalog_atoms_are_a_distinct_kind` in `lazuli_keywords`.
 
+**Settled — no CRUD-named policy categories (SPEC-07 C).** A `policies`
+category must not shadow a command effect verb (`create`/`read`/`update`/
+`delete` or the plural `creates`/`updates`/`deletes`/`reads`): at a `policy
+@policy.create` site the name reads as a write *effect*, not an authorization
+category. Canon uses semantic authorization names (`author`/`view`/`edit`/
+`remove`/`manage`); `POLICY-CATEGORY-SHADOWS-EFFECT-001` enforces it (warning
+under strict, error under iron-hand + production). This makes the `@policy.`
+prefix single-purpose — the SPEC-04 named-reference marker — rather than a
+disambiguation hack papering over the self-inflicted near-collision.
+
 Merging axes into fewer namespaces would lose the ability to enforce
 axis-specific rules (e.g., `@cap.Encrypted(key:@key.tenant)` requires
 `@key.*` exactly because key scope is its own axis). The cost of "many

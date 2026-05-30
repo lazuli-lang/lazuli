@@ -63,17 +63,17 @@ feature comment
       payload Comment
 
   policies
-    create: @scope.same_org
-    update: @scope.owner, @role.admin
-    delete: @scope.owner, @role.admin
-    read: @scope.same_org
+    author: @scope.same_org
+    edit: @scope.owner, @role.admin
+    remove: @scope.owner, @role.admin
+    view: @scope.same_org
 
   command create
     input
       issue_id: ID
       parent_id: ID optional
       body: Text
-    policy @policy.create
+    policy @policy.author
     rate_limit "60 per minute per user"
     creates Comment
       issue.id = input.issue_id

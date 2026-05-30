@@ -55,37 +55,37 @@ feature issue
         transition triage
           from backlog
           to todo
-          policy @policy.update
+          policy @policy.edit
           emits issue_status_changed
 
         transition start
           from todo
           to in_progress
-          policy @policy.update
+          policy @policy.edit
           emits issue_status_changed
 
         transition submit_review
           from in_progress
           to in_review
-          policy @policy.update
+          policy @policy.edit
           emits issue_status_changed
 
         transition complete
           from in_review
           to done
-          policy @policy.update
+          policy @policy.edit
           emits issue_status_changed
 
         transition reopen
           from done
           to in_progress
-          policy @policy.update
+          policy @policy.edit
           emits issue_status_changed
 
         transition cancel
           from backlog, todo, in_progress, in_review
           to canceled
-          policy @policy.update
+          policy @policy.edit
           emits issue_status_changed
 
     constraints
@@ -158,14 +158,14 @@ feature issue
       by_id: ID
 
   policies
-    create: @scope.team_member
-    update: @scope.team_member
-    delete: @role.team_admin
-    read: @scope.same_team
+    author: @scope.team_member
+    edit: @scope.team_member
+    remove: @role.team_admin
+    view: @scope.same_team
 
   command create
     input title, description, project, cycle, assignee, priority, labels
-    policy @policy.create
+    policy @policy.author
     rate_limit "60 per minute per user"
     creates Issue
       title = input.title
@@ -182,7 +182,7 @@ feature issue
     route id: ID
     input
       assignee: User
-    policy @policy.update
+    policy @policy.edit
     rate_limit "60 per minute per user"
     updates Issue
       assignee = input.assignee

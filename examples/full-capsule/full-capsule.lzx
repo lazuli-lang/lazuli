@@ -38,7 +38,7 @@ route admin_customer_detail
   surface customer web
   audience admin
   lazy true
-  policy @policy.update
+  policy @policy.edit
     requires_lifecycle_in Customer [active, paused]
 
 route sales_customer_list
@@ -65,7 +65,7 @@ experience customer
   view detail
     route id: Customer.ID
     anchor @anchor.customer_detail
-    policy @policy.update
+    policy @policy.edit
     requires_lifecycle Customer = active
     on_lifecycle_pending @resume customer_status
     source customer.query.by_id(id: route.id)
@@ -107,7 +107,7 @@ experience customer_auth
     submit customer_auth.command.login
 
   view enable_mfa
-    policy @policy.update
+    policy @policy.edit
       on_unauthenticated redirect "/login"
     submit customer_auth.command.enable_mfa
 
