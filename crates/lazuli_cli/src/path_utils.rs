@@ -7,6 +7,7 @@
 //! mutation, no panics on weird input; the worst-case fallbacks use
 //! `Path::new(".")` or the supplied project root.
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 /// Resolve `project_root` to an absolute path. Used by `generate go`
@@ -41,6 +42,19 @@ pub(crate) fn absolutize_for_codegen(project_root: &Path, path: &Path) -> PathBu
     }
 }
 
+/// Compare two path components for the common-prefix walk in
+/// [`relative_path`]. Windows paths are case-insensitive — and
+/// `std::env::current_exe()` can report a different drive-letter case
+/// (`C:`) than a user-supplied `c:/…` — so fold ASCII case there; Unix
+/// stays case-sensitive.
+fn path_component_eq(a: &OsStr, b: &OsStr) -> bool {
+    if cfg!(windows) {
+        a.to_string_lossy().eq_ignore_ascii_case(&b.to_string_lossy())
+    } else {
+        a == b
+    }
+}
+
 /// Compute a relative path string between two directories, using `..`
 /// segments to ascend the common ancestor. Output uses `/` separators
 /// even on Windows so TypeScript `import` paths stay portable.
@@ -61,9 +75,20 @@ pub(crate) fn relative_path(from_dir: &Path, to_dir: &Path) -> String {
     let mut common = 0;
     while common < from_components.len()
         && common < to_components.len()
-        && from_components[common] == to_components[common]
+        && path_component_eq(&from_components[common], &to_components[common])
     {
         common += 1;
+    }
+
+    // No shared leading component → the two paths live under different roots
+    // (most often different Windows drive letters). A `..`-relative path
+    // can't bridge that, and splicing the target's `Prefix`/`RootDir`
+    // components (`C:`, `\`) into the middle yields garbage like
+    // `../../../../C:/\/tmp/…` that is not a valid path. Return the absolute
+    // target with `/` separators; callers detect the non-`..` prefix and use
+    // it as an absolute fallback.
+    if common == 0 {
+        return to_dir.to_string_lossy().replace('\\', "/");
     }
 
     let mut parts = Vec::new();
@@ -78,5 +103,43 @@ pub(crate) fn relative_path(from_dir: &Path, to_dir: &Path) -> String {
         ".".to_owned()
     } else {
         parts.join("/")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relative_path_same_prefix_ascends_and_descends() {
+        assert_eq!(relative_path(Path::new("/a/b/c"), Path::new("/a/b/d")), "../d");
+        assert_eq!(
+            relative_path(Path::new("/a/b"), Path::new("/a/b/c/d")),
+            "c/d"
+        );
+        assert_eq!(relative_path(Path::new("/a/b"), Path::new("/a/b")), ".");
+    }
+
+    #[test]
+    fn relative_path_no_common_prefix_returns_forward_slashed_target() {
+        // Different roots → no `..` bridge; return the target verbatim rather
+        // than a spliced franken-path. (On Windows this is the cross-drive
+        // case; the same guard is exercised here with rootless relatives.)
+        assert_eq!(relative_path(Path::new("a/b"), Path::new("x/y")), "x/y");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn relative_path_windows_folds_drive_letter_case() {
+        // Regression: `current_exe()` reports `C:` while the user passed `c:`.
+        // The walk must fold case and emit a clean relative path, NOT the
+        // `../../../../C:/\/tmp/…` garbage the case-sensitive compare produced.
+        assert_eq!(
+            relative_path(
+                Path::new(r"c:\tmp\proj"),
+                Path::new(r"C:\tmp\lazuli\runtime\go")
+            ),
+            "../lazuli/runtime/go"
+        );
     }
 }
