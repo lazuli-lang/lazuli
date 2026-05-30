@@ -137,7 +137,7 @@ _Generated from 675 capability rows across the `lazuli_keywords` registry._
 | `imports` | `keyword.control.statement.lazuli` | `keyword` | — | Declares feature imports. | — |
 | `invariants` | `keyword.control.section.lazuli` | `keyword` | — | Declares the invariants block. | `INVARIANT-PREDICATE-INVALID` |
 | `job` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a background job. | `JOB-DECLARATIVE-BODY-UNSUPPORTED-001` |
-| `knowledge` | `keyword.control.statement.lazuli` | `keyword` | — | Feature knowledge sector (iron-hand context). | `VOCAB-KNOWLEDGE-DANGLING-CITE-001`<br>`VOCAB-KNOWLEDGE-DUP-TOPIC-001`<br>`VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001`<br>`VOCAB-KNOWLEDGE-STALE-001`<br>`VOCAB-KNOWLEDGE-UNGATED-WRITE-001` |
+| `knowledge` | `keyword.control.statement.lazuli` | `keyword` | — | Feature knowledge sector (iron-hand context). | `VOCAB-KNOWLEDGE-DANGLING-CITE-001`<br>`VOCAB-KNOWLEDGE-DUP-TOPIC-001`<br>`VOCAB-KNOWLEDGE-SECTOR-UNKNOWN-001`<br>`VOCAB-KNOWLEDGE-SINGLE-FEATURE-001`<br>`VOCAB-KNOWLEDGE-STALE-001`<br>`VOCAB-KNOWLEDGE-UNGATED-WRITE-001` |
 | `mcp_server` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares an MCP server surface. | — |
 | `non_goals` | `keyword.control.section.lazuli` | `keyword` | — | Feature non-goals (iron-hand context). | `VOCAB-CONTEXT-NONGOALS-001` |
 | `notification` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a notification. | — |
