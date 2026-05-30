@@ -28,8 +28,6 @@ feature payments
       external_reference: Text required
       captured_at: DateTime required
     policy @policy.author
-    rate_limit none
-      reason "internal system command, called from payment webhook"
-    creates Payment
-      from input
+    rate_limit "600 per minute per ip"
+    creates Payment from input
     emits payment_captured

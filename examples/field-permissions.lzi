@@ -28,7 +28,8 @@ feature customer_sensitive
       params
         customer_id: ID
 
-      key customer.id = params.customer_id
+      filters
+        customer.id == params.customer_id
 
   policies
     view: @scope.same_org

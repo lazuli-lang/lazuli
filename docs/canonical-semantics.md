@@ -2635,7 +2635,9 @@ Webhook handlers are explicit inbound edges from the outside world. In canonical
 ```lazuli
 webhook stripe_invoice_paid
   path "/webhooks/stripe/invoice-paid"
-  verify "./integrations/stripe.go"
+  verify hmac sha256
+    secret env.STRIPE_WEBHOOK_SECRET
+    header "Stripe-Signature"
   tenant_from payload.org_id
   idempotency by payload.org_id, payload.provider_event_id
   policy @actor.system

@@ -162,7 +162,9 @@ feature billing
 
   webhook payment_invoice_paid
     path "/webhooks/payments/invoice-paid"
-    verify "./integrations/payment_invoice_paid.go"
+    verify hmac sha256
+      secret env.PAYMENT_WEBHOOK_SECRET
+      header "X-Signature"
     tenant_from payload.org_id
     idempotency by payload.org_id, payload.provider_event_id
     handler "./integrations/record_payment_invoice_paid.go" returns BillingWebhook

@@ -268,8 +268,9 @@ feature customer
   purpose "CRM customers within an org. Tracks lifecycle status, ownership, and tier."
 
   non_goals
-    invoice: "invoicing"
-    scoring: "credit scoring engine"
+    delegated_to
+      invoice: "invoicing"
+      scoring: "credit scoring engine"
 
   # Complementary context prose lives in the co-located customer.ctx.md sidecar.
 ```
