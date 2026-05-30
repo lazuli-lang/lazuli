@@ -51,8 +51,8 @@ experience catalog
     action archive -> catalog.lifecycle.archive(id: route.id)
 
     tests
-      accepted by catalog_tags
-      rejected by billing
+      allows extension catalog_tags
+      denies extension billing
 
   view top_sellers
     source catalog.query.top_sellers

@@ -2569,16 +2569,10 @@ pub const ALL: &[CapabilitySpec] = &[
         "Test: permission forbidden.",
     ),
     stmt(
-        "accepted",
+        "extension",
         Context::Tests,
         "entity.name.function.statement.tests.lazuli",
-        "Test: input accepted.",
-    ),
-    stmt(
-        "rejected",
-        Context::Tests,
-        "entity.name.function.statement.tests.lazuli",
-        "Test: input rejected.",
+        "View-test subject: `allows extension <feature>` / `denies extension <feature>` whitelists which features may extend a view via its anchor.",
     ),
     stmt(
         "case",

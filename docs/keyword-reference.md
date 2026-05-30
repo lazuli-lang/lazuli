@@ -30,7 +30,7 @@ Columns:
 
 <!-- BEGIN GENERATED BODY -->
 
-_Generated from 675 capability rows across the `lazuli_keywords` registry._
+_Generated from 674 capability rows across the `lazuli_keywords` registry._
 
 ## `.lzi` — feature source
 
@@ -453,19 +453,18 @@ _Generated from 675 capability rows across the `lazuli_keywords` registry._
 
 | keyword / literal | scope | semantic token | sigil | hover | produces |
 | --- | --- | --- | --- | --- | --- |
-| `accepted` | `entity.name.function.statement.tests.lazuli` | `keyword` | — | Test: input accepted. | — |
 | `allows` | `entity.name.function.statement.tests.lazuli` | `keyword` | — | Test: action allowed. | — |
 | `as` | `entity.name.function.statement.tests.lazuli` | `keyword` | — | Test actor/role alias. | — |
 | `by` | `entity.name.function.statement.tests.lazuli` | `keyword` | — | Test actor binding. | — |
 | `case` | `entity.name.function.statement.tests.lazuli` | `keyword` | — | Eval case. | — |
 | `denies` | `entity.name.function.statement.tests.lazuli` | `keyword` | — | Test: action denied. | — |
 | `evals` | `keyword.control.section.lazuli` | `keyword` | — | Agent evaluation block. | — |
+| `extension` | `entity.name.function.statement.tests.lazuli` | `keyword` | — | View-test subject: `allows extension <feature>` / `denies extension <feature>` whitelists which features may extend a view via its anchor. | — |
 | `forbids` | `entity.name.function.statement.tests.lazuli` | `keyword` | — | Test: permission forbidden. | — |
 | `from` | `entity.name.function.statement.tests.lazuli` | `keyword` | — | Test source binding. | — |
 | `golden` | `entity.name.function.statement.tests.lazuli` | `keyword` | — | Golden-output assertion. | — |
 | `min_score` | `entity.name.function.statement.tests.lazuli` | `keyword` | — | Minimum eval score. | — |
 | `permits` | `entity.name.function.statement.tests.lazuli` | `keyword` | — | Test: permission granted. | — |
-| `rejected` | `entity.name.function.statement.tests.lazuli` | `keyword` | — | Test: input rejected. | — |
 | `requires` | `entity.name.function.statement.tests.lazuli` | `keyword` | — | Test precondition clause. | — |
 | `to` | `entity.name.function.statement.tests.lazuli` | `keyword` | — | Test transition target. | — |
 | `when` | `entity.name.function.statement.tests.lazuli` | `keyword` | — | Test guard clause. | — |

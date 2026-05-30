@@ -92,6 +92,8 @@ const ALLOWLIST: &[&str] = &[
     "context",    // retired feature-level `context "..."` (now `<feature>.ctx.md`)
     "attach_ctx", // retired feature-level `attach_ctx "..."` (now `<feature>.ctx.md` convention)
     "workflow",   // retired `workflow` block (now lifecycle/command effects)
+    "accepted",   // SPEC-08: retired .lzx view-test verb (parser hard-errors E-TEST-ACCEPTED-BY-RETIRED; now `allows extension`)
+    "rejected",   // SPEC-08: retired .lzx view-test verb (parser hard-errors E-TEST-REJECTED-BY-RETIRED; now `denies extension`)
     // ── reference-path roots / dotted references (NOT standalone keywords;
     //    highlighted as support.variable.context / reference paths) ──
     "row",         // `row.<field>` context-variable root

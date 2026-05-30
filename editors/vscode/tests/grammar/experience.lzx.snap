@@ -261,12 +261,12 @@
 >    tests
 #^^^^ source.lazuli
 #    ^^^^^ source.lazuli keyword.control.section.lazuli
->      accepted by catalog_tags
-#^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.tests.lazuli
-#              ^^^^^^^^^^^^^^^^^ source.lazuli
->      rejected by billing
-#^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.tests.lazuli
-#              ^^^^^^^^^^^^ source.lazuli
+>      allows extension catalog_tags
+#^^^^^^^^^^^^ source.lazuli entity.name.function.statement.tests.lazuli
+#            ^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+>      denies extension billing
+#^^^^^^^^^^^^ source.lazuli entity.name.function.statement.tests.lazuli
+#            ^^^^^^^^^^^^^^^^^^^ source.lazuli
 >
 >  view top_sellers
 #^^ source.lazuli
