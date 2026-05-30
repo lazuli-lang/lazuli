@@ -15,7 +15,11 @@ pub const FRONTEND_MANIFEST_WEB_SNIPPET: &str = r#"
 target = "tanstack-vite"
 source = "app/web"
 out = "dist/ts-web"
-audiences = ["admin", "public"]
+# List the audiences this frontend serves. Each MUST be declared by a `.lzx`
+# surface (`surface <f> web` / `audience <name>`), or doctor fires
+# FRONTEND-AUDIENCE-UNKNOWN-001. Empty until you add your first surface — then
+# add the audience name here. e.g. audiences = ["admin", "public"]
+audiences = []
 "#;
 
 /// `[frontends.mobile]` snippet appended to a project's
@@ -25,5 +29,8 @@ pub const FRONTEND_MANIFEST_MOBILE_SNIPPET: &str = r#"
 target = "expo"
 source = "app/clients/mobile"
 out = "dist/ts-mobile"
-audiences = ["mobile"]
+# Each audience MUST be backed by a `.lzx` surface (`surface <f> mobile` /
+# `audience <name>`) or doctor fires FRONTEND-AUDIENCE-UNKNOWN-001. Empty until
+# you add a mobile surface — then add its audience here. e.g. audiences = ["mobile"]
+audiences = []
 "#;
