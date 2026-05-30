@@ -470,7 +470,7 @@
     #[test]
     fn lowers_board_and_repeatable_group() {
         let surface = parse(
-            "surface item web\n  audience admin\n    view list a\n      source item.query.search\n      columns key\n      view.board activity_board\n        lanes derived_from status\n      repeatable input installments group { days: Int; percentage: Decimal } validates sum(percentage) = 100\n",
+            "surface item web\n  audience admin\n    view list a\n      source item.query.search\n      columns key\n      view.board activity_board\n        lanes derived_from status\n      repeatable input installments group days: Integer, percentage: Decimal validates sum(percentage) = 100\n",
         );
         let view = match &surface.audiences[0].views[0] {
             ir::View::List(v) => v,

@@ -236,7 +236,7 @@ mod ux_tests {
     view list plans at "/plans"
       source billing.query.list
       columns title
-      repeatable input installments group { days: Int; percentage: Decimal } validates sum(percentage) = 100
+      repeatable input installments group days: Integer, percentage: Decimal validates sum(percentage) = 100
 "#;
         let surface = parse_surface_document(source).expect("parses repeatable input");
         let list = match &surface.audiences[0].views[0] {
@@ -248,7 +248,7 @@ mod ux_tests {
         assert_eq!(g.name, "installments");
         assert_eq!(g.fields.len(), 2);
         assert_eq!(g.fields[0].name, "days");
-        assert_eq!(g.fields[0].type_name, "Int");
+        assert_eq!(g.fields[0].type_name, "Integer");
         assert_eq!(g.fields[1].name, "percentage");
         assert_eq!(g.fields[1].type_name, "Decimal");
         assert_eq!(g.sum_field, "percentage");
@@ -264,14 +264,14 @@ mod ux_tests {
 
     #[test]
     fn repeatable_input_requires_numeric_sum_target() {
-        let source = "surface a web\n  audience admin\n    view list v\n      source a.query.l\n      columns k\n      repeatable input g group { percentage: Decimal } validates sum(percentage) = whole\n";
+        let source = "surface a web\n  audience admin\n    view list v\n      source a.query.l\n      columns k\n      repeatable input g group percentage: Decimal validates sum(percentage) = whole\n";
         let err = parse_surface_document(source).unwrap_err();
         assert!(err.to_string().contains("number literal"));
     }
 
     #[test]
     fn repeatable_input_requires_validates_clause() {
-        let source = "surface a web\n  audience admin\n    view list v\n      source a.query.l\n      columns k\n      repeatable input g group { percentage: Decimal }\n";
+        let source = "surface a web\n  audience admin\n    view list v\n      source a.query.l\n      columns k\n      repeatable input g group percentage: Decimal\n";
         let err = parse_surface_document(source).unwrap_err();
         assert!(err.to_string().contains("validates"));
     }
@@ -283,7 +283,7 @@ mod ux_tests {
     view detail plan at "/plan/:id"
       source billing.query.by_id
       route id: Text from path
-      repeatable input fees group { amount: Decimal } validates sum(amount) = 50
+      repeatable input fees group amount: Decimal validates sum(amount) = 50
 "#;
         let surface = parse_surface_document(source).expect("parses on detail");
         let detail = match &surface.audiences[0].views[0] {

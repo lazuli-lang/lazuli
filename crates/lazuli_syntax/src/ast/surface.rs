@@ -472,7 +472,7 @@ pub struct ViewUxAst {
     /// `view.board <name> / lanes derived_from <field>` (GAP-UX-05).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub board: Option<BoardAst>,
-    /// `repeatable input <name> group { … } validates sum(<f>) = <n>`
+    /// `repeatable input <name> group <f>: <T>, … validates sum(<f>) = <n>`
     /// (GAP-UX-05).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub repeatable_groups: Vec<RepeatableGroupAst>,
@@ -584,7 +584,7 @@ pub struct BoardAst {
     pub span: Span,
 }
 
-/// `repeatable input <name> group { <fields> } validates sum(<f>) = <n>`
+/// `repeatable input <name> group <fields> validates sum(<f>) = <n>`
 /// (GAP-UX-05). The `sum_target` is kept verbatim (parser-validated numeric).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepeatableGroupAst {

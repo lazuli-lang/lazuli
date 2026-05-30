@@ -39,7 +39,7 @@ pub struct ViewUx {
     /// bound resource (GAP-UX-05).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub board: Option<Board>,
-    /// `repeatable input <name> group { … } validates sum(<f>) = <n>` —
+    /// `repeatable input <name> group <f>: <T>, … validates sum(<f>) = <n>` —
     /// repeatable field-array control with a cross-row sum constraint
     /// (GAP-UX-05).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -219,14 +219,14 @@ pub struct Board {
     pub span_ref: Option<SpanRef>,
 }
 
-/// `repeatable input <name> group { <fields> } validates sum(<field>) = <n>`
+/// `repeatable input <name> group <fields> validates sum(<field>) = <n>`
 /// — a repeatable group of input rows with a cross-row sum constraint
 /// (e.g. installment percentages must total 100) (GAP-UX-05).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepeatableGroup {
     /// The group's identifier (`repeatable input <name>`).
     pub name: String,
-    /// The fields declared inside `group { … }`, in source order.
+    /// The fields declared after `group`, in source order.
     pub fields: Vec<RepeatableField>,
     /// `sum(<field>)` — the group field aggregated across rows.
     pub sum_field: String,

@@ -412,7 +412,7 @@ board_decl        = "view" "." "board" IDENT_LOWER? NEWLINE
 board_lanes       = "lanes" "derived_from" IDENT_LOWER NEWLINE ;
 
 repeatable_decl   = "repeatable" "input" IDENT_LOWER "group"
-                    "{" group_field ( ";" group_field )* "}"
+                    group_field ( "," group_field )*
                     "validates" "sum" "(" IDENT_LOWER ")" "=" NUMBER NEWLINE ;
 
 group_field       = IDENT_LOWER ":" TYPE_NAME ;
@@ -420,7 +420,7 @@ group_field       = IDENT_LOWER ":" TYPE_NAME ;
 
 `view.board` is a kanban-style board (list-only) whose lanes are derived
 from an enum field (one lane per variant) or a `has_many` relation on the
-view's bound resource. `repeatable input <name> group { … }` is a
+view's bound resource. `repeatable input <name> group <f>: <T>, …` is a
 repeatable group of input rows with a cross-row `sum(<field>) = <n>`
 constraint (e.g. installment percentages must total 100); it is valid in
 `view list` and `view detail` bodies (not `view create`).
@@ -435,7 +435,7 @@ view list activity at "/activity"
 view list plans at "/plans"
   source billing.query.list
   columns title
-  repeatable input installments group { days: Int; percentage: Decimal } validates sum(percentage) = 100
+  repeatable input installments group days: Integer, percentage: Decimal validates sum(percentage) = 100
 ```
 
 Doctor `LZX-BOARD-LANES-001`: `lanes derived_from <field>` must reference

@@ -359,7 +359,7 @@ pub(crate) fn keyword_description(keyword: &str) -> Option<&'static str> {
             "Inside `view.board`: `lanes derived_from <field>` names the field whose values become the board's columns/lanes. Declared exactly once per board (GAP-UX-05).",
         ),
         "repeatable" => Some(
-            "View-level UX primitive: `repeatable input <name> group { <f>: <T>; ... } [validates sum(<f>) = <n>]` declares a repeatable input group with an optional aggregate validation constraint (GAP-UX-05).",
+            "View-level UX primitive: `repeatable input <name> group <f>: <T>, ... [validates sum(<f>) = <n>]` declares a repeatable input group with an optional aggregate validation constraint (GAP-UX-05).",
         ),
         "tabs" => Some(
             "Audience-level UX primitive (sibling to `view`): `tabs` block of `tab \"<label>\" -> view <name> [audience <a>]` entries. Groups several views behind a tabbed navigation (GAP-UX-03).",

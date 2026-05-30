@@ -716,7 +716,7 @@ surface widget web
     view edit_form Form
       fields a, b
       wizard_steps 3 current step
-      repeatable input installments group { days: Int; pct: Decimal } validates sum(pct) = 100
+      repeatable input installments group days: Integer, pct: Decimal validates sum(pct) = 100
 "#;
     let doc = parse_lzx_document(source).expect("§7a view-level primitives parse");
     let audience = &doc.surfaces[0].audiences[0];

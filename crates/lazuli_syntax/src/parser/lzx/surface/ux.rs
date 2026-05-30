@@ -390,18 +390,18 @@ pub(in crate::parser::lzx) fn parse_board_block(
     Ok((i, last_end))
 }
 
-/// `repeatable input <name> group { <f>: <T>; … } validates sum(<f>) = <n>`
-/// — single line. GAP-UX-05.
+/// `repeatable input <name> group <f>: <T>, … validates sum(<f>) = <n>`
+/// — single line, brace-free (SPEC-02). GAP-UX-05.
 pub(in crate::parser::lzx) fn parse_repeatable_group_line(
     line: &SourceLine<'_>,
     rest: &str,
     ux: &mut ViewUxAst,
 ) -> Result<(), ParseError> {
-    // `<name> group { … } validates sum(<f>) = <n>`
+    // `<name> group <f>: <T>, … validates sum(<f>) = <n>`
     let (name_raw, after_name) = rest.split_once(" group ").ok_or_else(|| {
         line_error(
             line,
-            "`repeatable input` is `repeatable input <name> group { <f>: <T>; … } validates sum(<f>) = <n>`",
+            "`repeatable input` is `repeatable input <name> group <f>: <T>, … validates sum(<f>) = <n>`",
         )
     })?;
     let name = name_raw.trim().to_owned();
@@ -421,25 +421,18 @@ pub(in crate::parser::lzx) fn parse_repeatable_group_line(
         ));
     }
 
-    // Split the `{ … }` body from the trailing `validates …` clause.
+    // SPEC-02 — brace-free: the comma-separated field list is delimited by the
+    // ` validates ` clause (no `{ }` / `;` — the only braces the language had).
     let after_name = after_name.trim_start();
-    if !after_name.starts_with('{') {
-        return Err(line_error(
-            line,
-            "`repeatable input <name> group` must be followed by `{ <f>: <T>; … }`",
-        ));
-    }
-    let close = after_name.find('}').ok_or_else(|| {
+    let (body, validates_body) = after_name.split_once(" validates ").ok_or_else(|| {
         line_error(
             line,
-            "`repeatable input` group body is missing a closing `}`",
+            "`repeatable input <name> group <f>: <T>, … validates sum(<f>) = <n>`",
         )
     })?;
-    let body = &after_name[1..close];
-    let tail = after_name[close + 1..].trim();
 
     let mut fields: Vec<RepeatableFieldAst> = Vec::new();
-    for entry in body.split(';') {
+    for entry in body.split(',') {
         let entry = entry.trim();
         if entry.is_empty() {
             continue;
@@ -476,14 +469,8 @@ pub(in crate::parser::lzx) fn parse_repeatable_group_line(
         ));
     }
 
-    // `validates sum(<f>) = <n>`
-    let validates = tail.strip_prefix("validates ").ok_or_else(|| {
-        line_error(
-            line,
-            "`repeatable input` group requires a `validates sum(<f>) = <n>` clause",
-        )
-    })?;
-    let validates = validates.trim();
+    // `sum(<f>) = <n>` (the `validates` keyword was the split delimiter above).
+    let validates = validates_body.trim();
     let sum_inner = validates
         .strip_prefix("sum(")
         .and_then(|s| {
