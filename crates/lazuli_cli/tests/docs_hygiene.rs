@@ -82,6 +82,36 @@ fn tokens(text: &str) -> impl Iterator<Item = &str> {
     .filter(|t| !t.is_empty())
 }
 
+/// Blank out fenced (```` ``` ````) and inline (`` `...` ``) code spans so a doc
+/// that *shows* Markdown link syntax in an example doesn't trip the link check.
+/// (Citations are scanned on the raw text — they legitimately live in backticks.)
+fn mask_code_spans(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut in_fence = false;
+    for line in text.lines() {
+        if line.trim_start().starts_with("```") {
+            in_fence = !in_fence;
+            out.push('\n');
+            continue;
+        }
+        if in_fence {
+            out.push('\n');
+            continue;
+        }
+        let mut in_code = false;
+        for ch in line.chars() {
+            if ch == '`' {
+                in_code = !in_code;
+                out.push(' ');
+            } else {
+                out.push(if in_code { ' ' } else { ch });
+            }
+        }
+        out.push('\n');
+    }
+    out
+}
+
 /// Extract `](target)` link targets.
 fn md_link_targets(text: &str) -> Vec<&str> {
     let mut out = Vec::new();
@@ -126,7 +156,8 @@ fn docs_citations_and_links_resolve() {
             }
         }
 
-        for target in md_link_targets(&text) {
+        let link_text = mask_code_spans(&text);
+        for target in md_link_targets(&link_text) {
             let clean = target.split('#').next().unwrap_or(target);
             if !clean.ends_with(".md") || clean.starts_with("http") {
                 continue;

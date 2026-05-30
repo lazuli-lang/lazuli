@@ -97,7 +97,7 @@ Regenerate with `cargo run -p xtask -- gen-catalog-reference` / `gen-keyword-ref
 Docs are held to the code by three tiers, so the canon cannot drift unnoticed:
 
 1. **Generated** — the references above are rendered from the compiler; a hand-edit or a source change without a regen fails the build.
-2. **Verified** — `docs_hygiene` (`cargo test -p lazuli_cli --test docs_hygiene`) asserts that every `path/file.ext[:line]` citation and every `[link](x.md)` in a maintained doc resolves. A moved source file or a deleted doc fails CI.
+2. **Verified** — `docs_hygiene` (`cargo test -p lazuli_cli --test docs_hygiene`) asserts that every `path/file.ext[:line]` citation and every inter-doc Markdown link in a maintained doc resolves. A moved source file or a deleted doc fails CI.
 3. **Reviewed** — `cargo run -p xtask -- docs-staleness` flags any doc whose cited source files changed *after* the doc was last touched. Self-maintaining: no `last_reviewed` date to remember — git is the source of truth. Run it periodically (a nightly/weekly job), not on every build.
 
 `docs/proposals/*` are archived design snapshots (the live archive moved to the operational repo); they are frozen and exempt from the gates.
