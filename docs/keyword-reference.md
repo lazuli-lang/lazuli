@@ -30,7 +30,7 @@ Columns:
 
 <!-- BEGIN GENERATED BODY -->
 
-_Generated from 674 capability rows across the `lazuli_keywords` registry._
+_Generated from 685 capability rows across the `lazuli_keywords` registry._
 
 ## `.lzi` — feature source
 
@@ -155,6 +155,7 @@ _Generated from 674 capability rows across the `lazuli_keywords` registry._
 | `refs` | `keyword.control.section.lazuli` | `keyword` | — | Declares cross-feature references. | `CROSS-FEATURE-CONTRACT-MISSING-001`<br>`CROSS-FEATURE-CONTRACT-VERSION-DRIFT-001`<br>`CROSS-FEATURE-WORKFLOW-SPAN-001` |
 | `report` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a report/export. | `REPORT-COLUMN-MISMATCH-001`<br>`REPORT-COLUMNS-EMPTY-001`<br>`REPORT-FILENAME-TOKEN-UNKNOWN-001`<br>`REPORT-FORMAT-UNKNOWN-001`<br>`REPORT-INPUT-UNBOUND-001`<br>`REPORT-PATH-COLLISION-001`<br>`REPORT-POLICY-PUBLIC-NO-RATE-LIMIT-001`<br>`REPORT-SIGNED-NO-STORAGE-001`<br>`REPORT-SIGNED-TTL-FORBIDDEN-001`<br>`REPORT-SIGNED-TTL-MISSING-001`<br>`REPORT-SOURCE-KIND-001`<br>`REPORT-STORAGE-AMBIGUOUS-001` |
 | `requires` | `entity.name.function.statement.feature-meta.lazuli` | `keyword` | — | Feature dependency / requirement. | — |
+| `resource` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a domain resource. | — |
 | `role` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Feature-scoped RBAC role. | — |
 | `subscription` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares an event subscription. | — |
 | `surface` | `keyword.control.section.lazuli` | `keyword` | — | Declares a feature surface. | — |
@@ -569,6 +570,7 @@ _Generated from 674 capability rows across the `lazuli_keywords` registry._
 
 | keyword / literal | scope | semantic token | sigil | hover | produces |
 | --- | --- | --- | --- | --- | --- |
+| `default` | `entity.name.function.statement.locale.lazuli` | `keyword` | — | Primary BCP-47 locale tag. | — |
 | `fallback` | `entity.name.function.statement.locale.lazuli` | `keyword` | — | Fallback locale. | — |
 | `supported` | `entity.name.function.statement.locale.lazuli` | `keyword` | — | Supported locales. | — |
 
@@ -674,6 +676,13 @@ _Generated from 674 capability rows across the `lazuli_keywords` registry._
 | `auto_rollback` | `keyword.control.statement.lazuli` | `keyword` | — | Auto-rollback on failure. | — |
 | `cadence` | `keyword.control.statement.lazuli` | `keyword` | — | Rotation cadence. | — |
 | `overlap` | `keyword.control.statement.lazuli` | `keyword` | — | Key-overlap window. | — |
+
+### ErrorPage
+
+| keyword / literal | scope | semantic token | sigil | hover | produces |
+| --- | --- | --- | --- | --- | --- |
+| `audience` | `entity.name.function.statement.error-page.lazuli` | `keyword` | — | Error-page audience selector. | — |
+| `template` | `entity.name.function.statement.error-page.lazuli` | `keyword` | — | Error-page template path. | — |
 
 ### Plan
 
@@ -846,6 +855,23 @@ _Generated from 674 capability rows across the `lazuli_keywords` registry._
 | `required_when` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
 | `when` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
 | `when_denied` | `keyword.operator.predicate.lazuli` | `operator` | — | — | — |
+
+### Cors
+
+| keyword / literal | scope | semantic token | sigil | hover | produces |
+| --- | --- | --- | --- | --- | --- |
+| `allow_credentials` | `entity.name.function.statement.cors.lazuli` | `keyword` | — | Allow credentialed CORS requests. | — |
+| `allow_origins` | `entity.name.function.statement.cors.lazuli` | `keyword` | — | Allowed CORS origins. | — |
+| `max_age` | `entity.name.function.statement.cors.lazuli` | `keyword` | — | CORS preflight max-age. | — |
+
+### RouteGuard
+
+| keyword / literal | scope | semantic token | sigil | hover | produces |
+| --- | --- | --- | --- | --- | --- |
+| `default_policy` | `entity.name.function.statement.route-guard.lazuli` | `keyword` | — | App-level default route policy. | — |
+| `on_unauthenticated` | `entity.name.function.statement.route-guard.lazuli` | `keyword` | — | Default redirect when unauthenticated. | — |
+| `on_unauthorized` | `entity.name.function.statement.route-guard.lazuli` | `keyword` | — | Default redirect when unauthorized. | — |
+| `skeleton` | `entity.name.function.statement.route-guard.lazuli` | `keyword` | — | Default loading skeleton. | — |
 
 ### Deprecated
 

@@ -78,7 +78,7 @@ pub(crate) use integration::{
 #[allow(unused_imports)]
 pub(crate) use invariants::app_operational_block_diagnostics;
 #[allow(unused_imports)]
-pub(crate) use operational::app_operational_contract_diagnostics;
+pub(crate) use operational::{VALIDATED_APP_BLOCKS, app_operational_contract_diagnostics};
 #[allow(unused_imports)]
 pub(crate) use runtime::{AppRuntimeUnitFacts, validate_app_runtime_unit_child};
 #[allow(unused_imports)]

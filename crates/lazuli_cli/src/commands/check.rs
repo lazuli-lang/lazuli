@@ -2,7 +2,7 @@
 //! or directory of `.lzi`/`.lzx` sources.
 //!
 //! `check` is the CI gate that pulls every diagnostic
-//! `lazuli_lsp::diagnostics_for_source_with_profile` would emit for the
+//! `lazuli_lsp::diagnostics_for_source_with_profile_cli` would emit for the
 //! given `SecurityProfile`, prints them in a `path:line:col: severity:
 //! message` shape, and exits non-zero when any are errors. It is the
 //! same kernel `lazuli doctor` builds on — `doctor` adds cross-file
@@ -15,7 +15,9 @@
 //! older pin without noticing.
 //!
 //! Cross-refs:
-//! - `lazuli_lsp::diagnostics_for_source_with_profile` — the kernel.
+//! - `lazuli_lsp::diagnostics_for_source_with_profile_cli` — the kernel
+//!   (CLI/batch variant: runs the parser/lower backstop over canonical
+//!   `.lzi` sources, unlike the editor's per-keystroke pass).
 //! - `crate::lazurite_manifest::load` / `crate::version::enforce_manifest_pin`
 //!   — the pin gate.
 //! - `commands/doctor.rs` (lives in main.rs today via `mod doctor`) —
@@ -70,7 +72,7 @@ pub fn check_command(
         let source = fs::read_to_string(path)
             .with_context(|| format!("failed to read {}", path.display()))?;
         let diagnostics =
-            lazuli_lsp::diagnostics_for_source_with_profile(&source, security_profile);
+            lazuli_lsp::diagnostics_for_source_with_profile_cli(&source, security_profile);
         has_error |= diagnostics
             .iter()
             .any(|diagnostic| diagnostic.severity == Some(DiagnosticSeverity::ERROR));

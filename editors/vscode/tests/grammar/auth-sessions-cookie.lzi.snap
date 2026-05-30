@@ -61,24 +61,28 @@
 #           ^^^^^^ source.lazuli string.quoted.double.lazuli
 #                 ^ source.lazuli string.quoted.double.lazuli
 >      access_ttl "15 minutes"
-#^^^^^^^^^^^^^^^^^ source.lazuli
+#^^^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#                ^ source.lazuli
 #                 ^ source.lazuli string.quoted.double.lazuli
 #                  ^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
 #                            ^ source.lazuli string.quoted.double.lazuli
 >      rotation
-#^^^^^^^^^^^^^^^ source.lazuli
+#^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
 >        refresh_ttl "30 days"
-#^^^^^^^^^^^^^^^^^^^^ source.lazuli
+#^^^^^^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#                   ^ source.lazuli
 #                    ^ source.lazuli string.quoted.double.lazuli
 #                     ^^^^^^^ source.lazuli string.quoted.double.lazuli
 #                            ^ source.lazuli string.quoted.double.lazuli
 >        grace "30 seconds"
-#^^^^^^^^^^^^^^ source.lazuli
+#^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#             ^ source.lazuli
 #              ^ source.lazuli string.quoted.double.lazuli
 #               ^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
 #                         ^ source.lazuli string.quoted.double.lazuli
 >        theft_detection_action revoke_session_family
-#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#                              ^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
 >      cookie
 #^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
 >        name "lazuli_session"

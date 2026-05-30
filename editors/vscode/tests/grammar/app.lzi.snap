@@ -30,7 +30,8 @@
 #                    ^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
 #                                     ^ source.lazuli string.quoted.double.lazuli
 >  lazuli_version "0.13"
-#^^^^^^^^^^^^^^^^^ source.lazuli
+#^^^^^^^^^^^^^^^^ source.lazuli keyword.control.statement.lazuli
+#                ^ source.lazuli
 #                 ^ source.lazuli string.quoted.double.lazuli
 #                  ^^^^ source.lazuli string.quoted.double.lazuli
 #                      ^ source.lazuli string.quoted.double.lazuli
@@ -147,22 +148,27 @@
 #                                                ^ source.lazuli string.quoted.double.lazuli
 >
 >  cors
-#^^^^^^^ source.lazuli
+#^^ source.lazuli
+#  ^^^^ source.lazuli keyword.control.declaration.structural.lazuli
 >    allow_origins production "https://app.snapshot.example"
-#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+#^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.cors.lazuli
+#                 ^^^^^^^^^^^^ source.lazuli
 #                             ^ source.lazuli string.quoted.double.lazuli
 #                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
 #                                                          ^ source.lazuli string.quoted.double.lazuli
 >    allow_origins local "http://localhost:3000"
-#^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+#^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.cors.lazuli
+#                 ^^^^^^^ source.lazuli
 #                        ^ source.lazuli string.quoted.double.lazuli
 #                         ^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
 #                                              ^ source.lazuli string.quoted.double.lazuli
 >    allow_credentials true
-#^^^^^^^^^^^^^^^^^^^^^^ source.lazuli
+#^^^^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.function.statement.cors.lazuli
+#                     ^ source.lazuli
 #                      ^^^^ source.lazuli constant.language.boolean.lazuli
 >    max_age "1h"
-#^^^^^^^^^^^^ source.lazuli
+#^^^^^^^^^^^ source.lazuli entity.name.function.statement.cors.lazuli
+#           ^ source.lazuli
 #            ^ source.lazuli string.quoted.double.lazuli
 #             ^^ source.lazuli string.quoted.double.lazuli
 #               ^ source.lazuli string.quoted.double.lazuli

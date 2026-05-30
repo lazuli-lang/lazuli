@@ -8,11 +8,11 @@
 //! `architecture`, `service`, `runtime`, `deploy`) via the
 //! crate-private re-exports in `app/mod.rs`.
 
+use lazuli_keywords::manifest_child_keys;
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity};
 
-use crate::{is_identifier, leading_spaces, simple_canonical_diagnostic};
-
 use super::{
+    AppIntegrationFacts, AppOperationalFacts, AppRuntimeUnitFacts, AppServiceFacts,
     app_child_block, app_operational_block_diagnostics, is_app_scalar_child, parse_env_group_name,
     validate_app_architecture_line, validate_app_binding_line, validate_app_capability_line,
     validate_app_child_header, validate_app_communication_line, validate_app_deploy_line,
@@ -20,9 +20,116 @@ use super::{
     validate_app_integration_credential_line, validate_app_integration_header,
     validate_app_pack_use_line, validate_app_runtime_unit_child, validate_app_scalar_child,
     validate_app_service_child, validate_app_service_exposure_line, validate_app_target_line,
-    validate_app_url_line, AppIntegrationFacts, AppOperationalFacts, AppRuntimeUnitFacts,
-    AppServiceFacts,
+    validate_app_url_line,
 };
+use crate::diagnostics::canonical_kinds::closest_kind;
+use crate::{is_identifier, leading_spaces, simple_canonical_diagnostic};
+
+/// App-manifest block headers whose indent-4 (and indent-6 body) child
+/// keys the walker validates against the closed catalog
+/// [`manifest_child_keys`] returns for them. This is the **single source**
+/// the indent-4 / indent-6 match arms below build FROM: every block here is
+/// dispatched into [`validate_app_block_child`]; the anti-drift gate
+/// `every_manifest_block_has_child_key_validation` asserts (1) every block
+/// here has ≥1 registry child row (so it never silently no-ops), and (2)
+/// every registry context that maps to a block name via
+/// `manifest_block_name` is listed here (so the registry and the walker can
+/// never diverge).
+///
+/// Before BUG-1, each of these arms was an EMPTY skip (`Some("locale") =>
+/// {}`), so a misspelled / unknown child key (`fallbacks` instead of
+/// `fallback`) was silently dropped by the parser with no diagnostic at
+/// `lazuli check` or `lazuli doctor` time. Routing them through the shared
+/// helper turns an unknown child into an `app-block-child-contract` ERROR.
+pub(crate) const VALIDATED_APP_BLOCKS: &[&str] = &[
+    "locale",
+    "cors",
+    "headers",
+    "cookie",
+    "proxy",
+    "limits",
+    "logging",
+    "tracing",
+    "route_guard",
+    "encryption",
+    "error_page",
+];
+
+/// Validate one indent-4 / indent-6 child line under an app-manifest
+/// `block` against the closed child-key catalog the registry carries for
+/// that block ([`manifest_child_keys`]).
+///
+/// Skips lines that are not a plain `<head-key> ...` shape so the contract
+/// never false-fires on the legitimate non-keyword body forms the parser
+/// accepts:
+///   * `@`-prefixed lines (`key @key.tenant` inside `encryption`);
+///   * lines containing `:` (`pt-BR: en-US` fallback bodies);
+///   * lines containing `=` (`x = y` style bindings).
+/// This mirrors the head-token guard in
+/// `app_unknown_kind_diagnostics` (`canonical_kinds/sections/blocks.rs`).
+///
+/// When the head token is not in the (non-empty) catalog it pushes an
+/// `app-block-child-contract` ERROR, suggesting the closest catalog key
+/// (`closest_kind(head, &catalog, 2)`) when one is within edit distance 2,
+/// else listing the whole catalog. A block whose catalog is empty is a
+/// no-op (the caller should never route such a block here — the gate
+/// enforces that), so an un-cataloged block can never false-fire.
+fn validate_app_block_child(
+    diagnostics: &mut Vec<Diagnostic>,
+    block: &str,
+    line_index: usize,
+    line: &str,
+    trimmed: &str,
+) {
+    // Non-keyword body shapes the parser accepts verbatim — never a
+    // misspelled child key, so they must not fire the contract.
+    if trimmed.starts_with('@') || trimmed.contains(':') || trimmed.contains('=') {
+        return;
+    }
+    // Every caller passes a block from `VALIDATED_APP_BLOCKS` — the const
+    // is the single source the dispatch match arms mirror, and the
+    // anti-drift gate `every_manifest_block_has_child_key_validation`
+    // asserts the two stay in lockstep with the registry.
+    debug_assert!(
+        VALIDATED_APP_BLOCKS.contains(&block),
+        "validate_app_block_child called with unlisted block `{block}` — add it to VALIDATED_APP_BLOCKS"
+    );
+    let Some(head) = trimmed.split_whitespace().next() else {
+        return;
+    };
+
+    let catalog: Vec<&'static str> = manifest_child_keys(block).collect();
+    if catalog.is_empty() {
+        // No closed catalog to validate against → cannot know what is
+        // valid, so stay silent (and the gate forbids routing such a
+        // block here in the first place).
+        return;
+    }
+    if catalog.contains(&head) {
+        return;
+    }
+
+    let message = match closest_kind(head, &catalog, 2) {
+        Some(suggested) => {
+            format!("unknown `{block}` child key `{head}`. Did you mean `{suggested}`?")
+        }
+        None => {
+            let mut valid = catalog.clone();
+            valid.sort_unstable();
+            format!(
+                "unknown `{block}` child key `{head}`. Valid: {}.",
+                valid.join(" / ")
+            )
+        }
+    };
+    diagnostics.push(simple_canonical_diagnostic(
+        line_index,
+        line,
+        DiagnosticSeverity::ERROR,
+        "app-block-child-contract",
+        &message,
+    ));
+}
 
 pub(crate) fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
@@ -204,43 +311,37 @@ pub(crate) fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnost
                 Some("deploy") => {
                     validate_app_deploy_line(&mut diagnostics, app, line_index, line, trimmed)
                 }
-                // Cut A.11 — `cors` children are handled by
-                // `cors_contract_diagnostics`. Skip here to avoid the
-                // "unknown app block" warning firing on
-                // `allow_origins` / `allow_credentials` / `max_age`.
-                Some("cors") => {}
-                // Roadmap §1.10 — `headers` children are handled by
-                // `headers_contract_diagnostics` (file-local shape) +
-                // doctor's `headers-contract` (closed catalogs +
-                // production-profile completeness). Skip here so the
-                // "unknown app block" warning does not fire on
-                // `csp` / `hsts` / `x_frame_options` etc.
-                Some("headers") => {}
-                // Roadmap §1.2 — `cookie` / `proxy` / `limits`
-                // children are doctor-validated (cookie profile
-                // children at indent 6; proxy/limits scalars at indent
-                // 4). Skip the "unknown app block" warning here.
-                Some("cookie") | Some("proxy") | Some("limits") => {}
-                // Observability bucket cycle row 36 — `logging` /
-                // `tracing` children are handled by
-                // `app_logging_tracing_diagnostics` (doctor) and the
-                // closed-catalog completion in
-                // `observability_catalog_detail`. Skip the
-                // "unknown app block" warning here.
-                Some("logging") | Some("tracing") => {}
-                // i18n bucket cycle — `locale` children
-                // (`default`/`supported`/`fallback`) are validated by
-                // `parse_app_manifest`; skip the "unknown app block"
-                // warning here.
-                Some("locale") => {}
-                // ir-route-guards Cell PARSE-1 — app-level guard
-                // defaults are validated by the parser/analyzer.
-                Some("route_guard") => {}
-                // Encryption bucket cycle — `encryption` children are
-                // `key @key.<scope>` lines validated by doctor's
-                // encryption_binding_diagnostics; skip the "unknown
-                // app block" warning here.
-                Some("encryption") => {}
+                // BUG-1 — flat indent-4 child-key blocks. Each child
+                // line IS a closed catalog key (`csp` / `allow_origins`
+                // / `default` / `template` / …); an unknown / misspelled
+                // head was previously dropped silently by the parser
+                // with NO diagnostic. Route through the shared
+                // `validate_app_block_child` helper so a typo
+                // (`fallbacks` vs `fallback`) becomes an
+                // `app-block-child-contract` ERROR. The block name fed
+                // here is the same `state.current_child` literal the
+                // parser dispatches on; the helper looks up the valid
+                // child keys from the `lazuli_keywords` registry
+                // (`manifest_child_keys`) so the catalog can never drift
+                // from the parser. (`cors`/`headers`/`proxy`/`limits`/
+                // `logging`/`tracing` shape catalogs are ALSO closed by
+                // their respective doctor rules — this adds the
+                // file-local unknown-child squiggle the doctor's
+                // IR-based pass cannot see, because the dropped key is
+                // gone before IR.)
+                Some(
+                    block @ ("cors" | "headers" | "proxy" | "limits" | "logging" | "tracing"
+                    | "locale" | "route_guard" | "error_page"),
+                ) => validate_app_block_child(&mut diagnostics, block, line_index, line, trimmed),
+                // `cookie` / `encryption` open a per-profile / per-key
+                // BINDING at indent 4 (`default` profile name /
+                // `key @key.<scope>`), NOT a flat child key — the
+                // validated child keys live at indent 6. Profile names
+                // are open identifiers and `key @key.<scope>` carries an
+                // `@`-reference, so neither is validated against a closed
+                // catalog here; their indent-6 bodies are routed through
+                // `validate_app_block_child` below.
+                Some("cookie") | Some("encryption") => {}
                 Some(_) | None => diagnostics.push(simple_canonical_diagnostic(
                     line_index,
                     line,
@@ -320,19 +421,34 @@ pub(crate) fn app_operational_contract_diagnostics(source: &str) -> Vec<Diagnost
                         trimmed,
                     );
                 } else if current_app_child == Some("encryption") {
-                    // Encryption bucket cycle — body of a
-                    // `key @key.<scope>` block: `source <expr>`,
-                    // `algorithm <name>`, `rotation <cadence>`.
-                    // Doctor's `encryption_binding_diagnostics` owns
-                    // the closed-catalog validation; the LSP just
-                    // needs to NOT fire the generic six-space
-                    // warning here.
+                    // BUG-1 — body of a `key @key.<scope>` binding:
+                    // `source <expr>`, `algorithm <name>`,
+                    // `rotation <cadence>`, `rotation_profile <name>`.
+                    // Validate the head against the `encryption` child
+                    // catalog so a misspelled key (`algoritm`) becomes
+                    // an `app-block-child-contract` ERROR instead of a
+                    // silent drop.
+                    validate_app_block_child(
+                        &mut diagnostics,
+                        "encryption",
+                        line_index,
+                        line,
+                        trimmed,
+                    );
+                } else if current_app_child == Some("cookie") {
+                    // BUG-1 — body of a `cookie` profile: `signed`,
+                    // `secure`, `http_only`, `same_site`, `max_age`.
+                    // These scalar keys live at indent 6 (the indent-4
+                    // line is the open-identifier profile name). Validate
+                    // the head so a typo (`secrue`) becomes an
+                    // `app-block-child-contract` ERROR.
+                    validate_app_block_child(&mut diagnostics, "cookie", line_index, line, trimmed);
                 } else if current_app_child == Some("locale") {
                     // 2026-05-27 — `locale fallbacks` body: each line is
                     // `<from-locale>: <to-locale>` (e.g. `pt-BR: en-US`).
-                    // Validated by `parse_app_manifest` via the i18n
-                    // bucket cycle; the LSP just needs to NOT fire the
-                    // generic six-space warning here.
+                    // The `:` infix is skipped by `validate_app_block_child`,
+                    // so this body never false-fires; the actual `fallback`
+                    // child-key typo is caught at indent 4 above.
                 } else {
                     diagnostics.push(simple_canonical_diagnostic(
                         line_index,

@@ -390,6 +390,13 @@ pub enum Context {
     Limits,
     /// Inside an app `proxy` block.
     Proxy,
+    /// Inside an app `cors` block (child keys `allow_origins` /
+    /// `allow_credentials` / `max_age`).
+    Cors,
+    /// Inside an app `route_guard` defaults block (child keys
+    /// `default_policy` / `on_unauthenticated` / `on_unauthorized` /
+    /// `skeleton`).
+    RouteGuard,
     /// Inside an app `encryption` block.
     Encryption,
     /// Inside an app `locale` block.
@@ -647,4 +654,54 @@ mod catalog_tests {
             );
         }
     }
+}
+
+/// The app-manifest block-header name a [`Context`] models, if the context
+/// IS an app-manifest indent-2 block whose indent-4 children are registry
+/// rows. Returns `None` for every context that is not an app-manifest
+/// child-key block (feature bodies, surfaces, value catalogs, …).
+///
+/// This is the **single source of truth** mapping a `Context` variant to
+/// the `app <Name>` block header string the parser dispatches on (the
+/// `state.current_child` literal in
+/// `crates/lazuli_manifest/src/app_manifest/manifest_indent4.rs`). The LSP
+/// operational walker and the anti-drift gate both derive their
+/// validated-block set from this function via [`manifest_child_keys`], so
+/// the walker, the registry, and the parser can never silently diverge.
+///
+/// Only the contexts whose indent-4 children are declared as registry rows
+/// appear here; a block whose children are not yet registry-backed (so it
+/// has no closed catalog to validate against) is deliberately absent.
+pub const fn manifest_block_name(context: Context) -> Option<&'static str> {
+    match context {
+        Context::Cookie => Some("cookie"),
+        Context::Headers => Some("headers"),
+        Context::Limits => Some("limits"),
+        Context::Proxy => Some("proxy"),
+        Context::Cors => Some("cors"),
+        Context::RouteGuard => Some("route_guard"),
+        Context::Encryption => Some("encryption"),
+        Context::Locale => Some("locale"),
+        Context::Logging => Some("logging"),
+        Context::Tracing => Some("tracing"),
+        Context::ErrorPage => Some("error_page"),
+        _ => None,
+    }
+}
+
+/// The valid indent-4 child-key literals for an app-manifest `block`
+/// header, derived from the [`ALL`] registry by filtering on
+/// [`manifest_block_name`]. Returns an empty iterator for an unknown /
+/// non-child-key block — callers treat "catalog non-empty" as the gate to
+/// validate against it (so a block with no registry rows never false-fires
+/// an unknown-child diagnostic).
+///
+/// This is the catalog the LSP `validate_app_block_child` walker looks up
+/// per block, and the set the anti-drift gate
+/// (`every_manifest_block_has_child_key_validation`) asserts non-empty for
+/// every walker-validated block.
+pub fn manifest_child_keys(block: &str) -> impl Iterator<Item = &'static str> {
+    ALL.iter()
+        .filter(move |c| manifest_block_name(c.context) == Some(block))
+        .map(|c| c.literal)
 }

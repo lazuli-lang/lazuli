@@ -1094,6 +1094,12 @@ pub const ALL: &[CapabilitySpec] = &[
         "Forwarded-Host header name.",
     ),
     // ── app: encryption block ──
+    // Indent-6 children of an `encryption / key @key.<scope>` binding
+    // (`crates/lazuli_manifest/src/app_manifest/manifest_indent.rs`
+    // `Some("encryption")` arm): `source` / `algorithm` / `rotation` /
+    // `rotation_profile`. `source` / `rotation` / `key` already have
+    // `Context::Encryption` rows in the H2-backfill block below, so only
+    // `algorithm` / `rotation_profile` are declared here.
     stmt(
         "algorithm",
         Context::Encryption,
@@ -1107,6 +1113,15 @@ pub const ALL: &[CapabilitySpec] = &[
         "Key-rotation profile.",
     ),
     // ── app: locale block ──
+    // Surface keywords the `app.locale` block parser accepts
+    // (`crates/lazuli_manifest/src/app_manifest/manifest_indent4.rs`
+    // `Some("locale")` arm): `default`, `supported`, `fallback`.
+    stmt(
+        "default",
+        Context::Locale,
+        "entity.name.function.statement.locale.lazuli",
+        "Primary BCP-47 locale tag.",
+    ),
     stmt(
         "supported",
         Context::Locale,
@@ -1118,6 +1133,74 @@ pub const ALL: &[CapabilitySpec] = &[
         Context::Locale,
         "entity.name.function.statement.locale.lazuli",
         "Fallback locale.",
+    ),
+    // ── app: cors block ──
+    // Child keys the `app.cors` block parser accepts
+    // (`crates/lazuli_manifest/src/app_manifest/manifest_indent4.rs`
+    // `Some("cors")` arm): `allow_origins`, `allow_credentials`, `max_age`.
+    stmt(
+        "allow_origins",
+        Context::Cors,
+        "entity.name.function.statement.cors.lazuli",
+        "Allowed CORS origins.",
+    ),
+    stmt(
+        "allow_credentials",
+        Context::Cors,
+        "entity.name.function.statement.cors.lazuli",
+        "Allow credentialed CORS requests.",
+    ),
+    stmt(
+        "max_age",
+        Context::Cors,
+        "entity.name.function.statement.cors.lazuli",
+        "CORS preflight max-age.",
+    ),
+    // ── app: route_guard block ──
+    // Child keys the `app.route_guard` defaults block parser accepts
+    // (`crates/lazuli_manifest/src/app_manifest/manifest_indent4.rs`
+    // `Some("route_guard")` arm): `default_policy`, `on_unauthenticated`,
+    // `on_unauthorized`, `skeleton`.
+    stmt(
+        "default_policy",
+        Context::RouteGuard,
+        "entity.name.function.statement.route-guard.lazuli",
+        "App-level default route policy.",
+    ),
+    stmt(
+        "on_unauthenticated",
+        Context::RouteGuard,
+        "entity.name.function.statement.route-guard.lazuli",
+        "Default redirect when unauthenticated.",
+    ),
+    stmt(
+        "on_unauthorized",
+        Context::RouteGuard,
+        "entity.name.function.statement.route-guard.lazuli",
+        "Default redirect when unauthorized.",
+    ),
+    stmt(
+        "skeleton",
+        Context::RouteGuard,
+        "entity.name.function.statement.route-guard.lazuli",
+        "Default loading skeleton.",
+    ),
+    // ── app: error_page block ──
+    // Child keys the `app.error_page <NNN>` block parser accepts
+    // (`crates/lazuli_manifest/src/app_manifest/manifest_indent4.rs`
+    // `Some("error_page")` arm): `template`, `audience`. Distinct from the
+    // top-level `error_page` DECL (Context::TopLevel) above.
+    stmt(
+        "template",
+        Context::ErrorPage,
+        "entity.name.function.statement.error-page.lazuli",
+        "Error-page template path.",
+    ),
+    stmt(
+        "audience",
+        Context::ErrorPage,
+        "entity.name.function.statement.error-page.lazuli",
+        "Error-page audience selector.",
     ),
     // ── app: logging block ──
     stmt(
@@ -1483,6 +1566,12 @@ pub const ALL: &[CapabilitySpec] = &[
         Context::FeatureHeader,
         DECL,
         "Declares a domain entity.",
+    ),
+    kw(
+        "resource",
+        Context::FeatureHeader,
+        DECL,
+        "Declares a domain resource.",
     ),
     produces(
         kw(

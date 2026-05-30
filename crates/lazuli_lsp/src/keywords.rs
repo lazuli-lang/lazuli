@@ -124,6 +124,13 @@ pub const KEYWORDS: &[&str] = &[
     "accept",
     "visibility",
     "signed_ttl",
+    // BUG-1 — `app.cors` block child keys. Surfaced so the
+    // `keyword_surface_parity` LSP-catalog gate is satisfied for the new
+    // `Context::Cors` registry rows; hover one-liners fall out of the
+    // registry via `keyword_description`. (`max_age` is already listed for
+    // the `cookie` / `headers` blocks.)
+    "allow_origins",
+    "allow_credentials",
     // Observability bucket cycle row 36 — `app.logging` /
     // `app.tracing` slot keywords. Closed catalogs surface through
     // `keyword_hover` above and the closed-catalog completion below.

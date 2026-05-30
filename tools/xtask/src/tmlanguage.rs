@@ -29,8 +29,11 @@
 //!   (which block points at which generated rule is a hand-written decision);
 //! * strings, comments, operators, punctuation, `#references`, `#types`,
 //!   `#decorators`, `#modifiers`, `#constants` (cross-cutting / regex-shaped);
-//! * `locale` (two distinct alternations share one `(Context, scope)` group →
-//!   not a single-group projection), and the value-catalog alternations.
+//! * the `locale_negotiate` sub-block alternations (`source`/`strategy` are
+//!   closed-catalog rules, not a single-group keyword projection) and the
+//!   value-catalog alternations. (The app-level `locale` block statement
+//!   alternation — `default`/`supported`/`fallback` — IS generated as
+//!   `#kw-locale`.)
 //!
 //! # Freshness
 //!
@@ -139,10 +142,11 @@ const fn dotted_group(key: &'static str, context: Context, scope: &'static str) 
 ///    `HIGHLIGHT_SURFACE_GAP` allowlist. To promote one to a live wired rule,
 ///    add an `{ "include": "#kw-<key>" }` to the relevant block and re-snapshot.
 ///
-/// Still NOT generated at all: `locale` (two distinct alternations share one
-/// `(Context, scope)` group → not a single-group projection); `@`-decorators
-/// and value catalogs (regex-shaped / cross-cutting, matched by `#decorators`
-/// / `#constants`).
+/// Still NOT generated at all: the `locale_negotiate` sub-block
+/// (`source`/`strategy` are closed-catalog rules, not a single-group keyword
+/// projection — the app-level `locale` block IS generated as `#kw-locale`);
+/// `@`-decorators and value catalogs (regex-shaped / cross-cutting, matched by
+/// `#decorators` / `#constants`).
 const GROUPS: &[Group] = &[
     // ── tier 1: wired per-block statement/section alternations (H2) ──
     bare(
@@ -159,6 +163,21 @@ const GROUPS: &[Group] = &[
         "kw-proxy",
         Context::Proxy,
         "entity.name.function.statement.proxy.lazuli",
+    ),
+    bare(
+        "kw-cors",
+        Context::Cors,
+        "entity.name.function.statement.cors.lazuli",
+    ),
+    bare(
+        "kw-route-guard",
+        Context::RouteGuard,
+        "entity.name.function.statement.route-guard.lazuli",
+    ),
+    bare(
+        "kw-error-page",
+        Context::ErrorPage,
+        "entity.name.function.statement.error-page.lazuli",
     ),
     bare(
         "kw-limits",
@@ -224,6 +243,11 @@ const GROUPS: &[Group] = &[
         "kw-translation",
         Context::Translation,
         "entity.name.function.statement.translation.lazuli",
+    ),
+    bare(
+        "kw-locale",
+        Context::Locale,
+        "entity.name.function.statement.locale.lazuli",
     ),
     bare(
         "kw-tests",
@@ -331,6 +355,11 @@ const GROUPS: &[Group] = &[
         "kw-feature-decl",
         Context::FeatureHeader,
         "keyword.control.declaration.structural.lazuli",
+    ),
+    bare(
+        "kw-feature-section",
+        Context::FeatureHeader,
+        "keyword.control.section.lazuli",
     ),
     dotted_group(
         "kw-feature-dotted",

@@ -1,0 +1,61 @@
+>design pauta_web_monorepo
+#^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#      ^ source.lazuli
+#       ^^^^^^^^^^^^^^^^^^ source.lazuli entity.name.type.design.lazuli
+>  # Design tokens live here. Each color/space/radius/shadow/motion/
+#^^ source.lazuli
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+>  # breakpoint/z token becomes a TS/CSS variable in the generated adapters.
+#^^ source.lazuli
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+>  color
+#^^^^^^^ source.lazuli keyword.control.section.lazuli
+>    primary "#2563eb"
+#^^^^ source.lazuli
+#    ^^^^^^^ source.lazuli variable.other.property.design.lazuli
+#           ^ source.lazuli
+#            ^ source.lazuli string.quoted.double.lazuli
+#             ^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                    ^ source.lazuli string.quoted.double.lazuli
+>    surface "#ffffff"
+#^^^^ source.lazuli
+#    ^^^^^^^ source.lazuli variable.other.property.design.lazuli
+#           ^ source.lazuli
+#            ^ source.lazuli string.quoted.double.lazuli
+#             ^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                    ^ source.lazuli string.quoted.double.lazuli
+>  space
+#^^^^^^^ source.lazuli keyword.control.section.lazuli
+>    sm "4px"
+#^^^^ source.lazuli
+#    ^^ source.lazuli variable.other.property.design.lazuli
+#      ^ source.lazuli
+#       ^ source.lazuli string.quoted.double.lazuli
+#        ^^^ source.lazuli string.quoted.double.lazuli
+#           ^ source.lazuli string.quoted.double.lazuli
+>    md "8px"
+#^^^^ source.lazuli
+#    ^^ source.lazuli variable.other.property.design.lazuli
+#      ^ source.lazuli
+#       ^ source.lazuli string.quoted.double.lazuli
+#        ^^^ source.lazuli string.quoted.double.lazuli
+#           ^ source.lazuli string.quoted.double.lazuli
+>  radius
+#^^^^^^^^ source.lazuli keyword.control.section.lazuli
+>    md "8px"
+#^^^^ source.lazuli
+#    ^^ source.lazuli variable.other.property.design.lazuli
+#      ^ source.lazuli
+#       ^ source.lazuli string.quoted.double.lazuli
+#        ^^^ source.lazuli string.quoted.double.lazuli
+#           ^ source.lazuli string.quoted.double.lazuli
+>  shadow
+#^^^^^^^^ source.lazuli keyword.control.section.lazuli
+>    card "0 1px 2px rgba(0,0,0,0.05)"
+#^^^^ source.lazuli
+#    ^^^^ source.lazuli variable.other.property.design.lazuli
+#        ^ source.lazuli
+#         ^ source.lazuli string.quoted.double.lazuli
+#          ^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli string.quoted.double.lazuli
+#                                    ^ source.lazuli string.quoted.double.lazuli
+>
