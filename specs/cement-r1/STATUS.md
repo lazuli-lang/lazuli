@@ -35,24 +35,12 @@ branch would be invasive — left to the operator).
 - **SPEC-07 (B/C)**: B = reclassify `@role/@scope/@actor` to a catalog-atom registry *kind* (low user-value, touches proven_complete/tmLanguage/hover). C = forbid CRUD-named policy categories — **101 sites across nearly every example**, and the rename to "semantic" names is NON-mechanical (per-category judgment). Opinionated boundary move; per `docs/scope-discipline.md` needs explicit appetite, not an autonomous sweep.
 - **SPEC-19 registry.rs split**: BLOCKED — needs `constcat` (no built-in const-slice concat in stable Rust); `constcat` is not in the offline cargo cache. Other >500 files need full Rails production+test concern splits with the documented raw-string-fixture corruption risk.
 - **SPEC-20 (2/n)**: the `parse` handler depends on the bin-private compiler entry `build_module_from_path`; a second binary requires hoisting the build pipeline into the lib — central-crate reorg with cascade risk. (1/n already hid the commands from `lazuli --help`.)
+- **SPEC-02 (2/n)**: retire the `@command` sigil in lzx-surface action targets (the remaining §7a cut after the braces retire in 1/n).
 
-## Remaining — the invasive breaking cuts (specced, NOT auto-executed)
-
-Deliberately left for supervised execution: each rewrites the canonical
-fixture across parser + analyzer + codegen + snapshots, so it needs full
-iterative test-fixing — unsafe to force autonomously under the "não invasiva"
-directive (risk of leaving the tree red mid-iteration).
-
-| Spec | Why it's invasive |
-|---|---|
-| **SPEC-02 (2/n)** | retire the `@command` sigil in lzx-surface action targets (the remaining §7a cut after braces) |
-| **SPEC-05** == for equality | the predicate parser uses naive `split_once('=')` in many sites — `==` needs a shared operator tokenizer, touching rules/filters/tests |
-| **SPEC-07** policy coherence | analyzer `rbac.rs` + the `@policy`/CRUD-collision + fixtures |
-| **SPEC-19** LOC debt | `registry.rs` (now ~3.6k LOC) needs const-slice concat (`constcat` or section-`include!`); ~40 files >500 |
-| **SPEC-20 (2/n)** | move `parse`/`spike-generate`/`examples`/`self-doctor` to a `lazuli-dev` binary + `scripts/dev-check.sh` |
-
-Each ships its `lazuli upgrade` recipe (SPEC-00 makes this possible). Run them
-one wave at a time, green per commit, on a paused-swarm checkout.
+Each remaining cut ships its `lazuli upgrade` recipe (SPEC-00 makes this
+possible). Run them one wave at a time, green per commit. SPEC-19's
+registry split is unblocked by vendoring/fetching `constcat`; SPEC-07 (C)'s
+CRUD-category rename wants explicit human appetite (opinionated, 101 sites).
 
 ## Merge + cleanup
 1. Review/merge `cement-r1-exec` (e.g. `--no-ff` into the integration line) when
