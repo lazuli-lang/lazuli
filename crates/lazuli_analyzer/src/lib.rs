@@ -120,6 +120,7 @@ mod resource_validators;
 pub mod source_map;
 mod surface;
 pub mod symbol_origin;
+mod test_lowering;
 mod types;
 mod workflow;
 

@@ -216,7 +216,12 @@ pub(crate) fn lower_command_decl(
         write_window,
         deprecated,
         handler,
-        tests: None,
+        // Bug A — lower the authored `tests { }` lines into the shared
+        // TestAssertion catalog so the doctor consumers
+        // (VOCAB-TESTS-MISSING-001, spec_actor_matrix) actually see the
+        // command's `allows as` / `denies as` evidence. Previously
+        // hardcoded `None`, which dropped every command test.
+        tests: crate::test_lowering::lower_test_block(&c.tests, c.span),
         triggers: c.triggers.clone(),
         synthesized_from_cap_file: None,
         // owner-scope §7.3 — author-written commands default to
