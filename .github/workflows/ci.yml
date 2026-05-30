@@ -74,19 +74,21 @@ jobs:
       - run: cargo doc --workspace --no-deps --document-private-items
 
   self-doctor:
-    name: lazuli doctor --self
+    name: lazuli-dev self-doctor
     runs-on: ubuntu-latest
     needs: [clippy]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Build lazuli CLI
-        run: cargo build --release -p lazuli_cli --bin lazuli
+      # SPEC-20 2/n: the self-audit moved off the published `lazuli` binary to
+      # the framework-dev `lazuli-dev` binary (`self-doctor` ≡ the old
+      # `lazuli doctor --self`).
+      - name: Build lazuli-dev CLI
+        run: cargo build --release -p lazuli_cli --bin lazuli-dev
       - name: Doctor self-check (dogfood)
         run: |
-          ./target/release/lazuli doctor \
-            --self \
+          ./target/release/lazuli-dev self-doctor \
             --security-profile strict \
             --fail-on category:internal_hygiene \
             --fail-on category:test_discipline \

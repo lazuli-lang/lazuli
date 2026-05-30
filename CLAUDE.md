@@ -137,6 +137,17 @@ Operational dispatching (orchestration, slash commands, multi-agent coordination
 
 ---
 
+## CLI binaries — published vs framework-dev (SPEC-20)
+
+The `lazuli_cli` crate ships **two** binaries; the command *logic* lives in the library (`src/lib.rs` + `cli_run`/`cli_dev` + the `commands::*` subtree) and each binary is a one-line shell over it:
+
+- **`lazuli`** (published, `src/main.rs` → `lazuli_cli::run`) — the app-developer surface. `lazuli --help` carries **zero** framework-dev commands.
+- **`lazuli-dev`** (contributors only, `src/bin/lazuli-dev.rs` → `lazuli_cli::run_dev`) — `parse` (AST dump), `spike-generate` (codegen spike), `examples` (manage THIS repo's fixtures), `self-doctor` (audit Lazuli's own Rust under `INTERNAL-*` — the former `lazuli doctor --self`). Run via `cargo run -p lazuli_cli --bin lazuli-dev -- <cmd>`.
+
+A framework-dev command **never** lands on `lazuli`. New contributor tooling goes on `lazuli-dev` (or `xtask` if it is a pure registry→artifact projector with no heavy deps). Before pushing, run `scripts/dev-check.sh` — the orchestrator that sequences `fmt` + `clippy -D warnings` + xtask freshness `--check`s + `docs_hygiene` + `lazuli-dev self-doctor`, mirroring CI.
+
+---
+
 ## Inviolable language rules
 
 1. **No provider names in core syntax.** No `stripe`, `mercadopago`, `openai`, `aws`, `kubernetes` keywords. Provider references go through registry adapter slots (`@runtime/...`, `@plugin/...`, `@adapter.<local>`).

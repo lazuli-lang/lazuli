@@ -6,18 +6,19 @@
 //! lower the clap-side enums into the analyzer/runtime-side types
 //! (`SecurityProfile`, `cmd_test_types::Layer`, `cmd_design::*`).
 //!
-//! No behavior lives here. `fn main()` in `main.rs` matches on
-//! [`Commands`] and dispatches into the `commands::*` subtree.
-//!
-//! ABI: `lazuli --help` is byte-identical with the pre-split build.
+//! No behavior lives here. [`crate::cli_run::run`] matches on [`Commands`]
+//! and dispatches into the `commands::*` subtree. The framework-dev surface
+//! (`parse` / `spike-generate` / `examples` / `self-doctor`) is a SEPARATE
+//! clap tree in [`crate::cli_dev`], reachable only from the `lazuli-dev`
+//! binary (SPEC-20 2/n) — so the published `lazuli --help` carries zero
+//! framework-dev commands, not merely hidden ones.
 
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 
-use crate::cmd_design;
-use crate::cmd_test_types;
+use crate::{cmd_design, cmd_test_types};
 
 #[derive(Debug, Parser)]
 #[command(name = "lazuli", version = env!("CARGO_PKG_VERSION"))]
@@ -35,12 +36,6 @@ pub(crate) struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Commands {
-    /// (framework-dev) Dump the parser skeleton AST. Hidden from the
-    /// published surface — contributor tooling, not an app-dev command.
-    #[command(hide = true)]
-    Parse {
-        input: PathBuf,
-    },
     Check {
         input: PathBuf,
         #[arg(long, value_enum, default_value_t = CheckSecurityProfile::Strict)]
@@ -78,15 +73,6 @@ pub(crate) enum Commands {
         /// - `coverage:<layer>=<N>` — coverage threshold gate
         #[arg(long, action = clap::ArgAction::Append)]
         fail_on: Vec<String>,
-        /// W3 (rails-style-refactor) — audit the framework's own Rust
-        /// source instead of (or in addition to) `.lzi`/`.lzx` IR.
-        /// Walks `crates/lazuli_*/src/` and emits `INTERNAL-*` findings
-        /// (file size, missing rustdoc, absent `## Examples`, unpaired
-        /// tests). Pairs with workspace-root
-        /// `[doctor.internal_hygiene].preset = "tdd-iron-hand"` for
-        /// the framework's CI editorial veto.
-        #[arg(long = "self", hide = true)]
-        self_audit: bool,
     },
     Inspect {
         input: PathBuf,
@@ -122,14 +108,6 @@ pub(crate) enum Commands {
         #[arg(long, default_value = "text")]
         format: String,
     },
-    /// (framework-dev) Manage this repo's curated example fixtures.
-    /// Hidden from the published surface — operates on the Lazuli repo,
-    /// not an app developer's project.
-    #[command(hide = true)]
-    Examples {
-        #[command(subcommand)]
-        sub: ExamplesCommand,
-    },
     Init {
         path: PathBuf,
     },
@@ -163,23 +141,6 @@ pub(crate) enum Commands {
         /// Lazuli LSP only supports stdio, so the flag is a no-op.
         #[arg(long, hide = true)]
         stdio: bool,
-    },
-    /// Regenerate the runtime-form `customer.gen.go` and `customer.gen.ts`
-    /// files from a runtime spec. Without `--spec`, uses the in-process
-    /// `customer_spike()` fixture; with `--spec <path>`, loads a JSON
-    /// `RuntimeFeature` manifest (see `examples/runtime-spec/customer.json`).
-    #[command(hide = true)]
-    SpikeGenerate {
-        /// Workspace root (defaults to the current directory). The
-        /// command writes to `<root>/dist/go/customer/customer.gen.go`
-        /// and `<root>/dist/web/customer/src/customer.gen.ts`.
-        #[arg(long, short, default_value = ".")]
-        root: PathBuf,
-        /// Optional JSON path to a serialised `RuntimeFeature`. The CLI
-        /// reads it via serde and runs the same emitter as the in-process
-        /// fixture, decoupling codegen from the hardcoded spec.
-        #[arg(long)]
-        spec: Option<PathBuf>,
     },
     /// Migrations bucket cycle Route C — schema-migration planning
     /// surface. The current implementation validates checkpoint
@@ -363,7 +324,6 @@ pub(crate) enum Commands {
         extra_args: Vec<String>,
     },
 }
-
 
 mod subcommands;
 mod value_enums;
