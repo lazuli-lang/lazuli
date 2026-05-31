@@ -15,6 +15,10 @@
 //! resource-wide-cluster lints landing in subsequent cells).
 
 pub mod conventions;
+// VOCAB-CRUD-SYNTH-AVAILABLE-001 (spec 0002) — the `crud` synth run
+// backwards: nudges a resource that hand-rolls the crud surface to adopt
+// `conventions [crud]`. Advisory (warning, non-gating), suppressible.
+pub mod crud_synth_available;
 pub mod money_arithmetic_001;
 pub mod money_compare_001;
 pub mod owner_axis;

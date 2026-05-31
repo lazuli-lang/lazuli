@@ -389,8 +389,13 @@ pub(crate) const P_RATE_LIMIT: &[DiagnosticFacet] = &[
     df("rate_limit_unknown_env", "error", "vocabulary"),
 ];
 
-pub(crate) const P_CONVENTIONS: &[DiagnosticFacet] =
-    &[df("conventions_unknown", "warning", "vocabulary")];
+pub(crate) const P_CONVENTIONS: &[DiagnosticFacet] = &[
+    df("conventions_unknown", "warning", "vocabulary"),
+    // Spec 0002 — inverse-synth adoption nudge. Advisory: base severity
+    // `warning`; the `vocabulary` category keeps it out of the gating set so
+    // `lazuli check`/`doctor` exit codes never change.
+    df("VOCAB-CRUD-SYNTH-AVAILABLE-001", "warning", "vocabulary"),
+];
 
 pub(crate) const P_DESIGN: &[DiagnosticFacet] = &[
     df("design-custom-duplicate", "error", "vocabulary"),

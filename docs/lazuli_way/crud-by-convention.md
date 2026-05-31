@@ -70,8 +70,16 @@ then, keep an explicit delete / soft-delete command where you need one.
 - `crud_synth_*` diagnostics (shipped today) — the `inspect` / diagnostic
   surface that reports a resource is eligible for, and is using,
   `conventions [crud]`.
-- `VOCAB-CRUD-SYNTH-AVAILABLE-001` *(incoming — spec 0002)* — fires on a
-  hand-rolled create/update command set that could be replaced by
-  `conventions [crud]`, suggesting the convention.
+- `VOCAB-CRUD-SYNTH-AVAILABLE-001` *(shipped — spec 0002)* — the `crud`
+  synth run backwards. Fires on a resource that does NOT carry
+  `conventions [crud]` but hand-rolls (by name) at least `create_<r>` +
+  `update_<r>` matching the synth's own member names, naming the exact
+  members it would replace and suggesting the convention. Advisory
+  (`warning`, never gates); incremental (a partial create/update-only
+  hand-roll still fires, scoped to what matches). Soft-delete carve-out:
+  when the resource is `soft_delete` / `retention`-bound, the matched
+  `delete_<r>` is dropped from the suggestion and stays explicit (the synth
+  delete is hard — spec 0015). Opt out with
+  `# doctor:allow VOCAB-CRUD-SYNTH-AVAILABLE-001 — reason "..."`.
 
 See the proposal: `docs/proposals/ir-resource-conventions-crud.md`.
