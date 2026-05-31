@@ -18,6 +18,7 @@ Operational artifacts (proposals, audits, roadmaps, per-pilot state, swarm tooli
 
 | Doc | What's there |
 |---|---|
+| [`lazuli_way.md`](lazuli_way.md) | Authoring-idioms canon — what to reach for instead of the hand-rolled shape, each bound to its enforcing doctor rule (one file per idiom under `lazuli_way/`) |
 | [`canonical-semantics.md`](canonical-semantics.md) | The full normative spec — every keyword, every closed namespace, every modifier |
 | [`grammar.lzi.md`](grammar.lzi.md) | `feature.lzi` grammar (the main per-feature surface) |
 | [`grammar.lzx.md`](grammar.lzx.md) | `feature.lzx` grammar (surfaces / views / cells / drawers) |

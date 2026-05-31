@@ -1,0 +1,43 @@
+feature note
+
+  purpose "Seed feature shipped by `lazuli new` — the canonical worked example of the Lazuli Way."
+
+  non_goals
+    "Tenancy / org roots (a real app adds an org feature, then switches the defaults block to `tenancy org`)"
+    "Auth and the signed-in user (see the account feature)"
+
+  # A `defaults` block hoists settings every command in the feature shares,
+  # instead of repeating them on each command. `timestamps` auto-stamps
+  # created_at / updated_at on every write. Once your app defines an `Org`
+  # tenancy root, add `tenancy org` here; spec 0004 lands `rate_limit` + `audit`
+  # as defaults keys (`rate_limit "30 per 10 minutes per ip"`, `audit default`).
+  defaults
+    timestamps
+
+  domain
+    # `conventions [crud]` synthesizes the ordinary create/update commands from
+    # this resource's fields — reach for this instead of hand-rolling a command
+    # per operation. See docs/lazuli_way/crud-by-convention.md.
+    resource Note
+      title: Text required validate utf8_safe
+      body: Text optional validate utf8_safe = nil
+      created_at: DateTime required
+      updated_at: DateTime required
+      conventions [crud]
+
+  # A typed read. Reach for query.list / query.lookup / query.sql before a @fn —
+  # see docs/lazuli_way/escape-hatch-decision-tree.md.
+  # doctor:allow VOCAB-TESTS-MISSING-001 — reason "seed scaffold: the synthesized [crud] commands are demonstrated, not exercised; new apps add inline command tests / handler tests when they implement behavior"
+  query.list recent
+    policy @policy.authenticated
+    paginate 50
+
+  policies
+    authenticated: @scope.authenticated
+      when_denied @translation.note_sign_in_required
+
+  translation
+    catalog "./i18n/note.<locale>.json"
+
+    key note_sign_in_required
+      en-US "Please sign in to view your notes."

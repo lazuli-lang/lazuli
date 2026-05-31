@@ -95,3 +95,11 @@ lazuli plan <input> --check <checkpoint>
 lazuli changelog --from a.json --to b.json [--output report.md]
 lazuli translate extract <input> --out i18n [--locale en-US] [--check]
 ```
+
+## Authoring
+
+This quickstart covers the CLI verbs. When you start writing `.lzi` / `.lzx`,
+read [`lazuli_way.md`](lazuli_way.md) — the authoring-idioms canon. It says what
+to reach for instead of the hand-rolled shape (e.g. `conventions [crud]` over a
+hand-written command per resource), each idiom bound to the doctor rule that
+enforces it.

@@ -1,0 +1,5 @@
+experience note
+  imports note
+
+  view list
+    source note.query.recent

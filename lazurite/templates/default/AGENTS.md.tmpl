@@ -116,6 +116,25 @@ If step 3 or 6 fails: read the diagnostic, fix the `.lzi` (not the workaround). 
 
 ---
 
+## Authoring idioms
+
+Lazuli rewards a declarative style. Before hand-rolling, reach for the idiom.
+The full canon — each idiom with a before/after pilot excerpt and the doctor
+rule that enforces it — lives in `docs/lazuli_way.md` (upstream framework docs).
+The seed `note` feature in this scaffold (`app/features/note/`) is a worked
+example.
+
+- Reach for `conventions [crud]`, not a hand-rolled create/update/delete command per resource.
+- Reach for a `defaults` block, not the same `tenancy` (and soon `rate_limit`/`audit`) repeated on every command.
+- Reach for `query.sql` / `query.compose` for joins/aggregates, not a raw SQL string buried in a `@fn` Go handler.
+- Reach for a closed `state {}` + `transition`, not a free-text status field hand-validated in Go.
+- Reach for `guard references` / `restrict on_delete`, not hand-copied referential guards.
+- Reach for first-class `Money`, not an amount-cents Integer plus a currency-string sibling.
+
+See `docs/lazuli_way/escape-hatch-decision-tree.md` for the ordered "which surface do I reach for?" decision.
+
+---
+
 ## Founding principle (don't violate)
 
 **Lazuli's runtime layer is wire, not reimplementation.** When writing `handlers/<x>.go` or other authored Go, do NOT reimplement primitives that exist in Go stdlib or mature libraries. Each adapter / helper should be ~10-50 LOC of `import + call`, not 200-800 LOC of homegrown logic.
@@ -156,7 +175,7 @@ Reference: the canonical pilot's `app/testsupport/harness.go` is the canonical e
 
 The framework owns the generic 80%. The remaining 20% is app-specific. Five named escape hatches cover it:
 
-1. **`@fn.<name>` handlers** — `command/query/job/webhook/poller` surfaces accept `@fn.<name>` references that lower to user-written Go in `app/features/<feature>/handlers/<name>.go`. **Use when**: vendor API call, custom validation, derived field computation, multi-step orchestration that doesn't fit the typed effect catalog.
+1. **`@fn.<name>` handlers** — `command/query/job/webhook/poller` surfaces accept `@fn.<name>` references that lower to user-written Go in `app/features/<feature>/handlers/<name>.go`. **Use when**: a genuine vendor API call, custom validation, or an irreducibly imperative step the typed effect catalog can't express. **Do NOT reach for `@fn` for anything expressible as a typed `command`/`query` — and raw SQL belongs in a declared `query.sql`/`query.compose`, NEVER as a SQL string literal inside a `@fn` Go handler** (a query hidden in Go is invisible to tenancy, policy, and read-shape checks). Walk `docs/lazuli_way/escape-hatch-decision-tree.md` before reaching for `@fn`.
 
 2. **`api foo / handler "./path.go"`** — full-control HTTP endpoints that don't fit the typed `command`/`query` shape (e.g. a vendor's bespoke webhook callback with three nested polymorphic envelopes). **Use when**: the response body shape is genuinely opaque or vendor-quirky.
 
