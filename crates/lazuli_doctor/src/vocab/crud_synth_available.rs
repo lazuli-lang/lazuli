@@ -7,6 +7,11 @@
 //! what `conventions [crud]` would synthesize — to drop the boilerplate and
 //! opt in.
 //!
+//! Warns when a resource hand-rolls the full canonical `create_X`/`update_X`/
+//! `delete_X` command set (signatures matching the synth) without declaring
+//! `conventions [crud]`. Example: a `Note` resource with explicit
+//! `create_note`/`update_note`/`delete_note` commands fires the advisory.
+//!
 //! Spec: `.specs/changes/0002-crud-inverse-linter/` (PRD/ADR/techspec).
 //!
 //! - **Advisory.** The facet row (`P_CONVENTIONS` in `lazuli_keywords`) is
