@@ -337,6 +337,26 @@
     "comments": {
       "patterns": [
         {
+          "comment": "doctor:allow suppression directive — most-specific-first; MUST precede the #.*$ catch-all (TextMate first-match-wins). Mirrors scope-block's reason + #strings treatment.",
+          "name": "comment.line.number-sign.directive.lazuli",
+          "begin": "(#)\\s*(doctor:allow)\\s+([^\\s]+)",
+          "beginCaptures": {
+            "1": { "name": "punctuation.definition.comment.lazuli" },
+            "2": { "name": "keyword.control.directive.lazuli" },
+            "3": { "name": "entity.name.tag.lazuli" }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "match": "(—|--)\\s*(reason)\\b",
+              "captures": {
+                "2": { "name": "keyword.control.directive.reason.lazuli" }
+              }
+            },
+            { "include": "#strings" }
+          ]
+        },
+        {
           "name": "comment.line.number-sign.lazuli",
           "match": "#.*$"
         }

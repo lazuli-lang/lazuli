@@ -130,6 +130,7 @@ example.
 - Reach for a closed `state {}` + `transition`, not a free-text status field hand-validated in Go.
 - Reach for `guard references` / `restrict on_delete`, not hand-copied referential guards.
 - Reach for first-class `Money`, not an amount-cents Integer plus a currency-string sibling.
+- Suppress a lint with `# doctor:allow <CODE> — reason "..."` — it's a highlighted, first-class directive; always carry a reason.
 
 See `docs/lazuli_way/escape-hatch-decision-tree.md` for the ordered "which surface do I reach for?" decision.
 

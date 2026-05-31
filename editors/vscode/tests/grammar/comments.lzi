@@ -1,0 +1,9 @@
+# just a note
+# doctor:allow VOCAB-TESTS-MISSING-001 — reason "covered by integration suite"
+# doctor:allow VOCAB-TESTS-MISSING-001
+feature billing
+  vocabulary
+    invoice
+      total: money
+      # doctor:allow CRUD-INVERSE-MISSING-001 — reason "read-only projection, no writer needed"
+      status: text

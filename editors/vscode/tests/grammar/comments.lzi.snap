@@ -1,0 +1,54 @@
+># just a note
+#^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.lazuli
+># doctor:allow VOCAB-TESTS-MISSING-001 — reason "covered by integration suite"
+#^ source.lazuli comment.line.number-sign.directive.lazuli punctuation.definition.comment.lazuli
+# ^ source.lazuli comment.line.number-sign.directive.lazuli
+#  ^^^^^^^^^^^^ source.lazuli comment.line.number-sign.directive.lazuli keyword.control.directive.lazuli
+#              ^ source.lazuli comment.line.number-sign.directive.lazuli
+#               ^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.directive.lazuli entity.name.tag.lazuli
+#                                      ^ source.lazuli comment.line.number-sign.directive.lazuli
+#                                       ^^ source.lazuli comment.line.number-sign.directive.lazuli
+#                                         ^^^^^^ source.lazuli comment.line.number-sign.directive.lazuli keyword.control.directive.reason.lazuli
+#                                               ^ source.lazuli comment.line.number-sign.directive.lazuli
+#                                                ^ source.lazuli comment.line.number-sign.directive.lazuli string.quoted.double.lazuli
+#                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.directive.lazuli string.quoted.double.lazuli
+#                                                                             ^ source.lazuli comment.line.number-sign.directive.lazuli string.quoted.double.lazuli
+># doctor:allow VOCAB-TESTS-MISSING-001
+#^ source.lazuli comment.line.number-sign.directive.lazuli punctuation.definition.comment.lazuli
+# ^ source.lazuli comment.line.number-sign.directive.lazuli
+#  ^^^^^^^^^^^^ source.lazuli comment.line.number-sign.directive.lazuli keyword.control.directive.lazuli
+#              ^ source.lazuli comment.line.number-sign.directive.lazuli
+#               ^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.directive.lazuli entity.name.tag.lazuli
+>feature billing
+#^^^^^^^ source.lazuli keyword.control.declaration.structural.lazuli
+#       ^ source.lazuli
+#        ^^^^^^^ source.lazuli entity.name.type.feature.lazuli
+>  vocabulary
+#^^^^^^^^^^^^^ source.lazuli
+>    invoice
+#^^^^^^^^^^^^ source.lazuli
+>      total: money
+#^^^^^^ source.lazuli
+#      ^^^^^ source.lazuli variable.other.field.lazuli
+#           ^ source.lazuli punctuation.separator.type.lazuli
+#            ^^^^^^^ source.lazuli
+>      # doctor:allow CRUD-INVERSE-MISSING-001 — reason "read-only projection, no writer needed"
+#^^^^^^ source.lazuli
+#      ^ source.lazuli comment.line.number-sign.directive.lazuli punctuation.definition.comment.lazuli
+#       ^ source.lazuli comment.line.number-sign.directive.lazuli
+#        ^^^^^^^^^^^^ source.lazuli comment.line.number-sign.directive.lazuli keyword.control.directive.lazuli
+#                    ^ source.lazuli comment.line.number-sign.directive.lazuli
+#                     ^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.directive.lazuli entity.name.tag.lazuli
+#                                             ^ source.lazuli comment.line.number-sign.directive.lazuli
+#                                              ^^ source.lazuli comment.line.number-sign.directive.lazuli
+#                                                ^^^^^^ source.lazuli comment.line.number-sign.directive.lazuli keyword.control.directive.reason.lazuli
+#                                                      ^ source.lazuli comment.line.number-sign.directive.lazuli
+#                                                       ^ source.lazuli comment.line.number-sign.directive.lazuli string.quoted.double.lazuli
+#                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.lazuli comment.line.number-sign.directive.lazuli string.quoted.double.lazuli
+#                                                                                              ^ source.lazuli comment.line.number-sign.directive.lazuli string.quoted.double.lazuli
+>      status: text
+#^^^^^^ source.lazuli
+#      ^^^^^^ source.lazuli variable.other.field.lazuli
+#            ^ source.lazuli punctuation.separator.type.lazuli
+#             ^^^^^^ source.lazuli
+>
