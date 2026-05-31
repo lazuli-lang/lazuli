@@ -21,6 +21,7 @@
 // internal crates (genuine wrong refs are still fixed inline).
 #![allow(rustdoc::broken_intra_doc_links, rustdoc::private_intra_doc_links)]
 pub mod allow_comment;
+pub mod allow_no_reason;
 pub mod config_noise;
 pub mod correctness;
 pub mod coverage;

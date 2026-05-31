@@ -18,6 +18,10 @@
 //!   resource / domain prefix. Bundles of cohesive features (e.g.
 //!   `customer`, `customer_auth`, `customer_tags`) pass; arbitrary
 //!   bundling of unrelated features fires.
+//! - [`lzi_comment_noise`] (`LZI-COMMENT-NOISE-001`) — advisory comment-noise
+//!   lint: decorative dividers + high comment-to-semantic ratio. Fires when a
+//!   `.lzi`/`.lzx` is comment-dominant or carries a divider ruler. Preventive
+//!   (pilots' `.lzi` are already clean); never gates.
 //!
 //! ## Why these three (and not "1 feature per file")
 //!
@@ -54,6 +58,7 @@
 pub mod feature_cohesion_001;
 pub mod feature_naming_matches_file_001;
 pub mod file_size_001;
+pub mod lzi_comment_noise;
 pub mod preset;
 pub mod walker;
 
