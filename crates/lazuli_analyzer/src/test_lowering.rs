@@ -28,14 +28,22 @@
 //! malformed lines yields `None` — which keeps the doctor's "substantive
 //! block" accounting honest (an empty / garbage block is not coverage).
 //!
-//! The `allows when <pred>` / `denies when <pred>` forms map to
-//! `TestAssertion::AllowsWhen`/`DeniesWhen`, which carry a typed closed
-//! [`ir::Predicate`] (a closed enum — `Comparison`/`Has`/`And`/`Or`, no
-//! raw-text variant). Lowering them faithfully needs the closed predicate
-//! parser, which is out of scope for this mechanical projection; until
-//! that is wired they intentionally lower to nothing rather than
-//! fabricate a bogus `Predicate`. The Bug A symptoms (actor matrix +
-//! VOCAB-TESTS) are fully covered by the `as` / `from` forms.
+//! The `allows when <pred>` / `denies when <pred>` forms carry a typed
+//! closed [`ir::Predicate`] (a closed enum — `Comparison`/`Has`/`And`/`Or`,
+//! no raw-text variant). Lowering them *faithfully* needs the closed
+//! predicate parser, which is out of scope for this mechanical projection.
+//!
+//! UNTIL that parser lands (spec 0012, 2026-05-31): rather than DROP these
+//! lines — which left an authored `tests` block reading empty and made
+//! `VOCAB-TESTS-MISSING-001` false-fire on every feature that wrote only
+//! `when`-predicate tests (pauta BT-03/BT-11; both pilots waived it) — they
+//! lower to the sanctioned `TestAssertion::Raw` fallback. `Raw` preserves
+//! the authored line verbatim so the doctor's `block_has_substance` check
+//! counts it as real coverage, without fabricating a bogus typed
+//! `Predicate`. The actor-matrix (`as` / `from`) forms still lower to their
+//! typed variants and are the only rows `spec_actor_matrix` credits; `Raw`
+//! rows carry no typed actor and are ignored there. Comments and malformed
+//! lines still lower to nothing (an empty/garbage block is not coverage).
 
 use lazuli_ir as ir;
 use lazuli_syntax as syntax;
@@ -92,8 +100,18 @@ pub(crate) fn lower_test_line(line: &str) -> Option<ir::TestAssertion> {
         ["denies", "as", actor] => Some(ir::TestAssertion::DeniesAs {
             actor: (*actor).to_owned(),
         }),
-        // `allows when <pred>` / `denies when <pred>` need the typed
-        // closed-predicate parser (see module docs); not lowered here.
+        // `allows when <pred>` / `denies when <pred>` — the typed
+        // closed-`Predicate` parser is not yet wired (see module docs).
+        // Rather than DROP the line (which left an authored `tests` block
+        // reading empty and made VOCAB-TESTS-MISSING-001 false-fire —
+        // spec 0012), lower to the sanctioned verbatim `Raw` fallback so
+        // the line counts as real coverage without fabricating a bogus
+        // typed `Predicate`. `Raw` rows carry no actor, so the actor
+        // matrix ignores them.
+        ["allows", "when", ..] | ["denies", "when", ..] => Some(ir::TestAssertion::Raw {
+            line: line.trim().to_owned(),
+        }),
+        // Comments / malformed lines are not coverage.
         _ => None,
     }
 }
@@ -163,8 +181,72 @@ mod tests {
             )
             .is_none()
         );
-        // `allows when <pred>` is not lowered by this mechanical
-        // projection (needs the typed closed-predicate parser).
-        assert!(lower_test_line("allows when input.amount > 0").is_none());
+    }
+
+    // ── spec 0012 (VOCAB-TESTS-MISSING-001 feed fix) ──────────────────────────
+
+    /// `allows when <pred>` / `denies when <pred>` now lower to the
+    /// sanctioned `Raw` fallback (non-empty) instead of being dropped.
+    #[test]
+    fn when_predicates_lower_to_raw_non_empty() {
+        assert_eq!(
+            lower_test_line("allows when input.amount > 0"),
+            Some(ir::TestAssertion::Raw {
+                line: "allows when input.amount > 0".to_owned()
+            })
+        );
+        assert_eq!(
+            lower_test_line("denies when input.email is_empty"),
+            Some(ir::TestAssertion::Raw {
+                line: "denies when input.email is_empty".to_owned()
+            })
+        );
+    }
+
+    /// Quiet-on-legit (gate): an inline `tests` block whose lines are all
+    /// `when`-predicates lowers to a non-empty `TestBlock` — the exact
+    /// pilot shape that used to read empty and false-fire the rule.
+    #[test]
+    fn tests_missing_quiet_on_lowered_inline_tests() {
+        let block = lower_test_block(
+            &[
+                "allows when input.email contains \"@\"".to_owned(),
+                "denies when input.email is_empty".to_owned(),
+            ],
+            span(),
+        )
+        .expect("a block of when-predicate lines must lower to a non-empty TestBlock");
+        assert_eq!(block.assertions.len(), 2);
+        assert!(
+            block
+                .assertions
+                .iter()
+                .all(|a| matches!(a, ir::TestAssertion::Raw { .. }))
+        );
+    }
+
+    /// Mixed block: a typed `as` row plus a `when` row — both survive.
+    #[test]
+    fn mixed_typed_and_when_block_lowers_all_lines() {
+        let block = lower_test_block(
+            &[
+                "allows as @role.member".to_owned(),
+                "denies when input.note is_empty".to_owned(),
+            ],
+            span(),
+        )
+        .expect("mixed block lowers");
+        assert_eq!(
+            block.assertions[0],
+            ir::TestAssertion::AllowsAs {
+                actor: "@role.member".to_owned()
+            }
+        );
+        assert_eq!(
+            block.assertions[1],
+            ir::TestAssertion::Raw {
+                line: "denies when input.note is_empty".to_owned()
+            }
+        );
     }
 }

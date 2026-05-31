@@ -50,7 +50,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use lazuli_ir::{Event, Feature};
+use lazuli_ir::{Event, EventGroup, EventVariant, Feature};
 
 // ── output ────────────────────────────────────────────────────────────────────
 
@@ -161,6 +161,33 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
 
             match declared.get(local_name) {
                 None => {
+                    // Not a flat `event` — try `event_group <pattern> on
+                    // <Resource>` declarations. A command emits the
+                    // *expanded* group event name (pattern `account_*` +
+                    // event `signed_up` => `account_signed_up`).
+                    match resolve_group_event(&feature.event_groups, event_ref) {
+                        // Typed variant: fire MissingPayload only when it
+                        // carries no fields (group-level analog of a flat
+                        // event missing `payload`); a typed variant ⇒ quiet.
+                        GroupResolution::Variant(variant) => {
+                            if variant.fields.is_empty() {
+                                findings.push(Finding {
+                                    path: path.to_path_buf(),
+                                    event_name: event_ref.clone(),
+                                    kind: FindingKind::MissingPayload,
+                                });
+                            }
+                            continue;
+                        }
+                        // Resolved by group-event NAME only (this build
+                        // lifts inline-field group events into
+                        // `EventGroup.events` names, not typed `variants`).
+                        // The event IS declared ⇒ quiet; typed-payload
+                        // lifting of inline group-event fields is a
+                        // separate analyzer gap, not this rule's concern.
+                        GroupResolution::NameOnly => continue,
+                        GroupResolution::Unresolved => {}
+                    }
                     if seen_undeclared.insert(event_ref.clone()) {
                         findings.push(Finding {
                             path: path.to_path_buf(),
@@ -188,6 +215,55 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     findings
 }
 
+/// Outcome of resolving an emitted event name against the feature's
+/// `event_group` declarations.
+enum GroupResolution<'a> {
+    /// Matched a typed `EventVariant` — caller inspects `fields`.
+    Variant(&'a EventVariant),
+    /// Matched a group event by NAME only (variant-less inline-field
+    /// shape: declared, payload typing unknown to this rule).
+    NameOnly,
+    /// No group declares this event.
+    Unresolved,
+}
+
+/// Resolve an emitted event name against `event_group <pattern> on
+/// <Resource>` declarations. A command emits the EXPANDED event name (the
+/// group pattern's `*` replaced by the short name, e.g. pattern
+/// `account_*` + event `signed_up` => `account_signed_up`); some pilot
+/// features emit the bare short name, so we accept either spelling.
+///
+/// Prefers a typed `variant` match (the `payload`-block group shape,
+/// which carries `fields`); falls back to the group's `events` NAME list
+/// (the inline-field group shape lifts only into names). Either way the
+/// event is declared, so the rule must not report it Undeclared.
+fn resolve_group_event<'a>(groups: &'a [EventGroup], event_ref: &str) -> GroupResolution<'a> {
+    let local = event_ref.rsplit('.').next().unwrap_or(event_ref);
+    let matches = |candidate: &str, prefix: &str| -> bool {
+        let expanded = format!("{prefix}{candidate}");
+        event_ref == expanded || local == expanded || event_ref == candidate || local == candidate
+    };
+    // First pass: typed variants (richest signal).
+    for group in groups {
+        let prefix = group.pattern.split('*').next().unwrap_or("");
+        for variant in &group.variants {
+            if matches(&variant.name, prefix) {
+                return GroupResolution::Variant(variant);
+            }
+        }
+    }
+    // Second pass: group event names (variant-less inline-field shape).
+    for group in groups {
+        let prefix = group.pattern.split('*').next().unwrap_or("");
+        for event_name in &group.events {
+            if matches(event_name, prefix) {
+                return GroupResolution::NameOnly;
+            }
+        }
+    }
+    GroupResolution::Unresolved
+}
+
 // ── tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -195,8 +271,8 @@ mod tests {
     use super::*;
     use lazuli_ir::{
         BuiltinType, Command, CommandEffect, CommandInput, CommandKind, CreateEffect, Defaults,
-        Event, EventField, EventKind, Feature, OutboxMode, Policies, PolicyRef, QualifiedName,
-        ReturnsEffect, TypeRef,
+        Event, EventField, EventGroup, EventKind, EventVariant, EventVariantKind, Feature,
+        OutboxMode, Policies, PolicyRef, QualifiedName, ReturnsEffect, TypeRef,
     };
 
     fn qn(name: &str) -> QualifiedName {
@@ -471,6 +547,103 @@ mod tests {
         assert!(
             check(&feature, Path::new("f.lzi")).is_empty(),
             "command with no emits must not fire"
+        );
+    }
+
+    // ── spec 0012: event_group resolution ─────────────────────────────────────
+
+    fn mk_feature_with_group(
+        commands: Vec<Command>,
+        pattern: &str,
+        variant_name: &str,
+        variant_fields: Vec<EventField>,
+    ) -> Feature {
+        let mut feature = mk_feature(commands, vec![]);
+        feature.event_groups = vec![EventGroup {
+            pattern: pattern.to_owned(),
+            on_resource: Some("User".to_owned()),
+            raw_payload: vec![],
+            raw_audit: None,
+            events: vec![variant_name.to_owned()],
+            events_outbox: vec![],
+            variants: vec![EventVariant {
+                name: variant_name.to_owned(),
+                kind: EventVariantKind::Committed,
+                outbox: OutboxMode::None,
+                fields: variant_fields,
+                span_ref: None,
+            }],
+            span_ref: None,
+        }];
+        feature
+    }
+
+    /// Pilot shape: emitted event declared inside an `event_group` with a
+    /// typed payload variant. Must NOT fire (the false positive fixed).
+    #[test]
+    fn event_payload_quiet_on_event_group_declared() {
+        let cmd = mk_cmd_emits("signup", vec!["account_signed_up"]);
+        let fields = vec![EventField {
+            name: "user_id".to_owned(),
+            type_ref: TypeRef::Builtin(BuiltinType::Id),
+            optional: false,
+        }];
+        let feature = mk_feature_with_group(vec![cmd], "account_*", "signed_up", fields);
+        assert!(
+            check(&feature, Path::new("features/account/account.lzi")).is_empty(),
+            "an event declared inside an event_group with a typed payload must not fire"
+        );
+    }
+
+    /// A truly undeclared event (no flat event AND no group variant) must
+    /// still fire — proves fixed, not disabled.
+    #[test]
+    fn event_payload_fires_on_truly_undeclared() {
+        let cmd = mk_cmd_emits("orphan", vec!["account_ghost_event"]);
+        let fields = vec![EventField {
+            name: "user_id".to_owned(),
+            type_ref: TypeRef::Builtin(BuiltinType::Id),
+            optional: false,
+        }];
+        let feature = mk_feature_with_group(vec![cmd], "account_*", "signed_up", fields);
+        let findings = check(&feature, Path::new("features/account/account.lzi"));
+        assert_eq!(findings.len(), 1, "truly undeclared emit must fire: {findings:?}");
+        assert_eq!(findings[0].kind, FindingKind::Undeclared);
+        assert_eq!(findings[0].event_name, "account_ghost_event");
+    }
+
+    /// A group variant authored with NO fields fires MissingPayload.
+    #[test]
+    fn event_payload_fires_on_group_variant_without_payload() {
+        let cmd = mk_cmd_emits("signup", vec!["account_signed_up"]);
+        let feature = mk_feature_with_group(vec![cmd], "account_*", "signed_up", vec![]);
+        let findings = check(&feature, Path::new("features/account/account.lzi"));
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert_eq!(findings[0].kind, FindingKind::MissingPayload);
+    }
+
+    /// Pilot shape (pauta `account.lzi`, verified against the lowered IR):
+    /// the inline-field group-event syntax lifts event NAMES into
+    /// `EventGroup.events` but NOT into typed `variants`. The emit must
+    /// still resolve (quiet) — the event IS declared. Without the
+    /// name-list fallback the rule false-fired on every grouped event.
+    #[test]
+    fn event_payload_quiet_on_group_event_name_only() {
+        let cmd = mk_cmd_emits("signup", vec!["account_signed_up"]);
+        let mut feature = mk_feature(vec![cmd], vec![]);
+        feature.event_groups = vec![EventGroup {
+            pattern: "account_*".to_owned(),
+            on_resource: Some("User".to_owned()),
+            raw_payload: vec![],
+            raw_audit: None,
+            events: vec!["signed_up".to_owned(), "deleted".to_owned()],
+            events_outbox: vec![],
+            variants: vec![],
+            span_ref: None,
+        }];
+        assert!(
+            check(&feature, Path::new("features/account/account.lzi")).is_empty(),
+            "a group event present by name (variant-less inline-field shape) must not fire"
         );
     }
 }

@@ -433,7 +433,9 @@ fn collect_test_block_refs(
             TestAssertion::AllowsFrom { .. }
             | TestAssertion::DeniesFrom { .. }
             | TestAssertion::AllowsExtension { .. }
-            | TestAssertion::DeniesExtension { .. } => {}
+            | TestAssertion::DeniesExtension { .. }
+            // Spec 0012 — `Raw` predicate fallback carries no actor refs.
+            | TestAssertion::Raw { .. } => {}
         }
     }
 }

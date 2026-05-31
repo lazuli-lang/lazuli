@@ -443,3 +443,53 @@
         );
         assert_eq!(findings.len(), 1);
     }
+
+    /// spec 0012 true-positive guard: SHADOW-RECORD is NOT a false
+    /// positive. The create/update command-input overlap (hostpoint
+    /// `create_host` / `update_host` share ~10 Host fields; pauta
+    /// `customer_management`) is a REAL ~120-line duplication whose fix is
+    /// the shared input `record` primitive owned by specs 0003/0015 — NOT
+    /// a rule relaxation. Proves spec 0012 did NOT silence the rule to
+    /// zero out the waivers; the waivers are retained with a backlog
+    /// pointer (lazuli-ops docs/language-backlog.md).
+    #[test]
+    fn still_fires_on_create_update_overlap() {
+        let resource = mk_resource(
+            "Host",
+            vec![
+                builtin_field("display_name", BuiltinType::Text, true),
+                builtin_field("bio", BuiltinType::Text, false),
+                builtin_field("phone", BuiltinType::Text, false),
+                builtin_field("address", BuiltinType::Text, false),
+                builtin_field("city", BuiltinType::Text, false),
+            ],
+        );
+        let create = mk_command_with_typed_input(
+            "create_host",
+            vec![
+                slot("display_name", BuiltinType::Text),
+                slot("bio", BuiltinType::Text),
+                slot("phone", BuiltinType::Text),
+                slot("address", BuiltinType::Text),
+                slot("city", BuiltinType::Text),
+            ],
+        );
+        let update = mk_command_with_typed_input(
+            "update_host",
+            vec![
+                slot("display_name", BuiltinType::Text),
+                slot("bio", BuiltinType::Text),
+                slot("phone", BuiltinType::Text),
+                slot("address", BuiltinType::Text),
+                slot("city", BuiltinType::Text),
+            ],
+        );
+        let feature = mk_feature("host", vec![resource], vec![], vec![create, update]);
+        let module = mk_module(vec![feature.clone()]);
+        let findings = check(&feature, &module, Path::new("features/host/host.lzi"));
+        assert!(
+            !findings.is_empty(),
+            "create/update input + resource overlap is a TRUE positive and must keep \
+             firing (shared input record owned by specs 0003/0015)"
+        );
+    }

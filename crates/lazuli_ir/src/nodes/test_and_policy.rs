@@ -97,6 +97,17 @@ pub enum TestAssertion {
     AllowsExtension { feature: String },
     /// Extensible view whitelist: `denies extension billing`.
     DeniesExtension { feature: String },
+    /// Spec 0012 — verbatim fallback for an authored, recognized-shape
+    /// test line the mechanical projection cannot yet lift to a typed
+    /// variant (today: `allows when <pred>` / `denies when <pred>`, whose
+    /// typed closed-`Predicate` parser is not wired). The line is kept
+    /// verbatim so it counts as real coverage for
+    /// `VOCAB-TESTS-MISSING-001` (`TestBlock::assertions` non-empty)
+    /// without fabricating a bogus typed `Predicate`. The actor-matrix
+    /// consumer (`spec_actor_matrix`) ignores `Raw` rows — they carry no
+    /// typed actor. When the closed-predicate parser lands, these lines
+    /// migrate to `AllowsWhen` / `DeniesWhen`.
+    Raw { line: String },
 }
 
 /// Feature-level `policies` block. Categories are named atom lists; field
