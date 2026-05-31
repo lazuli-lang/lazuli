@@ -183,8 +183,10 @@ mod tests {
 
     #[test]
     fn doctor_allow_suppresses() {
+        // Canonical `.lzi` opt-out: a whole-line `# doctor:allow` directive (the
+        // same shape `file_size_001` honors via `source_contains_doctor_allow`).
         let src =
-            "# ============\nfeature note  # doctor:allow LZI-COMMENT-NOISE-001 — reason \"generated\"\n";
+            "# doctor:allow LZI-COMMENT-NOISE-001 — reason \"generated table\"\n# ============\nfeature note\n";
         assert!(scan_lzi_comment_noise(src).is_empty());
     }
 

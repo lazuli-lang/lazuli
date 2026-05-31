@@ -32,8 +32,6 @@
 //! See `docs/lazuli_way/comment-hygiene.md` for the teach cell. Separator set
 //! (`—` / `--` / whitespace before `reason`) matches the 0006 grammar.
 
-use crate::allow_comment::source_contains_doctor_allow;
-
 /// The diagnostic code this rule emits.
 pub const CODE: &str = "DOCTOR-ALLOW-NO-REASON-001";
 
@@ -76,17 +74,21 @@ pub fn line_allow_has_reason(line: &str) -> bool {
     after.contains('"')
 }
 
-/// Extract the `<CODE>` token from a `# doctor:allow <CODE> ...` comment line.
-/// Returns `None` when the line is not such a directive.
+/// Extract the `<CODE>` token from a `# doctor:allow <CODE> ...` directive.
+/// Works for both whole-line comments (`# doctor:allow X`) and trailing inline
+/// comments (`key = 1  # doctor:allow X`). The directive MUST live inside a `#`
+/// comment, so we require a `#` to precede `doctor:allow` on the line. Returns
+/// `None` when the line carries no such directive.
 fn directive_code(line: &str) -> Option<String> {
-    let trimmed = line.trim_start();
-    if !trimmed.starts_with('#') {
+    let lower = line.to_ascii_lowercase();
+    let pos = lower.find("doctor:allow")?;
+    // The directive must sit inside a `#` comment: a `#` must appear before the
+    // keyword on this line (guards against a bare string mentioning the phrase).
+    if !line[..pos].contains('#') {
         return None;
     }
-    let lower = trimmed.to_ascii_lowercase();
-    let pos = lower.find("doctor:allow")?;
     // Slice the original (case-preserving) text after the keyword.
-    let after = trimmed[pos + "doctor:allow".len()..].trim_start();
+    let after = line[pos + "doctor:allow".len()..].trim_start();
     // The code is the first whitespace-delimited token.
     let code = after.split_whitespace().next()?;
     if code.is_empty() {
@@ -112,8 +114,13 @@ fn directive_code(line: &str) -> Option<String> {
 /// ```
 pub fn scan_allow_no_reason(source: &str) -> Vec<ReasonFinding> {
     // Meta opt-out: a file-level `# doctor:allow DOCTOR-ALLOW-NO-REASON-001`
-    // silences the whole rule.
-    if source_contains_doctor_allow(source, CODE) {
+    // silences the whole rule. We detect it ourselves (rather than via the
+    // whole-line-only `source_contains_doctor_allow`) so an inline trailing
+    // opt-out counts too.
+    if source
+        .lines()
+        .any(|l| directive_code(l).is_some_and(|c| c.eq_ignore_ascii_case(CODE)))
+    {
         return Vec::new();
     }
     let mut findings = Vec::new();
