@@ -166,6 +166,7 @@ pub fn resource_with(name: &str, field_name: &str, field_ty: TypeRef) -> Resourc
         lifecycle_routes: None,
         polymorphic_refs: Vec::new(),
         many_through: Vec::new(),
+        restrict_on_delete: Vec::new(),
         append_only: false,
     }
 }

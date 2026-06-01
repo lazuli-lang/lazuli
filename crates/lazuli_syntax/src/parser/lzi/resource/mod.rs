@@ -29,6 +29,7 @@ mod field;
 mod has_many;
 mod index;
 mod lifecycle_routes;
+mod restrict_on_delete;
 mod retention;
 
 #[cfg(test)]
@@ -50,6 +51,7 @@ use body_handlers::{ResourceBodyState, resource_body_handlers};
 use composite_key_lock::{parse_resource_composite_key, parse_resource_lock};
 use conventions::parse_resource_conventions_list;
 use lifecycle_routes::parse_resource_lifecycle_routes;
+use restrict_on_delete::parse_resource_restrict_on_delete;
 
 use super::super::common::{SourceLine, is_trivia, line_error};
 use super::super::error::ParseError;
@@ -257,6 +259,27 @@ pub(super) fn parse_resource_decl(
             continue;
         }
 
+        // Spec 0014 — `restrict on_delete references <relation> via <fk>
+        // [where <predicate>]` referential-guard clause. Repeatable; each
+        // lowers to a tenant-scoped, soft-delete-aware `EXISTS` precondition
+        // before every delete of the resource. Dispatched inline (head token
+        // `restrict`) ahead of the field fall-through.
+        if trimmed == "restrict" {
+            return Err(line_error(
+                line,
+                "`restrict` requires `on_delete references <relation> via <fk> [where <predicate>]` \
+                 (e.g. `restrict on_delete references invoice via billing_type_id`)",
+            ));
+        }
+        if let Some(rest) = trimmed.strip_prefix("restrict ") {
+            state
+                .restrict_on_delete
+                .push(parse_resource_restrict_on_delete(line, rest)?);
+            last_end = line.end;
+            i += 1;
+            continue;
+        }
+
         if trimmed.contains(':')
             && !resource_body_handlers()
                 .iter()
@@ -284,7 +307,7 @@ pub(super) fn parse_resource_decl(
         if !matched {
             return Err(line_error(
                 line,
-                "`resource` children are `previously`, `tenancy`, `soft_delete`, `timestamps`, `append_only`, `retention`, `validates`, `has_many`, `lifecycle`, `conventions`, `index on`, `unique (...)`, `fts on (...)`, or `<field>: <Type>`",
+                "`resource` children are `previously`, `tenancy`, `soft_delete`, `timestamps`, `append_only`, `retention`, `validates`, `has_many`, `lifecycle`, `conventions`, `restrict on_delete references ... via ...`, `index on`, `unique (...)`, `fts on (...)`, or `<field>: <Type>`",
             ));
         }
     }
@@ -310,6 +333,7 @@ pub(super) fn parse_resource_decl(
             polymorphic_refs: state.polymorphic_refs,
             append_only: state.append_only,
             many_through: state.many_through,
+            restrict_on_delete: state.restrict_on_delete,
             lifecycle_routes: state.lifecycle_routes,
             span: Span::new(header.start, last_end),
         },

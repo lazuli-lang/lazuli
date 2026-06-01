@@ -83,6 +83,14 @@ pub struct ResourceDecl {
     /// on the pair). Lowered to `ir::ManyThrough`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub many_through: Vec<ManyThroughAst>,
+    /// Spec 0014 — `restrict on_delete references <relation> via <fk>
+    /// [where <predicate>]` referential-guard clauses. Repeatable (one
+    /// per inbound relation that blocks deletion). Lowered to
+    /// `ir::RestrictOnDelete`; codegen emits a tenant-scoped,
+    /// soft-delete-aware `EXISTS` precondition before every delete of the
+    /// resource. Additive: pre-0014 fixtures deserialize with an empty vec.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub restrict_on_delete: Vec<ResourceRestrictOnDelete>,
     pub span: Span,
 }
 

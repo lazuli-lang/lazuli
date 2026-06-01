@@ -159,6 +159,7 @@ pub(super) fn customer_resource() -> ir::Resource {
         lifecycle_routes: None,
         polymorphic_refs: Vec::new(),
         many_through: Vec::new(),
+        restrict_on_delete: Vec::new(),
         append_only: false,
     }
 }

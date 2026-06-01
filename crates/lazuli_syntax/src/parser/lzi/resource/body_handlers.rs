@@ -17,7 +17,7 @@ use crate::ast::{
     DefaultsTenancy, InvariantDecl, ManyThroughAst, ResourceCompositeKey, ResourceConstraintAst,
     ResourceConventionAst, ResourceFieldDecl, ResourceHasMany, ResourceIndexAst,
     ResourceIndexMethodAst, ResourceLifecycleRoutesAst, ResourceLock, ResourcePolymorphicRefAst,
-    ResourceRetention, ResourceUniqueAst, Span,
+    ResourceRestrictOnDelete, ResourceRetention, ResourceUniqueAst, Span,
 };
 
 #[derive(Default)]
@@ -50,6 +50,9 @@ pub(super) struct ResourceBodyState {
     pub(super) many_through: Vec<ManyThroughAst>,
     /// router-w4 — `lifecycle_routes` block.
     pub(super) lifecycle_routes: Option<ResourceLifecycleRoutesAst>,
+    /// Spec 0014 — `restrict on_delete references <relation> via <fk>
+    /// [where <predicate>]` referential-guard clauses. Repeatable.
+    pub(super) restrict_on_delete: Vec<ResourceRestrictOnDelete>,
 }
 
 pub(super) type ResourceBodyHandler =

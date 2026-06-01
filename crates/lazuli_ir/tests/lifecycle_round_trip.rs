@@ -113,6 +113,7 @@ fn resource_with_no_lifecycle_omits_field_in_json() {
         lifecycle_routes: None,
         polymorphic_refs: Vec::new(),
         many_through: Vec::new(),
+        restrict_on_delete: Vec::new(),
         append_only: false,
     };
     let json = serde_json::to_string(&r).unwrap();
@@ -171,6 +172,7 @@ fn resource_conventions_round_trip_with_crud() {
         lifecycle_routes: None,
         polymorphic_refs: Vec::new(),
         many_through: Vec::new(),
+        restrict_on_delete: Vec::new(),
         append_only: false,
     };
     let json = serde_json::to_string(&r).unwrap();

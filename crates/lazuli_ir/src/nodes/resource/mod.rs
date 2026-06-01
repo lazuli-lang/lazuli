@@ -158,6 +158,50 @@ pub struct Resource {
     /// Additive: pre-GAP-07 fixtures deserialize with an empty vec.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub many_through: Vec<ManyThrough>,
+    /// Spec 0014 — `restrict on_delete references <relation> via <fk>
+    /// [where <predicate>]` referential-guard clauses. Each declares that
+    /// this resource cannot be deleted while live rows of `relation` point
+    /// at it through `fk`. Lowering derives `tenant_scoped` / `soft_delete`
+    /// from the referencing relation's schema (NOT author-supplied), so
+    /// codegen emits a tenant-scoped, soft-delete-aware `EXISTS`
+    /// precondition before every delete of this resource, rejecting with
+    /// `runtime.ErrReferencedInUse`. Additive: pre-0014 fixtures
+    /// deserialize with an empty vec.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub restrict_on_delete: Vec<RestrictOnDelete>,
+}
+
+/// Spec 0014 — one referential-integrity guard lowered from `restrict
+/// on_delete references <relation> via <fk> [where <predicate>]`. Models
+/// the invariant-up-to-table/column delete-safety check the pilots
+/// hand-write 15× (`SELECT EXISTS (SELECT 1 FROM <rel> WHERE <fk> = $1
+/// [AND tenant_id = $2] [AND deleted_at IS NULL] [AND <extra_where>])` →
+/// reject if true).
+///
+/// `tenant_scoped` and `soft_delete` are **derived** by the analyzer from
+/// the referencing relation's schema — never author-supplied — so the
+/// load-bearing `tenant_id = …` and `deleted_at IS NULL` predicates can
+/// never be forgotten (the correctness bug class the primitive exists to
+/// eliminate). Mirrors `lazuli_syntax::ResourceRestrictOnDelete` plus the
+/// two derived flags.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RestrictOnDelete {
+    /// Referencing relation name (e.g. `invoice`).
+    pub relation: String,
+    /// Foreign-key column on `relation` pointing at this resource's id.
+    pub fk: String,
+    /// `where <predicate>` subset filter, verbatim. `None` for the common
+    /// "any live reference" case.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_where: Option<String>,
+    /// Derived: the referencing relation carries a tenant column, so the
+    /// emitted `EXISTS` adds `AND tenant_id = $N`. NOT author-supplied.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub tenant_scoped: bool,
+    /// Derived: the referencing relation carries `deleted_at`, so the
+    /// emitted `EXISTS` adds `AND deleted_at IS NULL`. NOT author-supplied.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub soft_delete: bool,
 }
 
 /// GAP-07 — one M:N-with-metadata relationship declared via
@@ -488,6 +532,7 @@ mod tests {
             polymorphic_refs: Vec::new(),
             append_only: false,
             many_through: Vec::new(),
+            restrict_on_delete: Vec::new(),
         };
         let s = serde_json::to_string(&r).expect("serialize");
         assert!(

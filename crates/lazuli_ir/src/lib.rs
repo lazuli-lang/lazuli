@@ -117,8 +117,8 @@ pub use nodes::resource::{
     BuiltinType, CompositeKey, ComputedDate, ComputedDateBase, ComputedDateOffset,
     ConventionOrigin, ConventionRef, CrossFeatureTarget, CurrencyCode, EnumDecl, EnumVariant,
     Field, FieldConstraints, LifecycleRouteArm, LifecycleRoutes, LockSpec, ManyThrough, OwnerAxis,
-    OwnerScopeSql, PolymorphicRef, Record, Resource, RetentionAction, RetentionSpec,
-    SanitizeHtmlProfile, StorageValue, TypeRef,
+    OwnerScopeSql, PolymorphicRef, Record, Resource, RestrictOnDelete, RetentionAction,
+    RetentionSpec, SanitizeHtmlProfile, StorageValue, TypeRef,
 };
 pub use nodes::source_map::{
     ImportEdge, PublicContract, SourceFile, SourceLocation, SourceMap, SymbolKind, SymbolOrigin,

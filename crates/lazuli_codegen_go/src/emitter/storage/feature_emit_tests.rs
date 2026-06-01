@@ -175,6 +175,7 @@ fn entry_point_emits_representative_resource_contract() {
         lifecycle_routes: None,
         polymorphic_refs: Vec::new(),
         many_through: Vec::new(),
+        restrict_on_delete: Vec::new(),
         append_only: false,
     });
 

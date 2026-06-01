@@ -115,6 +115,33 @@ pub struct ResourceHasMany {
     pub span: Span,
 }
 
+/// Spec 0014 — one `restrict on_delete references <relation> via <fk>
+/// [where <predicate>]` clause on a [`ResourceDecl`]. Declares that the
+/// protected resource cannot be deleted while live rows of `relation`
+/// still point at it through column `fk`. Lowers to a tenant-scoped,
+/// soft-delete-aware `EXISTS` precondition before every delete/destructive
+/// mutate of the resource.
+///
+/// `extra_where` is the optional `where <predicate>` subset filter
+/// (captured verbatim) for guards that only count a *subset* of references
+/// (e.g. only *open* activities). The tenant-scope (`tenant_id = …`) and
+/// soft-delete (`deleted_at IS NULL`) predicates are NOT author-supplied —
+/// they are derived by the analyzer from the referencing relation's schema
+/// so they can never be forgotten.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceRestrictOnDelete {
+    /// Referencing relation name (e.g. `invoice`), captured verbatim.
+    pub relation: String,
+    /// Foreign-key column on `relation` pointing at this resource's id
+    /// (e.g. `billing_type_id`).
+    pub fk: String,
+    /// `where <predicate>` subset filter, verbatim. `None` for the common
+    /// "any live reference" case.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_where: Option<String>,
+    pub span: Span,
+}
+
 /// `retention <duration> then <action>` row on a [`ResourceDecl`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceRetention {

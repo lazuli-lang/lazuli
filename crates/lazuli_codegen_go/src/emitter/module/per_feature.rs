@@ -31,6 +31,7 @@ use crate::emitter::migration::emit_migration_file;
 use crate::emitter::notification::emit_notification_file;
 use crate::emitter::poller::emit_poller_file;
 use crate::emitter::query::emit_query_file;
+use crate::emitter::referential_guard::emit_referential_guard_file;
 use crate::emitter::report::emit_reports_file;
 use crate::emitter::resource::emit_resource_file;
 use crate::emitter::storage::emit_storage_file;
@@ -67,6 +68,18 @@ pub(super) fn emit_feature_files(
         let resource_path = format!("{name}/resource.gen.go", name = feature.name);
         files.push(GeneratedFile {
             path: resource_path,
+            contents,
+        });
+    }
+
+    // Spec 0014 — referential-guard precondition functions. Per-feature
+    // `guards.gen.go` carrying one `guard<Protected><Relation>Refs` EXISTS
+    // probe per `restrict on_delete references … via …` clause. Skipped
+    // when no resource in the feature declares a guard (signal-rich listing).
+    if let Some(contents) = emit_referential_guard_file(source_label, feature) {
+        let guards_path = format!("{name}/guards.gen.go", name = feature.name);
+        files.push(GeneratedFile {
+            path: guards_path,
             contents,
         });
     }

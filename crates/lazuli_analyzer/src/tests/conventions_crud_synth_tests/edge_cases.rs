@@ -142,6 +142,7 @@ fn user_unique_resource_drops_user_from_inputs() {
         lifecycle_routes: None,
         polymorphic_refs: Vec::new(),
         many_through: Vec::new(),
+        restrict_on_delete: Vec::new(),
         append_only: false,
     });
 
@@ -221,6 +222,7 @@ fn empty_required_emits_no_required_fields_diagnostic() {
         lifecycle_routes: None,
         polymorphic_refs: Vec::new(),
         many_through: Vec::new(),
+        restrict_on_delete: Vec::new(),
         append_only: false,
     });
 

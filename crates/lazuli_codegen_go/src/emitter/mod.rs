@@ -43,6 +43,7 @@ pub mod poller;
 pub mod printer;
 pub mod query;
 pub mod rbac;
+pub mod referential_guard;
 pub mod register;
 pub mod report;
 pub mod resource;

@@ -157,6 +157,7 @@ fn diagnostic_owner_axis_collides_with_unique_user() {
         lifecycle_routes: None,
         polymorphic_refs: Vec::new(),
         many_through: Vec::new(),
+        restrict_on_delete: Vec::new(),
         append_only: false,
     };
     feature.resources.push(property);

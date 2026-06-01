@@ -56,6 +56,8 @@ pub(crate) const ROWS: &[CapabilitySpec] = &[
     modifier("provides", "Provides connector."),
     modifier("cascade", "On-delete cascade."),
     modifier("restrict", "On-delete restrict."),
+    modifier("references", "Referenced relation connector."),
+    modifier("via", "Foreign-key column connector."),
     modifier("nullify", "On-delete set-null."),
     modifier("terminal", "Terminal lifecycle state."),
     modifier("initial", "Initial lifecycle state."),

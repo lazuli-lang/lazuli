@@ -386,6 +386,7 @@ mod tests {
             polymorphic_refs: Vec::new(),
             append_only: false,
             many_through: Vec::new(),
+            restrict_on_delete: Vec::new(),
         }
     }
 

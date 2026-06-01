@@ -80,6 +80,7 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
         lifecycle_routes: None,
         polymorphic_refs: Vec::new(),
         many_through: Vec::new(),
+        restrict_on_delete: Vec::new(),
         append_only: false,
     });
 
@@ -263,6 +264,7 @@ fn reorder_command_emits_batch_reorder_effect() {
         lifecycle_routes: None,
         polymorphic_refs: Vec::new(),
         many_through: Vec::new(),
+        restrict_on_delete: Vec::new(),
         append_only: false,
     });
 

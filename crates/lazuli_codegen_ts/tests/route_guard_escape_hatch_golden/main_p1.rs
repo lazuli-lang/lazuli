@@ -65,6 +65,7 @@ fn host_resource() -> lazuli_ir::Resource {
         }),
         polymorphic_refs: Vec::new(),
         many_through: Vec::new(),
+        restrict_on_delete: Vec::new(),
         append_only: false,
     }
 }

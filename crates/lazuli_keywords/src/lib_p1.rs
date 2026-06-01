@@ -233,6 +233,15 @@ pub const GLOBAL_DIAGNOSTICS: &[DiagnosticFacet] = &[
         base_severity: "warning",
         category: "escape_hatch",
     },
+    // ── spec 0014 referential-guard suggestion (cross-cutting: a Go
+    // handler hand-writing the COUNT/EXISTS-then-reject guard the
+    // resource-level `restrict on_delete` primitive replaces; no single
+    // keyword owns the handler-body scan) ──
+    DiagnosticFacet {
+        code: "SUGGEST-REFERENTIAL-GUARD-001",
+        base_severity: "warning",
+        category: "vocabulary",
+    },
     // ── doctor-meta (guards the override table itself) ──
     DiagnosticFacet {
         code: "DOCTOR-OVERRIDE-NEEDS-REASON-001",

@@ -129,7 +129,65 @@ pub(crate) fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resour
         // GAP-07 — M:N-with-metadata relationships. The junction resources
         // they desugar into are synthesized in `feature.rs`.
         many_through,
+        // Spec 0014 — referential guards. `tenant_scoped` / `soft_delete`
+        // start `false` here; they are DERIVED in a second pass
+        // (`resolve_restrict_on_delete_scopes` in `feature.rs`) once every
+        // resource in the feature is lowered, by inspecting the referencing
+        // relation's schema. The author never supplies them.
+        restrict_on_delete: r
+            .restrict_on_delete
+            .iter()
+            .map(|g| ir::RestrictOnDelete {
+                relation: g.relation.clone(),
+                fk: g.fk.clone(),
+                extra_where: g.extra_where.clone(),
+                tenant_scoped: false,
+                soft_delete: false,
+            })
+            .collect(),
     })
+}
+
+/// Spec 0014 — second-pass derivation of the `tenant_scoped` /
+/// `soft_delete` flags on every `restrict on_delete` clause in a feature.
+///
+/// Runs AFTER all resources are lowered (so the referencing relation can
+/// be looked up by name). For each guard, the referencing relation is the
+/// `ir::Resource` whose snake-cased name matches `guard.relation`; the
+/// flags are read off THAT relation's schema:
+///   - `tenant_scoped` iff the relation carries a tenant axis
+///     (`tenancy` is `Some(Org|Team|Custom)`, i.e. not `None`),
+///   - `soft_delete` iff the relation has `soft_delete`.
+///
+/// These derivations are why the emitted `EXISTS` can never forget the
+/// `tenant_id = …` / `deleted_at IS NULL` predicates — they are read off
+/// the schema, not the author's line. A guard whose relation does not
+/// resolve keeps both flags `false` (doctor / typecheck reports the
+/// unknown relation separately).
+pub(crate) fn resolve_restrict_on_delete_scopes(resources: &mut [ir::Resource]) {
+    // Snapshot (name → (tenant_scoped, soft_delete)) so we can mutate the
+    // protected resources while reading the referencing relations' shapes.
+    let scopes: std::collections::HashMap<String, (bool, bool)> = resources
+        .iter()
+        .map(|res| {
+            let tenant_scoped = matches!(
+                res.tenancy,
+                Some(ir::Tenancy::Org | ir::Tenancy::Team | ir::Tenancy::Custom(_))
+            );
+            (
+                crate::helpers::pascal_to_snake(&res.name),
+                (tenant_scoped, res.soft_delete),
+            )
+        })
+        .collect();
+    for res in resources.iter_mut() {
+        for guard in res.restrict_on_delete.iter_mut() {
+            if let Some(&(tenant_scoped, soft_delete)) = scopes.get(&guard.relation) {
+                guard.tenant_scoped = tenant_scoped;
+                guard.soft_delete = soft_delete;
+            }
+        }
+    }
 }
 
 /// GAP-07 — synthesize the junction `ir::Resource` for one `many_through`
@@ -185,6 +243,7 @@ pub(crate) fn synthesize_junction_resource(
         append_only: false,
         // A synthesized junction declares no `many_through` of its own.
         many_through: Vec::new(),
+        restrict_on_delete: Vec::new(),
     }
 }
 

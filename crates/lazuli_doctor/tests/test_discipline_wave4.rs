@@ -215,6 +215,7 @@ fn mk_resource(name: &str, lifecycle: Option<Lifecycle>, invariants: Vec<Invaria
         lifecycle_routes: None,
         polymorphic_refs: Vec::new(),
         many_through: Vec::new(),
+        restrict_on_delete: Vec::new(),
         append_only: false,
     }
 }

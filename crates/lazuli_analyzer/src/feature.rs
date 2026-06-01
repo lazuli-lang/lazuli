@@ -122,6 +122,12 @@ pub fn lower_feature_skeleton(
         })
         .collect();
     resources.extend(synthesized_junctions);
+    // Spec 0014 — derive the `tenant_scoped` / `soft_delete` flags on every
+    // `restrict on_delete` guard from the referencing relation's schema, now
+    // that every resource (including synthesized junctions) is present. This
+    // is what guarantees the emitted `EXISTS` carries the tenant + soft-delete
+    // predicates by construction rather than by the author remembering them.
+    crate::resource::resolve_restrict_on_delete_scopes(&mut resources);
     let queries = skeleton
         .queries
         .iter()

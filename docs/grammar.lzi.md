@@ -267,6 +267,7 @@ resource_body     = ( previously_clause
                     | has_many_decl
                     | many_through_decl
                     | polymorphic_ref_decl
+                    | restrict_on_delete_decl
                     | validates_decl
                     | constraints_block
                     | uniques_block
@@ -384,6 +385,14 @@ timestamps_decl   = "timestamps" ( ident_list )? NEWLINE ;
 soft_delete_decl  = "soft_delete" NEWLINE ;
 retention_decl    = "retention" DURATION NEWLINE ;
 audit_decl        = "audit" ( "all" | "none" | ident_list ) NEWLINE ;
+
+(* Spec 0014 — referential guard. Blocks deletion of this resource while a
+   live row of <relation> references it via <fk>. Repeatable; the optional
+   `where <predicate>` narrows the guard to a subset of references. Lowers to
+   a tenant-scoped, soft-delete-aware EXISTS precondition (both predicates are
+   DERIVED from <relation>'s schema, never author-supplied). *)
+restrict_on_delete_decl = "restrict" "on_delete" "references" IDENT_LOWER
+                    "via" IDENT_LOWER ( "where" predicate )? NEWLINE ;
 
 validates_decl    = "validates" ( "field" IDENT_LOWER )?
                     ( "@validator." IDENT_LOWER | STRING ) NEWLINE

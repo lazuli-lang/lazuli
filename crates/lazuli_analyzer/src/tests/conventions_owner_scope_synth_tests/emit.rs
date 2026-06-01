@@ -169,6 +169,7 @@ fn composition_crud_and_me_with_owner_axis_propagates_chain_to_lookup_my() {
         lifecycle_routes: None,
         polymorphic_refs: Vec::new(),
         many_through: Vec::new(),
+        restrict_on_delete: Vec::new(),
         append_only: false,
     };
     // Sanity: not user-keyed (no `user: User required unique`).

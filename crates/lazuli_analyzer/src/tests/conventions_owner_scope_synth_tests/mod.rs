@@ -152,6 +152,7 @@ pub(super) fn host_resource() -> ir::Resource {
         lifecycle_routes: None,
         polymorphic_refs: Vec::new(),
         many_through: Vec::new(),
+        restrict_on_delete: Vec::new(),
         append_only: false,
     }
 }
@@ -184,6 +185,7 @@ pub(super) fn property_resource_with_axis() -> ir::Resource {
         lifecycle_routes: None,
         polymorphic_refs: Vec::new(),
         many_through: Vec::new(),
+        restrict_on_delete: Vec::new(),
         append_only: false,
     }
 }

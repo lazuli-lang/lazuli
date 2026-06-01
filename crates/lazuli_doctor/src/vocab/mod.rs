@@ -23,6 +23,7 @@ pub mod money_arithmetic_001;
 pub mod money_compare_001;
 pub mod owner_axis;
 pub mod rate_limit;
+pub mod referential_guard_001;
 pub mod universal_columns;
 pub mod vocab_audit_001;
 pub mod vocab_audit_002;

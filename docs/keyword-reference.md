@@ -30,7 +30,7 @@ Columns:
 
 <!-- BEGIN GENERATED BODY -->
 
-_Generated from 684 capability rows across the `lazuli_keywords` registry._
+_Generated from 686 capability rows across the `lazuli_keywords` registry._
 
 ## `.lzi` — feature source
 
@@ -199,7 +199,7 @@ _Generated from 684 capability rows across the `lazuli_keywords` registry._
 | `composite_key` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Composite primary key. | `COMPOSITE-KEY-CONTRACT-001` |
 | `computed_date` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Computed date field. | `COMPUTED-DATE-EXPR-001` |
 | `contains` | `keyword.control.statement.lazuli` | `keyword` | — | Aggregate containment. | — |
-| `conventions` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Opt into resource conventions. | `conventions_unknown` |
+| `conventions` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Opt into resource conventions. | `VOCAB-CRUD-SYNTH-AVAILABLE-001`<br>`conventions_unknown` |
 | `derived` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Derived/computed field. | `VOCAB-DERIVED-READ-001` |
 | `field` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Explicit field declaration. | — |
 | `fields` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Field group. | — |
@@ -801,6 +801,7 @@ _Generated from 684 capability rows across the `lazuli_keywords` registry._
 | `provides` | `storage.modifier.lazuli` | `modifier` | — | Provides connector. | — |
 | `raw` | `storage.modifier.lazuli` | `modifier` | — | Raw/unprocessed value. | — |
 | `readonly` | `storage.modifier.lazuli` | `modifier` | — | Field is read-only. | — |
+| `references` | `storage.modifier.lazuli` | `modifier` | — | Referenced relation connector. | — |
 | `required` | `storage.modifier.lazuli` | `modifier` | — | Field is required. | — |
 | `resolve` | `storage.modifier.lazuli` | `modifier` | — | Resolve-via connector. | — |
 | `restrict` | `storage.modifier.lazuli` | `modifier` | — | On-delete restrict. | — |
@@ -818,6 +819,7 @@ _Generated from 684 capability rows across the `lazuli_keywords` registry._
 | `uri_template` | `storage.modifier.lazuli` | `modifier` | — | URI template. | — |
 | `uses` | `storage.modifier.lazuli` | `modifier` | — | Uses connector. | — |
 | `using` | `storage.modifier.lazuli` | `modifier` | — | Using connector. | — |
+| `via` | `storage.modifier.lazuli` | `modifier` | — | Foreign-key column connector. | — |
 | `when_denied_route` | `storage.modifier.lazuli` | `modifier` | — | Route when policy denied. | — |
 
 ### Expression

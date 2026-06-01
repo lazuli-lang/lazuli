@@ -272,6 +272,7 @@ fn declarative_body_surfaces_runtime_gap_comments() {
         lifecycle_routes: None,
         polymorphic_refs: Vec::new(),
         many_through: Vec::new(),
+        restrict_on_delete: Vec::new(),
         append_only: false,
     });
     let mut job = handler_job("recompute_score_after_invoice");

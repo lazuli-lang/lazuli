@@ -78,6 +78,7 @@ fn emit_go_mod_with_geopoint_resource_adds_postgis_require() {
         lifecycle_routes: None,
         polymorphic_refs: Vec::new(),
         many_through: Vec::new(),
+        restrict_on_delete: Vec::new(),
         append_only: false,
     });
 

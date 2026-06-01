@@ -32,6 +32,7 @@ use lazuli_doctor::escape_hatch::{
     rawsql_in_handler_001, scope_override_unguarded_001, sql_tenancy_contract_001,
 };
 use lazuli_doctor::lzi_hygiene::walker::walk_lzi_sources;
+use lazuli_doctor::vocab::referential_guard_001;
 use lazuli_syntax::parse_feature_skeletons;
 
 use crate::doctor::helpers::resolve_escape_hatch_severity;
@@ -126,6 +127,32 @@ pub(crate) fn escape_hatch_diagnostics(
                 column: 1,
                 severity,
                 code: sql_tenancy_contract_001::Finding::CODE.to_owned(),
+                message,
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            });
+        }
+
+        // SUGGEST-REFERENTIAL-GUARD-001 (spec 0014) — default Warning. A
+        // suggestion toward the `restrict on_delete` primitive whenever a
+        // handler hand-writes the COUNT/EXISTS-then-reject referential guard
+        // the pilots copy-paste 15×. Walks `<feature_dir>/handlers/*.go`.
+        for finding in referential_guard_001::check(&first.name, feature_dir) {
+            let severity = resolve_escape_hatch_severity(
+                DoctorSeverity::Warning,
+                referential_guard_001::Finding::CODE,
+                preset,
+            );
+            let message = finding.message();
+            diagnostics.push(DoctorDiagnostic {
+                path: finding.handler_path,
+                line: 1,
+                column: 1,
+                severity,
+                code: referential_guard_001::Finding::CODE.to_owned(),
                 message,
                 category: None,
                 feature_name: None,
@@ -237,6 +264,37 @@ mod tests {
             diagnostics
                 .iter()
                 .any(|d| d.code == "ESC-SQL-TENANCY-CONTRACT-001"),
+            "got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn aggregator_fires_suggest_referential_guard() {
+        // A handler hand-writes the COUNT-then-reject referential guard the
+        // primitive replaces; the suggestion rule must fire and name the
+        // declarative `restrict on_delete` form.
+        let tmp = tempfile::tempdir().unwrap();
+        write(
+            tmp.path(),
+            "features/billing_config/billing_config.lzi",
+            "feature billing_config\n  resource BillingType\n    name: Text required\n",
+        );
+        write(
+            tmp.path(),
+            "features/billing_config/handlers/guard_billing_type_in_use.go",
+            "package handlers\n\nvar ErrBillingTypeInUse = errors.New(\"BILLING_TYPE_IN_USE\")\n\n\
+             func GuardBillingTypeInUse(ctx context.Context, db DBTX, id, tenantID string) error {\n    \
+             const q = `SELECT COUNT(*) FROM invoice\n        WHERE billing_type_id = $1 AND \
+             tenant_id = $2 AND deleted_at IS NULL`\n    var n int\n    \
+             if err := db.QueryRow(ctx, q, id, tenantID).Scan(&n); err != nil {\n        return err\n    }\n    \
+             if n > 0 {\n        return ErrBillingTypeInUse\n    }\n    return nil\n}\n",
+        );
+        let diagnostics = escape_hatch_diagnostics(tmp.path(), None);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.code == "SUGGEST-REFERENTIAL-GUARD-001"),
             "got {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
