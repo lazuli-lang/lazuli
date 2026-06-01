@@ -45,3 +45,15 @@ These are the demand signal for actor-relative compose.
 ## Risk note
 
 This is **graded / pilot-evidence-gated**: the grammar+IR+codegen addition ships only after the Hostpoint migration proves it expresses all three actor-scope shapes without dropping back to `query.sql` for the *common* cases. If a shape needs `query.sql`, that is an accepted, visible fallback — not a failure — but the decision tree must say so.
+
+---
+
+## BLOCKED 2026-06-01 — query.compose not in the integration lineage
+
+0013 finishes the actor-relative LIMIT of `query.compose` (the emitter's stubbed `actor_scope`). But `query.compose` DOES NOT EXIST on `loop-serial`/`origin/main`: it was built end-to-end on branch `feat/query-compose` (c058444e), which is **99 commits behind origin/main and only 1 ahead — never integrated**. Our whole spec stack descends from origin/main (081785f3), which has no compose (`crates/.../emitter/query/compose*` absent; 0 grep hits for ComposeNode/query.compose/actor_scope).
+
+So 0013 has an unmet PREREQUISITE: `feat/query-compose` must first be merged forward into the integration line (resolving 99 commits of drift) before its actor-scope limit can be finished and the 11 hostpoint `list_*` handlers (flagged live by 0010's ESC-RAWSQL-IN-HANDLER-001) can be migrated onto it.
+
+This is a substantial, risky integration of a user-authored+pushed branch that other swarms may depend on — a MERGE DECISION for the maker, not in-scope for the spec-closing pass. 
+
+**Disposition: 0013 BLOCKED-ON-INTEGRATION.** Sequence when unblocked: (1) maker merges `feat/query-compose` forward to the integration line; (2) THEN 0013 finishes actor_scope + migrates the 11 list_* handlers; (3) verify 0010's ESC-RAWSQL-IN-HANDLER-001 goes from 31 hits → only-the-genuinely-imperative remainder. Note: hostpoint go-build is also gated on the PT-BR scalar plugin codegen follow-up (see 0009).
