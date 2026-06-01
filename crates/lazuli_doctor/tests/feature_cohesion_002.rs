@@ -20,7 +20,8 @@ fn fixture_source(name: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/cohesion")
         .join(name);
-    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read fixture {}: {e}", path.display()))
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("read fixture {}: {e}", path.display()))
 }
 
 // ── LZI-FEATURE-COHESION-002 ────────────────────────────────────────────────
@@ -102,6 +103,140 @@ fn cross_feature_fk_is_not_an_edge() {
     assert_eq!(findings[0].clusters.len(), 2);
 }
 
+// ── Event-group emit-coupling (spec 0008 follow-up) ──────────────────────────
+
+/// Payments-shaped fixture: `Charge` + `WebhookEvent` are two FK-less
+/// islands, but a `webhook` emits `charge_*` events declared under
+/// `event_group charge_* on Charge`, and `WebhookEvent` is the webhook's
+/// inbound-envelope log. The emit-coupling edge (webhook ↔ Charge via the
+/// group's `on_resource`) plus the webhook-envelope-sink edge (WebhookEvent
+/// ↔ Charge) must collapse them into ONE component so payments no longer
+/// false-fires. `MercadoPagoAccount` stays its own island (touched only by
+/// a separate command) — that residual is acceptable.
+#[test]
+fn payments_shaped_event_group_couples_charge_webhookevent() {
+    let src = r#"
+feature payments
+  resource MercadoPagoAccount
+    mp_user_id: Text required
+  resource Charge
+    amount: Text required
+  resource WebhookEvent
+    external_id: Text required
+  event_group charge_* on Charge
+    payload
+      charge_id = id
+    event confirmed
+      provider_payment_id: Text
+    event failed
+      reason: Text
+  command connect_mercadopago
+    input
+      authorization_code: Text required
+    handler @fn.connect_mercadopago
+  webhook mp_payment_event
+    path "/webhooks/mp/payment"
+    verify hmac sha256
+      secret env.MERCADOPAGO_WEBHOOK_SECRET
+      header "x-signature"
+    idempotency by envelope.id
+    handler @fn.on_mp_payment_event
+    emits charge_confirmed when payload.status == "approved"
+    emits charge_failed when payload.status in ("rejected", "cancelled")
+"#;
+    let feature = lower(src);
+    let findings = feature_cohesion_002::check(&[LoweredFeature::new(
+        "features/payments/payments.lzi",
+        &feature,
+        src,
+    )]);
+    // Charge + WebhookEvent must now be in the SAME component. The only
+    // possible residual island is MercadoPagoAccount, so either the
+    // feature is silent (all three connected — not expected here) or it
+    // fires with Charge and WebhookEvent sharing one cluster.
+    if let Some(f) = findings.first() {
+        let charge_cluster = f
+            .clusters
+            .iter()
+            .find(|c| c.iter().any(|n| n == "Charge"))
+            .expect("a cluster contains Charge");
+        assert!(
+            charge_cluster.iter().any(|n| n == "WebhookEvent"),
+            "Charge and WebhookEvent must share a component: {:?}",
+            f.clusters
+        );
+    }
+}
+
+/// Regression guard: the existing platform-shaped grab-bag fixture
+/// (`disconnected.lzi`: 3 FK-less resources, NO event_group / webhook /
+/// emits) MUST still fire with ≥2 components. The emit-coupling edge must
+/// not mask genuine grab-bags.
+#[test]
+fn true_grabbag_still_fires() {
+    let src = fixture_source("disconnected.lzi");
+    let feature = lower(&src);
+    let findings = feature_cohesion_002::check(&[LoweredFeature::new(
+        "features/cohesion/disconnected.lzi",
+        &feature,
+        &src,
+    )]);
+    assert_eq!(
+        findings.len(),
+        1,
+        "platform-shaped grab-bag must still fire after the emit-coupling fix"
+    );
+    assert!(
+        findings[0].clusters.len() >= 2,
+        "genuine grab-bag must keep ≥2 disconnected clusters: {:?}",
+        findings[0].clusters
+    );
+}
+
+/// The `charge_*` glob must prefix-match `charge_confirmed` (coupling the
+/// emitter to the group's `on_resource`) but NOT `refund_started` (a name
+/// outside the group). Modeled at the component level: two FK-less
+/// resources `Charge` + `Audit`, an `event_group charge_* on Charge`, a
+/// webhook that emits ONLY `refund_started` (no glob match) → the webhook
+/// couples to nothing, so the two resources stay in separate components.
+#[test]
+fn event_group_glob_matches_prefix() {
+    let src = r#"
+feature billing
+  resource Charge
+    amount: Text required
+  resource Audit
+    note: Text required
+  event_group charge_* on Charge
+    payload
+      charge_id = id
+    event confirmed
+      provider_payment_id: Text
+  webhook stray
+    path "/webhooks/stray"
+    verify hmac sha256
+      secret env.STRAY_SECRET
+      header "x-signature"
+    idempotency by envelope.id
+    handler @fn.on_stray
+    emits refund_started
+"#;
+    let feature = lower(src);
+    let findings = feature_cohesion_002::check(&[LoweredFeature::new(
+        "features/billing/billing.lzi",
+        &feature,
+        src,
+    )]);
+    // `refund_started` does not match `charge_*`, so no emit-coupling
+    // edge forms → Charge and Audit remain two components → still fires.
+    assert_eq!(
+        findings.len(),
+        1,
+        "a non-matching emit must not couple unrelated resources: {findings:?}"
+    );
+    assert_eq!(findings[0].clusters.len(), 2);
+}
+
 // ── LZI-FILE-SIZE-001 re-key ────────────────────────────────────────────────
 
 #[test]
@@ -175,8 +310,11 @@ fn uses_fanout_info() {
     let src = "feature hub\n  uses a\n  uses b\n  uses c\n  uses d\n  \
          resource Thing\n    label: Text required\n";
     let feature = lower(src);
-    let infos =
-        feature_cohesion_002::check_info(&[LoweredFeature::new("features/hub/hub.lzi", &feature, src)]);
+    let infos = feature_cohesion_002::check_info(&[LoweredFeature::new(
+        "features/hub/hub.lzi",
+        &feature,
+        src,
+    )]);
     assert!(
         infos
             .iter()

@@ -23,6 +23,25 @@
 //!   (`TypeRef::Many(UserDefined(B))`), or an M:N `many_through ... to B`.
 //! - **`on_delete` / polymorphic** — `A` declares a `polymorphic_ref`
 //!   whose `targets` include `B`.
+//! - **event-group emit-coupling** (spec 0008 follow-up) — an emitter
+//!   (`command` or `webhook`) that `emits` an event belonging to an
+//!   `event_group on B` is part of `B`'s lifecycle. The emitter is a
+//!   *hyper-edge*: every resource it touches (its own effect-target plus
+//!   each matched group's `on_resource`, plus a webhook's `payload_from`
+//!   envelope) is unioned into one component. Event names are bound to a
+//!   group by glob-prefix (`charge_*` ⊇ `charge_confirmed`), by the
+//!   group's authored event-name list, or by `pattern-prefix + variant`.
+//!   This fixes the hostpoint `payments` false-island where `Charge`
+//!   (the `event_group charge_* on Charge` owner) and the `mp_payment_event`
+//!   webhook that emits `charge_*` had no FK between them.
+//! - **webhook-envelope-sink** (narrow structural bridge) — a webhook's
+//!   inbound-envelope log resource (`WebhookEvent`-named) carries no FK
+//!   and no `emits`, so it has zero IR-typed edges, yet it is part of the
+//!   same inbound lifecycle as the event-group resource the webhook emits
+//!   into. An *otherwise-isolated, webhook-named* resource is coupled to
+//!   that resource. Deliberately narrow (requires a webhook emitting into
+//!   an event_group) so it cannot mask FK-less grab-bags that have no
+//!   webhook.
 //!
 //! Cross-feature references (`Field.cross_feature_target`, reached via
 //! `uses`) are deliberately **not** edges: the graph is intra-feature,
@@ -35,7 +54,7 @@
 
 use std::collections::BTreeMap;
 
-use lazuli_ir::{Feature, Resource, TypeRef};
+use lazuli_ir::{CommandEffect, EventGroup, Feature, Resource, TypeRef};
 
 /// The connected components of a feature's intra-feature resource
 /// graph, each rendered as a sorted list of resource names.
@@ -81,6 +100,68 @@ pub fn components(feature: &Feature) -> Vec<Vec<String>> {
             if let Some(&b) = index.get(target.as_str()) {
                 if a != b {
                     uf.union(a, b);
+                }
+            }
+        }
+    }
+
+    // Event-group emit-coupling (spec 0008 follow-up). An emitter — a
+    // `command` or `webhook` — that `emits` an event belonging to an
+    // `event_group on B` is part of B's lifecycle. We treat each emitter
+    // as a *hyper-edge*: union every resource that emitter relates to.
+    // The resources it relates to are: its own effect-target (commands
+    // only) and the `on_resource` of each event_group whose pattern /
+    // variant-name / event-name list matches one of the emitter's
+    // emitted event names. See `emitter_resource_set`.
+    for command in &feature.commands {
+        let related = emitter_resource_set(
+            command_effect_target(command),
+            &command.emits,
+            &feature.event_groups,
+        );
+        union_all(&mut uf, &index, &related);
+    }
+    for webhook in &feature.webhooks {
+        // A webhook carries no declared effect-target. Its IR-grounded
+        // resource link is the `on_resource` of the event_group(s) it
+        // emits into; `payload_from` (the typed inbound envelope) is
+        // added when authored.
+        let payload_target = webhook.payload_from.as_ref().map(|p| p.name.clone());
+        let related = emitter_resource_set(payload_target, &webhook.emits, &feature.event_groups);
+        union_all(&mut uf, &index, &related);
+    }
+
+    // Webhook-envelope-sink edge. A feature with a webhook that emits
+    // into an `event_group on B` typically also persists each inbound
+    // envelope into a log resource (the hostpoint `WebhookEvent`
+    // pattern). That log resource carries no FK and no `emits`, so it
+    // has zero IR-typed edges — yet it is genuinely part of the same
+    // inbound-processing lifecycle as B. Couple such an *otherwise
+    // isolated, webhook-envelope-named* resource to B. This is a
+    // structural (name-shaped) bridge, deliberately narrow: it fires
+    // only for a resource that (a) matches the webhook-envelope naming
+    // convention, (b) has no other edge, in a feature that (c) actually
+    // owns a webhook emitting into an event_group. It cannot touch
+    // FK-grab-bags with no webhook (platform/host/trust/intelligence).
+    if !feature.webhooks.is_empty() {
+        let webhook_group_resources = webhook_emitted_group_resources(feature);
+        if let Some(&anchor_b) = webhook_group_resources
+            .iter()
+            .filter_map(|b| index.get(b.as_str()))
+            .next()
+        {
+            for resource in &feature.resources {
+                let Some(&r) = index.get(resource.name.as_str()) else {
+                    continue;
+                };
+                if r == anchor_b {
+                    continue;
+                }
+                if is_webhook_envelope_named(&resource.name)
+                    && is_isolated_resource(resource, &index)
+                    && uf.find(r) == r
+                {
+                    uf.union(r, anchor_b);
                 }
             }
         }
@@ -151,6 +232,138 @@ fn resource_name_of_type(type_ref: &TypeRef) -> Option<String> {
         TypeRef::Many(inner) => resource_name_of_type(inner),
         _ => None,
     }
+}
+
+/// Union every resource name in `related` into one component (the
+/// emitter is a hyper-edge over the resources it touches). Names not
+/// declared by this feature are skipped (cross-feature emits cannot
+/// bridge intra-feature clusters, mirroring the FK rule). Self-loops
+/// are no-ops.
+fn union_all(uf: &mut UnionFind, index: &BTreeMap<&str, usize>, related: &[String]) {
+    let indices: Vec<usize> = related
+        .iter()
+        .filter_map(|name| index.get(name.as_str()).copied())
+        .collect();
+    if let Some(&first) = indices.first() {
+        for &other in &indices[1..] {
+            if first != other {
+                uf.union(first, other);
+            }
+        }
+    }
+}
+
+/// The set of same-feature resource names an emitter (command/webhook)
+/// relates to: its own effect-target (when any) plus the `on_resource`
+/// of every `event_group` whose pattern / variant names / event-name
+/// list matches one of the emitter's emitted event names. Deduplicated;
+/// order is not significant (the caller unions them all together).
+fn emitter_resource_set(
+    effect_target: Option<String>,
+    emits: &[String],
+    groups: &[EventGroup],
+) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    if let Some(t) = effect_target {
+        out.push(t);
+    }
+    for event_name in emits {
+        for group in groups {
+            if let Some(on) = &group.on_resource
+                && event_matches_group(event_name, group)
+                && !out.contains(on)
+            {
+                out.push(on.clone());
+            }
+        }
+    }
+    out
+}
+
+/// True when `event_name` belongs to `group`: it matches the group's
+/// glob `pattern` (prefix match on the trailing `*`), or it equals one
+/// of the group's authored event names, or it equals the group's
+/// pattern-prefix concatenated with a variant short-name (`charge_` +
+/// `confirmed` = `charge_confirmed`).
+fn event_matches_group(event_name: &str, group: &EventGroup) -> bool {
+    if glob_prefix_matches(&group.pattern, event_name) {
+        return true;
+    }
+    if group.events.iter().any(|e| e == event_name) {
+        return true;
+    }
+    if let Some(prefix) = group.pattern.strip_suffix('*')
+        && group
+            .variants
+            .iter()
+            .any(|v| format!("{prefix}{}", v.name) == event_name)
+    {
+        return true;
+    }
+    false
+}
+
+/// Glob-prefix match for a single trailing `*` (`charge_*` matches
+/// `charge_confirmed` but not `refund_started`). A pattern with no `*`
+/// must match exactly; a bare `*` matches anything. Only the trailing-
+/// `*` shape is used by `event_group` today, so we keep this minimal.
+fn glob_prefix_matches(pattern: &str, name: &str) -> bool {
+    match pattern.strip_suffix('*') {
+        Some(prefix) => name.starts_with(prefix),
+        None => pattern == name,
+    }
+}
+
+/// The effect-target resource name of a command, if it has a
+/// row-mutating effect. Pure `Returns`/`None` commands have no target.
+fn command_effect_target(command: &lazuli_ir::Command) -> Option<String> {
+    match &command.effect {
+        CommandEffect::Creates(e) => Some(e.resource.name.clone()),
+        CommandEffect::Updates(e) => Some(e.resource.name.clone()),
+        CommandEffect::Deletes(e) => Some(e.resource.name.clone()),
+        CommandEffect::Reorders(e) => Some(e.resource.name.clone()),
+        CommandEffect::Returns(_) | CommandEffect::None => None,
+    }
+}
+
+/// Every `on_resource` of an `event_group` that at least one of the
+/// feature's webhooks emits into. These are the lifecycle anchors a
+/// webhook-envelope-log resource attaches to.
+fn webhook_emitted_group_resources(feature: &Feature) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for webhook in &feature.webhooks {
+        for event_name in &webhook.emits {
+            for group in &feature.event_groups {
+                if let Some(on) = &group.on_resource
+                    && event_matches_group(event_name, group)
+                    && !out.contains(on)
+                {
+                    out.push(on.clone());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// True when a resource name follows the webhook inbound-envelope-log
+/// convention (`WebhookEvent`, `WebhookDelivery`, `InboundEvent`, …).
+/// Case-insensitive substring on `webhook`, plus the common
+/// `*Event`-suffixed inbound-log shape paired with `webhook`/`inbound`.
+fn is_webhook_envelope_named(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.contains("webhook")
+}
+
+/// True when a resource declares no relational edge to *another
+/// resource of this feature*: no FK / `has_many` / `many_through` /
+/// polymorphic target that resolves to a sibling resource. (Enum- and
+/// cross-feature-typed fields are not edges, so they don't count.) Such
+/// a resource is an island under the FK-edge model alone.
+fn is_isolated_resource(resource: &Resource, index: &BTreeMap<&str, usize>) -> bool {
+    !intra_feature_targets(resource)
+        .iter()
+        .any(|t| t.as_str() != resource.name.as_str() && index.contains_key(t.as_str()))
 }
 
 /// Classic union-find (disjoint-set) with path compression + union by
@@ -236,7 +449,122 @@ feature shop
 "#,
         );
         let comps = components(&feature);
-        assert_eq!(comps.len(), 1, "FK should connect Order↔Customer: {comps:?}");
+        assert_eq!(
+            comps.len(),
+            1,
+            "FK should connect Order↔Customer: {comps:?}"
+        );
+    }
+
+    #[test]
+    fn glob_prefix_matches_helper() {
+        assert!(glob_prefix_matches("charge_*", "charge_confirmed"));
+        assert!(glob_prefix_matches("charge_*", "charge_failed"));
+        assert!(!glob_prefix_matches("charge_*", "refund_started"));
+        // No `*` → exact match only.
+        assert!(glob_prefix_matches("created", "created"));
+        assert!(!glob_prefix_matches("created", "created_at"));
+        // Bare `*` matches anything.
+        assert!(glob_prefix_matches("*", "anything"));
+    }
+
+    #[test]
+    fn webhook_emit_couples_charge_and_webhookevent() {
+        let feature = lower(
+            r#"
+feature payments
+  resource Charge
+    amount: Text required
+  resource WebhookEvent
+    external_id: Text required
+  event_group charge_* on Charge
+    payload
+      charge_id = id
+    event confirmed
+      provider_payment_id: Text
+  webhook mp_payment_event
+    path "/webhooks/mp/payment"
+    verify hmac sha256
+      secret env.MP_SECRET
+      header "x-signature"
+    idempotency by envelope.id
+    handler @fn.on_mp_payment_event
+    emits charge_confirmed when payload.status == "approved"
+"#,
+        );
+        let comps = components(&feature);
+        let charge_comp = comps
+            .iter()
+            .find(|c| c.iter().any(|n| n == "Charge"))
+            .expect("Charge present");
+        assert!(
+            charge_comp.iter().any(|n| n == "WebhookEvent"),
+            "Charge and WebhookEvent must share a component: {comps:?}"
+        );
+    }
+
+    #[test]
+    fn command_effect_plus_emit_couples_target_and_group_owner() {
+        // A command that `creates Receipt` and emits a `charge_*` event
+        // unions Receipt with the group owner Charge.
+        let feature = lower(
+            r#"
+feature payments
+  resource Charge
+    amount: Text required
+  resource Receipt
+    label: Text required
+  event_group charge_* on Charge
+    payload
+      charge_id = id
+    event confirmed
+      note: Text
+  command settle
+    input
+      charge_id: ID required
+    creates Receipt
+    emits charge_confirmed
+"#,
+        );
+        let comps = components(&feature);
+        assert_eq!(
+            comps.len(),
+            1,
+            "command effect-target + emit must union Receipt↔Charge: {comps:?}"
+        );
+    }
+
+    #[test]
+    fn non_matching_emit_does_not_couple() {
+        // Webhook emits an event outside the group glob → no coupling.
+        let feature = lower(
+            r#"
+feature billing
+  resource Charge
+    amount: Text required
+  resource Audit
+    note: Text required
+  event_group charge_* on Charge
+    payload
+      charge_id = id
+    event confirmed
+      note: Text
+  webhook stray
+    path "/webhooks/stray"
+    verify hmac sha256
+      secret env.STRAY
+      header "x-signature"
+    idempotency by envelope.id
+    handler @fn.on_stray
+    emits refund_started
+"#,
+        );
+        let comps = components(&feature);
+        assert_eq!(
+            comps.len(),
+            2,
+            "non-matching emit must not couple: {comps:?}"
+        );
     }
 
     #[test]
