@@ -160,6 +160,43 @@ func TestEvalPolicyOrPredicateAcceptsEitherBranch(t *testing.T) {
 	}
 }
 
+// RBAC-OR-001 — the codegen emits a named policy category with 2+ role
+// atoms as `( role.ADMIN or role.MANAGER )`. The user model is
+// single-role, so the previously-emitted `and` joiner could never be
+// satisfied (every such screen 403'd). This proves the runtime admits a
+// caller holding ONLY ONE of the two listed roles — the exact pauta
+// `@policy.view` / list_customers repro (admin@pauta.local, role=ADMIN).
+func TestEvalPolicyNamedRoleListOrAdmitsSingleRoleHolder(t *testing.T) {
+	// Exact shape `format_local_policy` now emits for
+	//   view: @role.ADMIN, @role.MANAGER
+	atoms := []PolicyAtom{
+		{Namespace: "predicate", Name: "("},
+		{Namespace: "role", Name: "ADMIN"},
+		{Namespace: "predicate", Name: "or"},
+		{Namespace: "role", Name: "MANAGER"},
+		{Namespace: "predicate", Name: ")"},
+	}
+	p := Policy{Name: "@policy.view", Atoms: atoms}
+
+	// A user holding ONLY ADMIN must be admitted.
+	admin := &Ctx{Actor: ActorUser, User: &User{ID: 3, Roles: []string{"ADMIN"}}}
+	if err := EvalPolicy(admin, p); err != nil {
+		t.Fatalf("single-role ADMIN must satisfy (ADMIN or MANAGER), got %v", err)
+	}
+	// A user holding ONLY MANAGER must also be admitted.
+	mgr := &Ctx{Actor: ActorUser, User: &User{ID: 4, Roles: []string{"MANAGER"}}}
+	if err := EvalPolicy(mgr, p); err != nil {
+		t.Fatalf("single-role MANAGER must satisfy (ADMIN or MANAGER), got %v", err)
+	}
+	// A user holding neither is denied.
+	other := &Ctx{Actor: ActorUser, User: &User{ID: 5, Roles: []string{"VIEWER"}}}
+	err := EvalPolicy(other, p)
+	var le *Error
+	if !errors.As(err, &le) || le.Status != 403 {
+		t.Fatalf("VIEWER must be denied by (ADMIN or MANAGER), got %v", err)
+	}
+}
+
 // --- GAP-09: input-value-predicate policy atoms -----------------------
 
 type whenInput struct {

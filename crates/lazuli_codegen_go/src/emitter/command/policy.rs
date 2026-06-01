@@ -46,8 +46,13 @@ pub(in crate::emitter) fn format_policy_with_expr_public(
 /// workaround (commit 700e95b): each `@<ns>.<name>` string in
 /// `PolicyCategory.atoms` parses into `{Namespace, Name}`; when the
 /// category carries 2+ atoms, the list is wrapped in infix form
-/// `( A and B and C )` so the runtime's recursive-descent walker
-/// (evalAnd) consumes one operand at a time. Closes WAR-RUNTIME-POLICY-01.
+/// `( A or B or C )` so the runtime's recursive-descent walker
+/// (evalOr) consumes one operand at a time. A named-policy atom list has
+/// OR semantics (see docs/audience-policy.md): `view: @role.ADMIN,
+/// @role.MANAGER` admits a caller holding EITHER role — a single-role
+/// user model can never satisfy an AND of two role atoms. AND-composition
+/// is expressed structurally via `policy <expr>` / `PolicyExpr::And`, not
+/// via the comma-separated category atom list. Closes WAR-RUNTIME-POLICY-01.
 pub(super) fn format_local_policy(name: &str, policies: &Policies) -> Option<String> {
     let category = policies.categories.iter().find(|c| c.name == name)?;
     let render_atom = |atom: &String| -> String {
@@ -76,7 +81,7 @@ pub(super) fn format_local_policy(name: &str, policies: &Policies) -> Option<Str
         atom_literals.push("{Namespace: \"predicate\", Name: \"(\"}".to_owned());
         for (i, atom) in category.atoms.iter().enumerate() {
             if i > 0 {
-                atom_literals.push("{Namespace: \"predicate\", Name: \"and\"}".to_owned());
+                atom_literals.push("{Namespace: \"predicate\", Name: \"or\"}".to_owned());
             }
             atom_literals.push(render_atom(atom));
         }
@@ -86,11 +91,11 @@ pub(super) fn format_local_policy(name: &str, policies: &Policies) -> Option<Str
             atom_literals.push(render_atom(atom));
         }
     }
-    // GAP-09 — predicate-gated atoms always join the OR list as flat
-    // atoms carrying their own `When` guard. They never participate in the
-    // 2+-atom `( ... and ... )` AND-wrapping above, because each predicate
-    // atom is an independent OR-branch ("admin when prod" OR "manager when
-    // media"). A guard that cannot be rendered (richer/unparsed predicate)
+    // GAP-09 — predicate-gated atoms join the OR list as flat atoms
+    // carrying their own `When` guard, consistent with the unconditional
+    // 2+-atom `( ... or ... )` OR-wrapping above: each predicate atom is an
+    // independent OR-branch ("admin when prod" OR "manager when media").
+    // A guard that cannot be rendered (richer/unparsed predicate)
     // degrades to an unconditional atom — fail-open is avoided because the
     // analyzer + doctor reject unparseable `when` shapes upstream.
     for ca in &category.conditional_atoms {

@@ -102,6 +102,65 @@
         );
     }
 
+    // RBAC-OR-001 — a named policy category with 2+ role atoms
+    // (`view: @role.ADMIN, @role.MANAGER`) MUST join them with the `or`
+    // predicate, not `and`. The user model is single-role, so an AND of
+    // two role atoms can never be satisfied by any real caller (every such
+    // screen would 403). A comma-separated category atom list has OR
+    // semantics (docs/audience-policy.md). AND-composition is expressed via
+    // structured `policy <expr>` / `PolicyExpr::And`, never here.
+    #[test]
+    fn multi_atom_named_policy_joins_with_or_not_and() {
+        use lazuli_ir::{Policies, PolicyCategory, PolicyRef};
+
+        let mut feature = base_feature("customer_management");
+        feature.policies = Policies {
+            categories: vec![PolicyCategory {
+                name: "view".into(),
+                atoms: vec!["@role.ADMIN".into(), "@role.MANAGER".into()],
+                conditional_atoms: vec![],
+                previous_names: vec![],
+                when_denied: None,
+                when_denied_route: None,
+            }],
+            fields: Vec::new(),
+            span_ref: None,
+        };
+
+        let mut cmd = base_command("list_customers");
+        cmd.input = CommandInput::Typed(vec![typed_slot("q", BuiltinType::Text, false)]);
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Customer"),
+            from_input: true,
+            assignments: vec![],
+        });
+        cmd.policy = PolicyRef::Local("view".into());
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("emits");
+        // The two role atoms are present...
+        assert!(
+            out.contains("{Namespace: \"role\", Name: \"ADMIN\"}"),
+            "expected ADMIN role atom in:\n{out}"
+        );
+        assert!(
+            out.contains("{Namespace: \"role\", Name: \"MANAGER\"}"),
+            "expected MANAGER role atom in:\n{out}"
+        );
+        // ...joined by `or`, wrapped in `( ... )`.
+        assert!(
+            out.contains(
+                "[]lazuli.PolicyAtom{{Namespace: \"predicate\", Name: \"(\"}, {Namespace: \"role\", Name: \"ADMIN\"}, {Namespace: \"predicate\", Name: \"or\"}, {Namespace: \"role\", Name: \"MANAGER\"}, {Namespace: \"predicate\", Name: \")\"}}"
+            ),
+            "expected `( ADMIN or MANAGER )` OR-joined atom list in:\n{out}"
+        );
+        // ...and NEVER joined by `and` (the bug: single-role user can't hold both).
+        assert!(
+            !out.contains("{Namespace: \"role\", Name: \"ADMIN\"}, {Namespace: \"predicate\", Name: \"and\"}"),
+            "multi-role named policy must NOT join role atoms with `and`:\n{out}"
+        );
+    }
+
     // GAP-09 — input-value-predicate policy atoms emit a `When` guard on
     // the `lazuli.PolicyAtom`, gated through the feature-local
     // `@policy.<name>` resolution path (`format_local_policy`).
