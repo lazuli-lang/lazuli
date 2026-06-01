@@ -1,0 +1,10 @@
+name = "@lazuli/plugin-captcha"
+version = "0.1.0"
+module = "github.com/lazuli-lang/lazuli-plugin-captcha"
+implements = ["captcha.Verifier"]
+vendors_supported = ["cloudflare-turnstile", "hcaptcha", "recaptcha-v3"]
+default = "cloudflare-turnstile"
+status = "in-development"
+
+[audit]
+findings_closed = ["lazuli-cyber-owasp-2026-05-20:HIGH (brute-force vector)"]

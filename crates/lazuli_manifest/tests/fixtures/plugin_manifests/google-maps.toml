@@ -1,0 +1,14 @@
+version = "0.1.0"
+status = "shipped"
+maintainer = "lazuli-core@anthropic.com"
+implements = ["maps.Geocoder"]
+
+[plugin]
+name = "google-maps"
+namespace = "@lazuli/plugin-google-maps"
+go_module = "github.com/lazuli-lang/lazuli-plugin-google-maps"
+description = "Google Maps geocoder adapter wrapping googlemaps.github.io/maps."
+
+[env]
+required = ["GOOGLE_MAPS_API_KEY"]
+optional = []

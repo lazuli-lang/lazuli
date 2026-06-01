@@ -1,0 +1,50 @@
+[plugin]
+name = "scalars-br"
+namespace = "@lazuli/plugin-scalars-br"
+go_module = "lazuli.dev/plugin/scalars-br"
+ts_package = "@lazuli/plugin-scalars-br"
+description = "Brazilian semantic scalars (CPF, CNPJ, CEP, Phone) — validators, formatters, and input masks."
+
+[[semantic_types]]
+name = "BrazilianCPF"
+alias = "@semantic.BrazilianCPF"
+carrier_type = "String"
+validator = "ValidateCPF"
+formatter = "FormatCPF"
+ts_validator = "validateCPF"
+ts_mask = "maskCPF"
+error_code = "cpf_invalid"
+message_key = "validation.cpf_invalid"
+
+[[semantic_types]]
+name = "BrazilianCNPJ"
+alias = "@semantic.BrazilianCNPJ"
+carrier_type = "String"
+validator = "ValidateCNPJ"
+formatter = "FormatCNPJ"
+ts_validator = "validateCNPJ"
+ts_mask = "maskCNPJ"
+error_code = "cnpj_invalid"
+message_key = "validation.cnpj_invalid"
+
+[[semantic_types]]
+name = "BrazilianCEP"
+alias = "@semantic.BrazilianCEP"
+carrier_type = "String"
+validator = "ValidateCEP"
+formatter = "FormatCEP"
+ts_validator = "validateCEP"
+ts_mask = "maskCEP"
+error_code = "cep_invalid"
+message_key = "validation.cep_invalid"
+
+[[semantic_types]]
+name = "BrazilianPhone"
+alias = "@semantic.BrazilianPhone"
+carrier_type = "String"
+validator = "ValidatePhone"
+formatter = "FormatPhone"
+ts_validator = "validatePhone"
+ts_mask = "maskPhone"
+error_code = "phone_invalid"
+message_key = "validation.phone_invalid"

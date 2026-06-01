@@ -1,0 +1,12 @@
+name = "@lazuli/plugin-expo-push"
+version = "0.1.0"
+module = "github.com/lazuli-lang/lazuli-plugin-expo-push"
+description = "Expo Push Service dispatcher for mobile push notifications."
+status = "shipped"
+maintainer = "lazuli-core@anthropic.com"
+
+implements = ["notifications.ChannelDispatcher"]
+
+[env]
+required = []
+optional = ["EXPO_ACCESS_TOKEN"]

@@ -1,0 +1,21 @@
+version = "0.1.0"
+status = "in-development"
+maintainer = "lazuli-core@anthropic.com"
+implements = ["audit.Sink"]
+
+[plugin]
+name = "audit-sink"
+namespace = "@lazuli/plugin-audit-sink"
+go_module = "github.com/lazuli-lang/lazuli-plugin-audit-sink"
+description = "External-SIEM fan-out for lazuli_audit rows — Splunk HEC, Datadog Logs, Elastic, S3+Athena."
+
+[env]
+required = []
+optional = ["SPLUNK_HEC_URL", "SPLUNK_HEC_TOKEN", "DATADOG_API_KEY", "ELASTIC_URL", "ELASTIC_API_KEY", "S3_AUDIT_BUCKET"]
+
+[vendors]
+supported = ["splunk-hec", "datadog-logs", "elastic", "s3-athena"]
+default = "splunk-hec"
+
+[audit]
+findings_closed = ["lazuli-cyber-owasp-2026-05-20:CRIT-2"]

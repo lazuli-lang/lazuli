@@ -1,0 +1,14 @@
+version = "0.1.0"
+status = "shipped"
+maintainer = "lazuli-core@anthropic.com"
+implements = ["maps.Geocoder"]
+
+[plugin]
+name = "mapbox"
+namespace = "@lazuli/plugin-mapbox"
+go_module = "lazuli.dev/plugin/mapbox"
+description = "Mapbox geocoder adapter — HTTP wrapper around the Mapbox Geocoding v5 API. Drop-in replacement for @lazuli/plugin-google-maps."
+
+[env]
+required = ["MAPBOX_ACCESS_TOKEN"]
+optional = []

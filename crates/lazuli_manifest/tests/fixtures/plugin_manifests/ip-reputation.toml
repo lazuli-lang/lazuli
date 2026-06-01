@@ -1,0 +1,10 @@
+name = "@lazuli/plugin-ip-reputation"
+version = "0.1.0"
+module = "github.com/lazuli-lang/lazuli-plugin-ip-reputation"
+implements = ["reputation.Scorer"]
+vendors_supported = ["abuseipdb", "cloudflare-radar", "project-honeypot"]
+default = "abuseipdb"
+status = "in-development"
+
+[audit]
+findings_closed = []

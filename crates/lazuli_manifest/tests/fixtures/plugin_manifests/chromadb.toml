@@ -1,0 +1,12 @@
+name = "@lazuli/plugin-chromadb"
+version = "0.1.0"
+module = "github.com/lazuli-lang/lazuli-plugin-chromadb"
+description = "ChromaDB vector-store adapter wrapping github.com/amikos-tech/chroma-go."
+status = "shipped"
+maintainer = "lazuli-core@anthropic.com"
+
+implements = ["vectorstore.VectorStore"]
+
+[env]
+required = ["CHROMA_URL"]
+optional = ["CHROMA_TOKEN"]

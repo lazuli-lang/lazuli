@@ -1,0 +1,15 @@
+implements = ["observability.Redactor"]
+status = "in-development"
+
+[plugin]
+name = "pii-scan"
+namespace = "@lazuli/plugin-pii-scan"
+go_module = "github.com/lazuli-lang/lazuli-plugin-pii-scan"
+description = "Extended PII redaction filter for observability logs — adds Brazilian (CPF, CNPJ, CEP) and EU (IBAN) detectors on top of the in-tree log redactor."
+
+[audit]
+findings_closed = [
+  "lazuli-cyber-stride-2026-05-20:T9.I1",
+  "lazuli-cyber-stride-2026-05-20:T9.I2",
+  "lazuli-cyber-stride-2026-05-20:T3.I*",
+]

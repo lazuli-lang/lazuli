@@ -35,7 +35,9 @@
 //!
 //! * `types` — `PluginManifest`, `PluginIdentity`,
 //!   `PluginSemanticTypeDecl`, `ResolvedPluginSemantic`,
-//!   `PLUGIN_MANIFEST_FILENAME`.
+//!   `PLUGIN_MANIFEST_FILENAME`; plus the 0021 kind-discriminant
+//!   surface: `PluginKind`, `PluginEnvContract`, `PluginBindsContract`,
+//!   `PluginCapabilityStub`, `PluginDesignStub`.
 //! * `errors` — `PluginManifestError` + `Display`/`Error` impls.
 //! * `loader` — `load_plugin_manifest`, `resolve_plugin_root`, plus
 //!   the `default_error_code` + `absolutise` helpers.
@@ -52,6 +54,7 @@ pub use alias_map::build_alias_map;
 pub use errors::PluginManifestError;
 pub use loader::{load_plugin_manifest, resolve_plugin_root};
 pub use types::{
-    PLUGIN_MANIFEST_FILENAME, PluginIdentity, PluginManifest, PluginSemanticTypeDecl,
+    PLUGIN_MANIFEST_FILENAME, PluginBindsContract, PluginCapabilityStub, PluginDesignStub,
+    PluginEnvContract, PluginIdentity, PluginKind, PluginManifest, PluginSemanticTypeDecl,
     ResolvedPluginSemantic,
 };

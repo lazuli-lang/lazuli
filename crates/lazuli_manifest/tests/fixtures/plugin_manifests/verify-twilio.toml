@@ -1,0 +1,16 @@
+version = "0.1.0"
+runtime = "go"
+status = "experimental"
+
+[plugin]
+name = "verify-twilio"
+namespace = "@lazuli/plugin-verify-twilio"
+go_module = "lazuli.dev/plugin/verify-twilio"
+description = "Twilio Verify API adapter for OTP issuance + check (SMS / WhatsApp / call). Anti-fraud + Latam routing built-in upstream."
+
+[provides]
+verifier = ["sms", "whatsapp", "call", "email"]
+
+[env]
+required = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_VERIFY_SERVICE_SID"]
+optional = ["TWILIO_VERIFY_DEFAULT_CHANNEL"]

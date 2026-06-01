@@ -1,0 +1,12 @@
+name = "@lazuli/plugin-openai-embeddings"
+version = "0.1.0"
+module = "github.com/lazuli-lang/lazuli-plugin-openai-embeddings"
+description = "OpenAI embeddings adapter wrapping github.com/sashabaranov/go-openai."
+status = "shipped"
+maintainer = "lazuli-core@anthropic.com"
+
+implements = ["vectorstore.Embedder"]
+
+[env]
+required = ["OPENAI_API_KEY"]
+optional = ["OPENAI_BASE_URL", "OPENAI_EMBEDDING_MODEL", "OPENAI_EMBEDDING_DIMENSIONS"]

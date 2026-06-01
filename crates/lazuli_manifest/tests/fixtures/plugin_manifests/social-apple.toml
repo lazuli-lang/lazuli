@@ -1,0 +1,31 @@
+# Lazuli plugin manifest for @lazuli/plugin-social-apple.
+#
+# Consumed by the Lazuli runtime + codegen to wire this adapter into an
+# app's [plugins] block in Lazurite.toml.
+
+version = "0.1.0"
+license = "MIT"
+bucket = "auth/social"
+interface = "Provider"
+
+[plugin]
+name = "social-apple"
+namespace = "@lazuli/plugin-social-apple"
+go_module = "lazuli.dev/plugin/social-apple"
+description = "Sign in with Apple provider — verifies Apple ID tokens via JWKS at https://appleid.apple.com/auth/keys."
+
+[config]
+required = ["APPLE_CLIENT_ID"]
+optional = ["APPLE_TEAM_ID", "APPLE_KEY_ID", "APPLE_PRIVATE_KEY_PEM"]
+
+[faces]
+go     = "adapter.go"
+web    = false
+mobile = false
+
+[contract]
+# Apple ships no Go SDK, so the adapter manually fetches JWKS from
+# https://appleid.apple.com/auth/keys and verifies ID tokens with
+# golang-jwt/jwt/v5. Code-exchange (client_secret) flow is optional
+# and only requires APPLE_TEAM_ID/KEY_ID/PRIVATE_KEY_PEM when used.
+methods = ["ValidateIDToken"]

@@ -1,0 +1,9 @@
+implements = ["transport.CSPBuilder"]
+findings_closed = ["lazuli-cyber-stride-2026-05-20:T5.T*"]
+status = "in-development"
+
+[plugin]
+name = "csp-builder"
+namespace = "@lazuli/plugin-csp-builder"
+go_module = "github.com/lazuli-lang/lazuli-plugin-csp-builder"
+description = "Audience-aware Content-Security-Policy header builder for HTTP responses."

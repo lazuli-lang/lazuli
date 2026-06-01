@@ -340,6 +340,103 @@ The guarantee, in three rules:
    `SEMANTIC-PLUGIN-001` at the field site. Apps with zero plugins, or
    all-resolving plugins, see no new errors.
 
+## Manifest is typed per kind
+
+Codified 2026-06-01 (change 0021). A plugin's `manifest.toml` is the
+contract between an external adapter and the compiler. The schema is
+**kind-discriminated** — each plugin is one of four `kind`s, and the
+compiler reads the typed contract for that kind instead of dropping it as
+opaque prose. The schema lives in
+`crates/lazuli_manifest/src/plugin_manifest/types.rs` (`PluginManifest` +
+`PluginKind`).
+
+### The four kinds
+
+| `kind`       | What it contributes                              | Modeled in v1 |
+|--------------|--------------------------------------------------|---------------|
+| `semantic`   | `[[semantic_types]]` scalars/validators (0019)   | **Fully** (unchanged) |
+| `adapter`    | `implements` + `[env]` + `[binds]` Go-interface contract | **Fully** |
+| `capability` | reserved future kind                             | Thin stub (full schema deferred) |
+| `design`     | reserved future kind                             | Thin stub (full schema deferred) |
+
+### `kind` is inferred, not required
+
+No existing manifest declares a top-level `kind` key, so it is **never
+mandatory**. The compiler derives it via `PluginManifest::resolved_kind()`
+using this precedence ladder:
+
+1. An explicit top-level `kind = "..."` wins (the override).
+2. Else if `[[semantic_types]]` is non-empty → `semantic`. *(This preserves
+   the 0019 path: any manifest the semantic resolver cares about keeps
+   classifying as semantic, even if it also carries adapter sections.)*
+3. Else if any adapter section is present (`implements` non-empty, or
+   `[env]`, or `[binds]`) → `adapter`.
+4. Else → `semantic` (the historical default for an identity-only manifest;
+   harmless — it contributes no aliases).
+
+`capability`/`design` are **never inferred** in v1 — they only arise from an
+explicit `kind`. The adapter-contract fields are parsed and readable
+regardless of inferred kind; `kind` only selects which verify/scaffold path
+(0022/0023) a manifest takes.
+
+> NOTE: `smtp` carries `kind = "notifications/email-sender"` **inside
+> `[plugin]`**. That is a free-form *catalog* string on `PluginIdentity`,
+> distinct from the `PluginKind` enum, and it does **not** feed inference.
+
+### The blessed adapter schema
+
+An adapter declares its framework contract with three keys (grounded in the
+real mercadopago / smtp / object-store manifests):
+
+```toml
+# top-level: the framework contract bucket(s) this adapter satisfies.
+# 0022 verifies each against a real Go interface.
+implements = ["payments.PaymentGateway"]
+
+[plugin]
+name = "mercadopago"
+namespace = "@lazuli/plugin-mercadopago"
+go_module = "github.com/lazuli-lang/lazuli-plugin-mercadopago"
+
+# the environment-variable contract; doctor surfaces it, 0023 seeds it.
+[env]
+required = ["MERCADOPAGO_ACCESS_TOKEN", "MERCADOPAGO_WEBHOOK_SECRET"]
+optional = []
+# smtp-style conditional tier (required only when auth is configured):
+required_for_auth = ["SMTP_USERNAME", "SMTP_PASSWORD"]
+
+# the Go interface this adapter binds against + its exported methods.
+# 0022 resolves `interface` to a real Go interface and checks `methods`.
+[binds]
+interface = "github.com/lazuli-lang/lazuli-plugin-smtp.EmailSender"
+methods = ["SendEmail", "SendEmailBatch"]
+```
+
+Tolerated legacy spellings (not the blessed shape, but parsed without
+error): `[plugin].module` is read as a fallback for `go_module` (via
+`effective_go_module()`); per-variable `[env.<VAR>]` detail sub-tables
+(`description`/`allowed`/`default`) are catalog metadata and are dropped on
+parse, not modeled. The legacy `[contract].methods` / `[provides].go_interface`
+spellings (on social-apple / social-google) are **not** auto-mapped to
+`[binds]` — those plugins migrate to `[binds]` when the scaffolder (0023)
+lands.
+
+### Capability / design — deferred
+
+`[capability]` and `[design]` are reserved so the discriminant is exhaustive
+and round-trips, but v1 models only a thin marker (`provides` / `emits`
+free-form name lists). The full per-kind contract is **DEFERRED** to a later
+spec.
+
+### Back-compat guarantee
+
+Every field added by 0021 is `#[serde(default)]`, so all 24 real plugin
+manifests keep deserialising unchanged and the `[[semantic_types]]` struct
+is byte-for-byte the same. A vendored-fixture regression test
+(`crates/lazuli_manifest/tests/plugin_manifest_typed.rs`) deserialises every
+real manifest and asserts the inferred kind, the round-tripped adapter
+fields, and structural rejection of a malformed adapter.
+
 ## Scaffolding (automated)
 
 The `plugin-scaffold` pipeline in `lazuli-lang/ops/.pipely/pipelines/plugin-scaffold/`

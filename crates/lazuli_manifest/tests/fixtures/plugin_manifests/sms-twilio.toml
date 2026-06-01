@@ -1,0 +1,16 @@
+version = "0.1.0"
+runtime = "go"
+status = "experimental"
+
+[plugin]
+name = "sms-twilio"
+namespace = "@lazuli/plugin-sms-twilio"
+go_module = "lazuli.dev/plugin/sms-twilio"
+description = "Twilio SMS + WhatsApp notification adapter."
+
+[provides]
+notifications = ["sms", "whatsapp"]
+
+[env]
+required = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"]
+optional = ["TWILIO_FROM_SMS_DEFAULT", "TWILIO_FROM_WHATSAPP_DEFAULT"]

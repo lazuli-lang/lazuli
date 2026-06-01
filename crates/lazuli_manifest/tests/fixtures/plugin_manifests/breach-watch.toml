@@ -1,0 +1,10 @@
+name = "@lazuli/plugin-breach-watch"
+implements = ["breach.Checker"]
+status = "in-development"
+
+[vendors]
+supported = ["hibp"]
+default = "hibp"
+
+[audit]
+findings_closed = ["lazuli-cyber-stride-2026-05-20:T6.S4"]

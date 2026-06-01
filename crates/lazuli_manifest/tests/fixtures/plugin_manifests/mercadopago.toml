@@ -1,0 +1,17 @@
+# Plugin-catalog v1 metadata. Authoritative identity lives under
+# `[plugin]`; the top-level scalars below are legacy contract metadata
+# (status / version / implements) consumed by other tooling.
+version = "0.1.0"
+status = "shipped"
+maintainer = "lazuli-core@anthropic.com"
+implements = ["payments.PaymentGateway"]
+
+[plugin]
+name = "mercadopago"
+namespace = "@lazuli/plugin-mercadopago"
+go_module = "github.com/lazuli-lang/lazuli-plugin-mercadopago"
+description = "Mercado Pago payment-gateway adapter for checkout preferences and webhooks."
+
+[env]
+required = ["MERCADOPAGO_ACCESS_TOKEN", "MERCADOPAGO_WEBHOOK_SECRET"]
+optional = []

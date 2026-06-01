@@ -1,0 +1,25 @@
+[plugin]
+name = "smtp"
+namespace = "@lazuli/plugin-smtp"
+kind = "notifications/email-sender"
+module = "github.com/lazuli-lang/lazuli-plugin-smtp"
+
+# Plugin self-registers via init() against `lazuli.RegisterAdapter`.
+# Lazuli codegen consumes this manifest to validate `Lazurite.toml`
+# [plugins] activation and to surface the env-var contract in doctor.
+
+[env]
+required = ["SMTP_HOST", "SMTP_PORT"]
+required_for_auth = ["SMTP_USERNAME", "SMTP_PASSWORD"]
+optional = ["SMTP_TLS_MODE", "SMTP_FROM_DEFAULT"]
+
+[env.SMTP_TLS_MODE]
+description = "TLS policy"
+allowed = ["none", "opportunistic", "mandatory"]
+default = "opportunistic"
+
+[binds]
+# Public Go surface; binds to `notifications.EmailSender` once the
+# framework slot lands (see hostpoint-complete-roadmap §2.3 + §3 caveat).
+interface = "github.com/lazuli-lang/lazuli-plugin-smtp.EmailSender"
+methods = ["SendEmail", "SendEmailBatch"]

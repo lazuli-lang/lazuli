@@ -1,0 +1,11 @@
+[plugin]
+name = "viacep"
+namespace = "@lazuli/plugin-viacep"
+go_module = "lazuli.dev/plugin/viacep"
+ts_package = "@lazuli/plugin-viacep"
+description = "Brazilian CEP (postal code) lookup via viacep.com.br — Go + TS fetchers plus a react-hook-form autofill hook."
+
+# Service plugin (no [[semantic_types]] — this plugin exposes a
+# runtime lookup, not a scalar/validator). The lookup is consumed
+# manually by apps via `LookupCEP` (Go) / `lookupCEP` (TS) or via
+# the `useCepAutofill` React hook bundled in the TS package.

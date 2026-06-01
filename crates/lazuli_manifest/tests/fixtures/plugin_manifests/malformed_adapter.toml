@@ -1,0 +1,13 @@
+# Structurally-malformed adapter manifest (spec 0021 ENFORCE gate).
+#
+# `implements` MUST be an array of strings (`["bucket.Interface"]`). Here it
+# is a bare scalar string at the top level, where it binds to
+# `PluginManifest.implements: Vec<String>` — serde rejects the type mismatch
+# at parse with a typed error. This proves the typed schema is load-bearing,
+# not decorative. (Top-level keys must precede any table header so they bind
+# to the root struct, not into `[plugin]`.)
+implements = "payments.PaymentGateway"
+
+[plugin]
+name = "broken-adapter"
+namespace = "@lazuli/plugin-broken-adapter"

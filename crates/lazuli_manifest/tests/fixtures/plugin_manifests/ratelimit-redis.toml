@@ -1,0 +1,6 @@
+name = "@lazuli/plugin-ratelimit-redis"
+implements = ["ratelimit.Store"]
+status = "in-development"
+vendors_supported = ["redis-oss", "upstash", "memorystore", "elasticache", "redis-cloud"]
+vendor_default = "redis-oss"
+findings_closed = ["lazuli-cyber-owasp-2026-05-20:HIGH-3"]

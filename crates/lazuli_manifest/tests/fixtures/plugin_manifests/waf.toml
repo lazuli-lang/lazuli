@@ -1,0 +1,19 @@
+name = "@lazuli/plugin-waf"
+version = "0.1.0"
+module = "github.com/lazuli-lang/lazuli-plugin-waf"
+description = "Perimeter WAF filter; wraps cloud WAF APIs."
+status = "in-development"
+maintainer = "lazuli-core@anthropic.com"
+
+implements = ["waf.Filter"]
+
+[env]
+required = ["CLOUDFLARE_WAF_ZONE_ID", "CLOUDFLARE_WAF_API_TOKEN"]
+optional = ["CLOUDFLARE_WAF_API_BASE", "WAF_VENDOR"]
+
+[vendors]
+supported = ["cloudflare-waf", "aws-waf", "imperva", "modsecurity"]
+default = "cloudflare-waf"
+
+[audit]
+findings_closed = ["lazuli-cyber-stride-2026-05-20:T9.*"]

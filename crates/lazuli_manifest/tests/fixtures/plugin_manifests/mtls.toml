@@ -1,0 +1,6 @@
+name = "@lazuli/plugin-mtls"
+implements = ["mtls.Verifier"]
+vendors_supported = ["ca-bundle", "spire"]
+vendor_default = "ca-bundle"
+findings_closed = ["lazuli-cyber-stride-2026-05-20:T12.T1"]
+status = "in-development"
