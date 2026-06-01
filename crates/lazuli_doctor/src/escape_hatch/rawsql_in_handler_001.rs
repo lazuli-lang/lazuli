@@ -116,9 +116,39 @@ pub fn has_multiline_raw_sql_read(source: &str) -> bool {
     false
 }
 
-/// After a query call's `(`, is the (first non-space) argument a backtick
-/// raw string that contains a newline before its closing backtick?
+/// After a query call's `(`, does a multi-line backtick raw-string literal
+/// appear as the SQL argument? Two shapes are accepted:
+///   - SQL-first:   `db.Query(`SELECT\n...`)`        — backtick is arg 1.
+///   - ctx-first:   `db.Query(ctx,\n\t`SELECT\n...`)` — pgx's runtime API,
+///                  where the backtick is arg 2 after a leading `ctx`
+///                  (or any single non-string argument) and its comma.
+///
+/// We tolerate exactly one leading non-string argument before the backtick:
+/// enough to cover the pgx `(ctx, sql, args...)` signature every Lazuli
+/// handler actually uses, without scanning into an unrelated later argument.
 fn opens_multiline_backtick(rest: &str) -> bool {
+    // Shape 1: backtick is the first argument.
+    if backtick_literal_is_multiline(rest) {
+        return true;
+    }
+    // Shape 2: skip a single leading non-string argument (e.g. `ctx`) and its
+    // comma, then look for the backtick. The leading arg must not itself open
+    // a string/backtick (guarded above) and must not contain a `)` (which
+    // would mean the call already closed with no SQL literal).
+    let trimmed = rest.trim_start();
+    let Some(comma) = trimmed.find(',') else {
+        return false;
+    };
+    let lead = &trimmed[..comma];
+    if lead.contains('`') || lead.contains('"') || lead.contains(')') || lead.contains('\n') {
+        return false;
+    }
+    backtick_literal_is_multiline(&trimmed[comma + 1..])
+}
+
+/// True if, after trimming leading whitespace, `rest` begins with a backtick
+/// raw-string literal that contains a newline before its closing backtick.
+fn backtick_literal_is_multiline(rest: &str) -> bool {
     let trimmed = rest.trim_start();
     let Some(stripped) = trimmed.strip_prefix('`') else {
         return false;
@@ -304,5 +334,52 @@ func TouchRow(ctx lazuli.Ctx) error {
         assert!(has_multiline_raw_sql_read(LIST_PROPERTY_REVIEWS_GO));
         assert!(!has_multiline_raw_sql_read("x := db.Query(`SELECT 1`)"));
         assert!(!has_multiline_raw_sql_read("// just a comment about db.Query("));
+    }
+
+    // The pgx runtime API every Lazuli handler actually uses passes ctx as the
+    // FIRST argument: `db.Query(ctx,\n\t`SELECT...`)`. Verified against all of
+    // hostpoint: 0 handlers put the SQL backtick first; 31 use this ctx-first
+    // shape (incl. 11 list_* reads). The detector MUST tolerate one leading
+    // non-string arg or it fires 0× on the exact code it exists to catch.
+    const LIST_HOST_AGENDA_PGX_GO: &str = r#"
+package handlers
+
+func ListHostAgenda(ctx lazuli.Ctx) ([]AgendaEntry, error) {
+    rows, err := db.Query(ctx,
+        `SELECT t.id, t.starts_at, p.title
+           FROM transactions t
+           JOIN properties p ON p.id = t.property_id
+          WHERE p.host_id = $1
+          ORDER BY t.starts_at DESC`,
+        ctx.UserID())
+    return nil, err
+}
+"#;
+
+    #[test]
+    fn pgx_ctx_first_query_fires() {
+        // Detector-level: the real pgx ctx-first shape must be detected.
+        assert!(
+            has_multiline_raw_sql_read(LIST_HOST_AGENDA_PGX_GO),
+            "ctx-first `db.Query(ctx, `SQL`)` (the real pgx API) must be detected"
+        );
+        // End-to-end: it fires through check() when the .lzi declares no query.
+        let dir = tempfile::tempdir().unwrap();
+        write_handler(dir.path(), "list_host_agenda", LIST_HOST_AGENDA_PGX_GO);
+        let feature = lower("feature operations\n  resource Transaction\n    starts_at: DateTime required\n");
+        let findings = check(&feature, dir.path());
+        assert_eq!(findings.len(), 1, "ctx-first raw SQL read must fire ESC-RAWSQL");
+        assert_eq!(findings[0].read_name, "list_host_agenda");
+    }
+
+    #[test]
+    fn ctx_first_one_liner_does_not_fire() {
+        // A single-line statement in ctx-first shape is imperative, not a
+        // target read — must stay silent (no newline inside the literal).
+        assert!(!has_multiline_raw_sql_read(
+            "_, err := db.Query(ctx, `UPDATE rows SET seen = true WHERE id = $1`, id)"
+        ));
+        // And a closed call with no SQL literal must not be mistaken for one.
+        assert!(!has_multiline_raw_sql_read("rows, err := db.Query(ctx, stmt, id)"));
     }
 }
