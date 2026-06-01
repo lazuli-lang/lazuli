@@ -41,4 +41,7 @@ dist/web/**/dist/
 # Per-agent worktrees for parallel wave implementation (TDD/BDD multi-agent campaign 2026-05-24)
 .worktrees/
 reinvention-damage-report.json
-runtime-surface.md
+# The pre-built runtime-surface census lives at the repo root and is best-effort
+# scratch (read as a shape reference). Anchored so it does NOT match the
+# committed GENERATED index at docs/lazuli_way/runtime-surface.md (spec 0026).
+/runtime-surface.md

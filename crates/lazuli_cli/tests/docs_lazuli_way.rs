@@ -64,6 +64,7 @@ fn index_links_resolve() {
         "money",
         "state-machines",
         "comment-hygiene",
+        "delegate-to-runtime",
     ];
     for slug in frozen {
         let want = format!("lazuli_way/{slug}.md");
@@ -100,6 +101,44 @@ fn scaffold_teaches_idioms() {
         assert!(
             body.contains("conventions [crud]"),
             "{name} must teach `conventions [crud]`"
+        );
+    }
+}
+
+/// The runtime-surface index (mechanism ii of the reinvention defense) must stay
+/// referenced from the context pack at all three injection sites — quickref + both
+/// scaffold templates — so the injection can't be silently dropped.
+#[test]
+fn quickref_and_scaffold_reference_runtime_surface() {
+    const NEEDLE: &str = "docs/lazuli_way/runtime-surface.md";
+    for rel in [
+        "docs/quickref.md",
+        "lazurite/templates/default/CLAUDE.md.tmpl",
+        "lazurite/templates/default/AGENTS.md.tmpl",
+    ] {
+        let body = read(rel);
+        assert!(
+            body.contains(NEEDLE),
+            "{rel} must reference the runtime-surface index `{NEEDLE}`"
+        );
+    }
+}
+
+/// The keystone teaching doc ties all three mechanisms together; this asserts it
+/// is filled (not a stub): the fixed shape, the canonical hash_password case, the
+/// runtime-surface link, and the doctor rule that backs it.
+#[test]
+fn delegate_to_runtime_doc_filled() {
+    let body = read("docs/lazuli_way/delegate-to-runtime.md");
+    for needle in [
+        "## Reach for this",
+        "auth.HashPassword",
+        "runtime-surface.md",
+        "VOCAB-RUNTIME-REINVENTED-001",
+    ] {
+        assert!(
+            body.contains(needle),
+            "delegate-to-runtime.md must contain `{needle}` (keystone doc, not a stub)"
         );
     }
 }

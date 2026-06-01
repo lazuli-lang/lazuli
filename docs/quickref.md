@@ -1073,6 +1073,30 @@ Use `--expand=events,policies,targets,tests` only when the task touches those
 areas. JSON is the stable machine contract; `--format=lazuli` is a readable
 projection.
 
+## Runtime owns these mechanisms — never reimplement
+
+Quickref above teaches the **language** surface. The **runtime** surface — the Go
+verbs your handlers call — is indexed, intent-keyed, in
+**`docs/lazuli_way/runtime-surface.md`** (generated from `runtime/go/lazuli/`,
+never hand-edited). Scan it BEFORE writing any `handlers/<x>.go`: if the runtime
+already exports the verb, delegate; do not hand-roll it.
+
+The reinvention hot spots (from the pilot audit) and their runtime owners:
+
+| You reach for… | The runtime already owns it |
+|----------------|------------------------------|
+| password hashing | `auth.HashPassword` / `auth.VerifyPassword` — never `golang.org/x/crypto/argon2` |
+| session/reset/verify tokens | `auth.MintSessionToken` / `auth.RequestPasswordReset` / `auth.ConfirmPasswordReset` / `auth.VerifyEmailToken` |
+| role checks | `lazuli.HasRole` — never an app-local `actorHasRole` |
+| advancing a status | declare a `lifecycle`/`transition`; runtime owns `lazuli.TransitionAdvance` + `LifecycleStateMismatchError` |
+| hex color / percentage | `@semantic.HexColor` / `@semantic.Percentage` — never a regex validator |
+| create/update/delete | `creates`/`updates`/`deletes` effects (`lazuli.Creates` …) — never raw `db.Exec` |
+| money | `lazuli.BRL` / `lazuli.ParseMoneyLiteral` |
+
+This is mechanism (ii) of the reinvention defense; the
+`VOCAB-RUNTIME-REINVENTED-001` doctor rule (mechanism iii) is the backstop. See
+`docs/lazuli_way/delegate-to-runtime.md`.
+
 ## Do Not Add In v0
 
 - `crud`, `assignment`, or `reacts to` macros.

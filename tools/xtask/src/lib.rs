@@ -12,4 +12,5 @@
 pub mod catalog_reference;
 pub mod docs_staleness;
 pub mod keyword_reference;
+pub mod runtime_surface;
 pub mod tmlanguage;
