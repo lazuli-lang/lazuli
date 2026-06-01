@@ -51,7 +51,9 @@ toml = "0.8"
 tower-lsp.workspace = true
 
 [dev-dependencies]
+lazuli_manifest = { path = "../lazuli_manifest" }
 tempfile = "3"
+toml = "0.8"
 
 [lints]
 workspace = true

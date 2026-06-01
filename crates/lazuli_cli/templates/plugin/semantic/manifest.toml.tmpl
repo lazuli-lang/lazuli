@@ -1,0 +1,15 @@
+[plugin]
+name = "{{name}}"
+namespace = "{{namespace}}"
+go_module = "{{module}}"
+ts_package = "{{namespace}}"
+description = "Semantic scalar plugin {{name}} — validators and formatters."
+
+[[semantic_types]]
+name = "{{TypeName}}Value"
+alias = "@semantic.{{TypeName}}Value"
+carrier_type = "String"
+validator = "Validate{{TypeName}}Value"
+formatter = "Format{{TypeName}}Value"
+error_code = "{{go_package}}_value_invalid"
+message_key = "validation.{{go_package}}_value_invalid"

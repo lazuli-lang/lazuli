@@ -1,0 +1,33 @@
+// Package {{go_package}} validates and formats {{name}} semantic scalar values.
+package {{go_package}}
+
+import (
+	"errors"
+	"strings"
+)
+
+// Err{{TypeName}}ValueInvalid is the sentinel returned for invalid input.
+// Callers match it with errors.Is.
+var Err{{TypeName}}ValueInvalid = errors.New("invalid {{name}} value")
+
+// Validate{{TypeName}}Value reports whether s is a well-formed {{name}}
+// value. The scaffold ships a minimal non-empty-string validator so the
+// plugin compiles and its example test passes out of the box; replace the
+// body with the real rule for your locale/domain.
+func Validate{{TypeName}}Value(s string) error {
+	if strings.TrimSpace(s) == "" {
+		return Err{{TypeName}}ValueInvalid
+	}
+	return nil
+}
+
+// Format{{TypeName}}Value validates raw and returns its canonical display
+// form. The scaffold trims surrounding whitespace; replace with the real
+// canonicalization (e.g. digit grouping, casing) for your domain.
+func Format{{TypeName}}Value(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", Err{{TypeName}}ValueInvalid
+	}
+	return trimmed, nil
+}

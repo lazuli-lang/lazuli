@@ -1,0 +1,21 @@
+# Plugin-catalog v1 metadata. Authoritative identity lives under
+# `[plugin]`; the top-level scalars below are legacy contract metadata
+# (status / version / implements) consumed by other tooling.
+version = "0.1.0"
+status = "draft"
+maintainer = "you@example.com"
+implements = ["{{go_package}}.SomeInterface"]
+
+[plugin]
+name = "{{name}}"
+namespace = "{{namespace}}"
+go_module = "{{module}}"
+description = "Adapter plugin {{name}} — binds a Go interface + declares an env contract."
+
+[binds]
+interface = "{{module}}.Interface"
+methods = ["Do"]
+
+[env]
+required = []
+optional = []

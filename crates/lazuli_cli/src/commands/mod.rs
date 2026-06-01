@@ -46,6 +46,7 @@ pub mod migrate;
 pub mod new;
 pub mod parse;
 pub mod plan;
+pub mod plugin;
 pub mod profile;
 pub mod seed;
 pub mod spike_generate;

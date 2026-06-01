@@ -12,7 +12,7 @@ use std::path::Path;
 use anyhow::Result;
 use clap::Parser;
 
-use crate::cli_args::{Cli, Commands, DesignCommand, MigrateCommand, TranslateCommand};
+use crate::cli_args::{Cli, Commands, DesignCommand, MigrateCommand, PluginCommand, TranslateCommand};
 use crate::{commands, doctor};
 
 const DEFAULT_TEMPLATE: &str = include_str!("../../../examples/crm.lzi");
@@ -178,6 +178,14 @@ pub fn run() -> Result<()> {
             ),
         },
         Commands::Mcp => commands::mcp::mcp_command(),
+        Commands::Plugin { command } => match command {
+            PluginCommand::New {
+                name,
+                kind,
+                namespace,
+                out,
+            } => commands::plugin::plugin_new_command(&name, kind, namespace, out.as_deref()),
+        },
         Commands::Test {
             input,
             layer,
@@ -250,6 +258,34 @@ mod tests {
     fn new_subcommand_routes() {
         let cli = Cli::try_parse_from(["lazuli", "new", "my-app"]).expect("parse");
         assert!(matches!(cli.command, Commands::New { .. }));
+    }
+
+    #[test]
+    fn plugin_new_subcommand_routes() {
+        let cli = Cli::try_parse_from(["lazuli", "plugin", "new", "scalars-br"]).expect("parse");
+        assert!(matches!(cli.command, Commands::Plugin { .. }));
+    }
+
+    #[test]
+    fn plugin_new_kind_defaults_to_semantic() {
+        use crate::cli_args::{PluginCommand, PluginKind};
+        let cli = Cli::try_parse_from(["lazuli", "plugin", "new", "foo"]).expect("parse");
+        let Commands::Plugin {
+            command: PluginCommand::New { kind, .. },
+        } = cli.command
+        else {
+            panic!("expected plugin new");
+        };
+        assert_eq!(kind, PluginKind::Semantic);
+    }
+
+    #[test]
+    fn plugin_new_rejects_unknown_kind() {
+        // `capability` / `design` are non-goals — clap rejects them.
+        assert!(
+            Cli::try_parse_from(["lazuli", "plugin", "new", "foo", "--kind", "capability"])
+                .is_err()
+        );
     }
 
     #[test]

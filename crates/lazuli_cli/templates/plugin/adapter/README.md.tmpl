@@ -1,0 +1,34 @@
+# {{name}}
+
+Lazuli `{{namespace}}` adapter plugin. Binds a Go interface and declares an
+environment-variable contract. Scaffolded with `lazuli plugin new --kind adapter`.
+
+## Status
+
+- Go server adapter — `Adapter` satisfies the `Interface` it `implements`,
+  auto-registers via `init()` against `{{namespace}}`.
+
+## Usage
+
+In `Lazurite.toml`:
+
+```toml
+[plugins]
+"{{namespace}}" = { module = "{{module}}", version = "v0.1.0" }
+```
+
+Declare the required env vars in `manifest.toml [env]` and read them in
+`newAdapter()`.
+
+## Wire it up
+
+1. Replace the placeholder `Interface` in `adapter.go` with the real
+   `lazuli.dev/runtime/lazuli/<domain>.<Interface>` you implement.
+2. Uncomment the `lazuli.RegisterAdapter(AdapterRef, newAdapter())` line in
+   `init()` once you import the runtime.
+3. Fill the method stubs (currently returning `ErrUnimplemented`) with real
+   upstream-SDK calls. Stay wire-thin — no business logic in the adapter.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

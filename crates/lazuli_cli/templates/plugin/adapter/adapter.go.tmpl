@@ -1,0 +1,66 @@
+// Package {{go_package}} is the Lazuli {{namespace}} adapter.
+//
+// Wire-thin: an adapter translates between Lazuli's typed contract and an
+// upstream SDK; it does not reimplement the upstream's logic.
+//
+// This file was scaffolded by `lazuli plugin new --kind adapter`. It is
+// self-contained and compiles with zero dependencies so you can `go test`
+// it immediately. The `Interface` type below is a PLACEHOLDER — replace it
+// with the real `lazuli.dev/runtime/lazuli/<domain>.<Interface>` you
+// implement, and uncomment the RegisterAdapter line in init().
+package {{go_package}}
+
+import (
+	"context"
+	"errors"
+)
+
+// AdapterRef is the registry key this adapter binds under. It MUST equal
+// the manifest's `[plugin] namespace`.
+const AdapterRef = "{{namespace}}"
+
+// ErrUnimplemented is returned by stubbed methods. Replace each stub with
+// real upstream-SDK calls.
+var ErrUnimplemented = errors.New("{{go_package}}: not implemented")
+
+// ErrUnconfigured signals the adapter's required env vars were unset at
+// init. Surface it from each method when configuration is missing.
+var ErrUnconfigured = errors.New("{{go_package}}: adapter not configured")
+
+// Interface is a PLACEHOLDER for the framework contract this adapter
+// satisfies. Replace it with the real interface from
+// `lazuli.dev/runtime/lazuli/<domain>` (e.g. payments.PaymentGateway) and
+// drop this declaration. Kept in-file so the scaffold compiles standalone.
+//
+// TODO: replace Interface with the lazuli.dev/runtime interface you implement.
+type Interface interface {
+	Do(ctx context.Context) error
+}
+
+// Adapter implements Interface by wrapping an upstream SDK.
+type Adapter struct {
+	err error
+}
+
+// Compile-time assertion that *Adapter satisfies the bound interface.
+var _ Interface = (*Adapter)(nil)
+
+func init() {
+	// TODO: register against the Lazuli runtime once you import it:
+	// lazuli.RegisterAdapter(AdapterRef, newAdapter())
+	_ = newAdapter()
+}
+
+func newAdapter() *Adapter {
+	// TODO: read required env vars; return &Adapter{err: ErrUnconfigured}
+	// when a required value is missing so the error defers to first use.
+	return &Adapter{}
+}
+
+// Do is a method stub. Replace its body with the real upstream call.
+func (a *Adapter) Do(ctx context.Context) error {
+	if a.err != nil {
+		return a.err
+	}
+	return ErrUnimplemented
+}

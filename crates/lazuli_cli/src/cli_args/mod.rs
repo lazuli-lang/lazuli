@@ -288,6 +288,17 @@ pub(crate) enum Commands {
     /// Playwright, Vitest/Jest); does not reimplement execution.
     ///
     /// See `docs/proposals/lazuli-test-runner-2026-05-24.md`.
+    /// Plugin authoring + platform commands (noun namespace).
+    ///
+    /// The FIRST nested subcommand on the (otherwise flat) `Commands`
+    /// enum. `plugin new` scaffolds a plugin skeleton (spec 0023);
+    /// `plugin verify` (spec 0022, sibling — not yet landed) checks an
+    /// existing plugin against the typed manifest schema. Both are the
+    /// same noun, so they share one `PluginCommand` enum.
+    Plugin {
+        #[command(subcommand)]
+        command: PluginCommand,
+    },
     Test {
         /// Path to a `.lzi` file or a directory containing one.
         /// Defaults to the current directory.
@@ -323,6 +334,54 @@ pub(crate) enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         extra_args: Vec<String>,
     },
+}
+
+/// Verbs under the `plugin` noun namespace.
+///
+/// **Coordination contract (ADR 0023 Decision 2):** `plugin` is a noun
+/// with verbs under it. 0023 lands FIRST and defines this enum with the
+/// single `New` variant. Spec 0022 (plugin-verify-contract) is the
+/// sibling that APPENDS a `Verify { dir: PathBuf, .. }` variant here —
+/// it does not redefine the enum. Keep the shape append-friendly: a
+/// flat `#[derive(Subcommand)]` whose variants map 1:1 to `plugin <verb>`.
+#[derive(Debug, Subcommand)]
+pub(crate) enum PluginCommand {
+    /// Scaffold a new plugin skeleton (typed manifest + Go + tests +
+    /// docs) that deserializes against the 0021 typed manifest schema.
+    New {
+        /// Plugin name (kebab-case), e.g. `scalars-br`.
+        name: String,
+        /// Plugin kind. Closed catalog: `semantic` (default), `adapter`.
+        /// `capability` / `design` are deferred (spec non-goal).
+        #[arg(long, value_enum, default_value_t = PluginKind::Semantic)]
+        kind: PluginKind,
+        /// Namespace override; defaults to `@lazuli/plugin-<name>`.
+        #[arg(long)]
+        namespace: Option<String>,
+        /// Output directory; defaults to `./<name>`.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    // `Verify { .. }` is owned by spec 0022 (plugin-verify-contract).
+    // When 0022 lands it appends its variant here; 0023 only adds `New`.
+}
+
+/// The scaffoldable plugin kinds. A closed catalog mirroring the two
+/// shipped reference plugins (`scalars-br` = semantic,
+/// `mercadopago` = adapter). `capability` / `design` are deferred
+/// (spec 0023 non-goal); clap rejects them with the closed catalog in
+/// `--help`. Distinct from `lazuli_manifest::PluginKind` (the inference
+/// enum) — this one only enumerates what the scaffolder can emit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
+#[clap(rename_all = "snake_case")]
+pub(crate) enum PluginKind {
+    /// Locale scalar pack: `[[semantic_types]]` + Go validators
+    /// (mirrors `scalars-br`).
+    #[default]
+    Semantic,
+    /// Go-interface adapter: `implements` / `[binds]` / `[env]` +
+    /// `adapter.go` (mirrors `mercadopago`).
+    Adapter,
 }
 
 mod subcommands;

@@ -1,0 +1,36 @@
+# {{name}}
+
+Lazuli `{{namespace}}` semantic scalar plugin. Pure-Go, dependency-free
+validators and formatters scaffolded with `lazuli plugin new`.
+
+## Surface
+
+| Semantic type | Alias | Validator | Formatter |
+|---|---|---|---|
+| {{TypeName}}Value | `@semantic.{{TypeName}}Value` | `Validate{{TypeName}}Value` | `Format{{TypeName}}Value` |
+
+## Install
+
+```bash
+go get {{module}}@v0.1.0
+```
+
+## Quick start
+
+```go
+package host
+
+import {{go_package}} "{{module}}"
+
+func ValidateField(s string) error {
+	return {{go_package}}.Validate{{TypeName}}Value(s)
+}
+```
+
+```toml
+[plugins]
+"{{namespace}}" = { module = "{{module}}", version = "v0.1.0" }
+```
+
+Edit `Validate{{TypeName}}Value` / `Format{{TypeName}}Value` with your real
+rule, then add more `[[semantic_types]]` entries to `manifest.toml`.

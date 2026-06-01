@@ -1,0 +1,44 @@
+package {{go_package}}
+
+import (
+	"errors"
+	"testing"
+)
+
+func TestValidate{{TypeName}}ValueValid(t *testing.T) {
+	valid := []string{
+		"example",
+		"another value",
+	}
+	for _, v := range valid {
+		if err := Validate{{TypeName}}Value(v); err != nil {
+			t.Fatalf("Validate{{TypeName}}Value(%q) returned %v", v, err)
+		}
+	}
+}
+
+func TestValidate{{TypeName}}ValueInvalid(t *testing.T) {
+	invalid := []string{
+		"",
+		"   ",
+	}
+	for _, v := range invalid {
+		if err := Validate{{TypeName}}Value(v); !errors.Is(err, Err{{TypeName}}ValueInvalid) {
+			t.Fatalf("Validate{{TypeName}}Value(%q) returned %v", v, err)
+		}
+	}
+}
+
+func TestFormat{{TypeName}}Value(t *testing.T) {
+	got, err := Format{{TypeName}}Value("  example  ")
+	if err != nil {
+		t.Fatalf("Format{{TypeName}}Value returned %v", err)
+	}
+	if got != "example" {
+		t.Fatalf("Format{{TypeName}}Value returned %q", got)
+	}
+
+	if _, err := Format{{TypeName}}Value(""); !errors.Is(err, Err{{TypeName}}ValueInvalid) {
+		t.Fatalf("Format{{TypeName}}Value invalid returned %v", err)
+	}
+}

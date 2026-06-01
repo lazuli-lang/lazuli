@@ -1,0 +1,25 @@
+package {{go_package}}
+
+import (
+	"context"
+	"errors"
+	"testing"
+)
+
+func TestAdapterSatisfiesInterface(t *testing.T) {
+	var _ Interface = (*Adapter)(nil)
+}
+
+func TestAdapterDoReturnsUnimplemented(t *testing.T) {
+	a := newAdapter()
+	if err := a.Do(context.Background()); !errors.Is(err, ErrUnimplemented) {
+		t.Fatalf("Do() returned %v, want ErrUnimplemented", err)
+	}
+}
+
+func TestAdapterUnconfiguredPropagates(t *testing.T) {
+	a := &Adapter{err: ErrUnconfigured}
+	if err := a.Do(context.Background()); !errors.Is(err, ErrUnconfigured) {
+		t.Fatalf("Do() returned %v, want ErrUnconfigured", err)
+	}
+}

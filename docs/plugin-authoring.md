@@ -3,8 +3,55 @@
 How to write a Lazuli `@plugin/<name>` adapter — the canonical repo
 shape, the multi-language reality, and the wire-thin discipline.
 
-**Audience**: anyone scaffolding a new plugin repo (humans or
-agents via `plugin-scaffold` pipeline).
+**Audience**: anyone scaffolding a new plugin repo (humans or agents).
+
+## Quickstart: `lazuli plugin new`
+
+The fastest way to start a plugin is to scaffold one — offline, in the
+`lazuli` binary you already have. This emits a working skeleton (typed
+`manifest.toml` + Go validator/adapter + paired `_test.go` +
+`go.mod`/`README`/`CHANGELOG`/`LICENSE`/`.gitignore` +
+`.github/workflows/go.yml`) that compiles and `go test`s green with **zero
+edits**, and whose `manifest.toml` is valid against the typed manifest
+schema.
+
+```bash
+# Semantic plugin (locale scalar pack — mirrors scalars-br). Default kind.
+lazuli plugin new my-scalars --kind semantic
+
+# Adapter plugin (Go-interface + env contract — mirrors mercadopago).
+lazuli plugin new my-gateway --kind adapter
+
+# Options:
+#   --kind <semantic|adapter>   closed catalog; default `semantic`
+#   --namespace @org/plugin-x   defaults to @lazuli/plugin-<name>
+#   --out <dir>                 defaults to ./<name>
+```
+
+The two kinds map 1:1 to the two reference plugins:
+
+| `--kind` | Mirrors | Emits |
+|---|---|---|
+| `semantic` | `scalars-br` | `[[semantic_types]]` manifest + `<name>.go` (`Validate…`/`Format…` + `Err…` sentinel) + table test |
+| `adapter` | `mercadopago` | `implements`/`[binds]`/`[env]` manifest + `adapter.go` (`var _ Interface = (*Adapter)(nil)` + `init()`) + stub test |
+
+After scaffolding:
+
+- **semantic** — replace the `Validate…`/`Format…` bodies with your real
+  rule, then add more `[[semantic_types]]` entries to `manifest.toml`.
+- **adapter** — replace the placeholder in-file `Interface` with the real
+  `lazuli.dev/runtime/lazuli/<domain>.<Interface>` you implement, uncomment
+  the `lazuli.RegisterAdapter(…)` line in `init()`, and fill the method
+  stubs (currently returning `ErrUnimplemented`). Stay wire-thin.
+
+`capability` and `design` kinds are not yet scaffoldable (deferred). The
+out-of-repo ops pipeline for *official* plugins still exists and can layer
+on top of a scaffolded plugin (CI, signing, catalog publish).
+
+> The sections below are **reference** — what the scaffold emits and why
+> (the canonical repo shape, the multi-language reality, the wire-thin
+> discipline). You no longer need to hand-copy these shapes to start;
+> `lazuli plugin new` stamps them for you.
 
 ## What a plugin is
 
