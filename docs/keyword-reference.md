@@ -189,7 +189,7 @@ _Generated from 686 capability rows across the `lazuli_keywords` registry._
 | `@resume` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Resume reference decorator. | — |
 | `@role` | `entity.name.tag.catalog-atom.lazuli` | `decorator` | `@` | Identity-axis catalog atom (`@role.<name>` → an app-level role from the registry identity catalog). | — |
 | `@scope` | `entity.name.tag.catalog-atom.lazuli` | `decorator` | `@` | Identity-axis catalog atom (`@scope.<name>` → an app-level OAuth/permission scope). | — |
-| `@semantic` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Semantic-scalar decorator (`@semantic.HexColor`). | `MONEY-ARITHMETIC-001`<br>`MONEY-COMPARE-001`<br>`VOCAB-JSON-TYPED-001`<br>`VOCAB-MONEY-MULTI-CURRENCY-001` |
+| `@semantic` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Semantic-scalar decorator (`@semantic.HexColor`). | `MONEY-ARITHMETIC-001`<br>`MONEY-COMPARE-001`<br>`VOCAB-JSON-TYPED-001`<br>`VOCAB-MONEY-MULTI-CURRENCY-001`<br>`VOCAB-MONEY-SHAPE-001` |
 | `@slug` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Slug field decorator. | — |
 | `@tool` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Tool decorator. | — |
 | `@translation` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Translation reference decorator. | — |
@@ -808,14 +808,14 @@ _Generated from 686 capability rows across the `lazuli_keywords` registry._
 | `retain` | `storage.modifier.lazuli` | `modifier` | — | Retention connector. | — |
 | `signed_ttl` | `storage.modifier.lazuli` | `modifier` | — | Signed-URL TTL. | — |
 | `size` | `storage.modifier.lazuli` | `modifier` | — | Size connector. | — |
-| `state` | `storage.modifier.lazuli` | `modifier` | — | Lifecycle state. | — |
+| `state` | `storage.modifier.lazuli` | `modifier` | — | Lifecycle state — a member of the lifecycle's closed, named state set (mark exactly one `initial`, zero+ `terminal`). | — |
 | `states` | `storage.modifier.lazuli` | `modifier` | — | Lifecycle states block. | — |
 | `sync` | `storage.modifier.lazuli` | `modifier` | — | Synchronous mode. | — |
 | `terminal` | `storage.modifier.lazuli` | `modifier` | — | Terminal lifecycle state. | — |
 | `terminal_result_field` | `storage.modifier.lazuli` | `modifier` | — | Terminal result field. | — |
 | `terminal_status_field` | `storage.modifier.lazuli` | `modifier` | — | Terminal status field. | — |
 | `to` | `storage.modifier.lazuli` | `modifier` | — | Target connector. | — |
-| `transition` | `storage.modifier.lazuli` | `modifier` | — | Lifecycle transition. | — |
+| `transition` | `storage.modifier.lazuli` | `modifier` | — | Lifecycle transition — `from`/`to` bind to members of the closed `state` set. | — |
 | `uri_template` | `storage.modifier.lazuli` | `modifier` | — | URI template. | — |
 | `uses` | `storage.modifier.lazuli` | `modifier` | — | Uses connector. | — |
 | `using` | `storage.modifier.lazuli` | `modifier` | — | Using connector. | — |

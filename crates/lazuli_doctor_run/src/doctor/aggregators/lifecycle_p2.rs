@@ -267,3 +267,40 @@ fn invariant_catalog_mismatch_findings(
         })
         .collect()
 }
+
+/// Spec 0017 — dispatch `LIFECYCLE-STATE-SET-UNDECLARED-001`, which fires on a
+/// lifecycle/transition machine that carries transitions but declares no closed
+/// `state` set (the "enum-by-command" shape). Honors the file-level
+/// `# doctor:allow` escape hatch for parity with the rest of the family.
+fn state_set_undeclared_001_findings(
+    feature: &lazuli_ir::Feature,
+    path: &Path,
+    header_line: usize,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    if file_contains_doctor_allow(path, lifecycle::state_set_undeclared_001::Finding::CODE) {
+        return Vec::new();
+    }
+    let severity = doctor_severity_for(
+        lifecycle::state_set_undeclared_001::Finding::CODE,
+        RuleCategory::Lifecycle,
+        security_profile,
+        &empty_overrides(),
+    );
+    lifecycle::state_set_undeclared_001::check(feature, path)
+        .into_iter()
+        .map(|finding| DoctorDiagnostic {
+            message: finding.message(),
+            path: finding.path,
+            line: header_line.max(1),
+            column: 1,
+            severity,
+            code: lifecycle::state_set_undeclared_001::Finding::CODE.to_owned(),
+            category: Some(RuleCategory::Lifecycle),
+            feature_name: Some(feature.name.clone()),
+            construct: None,
+            fix: None,
+            group: None,
+        })
+        .collect()
+}

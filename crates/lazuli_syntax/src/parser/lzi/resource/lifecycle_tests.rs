@@ -266,6 +266,124 @@ feature pleiades
     }
 }
 
+// ── spec 0017: closed `state` set bound to `transition` ──────────────────────
+//
+// The `lifecycle <field>` block's inline `state` list IS the named, closed
+// state set transitions bind to (`Lifecycle.states` + the generated
+// `<Resource><Field>` closed enum). These `state_enum_*` tests pin that
+// contract: the closed set parses, `initial`/`terminal` markers are carried,
+// and the member set is preserved so membership resolution (the generalized
+// `LIFECYCLE-TRANSITION-{FROM,TO}-UNDECLARED` rules) can run against it.
+
+#[test]
+fn state_enum_closed_set_parses_with_markers() {
+    let source = r#"
+feature job_steps
+  domain
+    resource JobStep
+      lifecycle status
+        state pending initial
+        state in_progress
+        state completed terminal
+        transition begin_step
+          from pending
+          to in_progress
+        transition finish_step
+          from in_progress
+          to completed
+"#;
+    let features = parse_feature_skeletons(source).unwrap();
+    let lifecycle = features[0].resources[0]
+        .lifecycle
+        .as_ref()
+        .expect("lifecycle");
+
+    // The closed state set is named (heads the `status` discriminator) and
+    // carries exactly the three declared members.
+    let members: Vec<&str> = lifecycle
+        .states
+        .iter()
+        .map(|state| state.name.as_str())
+        .collect();
+    assert_eq!(members, vec!["pending", "in_progress", "completed"]);
+
+    // Exactly one `initial` and one `terminal` marker on the closed set.
+    let initials = lifecycle
+        .states
+        .iter()
+        .filter(|state| state.kind_keyword.as_deref() == Some("initial"))
+        .count();
+    let terminals = lifecycle
+        .states
+        .iter()
+        .filter(|state| state.kind_keyword.as_deref() == Some("terminal"))
+        .count();
+    assert_eq!(initials, 1, "closed state set must declare exactly one initial");
+    assert_eq!(terminals, 1, "closed state set declares its terminal member");
+
+    // Both transitions bind their `from`/`to` to members of the closed set.
+    for transition in &lifecycle.transitions {
+        assert!(
+            members.contains(&transition.to.as_str()),
+            "transition `{}` targets a non-member `{}`",
+            transition.name,
+            transition.to
+        );
+        for from in &transition.from {
+            assert!(
+                members.contains(&from.as_str()),
+                "transition `{}` sources a non-member `{}`",
+                transition.name,
+                from
+            );
+        }
+    }
+}
+
+#[test]
+fn state_enum_transition_to_non_member_is_detectable() {
+    // The parser preserves the member set + the (possibly dangling) `to`
+    // target so the doctor membership rule can flag a transition that names
+    // a state outside the closed set. Here `archived` is NOT a declared
+    // member, so `to archived` is a resolvable non-membership the closed-set
+    // check (`LIFECYCLE-TRANSITION-TO-UNDECLARED`) fires on.
+    let source = r#"
+feature job_steps
+  domain
+    resource JobStep
+      lifecycle status
+        state pending initial
+        state in_progress
+        state completed terminal
+        transition begin_step
+          from pending
+          to in_progress
+        transition bogus
+          from completed
+          to archived
+"#;
+    let features = parse_feature_skeletons(source).unwrap();
+    let lifecycle = features[0].resources[0]
+        .lifecycle
+        .as_ref()
+        .expect("lifecycle");
+
+    let members: std::collections::HashSet<&str> = lifecycle
+        .states
+        .iter()
+        .map(|state| state.name.as_str())
+        .collect();
+    let bogus = lifecycle
+        .transitions
+        .iter()
+        .find(|transition| transition.name == "bogus")
+        .expect("bogus transition");
+    assert!(
+        !members.contains(bogus.to.as_str()),
+        "`to archived` must resolve as a non-member of the closed state set"
+    );
+}
+
 #[test]
 fn transition_multi_from_parsed() {
     let source = r#"

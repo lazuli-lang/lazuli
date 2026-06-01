@@ -88,8 +88,14 @@ pub(crate) const ROWS: &[CapabilitySpec] = &[
     modifier("derived_from", "Derived-from source."),
     modifier("resolve", "Resolve-via connector."),
     modifier("states", "Lifecycle states block."),
-    modifier("state", "Lifecycle state."),
-    modifier("transition", "Lifecycle transition."),
+    modifier(
+        "state",
+        "Lifecycle state — a member of the lifecycle's closed, named state set (mark exactly one `initial`, zero+ `terminal`).",
+    ),
+    modifier(
+        "transition",
+        "Lifecycle transition — `from`/`to` bind to members of the closed `state` set.",
+    ),
     modifier("lifecycle_routes", "Lifecycle route bindings."),
     modifier("lifecycle_stage", "Lifecycle-stage marker."),
     modifier("when_denied_route", "Route when policy denied."),

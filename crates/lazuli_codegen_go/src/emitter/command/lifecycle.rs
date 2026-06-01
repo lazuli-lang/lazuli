@@ -458,6 +458,47 @@ mod tests {
         assert!(!out.contains(".Apply(ctx,"));
     }
 
+    /// Spec 0017 `state_transition` — the declared closed `state` set lowers
+    /// through the lifecycle codegen exactly once: the per-resource
+    /// `lifecycle.New[<Enum>]` machine var is emitted a single time, binding
+    /// the transition's `from`/`to` to closed-set members. No double-emit of
+    /// the discriminator enum/machine (the traveler-waiver root cause guard).
+    #[test]
+    fn state_transition_closed_set_lowers_once() {
+        let mut feature = base_feature("publication");
+        feature.resources.push(lifecycle_resource(
+            "Publication",
+            "status",
+            "PublicationStatus",
+        ));
+        let mut cmd = base_command("begin_publishing");
+        cmd.kind = CommandKind::Update;
+        cmd.effect = CommandEffect::Updates(UpdateEffect {
+            resource: local_qname("Publication"),
+            assignments: Vec::new(),
+        });
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("must emit");
+        // The closed-set machine is declared exactly once...
+        assert_eq!(
+            out.matches("var publicationLifecycle = lifecycle.New[PublicationStatus](")
+                .count(),
+            1,
+            "declared closed state set must lower to a single lifecycle machine (no double-emit):\n{out}"
+        );
+        assert_eq!(
+            out.matches("lifecycle.New[").count(),
+            1,
+            "exactly one lifecycle machine emitted for one lifecycle resource:\n{out}"
+        );
+        // ...and the transition binds its `to` to a closed-set member variant.
+        assert!(
+            out.contains("To: PublicationStatusPublishing"),
+            "transition `to` must bind to the closed-set member variant:\n{out}"
+        );
+    }
+
     #[test]
     fn multi_lifecycle_resources_emit_per_resource_vars() {
         let mut feature = base_feature("publication");

@@ -8,8 +8,9 @@
 //!
 //! ## Scope
 //!
-//! Fourteen resource-lifecycle structural checks (see
-//! `docs/proposals/lifecycle-vocab.md` §5):
+//! Fifteen resource-lifecycle structural checks (see
+//! `docs/proposals/lifecycle-vocab.md` §5 and
+//! `.specs/changes/0017-state-enum-transition` for the closed-state-set rule):
 //!
 //! - `LIFECYCLE-ENUM-DUPLICATE`
 //! - `LIFECYCLE-FIELD-DOUBLE-DECLARED`
@@ -20,6 +21,7 @@
 //! - `LIFECYCLE-NO-JUMP-NEEDS-LINEAR`
 //! - `LIFECYCLE-POLICY-REQUIRED`
 //! - `LIFECYCLE-STATE-DUPLICATE`
+//! - `LIFECYCLE-STATE-SET-UNDECLARED-001`
 //! - `LIFECYCLE-TERMINAL-HAS-OUTGOING-TRANSITION`
 //! - `LIFECYCLE-TIMESTAMP-TYPE`
 //! - `LIFECYCLE-TRANSITION-FROM-UNDECLARED`

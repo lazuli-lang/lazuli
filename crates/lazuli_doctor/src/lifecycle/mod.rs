@@ -16,6 +16,7 @@ pub mod no_initial_state;
 pub mod no_jump_needs_linear;
 pub mod policy_required;
 pub mod state_duplicate;
+pub mod state_set_undeclared_001;
 pub mod terminal_has_outgoing;
 pub mod timestamp_type;
 pub mod transition_from_undeclared;

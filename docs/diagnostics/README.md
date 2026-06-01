@@ -70,6 +70,7 @@ Source: [`crates/lazuli_doctor/src/lifecycle/`](../../crates/lazuli_doctor/src/l
 | `LIFECYCLE-INVARIANT-PARAM-UNRESOLVED` | error | `lifecycle/invariant_param_unresolved.rs` | `invariant single <state> per <scope_field>` references an unknown state or scope field. |
 | `LIFECYCLE-NO-INITIAL-STATE` | error | `lifecycle/no_initial_state.rs` | Lifecycle declares states but none are marked `initial`. |
 | `LIFECYCLE-STATE-DUPLICATE` | error | `lifecycle/state_duplicate.rs` | Two or more `state` entries with the same name in one lifecycle. |
+| `LIFECYCLE-STATE-SET-UNDECLARED-001` | error | `lifecycle/state_set_undeclared_001.rs` | Lifecycle/transition machine carries transitions but declares no closed `state` set (the "enum-by-command" shape). |
 | `LIFECYCLE-TERMINAL-HAS-OUTGOING-TRANSITION` | error | `lifecycle/terminal_has_outgoing.rs` | `terminal` state used as a transition source. |
 | `LIFECYCLE-TIMESTAMP-TYPE` | error | `lifecycle/timestamp_type.rs` | `transition.timestamps <field>` names an existing field whose type is not `DateTime`. |
 | `LIFECYCLE-TRANSITION-FROM-UNDECLARED` | error | `lifecycle/transition_from_undeclared.rs` | Transition `from` references a state not declared in the lifecycle. |

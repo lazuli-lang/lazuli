@@ -96,6 +96,12 @@ pub(crate) fn diagnostics(
             header_line,
             security_profile,
         ));
+        out.extend(state_set_undeclared_001_findings(
+            &feature,
+            path,
+            header_line,
+            security_profile,
+        ));
     }
     out
 }
