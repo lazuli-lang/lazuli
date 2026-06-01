@@ -30,11 +30,12 @@ use lazuli_analyzer::source_map::SourceMapResolver as _;
 
 use crate::app_manifest;
 use crate::lazurite_manifest;
-use crate::plugin_manifest;
-use crate::plugin_semantic_resolver;
 
 mod collectors;
 mod lzx_bundle;
+mod plugin_resolution;
+
+pub use plugin_resolution::{find_project_root, resolve_module_plugins};
 
 pub(crate) use collectors::{
     collect_lzx_experience_module, collect_package_lzi_files, collect_package_lzx_files,
@@ -49,7 +50,7 @@ use lzx_bundle::attach_lzx_surfaces;
 /// `feature` blocks through the canonical-indent slice (Phase L Tier
 /// 4). Files without typed feature skeletons (e.g. `app.lzi`,
 /// `registry.lzi`) feed `AppManifest` / `AppRegistry`.
-pub(crate) fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> {
+pub fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> {
     let mut module = lazuli_ir::Module {
         workspace: None,
         contracts: Vec::new(),
@@ -169,30 +170,20 @@ pub(crate) fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> 
         attach_lzx_surfaces(input, &mut module);
     }
 
-    // B3 — plugin-contributed `@semantic.<Name>` resolution. Reads the
-    // app's `Lazurite.toml [plugins]`, opens each plugin's
-    // `manifest.toml`, builds the alias map, and rewrites
-    // `TypeRef::UserDefined("@semantic.<Name>")` field references to
-    // `TypeRef::Builtin(BuiltinType::SemanticPluginType { ... })` so
-    // codegen, doctor, and inspect see the typed shape.
-    // Map failures are non-fatal here so a single-file `lazuli check`
-    // (no project root) still works; the doctor surfaces conflicts /
-    // unresolved aliases as `SEMANTIC-PLUGIN-001` against the field
-    // site. See `docs/proposals/semantic-types-plugin-locales.md`.
-    if input.is_dir() {
-        let project_root = project_root_for_input(input);
-        if let Ok(manifest) = lazurite_manifest::load(&project_root)
-            && let Ok(alias_map) =
-                plugin_manifest::build_alias_map(manifest.as_ref(), &project_root)
-        {
-            plugin_semantic_resolver::apply_plugin_semantic_resolution(&mut module, &alias_map);
-        }
-    }
+    // 0019 — the SINGLE plugin-semantic resolution stage. Both loaders
+    // funnel through `resolve_module_plugins`: it walks UP to the
+    // nearest `Lazurite.toml`, builds the alias map, rewrites
+    // `TypeRef::UserDefined("@semantic.<Name>")` references to the typed
+    // `SemanticPluginType`, and — when a `[plugins]` block is declared —
+    // fails LOUD on any residual unresolved alias. The single-file
+    // `lazuli check` path (no project root) stays a silent no-op so the
+    // doctor can anchor `SEMANTIC-PLUGIN-001` at the field site.
+    plugin_resolution::resolve_module_plugins(&mut module, input)?;
 
     Ok(module)
 }
 
-pub(crate) fn build_module_with_source_from_path(
+pub fn build_module_with_source_from_path(
     input: &Path,
 ) -> Result<(
     lazuli_ir::Module,
@@ -324,6 +315,15 @@ pub(crate) fn build_module_with_source_from_path(
     if input.is_dir() {
         attach_lzx_surfaces(input, &mut module);
     }
+
+    // 0019 — same SINGLE resolution stage as `build_module_from_path`.
+    // This is the path `lazuli generate go` uses (`with_source=true`);
+    // before 0019 it lacked the resolver entirely, which is why
+    // hostpoint's plugin `@semantic.Brazilian*` refs reached Go codegen
+    // as `UserDefined` and tripped the closed semantic table. Placed
+    // after feature lowering + `.lzx` attach so resolution sees the
+    // final TypeRef sites (mirrors the other loader's call point).
+    resolve_module_plugins(&mut module, input)?;
 
     Ok((module, source_map, feature_file_ids))
 }

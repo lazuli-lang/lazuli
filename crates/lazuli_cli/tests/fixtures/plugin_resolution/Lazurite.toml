@@ -1,0 +1,13 @@
+[project]
+name = "plugin-resolution-fixture"
+module = "example.test/plugin-resolution"
+schema = 1
+
+[lazurite]
+app_dir = "app"
+
+[lazuli]
+runtime = "0.1.0"
+
+[plugins]
+"@lazuli/plugin-mini" = { path = "plugins/mini" }

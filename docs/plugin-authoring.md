@@ -286,6 +286,60 @@ authors, and consuming apps. Any proposal that requires a different
 boot-time guarantee (e.g., "register-after-DB-ready") needs to amend
 this section first.
 
+## Resolution guarantee (semantic-type plugins)
+
+Codified 2026-06-01 (change 0019). A plugin's `@semantic.<Name>`
+contributions are wired into the compiler's IR by exactly **one
+resolution stage** — `resolve_module_plugins` in
+`crates/lazuli_cli/src/module_loader/plugin_resolution.rs`. Every
+module-load path funnels through it. The historical bug this section
+prevents: the resolver lived inline in only one of two near-duplicate
+loaders, so `lazuli generate go` (the source-map path) silently never
+resolved plugin semantics and a correctly-declared, correctly-built
+plugin surfaced as an opaque downstream codegen error
+(`CODEGEN-GO-SEMANTIC-004: ... outside the closed Go semantic table`).
+
+The guarantee, in three rules:
+
+1. **One pipeline, every load path.** `build_module_from_path` and
+   `build_module_with_source_from_path` both call
+   `resolve_module_plugins(&mut module, input)` just before returning
+   their module. There is no second copy of the resolution logic to
+   drift. A `both_loaders_resolve_plugin_semantics` regression test
+   asserts both loaders, on the same plugin-using input, resolve every
+   `@semantic.*` ref to a typed `SemanticPluginType` (zero residual
+   `UserDefined`). **A third loader, if ever added, MUST call this
+   stage** — it is the single public resolution entry point.
+
+2. **Project root is found by walking UP.** Resolution ascends from the
+   input directory to the nearest `Lazurite.toml`. So
+   `lazuli generate go app` (features under `app/`, manifest at the repo
+   root via `app_dir = "app"`) resolves plugins declared in the
+   repo-root `[plugins]` block — it does not mistake `app/` for the
+   project root and silently no-op on an empty alias map.
+
+3. **Declared-but-unwired = a loud, anchored error at the boundary.**
+   When a non-empty `[plugins]` block is declared, any failure to wire
+   it is a hard error at the resolution boundary, naming the cause and
+   the fix — never a silent no-op that resurfaces 200 lines later as a
+   codegen symptom on a field you didn't write:
+   - manifest read/parse error, namespace mismatch, unsupported carrier
+     (`carrier_type` outside the closed `String` catalog), and
+     alias conflicts propagate from `build_alias_map` loudly (they were
+     previously swallowed by an `if let Ok`);
+   - a referenced `@semantic.<X>` that no declared plugin provides bails
+     with `plugin semantic '@semantic.<X>' is referenced but no declared
+     plugin provides it — declare the contributing plugin in
+     Lazurite.toml [plugins], or check its manifest.toml
+     [[semantic_types]] (declared plugins: <list>)`.
+
+   The single legitimate **silent** case is preserved: single-file
+   `lazuli check <one.lzi>` with no project root above it. There,
+   `find_project_root` returns `None`, the stage is a no-op, and
+   `@semantic.*` stays unresolved for the doctor to anchor
+   `SEMANTIC-PLUGIN-001` at the field site. Apps with zero plugins, or
+   all-resolving plugins, see no new errors.
+
 ## Scaffolding (automated)
 
 The `plugin-scaffold` pipeline in `lazuli-lang/ops/.pipely/pipelines/plugin-scaffold/`

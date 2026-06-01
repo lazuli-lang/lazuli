@@ -58,7 +58,7 @@ pub mod inspect {
 }
 mod lazurite_codegen;
 mod migrate;
-mod module_loader;
+pub mod module_loader;
 mod path_utils;
 mod playwright_fixture;
 mod plugin_catalog;

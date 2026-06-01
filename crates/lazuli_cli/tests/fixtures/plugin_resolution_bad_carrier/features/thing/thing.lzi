@@ -1,0 +1,11 @@
+feature thing
+  domain
+    record ThingOutput
+      message: Text required
+
+  command do_thing
+    input
+      name: Text required
+    returns ThingOutput
+    policy @policy.public
+    handler @fn.do_thing

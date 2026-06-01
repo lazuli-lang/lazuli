@@ -1,0 +1,11 @@
+feature widget
+  domain
+    resource Widget
+      foo: @semantic.Foo required
+
+  command create_widget
+    input
+      foo: @semantic.Foo required
+    returns Widget
+    policy @policy.public
+    handler @fn.create_widget

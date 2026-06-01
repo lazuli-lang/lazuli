@@ -1,0 +1,9 @@
+[plugin]
+name = "badcarrier"
+namespace = "@lazuli/plugin-badcarrier"
+
+[[semantic_types]]
+name = "Bad"
+alias = "@semantic.Bad"
+carrier_type = "Integer"
+validator = "ValidateBad"
