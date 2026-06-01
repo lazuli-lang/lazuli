@@ -181,6 +181,77 @@ fn emits_conditional_unique_as_partial_index() {
 }
 
 #[test]
+fn emits_soft_delete_conditional_unique_as_partial_is_null_index() {
+    // GAP-NEW-002 — `unique <field> when deleted_at == nil` must lower the
+    // nil comparison to `IS NULL` in the partial-index `WHERE`, NOT degrade
+    // to a non-partial index + `-- unsupported` comment. A full unique index
+    // would wrongly block name reuse after a soft-delete; the partial form
+    // only enforces uniqueness over the live (non-deleted) rows.
+    let module = parsed_module(
+        r#"feature catalog
+  domain
+    resource Category
+      name: Text required
+      deleted_at: DateTime
+      unique name when deleted_at == nil
+"#,
+    );
+
+    let files = emit_migrations(&module, "atelier");
+    let sql = files
+        .iter()
+        .find(|file| file.path == "migrations/001_catalog_category.sql")
+        .expect("category migration")
+        .contents
+        .as_str();
+
+    assert!(
+        sql.contains(
+            "CREATE UNIQUE INDEX category_name_uidx ON \"category\" (name) WHERE deleted_at IS NULL;"
+        ),
+        "expected partial unique index with IS NULL predicate:\n{sql}"
+    );
+    // Must NOT degrade to the unsupported-predicate fallback.
+    assert!(
+        !sql.contains("WHERE clause unsupported"),
+        "nil comparison must lower to IS NULL, not degrade:\n{sql}"
+    );
+}
+
+#[test]
+fn emits_conditional_unique_is_not_null_for_nil_inequality() {
+    // GAP-NEW-002 — the inverse: `!= nil` lowers to `IS NOT NULL`.
+    let module = parsed_module(
+        r#"feature catalog
+  domain
+    resource Slot
+      code: Text required
+      assigned_to: ID
+      unique code when assigned_to != nil
+"#,
+    );
+
+    let files = emit_migrations(&module, "atelier");
+    let sql = files
+        .iter()
+        .find(|file| file.path == "migrations/001_catalog_slot.sql")
+        .expect("slot migration")
+        .contents
+        .as_str();
+
+    assert!(
+        sql.contains(
+            "CREATE UNIQUE INDEX slot_code_uidx ON \"slot\" (code) WHERE assigned_to IS NOT NULL;"
+        ),
+        "expected partial unique index with IS NOT NULL predicate:\n{sql}"
+    );
+    assert!(
+        !sql.contains("WHERE clause unsupported"),
+        "nil inequality must lower to IS NOT NULL, not degrade:\n{sql}"
+    );
+}
+
+#[test]
 fn emits_cross_feature_target_as_logical_index_not_hard_fk() {
     // GAP-12 — `target @feature.X.Y` emits a btree index + comment, NOT
     // a hard `FOREIGN KEY` (target table belongs to another migration set).

@@ -144,13 +144,45 @@ pub(super) fn partial_unique_index_sql(
 /// `Unparsed`) return `None` so the caller degrades to a non-partial
 /// index plus a comment. Kept wire-thin: no expression engine, just a
 /// direct projection of the closed catalog.
+///
+/// GAP-NEW-002 — a `nil` operand can't render as a SQL value (`= NULL`
+/// never matches in three-valued logic), so a comparison against `nil`
+/// lowers to the `IS NULL` / `IS NOT NULL` predicate form instead. This
+/// makes soft-delete-aware uniqueness (`unique name when deleted_at ==
+/// nil`) emit a partial `WHERE deleted_at IS NULL` index rather than
+/// degrading to a full unique index that would block name reuse after a
+/// soft-delete.
 fn eval_predicate_sql(pred: &EvalPredicate) -> Option<String> {
     let EvalPredicate::Closed(Predicate::Comparison { left, op, right }) = pred else {
         return None;
     };
+    // `<col> == nil` / `<col> != nil` (or the mirrored `nil == <col>`)
+    // → `<col> IS NULL` / `<col> IS NOT NULL`.
+    if let Some(null_sql) = nil_comparison_sql(left, *op, right) {
+        return Some(null_sql);
+    }
     let lhs = expr_sql(left)?;
     let rhs = expr_sql(right)?;
     Some(format!("{} {} {}", lhs, compare_op_sql(*op), rhs))
+}
+
+/// Lower a comparison whose other operand is `nil` into the SQL `IS NULL`
+/// / `IS NOT NULL` form. Only equality (`==` → `IS NULL`) and inequality
+/// (`!=` → `IS NOT NULL`) are meaningful against null; ordering ops
+/// (`<`, `>=`, ...) against `nil` are not lowerable and return `None`
+/// (caller degrades to a non-partial index). Handles `nil` on either
+/// side so `deleted_at == nil` and `nil == deleted_at` both work.
+fn nil_comparison_sql(left: &Expr, op: CompareOp, right: &Expr) -> Option<String> {
+    let column = match (left, right) {
+        (Expr::Nil, other) | (other, Expr::Nil) => expr_sql(other)?,
+        _ => return None,
+    };
+    let predicate = match op {
+        CompareOp::Eq => "IS NULL",
+        CompareOp::Ne => "IS NOT NULL",
+        _ => return None,
+    };
+    Some(format!("{} {}", column, predicate))
 }
 
 fn compare_op_sql(op: CompareOp) -> &'static str {
