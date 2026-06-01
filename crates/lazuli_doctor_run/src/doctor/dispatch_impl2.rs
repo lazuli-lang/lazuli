@@ -271,28 +271,36 @@ impl DoctorPackage {
         // call site so the existing walker code stays untouched.
         // See `docs/proposals/semantic-types-plugin-locales.md`
         // §New diagnostics.
-        if let Some(manifest) = self.lazurite_manifest.as_ref()
-            && let Ok(alias_map) = lazuli_manifest::plugin_manifest::build_alias_map(
-                Some(manifest),
-                &self.project_root,
-            )
-                && !alias_map.is_empty() {
-                    diagnostics.retain(|d| {
-                        if d.code != "semantic_type_unknown" {
-                            return true;
-                        }
-                        // Match the alias name out of the diagnostic
-                        // message (`unknown @semantic type "@semantic.X"; ...`).
-                        // The message format is fixed; if it changes,
-                        // this filter has a single update site.
-                        let alias = d
-                            .message
-                            .split_once('"')
-                            .and_then(|(_, rest)| rest.split_once('"').map(|(a, _)| a))
-                            .unwrap_or("");
-                        !alias_map.contains_key(alias)
-                    });
+        //
+        // 0020 — the alias map is now resolved through the AUTHORITATIVE
+        // upward-walked root (`authoritative_alias_map`), the SAME inputs
+        // codegen + the SEMANTIC-PLUGIN-001 check use. Running `lazuli
+        // doctor app` from a features subdir, the plugin-provided BR
+        // scalars (`@semantic.Brazilian*`, declared in the repo-root
+        // manifest) now resolve and are correctly suppressed — instead of
+        // false-flagging `semantic_type_unknown` because the pass-through
+        // `self.project_root` (= `app/`) carried no manifest. This keeps
+        // doctor in agreement with generate on EVERY surface, not just
+        // SEMANTIC-PLUGIN-001.
+        if let Ok(alias_map) = aggregators::lazurite_manifest::authoritative_alias_map(self)
+            && !alias_map.is_empty()
+        {
+            diagnostics.retain(|d| {
+                if d.code != "semantic_type_unknown" {
+                    return true;
                 }
+                // Match the alias name out of the diagnostic
+                // message (`unknown @semantic type "@semantic.X"; ...`).
+                // The message format is fixed; if it changes,
+                // this filter has a single update site.
+                let alias = d
+                    .message
+                    .split_once('"')
+                    .and_then(|(_, rest)| rest.split_once('"').map(|(a, _)| a))
+                    .unwrap_or("");
+                !alias_map.contains_key(alias)
+            });
+        }
 
     }
 }

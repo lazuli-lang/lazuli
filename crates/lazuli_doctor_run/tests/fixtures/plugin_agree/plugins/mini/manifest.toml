@@ -1,0 +1,13 @@
+[plugin]
+name = "mini"
+namespace = "@lazuli/plugin-mini"
+go_module = "example.test/plugin/mini"
+ts_package = "@lazuli/plugin-mini"
+description = "Minimal fixture plugin declaring one semantic scalar."
+
+[[semantic_types]]
+name = "Foo"
+alias = "@semantic.Foo"
+carrier_type = "String"
+validator = "ValidateFoo"
+error_code = "foo_invalid"

@@ -340,6 +340,58 @@ The guarantee, in three rules:
    `SEMANTIC-PLUGIN-001` at the field site. Apps with zero plugins, or
    all-resolving plugins, see no new errors.
 
+## Doctor and codegen agree
+
+Codified 2026-06-01 (change 0020). **If `lazuli doctor` is green on your
+plugin's semantic types, `lazuli generate go` resolves those same types.**
+Passing doctor is a true precondition for generate — you will never fix
+every doctor finding and then hit a `generate`-time
+`CODEGEN-GO-SEMANTIC-004` for a `@semantic.<X>` doctor said was fine.
+
+The historical bug this prevents: doctor built its OWN plugin alias map.
+It called the same `build_alias_map` as codegen, but fed it a **different
+project root**. Run from a features subdir (`lazuli doctor app`, manifest
+one level up via `app_dir = "app"`), doctor's pass-through root pointed at
+`app/`, found no `Lazurite.toml` there, and either went silent on plugins
+or false-flagged them — while `lazuli generate go app` walked UP, found
+the repo-root manifest, and resolved. The two surfaces could resolve the
+same project differently: **doctor-green ≠ codegen-green.**
+
+The fix is structural — there is now **one resolver root, shared**:
+
+1. **One upward project-root walk, re-homed.** `find_project_root` (the
+   ascend-to-nearest-`Lazurite.toml` walk) lives in `lazuli_manifest`
+   (`lazuli_manifest::lazurite_manifest::find_project_root`), the crate
+   both the CLI codegen path and the doctor engine depend on. 0019's
+   `lazuli_cli` `find_project_root` is a re-export of it. Doctor's
+   plugin-semantic checks call the **identical** function. One walk, two
+   surfaces — they cannot drift on the root.
+
+2. **One alias map, same inputs.** Doctor resolves through
+   `authoritative_alias_map` (in
+   `crates/lazuli_doctor_run/src/doctor/aggregators/lazurite_manifest/plugin_resolution_view.rs`):
+   it walks UP to the manifest root, loads the manifest from **that**
+   root, and calls the SAME `build_alias_map(manifest, &root)` codegen
+   feeds. Same function + same root + same manifest ⇒ byte-identical map.
+   Both the `SEMANTIC-PLUGIN-001` check and the legacy
+   `semantic_type_unknown` suppression consume this one map, so a
+   plugin-provided alias (e.g. `@semantic.BrazilianCEP`) is resolved on
+   **every** doctor surface, not just one.
+
+3. **The doctor finding mirrors the generate bail.**
+   `SEMANTIC-PLUGIN-001` now fires exactly when the same `@semantic.<X>`
+   would leave a residual on the generate path — `[plugins]` present and
+   no resolving alias on the authoritative root. So doctor flags an
+   unresolved alias at the cheapest gate (the field site), and resolves
+   one generate would resolve.
+
+A `plugin_semantic_doctor_and_generate_agree` drift-guard test asserts the
+invariant mechanically: on the same plugin-using fixture run from the same
+subdir, the doctor's unresolved-`@semantic.*` set **equals** the generate
+path's residual set. They are green together or flag the identical alias —
+never one without the other. Any future plugin kind (adapter, capability)
+inherits this guarantee by resolving through the same shared walk.
+
 ## Manifest is typed per kind
 
 Codified 2026-06-01 (change 0021). A plugin's `manifest.toml` is the

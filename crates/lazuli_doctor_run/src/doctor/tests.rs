@@ -29,6 +29,10 @@ mod tests {
         include!("tests/manifest_plugin.rs");
     }
 
+    mod plugin_semantic_agreement {
+        include!("tests/plugin_semantic_agreement.rs");
+    }
+
     mod surface_command {
         include!("tests/surface_command.rs");
     }

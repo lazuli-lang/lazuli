@@ -21,6 +21,7 @@ use std::collections::BTreeSet;
 
 use lazuli_manifest::lazurite_manifest::Manifest;
 
+use super::plugin_resolution_view::authoritative_alias_map;
 use crate::doctor::parsers::is_lzi_path;
 use crate::doctor::{
     DoctorDiagnostic, DoctorPackage, DoctorSeverity, collect_at_references_in_source,
@@ -36,13 +37,12 @@ use crate::doctor::{
 /// Source-of-truth: `docs/proposals/ir-semantic-auto-validate-2026-05-22.md`
 /// (W2 §"Doctor B4").
 pub(super) fn check_semantic_plugin_no_validator(
-    manifest: &lazuli_manifest::lazurite_manifest::Manifest,
+    _manifest: &lazuli_manifest::lazurite_manifest::Manifest,
     package: &DoctorPackage,
 ) -> Vec<DoctorDiagnostic> {
-    let alias_map = match lazuli_manifest::plugin_manifest::build_alias_map(
-        Some(manifest),
-        &package.project_root,
-    ) {
+    // 0020 — resolve through the AUTHORITATIVE alias map (upward-walked
+    // root, same inputs codegen uses), not `package.project_root`.
+    let alias_map = match authoritative_alias_map(package) {
         Ok(map) => map,
         Err(_) => return Vec::new(), // SEMANTIC-PLUGIN-001 already covers this
     };
@@ -98,20 +98,22 @@ pub(super) fn check_semantic_plugin_no_validator(
 /// The shared error code is intentional — every failure has the same
 /// resolution path (declare the right plugin, fix the manifest).
 pub(super) fn check_semantic_plugin_unresolved(
-    manifest: &lazuli_manifest::lazurite_manifest::Manifest,
+    _manifest: &lazuli_manifest::lazurite_manifest::Manifest,
     package: &DoctorPackage,
 ) -> Vec<DoctorDiagnostic> {
-    // Build the alias map. Map-construction errors (conflict, mismatch,
-    // unsupported carrier) surface as SEMANTIC-PLUGIN-001 anchored at
-    // the project root because they're project-wide.
-    let alias_map = match lazuli_manifest::plugin_manifest::build_alias_map(
-        Some(manifest),
-        &package.project_root,
-    ) {
+    // 0020 — Build the alias map from the AUTHORITATIVE upward-walked
+    // root (the same `find_project_root` + `build_alias_map` codegen
+    // feeds), so `@semantic.<X>` fires SEMANTIC-PLUGIN-001 iff it would
+    // leave a residual `UserDefined("@semantic.*")` on the generate
+    // path. Map-construction errors (conflict, mismatch, unsupported
+    // carrier) surface as SEMANTIC-PLUGIN-001 anchored at the project
+    // root because they're project-wide.
+    let alias_map = match authoritative_alias_map(package) {
         Ok(map) => map,
         Err(err) => {
             return vec![DoctorDiagnostic {
-                path: package.project_root.join("Lazurite.toml"),
+                path: super::plugin_resolution_view::authoritative_project_root(package)
+                    .join("Lazurite.toml"),
                 line: 1,
                 column: 1,
                 severity: DoctorSeverity::Error,
@@ -239,9 +241,10 @@ pub(super) fn check_plugin_unused(
     // used `@semantic.BrazilianCEP`, `@semantic.Money`, etc — the
     // plugin alias_map is the canonical source of truth for which
     // plugin provides which semantic alias.
-    if let Ok(alias_map) =
-        lazuli_manifest::plugin_manifest::build_alias_map(Some(manifest), &package.project_root)
-    {
+    // 0020 — usage detection resolves through the AUTHORITATIVE alias
+    // map so a `@semantic.<X>` from a features subdir still marks its
+    // providing plugin as used (matching codegen's resolution).
+    if let Ok(alias_map) = authoritative_alias_map(package) {
         for file in &package.files {
             if !is_lzi_path(&file.path) {
                 continue;

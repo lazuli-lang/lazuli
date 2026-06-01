@@ -28,7 +28,7 @@
 //! unresolved for the doctor's `SEMANTIC-PLUGIN-001` field anchor.
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use lazuli_ir::{CommandInput, Module, TypeRef};
@@ -117,28 +117,14 @@ declare the contributing plugin in Lazurite.toml [plugins], or check its manifes
 /// `lazuli generate go app` (features under `app/`, manifest at repo
 /// root) finds the repo-root manifest. Bounded — terminates at the
 /// filesystem root, never loops.
-pub fn find_project_root(input: &Path) -> Option<PathBuf> {
-    let start: PathBuf = if input.is_dir() {
-        input.to_path_buf()
-    } else {
-        input
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| PathBuf::from("."))
-    };
-
-    let mut dir: &Path = &start;
-    loop {
-        if dir.join("Lazurite.toml").is_file() || dir.join("lazurite.toml").is_file() {
-            return Some(dir.to_path_buf());
-        }
-        match dir.parent() {
-            Some(parent) if parent != dir => dir = parent,
-            _ => return None,
-        }
-    }
-}
+///
+/// 0020 re-homed the walk into `lazuli_manifest::lazurite_manifest` so
+/// the doctor (which depends on `lazuli_manifest` but NOT `lazuli_cli`)
+/// can call the IDENTICAL function — doctor and codegen now resolve the
+/// project root through ONE walk and can never drift. This is a thin
+/// re-export; codegen behavior is byte-identical to the inline 0019
+/// version.
+pub use crate::lazurite_manifest::find_project_root;
 
 /// Residual scan: collect every distinct `@semantic.*` alias still
 /// carried as `TypeRef::UserDefined` after resolution. Mirrors the

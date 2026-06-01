@@ -56,6 +56,52 @@ pub const MANIFEST_FILENAME: &str = "Lazurite.toml";
 /// reads it transparently; future `lazuli upgrade` step will rename.
 pub const LEGACY_MANIFEST_FILENAME: &str = "lazurite.toml";
 
+/// Walk UP from `input` to the nearest directory containing a
+/// `Lazurite.toml` (or the legacy lowercase `lazurite.toml`). Returns
+/// the first such directory, or `None` at the filesystem root.
+///
+/// This is THE single project-root rule shared by codegen and doctor:
+/// `lazuli generate go app` (features under `app/`, manifest at the
+/// repo root) and `lazuli doctor app` both find the repo-root manifest
+/// because both walk up through this function. 0019's
+/// `lazuli_cli::module_loader::find_project_root` re-exports this; the
+/// doctor's `plugin_resolution_view` calls it too. Keeping ONE walk is
+/// what guarantees doctor-green ⇒ codegen-green (spec 0020).
+///
+/// Bounded — terminates at the filesystem root, never loops. When
+/// `input` is a file, the walk starts at its parent directory.
+///
+/// ## Examples
+///
+/// ```ignore
+/// use std::path::Path;
+/// use lazuli_manifest::lazurite_manifest::find_project_root;
+///
+/// // let root = find_project_root(Path::new("app/features/x.lzi"));
+/// ```
+pub fn find_project_root(input: &Path) -> Option<std::path::PathBuf> {
+    let start: std::path::PathBuf = if input.is_dir() {
+        input.to_path_buf()
+    } else {
+        input
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+    };
+
+    let mut dir: &Path = &start;
+    loop {
+        if dir.join(MANIFEST_FILENAME).is_file() || dir.join(LEGACY_MANIFEST_FILENAME).is_file() {
+            return Some(dir.to_path_buf());
+        }
+        match dir.parent() {
+            Some(parent) if parent != dir => dir = parent,
+            _ => return None,
+        }
+    }
+}
+
 /// Read `Lazurite.toml` (or the legacy lowercase `lazurite.toml`)
 /// from `project_root`. Returns `Ok(None)` when no manifest exists —
 /// pilots without a manifest run with default-shaped behaviour.
