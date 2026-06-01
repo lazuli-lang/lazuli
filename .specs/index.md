@@ -59,3 +59,33 @@ Evidence base: pilot audit 2026-05-31 (hostpoint + pauta-web).
 
 ## Archived
 _(none yet — branch not merged to origin)_
+
+---
+
+## Plugin Platform (specs 0019-0023) — added 2026-06-01
+
+A second spec stack on the same `.specs/` system. Root cause: the PT-BR scalar failure (hostpoint can't `go build`: `@semantic.BrazilianPhone outside the closed Go semantic table`) is ONE symptom of 5 architectural plugin seams (survey in memory `project_plugin_platform_2026-06-01`). Goal: an elegant Plugin API+SDK that fixes the root for ALL plugin kinds. Same DoD gate (FULL `cargo test --workspace` + pilot build + teach + enforce).
+
+| id | spec | seam | track | parallel | depends_on |
+|----|------|------|-------|----------|------------|
+| 0019 | plugin-resolution-unify (single resolver pipeline + loud failures + upward root) | 1+3 | ship | ✅ | — |
+| 0020 | plugin-authoritative-resolver (doctor shares codegen's resolver/root) | 4 | prove/ship | ❌ shares stage | 0019 |
+| 0021 | plugin-typed-manifest (kind discriminant + adapter [env]/[binds]/implements schema) | 2 | evolve/ship | ✅ | 0019 |
+| 0022 | plugin-verify-contract (`lazuli plugin verify` + `PLUGIN-CONTRACT-001` adapter check) | 4+2 | prove/ship | ❌ | 0020, 0021 |
+| 0023 | plugin-scaffolder (`lazuli plugin new <name> --kind`) | 5 | ship/tell | ✅ | 0021 |
+
+**0019 is the foundation** — smallest, highest-value, unblocks hostpoint `go build`, kills the silent-failure class. Ships first.
+
+### Dependency graph
+```
+0019 ─┬─ 0020 ─┐
+      ├─ 0021 ─┼─ 0022
+      │        └─ 0023
+```
+**Dispatch order:** 0019 first (serial, it's the seam everyone shares). Then 0021 (parallel-safe, pure schema) alongside 0020 (shares the resolution stage with 0019 → serial after it). Then 0022 (needs both 0020+0021) and 0023 (needs 0021) — 0023 parallel-safe.
+
+### Cross-spec findings baked in (from the survey + spec authors)
+- Doctor ALREADY calls the same `build_alias_map` as codegen — the real divergence is the project-ROOT (`doctor_project_root` doesn't walk up). So 0020 re-homes `find_project_root` into `lazuli_manifest` (doctor can't dep on `lazuli_cli`).
+- All 24 `c:\Users\lucas\dev\lazuli-plugin-*` EXCEPT scalars-br are ADAPTERS (the big unmodeled category). 0021 models adapter fully, stubs capability/design (Pareto). `kind` is INFERRED for back-compat (no existing manifest declares it).
+- Static verification limit (honest): Rust verifies the declared contract + wiring graph; the Go `var _ Interface = (*Adapter)(nil)` assertion under `go build` is the method-set complement.
+- The CLI `Commands` enum is FLAT today; 0023 adds the first nested subcommand (`lazuli plugin new|verify`); 0022+0023 coordinate the `PluginCommand` enum (first-to-land defines it).
