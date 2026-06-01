@@ -298,6 +298,12 @@ fn emit_command_handler_wrapper(
     // combinability".
     let (behind_gates, quota_gates) = partition_gates(gates);
     emit_command_gate_prelude(p, output_type, &behind_gates, &quota_gates);
+    // Spec 0014 — referential-guard prelude. For a `deletes <R>` command,
+    // every `restrict on_delete` clause on R lowers to a `guard<R><Rel>Refs`
+    // probe (emitted in `guards.gen.go`, same package). We invoke each one
+    // here — the same precondition stage validators + gates run — so a live
+    // reference rejects the delete BEFORE `.Handle` opens its mutation tx.
+    emit_referential_guard_prelude(p, feature, command, output_type);
     if quota_gates.is_empty() {
         p.line(&format!("return {var_name}.Handle(ctx, input)"));
     } else {
@@ -320,6 +326,90 @@ fn emit_command_handler_wrapper(
     }
     p.dedent();
     p.line("}");
+}
+
+/// Spec 0014 — emit the referential-guard prelude for one command. A no-op
+/// unless the command DELETES a resource R that declares at least one
+/// `restrict on_delete` clause AND the row is addressed by a single scalar
+/// WHERE-key (its id) we can pass to the guard.
+///
+/// "Deletes" covers BOTH shapes a Lazuli delete takes:
+///   - a hard `deletes <R>` effect (`CommandEffect::Deletes`), and
+///   - a SOFT delete: an `updates <R>` effect whose assignments set
+///     `deleted_at` (the canonical `soft_delete by` shape every pilot uses —
+///     e.g. pauta's `delete_department` is `updates Department … deleted_at =
+///     ctx.now`). Restricting to hard deletes alone would leave the primitive
+///     dead on exactly the resources it was built to protect.
+///
+/// For each guard on R we emit, BEFORE the handler dispatch:
+/// ```go
+/// if err := guard<R><Rel>Refs(ctx, lazuli.DB(), lazuli.TenantOrgID(ctx), input.<Id>); err != nil {
+///     return <zero>, err
+/// }
+/// ```
+/// `lazuli.DB()` is the `*pgxpool.Pool` (satisfies `lazuli.DBTX`);
+/// `lazuli.TenantOrgID(ctx)` is the nil-safe tenant org id (only consulted by
+/// the query when the relation is tenant-scoped); `input.<Id>` is the deleted
+/// row's id (the same field the effect binds its WHERE to). The guard fn lives
+/// in this same feature package, so no import is needed.
+fn emit_referential_guard_prelude(
+    p: &mut GoPrinter,
+    feature: &Feature,
+    command: &Command,
+    output_type: &str,
+) {
+    // Resolve the resource this command deletes, hard or soft. `None` for any
+    // other effect (creates / non-soft updates / returns / reorder) → no-op.
+    let deleted_resource = match &command.effect {
+        CommandEffect::Deletes(d) => Some(d.resource.name.as_str()),
+        // Soft delete: an `updates` that writes `deleted_at`. The assignment
+        // field name is the column verbatim (`deleted_at`), set by the
+        // analyzer's soft-delete synth or authored directly.
+        CommandEffect::Updates(u)
+            if u.assignments.iter().any(|a| a.field == "deleted_at") =>
+        {
+            Some(u.resource.name.as_str())
+        }
+        _ => None,
+    };
+    let Some(resource_name) = deleted_resource else {
+        return;
+    };
+    // Find the resource being deleted; its `restrict_on_delete` clauses are
+    // the guards to invoke. Resource refs are same-feature by language rule.
+    let Some(resource) = feature.resources.iter().find(|r| r.name == resource_name) else {
+        return;
+    };
+    if resource.restrict_on_delete.is_empty() {
+        return;
+    }
+    // The guard needs the deleted row's id. We reuse the same WHERE-key
+    // resolution the `Deletes` effect uses: a single scalar key (route id /
+    // single-slot input / the legacy `id`/`ID` fallback) gives us the Go
+    // input field to read. Composite-key / bulk deletes (multi-key or
+    // scope-only) don't expose a single row id here, so we skip wiring
+    // rather than emit a call that wouldn't compile.
+    let where_keys = resolve_where_keys(command);
+    if where_keys.len() != 1 {
+        return;
+    }
+    let id_field = &where_keys[0].input_field;
+    let zero = zero_value_for_go_type(output_type);
+    for guard in &resource.restrict_on_delete {
+        let fn_name =
+            crate::emitter::referential_guard::guard_fn_name(&resource.name, &guard.relation);
+        p.line(&format!(
+            "// referential guard: restrict on_delete references {} via {}",
+            guard.relation, guard.fk
+        ));
+        p.line(&format!(
+            "if err := {fn_name}(ctx, lazuli.DB(), lazuli.TenantOrgID(ctx), input.{id_field}); err != nil {{"
+        ));
+        p.indent();
+        p.line(&format!("return {zero}, err"));
+        p.dedent();
+        p.line("}");
+    }
 }
 
 /// PG.C.1 — split the authored gate list into the two evaluation

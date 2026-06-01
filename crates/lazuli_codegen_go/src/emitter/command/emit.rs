@@ -43,7 +43,7 @@ use super::naming::{
     effect_resource_pascal, effect_resource_var, zero_value_for_go_type,
 };
 use super::policy::format_policy_with_expr;
-use super::scope::{owner_scope_binding, resolve_scope_bindings};
+use super::scope::{owner_scope_binding, resolve_scope_bindings, resolve_where_keys};
 use super::semantic::emit_semantic_validate_prelude;
 use super::tier4::{
     build_outbox_index, emit_emits, emit_invalidates, emit_tier4_fields, format_approval,

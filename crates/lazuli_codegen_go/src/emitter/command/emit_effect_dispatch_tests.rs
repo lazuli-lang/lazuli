@@ -247,3 +247,189 @@ fn deletes_emits_deletes_effect_with_id_binding() {
     assert!(out.contains("Effect: lazuli.Deletes(&customerResource, lazuli.Bindings{"));
     assert!(out.contains("\"id\": lazuli.FromInput(\"ID\"),"));
 }
+
+#[test]
+fn deletes_command_invokes_referential_guard_before_handle() {
+    // Spec 0014 BUG-2 regression — the SINGLE most important assertion this
+    // primitive was missing: a `deletes <R>` command on a resource carrying a
+    // `restrict on_delete` clause MUST invoke the emitted `guard<R><Rel>Refs`
+    // probe BEFORE dispatching to `.Handle` (which opens the delete tx). The
+    // guard FILE emitting in isolation was never enough — the delete handler
+    // never called it, so the clause provided zero protection.
+    let mut feature = base_feature("catalog");
+
+    // Resource being protected: `Category`, with a guard against a live
+    // `customer` referencing it via `category_id` (tenant-scoped + soft-delete
+    // derived flags set so the probe is the canonical pauta shape).
+    let mut category = super::test_support::simple_resource("Category");
+    category.restrict_on_delete = vec![lazuli_ir::RestrictOnDelete {
+        relation: "customer".to_owned(),
+        fk: "category_id".to_owned(),
+        extra_where: None,
+        tenant_scoped: true,
+        soft_delete: true,
+        error_code: None,
+    }];
+    feature.resources.push(category);
+
+    // The delete command, addressed by `route id: ID`.
+    let mut cmd = base_command("delete_category");
+    cmd.kind = CommandKind::Delete;
+    cmd.route = vec![RouteSlot {
+        name: "id".to_owned(),
+        type_ref: TypeRef::Builtin(BuiltinType::Id),
+        from: None,
+        kind: lazuli_ir::RouteSlotKind::Plain,
+    }];
+    cmd.input = CommandInput::Empty;
+    cmd.effect = CommandEffect::Deletes(DeleteEffect {
+        resource: local_qname("Category"),
+    });
+    feature.commands.push(cmd);
+
+    let out = emit(&feature).expect("must emit");
+
+    // BUG-2 — the guard call MUST be wired into the handler, passing the live
+    // pool (`lazuli.DB()` → satisfies `lazuli.DBTX`), the nil-safe tenant org
+    // id, and the deleted row's id field (`input.ID`, since `pascal_case("id")`
+    // hits the acronym path).
+    assert!(
+        out.contains(
+            "if err := guardCategoryCustomerRefs(ctx, lazuli.DB(), lazuli.TenantOrgID(ctx), input.ID); err != nil {"
+        ),
+        "delete command must invoke the referential guard before .Handle:\n{out}"
+    );
+
+    // Ordering invariant — the guard call MUST precede the `.Handle` dispatch,
+    // otherwise the row is already gone (or the tx already open) by the time
+    // we probe.
+    let guard_pos = out
+        .find("guardCategoryCustomerRefs(")
+        .expect("guard call must be emitted");
+    let handle_pos = out
+        .find(".Handle(ctx, input)")
+        .expect("handler dispatch must be emitted");
+    assert!(
+        guard_pos < handle_pos,
+        "guard probe must run BEFORE the handler dispatch:\n{out}"
+    );
+}
+
+#[test]
+fn soft_delete_updates_command_invokes_referential_guard() {
+    // The canonical pauta shape — `delete_department` is `updates Department …
+    // deleted_at = ctx.now` (a SOFT delete via `updates`, NOT `deletes`). The
+    // guard MUST still fire: an `updates` that writes `deleted_at` is a delete
+    // for referential-integrity purposes. This is the exact case the primitive
+    // was built to protect (it replaces the hand-written
+    // `@validator.guard_no_active_teams`).
+    let mut feature = base_feature("agency");
+    let mut department = super::test_support::simple_resource("Department");
+    department.restrict_on_delete = vec![lazuli_ir::RestrictOnDelete {
+        relation: "team".to_owned(),
+        fk: "department_id".to_owned(),
+        extra_where: None,
+        tenant_scoped: true,
+        soft_delete: true,
+        error_code: None,
+    }];
+    feature.resources.push(department);
+
+    let mut cmd = base_command("delete_department");
+    cmd.kind = CommandKind::Update; // soft delete lowers to Update kind
+    cmd.route = vec![RouteSlot {
+        name: "id".to_owned(),
+        type_ref: TypeRef::Builtin(BuiltinType::Id),
+        from: None,
+        kind: lazuli_ir::RouteSlotKind::Plain,
+    }];
+    cmd.input = CommandInput::Empty;
+    cmd.effect = CommandEffect::Updates(UpdateEffect {
+        resource: local_qname("Department"),
+        assignments: vec![Assignment {
+            field: "deleted_at".to_owned(),
+            value: Expr::Path(Path::from_segments(["ctx", "now"])),
+        }],
+    });
+    feature.commands.push(cmd);
+
+    let out = emit(&feature).expect("must emit");
+    assert!(
+        out.contains(
+            "if err := guardDepartmentTeamRefs(ctx, lazuli.DB(), lazuli.TenantOrgID(ctx), input.ID); err != nil {"
+        ),
+        "soft-delete (updates + deleted_at) command must invoke the referential guard:\n{out}"
+    );
+}
+
+#[test]
+fn plain_update_without_deleted_at_emits_no_guard_call() {
+    // A NON-soft-delete `updates` (no `deleted_at` assignment) must NOT carry a
+    // guard call — only deletes (hard or soft) trip the precondition.
+    let mut feature = base_feature("agency");
+    let mut department = super::test_support::simple_resource("Department");
+    department.restrict_on_delete = vec![lazuli_ir::RestrictOnDelete {
+        relation: "team".to_owned(),
+        fk: "department_id".to_owned(),
+        extra_where: None,
+        tenant_scoped: true,
+        soft_delete: true,
+        error_code: None,
+    }];
+    feature.resources.push(department);
+
+    let mut cmd = base_command("rename_department");
+    cmd.kind = CommandKind::Update;
+    cmd.route = vec![RouteSlot {
+        name: "id".to_owned(),
+        type_ref: TypeRef::Builtin(BuiltinType::Id),
+        from: None,
+        kind: lazuli_ir::RouteSlotKind::Plain,
+    }];
+    cmd.input = CommandInput::Typed(vec![typed_slot("name", BuiltinType::Text, true)]);
+    cmd.effect = CommandEffect::Updates(UpdateEffect {
+        resource: local_qname("Department"),
+        assignments: vec![Assignment {
+            field: "name".to_owned(),
+            value: Expr::Path(Path::from_segments(["input", "name"])),
+        }],
+    });
+    feature.commands.push(cmd);
+
+    let out = emit(&feature).expect("must emit");
+    assert!(
+        !out.contains("guardDepartmentTeamRefs("),
+        "a plain (non-soft-delete) update must not invoke a referential guard:\n{out}"
+    );
+}
+
+#[test]
+fn non_delete_command_emits_no_referential_guard_call() {
+    // A `creates` command on a resource that ALSO declares a restrict clause
+    // must NOT carry a guard call — the guard is a delete-only precondition.
+    let mut feature = base_feature("catalog");
+    let mut category = super::test_support::simple_resource("Category");
+    category.restrict_on_delete = vec![lazuli_ir::RestrictOnDelete {
+        relation: "customer".to_owned(),
+        fk: "category_id".to_owned(),
+        extra_where: None,
+        tenant_scoped: true,
+        soft_delete: true,
+        error_code: None,
+    }];
+    feature.resources.push(category);
+
+    let mut cmd = base_command("create_category");
+    cmd.effect = CommandEffect::Creates(CreateEffect {
+        resource: local_qname("Category"),
+        from_input: false,
+        assignments: Vec::new(),
+    });
+    feature.commands.push(cmd);
+
+    let out = emit(&feature).expect("must emit");
+    assert!(
+        !out.contains("guardCategoryCustomerRefs("),
+        "a creates command must not invoke a referential guard:\n{out}"
+    );
+}

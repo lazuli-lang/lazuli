@@ -58,6 +58,19 @@ func WithDefaultTenant(fn DefaultTenantResolverFn) {
 	defaultTenantResolver = fn
 }
 
+// TenantOrgID returns the active tenant's OrgID, or the zero ID when the
+// context carries no tenant (e.g. `scope global` operations or an unresolved
+// anonymous request). Generated referential-guard call sites (Spec 0014) read
+// the tenant id through this nil-safe accessor so the emitted delete-command
+// wiring never panics on a nil `ctx.Tenant`; the guard's `EXISTS` simply
+// matches against org 0, which no live row carries.
+func TenantOrgID(ctx *Ctx) ID {
+	if ctx == nil || ctx.Tenant == nil {
+		return 0
+	}
+	return ctx.Tenant.OrgID
+}
+
 // resolveDefaultTenant runs the registered resolver, if any. Used by
 // the runtime command pipeline before applying a `creates` effect on
 // a tenancy-org resource when ctx.Tenant is nil. Returns (nil, nil)

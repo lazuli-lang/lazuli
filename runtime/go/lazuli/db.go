@@ -10,6 +10,18 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// DBTX is the minimal query surface a referential guard (Spec 0014,
+// `<feature>/guards.gen.go`) needs to run its pre-delete `EXISTS` probe.
+// Both `*pgxpool.Pool` (the value `DB()` returns) and `pgx.Tx` satisfy it,
+// so a guard can run against the process pool (the generated delete-command
+// wiring's choice) or be threaded a transaction later without a signature
+// change. The single method mirrors pgx's real `QueryRow` shape exactly —
+// `(ctx, sql, args...) pgx.Row` — so the emitted guard body's
+// `db.QueryRow(ctx, q, ...).Scan(&inUse)` compiles against the live handle.
+type DBTX interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 // dbPool is the process-global Postgres pool. The runtime initialises it via
 // `Boot(...)` at startup; commands and queries pull connections from here.
 var dbPool *pgxpool.Pool

@@ -78,8 +78,13 @@ fn emit_one_guard(p: &mut GoPrinter, protected: &str, guard: &RestrictOnDelete) 
         "// rejects deletion of {protected} while a live {relation} references it.",
         relation = guard.relation
     ));
+    // `db lazuli.DBTX` — the minimal `QueryRow(ctx, sql, args...) pgx.Row`
+    // interface defined in the runtime; `*pgxpool.Pool` (what `lazuli.DB()`
+    // returns, the delete-command wiring's handle) satisfies it. `tenantID`
+    // / `id` are `any` so the int64 `ctx.Tenant.OrgID` + `input.<Id>` the
+    // call site holds pass straight through pgx's arg binding.
     p.line(&format!(
-        "func {fn_name}(ctx context.Context, db lazuli.DBTX, tenantID, id string) error {{"
+        "func {fn_name}(ctx context.Context, db lazuli.DBTX, tenantID, id any) error {{"
     ));
     p.indent();
     // The query is a raw Go string literal; emit it with backtick quoting so
@@ -109,7 +114,7 @@ fn emit_one_guard(p: &mut GoPrinter, protected: &str, guard: &RestrictOnDelete) 
         "q, id"
     };
     p.line(&format!(
-        "if err := db.QueryRowContext(ctx, {args}).Scan(&inUse); err != nil {{"
+        "if err := db.QueryRow(ctx, {args}).Scan(&inUse); err != nil {{"
     ));
     p.indent();
     p.line("return err");
@@ -149,7 +154,10 @@ fn source_clause(_protected: &str, guard: &RestrictOnDelete) -> String {
 }
 
 /// Deterministic Go identifier for one guard: `guard<Protected><Relation>Refs`.
-fn guard_fn_name(protected: &str, relation: &str) -> String {
+/// `pub(crate)` so the command emitter's delete-guard prelude (Spec 0014 BUG-2
+/// wiring) can name the exact same function this file emits — the two MUST
+/// agree byte-for-byte or the generated call references an undefined symbol.
+pub(crate) fn guard_fn_name(protected: &str, relation: &str) -> String {
     format!(
         "guard{}{}Refs",
         super::casing::pascal_case(protected),

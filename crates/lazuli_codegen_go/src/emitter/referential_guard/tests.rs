@@ -160,8 +160,16 @@ fn tenant_scoped_and_soft_delete_both_emitted() {
     );
     assert!(out.contains("return runtime.ErrReferencedInUse"), "{out}");
     // Argument order: id first ($1), tenantID second ($2).
-    assert!(out.contains("db.QueryRowContext(ctx, q, id, tenantID)"), "{out}");
+    assert!(out.contains("db.QueryRow(ctx, q, id, tenantID)"), "{out}");
     assert!(out.contains("func guardBillingTypeInvoiceRefs("), "{out}");
+    // BUG 1 regression guard — the `db` param MUST be the runtime-defined
+    // `lazuli.DBTX` interface (not the phantom `lazuli.DBTX` that never
+    // existed plus a `QueryRowContext` pgx never had). `any` id/tenant lets
+    // the int64 call-site values pass straight through pgx.
+    assert!(
+        out.contains("func guardBillingTypeInvoiceRefs(ctx context.Context, db lazuli.DBTX, tenantID, id any) error"),
+        "guard signature must use the defined lazuli.DBTX type + any args:\n{out}"
+    );
 }
 
 #[test]
@@ -183,8 +191,11 @@ fn neither_tenant_nor_soft_delete_emits_bare_exists() {
         !out.contains("deleted_at"),
         "soft-delete must be absent for a non-soft-delete relation:\n{out}"
     );
-    assert!(out.contains("db.QueryRowContext(ctx, q, id)"), "{out}");
-    assert!(!out.contains("tenantID)"), "tenantID must not be passed:\n{out}");
+    assert!(out.contains("db.QueryRow(ctx, q, id)"), "{out}");
+    assert!(
+        !out.contains("db.QueryRow(ctx, q, id, tenantID)"),
+        "tenantID must not be passed to the query for a non-tenant relation:\n{out}"
+    );
 }
 
 #[test]
