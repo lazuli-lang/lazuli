@@ -62,13 +62,15 @@ _(none yet — branch not merged to origin)_
 
 ---
 
-## Plugin Platform (specs 0019-0023) — added 2026-06-01
+## Plugin Platform (specs 0019-0023) — added 2026-06-01 · ✅ ALL 5 DONE (origin/main a39c6622)
 
 A second spec stack on the same `.specs/` system. Root cause: the PT-BR scalar failure (hostpoint can't `go build`: `@semantic.BrazilianPhone outside the closed Go semantic table`) is ONE symptom of 5 architectural plugin seams (survey in memory `project_plugin_platform_2026-06-01`). Goal: an elegant Plugin API+SDK that fixes the root for ALL plugin kinds. Same DoD gate (FULL `cargo test --workspace` + pilot build + teach + enforce).
 
+**STATUS 2026-06-01: all 5 SHIPPED + pushed to origin/main.** 0019 (725ef845) unblocked hostpoint go-build (BR scalars 13→0). 0021 (51545422) typed manifest, 24/24 real manifests deserialize. 0020 (029c67ba) doctor↔generate agree (hostpoint BR scalars: doctor flagged 18→0). 0023 (60b4469d) `lazuli plugin new`, scaffolds pass `go test` green. 0022 (a39c6622) `lazuli plugin verify` (5-link chain) + PLUGIN-CONTRACT-001; live hostpoint = 6/8 PASS, 2 legit FAIL (smtp legacy interface + missing env, sms-twilio missing env). Full sweep 147 suites / 0 failures throughout.
+
 | id | spec | seam | track | parallel | depends_on |
 |----|------|------|-------|----------|------------|
-| 0019 | plugin-resolution-unify (single resolver pipeline + loud failures + upward root) | 1+3 | ship | ✅ | — |
+| 0019 | plugin-resolution-unify (single resolver pipeline + loud failures + upward root) | 1+3 | ship | ✅ | — |  ✅DONE
 | 0020 | plugin-authoritative-resolver (doctor shares codegen's resolver/root) | 4 | prove/ship | ❌ shares stage | 0019 |
 | 0021 | plugin-typed-manifest (kind discriminant + adapter [env]/[binds]/implements schema) | 2 | evolve/ship | ✅ | 0019 |
 | 0022 | plugin-verify-contract (`lazuli plugin verify` + `PLUGIN-CONTRACT-001` adapter check) | 4+2 | prove/ship | ❌ | 0020, 0021 |
