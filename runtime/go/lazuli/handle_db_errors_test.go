@@ -132,6 +132,59 @@ func TestClassifyDBErrorUniqueViolationWireBodyIsLocalized(t *testing.T) {
 	}
 }
 
+// TestClassifyDBErrorRemapsRegisteredConstraintToDomainCode proves the
+// per-constraint domain-code path (`unique a, b error <CODE>`): once codegen
+// glue registers `<constraint_name> -> <CODE>`, a 23505 carrying that exact
+// ConstraintName surfaces the pinned domain code (still 409), instead of the
+// generic `unique_violation`. This is the gap that lets the pilot delete its
+// hand-written `guard_member_not_in_job` / handle_db_errors remap.
+func TestClassifyDBErrorRemapsRegisteredConstraintToDomainCode(t *testing.T) {
+	const constraint = "job_member_job_id_user_id_key"
+	const code = "MEMBER_ALREADY_IN_JOB"
+	RegisterUniqueViolationCode(constraint, code)
+	t.Cleanup(func() { resetUniqueViolationCodes() })
+
+	pgErr := &pgconn.PgError{
+		Code:           "23505",
+		ConstraintName: constraint,
+		Message:        `duplicate key value violates unique constraint "` + constraint + `"`,
+	}
+	lazErr := classifyDBError("insert", pgErr)
+	if lazErr.Code != code {
+		t.Fatalf("Code = %q, want domain code %q", lazErr.Code, code)
+	}
+	if lazErr.Status != http.StatusConflict {
+		t.Fatalf("Status = %d, want 409", lazErr.Status)
+	}
+	if lazErr.MessageKey != code {
+		t.Fatalf("MessageKey = %q, want %q (domain code → feature errors L2/L3)",
+			lazErr.MessageKey, code)
+	}
+	if strings.Contains(lazErr.Message, constraint) {
+		t.Fatalf("Message must not leak the constraint name, got %q", lazErr.Message)
+	}
+}
+
+// TestClassifyDBErrorUnregisteredConstraintStaysGeneric asserts the additive
+// discipline: a 23505 whose ConstraintName was NOT registered keeps the
+// generic `unique_violation` wire code (back-compat for every constraint that
+// did not author `error <CODE>`).
+func TestClassifyDBErrorUnregisteredConstraintStaysGeneric(t *testing.T) {
+	resetUniqueViolationCodes()
+	pgErr := &pgconn.PgError{
+		Code:           "23505",
+		ConstraintName: "some_other_table_email_key",
+		Message:        "dup",
+	}
+	lazErr := classifyDBError("insert", pgErr)
+	if lazErr.Code != CodeUniqueViolation {
+		t.Fatalf("Code = %q, want generic %q", lazErr.Code, CodeUniqueViolation)
+	}
+	if lazErr.Status != http.StatusConflict {
+		t.Fatalf("Status = %d, want 409", lazErr.Status)
+	}
+}
+
 // TestClassifyDBErrorWrappedPgErrorStillClassifies covers the
 // errors.As traversal — pgx may wrap PgError inside transactional
 // adapters; the classifier walks the chain rather than asserting

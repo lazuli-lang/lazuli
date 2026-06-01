@@ -255,6 +255,7 @@ pub(crate) fn synthesize_junction_resource(
             fields: vec![declaring_fk, partner_fk],
             per: None,
             when: None,
+            error_code: None,
         })],
         validate: None,
         validates: Vec::new(),
@@ -318,6 +319,10 @@ pub(crate) fn lower_resource_constraint(
                     .when
                     .as_deref()
                     .map(crate::agent::parse_closed_predicate),
+                // `error <CODE>` — pins the per-constraint domain code the
+                // 23505 classifier remaps the unique violation into (mirror
+                // of `restrict on_delete ... error <CODE>`).
+                error_code: unique.error_code.clone(),
             })
         }
         syntax::ResourceConstraintAst::Index(index) => ir::Constraint::Index(ir::IndexConstraint {

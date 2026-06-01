@@ -105,6 +105,7 @@ fn emits_unique_resource_constraints_inside_create_table() {
             fields: vec!["email".to_owned()],
             per: Some("Org".to_owned()),
             when: None,
+            error_code: None,
         }));
     customer
         .constraints
@@ -112,6 +113,7 @@ fn emits_unique_resource_constraints_inside_create_table() {
             fields: vec!["external_id".to_owned()],
             per: None,
             when: None,
+            error_code: None,
         }));
     feature.resources.push(customer);
 
@@ -120,6 +122,75 @@ fn emits_unique_resource_constraints_inside_create_table() {
 
     assert!(sql.contains("UNIQUE (email, org_id),"));
     assert!(sql.contains("UNIQUE (external_id)"));
+}
+
+#[test]
+fn emits_named_unique_constraint_when_error_code_present() {
+    // A `unique ... error <CODE>` constraint MUST emit a DETERMINISTICALLY
+    // NAMED `CONSTRAINT <table>_<field_slug>_key UNIQUE (...)` so the runtime
+    // `pgErr.ConstraintName` match is reliable (an anonymous `UNIQUE (...)`
+    // gets a Postgres auto-name that codegen cannot predict). The
+    // unconditional-without-code form stays anonymous (back-compat).
+    let module = parsed_module(
+        r#"feature job
+  domain
+    resource JobMember
+      job_id: ID required
+      user_id: ID required
+      unique (job_id, user_id) error MEMBER_ALREADY_IN_JOB
+"#,
+    );
+
+    let files = emit_migrations(&module, "atelier");
+    let sql = files
+        .iter()
+        .find(|file| file.path == "migrations/001_job_job_member.sql")
+        .expect("job_member migration")
+        .contents
+        .as_str();
+
+    assert!(
+        sql.contains("CONSTRAINT job_member_job_id_user_id_key UNIQUE (job_id, user_id)"),
+        "expected named unique constraint:\n{sql}"
+    );
+    // Must NOT emit an anonymous `UNIQUE (job_id, user_id)` (the name would
+    // be unpredictable and the runtime match would silently miss).
+    assert!(
+        !sql.contains("\n  UNIQUE (job_id, user_id)")
+            && !sql.contains(", UNIQUE (job_id, user_id)"),
+        "coded unique must be named, not anonymous:\n{sql}"
+    );
+}
+
+#[test]
+fn emits_named_partial_unique_index_when_error_code_present() {
+    // A coded partial unique (`error <CODE> when <pred>`) keeps its existing
+    // deterministic `_uidx` index name (already matchable); the `error` code
+    // is carried for the runtime registration glue, not the DDL name.
+    let module = parsed_module(
+        r#"feature catalog
+  domain
+    resource Category
+      name: Text required
+      deleted_at: DateTime
+      unique name error CATEGORY_NAME_TAKEN when deleted_at == nil
+"#,
+    );
+
+    let files = emit_migrations(&module, "atelier");
+    let sql = files
+        .iter()
+        .find(|file| file.path == "migrations/001_catalog_category.sql")
+        .expect("category migration")
+        .contents
+        .as_str();
+
+    assert!(
+        sql.contains(
+            "CREATE UNIQUE INDEX category_name_uidx ON \"category\" (name) WHERE deleted_at IS NULL;"
+        ),
+        "expected named partial unique index:\n{sql}"
+    );
 }
 
 #[test]

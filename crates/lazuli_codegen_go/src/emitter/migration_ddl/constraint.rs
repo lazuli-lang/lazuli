@@ -25,11 +25,43 @@
 use lazuli_ir::{Constraint, Feature, Module, Resource, Tenancy, TypeRef};
 
 use super::super::cross_feature::CrossFeatureIndex;
+use super::index::partial_unique_index_name;
 use super::sql_builder::{lower_snake, quote_ident, sql_ident};
 use super::sql_column::SqlColumn;
 use super::topo::foreign_key_owner;
 
-pub(super) fn unique_constraint_sql(constraint: &Constraint) -> Option<SqlColumn> {
+/// Walk a resource's `unique ... error <CODE>` constraints and return one
+/// `(constraint_name, domain_code)` pair per coded unique. The constraint
+/// name is the SAME deterministic string the DDL emits (`<table>_<slug>_key`
+/// for the unconditional table constraint, `<table>_<slug>_uidx` for the
+/// partial `when` index), so the runtime `RegisterUniqueViolationCode` key is
+/// guaranteed byte-identical to `pgErr.ConstraintName`. This shared helper is
+/// the single source of truth for that name — codegen glue and DDL never
+/// compute it independently, so they cannot drift.
+pub(crate) fn unique_violation_codes(resource: &Resource) -> Vec<(String, String)> {
+    let table_name = lower_snake(&resource.name);
+    resource
+        .constraints
+        .iter()
+        .filter_map(|constraint| {
+            let Constraint::Unique(unique) = constraint else {
+                return None;
+            };
+            let code = unique.error_code.as_ref()?;
+            if unique.fields.is_empty() {
+                return None;
+            }
+            let name = if unique.when.is_some() {
+                partial_unique_index_name(&table_name, &unique.fields)
+            } else {
+                unique_constraint_name(&table_name, &unique.fields)
+            };
+            Some((name, code.clone()))
+        })
+        .collect()
+}
+
+pub(super) fn unique_constraint_sql(table_name: &str, constraint: &Constraint) -> Option<SqlColumn> {
     let Constraint::Unique(unique) = constraint else {
         return None;
     };
@@ -42,10 +74,37 @@ pub(super) fn unique_constraint_sql(constraint: &Constraint) -> Option<SqlColumn
         return None;
     }
 
+    // Per-constraint domain code (`unique ... error <CODE>`) requires a
+    // DETERMINISTICALLY-named constraint so the runtime `ConstraintName`
+    // match is reliable — an anonymous `UNIQUE (...)` would get a Postgres
+    // auto-generated name codegen cannot predict. The name is the same
+    // `<table>_<field_slug>_key` form Postgres itself uses, so this is a
+    // no-op rename for existing anonymous constraints.
+    let name = unique
+        .error_code
+        .as_ref()
+        .map(|_| unique_constraint_name(table_name, &unique.fields));
+
     unique_fields_sql(
         unique.fields.iter().map(String::as_str),
         unique.per.as_deref(),
+        name.as_deref(),
     )
+}
+
+/// Deterministic name for a table-level UNIQUE constraint:
+/// `<table>_<field_slug>_key` (the same suffix Postgres auto-uses). Shared
+/// by the DDL emitter and the runtime registration glue so the emitted
+/// constraint name and the registered `ConstraintName -> domain code` key
+/// are guaranteed identical — the load-bearing correctness property for the
+/// 23505 remap.
+pub(super) fn unique_constraint_name(table_name: &str, fields: &[String]) -> String {
+    let field_slug = fields
+        .iter()
+        .map(|field| lower_snake(field))
+        .collect::<Vec<_>>()
+        .join("_");
+    format!("{table_name}_{field_slug}_key")
 }
 
 pub(super) fn inline_unique_constraint_sql(
@@ -61,13 +120,14 @@ pub(super) fn inline_unique_constraint_sql(
         .fields
         .iter()
         .filter(|field| field.unique)
-        .filter_map(|field| unique_fields_sql(std::iter::once(field.name.as_str()), per))
+        .filter_map(|field| unique_fields_sql(std::iter::once(field.name.as_str()), per, None))
         .collect()
 }
 
 pub(super) fn unique_fields_sql<'a>(
     fields: impl IntoIterator<Item = &'a str>,
     per: Option<&str>,
+    constraint_name: Option<&str>,
 ) -> Option<SqlColumn> {
     let mut fields: Vec<String> = fields.into_iter().map(sql_ident).collect();
     if fields.is_empty() {
@@ -76,7 +136,17 @@ pub(super) fn unique_fields_sql<'a>(
     if let Some(per) = per {
         fields.push(sql_ident(&format!("{}_id", lower_snake(per))));
     }
-    Some(SqlColumn::raw(&format!("UNIQUE ({})", fields.join(", "))))
+    // A named constraint (`CONSTRAINT <name> UNIQUE (...)`) is emitted only
+    // when a per-constraint domain code pins it; otherwise the anonymous
+    // form is kept for byte-stable back-compat.
+    let prefix = match constraint_name {
+        Some(name) => format!("CONSTRAINT {} ", sql_ident(name)),
+        None => String::new(),
+    };
+    Some(SqlColumn::raw(&format!(
+        "{prefix}UNIQUE ({})",
+        fields.join(", ")
+    )))
 }
 
 /// Roadmap §1.5 (CL.C.2) — render the `composite_key` block as either a

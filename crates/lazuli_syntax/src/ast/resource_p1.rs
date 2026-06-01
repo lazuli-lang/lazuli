@@ -204,6 +204,13 @@ pub struct ResourceUniqueAst {
     /// `Some` makes this a partial unique index.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub when: Option<String>,
+    /// `error <CODE>` — optional per-constraint domain error code (mirrors
+    /// `restrict on_delete ... error <CODE>`). When set, codegen emits a
+    /// DETERMINISTICALLY-named UNIQUE constraint plus runtime glue so a
+    /// 23505 violation on it surfaces as `<CODE>` (409) instead of the
+    /// generic `unique_violation`. `None` keeps the generic behaviour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
     pub span: Span,
 }
 

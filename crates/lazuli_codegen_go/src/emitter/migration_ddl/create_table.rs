@@ -285,11 +285,12 @@ pub(super) fn resource_columns<'a>(
     }
 
     columns.extend(inline_unique_constraint_sql(resource, &tenancy));
+    let table_name = lower_snake(&resource.name);
     columns.extend(
         resource
             .constraints
             .iter()
-            .filter_map(unique_constraint_sql),
+            .filter_map(|constraint| unique_constraint_sql(&table_name, constraint)),
     );
     if let Some(ck_sql) = composite_key_sql(resource) {
         columns.push(ck_sql);

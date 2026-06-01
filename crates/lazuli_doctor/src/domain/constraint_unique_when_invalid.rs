@@ -295,6 +295,7 @@ mod tests {
                 fields: vec!["is_default".into()],
                 per: None,
                 when: Some(cmp_pred("is_default", true)),
+                error_code: None,
             })],
         );
         let feature = mk_feature(vec![resource]);
@@ -310,6 +311,7 @@ mod tests {
                 fields: vec!["is_default".into()],
                 per: None,
                 when: Some(cmp_pred("ghost", true)),
+                error_code: None,
             })],
         );
         let feature = mk_feature(vec![resource]);
@@ -328,6 +330,7 @@ mod tests {
                 fields: vec!["nonexistent".into()],
                 per: None,
                 when: Some(cmp_pred("is_default", true)),
+                error_code: None,
             })],
         );
         let feature = mk_feature(vec![resource]);
@@ -346,6 +349,7 @@ mod tests {
                 fields: vec!["ghost".into()],
                 per: None,
                 when: None,
+                error_code: None,
             })],
         );
         let feature = mk_feature(vec![resource]);

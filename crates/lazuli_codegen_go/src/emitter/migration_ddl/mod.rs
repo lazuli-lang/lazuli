@@ -70,6 +70,7 @@ pub use alter_table::{
     AlterDefault, AlterEmitOptions, ColumnAdd, ColumnDrop, SchemaDiff, TypeChange,
     emit_alter_migration_file,
 };
+pub(crate) use constraint::unique_violation_codes;
 
 // Internal-only re-exports — tests live in this file and use
 // `super::*` to reach the prod helpers. New code should reach into

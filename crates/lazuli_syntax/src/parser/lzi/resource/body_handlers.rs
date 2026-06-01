@@ -174,12 +174,15 @@ fn handle_resource_unique(
     state: &mut ResourceBodyState,
 ) -> Result<(), ParseError> {
     let rest = rest.trim();
-    // GAP-NEW-001 — three accepted forms:
-    //   unique (<field>, ...)                  → table UNIQUE constraint
-    //   unique (<field>, ...) when <predicate> → partial unique index
-    //   unique <field> when <predicate>        → partial unique index
-    // The bare single-field head is only legal when `when` follows; the
-    // parenthesized form remains required otherwise so the constraint
+    // GAP-NEW-001 + per-constraint domain code — accepted forms:
+    //   unique (<field>, ...)                                → table UNIQUE
+    //   unique (<field>, ...) when <predicate>               → partial index
+    //   unique <field> when <predicate>                      → partial index
+    //   unique (<field>, ...) error <CODE>                   → coded UNIQUE
+    //   unique <field> error <CODE>                          → coded UNIQUE
+    //   unique (<field>, ...) error <CODE> when <predicate>  → coded partial
+    // The bare single-field head is only legal when `error`/`when` follows;
+    // the parenthesized form remains required otherwise so the constraint
     // stays unambiguous with the field-level `unique` modifier.
     let (fields, trailing) = if rest.starts_with('(') {
         let (fields, trailing) = parse_parenthesized_field_list_with_trailing(line, rest)?;
@@ -191,48 +194,80 @@ fn handle_resource_unique(
         if field.is_empty() || trailing.is_empty() {
             return Err(line_error(
                 line,
-                "`unique` resource constraints use `unique (<field>, ...)` or \
-                 `unique <field> when <predicate>`",
+                "`unique` resource constraints use `unique (<field>, ...)`, \
+                 `unique <field> when <predicate>`, or `unique <field> error <CODE>`",
             ));
         }
         (vec![field.to_owned()], trailing.to_owned())
     };
-    let when = parse_unique_when_trailing(line, trailing.trim())?;
+    let (error_code, when) = parse_unique_trailing(line, trailing.trim())?;
     state
         .constraints
         .push(ResourceConstraintAst::Unique(ResourceUniqueAst {
             fields,
             when,
+            error_code,
             span: Span::new(line.start, line.end),
         }));
     Ok(())
 }
 
-/// GAP-NEW-001 — interpret the text after a `unique` field list. Either
-/// empty (unconditional UNIQUE constraint) or `when <predicate>` (partial
-/// unique index). The predicate text is captured verbatim; the analyzer
-/// runs it through the shared closed-predicate parser.
-fn parse_unique_when_trailing(
+/// Interpret the text after a `unique` field list into the optional
+/// `error <CODE>` and `when <predicate>` clauses.
+///
+/// Grammar (mirrors `restrict on_delete ... [error <CODE>] [where <pred>]`):
+/// `[error <CODE>] [when <predicate>]`. The `when` predicate is free-form
+/// (runs to end of line) so it is split off FIRST; the `error <CODE>` clause
+/// is a single bareword sitting between the field list and any `when`.
+fn parse_unique_trailing(
     line: &SourceLine<'_>,
     trailing: &str,
-) -> Result<Option<String>, ParseError> {
+) -> Result<(Option<String>, Option<String>), ParseError> {
     if trailing.is_empty() {
-        return Ok(None);
+        return Ok((None, None));
     }
-    let Some(predicate) = trailing.strip_prefix("when ") else {
+    // Split `when <predicate>` off the tail first (predicate is free-form).
+    let (head, when) = match trailing.split_once("when ") {
+        Some((head, pred)) => {
+            let pred = pred.trim();
+            if pred.is_empty() {
+                return Err(line_error(
+                    line,
+                    "`unique ... when` requires a predicate (e.g. `when is_default = true`)",
+                ));
+            }
+            (head.trim(), Some(pred.to_owned()))
+        }
+        None => (trailing.trim(), None),
+    };
+    // The pre-`when` head is either empty or a single `error <CODE>` clause.
+    let error_code = if head.is_empty() {
+        None
+    } else if let Some(code) = head.strip_prefix("error ") {
+        let code = code.trim();
+        if code.is_empty() || code.split_whitespace().count() != 1 {
+            return Err(line_error(
+                line,
+                "`unique ... error <CODE>` takes exactly one domain error code \
+                 (e.g. `error MEMBER_ALREADY_IN_JOB`)",
+            ));
+        }
+        Some(code.to_owned())
+    } else if head == "error" {
+        // Bare trailing `error` with no code lands here (no ` ` separator).
         return Err(line_error(
             line,
-            "`unique (...)` only accepts an optional `when <predicate>` clause",
+            "`unique ... error <CODE>` requires a domain error code \
+             (e.g. `error MEMBER_ALREADY_IN_JOB`)",
+        ));
+    } else {
+        return Err(line_error(
+            line,
+            "`unique (...)` only accepts optional `error <CODE>` and \
+             `when <predicate>` clauses",
         ));
     };
-    let predicate = predicate.trim();
-    if predicate.is_empty() {
-        return Err(line_error(
-            line,
-            "`unique ... when` requires a predicate (e.g. `when is_default = true`)",
-        ));
-    }
-    Ok(Some(predicate.to_owned()))
+    Ok((error_code, when))
 }
 
 fn handle_resource_fts(
@@ -412,6 +447,74 @@ mod body_handlers_tests {
             "\nfeature customer\n  resource Customer\n    email: Text required\n    unique email\n",
         );
         assert!(parse_feature_skeletons(&source).is_err());
+    }
+
+    #[test]
+    fn parses_unique_error_code_clause() {
+        // Mirrors `restrict on_delete ... error <CODE>`: an optional
+        // `error <CODE>` clause pins a per-constraint domain error code the
+        // 23505 classifier remaps the unique-violation into.
+        let resource =
+            resource_with(&["unique (job_id, user_id) error MEMBER_ALREADY_IN_JOB"]);
+        match &resource.constraints[0] {
+            ResourceConstraintAst::Unique(unique) => {
+                assert_eq!(unique.fields, vec!["job_id", "user_id"]);
+                assert_eq!(unique.error_code.as_deref(), Some("MEMBER_ALREADY_IN_JOB"));
+                assert_eq!(unique.when, None);
+            }
+            other => panic!("expected unique constraint, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_unique_error_code_before_when() {
+        // `error <CODE>` sits between the field list and any `when` clause,
+        // exactly as restrict_on_delete orders `error <CODE>` before `where`.
+        let resource = resource_with(&[
+            "unique (workspace, email) error SLUG_TAKEN when deleted_at == nil",
+        ]);
+        match &resource.constraints[0] {
+            ResourceConstraintAst::Unique(unique) => {
+                assert_eq!(unique.fields, vec!["workspace", "email"]);
+                assert_eq!(unique.error_code.as_deref(), Some("SLUG_TAKEN"));
+                assert_eq!(unique.when.as_deref(), Some("deleted_at == nil"));
+            }
+            other => panic!("expected unique constraint, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_bare_field_unique_error_code() {
+        // `unique <field> error <CODE>` — the bare single-field head is legal
+        // once `error` (like `when`) follows it.
+        let resource = resource_with(&["unique slug error SLUG_TAKEN"]);
+        match &resource.constraints[0] {
+            ResourceConstraintAst::Unique(unique) => {
+                assert_eq!(unique.fields, vec!["slug"]);
+                assert_eq!(unique.error_code.as_deref(), Some("SLUG_TAKEN"));
+                assert_eq!(unique.when, None);
+            }
+            other => panic!("expected unique constraint, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_unique_error_without_code() {
+        let source = String::from(
+            "\nfeature job\n  resource JobMember\n    job_id: ID required\n    unique (job_id) error\n",
+        );
+        assert!(parse_feature_skeletons(&source).is_err());
+    }
+
+    #[test]
+    fn unconditional_unique_has_no_error_code() {
+        let resource = resource_with(&["unique (workspace, email)"]);
+        match &resource.constraints[0] {
+            ResourceConstraintAst::Unique(unique) => {
+                assert_eq!(unique.error_code, None);
+            }
+            other => panic!("expected unique constraint, got {other:?}"),
+        }
     }
 
     #[test]

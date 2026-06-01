@@ -107,13 +107,7 @@ pub(super) fn partial_unique_index_sql(
     if unique.fields.is_empty() {
         return None;
     }
-    let field_slug = unique
-        .fields
-        .iter()
-        .map(|field| lower_snake(field))
-        .collect::<Vec<_>>()
-        .join("_");
-    let name = format!("{}_{}_uidx", table_name, field_slug);
+    let name = partial_unique_index_name(table_name, &unique.fields);
     let columns = unique
         .fields
         .iter()
@@ -135,6 +129,19 @@ pub(super) fn partial_unique_index_sql(
             columns,
         )),
     }
+}
+
+/// Deterministic name for a PARTIAL unique index (`unique ... when <pred>`):
+/// `<table>_<field_slug>_uidx`. Shared with the runtime registration glue so
+/// a coded partial unique (`error <CODE> when <pred>`) registers exactly the
+/// constraint name Postgres will report in `pgErr.ConstraintName`.
+pub(super) fn partial_unique_index_name(table_name: &str, fields: &[String]) -> String {
+    let field_slug = fields
+        .iter()
+        .map(|field| lower_snake(field))
+        .collect::<Vec<_>>()
+        .join("_");
+    format!("{table_name}_{field_slug}_uidx")
 }
 
 /// Render an [`EvalPredicate`] into a SQL boolean expression for a

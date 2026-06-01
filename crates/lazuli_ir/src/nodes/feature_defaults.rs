@@ -156,6 +156,14 @@ pub struct UniqueConstraint {
     /// when the shape isn't recognized so doctor can echo the source.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub when: Option<EvalPredicate>,
+    /// `error <CODE>` — optional per-constraint domain error code (mirrors
+    /// `RestrictOnDelete.error_code`). When `Some`, the migration emits a
+    /// deterministically-NAMED UNIQUE constraint / index and codegen
+    /// registers `<constraint_name> -> <CODE>` so a 23505 violation on it
+    /// surfaces as `<CODE>` (HTTP 409) via `classifyDBError`, instead of the
+    /// generic `unique_violation`. `None` keeps the anonymous/generic form.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
 }
 
 /// `index <fields> [using <method>]` constraint. The `full_text` flag
@@ -342,6 +350,7 @@ mod tests {
             fields: vec!["email".into()],
             per: Some("org".into()),
             when: None,
+            error_code: None,
         });
         let s = serde_json::to_string(&c).unwrap();
         assert!(s.contains("\"kind\":\"Unique\""));

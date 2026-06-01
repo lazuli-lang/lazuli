@@ -52,6 +52,7 @@ pub mod schema_diff;
 pub mod storage;
 pub mod translation;
 pub mod types;
+pub mod unique_violation_codes;
 pub mod validator_tags;
 pub mod webhook;
 

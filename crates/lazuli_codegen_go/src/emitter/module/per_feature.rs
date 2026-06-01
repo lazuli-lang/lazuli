@@ -32,6 +32,7 @@ use crate::emitter::notification::emit_notification_file;
 use crate::emitter::poller::emit_poller_file;
 use crate::emitter::query::emit_query_file;
 use crate::emitter::referential_guard::emit_referential_guard_file;
+use crate::emitter::unique_violation_codes::emit_unique_violation_codes_file;
 use crate::emitter::report::emit_reports_file;
 use crate::emitter::resource::emit_resource_file;
 use crate::emitter::storage::emit_storage_file;
@@ -82,6 +83,16 @@ pub(super) fn emit_feature_files(
             path: guards_path,
             contents,
         });
+    }
+
+    // Per-constraint domain-code glue — `unique <fields> error <CODE>` emits a
+    // `<feature>/unique_codes.gen.go` registering `<constraint_name> -> <CODE>`
+    // so a 23505 on that constraint surfaces the domain code (the unique twin
+    // of `restrict on_delete ... error <CODE>`). Skipped when no resource
+    // declares a coded unique.
+    if let Some(contents) = emit_unique_violation_codes_file(source_label, feature) {
+        let path = format!("{name}/unique_codes.gen.go", name = feature.name);
+        files.push(GeneratedFile { path, contents });
     }
 
     // Cell E2.5 — `EnumDecl` emission. Per-feature typed aliases

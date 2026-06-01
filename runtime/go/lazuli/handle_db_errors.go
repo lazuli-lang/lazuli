@@ -4,9 +4,56 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"github.com/jackc/pgx/v5/pgconn"
 )
+
+// uniqueViolationCodes maps a deterministically-named Postgres UNIQUE
+// constraint (`<table>_<field_slug>_key` / `<table>_<field_slug>_uidx`) to the
+// per-constraint domain error code authored via `unique a, b error <CODE>`.
+// Generated per-feature glue (`<feature>/unique_codes.gen.go`) populates it in
+// `init()`; `classifyDBError` consults it on a 23505 so the violation surfaces
+// the pinned domain code instead of the generic `unique_violation`.
+//
+// This is the unique-constraint twin of `restrict on_delete ... error <CODE>`
+// (which pins a referential-guard code via NewReferencedInUseError); both let a
+// pilot replace a hand-written constraint→domain-code remap with one DSL clause.
+var (
+	uniqueViolationCodesMu sync.RWMutex
+	uniqueViolationCodes   = map[string]string{}
+)
+
+// RegisterUniqueViolationCode binds a Postgres UNIQUE constraint name to the
+// domain error code a 23505 violation on it should surface. Idempotent; called
+// from generated `init()` glue. An empty name or code is ignored (defensive —
+// codegen never emits a blank pair).
+func RegisterUniqueViolationCode(constraintName, domainCode string) {
+	if constraintName == "" || domainCode == "" {
+		return
+	}
+	uniqueViolationCodesMu.Lock()
+	defer uniqueViolationCodesMu.Unlock()
+	uniqueViolationCodes[constraintName] = domainCode
+}
+
+// lookupUniqueViolationCode returns the registered domain code for a
+// constraint name, or "" when none was authored.
+func lookupUniqueViolationCode(constraintName string) string {
+	if constraintName == "" {
+		return ""
+	}
+	uniqueViolationCodesMu.RLock()
+	defer uniqueViolationCodesMu.RUnlock()
+	return uniqueViolationCodes[constraintName]
+}
+
+// resetUniqueViolationCodes clears the registry. Test-only.
+func resetUniqueViolationCodes() {
+	uniqueViolationCodesMu.Lock()
+	defer uniqueViolationCodesMu.Unlock()
+	uniqueViolationCodes = map[string]string{}
+}
 
 // classifyDBError maps a pgx/Postgres error to a typed Lazuli envelope so the
 // client sees a stable wire `code` (e.g. `unique_violation`) and a localizable
@@ -36,8 +83,18 @@ func classifyDBError(stage string, err error) *Error {
 		// expose constraint, table, and column names. Keep details in logs.
 		switch pgErr.Code {
 		case "23505":
-			return &Error{Status: http.StatusConflict, Code: CodeUniqueViolation,
-				Message: stage + " failed", MessageKey: CodeUniqueViolation}
+			// Per-constraint domain code (`unique a, b error <CODE>`): when the
+			// violated constraint name was registered by generated glue, surface
+			// the pinned domain code (still 409) so the client branches on the
+			// meaningful code instead of the generic `unique_violation`. The
+			// constraint name itself NEVER reaches the envelope Message (it can
+			// leak table/column internals); only the registered code does.
+			code := CodeUniqueViolation
+			if domain := lookupUniqueViolationCode(pgErr.ConstraintName); domain != "" {
+				code = domain
+			}
+			return &Error{Status: http.StatusConflict, Code: code,
+				Message: stage + " failed", MessageKey: code}
 		case "23503":
 			return &Error{Status: http.StatusBadRequest, Code: CodeForeignKeyViolation,
 				Message: stage + " failed", MessageKey: CodeForeignKeyViolation}
