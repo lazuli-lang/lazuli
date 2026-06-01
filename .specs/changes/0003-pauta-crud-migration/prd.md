@@ -102,3 +102,18 @@ Verified counts (`command` lines per `.lzi`):
 - Synth `create_<r>` requiring a non-tenant required field
   (`crud_synth_no_required_fields`): Pauta resources have plenty, so low risk, but
   the per-feature `lazuli doctor` run catches it.
+
+---
+
+## RESOLVED 2026-06-01 — bounded by intentional input decoupling (after 0004+0015+0018)
+
+Three language specs grew `conventions [crud]` to close the gaps 0003 needed: 0004 (defaults inherit rate_limit/audit), 0015 (soft-delete-aware crud delete), 0018 (crud overlay: policy/validate/assign/emits/input-excludes). After ALL THREE, `VOCAB-CRUD-SYNTH-AVAILABLE-001` still fires **0×** on Pauta. The overlay closed 4 of 5 gaps (policy, validate, assign, emits — all byte-identical). The **5th is structural and intentional**: Pauta's CRUD inputs are deliberately decoupled from resource shape:
+- FK fields are submitted as `<rel>_id: ID` (e.g. `category_id: ID`, `agency_id: ID`), while the synth derives the relation-typed field (`category: CustomerCategory`). `input excludes` can remove but not rename/retype.
+- Inputs intentionally omit immutable fields and are documented to "drift apart" from the resource shape — see `geography_broadcast.lzi:91` VOCAB-SHADOW-RECORD waiver: *"create_broadcast_area input intentionally mirrors the BroadcastArea field shape; extracting a shared record now would couple surfaces meant to drift apart."*
+- Hand-authored soft-delete as `updates Customer` (set deleted_at/deleted_by) vs synth `Deletes` — different IR nodes (same behavior via 0015).
+
+**Conclusion:** this is NOT boilerplate the synth should absorb — it's intentional API-contract design (the submission shape ≠ the storage shape). `conventions [crud]`'s field-derived input is the wrong model for it, and growing the overlay to express arbitrary input renames/retypes would reinvent the command grammar inside the overlay (ADR-0018 explicitly forbids this — "do not grow the overlay into a macro language").
+
+**Disposition:** 0003's 84-command headline does NOT happen, and that is the CORRECT outcome. The audit's "0/84 non-adoption" was read as pilot debt; it is actually a faithful signal that these commands are not CRUD-skeleton-shaped. The DRY win the audit promised is delivered instead by 0004 (defaults hoist, ~445 lines real) + 0014 (referential guards) + 0015 (soft-delete trait, 25 resources) + 0016 (Money) — all of which DID migrate. `conventions [crud]` + overlay (0018) is now viable for resources whose submission shape == storage shape (future features; Hostpoint-style); it is correctly NOT forced onto Pauta's bespoke-input features. The inverse linter (0002, upgraded by 0018) is the permanent guard: it fires only when adoption is genuinely safe.
+
+0003 is CLOSED as resolved-bounded. No further synth growth pursued (would violate ADR-0018).
