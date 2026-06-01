@@ -131,20 +131,13 @@ pub(super) fn check_semantic_plugin_unresolved(
         }
     };
 
-    // Closed catalog of built-in `@semantic.<X>` names; matches the
-    // analyzer's `type_ref_from_syntax` match arm. Authors writing one
-    // of these never hit the plugin path.
-    const BUILT_IN_SEMANTIC: &[&str] = &[
-        "Email",
-        "Phone",
-        "Url",
-        "Uuid",
-        "Currency",
-        "GeoPoint",
-        "Money",
-        "HexColor",
-        "Percentage",
-    ];
+    // Closed catalog of built-in `@semantic.<X>` names; DERIVED from the
+    // single source of truth `lazuli_keywords::SEMANTIC_TYPES` (via
+    // `is_semantic_type`, matching the analyzer's `type_ref_from_syntax`
+    // arm). Authors writing one of these never hit the plugin path. Deriving
+    // closes the SAME drift hole as the closed-catalog `semantic_type_unknown`
+    // check: a new CORE scalar (e.g. `PositiveDecimal`, `NonNegativeInt`) must
+    // not be misrouted to the plugin path and false-flagged SEMANTIC-PLUGIN-001.
 
     let mut diagnostics = Vec::new();
     for file in &package.files {
@@ -160,14 +153,12 @@ pub(super) fn check_semantic_plugin_unresolved(
                 continue;
             };
             // Built-ins resolve syntactically — never SEMANTIC-PLUGIN-001.
-            if BUILT_IN_SEMANTIC.contains(&rest) {
-                continue;
-            }
-            // `@semantic.Money(currency:USD)` lifts via parens — pick
-            // the head token before `(` so we don't false-flag a typed
-            // money reference.
+            // Check the bare `rest` AND the pre-`(` head (so the typed
+            // `@semantic.Money(currency:USD)` form is recognized too).
             let head = rest.split('(').next().unwrap_or(rest);
-            if BUILT_IN_SEMANTIC.contains(&head) {
+            if lazuli_keywords::is_semantic_type(rest)
+                || lazuli_keywords::is_semantic_type(head)
+            {
                 continue;
             }
             // Strip any trailing non-name punctuation (whitespace lifts

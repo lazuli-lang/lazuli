@@ -16,8 +16,20 @@ use crate::doctor::{DoctorDiagnostic, DoctorSeverity, line_col_for_offset};
 
 pub(crate) const SEMANTIC_TYPE_UNKNOWN_CODE: &str = "semantic_type_unknown";
 
-pub(super) const SEMANTIC_TYPE_CATALOG: &str =
-    "EMAIL, PHONE, URL, UUID, DATE, CURRENCY, MONEY, JSON, GEOPOINT, HEXCOLOR, PERCENTAGE";
+/// Render the closed semantic-type catalog for the diagnostic message,
+/// DERIVED from the single source of truth `lazuli_keywords::SEMANTIC_TYPES`
+/// (upper-cased to match the historical message style). Deriving — instead of
+/// re-listing — is what stops the doctor's catalog from drifting away from the
+/// parser/analyzer catalog (the DEFECT 2 bug: `PositiveDecimal` / `NonNegativeInt`
+/// shipped in keywords + codegen + runtime but the doctor's hand-maintained
+/// list never learned them, so `lazuli doctor` false-rejected valid programs).
+fn semantic_type_catalog() -> String {
+    lazuli_keywords::SEMANTIC_TYPES
+        .iter()
+        .map(|name| name.to_uppercase())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 
 pub(crate) fn push_unknown_semantic_type(
     path: &Path,
@@ -33,7 +45,8 @@ pub(crate) fn push_unknown_semantic_type(
             severity: DoctorSeverity::Error,
             code: SEMANTIC_TYPE_UNKNOWN_CODE.to_owned(),
             message: format!(
-                "unknown @semantic type \"{name}\"; the closed catalog is {{{SEMANTIC_TYPE_CATALOG}}}."
+                "unknown @semantic type \"{name}\"; the closed catalog is {{{}}}.",
+                semantic_type_catalog()
             ),
             category: None,
             feature_name: None,
@@ -60,7 +73,8 @@ pub(crate) fn push_unknown_semantic_type_text(
             severity: DoctorSeverity::Error,
             code: SEMANTIC_TYPE_UNKNOWN_CODE.to_owned(),
             message: format!(
-                "unknown @semantic type \"{name}\"; the closed catalog is {{{SEMANTIC_TYPE_CATALOG}}}."
+                "unknown @semantic type \"{name}\"; the closed catalog is {{{}}}.",
+                semantic_type_catalog()
             ),
             category: None,
             feature_name: None,
@@ -95,24 +109,12 @@ pub(crate) fn is_known_semantic_type_name(name: &str) -> bool {
     let Some(short) = name.strip_prefix("@semantic.") else {
         return false;
     };
-    matches!(
-        short,
-        "Email"
-            | "Phone"
-            | "URL"
-            | "Url"
-            | "UUID"
-            | "Uuid"
-            | "Date"
-            | "Currency"
-            | "Money"
-            | "JSON"
-            | "Json"
-            | "GeoPoint"
-            // W1 GAP-04/05 — colour + ratio scalars join the closed catalog.
-            | "HexColor"
-            | "Percentage"
-    )
+    // DERIVED from the single source of truth in `lazuli_keywords`. The doctor
+    // no longer keeps a parallel hand-maintained list (the DEFECT 2 drift
+    // source): adding a scalar to `SEMANTIC_TYPES` teaches the parser,
+    // analyzer, codegen AND doctor at once. `is_semantic_type` also honours the
+    // tolerated all-caps acronym aliases (`URL`/`UUID`) that codegen accepts.
+    lazuli_keywords::is_semantic_type(short)
 }
 
 pub(crate) fn span_line_col(

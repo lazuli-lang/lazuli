@@ -1,0 +1,7 @@
+[project]
+name = "semantic-softdelete-e2e"
+module = "example.test/semantic-softdelete-e2e"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"

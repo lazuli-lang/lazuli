@@ -3,9 +3,11 @@
 //! Combines two related families of cross-feature type diagnostics:
 //!
 //! * `semantic_type_unknown_diagnostics_for_*` — closed catalog
-//!   `@semantic.<Name>` check. Catalog: `EMAIL, PHONE, URL, UUID,
-//!   DATE, CURRENCY, MONEY, JSON, GEOPOINT, HEXCOLOR, PERCENTAGE`.
-//!   Plugin-declared semantic
+//!   `@semantic.<Name>` check. The catalog is DERIVED from the single
+//!   source of truth `lazuli_keywords::SEMANTIC_TYPES` (via
+//!   `lazuli_keywords::is_semantic_type`) so it can never drift away from
+//!   the parser/analyzer/codegen catalog — adding a scalar there teaches
+//!   every surface at once. Plugin-declared semantic
 //!   aliases ride the `SEMANTIC-PLUGIN-001/002` rules in
 //!   `aggregators::lazurite_manifest` instead. Two flavours: a
 //!   pre-IR `syntax_feature::*` walk that runs against the

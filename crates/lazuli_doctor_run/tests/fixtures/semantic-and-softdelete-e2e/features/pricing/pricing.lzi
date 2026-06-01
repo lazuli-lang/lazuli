@@ -1,0 +1,34 @@
+# End-to-end regression fixture for DEFECT 2 + DEFECT 3.
+#
+# DEFECT 2 — `@semantic.PositiveDecimal` / `@semantic.NonNegativeInt` are real
+#   closed-catalog scalars (keywords + analyzer + codegen + runtime). The doctor
+#   must NOT emit `semantic_type_unknown` / `SEMANTIC-PLUGIN-001` for them.
+#
+# DEFECT 3 — a `soft_delete` resource synthesizes `deleted_at`; the canonical
+#   `unique (...) when deleted_at == nil` partial unique must NOT trip
+#   `CONSTRAINT-UNIQUE-WHEN-001` for referencing the synthesized column.
+
+feature pricing
+  domain
+    resource PriceTable
+      id: ID required
+      sku: Text required
+      region: Text required
+      amount: @semantic.PositiveDecimal required
+      reorder_at: @semantic.NonNegativeInt required
+      soft_delete
+      unique (sku, region) when deleted_at == nil
+
+  policies
+    set_price: @role.admin
+
+  command set_price
+    policy @policy.set_price
+    audit default
+    rate_limit none
+      reason "regression fixture; not a real endpoint"
+    input
+      sku: Text required
+      region: Text required
+      amount: @semantic.PositiveDecimal required
+    creates PriceTable from input

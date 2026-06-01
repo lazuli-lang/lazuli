@@ -159,6 +159,24 @@ pub fn canonical_scalar(name: &str) -> Option<&'static str> {
         .map(|(_, canonical)| *canonical)
 }
 
+/// Non-canonical semantic-scalar spelling aliases that downstream surfaces
+/// (codegen `emitter::handlers::types`) historically accepted, mapping
+/// alias -> canonical [`SEMANTIC_TYPES`] spelling. Kept so the doctor's
+/// membership gate agrees with codegen's tolerance instead of false-rejecting
+/// an upper-cased acronym. `Url`/`Uuid` are the canonical spellings; the
+/// all-caps acronym forms are the tolerated aliases.
+pub const SEMANTIC_TYPE_ALIASES: &[(&str, &str)] = &[("URL", "Url"), ("UUID", "Uuid")];
+
+/// Whether `name` is a recognized semantic-scalar type name (bare, e.g.
+/// `"PositiveDecimal"`, or its tolerated alias). Single source of truth for
+/// every membership gate (analyzer lowering, doctor's `@semantic.<X>` closed
+/// catalog check) so the closed catalog can NEVER drift between surfaces:
+/// add a scalar to [`SEMANTIC_TYPES`] and every consumer learns it at once.
+pub fn is_semantic_type(name: &str) -> bool {
+    SEMANTIC_TYPES.contains(&name)
+        || SEMANTIC_TYPE_ALIASES.iter().any(|(alias, _)| *alias == name)
+}
+
 /// The app-manifest block-header name a [`Context`] models, if the context
 /// IS an app-manifest indent-2 block whose indent-4 children are registry
 /// rows. Returns `None` for every context that is not an app-manifest
@@ -212,6 +230,31 @@ pub fn manifest_child_keys(block: &str) -> impl Iterator<Item = &'static str> {
 #[cfg(test)]
 mod catalog_tests {
     use super::*;
+
+    #[test]
+    fn is_semantic_type_covers_catalog_and_aliases_resolve_to_canonical() {
+        // Every canonical entry is recognized — the SoT the doctor derives from.
+        for s in SEMANTIC_TYPES {
+            assert!(is_semantic_type(s), "{s} must be a recognized semantic type");
+        }
+        // Each alias resolves to a canonical spelling AND is itself recognized.
+        for (alias, canonical) in SEMANTIC_TYPE_ALIASES {
+            assert!(
+                SEMANTIC_TYPES.contains(canonical),
+                "semantic alias {alias} maps to {canonical}, not a canonical semantic type",
+            );
+            assert!(
+                !SEMANTIC_TYPES.contains(alias),
+                "alias {alias} must not also be a canonical semantic type name",
+            );
+            assert!(is_semantic_type(alias), "alias {alias} must be recognized");
+        }
+        // Negative: a scalar misused with `@semantic.` (e.g. JSON/Date) is NOT a
+        // semantic type — those belong to SCALAR_TYPES.
+        assert!(!is_semantic_type("JSON"));
+        assert!(!is_semantic_type("Date"));
+        assert!(!is_semantic_type("Nonsense"));
+    }
 
     #[test]
     fn scalar_and_semantic_catalogs_are_disjoint_and_canonical() {

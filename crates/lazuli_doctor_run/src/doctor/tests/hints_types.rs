@@ -143,16 +143,109 @@ feature customer
             "expected at least two semantic_type_unknown diagnostics, got {:?}",
             diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
+        // The catalog string is DERIVED from `lazuli_keywords::SEMANTIC_TYPES`
+        // (upper-cased) — assert against that SoT so this test can never pin a
+        // stale literal that drifts from the parser/analyzer catalog again.
+        let expected_catalog = lazuli_keywords::SEMANTIC_TYPES
+            .iter()
+            .map(|n| n.to_uppercase())
+            .collect::<Vec<_>>()
+            .join(", ");
         assert!(hits.iter().any(|diagnostic| {
             diagnostic.line == 8
                 && diagnostic.message
-                    == "unknown @semantic type \"@semantic.Distance\"; the closed catalog is {EMAIL, PHONE, URL, UUID, DATE, CURRENCY, MONEY, JSON, GEOPOINT, HEXCOLOR, PERCENTAGE}."
+                    == format!("unknown @semantic type \"@semantic.Distance\"; the closed catalog is {{{expected_catalog}}}.")
         }));
         assert!(hits.iter().any(|diagnostic| {
             diagnostic.line == 15
                 && diagnostic.message
-                    == "unknown @semantic type \"@semantic.Range\"; the closed catalog is {EMAIL, PHONE, URL, UUID, DATE, CURRENCY, MONEY, JSON, GEOPOINT, HEXCOLOR, PERCENTAGE}."
+                    == format!("unknown @semantic type \"@semantic.Range\"; the closed catalog is {{{expected_catalog}}}.")
         }));
+    }
+
+    // Batch E semantic scalars — `@semantic.PositiveDecimal` (`> 0`) +
+    // `@semantic.NonNegativeInt` (`>= 0`). The codegen + runtime ship these;
+    // the doctor's closed catalog must agree (derived from
+    // `lazuli_keywords::SEMANTIC_TYPES`), so NO `semantic_type_unknown`
+    // (and no `SEMANTIC-PLUGIN-001`, since these are CORE not plugin).
+    //
+    // Uses a command input + query param + api output — the surfaces the
+    // pre-IR `syntax_feature` walker scans against `is_known_semantic_type_name`
+    // (the stale list). A resource FIELD wouldn't exercise it (the analyzer
+    // lowers the field type to a `Builtin` before the IR walker runs).
+    const SEMANTIC_NEW_SCALARS_FIXTURE: &str = r#"
+feature pricing
+  domain
+    resource Shipment
+      id: ID required
+
+  policies
+    create: @role.admin
+
+  command quote
+    input
+      amount: @semantic.PositiveDecimal required
+      reorder_at: @semantic.NonNegativeInt required
+    policy @policy.create
+    returns Text
+"#;
+
+    #[test]
+    fn doctor_accepts_positive_decimal_and_non_negative_int_semantic_types() {
+        let package =
+            package_from_sources(vec![("pricing.lzi", SEMANTIC_NEW_SCALARS_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        let offenders: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| {
+                (d.code == SEMANTIC_TYPE_UNKNOWN_CODE || d.code == "SEMANTIC-PLUGIN-001")
+                    && (d.message.contains("PositiveDecimal")
+                        || d.message.contains("NonNegativeInt"))
+            })
+            .collect();
+        assert!(
+            offenders.is_empty(),
+            "@semantic.PositiveDecimal / @semantic.NonNegativeInt are real closed-catalog \
+             scalars (codegen + runtime ship them); doctor must NOT flag them. Got: {:?}",
+            offenders
+                .iter()
+                .map(|d| (&d.code, &d.message))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// END-TO-END regression for DEFECT 2 + DEFECT 3 — loads a full
+    /// project fixture (`Lazurite.toml` + `app.lzi` + feature) the same way
+    /// `lazuli doctor <dir>` does (`DoctorPackage::load`), and asserts the
+    /// three defect codes are absent. This is the regression the original
+    /// golden/unit tests missed: the pilot broke through the binary even
+    /// though narrower tests passed. The fixture declares
+    /// `@semantic.PositiveDecimal` / `@semantic.NonNegativeInt` AND a
+    /// `unique (sku, region) when deleted_at == nil` on a `soft_delete`
+    /// resource. On the unfixed binary this fixture trips 7 false errors
+    /// (1× semantic_type_unknown, 5× SEMANTIC-PLUGIN-001, 1×
+    /// CONSTRAINT-UNIQUE-WHEN-001); the fix drives all three to zero.
+    #[test]
+    fn doctor_e2e_fixture_has_no_semantic_or_softdelete_false_errors() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("semantic-and-softdelete-e2e");
+        let diagnostics = DoctorPackage::load(&fixture, SecurityProfile::Strict)
+            .expect("load e2e fixture project")
+            .diagnostics();
+
+        let defect_codes = ["semantic_type_unknown", "SEMANTIC-PLUGIN-001", "CONSTRAINT-UNIQUE-WHEN-001"];
+        let offenders: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| defect_codes.contains(&d.code.as_str()))
+            .map(|d| (d.code.clone(), d.message.clone()))
+            .collect();
+        assert!(
+            offenders.is_empty(),
+            "DEFECT 2/3 e2e fixture must produce ZERO semantic_type_unknown / \
+             SEMANTIC-PLUGIN-001 / CONSTRAINT-UNIQUE-WHEN-001 findings; got: {offenders:?}"
+        );
     }
 
     const CROSS_FEATURE_TYPE_UNRESOLVED_FIXTURE: &str = r#"
