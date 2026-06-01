@@ -29,6 +29,12 @@ pub mod money_field_shape_001;
 pub mod owner_axis;
 pub mod rate_limit;
 pub mod referential_guard_001;
+// VOCAB-RUNTIME-REINVENTED-001 (spec 0024) — the audit oracle. Scans
+// `handlers/*.go` for handlers that reinvent a runtime/language primitive
+// (argon2 hashing, opaque-token mint/hash, lifecycle-transition shape, hex
+// scalar, soft-delete filter) the runtime already owns, via a parameterized
+// REINVENTION_TABLE. Advisory; precision-guarded against vendor crypto/hmac.
+pub mod runtime_reinvented_001;
 pub mod soft_delete_actor_001;
 pub mod universal_columns;
 pub mod vocab_audit_001;

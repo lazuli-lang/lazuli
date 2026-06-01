@@ -177,7 +177,7 @@ _Generated from 689 capability rows across the `lazuli_keywords` registry._
 | `@client` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Client extension decorator. | — |
 | `@feature` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Feature reference decorator. | — |
 | `@file` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | File reference decorator. | — |
-| `@fn` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Custom-function reference decorator. | `HANDLER-MISSING-001`<br>`HANDLER-SIGNATURE-MISMATCH-001`<br>`HANDLER-SQL-COLUMN-DRIFT-001`<br>`VOCAB-HANDLER-HEAVY-001` |
+| `@fn` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Custom-function reference decorator. | `HANDLER-MISSING-001`<br>`HANDLER-SIGNATURE-MISMATCH-001`<br>`HANDLER-SQL-COLUMN-DRIFT-001`<br>`VOCAB-HANDLER-HEAVY-001`<br>`VOCAB-RUNTIME-REINVENTED-001` |
 | `@full_text` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Full-text-index decorator. | `FULL-TEXT-TYPE-001` |
 | `@hook` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Hook reference decorator. | `HANDLER-ERROR-WRAP-001`<br>`HANDLER-NO-PANIC-001`<br>`HANDLER-NO-STRING-ERROR-001` |
 | `@key` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Encryption-key decorator. | — |

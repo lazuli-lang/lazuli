@@ -127,6 +127,11 @@ pub(crate) const P_FN: &[DiagnosticFacet] = &[
     df("HANDLER-SIGNATURE-MISMATCH-001", "error", "error_handling"),
     df("HANDLER-SQL-COLUMN-DRIFT-001", "error", "error_handling"),
     df("VOCAB-HANDLER-HEAVY-001", "warning", "vocabulary"),
+    // Spec 0024 — the reinvention audit oracle. Fires on a `@fn` handler that
+    // reinvents a runtime/language primitive (argon2, token mint/hash,
+    // lifecycle-transition shape, hex/soft-delete). `warning`/`vocabulary`
+    // ⇒ advisory, non-gating.
+    df("VOCAB-RUNTIME-REINVENTED-001", "warning", "vocabulary"),
 ];
 
 pub(crate) const P_INVARIANTS: &[DiagnosticFacet] =

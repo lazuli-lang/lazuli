@@ -33,6 +33,7 @@ use lazuli_doctor::escape_hatch::{
 };
 use lazuli_doctor::lzi_hygiene::walker::walk_lzi_sources;
 use lazuli_doctor::vocab::referential_guard_001;
+use lazuli_doctor::vocab::runtime_reinvented_001;
 use lazuli_syntax::parse_feature_skeletons;
 
 use crate::doctor::helpers::resolve_escape_hatch_severity;
@@ -153,6 +154,33 @@ pub(crate) fn escape_hatch_diagnostics(
                 column: 1,
                 severity,
                 code: referential_guard_001::Finding::CODE.to_owned(),
+                message,
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            });
+        }
+
+        // VOCAB-RUNTIME-REINVENTED-001 (spec 0024) — default Warning. The
+        // reinvention audit oracle: scans `<feature_dir>/handlers/*.go` for
+        // handlers reinventing a runtime/language primitive (argon2, token
+        // mint/hash, lifecycle-transition shape, hex scalar, soft-delete) the
+        // runtime already owns. Advisory; honors `# doctor:allow`.
+        for finding in runtime_reinvented_001::check(&feature, feature_dir) {
+            let severity = resolve_escape_hatch_severity(
+                DoctorSeverity::Warning,
+                runtime_reinvented_001::Finding::CODE,
+                preset,
+            );
+            let message = finding.message();
+            diagnostics.push(DoctorDiagnostic {
+                path: finding.handler_path,
+                line: 1,
+                column: 1,
+                severity,
+                code: runtime_reinvented_001::Finding::CODE.to_owned(),
                 message,
                 category: None,
                 feature_name: None,

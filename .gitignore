@@ -40,3 +40,5 @@ dist/web/**/dist/
 
 # Per-agent worktrees for parallel wave implementation (TDD/BDD multi-agent campaign 2026-05-24)
 .worktrees/
+reinvention-damage-report.json
+runtime-surface.md
