@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"os"
 	"reflect"
-	"strconv"
 	"strings"
 	"time"
 
@@ -377,47 +376,140 @@ func writeGuaranteedOutboxRows[I, O any](
 	return nil
 }
 
-// writeAuditRow inserts a row into lazuli_audit inside the supplied
-// tx so audit emission is transactional with the command effect.
-// Best-effort serialization of tenant id; failures bubble so the
-// command rolls back rather than committing without trail.
-func writeAuditRow(ctx *Ctx, tx pgx.Tx, command, decision string) error {
-	actor := string(ctx.Actor)
-	var tenant *string
-	if ctx.Tenant != nil {
-		s := strconv.FormatInt(int64(ctx.Tenant.OrgID), 10)
-		tenant = &s
+// auditRecord is the ctx-derived audit row assembled once per command and
+// written into the canonical `audit_log` table (and, when declared, the
+// materialize OperationLog sink). Its columns map 1:1 onto the codegen-emitted
+// `audit_log` DDL (crates/lazuli_codegen_go/src/emitter/audit.rs), reconciling
+// the two faces of the audit subsystem (codegen DDL vs runtime INSERT) onto one
+// schema. Pointer fields are NULL when the ctx does not carry the value.
+type auditRecord struct {
+	OrgID         *int64 // audit_log.org_id     — NULL when no tenant
+	ActorID       *int64 // audit_log.actor_id   — NULL for system/anonymous
+	ActorKind     string // audit_log.actor_kind — 'user' | 'system' | 'anonymous'
+	CommandName   string // audit_log.command_name — qualified, e.g. "account.signup"
+	ResultStatus  string // audit_log.result_status — 'ok' | 'error'
+	ErrorCode     *string
+	CorrelationID *string
+}
+
+// auditDecisionToResultStatus maps the runtime's coarse `decision` token onto
+// the `audit_log.result_status` domain ('ok' | 'error'). Allow/commit outcomes
+// are successes; deny/error outcomes are failures. The single in-tree caller
+// passes "allowed" (the audit row is written only on the post-effect success
+// path), but the mapping stays total so a future deny/error caller records the
+// right status instead of leaking the raw token.
+func auditDecisionToResultStatus(decision string) string {
+	switch strings.ToLower(strings.TrimSpace(decision)) {
+	case "allow", "allowed", "commit", "committed", "ok", "success":
+		return "ok"
+	default:
+		return "error"
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO lazuli_audit (command, actor, tenant, decision) VALUES ($1, $2, $3, $4)`,
-		command, actor, tenant, decision)
+}
+
+// assembleAuditRecord derives the audit_log row from the request ctx. actor_id
+// is the authenticated user's id (NULL for system/anonymous); actor_kind is
+// always set (the column is NOT NULL). org_id comes from the active tenant.
+func assembleAuditRecord(ctx *Ctx, command, decision string) auditRecord {
+	rec := auditRecord{
+		CommandName:  command,
+		ResultStatus: auditDecisionToResultStatus(decision),
+	}
+	if ctx == nil {
+		rec.ActorKind = string(ActorSystem)
+		return rec
+	}
+	if ctx.Tenant != nil {
+		org := int64(ctx.Tenant.OrgID)
+		rec.OrgID = &org
+	}
+	// actor_kind defaults to the ctx Actor token; for a user actor also stamp
+	// actor_id. An empty Actor with a populated User is treated as a user.
+	switch {
+	case ctx.Actor == ActorUser || (ctx.Actor == "" && ctx.User != nil):
+		rec.ActorKind = string(ActorUser)
+		if ctx.User != nil {
+			id := int64(ctx.User.ID)
+			rec.ActorID = &id
+		}
+	case ctx.Actor == "":
+		rec.ActorKind = string(ActorSystem)
+	default:
+		rec.ActorKind = string(ctx.Actor)
+	}
+	if rec.ResultStatus == "error" {
+		code := classifyAuditErrorCode(decision)
+		rec.ErrorCode = &code
+	}
+	if cid := auditCorrelationID(ctx); cid != "" {
+		rec.CorrelationID = &cid
+	}
+	return rec
+}
+
+// auditCorrelationID recovers the request correlation id from the ctx, falling
+// back to the request-id middleware value stashed on the underlying context.
+func auditCorrelationID(ctx *Ctx) string {
+	if ctx.RequestID != "" {
+		return ctx.RequestID
+	}
+	if ctx.Context != nil {
+		return RequestID(ctx.Context)
+	}
+	return ""
+}
+
+// classifyAuditErrorCode derives a stable error_code token for a non-ok audit
+// row. The runtime only ever passes a coarse decision string here, so the code
+// echoes the (deny/error) token rather than inventing a richer taxonomy.
+func classifyAuditErrorCode(decision string) string {
+	d := strings.ToLower(strings.TrimSpace(decision))
+	if d == "" {
+		return "error"
+	}
+	return d
+}
+
+// writeAuditRow inserts a row into the canonical `audit_log` table inside the
+// supplied tx so audit emission is transactional with the command effect.
+// Columns map onto the codegen-emitted DDL; happened_at relies on the DDL's
+// DEFAULT NOW(). Failures bubble so the command rolls back rather than
+// committing without a trail.
+func writeAuditRow(ctx *Ctx, tx pgx.Tx, command, decision string) error {
+	rec := assembleAuditRecord(ctx, command, decision)
+	_, err := tx.Exec(ctx,
+		`INSERT INTO audit_log (org_id, actor_id, actor_kind, command_name, result_status, error_code, correlation_id) `+
+			`VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		rec.OrgID, rec.ActorID, rec.ActorKind, rec.CommandName, rec.ResultStatus, rec.ErrorCode, rec.CorrelationID)
 	return err
 }
 
-// writeAuditMaterializeRow inserts the same assembled audit record into a
+// writeAuditMaterializeRow inserts the SAME assembled audit record into a
 // declared append_only OperationLog table (GAP-AUDIT-01 `audit materialize
 // @feature.<f>.<R>`). It runs inside the command tx so materialization is
-// atomic with the effect + the lazuli_audit row — one record, two sinks.
-// Wire-thin: reuses the exact ctx-derived record (command, actor, tenant,
-// decision, recorded timestamp) that writeAuditRow assembles; no new audit
-// logic. The table is a compile-time literal (snake-cased target resource
-// emitted by codegen) verified append_only by doctor, so the identifier
-// interpolation carries no untrusted input. The canonical OperationLog
-// columns mirror lazuli_audit (command, actor, tenant, decision,
-// recorded_at) so the same record shape lands in both sinks.
+// atomic with the effect + the audit_log row — one record, two sinks.
+// Wire-thin: reuses the exact ctx-derived record (org_id, actor_id, actor_kind,
+// command_name, result_status, error_code, correlation_id) that writeAuditRow
+// assembles; no new audit logic. The table is a compile-time literal
+// (snake-cased target resource emitted by codegen) verified append_only by
+// doctor, so the identifier interpolation carries no untrusted input. The
+// OperationLog columns mirror audit_log so the same record shape lands in both
+// sinks; `recorded_at` is the append_only ledger's own write timestamp.
 func writeAuditMaterializeRow(ctx *Ctx, tx pgx.Tx, table, command, decision string) error {
-	actor := string(ctx.Actor)
-	var tenant *string
-	if ctx.Tenant != nil {
-		s := strconv.FormatInt(int64(ctx.Tenant.OrgID), 10)
-		tenant = &s
+	rec := assembleAuditRecord(ctx, command, decision)
+	recordedAt := time.Now().UTC()
+	if ctx != nil && !ctx.Now.IsZero() {
+		recordedAt = ctx.Now
 	}
 	// %s is a codegen-emitted snake_case table literal, never user input;
 	// pgx.Identifier.Sanitize quotes it (defense-in-depth on the identifier slot).
 	sql := fmt.Sprintf(
-		`INSERT INTO %s (command, actor, tenant, decision, recorded_at) VALUES ($1, $2, $3, $4, $5)`,
+		`INSERT INTO %s (org_id, actor_id, actor_kind, command_name, result_status, error_code, correlation_id, recorded_at) `+
+			`VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		pgx.Identifier{table}.Sanitize(),
 	)
-	_, err := tx.Exec(ctx, sql, command, actor, tenant, decision, ctx.Now)
+	_, err := tx.Exec(ctx, sql,
+		rec.OrgID, rec.ActorID, rec.ActorKind, rec.CommandName, rec.ResultStatus, rec.ErrorCode, rec.CorrelationID, recordedAt)
 	return err
 }
 

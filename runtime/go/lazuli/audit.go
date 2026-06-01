@@ -15,9 +15,9 @@ type AuditSpec struct {
 	// MaterializeTable is the snake-cased table name of an append_only
 	// OperationLog the audit record is also written to (GAP-AUDIT-01,
 	// `audit materialize @feature.<f>.<R>`). Empty means audit emits the
-	// event/lazuli_audit row only — the default. When set, the runtime
+	// canonical `audit_log` row only — the default. When set, the runtime
 	// inserts the SAME assembled audit record into this table inside the
-	// command tx, in addition to the lazuli_audit row (one record, two
+	// command tx, in addition to the `audit_log` row (one record, two
 	// sinks). The target resource is verified append_only at compile time
 	// by doctor AUDIT-MATERIALIZE-TARGET-001.
 	MaterializeTable string
