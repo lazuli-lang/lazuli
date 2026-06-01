@@ -84,7 +84,17 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 
     for resource in &feature.resources {
-        let fields: HashSet<&str> = resource.fields.iter().map(|f| f.name.as_str()).collect();
+        let mut fields: HashSet<&str> =
+            resource.fields.iter().map(|f| f.name.as_str()).collect();
+        // A `soft_delete` resource synthesizes `deleted_at` (and, for the
+        // `soft_delete by` actor form, `deleted_by`) columns that are NOT in
+        // `resource.fields`. Credit them so the canonical soft-delete-aware
+        // partial unique `unique (...) when deleted_at == nil` (which codegen
+        // lowers to `WHERE deleted_at IS NULL`) resolves. Derived from the IR
+        // SoT (`Resource::synthesized_soft_delete_columns`) so the doctor
+        // agrees with codegen by construction — only the synthesized columns
+        // are credited, never arbitrary unknowns.
+        fields.extend(resource.synthesized_soft_delete_columns().iter().copied());
         for constraint in &resource.constraints {
             let Constraint::Unique(unique) = constraint else {
                 continue;
@@ -337,6 +347,122 @@ mod tests {
         let findings = check(&feature, Path::new("f.lzi"));
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].unresolved_field, "nonexistent");
+    }
+
+    fn cmp_pred_nil(lhs: &str) -> EvalPredicate {
+        // `<lhs> == nil` — the canonical soft-delete-aware partial-unique
+        // predicate. `nil` lowers to a Null literal expr; the field-head
+        // membership check only inspects the path side.
+        EvalPredicate::Closed(Predicate::Comparison {
+            left: Expr::Path(IrPath::from_segments([lhs])),
+            op: CompareOp::Eq,
+            right: Expr::Nil,
+        })
+    }
+
+    fn mk_soft_delete_resource(
+        name: &str,
+        actor: bool,
+        fields: Vec<Field>,
+        constraints: Vec<Constraint>,
+    ) -> Resource {
+        let mut r = mk_resource(name, fields, constraints);
+        r.soft_delete = true;
+        r.soft_delete_actor = actor;
+        r
+    }
+
+    #[test]
+    fn soft_delete_deleted_at_predicate_passes() {
+        // Canonical soft-delete-aware partial unique. `deleted_at` is a
+        // SYNTHESIZED column (not in `resource.fields`) — it must still
+        // resolve because the resource is `soft_delete`.
+        let resource = mk_soft_delete_resource(
+            "PriceTable",
+            false,
+            vec![mk_field("sku"), mk_field("region")],
+            vec![Constraint::Unique(UniqueConstraint {
+                fields: vec!["sku".into(), "region".into()],
+                per: None,
+                when: Some(cmp_pred_nil("deleted_at")),
+                error_code: None,
+            })],
+        );
+        let feature = mk_feature(vec![resource]);
+        assert!(
+            check(&feature, Path::new("f.lzi")).is_empty(),
+            "soft-delete-synthesized `deleted_at` in the `when` predicate must resolve"
+        );
+    }
+
+    #[test]
+    fn soft_delete_by_credits_deleted_by_column() {
+        // The actor form (`soft_delete by`) synthesizes `deleted_by` too.
+        let resource = mk_soft_delete_resource(
+            "PriceTable",
+            true,
+            vec![mk_field("sku")],
+            vec![
+                Constraint::Unique(UniqueConstraint {
+                    fields: vec!["sku".into()],
+                    per: None,
+                    when: Some(cmp_pred_nil("deleted_at")),
+                    error_code: None,
+                }),
+                Constraint::Unique(UniqueConstraint {
+                    fields: vec!["deleted_by".into()],
+                    per: None,
+                    when: Some(cmp_pred_nil("deleted_by")),
+                    error_code: None,
+                }),
+            ],
+        );
+        let feature = mk_feature(vec![resource]);
+        assert!(
+            check(&feature, Path::new("f.lzi")).is_empty(),
+            "soft_delete_actor must credit both `deleted_at` and `deleted_by`"
+        );
+    }
+
+    #[test]
+    fn soft_delete_does_not_open_gate_for_arbitrary_unknown_field() {
+        // Only the synthesized soft-delete columns get credited — a genuine
+        // typo (`bogus`) on a soft-delete resource STILL errors.
+        let resource = mk_soft_delete_resource(
+            "PriceTable",
+            false,
+            vec![mk_field("sku")],
+            vec![Constraint::Unique(UniqueConstraint {
+                fields: vec!["sku".into()],
+                per: None,
+                when: Some(cmp_pred_nil("bogus")),
+                error_code: None,
+            })],
+        );
+        let feature = mk_feature(vec![resource]);
+        let findings = check(&feature, Path::new("f.lzi"));
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert_eq!(findings[0].unresolved_field, "bogus");
+    }
+
+    #[test]
+    fn non_soft_delete_resource_does_not_credit_deleted_at() {
+        // A NON-soft-delete resource has no synthesized `deleted_at`, so
+        // referencing it is still an error (don't over-open the gate).
+        let resource = mk_resource(
+            "PriceTable",
+            vec![mk_field("sku")],
+            vec![Constraint::Unique(UniqueConstraint {
+                fields: vec!["sku".into()],
+                per: None,
+                when: Some(cmp_pred_nil("deleted_at")),
+                error_code: None,
+            })],
+        );
+        let feature = mk_feature(vec![resource]);
+        let findings = check(&feature, Path::new("f.lzi"));
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert_eq!(findings[0].unresolved_field, "deleted_at");
     }
 
     #[test]

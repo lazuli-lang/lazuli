@@ -179,6 +179,27 @@ pub struct Resource {
     pub restrict_on_delete: Vec<RestrictOnDelete>,
 }
 
+impl Resource {
+    /// The soft-delete columns this resource synthesizes that do NOT appear
+    /// in [`Resource::fields`]. `soft_delete` projects a nullable
+    /// `deleted_at`; the `soft_delete by` (actor) form additionally projects
+    /// a nullable `deleted_by`. Single source of truth so every surface
+    /// (schema-diff / create-table emitter, doctor field-membership checks)
+    /// agrees on the synthesized column set by construction instead of each
+    /// re-hardcoding the literal names. Mirrors the discovery order in
+    /// `lazuli_codegen_go::emitter::schema_diff::ir` (check `soft_delete`
+    /// first, then `soft_delete_actor` nested inside).
+    pub fn synthesized_soft_delete_columns(&self) -> &'static [&'static str] {
+        if !self.soft_delete {
+            &[]
+        } else if self.soft_delete_actor {
+            &["deleted_at", "deleted_by"]
+        } else {
+            &["deleted_at"]
+        }
+    }
+}
+
 /// Spec 0014 — one referential-integrity guard lowered from `restrict
 /// on_delete references <relation> via <fk> [where <predicate>]`. Models
 /// the invariant-up-to-table/column delete-safety check the pilots
