@@ -79,11 +79,20 @@ func guardBillingTypeInvoiceRefs(ctx context.Context, db lazuli.DBTX, tenantID, 
 ### Grammar
 
 ```
-restrict on_delete references <relation> via <fk> [where <predicate>]
+restrict on_delete references <relation> via <fk> [error <CODE>] [where <predicate>]
 ```
 
-- `<relation>` — the referencing relation (e.g. `invoice`).
+- `<relation>` — the referencing relation (e.g. `invoice`). May live in
+  **another feature** (e.g. a `billing_config` guard referencing
+  `customer_management.Customer`); the tenant + soft-delete scope is resolved
+  module-globally, so a cross-feature guard still emits `AND tenant_id` +
+  `AND deleted_at IS NULL` (no cross-tenant breach).
 - `<fk>` — the column on `<relation>` pointing at this resource's id.
+- `error <CODE>` *(optional)* — pins a per-guard domain error code (e.g.
+  `error CATEGORY_HAS_CUSTOMERS`) the emitter rejects with via
+  `runtime.NewReferencedInUseError("<CODE>")` instead of the bare
+  `runtime.ErrReferencedInUse` sentinel. Omit it to keep the back-compat
+  sentinel. Covers wire-pinned codes like `CATEGORY_HAS_CUSTOMERS`.
 - `where <predicate>` *(optional)* — narrows the guard to a *subset* of
   references (e.g. only *open* activities), appended as `AND (<predicate>)`.
   Covers `guard_no_open_activities` / `guard_no_open_step_activities`.
@@ -97,7 +106,10 @@ restrict on_delete references <relation> via <fk> [where <predicate>]
 - Multiple `restrict on_delete` lines → multiple guards, run as preconditions
   before the delete in declaration order, short-circuiting on the first hit.
 - Rejection raises `runtime.ErrReferencedInUse` (the same error the hand-written
-  guards returned), so callers and HTTP mapping are unchanged.
+  guards returned), so callers and HTTP mapping are unchanged — unless the guard
+  authored `error <CODE>`, in which case it raises
+  `runtime.NewReferencedInUseError("<CODE>")`, which `errors.Is`-es back to the
+  sentinel and wires to HTTP 409 carrying `<CODE>` as the wire code.
 
 ### Escape hatch
 

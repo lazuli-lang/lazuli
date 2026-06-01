@@ -50,6 +50,49 @@ fn referential_guard_where_subset_clause_parses() {
 }
 
 #[test]
+fn referential_guard_error_code_clause_parses() {
+    // Spec 0014 GAP-2: an optional `error <CODE>` clause pins a per-guard
+    // domain error code the emitter rejects with instead of the bare
+    // `ErrReferencedInUse` sentinel.
+    let r = first_resource(
+        "\nfeature customer_management\n  resource CustomerCategory\n    name: Text required\n    restrict on_delete references customer via category_id error CATEGORY_HAS_CUSTOMERS\n",
+    );
+    assert_eq!(r.restrict_on_delete.len(), 1);
+    let g = &r.restrict_on_delete[0];
+    assert_eq!(g.relation, "customer");
+    assert_eq!(g.fk, "category_id");
+    assert_eq!(g.extra_where, None);
+    assert_eq!(g.error_code.as_deref(), Some("CATEGORY_HAS_CUSTOMERS"));
+}
+
+#[test]
+fn referential_guard_error_code_before_where_parses() {
+    // Grammar order: `references <rel> via <fk> [error <CODE>] [where <pred>]`.
+    let r = first_resource(
+        "\nfeature ops\n  resource WorkflowStep\n    name: Text required\n    restrict on_delete references activity via step_id error STEP_HAS_OPEN_ACTIVITIES where status = 'open'\n",
+    );
+    let g = &r.restrict_on_delete[0];
+    assert_eq!(g.error_code.as_deref(), Some("STEP_HAS_OPEN_ACTIVITIES"));
+    assert_eq!(g.extra_where.as_deref(), Some("status = 'open'"));
+}
+
+#[test]
+fn referential_guard_no_error_code_leaves_none() {
+    let r = first_resource(
+        "\nfeature billing\n  resource BillingType\n    name: Text required\n    restrict on_delete references invoice via billing_type_id\n",
+    );
+    assert_eq!(r.restrict_on_delete[0].error_code, None);
+}
+
+#[test]
+fn referential_guard_empty_error_code_errors() {
+    let err = parse_feature_skeletons(
+        "\nfeature billing\n  resource BillingType\n    name: Text required\n    restrict on_delete references invoice via billing_type_id error\n",
+    );
+    assert!(err.is_err(), "empty `error` clause must be a parse error");
+}
+
+#[test]
 fn referential_guard_round_trips_through_serde() {
     // "Round-trips through fmt": the AST captures the clause losslessly,
     // so serialize → deserialize is identity.

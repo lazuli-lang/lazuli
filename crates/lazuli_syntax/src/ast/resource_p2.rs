@@ -139,6 +139,12 @@ pub struct ResourceRestrictOnDelete {
     /// "any live reference" case.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra_where: Option<String>,
+    /// Spec 0014 GAP-2 — optional `error <CODE>` clause pinning a per-guard
+    /// domain error code (e.g. `CATEGORY_HAS_CUSTOMERS`) the emitter rejects
+    /// with instead of the bare `runtime.ErrReferencedInUse` sentinel.
+    /// `None` keeps the back-compat sentinel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
     pub span: Span,
 }
 

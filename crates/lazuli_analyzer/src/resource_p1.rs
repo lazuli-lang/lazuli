@@ -144,6 +144,7 @@ pub(crate) fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resour
                 extra_where: g.extra_where.clone(),
                 tenant_scoped: false,
                 soft_delete: false,
+                error_code: g.error_code.clone(),
             })
             .collect(),
     })
@@ -170,25 +171,50 @@ pub(crate) fn resolve_restrict_on_delete_scopes(resources: &mut [ir::Resource]) 
     // protected resources while reading the referencing relations' shapes.
     let scopes: std::collections::HashMap<String, (bool, bool)> = resources
         .iter()
-        .map(|res| {
-            let tenant_scoped = matches!(
-                res.tenancy,
-                Some(ir::Tenancy::Org | ir::Tenancy::Team | ir::Tenancy::Custom(_))
-            );
-            (
-                crate::helpers::pascal_to_snake(&res.name),
-                (tenant_scoped, res.soft_delete),
-            )
-        })
+        .map(restrict_on_delete_scope_entry)
         .collect();
+    apply_restrict_on_delete_scopes(resources, &scopes);
+}
+
+/// Apply a `relation-snake-name → (tenant_scoped, soft_delete)` scope index
+/// onto every `restrict on_delete` guard. The guard's `relation` is
+/// normalized via `pascal_to_snake` before lookup so the author may write it
+/// either PascalCase (`Customer`) or snake_case (`customer`); a guard whose
+/// relation does not resolve is left untouched (flags stay as-is).
+///
+/// Shared by the per-feature pass (above) and the module-level pass
+/// (`resolve_restrict_on_delete_scopes_module` in `lib.rs`, which rebuilds
+/// the index from EVERY feature's resources so cross-feature relations
+/// resolve too — closing the cross-tenant breach for guards that reference a
+/// relation owned by another feature).
+pub(crate) fn apply_restrict_on_delete_scopes(
+    resources: &mut [ir::Resource],
+    scopes: &std::collections::HashMap<String, (bool, bool)>,
+) {
     for res in resources.iter_mut() {
         for guard in res.restrict_on_delete.iter_mut() {
-            if let Some(&(tenant_scoped, soft_delete)) = scopes.get(&guard.relation) {
+            let key = crate::helpers::pascal_to_snake(&guard.relation);
+            if let Some(&(tenant_scoped, soft_delete)) = scopes.get(&key) {
                 guard.tenant_scoped = tenant_scoped;
                 guard.soft_delete = soft_delete;
             }
         }
     }
+}
+
+/// Build the `relation-snake-name → (tenant_scoped, soft_delete)` scope
+/// entry for one resource. The tenancy axis and `soft_delete` flag are read
+/// off the resource's own schema — never the author's guard line — which is
+/// what guarantees the derived predicates can't be forgotten.
+pub(crate) fn restrict_on_delete_scope_entry(res: &ir::Resource) -> (String, (bool, bool)) {
+    let tenant_scoped = matches!(
+        res.tenancy,
+        Some(ir::Tenancy::Org | ir::Tenancy::Team | ir::Tenancy::Custom(_))
+    );
+    (
+        crate::helpers::pascal_to_snake(&res.name),
+        (tenant_scoped, res.soft_delete),
+    )
 }
 
 /// GAP-07 — synthesize the junction `ir::Resource` for one `many_through`

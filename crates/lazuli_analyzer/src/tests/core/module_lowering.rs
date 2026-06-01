@@ -8,7 +8,7 @@ use crate::resource::lower_validate_line;
 use crate::{
     AnalyzeError, lower_audit_block, lower_feature_skeleton, lower_lzx_document,
     lower_policy_atom_with_args, parse_cap_file_type, resolve_invalidates_targets,
-    type_ref_from_syntax,
+    resolve_restrict_on_delete_scopes_module, type_ref_from_syntax,
 };
 
 fn lower_module_for_test(source: &str) -> lazuli_ir::Module {
@@ -357,4 +357,112 @@ route customer_detail
         module.routes[0].to.as_deref(),
         Some("customer.view.detail(id: route.id)")
     );
+}
+
+// -------------------------------------------------------------------------
+// Spec 0014 GAP-1 — cross-feature restrict-on-delete scope resolution.
+//
+// The per-feature pass (`feature.rs:139`) only sees same-feature resources,
+// so a guard whose referencing relation lives in ANOTHER feature never gets
+// its `tenant_scoped` / `soft_delete` flags set — the emitted EXISTS would
+// then OMIT `AND tenant_id` (cross-tenant breach) and `AND deleted_at IS
+// NULL` (soft-deleted rows still block). The module-level pass re-resolves
+// every guard against ALL features' resources.
+// -------------------------------------------------------------------------
+
+fn customer_restrict_module() -> ir::Module {
+    // billing_config.BillingType guards against deletion while a live
+    // customer_management.Customer references it via billing_type_id.
+    // Customer is tenant-scoped (`tenancy org`) + soft-deletable.
+    let source = r#"
+feature customer_management
+  domain
+    resource Customer
+      name: Text required
+      tenancy org
+      soft_delete
+
+feature billing_config
+  domain
+    resource BillingType
+      name: Text required
+      restrict on_delete references customer via billing_type_id
+"#;
+    lower_module_for_test(source)
+}
+
+#[test]
+fn cross_feature_restrict_scope_unresolved_before_module_pass() {
+    // Baseline: the per-feature pass leaves the cross-feature guard's flags
+    // false (it can't see customer_management.Customer). This is the breach.
+    let module = customer_restrict_module();
+    let billing = module
+        .features
+        .iter()
+        .find(|f| f.name == "billing_config")
+        .expect("billing_config feature");
+    let guard = &billing.resources[0].restrict_on_delete[0];
+    assert_eq!(guard.relation, "customer");
+    assert!(
+        !guard.tenant_scoped,
+        "per-feature pass cannot resolve the cross-feature relation's tenancy"
+    );
+    assert!(
+        !guard.soft_delete,
+        "per-feature pass cannot resolve the cross-feature relation's soft-delete"
+    );
+}
+
+#[test]
+fn cross_feature_restrict_scope_resolved_by_module_pass() {
+    // After the module-level pass, the guard carries BOTH derived flags —
+    // so the emitted EXISTS gets `AND tenant_id = $N` + `AND deleted_at IS
+    // NULL` and the cross-tenant breach is closed.
+    let mut module = customer_restrict_module();
+    resolve_restrict_on_delete_scopes_module(&mut module);
+
+    let billing = module
+        .features
+        .iter()
+        .find(|f| f.name == "billing_config")
+        .expect("billing_config feature");
+    let guard = &billing.resources[0].restrict_on_delete[0];
+    assert!(
+        guard.tenant_scoped,
+        "module pass must resolve customer_management.Customer tenancy"
+    );
+    assert!(
+        guard.soft_delete,
+        "module pass must resolve customer_management.Customer soft-delete"
+    );
+}
+
+#[test]
+fn module_pass_resolves_pascal_case_cross_feature_relation() {
+    // The author may write the relation in PascalCase (`Customer`); the
+    // module pass normalizes both sides via pascal_to_snake.
+    let source = r#"
+feature customer_management
+  domain
+    resource Customer
+      name: Text required
+      tenancy org
+      soft_delete
+
+feature billing_config
+  domain
+    resource BillingType
+      name: Text required
+      restrict on_delete references Customer via billing_type_id
+"#;
+    let mut module = lower_module_for_test(source);
+    resolve_restrict_on_delete_scopes_module(&mut module);
+    let billing = module
+        .features
+        .iter()
+        .find(|f| f.name == "billing_config")
+        .expect("billing_config feature");
+    let guard = &billing.resources[0].restrict_on_delete[0];
+    assert!(guard.tenant_scoped, "PascalCase relation must resolve");
+    assert!(guard.soft_delete, "PascalCase relation must resolve");
 }

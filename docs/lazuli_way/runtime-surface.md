@@ -113,7 +113,7 @@ The families the pilot audit flagged for reinvention. Reach for the runtime verb
 
 ## Full symbol census
 
-_Generated from 709 exported symbols across 30 runtime packages._
+_Generated from 711 exported symbols across 31 runtime packages._
 
 ### audit
 > audit-trail sinks + rows.
@@ -239,6 +239,11 @@ _Generated from 709 exported symbols across 30 runtime packages._
 > reputation scoring.
 
 `NeutralScorer` · `Score` · `Scorer`
+
+### runtime
+> codegen-emitted glue sentinels + constructors (referential-guard `ErrReferencedInUse` / `NewReferencedInUseError`).
+
+`NewReferencedInUseError` · `ReferencedInUseError`
 
 ### secrets
 > secret providers + leased secrets.

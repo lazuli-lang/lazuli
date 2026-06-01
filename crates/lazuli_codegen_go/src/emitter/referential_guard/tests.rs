@@ -125,6 +125,7 @@ fn guard(relation: &str, fk: &str, tenant_scoped: bool, soft_delete: bool) -> Re
         extra_where: None,
         tenant_scoped,
         soft_delete,
+        error_code: None,
     }
 }
 
@@ -242,6 +243,53 @@ fn multiple_guards_on_one_resource_each_emit_a_function() {
     assert!(
         !quote_only.contains("deleted_at"),
         "quote (non-soft-delete) must not carry deleted_at:\n{quote_only}"
+    );
+}
+
+#[test]
+fn no_error_code_emits_bare_sentinel() {
+    // Spec 0014 GAP-2 back-compat: a guard with no authored `error <CODE>`
+    // keeps the bare `runtime.ErrReferencedInUse` sentinel (byte-identical to
+    // the pre-gap2 output).
+    let mut f = base_feature("billing");
+    f.resources.push(resource_with_guards(
+        "BillingType",
+        vec![guard("invoice", "billing_type_id", true, true)],
+    ));
+    let out = emit(f);
+    assert!(
+        out.contains("return runtime.ErrReferencedInUse"),
+        "bare sentinel must be kept when no error code is authored:\n{out}"
+    );
+    assert!(
+        !out.contains("NewReferencedInUseError"),
+        "constructor must NOT appear without an authored code:\n{out}"
+    );
+}
+
+#[test]
+fn authored_error_code_emits_domain_constructor() {
+    // Spec 0014 GAP-2: a guard carrying `error CATEGORY_HAS_CUSTOMERS`
+    // rejects with `runtime.NewReferencedInUseError("CATEGORY_HAS_CUSTOMERS")`
+    // — the pilot's wire-pinned domain code — instead of the bare sentinel.
+    let mut f = base_feature("customer_management");
+    let mut g = guard("customer", "category_id", true, true);
+    g.error_code = Some("CATEGORY_HAS_CUSTOMERS".to_owned());
+    f.resources
+        .push(resource_with_guards("CustomerCategory", vec![g]));
+    let out = emit(f);
+    assert!(
+        out.contains("return runtime.NewReferencedInUseError(\"CATEGORY_HAS_CUSTOMERS\")"),
+        "domain-code constructor missing:\n{out}"
+    );
+    assert!(
+        !out.contains("return runtime.ErrReferencedInUse\n"),
+        "bare sentinel must NOT be emitted when a code is authored:\n{out}"
+    );
+    // The authored code is echoed in the self-documenting comment too.
+    assert!(
+        out.contains("error CATEGORY_HAS_CUSTOMERS"),
+        "authored error code should appear in the clause comment:\n{out}"
     );
 }
 

@@ -402,6 +402,8 @@ fn package_gloss(pkg: &str) -> &'static str {
         "probe" => "liveness / readiness probe constructors.",
         "report" => "CSV/XLSX report runners, columns, params, policy.",
         "reputation" => "reputation scoring.",
+        "runtime" => "codegen-emitted glue sentinels + constructors (referential-guard \
+                      `ErrReferencedInUse` / `NewReferencedInUseError`).",
         "secrets" => "secret providers + leased secrets.",
         "storage" => "object store + signed URLs (see intent section).",
         "vectorstore" => "vector store: collections, embeddings, similarity queries.",

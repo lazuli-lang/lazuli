@@ -117,7 +117,13 @@ fn emit_one_guard(p: &mut GoPrinter, protected: &str, guard: &RestrictOnDelete) 
     p.line("}");
     p.line("if inUse {");
     p.indent();
-    p.line("return runtime.ErrReferencedInUse");
+    // Spec 0014 GAP-2 — reject with the authored per-guard domain code when
+    // present (`runtime.NewReferencedInUseError("<CODE>")`), else the bare
+    // back-compat sentinel.
+    match &guard.error_code {
+        Some(code) => p.line(&format!("return runtime.NewReferencedInUseError({code:?})")),
+        None => p.line("return runtime.ErrReferencedInUse"),
+    }
     p.dedent();
     p.line("}");
     p.line("return nil");
@@ -133,6 +139,9 @@ fn source_clause(_protected: &str, guard: &RestrictOnDelete) -> String {
         "restrict on_delete references {} via {}",
         guard.relation, guard.fk
     );
+    if let Some(code) = &guard.error_code {
+        s.push_str(&format!(" error {code}"));
+    }
     if let Some(extra) = &guard.extra_where {
         s.push_str(&format!(" where {extra}"));
     }

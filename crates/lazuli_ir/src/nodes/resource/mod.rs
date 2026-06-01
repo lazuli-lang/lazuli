@@ -210,6 +210,13 @@ pub struct RestrictOnDelete {
     /// emitted `EXISTS` adds `AND deleted_at IS NULL`. NOT author-supplied.
     #[serde(default, skip_serializing_if = "is_false")]
     pub soft_delete: bool,
+    /// Spec 0014 GAP-2 — optional `error <CODE>` clause. When `Some`, the
+    /// emitter rejects with `runtime.NewReferencedInUseError("<CODE>")`
+    /// instead of the bare `runtime.ErrReferencedInUse` sentinel, so a pilot
+    /// can pin a wire-contract domain code (e.g. `CATEGORY_HAS_CUSTOMERS`).
+    /// `None` keeps the back-compat sentinel. Author-supplied (verbatim).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
 }
 
 /// GAP-07 — one M:N-with-metadata relationship declared via

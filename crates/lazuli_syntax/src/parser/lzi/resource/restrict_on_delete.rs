@@ -27,7 +27,7 @@ use super::super::super::error::ParseError;
 use crate::ast::{ResourceRestrictOnDelete, Span};
 
 /// Parse the text AFTER the leading `restrict ` keyword:
-/// `on_delete references <relation> via <fk> [where <predicate>]`.
+/// `on_delete references <relation> via <fk> [error <CODE>] [where <predicate>]`.
 pub(super) fn parse_resource_restrict_on_delete(
     line: &SourceLine<'_>,
     rest: &str,
@@ -62,9 +62,13 @@ pub(super) fn parse_resource_restrict_on_delete(
             "`restrict on_delete references` takes exactly one relation name before `via`",
         ));
     }
-    // The fk runs until an optional ` where ` subset clause.
-    let (fk, extra_where) = match after_via.split_once(" where ") {
-        Some((fk, pred)) => {
+    // Grammar after `via`: `<fk> [error <CODE>] [where <predicate>]`.
+    //
+    // The `where` predicate is free-form (runs to end of line), so it must be
+    // split off FIRST. The `error <CODE>` clause is a single bareword and sits
+    // between the fk and any `where`, so we split it off the pre-`where` head.
+    let (before_where, extra_where) = match after_via.split_once(" where ") {
+        Some((head, pred)) => {
             let pred = pred.trim();
             if pred.is_empty() {
                 return Err(line_error(
@@ -72,9 +76,38 @@ pub(super) fn parse_resource_restrict_on_delete(
                     "`restrict on_delete ... where` requires a predicate (e.g. `where status = 'open'`)",
                 ));
             }
-            (fk.trim(), Some(pred.to_owned()))
+            (head, Some(pred.to_owned()))
         }
-        None => (after_via.trim(), None),
+        None => (after_via, None),
+    };
+    // Spec 0014 GAP-2 — optional `error <CODE>` clause (pins a per-guard
+    // domain error code; absent → bare `ErrReferencedInUse` sentinel).
+    let (fk, error_code) = match before_where.split_once(" error ") {
+        Some((fk, code)) => {
+            let code = code.trim();
+            if code.is_empty() || code.split_whitespace().count() != 1 {
+                return Err(line_error(
+                    line,
+                    "`restrict on_delete ... error <CODE>` takes exactly one domain error code \
+                     (e.g. `error CATEGORY_HAS_CUSTOMERS`)",
+                ));
+            }
+            (fk.trim(), Some(code.to_owned()))
+        }
+        None => {
+            // Bare trailing `error` with no code (e.g. `via fk error`) lands
+            // here because there is no ` error ` (trailing-space) separator;
+            // catch it so the author gets the actionable diagnostic.
+            let trimmed = before_where.trim();
+            if trimmed.ends_with(" error") || trimmed == "error" {
+                return Err(line_error(
+                    line,
+                    "`restrict on_delete ... error <CODE>` requires a domain error code \
+                     (e.g. `error CATEGORY_HAS_CUSTOMERS`)",
+                ));
+            }
+            (trimmed, None)
+        }
     };
     if fk.is_empty() || fk.split_whitespace().count() != 1 {
         return Err(line_error(
@@ -86,6 +119,7 @@ pub(super) fn parse_resource_restrict_on_delete(
         relation: relation.to_owned(),
         fk: fk.to_owned(),
         extra_where,
+        error_code,
         span: Span::new(line.start, line.end),
     })
 }

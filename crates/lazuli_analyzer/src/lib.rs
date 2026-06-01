@@ -194,6 +194,46 @@ pub fn resolve_invalidates_targets(module: &mut ir::Module) -> Result<(), Analyz
     validate_invalidates_targets(&module.features)
 }
 
+/// Spec 0014 GAP-1 — module-level re-resolution of `restrict on_delete`
+/// guard scopes (`tenant_scoped` / `soft_delete`) against EVERY feature's
+/// resources.
+///
+/// The per-feature pass (`resolve_restrict_on_delete_scopes`, run during
+/// `lower_feature_skeleton`) only sees same-feature resources, so a guard
+/// whose referencing relation lives in ANOTHER feature (e.g. a
+/// `billing_config` guard referencing `customer_management.Customer`) never
+/// gets its derived flags set. The emitted `EXISTS` would then OMIT
+/// `AND tenant_id = $N` — a CROSS-TENANT breach (the guard would probe every
+/// tenant's rows) — and `AND deleted_at IS NULL` (soft-deleted rows would
+/// still block deletion).
+///
+/// This pass rebuilds the `relation → (tenant_scoped, soft_delete)` index
+/// from the resources of ALL features in the module and re-applies it to
+/// every guard, so cross-feature relations resolve. It is intentionally
+/// module-scoped — same shape as [`resolve_invalidates_targets`], which also
+/// can only validate cross-feature command/query refs once all feature IR is
+/// present. Idempotent: same-feature guards already carry the correct flags
+/// from the per-feature pass; re-applying the (now-global) index is a no-op
+/// for them.
+///
+/// Resolution is purely by relation name (snake-cased) across the whole
+/// module. The module's `uses` graph is not consulted: a guard's referencing
+/// relation is the table that carries the FK, and two features can only share
+/// a table name by referring to the same resource, so a global by-name index
+/// is the correct resolution surface (mirrors how the migration emitter and
+/// FK topo-sort already treat resource names as module-global).
+pub fn resolve_restrict_on_delete_scopes_module(module: &mut ir::Module) {
+    let scopes: std::collections::HashMap<String, (bool, bool)> = module
+        .features
+        .iter()
+        .flat_map(|feature| feature.resources.iter())
+        .map(resource::restrict_on_delete_scope_entry)
+        .collect();
+    for feature in &mut module.features {
+        resource::apply_restrict_on_delete_scopes(&mut feature.resources, &scopes);
+    }
+}
+
 /// Module-level validation that every `Command.invalidates` target
 /// names a query that actually exists on the referenced feature.
 ///
