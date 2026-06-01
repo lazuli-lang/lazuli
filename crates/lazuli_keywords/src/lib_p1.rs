@@ -205,6 +205,17 @@ pub const GLOBAL_DIAGNOSTICS: &[DiagnosticFacet] = &[
         base_severity: "warning",
         category: "lzi_hygiene",
     },
+    // spec 0008 — resource-graph cohesion sibling + its info companions.
+    DiagnosticFacet {
+        code: "LZI-FEATURE-COHESION-002",
+        base_severity: "warning",
+        category: "lzi_hygiene",
+    },
+    DiagnosticFacet {
+        code: "LZI-FEATURE-COHESION-002-INFO",
+        base_severity: "info",
+        category: "lzi_hygiene",
+    },
     // ── doctor-meta (guards the override table itself) ──
     DiagnosticFacet {
         code: "DOCTOR-OVERRIDE-NEEDS-REASON-001",

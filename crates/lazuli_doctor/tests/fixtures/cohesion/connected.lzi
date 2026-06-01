@@ -1,0 +1,18 @@
+feature account
+  description "Connected single capability — modeled on hostpoint account.lzi"
+  resource Account
+    name: Text required
+    email: Text required
+  resource Profile
+    account: Account required
+    bio: Text required
+  resource Address
+    account: Account required
+    line1: Text required
+    city: Text required
+  resource Session
+    account: Account required
+    token: Text required
+  resource AuditEntry
+    account: Account required
+    action: Text required

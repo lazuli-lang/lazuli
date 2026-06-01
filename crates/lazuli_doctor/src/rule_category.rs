@@ -330,6 +330,11 @@ mod tests {
             RuleCategory::from_code_prefix("LZI-FEATURE-COHESION-001"),
             RuleCategory::LziHygiene
         );
+        // spec 0008 — resource-graph cohesion sibling.
+        assert_eq!(
+            RuleCategory::from_code_prefix("LZI-FEATURE-COHESION-002"),
+            RuleCategory::LziHygiene
+        );
         // Both casings round-trip through parse().
         assert_eq!(
             RuleCategory::parse("lzi_hygiene"),

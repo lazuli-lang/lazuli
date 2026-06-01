@@ -1,0 +1,13 @@
+feature platform
+  description "Disconnected grab-bag — modeled on hostpoint platform.lzi"
+  resource LegalDoc
+    title: Text required
+    body: Text required
+    version: Text required
+  resource PlatformConfig
+    key: Text required
+    value: Text required
+  resource DataRequest
+    email: Text required
+    kind: Text required
+    status: Text required

@@ -18,6 +18,17 @@
 //!   resource / domain prefix. Bundles of cohesive features (e.g.
 //!   `customer`, `customer_auth`, `customer_tags`) pass; arbitrary
 //!   bundling of unrelated features fires.
+//! - [`feature_cohesion_002`] (`LZI-FEATURE-COHESION-002`) — the
+//!   resource-graph **sibling** of -001: flags a single feature whose
+//!   intra-feature resource graph (nodes = resources; edges = FK fields
+//!   + `has_many` + `on_delete`) splits into ≥2 disconnected components,
+//!   i.e. it bundles independent capabilities. Shares the
+//!   [`cohesion_graph`] union-find helper. Non-waivable-in-spirit; warns
+//!   by default. Carries two info-level cross-feature companions (`uses`
+//!   fan-out, resource-name similarity).
+//! - [`cohesion_graph`] — infrastructure (not a rule): the shared
+//!   intra-feature relation graph + connected-components builder that
+//!   `feature_cohesion_002` (and 0009's splits) read.
 //! - [`lzi_comment_noise`] (`LZI-COMMENT-NOISE-001`) — advisory comment-noise
 //!   lint: decorative dividers + high comment-to-semantic ratio. Fires when a
 //!   `.lzi`/`.lzx` is comment-dominant or carries a divider ruler. Preventive
@@ -55,7 +66,9 @@
 //!   any file under `contracts/` (zero-feature files — they declare
 //!   `app`, `registry`, `workspace`, `contract` toplevels, not `feature`)
 
+pub mod cohesion_graph;
 pub mod feature_cohesion_001;
+pub mod feature_cohesion_002;
 pub mod feature_naming_matches_file_001;
 pub mod file_size_001;
 pub mod lzi_comment_noise;
@@ -63,6 +76,7 @@ pub mod preset;
 pub mod walker;
 
 pub use feature_cohesion_001::Finding as FeatureCohesionFinding;
+pub use feature_cohesion_002::Finding as FeatureCohesion002Finding;
 pub use feature_naming_matches_file_001::Finding as FeatureNamingMatchesFileFinding;
 pub use file_size_001::Finding as LziFileSizeFinding;
 pub use preset::{LziHygienePreset, preset_rule_severity};
