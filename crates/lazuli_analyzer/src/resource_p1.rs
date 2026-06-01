@@ -141,7 +141,17 @@ pub(crate) fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resour
             .map(|g| ir::RestrictOnDelete {
                 relation: g.relation.clone(),
                 fk: g.fk.clone(),
-                extra_where: g.extra_where.clone(),
+                // RESTRICT-WHERE-DIALECT-001 — run the verbatim `where` text
+                // through the SAME closed-predicate parser as partial-unique
+                // `when` so the codegen guard emitter can lower lazuli-dialect
+                // operators (`== nil` → `IS NULL`) instead of passing raw text
+                // straight into SQL. Shapes the parser can't structure land in
+                // `EvalPredicate::Unparsed` and are rendered verbatim downstream
+                // (back-compat for authors who wrote raw SQL `status = 'open'`).
+                extra_where: g
+                    .extra_where
+                    .as_deref()
+                    .map(crate::agent::parse_closed_predicate),
                 tenant_scoped: false,
                 soft_delete: false,
                 error_code: g.error_code.clone(),

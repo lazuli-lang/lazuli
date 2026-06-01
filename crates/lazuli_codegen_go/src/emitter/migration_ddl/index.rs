@@ -159,7 +159,7 @@ pub(super) fn partial_unique_index_name(table_name: &str, fields: &[String]) -> 
 /// nil`) emit a partial `WHERE deleted_at IS NULL` index rather than
 /// degrading to a full unique index that would block name reuse after a
 /// soft-delete.
-fn eval_predicate_sql(pred: &EvalPredicate) -> Option<String> {
+pub(crate) fn eval_predicate_sql(pred: &EvalPredicate) -> Option<String> {
     let EvalPredicate::Closed(Predicate::Comparison { left, op, right }) = pred else {
         return None;
     };
@@ -171,6 +171,35 @@ fn eval_predicate_sql(pred: &EvalPredicate) -> Option<String> {
     let lhs = expr_sql(left)?;
     let rhs = expr_sql(right)?;
     Some(format!("{} {} {}", lhs, compare_op_sql(*op), rhs))
+}
+
+/// RESTRICT-WHERE-DIALECT-001 — lower a `restrict on_delete ... where
+/// <predicate>` clause into the SQL boolean expression spliced into the
+/// guard's `EXISTS (... AND (<sql>))` probe. Shares the exact lowering the
+/// partial-unique index uses ([`eval_predicate_sql`]: `== nil` → `IS NULL`,
+/// `status == "open"` → `status = 'open'`), so the two surfaces agree on the
+/// lazuli→SQL dialect.
+///
+/// Differs from the partial-unique caller in the fallback: a shape the
+/// closed-predicate parser left as [`EvalPredicate::Unparsed`] (e.g. an
+/// author who wrote raw SQL `status = 'open'` with the SQL `=`, or a compound
+/// `a AND b`) renders its source text VERBATIM rather than being dropped —
+/// preserving back-compat with the prior raw-string passthrough. Genuinely
+/// lazuli-dialect-but-unlowerable Closed shapes (none today) would also
+/// surface here; there is no such case in the closed catalog.
+pub(crate) fn restrict_where_sql(pred: &EvalPredicate) -> String {
+    if let Some(sql) = eval_predicate_sql(pred) {
+        return sql;
+    }
+    match pred {
+        // Back-compat: raw-SQL-dialect `where` clauses the structured parser
+        // could not lower (e.g. `status = 'open'`, `a AND b`) keep flowing
+        // through verbatim, exactly as the old `Option<String>` passthrough did.
+        EvalPredicate::Unparsed(text) => text.clone(),
+        // No Closed/Contains/ToolsCalls shape reaches here unlowerable today;
+        // fall back to a debug rendering so the output is never silently empty.
+        other => format!("{other:?}"),
+    }
 }
 
 /// Lower a comparison whose other operand is `nil` into the SQL `IS NULL`
