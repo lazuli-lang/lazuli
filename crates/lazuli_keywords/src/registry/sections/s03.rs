@@ -263,11 +263,14 @@ pub(crate) const ROWS: &[CapabilitySpec] = &[
         "Server-only env var.",
     ),
     // ── integrations block ──
-    stmt(
-        "adapter",
-        Context::Integrations,
-        "entity.name.function.statement.integration.lazuli",
-        "Integration adapter.",
+    produces(
+        stmt(
+            "adapter",
+            Context::Integrations,
+            "entity.name.function.statement.integration.lazuli",
+            "Integration adapter.",
+        ),
+        P_PLUGIN_CONTRACT,
     ),
     stmt(
         "credentials",

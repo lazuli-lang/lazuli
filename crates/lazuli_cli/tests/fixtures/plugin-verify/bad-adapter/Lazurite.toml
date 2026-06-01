@@ -1,0 +1,10 @@
+[project]
+name = "plugin-verify-bad-adapter"
+module = "example.test/plugin-verify-bad"
+schema = 1
+
+[lazuli]
+runtime = "0.1.0"
+
+[plugins]
+"@lazuli/plugin-paygw" = { path = "plugins/paygw" }

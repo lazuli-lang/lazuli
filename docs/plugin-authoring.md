@@ -536,6 +536,91 @@ is byte-for-byte the same. A vendored-fixture regression test
 real manifest and asserts the inferred kind, the round-tripped adapter
 fields, and structural rejection of a malformed adapter.
 
+## Verify your plugin wiring (`lazuli plugin verify`)
+
+A plugin can be fully declared in `Lazurite.toml [plugins]` and still be
+**silently inert** — the manifest parses, but some link in the wiring chain is
+broken and the adapter only fails as `ErrAdapterMissing` at the first live
+request. `lazuli plugin verify` walks a project's declared plugins through the
+**same authoritative resolver real codegen uses** and reports, per plugin, a
+PASS/FAIL across every wiring link:
+
+```sh
+# From the project root (or any path inside it — verify walks UP to
+# the nearest Lazurite.toml):
+lazuli plugin verify
+lazuli plugin verify --plugin @lazuli/plugin-mercadopago   # scope to one
+lazuli plugin verify --json                                 # machine-readable
+```
+
+It checks an **ordered link chain** per plugin (a broken earlier link makes
+deeper links `skipped`):
+
+| Link | What PASS means |
+|------|-----------------|
+| **L1 manifest** | `manifest.toml` is found at the resolved plugin root and parses into the typed schema with a `[plugin]` block. |
+| **L2 semantic** | every `@semantic.*` the plugin contributes resolves in the authoritative alias map. `n/a` for adapter-only plugins. |
+| **L3 contract** | the adapter's `implements` / `[binds].interface` names a known framework bucket interface (and, where the app binds the capability, binds it to *this* plugin). `n/a` for semantic-only plugins. |
+| **L4 import** | the plugin's `go_module` resolves (from `go.mod` for local plugins), so `main.go`'s `_ "<go_module>"` side-effect import **will** emit and the adapter's `init()` lands in the binary. |
+| **L5 env** | every var in the manifest's required `[env]` set is present in the app's env contract (`.env` / `.env.example` keys). `n/a` when no `[env]` is required or no env file exists to check against. |
+
+The command **exits non-zero** if ANY plugin has ANY FAIL, and names the exact
+broken link plus its fix — so a human or an agent (via `--json`) can
+self-correct before deploy. A scaffold from `lazuli plugin new <name> --kind
+adapter` passes `lazuli plugin verify` green with zero edits.
+
+### Honest static limit
+
+L3 verifies the **declared contract + the wiring graph** — it does NOT prove
+that your Go `Adapter` type actually satisfies the interface's method set. The
+Rust compiler cannot run `go build`. That conformance proof stays the runtime
+assertion in your `adapter.go`:
+
+```go
+// Keep this line. It is what actually proves the method set under
+// `go build` / `go test` — the complement to `lazuli plugin verify`.
+var _ payments.PaymentGateway = (*Adapter)(nil)
+```
+
+`verify` says so on every L3 line; a PASS is never a method-set guarantee.
+
+## Contract check (`PLUGIN-CONTRACT-001`)
+
+`lazuli plugin verify` is the focused *report*; `PLUGIN-CONTRACT-001` is the
+**gating diagnostic** that makes a misdeclared adapter fail at `lazuli check` /
+CI / LSP time — not just when someone remembers to run `verify`. It fires at
+**error** severity when an adapter plugin is declared and either:
+
+- its `implements` / `[binds].interface` names an interface that is **not** in
+  the known bucket-interface catalog (a typo like `payments.PaymentGatway`, or
+  a legacy/self-referential spelling no runtime bucket exports), or
+- it declares a capability whose registry binding points at a **different**
+  plugin.
+
+The message names the plugin, the offending interface/capability, the nearest
+known interface on a near-miss, and the fix. The known catalog (v1) mirrors
+`runtime/go/lazuli/`:
+
+- `payments.PaymentGateway`
+- `storage.ObjectStore`
+- `maps.Geocoder`
+- `notifications.EmailSender`
+- `auth/social.Provider`
+
+A semantic-only plugin (no `implements`/`[binds]`) contributes no contract
+link and never FAILs. A plugin declared before its capability is bound is not a
+FAIL either (the unbound-capability arm fires only when the registry binds the
+capability to a *different* ref) — consistent with `PLUGIN-UNUSED-001`'s
+warning stance.
+
+**Same static/runtime split as verify:** `PLUGIN-CONTRACT-001` proves the
+declared contract + wiring graph; the method-set proof is the runtime
+`var _ <Interface> = (*Adapter)(nil)` assertion under `go build`. The message
+tail restates this. Both surfaces share **one** classifier
+(`lazuli_manifest::plugin_contract::classify_adapter_contract`), enforced by a
+drift-guard test, so `verify`'s L3 and `PLUGIN-CONTRACT-001` can never disagree
+on the same plugin.
+
 ## Scaffolding (automated)
 
 The `plugin-scaffold` pipeline in `lazuli-lang/ops/.pipely/pipelines/plugin-scaffold/`

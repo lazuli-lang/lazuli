@@ -1,0 +1,11 @@
+implements = ["payments.PaymentGateway"]
+
+[plugin]
+name = "paygw"
+namespace = "@lazuli/plugin-paygw"
+go_module = "example.test/plugin/paygw"
+description = "Fixture adapter declaring a real bucket interface."
+
+[env]
+required = ["PAYGW_API_KEY", "PAYGW_WEBHOOK_SECRET"]
+optional = []

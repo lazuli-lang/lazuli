@@ -185,6 +185,17 @@ pub fn run() -> Result<()> {
                 namespace,
                 out,
             } => commands::plugin::plugin_new_command(&name, kind, namespace, out.as_deref()),
+            PluginCommand::Verify { dir, plugin, json } => {
+                let code =
+                    commands::plugin::verify::run_plugin_verify(&dir, plugin.as_deref(), json)?;
+                if code != 0 {
+                    // Rendered output (human table / JSON) is already on
+                    // stdout; exit with the verify status without anyhow's
+                    // `Error:` prefix.
+                    std::process::exit(code);
+                }
+                Ok(())
+            }
         },
         Commands::Test {
             input,

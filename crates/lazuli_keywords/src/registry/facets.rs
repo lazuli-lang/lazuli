@@ -177,6 +177,14 @@ pub(crate) const P_SEMANTIC: &[DiagnosticFacet] = &[
 pub(crate) const P_POLICY: &[DiagnosticFacet] =
     &[df("POLICY-PREDICATE-001", "error", "vocabulary")];
 
+// `adapter` (integrations block) — spec 0022's adapter wiring-contract
+// check. `PLUGIN-CONTRACT-001` fires when a plugin's declared `implements`
+// / `[binds]` interface is not a known framework bucket interface, or when
+// its capability is bound to a different plugin. The shared classifier is
+// `lazuli_manifest::plugin_contract::classify_adapter_contract`.
+pub(crate) const P_PLUGIN_CONTRACT: &[DiagnosticFacet] =
+    &[df("PLUGIN-CONTRACT-001", "error", "correctness")];
+
 pub(crate) const P_POLLER: &[DiagnosticFacet] = &[
     df("POLLER-CURSOR-MISSING-001", "error", "poller"),
     df("POLLER-DUAL-SCHEDULER-001", "error", "poller"),

@@ -33,6 +33,10 @@ mod tests {
         include!("tests/plugin_semantic_agreement.rs");
     }
 
+    mod plugin_contract {
+        include!("tests/plugin_contract.rs");
+    }
+
     mod surface_command {
         include!("tests/surface_command.rs");
     }

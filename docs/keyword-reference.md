@@ -655,7 +655,7 @@ _Generated from 689 capability rows across the `lazuli_keywords` registry._
 
 | keyword / literal | scope | semantic token | sigil | hover | produces |
 | --- | --- | --- | --- | --- | --- |
-| `adapter` | `entity.name.function.statement.integration.lazuli` | `keyword` | — | Integration adapter. | — |
+| `adapter` | `entity.name.function.statement.integration.lazuli` | `keyword` | — | Integration adapter. | `PLUGIN-CONTRACT-001` |
 | `contract` | `entity.name.function.statement.integration.lazuli` | `keyword` | — | Integration contract reference. | — |
 | `credentials` | `entity.name.function.statement.integration.lazuli` | `keyword` | — | Integration credentials. | — |
 | `data_classification` | `entity.name.function.statement.integration.lazuli` | `keyword` | — | Data-classification tag. | — |

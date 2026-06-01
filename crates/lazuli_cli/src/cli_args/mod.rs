@@ -362,8 +362,30 @@ pub(crate) enum PluginCommand {
         #[arg(long)]
         out: Option<PathBuf>,
     },
-    // `Verify { .. }` is owned by spec 0022 (plugin-verify-contract).
-    // When 0022 lands it appends its variant here; 0023 only adds `New`.
+    /// Verify a project's declared plugins are actually wired end-to-end
+    /// (spec 0022). Walks `Lazurite.toml [plugins]` through the real
+    /// resolver and reports, per plugin, a PASS/FAIL across the wiring
+    /// link chain (manifest → semantic → contract → import → env). Exits
+    /// non-zero on any FAIL. NOTE: the L3 contract link verifies the
+    /// DECLARED interface contract + the wiring graph only — Go method-set
+    /// conformance is the plugin's runtime `var _ Interface = (*Adapter)(nil)`
+    /// assertion under `go build`.
+    Verify {
+        /// Project directory (or any path inside it). Defaults to the
+        /// current directory; verify walks UP to the nearest
+        /// `Lazurite.toml`.
+        #[arg(default_value = ".")]
+        dir: PathBuf,
+        /// Scope the report to a single plugin ref
+        /// (e.g. `@lazuli/plugin-mercadopago`). An unknown ref exits
+        /// non-zero.
+        #[arg(long = "plugin")]
+        plugin: Option<String>,
+        /// Emit a machine-readable JSON document instead of the human
+        /// table.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// The scaffoldable plugin kinds. A closed catalog mirroring the two

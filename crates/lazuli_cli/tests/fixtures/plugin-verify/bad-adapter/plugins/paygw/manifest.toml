@@ -1,0 +1,13 @@
+# Deliberately misdeclared: `PaymentGatway` is a typo for
+# `payments.PaymentGateway`. verify L3 + PLUGIN-CONTRACT-001 must FAIL on it.
+implements = ["payments.PaymentGatway"]
+
+[plugin]
+name = "paygw"
+namespace = "@lazuli/plugin-paygw"
+go_module = "example.test/plugin/paygw"
+description = "Fixture adapter with a typo'd bucket interface."
+
+[env]
+required = ["PAYGW_API_KEY"]
+optional = []

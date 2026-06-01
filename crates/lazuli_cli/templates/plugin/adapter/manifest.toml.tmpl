@@ -4,7 +4,15 @@
 version = "0.1.0"
 status = "draft"
 maintainer = "you@example.com"
-implements = ["{{go_package}}.SomeInterface"]
+# The framework bucket interface this adapter satisfies. Must be a KNOWN
+# bucket interface — `lazuli plugin verify`'s L3 link and the
+# `PLUGIN-CONTRACT-001` doctor check both validate it against the closed
+# catalog. The scaffold ships `payments.PaymentGateway` so a fresh adapter
+# verifies GREEN out of the box; swap it for the bucket you actually
+# implement (`storage.ObjectStore`, `maps.Geocoder`,
+# `notifications.EmailSender`, `auth/social.Provider`, …) and update the
+# `var _ <Interface> = (*Adapter)(nil)` assertion in adapter.go to match.
+implements = ["payments.PaymentGateway"]
 
 [plugin]
 name = "{{name}}"
@@ -13,7 +21,10 @@ go_module = "{{module}}"
 description = "Adapter plugin {{name}} — binds a Go interface + declares an env contract."
 
 [binds]
-interface = "{{module}}.Interface"
+# Keep in sync with `implements` above. Blessed short form is
+# `<bucket>.<Interface>`; verify normalises a fully-qualified
+# `lazuli.dev/runtime/lazuli/<bucket>.<Interface>` to the same key.
+interface = "payments.PaymentGateway"
 methods = ["Do"]
 
 [env]

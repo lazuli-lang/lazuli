@@ -19,4 +19,7 @@
 #![allow(rustdoc::broken_intra_doc_links, rustdoc::private_intra_doc_links)]
 pub mod app_manifest;
 pub mod lazurite_manifest;
+/// 0022 — the shared adapter-contract classifier (`plugin verify` L3 +
+/// `PLUGIN-CONTRACT-001` share this one home).
+pub mod plugin_contract;
 pub mod plugin_manifest;

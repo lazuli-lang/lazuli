@@ -86,6 +86,10 @@ pub(crate) use cli_args::{
     PlaywrightTarget, TranslateCommand,
 };
 pub use cli_dev::run_dev;
+// Spec 0022 — `lazuli plugin verify`. Re-exported so the
+// `tests/plugin_verify.rs` integration test (and any sibling tooling) can
+// drive `run_plugin_verify` / `build_reports` without `process::exit`.
+pub use commands::plugin::verify as plugin_verify;
 // `crate::generate_go` back-compat shim (`dev::regen` + integration tests).
 pub(crate) use cli_run::generate_go;
 pub use cli_run::run;

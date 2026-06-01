@@ -34,6 +34,7 @@ mod codegen;
 mod doctor_config;
 mod frontend;
 mod plugin_resolution_view;
+mod plugins_contract;
 mod plugins_manifest;
 mod plugins_semantic;
 
@@ -78,6 +79,16 @@ pub(crate) fn lazurite_manifest_diagnostics(package: &DoctorPackage) -> Vec<Doct
             package,
         ));
         diagnostics.extend(plugins_semantic::check_semantic_plugin_no_validator(
+            plugin_manifest,
+            package,
+        ));
+        // 0022 — PLUGIN-CONTRACT-001. Reads each declared plugin's typed
+        // (0021) manifest and delegates to the SHARED
+        // `lazuli_manifest::plugin_contract::classify_adapter_contract`
+        // (the same classifier `lazuli plugin verify`'s L3 link calls), so
+        // a misdeclared adapter fails at `lazuli check` time, not at the
+        // first live request.
+        diagnostics.extend(plugins_contract::check_plugin_contract(
             plugin_manifest,
             package,
         ));

@@ -23,6 +23,9 @@ use include_dir::{Dir, DirEntry, include_dir};
 use crate::casing::pascal_case;
 use crate::cli_args::PluginKind;
 
+/// `lazuli plugin verify` (spec 0022) — end-to-end wiring proof.
+pub mod verify;
+
 /// Embedded semantic template tree (mirrors `lazuli-plugin-scalars-br`,
 /// minus the TS/npm publishing surface).
 static SEMANTIC_TEMPLATE: Dir<'static> =

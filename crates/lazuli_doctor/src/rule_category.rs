@@ -116,6 +116,14 @@ impl RuleCategory {
             Some("HOOK") | Some("DUPLICATE") | Some("ROUTE") | Some("UPDATES")
             | Some("MUTATION") | Some("MISSING") | Some("MANUAL") | Some("IMPORT")
             | Some("CAP") | Some("SCHEMA") | Some("PREDICATE") => Self::Correctness,
+            // `PLUGIN-CONTRACT-*` (spec 0022) — the adapter wiring-contract
+            // family. A misdeclared adapter is a concrete wiring bug, not a
+            // style nit, so it joins the Correctness dimension. NOTE: the
+            // other `PLUGIN-*` codes (`PLUGIN-MANIFEST-MISSING`,
+            // `PLUGIN-UNUSED-001`, …) live in `lazuli_doctor_run`, are not
+            // scanned by the diagnostics-registry bridge, and never reach
+            // this prefix mapping — only `PLUGIN-CONTRACT-001` does.
+            Some("PLUGIN") => Self::Correctness,
             // `POLICY-*` splits on the second segment: `POLICY-CATEGORY-*` is a
             // policy-shape correctness bug (SPEC-07 C CRUD/effect collision)
             // while `POLICY-PREDICATE-*` is vocabulary (the policy-predicate
