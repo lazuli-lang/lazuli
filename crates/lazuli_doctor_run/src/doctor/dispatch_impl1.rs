@@ -300,6 +300,8 @@ impl DoctorPackage {
             &self.tier3_facts,
             &self.feature_resources,
         ));
+        // spec 0004 — `defaults rate_limit` / `defaults audit` hoist hints.
+        diagnostics.extend(aggregators::audit::defaults_hoist_hints(&self.tier3_facts));
 
         // RB.B — RBAC catalog diagnostics.
         // Run BEFORE legacy `collect_known_roles`/approval checks so

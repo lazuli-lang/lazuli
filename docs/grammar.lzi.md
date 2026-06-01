@@ -221,7 +221,8 @@ default_entry     = "tenancy" tenancy_value NEWLINE
                   | "timestamps" ( ident_list )? NEWLINE
                   | "no_timestamps" NEWLINE
                   | "policy_for" construct_list ":" actor_atom NEWLINE
-                  | "audit" ( "all" | "none" | ident_list ) NEWLINE
+                  | "rate_limit" STRING NEWLINE
+                  | "audit" "default" NEWLINE
                   | "soft_delete" NEWLINE ;
 
 tenancy_value     = "org" | "team" | "user" | "tenant" | "none"
@@ -232,6 +233,34 @@ construct_kind    = "jobs" | "webhooks" | "commands"
 actor_atom        = "@actor." IDENT_LOWER ;
 ident_list        = IDENT_LOWER ( "," IDENT_LOWER )* ;
 ```
+
+`defaults rate_limit "<spec>"` and `defaults audit default` (spec 0004)
+hoist the per-command `rate_limit` / `audit default` lines to the feature
+level. Every command inherits the default; a per-command `rate_limit` or
+`audit <subjects>` wins, and `audit none` on a command opts it out. The
+emitted Go is byte-identical to the fully-explicit per-command form — the
+hoist is a pure refactor. `rate_limit` stays a string spec (the
+string→struct axis is deliberately deferred). Worked example:
+
+```text
+feature billing
+  defaults
+    rate_limit "60 per minute per actor"
+    audit default
+
+  command create_invoice           # inherits both defaults
+    creates Invoice from input
+  command sensitive_write
+    rate_limit "5 per hour per actor"   # override wins
+    creates Invoice from input
+  command silent_probe
+    audit none                          # opts out of the audit default
+    returns Health
+```
+
+See `docs/lazuli_way/feature-defaults.md` for the idiom + the
+`defaults_hoist_rate_limit_hint` / `defaults_hoist_audit_hint` doctor
+hints that flag un-hoisted repetition (≥3 identical commands).
 
 ## 5. Uses and refs
 

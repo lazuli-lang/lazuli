@@ -329,3 +329,138 @@ feature orders
         );
     }
 
+    // ── spec 0004 — `defaults rate_limit` / `defaults audit` hoist hints ──
+
+    // Three commands repeat the same `rate_limit` + `audit default` and the
+    // feature does NOT hoist either → both hints fire (≥3 threshold).
+    const DEFAULTS_HOIST_REPEAT_FIXTURE: &str = r#"
+feature billing
+  domain
+    resource Invoice
+      id: ID required
+      amount: Integer required
+
+  command create_invoice
+    rate_limit "60 per minute per actor"
+    audit default
+    input
+      amount: Integer required
+    creates Invoice from input
+
+  command void_invoice
+    rate_limit "60 per minute per actor"
+    audit default
+    input
+      id: ID required
+    updates Invoice from input
+
+  command delete_invoice
+    rate_limit "60 per minute per actor"
+    audit default
+    input
+      id: ID required
+    deletes Invoice
+"#;
+
+    #[test]
+    fn doctor_fires_defaults_hoist_hints_at_three_identical() {
+        let package =
+            package_from_sources(vec![("billing.lzi", DEFAULTS_HOIST_REPEAT_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        let rate = diagnostics
+            .iter()
+            .filter(|d| d.code == "defaults_hoist_rate_limit_hint")
+            .count();
+        let audit = diagnostics
+            .iter()
+            .filter(|d| d.code == "defaults_hoist_audit_hint")
+            .count();
+        assert_eq!(
+            rate, 1,
+            "expected one rate_limit hoist hint, got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            audit, 1,
+            "expected one audit hoist hint, got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    // Only two identical commands → below the ≥3 threshold → silent.
+    const DEFAULTS_HOIST_TWO_FIXTURE: &str = r#"
+feature billing
+  domain
+    resource Invoice
+      id: ID required
+      amount: Integer required
+
+  command create_invoice
+    rate_limit "60 per minute per actor"
+    audit default
+    input
+      amount: Integer required
+    creates Invoice from input
+
+  command void_invoice
+    rate_limit "60 per minute per actor"
+    audit default
+    input
+      id: ID required
+    updates Invoice from input
+"#;
+
+    #[test]
+    fn doctor_silent_defaults_hoist_below_threshold() {
+        let package = package_from_sources(vec![("billing.lzi", DEFAULTS_HOIST_TWO_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        let codes = codes(&diagnostics);
+        assert!(!codes.contains("defaults_hoist_rate_limit_hint"));
+        assert!(!codes.contains("defaults_hoist_audit_hint"));
+    }
+
+    // Already hoisted into `defaults` → the inheritance pass bakes the value
+    // onto every command, but the `defaults_*` guard keeps the hint silent.
+    const DEFAULTS_HOIST_ALREADY_FIXTURE: &str = r#"
+feature billing
+  defaults
+    rate_limit "60 per minute per actor"
+    audit default
+
+  domain
+    resource Invoice
+      id: ID required
+      amount: Integer required
+
+  command create_invoice
+    input
+      amount: Integer required
+    creates Invoice from input
+
+  command void_invoice
+    input
+      id: ID required
+    updates Invoice from input
+
+  command delete_invoice
+    input
+      id: ID required
+    deletes Invoice
+"#;
+
+    #[test]
+    fn doctor_silent_when_already_hoisted() {
+        let package =
+            package_from_sources(vec![("billing.lzi", DEFAULTS_HOIST_ALREADY_FIXTURE)]);
+        let diagnostics = package.diagnostics();
+        let codes = codes(&diagnostics);
+        assert!(
+            !codes.contains("defaults_hoist_rate_limit_hint"),
+            "a feature that already hoists rate_limit must not get the hint"
+        );
+        assert!(
+            !codes.contains("defaults_hoist_audit_hint"),
+            "a feature that already hoists audit must not get the hint"
+        );
+    }
+

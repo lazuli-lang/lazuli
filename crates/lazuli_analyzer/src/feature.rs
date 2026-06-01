@@ -95,11 +95,20 @@ pub fn lower_feature_skeleton(
         Some(d) => lower_defaults(d),
         None => ir::Defaults::default(),
     };
-    let commands = skeleton
+    let mut commands = skeleton
         .commands
         .iter()
         .map(|command| lower_command_decl(&skeleton.name, command))
         .collect::<Result<Vec<_>, _>>()?;
+    // 0004 — apply the hoisted `defaults rate_limit` / `defaults audit`
+    // onto each command. The per-command value always wins; a command
+    // that declared its own `rate_limit` / `audit` (including the `audit
+    // none` opt-out, which lowers to a non-default `AuditSpec`) is left
+    // untouched. Resolving here — rather than at codegen — bakes the
+    // inherited value into the IR `Command`, so the emitted Go is
+    // byte-identical to the fully-explicit form (the migration's safety
+    // anchor) and no codegen call-site has to thread the defaults.
+    apply_command_defaults(&mut commands, &defaults);
     let apis = skeleton.apis.iter().map(lower_api_decl).collect();
     let mut resources = skeleton
         .resources
@@ -280,6 +289,52 @@ pub fn lower_feature_skeleton(
     // doctor per §11.
     let _ = synthesize_conventions(&mut feature);
     Ok(feature)
+}
+
+/// 0004 — apply the feature-level `defaults rate_limit` / `defaults audit`
+/// hoist onto each command.
+///
+/// The inheritance rule mirrors `policy_for`/`tenancy`: the per-command
+/// value always wins, the default only fills the gap.
+///
+/// * `rate_limit` — a command with no own `rate_limit` inherits
+///   `defaults.rate_limit`, lowered the same way a per-command
+///   `rate_limit "X"` lowers (`RateLimitSpec::from_default`). Codegen
+///   only reads `RateLimitSpec.default` / `.by_env`, so the emitted Go is
+///   byte-identical to the explicit form.
+/// * `audit` — a command with no own `audit` inherits `defaults audit
+///   default` as an `AuditSpec` with subjects `["default"]` (exactly what
+///   a per-command `audit default` lowers to). A command that authored
+///   any `audit ...` — including the `audit none` opt-out, which lowers to
+///   a non-default `AuditSpec { subjects: ["none"] }` — keeps its own
+///   value and does NOT inherit.
+fn apply_command_defaults(commands: &mut [ir::Command], defaults: &ir::Defaults) {
+    if defaults.rate_limit.is_none() && defaults.audit.is_none() {
+        return;
+    }
+    for command in commands.iter_mut() {
+        if command.rate_limit.is_none()
+            && let Some(spec) = defaults.rate_limit.as_ref()
+        {
+            command.rate_limit = Some(ir::RateLimitSpec::from_default(spec.clone()));
+        }
+        if command.audit.is_none() {
+            match &defaults.audit {
+                Some(ir::DefaultsAudit::Default) => {
+                    command.audit = Some(ir::AuditSpec {
+                        subjects: vec!["default".to_owned()],
+                        emit_to: None,
+                        data_subject: None,
+                        record_before: false,
+                        record_after: false,
+                        retain_for: None,
+                        materialize: None,
+                    });
+                }
+                None => {}
+            }
+        }
+    }
 }
 
 /// Resolve a feature's context sidecar by CONVENTION — the co-located

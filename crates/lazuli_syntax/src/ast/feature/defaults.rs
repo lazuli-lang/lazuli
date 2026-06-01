@@ -25,7 +25,37 @@ pub struct FeatureDefaults {
     /// entry binds a list of construct kinds (`jobs`, `webhooks`,
     /// `commands`, ...) to a single policy atom.
     pub policy_for: Vec<DefaultsPolicyFor>,
+    /// 0004 — `defaults rate_limit "<spec>"` hoisted to every command in
+    /// the feature. Each command inherits this string spec unless it
+    /// declares its own `rate_limit`. Stays a string (the string→struct
+    /// axis is a separate, deferred change). Absent when not authored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rate_limit: Option<String>,
+    /// 0004 — `defaults audit default` hoisted to every command in the
+    /// feature. Each command inherits this audit mode unless it declares
+    /// its own `audit ...` / `audit none`. Today the only hoistable mode
+    /// is `default` (subjects: `["default"]`); the [`DefaultsAudit`]
+    /// catalog stays closed so a future `audit <subjects>` hoist can be
+    /// added without a wire break. Absent when not authored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audit: Option<DefaultsAudit>,
     pub span: Span,
+}
+
+/// 0004 — closed catalog for the hoistable `defaults audit <mode>` value.
+///
+/// Only `default` is hoistable today (`defaults audit default`), mirroring
+/// the per-command `audit default` form. The enum keeps the surface
+/// closed so an unknown mode (`defaults audit everything`) is a parse
+/// error rather than a silent no-op, and leaves room for a future
+/// `audit <subjects>` hoist arm without breaking the wire shape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum DefaultsAudit {
+    /// `defaults audit default` — every command audits its default fields
+    /// unless it opts out with `audit none` or overrides with explicit
+    /// `audit <subjects>`.
+    Default,
 }
 
 /// Tenancy axis catalog declared via `tenancy <axis>` on
@@ -75,6 +105,8 @@ mod tests {
             tenancy: Some(DefaultsTenancy::Org),
             timestamps: true,
             policy_for: vec![],
+            rate_limit: None,
+            audit: None,
             span: Span::new(0, 0),
         };
         assert!(matches!(d.tenancy, Some(DefaultsTenancy::Org)));

@@ -20,6 +20,8 @@ fn feature_with_standalone_event() -> Feature {
             tenancy: None,
             timestamps: false,
             policy: None,
+            rate_limit: None,
+            audit: None,
         },
         uses: Vec::new(),
         uses_spans: Vec::new(),

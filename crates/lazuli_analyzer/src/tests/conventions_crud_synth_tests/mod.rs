@@ -39,6 +39,8 @@ pub(super) fn empty_feature(name: &str, with_authenticated: bool) -> ir::Feature
             tenancy: None,
             timestamps: false,
             policy: None,
+            rate_limit: None,
+            audit: None,
         },
         uses: Vec::new(),
         uses_spans: Vec::new(),

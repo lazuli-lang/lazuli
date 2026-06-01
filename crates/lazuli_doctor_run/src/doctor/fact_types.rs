@@ -65,6 +65,15 @@ pub(crate) struct Tier3FeatureFacts {
     /// only need commands/resources, but audit timestamp checks must know
     /// whether `updated_at` is framework-managed.
     pub(crate) defaults_timestamps: bool,
+    /// 0004 — whether the feature already hoists `rate_limit` into its
+    /// `defaults` block. When true the per-command `rate_limit` values are
+    /// inherited, so the hoist hint (`defaults_hoist_rate_limit_hint`)
+    /// stays silent.
+    pub(crate) defaults_rate_limit: bool,
+    /// 0004 — whether the feature already hoists `audit` into its
+    /// `defaults` block (`defaults audit default`). When true the hoist
+    /// hint (`defaults_hoist_audit_hint`) stays silent.
+    pub(crate) defaults_audit: bool,
     pub(crate) jobs: Vec<lazuli_ir::Job>,
     pub(crate) webhooks: Vec<lazuli_ir::Webhook>,
     pub(crate) notifications: Vec<lazuli_ir::Notification>,

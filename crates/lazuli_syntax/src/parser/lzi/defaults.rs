@@ -11,10 +11,10 @@
 //! Unknown children are a parse error so an LLM cannot author silent
 //! typos like `timestapms` or `policy-for`.
 
-use super::super::common::{SourceLine, is_trivia, line_error};
+use super::super::common::{SourceLine, is_trivia, line_error, unquote_lzx_value};
 use super::super::error::ParseError;
 use super::{AGENT_INDENT_AGENT_CHILD, AGENT_INDENT_FEATURE_CHILD};
-use crate::ast::{DefaultsPolicyFor, DefaultsTenancy, FeatureDefaults, Span};
+use crate::ast::{DefaultsAudit, DefaultsPolicyFor, DefaultsTenancy, FeatureDefaults, Span};
 
 pub(super) fn parse_defaults(
     lines: &[SourceLine<'_>],
@@ -24,6 +24,8 @@ pub(super) fn parse_defaults(
     let mut tenancy: Option<DefaultsTenancy> = None;
     let mut timestamps = false;
     let mut policy_for: Vec<DefaultsPolicyFor> = Vec::new();
+    let mut rate_limit: Option<String> = None;
+    let mut audit: Option<DefaultsAudit> = None;
     let mut last_end = header.end;
     let mut i = start + 1;
 
@@ -78,10 +80,52 @@ pub(super) fn parse_defaults(
             policy_for.push(parse_defaults_policy_for(line, rest)?);
             last_end = line.end;
             i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("rate_limit ") {
+            // 0004 — `defaults rate_limit "<spec>"` hoist. The spec stays a
+            // string (string→struct axis deferred); per-command `rate_limit`
+            // overrides at lowering.
+            if rate_limit.is_some() {
+                return Err(line_error(
+                    line,
+                    "`defaults rate_limit` may be declared at most once",
+                ));
+            }
+            let spec = unquote_lzx_value(rest.trim()).trim().to_owned();
+            if spec.is_empty() {
+                return Err(line_error(
+                    line,
+                    "`defaults rate_limit` requires a spec (e.g. `defaults rate_limit \"60 per minute per actor\"`)",
+                ));
+            }
+            rate_limit = Some(spec);
+            last_end = line.end;
+            i += 1;
+        } else if let Some(rest) = trimmed.strip_prefix("audit ") {
+            // 0004 — `defaults audit default` hoist. Only `default` is
+            // hoistable today; the per-command `audit <subjects>` / `audit
+            // none` override is applied at lowering.
+            if audit.is_some() {
+                return Err(line_error(
+                    line,
+                    "`defaults audit` may be declared at most once",
+                ));
+            }
+            let mode = rest.trim();
+            match mode {
+                "default" => audit = Some(DefaultsAudit::Default),
+                _ => {
+                    return Err(line_error(
+                        line,
+                        "`defaults audit` accepts only `default` (per-command `audit <subjects>` / `audit none` overrides)",
+                    ));
+                }
+            }
+            last_end = line.end;
+            i += 1;
         } else {
             return Err(line_error(
                 line,
-                "`defaults` children are `tenancy`, `timestamps`, or `policy_for <kinds>: <atom>`",
+                "`defaults` children are `tenancy`, `timestamps`, `policy_for <kinds>: <atom>`, `rate_limit \"<spec>\"`, or `audit default`",
             ));
         }
     }
@@ -91,6 +135,8 @@ pub(super) fn parse_defaults(
             tenancy,
             timestamps,
             policy_for,
+            rate_limit,
+            audit,
             span: Span::new(header.start, last_end),
         },
         i,

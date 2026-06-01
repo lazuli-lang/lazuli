@@ -396,6 +396,11 @@ pub(crate) fn make_synthetic_feature_for_correctness(
         }),
         policy: fact.defaults_policy.clone(),
         timestamps: fact.defaults_timestamps,
+        // 0004 — this synth Defaults is built from a doctor fact that does
+        // not (yet) carry the rate_limit/audit hoist; the correctness
+        // aggregator only consumes tenancy/timestamps/policy here.
+        rate_limit: None,
+        audit: None,
     };
     lazuli_ir::Feature {
         name: fact.feature.clone(),

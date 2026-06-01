@@ -178,6 +178,8 @@ pub(super) fn harvest_tier3_facts(
             tenancy_axis: tenancy_axis_for(feature),
             defaults_policy: feature.defaults.policy.clone(),
             defaults_timestamps: feature.defaults.timestamps,
+            defaults_rate_limit: feature.defaults.rate_limit.is_some(),
+            defaults_audit: feature.defaults.audit.is_some(),
             jobs: feature.jobs.clone(),
             webhooks: feature.webhooks.clone(),
             notifications: feature.notifications.clone(),

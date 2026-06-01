@@ -78,7 +78,7 @@ pub use nodes::experience::{
 };
 pub use nodes::feature::{Feature, FeatureRequirement};
 pub use nodes::feature_defaults::{
-    Constraint, Defaults, EscapeRoute, Extension, ExtensionContract, FieldValidation,
+    Constraint, Defaults, DefaultsAudit, EscapeRoute, Extension, ExtensionContract, FieldValidation,
     IndexConstraint, IndexMethod, NonGoal, PathRef, PathSource, Tenancy, UniqueConstraint,
 };
 pub use nodes::lifecycle::{

@@ -8,11 +8,16 @@ feature note
 
   # A `defaults` block hoists settings every command in the feature shares,
   # instead of repeating them on each command. `timestamps` auto-stamps
-  # created_at / updated_at on every write. Once your app defines an `Org`
-  # tenancy root, add `tenancy org` here; spec 0004 lands `rate_limit` + `audit`
-  # as defaults keys (`rate_limit "30 per 10 minutes per ip"`, `audit default`).
+  # created_at / updated_at on every write. `rate_limit` + `audit default`
+  # are inherited by every command (here, the synthesized [crud] writes) so
+  # you declare them once, not per command — override on a command that
+  # differs, or `audit none` to opt one out. Once your app defines an `Org`
+  # tenancy root, add `tenancy org` here.
+  # See docs/lazuli_way/feature-defaults.md.
   defaults
     timestamps
+    rate_limit "30 per 10 minutes per ip"
+    audit default
 
   domain
     # `conventions [crud]` synthesizes the ordinary create/update commands from

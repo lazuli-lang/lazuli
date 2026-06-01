@@ -41,6 +41,8 @@ pub(crate) fn empty_feature() -> Feature {
             tenancy: None,
             timestamps: false,
             policy: None,
+            rate_limit: None,
+            audit: None,
         },
         uses: Vec::new(),
         uses_spans: Vec::new(),

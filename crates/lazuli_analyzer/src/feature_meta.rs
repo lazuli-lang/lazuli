@@ -304,9 +304,19 @@ pub(crate) fn lower_defaults(defaults: &syntax::FeatureDefaults) -> ir::Defaults
         .first()
         .map(|entry| lower_policy_atom(entry.atom.as_str()))
         .filter(|p| !matches!(p, ir::PolicyRef::None));
+    // 0004 — carry the hoisted `rate_limit` / `audit` defaults through to
+    // IR. Inheritance onto each command (per-command value wins; `audit
+    // none` opts out) is applied in `feature::apply_command_defaults` after
+    // both the defaults and the commands are lowered.
+    let rate_limit = defaults.rate_limit.clone();
+    let audit = defaults.audit.as_ref().map(|a| match a {
+        syntax::DefaultsAudit::Default => ir::DefaultsAudit::Default,
+    });
     ir::Defaults {
         tenancy,
         timestamps: defaults.timestamps,
         policy,
+        rate_limit,
+        audit,
     }
 }

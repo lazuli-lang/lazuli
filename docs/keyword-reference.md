@@ -30,7 +30,7 @@ Columns:
 
 <!-- BEGIN GENERATED BODY -->
 
-_Generated from 686 capability rows across the `lazuli_keywords` registry._
+_Generated from 688 capability rows across the `lazuli_keywords` registry._
 
 ## `.lzi` — feature source
 
@@ -430,8 +430,10 @@ _Generated from 686 capability rows across the `lazuli_keywords` registry._
 
 | keyword / literal | scope | semantic token | sigil | hover | produces |
 | --- | --- | --- | --- | --- | --- |
+| `audit` | `entity.name.function.statement.defaults.lazuli` | `keyword` | — | Default audit mode hoisted to every command (`audit default`; per-command `audit`/`audit none` wins). | — |
 | `no_timestamps` | `entity.name.function.statement.defaults.lazuli` | `keyword` | — | Disable timestamps by default. | — |
 | `policy_for` | `entity.name.function.statement.defaults.lazuli` | `keyword` | — | Default policy for an action. | — |
+| `rate_limit` | `entity.name.function.statement.defaults.lazuli` | `keyword` | — | Default rate-limit spec hoisted to every command (per-command `rate_limit` wins). | — |
 | `retention` | `entity.name.function.statement.defaults.lazuli` | `keyword` | — | Default retention policy. | — |
 | `soft_delete` | `entity.name.function.statement.defaults.lazuli` | `keyword` | — | Default soft-delete convention. | — |
 | `tenancy` | `entity.name.function.statement.defaults.lazuli` | `keyword` | — | Default tenancy mode. | — |

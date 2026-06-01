@@ -110,6 +110,111 @@ pub(crate) fn resource_policy_and_command_audit_hints(
     diagnostics
 }
 
+/// 0004 — `defaults_hoist_rate_limit_hint` / `defaults_hoist_audit_hint`.
+///
+/// Fires when a feature spells an identical `rate_limit` (or `audit`) on
+/// **≥3** commands while NOT already hoisting it into the `defaults`
+/// block — the signal that the value should be declared once via
+/// `defaults rate_limit "<spec>"` / `defaults audit default` and inherited
+/// (spec 0004, deep-link `docs/lazuli_way/feature-defaults.md`).
+///
+/// Why ≥3 and why the `defaults_*` guard: the inheritance pass bakes a
+/// hoisted default onto every command at lowering, so a migrated feature's
+/// IR commands all carry the value even though source has zero repeats.
+/// Guarding on `feature.defaults_rate_limit` / `defaults_audit` makes the
+/// hint fire ONLY on the un-hoisted, literally-repeated source — never on a
+/// feature that already did the hoist. Two identical commands are common
+/// and benign; ≥3 is where the hoist clearly pays for itself.
+pub(crate) fn defaults_hoist_hints(facts: &[Tier3FeatureFacts]) -> Vec<DoctorDiagnostic> {
+    const THRESHOLD: usize = 3;
+    let mut diagnostics = Vec::new();
+
+    for feature in facts {
+        // rate_limit hoist hint — only when the feature has NOT already
+        // hoisted it. `RateLimitSpec.default` is the string spec; group
+        // commands by identical spec.
+        if !feature.defaults_rate_limit {
+            let mut by_spec: BTreeMap<String, usize> = BTreeMap::new();
+            for command in &feature.commands {
+                if let Some(spec) = command.rate_limit.as_ref() {
+                    // Only the simple single-string form is hoistable; an
+                    // env-qualified `by_env` spec stays per-command.
+                    if spec.by_env.is_empty() && !spec.default.is_empty() {
+                        *by_spec.entry(spec.default.clone()).or_default() += 1;
+                    }
+                }
+            }
+            if let Some((spec, count)) = by_spec.into_iter().max_by_key(|(_, c)| *c)
+                && count >= THRESHOLD
+            {
+                diagnostics.push(DoctorDiagnostic {
+                    path: feature.path.clone(),
+                    line: feature.feature_line,
+                    column: 1,
+                    severity: DoctorSeverity::Hint,
+                    code: "defaults_hoist_rate_limit_hint".to_owned(),
+                    message: format!(
+                        "feature `{}` repeats the same `rate_limit \"{}\"` on {} commands. Hoist it into the feature `defaults` block (`defaults rate_limit \"{}\"`) and let each command inherit; override only where a command differs. See docs/lazuli_way/feature-defaults.md.",
+                        feature.feature, spec, count, spec
+                    ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
+                });
+            }
+        }
+
+        // audit hoist hint — only when the feature has NOT already hoisted
+        // it. Count commands carrying the canonical `audit default`
+        // (subjects == ["default"]); that is the only hoistable shape.
+        if !feature.defaults_audit {
+            let count = feature
+                .commands
+                .iter()
+                .filter(|command| is_default_audit_command(command))
+                .count();
+            if count >= THRESHOLD {
+                diagnostics.push(DoctorDiagnostic {
+                    path: feature.path.clone(),
+                    line: feature.feature_line,
+                    column: 1,
+                    severity: DoctorSeverity::Hint,
+                    code: "defaults_hoist_audit_hint".to_owned(),
+                    message: format!(
+                        "feature `{}` repeats `audit default` on {} commands. Hoist it into the feature `defaults` block (`defaults audit default`) and let each command inherit; use `audit none` to opt a command out. See docs/lazuli_way/feature-defaults.md.",
+                        feature.feature, count
+                    ),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
+                });
+            }
+        }
+    }
+
+    diagnostics
+}
+
+/// True when a command's audit is the canonical `audit default` shape
+/// (subjects == `["default"]`, no extra subjects). Matches the codegen
+/// `is_default_audit` predicate so the hint counts exactly the commands a
+/// `defaults audit default` hoist would absorb.
+fn is_default_audit_command(command: &lazuli_ir::Command) -> bool {
+    command.audit.as_ref().is_some_and(|audit| {
+        let subjects: Vec<&str> = audit
+            .subjects
+            .iter()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect();
+        subjects.len() == 1 && subjects[0].eq_ignore_ascii_case("default")
+    })
+}
+
 pub(crate) fn is_write_effect_command(command: &lazuli_ir::Command) -> bool {
     matches!(
         command.kind,

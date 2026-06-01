@@ -58,6 +58,8 @@ fn empty_fact() -> Tier3FeatureFacts {
         tenancy_axis: None,
         defaults_policy: None,
         defaults_timestamps: false,
+        defaults_rate_limit: false,
+        defaults_audit: false,
         jobs: Vec::new(),
         webhooks: Vec::new(),
         notifications: Vec::new(),

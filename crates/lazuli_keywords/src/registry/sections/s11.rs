@@ -240,6 +240,18 @@ pub(crate) const ROWS: &[CapabilitySpec] = &[
         DEFAULTS,
         "Default retention policy.",
     ),
+    stmt(
+        "rate_limit",
+        Context::Defaults,
+        DEFAULTS,
+        "Default rate-limit spec hoisted to every command (per-command `rate_limit` wins).",
+    ),
+    stmt(
+        "audit",
+        Context::Defaults,
+        DEFAULTS,
+        "Default audit mode hoisted to every command (`audit default`; per-command `audit`/`audit none` wins).",
+    ),
     // ── audit-block: lifecycle connectors at the audit scope ──
     stmt(
         "materialize",

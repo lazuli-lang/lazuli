@@ -38,6 +38,16 @@ pub(crate) fn resource_policy_hints(
     resource_policy_and_command_audit_hints(tier3_facts, feature_resources)
 }
 
+/// Public entrypoint (spec 0004) — `defaults rate_limit` / `defaults
+/// audit` hoist hints. Fires when a feature repeats an identical
+/// `rate_limit` / `audit default` on ≥3 commands without already
+/// hoisting it into the `defaults` block.
+pub(crate) fn defaults_hoist_hints(
+    tier3_facts: &[Tier3FeatureFacts],
+) -> Vec<DoctorDiagnostic> {
+    policy_hints::defaults_hoist_hints(tier3_facts)
+}
+
 /// Phase L Tier 4b — find the `emit_to <target>` line inside the body
 /// of a construct whose header is at `header_line` (1-indexed). Returns
 /// `(line_1_indexed, column_1_indexed)`. Used by the IR-driven

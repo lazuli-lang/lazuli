@@ -47,6 +47,8 @@ fn empty_feature(name: &str) -> Feature {
             tenancy: None,
             timestamps: false,
             policy: None,
+            rate_limit: None,
+            audit: None,
         },
         uses: Vec::new(),
         uses_spans: Vec::new(),

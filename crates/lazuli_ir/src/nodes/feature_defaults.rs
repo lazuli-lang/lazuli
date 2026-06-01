@@ -77,6 +77,35 @@ pub struct Defaults {
     pub timestamps: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<PolicyRef>,
+    /// 0004 — `defaults rate_limit "<spec>"` hoisted to every command in
+    /// the feature. Each command inherits this string spec at lowering
+    /// unless it declares its own `rate_limit` (per-command wins). Stays a
+    /// string — the string→struct axis is a separate, deferred change.
+    /// `None` when not authored. Additive: pre-0004 snapshots deserialize
+    /// with `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rate_limit: Option<String>,
+    /// 0004 — `defaults audit default` hoisted to every command in the
+    /// feature. Each command inherits this audit mode at lowering unless
+    /// it declares its own `audit <subjects>` or opts out with `audit
+    /// none` (per-command wins). `None` when not authored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audit: Option<DefaultsAudit>,
+}
+
+/// 0004 — closed catalog of hoistable `defaults audit <mode>` values.
+/// Only `default` is hoistable today (`defaults audit default`), mapping
+/// to the per-command `audit default` (`AuditSpec` with subjects
+/// `["default"]`). Kept as a closed enum so a future `audit <subjects>`
+/// hoist can land without a wire break. Mirrors
+/// `lazuli_syntax::DefaultsAudit`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum DefaultsAudit {
+    /// `defaults audit default` — every command in the feature audits its
+    /// default fields unless it opts out (`audit none`) or overrides
+    /// (`audit <subjects>`).
+    Default,
 }
 
 /// Tenancy axis. Non-tenant resources use `Tenancy::None` (the explicit

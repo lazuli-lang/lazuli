@@ -24,10 +24,19 @@ pub(crate) struct CommandSecurityFacts {
     has_rate_limit: bool,
     rate_limit_none: Option<(usize, String)>,
     rate_limit_none_has_reason: bool,
+    /// spec 0004 — the enclosing feature declares `defaults rate_limit
+    /// "<spec>"`, so every command inherits a rate_limit even without a
+    /// command-level line. Satisfies the contract just like an explicit
+    /// per-command `rate_limit`.
+    feature_has_default_rate_limit: bool,
 }
 
 pub(crate) fn command_rate_limit_contract_diagnostics(source: &str) -> Vec<Diagnostic> {
     let policies = collect_policy_atom_map(source);
+    // spec 0004 — pre-scan which features hoist `defaults rate_limit` so a
+    // command in such a feature is not flagged for a missing command-level
+    // rate_limit (it inherits the feature default).
+    let features_with_default_rate_limit = collect_features_with_default_rate_limit(source);
     let mut diagnostics = Vec::new();
     let mut current_feature: Option<String> = None;
     let mut current_command: Option<CommandSecurityFacts> = None;
@@ -58,6 +67,8 @@ pub(crate) fn command_rate_limit_contract_diagnostics(source: &str) -> Vec<Diagn
                     has_rate_limit: false,
                     rate_limit_none: None,
                     rate_limit_none_has_reason: false,
+                    feature_has_default_rate_limit: features_with_default_rate_limit
+                        .contains(feature),
                 });
             continue;
         }
@@ -109,7 +120,10 @@ pub(crate) fn command_rate_limit_diagnostics(
         .as_deref()
         .is_some_and(|policy| policy_ref_is_public(&command.feature, policy, policies));
 
-    if (is_public || command.has_write_effect) && !command.has_rate_limit {
+    if (is_public || command.has_write_effect)
+        && !command.has_rate_limit
+        && !command.feature_has_default_rate_limit
+    {
         diagnostics.push(simple_canonical_diagnostic(
             command.line_index,
             &command.line,
@@ -160,6 +174,42 @@ pub(crate) fn policy_ref_is_public(
         .is_some_and(|atoms| atoms.iter().any(|atom| atom == "@scope.public"))
 }
 
+/// spec 0004 — collect the set of feature names that hoist `defaults
+/// rate_limit "<spec>"` in their feature-level `defaults` block. A command
+/// in such a feature inherits the default and so satisfies the
+/// `command-rate-limit` contract without a per-command line.
+pub(crate) fn collect_features_with_default_rate_limit(
+    source: &str,
+) -> std::collections::HashSet<String> {
+    let mut features = std::collections::HashSet::new();
+    let mut current_feature: Option<String> = None;
+    let mut in_defaults = false;
+
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        match leading_spaces(line) {
+            0 if trimmed.starts_with("feature ") => {
+                current_feature = Some(feature_name(trimmed));
+                in_defaults = false;
+            }
+            2 => {
+                in_defaults = trimmed == "defaults";
+            }
+            4 if in_defaults && trimmed.starts_with("rate_limit ") => {
+                if let Some(feature) = current_feature.as_ref() {
+                    features.insert(feature.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    features
+}
+
 pub(crate) fn collect_policy_atom_map(source: &str) -> HashMap<(String, String), Vec<String>> {
     let mut policies = HashMap::new();
     let mut current_feature: Option<String> = None;
@@ -204,4 +254,37 @@ pub(crate) fn collect_policy_atom_map(source: &str) -> HashMap<(String, String),
     }
 
     policies
+}
+
+#[cfg(test)]
+mod defaults_hoist_tests {
+    use super::*;
+
+    // spec 0004 — a write command with no command-level `rate_limit` is
+    // NOT flagged when its feature hoists `defaults rate_limit`.
+    #[test]
+    fn defaults_rate_limit_satisfies_command_contract() {
+        let source = "feature billing\n  defaults\n    rate_limit \"60 per minute per actor\"\n\n  command create_invoice\n    creates Invoice from input\n";
+        let diagnostics = command_rate_limit_contract_diagnostics(source);
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|d| d.message.contains("command-level `rate_limit`")),
+            "feature `defaults rate_limit` must satisfy the per-command contract: {diagnostics:?}"
+        );
+    }
+
+    // Without the hoist, the same write command IS flagged (guard control).
+    #[test]
+    fn missing_rate_limit_still_flags_without_hoist() {
+        let source =
+            "feature billing\n\n  command create_invoice\n    creates Invoice from input\n";
+        let diagnostics = command_rate_limit_contract_diagnostics(source);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.message.contains("command-level `rate_limit`")),
+            "a write command with neither a per-command nor a hoisted rate_limit must be flagged"
+        );
+    }
 }

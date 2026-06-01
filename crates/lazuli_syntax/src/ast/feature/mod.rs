@@ -41,7 +41,7 @@ pub mod translation;
 
 pub use context::{LziFeatureKnowledge, LziFeatureNonGoals, LziFeaturePurpose};
 pub use contracts::{PublicContractDeclAst, UsesClauseAst};
-pub use defaults::{DefaultsPolicyFor, DefaultsTenancy, FeatureDefaults};
+pub use defaults::{DefaultsAudit, DefaultsPolicyFor, DefaultsTenancy, FeatureDefaults};
 pub use enums::{EnumDeclAst, EnumStorageValueDecl, EnumVariantDecl};
 pub use errors::{
     ErrorExposureDefaultAst, FeatureErrorExposeRuleDecl, FeatureErrorMessageDecl, FeatureErrorsDecl,

@@ -125,7 +125,7 @@ The seed `note` feature in this scaffold (`app/features/note/`) is a worked
 example.
 
 - Reach for `conventions [crud]`, not a hand-rolled create/update/delete command per resource.
-- Reach for a `defaults` block, not the same `tenancy` (and soon `rate_limit`/`audit`) repeated on every command.
+- Reach for a `defaults` block, not the same `tenancy` / `rate_limit` / `audit default` repeated on every command. Declare the shared `rate_limit "<spec>"` / `audit default` once in `defaults`; each command inherits it (a per-command value wins, `audit none` opts out). Repeating an identical `rate_limit`/`audit` on ≥3 commands draws `defaults_hoist_rate_limit_hint`/`defaults_hoist_audit_hint` (see `docs/lazuli_way/feature-defaults.md`).
 - Reach for `query.sql` / `query.compose` for joins/aggregates, not a raw SQL string buried in a `@fn` Go handler. Raw SQL hidden behind an opaque `fn` trips `ESC-RAWSQL-IN-HANDLER-001`, which is non-waivable-to-silence — clear it by converting the read to a declared `query.sql`, not with a `# doctor:allow`.
 - A `query.sql` must use one binding style with every param declared (`ESC-SQL-TENANCY-CONTRACT-001`) and either carry a tenant predicate or an `@actor.<privileged>` guard (`ESC-SCOPE-OVERRIDE-UNGUARDED-001`).
 - Reach for a closed `state {}` bound to `transition`, not enum-by-command comments — declare the lifecycle's states as a named closed set (`lifecycle <field>` with `state … initial`/`terminal`) so every `transition.from`/`to` membership-checks against a typed lattice, instead of a `status:` field whose legal moves live in prose and are implied by which command ran (`LIFECYCLE-STATE-SET-UNDECLARED-001`; see `docs/lazuli_way/state-machines.md`).
