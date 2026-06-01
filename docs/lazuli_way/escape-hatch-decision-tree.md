@@ -64,8 +64,17 @@ query.sql list_property_reviews
 
 ## Enforced by
 
-`ESC-RAWSQL-IN-HANDLER-001` *(incoming — spec 0010)* — fires on a SQL string
-literal (`SELECT`/`INSERT`/`UPDATE`/`DELETE`) inside a `@fn` Go handler,
-directing the author to declare it as `query.sql`/`query.compose` instead.
-Siblings landing with it: `ESC-SQL-TENANCY-CONTRACT-001`,
-`ESC-SCOPE-OVERRIDE-UNGUARDED-001`.
+`ESC-RAWSQL-IN-HANDLER-001` — fires when a `@fn` Go handler runs a multi-line raw
+SQL read (`db.Query(` / `QueryRow(` / `lazuli.DB().Query(`) for a read the feature
+`.lzi` declares only as an opaque `fn ...: Function[...]` (no `query.sql`, no
+`returns`), directing the author to declare it as `query.sql`/`query.compose`
+instead. It is **non-waivable-to-silence**: a `# doctor:allow` is honored
+mechanically but the finding stands as recorded debt — the only resolution that
+clears it is *converting* the read into a declared escape (i.e. take the bottom
+branch of this tree back up to the `query.sql` branch).
+
+`ESC-SQL-TENANCY-CONTRACT-001` — fires when a `query.sql` mixes named (`:x`) and
+positional (`$N`) binding, or references a param the `.lzi` block doesn't declare.
+
+`ESC-SCOPE-OVERRIDE-UNGUARDED-001` — fires when a `query.sql` has no tenant
+predicate and no `@actor.<privileged>` guard (a SQL comment is not a guard).

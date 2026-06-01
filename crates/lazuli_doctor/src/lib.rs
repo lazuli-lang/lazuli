@@ -29,6 +29,7 @@ pub mod cross_feature;
 pub mod design;
 pub mod domain;
 pub mod encryption;
+pub mod escape_hatch;
 pub mod error_handling;
 pub mod error_vocab;
 pub mod handler_path;

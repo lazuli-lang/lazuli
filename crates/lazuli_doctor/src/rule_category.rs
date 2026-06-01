@@ -55,6 +55,14 @@ pub enum RuleCategory {
     /// features sharing anchor/resource/domain pass). Fires under
     /// `lazuli doctor <path>` (user .lzi source), never under `--self`.
     LziHygiene,
+    /// Escape-hatch visibility (spec 0010) — keeps sanctioned-but-
+    /// invisible escapes visible to a cold `.lzi` audit: raw SQL hidden
+    /// in a `@fn` Go handler (`ESC-RAWSQL-IN-HANDLER-001`), an incoherent
+    /// `query.sql` binding contract (`ESC-SQL-TENANCY-CONTRACT-001`), and
+    /// an unguarded cross-tenant scope override
+    /// (`ESC-SCOPE-OVERRIDE-UNGUARDED-001`). Fires under
+    /// `lazuli doctor <path>`.
+    EscapeHatch,
 }
 
 impl RuleCategory {
@@ -152,6 +160,8 @@ impl RuleCategory {
             // `[doctor.error_handling]`).
             Some("JOB") => Self::ErrorHandling,
             Some("LZI") => Self::LziHygiene,
+            // ESC-* — spec 0010 escape-hatch visibility rules.
+            Some("ESC") => Self::EscapeHatch,
             _ => Self::Vocabulary, // safe fallback; auditor flags
         }
     }
@@ -186,6 +196,7 @@ impl RuleCategory {
             "internal_hygiene" | "InternalHygiene" => Some(Self::InternalHygiene),
             "error_handling" | "ErrorHandling" => Some(Self::ErrorHandling),
             "lzi_hygiene" | "LziHygiene" => Some(Self::LziHygiene),
+            "escape_hatch" | "EscapeHatch" => Some(Self::EscapeHatch),
             _ => None,
         }
     }
@@ -219,6 +230,7 @@ impl RuleCategory {
             Self::InternalHygiene => "internal_hygiene",
             Self::ErrorHandling => "error_handling",
             Self::LziHygiene => "lzi_hygiene",
+            Self::EscapeHatch => "escape_hatch",
         }
     }
 }
@@ -346,6 +358,26 @@ mod tests {
         );
         // Serde snake_case round-trip.
         assert_eq!(RuleCategory::LziHygiene.as_str(), "lzi_hygiene");
+    }
+
+    #[test]
+    fn esc_prefix_routes_to_escape_hatch() {
+        for code in [
+            "ESC-RAWSQL-IN-HANDLER-001",
+            "ESC-SQL-TENANCY-CONTRACT-001",
+            "ESC-SCOPE-OVERRIDE-UNGUARDED-001",
+        ] {
+            assert_eq!(
+                RuleCategory::from_code_prefix(code),
+                RuleCategory::EscapeHatch,
+                "{code} should route to EscapeHatch"
+            );
+        }
+        assert_eq!(
+            RuleCategory::parse("escape_hatch"),
+            Some(RuleCategory::EscapeHatch)
+        );
+        assert_eq!(RuleCategory::EscapeHatch.as_str(), "escape_hatch");
     }
 
     #[test]

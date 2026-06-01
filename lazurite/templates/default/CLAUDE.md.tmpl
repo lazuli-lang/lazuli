@@ -126,7 +126,8 @@ example.
 
 - Reach for `conventions [crud]`, not a hand-rolled create/update/delete command per resource.
 - Reach for a `defaults` block, not the same `tenancy` (and soon `rate_limit`/`audit`) repeated on every command.
-- Reach for `query.sql` / `query.compose` for joins/aggregates, not a raw SQL string buried in a `@fn` Go handler.
+- Reach for `query.sql` / `query.compose` for joins/aggregates, not a raw SQL string buried in a `@fn` Go handler. Raw SQL hidden behind an opaque `fn` trips `ESC-RAWSQL-IN-HANDLER-001`, which is non-waivable-to-silence — clear it by converting the read to a declared `query.sql`, not with a `# doctor:allow`.
+- A `query.sql` must use one binding style with every param declared (`ESC-SQL-TENANCY-CONTRACT-001`) and either carry a tenant predicate or an `@actor.<privileged>` guard (`ESC-SCOPE-OVERRIDE-UNGUARDED-001`).
 - Reach for a closed `state {}` + `transition`, not a free-text status field hand-validated in Go.
 - Reach for `guard references` / `restrict on_delete`, not hand-copied referential guards.
 - Reach for first-class `Money`, not an amount-cents Integer plus a currency-string sibling.

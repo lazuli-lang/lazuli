@@ -216,6 +216,23 @@ pub const GLOBAL_DIAGNOSTICS: &[DiagnosticFacet] = &[
         base_severity: "info",
         category: "lzi_hygiene",
     },
+    // ── spec 0010 escape-hatch visibility (cross-cutting: Go handlers ∩
+    // `.lzi` IR ∩ `.sql` files, so no single keyword owns them) ──
+    DiagnosticFacet {
+        code: "ESC-RAWSQL-IN-HANDLER-001",
+        base_severity: "warning",
+        category: "escape_hatch",
+    },
+    DiagnosticFacet {
+        code: "ESC-SQL-TENANCY-CONTRACT-001",
+        base_severity: "warning",
+        category: "escape_hatch",
+    },
+    DiagnosticFacet {
+        code: "ESC-SCOPE-OVERRIDE-UNGUARDED-001",
+        base_severity: "warning",
+        category: "escape_hatch",
+    },
     // ── doctor-meta (guards the override table itself) ──
     DiagnosticFacet {
         code: "DOCTOR-OVERRIDE-NEEDS-REASON-001",
