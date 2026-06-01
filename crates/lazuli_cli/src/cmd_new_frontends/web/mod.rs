@@ -687,6 +687,39 @@ mod tests {
         assert!(pkg.contains("\"verify:scaffold\""));
     }
 
+    /// Orthogonal-bug regression (the design-token loader + generated-SDK
+    /// deps that broke `vite build` on a fresh scaffold):
+    /// 1. `Lazurite.toml.tmpl` MUST set `[lazurite] app_dir = "app"` — the
+    ///    scaffold writes `app/design.lzi` (+ app.lzi/registry.lzi), and the
+    ///    loader resolves them via `app_root`, which falls back to the
+    ///    project root when `app_dir` is unset → design tokens never emit →
+    ///    `vite build` fails on `@import "@generated/design/tokens.css"`.
+    /// 2. The root `package.json.tmpl` MUST carry the deps the GENERATED
+    ///    `dist/ts-web/*` files import (`zod`, `tailwindcss`, `@playwright/
+    ///    test`) — those files live at the project root, so they resolve
+    ///    their deps from the ROOT node_modules, not the client's.
+    #[test]
+    fn template_wires_app_dir_and_root_generated_deps() {
+        let template = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../lazurite/templates/default");
+
+        let manifest = fs::read_to_string(template.join("Lazurite.toml.tmpl")).unwrap();
+        assert!(
+            manifest.contains("app_dir = \"app\""),
+            "Lazurite.toml.tmpl must set [lazurite] app_dir = \"app\" so the loader \
+             finds app/design.lzi (else design tokens never emit + vite build breaks)"
+        );
+
+        let root_pkg = fs::read_to_string(template.join("package.json.tmpl")).unwrap();
+        for dep in ["\"zod\"", "\"tailwindcss\"", "\"@playwright/test\""] {
+            assert!(
+                root_pkg.contains(dep),
+                "root package.json.tmpl must declare {dep} — generated dist/ts-web files \
+                 import it and resolve from the project root, not the web client"
+            );
+        }
+    }
+
     /// Both smoke tests are emitted under `app/web/__smoke__/`.
     #[test]
     fn scaffold_emits_smoke_tests() {

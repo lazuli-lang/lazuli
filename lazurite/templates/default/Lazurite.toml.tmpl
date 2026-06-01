@@ -3,6 +3,13 @@ name = "{{app_name}}"
 module = "{{module}}"
 schema = 1
 
+[lazurite]
+# The scaffold places all .lzi sources (app.lzi, design.lzi, registry.lzi,
+# features/) under `app/`. This tells the loader + codegen to resolve them
+# there — without it, design.lzi/app.lzi are looked up at the project root
+# and design tokens never emit (breaking `vite build` on the @import).
+app_dir = "app"
+
 [lazuli]
 runtime = "0.1.0"
 
