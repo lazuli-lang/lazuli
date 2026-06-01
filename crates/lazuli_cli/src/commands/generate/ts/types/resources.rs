@@ -88,9 +88,12 @@ pub(crate) fn ts_type_for_type_ref(
             lazuli_ir::BuiltinType::SemanticPluginType { name, .. } => pascal_case(name),
             lazuli_ir::BuiltinType::Boolean => "boolean".to_owned(),
             // W1 GAP-05 — Percentage is Decimal-backed; TS wire is number.
+            // Batch E — PositiveDecimal / NonNegativeInt are numeric carriers.
             lazuli_ir::BuiltinType::Integer
             | lazuli_ir::BuiltinType::Decimal
-            | lazuli_ir::BuiltinType::SemanticPercentage => "number".to_owned(),
+            | lazuli_ir::BuiltinType::SemanticPercentage
+            | lazuli_ir::BuiltinType::SemanticPositiveDecimal
+            | lazuli_ir::BuiltinType::SemanticNonNegativeInt => "number".to_owned(),
             // Per `semantic-types-money-brazilian.md` v0.3 — Money is
             // the rich struct on the TS side too. `Money` interface
             // lives in `@lazuli/runtime`; downstream consumers get the

@@ -80,6 +80,9 @@ fn go_type_for_builtin(builtin: &BuiltinType) -> String {
         // W1 GAP-04/05 — named runtime carriers with built-in validation.
         BuiltinType::SemanticHexColor => "lazuli.HexColor".to_string(),
         BuiltinType::SemanticPercentage => "lazuli.Percentage".to_string(),
+        // Batch E — strict-positive / non-negative range carriers.
+        BuiltinType::SemanticPositiveDecimal => "lazuli.PositiveDecimal".to_string(),
+        BuiltinType::SemanticNonNegativeInt => "lazuli.NonNegativeInt".to_string(),
         // B3 — plugin-contributed `@semantic.<Name>` lowers to the
         // carrier's Go type for handler stubs (no plugin import here;
         // the validate tag wired in resource emission handles the

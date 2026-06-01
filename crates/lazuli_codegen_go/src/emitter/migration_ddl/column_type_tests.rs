@@ -35,6 +35,8 @@ fn maps_builtin_types_and_requiredness() {
             builtin("currency", BuiltinType::SemanticCurrency, true),
             builtin("brand_color", BuiltinType::SemanticHexColor, false),
             builtin("discount_rate", BuiltinType::SemanticPercentage, false),
+            builtin("unit_price", BuiltinType::SemanticPositiveDecimal, false),
+            builtin("stock_count", BuiltinType::SemanticNonNegativeInt, false),
             builtin(
                 "cents",
                 BuiltinType::SemanticMoney {
@@ -66,6 +68,12 @@ fn maps_builtin_types_and_requiredness() {
     assert!(sql.contains("brand_color TEXT,"));
     // W1 GAP-05 — Percentage mirrors Decimal's NUMERIC precision.
     assert!(sql.contains("discount_rate NUMERIC(20, 6),"));
+    // Batch E — PositiveDecimal mirrors Decimal's NUMERIC precision (the
+    // `> 0` guard lives in the runtime carrier's UnmarshalJSON).
+    assert!(sql.contains("unit_price NUMERIC(20, 6),"));
+    // Batch E — NonNegativeInt mirrors Integer's BIGINT storage (the `>= 0`
+    // guard lives in the runtime carrier's UnmarshalJSON).
+    assert!(sql.contains("stock_count BIGINT,"));
     // The author-declared `currency: Currency` column stays as-is
     // (the v0.5 codegen no longer mints a shared `currency` column
     // — it only emits per-Money-field `<field>_currency` columns

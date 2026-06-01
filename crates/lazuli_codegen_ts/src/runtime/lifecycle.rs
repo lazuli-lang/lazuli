@@ -113,7 +113,10 @@ fn type_ref_ts(type_ref: &ir::TypeRef) -> &'static str {
             ir::BuiltinType::Integer
             | ir::BuiltinType::Decimal
             // W1 GAP-05 — Percentage is Decimal-backed; wire shape is number.
-            | ir::BuiltinType::SemanticPercentage,
+            | ir::BuiltinType::SemanticPercentage
+            // Batch E — PositiveDecimal / NonNegativeInt are numeric carriers.
+            | ir::BuiltinType::SemanticPositiveDecimal
+            | ir::BuiltinType::SemanticNonNegativeInt,
         ) => "number",
         ir::TypeRef::Builtin(
             ir::BuiltinType::Text

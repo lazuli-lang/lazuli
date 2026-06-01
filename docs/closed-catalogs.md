@@ -60,6 +60,8 @@ Validated/formatted scalars (spelled `@semantic.<X>` today; bare after the `@`-o
 - `GeoPoint`
 - `HexColor`
 - `Percentage`
+- `PositiveDecimal`
+- `NonNegativeInt`
 - `Money`
 
 ## Non-canonical scalar aliases

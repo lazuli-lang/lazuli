@@ -41,6 +41,8 @@ pub(super) fn builtin_label(builtin: &BuiltinType) -> &'static str {
         BuiltinType::SemanticGeoPoint => "GeoPoint",
         BuiltinType::SemanticHexColor => "HexColor",
         BuiltinType::SemanticPercentage => "Percentage",
+        BuiltinType::SemanticPositiveDecimal => "PositiveDecimal",
+        BuiltinType::SemanticNonNegativeInt => "NonNegativeInt",
         BuiltinType::SemanticPluginType { .. } => "SemanticPluginType",
         BuiltinType::CapSecret => "@cap.Secret",
         BuiltinType::CapFile => "@cap.File",
@@ -81,6 +83,8 @@ pub(super) fn go_type_for_builtin(builtin: &BuiltinType) -> String {
         // W1 GAP-04/05 — named runtime carriers with built-in validation.
         BuiltinType::SemanticHexColor => "lazuli.HexColor".to_owned(),
         BuiltinType::SemanticPercentage => "lazuli.Percentage".to_owned(),
+        BuiltinType::SemanticPositiveDecimal => "lazuli.PositiveDecimal".to_owned(),
+        BuiltinType::SemanticNonNegativeInt => "lazuli.NonNegativeInt".to_owned(),
         BuiltinType::SemanticPluginType { carrier, .. } => go_type_for_builtin(carrier),
         BuiltinType::CapSecret => "lazuli.Secret".to_owned(),
         BuiltinType::CapFile => "any".to_owned(),

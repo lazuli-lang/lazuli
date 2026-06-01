@@ -140,7 +140,17 @@ pub(crate) fn validate_constraint_type_compatibility(
     // W1 GAP-05 — Percentage is Decimal-backed, so numeric inline
     // constraints (`between`, `min`/`max`) apply on top of its built-in
     // 0..=100 range guard.
-    let is_numeric = matches!(builtin, B::Integer | B::Decimal | B::SemanticPercentage);
+    // Batch E — PositiveDecimal / NonNegativeInt are numeric carriers, so
+    // numeric inline constraints (`between`, `min`/`max`) apply on top of
+    // their built-in `> 0` / `>= 0` guards.
+    let is_numeric = matches!(
+        builtin,
+        B::Integer
+            | B::Decimal
+            | B::SemanticPercentage
+            | B::SemanticPositiveDecimal
+            | B::SemanticNonNegativeInt
+    );
     let is_min_max_compatible = is_text_like || is_numeric;
     let is_in_compatible = is_text_like || is_numeric;
 

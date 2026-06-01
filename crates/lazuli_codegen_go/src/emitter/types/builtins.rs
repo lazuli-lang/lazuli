@@ -63,6 +63,20 @@ pub(super) fn go_type_for_builtin(builtin: &BuiltinType) -> (String, Option<&'st
             "lazuli.Percentage".to_owned(),
             Some("lazuli.dev/runtime/lazuli"),
         ),
+        // Batch E — `@semantic.PositiveDecimal` resolves to the named runtime
+        // type `lazuli.PositiveDecimal` (float64 carrier). Its `UnmarshalJSON`
+        // emits the `value > 0` strict-positive check at the decode boundary.
+        BuiltinType::SemanticPositiveDecimal => (
+            "lazuli.PositiveDecimal".to_owned(),
+            Some("lazuli.dev/runtime/lazuli"),
+        ),
+        // Batch E — `@semantic.NonNegativeInt` resolves to the named runtime
+        // type `lazuli.NonNegativeInt` (int64 carrier). Its `UnmarshalJSON`
+        // emits the `value >= 0` non-negative check at the decode boundary.
+        BuiltinType::SemanticNonNegativeInt => (
+            "lazuli.NonNegativeInt".to_owned(),
+            Some("lazuli.dev/runtime/lazuli"),
+        ),
         // B3 — plugin-contributed `@semantic.<Name>` materialises as
         // the carrier's Go type. The validate tag (emitted at
         // resource-field-tag time per resource.rs) drives the
@@ -185,6 +199,32 @@ mod tests {
         let ctx = type_ctx("customer", "lazuli/test", &index);
         let (go, import) = go_type_for(&TypeRef::Builtin(BuiltinType::SemanticPercentage), &ctx);
         assert_eq!(go, "lazuli.Percentage");
+        assert_eq!(import.as_deref(), Some("lazuli.dev/runtime/lazuli"));
+    }
+
+    #[test]
+    fn semantic_positive_decimal_maps_to_lazuli_positive_decimal() {
+        // Batch E — strict-positive decimal semantic resolves to the named
+        // runtime type whose UnmarshalJSON rejects `value <= 0`.
+        let module = cross_ref_module();
+        let index = crate::emitter::cross_feature::CrossFeatureIndex::build(&module);
+        let ctx = type_ctx("customer", "lazuli/test", &index);
+        let (go, import) =
+            go_type_for(&TypeRef::Builtin(BuiltinType::SemanticPositiveDecimal), &ctx);
+        assert_eq!(go, "lazuli.PositiveDecimal");
+        assert_eq!(import.as_deref(), Some("lazuli.dev/runtime/lazuli"));
+    }
+
+    #[test]
+    fn semantic_non_negative_int_maps_to_lazuli_non_negative_int() {
+        // Batch E — non-negative integer semantic resolves to the named
+        // runtime type whose UnmarshalJSON rejects `value < 0`.
+        let module = cross_ref_module();
+        let index = crate::emitter::cross_feature::CrossFeatureIndex::build(&module);
+        let ctx = type_ctx("customer", "lazuli/test", &index);
+        let (go, import) =
+            go_type_for(&TypeRef::Builtin(BuiltinType::SemanticNonNegativeInt), &ctx);
+        assert_eq!(go, "lazuli.NonNegativeInt");
         assert_eq!(import.as_deref(), Some("lazuli.dev/runtime/lazuli"));
     }
 

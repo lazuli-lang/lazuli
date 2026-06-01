@@ -158,6 +158,12 @@ pub(crate) fn type_ref_from_syntax(ty: &str) -> ir::TypeRef {
         "Percentage" | "@semantic.Percentage" => {
             return ir::TypeRef::Builtin(ir::BuiltinType::SemanticPercentage);
         }
+        "PositiveDecimal" | "@semantic.PositiveDecimal" => {
+            return ir::TypeRef::Builtin(ir::BuiltinType::SemanticPositiveDecimal);
+        }
+        "NonNegativeInt" | "@semantic.NonNegativeInt" => {
+            return ir::TypeRef::Builtin(ir::BuiltinType::SemanticNonNegativeInt);
+        }
         // Bare `Money` (no args) is canonical-pilot reality: single-currency
         // app, defaults to BRL.
         "Money" | "@semantic.Money" => {
@@ -473,6 +479,33 @@ mod tests {
         assert!(matches!(
             type_ref_from_syntax("list Text"),
             ir::TypeRef::Many(_)
+        ));
+    }
+
+    #[test]
+    fn positive_decimal_resolves_to_builtin_bare_and_sigil() {
+        // Batch E — both the canonical bare spelling and the deprecated
+        // `@semantic.` alias resolve to the strict-positive decimal builtin.
+        assert!(matches!(
+            type_ref_from_syntax("PositiveDecimal"),
+            ir::TypeRef::Builtin(ir::BuiltinType::SemanticPositiveDecimal)
+        ));
+        assert!(matches!(
+            type_ref_from_syntax("@semantic.PositiveDecimal"),
+            ir::TypeRef::Builtin(ir::BuiltinType::SemanticPositiveDecimal)
+        ));
+    }
+
+    #[test]
+    fn non_negative_int_resolves_to_builtin_bare_and_sigil() {
+        // Batch E — both spellings resolve to the non-negative integer builtin.
+        assert!(matches!(
+            type_ref_from_syntax("NonNegativeInt"),
+            ir::TypeRef::Builtin(ir::BuiltinType::SemanticNonNegativeInt)
+        ));
+        assert!(matches!(
+            type_ref_from_syntax("@semantic.NonNegativeInt"),
+            ir::TypeRef::Builtin(ir::BuiltinType::SemanticNonNegativeInt)
         ));
     }
 }

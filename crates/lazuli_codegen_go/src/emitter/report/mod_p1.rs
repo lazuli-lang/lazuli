@@ -307,6 +307,8 @@ fn builtin_token(b: &BuiltinType) -> &'static str {
         BuiltinType::SemanticGeoPoint => "@semantic.GeoPoint",
         BuiltinType::SemanticHexColor => "@semantic.HexColor",
         BuiltinType::SemanticPercentage => "@semantic.Percentage",
+        BuiltinType::SemanticPositiveDecimal => "@semantic.PositiveDecimal",
+        BuiltinType::SemanticNonNegativeInt => "@semantic.NonNegativeInt",
         BuiltinType::SemanticPluginType { .. } => "@semantic.Plugin",
         BuiltinType::CapSecret => "@cap.Secret",
         BuiltinType::CapFile => "@cap.File",

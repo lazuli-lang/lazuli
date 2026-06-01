@@ -114,6 +114,20 @@ pub enum BuiltinType {
     /// guard the other semantics lack. Codegen emits the bounds check via
     /// the `lazuli.Percentage` runtime type's `UnmarshalJSON`.
     SemanticPercentage,
+    /// Batch E — `@semantic.PositiveDecimal`. Decimal-backed value bounded to
+    /// `value > 0` (strictly positive). Mirrors `Decimal` for the numeric
+    /// wire shape (NUMERIC column, `number`/`float64`) but rejects zero and
+    /// negatives at the decode boundary so pilots stop hand-writing `> 0`
+    /// price/amount validators. Codegen emits the guard via the
+    /// `lazuli.PositiveDecimal` runtime type's `UnmarshalJSON`.
+    SemanticPositiveDecimal,
+    /// Batch E — `@semantic.NonNegativeInt`. Integer-backed value bounded to
+    /// `value >= 0` (non-negative). Mirrors `Integer` for the wire shape
+    /// (BIGINT column, `number`/`int64`) but rejects negatives at the decode
+    /// boundary so pilots stop hand-writing `>= 0` count/quantity validators.
+    /// Codegen emits the guard via the `lazuli.NonNegativeInt` runtime type's
+    /// `UnmarshalJSON`.
+    SemanticNonNegativeInt,
     /// B3 — plugin-contributed `@semantic.<Name>` resolved through a
     /// plugin's `manifest.toml`. The IR layer is locale-agnostic: it
     /// knows only the declaring plugin namespace (`@lazuli/plugin-scalars-br`),

@@ -122,7 +122,20 @@ pub const SCALAR_TYPES: &[&str] =
 /// SPEC-04 retires the sigil and they become bare reserved type names (which is
 /// why they live in the type catalog, not the decorator rows).
 pub const SEMANTIC_TYPES: &[&str] = &[
-    "Email", "Phone", "Url", "Uuid", "Currency", "GeoPoint", "HexColor", "Percentage", "Money",
+    "Email",
+    "Phone",
+    "Url",
+    "Uuid",
+    "Currency",
+    "GeoPoint",
+    "HexColor",
+    "Percentage",
+    // Batch E — strictly-positive decimal (`> 0`) + non-negative integer
+    // (`>= 0`) range scalars; pilots hand-wrote these as `> 0` / `>= 0`
+    // validators on prices/amounts/counts.
+    "PositiveDecimal",
+    "NonNegativeInt",
+    "Money",
 ];
 
 /// Non-canonical scalar aliases the analyzer historically resolved **silently**

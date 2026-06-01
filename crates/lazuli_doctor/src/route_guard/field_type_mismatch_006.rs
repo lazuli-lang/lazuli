@@ -165,8 +165,15 @@ pub fn literal_matches_type(lit: &DefaultValue, ty: &TypeRef) -> bool {
         (
             DefaultValue::Integer(_),
             // W1 GAP-05 — Percentage is Decimal-backed; an integer literal
-            // (e.g. `= 50`) is an admissible route-guard RHS.
-            TypeRef::Builtin(BuiltinType::Integer | BuiltinType::SemanticPercentage),
+            // (e.g. `= 50`) is an admissible route-guard RHS. Batch E —
+            // PositiveDecimal / NonNegativeInt are numeric carriers, so an
+            // integer literal (`= 1`, `= 0`) is likewise admissible.
+            TypeRef::Builtin(
+                BuiltinType::Integer
+                    | BuiltinType::SemanticPercentage
+                    | BuiltinType::SemanticPositiveDecimal
+                    | BuiltinType::SemanticNonNegativeInt,
+            ),
         ) => true,
         (
             DefaultValue::String(_),

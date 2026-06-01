@@ -135,6 +135,9 @@ fn ir_pg_type_for_builtin(builtin: &BuiltinType) -> String {
         | BuiltinType::SemanticHexColor => "TEXT".to_owned(),
         // W1 GAP-05 — Percentage mirrors Decimal's NUMERIC precision.
         BuiltinType::SemanticPercentage => "NUMERIC(20, 6)".to_owned(),
+        // Batch E — PositiveDecimal mirrors Decimal; NonNegativeInt mirrors Integer.
+        BuiltinType::SemanticPositiveDecimal => "NUMERIC(20, 6)".to_owned(),
+        BuiltinType::SemanticNonNegativeInt => "BIGINT".to_owned(),
         BuiltinType::SemanticMoney { .. } => "NUMERIC(20,4)".to_owned(),
         BuiltinType::SemanticGeoPoint => "geography(point, 4326)".to_owned(),
         BuiltinType::SemanticPluginType { carrier, .. } => ir_pg_type_for_builtin(carrier),

@@ -140,6 +140,8 @@ fn builtin_label(builtin: &BuiltinType) -> String {
         BuiltinType::SemanticGeoPoint => "@semantic.GeoPoint".to_string(),
         BuiltinType::SemanticHexColor => "@semantic.HexColor".to_string(),
         BuiltinType::SemanticPercentage => "@semantic.Percentage".to_string(),
+        BuiltinType::SemanticPositiveDecimal => "@semantic.PositiveDecimal".to_string(),
+        BuiltinType::SemanticNonNegativeInt => "@semantic.NonNegativeInt".to_string(),
         // B3 — surface the alias `@semantic.<Name>` as the label so
         // diagnostics still read in source-form. Terminal-field checks
         // need a non-string canonical name to compare against, and the

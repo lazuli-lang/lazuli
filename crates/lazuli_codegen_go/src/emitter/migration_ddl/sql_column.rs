@@ -219,6 +219,12 @@ pub(super) fn pg_type_for_builtin(builtin: &BuiltinType) -> PgType {
         // W1 GAP-05 — Percentage is a decimal carrier; mirror `Decimal`'s
         // NUMERIC precision so the 0..=100 ratio stores losslessly.
         BuiltinType::SemanticPercentage => "NUMERIC(20, 6)",
+        // Batch E — PositiveDecimal is a decimal carrier; mirror `Decimal`'s
+        // NUMERIC precision (the `> 0` guard lives in the runtime carrier).
+        BuiltinType::SemanticPositiveDecimal => "NUMERIC(20, 6)",
+        // Batch E — NonNegativeInt is an integer carrier; mirror `Integer`'s
+        // BIGINT storage (the `>= 0` guard lives in the runtime carrier).
+        BuiltinType::SemanticNonNegativeInt => "BIGINT",
         // Per proposal `semantic-types-money-brazilian.md` v0.4:
         // Money stores as `NUMERIC(20,4)`. One shared resource-level
         // `currency TEXT` column is auto-emitted (see resource_columns);

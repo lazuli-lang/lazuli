@@ -129,3 +129,116 @@ func (p *Percentage) UnmarshalJSON(data []byte) error {
 	*p = parsed
 	return nil
 }
+
+// Batch E — strict-positive / non-negative numeric carriers. Pilots were
+// hand-writing `> 0` (price/amount) and `>= 0` (count/quantity) validators;
+// these carriers fold the bound into the decode boundary so an out-of-range
+// value surfaces as a `validation_failed` envelope without any authored
+// validator — same posture as `Percentage`'s 0..=100 guard.
+
+// PositiveDecimal is the carrier for `@semantic.PositiveDecimal`. The stored
+// value is a float64 constrained to value > 0 (strictly positive — zero and
+// negatives are rejected). DDL column is NUMERIC(20, 6), matching Decimal's
+// precision.
+type PositiveDecimal float64
+
+// Validate reports whether the value is strictly positive (> 0).
+func (d PositiveDecimal) Validate() error {
+	if d <= 0 {
+		return fmt.Errorf("lazuli: value %v must be greater than 0", float64(d))
+	}
+	return nil
+}
+
+// Value implements driver.Valuer so PositiveDecimal binds directly as a
+// NUMERIC column value.
+func (d PositiveDecimal) Value() (driver.Value, error) { return float64(d), nil }
+
+// Scan implements sql.Scanner so pgx can hydrate PositiveDecimal from a
+// NUMERIC column. Scan is trusting (DB is the source of truth); shape
+// enforcement happens at the wire decode boundary via UnmarshalJSON.
+func (d *PositiveDecimal) Scan(src any) error {
+	switch v := src.(type) {
+	case float64:
+		*d = PositiveDecimal(v)
+	case int64:
+		*d = PositiveDecimal(v)
+	case nil:
+		*d = 0
+	default:
+		return fmt.Errorf("lazuli: cannot scan %T into PositiveDecimal", src)
+	}
+	return nil
+}
+
+// MarshalJSON emits the bare number.
+func (d PositiveDecimal) MarshalJSON() ([]byte, error) { return json.Marshal(float64(d)) }
+
+// UnmarshalJSON decodes a JSON number and enforces value > 0. A zero or
+// negative value returns an error that lifts to a 400 validation_failed
+// envelope through the command decode pipeline.
+func (d *PositiveDecimal) UnmarshalJSON(data []byte) error {
+	var f float64
+	if err := json.Unmarshal(data, &f); err != nil {
+		return err
+	}
+	parsed := PositiveDecimal(f)
+	if err := parsed.Validate(); err != nil {
+		return err
+	}
+	*d = parsed
+	return nil
+}
+
+// NonNegativeInt is the carrier for `@semantic.NonNegativeInt`. The stored
+// value is an int64 constrained to value >= 0 (non-negative — negatives are
+// rejected). DDL column is BIGINT, matching Integer's storage.
+type NonNegativeInt int64
+
+// Validate reports whether the value is non-negative (>= 0).
+func (n NonNegativeInt) Validate() error {
+	if n < 0 {
+		return fmt.Errorf("lazuli: value %d must be greater than or equal to 0", int64(n))
+	}
+	return nil
+}
+
+// Value implements driver.Valuer so NonNegativeInt binds directly as a
+// BIGINT column value.
+func (n NonNegativeInt) Value() (driver.Value, error) { return int64(n), nil }
+
+// Scan implements sql.Scanner so pgx can hydrate NonNegativeInt from a
+// BIGINT column. Scan is trusting (DB is the source of truth); shape
+// enforcement happens at the wire decode boundary via UnmarshalJSON.
+func (n *NonNegativeInt) Scan(src any) error {
+	switch v := src.(type) {
+	case int64:
+		*n = NonNegativeInt(v)
+	case float64:
+		*n = NonNegativeInt(v)
+	case nil:
+		*n = 0
+	default:
+		return fmt.Errorf("lazuli: cannot scan %T into NonNegativeInt", src)
+	}
+	return nil
+}
+
+// MarshalJSON emits the bare integer.
+func (n NonNegativeInt) MarshalJSON() ([]byte, error) { return json.Marshal(int64(n)) }
+
+// UnmarshalJSON decodes a JSON number and enforces value >= 0. A negative
+// value returns an error that lifts to a 400 validation_failed envelope
+// through the command decode pipeline.
+func (n *NonNegativeInt) UnmarshalJSON(data []byte) error {
+	var i int64
+	if err := json.Unmarshal(data, &i); err != nil {
+		return err
+	}
+	parsed := NonNegativeInt(i)
+	if err := parsed.Validate(); err != nil {
+		return err
+	}
+	*n = parsed
+	return nil
+}

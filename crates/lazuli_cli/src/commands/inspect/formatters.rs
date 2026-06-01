@@ -264,6 +264,8 @@ pub(super) fn format_type_ref(t: &lazuli_ir::TypeRef) -> String {
             BuiltinType::SemanticGeoPoint => "@semantic.GeoPoint",
             BuiltinType::SemanticHexColor => "@semantic.HexColor",
             BuiltinType::SemanticPercentage => "@semantic.Percentage",
+            BuiltinType::SemanticPositiveDecimal => "@semantic.PositiveDecimal",
+            BuiltinType::SemanticNonNegativeInt => "@semantic.NonNegativeInt",
             BuiltinType::CapSecret => "@cap.Secret",
             BuiltinType::CapFile => "@cap.File",
         }

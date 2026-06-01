@@ -225,13 +225,15 @@ const INTENT_TABLE: &[IntentFamily] = &[
     },
     IntentFamily {
         title: "Semantic scalars",
-        reach: "validate a hex color / percentage / email at the boundary",
+        reach: "validate a hex color / percentage / positive amount / non-negative count / email at the boundary",
         package: "lazuli",
-        symbols: &["HexColor", "Percentage"],
-        note: "declare the field as the scalar (`color: @semantic.HexColor`) from the \
+        symbols: &["HexColor", "Percentage", "PositiveDecimal", "NonNegativeInt"],
+        note: "declare the field as the scalar (`color: @semantic.HexColor`, \
+               `price: @semantic.PositiveDecimal`, `stock: @semantic.NonNegativeInt`) from the \
                closed `@semantic.*` catalog (`@semantic.HexColor`, `@semantic.Percentage`, \
-               `@semantic.Email`, `@semantic.Money`); the type validates at decode. Never a \
-               regex `^#?[0-9A-Fa-f]{6}$` validator.",
+               `@semantic.PositiveDecimal`, `@semantic.NonNegativeInt`, `@semantic.Email`, \
+               `@semantic.Money`); the type validates at decode. Never a hand-written `> 0` / \
+               `>= 0` validator or a regex `^#?[0-9A-Fa-f]{6}$`.",
     },
     IntentFamily {
         title: "Notifications",

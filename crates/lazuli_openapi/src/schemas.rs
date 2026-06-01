@@ -181,6 +181,10 @@ pub(crate) fn builtin_to_openapi(b: &ir::BuiltinType) -> (&'static str, Option<&
         // W1 GAP-05 — Percentage surfaces as a number; the 0..=100 range
         // guard lives in the runtime carrier, not the OpenAPI format slot.
         SemanticPercentage => ("number", None),
+        // Batch E — PositiveDecimal surfaces as a number, NonNegativeInt as
+        // an integer; the `> 0` / `>= 0` guards live in the runtime carrier.
+        SemanticPositiveDecimal => ("number", None),
+        SemanticNonNegativeInt => ("integer", None),
         // GeoPoint follow-up — `@semantic.GeoPoint` carries
         // `{ lat, lng }`. OpenAPI does not have a `geography` format,
         // so we surface it as a generic `object` here; codegen-go is

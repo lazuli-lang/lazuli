@@ -125,6 +125,12 @@ pub(crate) fn zod_base_for_type_ref(
             // W1 GAP-05 — Percentage is Decimal-backed with a built-in
             // 0..=100 range guard mirrored into the Zod base.
             lazuli_ir::BuiltinType::SemanticPercentage => "z.number().min(0).max(100)".to_owned(),
+            // Batch E — PositiveDecimal mirrors the `> 0` guard; NonNegativeInt
+            // mirrors the integer `>= 0` guard into the Zod base.
+            lazuli_ir::BuiltinType::SemanticPositiveDecimal => "z.number().positive()".to_owned(),
+            lazuli_ir::BuiltinType::SemanticNonNegativeInt => {
+                "z.number().int().nonnegative()".to_owned()
+            }
             // W1 GAP-04 — HexColor emits the `#RRGGBB`/`#RGB` regex (RE2
             // common subset, valid in both Go's regexp and JS RegExp).
             lazuli_ir::BuiltinType::SemanticHexColor => {
