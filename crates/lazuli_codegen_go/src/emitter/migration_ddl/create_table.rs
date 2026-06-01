@@ -272,6 +272,16 @@ pub(super) fn resource_columns<'a>(
 
     if resource.soft_delete {
         columns.push(SqlColumn::typed("deleted_at", "TIMESTAMPTZ", false));
+        // Spec 0015 — `soft_delete by` projects a nullable `deleted_by`
+        // actor column (a `BIGINT` row id, like every `ID`) alongside
+        // `deleted_at`. Byte-matches the hand-rolled `deleted_by: ID
+        // optional` column so a Pauta migration produces zero schema
+        // drift. No FK is emitted (actor lives in a separately-ordered
+        // migration set / cross-feature `account.User`), mirroring how
+        // the hand-rolled column carried only an `@ref`/`target` hint.
+        if resource.soft_delete_actor {
+            columns.push(SqlColumn::typed("deleted_by", "BIGINT", false));
+        }
     }
 
     columns.extend(inline_unique_constraint_sql(resource, &tenancy));

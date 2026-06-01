@@ -142,6 +142,7 @@ pub(super) fn simple_resource(name: &str) -> Resource {
         public_contract: None,
         tenancy: None,
         soft_delete: false,
+        soft_delete_actor: false,
         timestamps: None,
         fields: Vec::new(),
         constraints: Vec::new(),

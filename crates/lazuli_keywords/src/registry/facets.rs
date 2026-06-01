@@ -397,6 +397,10 @@ pub(crate) const P_CONVENTIONS: &[DiagnosticFacet] = &[
     // `warning`; the `vocabulary` category keeps it out of the gating set so
     // `lazuli check`/`doctor` exit codes never change.
     df("VOCAB-CRUD-SYNTH-AVAILABLE-001", "warning", "vocabulary"),
+    // Spec 0015 — soft_delete actor-projection adoption nudge. Advisory:
+    // fires on a hand-rolled `deleted_at` + `deleted_by` field pair, points
+    // at the `soft_delete by` trait. `warning`/`vocabulary` ⇒ non-gating.
+    df("VOCAB-SOFT-DELETE-ACTOR-001", "warning", "vocabulary"),
 ];
 
 pub(crate) const P_DESIGN: &[DiagnosticFacet] = &[

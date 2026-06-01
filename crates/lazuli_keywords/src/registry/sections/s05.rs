@@ -147,7 +147,7 @@ pub(crate) const ROWS: &[CapabilitySpec] = &[
         "soft_delete",
         Context::ResourceBody,
         "entity.name.function.statement.resource.lazuli",
-        "Enable soft-delete.",
+        "Enable soft-delete (`deleted_at`). Add `by` (`soft_delete by`) to also project a `deleted_by` actor column populated from `ctx.actor`.",
     ),
     stmt(
         "retention",

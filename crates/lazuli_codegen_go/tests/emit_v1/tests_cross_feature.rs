@@ -77,6 +77,7 @@ fn cross_feature_user_defined_ref_emits_qualified_type_and_import() {
         public_contract: None,
         tenancy: None,
         soft_delete: false,
+        soft_delete_actor: false,
         timestamps: None,
         fields: vec![Field {
             name: "owner".to_owned(),
@@ -122,6 +123,7 @@ fn cross_feature_user_defined_ref_emits_qualified_type_and_import() {
         public_contract: None,
         tenancy: None,
         soft_delete: false,
+        soft_delete_actor: false,
         timestamps: None,
         fields: vec![Field {
             name: "name".to_owned(),

@@ -330,6 +330,10 @@ fn expected_columns_for(feature: &Feature, resource: &Resource) -> BTreeSet<Stri
     }
     if resource.soft_delete {
         cols.insert("deleted_at".to_string());
+        // Spec 0015 — `soft_delete by` also projects `deleted_by`.
+        if resource.soft_delete_actor {
+            cols.insert("deleted_by".to_string());
+        }
     }
 
     cols

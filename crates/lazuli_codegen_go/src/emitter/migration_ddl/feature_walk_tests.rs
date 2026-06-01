@@ -225,4 +225,29 @@ fn resource_timestamp_override_and_soft_delete_are_reflected() {
     assert!(!sql.contains("created_at"));
     assert!(!sql.contains("updated_at"));
     assert!(sql.contains("deleted_at TIMESTAMPTZ"));
+    // Bare `soft_delete` emits no `deleted_by` column.
+    assert!(!sql.contains("deleted_by"));
+}
+
+#[test]
+fn soft_delete_by_emits_deleted_by_bigint_column() {
+    // Spec 0015 — `soft_delete by` projects a nullable `deleted_by`
+    // BIGINT column (an `ID` row reference) alongside `deleted_at`,
+    // byte-matching a hand-rolled `deleted_by: ID optional` so a pilot
+    // migration produces zero schema drift.
+    let mut feature = base_feature("customer");
+    let mut item = resource("Customer", vec![builtin("name", BuiltinType::Text, true)]);
+    item.soft_delete = true;
+    item.soft_delete_actor = true;
+    feature.resources.push(item);
+
+    let files = emit_migrations(&base_module(vec![feature]), "crm");
+    let sql = &files[0].contents;
+
+    assert!(sql.contains("deleted_at TIMESTAMPTZ"));
+    // Nullable BIGINT — same shape every `ID` column emits, no NOT NULL.
+    assert!(
+        sql.contains("deleted_by BIGINT,") || sql.contains("deleted_by BIGINT\n"),
+        "expected nullable `deleted_by BIGINT` column, got:\n{sql}"
+    );
 }

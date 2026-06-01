@@ -223,7 +223,7 @@ default_entry     = "tenancy" tenancy_value NEWLINE
                   | "policy_for" construct_list ":" actor_atom NEWLINE
                   | "rate_limit" STRING NEWLINE
                   | "audit" "default" NEWLINE
-                  | "soft_delete" NEWLINE ;
+                  | "soft_delete" ( "by" )? NEWLINE ;
 
 tenancy_value     = "org" | "team" | "user" | "tenant" | "none"
                   | IDENT_LOWER ;
@@ -411,7 +411,10 @@ polymorphic_ref_decl = "polymorphic_ref" IDENT_LOWER IDENT_LOWER
 
 tenancy_decl      = "tenancy" tenancy_value NEWLINE ;
 timestamps_decl   = "timestamps" ( ident_list )? NEWLINE ;
-soft_delete_decl  = "soft_delete" NEWLINE ;
+soft_delete_decl  = "soft_delete" ( "by" )? NEWLINE ;
+(* `soft_delete` projects `deleted_at`; `soft_delete by` ALSO projects a
+   `deleted_by` actor column populated from ctx.actor on the soft-delete
+   write (spec 0015). *)
 retention_decl    = "retention" DURATION NEWLINE ;
 audit_decl        = "audit" ( "all" | "none" | ident_list ) NEWLINE ;
 

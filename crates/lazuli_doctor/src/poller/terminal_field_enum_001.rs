@@ -252,6 +252,7 @@ mod tests {
                 public_contract: None,
                 tenancy: None,
                 soft_delete: false,
+                soft_delete_actor: false,
                 timestamps: None,
                 fields: vec![mk_field("final_status", terminal_type)],
                 constraints: vec![],

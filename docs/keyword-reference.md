@@ -199,7 +199,7 @@ _Generated from 688 capability rows across the `lazuli_keywords` registry._
 | `composite_key` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Composite primary key. | `COMPOSITE-KEY-CONTRACT-001` |
 | `computed_date` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Computed date field. | `COMPUTED-DATE-EXPR-001` |
 | `contains` | `keyword.control.statement.lazuli` | `keyword` | — | Aggregate containment. | — |
-| `conventions` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Opt into resource conventions. | `VOCAB-CRUD-SYNTH-AVAILABLE-001`<br>`conventions_unknown` |
+| `conventions` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Opt into resource conventions. | `VOCAB-CRUD-SYNTH-AVAILABLE-001`<br>`VOCAB-SOFT-DELETE-ACTOR-001`<br>`conventions_unknown` |
 | `derived` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Derived/computed field. | `VOCAB-DERIVED-READ-001` |
 | `field` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Explicit field declaration. | — |
 | `fields` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Field group. | — |
@@ -220,7 +220,7 @@ _Generated from 688 capability rows across the `lazuli_keywords` registry._
 | `retention` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Data-retention policy. | — |
 | `root` | `keyword.control.statement.lazuli` | `keyword` | — | Aggregate root marker. | — |
 | `schedule_rule` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Recurrence/schedule rule field. | `SCHEDULE-RULE-001` |
-| `soft_delete` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Enable soft-delete. | — |
+| `soft_delete` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Enable soft-delete (`deleted_at`). Add `by` (`soft_delete by`) to also project a `deleted_by` actor column populated from `ctx.actor`. | — |
 | `storage` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Storage hint. | — |
 | `tenancy` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Tenancy axis for the resource. | — |
 | `timestamps` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Enable created/updated timestamps. | — |
@@ -435,7 +435,7 @@ _Generated from 688 capability rows across the `lazuli_keywords` registry._
 | `policy_for` | `entity.name.function.statement.defaults.lazuli` | `keyword` | — | Default policy for an action. | — |
 | `rate_limit` | `entity.name.function.statement.defaults.lazuli` | `keyword` | — | Default rate-limit spec hoisted to every command (per-command `rate_limit` wins). | — |
 | `retention` | `entity.name.function.statement.defaults.lazuli` | `keyword` | — | Default retention policy. | — |
-| `soft_delete` | `entity.name.function.statement.defaults.lazuli` | `keyword` | — | Default soft-delete convention. | — |
+| `soft_delete` | `entity.name.function.statement.defaults.lazuli` | `keyword` | — | Default soft-delete convention (`deleted_at`). `soft_delete by` also projects a `deleted_by` actor column populated from `ctx.actor`. | — |
 | `tenancy` | `entity.name.function.statement.defaults.lazuli` | `keyword` | — | Default tenancy mode. | — |
 | `timestamps` | `entity.name.function.statement.defaults.lazuli` | `keyword` | — | Default timestamp convention. | — |
 

@@ -122,6 +122,7 @@ fn user_unique_resource_drops_user_from_inputs() {
         public_contract: None,
         tenancy: Some(ir::Tenancy::Org),
         soft_delete: false,
+        soft_delete_actor: false,
         timestamps: None,
         fields: vec![
             req_field("org", user_qn("Org")),
@@ -199,6 +200,7 @@ fn empty_required_emits_no_required_fields_diagnostic() {
         public_contract: None,
         tenancy: Some(ir::Tenancy::Org),
         soft_delete: false,
+        soft_delete_actor: false,
         timestamps: None,
         fields: vec![
             req_field("id", ir::TypeRef::Builtin(ir::BuiltinType::Id)),
@@ -346,4 +348,72 @@ fn resource_without_conventions_is_no_op() {
     assert!(diags.is_empty());
     assert!(feature.commands.is_empty());
     assert!(feature.queries.is_empty());
+}
+
+#[test]
+fn crud_delete_soft_aware() {
+    // Spec 0015 — `conventions [crud]` on a `soft_delete by` resource
+    // still synthesizes a `delete_<r>` command with a `Deletes` effect;
+    // the runtime turns that into a soft-delete (`UPDATE ... SET
+    // deleted_at = now(), deleted_by = $actor`) because the resource
+    // carries `soft_delete` / `soft_delete_actor`. The synth itself is
+    // shape-stable (always a `Deletes` effect); soft-vs-hard is keyed on
+    // the resource flags downstream (codegen `SoftDelete[Actor]` value).
+    let mut feature = empty_feature("customer", true);
+    let mut r = customer_resource();
+    r.soft_delete = true;
+    r.soft_delete_actor = true;
+    feature.resources.push(r);
+
+    let diags = synthesize_conventions(&mut feature);
+    assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+
+    let delete = feature
+        .commands
+        .iter()
+        .find(|c| c.name == "delete_customer")
+        .expect("delete_customer synthesized");
+    assert!(matches!(delete.kind, ir::CommandKind::Delete));
+    match &delete.effect {
+        ir::CommandEffect::Deletes(e) => assert_eq!(e.resource.name, "Customer"),
+        other => panic!("expected Deletes effect, got {:?}", other),
+    }
+    // The flags that drive the soft path survive synth on the resource.
+    let res = feature
+        .resources
+        .iter()
+        .find(|res| res.name == "Customer")
+        .unwrap();
+    assert!(res.soft_delete, "soft path keyed on Resource.soft_delete");
+    assert!(
+        res.soft_delete_actor,
+        "actor stamp keyed on Resource.soft_delete_actor"
+    );
+}
+
+#[test]
+fn crud_delete_hard_when_no_soft_delete() {
+    // Edge: `[crud]` WITHOUT `soft_delete` still produces a `Deletes`
+    // effect, but the resource carries no soft-delete flags, so codegen
+    // + runtime emit a hard `DELETE FROM` (back-compat, unchanged).
+    let mut feature = empty_feature("customer", true);
+    let r = customer_resource(); // soft_delete = false by default
+    feature.resources.push(r);
+
+    let diags = synthesize_conventions(&mut feature);
+    assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+
+    let delete = feature
+        .commands
+        .iter()
+        .find(|c| c.name == "delete_customer")
+        .expect("delete_customer synthesized");
+    assert!(matches!(delete.kind, ir::CommandKind::Delete));
+    let res = feature
+        .resources
+        .iter()
+        .find(|res| res.name == "Customer")
+        .unwrap();
+    assert!(!res.soft_delete, "hard delete: no soft_delete flag");
+    assert!(!res.soft_delete_actor);
 }

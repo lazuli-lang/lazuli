@@ -25,7 +25,8 @@ use super::{Column, ResourceSchema};
 ///   resource opts in to timestamps (the IR `Resource.timestamps`
 ///   axis is `Option<bool>`; `None` and `Some(true)` both opt-in
 ///   — feature-level defaults are resolved upstream),
-/// - the `deleted_at TIMESTAMPTZ` column when `soft_delete`.
+/// - the `deleted_at TIMESTAMPTZ` column when `soft_delete`, plus a
+///   `deleted_by BIGINT` actor column when `soft_delete by` (spec 0015).
 ///
 /// We deliberately do NOT capture:
 /// - The `org_id BIGINT NOT NULL` tenancy column. That requires
@@ -73,6 +74,14 @@ pub fn current_schema_from_ir(resource: &Resource) -> ResourceSchema {
 
     if resource.soft_delete {
         columns.push(Column::new("deleted_at", "TIMESTAMPTZ", true));
+        // Spec 0015 — `soft_delete by` projects a nullable `deleted_by`
+        // (`BIGINT`) actor column alongside `deleted_at`. Mirror the
+        // create_table DDL emitter so the schema-diff's expected-column
+        // set includes it; otherwise `@correctness.migration_out_of_sync`
+        // flags the emitted column as "migration-only".
+        if resource.soft_delete_actor {
+            columns.push(Column::new("deleted_by", "BIGINT", true));
+        }
     }
 
     ResourceSchema { columns }
@@ -171,6 +180,35 @@ mod tests {
         let schema = current_schema_from_ir(&resource);
         let names: Vec<&str> = schema.columns.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, vec!["id", "name", "created_at", "updated_at"]);
+    }
+
+    #[test]
+    fn soft_delete_by_includes_deleted_by_in_schema() {
+        // Spec 0015 — the schema-diff expected-column set must include
+        // `deleted_by` for `soft_delete by`, mirroring the create_table
+        // DDL emitter; otherwise `@correctness.migration_out_of_sync`
+        // false-flags the emitted column as "migration-only".
+        let mut resource = empty_resource(
+            "Host",
+            vec![empty_field(
+                "name",
+                TypeRef::Builtin(BuiltinType::Text),
+                true,
+            )],
+        );
+        resource.soft_delete = true;
+        resource.soft_delete_actor = true;
+        let schema = current_schema_from_ir(&resource);
+        let names: Vec<&str> = schema.columns.iter().map(|c| c.name.as_str()).collect();
+        assert!(names.contains(&"deleted_at"), "{names:?}");
+        assert!(names.contains(&"deleted_by"), "{names:?}");
+
+        // Bare soft_delete: only deleted_at, no deleted_by.
+        resource.soft_delete_actor = false;
+        let bare = current_schema_from_ir(&resource);
+        let bare_names: Vec<&str> = bare.columns.iter().map(|c| c.name.as_str()).collect();
+        assert!(bare_names.contains(&"deleted_at"), "{bare_names:?}");
+        assert!(!bare_names.contains(&"deleted_by"), "{bare_names:?}");
     }
 
     #[test]

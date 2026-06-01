@@ -24,6 +24,14 @@ type Resource[T any] struct {
 	// to every default query.
 	SoftDelete bool
 
+	// SoftDeleteActor mirrors the DSL `soft_delete by` form (spec 0015):
+	// when true, the resource carries a nullable `deleted_by` actor column
+	// alongside `deleted_at`, and the soft-delete write additionally
+	// stamps `"deleted_by" = ctx.actor` in the SET clause. False (bare
+	// `soft_delete`) leaves the column absent — the runtime MUST NOT emit
+	// `"deleted_by" = ...` or it raises PG 42703 (undefined_column).
+	SoftDeleteActor bool
+
 	// Timestamps mirrors the DSL `defaults.timestamps` / per-resource
 	// `timestamps` knob: when true, the resource carries `created_at` and
 	// `updated_at` columns and the runtime bumps `updated_at = now()` on
@@ -88,6 +96,7 @@ func (r *Resource[T]) erased() *resourceErased {
 		Feature:          r.Feature,
 		Tenancy:          r.Tenancy,
 		SoftDelete:       r.SoftDelete,
+		SoftDeleteActor:  r.SoftDeleteActor,
 		Timestamps:       r.Timestamps,
 		Retention:        r.Retention,
 		PIIFields:        r.PIIFields,
@@ -106,6 +115,7 @@ type resourceErased struct {
 	Feature          string
 	Tenancy          TenancyMode
 	SoftDelete       bool
+	SoftDeleteActor  bool
 	Timestamps       bool
 	Retention        *RetentionSpec
 	PIIFields        []string
@@ -132,6 +142,8 @@ func (r *resourceErased) HasColumn(name string) bool {
 		return r.Timestamps
 	case "deleted_at":
 		return r.SoftDelete
+	case "deleted_by":
+		return r.SoftDeleteActor
 	default:
 		return false
 	}

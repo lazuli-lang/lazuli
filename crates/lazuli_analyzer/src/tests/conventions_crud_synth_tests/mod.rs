@@ -133,6 +133,7 @@ pub(super) fn customer_resource() -> ir::Resource {
         public_contract: None,
         tenancy: Some(ir::Tenancy::Org),
         soft_delete: false,
+        soft_delete_actor: false,
         timestamps: None,
         fields: vec![
             req_field("org", user_qn("Org")),

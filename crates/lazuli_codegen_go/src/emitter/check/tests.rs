@@ -153,6 +153,7 @@ fn resource_with_field(type_ref: TypeRef) -> Resource {
         public_contract: None,
         tenancy: None,
         soft_delete: false,
+        soft_delete_actor: false,
         timestamps: None,
         fields: vec![field("value", type_ref)],
         constraints: Vec::new(),

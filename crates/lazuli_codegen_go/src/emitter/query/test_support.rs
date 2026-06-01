@@ -176,6 +176,7 @@ pub(super) fn resource(name: &str, fields: Vec<Field>) -> Resource {
         public_contract: None,
         tenancy: None,
         soft_delete: false,
+        soft_delete_actor: false,
         timestamps: None,
         fields,
         constraints: Vec::new(),

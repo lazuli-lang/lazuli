@@ -104,6 +104,7 @@ pub(crate) fn lower_resource_decl(r: &syntax::ResourceDecl) -> Result<ir::Resour
         public_contract: lower_public_contract(&r.public_contract),
         tenancy,
         soft_delete: r.soft_delete,
+        soft_delete_actor: r.soft_delete_actor,
         timestamps: if r.timestamps { Some(true) } else { None },
         fields,
         constraints,
@@ -221,6 +222,7 @@ pub(crate) fn synthesize_junction_resource(
         public_contract: None,
         tenancy: None,
         soft_delete: false,
+        soft_delete_actor: false,
         timestamps: None,
         fields,
         constraints: vec![ir::Constraint::Unique(ir::UniqueConstraint {

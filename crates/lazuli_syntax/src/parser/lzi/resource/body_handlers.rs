@@ -27,6 +27,9 @@ pub(super) struct ResourceBodyState {
     pub(super) fields: Vec<ResourceFieldDecl>,
     pub(super) has_many: Vec<ResourceHasMany>,
     pub(super) soft_delete: bool,
+    /// Spec 0015 — `soft_delete by` actor projection flag. Implies
+    /// `soft_delete`. Projects a `deleted_by: ID` column.
+    pub(super) soft_delete_actor: bool,
     pub(super) timestamps: bool,
     /// GAP-AUDIT-02 — `append_only` resource modifier (bare line).
     pub(super) append_only: bool,

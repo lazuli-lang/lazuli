@@ -38,6 +38,7 @@ pub(super) fn empty_resource(name: &str, fields: Vec<Field>) -> Resource {
         public_contract: None,
         tenancy: None,
         soft_delete: false,
+        soft_delete_actor: false,
         timestamps: Some(true),
         fields,
         constraints: Vec::new(),

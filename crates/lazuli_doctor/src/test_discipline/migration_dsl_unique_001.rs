@@ -215,6 +215,7 @@ mod tests {
             public_contract: None,
             tenancy: None,
             soft_delete: false,
+            soft_delete_actor: false,
             timestamps: None,
             fields: vec![Field {
                 name: field_name.to_owned(),

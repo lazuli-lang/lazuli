@@ -232,7 +232,7 @@ pub(crate) const ROWS: &[CapabilitySpec] = &[
         "soft_delete",
         Context::Defaults,
         DEFAULTS,
-        "Default soft-delete convention.",
+        "Default soft-delete convention (`deleted_at`). `soft_delete by` also projects a `deleted_by` actor column populated from `ctx.actor`.",
     ),
     stmt(
         "retention",

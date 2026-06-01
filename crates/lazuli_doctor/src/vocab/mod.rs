@@ -29,6 +29,7 @@ pub mod money_field_shape_001;
 pub mod owner_axis;
 pub mod rate_limit;
 pub mod referential_guard_001;
+pub mod soft_delete_actor_001;
 pub mod universal_columns;
 pub mod vocab_audit_001;
 pub mod vocab_audit_002;

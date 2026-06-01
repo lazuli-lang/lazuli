@@ -29,6 +29,7 @@ fn command_kind_emits_typed_input_struct_and_command_value() {
         public_contract: None,
         tenancy: None,
         soft_delete: false,
+        soft_delete_actor: false,
         timestamps: None,
         fields: vec![
             Field {
@@ -232,6 +233,7 @@ fn reorder_command_emits_batch_reorder_effect() {
         public_contract: None,
         tenancy: None,
         soft_delete: false,
+        soft_delete_actor: false,
         timestamps: None,
         fields: vec![Field {
             name: "position".to_owned(),

@@ -199,6 +199,22 @@ pub(super) fn emit_resource(
             validate: None,
             comment: None,
         });
+        // Spec 0015 — `soft_delete by` projects a nullable `deleted_by`
+        // actor column (`ID`) alongside `deleted_at`. The runtime stamps
+        // it from `ctx.actor` on the soft-delete write (mirroring
+        // `deleted_at = now()`). Nullable + omitempty: live rows carry no
+        // deleter, matching the hand-rolled `deleted_by: ID optional`
+        // pairs this trait folds in.
+        if resource.soft_delete_actor {
+            tagged.push(TaggedField {
+                name: "DeletedBy".to_owned(),
+                go_type: "*lazuli.ID".to_owned(),
+                db_col: "deleted_by".to_owned(),
+                json_suffix: "deleted_by,omitempty".to_owned(),
+                validate: None,
+                comment: None,
+            });
+        }
     }
 
     p.line(&format!(
@@ -225,6 +241,14 @@ pub(super) fn emit_resource(
     ];
     if resource.soft_delete {
         kv_rows.push(("SoftDelete:".to_owned(), "true,".to_owned()));
+    }
+    // Spec 0015 — `SoftDeleteActor: true` tells the runtime soft-delete
+    // path to additionally stamp `"deleted_by" = $actor` in the SET
+    // clause (mirroring `"deleted_at" = now()`). Gated on the actor form
+    // so bare `soft_delete` resources never reference a non-existent
+    // `deleted_by` column.
+    if resource.soft_delete_actor {
+        kv_rows.push(("SoftDeleteActor:".to_owned(), "true,".to_owned()));
     }
     // `Timestamps: true` mirrors the same predicate the column emitter
     // and the migration DDL use (`uses_timestamps`). The runtime gates

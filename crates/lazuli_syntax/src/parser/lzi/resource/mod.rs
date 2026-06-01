@@ -104,6 +104,19 @@ pub(super) fn parse_resource_decl(
             i += 1;
             continue;
         }
+        // Spec 0015 — `soft_delete by` projects a `deleted_by` actor
+        // column (an `ID`) alongside `deleted_at`, populated from
+        // `ctx.actor` on the soft-delete write. Bare `soft_delete`
+        // stays `deleted_at`-only (back-compat). The `by` keyword
+        // mirrors the way authors hand-rolled `deleted_by` next to
+        // `deleted_at`, now folded into the trait.
+        if trimmed == "soft_delete by" {
+            state.soft_delete = true;
+            state.soft_delete_actor = true;
+            last_end = line.end;
+            i += 1;
+            continue;
+        }
         if trimmed == "timestamps" {
             state.timestamps = true;
             last_end = line.end;
@@ -321,6 +334,7 @@ pub(super) fn parse_resource_decl(
             fields: state.fields,
             has_many: state.has_many,
             soft_delete: state.soft_delete,
+            soft_delete_actor: state.soft_delete_actor,
             timestamps: state.timestamps,
             retention: state.retention,
             validates: state.validates,

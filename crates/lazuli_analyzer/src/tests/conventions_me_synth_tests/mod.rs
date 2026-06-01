@@ -117,6 +117,7 @@ pub(super) fn me_resource(name: &str, fields: Vec<ir::Field>) -> ir::Resource {
         public_contract: None,
         tenancy: Some(ir::Tenancy::Org),
         soft_delete: false,
+        soft_delete_actor: false,
         timestamps: None,
         fields,
         constraints: Vec::new(),

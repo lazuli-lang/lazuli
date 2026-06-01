@@ -154,6 +154,7 @@ fn cross_feature_user_defined_field_emits_qualified_ref_and_import() {
         public_contract: None,
         tenancy: None,
         soft_delete: false,
+        soft_delete_actor: false,
         timestamps: None,
         fields: Vec::new(),
         constraints: Vec::new(),

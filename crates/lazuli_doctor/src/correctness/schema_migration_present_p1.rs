@@ -286,7 +286,7 @@ fn migration_matches(stem: &str, feature_slug: &str, resource_slug: &str) -> boo
 ///   declared
 /// - `created_at` / `updated_at` when feature defaults or resource
 ///   declare timestamps
-/// - `deleted_at` when `soft_delete`
+/// - `deleted_at` when `soft_delete` (plus `deleted_by` when `soft_delete by`)
 fn expected_columns_for(feature: &Feature, resource: &Resource) -> BTreeSet<String> {
     let mut cols = BTreeSet::new();
 
@@ -343,6 +343,13 @@ fn expected_columns_for(feature: &Feature, resource: &Resource) -> BTreeSet<Stri
     }
     if resource.soft_delete {
         cols.insert("deleted_at".to_string());
+        // Spec 0015 — `soft_delete by` projects a `deleted_by` actor
+        // column alongside `deleted_at`; include it in the expected set
+        // so the migration-sync check doesn't flag the emitted column as
+        // "migration-only".
+        if resource.soft_delete_actor {
+            cols.insert("deleted_by".to_string());
+        }
     }
 
     cols

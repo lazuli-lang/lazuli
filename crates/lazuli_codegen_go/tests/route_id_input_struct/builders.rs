@@ -152,6 +152,7 @@ pub fn resource_with(name: &str, field_name: &str, field_ty: TypeRef) -> Resourc
         public_contract: None,
         tenancy: None,
         soft_delete: false,
+        soft_delete_actor: false,
         timestamps: None,
         fields: vec![simple_field(field_name, field_ty)],
         constraints: Vec::new(),

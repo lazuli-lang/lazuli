@@ -96,6 +96,7 @@ fn resource_with_guards(name: &str, guards: Vec<RestrictOnDelete>) -> Resource {
         public_contract: None,
         tenancy: None,
         soft_delete: false,
+        soft_delete_actor: false,
         timestamps: None,
         fields: vec![id_field()],
         constraints: Vec::new(),

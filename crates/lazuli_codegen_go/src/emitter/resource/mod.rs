@@ -205,6 +205,7 @@ mod feature_emit_tests {
                 public_contract: None,
                 tenancy: None,
                 soft_delete: false,
+                soft_delete_actor: false,
                 timestamps: None,
                 fields: vec![Field {
                     name: "sku".to_owned(),

@@ -98,6 +98,7 @@
             public_contract,
             tenancy: None,
             soft_delete: false,
+            soft_delete_actor: false,
             timestamps: None,
             fields: vec![field(
                 "id",

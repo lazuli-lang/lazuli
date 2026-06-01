@@ -23,6 +23,7 @@ fn resource_kind_emits_typed_struct_and_resource_value() {
         public_contract: None,
         tenancy: None,
         soft_delete: false,
+        soft_delete_actor: false,
         timestamps: None,
         fields: vec![Field {
             name: "name".to_owned(),

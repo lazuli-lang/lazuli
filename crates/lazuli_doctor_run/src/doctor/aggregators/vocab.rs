@@ -59,7 +59,8 @@ use crate::doctor::{
     vocab_handler_heavy_001_diagnostics, vocab_json_typed_001_diagnostics,
     vocab_lifecycle_001_diagnostics, vocab_money_multi_currency_001_diagnostics,
     vocab_money_shape_001_diagnostics, vocab_resource_wide_cluster_001_diagnostics,
-    vocab_shadow_record_001_diagnostics, vocab_union_001_diagnostics, vocab_union_002_diagnostics,
+    vocab_shadow_record_001_diagnostics, vocab_soft_delete_actor_001_diagnostics,
+    vocab_union_001_diagnostics, vocab_union_002_diagnostics,
 };
 
 /// Aggregate every IR-driven `VOCAB-*` finding across the package's
@@ -149,6 +150,14 @@ pub(crate) fn diagnostics(
             security_profile,
         ));
         out.extend(vocab_money_shape_001_diagnostics(
+            path,
+            &feature,
+            header_line,
+            security_profile,
+        ));
+        // Spec 0015 — nudge hand-rolled `deleted_at` + `deleted_by` pairs
+        // toward the `soft_delete by` trait.
+        out.extend(vocab_soft_delete_actor_001_diagnostics(
             path,
             &feature,
             header_line,

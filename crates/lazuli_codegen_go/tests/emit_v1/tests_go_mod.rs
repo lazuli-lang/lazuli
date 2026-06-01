@@ -46,6 +46,7 @@ fn emit_go_mod_with_geopoint_resource_adds_postgis_require() {
         public_contract: None,
         tenancy: None,
         soft_delete: false,
+        soft_delete_actor: false,
         timestamps: None,
         fields: vec![Field {
             name: "location".to_owned(),

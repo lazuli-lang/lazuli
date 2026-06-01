@@ -149,6 +149,7 @@ fn composition_crud_and_me_with_owner_axis_propagates_chain_to_lookup_my() {
         public_contract: None,
         tenancy: Some(ir::Tenancy::Org),
         soft_delete: false,
+        soft_delete_actor: false,
         timestamps: None,
         fields: vec![
             req_field("org", user_qn("Org")),

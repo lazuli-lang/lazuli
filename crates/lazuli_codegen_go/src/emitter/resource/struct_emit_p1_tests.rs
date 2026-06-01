@@ -286,6 +286,33 @@ fn soft_delete_adds_deleted_at_pointer_with_omitempty() {
     // With soft_delete, `SoftDelete:` (11 chars) is the widest key
     // so it occupies the column verbatim without padding.
     assert!(out.contains("SoftDelete: true,"));
+    // Bare `soft_delete` (no actor form) emits NO deleted_by surface.
+    assert!(!out.contains("DeletedBy"));
+    assert!(!out.contains("SoftDeleteActor"));
+}
+
+#[test]
+fn soft_delete_by_adds_deleted_by_actor_column() {
+    // Spec 0015 — `soft_delete by` projects a nullable `deleted_by`
+    // (`*lazuli.ID`) struct field alongside `DeletedAt`, plus the
+    // `SoftDeleteActor: true` flag on the `Resource[T]` value that
+    // drives the runtime's `"deleted_by" = $actor` SET clause.
+    let mut feature = base_feature("customer");
+    let mut resource = simple_resource(
+        "customer",
+        vec![simple_field("name", BuiltinType::Text, true)],
+    );
+    resource.soft_delete = true;
+    resource.soft_delete_actor = true;
+    feature.resources.push(resource);
+    let out = emit(&feature).expect("must emit");
+    // Both soft-delete columns present, both nullable + omitempty.
+    assert!(out.contains("DeletedAt *lazuli.Time"));
+    assert!(out.contains("DeletedBy *lazuli.ID"));
+    assert!(out.contains("json:\"deleted_by,omitempty\""));
+    // Resource[T] value carries both flags.
+    assert!(out.contains("SoftDelete:"));
+    assert!(out.contains("SoftDeleteActor: true,"));
 }
 
 #[test]

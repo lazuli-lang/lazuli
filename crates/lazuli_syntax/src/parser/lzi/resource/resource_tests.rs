@@ -181,3 +181,40 @@ feature staffing
         assert!(format!("{err}").contains("at least one payload field"));
     }
 
+    #[test]
+    fn soft_delete_deleted_by_parses_actor_form() {
+        // Spec 0015 — `soft_delete by` sets BOTH `soft_delete` (back-compat
+        // base) and the new `soft_delete_actor` flag. Bare `soft_delete`
+        // leaves `soft_delete_actor` false (deleted_at-only, unchanged).
+        let actor_src = r#"
+feature billing
+  domain
+    resource Invoice
+      amount: Integer required
+      soft_delete by
+"#;
+        let features = parse_feature_skeletons(actor_src).unwrap();
+        let r = &features[0].resources[0];
+        assert!(r.soft_delete, "`soft_delete by` implies soft_delete");
+        assert!(
+            r.soft_delete_actor,
+            "`soft_delete by` must set the actor-projection flag"
+        );
+
+        // Bare `soft_delete` is back-compat: actor flag stays false.
+        let bare_src = r#"
+feature billing
+  domain
+    resource Invoice
+      amount: Integer required
+      soft_delete
+"#;
+        let bare = parse_feature_skeletons(bare_src).unwrap();
+        let br = &bare[0].resources[0];
+        assert!(br.soft_delete);
+        assert!(
+            !br.soft_delete_actor,
+            "bare `soft_delete` must NOT project deleted_by"
+        );
+    }
+

@@ -136,6 +136,7 @@ fn diagnostic_owner_axis_collides_with_unique_user() {
         public_contract: None,
         tenancy: Some(ir::Tenancy::Org),
         soft_delete: false,
+        soft_delete_actor: false,
         timestamps: None,
         fields: vec![
             req_field("org", user_qn("Org")),

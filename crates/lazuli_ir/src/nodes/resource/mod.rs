@@ -63,6 +63,14 @@ pub struct Resource {
     pub tenancy: Option<Tenancy>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub soft_delete: bool,
+    /// Spec 0015 — `soft_delete by` actor projection. When `true`, the
+    /// resource projects a nullable `deleted_by` (`ID`) column alongside
+    /// `deleted_at`; codegen populates it from `ctx.actor` on the
+    /// soft-delete write (mirroring `deleted_at = now()`). Implies
+    /// `soft_delete == true`. Additive: pre-0015 fixtures deserialize
+    /// `false` (bare `soft_delete`, `deleted_at`-only — unchanged shape).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub soft_delete_actor: bool,
     /// `None` means inherit from feature `defaults`. `Some(true)` = explicit
     /// `timestamps`, `Some(false)` = explicit `no_timestamps` opt-out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -515,6 +523,7 @@ mod tests {
             public_contract: None,
             tenancy: None,
             soft_delete: false,
+            soft_delete_actor: false,
             timestamps: None,
             fields: vec![],
             constraints: vec![],

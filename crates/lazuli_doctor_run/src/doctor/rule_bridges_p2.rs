@@ -232,6 +232,45 @@ pub(crate) fn vocab_money_shape_001_diagnostics(
         .collect()
 }
 
+/// VOCAB-SOFT-DELETE-ACTOR-001 — resource hand-rolls a `deleted_at` +
+/// `deleted_by` soft-delete pair instead of the `soft_delete by` trait
+/// (spec 0015). Advisory; points at the trait that owns both columns.
+pub(crate) fn vocab_soft_delete_actor_001_diagnostics(
+    path: &Path,
+    feature: &lazuli_ir::Feature,
+    feature_header_line: usize,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    if security_profile == SecurityProfile::Prototype {
+        return Vec::new();
+    }
+    let severity = doctor_severity_for(
+        vocab::soft_delete_actor_001::Finding::CODE,
+        RuleCategory::Vocabulary,
+        security_profile,
+        &empty_overrides(),
+    );
+    vocab::soft_delete_actor_001::check(feature, path)
+        .into_iter()
+        .map(|finding| {
+            let message = finding.message();
+            DoctorDiagnostic {
+                path: finding.path,
+                line: feature_header_line.max(1),
+                column: 1,
+                severity,
+                code: vocab::soft_delete_actor_001::Finding::CODE.to_owned(),
+                message,
+                category: Some(RuleCategory::Vocabulary),
+                feature_name: Some(finding.feature),
+                construct: None,
+                fix: None,
+                group: None,
+            }
+        })
+        .collect()
+}
+
 /// VOCAB-RESOURCE-WIDE-CLUSTER-001 — resource whose field set clusters
 /// around a shared token (e.g. `shipping_*` cluster) hinting at a
 /// sub-resource extraction.

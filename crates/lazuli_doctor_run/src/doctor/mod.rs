@@ -245,6 +245,7 @@ pub(super) use rule_bridges::{
     vocab_json_typed_001_diagnostics, vocab_lifecycle_001_diagnostics,
     vocab_money_multi_currency_001_diagnostics, vocab_money_shape_001_diagnostics,
     vocab_resource_wide_cluster_001_diagnostics, vocab_shadow_record_001_diagnostics,
+    vocab_soft_delete_actor_001_diagnostics,
     vocab_tests_missing_001_diagnostics, vocab_union_001_diagnostics, vocab_union_002_diagnostics,
 };
 pub(crate) use rule_bridges::{doctor_rule_path, read_design_ir};

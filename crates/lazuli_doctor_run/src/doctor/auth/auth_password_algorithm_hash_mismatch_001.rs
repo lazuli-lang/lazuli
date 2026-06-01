@@ -186,6 +186,7 @@ mod tests {
             public_contract: None,
             tenancy: None,
             soft_delete: false,
+            soft_delete_actor: false,
             timestamps: None,
             fields: vec![
                 mk_field("refresh_token_hash", hashed(hash_algorithm)),
@@ -318,6 +319,7 @@ mod tests {
             public_contract: None,
             tenancy: None,
             soft_delete: false,
+            soft_delete_actor: false,
             timestamps: None,
             fields: vec![
                 mk_field("token", TypeRef::Builtin(BuiltinType::Text)),

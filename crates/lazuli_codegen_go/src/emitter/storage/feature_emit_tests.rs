@@ -133,6 +133,7 @@ fn entry_point_emits_representative_resource_contract() {
         public_contract: None,
         tenancy: None,
         soft_delete: false,
+        soft_delete_actor: false,
         timestamps: None,
         fields: vec![Field {
             name: "attachment".to_owned(),

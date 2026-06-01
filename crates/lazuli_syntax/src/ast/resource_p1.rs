@@ -20,6 +20,14 @@ pub struct ResourceDecl {
     pub has_many: Vec<ResourceHasMany>,
     /// `soft_delete` declared verbatim.
     pub soft_delete: bool,
+    /// Spec 0015 — `soft_delete by` actor projection. When `true` the
+    /// trait projects a `deleted_by: ID` column alongside `deleted_at`,
+    /// populated from `ctx.actor` on the soft-delete write (mirroring how
+    /// authors hand-rolled `deleted_by` next to `deleted_at`). Implies
+    /// `soft_delete == true`. Additive: pre-0015 fixtures deserialize
+    /// `false` (bare `soft_delete`, `deleted_at`-only — unchanged shape).
+    #[serde(default, skip_serializing_if = "is_false_bool")]
+    pub soft_delete_actor: bool,
     /// `timestamps` declared verbatim.
     pub timestamps: bool,
     /// `retention <duration> then <action>` policy.

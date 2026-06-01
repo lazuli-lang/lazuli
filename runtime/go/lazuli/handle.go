@@ -1084,6 +1084,21 @@ func applyDeletes[I, O any](ctx *Ctx, tx pgx.Tx, eff DeletesEffect, input I) (O,
 		if eff.Resource.HasColumn("updated_at") {
 			softSets = append(softSets, `"updated_at" = now()`)
 		}
+		// Spec 0015 — `soft_delete by` stamps the deleting actor into
+		// `deleted_by` (mirroring `deleted_at = now()`). The value comes
+		// from `ctx.actor` (the authenticated user's id); a system /
+		// anonymous actor with no user resolves to NULL — the column is
+		// nullable, matching the hand-rolled `deleted_by: ID optional`
+		// pairs this trait folds in. Bound as a positional placeholder so
+		// the id is never string-interpolated into SQL.
+		if eff.Resource.SoftDeleteActor {
+			var actorID any
+			if ctx != nil && ctx.User != nil {
+				actorID = ctx.User.ID
+			}
+			values = append(values, actorID)
+			softSets = append(softSets, fmt.Sprintf(`"deleted_by" = $%d`, len(values)))
+		}
 		sql = fmt.Sprintf(
 			`UPDATE %s SET %s WHERE %s RETURNING *`,
 			quoteResourceTable(eff.Resource.Name),
