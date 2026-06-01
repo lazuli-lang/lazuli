@@ -433,3 +433,186 @@ fn non_delete_command_emits_no_referential_guard_call() {
         "a creates command must not invoke a referential guard:\n{out}"
     );
 }
+
+// ---------------------------------------------------------------------
+// Lifecycle initial-state auto-binding on `creates` (signup NOT-NULL bug)
+// + bare `@fn.<name>` (no parens) → FromFn (signup tenant_id garbage bug)
+// ---------------------------------------------------------------------
+
+/// Build the pauta `User` lifecycle resource:
+/// `lifecycle registration_step { state profile_setup initial;
+///  state agency_setup; state complete terminal }`.
+fn user_lifecycle_resource() -> lazuli_ir::Resource {
+    use lazuli_ir::{Lifecycle, LifecycleState, LifecycleStateKind};
+    let mut resource = super::test_support::simple_resource("User");
+    resource.lifecycle = Some(Lifecycle {
+        discriminator_field: "registration_step".to_owned(),
+        generated_enum: "UserRegistrationStep".to_owned(),
+        states: vec![
+            LifecycleState {
+                name: "profile_setup".to_owned(),
+                kind: LifecycleStateKind::Initial,
+                span_ref: None,
+            },
+            LifecycleState {
+                name: "agency_setup".to_owned(),
+                kind: LifecycleStateKind::Intermediate,
+                span_ref: None,
+            },
+            LifecycleState {
+                name: "complete".to_owned(),
+                kind: LifecycleStateKind::Terminal,
+                span_ref: None,
+            },
+        ],
+        transitions: Vec::new(),
+        invariants: Vec::new(),
+        invariant_handlers: Vec::new(),
+        previous_names: Vec::new(),
+        span_ref: None,
+    });
+    resource
+}
+
+#[test]
+fn creates_on_lifecycle_resource_auto_injects_initial_state_discriminator() {
+    // BUG A — `creates User` that does NOT bind `registration_step` must
+    // auto-inject `"registration_step": FromConst(UserRegistrationStepProfileSetup)`
+    // (the initial-state const). Without it the NOT-NULL discriminator
+    // column has no value at INSERT → constraint violation at runtime.
+    let mut feature = base_feature("account");
+    feature.resources.push(user_lifecycle_resource());
+
+    let mut cmd = base_command("signup");
+    cmd.input = CommandInput::Typed(vec![typed_slot("email", BuiltinType::Text, true)]);
+    cmd.effect = CommandEffect::Creates(CreateEffect {
+        resource: local_qname("User"),
+        from_input: false,
+        assignments: vec![Assignment {
+            field: "email".to_owned(),
+            value: Expr::Path(Path::from_segments(["input", "email"])),
+        }],
+    });
+    feature.commands.push(cmd);
+
+    let out = emit(&feature).expect("must emit");
+    assert!(
+        out.contains("\"registration_step\": lazuli.FromConst(UserRegistrationStepProfileSetup),"),
+        "creates on a lifecycle resource must auto-inject the initial-state \
+         discriminator binding:\n{out}"
+    );
+    // The author's explicit binding survives alongside the injected one.
+    assert!(out.contains("\"email\": lazuli.FromInput(\"email\"),"));
+}
+
+#[test]
+fn creates_with_explicit_discriminator_binding_is_not_overwritten() {
+    // BUG A boundary — when the author DOES bind the discriminator
+    // explicitly (e.g. seeding a row in a non-initial state), respect it:
+    // emit exactly ONE binding, the author's, with no auto-injection.
+    let mut feature = base_feature("account");
+    feature.resources.push(user_lifecycle_resource());
+
+    let mut cmd = base_command("seed_complete_user");
+    cmd.effect = CommandEffect::Creates(CreateEffect {
+        resource: local_qname("User"),
+        from_input: false,
+        assignments: vec![Assignment {
+            field: "registration_step".to_owned(),
+            value: Expr::Enum(lazuli_ir::EnumLiteral {
+                type_name: Some(lazuli_ir::QualifiedName {
+                    feature: None,
+                    name: "UserRegistrationStep".to_owned(),
+                }),
+                variant: "complete".to_owned(),
+            }),
+        }],
+    });
+    feature.commands.push(cmd);
+
+    let out = emit(&feature).expect("must emit");
+    // Author binding present...
+    assert!(
+        out.contains("\"registration_step\": lazuli.FromConst(UserRegistrationStepComplete),"),
+        "explicit author discriminator binding must be emitted:\n{out}"
+    );
+    // ...and the initial-state default was NOT also injected as a binding.
+    // (The const `UserRegistrationStepProfileSetup` still legitimately
+    // appears in the `lifecycle.New[...]( <initial>, ...)` machine decl —
+    // we only assert it is not used as a *binding row* discriminator.)
+    assert!(
+        !out.contains("\"registration_step\": lazuli.FromConst(UserRegistrationStepProfileSetup),"),
+        "must not auto-inject the initial state when the author bound the \
+         discriminator explicitly:\n{out}"
+    );
+    assert_eq!(
+        out.matches("\"registration_step\":").count(),
+        1,
+        "discriminator must be bound exactly once (no double-set):\n{out}"
+    );
+}
+
+#[test]
+fn creates_on_non_lifecycle_resource_is_unchanged() {
+    // BUG A boundary — a `creates` on a resource WITHOUT a lifecycle must
+    // emit no extra discriminator binding.
+    let mut feature = base_feature("customer");
+    let mut cmd = base_command("create");
+    cmd.input = CommandInput::Typed(vec![typed_slot("name", BuiltinType::Text, true)]);
+    cmd.effect = CommandEffect::Creates(CreateEffect {
+        resource: local_qname("Customer"),
+        from_input: false,
+        assignments: vec![Assignment {
+            field: "name".to_owned(),
+            value: Expr::Path(Path::from_segments(["input", "name"])),
+        }],
+    });
+    feature.commands.push(cmd);
+
+    let out = emit(&feature).expect("must emit");
+    assert!(out.contains("Effect: lazuli.Creates(&customerResource, lazuli.Bindings{"));
+    assert!(out.contains("\"name\": lazuli.FromInput(\"name\"),"));
+    // No lifecycle → no FromConst discriminator injection.
+    assert!(
+        !out.contains("RegistrationStep"),
+        "non-lifecycle create must carry no discriminator binding:\n{out}"
+    );
+}
+
+#[test]
+fn bare_fn_ref_binding_emits_from_fn_not_const_string() {
+    // BUG B — `tenant_id = @fn.placeholder_tenant_id` (bare, no parens)
+    // must emit `lazuli.FromFn("placeholder_tenant_id", nil)`, NOT the
+    // garbage `lazuli.FromConst("@fn.placeholder_tenant_id")` string.
+    // The analyzer lowers the bare ref to a zero-arg FnCall; codegen's
+    // FnCall arm renders FromFn with `nil` args.
+    let mut feature = base_feature("account");
+    feature.resources.push(user_lifecycle_resource());
+
+    let mut cmd = base_command("signup");
+    cmd.effect = CommandEffect::Creates(CreateEffect {
+        resource: local_qname("User"),
+        from_input: false,
+        assignments: vec![Assignment {
+            field: "tenant_id".to_owned(),
+            value: Expr::FnCall(lazuli_ir::FnCallExpr {
+                name: lazuli_ir::QualifiedName {
+                    feature: None,
+                    name: "placeholder_tenant_id".to_owned(),
+                },
+                args: Vec::new(),
+            }),
+        }],
+    });
+    feature.commands.push(cmd);
+
+    let out = emit(&feature).expect("must emit");
+    assert!(
+        out.contains("\"tenant_id\": lazuli.FromFn(\"placeholder_tenant_id\", nil),"),
+        "bare @fn ref must lower to a zero-arg FromFn, not a const string:\n{out}"
+    );
+    assert!(
+        !out.contains("lazuli.FromConst(\"@fn.placeholder_tenant_id\")"),
+        "the garbage const-string lowering must be gone:\n{out}"
+    );
+}

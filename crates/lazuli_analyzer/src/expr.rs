@@ -115,7 +115,29 @@ pub(crate) fn lower_raw_expr(text: &str) -> ir::Expr {
 
 fn parse_fn_call_expr(text: &str) -> Option<ir::FnCallExpr> {
     let rest = text.strip_prefix("@fn.")?;
-    let paren_idx = rest.find('(')?;
+    // Bare reference form: `@fn.<name>` with NO call parens lowers to a
+    // ZERO-ARG fn source (e.g. `tenant_id = @fn.placeholder_tenant_id`).
+    // The runtime resolves it identically to the with-parens form — the
+    // registered BindingFn is invoked with just `ctx` and no resolved
+    // args. Without this branch the bare reference fell through to
+    // `Expr::Path(["@fn", "name"])` and codegen mis-lowered it to a
+    // literal `FromConst("@fn.name")` string (the WAR signup `tenant_id`
+    // bug: a bigint column receiving a garbage string at INSERT).
+    let Some(paren_idx) = rest.find('(') else {
+        let name = rest.trim();
+        // A bare `@fn.` (no name) or a dotted tail (`@fn.a.b`) is not a
+        // zero-arg fn reference — leave it for the Path fallback.
+        if name.is_empty() || name.contains('.') {
+            return None;
+        }
+        return Some(ir::FnCallExpr {
+            name: ir::QualifiedName {
+                feature: None,
+                name: name.to_owned(),
+            },
+            args: Vec::new(),
+        });
+    };
     if !rest.ends_with(')') {
         return None;
     }
@@ -250,5 +272,63 @@ pub(crate) fn lower_policy_expr(expr: &syntax::PolicyExprAst) -> ir::PolicyExpr 
         syntax::PolicyExprAst::Not(inner) => {
             ir::PolicyExpr::Not(Box::new(lower_policy_expr(inner)))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bare_fn_ref_no_parens_lowers_to_zero_arg_fn_call() {
+        // WAR signup `tenant_id = @fn.placeholder_tenant_id` — the bare
+        // `@fn.<name>` reference (no call parens) must lower to a
+        // ZERO-ARG `FnCall`, NOT a `Path`/string const. Mirrors the
+        // with-parens path so codegen emits `lazuli.FromFn`.
+        let expr = lower_raw_expr("@fn.placeholder_tenant_id");
+        match expr {
+            ir::Expr::FnCall(call) => {
+                assert_eq!(call.name.name, "placeholder_tenant_id");
+                assert!(call.name.feature.is_none());
+                assert!(call.args.is_empty(), "bare ref carries no args");
+            }
+            other => panic!("expected FnCall, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fn_call_with_parens_still_lowers_to_fn_call() {
+        // The with-parens form must stay correct (regression guard).
+        let expr = lower_raw_expr("@fn.hash_password(input.password)");
+        match expr {
+            ir::Expr::FnCall(call) => {
+                assert_eq!(call.name.name, "hash_password");
+                assert_eq!(call.args.len(), 1);
+            }
+            other => panic!("expected FnCall, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empty_parens_fn_call_lowers_to_zero_arg_fn_call() {
+        let expr = lower_raw_expr("@fn.now()");
+        match expr {
+            ir::Expr::FnCall(call) => {
+                assert_eq!(call.name.name, "now");
+                assert!(call.args.is_empty());
+            }
+            other => panic!("expected FnCall, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn bare_fn_with_dotted_tail_is_not_a_fn_call() {
+        // `@fn.a.b` is ambiguous (not a flat fn name) — leave it as a
+        // Path so the existing fallback/diagnostics handle it.
+        let expr = lower_raw_expr("@fn.a.b");
+        assert!(
+            matches!(expr, ir::Expr::Path(_)),
+            "dotted @fn tail should fall through to Path, got {expr:?}"
+        );
     }
 }

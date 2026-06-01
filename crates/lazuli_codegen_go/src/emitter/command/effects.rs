@@ -25,14 +25,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use lazuli_ir::{
-    Command, CommandEffect, CommandInput, CreateEffect, DeleteEffect, Expr, HandlerRef,
+    Command, CommandEffect, CommandInput, CreateEffect, DeleteEffect, Expr, HandlerRef, Resource,
     UpdateEffect,
 };
 
 use super::super::printer::GoPrinter;
 use super::super::types::{self, TypeCtx};
 use super::effects_format::format_binding_row;
-use super::lifecycle::{LifecycleCommand, lifecycle_machine_var};
+use super::lifecycle::{
+    LifecycleCommand, enum_variant_name, initial_lifecycle_state, lifecycle_machine_var,
+};
 use super::scope::{
     ScopeBinding, WhereKeyBinding, command_pascal_to_snake, emit_scope_binding_row,
     resolve_where_keys,
@@ -51,9 +53,12 @@ pub(super) fn emit_effect(
     let_bindings: &BTreeMap<&str, &Expr>,
     lifecycle_transition: Option<&LifecycleCommand<'_>>,
     scope_bindings: &[ScopeBinding],
+    resources: &[Resource],
 ) {
     match effect {
-        CommandEffect::Creates(create) => emit_creates_effect(p, command, create, let_bindings),
+        CommandEffect::Creates(create) => {
+            emit_creates_effect(p, command, create, let_bindings, resources)
+        }
         CommandEffect::Updates(update) => emit_updates_effect(
             p,
             command,
@@ -170,9 +175,19 @@ fn emit_creates_effect(
     command: &Command,
     create: &CreateEffect,
     let_bindings: &BTreeMap<&str, &Expr>,
+    resources: &[Resource],
 ) {
     let resource_var = resource_var_for_qname(&create.resource);
     let optional_inputs = collect_optional_inputs(command);
+    // Lifecycle initial-state auto-binding (closes the signup NOT-NULL
+    // INSERT bug). When the target resource carries a `lifecycle <field>
+    // { state S initial ... }` and the author did NOT explicitly bind
+    // `<field>`, inject `"<field>": lazuli.FromConst(<InitialStateConst>)`
+    // so the row starts in the initial lifecycle state. The discriminator
+    // column is NOT NULL with no DB default, so omitting it violates the
+    // constraint at INSERT. We respect an explicit author binding (no
+    // double-set) and never inject for non-lifecycle resources.
+    let lifecycle_init = lifecycle_initial_binding(create, resources);
     if create.assignments.is_empty() && create.from_input {
         // `creates Customer from input` with no explicit assignments —
         // the analyzer's `conventions [crud]` synth was supposed to
@@ -219,6 +234,9 @@ fn emit_creates_effect(
                 &optional_inputs,
             ));
         }
+        if let Some(row) = &lifecycle_init {
+            p.line(row);
+        }
         p.dedent();
         p.line("}, lazuli.OwnerCheckSpec{");
         p.indent();
@@ -247,8 +265,39 @@ fn emit_creates_effect(
             &optional_inputs,
         ));
     }
+    if let Some(row) = &lifecycle_init {
+        p.line(row);
+    }
     p.dedent();
     p.line("}),");
+}
+
+/// Compose the auto-injected lifecycle initial-state binding row for a
+/// `creates` effect, or `None` when no injection applies. Returns
+/// `Some("\"<field>\": lazuli.FromConst(<InitialStateConst>),")` only
+/// when (1) the target resource carries a lifecycle, (2) that lifecycle
+/// has a resolvable initial state, and (3) the author did NOT already
+/// bind the discriminator field. The const matches the one emitted by
+/// `emit_lifecycle_machines` for `lifecycle.New[T](<initial>, ...)` so
+/// the inserted row and the machine agree on the starting state.
+fn lifecycle_initial_binding(create: &CreateEffect, resources: &[Resource]) -> Option<String> {
+    let resource = resources.iter().find(|r| r.name == create.resource.name)?;
+    let lifecycle = resource.lifecycle.as_ref()?;
+    let field = &lifecycle.discriminator_field;
+    // Respect an explicit author binding (case-insensitive on the column,
+    // matching `format_binding_row`'s `to_ascii_lowercase()` projection).
+    let already_bound = create
+        .assignments
+        .iter()
+        .any(|a| a.field.eq_ignore_ascii_case(field));
+    if already_bound {
+        return None;
+    }
+    let initial = initial_lifecycle_state(lifecycle)?;
+    let enum_name = pascal_case(&lifecycle.generated_enum);
+    let const_name = enum_variant_name(&enum_name, initial);
+    let column = field.to_ascii_lowercase();
+    Some(format!("\"{column}\": lazuli.FromConst({const_name}),"))
 }
 
 fn emit_updates_effect(

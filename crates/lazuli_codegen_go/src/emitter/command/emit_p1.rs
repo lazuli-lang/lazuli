@@ -215,6 +215,7 @@ pub(super) fn emit_command(
         &let_bindings,
         lifecycle_transition.as_ref(),
         &scope_bindings,
+        &feature.resources,
     );
     let transition_advances =
         transition_advances_for_triggers(feature, &command.effect, command_trigger_names(command));
