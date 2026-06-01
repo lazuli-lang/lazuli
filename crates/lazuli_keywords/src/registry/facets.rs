@@ -148,6 +148,7 @@ pub(crate) const P_LIFECYCLE: &[DiagnosticFacet] = &[
     df("LIFECYCLE-NO-JUMP-NEEDS-LINEAR", "warning", "lifecycle"),
     df("LIFECYCLE-POLICY-REQUIRED", "warning", "lifecycle"),
     df("LIFECYCLE-STATE-DUPLICATE", "error", "lifecycle"),
+    df("LIFECYCLE-STATE-SET-UNDECLARED-001", "error", "lifecycle"),
     df(
         "LIFECYCLE-TERMINAL-HAS-OUTGOING-TRANSITION",
         "error",
