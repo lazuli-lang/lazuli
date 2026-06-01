@@ -58,12 +58,77 @@ The seed `note` feature shipped by `lazuli new`
 (`lazurite/templates/default/app/features/note/note.lzi`) is the minimal worked
 example.
 
-### Caveat — delete stays explicit for now
+## The overlay is the idiom for PRODUCTION CRUD (spec 0018)
 
-`conventions [crud]` synthesizes create + update today. **Delete** still wants an
-actor column (`deleted_by`) on `soft_delete` before it can be auto-generated
-safely; that lands in **spec 0015** ([soft-delete.md](soft-delete.md)). Until
-then, keep an explicit delete / soft-delete command where you need one.
+Bare `conventions [crud]` is the *trivial* case — a resource whose create/update
+need no per-command policy, no events, no default values, no field renames. Real
+production CRUD almost always needs those, and the bare synth can reproduce
+**none** of them. That is why Pauta's 84 hand-rolled commands were correctly
+**0×** adopted: switching them to bare `[crud]` would have silently changed
+authz, events, and defaults.
+
+The fix is the **`crud` overlay** — a `crud` block authored right after the
+`conventions [crud]` line. It carries per-effect (`create`/`update`/`delete`)
+clauses the synth composes onto the generated commands **before lowering**, so
+the emitted IR (and Go) is byte-identical to the equivalent hand-rolled command.
+Nothing new is lowered: every overlaid command still maps to exactly one existing
+`CommandEffect` shape (RULE-VOCAB-03).
+
+Surface (the five overlay clauses, each optional):
+
+```
+resource Customer
+  # ... fields ...
+  soft_delete by
+  conventions [crud]
+  crud
+    create
+      policy @policy.edit                 # REPLACES the synth's authenticated default
+      validate @validator.percentage      # 0..n custom validators
+      input excludes situation, is_active, is_defaulter   # drop system/derived fields
+      assign situation = prospect          # default literal
+      assign is_active = true              #   "
+      assign category = input.category_id  # field-rename mapping
+      emits customer_created               # 0..n events
+    update
+      policy @policy.edit
+      emits customer_updated
+    delete
+      policy @policy.remove
+      emits customer_deleted
+      # soft-delete-aware automatically (the resource has `soft_delete by`, spec 0015)
+```
+
+Merge semantics: overlay `policy` **replaces** the synth default; `validate` /
+`emits` / `assign` **add** to the synthesized effect; `input excludes` **removes**
+fields from the synth-generated input (and their auto `<f> = input.<f>` binding).
+`validate` is Doctor-only on IR (it carries no command-IR weight, exactly as a
+hand-rolled `validate @validator.*` does), so it never affects IR-equivalence.
+
+### Pauta customer trio — before / after
+
+**Before** — `create_customer` / `update_customer` / `delete_customer` are ~120
+lines of hand-rolled boilerplate
+(`app/features/customer_management/customer_management.lzi:331`), each re-typing
+the input, the effect bindings, the policy, and the events.
+
+**After** — the resource opts into `conventions [crud]` + the overlay above; the
+three `command` blocks are deleted. The synth reproduces them with IR-equivalence
+for the clauses the overlay covers (policy, default-literal assigns, field-rename
+assigns, emits, soft-delete-aware delete). Where a hand-rolled command curates its
+input beyond dropping a field — e.g. exposing `category_id: ID` instead of the
+resource's `category: CustomerCategory` FK — that input *re-shaping* is outside
+the overlay's `input excludes` (which only removes); such a command stays
+hand-authored, or migrates once the input is curated to the resource shape. The
+overlay is the lever for everything it CAN reproduce exactly; it never silently
+changes behavior for the rest.
+
+### Do NOT grow the overlay into a macro language
+
+If an author reaches for clauses the overlay can't express (multi-step logic,
+conditional effects), that is the signal they need a real `@fn` command — **not**
+a bigger overlay. The overlay composes onto existing IR command shapes only; that
+boundary is the RULE-VOCAB-03 guarantee, not a limitation to fix later.
 
 ## Enforced by
 
@@ -81,5 +146,10 @@ then, keep an explicit delete / soft-delete command where you need one.
   `delete_<r>` is dropped from the suggestion and stays explicit (the synth
   delete is hard — spec 0015). Opt out with
   `# doctor:allow VOCAB-CRUD-SYNTH-AVAILABLE-001 — reason "..."`.
+  **Spec 0018 upgrade:** when the matched hand-rolled commands carry
+  per-command policy / emits / default-literal assignments (the production-CRUD
+  shape, e.g. Pauta `create_customer`), the message now points at the `crud`
+  overlay as the migration target — not just bare `conventions [crud]`.
 
-See the proposal: `docs/proposals/ir-resource-conventions-crud.md`.
+See the proposal: `docs/proposals/ir-resource-conventions-crud.md` and the
+overlay spec `.specs/changes/0018-crud-synth-overlay/`.

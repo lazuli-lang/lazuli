@@ -43,6 +43,7 @@ pub use conventions::{
     ConventionSynthDiagnostic, CrudSynthDiagnostic, build_owner_scope_cte_prefix_for_test,
     build_owner_scope_where_for_test, synthesize_conventions,
 };
+pub(crate) use conventions::{collect_crud_overlays, synthesize_conventions_with_overlays};
 pub use design::lower_design;
 pub use errors::{AnalyzeError, CONVENTION_CATALOG, conventions_unknown_suggestion};
 pub use events::{

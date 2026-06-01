@@ -60,6 +60,15 @@ pub struct ResourceDecl {
     /// `docs/proposals/ir-resource-conventions-crud.md` §4.1.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conventions: Vec<ResourceConventionAst>,
+    /// Spec 0018 — `crud` overlay block on a `conventions [crud]`
+    /// resource. Carries per-effect (`create`/`update`/`delete`)
+    /// policy / validate / `input excludes` / `assign` / `emits`
+    /// clauses that the analyzer's conventions pass merges into the
+    /// synthesized commands BEFORE lowering. The overlay never reaches
+    /// IR as a resource field — it is consumed entirely in the synth
+    /// pass (analyzer-only). Absent = today's bare synth, byte-identical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crud_overlay: Option<CrudOverlayAst>,
     /// router-w4 — `lifecycle_routes` block: a `<state> -> "<url>"`
     /// table on a lifecycle-bearing resource. Lowered to
     /// `ir::LifecycleRoutes`; TS codegen emits a per-resource
@@ -218,6 +227,79 @@ pub enum ResourceIndexMethodAst {
 pub enum ResourceConventionAst {
     Crud,
     Me,
+}
+
+/// Spec 0018 — the `crud` overlay block authored under a `conventions
+/// [crud]` resource. Carries up to three per-effect overlays. Each is
+/// optional; an empty `crud` block (header with no sub-blocks) is a
+/// parse error (author omits the block entirely instead).
+///
+/// ```text
+/// resource Customer
+///   conventions [crud]
+///   crud
+///     create
+///       policy @policy.edit
+///       validate @validator.percentage
+///       input excludes situation, is_active, is_defaulter
+///       assign situation = prospect
+///       assign is_active = true
+///       assign category = input.category_id
+///       emits customer_created
+///     update
+///       policy @policy.edit
+///     delete
+///       policy @policy.remove
+/// ```
+///
+/// The block is consumed by the analyzer's conventions pass and merged
+/// into the synthesized `create_<r>` / `update_<r>` / `delete_<r>`
+/// commands before lowering, so the emitted IR is byte-identical to the
+/// equivalent hand-rolled command. It never reaches `ir::Resource`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CrudOverlayAst {
+    /// `create` sub-block overlay (default-literal assigns + emits + ...).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub create: Option<CrudEffectOverlayAst>,
+    /// `update` sub-block overlay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update: Option<CrudEffectOverlayAst>,
+    /// `delete` sub-block overlay (policy + emits; soft-delete-aware via 0015).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delete: Option<CrudEffectOverlayAst>,
+    pub span: Span,
+}
+
+/// Spec 0018 — one per-effect overlay (`create` / `update` / `delete`)
+/// inside a [`CrudOverlayAst`]. Every clause is optional; merge semantics
+/// (analyzer): `policy` REPLACES the synth default; `validate` / `emits` /
+/// `assigns` ADD to the synthesized effect; `input_excludes` removes
+/// fields from the synth-generated input.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CrudEffectOverlayAst {
+    /// `policy @policy.<x>` — overrides the synth's `authenticated` default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<String>,
+    /// `validate @validator.<v>` lines (0..n). Doctor-only on IR (the
+    /// hand-rolled `validate` does not lower to a command field either),
+    /// so these never affect IR-equivalence — carried for surface parity.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub validate: Vec<String>,
+    /// `input excludes <field>, <field>` — system/derived fields dropped
+    /// from the synth-generated input. Flattened across multiple lines.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub input_excludes: Vec<String>,
+    /// `assign <field> = <expr>` rows (0..n) merged into the synthesized
+    /// `creates`/`updates` effect. RHS reuses the hand-rolled effect
+    /// assignment grammar verbatim (literal / `input.<f>` / `ctx.<f>` /
+    /// enum variant), captured as raw text the analyzer lowers via the
+    /// same `lower_raw_expr` the hand-rolled effect uses.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub assigns: Vec<AssignmentDecl>,
+    /// `emits <event>` lines (0..n) appended to the command's emits list.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub emits: Vec<String>,
+    pub span: Span,
 }
 
 /// Roadmap §1.5 (CL.C.2) — `lock` decorator closed catalog. Variant

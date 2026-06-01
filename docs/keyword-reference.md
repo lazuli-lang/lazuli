@@ -30,7 +30,7 @@ Columns:
 
 <!-- BEGIN GENERATED BODY -->
 
-_Generated from 688 capability rows across the `lazuli_keywords` registry._
+_Generated from 689 capability rows across the `lazuli_keywords` registry._
 
 ## `.lzi` — feature source
 
@@ -196,6 +196,7 @@ _Generated from 688 capability rows across the `lazuli_keywords` registry._
 | `@validator` | `entity.name.tag.decorator.lazuli` | `decorator` | `@` | Validator reference decorator. | — |
 | `alias` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Field alias. | — |
 | `append_only` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Append-only (event-log) resource. | `RESOURCE-APPEND-ONLY-001` |
+| `assign` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Default-literal / field-rename assignment merged into a synthesized `crud` command (overlay). | — |
 | `composite_key` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Composite primary key. | `COMPOSITE-KEY-CONTRACT-001` |
 | `computed_date` | `entity.name.function.statement.resource.lazuli` | `keyword` | — | Computed date field. | `COMPUTED-DATE-EXPR-001` |
 | `contains` | `keyword.control.statement.lazuli` | `keyword` | — | Aggregate containment. | — |

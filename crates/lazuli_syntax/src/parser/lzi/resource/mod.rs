@@ -25,6 +25,7 @@ mod aggregate_invariant;
 mod body_handlers;
 mod composite_key_lock;
 mod conventions;
+mod crud_overlay;
 mod field;
 mod has_many;
 mod index;
@@ -50,6 +51,7 @@ use body_handlers::{ResourceBodyState, resource_body_handlers};
 
 use composite_key_lock::{parse_resource_composite_key, parse_resource_lock};
 use conventions::parse_resource_conventions_list;
+use crud_overlay::parse_resource_crud_overlay;
 use lifecycle_routes::parse_resource_lifecycle_routes;
 use restrict_on_delete::parse_resource_restrict_on_delete;
 
@@ -272,6 +274,33 @@ pub(super) fn parse_resource_decl(
             continue;
         }
 
+        // Spec 0018 — `crud` overlay block. A bare `crud` header whose
+        // `create`/`update`/`delete` sub-blocks carry per-effect
+        // policy / validate / `input excludes` / `assign` / `emits`
+        // overlays. Analyzer-only: merged into the synthesized commands
+        // by the conventions pass; never reaches `ir::Resource`. The
+        // header is the bare token `crud` (any trailing text is an error).
+        if trimmed == "crud" {
+            if state.crud_overlay.is_some() {
+                return Err(line_error(
+                    line,
+                    "a resource may declare at most one `crud` overlay block",
+                ));
+            }
+            let (overlay, next) = parse_resource_crud_overlay(lines, i, header_indent)?;
+            state.crud_overlay = Some(overlay);
+            last_end = lines[next.saturating_sub(1).max(i)].end;
+            i = next;
+            continue;
+        }
+        if let Some(_rest) = trimmed.strip_prefix("crud ") {
+            return Err(line_error(
+                line,
+                "`crud` overlay header takes no inline arguments — list \
+                 `create`/`update`/`delete` sub-blocks under it",
+            ));
+        }
+
         // Spec 0014 — `restrict on_delete references <relation> via <fk>
         // [where <predicate>]` referential-guard clause. Repeatable; each
         // lowers to a tenant-scoped, soft-delete-aware `EXISTS` precondition
@@ -343,6 +372,7 @@ pub(super) fn parse_resource_decl(
             lock: state.lock,
             composite_key: state.composite_key,
             conventions: state.conventions,
+            crud_overlay: state.crud_overlay,
             constraints: state.constraints,
             polymorphic_refs: state.polymorphic_refs,
             append_only: state.append_only,

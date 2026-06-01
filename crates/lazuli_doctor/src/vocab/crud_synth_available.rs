@@ -63,6 +63,15 @@ pub struct Finding {
     /// Snake form of the resource name (`customer`) — names `delete_<r>` in
     /// the carve-out sentence.
     pub resource_snake: String,
+    /// Spec 0018 — true when the matched hand-rolled commands carry
+    /// per-command specifics the BARE synth can't reproduce (a non-default
+    /// `policy`, `emits`, or extra effect assignments beyond
+    /// `<f> = input.<f>`). In that case the message names the `crud`
+    /// overlay (policy / assign / emits / `input excludes`) as the shape to
+    /// adopt — not just bare `conventions [crud]`. This is what makes the
+    /// rule fire usefully on real production CRUD (Pauta `create_customer`
+    /// et al.) rather than only on policy-trivial resources.
+    pub overlay_needed: bool,
 }
 
 impl Finding {
@@ -86,6 +95,7 @@ impl Finding {
     ///     matched: vec!["create_customer".into(), "update_customer".into()],
     ///     delete_excluded: false,
     ///     resource_snake: "customer".into(),
+    ///     overlay_needed: true,
     /// };
     /// assert!(f.message().contains("conventions [crud]"));
     /// ```
@@ -102,6 +112,15 @@ impl Finding {
             plural,
             self.matched.join(", "),
         );
+        if self.overlay_needed {
+            msg.push_str(
+                " These commands carry per-command policy / emits / default-literal \
+                 assignments, so pair `conventions [crud]` with a `crud` overlay \
+                 (`crud` block: `create`/`update`/`delete` sub-blocks carrying \
+                 `policy` / `validate` / `input excludes` / `assign` / `emits`) — \
+                 see spec 0018.",
+            );
+        }
         if self.delete_excluded {
             msg.push_str(&format!(
                 " Keep `delete_{}` explicit — it is a soft-delete; the synthesized \
@@ -168,14 +187,24 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
         return Vec::new();
     }
 
-    let command_names: std::collections::HashSet<&str> =
-        feature.commands.iter().map(|c| c.name.as_str()).collect();
+    let commands_by_name: std::collections::HashMap<&str, &lazuli_ir::Command> = feature
+        .commands
+        .iter()
+        .map(|c| (c.name.as_str(), c))
+        .collect();
+    let command_names: std::collections::HashSet<&str> = commands_by_name.keys().copied().collect();
     let query_names: std::collections::HashSet<&str> =
         feature.queries.iter().map(|q| q.name()).collect();
 
     let mut findings = Vec::new();
     for resource in &feature.resources {
-        if let Some(finding) = check_resource(resource, &command_names, &query_names, path) {
+        if let Some(finding) = check_resource(
+            resource,
+            &command_names,
+            &commands_by_name,
+            &query_names,
+            path,
+        ) {
             findings.push(finding);
         }
     }
@@ -186,6 +215,7 @@ pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
 fn check_resource(
     resource: &Resource,
     command_names: &std::collections::HashSet<&str>,
+    commands_by_name: &std::collections::HashMap<&str, &lazuli_ir::Command>,
     query_names: &std::collections::HashSet<&str>,
     path: &Path,
 ) -> Option<Finding> {
@@ -231,12 +261,61 @@ fn check_resource(
         return None;
     }
 
+    // Spec 0018 — does any matched write command carry per-command
+    // specifics the BARE synth can't reproduce (non-default policy, emits,
+    // or extra effect assignments)? If so the migration target is
+    // `conventions [crud]` + a `crud` overlay, and the message says so.
+    let overlay_needed = [
+        names.create.as_str(),
+        names.update.as_str(),
+        names.delete.as_str(),
+    ]
+    .iter()
+    .filter_map(|n| commands_by_name.get(n))
+    .any(|c| command_needs_overlay(c));
+
     Some(Finding {
         path: path.to_path_buf(),
         resource: resource.name.clone(),
         matched,
         delete_excluded,
         resource_snake: pascal_to_snake(&resource.name),
+        overlay_needed,
+    })
+}
+
+/// A hand-rolled write command carries overlay-only specifics when it has
+/// a non-default `policy` (anything other than the synth's
+/// `authenticated`), emits any event, or carries effect assignments that
+/// are NOT the plain `<field> = input.<field>` the synth auto-generates
+/// (default literals, field renames, `ctx.*`). Any of these means bare
+/// `conventions [crud]` would silently change behavior — the author needs
+/// the overlay to reproduce them.
+fn command_needs_overlay(c: &lazuli_ir::Command) -> bool {
+    use lazuli_ir::{CommandEffect, Expr, PolicyRef};
+    let policy_overlay = match &c.policy {
+        PolicyRef::Local(p) => p != "authenticated",
+        PolicyRef::None => false,
+        // Atom / structured policy is always a per-command override.
+        _ => true,
+    };
+    if policy_overlay || !c.emits.is_empty() {
+        return true;
+    }
+    let assignments = match &c.effect {
+        CommandEffect::Creates(e) => &e.assignments,
+        CommandEffect::Updates(e) => &e.assignments,
+        _ => return false,
+    };
+    assignments.iter().any(|a| {
+        // The auto-generated shape is `<field> = input.<field>`. Anything
+        // else (literal, rename, ctx.*) is an overlay assign.
+        match &a.value {
+            Expr::Path(p) => {
+                !(p.segments.len() == 2 && p.segments[0] == "input" && p.segments[1] == a.field)
+            }
+            _ => true,
+        }
     })
 }
 
@@ -324,6 +403,32 @@ mod tests {
         }
     }
 
+    /// Spec 0018 — a hand-rolled write command carrying per-command
+    /// specifics the BARE synth can't reproduce: a `@policy.*` override,
+    /// an `emits`, and an effect with a default-literal assignment. This
+    /// is the shape the overlay exists to absorb.
+    fn mk_overlayable_create(name: &str) -> Command {
+        Command {
+            policy: PolicyRef::Atom("policy.edit".to_owned()),
+            emits: vec!["customer_created".to_owned()],
+            effect: CommandEffect::Creates(lazuli_ir::CreateEffect {
+                resource: lazuli_ir::QualifiedName {
+                    feature: None,
+                    name: "Customer".to_owned(),
+                },
+                from_input: true,
+                assignments: vec![lazuli_ir::Assignment {
+                    field: "situation".to_owned(),
+                    value: lazuli_ir::Expr::Path(lazuli_ir::Path::from_segments([
+                        "prospect".to_owned()
+                    ])),
+                }],
+            }),
+            kind: CommandKind::Create,
+            ..mk_cmd(name)
+        }
+    }
+
     fn mk_lookup(name: &str) -> Query {
         Query::Lookup(LookupQuery {
             name: name.to_owned(),
@@ -391,7 +496,11 @@ mod tests {
         }
     }
 
-    fn mk_feature(resources: Vec<Resource>, commands: Vec<Command>, queries: Vec<Query>) -> Feature {
+    fn mk_feature(
+        resources: Vec<Resource>,
+        commands: Vec<Command>,
+        queries: Vec<Query>,
+    ) -> Feature {
         Feature {
             name: "customer_management".into(),
             purpose: None,
@@ -604,5 +713,47 @@ mod tests {
         let findings = check(&f, Path::new("customer_management.lzi"));
         assert_eq!(findings.len(), 1);
         assert!(findings[0].message().contains("5 commands"));
+    }
+
+    #[test]
+    fn crud_synth_available_fires_on_overlayable() {
+        // Spec 0018 — a `Customer` resource hand-rolling create/update with
+        // per-command policy + emits + default-literal assigns (the real
+        // production-CRUD shape, e.g. Pauta `create_customer`). The rule
+        // fires AND its message names the `crud` overlay as the migration
+        // target — not just bare `conventions [crud]`.
+        let f = mk_feature(
+            vec![mk_resource("Customer")],
+            vec![
+                mk_overlayable_create("create_customer"),
+                mk_overlayable_create("update_customer"),
+            ],
+            vec![],
+        );
+        let findings = check(&f, Path::new("customer_management.lzi"));
+        assert_eq!(findings.len(), 1, "rule must fire on overlayable CRUD");
+        assert!(findings[0].overlay_needed, "overlay_needed must be set");
+        let msg = findings[0].message();
+        assert!(msg.contains("conventions [crud]"), "{msg}");
+        assert!(
+            msg.contains("crud` overlay"),
+            "message must name the overlay: {msg}"
+        );
+        assert!(
+            msg.contains("spec 0018"),
+            "message must cite spec 0018: {msg}"
+        );
+    }
+
+    #[test]
+    fn bare_handroll_does_not_recommend_overlay() {
+        // A resource hand-rolling the trivial (policy-default, no-emits,
+        // input-only-assign) CRUD shape gets the BARE `conventions [crud]`
+        // nudge — `overlay_needed` stays false, no overlay sentence.
+        let f = full_handrolled(); // mk_cmd: PolicyRef::None, no emits, no effect.
+        let findings = check(&f, Path::new("customer_management.lzi"));
+        assert_eq!(findings.len(), 1);
+        assert!(!findings[0].overlay_needed);
+        assert!(!findings[0].message().contains("crud` overlay"));
     }
 }

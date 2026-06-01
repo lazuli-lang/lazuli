@@ -164,6 +164,16 @@ pub(crate) const ROWS: &[CapabilitySpec] = &[
         ),
         P_CONVENTIONS,
     ),
+    // Spec 0018 — `assign <field> = <expr>` clause inside a `crud`
+    // overlay's `create`/`update` sub-block. Reuses the hand-rolled
+    // effect-assignment RHS grammar; merged into the synthesized command
+    // by the conventions pass before lowering.
+    stmt(
+        "assign",
+        Context::ResourceBody,
+        "entity.name.function.statement.resource.lazuli",
+        "Default-literal / field-rename assignment merged into a synthesized `crud` command (overlay).",
+    ),
     stmt(
         "paginate",
         Context::ResourceBody,

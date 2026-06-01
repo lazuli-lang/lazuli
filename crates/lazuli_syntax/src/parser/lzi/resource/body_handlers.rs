@@ -14,10 +14,11 @@ use super::has_many::parse_resource_has_many;
 use super::index::{parse_parenthesized_field_list_with_trailing, parse_resource_index_target};
 use super::retention::parse_resource_retention;
 use crate::ast::{
-    DefaultsTenancy, InvariantDecl, ManyThroughAst, ResourceCompositeKey, ResourceConstraintAst,
-    ResourceConventionAst, ResourceFieldDecl, ResourceHasMany, ResourceIndexAst,
-    ResourceIndexMethodAst, ResourceLifecycleRoutesAst, ResourceLock, ResourcePolymorphicRefAst,
-    ResourceRestrictOnDelete, ResourceRetention, ResourceUniqueAst, Span,
+    CrudOverlayAst, DefaultsTenancy, InvariantDecl, ManyThroughAst, ResourceCompositeKey,
+    ResourceConstraintAst, ResourceConventionAst, ResourceFieldDecl, ResourceHasMany,
+    ResourceIndexAst, ResourceIndexMethodAst, ResourceLifecycleRoutesAst, ResourceLock,
+    ResourcePolymorphicRefAst, ResourceRestrictOnDelete, ResourceRetention, ResourceUniqueAst,
+    Span,
 };
 
 #[derive(Default)]
@@ -45,6 +46,10 @@ pub(super) struct ResourceBodyState {
     /// `conventions [<name>, ...]` resource-level slot — closed catalog.
     /// See `docs/proposals/ir-resource-conventions-crud.md` §4.1.
     pub(super) conventions: Vec<ResourceConventionAst>,
+    /// Spec 0018 — `crud` overlay block (analyzer-only). At most one per
+    /// resource. Merged into the synthesized commands by the conventions
+    /// pass; never reaches `ir::Resource`.
+    pub(super) crud_overlay: Option<CrudOverlayAst>,
     /// Authored DDL constraints (`index on`, compound `unique`, `fts on`).
     pub(super) constraints: Vec<ResourceConstraintAst>,
     /// GAP-13 — `polymorphic_ref <type> <id> targets [...]` declarations.

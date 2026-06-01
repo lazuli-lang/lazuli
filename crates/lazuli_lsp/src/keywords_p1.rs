@@ -168,6 +168,12 @@ pub const KEYWORDS: &[&str] = &[
     // `docs/proposals/ir-resource-conventions-crud.md` §4 — resource-level
     // `conventions [..]` opt-in. Sibling slot of tenancy/timestamps/etc.
     "conventions",
+    // Spec 0018 — `crud` overlay block + its `assign <field> = <expr>`
+    // clause. The `crud` header opens a per-effect overlay on a
+    // `conventions [crud]` resource; `assign` carries a default-literal /
+    // field-rename merged into the synthesized command before lowering.
+    "crud",
+    "assign",
     "paginate",
     "experience",
     "surface",

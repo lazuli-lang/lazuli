@@ -23,7 +23,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{DefaultsTenancy, PublicContractDeclAst, Span};
+use super::{AssignmentDecl, DefaultsTenancy, PublicContractDeclAst, Span};
 
 include!("resource_p1.rs");
 include!("resource_p2.rs");

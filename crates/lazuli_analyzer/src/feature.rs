@@ -23,13 +23,13 @@
 
 use crate::auth::lower_auth;
 use crate::auto_photo::synthesize_auto_photo;
-use crate::conventions::synthesize_conventions;
 use crate::helpers::span_of;
 use crate::lifecycle;
 use crate::lower_agent;
 use crate::query::{lower_cache_profile_decl, lower_query_decl};
 use crate::report;
 use crate::resource::lower_resource_decl;
+use crate::synthesize_conventions_with_overlays;
 use crate::{
     AnalyzeError, lower_aggregate_decl, lower_api_decl, lower_channel, lower_command_decl,
     lower_defaults, lower_enum_decl, lower_event_group, lower_feature_errors_decl, lower_job,
@@ -287,7 +287,13 @@ pub fn lower_feature_skeleton(
     // `synthesize_conventions` itself. Diagnostics returned here are
     // currently dropped; the bridge cycle wires them through to
     // doctor per §11.
-    let _ = synthesize_conventions(&mut feature);
+    // Spec 0018 — collect the per-resource `crud` overlays from the
+    // surface AST (analyzer-only; never reaches IR) and thread them into
+    // the synth pass so the synthesized commands carry the author's
+    // policy / assigns / emits / input-excludes. Resources without a
+    // `crud` block are absent from the map → today's synth, byte-identical.
+    let crud_overlays = crate::collect_crud_overlays(&skeleton.resources);
+    let _ = synthesize_conventions_with_overlays(&mut feature, &crud_overlays);
     Ok(feature)
 }
 

@@ -5,6 +5,7 @@ use crate::helpers::pascal_to_snake;
 use lazuli_ir as ir;
 
 mod crud;
+mod crud_overlay;
 mod diagnostics;
 mod fields;
 mod me_mode;
@@ -15,6 +16,8 @@ pub use diagnostics::{ConventionSynthDiagnostic, CrudSynthDiagnostic};
 pub use owner_scope::{build_owner_scope_cte_prefix_for_test, build_owner_scope_where_for_test};
 
 pub(crate) use crud::build_list_query;
+pub(crate) use crud_overlay::{ResolvedCrudOverlay, collect_crud_overlays};
+use crud_overlay::{merge_create, merge_delete, merge_update};
 
 use crud::{
     build_create_command, build_delete_command, build_lookup_query, build_update_command,
@@ -71,6 +74,26 @@ use signature::{
 /// assert!(diagnostics.iter().all(|d| !format!("{d:?}").is_empty()));
 /// ```
 pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnostic> {
+    synthesize_conventions_with_overlays(feature, &std::collections::HashMap::new())
+}
+
+/// Spec 0018 — `synthesize_conventions` variant that also threads the
+/// per-resource `crud` overlays (keyed by resource name). The overlays
+/// are merged into the synthesized `create_<r>` / `update_<r>` /
+/// `delete_<r>` commands BEFORE they reach the feature, so the emitted IR
+/// is byte-identical to the equivalent hand-rolled command. A resource
+/// with no overlay (absent from the map) synthesizes exactly as before —
+/// `synthesize_conventions` is the empty-map case, kept byte-identical for
+/// every existing caller (Hostpoint bare-crud adopters, the synth tests).
+///
+/// The overlay is analyzer-only: it is consumed here and never reaches
+/// `ir::Resource`. RULE-VOCAB-03 holds — every overlaid command maps to
+/// exactly one existing `CommandEffect` shape; no new IR node, no new
+/// emitter, no runtime change.
+pub(crate) fn synthesize_conventions_with_overlays(
+    feature: &mut ir::Feature,
+    overlays: &std::collections::HashMap<String, ResolvedCrudOverlay>,
+) -> Vec<CrudSynthDiagnostic> {
     let mut diagnostics: Vec<CrudSynthDiagnostic> = Vec::new();
     let mut to_add_commands: Vec<ir::Command> = Vec::new();
     let mut to_add_queries: Vec<ir::Query> = Vec::new();
@@ -196,6 +219,12 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
                 }
                 cmd.invalidates =
                     synth_crud_invalidates(&lookup_name, &list_name, has_me, &resource_snake);
+                // Spec 0018 — merge the resource's `crud create` overlay
+                // into the synthesized command before lowering. Absent
+                // overlay = byte-identical to today's synth.
+                if let Some(eff) = overlays.get(&resource.name).and_then(|o| o.create.as_ref()) {
+                    merge_create(&mut cmd, eff);
+                }
                 to_add_commands.push(cmd);
                 synth_origins_inserts.push((
                     create_name.clone(),
@@ -241,6 +270,10 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
                 }
                 cmd.invalidates =
                     synth_crud_invalidates(&lookup_name, &list_name, has_me, &resource_snake);
+                // Spec 0018 — merge the resource's `crud update` overlay.
+                if let Some(eff) = overlays.get(&resource.name).and_then(|o| o.update.as_ref()) {
+                    merge_update(&mut cmd, eff);
+                }
                 to_add_commands.push(cmd);
                 synth_origins_inserts.push((
                     update_name.clone(),
@@ -279,6 +312,11 @@ pub fn synthesize_conventions(feature: &mut ir::Feature) -> Vec<CrudSynthDiagnos
                 }
                 cmd.invalidates =
                     synth_crud_invalidates(&lookup_name, &list_name, has_me, &resource_snake);
+                // Spec 0018 — merge the resource's `crud delete` overlay
+                // (policy + emits; soft-delete awareness is owned by 0015).
+                if let Some(eff) = overlays.get(&resource.name).and_then(|o| o.delete.as_ref()) {
+                    merge_delete(&mut cmd, eff);
+                }
                 to_add_commands.push(cmd);
                 synth_origins_inserts.push((
                     delete_name.clone(),
