@@ -51,3 +51,16 @@ Hostpoint is the canonical shape (the Basecamp-to-Rails pilot). A god-file in th
 
 ## Open questions
 - `PlatformConfig`: delete vs. promote to `feature_flags`? Resolve in the ADR — default to delete unless a reader exists.
+
+---
+
+## EXECUTED 2026-06-01 (scope: platform + messaging; payments resisted; catalog out)
+
+Maker-scoped to the real grab-bags. Hostpoint branch `spec/0009-split-hostpoint-godfiles` commit 35929bc.
+- **platform → DELETED**, split into `legal` (LegalDoc + legal_doc_current) + `data_requests` (DataRequest + request_data_action + mine_data_requests). `PlatformConfig` DELETED (truly orphaned — 0 readers/writers, verified across .lzi/.lzx/.go/.ts).
+- **messaging → 3-way:** `messaging` (Chat + ChatMessage + chat cmds/queries) + `notifications` (NotificationDelivery) + `web_push` (WebPushSubscription). Verified the 3rd cluster is genuine (no handler touches both).
+- **payments → KEPT INTACT (resisted split, reported per STOP clause):** MercadoPagoAccount is a graph-island but extracting it alone doesn't clear COHESION-002 ({Charge,WebhookEvent} still trips); extracting WebhookEvent is a BEHAVIOR CHANGE (mp_payment_event webhook `emits charge_*` events defined in payments' `event_group charge_* on Charge` + shares mp_client.go/WebhookSource). Reverted to byte-identical-to-HEAD. → FOLLOW-UP for 0008 graph builder: event_group emit-coupling + shared-handler should count as a cohesion edge.
+- **IR-equivalence PROVEN:** full inspect diff = exactly ONE line (PlatformConfig dropped). 101 commands / 36 queries / 102 policies / 6 events / 71 error-messages / 1 webhook / 27 records all byte-identical. COHESION-002 stops firing on the split features.
+- **`go build` BLOCKED by pre-existing toolchain gap (NOT a 0009 defect):** the 4 new feature packages need `dist/go` regen, but hostpoint's `host` feature uses `@semantic.BrazilianPhone/CPF/CNPJ` PT-BR plugin scalars that the framework's CLOSED Go semantic table rejects (`CODEGEN-GO-SEMANTIC-004`), and registry.lzi registers NO `@plugin/scalars-pt-BR`. So hostpoint dist/go was NEVER framework-generatable — predates + independent of 0009. Agent correctly refused to hand-fabricate dist. → FOLLOW-UP: wire PT-BR scalar plugin codegen (per locale-discipline, it's a @plugin not core) before hostpoint can build.
+
+**0009 status: .lzi/IR split DONE + behavior-equivalent (the spec's core deliverable). go-build closure deferred to the BR-scalar-plugin-codegen follow-up.** host/trust/intelligence NOT split (probable graph false-positives → 0008 follow-up). catalog NOT split (doesn't fire the rule; its asset/geocoding separability is content-level, not graph-level).
