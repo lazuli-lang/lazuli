@@ -58,7 +58,21 @@ pub fn emit_enum_file(source_label: &str, feature: &Feature) -> Option<String> {
     }
 
     let mut p = GoPrinter::new();
-    let imports = ImportSet::new();
+    let mut imports = ImportSet::new();
+
+    // String-backed enums emit a `Valid()` membership predicate plus an
+    // `UnmarshalJSON` decode hook (see `emit_enum`). Those pull in
+    // `encoding/json` (to peel the JSON string) and `fmt` (to format the
+    // rejection error). Register them up-front so the import block is
+    // emitted before any enum body. Int-storage enums need nothing.
+    if feature
+        .enums
+        .iter()
+        .any(|e| classify_storage(e) == StorageKind::String)
+    {
+        imports.add("encoding/json");
+        imports.add("fmt");
+    }
 
     // Sort enums by name so iteration order is independent of how the
     // IR `Vec` happened to be populated. Variants keep their source
@@ -203,6 +217,94 @@ fn emit_enum(p: &mut GoPrinter, decl: &EnumDecl) {
         p.blank();
         emit_enum_options(p, decl, &pascal);
     }
+
+    // Membership guard. String-backed enums round-trip through
+    // `json.Unmarshal` at the command-input decode boundary as a bare
+    // `type X string` alias — without a hook, a value outside the
+    // declared variant set is silently accepted (the gap the pauta
+    // `validate_member_role.go` hand-guards). Emit a `Valid()` predicate
+    // plus an `UnmarshalJSON` that rejects an unknown variant, mirroring
+    // the `@semantic.*` carrier pattern (`runtime/go/lazuli/
+    // semantic_scalars.go`): the error lifts to a 400 validation_failed
+    // envelope through the decode pipeline. Int-storage enums keep the
+    // ordinal-only `int64` form (int membership is out of scope here).
+    if storage == StorageKind::String {
+        p.blank();
+        emit_string_membership_guard(p, decl, &pascal);
+    }
+}
+
+/// Emit a `Valid()` membership predicate and an `UnmarshalJSON` decode
+/// hook for a string-backed enum. `Valid()` switches over the declared
+/// variant constants; `UnmarshalJSON` peels the JSON string, then
+/// rejects any value not in the set so an unknown variant fails at the
+/// input boundary instead of silently passing through.
+fn emit_string_membership_guard(p: &mut GoPrinter, decl: &EnumDecl, pascal: &str) {
+    // `Valid()` — true iff the receiver is one of the declared variants.
+    p.line(&format!(
+        "// Valid reports whether v is one of the declared {pascal} variants."
+    ));
+    p.line(&format!("func (v {pascal}) Valid() bool {{"));
+    p.indent();
+    p.line("switch v {");
+    if decl.variants.is_empty() {
+        // No variants → nothing is valid. (Unreachable for a well-formed
+        // enum, but keeps the emitted Go compilable.)
+        p.line("default:");
+        p.indent();
+        p.line("return false");
+        p.dedent();
+    } else {
+        let cases = decl
+            .variants
+            .iter()
+            .map(|variant| format!("{}{}", pascal, pascal_case(&variant.name)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        p.line(&format!("case {cases}:"));
+        p.indent();
+        p.line("return true");
+        p.dedent();
+        p.line("default:");
+        p.indent();
+        p.line("return false");
+        p.dedent();
+    }
+    p.line("}");
+    p.dedent();
+    p.line("}");
+    p.blank();
+
+    // `UnmarshalJSON` — peel the string, enforce membership at decode.
+    p.line(&format!(
+        "// UnmarshalJSON decodes a JSON string and rejects any value outside the"
+    ));
+    p.line(&format!(
+        "// declared {pascal} variant set. An unknown variant returns an error that"
+    ));
+    p.line("// lifts to a 400 validation_failed envelope through the decode pipeline.");
+    p.line(&format!(
+        "func (v *{pascal}) UnmarshalJSON(data []byte) error {{"
+    ));
+    p.indent();
+    p.line("var s string");
+    p.line("if err := json.Unmarshal(data, &s); err != nil {");
+    p.indent();
+    p.line("return err");
+    p.dedent();
+    p.line("}");
+    p.line(&format!("parsed := {pascal}(s)"));
+    p.line("if !parsed.Valid() {");
+    p.indent();
+    p.line(&format!(
+        "return fmt.Errorf(\"lazuli: invalid {pascal} value %q\", s)"
+    ));
+    p.dedent();
+    p.line("}");
+    p.line("*v = parsed");
+    p.line("return nil");
+    p.dedent();
+    p.line("}");
 }
 
 fn enum_has_option_metadata(decl: &EnumDecl) -> bool {

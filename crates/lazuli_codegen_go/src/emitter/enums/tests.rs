@@ -134,6 +134,77 @@ fn string_typed_enum_emits_string_alias_and_quoted_literals() {
 }
 
 #[test]
+fn string_enum_emits_membership_guard_rejecting_unknown_variant() {
+    // Gap (pauta vistoria `validate_member_role`): string-backed enums
+    // round-trip through `json.Unmarshal` at the command-input decode
+    // boundary as a bare `type X string` alias with NO membership check,
+    // so a value outside the declared variant set is silently accepted.
+    // The fix mirrors the `@semantic.*` carrier pattern: emit a `Valid()`
+    // method plus an `UnmarshalJSON` hook that rejects an unknown variant
+    // (and accepts a declared one) at decode.
+    let mut feature = base_feature("job");
+    feature.enums.push(make_enum(
+        "JobMemberRole",
+        vec![
+            variant("owner", None),
+            variant("admin", None),
+            variant("member", None),
+        ],
+    ));
+    let out = emit_enum_file("examples/x.lzi", &feature).expect("must emit");
+
+    // Imports for the decode/validation helpers are pulled in.
+    assert!(
+        out.contains("\"encoding/json\""),
+        "expected encoding/json import, got:\n{out}"
+    );
+    assert!(out.contains("\"fmt\""), "expected fmt import, got:\n{out}");
+
+    // Membership predicate over the declared variant set.
+    assert!(
+        out.contains("func (v JobMemberRole) Valid() bool {"),
+        "expected Valid() membership method, got:\n{out}"
+    );
+    assert!(
+        out.contains("case JobMemberRoleOwner, JobMemberRoleAdmin, JobMemberRoleMember:"),
+        "expected switch over declared variants, got:\n{out}"
+    );
+
+    // Decode hook rejects an unknown variant; the error lifts to a 400
+    // validation_failed envelope through the command decode pipeline.
+    assert!(
+        out.contains("func (v *JobMemberRole) UnmarshalJSON(data []byte) error {"),
+        "expected UnmarshalJSON decode hook, got:\n{out}"
+    );
+    assert!(
+        out.contains("if !parsed.Valid() {"),
+        "expected membership rejection in UnmarshalJSON, got:\n{out}"
+    );
+    assert!(
+        out.contains("invalid JobMemberRole value"),
+        "expected descriptive rejection error, got:\n{out}"
+    );
+}
+
+#[test]
+fn int_enum_omits_membership_guard() {
+    // Int-storage enums lower to `int64` with ordinal literals; the
+    // membership guard is string-only (int membership is a separate,
+    // out-of-scope concern — keep the int path byte-identical).
+    let mut feature = base_feature("customer");
+    feature.enums.push(make_enum(
+        "CustomerStatus",
+        vec![
+            variant("lead", Some(StorageValue::Integer(10))),
+            variant("active", Some(StorageValue::Integer(20))),
+        ],
+    ));
+    let out = emit_enum_file("examples/x.lzi", &feature).expect("must emit");
+    assert!(!out.contains("UnmarshalJSON"));
+    assert!(!out.contains("func (v CustomerStatus) Valid()"));
+}
+
+#[test]
 fn metadata_enum_emits_options_struct_and_values() {
     let mut feature = base_feature("customer");
     let mut free = variant("free", None);
