@@ -243,9 +243,9 @@ pub(super) use rule_bridges::{
     vocab_event_payload_001_diagnostics, vocab_event_producer_001_diagnostics,
     vocab_grammar_form_diagnostics, vocab_handler_heavy_001_diagnostics,
     vocab_json_typed_001_diagnostics, vocab_lifecycle_001_diagnostics,
-    vocab_money_multi_currency_001_diagnostics, vocab_resource_wide_cluster_001_diagnostics,
-    vocab_shadow_record_001_diagnostics, vocab_tests_missing_001_diagnostics,
-    vocab_union_001_diagnostics, vocab_union_002_diagnostics,
+    vocab_money_multi_currency_001_diagnostics, vocab_money_shape_001_diagnostics,
+    vocab_resource_wide_cluster_001_diagnostics, vocab_shadow_record_001_diagnostics,
+    vocab_tests_missing_001_diagnostics, vocab_union_001_diagnostics, vocab_union_002_diagnostics,
 };
 pub(crate) use rule_bridges::{doctor_rule_path, read_design_ir};
 // Re-exported so the `returns_list_001` / `returns_list_002` rule

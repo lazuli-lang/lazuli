@@ -289,3 +289,61 @@ feature catalog
             "got: {message}",
         );
     }
+
+    // -------------------------------------------------------------------
+    // spec 0016 — first-class `Money`. The currency binding must survive
+    // the field-line split intact into `type_text` (the analyzer lowers
+    // `Money(currency:<ISO>)` → `SemanticMoney { currency }`). These are
+    // the `money_type` gate tests.
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn money_type_bare_parses() {
+        let source = "
+feature payments
+  resource Charge
+    amount: Money required
+";
+        let features = parse_feature_skeletons(source).unwrap();
+        let f = &features[0].resources[0].fields[0];
+        assert_eq!(f.name, "amount");
+        assert_eq!(f.type_text, "Money");
+        assert!(f.required);
+    }
+
+    #[test]
+    fn money_type_with_currency_binding_survives_split() {
+        // The `(currency: USD)` binding must NOT be lopped off when the
+        // parser splits the type token from trailing modifiers/defaults.
+        let source = "
+feature payments
+  resource Charge
+    amount: Money(currency: USD) required
+";
+        let features = parse_feature_skeletons(source).unwrap();
+        let f = &features[0].resources[0].fields[0];
+        assert_eq!(f.name, "amount");
+        assert_eq!(
+            f.type_text, "Money(currency: USD)",
+            "currency binding must survive into type_text; got: {}",
+            f.type_text
+        );
+        assert!(f.required);
+    }
+
+    #[test]
+    fn money_type_with_currency_and_default_keeps_binding() {
+        let source = "
+feature payments
+  resource Charge
+    amount: Money(currency: BRL) required = \"BRL:0.00\"
+";
+        let features = parse_feature_skeletons(source).unwrap();
+        let f = &features[0].resources[0].fields[0];
+        assert_eq!(
+            f.type_text, "Money(currency: BRL)",
+            "currency binding must survive when a default is present; got: {}",
+            f.type_text
+        );
+        assert_eq!(f.default.as_deref(), Some("\"BRL:0.00\""));
+    }

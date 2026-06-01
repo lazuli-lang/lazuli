@@ -58,8 +58,8 @@ use crate::doctor::{
     vocab_event_payload_001_diagnostics, vocab_event_producer_001_diagnostics,
     vocab_handler_heavy_001_diagnostics, vocab_json_typed_001_diagnostics,
     vocab_lifecycle_001_diagnostics, vocab_money_multi_currency_001_diagnostics,
-    vocab_resource_wide_cluster_001_diagnostics, vocab_shadow_record_001_diagnostics,
-    vocab_union_001_diagnostics, vocab_union_002_diagnostics,
+    vocab_money_shape_001_diagnostics, vocab_resource_wide_cluster_001_diagnostics,
+    vocab_shadow_record_001_diagnostics, vocab_union_001_diagnostics, vocab_union_002_diagnostics,
 };
 
 /// Aggregate every IR-driven `VOCAB-*` finding across the package's
@@ -143,6 +143,12 @@ pub(crate) fn diagnostics(
             security_profile,
         ));
         out.extend(vocab_money_multi_currency_001_diagnostics(
+            path,
+            &feature,
+            header_line,
+            security_profile,
+        ));
+        out.extend(vocab_money_shape_001_diagnostics(
             path,
             &feature,
             header_line,

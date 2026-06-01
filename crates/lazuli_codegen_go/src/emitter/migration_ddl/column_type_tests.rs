@@ -457,3 +457,43 @@ fn e2ee_capability_emits_bytea_with_e2ee_marker() {
         "expected BYTEA + lazuli:e2ee comment, sql:\n{sql}"
     );
 }
+
+// spec 0016 — first-class `Money` lowers to representation-preserving
+// storage: a minor-units NUMERIC amount column PLUS an enforced
+// `<field>_currency` sibling column whose CHECK pins the declared ISO.
+// The currency is locale-neutral — a `Money(currency: USD)` field emits a
+// USD-pinned sibling, NOT a baked-in BRL. This is the `money` gate test.
+#[test]
+fn money_field_lowers_to_amount_plus_enforced_currency_column() {
+    let mut feature = base_feature("payments");
+    feature.resources.push(resource(
+        "Charge",
+        vec![builtin(
+            "amount",
+            BuiltinType::SemanticMoney {
+                currency: lazuli_ir::CurrencyCode::USD,
+            },
+            true,
+        )],
+    ));
+
+    let files = emit_migrations(&base_module(vec![feature]), "pay");
+    let sql = &files[0].contents;
+
+    // Amount lowers to a minor-units NUMERIC column (value/scale preserved).
+    assert!(
+        sql.contains("amount NUMERIC(20,4) NOT NULL"),
+        "expected minor-units NUMERIC amount column, sql:\n{sql}"
+    );
+    // The currency sibling is ENFORCED by codegen — the author never
+    // declared `amount_currency`, yet it appears, pinned to USD (no
+    // baked-in BRL — locale-neutral).
+    assert!(
+        sql.contains("amount_currency TEXT NOT NULL CHECK (amount_currency = 'USD') DEFAULT 'USD'"),
+        "expected enforced USD currency sibling column, sql:\n{sql}"
+    );
+    assert!(
+        !sql.contains("'BRL'"),
+        "Money(currency: USD) must NOT bake in BRL anywhere, sql:\n{sql}"
+    );
+}

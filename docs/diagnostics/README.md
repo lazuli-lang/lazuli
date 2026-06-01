@@ -171,6 +171,7 @@ Source: [`crates/lazuli_doctor/src/vocab/`](../../crates/lazuli_doctor/src/vocab
 | `VOCAB-JSON-TYPED-001` | warning | `vocab/vocab_json_typed_001.rs` | Resource carries a `JSON` field while the same feature declares a sibling enum no typed slot references. |
 | `VOCAB-LIFECYCLE-001` | warning (strict) / error (production) | `vocab/vocab_lifecycle_001.rs` | Status-like enum + ≥3 commands advancing it through named states — refactor to a `lifecycle` block. |
 | `VOCAB-MONEY-MULTI-CURRENCY-001` | warning | `vocab/vocab_money_multi_currency_001.rs` | Resource with 2+ `Money` fields and no per-field `<money>_currency: Currency` opt-out. |
+| `VOCAB-MONEY-SHAPE-001` | warning | `vocab/money_field_shape_001.rs` | Money modelled the hand-rolled way (`_cents:Integer`+`_currency:Text` pair, bare money-named `Decimal`, or string-tagged money with no `<field>_currency` sibling) instead of the first-class `Money` type. |
 | `VOCAB-RESOURCE-WIDE-CLUSTER-001` | warning (strict) / info (production) | `vocab/vocab_resource_wide_cluster_001.rs` | Resource >K post-filter fields and ≥M sharing a leading/trailing snake-case token — candidate for record extraction. |
 | `VOCAB-SHADOW-RECORD-001` | warning | `vocab/vocab_shadow_record_001.rs` | Two declaration sites in one feature share ≥N `(name, type_ref)` pairs and ≥50% intersection — candidate for shared record. |
 | `VOCAB-TESTS-MISSING-001` | warning | `vocab/vocab_tests_missing_001.rs` | Feature with resources / commands but zero inline `test` blocks anywhere. |

@@ -169,6 +169,7 @@ pub(crate) const P_SEMANTIC: &[DiagnosticFacet] = &[
     df("MONEY-ARITHMETIC-001", "error", "vocabulary"),
     df("MONEY-COMPARE-001", "error", "vocabulary"),
     df("VOCAB-MONEY-MULTI-CURRENCY-001", "warning", "vocabulary"),
+    df("VOCAB-MONEY-SHAPE-001", "warning", "vocabulary"),
     df("VOCAB-JSON-TYPED-001", "warning", "vocabulary"),
 ];
 

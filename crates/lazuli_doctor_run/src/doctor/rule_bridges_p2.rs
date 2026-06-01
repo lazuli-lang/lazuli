@@ -193,6 +193,45 @@ pub(crate) fn vocab_money_multi_currency_001_diagnostics(
         .collect()
 }
 
+/// VOCAB-MONEY-SHAPE-001 — money modelled the hand-rolled way
+/// (`_cents:Integer`+`_currency:Text`, bare money-named `Decimal`, or
+/// string-tagged money with no currency sibling) instead of `Money`.
+pub(crate) fn vocab_money_shape_001_diagnostics(
+    path: &Path,
+    feature: &lazuli_ir::Feature,
+    feature_header_line: usize,
+    security_profile: SecurityProfile,
+) -> Vec<DoctorDiagnostic> {
+    if security_profile == SecurityProfile::Prototype {
+        return Vec::new();
+    }
+    let severity = doctor_severity_for(
+        vocab::money_field_shape_001::Finding::CODE,
+        RuleCategory::Vocabulary,
+        security_profile,
+        &empty_overrides(),
+    );
+    vocab::money_field_shape_001::check(feature, path)
+        .into_iter()
+        .map(|finding| {
+            let message = finding.message();
+            DoctorDiagnostic {
+                path: finding.path,
+                line: feature_header_line.max(1),
+                column: 1,
+                severity,
+                code: vocab::money_field_shape_001::Finding::CODE.to_owned(),
+                message,
+                category: Some(RuleCategory::Vocabulary),
+                feature_name: Some(finding.feature),
+                construct: None,
+                fix: None,
+                group: None,
+            }
+        })
+        .collect()
+}
+
 /// VOCAB-RESOURCE-WIDE-CLUSTER-001 — resource whose field set clusters
 /// around a shared token (e.g. `shipping_*` cluster) hinting at a
 /// sub-resource extraction.

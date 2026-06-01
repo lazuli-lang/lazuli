@@ -21,6 +21,11 @@ pub mod conventions;
 pub mod crud_synth_available;
 pub mod money_arithmetic_001;
 pub mod money_compare_001;
+// VOCAB-MONEY-SHAPE-001 (spec 0016) — flags money modelled the three
+// hand-rolled ways (`_cents:Integer`+`_currency:Text`, bare money-named
+// `Decimal`, string-tagged money with no currency sibling) instead of the
+// first-class `Money` type. Single source of truth for money-SHAPE drift.
+pub mod money_field_shape_001;
 pub mod owner_axis;
 pub mod rate_limit;
 pub mod referential_guard_001;
