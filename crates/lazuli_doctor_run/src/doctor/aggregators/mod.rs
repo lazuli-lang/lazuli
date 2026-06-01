@@ -41,6 +41,7 @@ pub(crate) mod domain;
 pub(crate) mod env_manifest;
 pub(crate) mod error_handling_handlers;
 pub(crate) mod error_vocab;
+pub(crate) mod escape_hatch;
 pub(crate) mod event_group;
 pub(crate) mod external;
 pub(crate) mod field_health;

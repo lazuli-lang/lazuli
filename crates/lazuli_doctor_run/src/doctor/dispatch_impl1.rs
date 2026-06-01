@@ -215,6 +215,19 @@ impl DoctorPackage {
             &self.project_root,
             self.config.lzi_hygiene_preset,
         ));
+        // Escape-hatch visibility (spec 0010) — the three `ESC-*` rules
+        // (`ESC-RAWSQL-IN-HANDLER-001`, `ESC-SQL-TENANCY-CONTRACT-001`,
+        // `ESC-SCOPE-OVERRIDE-UNGUARDED-001`) close the holes where a read's
+        // effect/tenancy is invisible to a cold `.lzi` audit. Built + unit
+        // tested in `lazuli_doctor::escape_hatch` but never dispatched until
+        // now; this is the wiring that makes them fire on real apps. The
+        // `[doctor.escape_hatch]` preset rides its own standalone enum (not
+        // the shared `ResolvedDoctorConfig`), so `None` here keeps the
+        // per-rule defaults (all Warning) until that config surface lands.
+        diagnostics.extend(aggregators::escape_hatch::escape_hatch_diagnostics(
+            &self.project_root,
+            None,
+        ));
         diagnostics.extend(returns_list_001::diagnostics(
             &self.tier3_facts,
             &self.project_root,

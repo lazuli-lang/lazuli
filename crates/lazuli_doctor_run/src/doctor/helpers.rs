@@ -133,6 +133,42 @@ pub(super) fn resolve_lzi_hygiene_severity(
         .unwrap_or(default)
 }
 
+/// Escape-hatch severity resolver (spec 0010) — mirror of
+/// `resolve_lzi_hygiene_severity` for the `ESC-*` rule family. The
+/// `[doctor.escape_hatch].preset` ships its own standalone preset enum
+/// (`lazuli_doctor::escape_hatch::preset::EscapeHatchPreset`) rather than
+/// riding the shared `ResolvedDoctorConfig`/`RuleCategory` resolver, so
+/// this site resolves directly through that crate's
+/// `preset_rule_severity`. With no preset active the caller's per-rule
+/// `default` stands.
+///
+/// Note: `ESC-RAWSQL-IN-HANDLER-001` is waivable-to-convert, not
+/// waivable-to-silence — that contract is enforced inside the rule body
+/// (the finding still fires under a `# doctor:allow`); the preset only
+/// shifts its *display* severity, exactly like any other rule.
+pub(super) fn resolve_escape_hatch_severity(
+    default: DoctorSeverity,
+    _code: &str,
+    preset: Option<lazuli_doctor::escape_hatch::preset::EscapeHatchPreset>,
+) -> DoctorSeverity {
+    let Some(p) = preset else {
+        return default;
+    };
+    // The escape-hatch preset machinery speaks the shared
+    // `lazuli_doctor::DoctorSeverity`. Map our CLI default into it, resolve,
+    // then map back via the existing `From` bridge.
+    let shared_default = match default {
+        DoctorSeverity::Error => lazuli_doctor::DoctorSeverity::Error,
+        DoctorSeverity::Warning => lazuli_doctor::DoctorSeverity::Warning,
+        DoctorSeverity::Info => lazuli_doctor::DoctorSeverity::Info,
+        DoctorSeverity::Hint => lazuli_doctor::DoctorSeverity::Hint,
+    };
+    DoctorSeverity::from(lazuli_doctor::escape_hatch::preset::preset_rule_severity(
+        p,
+        shared_default,
+    ))
+}
+
 /// Iron-hand 4th-dimension severity resolver — mirror of
 /// `resolve_internal_hygiene_severity` for error-handling rules
 /// (`INTERNAL-PANIC-*`, `INTERNAL-ERROR-*`, `ERROR-*`, `HANDLER-*`).
