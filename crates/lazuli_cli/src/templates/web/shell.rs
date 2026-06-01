@@ -53,7 +53,7 @@ import { ThemeProvider } from "@web/theme/theme_provider";
 
 const queryClient = new QueryClient();
 const client = new LazuliClient({
-  baseUrl: import.meta.env.VITE_API_URL ?? "/api",
+  baseUrl: import.meta.env.PUBLIC_API_URL ?? "/api",
 });
 
 export function App() {
@@ -108,17 +108,17 @@ interface State {
  * branded fallback UI, or i18n as needed.
  */
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { error: null };
+  override state: State = { error: null };
 
   static getDerivedStateFromError(error: Error): State {
     return { error };
   }
 
-  componentDidCatch(error: Error, info: ErrorInfo): void {
+  override componentDidCatch(error: Error, info: ErrorInfo): void {
     console.error("[lazuli] error boundary caught", error, info);
   }
 
-  render() {
+  override render() {
     if (this.state.error) {
       if (this.props.fallback) {
         return this.props.fallback(this.state.error);
@@ -232,11 +232,17 @@ pub const FRONTEND_TSCONFIG_JSON: &str = r#"{
     "resolveJsonModule": true,
     "isolatedModules": true,
     "skipLibCheck": true,
+    "types": ["vite/client", "node"],
     "baseUrl": ".",
     "paths": {
       "@app/*": ["../../app/*"],
       "@generated/*": ["../../dist/ts-web/*"],
-      "@web/*": ["./*"]
+      "@web/*": ["./*"],
+      "@lazuli/runtime": ["../../vendor/lazuli-runtime/dist/index.d.ts"],
+      "@lazuli/runtime/react": ["../../vendor/lazuli-runtime/dist/react.d.ts"],
+      "@lazuli/runtime/react/tanstack": ["../../vendor/lazuli-runtime/dist/tanstack-adapter.d.ts"],
+      "@lazuli/runtime/react/rhf": ["../../vendor/lazuli-runtime/dist/react-rhf.d.ts"],
+      "@lazuli/runtime/formatters": ["../../vendor/lazuli-runtime/dist/formatters.d.ts"]
     }
   },
   "include": [
@@ -246,7 +252,12 @@ pub const FRONTEND_TSCONFIG_JSON: &str = r#"{
     "../../dist/ts-web/**/*.ts",
     "../../dist/ts-web/**/*.tsx"
   ],
-  "exclude": ["node_modules", "../../dist/go"]
+  "exclude": [
+    "node_modules",
+    "../../dist/go",
+    "../../vendor",
+    "tailwind.config.ts"
+  ]
 }
 "#;
 
@@ -321,12 +332,13 @@ pub const FRONTEND_PACKAGE_JSON: &str = r#"{
     "test": "vitest run",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
+    "verify:scaffold": "tsc --noEmit && vite build",
     "lint": "biome check .",
     "format": "biome format --write ."
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
-    "@lazuli/runtime": "^0.1.0",
+    "@lazuli/runtime": "workspace:*",
     "@radix-ui/react-dialog": "^1.1.0",
     "@radix-ui/react-slot": "^1.1.0",
     "@tanstack/react-query": "^5.51.0",
@@ -338,6 +350,7 @@ pub const FRONTEND_PACKAGE_JSON: &str = r#"{
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.52.0",
+    "search-query-parser": "^1.6.0",
     "sonner": "^1.5.0",
     "tailwind-merge": "^2.5.0",
     "tailwindcss": "^3.4.0",
@@ -346,10 +359,11 @@ pub const FRONTEND_PACKAGE_JSON: &str = r#"{
   },
   "devDependencies": {
     "@biomejs/biome": "^1.8.0",
-    "@lazuli/vite": "^0.1.0",
+    "@lazuli/vite": "workspace:*",
     "@playwright/test": "^1.46.0",
     "@testing-library/react": "^16.0.0",
     "@testing-library/user-event": "^14.5.0",
+    "@types/node": "^22.0.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",
@@ -408,4 +422,57 @@ export const useAppStore = create<AppState>((set) => ({
   theme: "light",
   setTheme: (theme) => set({ theme }),
 }));
+"#;
+
+/// `app/web/__smoke__/scaffold.smoke.test.tsx` — render smoke emitted
+/// by `lazuli new --frontends web`. Mounting `<App/>` inside the live
+/// provider tree proves the WHOLE runtime-import surface
+/// (`@lazuli/runtime`, `@lazuli/runtime/react`) resolves AND compiles
+/// under the client tsconfig + vendored `dist/*.d.ts` paths. This is
+/// the test whose ABSENCE let the scaffold ship a red `tsc` gate to two
+/// pilots (see spec 0027). User-owned after scaffold; Lazuli never
+/// overwrites.
+pub const FRONTEND_WEB_SMOKE_TEST_TSX: &str = r#"import { describe, expect, it } from "vitest";
+import { render } from "@testing-library/react";
+
+import { App } from "@web/shell/root";
+
+// Render smoke: if `@lazuli/runtime` / `@lazuli/runtime/react` did not
+// resolve + compile under this client's tsconfig (the defect spec 0027
+// fixed), this file would not typecheck and `<App/>` would not mount.
+describe("scaffold render smoke", () => {
+  it("mounts <App/> with the Lazuli provider tree", () => {
+    const { container } = render(<App />);
+    expect(container).toBeTruthy();
+  });
+});
+"#;
+
+/// `app/web/__smoke__/generated-sdk.smoke.test.ts` — generated-SDK
+/// import smoke emitted by `lazuli new --frontends web`. Generated SDK
+/// files (`dist/ts-web/<feature>/<feature>.react.gen.ts`) import their
+/// transport + hook factories from `@lazuli/runtime` /
+/// `@lazuli/runtime/react`; this smoke imports those same entry symbols
+/// directly so the SDK's import surface is proven to resolve under the
+/// client tsconfig EVEN BEFORE the first `lazuli generate ts` (when no
+/// `@generated/*` file exists yet). Once generated SDK files land,
+/// extend this with a concrete `@generated/<feature>` import.
+pub const FRONTEND_WEB_SDK_SMOKE_TEST_TS: &str = r#"import { describe, expect, it } from "vitest";
+
+// The exact symbols every generated `*.react.gen.ts` SDK file pulls
+// from the runtime. If these don't resolve under the client tsconfig,
+// no generated SDK would compile — this smoke catches that wiring
+// regression at `tsc --noEmit` time.
+import { LazuliClient, defineQuery, defineCommand } from "@lazuli/runtime";
+import { useLazuliQuery, useLazuliCommand } from "@lazuli/runtime/react";
+
+describe("generated-SDK import smoke", () => {
+  it("resolves the runtime symbols generated SDK files import", () => {
+    expect(LazuliClient).toBeTypeOf("function");
+    expect(defineQuery).toBeTypeOf("function");
+    expect(defineCommand).toBeTypeOf("function");
+    expect(useLazuliQuery).toBeTypeOf("function");
+    expect(useLazuliCommand).toBeTypeOf("function");
+  });
+});
 "#;

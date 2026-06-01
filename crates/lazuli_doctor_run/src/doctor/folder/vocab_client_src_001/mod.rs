@@ -92,7 +92,14 @@ pub(super) const UI_CHILDREN_ALLOWED: &[&str] = &[
 /// Well-known tooling directories that are skipped at the top-level
 /// without firing a diagnostic. They are not source-controlled vocab
 /// choices the user makes, so flagging them is noise.
-const TOP_LEVEL_SKIP: &[&str] = &["dist", "node_modules", ".lazuli", ".git", ".cache"];
+///
+/// `__smoke__/` is a framework-emitted convention (spec 0027): `lazuli
+/// new --frontends web` writes the render + generated-SDK compile smoke
+/// tests there. It's a Lazuli-owned test dir, not a user catalog choice,
+/// so it's out-of-scope for closed-catalog enforcement (same treatment
+/// as `dist`/`node_modules`).
+const TOP_LEVEL_SKIP: &[&str] =
+    &["dist", "node_modules", ".lazuli", ".git", ".cache", "__smoke__"];
 
 /// Walk the project's client trees and return one finding per
 /// closed-catalog violation. See module docs for scope.

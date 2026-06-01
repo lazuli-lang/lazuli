@@ -45,5 +45,6 @@ The six gaffes that cost the most cold-read time. Most decisions need no further
 | 0013-errors-and-i18n.md | errors block, error codes, translations / i18n |
 | 0014-forcing-defaults-and-hygiene.md | finishing a feature — will it pass doctor? (policy names, audit, .ctx.md, non_goals, tests) |
 | 0015-jobs-and-pollers.md | writing a job or a poller (async work) |
+| 0016-frontend-wiring.md | the web client fails tsc, a @lazuli/runtime import won't resolve, or upgrading the framework runtime |
 
 Ground every fact in `lazuli check`/`inspect`/`doctor` — the docs are the map, the compiler is the territory.

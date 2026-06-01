@@ -22,7 +22,8 @@
     "dev": "concurrently -k -n api,web \"pnpm go:watch\" \"pnpm --filter ./app/web dev\"",
     "build": "pnpm lazuli:generate && pnpm --filter ./app/web build && pnpm go:build",
     "typecheck": "pnpm lazuli:generate && pnpm --filter ./app/web typecheck",
-    "verify:all": "pnpm lazuli:doctor && pnpm lazuli:generate && pnpm go:build && pnpm typecheck && pnpm build && pnpm lazuli:test",
+    "verify:scaffold": "pnpm --filter ./app/web verify:scaffold",
+    "verify:all": "pnpm lazuli:doctor && pnpm lazuli:generate && pnpm go:build && pnpm typecheck && pnpm build && pnpm verify:scaffold && pnpm lazuli:test",
     "lint": "biome check .",
     "format": "biome format --write ."
   },

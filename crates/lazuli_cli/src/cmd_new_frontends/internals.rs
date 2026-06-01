@@ -18,6 +18,41 @@ pub(super) fn ensure_dir(path: &Path) -> Result<()> {
     fs::create_dir_all(path).with_context(|| format!("creating {}", path.display()))
 }
 
+/// Recursively copy `src` into `dst`, skipping any file that already
+/// exists at the destination (idempotency: a second scaffold pass — or
+/// a user-edited vendored file — is never clobbered). Directories are
+/// created as needed. `node_modules` is skipped: the vendored package
+/// is consumed via the workspace, so its own installed deps are
+/// resolved by the consumer's `pnpm install`, not copied.
+pub(super) fn copy_dir_if_absent(src: &Path, dst: &Path) -> Result<()> {
+    fs::create_dir_all(dst).with_context(|| format!("creating {}", dst.display()))?;
+    for entry in fs::read_dir(src).with_context(|| format!("reading dir {}", src.display()))? {
+        let entry = entry.with_context(|| format!("reading entry under {}", src.display()))?;
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("statting {}", entry.path().display()))?;
+        let name = entry.file_name();
+        // Never vendor an installed node_modules tree — it's huge and
+        // the consumer's pnpm install resolves the package's deps.
+        if name == "node_modules" {
+            continue;
+        }
+        let from = entry.path();
+        let to = dst.join(&name);
+        if file_type.is_dir() {
+            copy_dir_if_absent(&from, &to)?;
+        } else if !to.exists() {
+            if let Some(parent) = to.parent() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("creating {}", parent.display()))?;
+            }
+            fs::copy(&from, &to)
+                .with_context(|| format!("copying {} -> {}", from.display(), to.display()))?;
+        }
+    }
+    Ok(())
+}
+
 /// Write `content` to `path` only if the path does not already exist.
 /// This is the idempotency guard: a second scaffold pass never overwrites
 /// user edits.

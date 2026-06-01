@@ -1,5 +1,10 @@
 packages:
   - "app/web"
+  # Vendored Lazuli runtime packages (@lazuli/runtime, @lazuli/vite,
+  # @lazuli/playwright) — copied into vendor/ by `lazuli new --frontends
+  # web` and consumed as workspace:* members so the client typechecks
+  # against the prebuilt dist/*.d.ts without a network registry.
+  - "vendor/*"
   # Add more clients as you grow:
   #   - "app/os"
   #   - "app/mobile"
