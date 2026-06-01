@@ -44,25 +44,127 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
 );
 "#;
 
-/// The TS app shell that mounts Lazuli providers + Router. User
-/// edits after scaffold; Lazuli never overwrites.
-pub const FRONTEND_WEB_ROOT_TSX: &str = r#"import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+/// `app/web/lazuli.ts` — the singleton runtime client + query cache the
+/// whole app shares. Every generated SDK hook (`useLoginAccount`,
+/// `useListCustomers`, …) reads the `LazuliClient` from
+/// `<LazuliProvider client={lazuliClient}>` and the cache from
+/// `<QueryClientProvider client={queryClient}>` — both wired in
+/// `shell/root.tsx` from THIS module, so there is exactly one client
+/// and one cache for the process.
+///
+/// `baseUrl: ""` → requests hit relative `/api/...`, which Vite proxies
+/// to the Go API in dev (see `vite.config.ts`) and serves same-origin in
+/// prod. Override with `PUBLIC_API_URL` when the API lives elsewhere.
+///
+/// Auth: the bearer token is rehydrated from `localStorage` at module
+/// load so a refresh keeps the session, and `persistSessionToken` is the
+/// one place that writes it. A pilot's hand-wired login route (Lazuli
+/// does NOT scaffold one — it's authored from your `.lzx` `view`s) calls
+/// `persistSessionToken(result.token)` on `login.mutateAsync(...)`
+/// success, and `persistSessionToken(null)` on logout.
+pub const FRONTEND_WEB_LAZULI_TS: &str = r#"import { QueryClient } from "@tanstack/react-query";
 import { LazuliClient } from "@lazuli/runtime";
-import { LazuliProvider } from "@lazuli/runtime/react";
-import { ThemeProvider } from "@web/theme/theme_provider";
 
-const queryClient = new QueryClient();
-const client = new LazuliClient({
-  baseUrl: import.meta.env.PUBLIC_API_URL ?? "/api",
+/** localStorage key the session bearer token is persisted under. */
+const SESSION_TOKEN_KEY = "lazuli.session.token";
+
+function readStoredToken(): string | null {
+  if (typeof localStorage === "undefined") return null;
+  return localStorage.getItem(SESSION_TOKEN_KEY);
+}
+
+/**
+ * The one runtime client for the app. `baseUrl: ""` keeps requests
+ * relative (`/api/...`) — Vite-proxied in dev, same-origin in prod.
+ * Set `PUBLIC_API_URL` to point at a different origin.
+ */
+export const lazuliClient = new LazuliClient({
+  baseUrl: import.meta.env.PUBLIC_API_URL ?? "",
 });
+
+// Rehydrate a persisted session so a page refresh stays logged in.
+const storedToken = readStoredToken();
+if (storedToken) {
+  lazuliClient.setAuthToken(storedToken);
+}
+
+/**
+ * Persist (or clear) the session bearer token. Call with the token
+ * returned by your login command on success; call with `null` on logout.
+ * Writes both `localStorage` (survives refresh) and the live client.
+ */
+export function persistSessionToken(token: string | null): void {
+  if (typeof localStorage !== "undefined") {
+    if (token) {
+      localStorage.setItem(SESSION_TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(SESSION_TOKEN_KEY);
+    }
+  }
+  lazuliClient.setAuthToken(token);
+}
+
+/** The one TanStack Query cache for the app. */
+export const queryClient = new QueryClient();
+"#;
+
+/// The TS app shell that mounts the Lazuli providers + Router. The
+/// providers come FIRST so every generated SDK hook in the routed tree
+/// finds its `LazuliClient` (via `LazuliProvider`) and its query cache
+/// (via `QueryClientProvider`) — without them the first screen throws
+/// `useLazuliClient: missing LazuliProvider client`. User edits after
+/// scaffold; Lazuli never overwrites.
+///
+/// The router below is a self-contained placeholder so the scaffold
+/// renders + typechecks BEFORE the first `lazuli generate ts`. Swap it
+/// for the generated router as marked once you've declared `view`s.
+pub const FRONTEND_WEB_ROOT_TSX: &str = r#"import { QueryClientProvider } from "@tanstack/react-query";
+import { LazuliProvider } from "@lazuli/runtime/react";
+import {
+  RouterProvider,
+  createRootRoute,
+  createRoute,
+  createRouter,
+} from "@tanstack/react-router";
+import { ThemeProvider } from "@web/theme/theme_provider";
+import { lazuliClient, queryClient } from "@web/lazuli";
+
+// --- Router -----------------------------------------------------------
+// Placeholder router: renders a welcome screen so a fresh scaffold boots
+// and typechecks before any `view` is declared. After `lazuli generate
+// ts` emits `dist/ts-web/<audience>/routes.gen.tsx`, replace this whole
+// block with the generated factory:
+//
+//   import { createGeneratedRouter } from "@generated/<audience>/routes.gen";
+//   const router = createGeneratedRouter({
+//     client: lazuliClient,
+//     queryClient,
+//     components: { /* one entry per `view`, e.g. signIn: SignInRoute */ },
+//   });
+//
+// The generated router carries the route guards + typed params from your
+// `.lzx` audience blocks. (A login/sign-in route is pilot-authored from
+// your `view`s — on `login.mutateAsync(input)` success call
+// `persistSessionToken(result.token)` from `@web/lazuli`.)
+const rootRoute = createRootRoute();
+const indexRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/",
+  component: () => (
+    <p>Lazurite app scaffold. Declare a `view` and run `lazuli generate ts`.</p>
+  ),
+});
+const router = createRouter({
+  routeTree: rootRoute.addChildren([indexRoute]),
+});
+// ----------------------------------------------------------------------
 
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <LazuliProvider client={client}>
+      <LazuliProvider client={lazuliClient}>
         <ThemeProvider>
-          {/* <RouterProvider router={router} /> — wire after first `lazuli generate ts` */}
-          <p>Lazurite app scaffold. Run `lazuli generate ts` and wire the router here.</p>
+          <RouterProvider router={router} />
         </ThemeProvider>
       </LazuliProvider>
     </QueryClientProvider>
