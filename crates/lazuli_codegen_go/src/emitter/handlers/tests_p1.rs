@@ -135,10 +135,22 @@ fn emits_auth_function_stub_with_extension_signature() {
         hash.contents
             .contains("//   Site: customer_auth.auth.password.hash")
     );
-    assert!(hash.contents.contains("var zero lazuli.HashedRef"));
+    // Spec 0025 — this site maps to a runtime symbol, so the stub now DELEGATES
+    // to `auth.HashPassword` instead of emitting an empty `// IMPLEMENT ME`
+    // body. The old `var zero` / `errors.New("... not yet implemented")` pair
+    // is gone; the delegating call + the runtime `auth` import are present.
+    assert!(
+        hash.contents.contains(
+            "auth.HashPassword(ctx, customer_authgen.CustomerAuthAuthPassword, input)"
+        ),
+        "hash stub must delegate to auth.HashPassword; got:\n{}",
+        hash.contents
+    );
+    assert!(!hash.contents.contains("// IMPLEMENT ME"));
+    assert!(!hash.contents.contains("not yet implemented"));
     assert!(
         hash.contents
-            .contains("return zero, errors.New(\"hash_password not yet implemented\")")
+            .contains("\"lazuli.dev/runtime/lazuli/auth\"")
     );
     assert!(hash.contents.contains("//lazuli:pattern extension_stub v1"));
     // Source-tag duplication cleanup (review bug #8, 2026-05-15):
