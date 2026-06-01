@@ -66,6 +66,10 @@ const ALLOWLIST: &[&str] = &[
     "max_size:",                       // arg key (statement `max_size` is in ALL)
     "read:",                           // policy-action key (`read` action is a value)
     "write:",                          // policy-action key (`write` action is a value)
+    "access:", // 0005 field-policy symmetric shorthand — desugars in-parser to
+    // `read:`+`write:` (no IR/codegen node of its own). A policy-action key,
+    // same family as `read:`/`write:`, intentionally NOT a registry keyword.
+    "access", // head-token form of the `access:` shorthand clause
     "on_unmet",                        // invariant arg fragment (no trailing space form)
     // ── type-literal prefixes matched during expression parsing (these
     //    are TYPE names, covered by the `#types` tmLanguage rule, not the

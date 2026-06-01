@@ -8,7 +8,8 @@
 //! - `field-security-policy` — every `@pii.*` / `@cap.Encrypted` /
 //!   `@cap.E2ee` / `@cap.Hashed` / `@cap.Token` field must be paired
 //!   with a `policies fields <Resource>` block declaring both `read`
-//!   and `write`.
+//!   and `write` (the `access:` symmetric shorthand satisfies both, since
+//!   it desugars to `read:` + `write:` — see 0005 / `field-policy.md`).
 //! - `retention-contract` — resources storing `@pii.*` fields must
 //!   declare `retention <duration> then <delete|anonymize|archive>`
 //!   (or inherit a feature default retention contract).
@@ -438,7 +439,15 @@ pub(crate) fn collect_field_policy_facts(
                 let entry = policies
                     .entry((feature.to_owned(), resource.to_owned(), field.to_owned()))
                     .or_insert_with(FieldPolicyFacts::default);
-                if trimmed.starts_with("read:") {
+                // 0005 — `access: P` is the symmetric shorthand: it sets
+                // BOTH read and write (desugars to `read: P` + `write: P`).
+                // The text walker must treat it as satisfying both axes, or
+                // a migrated symmetric field would falsely trip the
+                // `field-security-policy` contract.
+                if trimmed.starts_with("access:") {
+                    entry.read = true;
+                    entry.write = true;
+                } else if trimmed.starts_with("read:") {
                     entry.read = true;
                 } else if trimmed.starts_with("write:") {
                     entry.write = true;
@@ -449,4 +458,9 @@ pub(crate) fn collect_field_policy_facts(
     }
 
     policies
+}
+
+#[cfg(test)]
+mod tests {
+    include!("security_tests.rs");
 }

@@ -1,5 +1,11 @@
 //! `policies > fields <Resource>` sub-block parser — per-field `read:`
-//! and `write:` clauses.
+//! and `write:` clauses, plus the `access:` symmetric shorthand (0005).
+//!
+//! `access: P` desugars in-parser to `read: P` + `write: P`, so the emitted
+//! [`FieldPolicyDecl`] is byte-identical to the explicit two-line form and all
+//! downstream consumers (IR lowering, codegen, doctor) see ONE representation.
+//! One form per field: `access:` and `read:`/`write:` on the same field is a
+//! parse error (no merging, no algebra).
 //!
 //! Extracted from the original monolithic `policy.rs`.
 
@@ -50,6 +56,12 @@ pub(super) fn parse_field_policies_block(
         let field_header_end = line.end;
         let mut read: Option<Vec<String>> = None;
         let mut write: Option<Vec<String>> = None;
+        // 0005 — `access:` symmetric shorthand. Tracked separately from
+        // `read`/`write` so the one-form-per-field rule can reject mixing
+        // (`access:` desugars into BOTH `read` and `write`, so the explicit
+        // form on the same field would silently double-set one axis).
+        let mut saw_access = false;
+        let mut saw_explicit = false;
         let mut last_field_end = field_header_end;
         let mut j = i + 1;
         while j < lines.len() {
@@ -75,21 +87,57 @@ pub(super) fn parse_field_policies_block(
                     .map(str::to_owned)
                     .collect()
             };
+            // 0005 — `access: P` symmetric shorthand: desugars to
+            // `read: P` + `write: P` so the resulting `FieldPolicyDecl`
+            // (and its IR) is byte-identical to the explicit two-line form.
+            if let Some(rest) = inner_trim.strip_prefix("access:") {
+                if saw_explicit {
+                    return Err(line_error(
+                        inner,
+                        "field policy uses one form per field — `access:` (symmetric) \
+                         OR `read:`/`write:` (asymmetric), never both",
+                    ));
+                }
+                let atoms = parsed_atoms(rest);
+                read = Some(atoms.clone());
+                write = Some(atoms);
+                saw_access = true;
+                last_field_end = inner.end;
+                j += 1;
+                continue;
+            }
             if let Some(rest) = inner_trim.strip_prefix("read:") {
+                if saw_access {
+                    return Err(line_error(
+                        inner,
+                        "field policy uses one form per field — `access:` (symmetric) \
+                         OR `read:`/`write:` (asymmetric), never both",
+                    ));
+                }
                 read = Some(parsed_atoms(rest));
+                saw_explicit = true;
                 last_field_end = inner.end;
                 j += 1;
                 continue;
             }
             if let Some(rest) = inner_trim.strip_prefix("write:") {
+                if saw_access {
+                    return Err(line_error(
+                        inner,
+                        "field policy uses one form per field — `access:` (symmetric) \
+                         OR `read:`/`write:` (asymmetric), never both",
+                    ));
+                }
                 write = Some(parsed_atoms(rest));
+                saw_explicit = true;
                 last_field_end = inner.end;
                 j += 1;
                 continue;
             }
             return Err(line_error(
                 inner,
-                "field policy clauses are `read:` or `write:` followed by atoms",
+                "field policy clauses are `access:` (symmetric) or `read:`/`write:` \
+                 followed by atoms",
             ));
         }
         fields.push(FieldPolicyDecl {
