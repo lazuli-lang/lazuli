@@ -1149,14 +1149,17 @@ func resolveSource[I any](ctx *Ctx, src Source, input I) (any, error) {
 			Message: "target binding not yet implemented in runtime spike"}
 	case sourceFn:
 		// WAR-VOCAB-CREATES-FN-CALL-01 closure: `@fn.<name>(<arg>...)`
-		// resolves each arg source first, then invokes the registered
-		// BindingFn with the resolved args. Fail-closed: unknown fn
-		// names abort the command rather than emit a confusing
-		// downstream type error.
-		fn, ok := lookupBindingFn(src.path)
+		// resolves each arg source first, then invokes the resolved
+		// BindingFn with the resolved args. resolveBindingFn bridges the
+		// explicit binding-fn registry AND the handler registry that
+		// pilots actually populate via `RegisterFn("<feature>.<name>")`,
+		// reconciling the bare-vs-qualified naming. Fail-closed: a fn in
+		// NEITHER registry (or an ambiguous suffix match) aborts the
+		// command rather than emit a confusing downstream type error.
+		fn, ok := resolveBindingFn(src.path)
 		if !ok {
 			return nil, &Error{Status: 500, Code: CodeInternal,
-				Message: "binding fn not registered: @fn." + src.path}
+				Message: "binding fn not registered in either registry: @fn." + src.path}
 		}
 		argSources, _ := src.value.([]Source)
 		args := make([]any, 0, len(argSources))
@@ -1167,6 +1170,9 @@ func resolveSource[I any](ctx *Ctx, src Source, input I) (any, error) {
 			}
 			args = append(args, v)
 		}
+		// Thread the live *Ctx through as the context arg so a
+		// handler-registry fn (signature `func(*Ctx, I) (O, error)`)
+		// can recover it; explicit BindingFns just see a context.Context.
 		return fn(ctx, args...)
 	default:
 		return nil, &Error{Status: 500, Code: CodeInternal,

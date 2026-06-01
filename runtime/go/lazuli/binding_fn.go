@@ -2,6 +2,9 @@ package lazuli
 
 import (
 	"context"
+	"fmt"
+	"reflect"
+	"strings"
 	"sync"
 )
 
@@ -53,4 +56,168 @@ func lookupBindingFn(name string) (BindingFn, bool) {
 	defer bindingFnMu.RUnlock()
 	fn, ok := bindingFnRegistry[name]
 	return fn, ok
+}
+
+// resolveBindingFn resolves a `@fn.<name>` reference used inside a
+// `creates`/`updates` binding (or a query filter RHS) to an invokable
+// closure, bridging the TWO fn registries that the framework exposes:
+//
+//  1. The explicit binding-fn registry (populated by [RegisterBindingFn]),
+//     keyed by the exact `name` codegen emits — the bare `@fn.<name>`.
+//  2. The handler registry (populated by [RegisterFn]), keyed by the
+//     FEATURE-QUALIFIED `<feature>.<name>` form. This is the registry that
+//     pilots actually populate for their `@fn.X` handlers (the same
+//     handlers used by command-level `@fn` via [ReturnsFromRegistry]), so
+//     a `field = @fn.X(...)` binding must be able to reach it.
+//
+// Codegen emits the BARE name in [FromFn] (e.g. "hash_password"), but
+// pilots register handlers under the qualified key (e.g.
+// "account.hash_password"). resolveBindingFn reconciles the mismatch:
+//   - exact binding-fn registration wins (explicit opt-in, highest fidelity);
+//   - then an exact handler-registry hit on the bare name;
+//   - then a UNIQUE `*.<bare>` suffix match across handler-registry keys.
+//     Ambiguity (two features registering the same bare name) is a
+//     fail-closed error, never a silent wrong pick.
+//
+// A matched handler-registry fn has the shape
+// `func(*Ctx, I) (O, error)` and is adapted to the BindingFn calling
+// convention via reflection — mirroring [ReturnsFromRegistry]'s adapter
+// but boxing the concrete `O` (e.g. int64) back to `any` so it can flow
+// into the INSERT as the column value.
+//
+// Returns (nil, false) when the name is in NEITHER registry, or when the
+// suffix match is ambiguous (the caller turns this into a clear 500).
+func resolveBindingFn(name string) (BindingFn, bool) {
+	if fn, ok := lookupBindingFn(name); ok {
+		return fn, true
+	}
+	// Fall back to the handler registry. Try the bare name first (a
+	// handler registered without a feature prefix), then the unique
+	// feature-qualified key.
+	if h := lookupFn(name); h != nil {
+		return adaptHandlerToBindingFn(h), true
+	}
+	if h, ok := lookupFnBySuffix(name); ok {
+		return adaptHandlerToBindingFn(h), true
+	}
+	return nil, false
+}
+
+// lookupFnBySuffix scans the handler registry for a key of the form
+// `<feature>.<bare>` and returns its handler iff exactly one such key
+// exists. Two matches (a same-bare-named fn in two features) returns
+// (nil, false) so the caller fails closed rather than guessing.
+func lookupFnBySuffix(bare string) (any, bool) {
+	suffix := "." + bare
+	handlerMu.RLock()
+	defer handlerMu.RUnlock()
+	var match any
+	found := 0
+	for key, fn := range handlerRegistry {
+		if strings.HasSuffix(key, suffix) {
+			match = fn
+			found++
+		}
+	}
+	if found != 1 {
+		return nil, false
+	}
+	return match, true
+}
+
+// adaptHandlerToBindingFn wraps a handler-registry fn
+// (`func(*Ctx, I) (O, error)`, stored as `any`) so it satisfies the
+// [BindingFn] calling convention `func(ctx, args...) (any, error)`.
+//
+// Mirrors [ReturnsFromRegistry]'s reflection adapter, but:
+//   - the *Ctx is recovered from the passed-in context.Context (the
+//     binding resolver threads the live *Ctx through as the context arg);
+//   - arity follows the binding call: zero args → the handler's input is
+//     its zero value (matches handlers that do `_ = input`); one arg →
+//     the resolved arg is passed straight through (matches handlers that
+//     read `passwordOf(input)`); the input param is typed `any` in pilot
+//     handlers so no per-type assertion is needed, but we convert when a
+//     handler declares a concrete input type;
+//   - the concrete return `O` is boxed back to `any`.
+func adaptHandlerToBindingFn(h any) BindingFn {
+	return func(ctx context.Context, args ...any) (any, error) {
+		fnVal := reflect.ValueOf(h)
+		fnType := fnVal.Type()
+		if fnType.Kind() != reflect.Func ||
+			fnType.NumIn() != 2 || fnType.NumOut() != 2 {
+			return nil, &Error{Status: 500, Code: CodeInternal,
+				Message: "binding fn bridge: handler has wrong signature " +
+					"(want func(*Ctx, I) (O, error)), got " + fnType.String()}
+		}
+
+		// arg 0: *Ctx — recover the live *Ctx from the context.Context.
+		lazCtx, ok := ctx.(*Ctx)
+		if !ok {
+			// Binding resolution always passes a *Ctx; defend anyway so a
+			// stray context.Context yields a clear error, not a panic.
+			lazCtx = &Ctx{Context: ctx}
+		}
+		ctxArg := reflect.ValueOf(lazCtx)
+		if !ctxArg.Type().AssignableTo(fnType.In(0)) {
+			return nil, &Error{Status: 500, Code: CodeInternal,
+				Message: fmt.Sprintf("binding fn bridge: handler first param %s "+
+					"is not *lazuli.Ctx", fnType.In(0))}
+		}
+
+		// arg 1: the single input. Zero-arg binding → zero value of the
+		// declared input type; one-arg binding → the resolved arg.
+		inType := fnType.In(1)
+		var inArg reflect.Value
+		switch len(args) {
+		case 0:
+			inArg = reflect.Zero(inType)
+		case 1:
+			inArg = boxInto(args[0], inType)
+		default:
+			return nil, &Error{Status: 500, Code: CodeInternal,
+				Message: fmt.Sprintf("binding fn bridge: handler takes one "+
+					"input but @fn was called with %d args", len(args))}
+		}
+
+		out := fnVal.Call([]reflect.Value{ctxArg, inArg})
+		// out[1] is error.
+		var err error
+		if e := out[1].Interface(); e != nil {
+			err, _ = e.(error)
+		}
+		if err != nil {
+			return nil, err
+		}
+		// Box the concrete return O back to any (int64 → bigint, etc.).
+		return out[0].Interface(), nil
+	}
+}
+
+// boxInto converts a resolved binding arg into the handler's declared
+// input type. When the handler's input is `any`/interface (the pilot
+// convention), the arg passes through untouched. When it's a concrete
+// type the arg is convertible to, it is converted; otherwise the raw
+// reflect.Value of the arg is used and Go's call will type-check it.
+func boxInto(arg any, inType reflect.Type) reflect.Value {
+	if arg == nil {
+		return reflect.Zero(inType)
+	}
+	av := reflect.ValueOf(arg)
+	if av.Type().AssignableTo(inType) {
+		return av
+	}
+	if av.Type().ConvertibleTo(inType) && inType.Kind() != reflect.Interface {
+		return av.Convert(inType)
+	}
+	// Interface input (e.g. `any`) that arg doesn't directly assign to is
+	// impossible (everything assigns to `any`); for a concrete mismatch
+	// hand the raw value to Call and let it surface a clear panic-free
+	// error path via the wrong-type assertion. To stay panic-free we box
+	// through a fresh addressable value of inType when possible.
+	if inType.Kind() == reflect.Interface {
+		box := reflect.New(inType).Elem()
+		box.Set(av)
+		return box
+	}
+	return av
 }
