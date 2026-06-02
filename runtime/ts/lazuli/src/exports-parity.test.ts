@@ -54,6 +54,13 @@ const CONTRACTED_RUNTIME_EXPORTS = [
   "parseSegments",
   "useFilterState",
   "useMultiSelection",
+  // Wave-W6 view-level UX primitive hooks
+  "useViewMode",
+  "useTabGroup",
+  "useWizardSteps",
+  "useInlineTable",
+  "useBoard",
+  "useRepeatableGroup",
   // Platform-split hooks
   "useLocalSetting",
   "useDrawerSubView",

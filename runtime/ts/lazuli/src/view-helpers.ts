@@ -11,7 +11,7 @@
 // See `docs/proposals/lzx-terminal-grammar.md` §3 + §5.1 for the
 // design context; cell C.4b of §6 originally shipped this file.
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { parse as parseSearchQuery, type SearchParserOptions, type SearchParserResult } from "search-query-parser";
 
 // --- §3.3 filters ----------------------------------------------------------
@@ -334,4 +334,267 @@ export function parseSegments(
     }
   }
   return out;
+}
+
+// --- Wave-W6 view-level UX primitives -------------------------------------
+//
+// Each hook owns the small slice of view state implied by its `.lzx`
+// surface primitive. They are wired by the `lzx_ux` emitter
+// (`crates/lazuli_codegen_ts/src/lzx_ux.rs`); the emitted call sites are
+// the contract these signatures satisfy. Per the wire-not-reimplement
+// principle the hooks are intentionally minimal — they hold state and
+// derive view config, leaving rendering to the consumer.
+
+/** §W6 view_mode — a toggle across a fixed tuple of render modes. */
+export interface ViewModeState<TMode extends string> {
+  /** The currently active render mode (starts on the first declared mode). */
+  mode: TMode;
+  /** The full ordered set of available modes. */
+  modes: readonly TMode[];
+  /** Switch to an explicit mode. */
+  set(mode: TMode): void;
+}
+
+/**
+ * Pick the active render mode from a fixed `as const` tuple. Defaults to
+ * the first declared mode (matching `default_render_mode` in the emitter).
+ */
+export function useViewMode<TMode extends string>(modes: readonly TMode[]): ViewModeState<TMode> {
+  const [mode, setMode] = useState<TMode>(() => modes[0] as TMode);
+  const set = useCallback(
+    (next: TMode) => {
+      if (modes.includes(next)) setMode(next);
+    },
+    [modes],
+  );
+  return { mode, modes, set };
+}
+
+/** §W6 tab_group — derives the active tab from a record field value. */
+export interface TabGroupCase {
+  variants: readonly string[];
+  label: string;
+}
+
+export interface TabGroupState {
+  /** The case whose `variants` contains the derived value, or null. */
+  active: TabGroupCase | null;
+  /** The label of the active case, or null when no case matches. */
+  activeLabel: string | null;
+  /** All declared cases, in source order. */
+  cases: readonly TabGroupCase[];
+}
+
+/**
+ * Map a record field value (e.g. `query.data?.vehicle_type`) onto the
+ * declared tab case whose `variants` list contains it. The active tab is
+ * derived, not stateful — it follows the underlying data.
+ */
+export function useTabGroup(
+  value: string | null | undefined,
+  cases: readonly TabGroupCase[],
+): TabGroupState {
+  const active = useMemo(() => {
+    if (value == null) return null;
+    return cases.find((c) => c.variants.includes(value)) ?? null;
+  }, [value, cases]);
+  return { active, activeLabel: active?.label ?? null, cases };
+}
+
+/** §W6 wizard_steps — a bounded step index derived from a record field. */
+export interface WizardStepsState {
+  /** Total number of steps. */
+  total: number;
+  /** Current 1-based step, clamped to `[1, total]`. */
+  current: number;
+  /** Zero-based index of the current step. */
+  index: number;
+  /** True when on the first step. */
+  isFirst: boolean;
+  /** True when on the last step. */
+  isLast: boolean;
+}
+
+/**
+ * Derive bounded wizard step state from a record field (e.g.
+ * `query.data?.registration_step`). The current step follows the data
+ * and is clamped into range; advancing/persisting the step is the
+ * consumer's command, not local UI state.
+ */
+export function useWizardSteps(
+  total: number,
+  currentField: number | null | undefined,
+): WizardStepsState {
+  return useMemo(() => {
+    const raw = typeof currentField === "number" ? currentField : 1;
+    const current = Math.min(Math.max(Math.trunc(raw), 1), Math.max(total, 1));
+    return {
+      total,
+      current,
+      index: current - 1,
+      isFirst: current <= 1,
+      isLast: current >= total,
+    };
+  }, [total, currentField]);
+}
+
+/** §W6 view.inline_table — per-row edit state bound to a write command. */
+export interface InlineTableState<TInput> {
+  /** The id of the row currently being edited, or null. */
+  editingId: string | null;
+  /** Begin editing a row. */
+  beginEdit(id: string): void;
+  /** Discard the current edit without committing. */
+  cancelEdit(): void;
+  /** Commit a row edit via the bound command, then clear the edit state. */
+  commit(input: TInput): Promise<unknown>;
+}
+
+/** The shape `useInlineTable` needs from the bound command hook spec. */
+export interface InlineTableCommand<TInput> {
+  /** Fire the write; mirrors a `CommandSpec`'s callable surface enough
+   *  for the inline-table edit cycle. The emitter passes the command
+   *  spec imported from the feature SDK. */
+  mutateAsync?(input: TInput): Promise<unknown>;
+  name?: string;
+}
+
+/**
+ * Track which inline-table row is being edited and forward commits to the
+ * bound write command. The emitter passes the command (spec or hook
+ * result) declared in `view.inline_table.on_change`.
+ */
+export function useInlineTable<TInput>(
+  command: InlineTableCommand<TInput>,
+): InlineTableState<TInput> {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const beginEdit = useCallback((id: string) => setEditingId(id), []);
+  const cancelEdit = useCallback(() => setEditingId(null), []);
+  const commit = useCallback(
+    async (input: TInput) => {
+      const result = command.mutateAsync ? await command.mutateAsync(input) : undefined;
+      setEditingId(null);
+      return result;
+    },
+    [command],
+  );
+  return { editingId, beginEdit, cancelEdit, commit };
+}
+
+/** §W6 board — a kanban view grouping records into lanes by a field. */
+export interface BoardLane<TItem> {
+  /** The lane key (the distinct value of the lane source field). */
+  key: string;
+  /** Records whose lane source field equals `key`, in source order. */
+  items: TItem[];
+}
+
+export interface BoardState<TItem> {
+  /** Lanes in first-seen order of the source field's distinct values. */
+  lanes: BoardLane<TItem>[];
+  /** The field/relation the lanes are keyed on. */
+  lanesFrom: string;
+}
+
+export interface BoardConfig {
+  /** The record field whose distinct values become lanes. */
+  lanesFrom: string;
+}
+
+/**
+ * Group a record list into kanban lanes keyed on `config.lanesFrom`.
+ * Lanes appear in first-seen order. Records missing the lane field land
+ * in an empty-string lane.
+ */
+export function useBoard<TItem extends Record<string, unknown>>(
+  data: ReadonlyArray<TItem> | null | undefined,
+  config: BoardConfig,
+): BoardState<TItem> {
+  const lanes = useMemo(() => {
+    const order: string[] = [];
+    const byKey = new Map<string, TItem[]>();
+    for (const item of data ?? []) {
+      const raw = item[config.lanesFrom];
+      const key = raw == null ? "" : String(raw);
+      let bucket = byKey.get(key);
+      if (!bucket) {
+        bucket = [];
+        byKey.set(key, bucket);
+        order.push(key);
+      }
+      bucket.push(item);
+    }
+    return order.map((key) => ({ key, items: byKey.get(key) ?? [] }));
+  }, [data, config.lanesFrom]);
+  return { lanes, lanesFrom: config.lanesFrom };
+}
+
+/** §W6 repeatable_group — a dynamic field-array with a cross-row sum rule. */
+export interface RepeatableFieldDef {
+  name: string;
+  type: string;
+}
+
+export interface RepeatableGroupConfig {
+  fields: readonly RepeatableFieldDef[];
+  validates: { sum: string; equals: number };
+}
+
+export interface RepeatableGroupState {
+  /** The current rows; each row is a record keyed by field name. */
+  rows: Record<string, unknown>[];
+  /** Append a blank row (every declared field initialised to null). */
+  add(): void;
+  /** Remove the row at `index`. */
+  remove(index: number): void;
+  /** Patch one field of one row. */
+  update(index: number, field: string, value: unknown): void;
+  /** The declared fields, in source order. */
+  fields: readonly RepeatableFieldDef[];
+  /** Running sum of the validated field across all rows. */
+  sum: number;
+  /** True when `sum` equals the declared target. */
+  isValid: boolean;
+}
+
+/**
+ * Manage a repeatable field-array plus the cross-row sum constraint
+ * declared on the group (`validates: { sum, equals }`). The form library
+ * ultimately enforces the constraint; this hook holds the rows and
+ * surfaces the running sum / validity so the view can render it.
+ */
+export function useRepeatableGroup(config: RepeatableGroupConfig): RepeatableGroupState {
+  const [rows, setRows] = useState<Record<string, unknown>[]>([]);
+  const blank = useCallback((): Record<string, unknown> => {
+    const row: Record<string, unknown> = {};
+    for (const f of config.fields) row[f.name] = null;
+    return row;
+  }, [config.fields]);
+  const add = useCallback(() => setRows((prev) => [...prev, blank()]), [blank]);
+  const remove = useCallback(
+    (index: number) => setRows((prev) => prev.filter((_, i) => i !== index)),
+    [],
+  );
+  const update = useCallback(
+    (index: number, field: string, value: unknown) =>
+      setRows((prev) => prev.map((r, i) => (i === index ? { ...r, [field]: value } : r))),
+    [],
+  );
+  const sum = useMemo(
+    () =>
+      rows.reduce((acc, r) => {
+        const v = r[config.validates.sum];
+        return acc + (typeof v === "number" ? v : Number(v) || 0);
+      }, 0),
+    [rows, config.validates.sum],
+  );
+  return {
+    rows,
+    add,
+    remove,
+    update,
+    fields: config.fields,
+    sum,
+    isValid: sum === config.validates.equals,
+  };
 }

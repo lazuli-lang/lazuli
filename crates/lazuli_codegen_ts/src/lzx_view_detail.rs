@@ -62,6 +62,11 @@ fn write_imports(s: &mut String, surface: &Surface, view: &ViewDetail, target: R
     if !view.actions.is_empty() {
         writeln!(s, "  useLazuliCommand,").ok();
     }
+    // Wave-W6 view-level UX primitive hooks — each emitted call site in
+    // `lzx_ux::emit_ux_const` must be imported or the file won't typecheck.
+    for hook in crate::lzx::lzx_ux::ux_runtime_hook_imports(&view.ux) {
+        writeln!(s, "  {},", hook).ok();
+    }
     writeln!(s, "}} from \"@lazuli/runtime/react\";").ok();
 
     // 2. Router-specific useParams import.
