@@ -1,0 +1,19 @@
+# Doctor fixture - CODEGEN-GO-IDENT-COLLISION-008.
+# `enum status` lowers to the exported Go type `Status`; `query.lookup status`
+# lowers to the exported wrapper func `Status`. Both land in the same
+# `catalog` -> `cataloggen` Go package, so `go build` would reject the second
+# declaration with "Status redeclared in this block". Doctor catches it first.
+
+feature catalog
+  domain
+    enum status
+      active
+      archived
+
+  resource Item
+    org: Org required
+    name: Text required
+    status: status
+
+  query.lookup status by id: ID
+    policy @policy.authenticated

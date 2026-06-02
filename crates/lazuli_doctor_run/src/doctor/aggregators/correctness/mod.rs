@@ -161,6 +161,32 @@ pub(crate) fn diagnostics(
             });
         }
 
+        // CODEGEN-GO-IDENT-COLLISION-008 — error. Two DSL constructs
+        // (enum / lifecycle-generated-enum / query / command / transition)
+        // that lower to the SAME exported Go identifier in the per-feature
+        // `<feature>gen` package would produce a `go build` double
+        // declaration. This pre-emit pass computes each construct's emitted
+        // identifier (via the same acronym-aware caser the Go emitter uses)
+        // and fires before codegen writes the broken Go. Anchored at the
+        // feature header — the collision is feature-scoped and the fact
+        // bundle carries no per-construct line table that spans all five
+        // construct families.
+        for finding in correctness::go_ident_collision_008::check(&feature, &fact.path) {
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line: fact.feature_line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: correctness::go_ident_collision_008::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            });
+        }
+
         // EVENT-GROUP-VARIANT-TYPE-001 — error.
         for finding in correctness::event_group_variant_type_001::check(&feature, &fact.path) {
             let line = fact

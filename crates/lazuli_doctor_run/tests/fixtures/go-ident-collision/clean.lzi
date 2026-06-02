@@ -1,0 +1,22 @@
+# Doctor fixture - CODEGEN-GO-IDENT-COLLISION-008 clean path.
+# Every construct lowers to a distinct exported Go identifier
+# (Status enum, FindItem query, RenameItem command), so the rule must NOT
+# fire (no false positive).
+
+feature catalog
+  domain
+    enum status
+      active
+      archived
+
+  resource Item
+    org: Org required
+    name: Text required
+    status: status
+
+  query.lookup find_item by id: ID
+    policy @policy.authenticated
+
+  command rename_item
+    updates Item
+    policy @policy.authenticated
