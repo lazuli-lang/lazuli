@@ -133,7 +133,18 @@ fn lsp_severity(severity: DoctorSeverity) -> DiagnosticSeverity {
 /// line/col, falling back to the `feature_name` header range (then line 0)
 /// when the engine reports the synthetic `line: 1, column: 1` it uses for
 /// project-level findings.
-fn to_lsp_diagnostic(doc_source: &str, finding: &DoctorDiagnostic) -> Diagnostic {
+///
+/// `doc_path` is the absolute path of the open document, threaded so the
+/// doctor-fix bridge can stamp a [`crate::code_actions::doctor_fix`]
+/// envelope into `diagnostic.data` for any finding whose code has a
+/// registered `lazuli_fix` action — turning that finding into a one-click
+/// `lazuli.applyFix` code-action. `None` (e.g. the synthetic load-failure
+/// diagnostic, whose code has no fix anyway) skips the stamp.
+fn to_lsp_diagnostic(
+    doc_source: &str,
+    doc_path: Option<&Path>,
+    finding: &DoctorDiagnostic,
+) -> Diagnostic {
     let range = if finding.line > 1 || finding.column > 1 {
         let line = finding.line.saturating_sub(1) as u32;
         let character = finding.column.saturating_sub(1) as u32;
@@ -161,7 +172,7 @@ fn to_lsp_diagnostic(doc_source: &str, finding: &DoctorDiagnostic) -> Diagnostic
             })
     };
 
-    Diagnostic {
+    let mut diagnostic = Diagnostic {
         range,
         severity: Some(lsp_severity(finding.severity)),
         code: Some(NumberOrString::String(finding.code.clone())),
@@ -171,7 +182,24 @@ fn to_lsp_diagnostic(doc_source: &str, finding: &DoctorDiagnostic) -> Diagnostic
         related_information: None,
         tags: None,
         data: None,
+    };
+
+    // Doctor-fix bridge (audit gap #7): if this finding's rule code has a
+    // registered `lazuli_fix` action, stamp the fix envelope into `data` so
+    // the follow-up `codeAction` request can offer a one-click
+    // `lazuli.applyFix`. The action edit-range honours the engine's
+    // line/column (1-based), which is what the fix kernel expects.
+    if let Some(path) = doc_path {
+        crate::code_actions::doctor_fix::attach_fix_data(
+            &mut diagnostic,
+            &finding.code,
+            path,
+            finding.line,
+            finding.column,
+        );
     }
+
+    diagnostic
 }
 
 /// Build the single synthetic diagnostic published when the package engine
@@ -199,7 +227,9 @@ fn load_failure_diagnostic(doc_source: &str, err: impl std::fmt::Display) -> Dia
         fix: None,
         group: None,
     };
-    to_lsp_diagnostic(doc_source, &finding)
+    // No `doc_path`: the load-failure code has no registered fix, and we
+    // want this synthetic diagnostic to stay a plain top-of-file marker.
+    to_lsp_diagnostic(doc_source, None, &finding)
 }
 
 /// Run the package doctor engine against `workspace_root` and return the
@@ -263,7 +293,7 @@ pub(crate) fn doctor_owned_for_document(
         .into_iter()
         .filter(|finding| is_doctor_owned(&finding.code))
         .filter(|finding| finding_belongs_to(&finding.path, workspace_root, &doc_path))
-        .map(|finding| to_lsp_diagnostic(doc_source, &finding))
+        .map(|finding| to_lsp_diagnostic(doc_source, Some(&doc_path), &finding))
         .collect()
 }
 
