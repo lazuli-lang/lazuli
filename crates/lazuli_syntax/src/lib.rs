@@ -8,6 +8,7 @@ mod ast;
 mod parser;
 
 pub use ast::*;
+pub use parser::doctor_allow;
 pub use parser::{
     ClassifiedToken, LifecycleBlockAst, LifecycleInvariantAst, LifecycleInvariantForm,
     LifecycleStateAst, LifecycleTransitionAst, ParseError, PollerBlockAst, PollerCursorAst,

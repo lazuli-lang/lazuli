@@ -26,6 +26,7 @@ fn lower_module_for_test(source: &str) -> lazuli_ir::Module {
         profiles: Vec::new(),
         design: None,
         rbac: None,
+        doctor_allows: Vec::new(),
         features,
     }
 }

@@ -214,6 +214,20 @@ fn classify_at_token(
     let token_end = scan_word_end(bytes, at);
     let token = &text[at..token_end];
 
+    // Spec 0028 — `@doctor.allow(...)` is a DOTTED decorator head (the registry
+    // literal is `@doctor.allow`, not `@doctor`). The generic single-dot split
+    // below would yield `@doctor`, which is not a registry row, so recognize the
+    // dotted head explicitly and classify it as the annotation/decorator token.
+    if token.starts_with("@doctor.allow") {
+        out.push(ClassifiedToken {
+            line: line_idx,
+            start_col: at,
+            len: "@doctor.allow".len(),
+            token: SemanticToken::Decorator,
+        });
+        return token_end;
+    }
+
     // Split `@head` from an optional `.suffix` (`@semantic.HexColor`).
     let head_end = token.find('.').map(|d| at + d).unwrap_or(token_end);
     let head = &text[at..head_end]; // includes the leading `@`

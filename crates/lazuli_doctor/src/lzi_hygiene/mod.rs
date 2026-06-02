@@ -71,6 +71,7 @@ pub mod feature_cohesion_001;
 pub mod feature_cohesion_002;
 pub mod feature_naming_matches_file_001;
 pub mod file_size_001;
+pub mod legacy_comment_allow_001;
 pub mod lzi_comment_noise;
 pub mod preset;
 pub mod walker;

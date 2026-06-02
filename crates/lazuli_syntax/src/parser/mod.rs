@@ -64,6 +64,10 @@ mod lzx;
 
 pub use error::ParseError;
 pub use highlight::{ClassifiedToken, classify_tokens};
+/// Spec 0028 — `@doctor.allow(CODE, reason: "...")` waiver recognizers, shared
+/// by the parser-capture path, the `lazuli_doctor` string scanner, and the
+/// migration codemod.
+pub use lzi::doctor_allow;
 pub use lzi::{
     LifecycleBlockAst, LifecycleInvariantAst, LifecycleInvariantForm, LifecycleStateAst,
     LifecycleTransitionAst, PollerBlockAst, PollerCursorAst, PollerRetryAst, PollerRetryQuirkAst,

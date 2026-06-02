@@ -60,6 +60,7 @@ pub use nodes::design::{
     ColorState, ColorStateKind, ColorToken, CustomToken, Design, EasingToken, FamilyToken, Motion,
     ScaleToken, ShadowToken, TextScaleToken, TrackingToken, Typography, WeightToken, ZToken,
 };
+pub use nodes::doctor_allow::{DoctorAllow, DoctorAllowScope};
 pub use nodes::error_vocab::{
     ErrorExposeRule, ErrorExposureDefault, FeatureErrorMessage, FeatureErrors, FeatureFieldError,
     TranslationKeyRef,
@@ -238,6 +239,12 @@ pub struct Module {
     /// `docs/proposals/rbac-catalog-vocab.md`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rbac: Option<RbacCatalog>,
+    /// Spec 0028 — first-class `@doctor.allow(CODE, reason: "...")` waivers
+    /// captured by the parser (node form + lifted legacy `# doctor:allow`
+    /// comments). The FROZEN seam spec 0029 builds on. Default empty; older
+    /// fixtures deserialize unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub doctor_allows: Vec<DoctorAllow>,
     pub features: Vec<Feature>,
 }
 

@@ -216,6 +216,7 @@ mod tests {
             profiles: vec![],
             design: None,
             rbac: catalog,
+            doctor_allows: Vec::new(),
             features: vec![],
         }
     }

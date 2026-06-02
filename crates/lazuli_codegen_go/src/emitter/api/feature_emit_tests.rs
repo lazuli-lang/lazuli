@@ -93,6 +93,7 @@ fn feature_emit_api_file_outputs_package_and_endpoint_contract() {
         profiles: Vec::new(),
         design: None,
         rbac: None,
+        doctor_allows: Vec::new(),
         features: vec![feature],
     };
     let cross_index = CrossFeatureIndex::build(&module);

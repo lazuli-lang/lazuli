@@ -242,7 +242,16 @@ fn registry_hover_one_liners_are_reachable_via_keyword_description() {
 /// * `@full_text` — full-text-index marker.
 /// * `@owner_axis` — ownership-axis marker.
 /// * `@resume` — lifecycle resume marker (`on_lifecycle_pending @resume f`).
-const ATTRIBUTE_DECORATORS: &[&str] = &["@slug", "@full_text", "@owner_axis", "@resume"];
+const ATTRIBUTE_DECORATORS: &[&str] = &[
+    "@slug",
+    "@full_text",
+    "@owner_axis",
+    "@resume",
+    // SPEC-0028 — `@doctor.allow(CODE, ...)` is a waiver ANNOTATION (the
+    // `.allow` is part of the literal, not a `@<ns>.<target>` reference), so it
+    // has no reference-namespace form for the LSP catalog to validate.
+    "@doctor.allow",
+];
 
 /// **Registry → namespace parity (the F3 class).** Every `@`-sigil
 /// reference-namespace decorator the registry carries MUST be accepted by

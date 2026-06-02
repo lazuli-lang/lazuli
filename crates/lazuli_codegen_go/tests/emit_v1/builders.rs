@@ -124,6 +124,7 @@ pub fn minimal_module(app_name: &str, feature_name: &str) -> Module {
         profiles: Vec::new(),
         design: None,
         rbac: None,
+        doctor_allows: Vec::new(),
         features: vec![empty_feature(feature_name)],
     }
 }

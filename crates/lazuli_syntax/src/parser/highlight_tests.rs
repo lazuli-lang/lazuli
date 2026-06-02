@@ -198,3 +198,19 @@ feature billing
             }
         }
     }
+
+    #[test]
+    fn doctor_allow_node_highlights_as_decorator() {
+        // Spec 0028 — `@doctor.allow(...)` tokenizes as the annotation/decorator
+        // scope. The dotted head (`@doctor.allow`, not `@doctor`) is recognized.
+        let src = "@doctor.allow(LZI-FILE-SIZE-001, reason: \"gen\")\nfeature x\n";
+        let toks = classify_tokens(src);
+        let at = src.lines().next().unwrap().find("@doctor.allow").unwrap();
+        assert_eq!(token_at(&toks, 0, at), Some(SemanticToken::Decorator));
+        // The decorator token covers exactly `@doctor.allow`.
+        let tok = toks
+            .iter()
+            .find(|t| t.line == 0 && t.start_col == at)
+            .unwrap();
+        assert_eq!(tok.len, "@doctor.allow".len());
+    }

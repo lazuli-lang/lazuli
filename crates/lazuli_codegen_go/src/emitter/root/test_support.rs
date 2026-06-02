@@ -117,6 +117,7 @@ pub(super) fn module_with(features: Vec<Feature>, app: Option<AppManifest>) -> M
         profiles: Vec::new(),
         design: None,
         rbac: None,
+        doctor_allows: Vec::new(),
         features,
     }
 }

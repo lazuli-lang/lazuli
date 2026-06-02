@@ -48,6 +48,7 @@ pub mod cache;
 mod command;
 mod defaults;
 pub mod design;
+pub mod doctor_allow;
 mod enums;
 pub mod event;
 mod feature_errors;

@@ -185,6 +185,7 @@ fn cross_feature_user_defined_field_emits_qualified_ref_and_import() {
         profiles: Vec::new(),
         design: None,
         rbac: None,
+        doctor_allows: Vec::new(),
         features: vec![customer.clone(), org],
     };
     let index = CrossFeatureIndex::build(&module);
