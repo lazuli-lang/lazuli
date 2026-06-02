@@ -62,6 +62,19 @@ pub const PATTERN_TRANSLATION_CATALOG: (&str, &str) = ("translation_catalog", "v
 pub const PATTERN_APP_INTEGRATION_REGISTER: (&str, &str) = ("app_integration_register", "v1");
 /// `route_guard v1` — emitted on per-route guard wiring.
 pub const PATTERN_ROUTE_GUARD: (&str, &str) = ("route_guard", "v1");
+/// `enum_valid v1` — emitted on a string-enum `Valid()` membership guard.
+pub const PATTERN_ENUM_VALID: (&str, &str) = ("enum_valid", "v1");
+/// `enum_unmarshal v1` — emitted on a string-enum `UnmarshalJSON` decoder.
+pub const PATTERN_ENUM_UNMARSHAL: (&str, &str) = ("enum_unmarshal", "v1");
+/// `record_validate v1` — emitted on a record/resource `Validate()` that
+/// runs nested field validation via `lazuli.ValidateValue`.
+pub const PATTERN_RECORD_VALIDATE: (&str, &str) = ("record_validate", "v1");
+/// `referential_guard v1` — emitted on a `guard…Refs` referential-integrity
+/// check (restrict/cascade `on_delete` enforcement).
+pub const PATTERN_REFERENTIAL_GUARD: (&str, &str) = ("referential_guard", "v1");
+/// `unique_violation_register v1` — emitted on the per-feature `init()` that
+/// registers `unique … error <CODE>` domain-error mappings.
+pub const PATTERN_UNIQUE_VIOLATION_REGISTER: (&str, &str) = ("unique_violation_register", "v1");
 
 /// Write a `//lazuli:pattern <id> <version>` header line.
 ///

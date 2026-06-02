@@ -408,6 +408,19 @@ fn read_sql_body(feature_dir: &Path, sql_path: &str) -> Option<String> {
 }
 
 pub(crate) fn project_root_for_input(input: &Path) -> PathBuf {
+    // C1 (SEAM 3): walk UP from `input` to the nearest ancestor holding
+    // `Lazurite.toml` — the same cargo/git/npm root rule the plugin
+    // resolver already uses (`lazurite_manifest::find_project_root`).
+    // Without this, `lazuli generate go app` (features under `app/`,
+    // manifest at the repo root) loads NO manifest and falls back to the
+    // synthetic `lazuli/<app>` module name, producing a non-integrating
+    // tree. Walking up makes the manifest win regardless of input depth.
+    if let Some(root) = lazurite_manifest::find_project_root(input) {
+        return root;
+    }
+
+    // No manifest anywhere up the tree: preserve the historical
+    // default-shaped behaviour (input dir itself, or the file's parent).
     if input.is_dir() {
         return input.to_path_buf();
     }
@@ -548,6 +561,60 @@ mod tests {
         assert!(
             result.is_err(),
             "the source-map loader must abort on a parse failure too"
+        );
+    }
+
+    const MIN_MANIFEST: &str =
+        "[project]\nname = \"acme\"\nschema = 1\nversion = \"0.1.0\"\n\n[lazuli]\nruntime = \"0.1.0\"\n";
+
+    /// C1: `lazuli generate go app` (features under `app/`, manifest at the
+    /// repo root) must discover the repo-root manifest by walking UP from the
+    /// input dir — like cargo/git/npm find their root. Before the fix
+    /// `project_root_for_input` returned the input dir itself, so the manifest
+    /// was never loaded and the module name fell back to synthetic
+    /// `lazuli/<app>`, producing a non-integrating tree.
+    #[test]
+    fn project_root_for_input_walks_up_to_manifest() {
+        let root = tempfile::tempdir().expect("create temp project root");
+        std::fs::write(root.path().join("Lazurite.toml"), MIN_MANIFEST)
+            .expect("write Lazurite.toml at root");
+        let app_dir = root.path().join("app");
+        std::fs::create_dir_all(app_dir.join("features")).expect("create app/features");
+
+        // From the `app/` subdir: must walk up to the root holding the manifest.
+        assert_eq!(
+            project_root_for_input(&app_dir),
+            root.path(),
+            "should walk up from app/ to the manifest-bearing root"
+        );
+        // From a deeper subdir too.
+        assert_eq!(
+            project_root_for_input(&app_dir.join("features")),
+            root.path(),
+            "should walk up from app/features/ to the manifest-bearing root"
+        );
+        // From the root itself: returns the root.
+        assert_eq!(
+            project_root_for_input(root.path()),
+            root.path(),
+            "root input should resolve to itself"
+        );
+    }
+
+    /// C1 back-compat: with NO manifest anywhere up the tree, the historical
+    /// default-shaped behaviour is preserved — a directory input resolves to
+    /// itself (pilots without a `Lazurite.toml` still work).
+    #[test]
+    fn project_root_for_input_no_manifest_returns_input_dir() {
+        let dir = tempfile::tempdir().expect("create temp dir without manifest");
+        let sub = dir.path().join("nested");
+        std::fs::create_dir_all(&sub).expect("create nested dir");
+        // No Lazurite.toml exists; tempdirs live under the OS temp root which
+        // has none up the chain. Resolve to the input dir itself.
+        assert_eq!(
+            project_root_for_input(&sub),
+            sub,
+            "no manifest up-tree should fall back to the input dir"
         );
     }
 }

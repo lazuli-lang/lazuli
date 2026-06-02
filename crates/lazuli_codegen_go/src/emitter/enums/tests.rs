@@ -329,3 +329,25 @@ fn deterministic_across_runs() {
     let zebra_pos = a.find("Enum: Zebra").expect("zebra banner");
     assert!(alpha_pos < zebra_pos);
 }
+
+/// C3 (overnight-2026-06-02/03-codegen.md): every emitted Go function must
+/// carry a `//lazuli:pattern` header so the framework's own provenance
+/// invariant holds on regenerated pilots. The string-enum shape emits both
+/// `Valid()` and `UnmarshalJSON` — before the fix both fired
+/// CODEGEN-PATTERN-001. The emitter-side lint (`check_pattern_annotations`)
+/// must now pass over the whole emitted file.
+#[test]
+fn string_enum_emitted_funcs_all_carry_pattern_header() {
+    let mut feature = base_feature("customer");
+    feature.enums.push(make_enum(
+        "CustomerTier",
+        vec![variant("free", None), variant("pro", None)],
+    ));
+    let out = emit_enum_file("examples/x.lzi", &feature).expect("must emit");
+    // Both helper funcs are present...
+    assert!(out.contains("func (v CustomerTier) Valid() bool"));
+    assert!(out.contains("func (v *CustomerTier) UnmarshalJSON(data []byte) error"));
+    // ...and both carry the provenance stamp (no CODEGEN-PATTERN-001).
+    crate::emitter::lint::check_pattern_annotations(&out, "customer/enum.gen.go")
+        .expect("every emitted enum func must carry a //lazuli:pattern header");
+}

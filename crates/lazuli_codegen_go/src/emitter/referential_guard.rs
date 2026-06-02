@@ -29,6 +29,7 @@
 
 use lazuli_ir::{Feature, Resource, RestrictOnDelete};
 
+use super::patterns::{PATTERN_REFERENTIAL_GUARD, emit_pattern_header};
 use super::printer::GoPrinter;
 
 /// Emit `<feature>/guards.gen.go` for a feature, or `None` when no resource
@@ -84,6 +85,7 @@ fn emit_one_guard(p: &mut GoPrinter, protected: &str, guard: &RestrictOnDelete) 
         "// rejects deletion of {protected} while a live {relation} references it.",
         relation = guard.relation
     ));
+    emit_pattern_header(p, PATTERN_REFERENTIAL_GUARD);
     // `db lazuli.DBTX` — the minimal `QueryRow(ctx, sql, args...) pgx.Row`
     // interface defined in the runtime; `*pgxpool.Pool` (what `lazuli.DB()`
     // returns, the delete-command wiring's handle) satisfies it. `tenantID`
