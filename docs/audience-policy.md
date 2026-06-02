@@ -49,15 +49,32 @@ not product-specific branching.
 Audience policy lists are OR-only. The audience layer decides which actor
 classes may enter a surface; it is not a policy-composition language.
 
-Multi-policy AND belongs in the feature-level `policies` dictionary:
+The comma-separated atom list inside a feature-level `policies` category is
+**also OR**, not AND. A category like:
 
 ```lazuli
 policies
-  verified_host: @role.host, @scope.profile_verified
+  any_staff: @role.host, @scope.profile_verified
 ```
 
-This keeps the composite rule named, reusable, and inspectable. The audience
-still points at one policy category: `policy @policy.verified_host`.
+admits a caller who satisfies **either** atom — `@role.host` OR
+`@scope.profile_verified`. The Go emitter joins a 2+-atom category with
+`predicate.or` markers (`crates/lazuli_codegen_go/src/emitter/command/policy.rs`,
+`format_local_policy`), so a comma list never means AND. Do not use a comma list
+when you mean "both must hold".
+
+Multi-policy **AND** is expressed with an explicit boolean `policy <expr>`:
+
+```lazuli
+command publish
+  policy @role.host and @scope.profile_verified
+```
+
+The `policy <expr>` form supports `and` / `or` / `not` / parentheses
+(`crates/lazuli_syntax/src/parser/lzx/policy_expr/parser.rs`), so it is the only
+place to compose a true AND. Name the composite rule when it is reused; the
+audience then points at the named category with `policy @policy.<name>` (a
+single OR-resolving reference into the surface owner's feature).
 
 ## Diagnostic
 

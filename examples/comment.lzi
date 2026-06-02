@@ -83,6 +83,24 @@ feature comment
     audit default
     emits comment_created from creates
 
+  # `where` example — an ownership-scoped update that is NOT keyed by
+  # `route.id` alone. The author may edit only their own comment, so the
+  # write is scoped by both the route id AND the actor id. Each `where`
+  # line becomes a WHERE binding (not a SET); the SET block carries only
+  # `body` and `updated_at`. See docs/canonical-semantics.md §"Scoping the
+  # write with `where`".
+  command edit
+    route id: ID
+    input
+      body: Text
+    policy @policy.edit
+    rate_limit "60 per minute per user"
+    updates Comment
+      where id = route.id
+      where author = ctx.actor.id
+      body = input.body
+      updated_at = ctx.now
+
   surface web admin
     view issue_thread SidePanel
       source query.for_issue(issue_id: route.issue_id)

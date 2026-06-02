@@ -11,7 +11,7 @@ Normative wording in this file follows ordinary spec meaning: `must`/`MUST` is r
 Canonical feature block order:
 
 ```txt
-meta -> defaults -> uses -> refs -> domain -> policies -> errors -> auth -> command -> api -> workflow -> job -> webhook -> surface -> extensions -> escape_route
+meta -> defaults -> uses -> refs -> domain -> policies -> errors -> auth -> command -> api -> job -> webhook -> surface -> extensions -> escape_route
 ```
 
 Closed reference namespaces:
@@ -65,7 +65,7 @@ Execution locator namespaces:
 | webhook | `payload.*`, `ctx.*` |
 | schedule job | `schedule.*`, `ctx.*` |
 | rule | `self`, `ctx.*` |
-| tests | `target` in command tests; `self` in rule and workflow tests; `ctx.*` |
+| tests | `target` in command tests; `self` in rule and lifecycle transition tests; `ctx.*` |
 
 Event-triggered jobs keep event bus metadata in `envelope.*` and authored event fields in `payload.*`. For example, use `idempotency by envelope.id` and `target query.by_id(id: payload.customer_id)`.
 
@@ -76,7 +76,7 @@ Inline assertions, last child of the construct. Optional by default; `--strict-t
 | Construct | Verbs |
 |-----------|-------|
 | command | authored `allows`/`denies when <predicate>`; generated `permits`/`forbids <actor>` from effective policy |
-| workflow transition | `allows`/`denies from <state>`; `allows`/`denies as <actor>`; combined form |
+| lifecycle transition | `allows`/`denies from <state>`; `allows`/`denies as <actor>`; combined form |
 | rule | `allows`/`denies when <predicate>` |
 | extensible view | `allows`/`denies extension <feature>` |
 
@@ -118,14 +118,13 @@ feature customer
   policies
   auth
   command create
-  workflow lifecycle on Customer.status
   job recompute_scores
   webhook crm_customer_upsert
   extensions
   escape_route "/admin/customer-debug"
 ```
 
-The canonical form avoids compact aliases. Use `domain`, `resource`, `record`, `query.<mode>`, `policies`, `command`, `workflow`, and `extensions` explicitly. `domain` may contain any subset of enums, resources, records, constraints, queries, rules, and events. Resource-less features commonly declare only events under `domain`.
+The canonical form avoids compact aliases. Use `domain`, `resource`, `record`, `query.<mode>`, `policies`, `command`, and `extensions` explicitly. `domain` may contain any subset of enums, resources, records, constraints, queries, rules, and events. Resource-less features commonly declare only events under `domain`.
 
 Feature blocks have a canonical lint/format order:
 
@@ -138,7 +137,6 @@ domain (enums, resources, records, constraints, queries, rules, events)
 policies
 auth
 commands
-workflows
 jobs
 webhooks
 surfaces
@@ -233,7 +231,6 @@ The group names are documentation keys, not grammar. `refs` is per-feature and o
 resources: Customer
 queries: list, by_id, by_email
 commands: create, reassign, update_tier
-workflows: lifecycle(activate, pause, resume, archive)
 jobs: recompute_score_after_invoice, recompute_scores
 events: customer_created, customer_status_changed, customer_archived
 surfaces: web/admin, web/public, mobile/sales
@@ -839,6 +836,40 @@ command remove_tag
 
 `deletes X` means the command removes the targeted resource. Soft-deleted resources should use the resource's soft-delete mechanism unless the adapter or command explicitly opts into hard delete later.
 
+### Scoping the write with `where`
+
+By default an `updates`/`deletes` effect scopes its WHERE to the bound
+`target` (the `query.by_id(id: route.id)` lookup, or the `route.id` inference).
+When the row to write is **not** identified by `route.id` — an ownership-scoped
+write, a composite key, or a non-`route` discriminator — declare the scope
+explicitly with `where <column> = <expr>` inside the effect body. A `where` line
+becomes the WHERE binding, **not** a SET:
+
+```lazuli
+command archive_my_draft
+  policy @policy.update
+  updates Post
+    archived_at = ctx.now
+    where author_id = ctx.actor.id
+    where id = route.id
+```
+
+Each `where <col> = <expr>` lowers like a SET assignment, except it constrains
+the WHERE instead of writing the column. The RHS resolves through the same closed
+binding sources as a SET:
+
+- `ctx.actor.id` / other `ctx.*` paths → `FromCtx`
+- `route.id` / `input.<field>` → `FromInput`
+- a literal → `FromConst`
+- `let` bindings and `@fn(...)` results are also admissible
+
+Only the `=` form is recognised (`where deleted_at == nil` is not lowered today).
+A RHS path that resolves to **none** of `{input, ctx, target, route, @fn(),
+literal, let}` is a hard error (`CODEGEN-UNRESOLVED-BINDING-SOURCE-001`) rather
+than a silent `FromConst("<raw>")` garbage string — this applies to both SET and
+`where` bindings. `@scope.*` policy bindings still AND into the generated WHERE
+on top of any authored `where`.
+
 `updates X` means the command changes the targeted resource. In canonical authoring, use one explicit effect for every mutating command: `creates`, `updates`, or `deletes`. The analyzer should reject mutating commands with multiple effects or none. Non-mutating request/response commands may use `returns` without an effect when documented by their adapter, such as `command login`.
 
 Commands must declare `policy` explicitly. The common mapping (`creates` -> `policy @policy.create`, `updates` -> `policy @policy.update`, `deletes` -> `policy @policy.delete`) is a generator suggestion, not an invisible semantic default. Declare a different policy when the business intent differs from the write shape, such as `assign_tag` using `policy @policy.update` even though it creates a join resource.
@@ -1101,76 +1132,108 @@ Queries model analyzable reads. Webhooks model verified inbound provider calls.
 Custom APIs model explicit HTTP shape and still keep auth, route params, output
 shape, rate limits, and handler ownership visible to check/doctor/codegen.
 
-## Workflows
+## Lifecycle and transitions
 
-A workflow owns transitions for one resource field:
+> The feature-level `workflow ... on <Resource>.<field>` keyword is **retired**.
+> It no longer parses — the parser hard-errors with `E-WORKFLOW-RETIRED`. State
+> machines are expressed in two coordinated places: a resource-level
+> `lifecycle <field>` block and a command-level `triggers transition <name>`
+> clause. See [lifecycle-transitions.md](lifecycle-transitions.md).
+
+A `lifecycle <field>` block, declared as a child of `resource`, owns the closed
+state set and the transition edges for one discriminator field:
 
 ```lazuli
-workflow status on Issue.status
-  policy @policy.update
-  emits issue_status_changed
+resource Issue
+  lifecycle status
+    state todo initial
+    state in_progress
+    state in_review
+    state done terminal
 
-  start: todo -> in_progress
-  complete: in_review -> done
+    transition start
+      from todo
+      to in_progress
+      policy @policy.update
+      emits issue_status_changed
+
+    transition complete
+      from in_review
+      to done
+      policy @policy.update
+      emits issue_status_changed
 ```
 
-Workflow-level `policy` and `emits` are defaults inherited by every transition.
+The `state` list is a named, closed set (`<Resource><Field>`, e.g.
+`IssueStatus`) that auto-owns the discriminator field and its enum; mark exactly
+one `initial` member and zero or more `terminal` members. Every transition's
+`from`/`to` must be a member of that set.
 
 Policy behavior:
 
-- `policy` on the workflow is the default for all transitions.
-- `requires` on a transition adds a stronger authority requirement for that transition.
+- `policy` on a transition is the authority required to take that edge.
+- `requires` on a transition adds a stronger authority requirement on top of
+  the transition's normal `policy`.
 
 ```lazuli
-workflow lifecycle on Customer.lifecycle_stage
-  policy @policy.update
+resource Customer
+  lifecycle status
+    state active initial
+    state paused
+    state archived terminal
 
-  pause: active -> paused
-  archive previously migrated deactivate: active -> archived requires @policy.delete
+    transition pause
+      from active
+      to paused
+      policy @policy.update
+
+    transition archive previously migrated deactivate
+      from active
+      to archived
+      policy @policy.update
+      requires @policy.delete
 ```
 
-`requires @policy.delete` keeps the workflow's normal policy visible while declaring that the transition needs a higher feature-local policy category. Use it for capability upgrades such as archive/delete, publish/admin, or force/manual operations. Do not use transition-level `policy` for this pattern in canonical v0.
+`requires @policy.delete` keeps the transition's normal policy visible while
+declaring that the edge needs a higher feature-local policy category. Use it for
+capability upgrades such as archive/delete, publish/admin, or force/manual
+operations. Do not use a second transition-level `policy` for this pattern in
+canonical v0.
 
 Event behavior:
 
-- `emits` on the workflow always fires for every transition.
-- `emits` on a transition fires additionally for that transition.
-- If the workflow has no `emits`, only transition-specific events fire.
+- `emits` on a transition fires when that transition is taken.
+- A command may also `emits` its own events; the transition event and the
+  command event are distinct signals.
 
-This gives consumers a stable macro event such as `issue_status_changed` while still allowing richer transition events such as `customer_archived`.
+This lets consumers subscribe to a stable transition event such as
+`issue_status_changed` while a command emits a richer signal such as
+`customer_archived`.
 
-Inline transition clauses:
+### Binding a command to a transition
 
-Workflow transitions accept trailing scalar clauses on the header line. The compact form expands mechanically to the canonical form by moving each trailing clause into a child statement.
-
-```lazuli
-# compact
-archive previously migrated deactivate: active -> archived requires @policy.delete emits customer_archived
-
-# expanded
-archive previously migrated deactivate: active -> archived
-  requires @policy.delete
-  emits customer_archived
-```
-
-Trailing clauses appear in the same order as their expanded child form: `previously` before the colon, then the state range, then `requires`, then `emits`. `lazuli fmt` enforces this order.
-
-Only scalar clauses may be inlined. Clauses that introduce a child block, such as `tests`, stay as children:
+A command takes a lifecycle edge with the `triggers transition <name>` clause.
+The command owns the write; the lifecycle owns the state edge. The backend gates
+on `<Resource>.<field> == <transition>.from`, runs the command's `updates`, then
+advances `<field> = <transition>.to` in one transaction:
 
 ```lazuli
-activate: lead -> active emits customer_activated
-  tests
-    allows from lead
-    denies from active
+command activate_customer
+  route id: ID
+  policy @policy.edit
+  triggers transition activate
+  updates Customer
+    owner = resolved_owner
+  emits customer_activated
 ```
 
-The mixed form is valid: `emits` is trailing because it is scalar, while `tests` remains a child block. Authors may also write the fully expanded form when they prefer. Multiple values for a single scalar clause, such as multiple transition events, require the multi-line form.
+A command may carry both `triggers transition` and an `updates ... where <col> =
+<expr>` clause; an explicitly-bound `updated_at` is honored and not
+double-assigned. `triggers transition <name>[, <name>]` accepts a comma list to
+bind one command to several legal edges.
 
-Inside a workflow transition, child statements such as `requires`, `emits`, and `tests` stay contiguous with the transition header. Do not separate them from the header with a blank line; `lazuli fmt` removes that blank.
-
-`lazuli fmt --expand` rewrites compact transition headers to the expanded form. `lazuli fmt --compact` may inline scalar transition clauses where the compact form is legal. These are tooling modes over the same IR, not separate semantics.
-
-Unlisted transitions are invalid; if an enum value is reachable, model the transition that reaches it.
+Unlisted transitions are invalid; if a state is reachable, model the transition
+that reaches it.
 
 ## Inspect
 
@@ -1432,7 +1495,7 @@ alone is not enough evidence for codegen or review.
 
 ## Rules
 
-A rule belongs to the feature that owns the command or workflow being denied.
+A rule belongs to the feature that owns the command or lifecycle transition being denied.
 
 ```lazuli
 rule "archived customers cannot be reassigned"
@@ -1440,12 +1503,12 @@ rule "archived customers cannot be reassigned"
   message "Cannot reassign an archived customer"
 ```
 
-Rules are automatic preconditions. The runtime evaluates matching rules before the target command or workflow transition executes; authors do not manually call them from command code.
+Rules are automatic preconditions. The runtime evaluates matching rules before the target command or lifecycle transition executes; authors do not manually call them from command code.
 
 `Customer.reassign` is an operation reference. In canonical v0, operation matching is exact:
 
 - `Customer.reassign` matches `command reassign` on `Customer`.
-- `Customer.archive` matches a workflow transition named `archive` on `Customer`.
+- `Customer.archive` matches a lifecycle transition named `archive` on `Customer`.
 - `Customer.reassign` does not match `Customer.bulk_reassign`.
 
 Policies answer "who may attempt this operation?" Rules answer "is this operation valid in the current domain state?" A typical generated flow is: decode input, bind route and target, check policy, evaluate rules, execute assignment blocks, publish events.
@@ -1462,7 +1525,7 @@ Avoid placing this rule in `feature customer`, because enforcement happens when 
 
 ## Predicate Expressions
 
-Rule predicates, query filter predicates, and command/workflow guards share one small predicate language. The full set:
+Rule predicates, query filter predicates, and command/lifecycle-transition guards share one small predicate language. The full set:
 
 - Equality: `==`, `!=` (canonical equality is `==`; a bare `=` is never a comparison — it is assignment / field-default / enum-storage / lifecycle state binding)
 - Membership: `has` (collection contains element)
@@ -1493,13 +1556,13 @@ Tests are inline declarative assertions about the IR. They cover decisions that 
 
 Tests run against the IR before code generation. They execute quickly, depend on no fixtures, require no runtime, and are the canonical loop for authors and agents iterating on a feature.
 
-A `tests` block is the last child of a `command`, workflow transition, `rule`, or extensible view (`view ... id @anchor.*`). Tests are not allowed in queries, events, resources, webhooks, escape routes, surfaces, or features themselves. Their content is declaration, not decision.
+A `tests` block is the last child of a `command`, lifecycle transition, `rule`, or extensible view (`view ... id @anchor.*`). Tests are not allowed in queries, events, resources, webhooks, escape routes, surfaces, or features themselves. Their content is declaration, not decision.
 
 ### Subject And Bindings
 
 Within a `tests` block, the parent construct is the implicit subject. Tests inside `command reassign` are about `command reassign`. Tests inside a rule are about the operation that the rule denies. The subject is never restated.
 
-Command tests use `target` for the loaded command target when the command has one. Rule and workflow tests use `self` for the resource snapshot under the rule or transition. Predicates inside tests reuse the closed predicate language: `==`, `!=`, `has`, `AND`, `OR`, paths, enum literals, strings, integers, and `nil`. Tests add no new operators or functions.
+Command tests use `target` for the loaded command target when the command has one. Rule and lifecycle transition tests use `self` for the resource snapshot under the rule or transition. Predicates inside tests reuse the closed predicate language: `==`, `!=`, `has`, `AND`, `OR`, paths, enum literals, strings, integers, and `nil`. Tests add no new operators or functions.
 
 Path expressions are allowed in test predicates the same way they are allowed in query filters. `denies when self.customer.lifecycle_stage == archived` is valid in a rule test when the resource being tested has a `customer` relation; `denies when target.lifecycle_stage == archived` is valid in a command test when the command target has that field.
 
@@ -1541,7 +1604,7 @@ tests
   denies from active as @role.sales
 ```
 
-`from <state>` tests state-machine edges, assuming an authorized actor. `as <actor>` tests policy, assuming the transition's valid source state. The combined form tests both dimensions at the intersection. Use the right form for the property being checked; the test runner uses the workflow's policy default when only `from` is present, and the transition's source state default when only `as` is present.
+`from <state>` tests state-machine edges, assuming an authorized actor. `as <actor>` tests policy, assuming the transition's valid source state. The combined form tests both dimensions at the intersection. Use the right form for the property being checked; the test runner uses the transition's policy default when only `from` is present, and the transition's source state default when only `as` is present.
 
 The dimension is carried by the SUBJECT after the verb, not by a separate
 verb. Within authored tests there is exactly one verb pair — `allows`/`denies`
@@ -1568,7 +1631,7 @@ tests
   allows when self.tier == enterprise AND self.owner != nil
 ```
 
-The subject is the operation referenced in the rule's `deny` clause. Tests evaluate the rule predicate in isolation; they do not simulate the target operation. A test for the rule "deleted customers cannot be archived" verifies that the predicate fires when `self.deleted_at != nil`, not that the `archive` transition would actually fail. Transition tests in the workflow are separate and cover state-machine behavior. Both perspectives can coexist; they test different things.
+The subject is the operation referenced in the rule's `deny` clause. Tests evaluate the rule predicate in isolation; they do not simulate the target operation. A test for the rule "deleted customers cannot be archived" verifies that the predicate fires when `self.deleted_at != nil`, not that the `archive` transition would actually fail. Transition tests in the lifecycle block are separate and cover state-machine behavior. Both perspectives can coexist; they test different things.
 
 Extensible views accept:
 
@@ -1615,7 +1678,7 @@ Authors edit only `tests` blocks in `.lzi` files. Generated runtime test files i
 
 ### Migration: Rule Aliases To `self`
 
-Canonical v0 uses `self` as the snapshot binding inside rules and workflow tests. Commands and declarative jobs use `target` for the loaded target record. Earlier drafts used a lowercased resource name in rules:
+Canonical v0 uses `self` as the snapshot binding inside rules and lifecycle transition tests. Commands and declarative jobs use `target` for the loaded target record. Earlier drafts used a lowercased resource name in rules:
 
 ```lazuli
 # before
@@ -1632,8 +1695,12 @@ Enum values may be unqualified where the type is obvious:
 ```lazuli
 status: CustomerStatus = lead
 
-workflow lifecycle on Customer.status
-  archive: active -> archived
+lifecycle status
+  state active initial
+  state archived terminal
+  transition archive
+    from active
+    to archived
 ```
 
 In free predicates, prefer qualified literals:
@@ -1708,7 +1775,7 @@ event.trace customer_webhook_received
 
 `event.trace` marks a domain signal that is intentionally not part of the feature-to-feature reaction graph. Other features should not subscribe to it unless the event is promoted back to an ordinary `event`. In strict mode, `trigger event <trace-event>` is invalid. This keeps integration logs, webhook receipt markers, and side-effect audit signals visible without making every audit signal look like missing product behavior.
 
-`emits` works the same for `event` and `event.trace` declarations. The distinction affects subscriber warnings and reaction-graph generation, not how a command, workflow, job, or webhook publishes the signal.
+`emits` works the same for `event` and `event.trace` declarations. The distinction affects subscriber warnings and reaction-graph generation, not how a command, lifecycle transition, job, or webhook publishes the signal.
 
 Event publication is always authored. Do not infer `emits customer_reassigned` from `command reassign` or `emits customer_archived` from `archive: active -> archived`; the explicit line is the contract that creates a reaction-graph edge. Likewise, shared resource envelopes belong in `event_group ... payload`, not in hidden feature-level payload defaults. If a repeated event-envelope pattern becomes universal, Lazuli should promote it to a named language primitive instead of adding project-local macros or invisible defaults.
 
@@ -1728,7 +1795,24 @@ policies
   read: @scope.same_org
 ```
 
-Commands and workflows reference those categories through the `@policy.*` namespace:
+The comma-separated atom list inside a category has **OR** semantics: a caller
+who satisfies any one listed atom is admitted (`create` admits `@role.admin` OR
+`@role.sales`). The Go emitter joins a 2+-atom category with `predicate.or`
+markers, so a comma list is never an AND. To require that **multiple** conditions
+all hold, use an explicit boolean `policy <expr>` with `and` (e.g.
+`policy @role.host and @scope.profile_verified`); `policy <expr>` supports
+`and` / `or` / `not` / parentheses.
+
+### Policy delimiters at a glance
+
+| Form | Delimiter | Meaning |
+|---|---|---|
+| `policies` category atom list | comma `,` | OR |
+| audience `policy [...]` list | comma `,` | OR |
+| field allow-list (`read:` / `write:` / `access:`) | pipe `\|` | OR |
+| `policy <expr>` boolean algebra | `and` / `or` / `not` / `()` | as written |
+
+Commands and lifecycle transitions reference those categories through the `@policy.*` namespace:
 
 ```lazuli
 command upload
@@ -1768,16 +1852,16 @@ feature customer_outreach
 
 A feature that only consumes events or runs jobs may omit `policies` when `defaults policy_for jobs, webhooks: @actor.system` covers every operation. Add a `policies` block only when the feature needs reusable policy categories.
 
-`lazuli inspect` should show the effective policy for every command, workflow transition, job, webhook, escape route, and generated endpoint after local overrides and feature defaults are applied. Authoring keeps defaults compact; inspection makes the security surface auditable without scanning the whole feature by hand.
+`lazuli inspect` should show the effective policy for every command, lifecycle transition, job, webhook, escape route, and generated endpoint after local overrides and feature defaults are applied. Authoring keeps defaults compact; inspection makes the security surface auditable without scanning the whole feature by hand.
 
 Policy names have two layers:
 
 - Project/global atoms such as `@role.admin`, `@scope.same_org`, `@scope.public`, `@scope.none`, and reserved `@actor.system`.
 - Feature-local policy categories referenced as `@policy.create`, `@policy.update`, `@policy.import`, `@policy.login`, and `@policy.global_read`.
 
-Commands and workflows should always reference feature-local categories with `@policy.*`. Put `@role.*`, `@scope.*`, and `@actor.*` atoms in the `policies` dictionary, then point commands/workflows at that category. Jobs, webhooks, escape routes, and `policy_for` defaults may still use direct atoms such as `@actor.system` or `@role.admin` when no reusable category is needed.
+Commands and lifecycle transitions should always reference feature-local categories with `@policy.*`. Put `@role.*`, `@scope.*`, and `@actor.*` atoms in the `policies` dictionary, then point commands/transitions at that category. Jobs, webhooks, escape routes, and `policy_for` defaults may still use direct atoms such as `@actor.system` or `@role.admin` when no reusable category is needed.
 
-Do not simplify command/workflow authoring to bare `policy create` or
+Do not simplify command/transition authoring to bare `policy create` or
 `policy update` in canonical v0. The `@policy.*` namespace is intentionally
 visible even though it costs tokens. It tells humans, agents, and tooling that
 the value is a feature-local authorization category, not a write effect, a
@@ -2243,7 +2327,7 @@ references, `@cap.File` storage needs, custom APIs, webhooks, jobs, scheduled
 jobs, web/mobile targets, and public URLs must be represented in the app or
 registry contract. When `services` are declared, every local feature should be
 owned by exactly one service boundary and a service should not expose commands,
-queries, APIs, or workflows from features it does not own.
+queries, APIs, or lifecycle transitions from features it does not own.
 
 Concrete routes stay in `.lzx` because they bind web URLs and mobile route
 patterns to experience views and platform surfaces:
@@ -2290,7 +2374,7 @@ experience customer
     route id: Customer.ID
     anchor @anchor.customer_detail
     source customer.query.by_id(id: route.id)
-    action archive -> customer.workflow.lifecycle.archive(id: route.id)
+    action archive -> customer.command.archive_customer(id: route.id)
 
 surface customer web
   uses experience customer
@@ -2439,9 +2523,10 @@ The compiler should surface this derivation in `explain`.
 Every view has an implicit stable id: `<feature>.<surface_id>.<view_name>`, where `surface_id` joins the surface words with `_`. For example, `feature customer` + `surface web admin` + `view detail` has the implicit id `customer.web_admin.detail`. Cross-feature composition requires an explicit `anchor @anchor.<name>` plus `extensible_by`; implicit view ids are for inspection and source maps, not an open extension surface. The older inline form `view detail id @anchor.customer_detail` is tolerated as authoring sugar, but the expanded form keeps route, anchor, and source as separate contracts.
 
 Actions in routed abstract views should bind route arguments explicitly. Prefer
-`action archive -> customer.workflow.lifecycle.archive(id: route.id)` over a
-bare transition or command target, so generators do not infer which route value
-identifies the target.
+`action archive -> customer.command.archive_customer(id: route.id)` over a
+bare command target, so generators do not infer which route value
+identifies the target. The bound command is what advances the lifecycle (via its
+`triggers transition` clause); an `action` always targets a `<feature>.command.<name>`.
 
 `filter` inside a view describes UI controls. `filters` inside a query describes data predicates. The view filter names should be backed by query params and query filters when they affect server-side data.
 
@@ -2897,8 +2982,10 @@ command register previously migrated create
   creates Customer
   ...
 
-workflow lifecycle on Customer.status
-  ship previously migrated deliver: ready -> shipped
+lifecycle status
+  transition ship previously migrated deliver
+    from ready
+    to shipped
 
 resource Account previously migrated Customer
   ...
@@ -2907,7 +2994,7 @@ resource Customer
   lifecycle_stage previously migrated status: CustomerStatus = lead
 ```
 
-`previously` is universal for renameable identifiers: resources, fields, queries, commands, workflows, workflow transitions, views, jobs, webhooks, and extension symbols may all carry it when the compiler needs identity continuity.
+`previously` is universal for renameable identifiers: resources, fields, queries, commands, lifecycle transitions, views, jobs, webhooks, and extension symbols may all carry it when the compiler needs identity continuity.
 
 The `previously` clause must declare a mode before the prior names:
 

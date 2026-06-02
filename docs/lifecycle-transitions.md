@@ -21,13 +21,26 @@ command save_host_basic_details
 ```
 
 `triggers transition fill_basic_details` means the command owns the write and the
-lifecycle owns the state edge. Generated backend code gates execution on
-`Host.lifecycle_state == fill_basic_details.from`.
+lifecycle owns the state edge. Generated backend code gates execution on the
+resource's **lifecycle discriminator column** equalling the transition's source:
+`Host.<discriminator> == fill_basic_details.from`. The discriminator column is
+the `lifecycle <field>` block's field name on the resource — `status`,
+`registration_step`, etc. It is **not** always literally `lifecycle_state`; the
+emitter threads the real column name through `Command.LifecycleColumn`
+(`crates/lazuli_codegen_go/src/emitter/command/lifecycle.rs`), so a non-default
+discriminator no longer mis-codegens (the old hardcode produced a PG 42703).
 
 If the pre-check passes, the command effect runs and the same transaction writes
-`Host.lifecycle_state = fill_basic_details.to`. If the row is already somewhere
+`Host.<discriminator> = fill_basic_details.to`. If the row is already somewhere
 else, the command returns `409 lifecycle_state_mismatch`. The command body does
-not assign `lifecycle_state` directly.
+not assign the discriminator column directly (doing so alongside
+`triggers transition` is `LIFECYCLE-TRANSITION-005`).
+
+A command may carry **both** `triggers transition` and an explicit
+`updates ... where <col> = <expr>` clause; the authored `where` scopes the
+mutation while the transition advances the lifecycle in the same transaction. An
+explicitly-bound `updated_at` is honored and not double-assigned (the dedup that
+fixed a PG 42601).
 
 ## Chains (multi-step shortcut)
 
@@ -43,35 +56,41 @@ command complete_host_onboarding
 ```
 
 The backend still performs one pre-check, on the first transition's source:
-`Host.lifecycle_state == fill_basic_details.from`.
+`Host.<discriminator> == fill_basic_details.from`.
 
 The command mutation runs once. On success, the backend writes the final target:
-`Host.lifecycle_state = fill_languages.to`.
+`Host.<discriminator> = fill_languages.to`.
 
 Chains must be contiguous: `T[i].to == T[i+1].from`. The analyzer enforces that
-relation before codegen. Do not use chains as a general workflow language; they
-are a shortcut for a command that validly collapses adjacent lifecycle steps.
+relation before codegen. Do not use chains as a general state-machine authoring
+language; they are a shortcut for a command that validly collapses adjacent
+lifecycle steps.
 
 ## Backend semantics
 
 Generated handlers keep the state check, command effect, and transition update
 inside one database transaction:
 
+The SQL below uses `<discriminator>` for the resource's lifecycle column
+(`status`, `registration_step`, …), which the emitter substitutes from
+`Command.LifecycleColumn` — it is not a literal column name:
+
 ```go
 tx, err := db.BeginTx(ctx, nil)
 if err != nil { return err }
 
 var state string
-err = tx.QueryRowContext(ctx, `SELECT lifecycle_state FROM host WHERE id = $1 FOR UPDATE`, id).Scan(&state)
+// <discriminator> is the resource's lifecycle field name, e.g. `registration_step`.
+err = tx.QueryRowContext(ctx, `SELECT <discriminator> FROM host WHERE id = $1 FOR UPDATE`, id).Scan(&state)
 if err != nil { tx.Rollback(); return err }
 
 if state != fillBasicDetails.From {
   tx.Rollback()
   return LifecycleStateMismatchError{Code: "lifecycle_state_mismatch"}
 }
-// run command effect
+// run command effect (including any authored `updates ... where`)
 lastTo := fillLanguages.To
-_, err = tx.ExecContext(ctx, `UPDATE host SET lifecycle_state = $1 WHERE id = $2`, lastTo, id)
+_, err = tx.ExecContext(ctx, `UPDATE host SET <discriminator> = $1 WHERE id = $2`, lastTo, id)
 if err != nil { tx.Rollback(); return err }
 return tx.Commit()
 ```
@@ -102,7 +121,7 @@ open, or another actor may have advanced the same resource.
 
 | Code | Description |
 |---|---|
-| `LIFECYCLE-TRANSITION-001` | Command references a transition name that does not exist on the target resource lifecycle. |
+| `LIFECYCLE-TRANSITION-001` | Command references a transition name that does not exist on the target resource lifecycle. The message lists the declared transitions to pick from. |
 | `LIFECYCLE-TRANSITION-002` | Command has no single lifecycle-bearing target resource for the transition binding. |
 | `LIFECYCLE-TRANSITION-003` | Command binds a transition from a lifecycle on a different resource than the command updates. |
 | `LIFECYCLE-TRANSITION-004` | Transition chain is not contiguous; one transition's `to` does not match the next transition's `from`. |
