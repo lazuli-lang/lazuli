@@ -41,12 +41,24 @@ fn canonical_file_api_emits_real_type_storage_and_register_placeholder() {
     assert!(!out.contains("var customerExportApi = struct {"));
     assert!(!out.contains("TODO(runtime):"));
     // Codegen now emits a `func init()` that registers the typed
-    // API value, plus an inline hint pointing to
-    // `ValidateApiHandlers`. The previous inert `TODO` comment
-    // never registered anything (review bug #1, 2026-05-15).
+    // API value. The previous inert `TODO` comment never registered
+    // anything (review bug #1, 2026-05-15).
     assert!(out.contains("func init() { lazuli.RegisterApi(&customerExportApi) }"));
-    assert!(out.contains("// Wire customerExportApi.Handler in your application code"));
-    assert!(out.contains("lazuli.ValidateApiHandlers()"));
+    // W3 API bridge: the `Handler` field is now wired via the fn
+    // registry — no hand-wiring needed, no "Wire ... in your application
+    // code" TODO, no ValidateApiHandlers nudge. Convention/file handler
+    // (`./api/export_customers.go`) → registry key `<feature>.<api name>`.
+    assert!(out.contains(
+        "Handler:   lazuli.HandlerFromRegistry[CustomerExportApiArgs, storage.FileRef](\"customer.customer_export\"),"
+    ));
+    assert!(
+        !out.contains("// Wire customerExportApi.Handler in your application code"),
+        "the hand-wiring TODO must be gone now that codegen bridges the handler"
+    );
+    assert!(
+        !out.contains("ValidateApiHandlers"),
+        "no ValidateApiHandlers nudge once the handler is auto-wired"
+    );
     assert!(
         !out.contains("// TODO(extension-points)"),
         "legacy TODO comment must be gone"
@@ -64,10 +76,9 @@ fn canonical_file_api_emits_real_type_storage_and_register_placeholder() {
         "regression: unresolvable api policy must not emit Name-only (no Atoms) = bypass"
     );
     assert!(out.contains("RateLimit: lazuli.RateLimit{Default: \"10 per hour per user\"},"));
-    // Generated Api value still leaves Handler unset — the user
-    // wires it post-codegen. Validation happens at boot via
-    // `ValidateApiHandlers()`.
-    assert!(!out.contains("\tHandler:"));
+    // Generated Api value now wires Handler via the registry bridge
+    // (no extension-point hand-wiring).
+    assert!(out.contains("Handler:   lazuli.HandlerFromRegistry["));
 }
 
 #[test]
@@ -145,18 +156,57 @@ fn path_params_emit_inferred_args_and_method_constant() {
 	Path:      "/api/customer/{id}/summary",
 	Policy:    lazuli.Policy{Name: "@policy.read", Atoms: []lazuli.PolicyAtom{{Namespace: "predicate", Name: "deny"}}},
 	RateLimit: lazuli.RateLimit{Default: "60 per minute per user"},
+	Handler:   lazuli.HandlerFromRegistry[CustomerSummaryApiArgs, CustomerSummary]("customer.customer_summary"),
 }
 
 //lazuli:pattern api_register v1
-func init() { lazuli.RegisterApi(&customerSummaryApi) }
-// Wire customerSummaryApi.Handler in your application code, then call
-// `lazuli.ValidateApiHandlers()` at startup to fail fast on omissions."#
+func init() { lazuli.RegisterApi(&customerSummaryApi) }"#
     ));
     assert!(!out.contains("TODO(runtime):"));
-    // Handler still not inlined — extension-point pattern. But the
-    // value is now registered via init(), unlike the prior
-    // emission that silently dropped the endpoint.
-    assert!(!out.contains("\tHandler:"));
+    // Handler now wired via the registry bridge; the value is
+    // registered via init() AND mounts at runtime.
+    assert!(out.contains("Handler:   lazuli.HandlerFromRegistry["));
+    assert!(!out.contains("// Wire customerSummaryApi.Handler"));
+}
+
+#[test]
+fn api_output_resource_resolves_full_struct_not_id_collapse() {
+    // Regression: `api me` with `output User` (a resource) must resolve to
+    // the full `User` struct on BOTH the Api generic and the handler
+    // bridge generic — NOT the FK collapse `lazuli.ID`. The collapse made
+    // the bridge's `HandlerFromRegistry[MeApiArgs, lazuli.ID]` reject the
+    // registered `@fn.me` handler (which returns `User`) at dispatch → 500
+    // instead of 200. Mirrors the command `Returns` return-axis resolver.
+    use super::simple_resource;
+    let mut feature = base_feature("account");
+    feature.resources.push(simple_resource("User"));
+    let mut api = simple_api(
+        "me",
+        HttpMethod::Get,
+        "/me",
+        TypeRef::UserDefined(QualifiedName {
+            feature: None,
+            name: "User".to_owned(),
+        }),
+    );
+    api.handler = PathRef::authored("@fn.me");
+    feature.apis.push(api);
+
+    let out = emit(&feature).expect("must emit");
+    assert!(
+        out.contains("var meApi = lazuli.Api[MeApiArgs, User]{"),
+        "api output resource must resolve to full struct, not lazuli.ID:\n{out}"
+    );
+    assert!(
+        !out.contains("lazuli.Api[MeApiArgs, lazuli.ID]"),
+        "regression: resource output collapsed to FK id:\n{out}"
+    );
+    assert!(
+        out.contains(
+            "Handler: lazuli.HandlerFromRegistry[MeApiArgs, User](\"account.me\"),"
+        ),
+        "handler bridge must use the @fn name + full struct O:\n{out}"
+    );
 }
 
 #[test]
