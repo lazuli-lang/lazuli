@@ -106,9 +106,72 @@ pub(crate) fn relative_path(from_dir: &Path, to_dir: &Path) -> String {
     }
 }
 
+/// True when `path` is an ABSOLUTE, machine-specific path that must
+/// never be baked into a committed `go.mod` / `go.work` runtime wiring.
+///
+/// Recognizes (forward- OR back-slash, since `relative_path` normalizes
+/// to `/` but the input may not be normalized yet):
+/// - Windows drive-rooted — `C:/x`, `C:\x` (`^[A-Za-z]:[\\/]`).
+/// - POSIX root — `/x` (`^/`).
+/// - UNC — `\\host\share` (`^\\`).
+///
+/// A relative path (`../lazuli/runtime/go`, `./x`, `runtime/go`) is
+/// `false`. This is the single predicate the codegen resolver consults
+/// before emitting a runtime replace, and the doctor rule
+/// `RUNTIME-WIRING-ABSOLUTE-PATH-001` mirrors it (the doctor crate
+/// cannot depend on `lazuli_cli`, so the logic is duplicated there as a
+/// tiny pure fn — keep the two in lock-step).
+pub(crate) fn is_absolute_runtime_path(path: &str) -> bool {
+    let p = path.trim();
+    let bytes = p.as_bytes();
+    // UNC: `\\host\share`. (Forward-slash `//` is not a Go-module path
+    // form we emit, so we don't treat a leading `//` as UNC.)
+    if p.starts_with("\\\\") {
+        return true;
+    }
+    // POSIX root.
+    if p.starts_with('/') {
+        return true;
+    }
+    // Windows drive: `X:` followed by `\` or `/`.
+    if bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes[2] == b'/' || bytes[2] == b'\\')
+    {
+        return true;
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn is_absolute_runtime_path_matches_windows_drive() {
+        assert!(is_absolute_runtime_path("C:/Users/lucas/lazuli/runtime/go"));
+        assert!(is_absolute_runtime_path(r"C:\Users\lucas\lazuli\runtime\go"));
+        assert!(is_absolute_runtime_path("d:/x"));
+    }
+
+    #[test]
+    fn is_absolute_runtime_path_matches_posix_and_unc() {
+        assert!(is_absolute_runtime_path("/home/x/runtime/go"));
+        assert!(is_absolute_runtime_path(r"\\host\share\runtime\go"));
+    }
+
+    #[test]
+    fn is_absolute_runtime_path_relative_is_false() {
+        assert!(!is_absolute_runtime_path("../lazuli/runtime/go"));
+        assert!(!is_absolute_runtime_path("../../lazuli/runtime/go"));
+        assert!(!is_absolute_runtime_path("../../../lazuli/runtime/go"));
+        assert!(!is_absolute_runtime_path("./x"));
+        assert!(!is_absolute_runtime_path("runtime/go"));
+        assert!(!is_absolute_runtime_path("."));
+        // A relative path that merely CONTAINS a colon (not a drive root).
+        assert!(!is_absolute_runtime_path("a:b/runtime/go"));
+    }
 
     #[test]
     fn relative_path_same_prefix_ascends_and_descends() {

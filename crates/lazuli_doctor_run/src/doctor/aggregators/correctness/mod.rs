@@ -562,6 +562,33 @@ pub(crate) fn diagnostics(
         }
     }
 
+    // RUNTIME-WIRING-ABSOLUTE-PATH-001 — once per project (SPEC 0030).
+    // Scans the project's committed `go.mod` + `go.work` for an absolute
+    // `replace lazuli.dev/runtime => <abs>` (or absolute go.work `use`).
+    // A committed absolute runtime path breaks `go build` on every other
+    // machine, so this is a Correctness/error finding that blocks the
+    // gate. Gated by the same project-mode flag as the migration checks:
+    // single-file doctor runs have no committed go.mod/go.work to audit.
+    if !skip_project_migration_check {
+        for finding in correctness::runtime_wiring_absolute_path_001::check(project_root) {
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line: 1,
+                column: 1,
+                // Correctness/error — blocks the gate (a committed
+                // absolute runtime path is a build break, not style).
+                severity: DoctorSeverity::Error,
+                code: correctness::runtime_wiring_absolute_path_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            });
+        }
+    }
+
     // MIGRATION-IDEMPOTENT-CREATE-001 — once per project. Walks
     // `<project_root>/dist/go/migrations/` for non-baseline
     // `CREATE TABLE IF NOT EXISTS` clauses. Skipped in single-file

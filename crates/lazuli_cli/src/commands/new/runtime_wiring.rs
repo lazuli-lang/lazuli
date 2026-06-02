@@ -170,3 +170,52 @@ fn inject_lazuli_path_into_lazurite(src: &str, path: &str) -> String {
     let sep = if src.ends_with('\n') { "" } else { "\n" };
     format!("{src}{sep}\n[lazuli]\npath = \"{path}\"\n")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::path_utils::is_absolute_runtime_path;
+
+    // SPEC 0030 — the scaffold writes a RELATIVE `[lazuli] path` for the
+    // canonical sibling layout, never an absolute committed path.
+    #[test]
+    fn scaffold_writes_relative_lazuli_path_into_existing_section() {
+        let src = "[project]\nname = \"x\"\n\n[lazuli]\nruntime = \"0.1.0\"\n";
+        let out = inject_lazuli_path_into_lazurite(src, "../lazuli");
+        assert!(out.contains("path = \"../lazuli\""), "{out}");
+        // The written value is relative.
+        assert!(!is_absolute_runtime_path("../lazuli"));
+        // Nested-layout depth is preserved verbatim (no hardcoded `../lazuli`).
+        let nested = inject_lazuli_path_into_lazurite(src, "../../lazuli");
+        assert!(nested.contains("path = \"../../lazuli\""), "{nested}");
+    }
+
+    #[test]
+    fn scaffold_appends_lazuli_section_when_absent() {
+        let src = "[project]\nname = \"x\"\n";
+        let out = inject_lazuli_path_into_lazurite(src, "../lazuli");
+        assert!(out.contains("[lazuli]"));
+        assert!(out.contains("path = \"../lazuli\""));
+    }
+
+    // The go.work entry the scaffold injects for the sibling layout is
+    // relative (drives the `[lazuli] path` value too).
+    #[test]
+    fn injected_go_work_entry_is_relative_for_sibling() {
+        // relative_path is the same relativizer codegen uses; a sibling
+        // layout yields a `..`-relative entry, never absolute.
+        let project = if cfg!(windows) {
+            std::path::PathBuf::from(r"C:\Users\lucas\hostpoint")
+        } else {
+            std::path::PathBuf::from("/home/lucas/hostpoint")
+        };
+        let runtime = if cfg!(windows) {
+            std::path::PathBuf::from(r"C:\Users\lucas\lazuli\runtime\go")
+        } else {
+            std::path::PathBuf::from("/home/lucas/lazuli/runtime/go")
+        };
+        let rel = relative_path(&project, &runtime);
+        assert_eq!(rel, "../lazuli/runtime/go");
+        assert!(!is_absolute_runtime_path(&rel));
+    }
+}

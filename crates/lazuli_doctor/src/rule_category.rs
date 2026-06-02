@@ -140,6 +140,12 @@ impl RuleCategory {
             // Vocabulary fallback, so it stays there.
             Some("RUNTIME") => match code.split('-').nth(1) {
                 Some("REACHABLE") => Self::Correctness,
+                // `RUNTIME-WIRING-ABSOLUTE-PATH-001` (SPEC 0030) — a
+                // committed absolute `replace lazuli.dev/runtime` / go.work
+                // `use` breaks `go build` on every other machine. A
+                // concrete build break, not style → Correctness (blocks
+                // the gate).
+                Some("WIRING") => Self::Correctness,
                 _ => Self::Vocabulary,
             },
             // `CTX-*` — author-written ctx-path resolution. Today:
@@ -511,6 +517,11 @@ mod tests {
         assert_eq!(
             RuleCategory::from_code_prefix("RUNTIME-UPDATE-BUILDER-JSONB-001"),
             RuleCategory::Vocabulary
+        );
+        // SPEC 0030 — absolute runtime wiring is a correctness build break.
+        assert_eq!(
+            RuleCategory::from_code_prefix("RUNTIME-WIRING-ABSOLUTE-PATH-001"),
+            RuleCategory::Correctness
         );
     }
 
