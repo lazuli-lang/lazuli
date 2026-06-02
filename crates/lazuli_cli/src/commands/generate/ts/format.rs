@@ -297,3 +297,91 @@ pub(crate) fn format_string_array(items: &[String]) -> String {
     let parts: Vec<String> = items.iter().map(|s| format!("\"{s}\"")).collect();
     format!("[{}]", parts.join(", "))
 }
+
+/// Rust port of the runtime client's `camelToSnakeKey`
+/// (`runtime/ts/lazuli/src/case-mapper.ts`): prefix every non-leading
+/// uppercase ASCII letter with `_` and lower-case it. Used only to test
+/// whether the default outbound caser round-trips a given Go json tag.
+fn camel_to_snake_wire(key: &str) -> String {
+    let mut out = String::with_capacity(key.len() + 4);
+    for (i, ch) in key.char_indices() {
+        if ch.is_ascii_uppercase() {
+            if i > 0 {
+                out.push('_');
+            }
+            out.push(ch.to_ascii_lowercase());
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+/// Build the `fields: { … }` outbound wire-key-override literal for a
+/// command/query SDK spec.
+///
+/// The Go runtime keys each body field by its VERBATIM DSL name (the
+/// `json:"…"` tag). The SDK exposes the camelCase key
+/// `lower_camel_export(field)`; the runtime client re-keys outbound bodies
+/// with `camelToSnakeKey`. For snake_case DSL fields that round-trips
+/// exactly (`tenant_id` → `tenantId` → `tenant_id`) so no override is
+/// needed. For an already-camelCase / PascalCase / acronym DSL field the
+/// round-trip is LOSSY (`registrationStep` → `registrationStep` →
+/// `registration_step` ≠ the tag) and the value is silently dropped on
+/// decode — so we pin `{ registrationStep: "registrationStep" }`.
+///
+/// `field_names` are the verbatim DSL field names (== the Go json tags).
+/// Returns `None` when every field round-trips cleanly, keeping the SDK
+/// output (and existing goldens) unchanged for snake_case-only specs.
+pub(crate) fn wire_key_fields_literal(field_names: &[String]) -> Option<String> {
+    let mut entries: Vec<String> = Vec::new();
+    for tag in field_names {
+        let sdk_key = lazuli_codegen_ts::lower_camel_export(tag);
+        if &camel_to_snake_wire(&sdk_key) != tag {
+            entries.push(format!(
+                "\"{}\": \"{}\"",
+                escape_js_string(&sdk_key),
+                escape_js_string(tag)
+            ));
+        }
+    }
+    if entries.is_empty() {
+        return None;
+    }
+    Some(format!("{{ {} }}", entries.join(", ")))
+}
+
+#[cfg(test)]
+mod wire_key_tests {
+    use super::*;
+
+    #[test]
+    fn snake_fields_need_no_override() {
+        // tenant_id → tenantId → tenant_id round-trips cleanly.
+        assert_eq!(
+            wire_key_fields_literal(&[
+                "tenant_id".to_owned(),
+                "org_id".to_owned(),
+                "token".to_owned(),
+            ]),
+            None
+        );
+    }
+
+    #[test]
+    fn camel_pascal_acronym_fields_get_pinned() {
+        let lit = wire_key_fields_literal(&[
+            "registrationStep".to_owned(), // camelCase DSL field — the live bug
+            "tenant_id".to_owned(),        // snake — omitted
+            "apiKey".to_owned(),           // camelCase
+        ])
+        .expect("camelCase fields must produce overrides");
+        assert!(
+            lit.contains("\"registrationStep\": \"registrationStep\""),
+            "got: {lit}"
+        );
+        assert!(lit.contains("\"apiKey\": \"apiKey\""), "got: {lit}");
+        // snake field round-trips → must NOT appear.
+        assert!(!lit.contains("tenant_id"), "got: {lit}");
+    }
+}

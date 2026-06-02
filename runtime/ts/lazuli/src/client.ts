@@ -10,7 +10,8 @@
 //   POST /api/v1/c/<command-name>   body: input    -> output
 //   POST /api/v1/q/<query-name>     body: args     -> result
 
-import { camelToSnakeDeep, snakeToCamelDeep } from "./case-mapper.js";
+import { camelToWireDeep, snakeToCamelDeep } from "./case-mapper.js";
+import type { WireKeyMap } from "./spec.js";
 import { LazuliError, LifecycleStateMismatchError, type LazuliErrorEnvelope } from "./error.js";
 import type { LazuliActor } from "./route-guard.js";
 import type { CommandSpec, QuerySpec } from "./spec.js";
@@ -104,7 +105,7 @@ export class LazuliClient {
     input: Input,
     init?: RequestInit,
   ): Promise<Output> {
-    return this.post<Output>(`/api/v1/c/${spec.name}`, input, init);
+    return this.post<Output>(`/api/v1/c/${spec.name}`, input, init, spec.fields);
   }
 
   async runQuery<Args, Result>(
@@ -112,7 +113,7 @@ export class LazuliClient {
     args: Args,
     init?: RequestInit,
   ): Promise<Result> {
-    return this.post<Result>(`/api/v1/q/${spec.name}`, args, init);
+    return this.post<Result>(`/api/v1/q/${spec.name}`, args, init, spec.fields);
   }
 
   async resolveActor(): Promise<LazuliActor | null> {
@@ -120,7 +121,12 @@ export class LazuliClient {
     return this.runQuery(this.actorQuery, this.actorQueryArgs);
   }
 
-  private async post<T>(path: string, body: unknown, init?: RequestInit): Promise<T> {
+  private async post<T>(
+    path: string,
+    body: unknown,
+    init?: RequestInit,
+    fields?: WireKeyMap,
+  ): Promise<T> {
     const headers = new Headers(this.defaultHeaders);
     if (this.authToken) {
       headers.set("Authorization", `Bearer ${this.authToken}`);
@@ -131,10 +137,13 @@ export class LazuliClient {
     headers.set("Content-Type", "application/json");
 
     // Generated SDK interfaces are camelCase; the Go runtime's JSON
-    // contract is snake_case. We translate at this single boundary —
-    // see case-mapper.ts for the scope (plain objects only;
-    // strings/numbers/arrays pass through).
-    const wireBody = body === undefined ? "{}" : JSON.stringify(camelToSnakeDeep(body));
+    // contract keys each field by its VERBATIM DSL name (the `json:"…"`
+    // tag). We translate at this single boundary — `camelToWireDeep`
+    // applies the spec's per-field wire-key overrides (for camelCase DSL
+    // fields the default snake-caser would mangle) and falls back to
+    // camel→snake for everything else. See case-mapper.ts for scope
+    // (plain objects only; strings/numbers/arrays pass through).
+    const wireBody = body === undefined ? "{}" : JSON.stringify(camelToWireDeep(body, fields));
 
     const url = `${this.baseUrl}${path}`;
     const request: RequestInit = {

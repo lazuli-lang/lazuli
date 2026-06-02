@@ -523,6 +523,21 @@ func writeLazuliError(w http.ResponseWriter, r *http.Request, le *Error) {
 		status = http.StatusInternalServerError
 	}
 
+	// ERR-SURFACE-DEFAULT-USERDSL: a 5xx whose Surface is still the zero
+	// value (`SurfaceUserDSL`) is a runtime-origin fault, not a bug in the
+	// app's .lzi — every legitimate user-DSL fault surfaces as 4xx
+	// (validation/policy/not-found, all of which set Surface explicitly).
+	// The dozens of internal 500 sites (`{Status:500, Code:CodeInternal}`
+	// with no `Base`) would otherwise mis-route an adapter/library fault to
+	// user-DSL debugging. Promote the zero value to `lib_internal` so the
+	// logged + dev-exposed `surface` attributes the fault to the Lazuli
+	// runtime rather than the user. Explicit attributions are preserved:
+	// DB-origin faults already set `adapter_runtime` (classifyDBError), and
+	// any site that deliberately sets a surface keeps it.
+	if status >= http.StatusInternalServerError && le.Base.Surface == SurfaceUserDSL {
+		le.Base.Surface = SurfaceLibInternal
+	}
+
 	// Resolve the message via the four-layer chain. Skip entirely when
 	// the caller had no request (no locale, no source tag).
 	var (
