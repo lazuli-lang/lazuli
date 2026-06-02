@@ -93,11 +93,11 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 			if ctx != nil && ctx.Context != nil {
 				storeCtx = ctx
 			}
-			count, err := activeStore.Inc(storeCtx, key, spec.Window)
+			allowed, _, err := activeStore.Allow(storeCtx, key, spec.Limit, spec.Window)
 			if err != nil {
 				slog.Error("lazuli: rate_limit store error", "err", err)
 				// Fail-open on store error — don't lock out users on infra blip.
-			} else if count > spec.Limit {
+			} else if !allowed {
 				return zero, ErrRateLimited
 			}
 		}

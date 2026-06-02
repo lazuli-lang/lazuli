@@ -10,18 +10,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 // ErrRateLimitMalformed is returned when a DSL rate-limit string cannot be
 // parsed.
 var ErrRateLimitMalformed = errors.New("lazuli: rate limit string malformed")
-
-// RateLimitSpec is the executable form of a RateLimit declaration.
-type RateLimitSpec struct {
-	PerSecond float64
-	Burst     int
-	Key       RateLimitKey
-}
 
 // RateLimitKey declares which caller dimension owns a limiter bucket.
 type RateLimitKey int
@@ -33,9 +28,23 @@ const (
 	RateLimitKeyOrg
 )
 
+// String renders the key dimension as the lowercase DSL scope token.
+// "global" is used for the keyless form; "actor" aliases the
+// command-pipeline anonymous-caller scope used by handle.go.
+func (k RateLimitKey) String() string {
+	switch k {
+	case RateLimitKeyIP:
+		return "ip"
+	case RateLimitKeyUser:
+		return "user"
+	case RateLimitKeyOrg:
+		return "org"
+	default:
+		return "global"
+	}
+}
+
 const (
-	rateLimitGCInterval     = time.Minute
-	rateLimitMinIdleTTL     = time.Minute
 	rateLimitMalformedState = "rate limit middleware misconfigured"
 )
 
@@ -46,12 +55,45 @@ var (
 	trustedProxies      []netip.Prefix
 )
 
-// Store is the backing store for per-bucket rate-limit counters. The default is
-// in-process; @lazuli/plugin-ratelimit-redis replaces it with Redis across replicas.
+// RateLimitSpec is the single executable form of a RateLimit declaration.
+// It is produced by the one-and-only parser (parseRateLimitSpec /
+// parseRateLimitString) and consumed by both the HTTP middleware and the
+// Command pipeline (handle.go). `Limit` requests are admitted per `Window`
+// at a smooth token-bucket rate (no fixed-window boundary burst).
+type RateLimitSpec struct {
+	// Limit is the number of requests admitted per Window. It also doubles
+	// as the token-bucket burst ceiling (a freshly-idle bucket admits up to
+	// Limit immediately, then refills smoothly over Window).
+	Limit int
+	// Window is the period over which Limit requests refill.
+	Window time.Duration
+	// Key is the caller dimension that owns a bucket.
+	Key RateLimitKey
+}
+
+// PerSecond is the steady-state refill rate (tokens per second) implied by
+// the spec. Retained for callers/tests that reason about the rate directly.
+func (s RateLimitSpec) PerSecond() float64 {
+	if s.Window <= 0 {
+		return 0
+	}
+	return float64(s.Limit) / s.Window.Seconds()
+}
+
+// Store is the backing store for per-bucket rate limiting. The default is an
+// in-process token bucket (golang.org/x/time/rate); @lazuli/plugin-ratelimit-redis
+// replaces it with a distributed token-bucket / GCRA implementation across replicas.
+//
+// Allow consumes one token from the bucket addressed by key and reports
+// whether the request may proceed. The (limit, window) pair defines the
+// bucket: limit requests refill smoothly over window, with a burst ceiling of
+// limit. Implementations MUST NOT admit more than ~limit requests per window
+// across any window boundary (the property that distinguishes a token bucket
+// from the old fixed-window counter). Implementations MUST be safe for
+// concurrent use. retryAfter, when allowed is false, is a hint for how long
+// the caller should wait before the bucket admits the next request.
 type Store interface {
-	// Inc increments the counter for key by 1 and returns the new count.
-	// If the key was just created, the store sets its TTL to window.
-	Inc(ctx context.Context, key string, window time.Duration) (int, error)
+	Allow(ctx context.Context, key string, limit int, window time.Duration) (allowed bool, retryAfter time.Duration, err error)
 }
 
 // SetStore replaces the active store. Plugin backends call this from init.
@@ -107,7 +149,7 @@ func RateLimitMiddleware(limit RateLimit, next http.Handler) http.Handler {
 		}
 
 		key := rateLimitBucketKey(spec, rateLimitRequestKey(spec.Key, r))
-		count, err := activeStore.Inc(r.Context(), key, rateLimitWindow(spec))
+		allowed, retryAfter, err := activeStore.Allow(r.Context(), key, spec.Limit, spec.Window)
 		if err != nil {
 			writeError(w, r, &Error{
 				Status:  http.StatusInternalServerError,
@@ -116,8 +158,8 @@ func RateLimitMiddleware(limit RateLimit, next http.Handler) http.Handler {
 			})
 			return
 		}
-		if count > spec.Burst {
-			w.Header().Set("Retry-After", "1")
+		if !allowed {
+			w.Header().Set("Retry-After", retryAfterSeconds(retryAfter))
 			writeRateLimited(w)
 			return
 		}
@@ -138,7 +180,7 @@ func ParseRateLimit(s RateLimit) (RateLimitSpec, error) {
 
 // parseRateLimitString runs the underlying spec parser on a pre-resolved
 // rate-limit literal. Exposed internally so the middleware can resolve
-// once and pass the resulting string verbatim.
+// once and pass the resulting string verbatim. Results are memoized.
 func parseRateLimitString(s string) (RateLimitSpec, error) {
 	normalized := strings.Join(strings.Fields(strings.ToLower(s)), " ")
 	if normalized == "" {
@@ -150,7 +192,7 @@ func parseRateLimitString(s string) (RateLimitSpec, error) {
 		return result.spec, result.err
 	}
 
-	spec, err := parseRateLimit(normalized)
+	spec, err := parseRateLimitSpec(normalized)
 	result := rateLimitParseResult{spec: spec, err: err}
 	actual, _ := rateLimitParseCache.LoadOrStore(normalized, result)
 	result = actual.(rateLimitParseResult)
@@ -162,38 +204,45 @@ type rateLimitParseResult struct {
 	err  error
 }
 
-// "30 per 10 minutes per ip"
-// "5 per minute per user"
-type rateLimitSpec struct {
-	Limit  int
-	Window time.Duration
-	Scope  string // "ip" | "user" | "actor"
-}
-
-// inMemoryStore owns counters keyed by parsed spec and request key.
-// Buckets are removed once their fixed window expires.
+// inMemoryStore is the default Store: a per-key token bucket backed by
+// golang.org/x/time/rate (the same primitive notifications throttling uses).
+// A token bucket refills continuously, so it never admits the ~2×limit burst
+// a fixed-window counter allows across a window boundary.
 type inMemoryStore struct {
 	state *inMemoryRateLimitState
 }
 
 type inMemoryRateLimitState struct {
 	mu       sync.Mutex
-	counters map[string]rateLimitCounter
+	limiters map[string]*rateLimitEntry
 	lastGC   time.Time
 }
 
-type rateLimitCounter struct {
-	count   int
-	expires time.Time
+type rateLimitEntry struct {
+	limiter  *rate.Limiter
+	lastSeen time.Time
 }
+
+const (
+	rateLimitGCInterval = time.Minute
+	// rateLimitIdleTTL evicts buckets untouched for at least this long. It
+	// is scaled up to the bucket's own window so a long-window limiter
+	// ("1 per day") is not GC'd between requests, which would reset its
+	// remaining tokens and reopen the burst.
+	rateLimitIdleTTL = time.Minute
+)
 
 func newInMemoryStore() inMemoryStore {
-	return inMemoryStore{state: &inMemoryRateLimitState{counters: make(map[string]rateLimitCounter)}}
+	return inMemoryStore{state: &inMemoryRateLimitState{limiters: make(map[string]*rateLimitEntry)}}
 }
 
-func (s inMemoryStore) Inc(ctx context.Context, key string, window time.Duration) (int, error) {
+func (s inMemoryStore) Allow(ctx context.Context, key string, limit int, window time.Duration) (bool, time.Duration, error) {
 	if err := ctx.Err(); err != nil {
-		return 0, err
+		return false, 0, err
+	}
+	if limit <= 0 || window <= 0 {
+		// Defensive: a non-positive spec means "no admittance".
+		return false, window, nil
 	}
 
 	state := s.state
@@ -205,51 +254,82 @@ func (s inMemoryStore) Inc(ctx context.Context, key string, window time.Duration
 	state.mu.Lock()
 	defer state.mu.Unlock()
 
-	counter := state.counters[key]
-	if !counter.expires.After(now) {
-		counter = rateLimitCounter{expires: now.Add(window)}
+	entry := state.limiters[key]
+	if entry == nil {
+		// One token every window/limit, with a burst ceiling of limit.
+		entry = &rateLimitEntry{
+			limiter: rate.NewLimiter(rate.Every(window/time.Duration(limit)), limit),
+		}
+		state.limiters[key] = entry
 	}
-	counter.count++
-	state.counters[key] = counter
+	entry.lastSeen = now
+
+	reservation := entry.limiter.ReserveN(now, 1)
+	if !reservation.OK() {
+		return false, window, nil
+	}
+	delay := reservation.DelayFrom(now)
+	if delay > 0 {
+		// Bucket is empty right now — do not consume the (future) token.
+		reservation.CancelAt(now)
+		return false, delay, nil
+	}
 
 	if state.lastGC.IsZero() || now.Sub(state.lastGC) >= rateLimitGCInterval {
-		state.gcLocked(now)
+		state.gcLocked(now, window)
 	}
 
-	return counter.count, nil
+	return true, 0, nil
 }
 
-func (s *inMemoryRateLimitState) gcLocked(now time.Time) {
+func (s *inMemoryRateLimitState) gcLocked(now time.Time, window time.Duration) {
 	s.lastGC = now
-	for key, counter := range s.counters {
-		if !counter.expires.After(now) {
-			delete(s.counters, key)
+	ttl := rateLimitIdleTTL
+	if window > ttl {
+		ttl = window
+	}
+	for key, entry := range s.limiters {
+		if now.Sub(entry.lastSeen) >= ttl {
+			delete(s.limiters, key)
 		}
 	}
 }
 
-func parseRateLimit(s string) (RateLimitSpec, error) {
-	parts := strings.Fields(s)
-	if len(parts) < 3 || parts[1] != "per" {
+// parseRateLimitSpec is the single rate-limit spec parser. It accepts the
+// authored DSL grammar:
+//
+//	"<N> per <window-unit> [per <key>]"
+//	"<N> per <M> <window-unit> [per <key>]"
+//
+// where <window-unit> is second/minute/hour/day (plural accepted) and
+// <key> is one of ip/user/org/actor. The "per <key>" suffix is optional
+// (absent == global). Earlier the codebase carried TWO parsers for this same
+// grammar (an exported `parseRateLimit` returning a PerSecond/Burst struct for
+// the HTTP middleware, and this `parseRateLimitSpec` returning a
+// Limit/Window/Scope struct for the Command pipeline); they have been
+// collapsed into this one function + one RateLimitSpec struct.
+func parseRateLimitSpec(literal string) (RateLimitSpec, error) {
+	fields := strings.Fields(strings.ToLower(literal))
+	if len(fields) < 3 || fields[1] != "per" {
 		return RateLimitSpec{}, ErrRateLimitMalformed
 	}
 
-	burst, err := strconv.Atoi(parts[0])
-	if err != nil || burst <= 0 {
+	limit, err := strconv.Atoi(fields[0])
+	if err != nil || limit <= 0 {
 		return RateLimitSpec{}, ErrRateLimitMalformed
 	}
 
 	windowSize := 1
 	unitIndex := 2
-	if n, err := strconv.Atoi(parts[2]); err == nil {
-		if n <= 0 || len(parts) < 4 {
+	if n, err := strconv.Atoi(fields[2]); err == nil {
+		if n <= 0 || len(fields) < 4 {
 			return RateLimitSpec{}, ErrRateLimitMalformed
 		}
 		windowSize = n
 		unitIndex = 3
 	}
 
-	unit, ok := rateLimitWindowUnit(parts[unitIndex])
+	unit, ok := rateLimitWindowUnit(fields[unitIndex])
 	if !ok {
 		return RateLimitSpec{}, ErrRateLimitMalformed
 	}
@@ -260,68 +340,17 @@ func parseRateLimit(s string) (RateLimitSpec, error) {
 
 	key := RateLimitKeyGlobal
 	next := unitIndex + 1
-	if next < len(parts) {
-		if len(parts)-next != 2 || parts[next] != "per" {
+	if next < len(fields) {
+		if len(fields)-next != 2 || fields[next] != "per" {
 			return RateLimitSpec{}, ErrRateLimitMalformed
 		}
-		key, ok = rateLimitKey(parts[next+1])
+		key, ok = rateLimitScopeKey(fields[next+1])
 		if !ok {
 			return RateLimitSpec{}, ErrRateLimitMalformed
 		}
 	}
 
-	return RateLimitSpec{
-		PerSecond: float64(burst) / window.Seconds(),
-		Burst:     burst,
-		Key:       key,
-	}, nil
-}
-
-func parseRateLimitSpec(literal string) (rateLimitSpec, error) {
-	fields := strings.Fields(strings.ToLower(literal))
-	if len(fields) < 5 {
-		return rateLimitSpec{}, errors.New("rate_limit: too few fields")
-	}
-	if fields[1] != "per" {
-		return rateLimitSpec{}, ErrRateLimitMalformed
-	}
-
-	limit, err := strconv.Atoi(fields[0])
-	if err != nil || limit <= 0 {
-		return rateLimitSpec{}, ErrRateLimitMalformed
-	}
-
-	windowSize := 1
-	unitIndex := 2
-	if n, err := strconv.Atoi(fields[2]); err == nil {
-		if n <= 0 || len(fields) < 6 {
-			return rateLimitSpec{}, ErrRateLimitMalformed
-		}
-		windowSize = n
-		unitIndex = 3
-	}
-
-	unit, ok := rateLimitWindowUnit(fields[unitIndex])
-	if !ok {
-		return rateLimitSpec{}, ErrRateLimitMalformed
-	}
-	next := unitIndex + 1
-	if len(fields)-next != 2 || fields[next] != "per" {
-		return rateLimitSpec{}, ErrRateLimitMalformed
-	}
-
-	scope := fields[next+1]
-	switch scope {
-	case "ip", "user", "actor":
-	default:
-		return rateLimitSpec{}, ErrRateLimitMalformed
-	}
-
-	window := time.Duration(windowSize) * unit
-	if window <= 0 {
-		return rateLimitSpec{}, ErrRateLimitMalformed
-	}
-	return rateLimitSpec{Limit: limit, Window: window, Scope: scope}, nil
+	return RateLimitSpec{Limit: limit, Window: window, Key: key}, nil
 }
 
 func rateLimitWindowUnit(s string) (time.Duration, bool) {
@@ -339,7 +368,12 @@ func rateLimitWindowUnit(s string) (time.Duration, bool) {
 	}
 }
 
-func rateLimitKey(s string) (RateLimitKey, bool) {
+// rateLimitScopeKey maps a DSL scope token to a RateLimitKey. Both the HTTP
+// middleware vocabulary (ip/user/org) and the Command-pipeline vocabulary
+// (ip/user/actor) are accepted by the single parser; "actor" maps to the
+// user dimension for bucketing purposes and is resolved against the anonymous
+// actor in buildRateLimitKey.
+func rateLimitScopeKey(s string) (RateLimitKey, bool) {
 	switch s {
 	case "ip":
 		return RateLimitKeyIP, true
@@ -347,6 +381,8 @@ func rateLimitKey(s string) (RateLimitKey, bool) {
 		return RateLimitKeyUser, true
 	case "org":
 		return RateLimitKeyOrg, true
+	case "actor":
+		return RateLimitKeyUser, true
 	default:
 		return RateLimitKeyGlobal, false
 	}
@@ -441,22 +477,33 @@ func isInPrefixes(ip netip.Addr, prefixes []netip.Prefix) bool {
 	return false
 }
 
-func buildRateLimitKey(ctx *Ctx, cmd string, spec rateLimitSpec) string {
+// buildRateLimitKey computes the bucket address for the Command pipeline
+// (handle.go). It keys on the spec's caller dimension resolved against the
+// active lazuli.Ctx. The "actor" scope (anonymous-friendly) maps to
+// RateLimitKeyUser at parse time but still resolves to the actor string here.
+func buildRateLimitKey(ctx *Ctx, cmd string, spec RateLimitSpec) string {
 	scopeValue := "-"
-	switch spec.Scope {
-	case "ip":
+	switch spec.Key {
+	case RateLimitKeyIP:
 		if ctx != nil {
 			if r := requestFromContext(ctx.Context); r != nil {
 				scopeValue = clientIPFromRequest(r)
 			}
 		}
-	case "user":
-		if ctx != nil && ctx.User != nil {
+	case RateLimitKeyUser:
+		switch {
+		case ctx != nil && ctx.User != nil:
 			scopeValue = strconv.FormatInt(int64(ctx.User.ID), 10)
-		}
-	case "actor":
-		if ctx != nil && ctx.Actor != "" {
+		case ctx != nil && ctx.Actor != "":
 			scopeValue = string(ctx.Actor)
+		}
+	case RateLimitKeyOrg:
+		if ctx != nil {
+			if ctx.Tenant != nil {
+				scopeValue = strconv.FormatInt(int64(ctx.Tenant.OrgID), 10)
+			} else if ctx.User != nil && ctx.User.OrgID != 0 {
+				scopeValue = strconv.FormatInt(int64(ctx.User.OrgID), 10)
+			}
 		}
 	}
 	if scopeValue == "" {
@@ -465,22 +512,22 @@ func buildRateLimitKey(ctx *Ctx, cmd string, spec rateLimitSpec) string {
 	return cmd + ":" + scopeValue
 }
 
+// rateLimitBucketKey computes the bucket address for the HTTP middleware.
+// It folds the resolved spec into the key so two different policies on the
+// same caller dimension do not share a bucket.
 func rateLimitBucketKey(spec RateLimitSpec, key string) string {
-	return strconv.FormatFloat(spec.PerSecond, 'g', -1, 64) +
-		"|" + strconv.Itoa(spec.Burst) +
+	return strconv.Itoa(spec.Limit) +
+		"|" + strconv.FormatInt(int64(spec.Window), 10) +
 		"|" + strconv.Itoa(int(spec.Key)) +
 		"|" + key
 }
 
-func rateLimitWindow(spec RateLimitSpec) time.Duration {
-	if spec.PerSecond <= 0 || spec.Burst <= 0 {
-		return rateLimitMinIdleTTL
+func retryAfterSeconds(d time.Duration) string {
+	secs := int(d.Round(time.Second) / time.Second)
+	if secs < 1 {
+		secs = 1
 	}
-	window := time.Duration(float64(spec.Burst) / spec.PerSecond * float64(time.Second))
-	if window <= 0 {
-		return rateLimitMinIdleTTL
-	}
-	return window
+	return strconv.Itoa(secs)
 }
 
 func writeRateLimited(w http.ResponseWriter) {

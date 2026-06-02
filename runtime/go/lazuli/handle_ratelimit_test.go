@@ -9,14 +9,15 @@ import (
 
 func TestParseRateLimitSpec(t *testing.T) {
 	cases := []struct {
-		in        string
-		wantLim   int
-		wantSec   int
-		wantScope string
+		in       string
+		wantLim  int
+		wantSec  int
+		wantKey  RateLimitKey
 	}{
-		{"30 per 10 minutes per ip", 30, 600, "ip"},
-		{"5 per minute per user", 5, 60, "user"},
-		{"100 per hour per actor", 100, 3600, "actor"},
+		{"30 per 10 minutes per ip", 30, 600, RateLimitKeyIP},
+		{"5 per minute per user", 5, 60, RateLimitKeyUser},
+		// "actor" is an accepted scope token; it buckets on the user dimension.
+		{"100 per hour per actor", 100, 3600, RateLimitKeyUser},
 	}
 	for _, c := range cases {
 		spec, err := parseRateLimitSpec(c.in)
@@ -29,8 +30,8 @@ func TestParseRateLimitSpec(t *testing.T) {
 		if spec.Window != time.Duration(c.wantSec)*time.Second {
 			t.Errorf("%q: Window = %s, want %ds", c.in, spec.Window, c.wantSec)
 		}
-		if spec.Scope != c.wantScope {
-			t.Errorf("%q: Scope = %q, want %q", c.in, spec.Scope, c.wantScope)
+		if spec.Key != c.wantKey {
+			t.Errorf("%q: Key = %v, want %v", c.in, spec.Key, c.wantKey)
 		}
 	}
 }
