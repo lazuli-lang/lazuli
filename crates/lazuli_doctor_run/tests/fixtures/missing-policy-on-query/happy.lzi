@@ -1,6 +1,3 @@
-# Doctor fixture - MISSING-POLICY-ON-QUERY-001 happy path.
-# Every query authors an explicit policy.
-
 feature catalog
   domain
     query.list list_products

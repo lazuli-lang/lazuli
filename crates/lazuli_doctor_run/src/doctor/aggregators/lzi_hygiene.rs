@@ -12,9 +12,10 @@ use std::path::{Path, PathBuf};
 
 use lazuli_analyzer::lower_feature_skeleton;
 use lazuli_doctor::DoctorSeverity as SharedSeverity;
+use lazuli_doctor::lzi_hygiene::comment_prose_001;
 use lazuli_doctor::lzi_hygiene::feature_cohesion_002::LoweredFeature;
 use lazuli_doctor::lzi_hygiene::preset::LziHygienePreset;
-use lazuli_doctor::lzi_hygiene::walker::walk_lzi_sources;
+use lazuli_doctor::lzi_hygiene::walker::{is_exempt_path, walk_lzi_sources};
 use lazuli_doctor::lzi_hygiene::{
     feature_cohesion_001, feature_cohesion_002, feature_naming_matches_file_001, file_size_001,
 };
@@ -22,7 +23,7 @@ use lazuli_ir::Feature;
 use lazuli_syntax::parse_feature_skeletons;
 
 use crate::doctor::helpers::resolve_lzi_hygiene_severity;
-use crate::doctor::{DoctorDiagnostic, DoctorSeverity};
+use crate::doctor::{DoctorDiagnostic, DoctorFile, DoctorSeverity};
 
 /// Run every `LZI-*` rule against `project_root` and return the
 /// collected diagnostics. `preset` is the active `[doctor.lzi_hygiene]`
@@ -201,6 +202,66 @@ pub(crate) fn lzi_hygiene_diagnostics(
     diagnostics
 }
 
+/// spec 0029 — `LZI-COMMENT-PROSE-001`: flag EVERY `#` comment line in every
+/// `.lzi`/`.lzx` file (full-line AND inline), driving the design surface to zero
+/// prose comments. WARNING by default; ERROR under the iron-hand preset (the
+/// `LZI-*` prefix escalates via `resolve_lzi_hygiene_severity`). LziHygiene never
+/// gates, so these never refuse-emit.
+///
+/// Runs over the doctor's parsed `DoctorFile` set (which carries BOTH `.lzi` and
+/// `.lzx`), not the `.lzi`-only `walk_lzi_sources`, so the rule covers both
+/// design surfaces per spec. Honors the same path exemptions the `.lzi` walker
+/// uses (toplevel/contract/fixture files) so it stays quiet on non-feature
+/// source.
+pub(crate) fn comment_prose_diagnostics(
+    project_root: &Path,
+    files: &[DoctorFile],
+    preset: Option<LziHygienePreset>,
+) -> Vec<DoctorDiagnostic> {
+    let mut diagnostics = Vec::new();
+    for file in files {
+        let ext = file.path.extension().and_then(|s| s.to_str());
+        if !matches!(ext, Some("lzi") | Some("lzx")) {
+            continue;
+        }
+        // Mirror the `.lzi` walker's exemptions (toplevel app/registry files,
+        // `contracts/`, fixture sub-trees) so PROSE-001 stays quiet on
+        // non-feature source. Compute the path relative to the project root the
+        // same way the walker does.
+        let relative = file.path.strip_prefix(project_root).unwrap_or(&file.path);
+        let name = file
+            .path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default();
+        if is_exempt_path(relative, name) {
+            continue;
+        }
+
+        for finding in comment_prose_001::scan_lzi_comment_prose(&file.source) {
+            let severity = resolve_lzi_hygiene_severity(
+                DoctorSeverity::Warning,
+                comment_prose_001::CODE,
+                preset,
+            );
+            diagnostics.push(DoctorDiagnostic {
+                path: file.path.clone(),
+                line: finding.line,
+                column: finding.column,
+                severity,
+                code: comment_prose_001::CODE.to_owned(),
+                message: finding.message,
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            });
+        }
+    }
+    diagnostics
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -320,5 +381,76 @@ mod tests {
                 .iter()
                 .any(|d| d.code == "LZI-FEATURE-NAMING-MATCHES-FILE-001")
         );
+    }
+
+    // ── spec 0029 — LZI-COMMENT-PROSE-001 dispatch ──────────────────────────
+
+    fn doctor_file(path: &Path, source: &str) -> DoctorFile {
+        DoctorFile {
+            path: path.to_path_buf(),
+            source: source.to_string(),
+            local_diagnostics: Vec::new(),
+            lzx: None,
+        }
+    }
+
+    #[test]
+    fn comment_prose_fires_on_lzi_and_lzx() {
+        let root = Path::new("/proj");
+        let files = vec![
+            doctor_file(
+                Path::new("/proj/features/billing/billing.lzi"),
+                "# rationale that belongs in ctx.md\nfeature billing\n",
+            ),
+            doctor_file(
+                Path::new("/proj/features/billing/billing.lzx"),
+                "# ── Public ──\nexperience billing\n",
+            ),
+        ];
+        let diags = comment_prose_diagnostics(root, &files, None);
+        assert_eq!(diags.len(), 2, "both .lzi and .lzx fire: {diags:?}");
+        assert!(diags.iter().all(|d| d.code == "LZI-COMMENT-PROSE-001"));
+        assert!(diags.iter().all(|d| d.severity == DoctorSeverity::Warning));
+    }
+
+    #[test]
+    fn comment_prose_clean_file_reports_zero() {
+        let root = Path::new("/proj");
+        let files = vec![doctor_file(
+            Path::new("/proj/features/billing/billing.lzi"),
+            "@doctor.allow(LZI-FILE-SIZE-001, reason: \"gen\")\nfeature billing\n  purpose \"x\"\n",
+        )];
+        assert!(comment_prose_diagnostics(root, &files, None).is_empty());
+    }
+
+    #[test]
+    fn comment_prose_respects_path_exemptions() {
+        let root = Path::new("/proj");
+        // app.lzi (toplevel) + a fixtures/ subtree are exempt — no findings even
+        // with a `#` comment present.
+        let files = vec![
+            doctor_file(Path::new("/proj/app.lzi"), "# header\napp Acme\n"),
+            doctor_file(
+                Path::new("/proj/tests/fixtures/x.lzi"),
+                "# header\nfeature x\n",
+            ),
+        ];
+        assert!(comment_prose_diagnostics(root, &files, None).is_empty());
+    }
+
+    #[test]
+    fn comment_prose_iron_hand_is_error() {
+        let root = Path::new("/proj");
+        let files = vec![doctor_file(
+            Path::new("/proj/features/billing/billing.lzi"),
+            "# prose\nfeature billing\n",
+        )];
+        let diags = comment_prose_diagnostics(
+            root,
+            &files,
+            Some(lazuli_doctor::lzi_hygiene::preset::LziHygienePreset::TddIronHand),
+        );
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].severity, DoctorSeverity::Error);
     }
 }

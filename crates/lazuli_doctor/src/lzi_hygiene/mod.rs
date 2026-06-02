@@ -33,6 +33,12 @@
 //!   lint: decorative dividers + high comment-to-semantic ratio. Fires when a
 //!   `.lzi`/`.lzx` is comment-dominant or carries a divider ruler. Preventive
 //!   (pilots' `.lzi` are already clean); never gates.
+//! - [`comment_prose_001`] (`LZI-COMMENT-PROSE-001`) — spec 0029: flags EVERY
+//!   `#` comment line in `.lzi`/`.lzx` (full-line AND inline), driving comments
+//!   to ZERO. The only carve-outs: a `@doctor.allow(...)` node, a legacy
+//!   `# doctor:allow` waiver (owned by `DOCTOR-ALLOW-LEGACY-COMMENT-001`), and a
+//!   single line-1 file-header line. WARNING default / ERROR under iron-hand;
+//!   never gates. The message names the canonical channel for the text.
 //!
 //! ## Why these three (and not "1 feature per file")
 //!
@@ -67,6 +73,7 @@
 //!   `app`, `registry`, `workspace`, `contract` toplevels, not `feature`)
 
 pub mod cohesion_graph;
+pub mod comment_prose_001;
 pub mod feature_cohesion_001;
 pub mod feature_cohesion_002;
 pub mod feature_naming_matches_file_001;

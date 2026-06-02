@@ -64,3 +64,42 @@ Written on its own line, it attaches to the construct that FOLLOWS it (or the wh
 - **Migrate with `lazuli fix`:** `DOCTOR-ALLOW-LEGACY-COMMENT-001` (advisory, never gates) fires on each legacy comment waiver; `lazuli fix --rule DOCTOR-ALLOW-LEGACY-COMMENT-001` rewrites that line `# doctor:allow X — reason "y"` → `@doctor.allow(X, reason: "y")` (point-fix, idempotent, indentation preserved). Banning the comment form outright is a FUTURE spec (0029), not 0028.
 
 - **`DOCTOR-ALLOW-LEGACY-COMMENT-001`** (advisory, NEVER gates — `crates/lazuli_doctor/src/lzi_hygiene/legacy_comment_allow_001.rs`) — nudges each legacy `# doctor:allow` comment toward the `@doctor.allow(...)` node + `lazuli fix`. Silent on the node form. Meta-suppress with `@doctor.allow(DOCTOR-ALLOW-LEGACY-COMMENT-001, reason: "...")`.
+
+## Spec 0029 — comment-discipline: drive `.lzi`/`.lzx` `#` comments to ZERO
+
+Every kind of text an agent reaches for a `#` comment to carry already has a structured, non-polluting home. A `#` comment in a design surface is therefore always the *wrong* channel — it drifts from the structured truth and an LLM re-reads it as noise. **Do not write `#` comments in `.lzi`/`.lzx`.**
+
+### The canonical-channel policy (decision table)
+
+| Text kind | Canonical home |
+| --- | --- |
+| Rationale / design narrative / "why we did X" | a `<feature>.ctx.md` context file |
+| A construct's intent / one-liner | its `purpose` / `doc` / `description` field |
+| A doctor waiver + reason | `@doctor.allow(CODE, reason: "...")` (spec 0028) |
+| Section dividers / banners, gap notes, `TODO`/`NOTE` markers | **none** — delete them; track a TODO in a tracker, a gap in `.ctx.md` |
+| A bare `#` comment | **nothing** — `.lzi`/`.lzx` carry zero `#` comments (see "zero exceptions" below) |
+
+### `LZI-COMMENT-PROSE-001` — the enforcing rule
+
+**`LZI-COMMENT-PROSE-001`** (`LziHygiene`; WARNING by default, ERROR under the iron-hand preset; **NEVER gates** — `LziHygiene` is non-blocking, so it never refuse-emits even at ERROR — `crates/lazuli_doctor/src/lzi_hygiene/comment_prose_001.rs`).
+
+It flags **every** `#` comment line in `.lzi`/`.lzx` — full-line AND inline — one finding per line. This is deliberate: the maker's goal is literally *zero* `#` comments, and the grader proved a prose-only heuristic can't reach zero (it leaves ~80 one-word section labels + box-draw banners unflagged with no completion gate). Flagging every `#` line makes "drive to zero" a real, measurable target: a clean `.lzi` (zero `#`, waivers as `@doctor.allow` nodes) reports zero; any `#` is one finding. Each finding's message names the three channels above so it's actionable for an agent.
+
+**Carve-outs — the ONLY `#` lines NOT flagged (both are waivers):**
+
+1. A `@doctor.allow(...)` node — it is a parsed annotation, not a `#` comment.
+2. A legacy `# doctor:allow <CODE>` waiver — owned by `DOCTOR-ALLOW-LEGACY-COMMENT-001`, which routes it to the node form; PROSE-001 does not double-flag it.
+
+**The "zero exceptions" decision (file-header line):** the ADR left a knob — allow one optional file-header/license line, or nothing. We chose **nothing**. The pilots carry no `.lzi`/`.lzx` license headers, and a line-1 carve-out is impossible to distinguish from line-1 prose without a heuristic the maker rejected. A project that genuinely needs a header waives the whole file with `@doctor.allow(LZI-COMMENT-PROSE-001, reason: "...")`.
+
+**Suppression:** a file-level `@doctor.allow(LZI-COMMENT-PROSE-001, reason: "...")` (or the legacy comment form, this window) silences the whole file.
+
+### `lazuli fix --rule LZI-COMMENT-PROSE-001` — the codemod (mechanical vs manual)
+
+The point-fix (`crates/lazuli_fix/src/actions/comment_prose.rs`) handles ONLY the cases where the right move is unambiguous and lossless:
+
+- **delete** an empty / whitespace-only `#` line;
+- **delete** a pure decorative divider / box-draw banner (`# ====`, `# ──────`, …) — visual noise, no content;
+- **migrate** a legacy `# doctor:allow X` to the `@doctor.allow(X)` node (reuses the spec-0028 migration verbatim).
+
+For PROSE that carries meaning (a sentence, a section label, a gap note), the correct move is a **semantic relocation** — rationale → `.ctx.md`, intent → a `purpose`/`doc` field — which a codemod cannot safely guess. Those are reported as **manual** (the fix returns `Skipped` with a note naming the channel), so an LLM with judgement relocates them. The codemod never guesses a semantic move. Point-fix per spec 0028's grader: `lazuli fix` operates on one finding at a time; the resolution fleet invokes it once per finding.

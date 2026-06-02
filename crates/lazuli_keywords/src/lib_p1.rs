@@ -311,6 +311,15 @@ pub const GLOBAL_DIAGNOSTICS: &[DiagnosticFacet] = &[
         base_severity: "info",
         category: "lzi_hygiene",
     },
+    // spec 0029 — comment-discipline: flags every `#` comment line in
+    // `.lzi`/`.lzx` (a whole-file property; no single keyword owns it), driving
+    // the design surface to zero prose comments. WARNING default / ERROR
+    // under iron-hand; never gates.
+    DiagnosticFacet {
+        code: "LZI-COMMENT-PROSE-001",
+        base_severity: "warning",
+        category: "lzi_hygiene",
+    },
     // ── spec 0010 escape-hatch visibility (cross-cutting: Go handlers ∩
     // `.lzi` IR ∩ `.sql` files, so no single keyword owns them) ──
     DiagnosticFacet {
