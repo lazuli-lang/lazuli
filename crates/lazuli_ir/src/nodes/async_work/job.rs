@@ -2,12 +2,7 @@
 //!
 //! A [`Job`] is **either** handler-backed ([`JobHandler`]) or declaratively
 //! bound ([`JobDeclarative`]) — that is enforced by [`JobBody`]'s
-//! discriminated enum. The author never sets [`JobOperationalKind`]; the
-//! analyzer derives it from `trigger` + `queue`:
-//!
-//! - `Schedule` → `Scheduled`
-//! - event trigger + no queue → `Reactor`
-//! - event trigger + queue → `QueuedWorker`
+//! discriminated enum.
 
 use serde::{Deserialize, Serialize};
 
@@ -81,16 +76,6 @@ pub enum JobTrigger {
     Event { event: crate::QualifiedName },
     /// `trigger schedule "0 2 * * *"` — cron expression.
     Schedule { cron: String },
-}
-
-/// Derived operational kind for inspect output. Authoring never sets this;
-/// the analyzer resolves `Schedule` -> Scheduled, event without queue ->
-/// Reactor, event with queue -> QueuedWorker.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum JobOperationalKind {
-    Scheduled,
-    Reactor,
-    QueuedWorker,
 }
 
 /// A job has exactly one body style. Handler-backed jobs may still declare

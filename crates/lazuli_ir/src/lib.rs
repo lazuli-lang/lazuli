@@ -37,7 +37,7 @@ pub use nodes::app_manifest::{
 };
 pub use nodes::async_work::{
     BackoffStrategy, DigestStrategy, DlqSpec, ExternalCallRef, FanoutScope, FanoutSpec,
-    IdempotencyKey, Job, JobBody, JobDeclarative, JobHandler, JobOperationalKind, JobTrigger,
+    IdempotencyKey, Job, JobBody, JobDeclarative, JobHandler, JobTrigger,
     Notification, NotificationDigest, NotificationThrottle, ReplayMode, ReplaySpec, RetryPolicy,
     TenantFromSpec, VerifyScheme, VerifySpec, Webhook, WebhookEventRef, WebhookScopeGlobalSpec,
 };

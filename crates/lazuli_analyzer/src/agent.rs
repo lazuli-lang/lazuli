@@ -103,10 +103,10 @@ pub fn lower_agent(feature: &str, agent: &syntax::Agent) -> Result<ir::Agent, An
             Some(ir::DiscriminatorRef::Enum(qualified_name_local(name))),
         ),
         Some(syntax::AgentOutput::Plain(ty)) => (
-            // Lowering can't tell `Text` from `DiscriminatedRecord` without
-            // the feature scope (enum vs record). Default to `Text`; the
-            // expand pass (Phase 5) promotes to `DiscriminatedRecord` when
-            // the resolved type is a record with a `discriminator` field.
+            // `output <Record>` (record-with-`discriminator`-field) lowers to
+            // `Text`; doctor validates the record/field via the `Text` arm of
+            // `agent_discriminator_diagnostics`. There is no separate IR
+            // variant for it (the expand-pass promotion is unbuilt).
             ir::AgentOutputKind::Text,
             Some(type_ref_from_text(ty)),
             None,
