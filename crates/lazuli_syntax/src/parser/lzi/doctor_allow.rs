@@ -383,6 +383,32 @@ mod tests {
     }
 
     #[test]
+    fn parses_reason_with_commas_and_at_sign() {
+        // Spec 0028 regression: a natural-language reason containing commas
+        // (and `, @role.X`) must round-trip through the STRICT codegen-path
+        // parser as a single string literal, not split into bogus named args.
+        let src = "@doctor.allow(LZI-PREDICATE-GATE-001, reason: \"predicate-gated, admin-only, see @role.Admin\")";
+        let line = first_line(src);
+        let got = parse(&line, DoctorAllowScopeDecl::File).unwrap();
+        assert_eq!(got.code, "LZI-PREDICATE-GATE-001");
+        assert_eq!(
+            got.reason.as_deref(),
+            Some("predicate-gated, admin-only, see @role.Admin")
+        );
+    }
+
+    #[test]
+    fn capture_reason_with_commas_round_trips() {
+        // Same payload through the module-loader capture entry point that
+        // `lazuli generate go` actually calls.
+        let src = "@doctor.allow(X-1, reason: \"a, b, @role.Y\")\nfeature billing\n";
+        let got = capture_doctor_allows(src).unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].code, "X-1");
+        assert_eq!(got[0].reason.as_deref(), Some("a, b, @role.Y"));
+    }
+
+    #[test]
     fn parses_code_only() {
         let line = first_line("@doctor.allow(X-1)");
         let got = parse(&line, DoctorAllowScopeDecl::Construct { line: 4 }).unwrap();

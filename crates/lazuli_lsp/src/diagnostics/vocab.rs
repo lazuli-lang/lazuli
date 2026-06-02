@@ -291,4 +291,39 @@ mod alias_tests {
         let src = "resource R\n  count: Integer\n  # note: Int in a comment is fine\n";
         assert!(scalar_alias_diagnostics(src).is_empty());
     }
+
+    #[test]
+    fn doctor_allow_node_emits_no_namespace_catalog_warning() {
+        // Spec 0028 regression: the sanctioned `@doctor.allow(...)` waiver node
+        // must NOT self-inflict a `namespace-catalog` warning. The scanner
+        // splits the head into namespace `doctor` + target `allow`; `doctor` is
+        // now in REFERENCE_NAMESPACES, so the warning is suppressed.
+        use tower_lsp::lsp_types::NumberOrString;
+        let src =
+            "@doctor.allow(LZI-FILE-SIZE-001, reason: \"generated\")\nfeature billing\n";
+        let d = namespace_reference_diagnostics(src);
+        let is_catalog = |diag: &Diagnostic| {
+            matches!(&diag.code, Some(NumberOrString::String(s)) if s == "namespace-catalog")
+        };
+        assert!(
+            !d.iter().any(is_catalog),
+            "@doctor.allow should not emit a namespace-catalog warning, got: {:?}",
+            d.iter().map(|x| &x.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn unknown_namespace_still_warns() {
+        // Guard the fix doesn't over-suppress: a genuinely unknown namespace
+        // still surfaces the catalog warning.
+        use tower_lsp::lsp_types::NumberOrString;
+        let d = namespace_reference_diagnostics("  requires @bogus.thing\n");
+        let is_catalog = |diag: &Diagnostic| {
+            matches!(&diag.code, Some(NumberOrString::String(s)) if s == "namespace-catalog")
+        };
+        assert!(
+            d.iter().any(is_catalog),
+            "unknown @bogus namespace must still warn"
+        );
+    }
 }

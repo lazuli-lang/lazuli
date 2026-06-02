@@ -91,8 +91,24 @@ pub(in crate::parser) fn parse_named_args(
 pub(in crate::parser) fn split_top_level_commas(text: &str) -> Vec<&str> {
     let mut out: Vec<&str> = Vec::new();
     let mut depth = 0i32;
+    let mut in_string = false;
     let mut start = 0;
     for (idx, ch) in text.char_indices() {
+        // A `"..."` string literal is opaque: parens AND commas inside it are
+        // payload, never structure. Without this, a natural-language
+        // `reason: "predicate-gated, admin-only"` would split mid-quote and the
+        // post-comma fragment (no `:`) would fail named-arg parsing — the spec
+        // 0028 `@doctor.allow` codegen regression. We do not honor `\"` escapes:
+        // the `.lzi` string grammar has none today, and the reason value is
+        // re-unquoted (first `"` … next `"`) one layer up, so the boundaries
+        // must agree.
+        if ch == '"' {
+            in_string = !in_string;
+            continue;
+        }
+        if in_string {
+            continue;
+        }
         match ch {
             '(' | '[' => depth += 1,
             ')' | ']' => depth -= 1,
