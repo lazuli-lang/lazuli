@@ -14,7 +14,13 @@
 //!
 //!   - `AND tenant_id = $N`     iff the referencing relation is tenant-scoped
 //!   - `AND deleted_at IS NULL` iff the referencing relation is soft-deletable
-//!   - `AND (<extra_where>)`    iff the clause carried a `where` subset filter
+//!   - `AND (<extra_where>)`    iff the clause carried a `where` subset filter.
+//!     RESTRICT-WHERE-DIALECT-001 — the `where` predicate is STRUCTURED
+//!     (`EvalPredicate`, like partial-unique `when`) and lowered through the
+//!     SHARED `migration_ddl::restrict_where_sql`, so lazuli-dialect operators
+//!     become valid SQL (`deleted_at == nil` → `deleted_at IS NULL`,
+//!     `status == "open"` → `status = 'open'`). Raw-SQL clauses the parser
+//!     left `Unparsed` render verbatim for back-compat.
 //!
 //! These predicates come from the IR's *derived* `tenant_scoped` /
 //! `soft_delete` flags (set by the analyzer from the relation's schema, not
@@ -101,7 +107,15 @@ fn emit_one_guard(p: &mut GoPrinter, protected: &str, guard: &RestrictOnDelete) 
         p.line("\t  AND deleted_at IS NULL");
     }
     if let Some(extra) = &guard.extra_where {
-        p.line(&format!("\t  AND ({extra})"));
+        // RESTRICT-WHERE-DIALECT-001 — lower the structured predicate through
+        // the SAME shared lowering the partial-unique index uses
+        // (`restrict_where_sql`), so lazuli-dialect operators become valid SQL
+        // (`deleted_at == nil` → `deleted_at IS NULL`, `status == "open"` →
+        // `status = 'open'`) instead of being spliced in verbatim. Raw-SQL
+        // `where` clauses the parser left `Unparsed` (`status = 'open'`) still
+        // flow through verbatim for back-compat.
+        let extra_sql = super::migration_ddl::restrict_where_sql(extra);
+        p.line(&format!("\t  AND ({extra_sql})"));
     }
     let _ = next_param;
     p.line(")`");
@@ -148,7 +162,11 @@ fn source_clause(_protected: &str, guard: &RestrictOnDelete) -> String {
         s.push_str(&format!(" error {code}"));
     }
     if let Some(extra) = &guard.extra_where {
-        s.push_str(&format!(" where {extra}"));
+        // Render the structured predicate back as its lowered SQL so the
+        // self-documenting comment matches the SQL actually emitted into the
+        // `EXISTS` probe above (RESTRICT-WHERE-DIALECT-001).
+        let extra_sql = super::migration_ddl::restrict_where_sql(extra);
+        s.push_str(&format!(" where {extra_sql}"));
     }
     s
 }

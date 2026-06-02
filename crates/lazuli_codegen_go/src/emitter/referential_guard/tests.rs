@@ -7,11 +7,25 @@
 //! — matching the hand-written pauta guards exactly.
 
 use lazuli_ir::{
-    BuiltinType, Defaults, Feature, Field, FieldConstraints, Policies, Resource, RestrictOnDelete,
-    Tenancy, TypeRef,
+    BuiltinType, CompareOp, Defaults, EvalPredicate, Expr, Feature, Field, FieldConstraints, Path,
+    Policies, Predicate, Resource, RestrictOnDelete, Tenancy, TypeRef,
 };
 
 use super::emit_referential_guard_file;
+
+/// Build a structured closed-predicate comparison `<col> <op> <rhs>` —
+/// mirrors what `analyzer::parse_closed_predicate` produces from a
+/// `restrict ... where <pred>` line, so these golden tests exercise the
+/// SAME `EvalPredicate` shape the real pipeline carries.
+fn cmp(col: &str, op: CompareOp, rhs: Expr) -> EvalPredicate {
+    EvalPredicate::Closed(Predicate::Comparison {
+        left: Expr::Path(Path {
+            segments: vec![col.to_owned()],
+        }),
+        op,
+        right: rhs,
+    })
+}
 
 fn base_feature(name: &str) -> Feature {
     Feature {
@@ -211,11 +225,19 @@ fn soft_delete_only_skips_tenant_predicate() {
 }
 
 #[test]
-fn extra_where_subset_filter_is_appended() {
-    // guard_no_open_activities: only OPEN activities count.
+fn extra_where_structured_comparison_lowers_to_sql() {
+    // RESTRICT-WHERE-DIALECT-001 — a lazuli-dialect comparison
+    // `status == "open"` must lower to SQL `status = 'open'` (the `==`
+    // operator → `=`, the "open" string literal → '...'), exactly as the
+    // partial-unique `when` path lowers it. guard_no_open_activities: only
+    // OPEN activities count.
     let mut f = base_feature("ops");
     let mut g = guard("activity", "step_id", true, true);
-    g.extra_where = Some("status = 'open'".to_owned());
+    g.extra_where = Some(cmp(
+        "status",
+        CompareOp::Eq,
+        Expr::String("open".to_owned()),
+    ));
     f.resources
         .push(resource_with_guards("WorkflowStep", vec![g]));
     let out = emit(f);
@@ -223,7 +245,67 @@ fn extra_where_subset_filter_is_appended() {
     assert!(out.contains("AND deleted_at IS NULL"), "{out}");
     assert!(
         out.contains("AND (status = 'open')"),
-        "extra_where subset filter missing:\n{out}"
+        "structured comparison must lower `status == \"open\"` to SQL `status = 'open'`:\n{out}"
+    );
+    // The raw lazuli `==` must NEVER reach the emitted SQL.
+    assert!(
+        !out.contains("status == "),
+        "lazuli `==` leaked into SQL unlowered:\n{out}"
+    );
+}
+
+#[test]
+fn extra_where_nil_comparison_lowers_to_is_null() {
+    // RESTRICT-WHERE-DIALECT-001 (the founding bug) — `deleted_at == nil`
+    // previously emitted invalid Postgres `AND (deleted_at == nil)`. It must
+    // now lower to `AND (deleted_at IS NULL)` via the SHARED nil-comparison
+    // lowering the partial-unique index uses.
+    let mut f = base_feature("ops");
+    let mut g = guard("activity", "step_id", false, false);
+    g.extra_where = Some(cmp("deleted_at", CompareOp::Eq, Expr::Nil));
+    f.resources
+        .push(resource_with_guards("WorkflowStep", vec![g]));
+    let out = emit(f);
+    assert!(
+        out.contains("AND (deleted_at IS NULL)"),
+        "`deleted_at == nil` must lower to `deleted_at IS NULL`:\n{out}"
+    );
+    assert!(
+        !out.contains("== nil"),
+        "invalid lazuli `== nil` leaked into SQL:\n{out}"
+    );
+}
+
+#[test]
+fn extra_where_nil_inequality_lowers_to_is_not_null() {
+    // `published_at != nil` → `published_at IS NOT NULL`.
+    let mut f = base_feature("ops");
+    let mut g = guard("activity", "step_id", false, false);
+    g.extra_where = Some(cmp("published_at", CompareOp::Ne, Expr::Nil));
+    f.resources
+        .push(resource_with_guards("WorkflowStep", vec![g]));
+    let out = emit(f);
+    assert!(
+        out.contains("AND (published_at IS NOT NULL)"),
+        "`published_at != nil` must lower to `published_at IS NOT NULL`:\n{out}"
+    );
+}
+
+#[test]
+fn extra_where_raw_sql_dialect_passes_through_verbatim() {
+    // BACK-COMPAT — an author who wrote raw SQL `status = 'open'` (the SQL
+    // `=`, which the lazuli closed-predicate parser leaves `Unparsed`) must
+    // STILL render verbatim, exactly as the prior raw-string passthrough did.
+    // No silent breakage of pilots that relied on SQL dialect.
+    let mut f = base_feature("ops");
+    let mut g = guard("activity", "step_id", true, true);
+    g.extra_where = Some(EvalPredicate::Unparsed("status = 'open'".to_owned()));
+    f.resources
+        .push(resource_with_guards("WorkflowStep", vec![g]));
+    let out = emit(f);
+    assert!(
+        out.contains("AND (status = 'open')"),
+        "raw-SQL `where` must pass through verbatim for back-compat:\n{out}"
     );
 }
 
@@ -318,4 +400,65 @@ fn count_origin_and_exists_origin_lower_identically() {
     let out = emit(f);
     assert!(out.contains("SELECT EXISTS ("), "always EXISTS, never COUNT:\n{out}");
     assert!(!out.contains("COUNT(*)"), "COUNT must never be emitted:\n{out}");
+}
+
+/// RESTRICT-WHERE-DIALECT-001 — full pipeline (parse → analyze →
+/// `parse_closed_predicate` → emit) E2E gate. Proves the founding bug is
+/// fixed at the surface an author actually touches: a `.lzi` line written in
+/// lazuli dialect (`where deleted_at == nil`) emits VALID Postgres
+/// (`deleted_at IS NULL`), not the raw `deleted_at == nil` it used to.
+#[test]
+fn pipeline_restrict_where_nil_lowers_to_is_null() {
+    let source = "\nfeature ops\n  resource WorkflowStep\n    name: Text required\n    restrict on_delete references activity via step_id where deleted_at == nil\n";
+    let features = lazuli_syntax::parse_feature_skeletons(source)
+        .expect("fixture should parse")
+        .into_iter()
+        .map(|f| lazuli_analyzer::lower_feature_skeleton(&f).expect("fixture should lower"))
+        .collect::<Vec<_>>();
+    let feature = &features[0];
+    let out = emit_referential_guard_file("ops.lzi", feature).expect("feature has a guard");
+    assert!(
+        out.contains("AND (deleted_at IS NULL)"),
+        "pipeline must lower lazuli `deleted_at == nil` to SQL `deleted_at IS NULL`:\n{out}"
+    );
+    assert!(
+        !out.contains("== nil"),
+        "invalid lazuli `== nil` must never reach the emitted SQL:\n{out}"
+    );
+}
+
+/// Companion to the nil case: a plain comparison written in lazuli dialect
+/// (`status == "open"`) lowers to SQL `status = 'open'` end-to-end.
+#[test]
+fn pipeline_restrict_where_comparison_lowers_to_sql() {
+    let source = "\nfeature ops\n  resource WorkflowStep\n    name: Text required\n    restrict on_delete references activity via step_id where status == \"open\"\n";
+    let features = lazuli_syntax::parse_feature_skeletons(source)
+        .expect("fixture should parse")
+        .into_iter()
+        .map(|f| lazuli_analyzer::lower_feature_skeleton(&f).expect("fixture should lower"))
+        .collect::<Vec<_>>();
+    let out = emit_referential_guard_file("ops.lzi", &features[0]).expect("feature has a guard");
+    assert!(
+        out.contains("AND (status = 'open')"),
+        "pipeline must lower lazuli `status == \"open\"` to SQL `status = 'open'`:\n{out}"
+    );
+    assert!(!out.contains("status == "), "lazuli `==` leaked into SQL:\n{out}");
+}
+
+/// Back-compat at the pipeline level: an author who wrote raw SQL
+/// `status = 'open'` (SQL `=`, which the closed-predicate parser leaves
+/// `Unparsed`) STILL gets `status = 'open'` verbatim — no pilot breaks.
+#[test]
+fn pipeline_restrict_where_raw_sql_passes_through() {
+    let source = "\nfeature ops\n  resource WorkflowStep\n    name: Text required\n    restrict on_delete references activity via step_id where status = 'open'\n";
+    let features = lazuli_syntax::parse_feature_skeletons(source)
+        .expect("fixture should parse")
+        .into_iter()
+        .map(|f| lazuli_analyzer::lower_feature_skeleton(&f).expect("fixture should lower"))
+        .collect::<Vec<_>>();
+    let out = emit_referential_guard_file("ops.lzi", &features[0]).expect("feature has a guard");
+    assert!(
+        out.contains("AND (status = 'open')"),
+        "raw-SQL `where status = 'open'` must pass through verbatim:\n{out}"
+    );
 }

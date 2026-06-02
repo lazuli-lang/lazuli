@@ -32,6 +32,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::nodes::aggregate::Invariant;
+use crate::nodes::ai_primitives::EvalPredicate;
 use crate::nodes::feature_defaults::{Constraint, FieldValidation, PathRef, Tenancy};
 use crate::nodes::lifecycle::Lifecycle;
 use crate::{PublicContract, SpanRef, is_false};
@@ -219,10 +220,23 @@ pub struct RestrictOnDelete {
     pub relation: String,
     /// Foreign-key column on `relation` pointing at this resource's id.
     pub fk: String,
-    /// `where <predicate>` subset filter, verbatim. `None` for the common
+    /// `where <predicate>` subset filter as a STRUCTURED predicate, lowered
+    /// through the same closed-predicate parser the partial-unique `when`
+    /// clause uses (`analyzer::parse_closed_predicate`). `None` for the common
     /// "any live reference" case.
+    ///
+    /// RESTRICT-WHERE-DIALECT-001 — this was an `Option<String>` raw-SQL
+    /// passthrough, so a lazuli-dialect operator (`deleted_at == nil`) emitted
+    /// invalid Postgres (`AND (deleted_at == nil)`) silently. Carrying the
+    /// predicate structurally lets the codegen guard emitter render it through
+    /// the SAME lowering as the partial-unique index (`== nil` → `IS NULL`,
+    /// `status == "open"` → `status = 'open'`), matching the dialect the rest
+    /// of the language uses. A shape the closed-predicate parser can't
+    /// structure lands in [`EvalPredicate::Unparsed`], whose text is rendered
+    /// verbatim — preserving back-compat for authors who wrote raw SQL
+    /// (`status = 'open'` with the SQL `=`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extra_where: Option<String>,
+    pub extra_where: Option<EvalPredicate>,
     /// Derived: the referencing relation carries a tenant column, so the
     /// emitted `EXISTS` adds `AND tenant_id = $N`. NOT author-supplied.
     #[serde(default, skip_serializing_if = "is_false")]

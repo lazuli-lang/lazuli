@@ -71,6 +71,11 @@ pub use alter_table::{
     emit_alter_migration_file,
 };
 pub(crate) use constraint::unique_violation_codes;
+// RESTRICT-WHERE-DIALECT-001 — the referential-guard emitter lowers a
+// `restrict ... where <predicate>` through the SAME predicate lowering the
+// partial-unique index uses, so `== nil` → `IS NULL` etc. is shared, not
+// duplicated.
+pub(crate) use index::restrict_where_sql;
 
 // Internal-only re-exports — tests live in this file and use
 // `super::*` to reach the prod helpers. New code should reach into
