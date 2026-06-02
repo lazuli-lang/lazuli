@@ -1,6 +1,8 @@
 package lazuli
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -183,6 +185,163 @@ func TestClassifyDBErrorUnregisteredConstraintStaysGeneric(t *testing.T) {
 	if lazErr.Status != http.StatusConflict {
 		t.Fatalf("Status = %d, want 409", lazErr.Status)
 	}
+}
+
+// findSlogEntry parses the captured slog buffer line-by-line (slog emits one
+// JSON object per line) and returns the first entry whose "msg" equals want.
+func findSlogEntry(t *testing.T, buf *bytes.Buffer, want string) map[string]any {
+	t.Helper()
+	for _, line := range bytes.Split(bytes.TrimSpace(buf.Bytes()), []byte("\n")) {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 {
+			continue
+		}
+		var entry map[string]any
+		if err := json.Unmarshal(line, &entry); err != nil {
+			t.Fatalf("slog line not JSON: %v; line=%q", err, line)
+		}
+		if entry["msg"] == want {
+			return entry
+		}
+	}
+	t.Fatalf("no slog entry with msg=%q; log=%q", want, buf.String())
+	return nil
+}
+
+// TestClassifyDBErrorPopulatesBaseCauseWithSQLState is the regression guard
+// for ERR-BASE-CAUSE-UNPOPULATED: classifyDBError MUST wrap the original pg
+// error into Base.Cause so writeLazuliError's always-on 5xx server log
+// ("cause" attr) and the dev-only `detail.cause` block carry the SQLSTATE +
+// raw pg message. Before this fix Base.Cause was nil for DB-origin errors and
+// the cause came up empty in the structured envelope.
+func TestClassifyDBErrorPopulatesBaseCauseWithSQLState(t *testing.T) {
+	cases := []struct {
+		name     string
+		sqlstate string
+		// pgErr.Error() renders "<severity>: <message> (SQLSTATE <code>)".
+		wantSubstrings []string
+	}{
+		{
+			name:           "unmapped 5xx (the blind-diagnosis path)",
+			sqlstate:       "42703", // undefined_column → 500/internal
+			wantSubstrings: []string{"SQLSTATE 42703", "column"},
+		},
+		{
+			name:           "mapped 4xx still carries cause",
+			sqlstate:       "23505", // unique_violation → 409
+			wantSubstrings: []string{"SQLSTATE 23505"},
+		},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			pgErr := &pgconn.PgError{
+				Severity: "ERROR",
+				Code:     c.sqlstate,
+				Message:  `column "org" of relation "reports_exports" does not exist`,
+			}
+			lazErr := classifyDBError("insert", pgErr)
+
+			if lazErr.Base.Cause == nil {
+				t.Fatalf("SQLSTATE %s: Base.Cause is nil; the SQLSTATE/detail is lost from the structured envelope", c.sqlstate)
+			}
+			// errors.As must walk through *Error.Unwrap to the wrapped pg error.
+			var got *pgconn.PgError
+			if !errors.As(lazErr, &got) {
+				t.Fatalf("SQLSTATE %s: errors.As(*Error) did not reach the wrapped *pgconn.PgError", c.sqlstate)
+			}
+			causeStr := lazErr.Base.Cause.Error()
+			for _, sub := range c.wantSubstrings {
+				if !strings.Contains(causeStr, sub) {
+					t.Fatalf("SQLSTATE %s: Base.Cause %q missing %q", c.sqlstate, causeStr, sub)
+				}
+			}
+			// Client-facing masking is untouched: the masked Message must NOT
+			// carry the raw SQLSTATE / column name.
+			if strings.Contains(lazErr.Message, "SQLSTATE") || strings.Contains(lazErr.Message, "org") {
+				t.Fatalf("SQLSTATE %s: client Message leaked pg internals: %q", c.sqlstate, lazErr.Message)
+			}
+		})
+	}
+}
+
+// TestClassifyDBErrorCauseFlowsToDevDetailAndProdMasks walks the full HTTP
+// boundary on the canonical DB-origin 500 (an INSERT into a non-existent
+// column → SQLSTATE 42703). It proves the end-to-end ERR-BASE-CAUSE-UNPOPULATED
+// fix: in dev the response `detail.cause` + the server log `cause` carry the
+// SQLSTATE 42703 + "column ... does not exist", while in prod the whole detail
+// block is masked (only the server log keeps the cause).
+func TestClassifyDBErrorCauseFlowsToDevDetailAndProdMasks(t *testing.T) {
+	const sqlstate = "42703"
+	newPgErr := func() *pgconn.PgError {
+		return &pgconn.PgError{
+			Severity: "ERROR",
+			Code:     sqlstate,
+			Message:  `column "org" of relation "reports_exports" does not exist`,
+		}
+	}
+
+	t.Run("dev exposes detail.cause + logs cause", func(t *testing.T) {
+		t.Setenv("LAZULI_ENV", "dev")
+		buf := captureSlog(t)
+
+		lazErr := classifyDBError("insert", newPgErr())
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/c/reports_exports.request_billing_summary", nil)
+		writeError(rec, req, lazErr)
+
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500", rec.Code)
+		}
+
+		// Server log carries the cause on the structured 5xx line. The buffer
+		// may also hold the discrete "unmapped pg error" line, so scan for the
+		// "request failed (5xx)" entry rather than unmarshaling the whole buffer.
+		entry := findSlogEntry(t, buf, "lazuli: request failed (5xx)")
+		cause, _ := entry["cause"].(string)
+		if !strings.Contains(cause, "SQLSTATE "+sqlstate) || !strings.Contains(cause, "column") {
+			t.Fatalf("server log cause = %q, want SQLSTATE %s + column detail", cause, sqlstate)
+		}
+
+		// Dev response detail.cause carries the same.
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("body not JSON: %v; body=%q", err, rec.Body.String())
+		}
+		detail, ok := body["detail"].(map[string]any)
+		if !ok {
+			t.Fatalf("dev body missing detail block: %q", rec.Body.String())
+		}
+		dCause, _ := detail["cause"].(string)
+		if !strings.Contains(dCause, "SQLSTATE "+sqlstate) || !strings.Contains(dCause, "column") {
+			t.Fatalf("dev detail.cause = %q, want SQLSTATE %s + column detail", dCause, sqlstate)
+		}
+		// Client message stays generic.
+		if msg, _ := body["message"].(string); strings.Contains(msg, "SQLSTATE") || strings.Contains(msg, "org") {
+			t.Fatalf("dev client message leaked pg internals: %q", msg)
+		}
+	})
+
+	t.Run("prod masks detail but log keeps cause", func(t *testing.T) {
+		t.Setenv("LAZULI_ENV", "production")
+		buf := captureSlog(t)
+
+		lazErr := classifyDBError("insert", newPgErr())
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/c/reports_exports.request_billing_summary", nil)
+		writeError(rec, req, lazErr)
+
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("body not JSON: %v", err)
+		}
+		if _, ok := body["detail"]; ok {
+			t.Fatalf("prod body leaked detail block: %q", rec.Body.String())
+		}
+		if !strings.Contains(buf.String(), "SQLSTATE "+sqlstate) {
+			t.Fatalf("prod server log dropped the cause: %q", buf.String())
+		}
+	})
 }
 
 // TestClassifyDBErrorWrappedPgErrorStillClassifies covers the
