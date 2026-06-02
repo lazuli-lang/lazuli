@@ -24,7 +24,8 @@ use super::internals::{append_manifest_block, copy_dir_if_absent, ensure_dir, wr
 /// Emits the **canonical 6+6 closed catalog** per
 /// `docs/decisions/client_src_canonical_architecture_2026-05-17.md` §3:
 ///
-/// - `app/web/{index.html, main.tsx}` (entrypoints)
+/// - `app/web/{index.html, main.tsx, lazuli.ts}` (entrypoints +
+///   the singleton `LazuliClient`/`QueryClient` the providers mount)
 /// - `app/web/shell/{root.tsx, layout.tsx, error_boundary.tsx}` (1/7)
 /// - `app/web/routes/index.tsx` (2/7, placeholder)
 /// - `app/web/ui/{forms, feedback, navigation, display, overlays, layout}/.gitkeep` (3/7, 7+6)
@@ -127,6 +128,14 @@ pub fn scaffold_frontend_web(project_root: &Path, _app_name: &str) -> Result<()>
         templates::FRONTEND_WEB_INDEX_HTML,
     )?;
     write_if_absent(&web_dir.join("main.tsx"), templates::FRONTEND_WEB_MAIN_TSX)?;
+    // The singleton runtime client + query cache the providers in
+    // `shell/root.tsx` mount. Without this module the providers have no
+    // client and the first SDK hook throws `useLazuliClient: missing
+    // LazuliProvider client`.
+    write_if_absent(
+        &web_dir.join("lazuli.ts"),
+        templates::FRONTEND_WEB_LAZULI_TS,
+    )?;
     write_if_absent(
         &shell_dir.join("root.tsx"),
         templates::FRONTEND_WEB_ROOT_TSX,
@@ -718,6 +727,76 @@ mod tests {
                  import it and resolve from the project root, not the web client"
             );
         }
+    }
+
+    /// The shell wires the runtime providers AROUND a `RouterProvider`,
+    /// sourcing the singleton client + cache from `app/web/lazuli.ts`.
+    /// Without `LazuliProvider`/`QueryClientProvider` the first generated
+    /// SDK hook throws `useLazuliClient: missing LazuliProvider client`;
+    /// this is the regression that left a fresh pilot dead-on-arrival in
+    /// the browser.
+    #[test]
+    fn scaffold_wires_providers_around_router() {
+        let project = tempdir();
+        let root = project.path();
+        scaffold_frontend_web(root, "demo").unwrap();
+
+        // The singleton client module is emitted with both singletons +
+        // the token-persistence helper a pilot login route calls.
+        let lazuli_ts = fs::read_to_string(root.join("app/web/lazuli.ts")).unwrap();
+        assert!(
+            lazuli_ts.contains("new LazuliClient"),
+            "lazuli.ts must construct the runtime client"
+        );
+        assert!(
+            lazuli_ts.contains("new QueryClient"),
+            "lazuli.ts must construct the TanStack query cache"
+        );
+        assert!(
+            lazuli_ts.contains("export const lazuliClient")
+                && lazuli_ts.contains("export const queryClient"),
+            "lazuli.ts must export lazuliClient + queryClient singletons"
+        );
+        assert!(
+            lazuli_ts.contains("export function persistSessionToken"),
+            "lazuli.ts must export persistSessionToken for pilot login routes"
+        );
+        assert!(
+            lazuli_ts.contains("setAuthToken") && lazuli_ts.contains("localStorage"),
+            "lazuli.ts must rehydrate + persist the bearer token via localStorage"
+        );
+
+        // The shell mounts BOTH providers wrapping a RouterProvider, and
+        // pulls the singletons from @web/lazuli (not a private new'd one).
+        let root_tsx = fs::read_to_string(root.join("app/web/shell/root.tsx")).unwrap();
+        assert!(
+            root_tsx.contains("QueryClientProvider"),
+            "root.tsx must mount QueryClientProvider"
+        );
+        assert!(
+            root_tsx.contains("LazuliProvider"),
+            "root.tsx must mount LazuliProvider"
+        );
+        assert!(
+            root_tsx.contains("RouterProvider"),
+            "root.tsx must render a RouterProvider"
+        );
+        assert!(
+            root_tsx.contains("from \"@web/lazuli\"")
+                && root_tsx.contains("lazuliClient")
+                && root_tsx.contains("queryClient"),
+            "root.tsx must import the singletons from @web/lazuli"
+        );
+
+        // Ordering: both providers must wrap the RouterProvider, else the
+        // routed SDK hooks have no client/cache ancestor.
+        let q_idx = root_tsx.find("<QueryClientProvider").expect("QueryClientProvider tag");
+        let l_idx = root_tsx.find("<LazuliProvider").expect("LazuliProvider tag");
+        let r_idx = root_tsx.find("<RouterProvider").expect("RouterProvider tag");
+        assert!(
+            q_idx < r_idx && l_idx < r_idx,
+            "both providers must wrap RouterProvider (q={q_idx} l={l_idx} r={r_idx})"
+        );
     }
 
     /// Both smoke tests are emitted under `app/web/__smoke__/`.
