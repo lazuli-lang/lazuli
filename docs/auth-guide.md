@@ -26,7 +26,6 @@ feature account
       algorithm argon2id
       hash @fn.hash_password
       verify @fn.verify_password
-      rate_limit "5 per 10 minutes per ip"
 
     sessions
       resource UserSession
@@ -41,6 +40,19 @@ feature account
 ```
 
 `auth identity` points at the resource field used for login lookup. `auth password` lowers to a password contract; `argon2id` is the canonical v0 algorithm. `auth sessions` names the persisted session resource and either its legacy single-token TTL or its access/refresh rotation discipline. Each `auth oauth <provider>` lowers to one provider contract with an adapter reference resolved at boot.
+
+> **Rate-limiting login.** Do NOT declare `rate_limit` inside the `auth password` block. The slot parses and lowers onto `auth.PasswordContract.RateLimit`, but the runtime never enforces it — `auth.VerifyPassword` is a pure credential compare with no throttle, so an auth-block `rate_limit` is dead config (doctor flags it as `AUTH-RATELIMIT-NOOP-001`). Put the throttle on the `command login` and `command signup` that mount the `/auth/login` and `/auth/signup` routes instead — `command.rate_limit` is the active control, enforced per request in the command pipeline (`handle.go`):
+>
+> ```lzi
+> command login
+>   input
+>     email: @semantic.Email required
+>     password: Text required
+>   policy @policy.public
+>   rate_limit "5 per 10 minutes per ip"
+>   returns LoginResult
+>   handler @fn.login
+> ```
 
 ## What gets emitted
 

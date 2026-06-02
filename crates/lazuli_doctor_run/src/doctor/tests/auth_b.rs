@@ -157,7 +157,6 @@ feature x
       algorithm argon2id
       hash @fn.h
       verify @fn.v
-      rate_limit "5 per 10 minutes"
 
     sessions
       resource Session
@@ -168,6 +167,7 @@ feature x
         let diagnostics = package.diagnostics();
         let surfaced = codes(&diagnostics);
         for code in [
+            "AUTH-RATELIMIT-NOOP-001",
             "auth_password_algorithm_hash_mismatch",
             "auth_password_no_session",
             "auth_sessions_resource_unknown",
