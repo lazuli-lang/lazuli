@@ -27,13 +27,22 @@ import (
 // `Ctx.User` struct is built. When only `X-Lazuli-Actor: system` is sent,
 // the request runs as the system actor (no user). Without any header the
 // request is anonymous.
+//
+// SECURITY (SEC-DEVSESSION-FAILOPEN): this path is gated by an explicit
+// ALLOW-LIST (`devSessionEnabled`) — it runs ONLY when `LAZULI_ENV` is a
+// recognised dev value (`dev`/`local`). Every other value — unset, a typo,
+// `prod`, `staging`, `production` — keeps the header-forge path OFF. The
+// previous logic was a deny-list ("anything that isn't `production`") which
+// failed OPEN: an unset or mistyped `LAZULI_ENV` on a real deploy let any
+// caller forge identity/tenant/roles via `X-Lazuli-*` headers.
 func populateDevSession(r *http.Request, ctx *Ctx) {
-	if os.Getenv("LAZULI_ENV") == "production" {
+	if !devSessionEnabled() {
 		if r.Header.Get("X-Lazuli-Actor") != "" ||
 			r.Header.Get("X-Lazuli-User-ID") != "" ||
 			r.Header.Get("X-Lazuli-Org-ID") != "" ||
 			r.Header.Get("X-Lazuli-Roles") != "" {
-			slog.Warn("lazuli: rejecting dev-session header in production",
+			slog.Warn("lazuli: ignoring X-Lazuli-* dev-session headers (dev-session disabled for this LAZULI_ENV)",
+				"lazuli_env", normalizeEnv(os.Getenv("LAZULI_ENV")),
 				"remote_addr", r.RemoteAddr)
 		}
 		return
@@ -65,6 +74,48 @@ func populateDevSession(r *http.Request, ctx *Ctx) {
 	if orgID > 0 {
 		ctx.Tenant = &Tenant{OrgID: orgID}
 	}
+}
+
+// normalizeEnv canonicalises `LAZULI_ENV` to its lowercase, whitespace-
+// trimmed form. Unset becomes "" (treated as unknown by the dev-session
+// allow-list — fail-closed).
+func normalizeEnv(raw string) string {
+	return strings.ToLower(strings.TrimSpace(raw))
+}
+
+// devSessionEnvAllowed reports whether `env` (already normalized) is one of
+// the recognised local-development environments where the `X-Lazuli-*`
+// header impersonation path is permitted. This is the ALLOW-LIST: only
+// these exact values turn the dev-session on; everything else is off.
+func devSessionEnvAllowed(env string) bool {
+	switch env {
+	case "dev", "local":
+		return true
+	default:
+		return false
+	}
+}
+
+// devSessionEnabled reports whether the `X-Lazuli-*` dev-session
+// impersonation path may run for the current process.
+//
+// Fail-closed by design: the path is enabled ONLY when `LAZULI_ENV` is an
+// explicit dev value (`dev`/`local`). An optional stricter opt-in is also
+// honoured — setting `LAZULI_DEV_SESSION` to a truthy literal still requires
+// a dev env, so it can never re-enable impersonation in prod/staging/unknown.
+// Setting it to a falsy literal force-disables dev-session even in a dev env.
+func devSessionEnabled() bool {
+	env := normalizeEnv(os.Getenv("LAZULI_ENV"))
+	if !devSessionEnvAllowed(env) {
+		return false
+	}
+	// Within a dev env, an explicit LAZULI_DEV_SESSION override can force
+	// the path off. We never let it force the path ON outside a dev env.
+	switch normalizeEnv(os.Getenv("LAZULI_DEV_SESSION")) {
+	case "0", "false", "no", "off":
+		return false
+	}
+	return true
 }
 
 // ProductionSessionCookieName is the canonical cookie name the production

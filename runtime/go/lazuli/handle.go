@@ -1409,9 +1409,41 @@ func pascalCase(s string) string {
 	return strings.Join(parts, "")
 }
 
+// recognisedBootEnvs lists every `LAZULI_ENV` value the runtime knows how to
+// interpret. Boot warns loudly when the configured env is none of these so a
+// typo (`prod`, `prodution`, …) is caught at startup instead of silently
+// degrading a security posture (CORS origins, rate limits, dev-session).
+var recognisedBootEnvs = map[string]struct{}{
+	"local":      {},
+	"dev":        {},
+	"test":       {},
+	"staging":    {},
+	"production": {},
+}
+
+// warnUnknownBootEnv (BOOT-ENV-UNSET-001) emits a loud startup warning when
+// `LAZULI_ENV` is unset or set to a value the runtime does not recognise.
+// It never aborts boot (a refusal would be a deploy footgun), but it makes
+// the misconfiguration impossible to miss in logs — and critically, the
+// dev-session header path stays OFF for any unknown env (see
+// `devSessionEnabled`), so an unrecognised env is fail-closed, not fail-open.
+func warnUnknownBootEnv() {
+	raw := os.Getenv("LAZULI_ENV")
+	env := normalizeEnv(raw)
+	if env == "" {
+		slog.Warn("lazuli: LAZULI_ENV is UNSET — treating as unknown; dev-session header auth is DISABLED, env-scoped CORS/rate-limit fall back to defaults. Set LAZULI_ENV to one of local|dev|test|staging|production.")
+		return
+	}
+	if _, ok := recognisedBootEnvs[env]; !ok {
+		slog.Warn("lazuli: LAZULI_ENV has an UNRECOGNISED value — likely a typo; dev-session header auth is DISABLED (fail-closed). Set LAZULI_ENV to one of local|dev|test|staging|production.",
+			"lazuli_env", env)
+	}
+}
+
 // Boot wires the runtime: opens the DB pool. Call once at process startup
 // before the HTTP server begins serving.
 func Boot(ctx context.Context, dbURL string) error {
+	warnUnknownBootEnv()
 	pool, err := connectDB(ctx, dbURL)
 	if err != nil {
 		return err
