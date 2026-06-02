@@ -169,7 +169,7 @@ func EvalPolicy(ctx *Ctx, p Policy) error {
 func EvalPolicyInput(ctx *Ctx, p Policy, input any) error {
 	if len(p.Atoms) == 0 {
 		return &Error{Status: 500, Code: CodeInternal,
-			Message: "command/query registered with empty policy: " + p.Name}
+			Message: "contract registered with empty policy: " + p.Name}
 	}
 	if hasPredicateAtom(p.Atoms) {
 		ok, _ := evalExpr(ctx, p.Atoms, 0, input)
