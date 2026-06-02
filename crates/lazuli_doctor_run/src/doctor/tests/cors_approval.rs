@@ -92,6 +92,121 @@ app MyApp
     }
 
     #[test]
+    fn doctor_flags_cors_wildcard_in_production_as_error() {
+        // CORS-WILDCARD-PROD-001 — a bare `"*"` origin in a production-
+        // targeted environment fires (error). Compile-time companion to the
+        // runtime `Mux()` boot refusal.
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  environments
+    local
+    production
+
+  cors
+    allow_origins production "*"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let hit = diagnostics
+            .iter()
+            .find(|d| d.code == "CORS-WILDCARD-PROD-001")
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected CORS-WILDCARD-PROD-001; got {:?}",
+                    diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+                )
+            });
+        assert_eq!(
+            hit.severity,
+            DoctorSeverity::Error,
+            "production wildcard must be an error (runtime refuses to boot)"
+        );
+    }
+
+    #[test]
+    fn doctor_warns_cors_wildcard_in_local_only() {
+        // The same `"*"` under `local` is a warning, not an error — mirrors
+        // the runtime's dev `slog.Warn` (the runtime allows `"*"` in dev).
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  environments
+    local
+    production
+
+  cors
+    allow_origins local "*"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        let hit = diagnostics
+            .iter()
+            .find(|d| d.code == "CORS-WILDCARD-PROD-001")
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected CORS-WILDCARD-PROD-001; got {:?}",
+                    diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+                )
+            });
+        assert_eq!(
+            hit.severity,
+            DoctorSeverity::Warning,
+            "dev/local wildcard is a warning, not an error"
+        );
+    }
+
+    #[test]
+    fn doctor_no_false_positive_on_explicit_origins() {
+        // Explicit origins everywhere → CORS-WILDCARD-PROD-001 must NOT fire.
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  environments
+    local
+    production
+
+  urls
+    web production "https://app.example.com"
+    web local "http://localhost:5173"
+
+  cors
+    allow_origins production "https://app.example.com"
+    allow_origins local "http://localhost:5173"
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("CORS-WILDCARD-PROD-001"),
+            "explicit origins must not fire CORS-WILDCARD-PROD-001; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn doctor_no_false_positive_when_no_cors_contract() {
+        // App with NO `cors` block (like pauta) → graceful no-op.
+        let package = package_from_sources(vec![(
+            "app.lzi",
+            r#"
+app MyApp
+  environments
+    local
+    production
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert!(
+            !codes(&diagnostics).contains("CORS-WILDCARD-PROD-001"),
+            "absent cors contract must be a no-op; got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn doctor_rejects_approval_with_unknown_role() {
         let package = package_from_sources(vec![(
             "customer.lzi",

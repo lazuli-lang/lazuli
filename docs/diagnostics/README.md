@@ -23,8 +23,9 @@ This catalog mines each rule's module-header docstring (the canonical source of 
 | [Design tokens](#design-tokens) | `design/` | 11 | Tailwind / inline-style token enforcement |
 | [Error vocabulary](#error-vocabulary) | `error_vocab/` | 7 | Typed error-message resolution chain |
 | [Vocabulary (Rule Zero)](#vocabulary-rule-zero) | `vocab/` | 36 | Vocabulary fitness — `VOCAB-*`, `MONEY-*`, `@owner_axis`, `conventions`, `rate_limit` |
+| [Security](#security) | `security/` | 1 | HTTP-edge config the runtime refuses (`CORS-*`) |
 
-**Total: 105 rules.**
+**Total: 106 rules.**
 
 ---
 
@@ -231,6 +232,14 @@ Source: [`crates/lazuli_doctor/src/vocab/`](../../crates/lazuli_doctor/src/vocab
 | `vocab/universal_columns.rs` | Universal-column filter + view-projection helpers shared by `VOCAB-SHADOW-RECORD-001` and `VOCAB-RESOURCE-WIDE-CLUSTER-001`. |
 | `design/helpers.rs` | `Allowlist` reader + `walk_tsx_files` + `iter_class_strings` / `iter_style_block_segments` + escape-comment matcher. |
 | `encryption/test_support.rs` | `#[cfg(test)]` fixture helpers for the 6 encryption rules. |
+
+## Security
+
+Source: [`crates/lazuli_doctor/src/security/`](../../crates/lazuli_doctor/src/security/). HTTP-edge configuration that ships a footgun the runtime refuses (or that the CORS / cookie / CSRF spec forbids). The `CORS-*` / `SECURITY-*` / `AUTH-*` / `SESSION-*` prefix family routes to `RuleCategory::Security`.
+
+| Code | Severity | Anchor | Summary |
+|---|---|---|---|
+| `CORS-WILDCARD-PROD-001` | error | `security/cors_wildcard_prod_001.rs` | A wildcard (`"*"`) `cors allow_origins` in a production-targeted environment (env name not in `{dev, local}`). Compile-time companion to the runtime `Mux()` boot refusal (`ErrCSRFWildcardProd`): the runtime panics at boot when `LAZULI_ENV` is production AND the active CORS allowlist contains `"*"`. Error for production envs; downgraded to a warning for `dev`/`local` (mirrors the runtime's dev `slog.Warn`). No-op when no `cors` contract is declared. |
 
 ## Fixtures
 
