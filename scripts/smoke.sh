@@ -36,7 +36,7 @@ run_step() {
 
 generate_smoke() {
   rm -rf "$SMOKE_DIR"
-  cargo run -q -p lazuli_cli -- generate go "$FIXTURE" --out "$SMOKE_DIR"
+  cargo run -q -p lazuli_cli --bin lazuli -- generate go "$FIXTURE" --out "$SMOKE_DIR"
 }
 
 append_runtime_replace() {

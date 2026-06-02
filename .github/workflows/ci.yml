@@ -1,12 +1,15 @@
 # Lazuli framework CI — Rails-style enforcement.
 #
-# Five gates, all required for merge to main:
+# Six gates, all required for merge to main:
 #   1. fmt-check     — `cargo fmt --all --check` (rustfmt.toml conventions)
 #   2. clippy        — `cargo clippy --workspace -- -D warnings` (clippy.toml)
 #   3. test          — `cargo test --workspace` (all crates green)
 #   4. doc           — `cargo doc --workspace --no-deps` (no broken intra-doc-links)
 #   5. self-doctor   — `lazuli doctor --self --fail-on category:internal_hygiene
 #                       --fail-on category:test_discipline` (dogfooding)
+#   6. smoke-e2e     — boot a generated app against a real Postgres + `go build`
+#                      (scripts/smoke.sh; CI-E2E-GATE-001). The "trust nothing
+#                      that wasn't run" gate: catches golden-green/runtime-broken.
 #
 # The last gate is the editorial veto: under `tdd-iron-hand` preset
 # (Lazurite.toml workspace-root), this command exits non-zero on:
@@ -107,3 +110,54 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check fixtures for drift
         run: pwsh -File tools/generate-fixtures.ps1 -Check
+
+  # CI-E2E-GATE-001 (audit overnight-2026-06-02/07-test-coverage.md §1):
+  # the boot+exercise+assert layer (`--features smoke_e2e`, `--features smoke`,
+  # and scripts/smoke.sh) existed LOCAL-ONLY. The default `cargo test` job above
+  # compiles those harnesses to EMPTY test binaries (every `#[test]` is behind
+  # `#[cfg(feature = "smoke"|"smoke_e2e")]`), so a codegen/runtime regression
+  # that still emits well-formed text — but does not compile or behave at
+  # runtime — merged green. This job fails-closed against a real Postgres.
+  #
+  # scripts/smoke.sh runs the full chain and exits non-zero (trap ERR) if any
+  # step fails:
+  #   1. cargo test -p lazuli_codegen_go                       (default)
+  #   2. cargo test -p lazuli_codegen_go --features smoke_e2e  (boot + Postgres + HTTP probe)
+  #   3. lazuli generate go examples/marketplace-mini
+  #   4. go mod tidy + go build ./...   (generated code compiles)
+  #   5. go vet ./...                   (SMOKE_VET=1)
+  # The smoke_e2e tests resolve the DB via LAZULI_SMOKE_DB > LAZULI_DB > default;
+  # we point both at the service container below.
+  smoke-e2e:
+    name: smoke E2E (boot + Postgres + go build)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: lazuli
+          POSTGRES_PASSWORD: lazuli
+          POSTGRES_DB: lazuli
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lazuli -d lazuli"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      LAZULI_SMOKE_DB: postgres://lazuli:lazuli@localhost:5432/lazuli?sslmode=disable
+      LAZULI_DB: postgres://lazuli:lazuli@localhost:5432/lazuli?sslmode=disable
+      SMOKE_VET: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-go@v5
+        with:
+          # Generated code + runtime/go/go.mod require go 1.26 (go_mod.rs
+          # DEFAULT_GO_TOOLCHAIN = "go 1.26.0"; net/http.CrossOriginProtection).
+          go-version: "1.26"
+          cache-dependency-path: runtime/go/go.sum
+      - name: Boot + exercise smoke E2E (fails closed)
+        run: bash scripts/smoke.sh
