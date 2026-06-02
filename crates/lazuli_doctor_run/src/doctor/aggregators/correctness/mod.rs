@@ -122,6 +122,33 @@ pub(crate) fn diagnostics(
             });
         }
 
+        // CTX-PATH-UNRESOLVED-001 — error. An author-written `ctx.<tail>`
+        // binding whose tail is not a known ctx slot (per the SoT catalog
+        // `runtime/go/lazuli/ctx_path_catalog.json`) would lower to
+        // `lazuli.FromCtx("<tail>")` and 500 at runtime with
+        // "unknown ctx path". This is the "author-tail" gap the ctx-path
+        // face-parity harness admitted it could not cover.
+        for finding in correctness::ctx_path_unresolved_001::check(&feature, &fact.path) {
+            let line = fact
+                .command_lines
+                .get(&finding.command)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: correctness::ctx_path_unresolved_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            });
+        }
+
         // COMMAND-INPUT-SHADOWS-FIELD-001 — error.
         for finding in correctness::command_input_shadows_field_001::check(&feature, &fact.path) {
             let line = fact

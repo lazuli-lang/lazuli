@@ -163,4 +163,8 @@ mod tests {
     mod knowledge_single_feature {
         include!("tests/knowledge_single_feature.rs");
     }
+
+    mod ctx_path_unresolved {
+        include!("tests/ctx_path_unresolved.rs");
+    }
 }
