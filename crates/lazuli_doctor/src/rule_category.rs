@@ -126,6 +126,17 @@ impl RuleCategory {
             // string that never matches). A reference to a non-existent
             // variant is a concrete bug, not style — Correctness.
             Some("ENUM") => Self::Correctness,
+            // `RUNTIME-*` splits on the second segment. `RUNTIME-REACHABLE-*`
+            // (W2-2: `RUNTIME-REACHABLE-STUB-001` — a DSL construct that lowers
+            // to a known not-implemented 501 runtime arm) is a concrete
+            // correctness gap: the feature compiles but is dead on arrival.
+            // The pre-existing `RUNTIME-UPDATE-BUILDER-JSONB-001` is a codegen-
+            // over-generated-artifact note that historically lands in the
+            // Vocabulary fallback, so it stays there.
+            Some("RUNTIME") => match code.split('-').nth(1) {
+                Some("REACHABLE") => Self::Correctness,
+                _ => Self::Vocabulary,
+            },
             // `CTX-*` — author-written ctx-path resolution. Today:
             // `CTX-PATH-UNRESOLVED-001` (a `ctx.<tail>` binding whose tail
             // is not a known ctx slot, which would 500 at runtime with
@@ -465,6 +476,21 @@ mod tests {
         assert_eq!(
             RuleCategory::parse("InternalHygiene"),
             Some(RuleCategory::InternalHygiene)
+        );
+    }
+
+    #[test]
+    fn runtime_prefix_splits_on_second_segment() {
+        // W2-2 reachable-stub rule is a correctness gap.
+        assert_eq!(
+            RuleCategory::from_code_prefix("RUNTIME-REACHABLE-STUB-001"),
+            RuleCategory::Correctness
+        );
+        // The pre-existing update-builder note stays in the Vocabulary
+        // fallback bucket (its GLOBAL facet mirrors `vocabulary`).
+        assert_eq!(
+            RuleCategory::from_code_prefix("RUNTIME-UPDATE-BUILDER-JSONB-001"),
+            RuleCategory::Vocabulary
         );
     }
 

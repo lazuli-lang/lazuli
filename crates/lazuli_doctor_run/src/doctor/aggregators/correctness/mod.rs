@@ -122,6 +122,41 @@ pub(crate) fn diagnostics(
             });
         }
 
+        // RUNTIME-REACHABLE-STUB-001 — error. A DSL construct that lowers to
+        // a runtime path which is a KNOWN not-implemented 501 stub: a
+        // `target.<field>` source (→ `lazuli.FromTarget` → `sourceTarget` 501
+        // in `runtime/go/lazuli/handle.go`) used in a command binding or query
+        // filter, or a resource `retention ... then archive` policy (→
+        // `ErrRetentionArchiveNotImplemented` in
+        // `runtime/go/lazuli/retention.go`). The feature compiles and
+        // `go build`s but returns 501 at the first request; this surfaces
+        // "you used feature X but the runtime doesn't implement it yet" at
+        // doctor time. Command findings anchor at the command line; query /
+        // resource findings anchor at the feature header.
+        for finding in correctness::runtime_reachable_stub_001::check(&feature, &fact.path) {
+            let line = if finding.kind == "command" {
+                fact.command_lines
+                    .get(&finding.owner)
+                    .copied()
+                    .unwrap_or(fact.feature_line)
+            } else {
+                fact.feature_line
+            };
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: correctness::runtime_reachable_stub_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            });
+        }
+
         // CTX-PATH-UNRESOLVED-001 — error. An author-written `ctx.<tail>`
         // binding whose tail is not a known ctx slot (per the SoT catalog
         // `runtime/go/lazuli/ctx_path_catalog.json`) would lower to

@@ -140,6 +140,20 @@ pub const GLOBAL_DIAGNOSTICS: &[DiagnosticFacet] = &[
         base_severity: "error",
         category: "correctness",
     },
+    // W2-2 — a DSL construct that lowers to a runtime path which is a known
+    // not-implemented 501 stub (`target.<field>` source → `FromTarget` →
+    // `sourceTarget` 501; resource `retention ... then archive` →
+    // `ErrRetentionArchiveNotImplemented`). The feature compiles + `go build`s
+    // but is dead on arrival at the first request. Genuinely cross-cutting:
+    // the construct spans command bindings, query filters, AND resource
+    // retention — owned by no single keyword — so it lands in GLOBAL rather
+    // than on any one capability's `produces[]` (mirrors W2-1's
+    // `CODEGEN-GO-IDENT-COLLISION-008`).
+    DiagnosticFacet {
+        code: "RUNTIME-REACHABLE-STUB-001",
+        base_severity: "error",
+        category: "correctness",
+    },
     // ── migration codegen / runtime update-builder (over generated artifacts) ──
     DiagnosticFacet {
         code: "MIGRATION-ALTER-MISSING-001",
