@@ -7,7 +7,9 @@
 
 use super::emit_migrations;
 use super::sql_column::pg_type_for_capability;
-use super::test_support::{base_feature, base_module, builtin, field, parsed_module, resource};
+use super::test_support::{
+    base_feature, base_module, builtin, field, parsed_module, qname, resource,
+};
 use lazuli_ir::{
     BuiltinType, CapabilityRef, Constraint, EncryptedCapability, FileCapability, FileSize,
     FileSizeLiteral, FileVisibility, HashAlgorithm, HashedCapability, MimeType, TokenCapability,
@@ -645,5 +647,219 @@ fn money_field_lowers_to_amount_plus_enforced_currency_column() {
     assert!(
         !sql.contains("'BRL'"),
         "Money(currency: USD) must NOT bake in BRL anywhere, sql:\n{sql}"
+    );
+}
+
+#[test]
+fn nested_record_field_lowers_to_jsonb_not_text() {
+    // A `record X` value object stored on a resource lowers to a JSONB
+    // column — pgx scans JSONB↔struct cleanly via RowToStructByName,
+    // whereas a TEXT column 500s with `cannot scan text into *X` at read
+    // time the moment a row carries real data. Both the required and the
+    // optional (nullable) form must be JSONB.
+    let module = parsed_module(
+        r#"feature crm
+  domain
+    record Address
+      street: Text required
+      city: Text required
+
+    resource Customer
+      address: Address required
+      billing_address: Address optional
+"#,
+    );
+    let files = emit_migrations(&module, "pilot");
+    let sql = files
+        .iter()
+        .find(|f| f.path == "migrations/001_crm_customer.sql")
+        .expect("customer migration")
+        .contents
+        .as_str();
+
+    assert!(
+        sql.contains("address JSONB NOT NULL,"),
+        "required nested record must be JSONB NOT NULL:\n{sql}"
+    );
+    assert!(
+        sql.contains("billing_address JSONB"),
+        "nullable nested record must be JSONB:\n{sql}"
+    );
+    assert!(
+        !sql.contains("address TEXT"),
+        "nested record must NOT lower to TEXT (the read-time 500):\n{sql}"
+    );
+}
+
+#[test]
+fn shared_record_name_across_features_still_lowers_to_jsonb() {
+    // Regression for the real pauta failure: a value-object record like
+    // `Address` is declared in MORE THAN ONE feature, which makes the
+    // cross-feature index mark the name ambiguous → `kind()` returns
+    // `None` → the record→JSONB branch was silently skipped and the
+    // column fell back to TEXT, 500ing the list scan
+    // (`cannot scan text into *Address`). Resolution must be by bare
+    // name across the module, NOT via the ambiguity-sensitive index.
+    let module = parsed_module(
+        r#"feature customer_management
+  domain
+    record Address
+      street: Text required
+      city: Text required
+
+    resource Customer
+      address: Address required
+      billing_address: Address optional
+
+feature supplier
+  domain
+    record Address
+      street: Text required
+      city: Text required
+
+    resource Supplier
+      address: Address required
+"#,
+    );
+    let files = emit_migrations(&module, "pauta");
+
+    let cust = files
+        .iter()
+        .find(|f| f.path == "migrations/001_customer_management_customer.sql")
+        .expect("customer migration")
+        .contents
+        .as_str();
+    assert!(
+        cust.contains("address JSONB NOT NULL,") && cust.contains("billing_address JSONB"),
+        "shared-name record must STILL be JSONB despite cross-feature ambiguity:\n{cust}"
+    );
+    assert!(
+        !cust.contains("address TEXT"),
+        "ambiguous record name must not fall back to TEXT:\n{cust}"
+    );
+
+    let sup = files
+        .iter()
+        .find(|f| f.path == "migrations/002_supplier_supplier.sql")
+        .expect("supplier migration")
+        .contents
+        .as_str();
+    assert!(
+        sup.contains("address JSONB NOT NULL"),
+        "supplier's same-named record must also be JSONB:\n{sup}"
+    );
+}
+
+#[test]
+fn enum_ref_typed_field_lowers_to_bigint_like_user_defined() {
+    // The CLI's full module analysis pins enum-typed fields as
+    // `TypeRef::EnumRef(...)` (whereas `lower_feature_skeleton` alone
+    // leaves them `UserDefined`). pauta's `situation: CustomerSituation
+    // = prospect` lands as `EnumRef` and regressed to TEXT (the
+    // `cannot scan text into **CustomerSituation` 500). Both the
+    // `UserDefined` and the `EnumRef` carrier of the same int enum must
+    // lower to BIGINT. Build the field with an explicit `EnumRef` so
+    // this is locked independent of the analyzer's resolution mode.
+    use lazuli_ir::{EnumDecl, EnumVariant, StorageValue};
+
+    let mut feature = base_feature("crm");
+    let mk_variant = |name: &str, v: i64| EnumVariant {
+        name: name.to_owned(),
+        storage_value: Some(StorageValue::Integer(v)),
+        label_key: None,
+        hint_key: None,
+        icon_key: None,
+        previous_names: Vec::new(),
+    };
+    feature.enums.push(EnumDecl {
+        name: "CustomerSituation".to_owned(),
+        public_contract: None,
+        variants: vec![mk_variant("prospect", 10), mk_variant("active", 20)],
+        previous_names: Vec::new(),
+        span_ref: None,
+    });
+    feature.resources.push(resource(
+        "Customer",
+        vec![field(
+            "situation",
+            TypeRef::EnumRef(qname("CustomerSituation")),
+            false,
+        )],
+    ));
+
+    let files = emit_migrations(&base_module(vec![feature]), "pilot");
+    let sql = &files[0].contents;
+    assert!(
+        sql.contains("situation BIGINT"),
+        "EnumRef-carried int enum must lower to BIGINT:\n{sql}"
+    );
+    assert!(
+        !sql.contains("situation TEXT"),
+        "EnumRef int enum must NOT be TEXT (the read-time 500):\n{sql}"
+    );
+}
+
+#[test]
+fn int_storage_enum_field_lowers_to_bigint_not_text() {
+    // An enum with integer storage values emits `type X int64` on the Go
+    // side (emitter::enums). The DB column MUST be BIGINT so
+    // `pgx.RowToStructByName` scans `int8`→`int64`. A TEXT column 500s
+    // with `cannot scan text (OID 25) into *PersonType` — the exact bug.
+    let module = parsed_module(
+        r#"feature crm
+  domain
+    enum PersonType
+      individual = 10
+      company = 20
+
+    resource Supplier
+      person_type: PersonType required
+"#,
+    );
+    let files = emit_migrations(&module, "pilot");
+    let sql = files
+        .iter()
+        .find(|f| f.path == "migrations/001_crm_supplier.sql")
+        .expect("supplier migration")
+        .contents
+        .as_str();
+
+    assert!(
+        sql.contains("person_type BIGINT NOT NULL"),
+        "int-storage enum must be BIGINT (matches `type X int64`):\n{sql}"
+    );
+    assert!(
+        !sql.contains("person_type TEXT"),
+        "int-storage enum must NOT be TEXT (the read-time 500):\n{sql}"
+    );
+}
+
+#[test]
+fn string_storage_enum_field_stays_text() {
+    // A string-storage enum emits `type X string` on the Go side, which
+    // round-trips a TEXT column cleanly — keep TEXT (don't over-promote
+    // to BIGINT, which would break the string round-trip).
+    let module = parsed_module(
+        r#"feature crm
+  domain
+    enum Color
+      red = "RED"
+      green = "GREEN"
+
+    resource Widget
+      color: Color required
+"#,
+    );
+    let files = emit_migrations(&module, "pilot");
+    let sql = files
+        .iter()
+        .find(|f| f.path == "migrations/001_crm_widget.sql")
+        .expect("widget migration")
+        .contents
+        .as_str();
+
+    assert!(
+        sql.contains("color TEXT NOT NULL"),
+        "string-storage enum must stay TEXT (matches `type X string`):\n{sql}"
     );
 }

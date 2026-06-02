@@ -351,12 +351,12 @@ fn emit_enum_options(p: &mut GoPrinter, decl: &EnumDecl, pascal: &str) {
 /// explicit integer storage value flips the whole enum to `int64`;
 /// otherwise we render as a `string` typed alias.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StorageKind {
+pub(crate) enum StorageKind {
     Int,
     String,
 }
 
-fn classify_storage(decl: &EnumDecl) -> StorageKind {
+pub(crate) fn classify_storage(decl: &EnumDecl) -> StorageKind {
     if decl
         .variants
         .iter()
