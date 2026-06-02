@@ -272,6 +272,17 @@ fn check_command(command: &CommandFacts, index: &Index<'_>, out: &mut Vec<Diagno
         .map(|transition| (transition.name.as_str(), transition))
         .collect();
 
+    // Declared transition names, in deterministic (BTreeMap) order, so the
+    // LIFECYCLE-TRANSITION-001 message can list the valid options the author
+    // can pick from instead of leaving them to grep the lifecycle block.
+    let declared: Vec<&str> = transitions.keys().copied().collect();
+    let declared_list = list_or_none(
+        &declared
+            .iter()
+            .map(|name| format!("`{name}`"))
+            .collect::<Vec<_>>(),
+    );
+
     let mut missing = BTreeSet::new();
     for trigger in &command.triggers {
         if !transitions.contains_key(trigger.as_str()) && missing.insert(trigger.as_str()) {
@@ -280,8 +291,8 @@ fn check_command(command: &CommandFacts, index: &Index<'_>, out: &mut Vec<Diagno
                 Severity::Error,
                 command.span,
                 format!(
-                    "command `{}` triggers `{}`, but resource `{}` declares no lifecycle transition with that name.",
-                    command.name, trigger, resource_facts.name
+                    "command `{}` triggers `{}`, but resource `{}` declares no lifecycle transition with that name. Declared transitions: {}.",
+                    command.name, trigger, resource_facts.name, declared_list
                 ),
             ));
         }
