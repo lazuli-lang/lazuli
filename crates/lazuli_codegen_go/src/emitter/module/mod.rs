@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use lazuli_ir::{Gate, Module};
 
 use super::audit::{emit_audit_log_ddl, emit_audit_metadata};
+use super::framework_tables::emit_framework_table_migrations;
 use super::cross_feature::CrossFeatureIndex;
 use super::error_resolver::{APP_ERROR_RESOLUTION_PATH, emit_app_error_resolution};
 use super::handlers::emit_handler_stubs;
@@ -239,6 +240,13 @@ pub fn emit_module(
     // command.gen.go when the command declares `audit default`.
     files.push(emit_audit_log_ddl());
     files.extend(emit_audit_metadata(module));
+
+    // W2-4 — framework-synthesized table DDL (lazuli_audit / lazuli_outbox /
+    // lazuli_inbox), gated on the activating IR construct (`audit` /
+    // `outbox guaranteed`). Generalizes the unconditional `audit_log`
+    // point-fix above so the runtime never INSERTs into a table no migration
+    // created. Guarded by RUNTIME-EMITTED-TABLE-MIGRATION-001 in doctor.
+    files.extend(emit_framework_table_migrations(module));
 
     // Handler stubs at `app/features/<feature>/handlers/<name>.go` —
     // Tier 1 portable code per `docs/project-structure.md`. Returned

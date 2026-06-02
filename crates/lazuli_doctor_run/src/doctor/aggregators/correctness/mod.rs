@@ -75,6 +75,14 @@ pub(crate) fn diagnostics(
     // into `<project_root>/dist`, regardless of where `app_root` points.
     let dist_root = project_root.join("dist");
 
+    // RUNTIME-EMITTED-TABLE-MIGRATION-001 needs the WHOLE feature set
+    // (it asks "does any feature activate a synthesized table?"), so
+    // materialize the synthetic views once up front and reuse them.
+    let synthetic_features: Vec<lazuli_ir::Feature> = facts
+        .iter()
+        .map(make_synthetic_feature_for_correctness)
+        .collect();
+
     for fact in facts {
         let feature = make_synthetic_feature_for_correctness(fact);
 
@@ -497,6 +505,31 @@ pub(crate) fn diagnostics(
                 column: 1,
                 severity: migration_severity,
                 code: correctness::migration_idempotent_create_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            });
+        }
+
+        // RUNTIME-EMITTED-TABLE-MIGRATION-001 — once per project. Asserts
+        // every framework-synthesized table the runtime WRITES (audit_log,
+        // lazuli_audit, lazuli_outbox, …) — gated on the activating IR
+        // construct — has a `CREATE TABLE` migration emitted into
+        // `dist/go/migrations/`. A missing one is a runtime 500 ("relation
+        // does not exist"). Skipped in single-file mode (no migration tree).
+        let feature_refs: Vec<&lazuli_ir::Feature> = synthetic_features.iter().collect();
+        for finding in
+            correctness::runtime_emitted_table_migration_001::check(&feature_refs, project_root)
+        {
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line: 1,
+                column: 1,
+                severity: migration_severity,
+                code: correctness::runtime_emitted_table_migration_001::Finding::CODE.to_owned(),
                 category: None,
                 feature_name: None,
                 construct: None,
