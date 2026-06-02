@@ -50,7 +50,11 @@ use super::{Column, ResourceSchema};
 pub fn current_schema_from_ir(resource: &Resource) -> ResourceSchema {
     let mut columns = Vec::new();
 
-    columns.push(Column::new("id", "BIGSERIAL", false));
+    columns.push(Column::new(
+        lazuli_ir::synthesized_columns::IDENTITY,
+        "BIGSERIAL",
+        false,
+    ));
 
     for field in &resource.fields {
         if field.derived_from.is_some() {
@@ -68,20 +72,27 @@ pub fn current_schema_from_ir(resource: &Resource) -> ResourceSchema {
     // disagrees.
     let timestamps_enabled = resource.timestamps.unwrap_or(true);
     if timestamps_enabled {
-        columns.push(Column::new("created_at", "TIMESTAMPTZ", false).with_default("NOW()"));
-        columns.push(Column::new("updated_at", "TIMESTAMPTZ", false).with_default("NOW()"));
+        // Column NAMES come from the IR single-source-of-truth
+        // (`synthesized_columns`) so the doctor's universal-column filter
+        // and this schema-diff projection can never disagree on the
+        // synthesized names. `[created_at, updated_at]` by construction.
+        for name in lazuli_ir::synthesized_columns::TIMESTAMPS {
+            columns.push(Column::new(*name, "TIMESTAMPTZ", false).with_default("NOW()"));
+        }
     }
 
-    if resource.soft_delete {
-        columns.push(Column::new("deleted_at", "TIMESTAMPTZ", true));
-        // Spec 0015 — `soft_delete by` projects a nullable `deleted_by`
-        // (`BIGINT`) actor column alongside `deleted_at`. Mirror the
-        // create_table DDL emitter so the schema-diff's expected-column
-        // set includes it; otherwise `@correctness.migration_out_of_sync`
-        // flags the emitted column as "migration-only".
-        if resource.soft_delete_actor {
-            columns.push(Column::new("deleted_by", "BIGINT", true));
-        }
+    // Resource-relative soft-delete column set (`[]` / `[deleted_at]` /
+    // `[deleted_at, deleted_by]`) from the IR SoT. Spec 0015 — the
+    // `soft_delete by` actor form adds `deleted_by`; mirroring the SoT
+    // here keeps `@correctness.migration_out_of_sync` from flagging the
+    // emitted column as "migration-only".
+    for name in resource.synthesized_soft_delete_columns() {
+        let sql_type = if *name == "deleted_by" {
+            "BIGINT"
+        } else {
+            "TIMESTAMPTZ"
+        };
+        columns.push(Column::new(*name, sql_type, true));
     }
 
     ResourceSchema { columns }

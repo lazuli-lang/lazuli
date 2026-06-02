@@ -17,6 +17,11 @@ const SKIP: &[&str] = &[
     ".hg",
     ".svn",
     ".lazuli",
+    // `.claude/worktrees/` holds agent git worktrees — full repo copies
+    // whose nested `.lzi` files would otherwise be collected as phantom
+    // packages (D5 false positive). No authored `.lzi` lives under
+    // `.claude`, so skipping the whole subtree is safe.
+    ".claude",
     "dist",
     "node_modules",
     "target",
@@ -135,4 +140,33 @@ pub(crate) fn read_package_lzi_source(dir: &Path) -> Result<String> {
         );
     }
     Ok(source)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collect_package_lzi_files_skips_claude_worktrees() {
+        // D5 regression: `.claude/worktrees/<wt>/` agent worktrees are full
+        // repo copies; their nested `.lzi` must not be collected.
+        let tmp = std::env::temp_dir().join(format!("lzd5-cli-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        let real = tmp.join("app/features/billing");
+        let phantom = tmp.join(".claude/worktrees/wt-a/app/features/billing");
+        fs::create_dir_all(&real).unwrap();
+        fs::create_dir_all(&phantom).unwrap();
+        fs::write(real.join("billing.lzi"), "feature billing\n").unwrap();
+        fs::write(phantom.join("billing.lzi"), "feature billing\n").unwrap();
+
+        let mut out = Vec::new();
+        collect_package_lzi_files(&tmp, &mut out).unwrap();
+
+        assert!(out.iter().any(|p| p == &real.join("billing.lzi")));
+        assert!(
+            !out.iter().any(|p| p.starts_with(tmp.join(".claude"))),
+            "phantom .claude package must be skipped: {out:?}"
+        );
+        let _ = fs::remove_dir_all(&tmp);
+    }
 }

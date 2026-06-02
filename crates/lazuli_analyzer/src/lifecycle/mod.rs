@@ -227,7 +227,7 @@ fn lower_transition_command(
         write_window: None,
         deprecated: None,
         handler: None,
-        tests: lower_tests(&transition.tests, transition.span),
+        tests: crate::test_lowering::lower_test_block(&transition.tests, transition.span),
         triggers: Vec::new(),
         synthesized_from_cap_file: None,
         previous_names: transition.previously.clone(),
@@ -290,7 +290,7 @@ fn lower_transition(transition: &syntax::LifecycleTransitionAst) -> ir::Lifecycl
         timestamps: transition.timestamps.clone(),
         emits: transition.emits.clone(),
         requires: transition.requires.as_deref().map(lower_policy_ref),
-        tests: lower_tests(&transition.tests, transition.span),
+        tests: crate::test_lowering::lower_test_block(&transition.tests, transition.span),
         previous_names: transition.previously.clone(),
         span_ref: Some(span_of(transition.span)),
     }
@@ -358,46 +358,17 @@ fn lower_audit_spec(raw: &str) -> ir::AuditSpec {
     }
 }
 
-fn lower_tests(lines: &[String], span: syntax::Span) -> Option<ir::TestBlock> {
-    let assertions: Vec<_> = lines
-        .iter()
-        .filter_map(|line| lower_test_line(line))
-        .collect();
-    if assertions.is_empty() {
-        return None;
-    }
-    Some(ir::TestBlock {
-        assertions,
-        span_ref: Some(span_of(span)),
-    })
-}
-
-fn lower_test_line(line: &str) -> Option<ir::TestAssertion> {
-    let parts: Vec<&str> = line.split_whitespace().collect();
-    match parts.as_slice() {
-        ["allows", "from", state] => Some(ir::TestAssertion::AllowsFrom {
-            state: (*state).to_owned(),
-        }),
-        ["denies", "from", state] => Some(ir::TestAssertion::DeniesFrom {
-            state: (*state).to_owned(),
-        }),
-        ["allows", "as", actor] => Some(ir::TestAssertion::AllowsAs {
-            actor: (*actor).to_owned(),
-        }),
-        ["denies", "as", actor] => Some(ir::TestAssertion::DeniesAs {
-            actor: (*actor).to_owned(),
-        }),
-        ["allows", "from", state, "as", actor] => Some(ir::TestAssertion::AllowsFromAs {
-            state: (*state).to_owned(),
-            actor: (*actor).to_owned(),
-        }),
-        ["denies", "from", state, "as", actor] => Some(ir::TestAssertion::DeniesFromAs {
-            state: (*state).to_owned(),
-            actor: (*actor).to_owned(),
-        }),
-        _ => None,
-    }
-}
+// NOTE (G13 false-positive fix, 2026-06-02): lifecycle transition
+// `tests { }` blocks used to lower through a PRIVATE copy of
+// `lower_tests`/`lower_test_line` that lived here. That copy predated
+// the unified `crate::test_lowering` path (spec 0012) and never grew
+// the `allows when` / `denies when` → `TestAssertion::Raw` fallback, so
+// a transition whose tests were all `when`-predicates lowered to an
+// EMPTY block (`None`). The doctor's `VOCAB-TESTS-MISSING-001` then
+// false-fired on features whose only inline tests were lifecycle
+// `when`-predicate transitions. The duplicate is now deleted; both
+// transition call sites route through `crate::test_lowering::
+// lower_test_block`, the single source of truth shared with commands.
 
 fn pascal_case(value: &str) -> String {
     let mut out = String::new();

@@ -211,15 +211,50 @@ pub(super) fn is_ident_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c == '$'
 }
 
-/// Recursively enumerate every `.lzi` and `.lzx` under `root`.
-/// Errors propagate so the caller can surface a precise context;
-/// the typical caller is `project_uses_plugin_refs` which falls back
-/// to `false` on IO failure.
+/// Directory names whose subtrees never hold authored `.lzi` / `.lzx`
+/// sources and must be skipped by the package walk. Critically this
+/// includes `.claude`, which holds agent git worktrees
+/// (`.claude/worktrees/<name>/` are full repo copies); descending into
+/// them collects the nested copy's `.lzi` files as phantom packages
+/// (the D5 false positive). `.git` is excluded too so a nested git
+/// worktree/submodule checkout living anywhere under the project can't
+/// re-introduce the same phantom-copy problem.
+const PACKAGE_WALK_SKIP_DIRS: &[&str] = &[
+    ".claude",
+    ".git",
+    ".hg",
+    ".svn",
+    ".lazuli",
+    "dist",
+    "node_modules",
+    "target",
+];
+
+/// `true` when the package walk must not descend into a directory with
+/// this name. Matched on the exact final path component (not a
+/// substring), so legitimate dirs like `target_audience` or
+/// `distribution` are never skipped.
+fn skip_package_walk_dir(name: &str) -> bool {
+    PACKAGE_WALK_SKIP_DIRS.contains(&name)
+}
+
+/// Recursively enumerate every `.lzi` and `.lzx` under `root`,
+/// skipping VCS/build noise and `.claude` agent worktrees (see
+/// [`PACKAGE_WALK_SKIP_DIRS`]). Errors propagate so the caller can
+/// surface a precise context; the typical caller is
+/// `project_uses_plugin_refs` which falls back to `false` on IO failure.
 pub(crate) fn collect_lazuli_paths_recursive(root: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
     for entry in fs::read_dir(root).with_context(|| format!("failed to list {}", root.display()))? {
         let entry = entry.with_context(|| format!("failed to read {}", root.display()))?;
         let path = entry.path();
         if path.is_dir() {
+            let skip = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(skip_package_walk_dir);
+            if skip {
+                continue;
+            }
             collect_lazuli_paths_recursive(&path, paths)?;
         } else if path.is_file() && (is_lzi_path(&path) || is_lzx_path(&path)) {
             paths.push(path);
@@ -393,6 +428,53 @@ mod tests {
         let src = "feature billing\n  domain {}\n";
         assert_eq!(derive_feature_name(src).as_deref(), Some("billing"));
         assert_eq!(derive_feature_name("app myapp\n"), None);
+    }
+
+    #[test]
+    fn collect_lazuli_paths_skips_claude_worktrees() {
+        // D5 regression: a `.claude/worktrees/<wt>/` agent worktree is a
+        // full repo copy. Its nested `.lzi` files must NOT be collected as
+        // phantom packages, but real `app/features/**.lzi` must be.
+        let tmp = std::env::temp_dir().join(format!("lzd5-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        let real = tmp.join("app/features/billing");
+        let phantom = tmp.join(".claude/worktrees/wt-a/app/features/billing");
+        fs::create_dir_all(&real).unwrap();
+        fs::create_dir_all(&phantom).unwrap();
+        fs::write(real.join("billing.lzi"), "feature billing\n").unwrap();
+        fs::write(phantom.join("billing.lzi"), "feature billing\n").unwrap();
+        // A legit dir whose name merely CONTAINS a skip token must survive.
+        let distro = tmp.join("app/features/distribution");
+        fs::create_dir_all(&distro).unwrap();
+        fs::write(distro.join("distribution.lzi"), "feature distribution\n").unwrap();
+
+        let mut paths = Vec::new();
+        collect_lazuli_paths_recursive(&tmp, &mut paths).unwrap();
+
+        assert!(
+            paths.iter().any(|p| p == &real.join("billing.lzi")),
+            "real package must be collected: {paths:?}"
+        );
+        assert!(
+            paths.iter().any(|p| p == &distro.join("distribution.lzi")),
+            "substring-of-skip-token dir must survive: {paths:?}"
+        );
+        assert!(
+            !paths.iter().any(|p| p.starts_with(tmp.join(".claude"))),
+            "phantom .claude/worktrees package must be skipped: {paths:?}"
+        );
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn skip_package_walk_dir_matches_exact_component_only() {
+        assert!(skip_package_walk_dir(".claude"));
+        assert!(skip_package_walk_dir(".git"));
+        assert!(skip_package_walk_dir("node_modules"));
+        // Substring / prefix matches must NOT be skipped.
+        assert!(!skip_package_walk_dir("target_audience"));
+        assert!(!skip_package_walk_dir("distribution"));
+        assert!(!skip_package_walk_dir(".claudette"));
     }
 
     #[test]

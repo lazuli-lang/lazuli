@@ -47,18 +47,27 @@ pub fn is_universal_column(
     feature: &Feature,
     module: &Module,
 ) -> bool {
-    // Implicit timestamps + soft-delete sentinel.
-    if matches!(
-        field.name.as_str(),
-        "created_at" | "updated_at" | "deleted_at"
-    ) {
+    // Implicit timestamps + soft-delete sentinels (`created_at`,
+    // `updated_at`, `deleted_at`, `deleted_by`). Derived from the IR
+    // single-source-of-truth (`lazuli_ir::synthesized_columns`) that the
+    // codegen layer also reads, so this filter can never drift from the
+    // column names codegen actually emits. Name-based and unconditional by
+    // design — a `deleted_at` field is a convention column whether or not
+    // this resource opts into `soft_delete`.
+    if lazuli_ir::synthesized_columns::SOFT_DELETE.contains(&field.name.as_str())
+        || lazuli_ir::synthesized_columns::is_timestamp_column(&field.name)
+    {
         return true;
     }
 
     // Implicit row identity. The `id: Id` column is auto-emitted when the
     // resource has no `composite_key`. Authored `id: Id` declarations are
-    // unusual but still universal.
-    if field.name == "id" && matches!(field.type_ref, TypeRef::Builtin(BuiltinType::Id)) {
+    // unusual but still universal. Name comes from the SoT
+    // (`synthesized_columns::IDENTITY`); the `Id`-type guard stays so an
+    // authored non-Id `id` field isn't misclassified.
+    if field.name == lazuli_ir::synthesized_columns::IDENTITY
+        && matches!(field.type_ref, TypeRef::Builtin(BuiltinType::Id))
+    {
         return true;
     }
 
