@@ -218,8 +218,13 @@ fn strip_block_comments(line: &str, mut depth: usize) -> (String, usize) {
                 i += 2;
                 continue;
             }
-            out.push(bytes[i] as char);
-            i += 1;
+            // Copy the whole UTF-8 char at `i`, not `bytes[i] as char`
+            // (which would mangle a multibyte char into Latin-1 mojibake
+            // and shift downstream byte offsets). `i` is a char boundary
+            // here because the comment markers we skip are ASCII.
+            let ch = char_at(line, i);
+            out.push(ch);
+            i += ch.len_utf8();
         } else {
             // Inside block comment — replace with space.
             if i + 1 < bytes.len() && bytes[i] == b'*' && bytes[i + 1] == b'/' {
@@ -234,6 +239,15 @@ fn strip_block_comments(line: &str, mut depth: usize) -> (String, usize) {
         }
     }
     (out, depth)
+}
+
+/// Decode the UTF-8 char that starts at byte offset `i` in `line`.
+/// `i` must be a char boundary.
+fn char_at(line: &str, i: usize) -> char {
+    line[i..]
+        .chars()
+        .next()
+        .expect("offset is a valid char boundary inside the line")
 }
 
 /// Drop everything after the first unescaped `//` that's outside a
