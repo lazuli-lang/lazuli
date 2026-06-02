@@ -94,6 +94,24 @@ type Resource[T any] struct {
 	// this shape at the `Resource[T]` literal site.
 	Decrypt func(ctx *Ctx, row any) error
 
+	// FieldReadPolicies maps a DB column name to the read-policy that
+	// gates it (`policies fields <R>` `read:` axis in the DSL). The
+	// runtime read paths (`RunList` / `RunLookup`) consult this when
+	// building the SELECT projection: a column whose read-policy the
+	// active actor fails is projected as `NULL AS "<col>"` instead of
+	// the real column, so restricted data (`password_hash` declared
+	// `read: @actor.system`, role-gated PII, ...) never leaves the DB
+	// for an unauthorized caller — even when the destination struct
+	// carries the field. Columns absent from this map carry no field-
+	// level read gate and are always projected. Nil when the resource
+	// declares no field read policies (the runtime then falls back to a
+	// plain projection of every declared column).
+	//
+	// W1-2 SEC-FIELDPOLICY-READ-NULL — closes the `SELECT *` field-leak
+	// hole where restricted columns were pulled from the DB and only
+	// NOT leaked by luck (when the struct happened to omit them).
+	FieldReadPolicies map[string]Policy
+
 	// untouched: erased generic parameter so `*Resource[T]` is comparable when
 	// stored in a heterogeneous registry. Generated code does not touch this.
 	_ struct{}
@@ -103,40 +121,42 @@ type Resource[T any] struct {
 // Generated code does not call this directly.
 func (r *Resource[T]) erased() *resourceErased {
 	return &resourceErased{
-		Name:             r.Name,
-		Feature:          r.Feature,
-		Tenancy:          r.Tenancy,
-		SoftDelete:       r.SoftDelete,
-		SoftDeleteActor:  r.SoftDeleteActor,
-		Timestamps:       r.Timestamps,
-		Retention:        r.Retention,
-		PIIFields:        r.PIIFields,
-		Validators:       r.Validators,
-		Indexes:          r.Indexes,
-		HasMany:          r.HasMany,
-		EncryptedColumns: r.EncryptedColumns,
-		SanitizeColumns:  r.SanitizeColumns,
-		Decrypt:          r.Decrypt,
+		Name:              r.Name,
+		Feature:           r.Feature,
+		Tenancy:           r.Tenancy,
+		SoftDelete:        r.SoftDelete,
+		SoftDeleteActor:   r.SoftDeleteActor,
+		Timestamps:        r.Timestamps,
+		Retention:         r.Retention,
+		PIIFields:         r.PIIFields,
+		Validators:        r.Validators,
+		Indexes:           r.Indexes,
+		HasMany:           r.HasMany,
+		EncryptedColumns:  r.EncryptedColumns,
+		SanitizeColumns:   r.SanitizeColumns,
+		Decrypt:           r.Decrypt,
+		FieldReadPolicies: r.FieldReadPolicies,
 	}
 }
 
 // resourceErased is the runtime's view of any Resource[T]. It drops the
 // type parameter so the registry can hold all resources in one slice.
 type resourceErased struct {
-	Name             string
-	Feature          string
-	Tenancy          TenancyMode
-	SoftDelete       bool
-	SoftDeleteActor  bool
-	Timestamps       bool
-	Retention        *RetentionSpec
-	PIIFields        []string
-	Validators       []ValidatorRef
-	Indexes          []Index
-	HasMany          []HasMany
-	EncryptedColumns map[string]string
-	SanitizeColumns  map[string]string
-	Decrypt          func(ctx *Ctx, row any) error
+	Name              string
+	Feature           string
+	Tenancy           TenancyMode
+	SoftDelete        bool
+	SoftDeleteActor   bool
+	Timestamps        bool
+	Retention         *RetentionSpec
+	PIIFields         []string
+	Validators        []ValidatorRef
+	Indexes           []Index
+	HasMany           []HasMany
+	EncryptedColumns  map[string]string
+	SanitizeColumns   map[string]string
+	Decrypt           func(ctx *Ctx, row any) error
+	FieldReadPolicies map[string]Policy
 }
 
 // HasColumn reports whether the resource declares the named column.
