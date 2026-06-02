@@ -268,7 +268,13 @@ func (q *Query[A, R]) buildListSQL(ctx *Ctx, args A) (string, []any, *resourceEr
 	// `quoteResourceTable` applies the same transform so SELECT round-
 	// trips with the migrated schema. The legacy `quoteIdent(res.Name)`
 	// produced `"UserSession"` (case-sensitive, no table) → 42P01.
-	sql := "SELECT * FROM " + quoteResourceTable(res.Name)
+	// W1-2 SEC-FIELDPOLICY-READ-NULL — project an explicit column list
+	// (never `SELECT *`) so field-level read policies can null out columns
+	// the active actor may not read (`password_hash read: @actor.system`,
+	// role-gated PII, ...). See `readProjection`.
+	var zero R
+	projection := readProjection(ctx, res, reflect.TypeOf(&zero).Elem())
+	sql := "SELECT " + projection + " FROM " + quoteResourceTable(res.Name)
 	if len(conds) > 0 {
 		sql += " WHERE " + strings.Join(conds, " AND ")
 	}
@@ -317,7 +323,12 @@ func (q *Query[A, R]) buildLookupSQL(ctx *Ctx, args A) (string, []any, *resource
 	// authored PascalCase while the migrated table is snake_lower.
 	// `quoteResourceTable` is the canonical transform; see comment
 	// above on the list path.
-	sql := "SELECT * FROM " + quoteResourceTable(res.Name)
+	//
+	// W1-2 SEC-FIELDPOLICY-READ-NULL — explicit field-policy-aware column
+	// projection instead of `SELECT *`; see `readProjection` + the list path.
+	var zero R
+	projection := readProjection(ctx, res, reflect.TypeOf(&zero).Elem())
+	sql := "SELECT " + projection + " FROM " + quoteResourceTable(res.Name)
 	if len(conds) > 0 {
 		sql += " WHERE " + strings.Join(conds, " AND ")
 	}

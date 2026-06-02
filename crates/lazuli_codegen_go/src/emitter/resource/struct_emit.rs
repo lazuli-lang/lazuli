@@ -31,6 +31,7 @@ use super::attributes::{
 use super::encryption::{
     EncryptedFieldRef, emit_resource_value_encryption_fields, encrypted_fields,
 };
+use super::field_policy::emit_resource_value_field_read_policies;
 use super::sanitize::{
     SanitizedFieldRef, emit_resource_value_sanitize_fields, sanitized_fields,
 };

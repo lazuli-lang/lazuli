@@ -296,6 +296,13 @@ pub(super) fn emit_resource(
     if !sanitized_for_value.is_empty() {
         emit_resource_value_sanitize_fields(p, &sanitized_for_value);
     }
+    // W1-2 SEC-FIELDPOLICY-READ-NULL — emit per-column read policies from
+    // the feature's `policies fields <R>` block so the runtime read paths
+    // (`RunList` / `RunLookup`) can null out columns the active actor may
+    // not read (e.g. `password_hash read: @actor.system`) instead of
+    // pulling them via `SELECT *`. Skipped when the resource declares no
+    // runtime-evaluable field read policy. See `field_policy.rs`.
+    emit_resource_value_field_read_policies(p, feature, resource);
     p.dedent();
     p.line("}");
 
