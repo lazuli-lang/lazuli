@@ -423,6 +423,15 @@ impl DoctorPackage {
         // do not carry queries).
         diagnostics.extend(self.session_query_temporal_validity_diagnostics());
 
+        // AUTH-SESSION-CANONICAL-COLUMNS-001 — IR-driven preventability
+        // guard: the resource bound by `auth sessions resource <X>` must
+        // declare every column the runtime session resolver reads
+        // (`expires_at` + a FK to the auth identity resource), else auth
+        // silently 403s every authenticated request. Re-parses the typed
+        // `Feature` IR for the session resource's fields + the identity
+        // binding the fact-only auth slices above do not carry.
+        diagnostics.extend(self.auth_session_canonical_columns_diagnostics());
+
         // SESSION-COOKIE-* — the five IR-driven session-cookie transport
         // diagnostics over `auth.sessions.cookie` (insecure-in-prod,
         // samesite-none-insecure, missing, profile-conflict,

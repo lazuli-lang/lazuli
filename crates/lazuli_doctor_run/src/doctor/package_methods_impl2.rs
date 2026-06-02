@@ -94,6 +94,81 @@ impl DoctorPackage {
         out
     }
 
+    /// AUTH-SESSION-CANONICAL-COLUMNS-001 — IR-driven auth/session
+    /// preventability invariant. Dispatches
+    /// [`auth::auth_session_canonical_columns_001::check`] across every
+    /// `.lzi` feature, re-parsing the typed `Feature` IR so the rule can
+    /// read the session resource's `fields` + the `auth identity` resource
+    /// (neither survives on the fact-only `AuthFacts`/`ResourceFact` slices
+    /// the `aggregators::auth` dispatcher uses).
+    ///
+    /// Severity follows the session-family enforcement posture (parity
+    /// with `session_query_temporal_validity_001` and the LSP peers
+    /// `auth-session-ttl` / `auth_sessions_resource_unknown`): **WARNING**
+    /// under the prototype profile, **ERROR** under strict/production — so
+    /// under the scaffolded `[doctor] profile = "strict"` it blocks. A
+    /// manifest `severity_override.<code>` (kebab or snake) still wins via
+    /// the shared resolver.
+    pub(super) fn auth_session_canonical_columns_diagnostics(&self) -> Vec<DoctorDiagnostic> {
+        use super::auth::auth_session_canonical_columns_001 as rule;
+        use super::helpers::line_col_for_offset;
+
+        let base_severity = match self.security_profile {
+            SecurityProfile::Prototype => lazuli_doctor::DoctorSeverity::Warning,
+            SecurityProfile::Strict
+            | SecurityProfile::Production
+            | SecurityProfile::IronHand => lazuli_doctor::DoctorSeverity::Error,
+        };
+
+        let config = &self.config;
+        let resolve = |code: &str| -> Option<DoctorSeverity> {
+            effective_severity_over_base(code, base_severity, RuleCategory::Security, config)
+                .map(DoctorSeverity::from)
+        };
+
+        let mut out: Vec<DoctorDiagnostic> = Vec::new();
+        for file in &self.files {
+            if !is_lzi_path(&file.path) {
+                continue;
+            }
+            let Ok(skeletons) = parse_feature_skeletons(&file.source) else {
+                continue;
+            };
+            for skeleton in &skeletons {
+                let Ok(feature) = lower_feature_skeleton(skeleton) else {
+                    continue;
+                };
+                for finding in rule::check(&feature, &file.path) {
+                    let severity = match resolve(rule::Finding::KEBAB_CODE)
+                        .or_else(|| resolve(rule::Finding::CODE))
+                    {
+                        Some(sev) => sev,
+                        None => continue,
+                    };
+                    let (line, column) = finding
+                        .offset
+                        .map(|offset| line_col_for_offset(&file.source, offset))
+                        .unwrap_or((1, 1));
+                    let message = finding.message();
+                    out.push(DoctorDiagnostic {
+                        path: finding.path,
+                        line,
+                        column,
+                        severity,
+                        code: rule::Finding::KEBAB_CODE.to_owned(),
+                        message,
+                        category: Some(RuleCategory::Security),
+                        feature_name: Some(finding.feature),
+                        construct: None,
+                        fix: None,
+                        group: None,
+                    });
+                }
+            }
+        }
+        out
+    }
+
     /// `SESSION-COOKIE-*` — the five IR-driven session-cookie transport
     /// diagnostics over `auth.sessions.cookie`. Dispatches each rule's
     /// `check` across every `.lzi` feature, re-parsing the typed `Feature`
