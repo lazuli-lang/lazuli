@@ -289,7 +289,22 @@ func handleApiRequest(w http.ResponseWriter, r *http.Request, api apiRegistratio
 		writeError(w, r, err)
 		return
 	}
-	out, err := api.Dispatch(ctx, body)
+	// SEC-API-PATHARG-UNBOUND: extract each `{name}` route variable from
+	// the matched pattern and hand them to Dispatch, which binds them
+	// into the typed handler input. Without this, a path-keyed api
+	// endpoint (`/attachments/{id}/url`) received the zero value for
+	// `id`. The pattern is parsed from `api.Path`; values come from
+	// `r.PathValue` (Go 1.22+ ServeMux wildcard support).
+	var pathParams map[string]string
+	if names := pathParamNames(api.Path); len(names) > 0 {
+		pathParams = make(map[string]string, len(names))
+		for _, name := range names {
+			if val := r.PathValue(name); val != "" {
+				pathParams[name] = val
+			}
+		}
+	}
+	out, err := api.Dispatch(ctx, body, pathParams)
 	if err != nil {
 		writeError(w, r, err)
 		return

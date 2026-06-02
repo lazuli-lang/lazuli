@@ -36,10 +36,18 @@ type apiRegistration struct {
 	// it empty; the Mux loop treats empty Method as "skip".
 	Method HttpMethod
 	// Dispatch is a closure that decodes JSON input into the typed
-	// Api[I, O]'s input shape, calls api.Invoke, and returns the
-	// marshaled output. Populated by RegisterApi[I, O]. Mux uses this
-	// to dispatch without knowing I or O.
-	Dispatch func(ctx *Ctx, body []byte) (any, error)
+	// Api[I, O]'s input shape, binds the matched route path params into
+	// it, calls api.Invoke, and returns the marshaled output. Populated
+	// by RegisterApi[I, O]. Mux uses this to dispatch without knowing I
+	// or O.
+	//
+	// SECURITY (SEC-API-PATHARG-UNBOUND): the `pathParams` arg carries
+	// each matched `{name}=value` route variable. The closure binds them
+	// into the typed input AFTER the body is decoded so a path-keyed
+	// `api ... path "/x/{id}/y"` actually receives `id` instead of the
+	// zero value. Previously this surface only decoded the body and
+	// dropped path variables entirely.
+	Dispatch func(ctx *Ctx, body []byte, pathParams map[string]string) (any, error)
 	// HandlerChecker reports whether the user has wired the typed
 	// Api[I, O].Handler field at the time of the call. The codegen
 	// emits Api values without handlers (extension-point pattern) and
@@ -225,13 +233,20 @@ func RegisterApi[I, O any](api *Api[I, O]) {
 		Feature: api.Feature,
 		Path:    api.Path,
 		Method:  api.Method,
-		Dispatch: func(ctx *Ctx, body []byte) (any, error) {
+		Dispatch: func(ctx *Ctx, body []byte, pathParams map[string]string) (any, error) {
 			var input I
 			if len(body) > 0 {
 				if err := json.Unmarshal(body, &input); err != nil {
 					return nil, &Error{Status: 400, Code: CodeBadRequest,
 						Message: "invalid JSON body: " + err.Error()}
 				}
+			}
+			// SEC-API-PATHARG-UNBOUND: inject matched route path params
+			// into the typed input. Binds AFTER the body so the path is
+			// the authoritative source for its declared slot (e.g.
+			// `{id}` -> input.ID via the field's `json:"id"` tag).
+			if err := bindPathParams(&input, pathParams); err != nil {
+				return nil, err
 			}
 			out, err := api.Invoke(ctx, input)
 			if err != nil {
