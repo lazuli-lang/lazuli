@@ -100,7 +100,9 @@ struct TestCase {
 
 fn enumerate_cases(ctx: &StubContext) -> Vec<TestCase> {
     match ctx.site.kind {
-        HandlerSiteKind::CommandHandler => enumerate_command_cases(ctx),
+        HandlerSiteKind::CommandHandler | HandlerSiteKind::CommandBindingFnHook => {
+            enumerate_command_cases(ctx)
+        }
         HandlerSiteKind::ResourceValidate | HandlerSiteKind::ResourceFieldValidate => {
             enumerate_validator_cases(ctx)
         }
@@ -240,6 +242,7 @@ fn render_case_block(cases: &[TestCase]) -> String {
 fn describe_signature(ctx: &StubContext) -> String {
     let kind = match ctx.site.kind {
         HandlerSiteKind::CommandHandler => "command handler",
+        HandlerSiteKind::CommandBindingFnHook => "command binding-fn hook",
         HandlerSiteKind::ResourceValidate => "resource validator",
         HandlerSiteKind::ResourceFieldValidate => "field validator",
         HandlerSiteKind::LifecycleInvariantHandler => "lifecycle invariant handler",

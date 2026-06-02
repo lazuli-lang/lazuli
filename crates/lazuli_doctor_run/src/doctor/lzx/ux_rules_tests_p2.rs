@@ -272,3 +272,140 @@ fn repeatable_sum_non_numeric_field_errors() {
     assert_eq!(f[0].severity, Severity::Error);
     assert!(f[0].message.contains("non-numeric"));
 }
+
+// ── LZX-BOARD-LANES-001 — FP2: multi-resource source-query resolution ───────
+
+/// Build a resource with an explicit name + fields.
+fn named_resource(name: &str, fields: Vec<Field>) -> Resource {
+    let mut r = resource(fields);
+    r.name = name.to_owned();
+    r
+}
+
+/// Build a `query.list <name>` (only its name matters for resolution).
+fn named_list_query(name: &str) -> lazuli_ir::Query {
+    let mut q = list_query();
+    if let lazuli_ir::Query::List(ref mut lq) = q {
+        lq.name = name.to_owned();
+    }
+    q
+}
+
+/// Build a list view whose `source` names a specific query on the `item`
+/// feature.
+fn list_view_sourcing(view_name: &str, query_name: &str, ux: ViewUx) -> View {
+    let mut v = list_view(view_name, ux);
+    if let View::List(ref mut vl) = v {
+        vl.source = QueryRef {
+            feature: "item".to_owned(),
+            kind: QueryKind::List,
+            name: query_name.to_owned(),
+        };
+    }
+    v
+}
+
+/// A single-feature module with TWO resources, one list query, and a board
+/// view — mirrors pauta `job_steps_activities` (JobStep + Activity, view
+/// `activity_board` sourcing `list_job_steps`).
+fn two_resource_module(
+    resources: Vec<Resource>,
+    queries: Vec<lazuli_ir::Query>,
+    views: Vec<View>,
+) -> Module {
+    // Start from the canonical single-resource module then swap in the
+    // multi-resource shape so every other field stays default.
+    let mut m = module(vec![], vec![], views, AudienceUx::default(), vec![]);
+    let feature = &mut m.features[0];
+    feature.resources = resources;
+    feature.queries = queries;
+    m
+}
+
+/// FP2 — a board in a MULTI-resource feature whose `derived_from <relation>`
+/// exists on the SOURCE-QUERY's resolved resource must NOT fire. The view
+/// `activity_board` sources `list_job_steps` → `JobStep`; `JobStep` declares
+/// `has_many activities` (`TypeRef::Many`); `lanes derived_from activities`
+/// is valid. Before the fix `resolve_resource` bailed (returned `None`) on
+/// any 2-resource feature, firing spuriously.
+#[test]
+fn board_lanes_multi_resource_has_many_relation_is_clean() {
+    let job_step = named_resource("JobStep", vec![many_field("activities")]);
+    let activity = named_resource("Activity", vec![text_field("title")]);
+    let m = two_resource_module(
+        vec![job_step, activity],
+        vec![named_list_query("list_job_steps")],
+        vec![list_view_sourcing(
+            "activity_board",
+            "list_job_steps",
+            board_ux("activities"),
+        )],
+    );
+    assert!(
+        check(&m).is_empty(),
+        "board derived_from a has_many on the correctly-resolved source resource must not fire: {:?}",
+        check(&m)
+    );
+}
+
+/// FP2 complement — a board in the SAME multi-resource feature whose lane
+/// source is genuinely NOT a relation/field on the resolved resource STILL
+/// fires. `list_job_steps` resolves to `JobStep`; `ghost` is not a field on
+/// `JobStep` (it only exists, as a plain text field, on `Activity`), so the
+/// rule must report it. Proves the resolution is precise, not a blanket
+/// suppression.
+#[test]
+fn board_lanes_multi_resource_bad_lane_source_still_fires() {
+    let job_step = named_resource("JobStep", vec![many_field("activities")]);
+    let activity = named_resource("Activity", vec![text_field("ghost")]);
+    let m = two_resource_module(
+        vec![job_step, activity],
+        vec![named_list_query("list_job_steps")],
+        vec![list_view_sourcing(
+            "activity_board",
+            "list_job_steps",
+            board_ux("ghost"),
+        )],
+    );
+    let f = check(&m);
+    assert_eq!(f.len(), 1, "bad lane source must fire, got {:?}", f);
+    assert_eq!(f[0].code, BOARD_LANES_CODE);
+    assert!(f[0].message.contains("ghost"));
+}
+
+/// FP2 (verbatim pauta shape) — the experience→web projection lowers a board
+/// view with a SOURCELESS `query.list` ref (empty `name`) into a MULTI-resource
+/// feature. The rule cannot resolve which resource backs the board, so it must
+/// SKIP rather than fire: "can't validate" is not "invalid". This is the exact
+/// pauta `activity_board` over-block (2 of the 10 blockers).
+#[test]
+fn board_lanes_multi_resource_sourceless_ref_is_skipped() {
+    let job_step = named_resource("JobStep", vec![many_field("activities")]);
+    let activity = named_resource("Activity", vec![text_field("title")]);
+    let m = two_resource_module(
+        vec![job_step, activity],
+        vec![named_list_query("list_job_steps")],
+        // Empty query name = the synthetic sourceless experience→web ref.
+        vec![list_view_sourcing("activity_board", "", board_ux("activities"))],
+    );
+    assert!(
+        check(&m).is_empty(),
+        "a board on a sourceless multi-resource view must be skipped, not flagged: {:?}",
+        check(&m)
+    );
+}
+
+/// FP2 guard — a SINGLE-resource feature with a sourceless ref STILL resolves
+/// (one resource is unambiguous), so a genuinely-bad lane source there still
+/// fires. Proves the skip is scoped to the unresolvable multi-resource case.
+#[test]
+fn board_lanes_single_resource_sourceless_bad_lane_still_fires() {
+    let m = two_resource_module(
+        vec![named_resource("Item", vec![text_field("title")])],
+        vec![named_list_query("list_items")],
+        vec![list_view_sourcing("board_view", "", board_ux("ghost"))],
+    );
+    let f = check(&m);
+    assert_eq!(f.len(), 1, "single-resource bad lane must fire, got {:?}", f);
+    assert_eq!(f[0].code, BOARD_LANES_CODE);
+}

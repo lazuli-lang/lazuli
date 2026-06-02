@@ -361,6 +361,115 @@ var registerWebPush = lazuli.Command[RegisterWebPushInput, RegisterWebPushOutput
         );
     }
 
+    // ── FP1 — binding-fn-hook vs primary handler classification ────────
+
+    /// A command with a DECLARATIVE `updates` body PLUS a secondary
+    /// `handler @fn.hook` whose Go signature differs from the codegen
+    /// `Command[I, O]` must NOT fire: the `@fn` is a binding-fn hook
+    /// (flexible reflection-bridge signature), not the primary handler.
+    /// Mirrors pauta's `delete_attachment { updates Attachment ...;
+    /// handler @fn.queue_storage_cleanup }` — the 8-FP class.
+    #[test]
+    fn declarative_body_binding_fn_hook_signature_does_not_fire() {
+        use lazuli_ir::{QualifiedName, UpdateEffect};
+
+        let tmp = TempDir::new().unwrap();
+        let app_root = tmp.path().join("app");
+        let dist_root = tmp.path().join("dist");
+        let lzi_path = tmp.path().join("features/attachments/attachments.lzi");
+        write_lzi(&lzi_path, "feature attachments\n");
+
+        // Hook signature on disk is (ctx, AttachmentCleanupArgs) (struct{}, error)
+        // — deliberately UNRELATED to the command's Command[I, O].
+        let handler_src = r#"package attachmentshandlers
+func QueueStorageCleanup(ctx *lazuli.Ctx, input AttachmentCleanupArgs) (struct{}, error) {
+    return struct{}{}, nil
+}
+"#;
+        // Codegen emits the PRIMARY handler from the `updates` body, so the
+        // Command[I, O] here is the command's own input/output — NOT the hook's.
+        let gen_src = r#"package attachmentsgen
+var deleteAttachment = lazuli.Command[DeleteAttachmentInput, DeleteAttachmentResult]{
+    Name: "attachments.delete_attachment",
+}
+"#;
+        lay_out_files(
+            &app_root,
+            &dist_root,
+            "attachments",
+            "queue_storage_cleanup",
+            handler_src,
+            gen_src,
+        );
+
+        let mut cmd = mk_cmd_with_handler("delete_attachment", "queue_storage_cleanup");
+        cmd.effect = CommandEffect::Updates(UpdateEffect {
+            resource: QualifiedName {
+                feature: None,
+                name: "Attachment".into(),
+            },
+            assignments: vec![],
+            where_clause: vec![],
+        });
+
+        let feature = mk_feature("attachments", vec![cmd]);
+        let findings = check(&feature, &lzi_path, &app_root, &dist_root);
+        assert!(
+            findings.is_empty(),
+            "binding-fn hook on a declarative-body command must not be asserted against Command[I, O], got {:?}",
+            findings
+        );
+    }
+
+    /// FP1 inverse — a HANDLER-ONLY command (`mk_cmd_with_handler` defaults
+    /// to `CommandEffect::Returns`, no `triggers`) with a GENUINE signature
+    /// mismatch still fires. This is the `notifications.mark_all_read`
+    /// shape: the `@fn` IS the primary handler, so real drift must surface.
+    #[test]
+    fn handler_only_command_real_mismatch_still_fires() {
+        let tmp = TempDir::new().unwrap();
+        let app_root = tmp.path().join("app");
+        let dist_root = tmp.path().join("dist");
+        let lzi_path = tmp.path().join("features/notifications/notifications.lzi");
+        write_lzi(&lzi_path, "feature notifications\n");
+
+        let handler_src = r#"package notificationshandlers
+func MarkAllRead(ctx *lazuli.Ctx, input MarkAllReadInput) (string, error) {
+    return "", nil
+}
+"#;
+        let gen_src = r#"package notificationsgen
+var markAllNotificationsRead = lazuli.Command[MarkAllReadInput, struct{}]{
+    Name: "notifications.mark_all_notifications_read",
+}
+"#;
+        lay_out_files(
+            &app_root,
+            &dist_root,
+            "notifications",
+            "mark_all_read",
+            handler_src,
+            gen_src,
+        );
+
+        // Handler-only: effect stays Returns, no triggers.
+        let feature = mk_feature(
+            "notifications",
+            vec![mk_cmd_with_handler(
+                "mark_all_notifications_read",
+                "mark_all_read",
+            )],
+        );
+        let findings = check(&feature, &lzi_path, &app_root, &dist_root);
+        assert_eq!(
+            findings.len(),
+            1,
+            "genuine handler-only mismatch must still fire, got {:?}",
+            findings
+        );
+        assert!(matches!(findings[0].diff, Diff::OutputMismatch { .. }));
+    }
+
     #[test]
     fn extract_handler_signature_strips_package_prefix() {
         let src = r#"package accounthandlers

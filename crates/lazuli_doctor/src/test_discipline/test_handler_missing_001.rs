@@ -220,9 +220,13 @@ fn source_has_test_function(source: &str) -> bool {
 /// check. Keeps the twin discipline coherent.
 fn is_handler_namespace(site: &HandlerSite) -> bool {
     match site.kind {
-        HandlerSiteKind::CommandHandler | HandlerSiteKind::LifecycleInvariantHandler => {
-            site.handler_namespace == "fn"
-        }
+        // `CommandBindingFnHook` is the secondary `@fn` hook on a
+        // declarative-body command — the file must still exist (and carry a
+        // test) even though its signature is NOT asserted against
+        // `Command[I, O]`. Same `handlers/<name>.go` convention.
+        HandlerSiteKind::CommandHandler
+        | HandlerSiteKind::CommandBindingFnHook
+        | HandlerSiteKind::LifecycleInvariantHandler => site.handler_namespace == "fn",
         _ => false,
     }
 }
