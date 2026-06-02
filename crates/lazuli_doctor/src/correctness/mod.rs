@@ -12,6 +12,7 @@ pub mod channel_payload_unresolved_001;
 pub mod codegen_unresolved_binding_source_001;
 pub mod command_input_shadows_field_001;
 pub mod composite_key_contract_001;
+pub mod ctx_path_unresolved_001;
 pub mod duplicate_query_name;
 pub mod enum_variant_undeclared_001;
 pub mod event_group_variant_type_001;

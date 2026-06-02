@@ -53,6 +53,7 @@ pub(crate) const P_COMMAND: &[DiagnosticFacet] = &[
         "error",
         "correctness",
     ),
+    df("CTX-PATH-UNRESOLVED-001", "error", "correctness"),
 ];
 
 pub(crate) const P_COMPOSITE_KEY: &[DiagnosticFacet] =

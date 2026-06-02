@@ -126,6 +126,12 @@ impl RuleCategory {
             // string that never matches). A reference to a non-existent
             // variant is a concrete bug, not style — Correctness.
             Some("ENUM") => Self::Correctness,
+            // `CTX-*` — author-written ctx-path resolution. Today:
+            // `CTX-PATH-UNRESOLVED-001` (a `ctx.<tail>` binding whose tail
+            // is not a known ctx slot, which would 500 at runtime with
+            // "unknown ctx path"). A binding reading an unrecognized ctx
+            // path is a concrete wiring bug, not style — Correctness.
+            Some("CTX") => Self::Correctness,
             Some("HOOK") | Some("DUPLICATE") | Some("ROUTE") | Some("UPDATES")
             | Some("MUTATION") | Some("MISSING") | Some("MANUAL") | Some("IMPORT")
             | Some("CAP") | Some("SCHEMA") | Some("PREDICATE") => Self::Correctness,
@@ -452,6 +458,14 @@ mod tests {
         assert_eq!(
             RuleCategory::parse("InternalHygiene"),
             Some(RuleCategory::InternalHygiene)
+        );
+    }
+
+    #[test]
+    fn ctx_prefix_routes_to_correctness() {
+        assert_eq!(
+            RuleCategory::from_code_prefix("CTX-PATH-UNRESOLVED-001"),
+            RuleCategory::Correctness
         );
     }
 
