@@ -20,11 +20,44 @@
 //! See the proposal `semantic-types-money-brazilian.md` v0.5 for the
 //! Money/Currency paired-column rule applied in `create_table.rs`.
 
-use lazuli_ir::{BuiltinType, CapabilityRef, Feature, Field, Module, TypeRef};
+use lazuli_ir::{BuiltinType, CapabilityRef, EnumDecl, Feature, Field, Module, TypeRef};
 
-use super::super::cross_feature::{CrossFeatureIndex, DeclKind};
+use super::super::cross_feature::CrossFeatureIndex;
+use super::super::enums::{StorageKind, classify_storage};
 use super::sql_builder::sql_ident;
 use super::topo::foreign_key_owner;
+
+/// Find the `EnumDecl` named `name` anywhere in the module. Enum-typed
+/// fields lower to `TypeRef::UserDefined(qname)` with `qname.feature =
+/// None` (the analyzer does not pin the owning feature on the field), so
+/// resolution is by bare name across every feature. Returns the first
+/// match — duplicate enum names across features are a separate
+/// doctor-flagged smell (`PersonType` appears in 3 pauta features) and
+/// every same-named enum shares the same int/string storage kind in
+/// practice, so the storage classification is stable regardless of which
+/// declaration we land on.
+fn find_enum_decl<'a>(module: &'a Module, name: &str) -> Option<&'a EnumDecl> {
+    module
+        .features
+        .iter()
+        .flat_map(|f| f.enums.iter())
+        .find(|e| e.name == name)
+}
+
+/// `true` when `name` is declared as a `record` in any feature. Record
+/// resolution is by bare name across the module for the same reason as
+/// `find_enum_decl`: the field carries `qname.feature = None`, and the
+/// cross-index `kind()` returns `None` for a name declared in more than
+/// one feature (a shared value object like `Address` lives in 4 pauta
+/// features), which would silently drop the record→JSONB lowering back
+/// to TEXT — the exact `cannot scan text into *Address` read-time 500.
+fn name_is_record(module: &Module, name: &str) -> bool {
+    module
+        .features
+        .iter()
+        .flat_map(|f| f.records.iter())
+        .any(|r| r.name == name)
+}
 
 pub(super) enum SqlColumn {
     Raw(String),
@@ -165,19 +198,59 @@ pub(super) fn pg_type_for_field<'a>(
     field: &'a Field,
     cross_index: &CrossFeatureIndex<'a>,
 ) -> PgType {
-    if let TypeRef::UserDefined(qname) = &field.type_ref {
-        if foreign_key_owner(module, feature, qname, cross_index).is_some() {
-            return PgType {
-                sql: "BIGINT".to_owned(),
-                uses_postgis: false,
-            };
+    // A user-named type reaches the emitter as either `UserDefined`
+    // (resource FK / record / enum, depending on what the name resolves
+    // to) or — after the full module analysis pass that the CLI runs —
+    // `EnumRef` (an enum-typed field whose ref the analyzer already
+    // pinned). `lower_feature_skeleton` alone leaves enum fields as
+    // `UserDefined`, so both variants reach here in practice (pauta's
+    // `situation: CustomerSituation = prospect` lands as `EnumRef`, while
+    // `person_type: PersonType` stayed `UserDefined`). Resolve the bare
+    // name and branch on what it actually is.
+    if let TypeRef::UserDefined(qname) | TypeRef::EnumRef(qname) = &field.type_ref {
+        // FK / record checks only make sense for the `UserDefined` form —
+        // an `EnumRef` is definitionally an enum, never a resource or
+        // record.
+        if matches!(field.type_ref, TypeRef::UserDefined(_)) {
+            if foreign_key_owner(module, feature, qname, cross_index).is_some() {
+                return PgType {
+                    sql: "BIGINT".to_owned(),
+                    uses_postgis: false,
+                };
+            }
+            // A8: `record X` columns lower to JSONB (the runtime
+            // serializes the struct with `json.Marshal` and the synth
+            // lookup query's `pgx.RowToStructByName` then scans
+            // JSONB→struct cleanly). Resolved by bare name (see
+            // `name_is_record`) rather than via `cross_index.kind()` —
+            // the latter returns `None` for a record name shared across
+            // features (pauta's `Address` is in 4), which would drop the
+            // lowering back to TEXT and 500 the read scan.
+            if name_is_record(module, qname.name.as_str()) {
+                return PgType {
+                    sql: "JSONB".to_owned(),
+                    uses_postgis: false,
+                };
+            }
         }
-        // A8: `record X` columns lower to JSONB (the runtime serializes
-        // the struct with `json.Marshal` and the synth lookup query's
-        // `pgx.RowToStructByName` then scans JSONB→struct cleanly).
-        if cross_index.kind(qname.name.as_str()) == Some(DeclKind::Record) {
+        // `enum X` columns must align with the emitted Go typed alias so
+        // `pgx.RowToStructByName` round-trips the scan. An int-storage
+        // enum emits `type X int64` (see emitter::enums) → the column is
+        // BIGINT; scanning a `text` column into `*X` (int64) is exactly
+        // the `cannot scan text (OID 25) into *CustomerSituation` failure
+        // this fixes. A string-storage enum emits `type X string` → TEXT
+        // already round-trips. We resolve the enum by name (the
+        // cross-index `kind()` returns `None` for names declared in more
+        // than one feature — e.g. `PersonType` in 3 pauta features — so
+        // the cross-index alone would miss it; `find_enum_decl` walks the
+        // module instead).
+        if let Some(decl) = find_enum_decl(module, qname.name.as_str()) {
+            let sql = match classify_storage(decl) {
+                StorageKind::Int => "BIGINT",
+                StorageKind::String => "TEXT",
+            };
             return PgType {
-                sql: "JSONB".to_owned(),
+                sql: sql.to_owned(),
                 uses_postgis: false,
             };
         }
@@ -186,9 +259,11 @@ pub(super) fn pg_type_for_field<'a>(
     // A8: `many <Record>` collapses to a SINGLE `JSONB` document rather
     // than `JSONB[]` — the Postgres array of jsonb breaks pgx's struct
     // scan path for `[]X` whereas a JSONB array document round-trips.
+    // Same bare-name resolution as the scalar record case so a shared
+    // record name does not slip back to a `TEXT[]` column.
     if let TypeRef::Many(inner) = &field.type_ref
         && let TypeRef::UserDefined(inner_q) = inner.as_ref()
-        && cross_index.kind(inner_q.name.as_str()) == Some(DeclKind::Record)
+        && name_is_record(module, inner_q.name.as_str())
     {
         return PgType {
             sql: "JSONB".to_owned(),
