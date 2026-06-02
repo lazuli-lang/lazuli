@@ -457,19 +457,24 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		writeLazuliError(w, r, le)
 		return
 	}
-	reqID := ""
-	if r != nil {
-		reqID = r.Header.Get("X-Request-ID")
-	}
-	errText := "<nil>"
-	if err != nil {
-		errText = err.Error()
-	}
-	// SECURITY: do not serialize err.Error(); it may include stack strings,
-	// paths, SQL wrappers, or provider details. Log detail server-side only.
-	slog.Error("lazuli: unmapped runtime error", "err", errText, "request_id", reqID)
+	// Wrap the unmapped error into the typed envelope, stashing the raw
+	// error as Base.Cause. writeLazuliError then logs the structured 5xx
+	// line (W4-5) and, in dev only, exposes Base.Cause in the response
+	// detail block (F7). The client-facing Message stays generic; the
+	// resolver/exposure gating below never serializes Base.Cause in prod.
+	//
+	// SECURITY: Base.Cause is logged server-side and exposed to the client
+	// ONLY in the dev allow-list env (devSessionEnabled). In prod the wire
+	// payload carries just {"code":"internal","message":"internal server error"}.
 	writeLazuliError(w, r, &Error{Status: http.StatusInternalServerError, Code: CodeInternal,
-		Message: "internal server error", MessageKey: CodeInternal})
+		Message: "internal server error", MessageKey: CodeInternal,
+		Base: ErrorBase{
+			Status:  http.StatusInternalServerError,
+			Code:    CodeInternal,
+			Message: "internal server error",
+			Surface: SurfaceLibInternal,
+			Cause:   err,
+		}})
 }
 
 func activeCSRFAllowedOrigins() []string {
@@ -524,6 +529,22 @@ func writeLazuliError(w http.ResponseWriter, r *http.Request, le *Error) {
 		}
 	}
 
+	// W4-5 SWALLOWED-ERROR-OBSERVABILITY: ALWAYS log the underlying cause
+	// server-side for any 5xx — regardless of env — so a failed request is
+	// never silent. The client response stays generic in prod (exposure
+	// gating below masks message/data), but ops + agents can always read
+	// WHY a request 500'd from the slog line. We log the *unresolved*
+	// detail (Base.Message / Base.Cause / Source) since the resolver may
+	// have already overwritten le.Message with a localized, generic string.
+	if status >= http.StatusInternalServerError {
+		logServerError(le, r)
+	}
+
+	// 05-DX F7: in dev, surface source/surface/cause detail in the response
+	// envelope so an agent driving the API can diagnose without shell access
+	// to the server log. Gated by the same dev allow-list as dev-session.
+	devDetail := devSessionEnabled() && status >= http.StatusInternalServerError
+
 	// Exposure gating. When no feature contract is registered, default
 	// to the legacy behaviour (message + code + data exposed) so the
 	// pre-Error-Vocab callers don't lose information.
@@ -555,7 +576,103 @@ func writeLazuliError(w http.ResponseWriter, r *http.Request, le *Error) {
 		payload["message_key"] = le.MessageKey
 	}
 
+	// 05-DX F7: dev-only detail block. Carries the un-masked cause so an
+	// agent driving the API in dev sees exactly why the request 500'd. Never
+	// emitted in prod/staging/unknown (devSessionEnabled is fail-closed).
+	if devDetail {
+		payload["detail"] = devErrorDetail(le, r)
+	}
+
 	writeJSON(w, status, payload)
+}
+
+// logServerError emits the structured slog line for a 5xx typed *Error so a
+// failed request is never silent — regardless of env (W4-5). It prefers the
+// pre-resolution Base.Message / Base.Cause (the resolver may have already
+// rewritten le.Message into a localized generic string before this fires).
+func logServerError(le *Error, r *http.Request) {
+	attrs := []any{
+		"code", le.Code,
+		"status", le.Status,
+	}
+	// Underlying cause + raw message: the actual "why".
+	if le.Base.Cause != nil {
+		attrs = append(attrs, "cause", le.Base.Cause.Error())
+	}
+	if msg := firstNonEmpty(le.Base.Message, le.Message); msg != "" {
+		attrs = append(attrs, "message", msg)
+	}
+	// Source tag: command/query/api name + .lzi location, from the request
+	// context (preferred — survives resolver rewrites) falling back to the
+	// error's own Base.
+	var tag SourceTag
+	if r != nil {
+		tag = SourceTagFromContext(r.Context())
+		if reqID := r.Header.Get("X-Request-ID"); reqID != "" {
+			attrs = append(attrs, "request_id", reqID)
+		}
+		attrs = append(attrs, "method", r.Method, "path", r.URL.Path)
+	}
+	feature := firstNonEmpty(tag.Feature, le.Base.Feature)
+	kind := firstNonEmpty(tag.Kind, le.Base.Kind)
+	op := firstNonEmpty(tag.Op, le.Base.Op)
+	source := firstNonEmpty(tag.Source, le.Base.Source)
+	if feature != "" {
+		attrs = append(attrs, "feature", feature)
+	}
+	if kind != "" {
+		attrs = append(attrs, "kind", kind)
+	}
+	if op != "" {
+		attrs = append(attrs, "op", op)
+	}
+	if source != "" {
+		attrs = append(attrs, "source", source)
+	}
+	if le.Base.Surface != 0 || le.Base.Code != "" {
+		attrs = append(attrs, "surface", le.Base.Surface.String())
+	}
+	slog.Error("lazuli: request failed (5xx)", attrs...)
+}
+
+// devErrorDetail builds the dev-only detail map for the error envelope (F7).
+// Mirrors the fields logged server-side so an agent sees the same cause it
+// would find in the log.
+func devErrorDetail(le *Error, r *http.Request) map[string]any {
+	detail := map[string]any{}
+	if le.Base.Cause != nil {
+		detail["cause"] = le.Base.Cause.Error()
+	}
+	if msg := firstNonEmpty(le.Base.Message, le.Message); msg != "" {
+		detail["message"] = msg
+	}
+	var tag SourceTag
+	if r != nil {
+		tag = SourceTagFromContext(r.Context())
+	}
+	if v := firstNonEmpty(tag.Feature, le.Base.Feature); v != "" {
+		detail["feature"] = v
+	}
+	if v := firstNonEmpty(tag.Kind, le.Base.Kind); v != "" {
+		detail["kind"] = v
+	}
+	if v := firstNonEmpty(tag.Op, le.Base.Op); v != "" {
+		detail["op"] = v
+	}
+	if v := firstNonEmpty(tag.Source, le.Base.Source); v != "" {
+		detail["source"] = v
+	}
+	detail["surface"] = le.Base.Surface.String()
+	return detail
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // negotiateErrorLocale resolves the locale used for error message

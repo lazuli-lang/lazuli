@@ -29,8 +29,20 @@ func TestRecoverMiddlewareRecoversPanicAndReturns500(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
 	}
-	if got := strings.TrimSpace(rec.Body.String()); got != "internal server error" {
-		t.Fatalf("body = %q, want %q", got, "internal server error")
+	// W4-5 / panic-envelope: the recover path now returns the STRUCTURED
+	// JSON envelope, not raw text.
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("Content-Type = %q, want application/json", ct)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("panic body is not JSON: %v; body = %q", err, rec.Body.String())
+	}
+	if body["code"] != CodeInternal {
+		t.Fatalf("body code = %v, want %q", body["code"], CodeInternal)
+	}
+	if _, raw := body["stack"]; raw {
+		t.Fatalf("panic body leaked stack at top level (should be masked outside dev): %q", rec.Body.String())
 	}
 
 	var entry map[string]any
