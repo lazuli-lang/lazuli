@@ -103,7 +103,19 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 		}
 	}
 
-	// 2. validators — run in declaration order, abort on first failure.
+	// 2a. struct-tag input validation — W4-6. The codegen stamps
+	// `validate:"required"` on every required input field; without this
+	// pass a create with an empty body (`create_agency {}`) sailed through
+	// to the INSERT and returned a 200 all-zero row. Enforce the declared
+	// `required` rule (and other future rules) on the decoded input BEFORE
+	// any effect runs, returning a 400 validation_failed envelope listing
+	// the offending field(s). Commands with all-optional inputs or no
+	// inputs declare no `required` tags, so they are unaffected.
+	if err := validateInputTags(input); err != nil {
+		return zero, err
+	}
+
+	// 2b. validators — run in declaration order, abort on first failure.
 	for _, ref := range c.Validators {
 		fn := LookupValidator(ref.Canonical())
 		if fn == nil {
@@ -267,14 +279,27 @@ func lockLifecycleTransition(
 	if stateCol == "" {
 		stateCol = "lifecycle_state"
 	}
+	// W1-1 (SEC-LIFECYCLE-NOTENANT) — the pre-guard SELECT must carry the
+	// same tenant/org scope predicate every other read/write gets, or an
+	// attacker can drive ANOTHER tenant's row through a lifecycle transition
+	// by guessing its id (cross-tenant IDOR). The id is bound at $1; tenant
+	// scope placeholders start at $2.
+	values := []any{target.IDValue}
+	conds := []string{quoteIdent(target.IDColumn) + " = $1"}
+	scopeConds, scopeValues, err := baseScopeConditions(ctx, target.Resource, len(values)+1)
+	if err != nil {
+		return err
+	}
+	conds = append(conds, scopeConds...)
+	values = append(values, scopeValues...)
 	sql := fmt.Sprintf(
-		`SELECT %s FROM %s WHERE %s = $1 FOR UPDATE`,
+		`SELECT %s FROM %s WHERE %s FOR UPDATE`,
 		quoteIdent(stateCol),
 		quoteResourceTable(target.Resource.Name),
-		quoteIdent(target.IDColumn),
+		strings.Join(conds, " AND "),
 	)
 	var actual string
-	if err := tx.QueryRow(ctx, sql, target.IDValue).Scan(&actual); err != nil {
+	if err := tx.QueryRow(ctx, sql, values...).Scan(&actual); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return &Error{Status: 404, Code: CodeNotFound,
 				Message: "no row matches lifecycle transition guard"}
@@ -307,13 +332,25 @@ func advanceLifecycleTransition(
 	if stateCol == "" {
 		stateCol = "lifecycle_state"
 	}
+	// W1-1 (SEC-LIFECYCLE-NOTENANT) — the advance UPDATE must carry the same
+	// tenant/org scope predicate as the lock SELECT, or a cross-tenant id
+	// silently mutates another tenant's row. State value is bound at $1, the
+	// id at $2; tenant scope placeholders start at $3.
+	values := []any{next, target.IDValue}
+	conds := []string{quoteIdent(target.IDColumn) + " = $2"}
+	scopeConds, scopeValues, err := baseScopeConditions(ctx, target.Resource, len(values)+1)
+	if err != nil {
+		return err
+	}
+	conds = append(conds, scopeConds...)
+	values = append(values, scopeValues...)
 	sql := fmt.Sprintf(
-		`UPDATE %s SET %s = $1 WHERE %s = $2`,
+		`UPDATE %s SET %s = $1 WHERE %s`,
 		quoteResourceTable(target.Resource.Name),
 		quoteIdent(stateCol),
-		quoteIdent(target.IDColumn),
+		strings.Join(conds, " AND "),
 	)
-	if _, err := tx.Exec(ctx, sql, next, target.IDValue); err != nil {
+	if _, err := tx.Exec(ctx, sql, values...); err != nil {
 		return classifyDBError("lifecycle transition advance", err)
 	}
 	return nil
@@ -1386,7 +1423,16 @@ func readCtx(ctx *Ctx, path string) (any, error) {
 				Message: "no authenticated user in context"}
 		}
 		return ctx.User.ID, nil
-	case "actor.org_id":
+	case "actor.org_id", "actor.tenant_id":
+		// W4-4 — `ctx.actor.tenant_id` lowers to FromCtx("actor.tenant_id").
+		// The framework carries one tenant identifier per actor: the org/
+		// tenant scope on the session (`User.OrgID`, falling back to the
+		// active `Tenant.OrgID`). Pilots that model multi-tenancy via an
+		// app-level `tenant_id` column (e.g. pauta's `User.tenant_id`) seed
+		// that value as the actor's org-id at the transport boundary, so the
+		// two paths resolve to the same identifier. Without this arm, any
+		// filter binding `ctx.actor.tenant_id` (pauta `user_by_id`,
+		// `users_in_tenant`) 500'd with "unknown ctx path: actor.tenant_id".
 		if ctx.User != nil {
 			return ctx.User.OrgID, nil
 		}
@@ -1409,6 +1455,118 @@ func readCtx(ctx *Ctx, path string) (any, error) {
 	default:
 		return nil, &Error{Status: 500, Code: CodeInternal,
 			Message: "unknown ctx path: " + path}
+	}
+}
+
+// validateInputTags enforces the declared struct-tag validation rules on a
+// decoded command input BEFORE any effect runs (W4-6). The codegen stamps
+// `validate:"required"` on every required input field; this is the runtime
+// half that actually enforces it. Today the only rule honoured is `required`
+// (the field's value must not be the type's zero value); unknown rules are
+// ignored so the contract can grow new rules without breaking old binaries.
+//
+// Returns a 400 `validation_failed` *Error listing every offending field's
+// wire (json) name, or nil when the input satisfies every declared rule.
+// Inputs with no `validate` tags (all-optional or no-input commands) always
+// pass.
+func validateInputTags[I any](input I) error {
+	v := reflect.ValueOf(input)
+	for v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return nil
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return nil
+	}
+	missing := collectMissingRequired(v)
+	if len(missing) == 0 {
+		return nil
+	}
+	msg := "missing required field"
+	if len(missing) > 1 {
+		msg = "missing required fields"
+	}
+	return &Error{
+		Status:     400,
+		Code:       CodeValidationFailed,
+		Message:    msg + ": " + strings.Join(missing, ", "),
+		MessageKey: CodeValidationFailed,
+		Data:       map[string]any{"fields": missing},
+		Base: ErrorBase{
+			Status:  400,
+			Code:    CodeValidationFailed,
+			Message: msg + ": " + strings.Join(missing, ", "),
+			Surface: SurfaceUserDSL,
+		},
+	}
+}
+
+// collectMissingRequired walks a struct value and returns the wire (json)
+// names of every field tagged `validate:"required"` whose value is the zero
+// value. Anonymous (embedded) structs are recursed into so promoted fields
+// are checked too. A nil pointer or empty string/slice/map counts as missing.
+func collectMissingRequired(v reflect.Value) []string {
+	var missing []string
+	t := v.Type()
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		if field.PkgPath != "" {
+			continue // unexported
+		}
+		fv := v.Field(i)
+		if field.Anonymous {
+			ev := fv
+			for ev.Kind() == reflect.Pointer && !ev.IsNil() {
+				ev = ev.Elem()
+			}
+			if ev.Kind() == reflect.Struct {
+				missing = append(missing, collectMissingRequired(ev)...)
+			}
+			continue
+		}
+		if !tagHasRule(field.Tag.Get("validate"), "required") {
+			continue
+		}
+		if isZeroForValidation(fv) {
+			name := jsonTagName(field.Tag.Get("json"))
+			if name == "" {
+				name = field.Name
+			}
+			missing = append(missing, name)
+		}
+	}
+	return missing
+}
+
+// tagHasRule reports whether a `validate` tag's comma-separated rule list
+// contains the named rule (e.g. "required" in "required,email").
+func tagHasRule(tag, rule string) bool {
+	if tag == "" || tag == "-" {
+		return false
+	}
+	for _, part := range strings.Split(tag, ",") {
+		if strings.TrimSpace(part) == rule {
+			return true
+		}
+	}
+	return false
+}
+
+// isZeroForValidation reports whether a value should be treated as "missing"
+// for a `required` check. Pointers are missing when nil; strings/slices/maps
+// when empty; everything else when it equals the type's zero value. This
+// mirrors go-playground/validator's `required` semantics closely enough for
+// the framework's needs without vendoring it.
+func isZeroForValidation(v reflect.Value) bool {
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface:
+		return v.IsNil()
+	case reflect.Slice, reflect.Map:
+		return v.Len() == 0
+	default:
+		return v.IsZero()
 	}
 }
 

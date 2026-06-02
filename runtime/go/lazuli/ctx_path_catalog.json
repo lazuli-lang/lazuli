@@ -8,6 +8,7 @@
     "actor.id",
     "actor.user_id",
     "actor.org_id",
+    "actor.tenant_id",
     "tenant.org_id",
     "now"
   ]
