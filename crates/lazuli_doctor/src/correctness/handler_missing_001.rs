@@ -149,9 +149,15 @@ pub fn check(feature: &Feature, lzi_path: &Path, app_root: &Path) -> Vec<Finding
 /// - `WebhookHandler` — webhooks live under `features/<f>/webhooks/`.
 fn is_handler_namespace(site: &HandlerSite) -> bool {
     match site.kind {
-        HandlerSiteKind::CommandHandler | HandlerSiteKind::LifecycleInvariantHandler => {
-            site.handler_namespace == "fn"
-        }
+        // `CommandBindingFnHook` is the secondary `@fn` hook on a
+        // declarative-body command (e.g. `updates X { ... } handler
+        // @fn.hook`). It self-registers a Go file under the same
+        // `handlers/<name>.go` convention, so HANDLER-MISSING-001 still
+        // gates on its presence — only HANDLER-SIGNATURE-MISMATCH-001 skips
+        // asserting it against the command's `Command[I, O]`.
+        HandlerSiteKind::CommandHandler
+        | HandlerSiteKind::CommandBindingFnHook
+        | HandlerSiteKind::LifecycleInvariantHandler => site.handler_namespace == "fn",
         _ => false,
     }
 }

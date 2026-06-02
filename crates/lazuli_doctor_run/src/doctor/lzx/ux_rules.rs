@@ -29,7 +29,7 @@
 use std::collections::BTreeSet;
 
 use lazuli_ir::{
-    Audience, EnumDecl, Feature, Field, Module, QueryRef, Resource, TypeRef, View, ViewUx,
+    Audience, EnumDecl, Feature, Field, Module, Query, QueryRef, Resource, TypeRef, View, ViewUx,
 };
 
 use super::sort_findings;
@@ -255,9 +255,21 @@ fn check_view_ux(
     // `view.board lanes derived_from <field>` — the lane source must be a
     // declared enum field (one lane per variant) OR a has_many relation
     // (`TypeRef::Many`) on the view's bound resource.
-    if let Some(board) = &ux.board {
+    // Only assert when we positively resolved the bound resource. A view
+    // whose source query cannot be resolved to a concrete resource (notably
+    // the experience→web projection, which synthesizes a SOURCELESS
+    // `query.list` ref — see
+    // `lazuli_analyzer::lzx_p1::lower_feature_view_from_experience`) gives the
+    // rule no resource to check `derived_from` against. Firing there is a
+    // false positive: "can't validate" is NOT "invalid". This closes the
+    // `LZX-BOARD-LANES-001` over-block on pauta `activity_board` (sources a
+    // sourceless ref into a 2-resource feature). When the source DOES name a
+    // query, `resolve_resource` scores it to the right resource (codegen
+    // parity) and the lane source is checked against THAT resource — a
+    // genuinely-bad lane source still fires.
+    if let (Some(board), Some((res_feature, res))) = (&ux.board, resource) {
         let line = board.span_ref.map(|s| s.start).unwrap_or(0);
-        let field = resource.and_then(|(_, r)| field_on(r, &board.lanes_source));
+        let field = field_on(res, &board.lanes_source);
         // A lane source is valid when the field resolves to a declared enum
         // (one lane per variant) OR is a has_many relation (`TypeRef::Many`).
         // Enum fields lower to `TypeRef::UserDefined` (the bare `enum X`
@@ -265,10 +277,7 @@ fn check_view_ux(
         // discriminator); `enum_for_field` resolves both. Matching only on
         // `EnumRef` (as this rule originally did) over-fired on every plain
         // `enum`-typed lane field.
-        let resolves_enum = resource
-            .zip(field)
-            .map(|((f, r), _)| enum_for_field(f, r, &board.lanes_source).is_some())
-            .unwrap_or(false);
+        let resolves_enum = enum_for_field(res_feature, res, &board.lanes_source).is_some();
         let valid = resolves_enum || matches!(field.map(|f| &f.type_ref), Some(TypeRef::Many(_)));
         if !valid {
             out.push(Finding {
@@ -414,6 +423,15 @@ fn check_audience_tabs(
 
 /// Resolve the resource backing a view's source query. Returns the owning
 /// feature + resource so the enum lookup can reach the feature's enum decls.
+///
+/// Multi-resource features resolve the SAME way codegen does in
+/// `crates/lazuli_codegen_go/src/emitter/query/util.rs::resource_for_query`:
+/// a `query.sql ... returns <T>` binds to its declared return type, otherwise
+/// the query name is scored against each resource's name tokens (with `plural`
+/// tolerance) and the best match wins. So `list_job_steps` resolves to
+/// `JobStep` even when the feature also declares `Activity` — closing the
+/// `LZX-BOARD-LANES-001` false-positive that previously bailed (returned
+/// `None`) on every multi-resource feature.
 fn resolve_resource<'a>(
     module: &'a Module,
     owning_feature: &str,
@@ -428,12 +446,118 @@ fn resolve_resource<'a>(
         .features
         .iter()
         .find(|f| f.name == source_feature_name)?;
-    // Single-resource features resolve unambiguously; multi-resource features
-    // need a SQL `returns` hint. Mirror `filter_resolves::find_resource_for_query`.
-    if feature.resources.len() == 1 {
-        return Some((feature, feature.resources.first()?));
+    let resource = find_resource_for_query(feature, source)?;
+    Some((feature, resource))
+}
+
+/// Resolve a view's source `QueryRef` to the resource it returns, mirroring
+/// codegen's `query/util.rs::resource_for_query`:
+///
+/// 1. A single-resource feature resolves unambiguously.
+/// 2. A `query.sql ... returns <T>` binds to its declared return type.
+/// 3. Otherwise score the query name against each resource's identifier
+///    tokens (`plural`-tolerant) and pick the best match — `list_job_steps`
+///    → `JobStep`, `lookup_user_session` → `UserSession`.
+fn find_resource_for_query<'a>(feature: &'a Feature, source: &QueryRef) -> Option<&'a Resource> {
+    if feature.resources.len() <= 1 {
+        return feature.resources.first();
     }
-    None
+
+    // Multi-resource feature with no query name to resolve against — bail.
+    // The experience→web projection lowers list/detail views with a SOURCELESS
+    // synthetic `query.list` ref (empty `name`); scoring an empty name would
+    // pick an arbitrary resource and turn a non-validatable view into a false
+    // positive. Returning `None` makes the caller skip the assertion instead.
+    if source.name.is_empty() {
+        return None;
+    }
+
+    // `query.sql ... returns <T>` carries an explicit return type — honour it.
+    if let Some(Query::Sql(sql)) = feature.queries.iter().find(|q| q.name() == source.name)
+        && let Some(resource_name) = resource_name_from_type_ref(&sql.returns)
+        && let Some(resource) = feature.resources.iter().find(|r| r.name == resource_name)
+    {
+        return Some(resource);
+    }
+
+    // Score-based name resolution (the codegen path for list/lookup queries).
+    let query_tokens = split_ident_tokens(&source.name);
+    feature
+        .resources
+        .iter()
+        .map(|resource| {
+            let tokens = split_ident_tokens(&resource.name);
+            let last = tokens.last().cloned().unwrap_or_default();
+            let mut score = 0usize;
+            for token in &tokens {
+                if query_tokens.iter().any(|q| q == token || q == &plural(token)) {
+                    score += 10;
+                }
+            }
+            if !last.is_empty()
+                && query_tokens.iter().any(|q| q == &last || q == &plural(&last))
+            {
+                score += 50;
+            }
+            (score, resource)
+        })
+        // Highest score wins; tie-break on name descending to match codegen's
+        // deterministic ordering. A zero-score winner still resolves to *a*
+        // resource (codegen does the same) — the lane-source check below then
+        // verifies the relation/field actually exists on it.
+        .max_by(|(sa, a), (sb, b)| sa.cmp(sb).then_with(|| b.name.cmp(&a.name)))
+        .map(|(_, resource)| resource)
+}
+
+/// Project a `TypeRef` to its resource name (`User`, or the inner type of a
+/// `Many(...)` collection return). Mirrors codegen's
+/// `query/util.rs::resource_name_from_type_ref` shape.
+fn resource_name_from_type_ref(type_ref: &TypeRef) -> Option<&str> {
+    match type_ref {
+        TypeRef::UserDefined(qname) | TypeRef::EnumRef(qname) => Some(qname.name.as_str()),
+        TypeRef::Many(inner) => resource_name_from_type_ref(inner),
+        _ => None,
+    }
+}
+
+/// Naive lowercase pluralizer used only by the `find_resource_for_query`
+/// scorer (never emitted). Mirrors codegen's `query/util.rs::plural`.
+fn plural(word: &str) -> String {
+    if let Some(stem) = word.strip_suffix('y') {
+        format!("{stem}ies")
+    } else if word.ends_with('s') {
+        format!("{word}es")
+    } else {
+        format!("{word}s")
+    }
+}
+
+/// Split an identifier into lowercase tokens for the resource scorer.
+/// Mirrors codegen's `query/util.rs::split_ident_tokens`.
+fn split_ident_tokens(s: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut current = String::new();
+    let mut prev_lower_or_digit = false;
+    for ch in s.chars() {
+        if ch == '_' || ch == '-' || ch == ' ' {
+            if !current.is_empty() {
+                words.push(current.to_ascii_lowercase());
+                current.clear();
+            }
+            prev_lower_or_digit = false;
+            continue;
+        }
+        if ch.is_ascii_uppercase() && prev_lower_or_digit && !current.is_empty() {
+            words.push(current.to_ascii_lowercase());
+            current.clear();
+        }
+        current.push(ch);
+        prev_lower_or_digit = ch.is_ascii_lowercase() || ch.is_ascii_digit();
+    }
+    if !current.is_empty() {
+        words.push(current.to_ascii_lowercase());
+    }
+    words
 }
 
 /// Find the enum declaration backing field `field_name` on `resource`.

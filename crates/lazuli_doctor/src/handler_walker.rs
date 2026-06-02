@@ -28,15 +28,32 @@
 
 use std::path::Path;
 
-use lazuli_ir::{Feature, JobBody, PathRef};
+use lazuli_ir::{Command, CommandEffect, Feature, JobBody, PathRef};
 
 /// What kind of construct holds the handler reference. Used by the rule
 /// to render a "X references @fn.Y but ..." message that pinpoints the
 /// construct.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HandlerSiteKind {
-    /// `command X { handler @fn.Y }`
+    /// `command X { handler @fn.Y }` where the command is **handler-only**
+    /// — it carries NO declarative effect body (`returns`/`None`), so the
+    /// `@fn` IS the primary command handler and codegen wires it as the
+    /// command's `lazuli.ReturnsFromRegistry[I, O]` callsite. Its Go
+    /// signature MUST match the command's `Command[I, O]`
+    /// (e.g. `login`, `me`, `mark_all_read`).
     CommandHandler,
+    /// `command X { creates/updates/deletes/reorders/triggers ...; handler @fn.Y }`
+    /// — the command has a DECLARATIVE effect body, so codegen emits the
+    /// primary handler from that body (`HandleXxx(ctx, Input) (Output, error)`)
+    /// and the `@fn.Y` is a **secondary binding-fn hook** registered via
+    /// `RegisterFn` and resolved through the flexible reflection bridge
+    /// `resolveBindingFn`/`adaptHandlerToBindingFn`
+    /// (`runtime/go/lazuli/binding_fn.go`), which accepts ANY
+    /// `func(*Ctx, I) (O, error)` shape and does NOT require the command's
+    /// `Command[I, O]` types. The handler file must still exist
+    /// (HANDLER-MISSING-001 cares), but it must NOT be asserted against
+    /// `Command[I, O]` (HANDLER-SIGNATURE-MISMATCH-001 must skip it).
+    CommandBindingFnHook,
     /// `resource X { validates resource "./domain/Y.go" }`
     ResourceValidate,
     /// `resource X { validates field <f> "./hooks/Y.go" }`
@@ -64,6 +81,7 @@ impl HandlerSiteKind {
     pub fn describe(self) -> &'static str {
         match self {
             Self::CommandHandler => "command handler",
+            Self::CommandBindingFnHook => "command binding-fn hook",
             Self::ResourceValidate => "resource validator",
             Self::ResourceFieldValidate => "field validator",
             Self::LifecycleInvariantHandler => "lifecycle invariant handler",
@@ -113,10 +131,22 @@ pub fn iter_handler_sites(feature: &Feature) -> Vec<HandlerSite> {
     let feature_name = feature.name.clone();
 
     // Command.handler — @fn.<name>
+    //
+    // Discriminate the PRIMARY command handler (handler-only command, the
+    // `@fn` IS the implementation) from a SECONDARY binding-fn hook (the
+    // command has a declarative effect body, so codegen emits the primary
+    // handler from that body and the `@fn` is a flexible-signature hook).
+    // See [`HandlerSiteKind`] for why HANDLER-SIGNATURE-MISMATCH-001 must
+    // not assert the hook against the command's `Command[I, O]`.
     for cmd in &feature.commands {
         if let Some(href) = &cmd.handler {
+            let kind = if command_has_declarative_body(cmd) {
+                HandlerSiteKind::CommandBindingFnHook
+            } else {
+                HandlerSiteKind::CommandHandler
+            };
             sites.push(HandlerSite {
-                kind: HandlerSiteKind::CommandHandler,
+                kind,
                 feature_name: feature_name.clone(),
                 construct_name: cmd.name.clone(),
                 handler_namespace: href.namespace.clone(),
@@ -193,6 +223,41 @@ pub fn iter_handler_sites(feature: &Feature) -> Vec<HandlerSite> {
     sites
 }
 
+/// True when `command` carries a DECLARATIVE effect body — i.e. codegen
+/// emits the primary `Command[I, O]` handler from the body
+/// (`creates`/`updates`/`deletes`/`reorders`/`triggers transition`), NOT
+/// from a `handler @fn.<name>` ref. For such a command, any `@fn` handler
+/// is a secondary binding-fn hook (flexible reflection-bridge signature),
+/// so HANDLER-SIGNATURE-MISMATCH-001 must not assert it against
+/// `Command[I, O]`.
+///
+/// A HANDLER-ONLY command (`returns` / `CommandEffect::None`, no
+/// `triggers`) is the inverse: the `@fn` IS the primary handler that
+/// codegen wires via `lazuli.ReturnsFromRegistry[I, O](<@fn>)`, so its
+/// signature is asserted — this is the `login` / `me` / `mark_all_read`
+/// shape, and a genuine drift there MUST still fire.
+///
+/// The discriminator mirrors codegen's `emit_effect`
+/// (`crates/lazuli_codegen_go/src/emitter/command/effects.rs`): only
+/// `Returns` and `None` route the registry key through the `@fn` name;
+/// every other effect emits a body-driven handler.
+fn command_has_declarative_body(command: &Command) -> bool {
+    // `triggers transition <name>` lowers to a lifecycle-driven UPDATE body
+    // (paired with an `updates` effect in practice, but treat the presence
+    // of a transition as a declarative body on its own to be safe).
+    if !command.triggers.is_empty() {
+        return true;
+    }
+    match &command.effect {
+        CommandEffect::Creates(_)
+        | CommandEffect::Updates(_)
+        | CommandEffect::Deletes(_)
+        | CommandEffect::Reorders(_) => true,
+        // `returns` / no-effect: the `@fn` is the primary handler.
+        CommandEffect::Returns(_) | CommandEffect::None => false,
+    }
+}
+
 /// Strip the file stem out of a `PathRef`. Returns `None` for paths that
 /// don't carry a Go-extension filename (e.g. directory paths,
 /// `@validator.<name>` symbolic refs, or anything that doesn't end in
@@ -224,8 +289,16 @@ mod tests {
     use lazuli_ir::{
         BuiltinType, Command, CommandEffect, CommandInput, CommandKind, Defaults, FieldValidation,
         HandlerRef, Job, JobBody, JobHandler, JobTrigger, PathRef, Policies, PolicyRef,
-        QualifiedName, ReturnsEffect, TypeRef, Webhook,
+        QualifiedName, ReturnsEffect, TypeRef, UpdateEffect, Webhook,
     };
+
+    fn fn_handler(name: &str) -> HandlerRef {
+        HandlerRef {
+            namespace: "fn".into(),
+            name: name.to_owned(),
+            span_ref: None,
+        }
+    }
 
     fn mk_cmd(name: &str, handler: Option<HandlerRef>) -> Command {
         Command {
@@ -335,6 +408,67 @@ mod tests {
         let feature = mk_feature(vec![mk_cmd("create_post", None)]);
         let sites = iter_handler_sites(&feature);
         assert!(sites.is_empty());
+    }
+
+    /// FP1 — a command with a DECLARATIVE `updates` effect body plus a
+    /// secondary `handler @fn.hook` classifies the `@fn` as a
+    /// [`HandlerSiteKind::CommandBindingFnHook`], NOT a `CommandHandler`.
+    /// HANDLER-SIGNATURE-MISMATCH-001 keys on `CommandHandler` so it will
+    /// no longer assert this hook against the command's `Command[I, O]`
+    /// (it has the flexible reflection-bridge signature). Mirrors pauta's
+    /// `delete_attachment { updates Attachment ...; handler
+    /// @fn.queue_storage_cleanup }`.
+    #[test]
+    fn declarative_body_command_handler_is_binding_fn_hook() {
+        let mut cmd = mk_cmd("delete_attachment", Some(fn_handler("queue_storage_cleanup")));
+        cmd.effect = CommandEffect::Updates(UpdateEffect {
+            resource: QualifiedName {
+                feature: None,
+                name: "Attachment".into(),
+            },
+            assignments: vec![],
+            where_clause: vec![],
+        });
+
+        let sites = iter_handler_sites(&mk_feature(vec![cmd]));
+        assert_eq!(sites.len(), 1);
+        assert_eq!(sites[0].kind, HandlerSiteKind::CommandBindingFnHook);
+        assert_eq!(sites[0].handler_name, "queue_storage_cleanup");
+        assert_eq!(sites[0].construct_name, "delete_attachment");
+    }
+
+    /// FP1 inverse — a HANDLER-ONLY command (`triggers transition` is the
+    /// only declarative marker absent; here a plain `returns` body) keeps
+    /// its `@fn` classified as the PRIMARY `CommandHandler` so a genuine
+    /// signature mismatch still fires. Mirrors pauta's
+    /// `mark_all_notifications_read { handler @fn.mark_all_read }`.
+    #[test]
+    fn handler_only_command_handler_stays_command_handler() {
+        // `mk_cmd` defaults to `CommandEffect::Returns` with no triggers —
+        // the handler-only shape.
+        let feature = mk_feature(vec![mk_cmd(
+            "mark_all_notifications_read",
+            Some(fn_handler("mark_all_read")),
+        )]);
+
+        let sites = iter_handler_sites(&feature);
+        assert_eq!(sites.len(), 1);
+        assert_eq!(sites[0].kind, HandlerSiteKind::CommandHandler);
+        assert_eq!(sites[0].handler_name, "mark_all_read");
+    }
+
+    /// FP1 — `triggers transition` (a lifecycle-driven declarative body)
+    /// also reclassifies the `@fn` as a binding-fn hook. Mirrors pauta's
+    /// `complete_step { triggers transition finish_step; updates JobStep
+    /// ...; handler @fn.recalculate_stepend_due_dates }`.
+    #[test]
+    fn triggers_transition_command_handler_is_binding_fn_hook() {
+        let mut cmd = mk_cmd("complete_step", Some(fn_handler("recalculate_stepend_due_dates")));
+        cmd.triggers = vec!["finish_step".into()];
+
+        let sites = iter_handler_sites(&mk_feature(vec![cmd]));
+        assert_eq!(sites.len(), 1);
+        assert_eq!(sites[0].kind, HandlerSiteKind::CommandBindingFnHook);
     }
 
     #[test]
