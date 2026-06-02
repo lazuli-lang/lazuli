@@ -92,3 +92,34 @@ export function camelToSnakeDeep(value: unknown): unknown {
 export function snakeToCamelDeep(value: unknown): unknown {
   return deepRekey(value, snakeToCamelKey);
 }
+
+/**
+ * Outbound body re-keyer. The wire key for each field MUST equal the Go
+ * `json:"…"` tag, which the emitter writes as the VERBATIM DSL field name.
+ * For snake_case DSL fields (`tenant_id`, exposed to JS as `tenantId`)
+ * the default heuristic `camelToSnakeKey` recovers the tag exactly. But
+ * for an already-camelCase DSL field (`registrationStep`, exposed and
+ * tagged identically) the heuristic would emit `registration_step` — a
+ * key the Go decoder never matches — so the value is silently dropped on
+ * the way OUT (the write-side mirror of the W1-4 read-side casing bug).
+ *
+ * `fields` pins the correct wire key for exactly those round-trip-unsafe
+ * fields (`{ registrationStep: "registrationStep" }`). Generated SDK specs
+ * carry it only when at least one field needs it; everything else falls
+ * back to `camelToSnakeKey`, so snake_case payloads are unchanged.
+ *
+ * The override is applied at every nesting depth: a mapped key inside a
+ * nested object or array element is rewritten the same way, since the Go
+ * decoder matches tags structurally at each level.
+ */
+export function camelToWireDeep(
+  value: unknown,
+  fields?: Readonly<Record<string, string>>,
+): unknown {
+  if (fields === undefined) {
+    return deepRekey(value, camelToSnakeKey);
+  }
+  const mapKey = (k: string): string =>
+    Object.prototype.hasOwnProperty.call(fields, k) ? fields[k]! : camelToSnakeKey(k);
+  return deepRekey(value, mapKey);
+}

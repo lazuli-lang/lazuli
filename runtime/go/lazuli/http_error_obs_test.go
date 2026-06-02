@@ -178,6 +178,73 @@ func TestNon5xxNotLoggedAsServerError(t *testing.T) {
 	}
 }
 
+// TestRuntimeOrigin500DefaultsToNonUserDSLSurface is the ERR-SURFACE-DEFAULT-USERDSL
+// regression. A runtime-origin 500 — e.g. "validator not registered",
+// "transition requires transaction", a nil DB — is constructed at dozens of
+// sites as `{Status:500, Code:CodeInternal}` with NO Base.Surface, so the
+// field defaults to the zero value `SurfaceUserDSL`. That mis-routes a Lazuli
+// runtime/adapter fault to user-DSL (.lzi) debugging. After the fix the HTTP
+// boundary promotes the zero value to a runtime-origin surface for any 5xx.
+func TestRuntimeOrigin500DefaultsToNonUserDSLSurface(t *testing.T) {
+	t.Setenv("LAZULI_ENV", "dev")
+	_ = captureSlog(t)
+
+	// The exact shape produced by the many internal 500 sites (handle.go,
+	// run.go, binding_fn.go, …): no Base, so Base.Surface == SurfaceUserDSL.
+	runtimeFault := &Error{
+		Status:  http.StatusInternalServerError,
+		Code:    CodeInternal,
+		Message: "validator not registered: billing.assert_balance",
+	}
+	if runtimeFault.Base.Surface != SurfaceUserDSL {
+		t.Fatalf("precondition: zero-value Base.Surface should be SurfaceUserDSL, got %s",
+			runtimeFault.Base.Surface)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/c/charge", nil)
+	writeError(rec, req, runtimeFault)
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body not JSON: %v; body=%q", err, rec.Body.String())
+	}
+	detail, ok := body["detail"].(map[string]any)
+	if !ok {
+		t.Fatalf("dev body missing detail block: %q", rec.Body.String())
+	}
+	surface, _ := detail["surface"].(string)
+	if surface == SurfaceUserDSL.String() {
+		t.Fatalf("runtime-origin 500 mis-attributed to %q surface; a non-DB runtime fault "+
+			"must NOT route to user-DSL debugging", surface)
+	}
+	if surface != SurfaceLibInternal.String() {
+		t.Fatalf("runtime-origin 500 surface = %q, want %q", surface, SurfaceLibInternal.String())
+	}
+}
+
+// TestExplicitSurfacePreservedOn500 asserts the boundary's surface-promotion
+// only fills the ZERO value — an explicitly-attributed surface (e.g. the
+// DB-origin adapter_runtime set by classifyDBError) is never overwritten.
+func TestExplicitSurfacePreservedOn500(t *testing.T) {
+	t.Setenv("LAZULI_ENV", "dev")
+	_ = captureSlog(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/c/void_invoice", nil)
+	writeError(rec, req, fiveHundredError()) // carries SurfaceAdapterRuntime
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body not JSON: %v", err)
+	}
+	detail, _ := body["detail"].(map[string]any)
+	if detail["surface"] != SurfaceAdapterRuntime.String() {
+		t.Fatalf("explicit surface overwritten: got %v, want %s",
+			detail["surface"], SurfaceAdapterRuntime.String())
+	}
+}
+
 // TestPanicMiddlewareDevDetail asserts the recover path surfaces the panic +
 // stack in the dev detail block, and returns the JSON envelope.
 func TestPanicMiddlewareDevDetail(t *testing.T) {

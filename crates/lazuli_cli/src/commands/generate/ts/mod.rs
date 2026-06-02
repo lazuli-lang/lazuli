@@ -82,7 +82,7 @@ pub(crate) use format::find_enum_decl;
 // format-helpers carve-out.
 pub(super) use format::{
     enum_variant_ts_literal, escape_js_string, format_audit_ts, format_policy_ts,
-    format_string_array, write_deprecated_const_alias,
+    format_string_array, wire_key_fields_literal, write_deprecated_const_alias,
 };
 pub(crate) use hooks::emit_feature_react_hooks_ts;
 // Same shape for ident.rs: siblings reach for these via

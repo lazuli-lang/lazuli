@@ -38,7 +38,7 @@ use super::{
     command_export_ident, command_ident, command_input_iface, command_is_pure_read,
     command_output_ts_type, command_sdk_slots, escape_js_string, format_audit_ts, format_policy_ts,
     format_string_array, legacy_query_ident, pick_query_resource_ts, query_args, query_ident,
-    resource_field_ts_name, resource_field_ts_type, ts_type_for_type_ref,
+    resource_field_ts_name, resource_field_ts_type, ts_type_for_type_ref, wire_key_fields_literal,
     write_cross_feature_imports, write_deprecated_const_alias, write_plugin_semantic_aliases,
     write_referenced_enum_aliases,
 };
@@ -161,8 +161,9 @@ fn write_command_sdk(
     let command_export = command_export_ident(feature, command, module);
     let legacy_command_ident = command_ident(&feature.name, &command.name);
 
+    let slots = command_sdk_slots(feature, command, module);
     writeln!(s, "export interface {input_iface} {{").ok();
-    for slot in command_sdk_slots(feature, command, module) {
+    for slot in &slots {
         let optional = if slot.required { "" } else { "?" };
         let camel = lazuli_codegen_ts::lower_camel_export(&slot.name);
         writeln!(
@@ -176,6 +177,15 @@ fn write_command_sdk(
     }
     writeln!(s, "}}").ok();
     writeln!(s).ok();
+
+    // TS-OUTBOUND-CAMEL-WRITE-LOSS: pin the exact Go json tag for any
+    // input field whose camelCase SDK key would NOT round-trip back to the
+    // verbatim tag through the runtime's default `camelToSnakeKey` (i.e.
+    // already-camelCase / PascalCase / acronym DSL field names). Snake_case
+    // fields round-trip cleanly and are omitted, so snake-only specs emit
+    // no `fields` line (goldens unchanged).
+    let field_names: Vec<String> = slots.iter().map(|slot| slot.name.clone()).collect();
+    let wire_fields = wire_key_fields_literal(&field_names);
 
     let invalidates: Vec<String> = command
         .invalidates
@@ -199,12 +209,21 @@ fn write_command_sdk(
     // `defineCommand` and keep carrying invalidates / policy / rate-limit
     // / audit metadata for `useLazuliCommand` callers.
     if command_is_pure_read(command) {
-        writeln!(
-            s,
-            "export const {} = defineQuery<{}, {}>(\"{}.{}\");",
-            command_export, input_iface, output_ty, feature.name, command.name
-        )
-        .ok();
+        if let Some(fields) = &wire_fields {
+            writeln!(
+                s,
+                "export const {} = defineQuery<{}, {}>(\"{}.{}\", {{ fields: {} }});",
+                command_export, input_iface, output_ty, feature.name, command.name, fields
+            )
+            .ok();
+        } else {
+            writeln!(
+                s,
+                "export const {} = defineQuery<{}, {}>(\"{}.{}\");",
+                command_export, input_iface, output_ty, feature.name, command.name
+            )
+            .ok();
+        }
         writeln!(s).ok();
         if legacy_command_ident != command_export {
             write_deprecated_const_alias(s, &legacy_command_ident, &command_export);
@@ -240,6 +259,9 @@ fn write_command_sdk(
     if let Some(audit_literal) = format_audit_ts(command.audit.as_ref()) {
         writeln!(s, "  audit: {audit_literal},").ok();
     }
+    if let Some(fields) = &wire_fields {
+        writeln!(s, "  fields: {fields},").ok();
+    }
     writeln!(s, "}});").ok();
     writeln!(s).ok();
     if legacy_command_ident != command_export {
@@ -272,6 +294,11 @@ fn write_query_sdk(
             .join("; ");
         format!("{{ {fields} }}")
     };
+    // TS-OUTBOUND-CAMEL-WRITE-LOSS: see write_command_sdk. Pin wire keys
+    // for any query arg whose camelCase SDK key would not round-trip back
+    // to its verbatim Go json tag.
+    let arg_names: Vec<String> = args.iter().map(|slot| slot.name.clone()).collect();
+    let wire_fields = wire_key_fields_literal(&arg_names);
     // Pick the resource most likely matching the query's intent.
     // Previous heuristic was `feature.resources.first()` which produced
     // wildly wrong types when the first resource isn't the "main" one
@@ -308,23 +335,24 @@ fn write_query_sdk(
     // signature already accepts a `DefineQueryOptions` block so when
     // policy lands on Query the codegen will populate it here without
     // a runtime contract change.
-    writeln!(
-        s,
-        // Wire registry key: `<feature>.<query_name>` (cell B1 dropped
-        // `.query.` infix — the `/q/` HTTP prefix already disambiguates kind).
-        "export const {} = defineQuery<{}, {}>(\"{}.{}\");",
-        query_ident(
-            &feature.name,
-            &resource_pascal,
-            query_ref_kind,
-            query.name()
-        ),
-        args_ty,
-        returns,
-        feature.name,
-        query.name()
-    )
-    .ok();
+    let query_name_ident = query_ident(&feature.name, &resource_pascal, query_ref_kind, query.name());
+    if let Some(fields) = &wire_fields {
+        writeln!(
+            s,
+            // Wire registry key: `<feature>.<query_name>` (cell B1 dropped
+            // `.query.` infix — the `/q/` HTTP prefix already disambiguates kind).
+            "export const {} = defineQuery<{}, {}>(\"{}.{}\", {{ fields: {} }});",
+            query_name_ident, args_ty, returns, feature.name, query.name(), fields
+        )
+        .ok();
+    } else {
+        writeln!(
+            s,
+            "export const {} = defineQuery<{}, {}>(\"{}.{}\");",
+            query_name_ident, args_ty, returns, feature.name, query.name()
+        )
+        .ok();
+    }
     writeln!(s).ok();
     let legacy_ident = legacy_query_ident(&feature.name, query_ref_kind, query.name());
     let current_ident = query_ident(

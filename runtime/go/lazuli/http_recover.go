@@ -43,11 +43,20 @@ func RecoverMiddleware(next http.Handler) http.Handler {
 				// text so clients/agents get the same shape as every other
 				// 5xx. In the dev allow-list env we also surface the panic
 				// value + stack in the detail block; prod stays masked.
+				// ERR-SURFACE-DEFAULT-USERDSL: a recovered panic is
+				// unambiguously a runtime fault — attribute it to the
+				// Lazuli library so the surface never reads `user_dsl`.
 				le := &Error{
 					Status:     http.StatusInternalServerError,
 					Code:       CodeInternal,
 					Message:    "internal server error",
 					MessageKey: CodeInternal,
+					Base: ErrorBase{
+						Status:  http.StatusInternalServerError,
+						Code:    CodeInternal,
+						Message: "internal server error",
+						Surface: SurfaceLibInternal,
+					},
 				}
 				payload := map[string]any{
 					"code":    le.Code,

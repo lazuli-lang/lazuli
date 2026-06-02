@@ -36,6 +36,17 @@ export type RateLimitSpec = string | null;
 /// `"none"` opts out; a string array names specific fields.
 export type AuditSpec = "default" | "none" | readonly string[];
 
+/// Outbound wire-key map: idiomatic camelCase SDK key → the exact Go
+/// `json:"…"` tag the runtime decoder expects. The Go emitter writes the
+/// DSL field name VERBATIM as the json tag, so for a field whose DSL name
+/// is already camelCase (`registrationStep`) the tag is `registrationStep`
+/// too — but the SDK key folds identically, so the heuristic
+/// `camelToSnakeDeep` would emit `registration_step` and the value would
+/// be silently dropped on decode. This map pins the correct wire key for
+/// exactly those fields where the heuristic round-trip is lossy; snake_case
+/// fields (`tenant_id` ↔ `tenantId`) round-trip cleanly and are omitted.
+export type WireKeyMap = Readonly<Record<string, string>>;
+
 export interface CommandSpec<Input, Output> {
   readonly kind: "command";
   readonly name: string;
@@ -43,6 +54,9 @@ export interface CommandSpec<Input, Output> {
   readonly policy?: PolicySpec;
   readonly rateLimit?: RateLimitSpec;
   readonly audit?: AuditSpec;
+  /// Per-field wire-key overrides for the outbound body (see WireKeyMap).
+  /// Absent when every input field round-trips through the default caser.
+  readonly fields?: WireKeyMap;
   // brand keeps the type parameters from being erased to `unknown`.
   readonly _input?: Input;
   readonly _output?: Output;
@@ -53,6 +67,8 @@ export interface QuerySpec<Args, Result> {
   readonly name: string;
   readonly policy?: PolicySpec;
   readonly rateLimit?: RateLimitSpec;
+  /// Per-field wire-key overrides for the outbound args (see WireKeyMap).
+  readonly fields?: WireKeyMap;
   readonly _args?: Args;
   readonly _result?: Result;
 }
@@ -62,11 +78,13 @@ export interface DefineCommandOptions {
   readonly policy?: PolicySpec;
   readonly rateLimit?: RateLimitSpec;
   readonly audit?: AuditSpec;
+  readonly fields?: WireKeyMap;
 }
 
 export interface DefineQueryOptions {
   readonly policy?: PolicySpec;
   readonly rateLimit?: RateLimitSpec;
+  readonly fields?: WireKeyMap;
 }
 
 export function defineCommand<Input, Output>(
@@ -85,6 +103,7 @@ export function defineCommand<Input, Output>(
     ...(options.policy !== undefined ? { policy: options.policy } : {}),
     ...(options.rateLimit !== undefined ? { rateLimit: options.rateLimit } : {}),
     ...(options.audit !== undefined ? { audit: options.audit } : {}),
+    ...(options.fields !== undefined ? { fields: options.fields } : {}),
   };
 }
 
@@ -97,5 +116,6 @@ export function defineQuery<Args, Result>(
     name,
     ...(options.policy !== undefined ? { policy: options.policy } : {}),
     ...(options.rateLimit !== undefined ? { rateLimit: options.rateLimit } : {}),
+    ...(options.fields !== undefined ? { fields: options.fields } : {}),
   };
 }
