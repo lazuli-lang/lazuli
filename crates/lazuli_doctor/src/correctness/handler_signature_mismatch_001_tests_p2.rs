@@ -246,6 +246,121 @@ var bar = lazuli.Command[Input2, Output2]{
         assert_eq!(sig.output, "Output2");
     }
 
+    // ── FIX 3 — underscored-feature gen-qualifier strip ────────────────
+
+    /// The verbatim `web_push` false-positive: the handler qualifies its
+    /// types with the aliased import `webpushgen` (Go drops underscores
+    /// from the feature name), while the gen side names them bare. The
+    /// old literal `format!("{feature}gen.")` strip produced
+    /// `web_pushgen.` which never matched `webpushgen.`, so the rule
+    /// spuriously reported a mismatch even though the resolved Go types
+    /// are identical. Must NOT fire.
+    #[test]
+    fn underscored_feature_gen_qualifier_does_not_false_positive() {
+        let tmp = TempDir::new().unwrap();
+        let app_root = tmp.path().join("app");
+        let dist_root = tmp.path().join("dist");
+        let lzi_path = tmp.path().join("features/web_push/web_push.lzi");
+        write_lzi(&lzi_path, "feature web_push\n");
+
+        let handler_src = r#"package webpushhandlers
+func RegisterWebPush(ctx *lazuli.Ctx, input webpushgen.RegisterWebPushInput) (webpushgen.RegisterWebPushOutput, error) {
+    return webpushgen.RegisterWebPushOutput{}, nil
+}
+"#;
+        let gen_src = r#"package webpushgen
+var registerWebPush = lazuli.Command[RegisterWebPushInput, RegisterWebPushOutput]{
+    Name: "web_push.register_web_push",
+}
+"#;
+        lay_out_files(
+            &app_root,
+            &dist_root,
+            "web_push",
+            "register_web_push",
+            handler_src,
+            gen_src,
+        );
+
+        let feature = mk_feature(
+            "web_push",
+            vec![mk_cmd_with_handler("register_web_push", "register_web_push")],
+        );
+        let findings = check(&feature, &lzi_path, &app_root, &dist_root);
+        assert!(
+            findings.is_empty(),
+            "underscored-feature handler with matching types must not fire, got {:?}",
+            findings
+        );
+    }
+
+    /// FIX 3 complement — a GENUINE type mismatch on an underscored
+    /// feature still fires (the qualifier strip must not paper over real
+    /// drift). Handler returns a different output type than codegen.
+    #[test]
+    fn underscored_feature_real_mismatch_still_fires() {
+        let tmp = TempDir::new().unwrap();
+        let app_root = tmp.path().join("app");
+        let dist_root = tmp.path().join("dist");
+        let lzi_path = tmp.path().join("features/web_push/web_push.lzi");
+        write_lzi(&lzi_path, "feature web_push\n");
+
+        let handler_src = r#"package webpushhandlers
+func RegisterWebPush(ctx *lazuli.Ctx, input webpushgen.RegisterWebPushInput) (string, error) {
+    return "", nil
+}
+"#;
+        let gen_src = r#"package webpushgen
+var registerWebPush = lazuli.Command[RegisterWebPushInput, RegisterWebPushOutput]{
+    Name: "web_push.register_web_push",
+}
+"#;
+        lay_out_files(
+            &app_root,
+            &dist_root,
+            "web_push",
+            "register_web_push",
+            handler_src,
+            gen_src,
+        );
+
+        let feature = mk_feature(
+            "web_push",
+            vec![mk_cmd_with_handler("register_web_push", "register_web_push")],
+        );
+        let findings = check(&feature, &lzi_path, &app_root, &dist_root);
+        assert_eq!(findings.len(), 1, "real output drift must still fire");
+        match &findings[0].diff {
+            Diff::OutputMismatch { expected, found } => {
+                assert_eq!(expected, "RegisterWebPushOutput");
+                assert_eq!(found, "string");
+            }
+            other => panic!("expected OutputMismatch, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn strip_gen_qualifier_handles_underscored_and_singleword_features() {
+        // Underscored feature → import alias drops underscores.
+        assert_eq!(
+            strip_gen_qualifier("webpushgen.RegisterWebPushInput"),
+            "RegisterWebPushInput"
+        );
+        // Single-word feature.
+        assert_eq!(strip_gen_qualifier("accountgen.LoginInput"), "LoginInput");
+        // No qualifier → unchanged.
+        assert_eq!(strip_gen_qualifier("LoginInput"), "LoginInput");
+        assert_eq!(strip_gen_qualifier("string"), "string");
+        assert_eq!(strip_gen_qualifier("struct{}"), "struct{}");
+        // A non-`gen` package qualifier is NOT stripped (only codegen pkgs).
+        assert_eq!(strip_gen_qualifier("time.Time"), "time.Time");
+        // Pointer sigil preserved.
+        assert_eq!(
+            strip_gen_qualifier("*accountgen.LoginInput"),
+            "*LoginInput"
+        );
+    }
+
     #[test]
     fn extract_handler_signature_strips_package_prefix() {
         let src = r#"package accounthandlers
