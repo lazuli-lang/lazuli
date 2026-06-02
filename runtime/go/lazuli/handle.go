@@ -1327,10 +1327,7 @@ func readPath(v reflect.Value, path string) (any, error) {
 			return nil, &Error{Status: 500, Code: CodeInternal,
 				Message: "input path " + path + " hit non-struct value"}
 		}
-		field := v.FieldByName(pascalCase(part))
-		if !field.IsValid() {
-			field = v.FieldByName(part)
-		}
+		field := resolveField(v, part)
 		if !field.IsValid() {
 			return nil, &Error{Status: 400, Code: CodeBadRequest,
 				Message: "input field not found: " + path}
@@ -1397,16 +1394,75 @@ func readCtx(ctx *Ctx, path string) (any, error) {
 	}
 }
 
-// pascalCase converts snake_case to PascalCase ("first_name" -> "FirstName").
+// resolveField finds the struct field on v that a DSL binding path part
+// names. Command bindings pass the wire key (snake_case, e.g. "agency_id");
+// query bindings pass the Go field name (e.g. "AgencyID"). Both must resolve
+// to the same field, which the codegen emits with an acronym-aware caser
+// ("agency_id" -> AgencyID) plus a `json:"agency_id"` tag.
+//
+// The lookup tries, in order:
+//  1. exact field name (covers query-style PascalCase and DSL-exact parts);
+//  2. acronym-aware PascalCase (covers command-style snake_case via the same
+//     algorithm the emitter uses, so AgencyID/ID/HTMLBody all hit);
+//  3. the `json` struct tag (drift-proof: it's the wire key the emitter
+//     wrote, so it matches the binding regardless of casing rules);
+//  4. case-insensitive field name (belt-and-suspenders before erroring).
+//
+// Returns an invalid reflect.Value if nothing matches.
+func resolveField(v reflect.Value, part string) reflect.Value {
+	if f := v.FieldByName(part); f.IsValid() {
+		return f
+	}
+	if f := v.FieldByName(pascalCase(part)); f.IsValid() {
+		return f
+	}
+	t := v.Type()
+	for i := 0; i < t.NumField(); i++ {
+		if jsonTagName(t.Field(i).Tag.Get("json")) == part {
+			return v.Field(i)
+		}
+	}
+	for i := 0; i < t.NumField(); i++ {
+		if strings.EqualFold(t.Field(i).Name, part) {
+			return v.Field(i)
+		}
+	}
+	return reflect.Value{}
+}
+
+// jsonTagName returns the field name portion of a `json` struct tag,
+// stripping any options like ",omitempty". An empty or "-" tag yields "".
+func jsonTagName(tag string) string {
+	if tag == "" || tag == "-" {
+		return ""
+	}
+	if comma := strings.IndexByte(tag, ','); comma >= 0 {
+		return tag[:comma]
+	}
+	return tag
+}
+
+// pascalCase converts a DSL identifier to the Go PascalCase field name the
+// codegen emits ("first_name" -> "FirstName"). Acronyms are uppercased
+// wholesale ("agency_id" -> "AgencyID", "html_body" -> "HTMLBody"); the
+// acronym set MUST stay in sync with the emitter's
+// `lazuli_codegen_go::emitter::casing::is_acronym` table, otherwise binding
+// reflection drifts from the struct fields it resolves against.
 func pascalCase(s string) string {
-	parts := strings.Split(s, "_")
-	for i, p := range parts {
-		if len(p) == 0 {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, word := range splitWords(s) {
+		if word == "" {
 			continue
 		}
-		parts[i] = strings.ToUpper(p[:1]) + p[1:]
+		if isAcronym(word) {
+			b.WriteString(strings.ToUpper(word))
+			continue
+		}
+		b.WriteString(strings.ToUpper(word[:1]))
+		b.WriteString(word[1:])
 	}
-	return strings.Join(parts, "")
+	return b.String()
 }
 
 // recognisedBootEnvs lists every `LAZULI_ENV` value the runtime knows how to
@@ -1439,6 +1495,56 @@ func warnUnknownBootEnv() {
 			"lazuli_env", env)
 	}
 }
+
+// isAcronym mirrors the emitter's closed acronym catalog. Keep in sync with
+// `lazuli_codegen_go::emitter::casing::is_acronym`.
+func isAcronym(word string) bool {
+	switch strings.ToLower(word) {
+	case "id", "url", "uri", "api", "html", "json", "sql", "ttl", "uuid":
+		return true
+	default:
+		return false
+	}
+}
+
+// splitWords splits a mixed-case identifier into words on `_`/`-` separators
+// and on case transitions, mirroring the emitter's `split_words`. This is
+// what lets "agency_id" -> [agency, id] and "HTMLBody" -> [HTML, Body].
+func splitWords(s string) []string {
+	var words []string
+	var current strings.Builder
+	chars := []rune(s)
+	flush := func() {
+		if current.Len() > 0 {
+			words = append(words, current.String())
+			current.Reset()
+		}
+	}
+	for i, ch := range chars {
+		if ch == '_' || ch == '-' {
+			flush()
+			continue
+		}
+		if ch >= 'A' && ch <= 'Z' {
+			prevLower := i > 0 && (isLower(chars[i-1]) || isDigit(chars[i-1]))
+			nextLower := i+1 < len(chars) && isLower(chars[i+1])
+			if current.Len() > 0 && (prevLower || nextLower) {
+				if !nextLower {
+					// Mid-uppercase run (e.g. "HT" in "HTML"): keep going.
+					current.WriteRune(ch)
+					continue
+				}
+				flush()
+			}
+		}
+		current.WriteRune(ch)
+	}
+	flush()
+	return words
+}
+
+func isLower(r rune) bool { return r >= 'a' && r <= 'z' }
+func isDigit(r rune) bool { return r >= '0' && r <= '9' }
 
 // Boot wires the runtime: opens the DB pool. Call once at process startup
 // before the HTTP server begins serving.
