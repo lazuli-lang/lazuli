@@ -87,6 +87,9 @@ pub(crate) const P_CROSS_FEATURE: &[DiagnosticFacet] = &[
 pub(crate) const P_QUERY: &[DiagnosticFacet] = &[
     df("DUPLICATE-QUERY-NAME-001", "error", "correctness"),
     df("MISSING-POLICY-ON-QUERY-001", "error", "correctness"),
+    // A filter-predicate RHS (or field-default) enum-variant typo that would
+    // silently lower to a `FromConst("<typo>")` literal that never matches.
+    df("ENUM-VARIANT-UNDECLARED-001", "error", "correctness"),
 ];
 
 pub(crate) const P_ENCRYPTION: &[DiagnosticFacet] = &[

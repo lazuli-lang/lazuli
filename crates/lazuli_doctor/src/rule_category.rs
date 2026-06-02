@@ -119,6 +119,13 @@ impl RuleCategory {
             // garbage string). A binding that resolves to no known source
             // kind is a concrete wiring bug, not style — Correctness.
             Some("CODEGEN") => Self::Correctness,
+            // `ENUM-*` — enum-shape correctness invariants. Today:
+            // `ENUM-VARIANT-UNDECLARED-001` (a filter-predicate RHS or
+            // field-default enum literal naming a variant the enum never
+            // declared — a typo that would silently lower to a `FromConst`
+            // string that never matches). A reference to a non-existent
+            // variant is a concrete bug, not style — Correctness.
+            Some("ENUM") => Self::Correctness,
             Some("HOOK") | Some("DUPLICATE") | Some("ROUTE") | Some("UPDATES")
             | Some("MUTATION") | Some("MISSING") | Some("MANUAL") | Some("IMPORT")
             | Some("CAP") | Some("SCHEMA") | Some("PREDICATE") => Self::Correctness,
