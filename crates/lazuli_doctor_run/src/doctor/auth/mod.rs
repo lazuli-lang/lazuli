@@ -35,6 +35,7 @@
 pub mod auth_identity_field_unknown_001;
 pub mod auth_oauth_adapter_unbound_001;
 pub mod auth_password_algorithm_hash_mismatch_001;
+pub mod auth_session_canonical_columns_001;
 pub mod auth_sessions_resource_unknown_001;
 pub mod session_query_temporal_validity_001;
 

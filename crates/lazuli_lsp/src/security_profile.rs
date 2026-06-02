@@ -98,6 +98,13 @@ pub(crate) fn is_security_enforcement_code(code: &str) -> bool {
             // scaffolded strict profile. The warn-only in-editor
             // `active-session-temporal-scope` squiggle stays as-is.
             | "session-query-temporal-validity"
+            // IR-driven preventability guard: the session resource bound by
+            // `auth sessions resource <X>` must declare every column the
+            // runtime resolver reads (AUTH-SESSION-CANONICAL-COLUMNS-001).
+            // Joins its session-family peers — WARNING under prototype,
+            // ERROR under strict/production so it blocks under the scaffolded
+            // strict profile.
+            | "auth-session-canonical-columns"
             | "auth_password_algorithm_hash_mismatch"
             | "auth_sessions_resource_unknown"
             | "auth_identity_field_unknown"
