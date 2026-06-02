@@ -217,6 +217,16 @@ impl DoctorPackage {
             &self.project_root,
             self.config.lzi_hygiene_preset,
         ));
+        // spec 0029 comment-discipline — `LZI-COMMENT-PROSE-001` flags EVERY `#`
+        // comment line in `.lzi`/`.lzx`, driving the design surface to zero
+        // prose comments. Runs over the parsed `DoctorFile` set (covers both
+        // `.lzi` AND `.lzx`). WARNING default / ERROR under iron-hand; never
+        // gates (LziHygiene is non-blocking).
+        diagnostics.extend(aggregators::lzi_hygiene::comment_prose_diagnostics(
+            &self.project_root,
+            &self.files,
+            self.config.lzi_hygiene_preset,
+        ));
         // Escape-hatch visibility (spec 0010) — the three `ESC-*` rules
         // (`ESC-RAWSQL-IN-HANDLER-001`, `ESC-SQL-TENANCY-CONTRACT-001`,
         // `ESC-SCOPE-OVERRIDE-UNGUARDED-001`) close the holes where a read's

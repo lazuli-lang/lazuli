@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use anyhow::{Result, anyhow};
 
 use crate::actions::{
-    FixAction, doctor_allow_comment, insert_tests_block, scaffold_errors_block,
+    FixAction, comment_prose, doctor_allow_comment, insert_tests_block, scaffold_errors_block,
 };
 use crate::{FixOutcome, FixRequest, FixResult};
 
@@ -125,6 +125,7 @@ impl Default for FixRegistry {
         reg.register(Box::new(insert_tests_block::InsertTestsBlock));
         reg.register(Box::new(scaffold_errors_block::ScaffoldErrorsBlock));
         reg.register(Box::new(doctor_allow_comment::DoctorAllowCommentToNode));
+        reg.register(Box::new(comment_prose::CommentProseFix));
         reg
     }
 }

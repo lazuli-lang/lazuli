@@ -149,6 +149,8 @@ mod tests {
             // spec 0008 — the resource-graph sibling. Default Warn; under
             // iron-hand it escalates to Error like every other LZI-* code.
             "LZI-FEATURE-COHESION-002",
+            // spec 0029 — comment-discipline. Default Warn; iron-hand → Error.
+            "LZI-COMMENT-PROSE-001",
         ] {
             assert_eq!(
                 preset_rule_severity(LziHygienePreset::TddIronHand, code),
