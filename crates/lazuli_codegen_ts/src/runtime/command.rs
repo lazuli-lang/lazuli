@@ -19,7 +19,7 @@ use lazuli_codegen_spec::{RuntimeCommand, RuntimeFeature};
 
 use super::header::{format_string_array, write_section_banner};
 use super::invalidates::merged_invalidates;
-use super::naming::{field_kind_ts, lower_camel, pascal_case};
+use super::naming::{field_kind_ts, lower_camel_wire_lowered, pascal_case};
 
 pub(super) fn write_command(s: &mut String, feature: &RuntimeFeature, command: &RuntimeCommand) {
     // Runtime spec invariant: every feature has at least one resource.
@@ -44,7 +44,7 @@ pub(super) fn write_command(s: &mut String, feature: &RuntimeFeature, command: &
         let key = if input.field_name == "ID" {
             "id".to_owned()
         } else {
-            lower_camel(&input.field_name)
+            lower_camel_wire_lowered(&input.field_name)
         };
         writeln!(s, "  {}: {};", key, field_kind_ts(input.kind)).ok();
     }

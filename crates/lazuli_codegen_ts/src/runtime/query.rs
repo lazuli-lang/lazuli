@@ -18,7 +18,7 @@ use std::fmt::Write;
 use lazuli_codegen_spec::{QueryKind, RuntimeArg, RuntimeFeature, RuntimeQuery};
 
 use super::header::write_section_banner;
-use super::naming::{field_kind_ts, lower_camel, pascal_case};
+use super::naming::{field_kind_ts, lower_camel, lower_camel_wire_lowered, pascal_case};
 use crate::pluralize;
 
 pub(super) fn write_query(s: &mut String, feature: &RuntimeFeature, query: &RuntimeQuery) {
@@ -270,10 +270,13 @@ fn write_deprecated_const_alias(s: &mut String, old_name: &str, new_name: &str) 
 }
 
 fn write_query_arg(s: &mut String, arg: &RuntimeArg) {
+    // Query args mirror command inputs: the Go runtime emits the json
+    // tag lower-cased (`query.rs` `.to_ascii_lowercase()`), so the SDK
+    // key must lower-case-then-camel to stay wire-aligned.
     let key = if arg.field_name == "ID" {
         "id".to_owned()
     } else {
-        lower_camel(&arg.field_name)
+        lower_camel_wire_lowered(&arg.field_name)
     };
     let suffix = if arg.optional { "?" } else { "" };
     writeln!(s, "  {key}{suffix}: {ty};", ty = field_kind_ts(arg.kind)).ok();
