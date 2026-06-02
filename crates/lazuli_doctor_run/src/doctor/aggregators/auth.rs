@@ -199,6 +199,58 @@ pub(crate) fn auth_diagnostics(
             });
         }
 
+        // 2b. `AUTH-RATELIMIT-NOOP-001` — the `auth.password.rate_limit`
+        //     slot is parsed and stored on the lowered `PasswordContract`
+        //     but the runtime NEVER enforces it: `auth.VerifyPassword`
+        //     (runtime/go/lazuli/auth/password.go) is a pure crypto compare
+        //     that ignores `contract.RateLimit`, and `ErrPasswordRateLimited`
+        //     has no live emitter. The active login/signup throttle is the
+        //     COMMAND-level `rate_limit` on the `login` / `signup` command
+        //     (enforced in `handle.go::Handle` via the token-bucket store),
+        //     so authors who put the limit only on the auth block get NO
+        //     throttling — a silent dead-config security gap. Warn so the
+        //     declaration is moved to the command(s) that actually mount the
+        //     /auth routes.
+        //
+        //     Enforcement-in-VerifyPassword was deferred deliberately:
+        //     VerifyPassword runs INSIDE the `login` command's Handle
+        //     pipeline, which already enforces the command-level limit with
+        //     the identical spec on the canonical pilot (pauta
+        //     account.lzi:154 == command login rate_limit), so wiring the
+        //     auth-block limit there would double-throttle the same caller
+        //     against the same bucket; and the unified rate-limit machinery
+        //     (`parseRateLimitSpec` / `buildRateLimitKey` / `activeStore`)
+        //     is unexported in the parent `lazuli` package, unreachable from
+        //     the `auth` subpackage without leaking internals + an ip/actor
+        //     key VerifyPassword does not own. See worktree branch
+        //     `fix/w2-authrl-warn`.
+        if let Some(password) = fact.auth.password.as_ref() {
+            let rate_limit_declared = password.rate_limit.as_ref().is_some_and(|spec| {
+                !spec.default.trim().is_empty()
+                    || spec.by_env.iter().any(|e| !e.limit.trim().is_empty())
+            });
+            if rate_limit_declared {
+                diagnostics.push(DoctorDiagnostic {
+                    path: fact.path.clone(),
+                    line: fact.password_line.unwrap_or(fact.line),
+                    column: 1,
+                    severity: DoctorSeverity::Warning,
+                    code: "AUTH-RATELIMIT-NOOP-001".to_owned(),
+                    message:
+                        "auth.password.rate_limit is declared but the runtime never enforces it \
+                         (auth.VerifyPassword ignores the contract's RateLimit — it is dead \
+                         config). Move the throttle onto the `login` / `signup` command's \
+                         `rate_limit` instead, which the command pipeline actually enforces."
+                            .to_owned(),
+                    category: None,
+                    feature_name: None,
+                    construct: None,
+                    fix: None,
+                    group: None,
+                });
+            }
+        }
+
         // 3. `auth_oauth_no_password_alt` — OAuth-only signin is a
         //    valid contract, but many apps want password fallback for
         //    break-glass administration.

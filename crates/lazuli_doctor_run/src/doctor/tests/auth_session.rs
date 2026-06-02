@@ -272,6 +272,114 @@ func Login(ctx *lazuli.Ctx, input LoginInput) (string, error) {
     }
 
     // ---------------------------------------------------------------
+    // AUTH-RATELIMIT-NOOP-001 — auth.password.rate_limit is dead config
+    // (runtime VerifyPassword never enforces it). Warn so authors move
+    // the throttle onto the login/signup command's rate_limit.
+    // ---------------------------------------------------------------
+
+    fn auth_fact_with_password_rate_limit(
+        feature: &str,
+        rate_limit: Option<ir::RateLimitSpec>,
+    ) -> AuthFacts {
+        AuthFacts {
+            feature: feature.to_owned(),
+            auth: ir::Auth {
+                identity: ir::AuthIdentity {
+                    field: ir::FieldRef {
+                        resource: ir::QualifiedName {
+                            feature: None,
+                            name: "User".to_owned(),
+                        },
+                        field: "email".to_owned(),
+                    },
+                    public_contract: None,
+                },
+                password: Some(ir::AuthPassword {
+                    algorithm: "argon2id".to_owned(),
+                    hash: "@fn.hash_password".to_owned(),
+                    verify: "@fn.verify_password".to_owned(),
+                    rate_limit,
+                }),
+                sessions: Some(ir::AuthSessions {
+                    resource: ir::QualifiedName {
+                        feature: None,
+                        name: "UserSession".to_owned(),
+                    },
+                    ttl: "7 days".to_owned(),
+                    refresh: false,
+                    extra_columns: vec![],
+                    access_ttl: None,
+                    rotation: None,
+                    cookie: None,
+                }),
+                mfa: None,
+                oauth: vec![],
+                span_ref: None,
+            },
+            path: PathBuf::from(format!("features/{feature}/{feature}.lzi")),
+            line: 1,
+            identity_line: 1,
+            password_line: Some(150),
+            password_algorithm_line: Some(151),
+            sessions_line: Some(156),
+            sessions_resource_line: Some(157),
+            mfa_line: None,
+            oauth_lines: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn auth_ratelimit_noop_001_fires_when_password_rate_limit_declared() {
+        let fact = auth_fact_with_password_rate_limit(
+            "account",
+            Some(ir::RateLimitSpec::from_default(
+                "5 per 10 minutes per ip".to_owned(),
+            )),
+        );
+        let diagnostics = call_auth_diagnostics(&[fact]);
+        let hit = diagnostics
+            .iter()
+            .find(|d| d.code == "AUTH-RATELIMIT-NOOP-001");
+        let hit = hit.expect("expected AUTH-RATELIMIT-NOOP-001 to fire");
+        assert_eq!(
+            hit.severity,
+            DoctorSeverity::Warning,
+            "AUTH-RATELIMIT-NOOP-001 must be a warning, not error"
+        );
+        assert_eq!(
+            hit.line, 150,
+            "diagnostic must anchor at the auth.password block line"
+        );
+    }
+
+    #[test]
+    fn auth_ratelimit_noop_001_does_not_fire_without_rate_limit() {
+        let fact = auth_fact_with_password_rate_limit("account", None);
+        let diagnostics = call_auth_diagnostics(&[fact]);
+        let codes: BTreeSet<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert!(
+            !codes.contains("AUTH-RATELIMIT-NOOP-001"),
+            "AUTH-RATELIMIT-NOOP-001 must not fire when no rate_limit declared; got {codes:?}"
+        );
+    }
+
+    #[test]
+    fn auth_ratelimit_noop_001_does_not_fire_on_unlimited_sentinel() {
+        // `rate_limit "unlimited"` lowers to an empty default string — not a
+        // dead throttle, just an explicit opt-out. Must stay quiet.
+        let fact = auth_fact_with_password_rate_limit(
+            "account",
+            Some(ir::RateLimitSpec::from_default(String::new())),
+        );
+        let diagnostics = call_auth_diagnostics(&[fact]);
+        let codes: BTreeSet<&str> = diagnostics.iter().map(|d| d.code.as_str()).collect();
+        assert!(
+            !codes.contains("AUTH-RATELIMIT-NOOP-001"),
+            "AUTH-RATELIMIT-NOOP-001 must not fire for an empty/unlimited spec; got {codes:?}"
+        );
+    }
+
+    // ---------------------------------------------------------------
     // Roadmap §1.2 — HTTP hygiene contracts: cookie / proxy / limits.
     // Each block ships one diagnostic code that fires on any of its
     // closed-catalog violations.
