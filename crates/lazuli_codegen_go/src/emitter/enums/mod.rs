@@ -41,6 +41,7 @@ use std::fmt::Write;
 use lazuli_ir::{EnumDecl, Feature, StorageValue};
 
 use super::imports::ImportSet;
+use super::patterns::{PATTERN_ENUM_UNMARSHAL, PATTERN_ENUM_VALID, emit_pattern_header};
 use super::printer::GoPrinter;
 
 /// Emit `<feature>/enum.gen.go` for a feature, or `None` when the
@@ -244,6 +245,7 @@ fn emit_string_membership_guard(p: &mut GoPrinter, decl: &EnumDecl, pascal: &str
     p.line(&format!(
         "// Valid reports whether v is one of the declared {pascal} variants."
     ));
+    emit_pattern_header(p, PATTERN_ENUM_VALID);
     p.line(&format!("func (v {pascal}) Valid() bool {{"));
     p.indent();
     p.line("switch v {");
@@ -283,6 +285,7 @@ fn emit_string_membership_guard(p: &mut GoPrinter, decl: &EnumDecl, pascal: &str
         "// declared {pascal} variant set. An unknown variant returns an error that"
     ));
     p.line("// lifts to a 400 validation_failed envelope through the decode pipeline.");
+    emit_pattern_header(p, PATTERN_ENUM_UNMARSHAL);
     p.line(&format!(
         "func (v *{pascal}) UnmarshalJSON(data []byte) error {{"
     ));

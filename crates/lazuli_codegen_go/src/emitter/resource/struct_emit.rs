@@ -21,6 +21,7 @@ use lazuli_ir::{
 };
 
 use crate::emitter::casing::{lower_camel, pascal_case};
+use crate::emitter::patterns::{PATTERN_RECORD_VALIDATE, emit_pattern_header};
 use crate::emitter::printer::GoPrinter;
 use crate::emitter::types::{self, TypeCtx};
 

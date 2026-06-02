@@ -386,6 +386,26 @@ fn authored_error_code_emits_domain_constructor() {
     );
 }
 
+/// C3 (overnight-2026-06-02/03-codegen.md): the emitted `guard…Refs`
+/// functions must carry a `//lazuli:pattern` header — before the fix they
+/// fired CODEGEN-PATTERN-001 on every pilot with a `restrict on_delete`.
+/// The emitter-side lint must pass over the whole emitted guards file.
+#[test]
+fn emitted_guard_funcs_all_carry_pattern_header() {
+    let mut f = base_feature("billing");
+    f.resources.push(resource_with_guards(
+        "BillingType",
+        vec![
+            guard("invoice", "billing_type_id", true, true),
+            guard("quote", "billing_type_id", true, false),
+        ],
+    ));
+    let out = emit(f);
+    assert!(out.contains("func guardBillingTypeInvoiceRefs("), "{out}");
+    crate::emitter::lint::check_pattern_annotations(&out, "billing/guards.gen.go")
+        .expect("every emitted guard func must carry a //lazuli:pattern header");
+}
+
 #[test]
 fn count_origin_and_exists_origin_lower_identically() {
     // The IR has no notion of COUNT vs EXISTS — both hand-written forms

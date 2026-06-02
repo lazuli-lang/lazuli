@@ -11,6 +11,7 @@ fn emit_record_validate(p: &mut GoPrinter, pascal: &str) {
     p.line("// carries its own `Validate() error` (semantic carriers, nested records,");
     p.line("// and elements of `Many<Record>` slices) is checked. Wire-thin: the");
     p.line("// traversal lives in `lazuli.ValidateValue`.");
+    emit_pattern_header(p, PATTERN_RECORD_VALIDATE);
     p.line(&format!("func (m {pascal}) Validate() error {{"));
     p.indent();
     p.line("return lazuli.ValidateValue(m)");

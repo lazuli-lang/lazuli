@@ -10,11 +10,30 @@ import (
 	"log/slog"
 	"os"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 )
+
+// sortedBindKeys returns the column keys of a Bindings map in a stable
+// (lexicographic) order. Go randomizes map iteration, so building SQL
+// column/SET/WHERE clauses by `range`-ing a Bindings map yields a
+// different column order run-to-run for a fixed payload shape. That
+// unstable SQL text fragments `pg_stat_statements` and blocks any future
+// move to the extended/prepared protocol from reusing a plan cache. Every
+// SQL-clause builder (applyCreates, applyUpdates, applyDeletes,
+// selectByEffectWhere) iterates keys through this helper so the emitted
+// SQL is deterministic. (P2 — overnight-2026-06-02/03-codegen.md.)
+func sortedBindKeys(b Bindings) []string {
+	keys := make([]string, 0, len(b))
+	for k := range b {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
 
 type commandTxRunner func(context.Context, func(pgx.Tx) error) error
 
@@ -878,7 +897,8 @@ func applyCreates[I, O any](ctx *Ctx, tx pgx.Tx, eff CreatesEffect, input I) (O,
 	cols := make([]string, 0, len(eff.Bind))
 	values := make([]any, 0, len(eff.Bind))
 	placeholders := make([]string, 0, len(eff.Bind))
-	for col, src := range eff.Bind {
+	for _, col := range sortedBindKeys(eff.Bind) {
+		src := eff.Bind[col]
 		val, err := resolveSource(ctx, src, input)
 		if err != nil {
 			return zero, err
@@ -1095,7 +1115,8 @@ func applyUpdates[I, O any](ctx *Ctx, tx pgx.Tx, eff UpdatesEffect, input I) (O,
 	// excluded — encrypted columns are never WHERE-keys (the cipher
 	// nonce makes equality lookups impossible).
 	bindCols := make([]string, 0, len(eff.Bind))
-	for col, src := range eff.Bind {
+	for _, col := range sortedBindKeys(eff.Bind) {
+		src := eff.Bind[col]
 		val, err := resolveSource(ctx, src, input)
 		if err != nil {
 			return zero, err
@@ -1155,7 +1176,8 @@ func applyUpdates[I, O any](ctx *Ctx, tx pgx.Tx, eff UpdatesEffect, input I) (O,
 		return zero, err
 	}
 	values = append(values, condValues...)
-	for col, src := range eff.Where {
+	for _, col := range sortedBindKeys(eff.Where) {
+		src := eff.Where[col]
 		val, err := resolveSource(ctx, src, input)
 		if err != nil {
 			return zero, err
@@ -1204,7 +1226,8 @@ func selectByEffectWhere[I, O any](ctx *Ctx, tx pgx.Tx, eff UpdatesEffect, input
 	if err != nil {
 		return zero, err
 	}
-	for col, src := range eff.Where {
+	for _, col := range sortedBindKeys(eff.Where) {
+		src := eff.Where[col]
 		val, err := resolveSource(ctx, src, input)
 		if err != nil {
 			return zero, err
@@ -1250,7 +1273,8 @@ func applyDeletes[I, O any](ctx *Ctx, tx pgx.Tx, eff DeletesEffect, input I) (O,
 	if err != nil {
 		return zero, err
 	}
-	for col, src := range eff.Where {
+	for _, col := range sortedBindKeys(eff.Where) {
+		src := eff.Where[col]
 		val, err := resolveSource(ctx, src, input)
 		if err != nil {
 			return zero, err

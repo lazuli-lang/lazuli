@@ -18,6 +18,7 @@
 use lazuli_ir::Feature;
 
 use super::migration_ddl::unique_violation_codes;
+use super::patterns::{PATTERN_UNIQUE_VIOLATION_REGISTER, emit_pattern_header};
 use super::printer::GoPrinter;
 
 /// Emit `<feature>/unique_codes.gen.go`, or `None` when no resource in the
@@ -47,6 +48,7 @@ pub fn emit_unique_violation_codes_file(source_label: &str, feature: &Feature) -
     p.line("// init registers the per-constraint domain error codes authored via");
     p.line("// `unique <fields> error <CODE>`. classifyDBError remaps a 23505 whose");
     p.line("// ConstraintName matches one of these into the pinned domain code.");
+    emit_pattern_header(&mut p, PATTERN_UNIQUE_VIOLATION_REGISTER);
     p.line("func init() {");
     p.indent();
     for (constraint_name, code) in &pairs {
