@@ -36,7 +36,7 @@ mod test_lowering;
 mod types;
 mod workflow;
 
-pub use agent::lower_agent;
+pub use agent::{lower_agent, parse_closed_predicate};
 pub use auth::lower_auth;
 pub(crate) use command_decl::{DeprecationTarget, lower_command_decl, lower_deprecated};
 pub use conventions::{

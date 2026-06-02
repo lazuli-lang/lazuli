@@ -330,7 +330,7 @@ pub(crate) fn lower_eval_predicate(
 /// expressions) fall through to `EvalPredicate::Unparsed` so doctor can
 /// surface them — the parser stays narrow until the canonical predicate
 /// parser lands.
-pub(crate) fn parse_closed_predicate(text: &str) -> ir::EvalPredicate {
+pub fn parse_closed_predicate(text: &str) -> ir::EvalPredicate {
     let trimmed = text.trim();
     // Try ordered ops first (longest token wins to avoid `<=` parsing as `<`).
     // SPEC-05 — `==` is THE equality operator in the closed predicate
