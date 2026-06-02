@@ -129,6 +129,17 @@ pub const GLOBAL_DIAGNOSTICS: &[DiagnosticFacet] = &[
         base_severity: "error",
         category: "correctness",
     },
+    // W2-1 — two DSL constructs (enum / lifecycle-generated-enum / query /
+    // command / transition) that lower to the SAME emitted Go identifier in a
+    // feature's `<feature>gen` package, producing a `go build` double
+    // declaration. Genuinely cross-cutting: owned by no single keyword (every
+    // one of the five colliding construct families carries it), so it lands in
+    // GLOBAL rather than on any one capability's `produces[]`.
+    DiagnosticFacet {
+        code: "CODEGEN-GO-IDENT-COLLISION-008",
+        base_severity: "error",
+        category: "correctness",
+    },
     // ── migration codegen / runtime update-builder (over generated artifacts) ──
     DiagnosticFacet {
         code: "MIGRATION-ALTER-MISSING-001",

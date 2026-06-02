@@ -690,6 +690,7 @@ name = "lazuli_doctor"
 version = "0.1.0"
 dependencies = [
  "lazuli_analyzer",
+ "lazuli_codegen_go",
  "lazuli_ir",
  "lazuli_syntax",
  "serde",

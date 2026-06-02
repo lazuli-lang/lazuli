@@ -120,6 +120,10 @@ mod tests {
         include!("tests/policy_cache.rs");
     }
 
+    mod go_ident_collision {
+        include!("tests/go_ident_collision.rs");
+    }
+
     mod openapi_webhook {
         include!("tests/openapi_webhook.rs");
     }
