@@ -154,6 +154,20 @@ pub const GLOBAL_DIAGNOSTICS: &[DiagnosticFacet] = &[
         base_severity: "error",
         category: "correctness",
     },
+    // SPEC 0030 — a committed ABSOLUTE `replace lazuli.dev/runtime => <abs>`
+    // (or go.work `use <abs>`) baked into a project's go.mod/go.work. It
+    // breaks `go build` on every other machine (the path doesn't exist),
+    // so the gate must refuse to ship it. The rule audits the project's
+    // committed go.mod/go.work runtime wiring — owned by no single DSL
+    // keyword (the wiring is a build-system artifact, not a `.lzi`
+    // construct) — so it lands in GLOBAL alongside the other
+    // project-level cross-checks. Base severity `error` (Correctness →
+    // blocks the generate gate).
+    DiagnosticFacet {
+        code: "RUNTIME-WIRING-ABSOLUTE-PATH-001",
+        base_severity: "error",
+        category: "correctness",
+    },
     // W2 — a wildcard (`"*"`) CORS allow-origin declared for a
     // production-targeted environment. Compile-time companion to the
     // runtime `Mux()` boot refusal (`ErrCSRFWildcardProd`, guard code

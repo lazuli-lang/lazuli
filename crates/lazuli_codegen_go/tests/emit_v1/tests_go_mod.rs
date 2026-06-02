@@ -161,6 +161,81 @@ fn emit_go_work_with_dev_replace_includes_runtime_path() {
     assert!(go_work.contents.contains("../../runtime/go"));
 }
 
+// ── SPEC 0030 — portable runtime wiring (no absolute paths) ──────────────
+
+/// Mirror of `lazuli_cli::path_utils::is_absolute_runtime_path` — the
+/// codegen crate can't depend on the CLI, so the test carries the same
+/// predicate to assert the EMITTED strings carry no absolute path.
+fn is_absolute_runtime_path(p: &str) -> bool {
+    let p = p.trim();
+    let b = p.as_bytes();
+    p.starts_with("\\\\")
+        || p.starts_with('/')
+        || (b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'/' || b[2] == b'\\'))
+}
+
+/// Build a workspace-mode manifest with the given (go.mod replace,
+/// go.work use) dev paths and return the emitted (go.mod, go.work) bodies.
+fn emit_with_dev_paths(go_mod_rel: &str, go_work_rel: &str) -> (String, String) {
+    let module = minimal_module("test_app", "customer");
+    let manifest = lazurite_manifest(
+        Vec::new(),
+        Some(LazuriteGenerateGo {
+            emit_main: true,
+            submodule: true,
+            dev_replace: Some(go_mod_rel.to_owned()),
+            dev_work_replace: Some(go_work_rel.to_owned()),
+        }),
+        Vec::new(),
+    );
+    let files = generate_v1_with_manifest(&module, &GoEmitOptions::default(), Some(&manifest));
+    let go_mod = files.iter().find(|f| f.path == "go.mod").unwrap().contents.clone();
+    let go_work = files.iter().find(|f| f.path == "go.work").unwrap().contents.clone();
+    (go_mod, go_work)
+}
+
+#[test]
+fn emit_go_mod_replace_is_relative_under_sibling_lazuli_path() {
+    // hostpoint: `[lazuli] path = "../lazuli"` → go.mod replace
+    // `../../../lazuli/runtime/go`, go.work use `../lazuli/runtime/go`.
+    let (go_mod, go_work) = emit_with_dev_paths("../../../lazuli/runtime/go", "../lazuli/runtime/go");
+    assert!(go_mod.contains("replace lazuli.dev/runtime => ../../../lazuli/runtime/go"), "{go_mod}");
+    assert!(go_work.contains("../lazuli/runtime/go"), "{go_work}");
+}
+
+#[test]
+fn emit_go_mod_replace_is_relative_under_nested_lazuli_path() {
+    // pauta: `[lazuli] path = "../../lazuli"` → go.mod replace
+    // `../../../../lazuli/runtime/go`, go.work use `../../lazuli/runtime/go`.
+    let (go_mod, go_work) =
+        emit_with_dev_paths("../../../../lazuli/runtime/go", "../../lazuli/runtime/go");
+    assert!(
+        go_mod.contains("replace lazuli.dev/runtime => ../../../../lazuli/runtime/go"),
+        "{go_mod}"
+    );
+    assert!(go_work.contains("../../lazuli/runtime/go"), "{go_work}");
+}
+
+#[test]
+fn no_absolute_path_in_any_emitted_runtime_wiring() {
+    // Sweep BOTH the go.mod replace and the go.work use for the runtime
+    // line; under a relative dev path NEITHER may be absolute.
+    for (go_mod_rel, go_work_rel) in [
+        ("../../../lazuli/runtime/go", "../lazuli/runtime/go"),
+        ("../../../../lazuli/runtime/go", "../../lazuli/runtime/go"),
+    ] {
+        let (go_mod, go_work) = emit_with_dev_paths(go_mod_rel, go_work_rel);
+        for line in go_mod.lines().filter(|l| l.contains("lazuli.dev/runtime") && l.contains("=>")) {
+            let rhs = line.split("=>").nth(1).unwrap().trim();
+            assert!(!is_absolute_runtime_path(rhs), "go.mod runtime replace is absolute: {line}");
+        }
+        for line in go_work.lines().filter(|l| l.contains("/runtime/go")) {
+            let entry = line.trim();
+            assert!(!is_absolute_runtime_path(entry), "go.work runtime use is absolute: {line}");
+        }
+    }
+}
+
 #[test]
 fn emit_go_mod_without_manifest_falls_back_to_legacy_behavior() {
     let module = minimal_module("test_app", "customer");

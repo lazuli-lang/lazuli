@@ -43,9 +43,113 @@ pub(crate) fn write_go_work_preserving_entries(
 
     let original =
         fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    // SPEC 0030 — normalize the runtime wiring BEFORE merging `use`
+    // entries. The preserve-merge below only ADDS missing `use` lines; it
+    // never touches `replace` directives. A pilot that hand-added an
+    // absolute `replace lazuli.dev/runtime => C:/...` into go.work (the
+    // pauta BT-01 footgun) would otherwise keep that stale absolute line
+    // forever — and a `replace` WINS over a `use` in Go resolution, so
+    // the build stays non-portable and `RUNTIME-WIRING-ABSOLUTE-PATH-001`
+    // keeps firing. Codegen resolves the runtime via the relative `use`
+    // entry, so the standalone runtime `replace` in go.work is never
+    // emitted by us and is always stale; strip it on every regen.
+    let original = strip_runtime_replace_directive(&original);
     let updated = add_missing_go_work_use_entries(&original, &required_entries);
     fs::write(&path, updated).with_context(|| format!("failed to write {}", path.display()))?;
     Ok(())
+}
+
+/// Remove any `replace lazuli.dev/runtime => <path>` directive (and a
+/// `replace (` block entry of the same module) from a `go.work` body.
+///
+/// Codegen wires the local runtime through a relative `use` entry, never
+/// a go.work `replace`. A leftover `replace lazuli.dev/runtime` — almost
+/// always the hand-pasted absolute path from before SPEC 0030 — is
+/// stale, shadows the portable `use` entry, and trips the absolute-path
+/// gate. We drop it so each regen produces a portable file with no hand
+/// editing.
+///
+/// Both the single-line form
+/// (`replace lazuli.dev/runtime => C:/.../runtime/go`) and the
+/// block form
+/// (`replace (\n  lazuli.dev/runtime => C:/...\n)`) are handled; an
+/// emptied `replace (...)` block is removed entirely.
+pub(crate) fn strip_runtime_replace_directive(original: &str) -> String {
+    const MODULE: &str = "lazuli.dev/runtime";
+    let mut out_lines: Vec<&str> = Vec::new();
+    let mut in_replace_block = false;
+    let mut block_buf: Vec<&str> = Vec::new();
+    let mut block_kept_any = false;
+
+    for line in original.lines() {
+        let trimmed = line.trim();
+        if in_replace_block {
+            if trimmed == ")" {
+                in_replace_block = false;
+                if block_kept_any {
+                    out_lines.append(&mut block_buf);
+                    out_lines.push(line);
+                } else {
+                    // Whole block was just the runtime replace → drop it
+                    // (including the opening `replace (` we buffered).
+                    block_buf.clear();
+                }
+                block_buf.clear();
+                block_kept_any = false;
+                continue;
+            }
+            // Inside a `replace ( ... )` block: drop the runtime line,
+            // keep everything else.
+            if is_runtime_replace_entry(trimmed, MODULE) {
+                continue;
+            }
+            block_buf.push(line);
+            block_kept_any = true;
+            continue;
+        }
+
+        if trimmed == "replace (" {
+            // Buffer until we know whether the block has survivors.
+            in_replace_block = true;
+            block_buf.clear();
+            block_buf.push(line);
+            block_kept_any = false;
+            continue;
+        }
+
+        // Single-line form: `replace lazuli.dev/runtime => <path>`.
+        if let Some(rest) = trimmed.strip_prefix("replace ")
+            && is_runtime_replace_entry(rest, MODULE)
+        {
+            continue;
+        }
+
+        out_lines.push(line);
+    }
+
+    // Unterminated block (malformed input) — flush what we buffered so we
+    // never silently delete more than the runtime line.
+    if in_replace_block {
+        out_lines.append(&mut block_buf);
+    }
+
+    let mut result = out_lines.join("\n");
+    if original.ends_with('\n') && !result.ends_with('\n') {
+        result.push('\n');
+    }
+    result
+}
+
+/// True when a (trimmed) replace clause body — `lazuli.dev/runtime => …`
+/// or, inside a block, the same — targets the runtime module.
+fn is_runtime_replace_entry(clause: &str, module: &str) -> bool {
+    let clause = clause.trim();
+    // Must be `<module> => <path>` (with optional version on the LHS,
+    // which the runtime replace never carries, but be liberal).
+    let Some((lhs, _rhs)) = clause.split_once("=>") else {
+        return false;
+    };
+    lhs.split_whitespace().next() == Some(module)
 }
 
 pub(crate) fn add_missing_go_work_use_entries(
@@ -151,5 +255,83 @@ fn go_work_entry_from_line(line: &str) -> Option<String> {
         None
     } else {
         Some(entry.to_owned())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_runtime_replace_removes_single_line_absolute() {
+        let original = "\
+go 1.26.0
+
+use (
+\t.
+\t./dist/go
+\t../../lazuli/runtime/go
+)
+
+replace lazuli.dev/runtime => C:/Users/lucas/lazuli/runtime/go
+";
+        let stripped = strip_runtime_replace_directive(original);
+        assert!(
+            !stripped.contains("replace lazuli.dev/runtime"),
+            "stale runtime replace must be stripped:\n{stripped}"
+        );
+        // The portable `use` entry is preserved untouched.
+        assert!(stripped.contains("../../lazuli/runtime/go"));
+        assert!(stripped.contains("./dist/go"));
+    }
+
+    #[test]
+    fn strip_runtime_replace_removes_block_entry_keeps_others() {
+        let original = "\
+go 1.26.0
+
+use (
+\t.
+)
+
+replace (
+\tlazuli.dev/runtime => C:/Users/lucas/lazuli/runtime/go
+\texample.com/other => ../other
+)
+";
+        let stripped = strip_runtime_replace_directive(original);
+        assert!(!stripped.contains("lazuli.dev/runtime"));
+        // The non-runtime replace survives, block intact.
+        assert!(stripped.contains("example.com/other => ../other"));
+        assert!(stripped.contains("replace ("));
+    }
+
+    #[test]
+    fn strip_runtime_replace_removes_whole_block_when_only_runtime() {
+        let original = "\
+go 1.26.0
+
+replace (
+\tlazuli.dev/runtime => C:/Users/lucas/lazuli/runtime/go
+)
+";
+        let stripped = strip_runtime_replace_directive(original);
+        assert!(!stripped.contains("lazuli.dev/runtime"));
+        // Emptied block is removed entirely (no dangling `replace (`).
+        assert!(!stripped.contains("replace ("));
+    }
+
+    #[test]
+    fn strip_runtime_replace_noop_when_absent() {
+        let original = "\
+go 1.26.0
+
+use (
+\t.
+\t../lazuli/runtime/go
+)
+";
+        let stripped = strip_runtime_replace_directive(original);
+        assert_eq!(stripped, original);
     }
 }

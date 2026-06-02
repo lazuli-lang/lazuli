@@ -178,6 +178,10 @@ Reference: the canonical pilot's `app/testsupport/harness.go` is the canonical e
 
 **Never** write `@plugin/{{app_name}}/<provider>` — adapters are named after the *provider*, not the consuming app.
 
+## Runtime wiring
+
+The Lazuli Go runtime (`lazuli.dev/runtime`) is never published to a module proxy — it's resolved from a LOCAL checkout via a relative `replace`/`use`. Wire it with a **relative** `[lazuli] path` in `Lazurite.toml` (e.g. `../lazuli` when lazuli is a sibling of this project, `../../lazuli` when nested one level deeper — compute the depth for YOUR project root, don't copy `../lazuli` blindly), or export `LAZULI_RUNTIME_PATH` for CI / non-standard layouts. **Never commit an absolute `replace lazuli.dev/runtime => C:/...` into `go.mod`/`go.work`** — it breaks `go build` on every other machine and the gate refuses it (`RUNTIME-WIRING-ABSOLUTE-PATH-001`). `lazuli generate go .` re-emits a portable, project-root-relative wiring on every run. See `docs/lazuli_way/runtime-wiring.md`.
+
 ## Escape hatches — when the framework doesn't fit
 
 The framework owns the generic 80%. The remaining 20% is app-specific. Five named escape hatches cover it:

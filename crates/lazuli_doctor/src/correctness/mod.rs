@@ -38,6 +38,7 @@ pub mod resource_lock_contract_001;
 pub mod route_id_effect_consistency;
 pub mod runtime_emitted_table_migration_001;
 pub mod runtime_reachable_stub_001;
+pub mod runtime_wiring_absolute_path_001;
 pub mod schema_migration_present;
 pub mod updates_missing_updated_at;
 pub mod webhook_emit_predicate_field_001;
