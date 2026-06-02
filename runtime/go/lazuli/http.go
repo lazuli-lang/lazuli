@@ -135,7 +135,18 @@ func Mux() http.Handler {
 	// checks; logging observes rate/CSRF denials; rate-limit cheaply rejects
 	// before CSRF; CSRF is closest to the mux.
 	handler := http.Handler(mux)
-	handler = CSRFMiddleware(NewCSRFGuard(activeCSRFAllowedOrigins()))(handler)
+	// SECURITY (SEC-CSRF-WILDCARD-OFF): CSRF enforcement is independent of the
+	// CORS wildcard. A wildcard ("*") origin no longer disables CSRF; in a
+	// production env it is a fatal misconfiguration (guard CORS-WILDCARD-PROD-001)
+	// and we refuse to serve rather than ship a credentialed-wildcard footgun.
+	csrfGuard, err := NewCSRFGuard(activeCSRFAllowedOrigins())
+	if err != nil {
+		// A construction-time misconfiguration must not start serving. Panicking
+		// in Mux() (called at boot, before ListenAndServe) is the loud refusal:
+		// the process aborts instead of running with CSRF/CORS misconfigured.
+		panic("lazuli: refusing to serve: " + err.Error())
+	}
+	handler = CSRFMiddleware(csrfGuard)(handler)
 	handler = RateLimitMiddleware(defaultMuxRateLimit, handler)
 	handler = loggingMiddleware(handler)
 	handler = CorsMiddleware(handler)
