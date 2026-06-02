@@ -110,9 +110,14 @@ impl RuleCategory {
             // `SESSION-COOKIE-HOST-PREFIX-VIOLATION-001`). They audit the
             // `auth.sessions.cookie` transport envelope, so they join the
             // cookie-hygiene peers under Security alongside `AUTH-*`.
-            Some("SECURITY") | Some("FIELD") | Some("WEBHOOK") | Some("AUTH") | Some("SESSION") => {
-                Self::Security
-            }
+            // `CORS-*` — the HTTP-edge CORS family. Today:
+            // `CORS-WILDCARD-PROD-001` (a wildcard `"*"` allow-origin in a
+            // production-targeted environment — the compile-time companion
+            // to the runtime `Mux()` boot refusal). CORS is an HTTP-edge
+            // security concern, so it joins the cookie/CSRF/auth peers under
+            // Security.
+            Some("SECURITY") | Some("CORS") | Some("FIELD") | Some("WEBHOOK") | Some("AUTH")
+            | Some("SESSION") => Self::Security,
             // `CODEGEN-*` — codegen pre-emit invariants. Today:
             // `CODEGEN-UNRESOLVED-BINDING-SOURCE-001` (a command-effect
             // binding RHS that would silently lower to a `FromConst`
@@ -447,6 +452,14 @@ mod tests {
                 "{code} should route to Security"
             );
         }
+    }
+
+    #[test]
+    fn cors_prefix_routes_to_security() {
+        assert_eq!(
+            RuleCategory::from_code_prefix("CORS-WILDCARD-PROD-001"),
+            RuleCategory::Security
+        );
     }
 
     #[test]

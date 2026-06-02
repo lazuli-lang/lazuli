@@ -154,6 +154,23 @@ pub const GLOBAL_DIAGNOSTICS: &[DiagnosticFacet] = &[
         base_severity: "error",
         category: "correctness",
     },
+    // W2 — a wildcard (`"*"`) CORS allow-origin declared for a
+    // production-targeted environment. Compile-time companion to the
+    // runtime `Mux()` boot refusal (`ErrCSRFWildcardProd`, guard code
+    // `CORS-WILDCARD-PROD-001`): the runtime panics at boot when
+    // `LAZULI_ENV` is production AND the active CORS allowlist contains
+    // `"*"`. The rule audits the declared `cors` block (an `app.lzi`
+    // surface), not a single DSL keyword — the `cors` block is the home,
+    // and it produces no `produces[]` capability row — so it lands in
+    // GLOBAL alongside the other app-manifest cross-checks. Base severity
+    // is `error` (the defining production case the runtime refuses); the
+    // dev/local emission downgrades to a warning at emit time, mirroring
+    // the runtime's dev `slog.Warn`.
+    DiagnosticFacet {
+        code: "CORS-WILDCARD-PROD-001",
+        base_severity: "error",
+        category: "security",
+    },
     // ── migration codegen / runtime update-builder (over generated artifacts) ──
     DiagnosticFacet {
         code: "MIGRATION-ALTER-MISSING-001",

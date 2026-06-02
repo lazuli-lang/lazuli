@@ -9,6 +9,10 @@
 //!   environment (`cors_origin_undocumented_diagnostics`, warning).
 //! - `allow_origins ... "*"` is not combined with `allow_credentials true`
 //!   (`cors_credentials_wildcard_conflict_diagnostics`, error — CORS spec).
+//! - `allow_origins <prod-env> "*"` (a wildcard origin in a production-
+//!   targeted environment) is flagged by `CORS-WILDCARD-PROD-001` — the
+//!   compile-time companion to the runtime `Mux()` boot refusal. Dispatched
+//!   from the pure rule in `lazuli_doctor::security::cors_wildcard_prod_001`.
 //!
 //! Extracted from `doctor/mod.rs` so the CORS surface has a named
 //! aggregator file alongside other Cut-A.11+ surfaces.
@@ -98,6 +102,30 @@ pub(crate) fn diagnostics(app: Option<&DoctorAppManifest>) -> Vec<DoctorDiagnost
                 });
             }
         }
+    }
+
+    // CORS-WILDCARD-PROD-001 — a wildcard origin in a production-targeted
+    // environment. Compile-time companion to the runtime `Mux()` boot
+    // refusal (`ErrCSRFWildcardProd`). The pure rule lives in
+    // `lazuli_doctor::security::cors_wildcard_prod_001`; it returns one
+    // finding per `allow_origins <env> "*"` rule with the env-keyed
+    // error/warning split that mirrors the runtime's `devSessionEnvAllowed`.
+    for finding in
+        lazuli_doctor::security::cors_wildcard_prod_001::check(Some(cors), &app_manifest.path)
+    {
+        diagnostics.push(DoctorDiagnostic {
+            path: finding.path.clone(),
+            line: 1,
+            column: 1,
+            severity: DoctorSeverity::from(finding.severity()),
+            code: lazuli_doctor::security::cors_wildcard_prod_001::Finding::CODE.to_owned(),
+            message: finding.message(),
+            category: Some(lazuli_doctor::RuleCategory::Security),
+            feature_name: None,
+            construct: None,
+            fix: None,
+            group: None,
+        });
     }
 
     // CORS spec forbids `allow_origins "*"` with `allow_credentials true`.
