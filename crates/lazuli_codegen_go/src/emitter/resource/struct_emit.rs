@@ -31,6 +31,9 @@ use super::attributes::{
 use super::encryption::{
     EncryptedFieldRef, emit_resource_value_encryption_fields, encrypted_fields,
 };
+use super::sanitize::{
+    SanitizedFieldRef, emit_resource_value_sanitize_fields, sanitized_fields,
+};
 use super::write_section_banner;
 
 include!("struct_emit_p1.rs");

@@ -914,6 +914,17 @@ func applyCreates[I, O any](ctx *Ctx, tx pgx.Tx, eff CreatesEffect, input I) (O,
 		}
 	}
 
+	// Sanitize `validate sanitize_html(<profile>)` bound columns before
+	// they reach the driver (and before encryption, so the plaintext is
+	// scrubbed first). The runtime walks `Resource.SanitizeColumns`
+	// (populated by codegen) and rewrites each bound string value through
+	// the matching bluemonday policy. No-op when the resource has no
+	// sanitized fields. This is the patch that turns the previously-no-op
+	// `sanitize_html` constraint into a real stored-XSS guard.
+	if err := sanitizeColumnValues(eff.Resource, cols, values); err != nil {
+		return zero, internalServerError(err, "insert sanitize failed")
+	}
+
 	// Encrypt @cap.Encrypted / @cap.E2ee bound columns before they
 	// reach the driver. The runtime walks `Resource.EncryptedColumns`
 	// (populated by codegen) and replaces each plaintext value with
@@ -1065,6 +1076,13 @@ func applyUpdates[I, O any](ctx *Ctx, tx pgx.Tx, eff UpdatesEffect, input I) (O,
 		values = append(values, val)
 		bindCols = append(bindCols, col)
 		sets = append(sets, fmt.Sprintf("%s = $%d", quoteIdent(col), len(values)))
+	}
+	// Sanitize `validate sanitize_html(<profile>)` bound columns before
+	// the WHERE values are appended (and before encryption). Only the
+	// SET-side bindings are candidates. No-op when the resource declares
+	// no sanitized fields.
+	if err := sanitizeColumnValues(eff.Resource, bindCols, values[:len(bindCols)]); err != nil {
+		return zero, internalServerError(err, "update sanitize failed")
 	}
 	// Encrypt @cap.Encrypted / @cap.E2ee bound columns before the
 	// WHERE values are appended. Only the SET-side bindings are
