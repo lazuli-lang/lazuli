@@ -69,6 +69,18 @@ pub(crate) fn diagnostics(
         SecurityProfile::Prototype | SecurityProfile::Strict => DoctorSeverity::Warning,
         SecurityProfile::Production | SecurityProfile::IronHand => DoctorSeverity::Error,
     };
+    // API-HANDLER-UNWIRED-001 — the declared endpoint genuinely 404s, but
+    // it's a known framework-pending wiring gap: the current codegen wires
+    // NO api Handler (the auto-bridge that fixes it is a separate wave-3
+    // item), and the default scaffold template + every pilot declares an
+    // api this way. Forcing `error` at prototype/strict would red-gate
+    // every fresh `lazuli new` and pilot. So warn while iterating, hard-
+    // error only at production / iron-hand where shipping a dead endpoint
+    // is unacceptable. Mirrors `handler_sig_severity` above.
+    let api_handler_severity = match security_profile {
+        SecurityProfile::Prototype | SecurityProfile::Strict => DoctorSeverity::Warning,
+        SecurityProfile::Production | SecurityProfile::IronHand => DoctorSeverity::Error,
+    };
 
     // Codegen root holding `<dist_root>/go/<feature>/command.gen.go`.
     // Resolved relative to `project_root` because codegen always writes
@@ -95,6 +107,34 @@ pub(crate) fn diagnostics(
                 column: 1,
                 severity: DoctorSeverity::Error,
                 code: correctness::channel_payload_unresolved_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            });
+        }
+
+        // API-HANDLER-UNWIRED-001 — error. A declared `api` whose runtime
+        // `Handler` will be nil because codegen never bridges the
+        // `handler @fn.<name>` reference to the emitted `lazuli.Api.Handler`
+        // field. The runtime mount loop skips registrations with a nil
+        // Handler (`HandlerChecker()` false), so the endpoint is silently
+        // never mounted → 404 for the whole api surface as-shipped. Fires
+        // once per declared api, anchored at the api line.
+        for finding in correctness::api_handler_unwired_001::check(&feature, &fact.path) {
+            let line = fact
+                .api_lines
+                .get(&finding.api_name)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: api_handler_severity,
+                code: correctness::api_handler_unwired_001::Finding::CODE.to_owned(),
                 category: None,
                 feature_name: None,
                 construct: None,

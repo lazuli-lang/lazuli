@@ -180,7 +180,14 @@ route customer_list
                 .diagnostics()
                 .into_iter()
                 .filter(|d| !d.code.starts_with("VOCAB-CONTEXT-")
-                    && d.code != "CAP-FILE-POLICY-IMPLICIT")
+                    && d.code != "CAP-FILE-POLICY-IMPLICIT"
+                    // The `api export` fixture declares a path-form
+                    // handler that codegen never bridges to the runtime
+                    // `Handler`, so API-HANDLER-UNWIRED-001 fires (the
+                    // endpoint is genuinely DOA). This test is about the
+                    // manifest/operational contract, not api wiring — so
+                    // the expected unwired-api finding is filtered out.
+                    && d.code != "API-HANDLER-UNWIRED-001")
                 .collect::<Vec<_>>()
                 .is_empty()
         );

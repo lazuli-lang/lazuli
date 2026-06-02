@@ -8,6 +8,7 @@
 //! Full dispatch into `DoctorPackage::diagnostics()` is a separate cell;
 //! each rule's `#[cfg(test)] mod tests` exercises the logic until then.
 
+pub mod api_handler_unwired_001;
 pub mod channel_payload_unresolved_001;
 pub mod codegen_unresolved_binding_source_001;
 pub mod command_input_shadows_field_001;

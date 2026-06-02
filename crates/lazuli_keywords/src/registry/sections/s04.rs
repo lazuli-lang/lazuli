@@ -49,11 +49,14 @@ pub(crate) const ROWS: &[CapabilitySpec] = &[
         ),
         P_COMMAND,
     ),
-    kw(
-        "api",
-        Context::FeatureHeader,
-        DECL,
-        "Declares a full-control HTTP endpoint.",
+    produces(
+        kw(
+            "api",
+            Context::FeatureHeader,
+            DECL,
+            "Declares a full-control HTTP endpoint.",
+        ),
+        P_API,
     ),
     kw(
         "view",

@@ -41,6 +41,9 @@ pub(crate) const P_AUDIT: &[DiagnosticFacet] = &[
     df("VOCAB-AUDIT-002", "warning", "vocabulary"),
 ];
 
+pub(crate) const P_API: &[DiagnosticFacet] =
+    &[df("API-HANDLER-UNWIRED-001", "error", "correctness")];
+
 pub(crate) const P_CHANNEL: &[DiagnosticFacet] =
     &[df("CHANNEL-PAYLOAD-001", "error", "vocabulary")];
 

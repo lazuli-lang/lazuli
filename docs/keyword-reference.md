@@ -115,7 +115,7 @@ _Generated from 690 capability rows across the `lazuli_keywords` registry._
 | --- | --- | --- | --- | --- | --- |
 | `agent` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares an LLM agent. | — |
 | `aggregate` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a domain aggregate root. | `AGGREGATE-CONTAINS-UNKNOWN`<br>`AGGREGATE-ROOT-UNKNOWN` |
-| `api` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a full-control HTTP endpoint. | — |
+| `api` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a full-control HTTP endpoint. | `API-HANDLER-UNWIRED-001` |
 | `auth` | `keyword.control.section.lazuli` | `keyword` | — | Declares the authentication block. | — |
 | `cache` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a named cache profile. | — |
 | `channel` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a realtime channel. | `CHANNEL-PAYLOAD-001` |

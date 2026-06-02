@@ -143,6 +143,13 @@ impl RuleCategory {
             // "unknown ctx path"). A binding reading an unrecognized ctx
             // path is a concrete wiring bug, not style — Correctness.
             Some("CTX") => Self::Correctness,
+            // `API-*` — `api` contract wiring correctness. Today:
+            // `API-HANDLER-UNWIRED-001` (a declared `api` whose runtime
+            // `Handler` stays nil because codegen never bridges the
+            // `handler @fn` reference, so the endpoint is never mounted →
+            // 404). A declared-but-unmountable endpoint is a concrete
+            // wiring bug, not style — Correctness.
+            Some("API") => Self::Correctness,
             // `CREATES-*` — `creates`/`updates` effect-shape correctness.
             // Today: `CREATES-EMPTY-BINDINGS-001` (a `creates`/`updates`
             // effect that binds zero author columns → a no-op INSERT/UPDATE
@@ -498,6 +505,14 @@ mod tests {
     fn ctx_prefix_routes_to_correctness() {
         assert_eq!(
             RuleCategory::from_code_prefix("CTX-PATH-UNRESOLVED-001"),
+            RuleCategory::Correctness
+        );
+    }
+
+    #[test]
+    fn api_prefix_routes_to_correctness() {
+        assert_eq!(
+            RuleCategory::from_code_prefix("API-HANDLER-UNWIRED-001"),
             RuleCategory::Correctness
         );
     }
