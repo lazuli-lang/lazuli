@@ -14,7 +14,7 @@ This catalog mines each rule's module-header docstring (the canonical source of 
 
 | Category | Module | Rule count | Theme |
 |---|---|---|---|
-| [Correctness](#correctness) | `correctness/` | 15 | Dangling references, shape mismatches, codegen contract violations |
+| [Correctness](#correctness) | `correctness/` | 16 | Dangling references, shape mismatches, codegen contract violations |
 | [Cross-feature contracts](#cross-feature-contracts) | `cross_feature/` | 3 | Microservices-mode contract gating |
 | [Lifecycle](#lifecycle) | `lifecycle/` | 10 | State-machine well-formedness |
 | [Poller](#poller) | `poller/` | 12 | Background poller invariants |
@@ -24,7 +24,7 @@ This catalog mines each rule's module-header docstring (the canonical source of 
 | [Error vocabulary](#error-vocabulary) | `error_vocab/` | 7 | Typed error-message resolution chain |
 | [Vocabulary (Rule Zero)](#vocabulary-rule-zero) | `vocab/` | 36 | Vocabulary fitness — `VOCAB-*`, `MONEY-*`, `@owner_axis`, `conventions`, `rate_limit` |
 
-**Total: 104 rules.**
+**Total: 105 rules.**
 
 ---
 
@@ -48,6 +48,7 @@ Source: [`crates/lazuli_doctor/src/correctness/`](../../crates/lazuli_doctor/src
 | `@info.record_column_jsonb` | info | `correctness/record_column_storage.rs` | Surfaces the canonical `record` → JSONB storage choice so authors can see codegen intent without reading templates. |
 | `RESOURCE-LOCK-CONTRACT-001` | error | `correctness/resource_lock_contract_001.rs` | `lock optimistic` references a missing `version_field` or a non-`Integer` field. |
 | `ROUTE-ID-UNUSED-IN-EFFECT-001` (`@correctness.route_id_unused_in_effect`) | error | `correctness/route_id_effect_consistency.rs` | `command.route <name>: <Type>` (no `from ctx.<expr>`) isn't reachable from `CommandInput`; codegen would read zero-valued `id`. |
+| `RUNTIME-REACHABLE-STUB-001` | error | `correctness/runtime_reachable_stub_001.rs` | A DSL construct lowers to a runtime path that is a known not-implemented 501 stub: a `target.<field>` source (→ `lazuli.FromTarget` → `sourceTarget` 501) in a command binding / query filter, or a resource `retention ... then archive` (→ `ErrRetentionArchiveNotImplemented`). Compiles + `go build`s but is dead on arrival at the first request. |
 | `@correctness.migration_out_of_sync` | warning | `correctness/schema_migration_present.rs` | IR resource columns drift from the highest-numbered emitted `dist/go/migrations/NNN_<feature>_<resource>*.sql`. |
 | `WEBHOOK-EMIT-PREDICATE-FIELD-001` | error | `correctness/webhook_emit_predicate_field_001.rs` | Webhook `emits ... when <path> = ...` path doesn't resolve against the webhook's payload contract. |
 

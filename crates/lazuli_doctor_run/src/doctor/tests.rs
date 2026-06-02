@@ -171,4 +171,8 @@ mod tests {
     mod ctx_path_unresolved {
         include!("tests/ctx_path_unresolved.rs");
     }
+
+    mod runtime_reachable_stub {
+        include!("tests/runtime_reachable_stub.rs");
+    }
 }

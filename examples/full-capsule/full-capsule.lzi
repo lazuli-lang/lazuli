@@ -756,7 +756,7 @@ feature customer_auth
     policy @policy.edit
     rate_limit "10 per minute per user"
     creates CustomerMfaConfig
-      customer = target
+      customer = route.customer_id
       verified_at = ctx.now
     emits customer_mfa_enabled
 
@@ -872,7 +872,7 @@ feature customer_tags
     policy @policy.edit
     rate_limit "60 per minute per user"
     creates CustomerTagAssignment
-      customer = target
+      customer = input.customer_id
       tag = resolved_tag
       added_by = ctx.user
       added_at = ctx.now
