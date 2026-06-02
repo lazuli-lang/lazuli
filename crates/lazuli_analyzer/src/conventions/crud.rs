@@ -88,6 +88,9 @@ pub(crate) fn build_update_command(
             // i.e. fields the wire payload didn't include stay
             // untouched (partial-update semantics, §5.3 third para).
             assignments: input_field_assignments(input_fields),
+            // Synth CRUD update scopes by the route `id` key (the legacy
+            // `resolve_where_keys` path), not an authored `where`.
+            where_clause: Vec::new(),
         }),
         ..default_synth_command(crud_write_rate_limit())
     }
@@ -159,6 +162,9 @@ pub(crate) fn build_delete_command(name: &str, resource: &str) -> ir::Command {
                 feature: None,
                 name: resource.to_owned(),
             },
+            // Synth CRUD delete scopes by the route `id` key, not an
+            // authored `where`.
+            where_clause: Vec::new(),
         }),
         ..default_synth_command(crud_write_rate_limit())
     }

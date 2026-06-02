@@ -188,6 +188,7 @@ fn updates_emits_updates_effect_with_id_where_clause() {
             field: "tier".to_owned(),
             value: Expr::Path(Path::from_segments(["input", "tier"])),
         }],
+        where_clause: Vec::new(),
     });
     feature.commands.push(cmd);
 
@@ -239,6 +240,7 @@ fn deletes_emits_deletes_effect_with_id_binding() {
     cmd.input = CommandInput::Typed(vec![typed_slot("id", BuiltinType::Id, true)]);
     cmd.effect = CommandEffect::Deletes(DeleteEffect {
         resource: local_qname("Customer"),
+        where_clause: Vec::new(),
     });
     feature.commands.push(cmd);
 
@@ -284,6 +286,7 @@ fn deletes_command_invokes_referential_guard_before_handle() {
     cmd.input = CommandInput::Empty;
     cmd.effect = CommandEffect::Deletes(DeleteEffect {
         resource: local_qname("Category"),
+        where_clause: Vec::new(),
     });
     feature.commands.push(cmd);
 
@@ -350,6 +353,7 @@ fn soft_delete_updates_command_invokes_referential_guard() {
             field: "deleted_at".to_owned(),
             value: Expr::Path(Path::from_segments(["ctx", "now"])),
         }],
+        where_clause: Vec::new(),
     });
     feature.commands.push(cmd);
 
@@ -393,6 +397,7 @@ fn plain_update_without_deleted_at_emits_no_guard_call() {
             field: "name".to_owned(),
             value: Expr::Path(Path::from_segments(["input", "name"])),
         }],
+        where_clause: Vec::new(),
     });
     feature.commands.push(cmd);
 

@@ -59,6 +59,7 @@ fn traveler_fixture() -> Module {
             field: "vehicle".to_owned(),
             value: Expr::Path(Path::from_segments(["input", "vehicle"])),
         }],
+        where_clause: Vec::new(),
     });
     feature.commands.push(save);
 
@@ -217,6 +218,7 @@ fn empty_input_with_route_still_emits_input_struct() {
     cmd.input = CommandInput::Empty;
     cmd.effect = CommandEffect::Deletes(DeleteEffect {
         resource: local_qname("Charge"),
+        where_clause: Vec::new(),
     });
     feature.commands.push(cmd);
 
@@ -278,6 +280,7 @@ fn composite_route_emits_each_slot_as_struct_field() {
     cmd.input = CommandInput::Empty;
     cmd.effect = CommandEffect::Deletes(DeleteEffect {
         resource: local_qname("CustomerTagAssignment"),
+        where_clause: Vec::new(),
     });
     feature.commands.push(cmd);
 

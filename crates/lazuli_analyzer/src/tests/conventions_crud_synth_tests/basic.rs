@@ -259,6 +259,7 @@ fn author_override_skips_just_that_name() {
                 name: "Customer".to_owned(),
             },
             assignments: Vec::new(),
+            where_clause: Vec::new(),
         }),
         policy: ir::PolicyRef::Local("customer_admin".to_owned()),
         policy_expr: None,

@@ -111,6 +111,7 @@ pub(super) fn transition_advances_for_triggers<'a>(
 pub(super) fn emit_transition_advances(
     p: &mut GoPrinter,
     transitions: &[TransitionAdvanceLiteral<'_>],
+    lifecycle_column: Option<&str>,
 ) {
     if transitions.is_empty() {
         return;
@@ -136,6 +137,41 @@ pub(super) fn emit_transition_advances(
     }
     p.dedent();
     p.line("},");
+    // Emit the lifecycle discriminator column so the runtime's transition
+    // pre-guard SELECT and post-update target the authored column (e.g.
+    // `registration_step`) instead of the legacy hardcoded `lifecycle_state`
+    // (PG 42703 for every non-`lifecycle_state` discriminator).
+    if let Some(column) = lifecycle_column {
+        p.line(&format!(
+            "LifecycleColumn: \"{}\",",
+            escape_string(column)
+        ));
+    }
+}
+
+/// Resolve the lifecycle discriminator column for a command's triggered
+/// transitions — the `lifecycle <field>` field name on the updated
+/// resource. Returns `None` when the command triggers no transition or
+/// the resource has no lifecycle. Mirrors the resolution in
+/// `transition_advances_for_triggers`.
+pub(super) fn lifecycle_column_for_triggers<'a>(
+    feature: &'a Feature,
+    effect: &CommandEffect,
+    triggers: &[String],
+) -> Option<&'a str> {
+    if triggers.is_empty() {
+        return None;
+    }
+    let resource_name = match effect {
+        CommandEffect::Updates(update) => update.resource.name.as_str(),
+        _ => return None,
+    };
+    feature
+        .resources
+        .iter()
+        .find(|resource| resource.name == resource_name)
+        .and_then(|resource| resource.lifecycle.as_ref())
+        .map(|lifecycle| lifecycle.discriminator_field.as_str())
 }
 
 pub(super) fn emit_lifecycle_machines(p: &mut GoPrinter, feature: &Feature) -> bool {
@@ -277,6 +313,7 @@ mod tests {
         cmd.effect = CommandEffect::Updates(UpdateEffect {
             resource: local_qname("Publication"),
             assignments: Vec::new(),
+            where_clause: Vec::new(),
         });
         feature.commands.push(cmd);
 
@@ -352,12 +389,13 @@ mod tests {
         cmd.effect = CommandEffect::Updates(UpdateEffect {
             resource: local_qname("Publication"),
             assignments: Vec::new(),
+            where_clause: Vec::new(),
         });
         let triggers = vec!["T1".to_owned(), "T2".to_owned()];
 
         let transitions = transition_advances_for_triggers(&feature, &cmd.effect, &triggers);
         let mut p = GoPrinter::new();
-        emit_transition_advances(&mut p, &transitions);
+        emit_transition_advances(&mut p, &transitions, None);
         let out = p.finish();
 
         assert!(out.contains("Transitions: []lazuli.TransitionAdvance{"));
@@ -368,6 +406,39 @@ mod tests {
         assert!(
             out.find(first) < out.find(second),
             "trigger order should be preserved:\n{out}"
+        );
+    }
+
+    #[test]
+    fn emit_transition_advances_emits_lifecycle_column_when_present() {
+        // The discriminator column must be emitted on the Command literal
+        // so the runtime guard SELECTs the authored column (e.g.
+        // `registration_step`) instead of the hardcoded `lifecycle_state`.
+        let transitions = vec![TransitionAdvanceLiteral {
+            from: vec!["profile_setup"],
+            to: "agency_setup",
+        }];
+        let mut p = GoPrinter::new();
+        emit_transition_advances(&mut p, &transitions, Some("registration_step"));
+        let out = p.finish();
+        assert!(
+            out.contains("LifecycleColumn: \"registration_step\","),
+            "LifecycleColumn must be emitted:\n{out}"
+        );
+    }
+
+    #[test]
+    fn emit_transition_advances_omits_lifecycle_column_when_absent() {
+        let transitions = vec![TransitionAdvanceLiteral {
+            from: vec!["a"],
+            to: "b",
+        }];
+        let mut p = GoPrinter::new();
+        emit_transition_advances(&mut p, &transitions, None);
+        let out = p.finish();
+        assert!(
+            !out.contains("LifecycleColumn:"),
+            "LifecycleColumn must be omitted when None:\n{out}"
         );
     }
 
@@ -422,6 +493,7 @@ mod tests {
         cmd.effect = CommandEffect::Updates(UpdateEffect {
             resource: local_qname("Publication"),
             assignments: Vec::new(),
+            where_clause: Vec::new(),
         });
         let triggers = vec!["publish".to_owned()];
 
@@ -430,7 +502,7 @@ mod tests {
         assert_eq!(transitions[0].from, vec!["draft", "scheduled"]);
 
         let mut p = GoPrinter::new();
-        emit_transition_advances(&mut p, &transitions);
+        emit_transition_advances(&mut p, &transitions, None);
         let out = p.finish();
 
         let expected =
@@ -451,6 +523,7 @@ mod tests {
         cmd.effect = CommandEffect::Updates(UpdateEffect {
             resource: local_qname("Publication"),
             assignments: Vec::new(),
+            where_clause: Vec::new(),
         });
         feature.commands.push(cmd);
 
@@ -476,6 +549,7 @@ mod tests {
         cmd.effect = CommandEffect::Updates(UpdateEffect {
             resource: local_qname("Publication"),
             assignments: Vec::new(),
+            where_clause: Vec::new(),
         });
         feature.commands.push(cmd);
 

@@ -197,6 +197,7 @@ mod tests {
                     field: field_name.to_owned(),
                     value: Expr::Path(lazuli_ir::Path::from_segments(["input", field_name])),
                 }],
+                where_clause: Vec::new(),
             }),
             policy: PolicyRef::None,
             policy_expr: None,

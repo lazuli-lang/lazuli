@@ -66,6 +66,53 @@ func TestApplyUpdatesOmitsUpdatedAtWhenResourceLacksTimestamps(t *testing.T) {
 	}
 }
 
+// TestApplyUpdatesDoesNotDoubleAssignUpdatedAtWhenAuthorBoundIt guards
+// the dedup fix: when the author explicitly binds `updated_at` in the
+// SET map (e.g. `updates User ... updated_at = ctx.now`), the runtime
+// MUST NOT also append its automatic `"updated_at" = now()` clause —
+// Postgres rejects an UPDATE with two assignments to the same column
+// with 42601 ("multiple assignments to same column"). This broke
+// pauta's onboarding `complete_profile` (an authored `updated_at =
+// ctx.now` on a Timestamps=true resource).
+func TestApplyUpdatesDoesNotDoubleAssignUpdatedAtWhenAuthorBoundIt(t *testing.T) {
+	type input struct {
+		ID    int64
+		Email string
+	}
+	type output struct {
+		ID    int64
+		Email string
+	}
+	resource := &Resource[output]{Name: "SubjectUnderTest", Tenancy: TenancyNone, Timestamps: true}
+	cmd := &Command[input, output]{
+		Name:   "subject.save",
+		Policy: Policy{Atoms: []PolicyAtom{{Namespace: "scope", Name: "public"}}},
+		Effect: Updates(resource,
+			Bindings{"id": FromInput("ID")},
+			// Author explicitly binds updated_at AND email.
+			Bindings{"email": FromInput("Email"), "updated_at": FromCtx("now")},
+		),
+	}
+	tx := &updatedAtCaptureTxStub{}
+	previous := runCommandTx
+	runCommandTx = func(_ context.Context, fn func(pgx.Tx) error) error { return fn(tx) }
+	t.Cleanup(func() { runCommandTx = previous })
+
+	_, _ = cmd.Handle(&Ctx{Context: context.Background(), Actor: ActorAnonymous}, input{ID: 7, Email: "u@e.org"})
+	sql := tx.querySQL
+	if sql == "" {
+		t.Fatal("tx stub never received Query")
+	}
+	// The auto `now()` append must be suppressed (author bound it).
+	if strings.Contains(sql, `"updated_at" = now()`) {
+		t.Fatalf("auto updated_at=now() must be suppressed when author bound updated_at;\nSQL = %s", sql)
+	}
+	// Exactly one `updated_at` assignment (the authored one) survives.
+	if got := strings.Count(sql, "updated_at"); got != 1 {
+		t.Fatalf("expected exactly one updated_at assignment, got %d;\nSQL = %s", got, sql)
+	}
+}
+
 // runApplyUpdatesCapture drives a minimal `Command.Handle()` request
 // against an SQL-capturing tx stub and returns the captured UPDATE
 // statement plus its bound args. The shared helper keeps the two test

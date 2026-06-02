@@ -135,12 +135,14 @@
                 field: "tier".to_owned(),
                 value: Expr::Path(IrPath::from_segments(["input", "tier"])),
             }],
+            where_clause: Vec::new(),
         })
     }
 
     fn deletes_effect() -> CommandEffect {
         CommandEffect::Deletes(DeleteEffect {
             resource: qn("Customer"),
+            where_clause: Vec::new(),
         })
     }
 

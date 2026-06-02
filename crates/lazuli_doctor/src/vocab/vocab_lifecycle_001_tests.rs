@@ -144,6 +144,7 @@
                         variant: variant.into(),
                     }),
                 }],
+                where_clause: Vec::new(),
             }),
             policy: PolicyRef::None,
             policy_expr: None,

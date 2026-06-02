@@ -254,6 +254,7 @@ mod tests {
         cmd.effect = CommandEffect::Updates(UpdateEffect {
             resource: local_qname("Customer"),
             assignments: Vec::new(),
+            where_clause: Vec::new(),
         });
         customer.commands.push(cmd);
 

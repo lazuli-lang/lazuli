@@ -94,6 +94,14 @@ pub(crate) fn lower_command_effect(effect: &syntax::CommandEffectDecl) -> ir::Co
     let resource = lower_qualified_name(&effect.resource);
     let assignments: Vec<ir::Assignment> =
         effect.assignments.iter().map(lower_assignment).collect();
+    // `where <col> = <expr>` row-scoping bindings lower through the SAME
+    // `lower_assignment` path as SET assignments — the RHS (`ctx.actor.id`,
+    // `route.id`, `input.x`, a literal) becomes an `Expr` that codegen then
+    // lowers to the matching `lazuli.From*` source. `where_clause` is empty
+    // for `creates` (a where on insert is meaningless) and for any
+    // update/delete authored without an explicit `where`.
+    let where_clause: Vec<ir::Assignment> =
+        effect.where_clause.iter().map(lower_assignment).collect();
     match effect.kind {
         syntax::CommandEffectKindDecl::Creates => ir::CommandEffect::Creates(ir::CreateEffect {
             resource,
@@ -103,9 +111,13 @@ pub(crate) fn lower_command_effect(effect: &syntax::CommandEffectDecl) -> ir::Co
         syntax::CommandEffectKindDecl::Updates => ir::CommandEffect::Updates(ir::UpdateEffect {
             resource,
             assignments,
+            where_clause,
         }),
         syntax::CommandEffectKindDecl::Deletes => {
-            ir::CommandEffect::Deletes(ir::DeleteEffect { resource })
+            ir::CommandEffect::Deletes(ir::DeleteEffect {
+                resource,
+                where_clause,
+            })
         }
     }
 }
