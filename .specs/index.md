@@ -86,6 +86,30 @@ A second spec stack on the same `.specs/` system. Root cause: the PT-BR scalar f
 ```
 **Dispatch order:** 0019 first (serial, it's the seam everyone shares). Then 0021 (parallel-safe, pure schema) alongside 0020 (shares the resolution stage with 0019 → serial after it). Then 0022 (needs both 0020+0021) and 0023 (needs 0021) — 0023 parallel-safe.
 
+---
+
+## DX / authoring-hygiene + portability (specs 0028-0030) — added 2026-06-02
+
+Three connected DX problems: (A) doctor waivers are un-structured `#` comments; (B) agents flood `.lzi`/`.lzx` with prose comments though structured channels exist; (C) generated `go.mod`/`go.work` bakes absolute disk paths (pauta BT-01) → non-portable. Same DoD gate: FULL `cargo test --workspace` + pilot `lazuli generate go .` gate-pass + `go build` + teach (`docs/lazuli_way`) + enforce (doctor rule/test). Keyword changes also require parser↔registry parity (`cargo test -p lazuli_keywords`) + xtask keyword-reference freshness; new doctor codes require the diagnostics-registry bridge + module_headers trigger-cue.
+
+| id | spec | problem | track | parallel | depends_on |
+|----|------|---------|-------|----------|------------|
+| 0028 | first-class `@doctor.allow` waiver node (FROZEN `Module.doctor_allows` seam) | A | ship/seam | ✅ | — |
+| 0029 | comment-discipline: channel policy + `LZI-COMMENT-PROSE-001` + codemod | B | enforce/tell | ❌ builds on 0028's IR seam | 0028 |
+| 0030 | portable runtime wiring (relative `[lazuli] path` + env fallback + `RUNTIME-WIRING-ABSOLUTE-PATH-001`) | C | ship/enforce | ✅ | — |
+
+**Key citations grounding these specs:** waiver scan `crates/lazuli_doctor/src/allow_comment.rs` (~30 consumers); parser trivia `crates/lazuli_syntax/src/parser/common.rs:53`; existing hygiene rule `crates/lazuli_doctor/src/lzi_hygiene/lzi_comment_noise.rs`; gate categories `crates/lazuli_cli/src/doctor/gate.rs:110` (LziHygiene non-blocking, Correctness blocks); go.mod/go.work emit `crates/lazuli_codegen_go/src/emitter/module/go_mod.rs:144,182`; runtime-path resolver `crates/lazuli_cli/src/lazurite_codegen.rs:68-179`; env override `crates/lazuli_cli/src/commands/new/runtime_wiring.rs:35`; pilot evidence pauta `go.mod:17`+`go.work:11` (absolute `C:/Users/lucas/lazuli/runtime/go`), hostpoint `go.work:21` (relative).
+
+### Dependency graph
+```
+0028 ── 0029        (waiver node seam → comment-discipline lint builds on it)
+0030                (independent, parallel-safe — portability)
+```
+**Dispatch order:** 0028 and 0030 in parallel immediately (both `parallel_safe`, no shared surface — 0028 touches keywords/parser/IR/doctor-waivers, 0030 touches codegen-go/cli-resolver/doctor-correctness). 0029 waits on 0028's frozen `Module.doctor_allows` seam (`parallel_safe: false` — it consumes the IR contract + the same `lzi_hygiene`/`comment-hygiene.md` surfaces 0028 edits).
+
+### Locked shared contract (0028, frozen for 0029)
+`lazuli_ir::DoctorAllow { code, reason: Option<String>, scope: DoctorAllowScope (File | Construct{line}), legacy: bool, span }` on `Module.doctor_allows`. 0029's `LZI-COMMENT-PROSE-001` reads this slice to exempt waiver lines. Do not change the shape after 0028 lands.
+
 ### Cross-spec findings baked in (from the survey + spec authors)
 - Doctor ALREADY calls the same `build_alias_map` as codegen — the real divergence is the project-ROOT (`doctor_project_root` doesn't walk up). So 0020 re-homes `find_project_root` into `lazuli_manifest` (doctor can't dep on `lazuli_cli`).
 - All 24 `c:\Users\lucas\dev\lazuli-plugin-*` EXCEPT scalars-br are ADAPTERS (the big unmodeled category). 0021 models adapter fully, stubs capability/design (Pareto). `kind` is INFERRED for back-compat (no existing manifest declares it).

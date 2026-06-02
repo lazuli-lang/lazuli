@@ -179,6 +179,16 @@ fn classify_line(line_idx: usize, line: &SourceLine<'_>, out: &mut Vec<Classifie
         // Bare word — scan to the next word boundary (whitespace, quote,
         // `#`, or an opening bracket / colon that ends the head token).
         let word_end = scan_word_end(bytes, word_start);
+        if word_end == word_start {
+            // `word_start` sits on a boundary punctuation char that
+            // `scan_word_end` won't consume (e.g. the `(` / `,` / `)` of a
+            // decorator arg list like `@doctor.allow(CODE, ...)`). It is not
+            // part of a word and carries no token — skip exactly one byte so
+            // the scanner always makes progress (else: infinite loop on the
+            // unconsumable char). Punctuation is left unclassified by design.
+            i += 1;
+            continue;
+        }
         let word = &line.text[word_start..word_end];
         i = word_end;
 
