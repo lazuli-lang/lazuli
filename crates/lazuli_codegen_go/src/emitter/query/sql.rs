@@ -20,7 +20,10 @@ use super::args::{emit_args_struct, emit_cache, query_error_keys_var};
 use super::header::{
     emit_gate_annotations, emit_query_header, emit_scope_gaps, query_policy_denied_key_for_parts,
 };
-use super::util::{escape_string, lower_camel, pascal_case, return_name, write_section_banner};
+use super::util::{
+    escape_go_string_multiline, escape_string, lower_camel, pascal_case, return_name,
+    write_section_banner,
+};
 
 /// Emit a single `query.sql` or `query.view` value (typed args struct
 /// + the `lazuli.Query[A, R]` value + the kind-specific extras).
@@ -88,12 +91,28 @@ pub(super) fn emit_sql_query(
     );
     emit_gate_annotations(p, emit_ctx.gates_for(query_kind, &query.name));
     emit_scope_gaps(p, &query.scope, query.scope_override);
+    // `SQL:` is the file-path fallback the runtime reads only when
+    // `SQLText` is empty. We keep emitting it for traceability + as a
+    // safety net, but the embedded `SQLText` below is the path the
+    // runtime actually executes (no run-time file dependency).
     p.line(&format!("SQL:     \"{}\",", escape_string(&query.sql_path)));
-    p.line(&format!("Returns: \"{}\",", escape_string(&returns_name)));
-    if query.sql_kind == lazuli_ir::SqlQueryKind::View {
-        p.line(&format!("SQLMany: {},", sql_query_returns_many(query)));
-        emit_sql_args_fn(p, &args_struct, &query.params);
+    if let Some(body) = &query.sql_text {
+        // Multi-line SQL — escape control chars (\n/\r/\t) so the body is
+        // a valid single-line Go interpreted string literal.
+        p.line(&format!(
+            "SQLText: \"{}\",",
+            escape_go_string_multiline(body)
+        ));
     }
+    p.line(&format!("Returns: \"{}\",", escape_string(&returns_name)));
+    // SQLMany + SQLArgs are runtime-execution inputs shared by BOTH
+    // `query.sql` and `query.view` (the runtime dispatches both through
+    // RunSQL). `SQLMany` selects list-vs-single-row scan; `SQLArgs`
+    // projects the typed args struct into the positional `$1,$2,…` bind
+    // vector in `params` declaration order. (Previously emitted for
+    // `query.view` only, which left `query.sql` unable to bind params.)
+    p.line(&format!("SQLMany: {},", sql_query_returns_many(query)));
+    emit_sql_args_fn(p, &args_struct, &query.params);
     if let Some(cache) = &query.cache {
         emit_cache(p, cache);
     }
@@ -118,13 +137,16 @@ pub(super) fn sql_query_returns_many(query: &SqlQuery) -> bool {
     matches!(query.returns, TypeRef::Many(_))
 }
 
-/// Row type for a `SqlQuery`. For views, `Many(T)` collapses to `T`
-/// because `SQLMany` already carries the multiplicity axis; for
-/// non-view `query.sql` the returns ref is used verbatim.
+/// Row type `R` for a `SqlQuery`'s `lazuli.Query[A, R]`. `Many(T)`
+/// collapses to `T` for BOTH `query.sql` and `query.view`: the runtime
+/// scans the SQL result row-by-row via `pgx.RowToStructByName[R]` and
+/// `SQLMany` carries the list-vs-single multiplicity axis, so `R` must be
+/// the element type, never the slice. (Previously the collapse was
+/// view-only, leaving `query.sql` with a `[]Row` type param that the
+/// per-row scanner can't satisfy — latent until `query.sql` started
+/// flowing through RunSQL.)
 pub(super) fn sql_query_row_type(query: &SqlQuery) -> &TypeRef {
-    if query.sql_kind == lazuli_ir::SqlQueryKind::View
-        && let TypeRef::Many(inner) = &query.returns
-    {
+    if let TypeRef::Many(inner) = &query.returns {
         return inner;
     }
     &query.returns
@@ -175,6 +197,11 @@ mod tests {
             scope_override: false,
             returns: TypeRef::Many(Box::new(TypeRef::UserDefined(qname("CustomerLtv")))),
             sql_path: "./queries/customer_lifetime_value.sql".to_owned(),
+            // Multi-line body proves control-char escaping (a literal
+            // newline inside a Go "..." literal would not compile).
+            sql_text: Some(
+                "-- ltv\nSELECT id, ltv FROM customer\nWHERE score >= $1".to_owned(),
+            ),
             cache: Some(QueryCache {
                 key: "customer.ltv(params)".to_owned(),
                 ttl: CacheTtl::Quoted("5 minutes".to_owned()),
@@ -192,12 +219,36 @@ mod tests {
         let out = emit(&feature).expect("must emit");
         assert!(out.contains("type LifetimeValueArgs struct {"));
         assert!(out.contains("MinScore *int64 `json:\"min_score,omitempty\"`"));
+        // Row type param R is the ELEMENT type (`CustomerLtv`), not the
+        // slice: the runtime scans the result row-by-row and `SQLMany`
+        // carries the multiplicity. (Was `[]CustomerLtv` before the
+        // `query.sql`-through-RunSQL fix — that was the latent bug.)
         assert!(
-            out.contains("var lifetimeValue = lazuli.Query[LifetimeValueArgs, []CustomerLtv]{")
+            out.contains("var lifetimeValue = lazuli.Query[LifetimeValueArgs, CustomerLtv]{"),
+            "got:\n{out}"
         );
         assert!(out.contains("Kind:     lazuli.QuerySQL,"));
+        // File path kept as fallback, but the embedded body is what the
+        // runtime executes.
         assert!(out.contains("SQL:     \"./queries/customer_lifetime_value.sql\","));
+        // Newlines escaped to `\n` so the emitted Go string literal is
+        // valid (single physical line).
+        assert!(
+            out.contains(
+                "SQLText: \"-- ltv\\nSELECT id, ltv FROM customer\\nWHERE score >= $1\","
+            ),
+            "query.sql must embed the .sql body as a control-char-escaped SQLText; got:\n{out}"
+        );
         assert!(out.contains("Returns: \"CustomerLtv[]\","));
+        // query.sql now emits the same runtime-execution inputs as
+        // query.view: SQLMany (list) + an SQLArgs closure binding params
+        // positionally in declaration order ($1 <- MinScore).
+        assert!(out.contains("SQLMany: true,"), "got:\n{out}");
+        assert!(
+            out.contains("SQLArgs: func(args LifetimeValueArgs) []any {"),
+            "query.sql must emit an SQLArgs closure; got:\n{out}"
+        );
+        assert!(out.contains("args.MinScore,"), "got:\n{out}");
         assert!(out.contains("// TODO(runtime): quoted QueryCache.ttl"));
     }
 
@@ -214,6 +265,7 @@ mod tests {
             scope_override: false,
             returns: TypeRef::Many(Box::new(TypeRef::UserDefined(qname("HostHomeRow")))),
             sql_path: "app/features/host/queries/host_home_view.sql".to_owned(),
+            sql_text: Some("SELECT * FROM host_home_view WHERE user_id = $1".to_owned()),
             cache: None,
             policy: PolicyRef::None,
             policy_expr: None,
@@ -229,6 +281,10 @@ mod tests {
         assert!(out.contains("var hostHomeView = lazuli.Query[HostHomeViewArgs, HostHomeRow]{"));
         assert!(out.contains("Kind:     lazuli.QueryView,"));
         assert!(out.contains("SQL:     \"app/features/host/queries/host_home_view.sql\","));
+        assert!(
+            out.contains("SQLText: \"SELECT * FROM host_home_view WHERE user_id = $1\","),
+            "got:\n{out}"
+        );
         assert!(out.contains("Returns: \"HostHomeRow[]\","));
         assert!(out.contains("SQLMany: true,"));
         assert!(out.contains("SQLArgs: func(args HostHomeViewArgs) []any {"));
@@ -274,6 +330,7 @@ mod tests {
             scope_override: false,
             returns: TypeRef::Many(Box::new(TypeRef::UserDefined(qname("AuditRow")))),
             sql_path: "./queries/audit_dump.sql".to_owned(),
+            sql_text: None,
             cache: None,
             policy: PolicyRef::Local("audit".to_owned()),
             policy_expr: None,

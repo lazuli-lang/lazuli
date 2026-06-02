@@ -146,6 +146,10 @@ pub(crate) fn lower_query_decl(
             scope_override: false,
             returns: type_ref_from_text(&sql.returns),
             sql_path: lower_sql_file_ref(feature_name, &sql.sql_path),
+            // Populated later by the CLI module loaders, which know the
+            // on-disk feature directory `sql_path` resolves against. The
+            // analyzer lowers from parsed AST only and has no file access.
+            sql_text: None,
             cache: None,
             // QUERY-POLICY-001 — same lowering as `query.list`.
             policy: sql

@@ -135,7 +135,16 @@ pub fn build_module_from_path(input: &Path) -> Result<lazuli_ir::Module> {
             Ok(skeletons) => {
                 for ast in skeletons {
                     match lazuli_analyzer::lower_feature_skeleton(&ast) {
-                        Ok(feature) => module.features.push(feature),
+                        Ok(mut feature) => {
+                            // Embed each `query.sql` / `query.view` body so
+                            // codegen can emit `SQLText` and the generated
+                            // app has no runtime dependency on the `.sql`
+                            // file. The feature dir is the directory holding
+                            // the `.lzi`, the same anchor the doctor's
+                            // escape-hatch rules resolve `sql_path` against.
+                            embed_sql_query_bodies(&mut feature, path.parent());
+                            module.features.push(feature);
+                        }
                         Err(err) => load_failures.push(format!(
                             "{}: feature lower failed: {:?}",
                             path.display(),
@@ -285,7 +294,12 @@ pub fn build_module_with_source_from_path(
             Ok(skeletons) => {
                 for ast in skeletons {
                     match lazuli_analyzer::lower_feature_skeleton(&ast) {
-                        Ok(feature) => {
+                        Ok(mut feature) => {
+                            // Embed each `query.sql` / `query.view` body so
+                            // codegen emits `SQLText` (see the sibling call in
+                            // `build_module_from_path`). This is the path
+                            // `lazuli generate go` actually walks.
+                            embed_sql_query_bodies(&mut feature, path.parent());
                             feature_file_ids.insert(feature.name.clone(), file_id);
                             module.features.push(feature);
                         }
@@ -338,6 +352,59 @@ pub fn build_module_with_source_from_path(
     resolve_module_plugins(&mut module, input)?;
 
     Ok((module, source_map, feature_file_ids))
+}
+
+/// Read each `query.sql` / `query.view` `.sql` body into
+/// `SqlQuery.sql_text` so codegen can embed it as `lazuli.Query.SQLText`
+/// (the runtime prefers the embedded body over reading the file path at
+/// run time, removing the generated app's dependency on the `.sql` file
+/// shipping alongside the binary, and the flat-`dist/go/queries/`
+/// namespace-collision risk).
+///
+/// `feature_dir` is the directory holding the feature's `.lzi` — the same
+/// anchor the doctor's escape-hatch rules resolve `sql_path` against. The
+/// two authored `sql_path` shapes both resolve here:
+///   - `"./queries/<name>.sql"` (verbatim, feature-dir-relative), and
+///   - `@file.<name>.sql` lowered to `app/features/<feature>/queries/<name>.sql`
+///     (project-root-relative).
+/// We try the feature-dir join first (covers the `./...` form); if that
+/// file is absent, we walk up to the project root and try the path verbatim
+/// (covers the lowered `app/features/...` form). A read failure leaves
+/// `sql_text` as `None` — codegen then emits only the `SQL:` path and the
+/// doctor's `query.sql`/view file-existence rule reports the missing file.
+fn embed_sql_query_bodies(feature: &mut lazuli_ir::Feature, feature_dir: Option<&Path>) {
+    let Some(feature_dir) = feature_dir else {
+        return;
+    };
+    for query in &mut feature.queries {
+        let lazuli_ir::Query::Sql(sql) = query else {
+            continue;
+        };
+        if sql.sql_text.is_some() {
+            continue;
+        }
+        sql.sql_text = read_sql_body(feature_dir, &sql.sql_path);
+    }
+}
+
+/// Resolve + read a `query.sql` body. See [`embed_sql_query_bodies`] for the
+/// two `sql_path` shapes this must cover.
+fn read_sql_body(feature_dir: &Path, sql_path: &str) -> Option<String> {
+    // Form 1: feature-dir-relative (`./queries/<name>.sql`) — and the
+    // absolute-path passthrough.
+    if let Ok(body) = fs::read_to_string(feature_dir.join(sql_path)) {
+        return Some(body);
+    }
+    // Form 2: project-root-relative (`app/features/<feature>/queries/<name>.sql`,
+    // emitted by `@file.` lowering). `feature_dir` is `.../app/features/<feature>`,
+    // so the project root is two levels up.
+    let project_root = feature_dir.parent().and_then(Path::parent);
+    if let Some(root) = project_root
+        && let Ok(body) = fs::read_to_string(root.join(sql_path))
+    {
+        return Some(body);
+    }
+    None
 }
 
 pub(crate) fn project_root_for_input(input: &Path) -> PathBuf {
