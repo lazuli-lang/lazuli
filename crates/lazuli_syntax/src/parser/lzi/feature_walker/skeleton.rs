@@ -103,6 +103,42 @@ pub(super) fn parse_feature_skeleton(
             continue;
         }
 
+        // A new top-level construct ends this feature body — UNLESS the line is
+        // a `@doctor.allow(...)` waiver node. Spec 0028: a legacy
+        // `# doctor:allow` comment is indentation-insensitive trivia; migrating
+        // it to a node at column 0 INSIDE a feature must not silently dedent out
+        // of the block and orphan every following construct (which surfaced as
+        // misleading downstream errors with no parse error pointing at the
+        // cause). A waiver node is captured separately by
+        // `capture_doctor_allows`; here we only decide whether it CLOSES the
+        // feature. It closes only when it is genuinely file/trailing-scoped —
+        // i.e. its next non-trivia, non-waiver line is itself a top-level
+        // (col-0) construct, or there is none. A waiver preceding an indented
+        // in-feature construct stays in scope and is skipped, regardless of its
+        // own column.
+        if super::super::doctor_allow::is_node_line(trimmed) {
+            match next_construct_indent(lines, i + 1) {
+                // Followed by an in-feature (indented) construct → in scope.
+                Some(indent) if indent > 0 => {
+                    last_end = line.end;
+                    i += 1;
+                    continue;
+                }
+                // Followed by a top-level construct, or nothing → file/trailing
+                // scope. Fall through to close the feature only when the waiver
+                // itself sits at col 0; an indented trailing waiver is just
+                // skipped (the feature ends at the next col-0 line as usual).
+                _ => {
+                    if line.indent > 0 {
+                        last_end = line.end;
+                        i += 1;
+                        continue;
+                    }
+                    break;
+                }
+            }
+        }
+
         // A new top-level construct ends this feature body.
         if line.indent == 0 {
             break;
@@ -430,4 +466,72 @@ pub(super) fn parse_feature_skeleton(
     ))
 }
 
+/// Indent (in spaces) of the next non-trivia, non-`@doctor.allow`-waiver line
+/// at or after `from` (0-based index into `lines`). `None` when none follows.
+/// Used to scope a `@doctor.allow(...)` node: a waiver whose next real line is
+/// indented belongs inside the current feature; one whose next real line is at
+/// col 0 (or absent) is file/trailing-scoped. Mirrors
+/// `doctor_allow::next_construct_line` but returns the indent, not the number.
+fn next_construct_indent(lines: &[SourceLine<'_>], from: usize) -> Option<usize> {
+    lines.iter().skip(from).find_map(|line| {
+        let trimmed = line.text.trim_start();
+        if is_trivia(trimmed) || super::super::doctor_allow::is_node_line(trimmed) {
+            None
+        } else {
+            Some(line.indent)
+        }
+    })
+}
+
 include!("skeleton_p1.rs");
+
+#[cfg(test)]
+mod doctor_allow_scope_tests {
+    use crate::parse_feature_skeletons;
+
+    #[test]
+    fn col0_doctor_allow_node_inside_feature_does_not_orphan_following_constructs() {
+        // Spec 0028 Bug 3a: a `@doctor.allow(...)` node at col 0 INSIDE a
+        // feature must NOT silently close the feature block. The command after
+        // it must still be parsed into the SAME feature.
+        let src = "feature billing\n\
+                   @doctor.allow(LZI-FILE-SIZE-001, reason: \"gen\")\n\
+                   \x20\x20command create\n";
+        let features = parse_feature_skeletons(src).expect("parses");
+        assert_eq!(features.len(), 1, "exactly one feature");
+        assert_eq!(features[0].name, "billing");
+        assert_eq!(
+            features[0].commands.len(),
+            1,
+            "command after the col-0 waiver must stay in the feature (not orphaned)"
+        );
+        assert_eq!(features[0].commands[0].name, "create");
+    }
+
+    #[test]
+    fn indented_doctor_allow_node_inside_feature_keeps_following_constructs() {
+        let src = "feature billing\n\
+                   \x20\x20@doctor.allow(X-1)\n\
+                   \x20\x20command create\n";
+        let features = parse_feature_skeletons(src).expect("parses");
+        assert_eq!(features.len(), 1);
+        assert_eq!(features[0].commands.len(), 1);
+    }
+
+    #[test]
+    fn col0_waiver_between_features_still_closes_the_first() {
+        // A col-0 waiver whose next real line is a new top-level `feature` is
+        // file-scoped — it must close the first feature, not absorb the second.
+        let src = "feature alpha\n\
+                   \x20\x20command a\n\
+                   @doctor.allow(X-1)\n\
+                   feature beta\n\
+                   \x20\x20command b\n";
+        let features = parse_feature_skeletons(src).expect("parses");
+        assert_eq!(features.len(), 2, "two distinct features");
+        assert_eq!(features[0].name, "alpha");
+        assert_eq!(features[0].commands.len(), 1);
+        assert_eq!(features[1].name, "beta");
+        assert_eq!(features[1].commands.len(), 1);
+    }
+}

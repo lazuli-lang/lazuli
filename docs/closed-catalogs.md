@@ -34,6 +34,7 @@ A reference `@<ns>.<target>` is valid only when `<ns>` is one of:
 - `@feature`
 - `@file`
 - `@audience`
+- `@doctor`
 
 ## Scalar types
 

@@ -16,7 +16,7 @@ use std::fs;
 
 use anyhow::{Context, Result};
 
-use lazuli_syntax::doctor_allow::recognize_legacy_comment_line;
+use lazuli_syntax::doctor_allow::{is_node_line, recognize_legacy_comment_line};
 
 use crate::actions::FixAction;
 use crate::{FixOutcome, FixRequest, FixResult};
@@ -68,7 +68,22 @@ impl FixAction for DoctorAllowCommentToNode {
             });
         };
 
-        let indent: String = old_line.chars().take_while(|c| *c == ' ').collect();
+        // Indent the node to its ENCLOSING construct's scope, NOT the legacy
+        // comment's own column. Spec 0028 Bug 3: a `# doctor:allow` comment is
+        // indentation-insensitive trivia, so authors routinely wrote it at
+        // col 0 even INSIDE a `feature`. Emitting the node at that same col 0
+        // dedents out of the feature block and silently orphans every following
+        // construct. The waiver attaches to the next real (non-trivia,
+        // non-waiver) construct line, so we adopt THAT line's indentation when
+        // it is deeper than the comment's own — otherwise keep the comment's
+        // indent (a genuinely file-level / trailing waiver stays where it was).
+        let own_indent_len = old_line.chars().take_while(|c| *c == ' ').count();
+        let enclosing_indent_len = next_construct_indent(&lines, target_idx + 1);
+        let indent_len = match enclosing_indent_len {
+            Some(next) if next > own_indent_len => next,
+            _ => own_indent_len,
+        };
+        let indent: String = " ".repeat(indent_len);
         let new_line = match &reason {
             Some(r) => format!("{indent}@doctor.allow({code}, reason: \"{r}\")"),
             None => format!("{indent}@doctor.allow({code})"),
@@ -107,6 +122,26 @@ impl FixAction for DoctorAllowCommentToNode {
             note: None,
         })
     }
+}
+
+/// Leading-space count of the next non-trivia, non-waiver line at or after
+/// `from` (0-based index into `lines`). `None` when none follows. The waiver
+/// being migrated attaches to this construct, so the migrated node should match
+/// its indentation (see Bug 3 in [`DoctorAllowCommentToNode::execute`]).
+fn next_construct_indent(lines: &[&str], from: usize) -> Option<usize> {
+    lines.iter().skip(from).find_map(|line| {
+        let trimmed = line.trim_start();
+        // Skip blank lines, comments (legacy trivia), and stacked waiver nodes.
+        if trimmed.is_empty()
+            || trimmed.starts_with('#')
+            || is_node_line(trimmed)
+            || recognize_legacy_comment_line(line).is_some()
+        {
+            None
+        } else {
+            Some(line.chars().take_while(|c| *c == ' ').count())
+        }
+    })
 }
 
 #[cfg(test)]
@@ -169,6 +204,56 @@ mod tests {
         DoctorAllowCommentToNode.execute(&req).unwrap();
         let after = std::fs::read_to_string(&path).unwrap();
         assert!(after.contains("  @doctor.allow(Y-2)"), "got: {after}");
+    }
+
+    #[test]
+    fn col0_comment_inside_feature_indents_to_enclosing_construct() {
+        // Spec 0028 Bug 3b: a legacy comment written at col 0 INSIDE a feature
+        // (legacy comments are indentation-insensitive) must NOT migrate to a
+        // col-0 node — that would dedent out of the feature. The node adopts the
+        // following construct's indentation instead.
+        let (_dir, path) = write_temp(
+            "feature billing\n# doctor:allow LZI-FILE-SIZE-001 — reason \"gen\"\n  command create\n",
+        );
+        let req = FixRequest {
+            rule: RULE_CODE.into(),
+            path: path.clone(),
+            line: 2,
+            column: 1,
+            apply: true,
+        };
+        DoctorAllowCommentToNode.execute(&req).unwrap();
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            after.contains("  @doctor.allow(LZI-FILE-SIZE-001, reason: \"gen\")"),
+            "node must be indented to the enclosing construct (2 spaces), got: {after}"
+        );
+        // And it must NOT land at col 0.
+        assert!(
+            !after.contains("\n@doctor.allow("),
+            "node must not be at col 0 inside the feature, got: {after}"
+        );
+    }
+
+    #[test]
+    fn col0_file_level_comment_stays_col0() {
+        // A genuinely file-level waiver (next construct is also col 0) keeps its
+        // col-0 placement — we only deepen, never dedent.
+        let (_dir, path) =
+            write_temp("# doctor:allow LZI-FILE-SIZE-001 — reason \"gen\"\nfeature billing\n");
+        let req = FixRequest {
+            rule: RULE_CODE.into(),
+            path: path.clone(),
+            line: 1,
+            column: 1,
+            apply: true,
+        };
+        DoctorAllowCommentToNode.execute(&req).unwrap();
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            after.starts_with("@doctor.allow(LZI-FILE-SIZE-001, reason: \"gen\")"),
+            "file-level waiver stays at col 0, got: {after}"
+        );
     }
 
     #[test]

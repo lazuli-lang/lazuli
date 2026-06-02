@@ -103,6 +103,15 @@ pub const REFERENCE_NAMESPACES: &[&str] = &[
     // the only sigil use, `view.inline_table on_change @command.<name>`, now
     // takes a bare command name).
     "file", "audience", // named references
+    // SPEC-0028 — `@doctor.allow(CODE, reason: "...")` is a first-class waiver
+    // node. The `@<ns>.<target>` reference scanner (LSP / doctor / inspect
+    // `namespace_references`) splits its head into namespace `doctor` + target
+    // `allow`, so `doctor` MUST be an allowed namespace — otherwise the
+    // sanctioned waiver form self-inflicts a `namespace-catalog` warning even
+    // though the lint message MANDATES `@doctor.allow`. The registry row stays
+    // in `NON_REFERENCE_DECORATORS` (the literal is `@doctor.allow`, not a bare
+    // `@doctor`), so the decorator-coverage gate is unaffected.
+    "doctor", // doctor waiver namespace
 ];
 
 /// Whether `ns` (the segment after `@`, e.g. `"policy"` in `@policy.update`) is
