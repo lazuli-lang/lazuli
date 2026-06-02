@@ -39,6 +39,7 @@
 use std::path::Path;
 
 use anyhow::{Result, bail};
+use lazuli_doctor::RuleCategory;
 use lazuli_doctor_config::DoctorProfile as SecurityProfile;
 use lazuli_doctor_run::{DoctorDiagnostic, DoctorSeverity};
 
@@ -70,6 +71,73 @@ impl GateBypass {
 /// enforcement). Anything else is gate-relevant.
 fn is_version_finding(d: &DoctorDiagnostic) -> bool {
     d.code.starts_with("LAZULI-VERSION-")
+}
+
+/// Resolve a diagnostic's rule category — the explicit `category` field
+/// when a rule set it, else derived from the code prefix (the same
+/// fallback the rest of the doctor pipeline uses).
+fn effective_category(d: &DoctorDiagnostic) -> RuleCategory {
+    d.category
+        .unwrap_or_else(|| RuleCategory::from_code_prefix(&d.code))
+}
+
+/// Whether an `Error`-severity finding in this category should **block**
+/// the generate/check gate (refuse-emit) vs merely be reported.
+///
+/// The gate's job is to refuse to emit a tree the doctor proved is
+/// **broken or unsafe** — the "this emitted app does not work / is
+/// insecure" dimensions. Style / hygiene / advisory dimensions are
+/// reported (error-first, in the banner) but must NOT fail-close code
+/// generation: e.g. `design-token-undefined` (a frontend Tailwind
+/// hygiene lint, `Design`) is error-severity and fires ~1504× on a real
+/// frontend-bearing app — letting it block `lazuli generate go` is a
+/// footgun that fail-closes every pilot. A CSS/design lint cannot make
+/// the GENERATED GO TREE broken.
+///
+/// BLOCKING (an error here means the emitted artifact is broken/unsafe):
+/// - `Correctness`  — wiring/shape bugs (unwired handler, empty bindings,
+///   signature mismatch, undeclared enum variant). The app breaks.
+/// - `Security`     — auth/cookie/CORS/CSRF/webhook holes. Unsafe.
+/// - `ErrorHandling`— panic / string-error / swallowed handler errors.
+///   The contract the runtime depends on is violated.
+/// - `Lifecycle`    — resource/state lifecycle correctness.
+/// - `CrossFeature` — cross-feature wiring contracts.
+/// - `ErrorVocab`   — declared-error catalog integrity the runtime routes on.
+///
+/// NON-BLOCKING (style / hygiene / advisory — reported, never refuse-emit):
+/// - `Design`       — frontend/CSS/design-token hygiene. Does not touch Go.
+/// - `Vocabulary`   — naming/vocab advice + the catch-all fallback bucket.
+/// - `LziHygiene`   — `.lzi` source-shape / file-size hygiene.
+/// - `InternalHygiene` — framework dogfooding (`--self`), not user artifacts.
+/// - `TestDiscipline`  — TDD/BDD coverage advice.
+/// - `EscapeHatch`  — sanctioned-escape *visibility* notes, not bugs.
+/// - `Poller` / `Report` — advisory surface notes.
+/// - `Encryption`   — advisory here; the *enforcing* encryption holes
+///   surface under `Security` (ENCRYPT-* is hygiene/advice today).
+/// - `Domain`       — domain-modelling advice, not a wiring break.
+fn is_blocking_category(cat: RuleCategory) -> bool {
+    matches!(
+        cat,
+        RuleCategory::Correctness
+            | RuleCategory::Security
+            | RuleCategory::ErrorHandling
+            | RuleCategory::Lifecycle
+            | RuleCategory::CrossFeature
+            | RuleCategory::ErrorVocab
+    )
+}
+
+/// Whether an error-severity diagnostic should block the gate.
+///
+/// Blocks when its [`effective_category`] is a concrete-bug category, OR
+/// when it is a `LAZULI-VERSION-*` pin-mismatch finding. The latter has
+/// no dedicated `RuleCategory` (it derives to `Vocabulary`), but a
+/// runtime/contract version mismatch is a genuine "this tree won't work
+/// against the pinned runtime" bug, not style — so it stays blocking by
+/// code (and is already dropped from the gate set entirely when
+/// `--allow-version-mismatch` is in effect, handled upstream).
+fn is_blocking_error(d: &DoctorDiagnostic) -> bool {
+    is_version_finding(d) || is_blocking_category(effective_category(d))
 }
 
 /// Run the blocking doctor gate ahead of a `generate` emit.
@@ -123,10 +191,24 @@ pub(crate) fn render_and_gate(
         (a.path.as_path(), a.line, a.column).cmp(&(b.path.as_path(), b.line, b.column))
     });
 
-    // Error-first banner + summary.
+    // Scope the gate's BLOCKING decision to concrete-bug categories. An
+    // error in a style/hygiene/advisory dimension (Design tailwind
+    // hygiene, Vocabulary advice, LZI source-shape, …) is STILL PRINTED
+    // error-first and STILL counted, but it must NOT refuse-emit a Go
+    // tree — a CSS lint can't make the emitted app broken. Only errors
+    // in the "this code is broken / unsafe" set fail the gate.
+    let blocking_count = errors
+        .iter()
+        .filter(|d| is_blocking_error(d))
+        .count();
+
+    // Error-first banner + summary. Distinguish blocking errors (which
+    // refuse-emit) from the total error count (which includes non-blocking
+    // style/hygiene errors that are reported but never block).
     if !errors.is_empty() || !warnings.is_empty() {
         eprintln!(
-            "doctor gate: {} error(s), {} warning(s)",
+            "doctor gate: {} blocking error(s), {} error(s) total, {} warning(s)",
+            blocking_count,
             errors.len(),
             warnings.len()
         );
@@ -140,25 +222,27 @@ pub(crate) fn render_and_gate(
         d.eprint();
     }
 
-    if errors.is_empty() {
+    if blocking_count == 0 {
         return Ok(());
     }
 
     if bypass.no_gate_effective() {
         eprintln!(
-            "doctor gate: BYPASSED {} error(s) via --no-gate / LAZULI_NO_GATE=1 — \
+            "doctor gate: BYPASSED {} blocking error(s) via --no-gate / LAZULI_NO_GATE=1 — \
              emitting a tree that the doctor flagged as broken. Fix the errors above \
              or add a per-finding `# doctor:allow <CODE>` waiver instead.",
-            errors.len()
+            blocking_count
         );
         return Ok(());
     }
 
     bail!(
-        "doctor gate: {} blocking error(s) for {} — refusing to emit a broken tree. \
+        "doctor gate: {} blocking error(s) for {} — refusing to emit a broken tree \
+         (concrete-bug categories: correctness, security, error_handling, lifecycle, \
+         cross_feature, error_vocab; style/hygiene errors are reported but do not block). \
          Run `lazuli doctor {}` for detail, fix the errors, or bypass with --no-gate \
          (loud) / per-finding `# doctor:allow <CODE>`.",
-        errors.len(),
+        blocking_count,
         input.display(),
         input.display(),
     );
@@ -190,7 +274,81 @@ mod tests {
     fn error_finding_blocks() {
         let diags = vec![diag("CREATES-EMPTY-BINDINGS-001", DoctorSeverity::Error)];
         let res = render_and_gate(&diags, Path::new("app.lzi"), GateBypass::default());
-        assert!(res.is_err(), "an error finding must fail the gate");
+        assert!(res.is_err(), "a Correctness error finding must fail the gate");
+    }
+
+    /// FIX 1 — a Design-category error (frontend Tailwind hygiene, e.g.
+    /// `design-token-undefined`) must NOT block the gate even at
+    /// error-severity: a CSS/design lint can't make the emitted Go tree
+    /// broken. It is still printed/counted but never refuse-emit.
+    #[test]
+    fn design_error_does_not_block() {
+        let diags = vec![diag("DESIGN-TOKEN-UNDEFINED-001", DoctorSeverity::Error)];
+        // Sanity: this code derives to the Design category.
+        assert_eq!(
+            effective_category(&diags[0]),
+            RuleCategory::Design,
+            "fixture must be a Design-category finding"
+        );
+        let res = render_and_gate(&diags, Path::new("app.lzi"), GateBypass::default());
+        assert!(
+            res.is_ok(),
+            "a Design-category error must NOT block code generation"
+        );
+    }
+
+    /// FIX 1 — the complement: a Correctness-category error in the SAME
+    /// stream still blocks (the Design error doesn't mask it), and the
+    /// gate's `blocking_count` reflects only the concrete-bug error.
+    #[test]
+    fn correctness_error_blocks_even_alongside_design_error() {
+        let diags = vec![
+            diag("DESIGN-TOKEN-UNDEFINED-001", DoctorSeverity::Error),
+            diag("CREATES-EMPTY-BINDINGS-001", DoctorSeverity::Error),
+        ];
+        let blocking = diags.iter().filter(|d| is_blocking_error(d)).count();
+        assert_eq!(blocking, 1, "only the Correctness error is blocking");
+        let res = render_and_gate(&diags, Path::new("app.lzi"), GateBypass::default());
+        assert!(
+            res.is_err(),
+            "a Correctness error must block even when a Design error is present"
+        );
+    }
+
+    /// FIX 1 — Vocabulary / LziHygiene / TestDiscipline errors are
+    /// style/advisory and do not block.
+    #[test]
+    fn style_and_hygiene_errors_do_not_block() {
+        for code in [
+            "VOCAB-NAMING-001",
+            "LZI-FILE-SIZE-001",
+            "TEST-MISSING-AUTHORED-001",
+            "ESC-RAWSQL-IN-HANDLER-001",
+        ] {
+            let diags = vec![diag(code, DoctorSeverity::Error)];
+            let res = render_and_gate(&diags, Path::new("app.lzi"), GateBypass::default());
+            assert!(
+                res.is_ok(),
+                "{code} (style/hygiene/advisory) must not block the gate"
+            );
+        }
+    }
+
+    /// FIX 1 — concrete-bug categories all block.
+    #[test]
+    fn concrete_bug_errors_block() {
+        for code in [
+            "CREATES-EMPTY-BINDINGS-001", // Correctness
+            "AUTH-COOKIE-INSECURE-001",   // Security
+            "HANDLER-NO-PANIC-001",       // ErrorHandling
+            "LIFECYCLE-FOO-001",          // Lifecycle
+            "CROSS-FEATURE-FOO-001",      // CrossFeature
+            "ERR-VOCAB-001",              // ErrorVocab
+        ] {
+            let diags = vec![diag(code, DoctorSeverity::Error)];
+            let res = render_and_gate(&diags, Path::new("app.lzi"), GateBypass::default());
+            assert!(res.is_err(), "{code} (concrete bug) must block the gate");
+        }
     }
 
     #[test]

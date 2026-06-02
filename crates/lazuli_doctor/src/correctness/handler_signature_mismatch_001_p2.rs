@@ -121,40 +121,87 @@ fn extract_command_signature(source: &str, qualified_name: &str) -> Option<GenSi
 // ── ident normalisation ─────────────────────────────────────────────────────
 
 /// Compute the diff between handler and gen signatures, normalising
-/// idents against the `<feature>gen.` package prefix.
-fn diff_signatures(handler: &HandlerSig, gen_sig: &GenSig, feature: &str) -> Option<Diff> {
-    let prefix = format!("{}gen.", feature);
-    let h_in = strip_prefix(&handler.input, &prefix);
-    let h_out = strip_prefix(&handler.output, &prefix);
-    let g_in = strip_prefix(&gen_sig.input, &prefix);
-    let g_out = strip_prefix(&gen_sig.output, &prefix);
+/// idents against the codegen package qualifier.
+///
+/// The handler side qualifies codegen types with an aliased import —
+/// `accountgen.LoginInput`, `webpushgen.RegisterWebPushInput` — while
+/// the gen side names the type bare (`LoginInput`). Crucially the Go
+/// import alias **drops underscores** from the feature name
+/// (`web_push` → import alias `webpushgen`), so a literal
+/// `format!("{feature}gen.")` prefix (`web_pushgen.`) never matches an
+/// underscored feature and the rule spuriously reports a mismatch on
+/// handlers whose types are in fact identical. The runtime check this
+/// rule mirrors (`ReturnsFromRegistry`) compares the resolved Go types,
+/// which already agree — so a qualifier-only difference must NOT be a
+/// mismatch. We therefore strip ANY `<ident>gen.` qualifier
+/// (prefix-agnostic) rather than the literal `{feature}gen.`.
+fn diff_signatures(handler: &HandlerSig, gen_sig: &GenSig, _feature: &str) -> Option<Diff> {
+    let h_in = strip_gen_qualifier(&handler.input);
+    let h_out = strip_gen_qualifier(&handler.output);
+    let g_in = strip_gen_qualifier(&gen_sig.input);
+    let g_out = strip_gen_qualifier(&gen_sig.output);
 
-    let input_match = idents_match(h_in, g_in);
-    let output_match = idents_match(h_out, g_out);
+    let input_match = idents_match(&h_in, &g_in);
+    let output_match = idents_match(&h_out, &g_out);
 
     match (input_match, output_match) {
         (true, true) => None,
         (false, true) => Some(Diff::InputMismatch {
-            expected: g_in.to_owned(),
-            found: h_in.to_owned(),
+            expected: g_in,
+            found: h_in,
         }),
         (true, false) => Some(Diff::OutputMismatch {
-            expected: g_out.to_owned(),
-            found: h_out.to_owned(),
+            expected: g_out,
+            found: h_out,
         }),
         (false, false) => Some(Diff::Both {
-            input_expected: g_in.to_owned(),
-            input_found: h_in.to_owned(),
-            output_expected: g_out.to_owned(),
-            output_found: h_out.to_owned(),
+            input_expected: g_in,
+            input_found: h_in,
+            output_expected: g_out,
+            output_found: h_out,
         }),
     }
 }
 
-/// Strip the `<feature>gen.` package prefix when present so the rule
-/// can compare `accountgen.LoginInput` vs `LoginInput` cleanly.
-fn strip_prefix<'a>(ident: &'a str, prefix: &str) -> &'a str {
-    ident.strip_prefix(prefix).unwrap_or(ident)
+/// Strip a codegen package qualifier — any `<pkg>gen.` segment where
+/// `<pkg>` is a Go identifier ending in `gen` — so the rule can compare
+/// `accountgen.LoginInput` / `webpushgen.RegisterWebPushInput` against
+/// the bare gen-side `LoginInput` / `RegisterWebPushInput` cleanly.
+///
+/// Prefix-agnostic by design: the Go import alias drops underscores
+/// from the feature name (`web_push` → `webpushgen`), so a literal
+/// `{feature}gen.` strip breaks on any underscored feature. We instead
+/// strip a LEADING `<pkg>gen.` qualifier where `<pkg>gen` is a Go ident
+/// run ending in `gen`. Any type sigils (`*`, `[]`, `...`) are kept and
+/// re-prepended so `*webpushgen.Foo` normalises to `*Foo` (and still
+/// compares unequal to a bare `Foo` — a genuine pointer-vs-value drift).
+fn strip_gen_qualifier(ident: &str) -> String {
+    let bytes = ident.as_bytes();
+    // Skip leading type sigils so the qualifier check anchors on the
+    // type-name root: `*`, `[]`, `...`, and surrounding whitespace.
+    let mut head_end = 0usize;
+    while head_end < bytes.len() {
+        let b = bytes[head_end];
+        if b == b'*' || b == b'[' || b == b']' || b == b'.' || b.is_ascii_whitespace() {
+            head_end += 1;
+        } else {
+            break;
+        }
+    }
+    let head = &ident[..head_end];
+    let rest = &ident[head_end..];
+    // `rest` must start with `<ident-run-ending-in-gen>.` for a strip.
+    if let Some(dot) = rest.find('.') {
+        let pkg = &rest[..dot];
+        let is_ident_run = !pkg.is_empty()
+            && pkg
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_');
+        if is_ident_run && pkg.ends_with("gen") {
+            return format!("{head}{}", &rest[dot + 1..]);
+        }
+    }
+    ident.to_owned()
 }
 
 /// Compare two idents after collapsing internal whitespace. Mainly
