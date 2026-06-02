@@ -197,30 +197,29 @@ fn scan_file(path: &Path, feature: &str, bucket: &str, source: &str, out: &mut V
         // fires the errors.New finding at the moment we're inside the body.
         let mut depth = brace_depth;
         let mut in_str = false;
-        let mut prev = b' ';
-        let bytes = no_line_comment.as_bytes();
-        let mut i = 0usize;
+        let mut prev = ' ';
         let mut fired_errors_new = false;
         let mut fired_errorf = false;
-        while i < bytes.len() {
-            let b = bytes[i];
-            if b == b'"' && prev != b'\\' {
+        // Iterate by `char_indices` so every byte offset `i` is a valid
+        // UTF-8 char boundary — multibyte chars (em-dash, accents,
+        // emoji) in raw strings / comments must not crash the slices
+        // below. On ASCII input the offsets are identical to the old
+        // byte-walk, so behavior is unchanged.
+        for (i, ch) in no_line_comment.char_indices() {
+            if ch == '"' && prev != '\\' {
                 in_str = !in_str;
-                prev = b;
-                i += 1;
+                prev = ch;
                 continue;
             }
             if !in_str {
-                if b == b'{' {
+                if ch == '{' {
                     depth += 1;
-                    prev = b;
-                    i += 1;
+                    prev = ch;
                     continue;
                 }
-                if b == b'}' {
+                if ch == '}' {
                     depth = depth.saturating_sub(1);
-                    prev = b;
-                    i += 1;
+                    prev = ch;
                     continue;
                 }
                 // Try to match `errors.New(` starting here.
@@ -257,8 +256,7 @@ fn scan_file(path: &Path, feature: &str, bucket: &str, source: &str, out: &mut V
                     }
                 }
             }
-            prev = b;
-            i += 1;
+            prev = ch;
         }
         brace_depth = depth;
     }
@@ -371,8 +369,13 @@ fn strip_block_comments(line: &str, mut depth: usize) -> (String, usize) {
                 i += 2;
                 continue;
             }
-            out.push(bytes[i] as char);
-            i += 1;
+            // Copy the whole UTF-8 char at `i`, not `bytes[i] as char`
+            // (which would mangle a multibyte char into Latin-1 mojibake
+            // and shift downstream byte offsets). `i` is a char boundary
+            // here because the comment markers we skip are ASCII.
+            let ch = char_at(line, i);
+            out.push(ch);
+            i += ch.len_utf8();
         } else {
             if i + 1 < bytes.len() && bytes[i] == b'*' && bytes[i + 1] == b'/' {
                 depth -= 1;
@@ -381,11 +384,23 @@ fn strip_block_comments(line: &str, mut depth: usize) -> (String, usize) {
                 i += 2;
                 continue;
             }
+            // Inside a block comment: emit one space per byte so column
+            // positions of surviving content are preserved exactly,
+            // including across multibyte chars.
             out.push(' ');
             i += 1;
         }
     }
     (out, depth)
+}
+
+/// Decode the UTF-8 char that starts at byte offset `i` in `line`.
+/// `i` must be a char boundary.
+fn char_at(line: &str, i: usize) -> char {
+    line[i..]
+        .chars()
+        .next()
+        .expect("offset is a valid char boundary inside the line")
 }
 
 fn strip_line_comment(line: &str) -> String {

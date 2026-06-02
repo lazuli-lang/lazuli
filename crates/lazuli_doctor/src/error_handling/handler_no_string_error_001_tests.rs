@@ -120,6 +120,93 @@
     }
 
     #[test]
+    fn multibyte_em_dash_in_go_raw_string_before_errors_new_does_not_panic() {
+        // Live pauta crash: an em-dash (`—`, 3 UTF-8 bytes) inside a Go
+        // raw string (backtick) sits in non-`"`-quoted code as far as the
+        // double-quote string tracker is concerned, so the scan loop's
+        // `if !in_str { no_line_comment[i..]... }` branch runs with `i`
+        // landing mid-`—` and the old byte-walk panicked with
+        // "byte index N is not a char boundary; it is inside '—'".
+        // The finding on the following line must still fire.
+        let f = handler_file(
+            "package handlers\n\nfunc Q() error {\n    q := `note — keep`\n    _ = q\n    return errors.New(\"bad\")\n}\n",
+        );
+        let findings = check(&[f]);
+        assert!(
+            findings.iter().any(|x| x.construct == "errors.New(...)"),
+            "errors.New after a backtick raw string with em-dash still flagged"
+        );
+    }
+
+    #[test]
+    fn multibyte_em_dash_in_line_comment_before_errors_new_does_not_panic() {
+        // Em-dash in a `//` comment (stripped) then errors.New next line.
+        let f = handler_file(
+            "package handlers\n\nfunc Login() error {\n    // note — see below\n    return errors.New(\"bad\")\n}\n",
+        );
+        let findings = check(&[f]);
+        assert_eq!(findings.len(), 1, "em-dash in comment must not suppress finding");
+        assert_eq!(findings[0].line, 5);
+        assert_eq!(findings[0].construct, "errors.New(...)");
+    }
+
+    #[test]
+    fn multibyte_em_dash_in_same_string_arg_does_not_panic() {
+        // The em-dash lives in the error literal itself — the panic site
+        // is the string-literal scan inside `fmt.Errorf(`.
+        let f = handler_file(
+            "package handlers\n\nfunc Login() error {\n    return fmt.Errorf(\"could not foo — bar\")\n}\n",
+        );
+        let findings = check(&[f]);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].construct, "fmt.Errorf(...)");
+    }
+
+    #[test]
+    fn multibyte_in_sql_doctor_allow_comment_does_not_panic() {
+        // A `-- doctor:allow` SQL comment carrying an em-dash inside a Go
+        // raw string (backtick) — the exact live shape. We only assert
+        // no panic; the rule may or may not fire depending on heuristics,
+        // but it must complete.
+        let f = handler_file(
+            "package handlers\n\nfunc Q() error {\n    q := `SELECT 1 -- doctor:allow — keep`\n    _ = q\n    return errors.New(\"x\")\n}\n",
+        );
+        // Must not panic. errors.New on a later line still fires.
+        let findings = check(&[f]);
+        assert!(
+            findings.iter().any(|x| x.construct == "errors.New(...)"),
+            "errors.New after the multibyte SQL comment still flagged"
+        );
+    }
+
+    #[test]
+    fn multibyte_accent_and_emoji_in_block_comment_does_not_panic() {
+        // Accented letters (2 bytes) and an emoji (4 bytes) inside a
+        // /* */ block comment must be stripped without panicking or
+        // corrupting the surviving code's byte offsets.
+        let f = handler_file(
+            "package handlers\n\nfunc Login() error {\n  /* açúcar 🎉 stuff */ return errors.New(\"bad\")\n}\n",
+        );
+        let findings = check(&[f]);
+        assert_eq!(findings.len(), 1, "code after multibyte block comment still scanned");
+        assert_eq!(findings[0].construct, "errors.New(...)");
+    }
+
+    #[test]
+    fn multibyte_in_string_literal_keeps_string_state_correct() {
+        // An em-dash inside a benign string literal that itself contains
+        // the text `errors.New(` must stay silent (string-literal
+        // suppression) and not panic.
+        let f = handler_file(
+            "package handlers\n\nfunc Login() error {\n  log.Print(\"see — errors.New(...) docs\")\n  return nil\n}\n",
+        );
+        assert!(
+            check(&[f]).is_empty(),
+            "errors.New inside a multibyte string literal is silent"
+        );
+    }
+
+    #[test]
     fn message_includes_construct_and_path() {
         let f = handler_file("package handlers\n\nfunc A() error { return errors.New(\"x\") }\n");
         let finding = check(&[f]).into_iter().next().unwrap();
