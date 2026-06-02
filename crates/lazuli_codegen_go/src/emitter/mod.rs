@@ -28,6 +28,7 @@ pub mod enums;
 pub mod error_envelope;
 pub mod error_resolver;
 pub mod events;
+pub mod framework_tables;
 pub mod handlers;
 pub mod imports;
 pub mod job;

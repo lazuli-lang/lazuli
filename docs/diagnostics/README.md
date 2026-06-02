@@ -14,7 +14,7 @@ This catalog mines each rule's module-header docstring (the canonical source of 
 
 | Category | Module | Rule count | Theme |
 |---|---|---|---|
-| [Correctness](#correctness) | `correctness/` | 15 | Dangling references, shape mismatches, codegen contract violations |
+| [Correctness](#correctness) | `correctness/` | 16 | Dangling references, shape mismatches, codegen contract violations |
 | [Cross-feature contracts](#cross-feature-contracts) | `cross_feature/` | 3 | Microservices-mode contract gating |
 | [Lifecycle](#lifecycle) | `lifecycle/` | 10 | State-machine well-formedness |
 | [Poller](#poller) | `poller/` | 12 | Background poller invariants |
@@ -49,6 +49,7 @@ Source: [`crates/lazuli_doctor/src/correctness/`](../../crates/lazuli_doctor/src
 | `RESOURCE-LOCK-CONTRACT-001` | error | `correctness/resource_lock_contract_001.rs` | `lock optimistic` references a missing `version_field` or a non-`Integer` field. |
 | `ROUTE-ID-UNUSED-IN-EFFECT-001` (`@correctness.route_id_unused_in_effect`) | error | `correctness/route_id_effect_consistency.rs` | `command.route <name>: <Type>` (no `from ctx.<expr>`) isn't reachable from `CommandInput`; codegen would read zero-valued `id`. |
 | `@correctness.migration_out_of_sync` | warning | `correctness/schema_migration_present.rs` | IR resource columns drift from the highest-numbered emitted `dist/go/migrations/NNN_<feature>_<resource>*.sql`. |
+| `RUNTIME-EMITTED-TABLE-MIGRATION-001` | error (prototype: info) | `correctness/runtime_emitted_table_migration_001.rs` | A framework-synthesized table the runtime WRITES (`audit_log`, `lazuli_audit`, `lazuli_outbox`) — gated on the activating construct (`audit` / `outbox guaranteed`) — has no `CREATE TABLE` migration under `dist/go/migrations/`; the first request that hits the path 500s with `relation "<table>" does not exist`. Generalizes the `audit_log` point-fix to the whole synthesized-table set. |
 | `WEBHOOK-EMIT-PREDICATE-FIELD-001` | error | `correctness/webhook_emit_predicate_field_001.rs` | Webhook `emits ... when <path> = ...` path doesn't resolve against the webhook's payload contract. |
 
 ## Cross-feature contracts

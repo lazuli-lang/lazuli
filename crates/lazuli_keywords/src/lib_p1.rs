@@ -161,6 +161,19 @@ pub const GLOBAL_DIAGNOSTICS: &[DiagnosticFacet] = &[
         base_severity: "error",
         category: "vocabulary",
     },
+    // W2-4 — a framework-synthesized table the runtime WRITES (audit_log,
+    // lazuli_audit, lazuli_outbox, …) with no `CREATE TABLE` migration
+    // emitted into `dist/go/migrations/`. Cross-cutting over generated
+    // SQL/Go artifacts (no single `.lzi` keyword owns it; the activating
+    // construct is `audit`/`outbox guaranteed`, but the diagnostic fires
+    // over the migration tree), so it lands in GLOBAL alongside the other
+    // migration-codegen codes. `RUNTIME-` falls through `from_code_prefix`
+    // to `Vocabulary` — matching its `RUNTIME-UPDATE-BUILDER-JSONB-001` peer.
+    DiagnosticFacet {
+        code: "RUNTIME-EMITTED-TABLE-MIGRATION-001",
+        base_severity: "error",
+        category: "vocabulary",
+    },
     DiagnosticFacet {
         code: "@correctness.migration_out_of_sync",
         base_severity: "error",
