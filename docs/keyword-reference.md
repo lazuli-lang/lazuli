@@ -119,7 +119,7 @@ _Generated from 690 capability rows across the `lazuli_keywords` registry._
 | `auth` | `keyword.control.section.lazuli` | `keyword` | — | Declares the authentication block. | — |
 | `cache` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a named cache profile. | — |
 | `channel` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a realtime channel. | `CHANNEL-PAYLOAD-001` |
-| `command` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a write command (mutation effect). | `CODEGEN-UNRESOLVED-BINDING-SOURCE-001`<br>`COMMAND-INPUT-SHADOWS-FIELD-001`<br>`CTX-PATH-UNRESOLVED-001`<br>`HOOK-TARGET-001`<br>`MUTATION-WITHOUT-READBACK-001` |
+| `command` | `keyword.control.declaration.structural.lazuli` | `keyword` | — | Declares a write command (mutation effect). | `CODEGEN-UNRESOLVED-BINDING-SOURCE-001`<br>`COMMAND-INPUT-SHADOWS-FIELD-001`<br>`CREATES-EMPTY-BINDINGS-001`<br>`CTX-PATH-UNRESOLVED-001`<br>`HOOK-TARGET-001`<br>`MUTATION-WITHOUT-READBACK-001` |
 | `compatibility` | `keyword.control.statement.lazuli` | `keyword` | — | Declares contract compatibility. | — |
 | `constraints` | `entity.name.function.statement.non-goals.lazuli` | `keyword` | — | Non-goal constraints. | — |
 | `defaults` | `keyword.control.section.lazuli` | `keyword` | — | Declares resource-convention defaults. | — |

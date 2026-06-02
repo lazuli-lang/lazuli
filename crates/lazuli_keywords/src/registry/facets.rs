@@ -46,6 +46,7 @@ pub(crate) const P_CHANNEL: &[DiagnosticFacet] =
 
 pub(crate) const P_COMMAND: &[DiagnosticFacet] = &[
     df("COMMAND-INPUT-SHADOWS-FIELD-001", "error", "vocabulary"),
+    df("CREATES-EMPTY-BINDINGS-001", "error", "correctness"),
     df("MUTATION-WITHOUT-READBACK-001", "warning", "correctness"),
     df("HOOK-TARGET-001", "error", "correctness"),
     df(
