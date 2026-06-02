@@ -333,6 +333,125 @@
         }
     }
 
+    // REGRESSION (POLICY-REF-UNRESOLVED-001 false-positive) — a command-level
+    // GAP-09 predicate-gated policy of the form
+    // `@policy.admin when input.scope == "Production", @policy.finance when
+    // input.scope == "MediaPlacement"` lands as ONE opaque `PolicyRef::Atom`
+    // string. Post-6068b856 the deny-fallback caught the (whole-string) miss
+    // and DENIED the command. The fix parses the GAP-09 atoms, resolves each
+    // `@policy.<name>` to its category, and emits the resolved role atoms gated
+    // by their `When` predicate — NOT a deny.
+    #[test]
+    fn conditional_comma_policy_resolves_each_ref_with_when_guard_not_deny() {
+        use lazuli_ir::{Policies, PolicyCategory, PolicyRef};
+
+        let mut feature = base_feature("billing_config");
+        feature.policies = Policies {
+            categories: vec![
+                PolicyCategory {
+                    name: "admin".into(),
+                    atoms: vec!["@role.ADMIN".into()],
+                    conditional_atoms: vec![],
+                    previous_names: vec![],
+                    when_denied: None,
+                    when_denied_route: None,
+                },
+                PolicyCategory {
+                    name: "finance".into(),
+                    atoms: vec!["@role.ADMIN".into(), "@role.FINANCIAL".into()],
+                    conditional_atoms: vec![],
+                    previous_names: vec![],
+                    when_denied: None,
+                    when_denied_route: None,
+                },
+            ],
+            fields: Vec::new(),
+            span_ref: None,
+        };
+
+        let mut cmd = base_command("create_billing_type");
+        cmd.input = CommandInput::Typed(vec![typed_slot("scope", BuiltinType::Text, true)]);
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Customer"),
+            from_input: true,
+            assignments: vec![],
+        });
+        // This is exactly how the analyzer lowers the pauta source line: the
+        // whole conditional comma string in a single `PolicyRef::Atom` (the
+        // leading `@` of the FIRST ref is stripped by `lower_policy_atom`).
+        cmd.policy = PolicyRef::Atom(
+            "policy.admin when input.scope == \"Production\", @policy.finance when input.scope == \"MediaPlacement\"".into(),
+        );
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("emits");
+        // admin -> @role.ADMIN gated on Production.
+        assert!(
+            out.contains(
+                "{Namespace: \"role\", Name: \"ADMIN\", When: &lazuli.PolicyWhen{Path: \"input.scope\", Op: \"=\", Value: \"Production\"}}"
+            ),
+            "expected admin->ADMIN atom gated on input.scope == Production in:\n{out}"
+        );
+        // finance -> (@role.ADMIN or @role.FINANCIAL) gated on MediaPlacement.
+        assert!(
+            out.contains(
+                "{Namespace: \"role\", Name: \"FINANCIAL\", When: &lazuli.PolicyWhen{Path: \"input.scope\", Op: \"=\", Value: \"MediaPlacement\"}}"
+            ),
+            "expected finance->FINANCIAL atom gated on input.scope == MediaPlacement in:\n{out}"
+        );
+        // CRITICAL: the regression — it must NOT be turned into a deny.
+        assert!(
+            !out.contains("{Namespace: \"predicate\", Name: \"deny\"}"),
+            "REGRESSION: legitimate conditional policy was DENIED:\n{out}"
+        );
+        // The two references are OR'd at top level.
+        assert!(
+            out.contains("{Namespace: \"predicate\", Name: \"or\"}"),
+            "expected the two refs OR'd in:\n{out}"
+        );
+    }
+
+    // SECURITY (preserved) — a conditional comma policy where ONE referenced
+    // category genuinely does not exist must STILL fail CLOSED (deny). Only a
+    // list of fully-RESOLVABLE refs is exempt from the deny.
+    #[test]
+    fn conditional_comma_policy_with_unresolvable_ref_still_denies() {
+        use lazuli_ir::{Policies, PolicyCategory, PolicyRef};
+
+        let mut feature = base_feature("billing_config");
+        feature.policies = Policies {
+            categories: vec![PolicyCategory {
+                name: "admin".into(),
+                atoms: vec!["@role.ADMIN".into()],
+                conditional_atoms: vec![],
+                previous_names: vec![],
+                when_denied: None,
+                when_denied_route: None,
+            }],
+            fields: Vec::new(),
+            span_ref: None,
+        };
+
+        let mut cmd = base_command("create_billing_type");
+        cmd.input = CommandInput::Typed(vec![typed_slot("scope", BuiltinType::Text, true)]);
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Customer"),
+            from_input: true,
+            assignments: vec![],
+        });
+        // `finance` is NOT declared — the whole conditional ref must fail closed.
+        cmd.policy = PolicyRef::Atom(
+            "policy.admin when input.scope == \"Production\", @policy.finance when input.scope == \"MediaPlacement\"".into(),
+        );
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("emits");
+        assert!(
+            out.contains("{Namespace: \"predicate\", Name: \"deny\"}"),
+            "SECURITY: a conditional policy with an unresolvable ref must deny:\n{out}"
+        );
+    }
+
     // No-regression — a RESOLVABLE same-feature named policy must still emit its
     // real atoms and must NOT be turned into a deny.
     #[test]

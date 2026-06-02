@@ -51,9 +51,10 @@ pub use nodes::capability::{
 };
 pub use nodes::command::{
     ApprovalSpec, ApprovalThen, Assignment, AuditMaterialize, AuditSpec, Command, CommandEffect,
-    CommandInput, CommandKind, CommandWriteWindow, CreateEffect, DeleteEffect, Deprecation,
-    DeprecationReplacement, DerivedFrom, InvalidatesSpec, LetBinding, NamedArg, PolicyRef,
-    ReorderEffect, ReturnsEffect, RouteSlot, RouteSlotKind, TargetExpr, TypedSlot, UpdateEffect,
+    CommandInput, CommandKind, CommandWriteWindow, ConditionalPolicyRef, CreateEffect,
+    DeleteEffect, Deprecation, DeprecationReplacement, DerivedFrom, InvalidatesSpec, LetBinding,
+    NamedArg, PolicyRef, ReorderEffect, ReturnsEffect, RouteSlot, RouteSlotKind, TargetExpr,
+    TypedSlot, UpdateEffect, parse_conditional_policy_refs,
 };
 pub use nodes::design::{
     ColorState, ColorStateKind, ColorToken, CustomToken, Design, EasingToken, FamilyToken, Motion,
@@ -78,8 +79,9 @@ pub use nodes::experience::{
 };
 pub use nodes::feature::{Feature, FeatureRequirement};
 pub use nodes::feature_defaults::{
-    Constraint, Defaults, DefaultsAudit, EscapeRoute, Extension, ExtensionContract, FieldValidation,
-    IndexConstraint, IndexMethod, NonGoal, PathRef, PathSource, Tenancy, UniqueConstraint,
+    Constraint, Defaults, DefaultsAudit, EscapeRoute, Extension, ExtensionContract,
+    FieldValidation, IndexConstraint, IndexMethod, NonGoal, PathRef, PathSource, Tenancy,
+    UniqueConstraint,
 };
 pub use nodes::lifecycle::{
     FieldRef, HandlerRef, Lifecycle, LifecycleInvariant, LifecycleState, LifecycleStateKind,

@@ -42,7 +42,7 @@
 
 use std::collections::BTreeSet;
 
-use lazuli_ir::{Feature, Policies, PolicyRef};
+use lazuli_ir::{Feature, Policies, PolicyRef, parse_conditional_policy_refs};
 
 /// Built-in policy names that resolve WITHOUT a declared `policies` category.
 /// `public` (anonymous) and `authenticated` (any signed-in user) map directly
@@ -142,7 +142,8 @@ impl PolicyCatalog {
     }
 
     fn has_qualified(&self, feature: &str, name: &str) -> bool {
-        self.qualified.contains(&(feature.to_owned(), name.to_owned()))
+        self.qualified
+            .contains(&(feature.to_owned(), name.to_owned()))
     }
 
     fn has_name(&self, name: &str) -> bool {
@@ -158,6 +159,40 @@ impl PolicyCatalog {
 ///
 /// `default_feature` is the feature the callable lives in (used to resolve
 /// unqualified `@policy.<name>` / `Local` references).
+/// GAP-09 (command-level) — resolve a *conditional / comma-list* policy
+/// reference (`@policy.a when <p>, @policy.b when <p>`) against the catalog.
+///
+/// Returns:
+/// - `Some(Some(reference))` — the payload IS the conditional form and at least
+///   one referenced category is unresolvable; the string is the FIRST such
+///   `@policy.<name>` (the finding).
+/// - `Some(None)` — the payload IS the conditional form and EVERY referenced
+///   category resolves (or is built-in) → no finding.
+/// - `None` — the payload is NOT the conditional/comma form; the caller
+///   continues with its single-ref resolution path (unaffected).
+///
+/// Mirrors the codegen resolver (`format_conditional_policy`): the doctor flags
+/// exactly what codegen would fail-close (deny) on, keeping the two faces in
+/// agreement. Each name resolves the same way a bare `@policy.<name>` does
+/// (qualified-to-this-feature OR present in any feature, to avoid false
+/// positives on legitimately cross-feature refs).
+fn unresolved_conditional(
+    raw: &str,
+    default_feature: &str,
+    catalog: &PolicyCatalog,
+) -> Option<Option<String>> {
+    let refs = parse_conditional_policy_refs(raw)?;
+    for r in &refs {
+        if is_builtin_policy(&r.name) {
+            continue;
+        }
+        if !(catalog.has_qualified(default_feature, &r.name) || catalog.has_name(&r.name)) {
+            return Some(Some(format!("@policy.{}", r.name)));
+        }
+    }
+    Some(None)
+}
+
 pub fn unresolved_reference(
     policy: &PolicyRef,
     default_feature: &str,
@@ -171,6 +206,12 @@ pub fn unresolved_reference(
             if is_builtin_policy(name) {
                 return None;
             }
+            // GAP-09 (command-level) — `name` may be the whole conditional
+            // comma form `@policy.a when <p>, @policy.b when <p>`. Resolve each
+            // referenced category BEFORE flagging the literal string.
+            if let Some(verdict) = unresolved_conditional(name, default_feature, catalog) {
+                return verdict;
+            }
             // Bare `<name>` resolves against any feature's categories
             // (the codegen path keys it to the local feature, but a name
             // declared in this feature is the common case; accept either to
@@ -182,6 +223,14 @@ pub fn unresolved_reference(
             }
         }
         PolicyRef::Atom(atom) => {
+            // GAP-09 (command-level) — the conditional / comma-list form lands
+            // here as one opaque atom string. Resolve each `@policy.<name>`
+            // before the single-name `policy.` resolution below, so a list of
+            // declared refs is NOT a false positive (the regression) while a
+            // genuinely-missing ref still errors.
+            if let Some(verdict) = unresolved_conditional(atom, default_feature, catalog) {
+                return verdict;
+            }
             // Only `policy.<name>` atoms route through category resolution.
             // `@role.*` / `@scope.*` / `@actor.*` are closed single atoms.
             let Some(rest) = atom.strip_prefix("policy.") else {
@@ -314,15 +363,45 @@ mod tests {
                 "built-in @policy.{name} must resolve"
             );
             assert_eq!(
-                unresolved_reference(
-                    &PolicyRef::Atom(format!("policy.{name}")),
-                    "f",
-                    &catalog
-                ),
+                unresolved_reference(&PolicyRef::Atom(format!("policy.{name}")), "f", &catalog),
                 None,
                 "built-in @policy.{name} (atom form) must resolve"
             );
         }
+    }
+
+    // REGRESSION — a command-level GAP-09 conditional comma policy whose refs
+    // ALL resolve must be SILENT (no finding). Pre-fix the whole comma string
+    // was treated as one opaque category name, found nowhere, and falsely
+    // flagged POLICY-REF-UNRESOLVED-001.
+    #[test]
+    fn conditional_comma_policy_all_refs_resolve_is_silent() {
+        let features = vec![feature_with_categories(
+            "billing_config",
+            &["admin", "finance"],
+        )];
+        let catalog = PolicyCatalog::from_features(&features);
+        // Exactly the pauta lowering: one opaque Atom carrying the whole form.
+        let pol = PolicyRef::Atom(
+            "policy.admin when input.scope == \"Production\", @policy.finance when input.scope == \"MediaPlacement\"".to_owned(),
+        );
+        assert_eq!(unresolved_reference(&pol, "billing_config", &catalog), None);
+    }
+
+    // SECURITY (preserved) — a conditional comma policy with a genuinely missing
+    // referenced category STILL errors, naming the first unresolvable ref.
+    #[test]
+    fn conditional_comma_policy_missing_ref_still_errors() {
+        let features = vec![feature_with_categories("billing_config", &["admin"])];
+        let catalog = PolicyCatalog::from_features(&features);
+        // `finance` is not declared.
+        let pol = PolicyRef::Atom(
+            "policy.admin when input.scope == \"Production\", @policy.finance when input.scope == \"MediaPlacement\"".to_owned(),
+        );
+        assert_eq!(
+            unresolved_reference(&pol, "billing_config", &catalog),
+            Some("@policy.finance".to_owned())
+        );
     }
 
     #[test]

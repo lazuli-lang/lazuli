@@ -177,6 +177,135 @@ pub enum PolicyRef {
     None,
 }
 
+/// One parsed entry of a GAP-09 *command-level* predicate-gated policy
+/// reference list: `@policy.<name> [when <predicate>]`. Unlike
+/// [`ConditionalPolicyAtom`] (which gates a raw atom declared INSIDE a
+/// `policies` category), this gates a *reference to a category* on the
+/// command/query/api `policy` line itself.
+///
+/// `name` is the bare category name (the `<name>` of `@policy.<name>`).
+/// `when` is the verbatim predicate text after ` when ` (`None` for an
+/// unconditional ref).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConditionalPolicyRef {
+    /// Bare policy-category name (`admin`, `finance`, ...).
+    pub name: String,
+    /// Verbatim `when <predicate>` text, or `None` if unconditional.
+    pub when: Option<String>,
+}
+
+/// GAP-09 — split a single comma-separated policy entry into
+/// `(ref_text, when_text)` when it carries a standalone ` when ` tail,
+/// else `(ref_text, None)`. Mirrors the category parser's
+/// `split_when_clause` (lazuli_syntax) so the command-level conditional
+/// form resolves the same way the in-category form does.
+fn split_ref_when(entry: &str) -> (&str, Option<&str>) {
+    let mut search = 0usize;
+    while let Some(rel) = entry[search..].find(" when ") {
+        let idx = search + rel;
+        let atom = entry[..idx].trim();
+        let when = entry[idx + " when ".len()..].trim();
+        if !atom.is_empty() && !when.is_empty() {
+            return (atom, Some(when));
+        }
+        search = idx + " when ".len();
+    }
+    (entry.trim(), None)
+}
+
+/// Split a raw policy payload on TOP-LEVEL commas — commas inside a
+/// double-quoted string literal (e.g. a `when ... == "a,b"` value) do not
+/// separate entries.
+fn split_top_level_commas(raw: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = 0usize;
+    let mut in_str = false;
+    for (i, ch) in raw.char_indices() {
+        match ch {
+            '"' => in_str = !in_str,
+            ',' if !in_str => {
+                parts.push(&raw[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&raw[start..]);
+    parts
+}
+
+/// Parse a raw `policy` payload as a GAP-09 *conditional / comma-list*
+/// reference form: one or more `@policy.<name> [when <predicate>]` atoms
+/// separated by top-level commas.
+///
+/// Returns `Some(refs)` ONLY when the payload genuinely has this shape —
+/// i.e. it contains more than one comma-separated `@policy.<name>` entry,
+/// or a single `@policy.<name> when <predicate>` entry. A bare single
+/// `@policy.<name>` (or any payload whose first entry is not a
+/// `@policy.`/`policy.` reference, e.g. a `@role.*` atom or a structured
+/// `has_role` expression) returns `None`, so every existing single-atom /
+/// structured path is left exactly as-is.
+///
+/// Each entry must be a `@policy.<name>` (or `policy.<name>`) reference;
+/// if ANY entry is not, the whole payload is rejected (`None`) and the
+/// caller falls through to its normal resolution / deny path. The parser
+/// does not validate that the names resolve to categories — that is the
+/// caller's job (codegen resolves+emits; doctor resolves+flags).
+///
+/// ## Examples
+///
+/// ```
+/// use lazuli_ir::parse_conditional_policy_refs;
+///
+/// // Conditional comma form → parsed atoms.
+/// let refs = parse_conditional_policy_refs(
+///     "policy.admin when input.scope == \"Production\", @policy.finance when input.scope == \"MediaPlacement\"",
+/// )
+/// .expect("conditional form");
+/// assert_eq!(refs.len(), 2);
+/// assert_eq!(refs[0].name, "admin");
+/// assert_eq!(refs[0].when.as_deref(), Some("input.scope == \"Production\""));
+/// assert_eq!(refs[1].name, "finance");
+///
+/// // Bare single atom → not the conditional form.
+/// assert!(parse_conditional_policy_refs("policy.admin").is_none());
+/// // Non-policy atom → rejected.
+/// assert!(parse_conditional_policy_refs("role.ADMIN, role.MANAGER").is_none());
+/// ```
+pub fn parse_conditional_policy_refs(raw: &str) -> Option<Vec<ConditionalPolicyRef>> {
+    let entries = split_top_level_commas(raw);
+    let mut refs: Vec<ConditionalPolicyRef> = Vec::with_capacity(entries.len());
+    let mut any_when = false;
+    for entry in entries {
+        let trimmed = entry.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        let (ref_text, when_text) = split_ref_when(trimmed);
+        // Each entry MUST be a `@policy.<name>` / `policy.<name>` reference.
+        let stripped = ref_text.strip_prefix('@').unwrap_or(ref_text);
+        let name = stripped.strip_prefix("policy.")?;
+        if name.is_empty() || name.contains(char::is_whitespace) {
+            return None;
+        }
+        if when_text.is_some() {
+            any_when = true;
+        }
+        refs.push(ConditionalPolicyRef {
+            name: name.to_owned(),
+            when: when_text.map(str::to_owned),
+        });
+    }
+    // Only claim this payload when it is genuinely the conditional/comma
+    // form: a single unconditional `@policy.<name>` is NOT — leave it to
+    // the existing single-ref resolution path.
+    if refs.len() >= 2 || any_when {
+        Some(refs)
+    } else {
+        None
+    }
+}
+
 impl PolicyRef {
     /// Returns `true` when the policy is unset. Used by serde's
     /// `skip_serializing_if` on query / command IR fields so absent

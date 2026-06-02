@@ -23,7 +23,70 @@
 //! `and`, `or`, `not`, `(`, `)`), plus the original `<ns>` for
 //! embedded `@<ns>.<name>` references (`role`, `scope`, `actor`, ...).
 
-use lazuli_ir::{CompareOp, EvalPredicate, Expr, Policies, PolicyExpr, PolicyRef, Predicate};
+use lazuli_ir::{
+    CompareOp, EvalPredicate, Expr, Policies, PolicyExpr, PolicyRef, Predicate,
+    parse_conditional_policy_refs,
+};
+
+/// GAP-09 (command-level) — parse the verbatim `when` text of a command-level
+/// conditional policy reference (`input.scope == "Production"`) directly into a
+/// Go `&lazuli.PolicyWhen{...}` literal. Only the simple closed
+/// `<input.path> <op> <literal>` comparison form is rendered (the same subset
+/// `render_policy_when` emits and the runtime `PolicyWhen.holds` evaluates);
+/// any richer / unparsed shape returns `None` so the atom degrades to
+/// unconditional. Operator precedence: longest token first so `<=` / `>=` /
+/// `!=` / `==` are not mis-split as `<` / `>` / `=`.
+fn render_when_text(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    for (token, op_go) in [
+        ("<=", "<="),
+        (">=", ">="),
+        ("!=", "!="),
+        ("==", "="),
+        ("<", "<"),
+        (">", ">"),
+    ] {
+        if let Some(idx) = trimmed.find(token) {
+            let (lhs, rhs) = trimmed.split_at(idx);
+            let rhs = &rhs[token.len()..];
+            let lhs = lhs.trim();
+            let rhs = rhs.trim();
+            if lhs.is_empty() || rhs.is_empty() {
+                return None;
+            }
+            // LHS must be a dotted path (`input.scope`); a quoted / numeric LHS
+            // is not an admissible input-value-predicate path.
+            if lhs.starts_with('"') || lhs.chars().next()?.is_ascii_digit() {
+                return None;
+            }
+            let value_lit = render_when_literal(rhs)?;
+            return Some(format!(
+                "&lazuli.PolicyWhen{{Path: {:?}, Op: {:?}, Value: {value_lit}}}",
+                lhs, op_go
+            ));
+        }
+    }
+    None
+}
+
+/// Render the RHS literal of a `when` comparison (string / integer / boolean /
+/// nil) as a Go value. Mirrors `render_when_value` but parses from raw text.
+fn render_when_literal(rhs: &str) -> Option<String> {
+    if let Some(inner) = rhs.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+        return Some(format!("{:?}", inner));
+    }
+    match rhs {
+        "true" | "false" => Some(rhs.to_owned()),
+        "nil" => Some("nil".to_owned()),
+        _ => {
+            if let Ok(n) = rhs.parse::<i64>() {
+                Some(format!("int64({n})"))
+            } else {
+                None
+            }
+        }
+    }
+}
 
 use super::escape_string;
 
@@ -154,6 +217,128 @@ pub(super) fn format_local_policy(name: &str, policies: &Policies) -> Option<Str
     ))
 }
 
+/// GAP-09 (command-level) — resolve a *conditional / comma-list* policy
+/// reference of the form
+/// `@policy.<a> [when <pred>], @policy.<b> [when <pred>] ...` into a single
+/// `lazuli.Policy{...}` whose `Atoms` slice is an OR over each referenced
+/// category, with every atom of a `when`-gated reference carrying the
+/// reference's `When` guard.
+///
+/// This is the path the pre-6068b856 codegen LACKED: the whole conditional
+/// comma-string landed as one opaque `PolicyRef::Atom`/`Local` name,
+/// `format_local_policy` found no category with that literal name, and
+/// (post-fix) the deny-fallback fired — a false-positive that DENIED a
+/// legitimate command. Here we parse the GAP-09 atoms first, resolve each
+/// `@policy.<name>` against the feature's categories, and emit the resolved
+/// role/scope atoms gated by their `when` predicate.
+///
+/// Returns:
+/// - `Some(Some(literal))` — the payload IS the conditional/comma form AND
+///   every referenced category resolves → the rendered `lazuli.Policy{...}`.
+/// - `Some(None)` — the payload IS the conditional/comma form but at least
+///   one referenced category does NOT resolve → the caller must fail CLOSED
+///   (deny). Security preserved: a genuinely-unresolvable ref still denies.
+/// - `None` — the payload is NOT the conditional/comma form; the caller
+///   continues with its normal single-ref resolution path (unaffected).
+fn format_conditional_policy(raw: &str, policies: &Policies) -> Option<Option<String>> {
+    let refs = parse_conditional_policy_refs(raw)?;
+    // OR over each referenced category; each category's own atoms are OR'd
+    // internally (and wrapped in `( ... )` when 2+), all gated by the
+    // reference's optional `when` guard.
+    let mut groups: Vec<String> = Vec::with_capacity(refs.len());
+    for r in &refs {
+        // Built-ins (`public` / `authenticated`) are resolvable without a
+        // category but produce a single `@scope.*` atom — gate it too.
+        // Parse the verbatim `when` text into a Go `&lazuli.PolicyWhen{...}`
+        // literal. A `when` that does not parse to the simple closed
+        // comparison form degrades to an UNCONDITIONAL atom — same fail-open
+        // avoidance as `format_local_policy`'s `render_conditional` (the
+        // analyzer + doctor reject unparseable `when` shapes upstream).
+        let when_lit: Option<String> = r.when.as_deref().and_then(render_when_text);
+        let atoms: Vec<(String, String)> = match builtin_scope_atom(&r.name) {
+            Some(scope) => vec![("scope".to_owned(), scope.to_owned())],
+            None => {
+                let category = policies.categories.iter().find(|c| c.name == r.name)?;
+                let mut out = Vec::new();
+                for atom in &category.atoms {
+                    out.push(split_ns_name(atom));
+                }
+                // A category may itself carry conditional atoms (rare in the
+                // command-ref context); fold them in unconditionally — their
+                // own predicate is independent of the command `when`.
+                for ca in &category.conditional_atoms {
+                    out.push(split_ns_name(&ca.atom));
+                }
+                if out.is_empty() {
+                    // A category with NO atoms resolves to nothing enforceable
+                    // — treat as unresolvable (fail closed).
+                    return Some(None);
+                }
+                out
+            }
+        };
+        let mut rendered: Vec<String> = Vec::with_capacity(atoms.len());
+        for (ns, nm) in &atoms {
+            rendered.push(match &when_lit {
+                Some(w) => format!("{{Namespace: {ns:?}, Name: {nm:?}, When: {w}}}"),
+                None => format!("{{Namespace: {ns:?}, Name: {nm:?}}}"),
+            });
+        }
+        let group = if rendered.len() >= 2 {
+            let mut g = vec!["{Namespace: \"predicate\", Name: \"(\"}".to_owned()];
+            for (i, a) in rendered.into_iter().enumerate() {
+                if i > 0 {
+                    g.push("{Namespace: \"predicate\", Name: \"or\"}".to_owned());
+                }
+                g.push(a);
+            }
+            g.push("{Namespace: \"predicate\", Name: \")\"}".to_owned());
+            g.join(", ")
+        } else {
+            rendered.join(", ")
+        };
+        groups.push(group);
+    }
+    // Join the per-reference groups with `or`. A `predicate.or` marker
+    // between every group makes the runtime treat the whole list as the
+    // structured (recursive-descent) form, so `When` guards are honored.
+    let mut atom_list: Vec<String> = Vec::new();
+    for (i, g) in groups.into_iter().enumerate() {
+        if i > 0 {
+            atom_list.push("{Namespace: \"predicate\", Name: \"or\"}".to_owned());
+        }
+        atom_list.push(g);
+    }
+    let inner = atom_list.join(", ");
+    Some(Some(format!(
+        "lazuli.Policy{{Name: {:?}, Atoms: []lazuli.PolicyAtom{{{inner}}}}},",
+        raw
+    )))
+}
+
+/// Split an `@<ns>.<name>` (or `<ns>.<name>`) atom string into its
+/// `(namespace, name)` parts. Mirrors `format_local_policy::render_atom`.
+fn split_ns_name(atom: &str) -> (String, String) {
+    let stripped = atom.strip_prefix('@').unwrap_or(atom);
+    let mut parts = stripped.splitn(2, '.');
+    let ns = parts.next().unwrap_or("").to_owned();
+    let nm = parts.next().unwrap_or("").to_owned();
+    (ns, nm)
+}
+
+/// Built-in policy names resolvable without a declared category. Returns the
+/// `@scope.*` atom name (`public` → `public`, `authenticated` →
+/// `authenticated`), or `None` for a non-built-in name. Mirrors
+/// `format_builtin_policy` but returns just the scope token for reuse inside
+/// the conditional-ref resolver.
+fn builtin_scope_atom(name: &str) -> Option<&'static str> {
+    match name {
+        "public" => Some("public"),
+        "authenticated" => Some("authenticated"),
+        _ => None,
+    }
+}
+
 /// GAP-09 — render an `EvalPredicate` as a Go `&lazuli.PolicyWhen{...}`
 /// literal for the `When` slot on a `lazuli.PolicyAtom`. Only the simple
 /// closed `<input.path> <op> <literal>` comparison form is rendered;
@@ -258,6 +443,19 @@ pub(super) fn format_policy_with_expr(
             if let Some(builtin) = format_builtin_policy(name) {
                 return builtin;
             }
+            // GAP-09 (command-level) — the `name` may be the whole conditional
+            // comma form `@policy.a when <p>, @policy.b when <p>`; resolve each
+            // atom against the feature categories BEFORE the deny-fallback.
+            if let Some(p) = policies
+                && let Some(resolved) = format_conditional_policy(name, p)
+            {
+                match resolved {
+                    Some(rendered) => return rendered,
+                    // Conditional form but a referenced category is unresolvable
+                    // — fall through to fail CLOSED.
+                    None => return format_deny_policy(name),
+                }
+            }
             // SECURITY: an author-declared `@policy.<name>` that resolves to no
             // category is unenforceable here — fail CLOSED (deny), never emit a
             // Name-only empty-atoms policy that silently allows.
@@ -271,6 +469,24 @@ pub(super) fn format_policy_with_expr(
             // the IR by hand and may leave the `@` in place — strip
             // defensively.
             let stripped = atom.strip_prefix('@').unwrap_or(atom);
+            // GAP-09 (command-level) — the conditional / comma-list form
+            // `@policy.a when <p>, @policy.b when <p>` lands here as ONE opaque
+            // atom string (the parser stores the whole `policy` payload, and
+            // `lower_policy_atom` wraps it in `PolicyRef::Atom`). Resolve each
+            // `@policy.<name>` against the feature categories and emit the
+            // gated atoms BEFORE the single-name `policy.` branch / deny
+            // fallback. Operates on the full `atom` (entries keep their own
+            // `@policy.`/`policy.` prefix). This is the regression fix: the
+            // pre-6068b856 path degraded this to a Name-only (unguarded) emit;
+            // 6068b856's deny-fallback then wrongly DENIED it.
+            if let Some(p) = policies
+                && let Some(resolved) = format_conditional_policy(atom, p)
+            {
+                match resolved {
+                    Some(rendered) => return rendered,
+                    None => return format_deny_policy(atom),
+                }
+            }
             // `policy.<name>` is the feature-local reference
             // `@policy.<name>` — resolves through the feature's
             // `policies` block to its atom list (WAR-RUNTIME-POLICY-01).
