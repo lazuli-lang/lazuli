@@ -60,6 +60,18 @@
 //!   per-slot assignments to produce a populated INSERT. So a `creates X
 //!   from input` with zero assignments is exactly the no-op INSERT this
 //!   rule targets.
+//! - **`# doctor:allow CREATES-EMPTY-BINDINGS-001` waiver**: the canonical
+//!   per-finding opt-out. Some legitimate commands carry a marker effect — an
+//!   `updates X` that binds only `updated_at = ctx.now` — purely so the
+//!   command has one typed effect, while the real write is delegated NOT to a
+//!   `handler @fn` but to a `validate @validator` + a bound Go handler (pauta
+//!   `reorder_step_templates` is the canonical example: a JSON batch reorder
+//!   that has no batch-update primitive in the DSL). That shape has no
+//!   `handler @fn` on the command, so the handler-backed skip below does not
+//!   apply; the author silences it with a `# doctor:allow
+//!   CREATES-EMPTY-BINDINGS-001 — reason "..."` comment in the `.lzi`. Wired
+//!   through the shared [`crate::allow_comment::source_contains_doctor_allow`]
+//!   scanner used by HANDLER-SQL-COLUMN-DRIFT-001 and the rbac aggregators.
 //!
 //! Fires when a `creates` (or `updates`) command effect has zero author
 //! bindings after the synthesized-column filter and is not handler-backed /
@@ -73,6 +85,8 @@
 use std::path::{Path, PathBuf};
 
 use lazuli_ir::{Command, CommandEffect, Feature, QualifiedName, synthesized_columns};
+
+use crate::allow_comment::source_contains_doctor_allow;
 
 /// The effect kind a CREATES-EMPTY-BINDINGS-001 finding flags.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -144,9 +158,12 @@ impl Finding {
             "command '{}.{}' declares `{} {}` but binds no meaningful columns, so \
              it lowers to {}. Add `<column> = <input.field | ctx.* | literal>` \
              bindings, use a `handler @fn.<name>` escape hatch if a Go handler \
-             fills the row, or remove the effect. (Auto-managed columns — id, \
-             created_at, updated_at — do not count; soft-delete columns \
-             deleted_at/deleted_by DO count as a real write.)",
+             fills the row, or remove the effect. If the empty effect is an \
+             intentional marker whose real write is delegated to a bound \
+             validator/handler, silence it with `# doctor:allow \
+             CREATES-EMPTY-BINDINGS-001 — reason \"...\"`. (Auto-managed \
+             columns — id, created_at, updated_at — do not count; soft-delete \
+             columns deleted_at/deleted_by DO count as a real write.)",
             self.feature,
             self.command,
             self.kind.keyword(),
@@ -162,6 +179,16 @@ impl Finding {
 /// effect that binds zero author columns. Handler-backed commands and
 /// lifecycle-transition `updates` are skipped (see module header).
 ///
+/// The whole feature is suppressed when its source `.lzi` carries a
+/// `# doctor:allow CREATES-EMPTY-BINDINGS-001` waiver — the canonical
+/// per-finding opt-out for the intentional-no-op-marker shape (e.g. pauta's
+/// `reorder_step_templates`, where a `validate @validator` + bound handler do
+/// the real multi-row write and the `updates ... updated_at = ctx.now` exists
+/// only to carry a single typed effect). The source is read from disk via
+/// [`crate::allow_comment::file_contains_doctor_allow`]; read failures degrade
+/// to "no opt-out". Callers holding the source in memory (LSP / dispatcher)
+/// should use [`check_with_source`] to avoid a second read.
+///
 /// ## Examples
 ///
 /// ```ignore
@@ -173,6 +200,24 @@ impl Finding {
 /// let _ = check(&feature, Path::new("billing.lzi"));
 /// ```
 pub fn check(feature: &Feature, path: &Path) -> Vec<Finding> {
+    let source = std::fs::read_to_string(path).unwrap_or_default();
+    check_with_source(feature, path, &source)
+}
+
+/// Same as [`check`] but takes the `.lzi` source text directly — honors the
+/// `# doctor:allow CREATES-EMPTY-BINDINGS-001` waiver against `source` without
+/// re-reading disk (used by the dispatcher / LSP, which already hold the
+/// source). Pass an empty string when no waiver scan is wanted.
+pub fn check_with_source(feature: &Feature, path: &Path, source: &str) -> Vec<Finding> {
+    // Per-finding opt-out: a `# doctor:allow CREATES-EMPTY-BINDINGS-001`
+    // comment in the source suppresses the rule for this file. Reuses the
+    // shared scanner that HANDLER-SQL-COLUMN-DRIFT-001 and the rbac /
+    // auth-actor-subject aggregators use, so the waiver behaves identically
+    // across the doctor crate.
+    if source_contains_doctor_allow(source, Finding::CODE) {
+        return Vec::new();
+    }
+
     let mut findings = Vec::new();
 
     for command in &feature.commands {
@@ -561,5 +606,133 @@ feature billing
         );
 
         assert!(findings.is_empty(), "expected no findings, got {findings:?}");
+    }
+
+    // ── `# doctor:allow` waiver (part 1 of the W4 fix) ──────────────────────
+
+    /// The pauta `reorder_step_templates` shape: an intentional no-op marker
+    /// `updates X` whose only binding is `updated_at = ctx.now`, where the real
+    /// multi-row reorder is delegated to a bound `validate @validator` + Go
+    /// handler. WITHOUT the waiver it fires (case b).
+    const REORDER_MARKER_SOURCE: &str = r#"
+feature workflow_templates
+  domain
+    resource WorkflowTemplate
+      id: ID required
+      name: Text required
+
+  command reorder_step_templates
+    route id: ID
+    input
+      ordered_steps: JSON required
+    updates WorkflowTemplate
+      where id = route.id
+      updated_at = ctx.now
+"#;
+
+    #[test]
+    fn no_op_marker_without_allow_comment_fires() {
+        // (b) The intentional-marker shape, with NO waiver, still fires — the
+        // rule must not go soft on the underlying no-op.
+        let feature = lower(REORDER_MARKER_SOURCE);
+        let findings = check_with_source(&feature, Path::new("workflow_templates.lzi"), "");
+        assert_eq!(
+            findings.len(),
+            1,
+            "marker update without allow comment must still fire: {findings:?}"
+        );
+        assert_eq!(findings[0].command, "reorder_step_templates");
+        assert_eq!(findings[0].kind, EffectKind::Updates);
+    }
+
+    #[test]
+    fn no_op_marker_with_allow_comment_is_suppressed() {
+        // (a) The same shape, with a `# doctor:allow CREATES-EMPTY-BINDINGS-001`
+        // waiver in the source, is suppressed.
+        let feature = lower(REORDER_MARKER_SOURCE);
+        let source = format!(
+            "# doctor:allow CREATES-EMPTY-BINDINGS-001 — reason \"reorder is a \
+             handler-only batch update; marker effect carries the typed effect\"\n{REORDER_MARKER_SOURCE}"
+        );
+        let findings = check_with_source(&feature, Path::new("workflow_templates.lzi"), &source);
+        assert!(
+            findings.is_empty(),
+            "doctor:allow waiver must suppress the marker finding: {findings:?}"
+        );
+    }
+
+    #[test]
+    fn allow_comment_for_a_different_code_does_not_suppress() {
+        // A waiver naming a DIFFERENT rule code must NOT silence this rule.
+        let feature = lower(REORDER_MARKER_SOURCE);
+        let source = format!("# doctor:allow SOME-OTHER-RULE-001\n{REORDER_MARKER_SOURCE}");
+        let findings = check_with_source(&feature, Path::new("workflow_templates.lzi"), &source);
+        assert_eq!(
+            findings.len(),
+            1,
+            "a waiver for a different code must not suppress this rule: {findings:?}"
+        );
+    }
+
+    #[test]
+    fn check_reads_allow_comment_from_disk() {
+        // `check` (the disk-reading entry point the dispatcher calls) honors a
+        // `# doctor:allow` comment written into the actual `.lzi` on disk.
+        let feature = lower(REORDER_MARKER_SOURCE);
+        let dir = std::env::temp_dir().join(format!(
+            "lazuli-cre-empty-allow-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("mk tmp dir");
+        let path = dir.join("workflow_templates.lzi");
+
+        // Without the comment on disk → fires.
+        std::fs::write(&path, REORDER_MARKER_SOURCE).expect("write fixture");
+        let fires = check(&feature, &path);
+        assert_eq!(fires.len(), 1, "no waiver on disk → fires: {fires:?}");
+
+        // With the comment on disk → suppressed.
+        std::fs::write(
+            &path,
+            format!("# doctor:allow CREATES-EMPTY-BINDINGS-001\n{REORDER_MARKER_SOURCE}"),
+        )
+        .expect("write fixture with allow");
+        let suppressed = check(&feature, &path);
+        assert!(
+            suppressed.is_empty(),
+            "waiver on disk → suppressed: {suppressed:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// (c) A handler-backed command (`handler @fn.<x>`) is never flagged: the
+    /// handler does the write, so the empty binding map is legitimate. (This
+    /// re-confirms the part-2 invariant against regression — distinct from the
+    /// existing `creates_with_handler_does_not_fire` in that it exercises the
+    /// `updates` arm too.)
+    #[test]
+    fn handler_backed_updates_is_not_flagged() {
+        let mut feature = lower(REORDER_MARKER_SOURCE);
+        // Drop the marker binding so the effect is genuinely empty, then route
+        // it to a Go handler.
+        if let CommandEffect::Updates(effect) = &mut feature.commands[0].effect {
+            effect.assignments.clear();
+        }
+        feature.commands[0].handler = Some(lazuli_ir::HandlerRef {
+            namespace: "fn".into(),
+            name: "reorder_step_templates_impl".into(),
+            span_ref: None,
+        });
+
+        let findings = check_with_source(&feature, Path::new("workflow_templates.lzi"), "");
+        assert!(
+            findings.is_empty(),
+            "handler-backed updates must not fire: {findings:?}"
+        );
     }
 }
