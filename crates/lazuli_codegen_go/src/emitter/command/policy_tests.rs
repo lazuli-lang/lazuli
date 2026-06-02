@@ -226,3 +226,150 @@
             "expected manager atom guarded on input.scope == media in:\n{out}"
         );
     }
+
+    // SECURITY (POLICY-REF-UNRESOLVED) — a cross-feature `PolicyRef::External`
+    // policy reference cannot be resolved to its atom list in the per-feature
+    // codegen pass (the emitter only has THIS feature's `policies` block, not
+    // the referenced feature's). The pre-fix code emitted a Name-only
+    // `lazuli.Policy{Name: "..."}` with NO `Atoms` — a command guarded by an
+    // external policy shipped EFFECTIVELY UNGUARDED (policy bypass / fail-open
+    // for any call site that doesn't treat empty atoms as deny). The fix fails
+    // CLOSED: emit an explicit `{Namespace: "predicate", Name: "deny"}` atom so
+    // the runtime evaluator denies the call (403) rather than allow it.
+    #[test]
+    fn external_policy_ref_fails_closed_with_deny_atom() {
+        use lazuli_ir::PolicyRef;
+
+        let mut feature = base_feature("billing");
+        let mut cmd = base_command("charge");
+        cmd.input = CommandInput::Typed(vec![typed_slot("amount", BuiltinType::Text, true)]);
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Customer"),
+            from_input: true,
+            assignments: vec![],
+        });
+        // Reference a policy declared in ANOTHER feature.
+        cmd.policy = PolicyRef::External {
+            feature: "accounts".into(),
+            name: "restricted".into(),
+        };
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("emits");
+        // Fail CLOSED: an explicit deny atom is present.
+        assert!(
+            out.contains("{Namespace: \"predicate\", Name: \"deny\"}"),
+            "external/unresolvable policy must emit a deny atom (fail closed):\n{out}"
+        );
+        // It must NEVER emit a Name-only empty-atoms policy for a declared
+        // (non-public) policy reference — that is the bypass.
+        assert!(
+            !out.contains("lazuli.Policy{Name: \"accounts.policy.restricted\"},"),
+            "regression: external policy emitted Name-only (no Atoms) = silent allow/bypass:\n{out}"
+        );
+    }
+
+    // SECURITY (POLICY-REF-UNRESOLVED) — a `@policy.<name>` reference whose
+    // category does NOT exist in the feature's `policies` block also cannot be
+    // resolved. Pre-fix it degraded to a Name-only empty-atoms policy (same
+    // bypass shape). The fix fails closed with a deny atom.
+    #[test]
+    fn unresolvable_named_policy_ref_fails_closed_with_deny_atom() {
+        use lazuli_ir::PolicyRef;
+
+        let mut feature = base_feature("catalog");
+        // Note: NO `policies` block declares `nonexistent`.
+        let mut cmd = base_command("purge");
+        cmd.input = CommandInput::Typed(vec![typed_slot("id", BuiltinType::Text, true)]);
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Customer"),
+            from_input: true,
+            assignments: vec![],
+        });
+        cmd.policy = PolicyRef::Atom("policy.nonexistent".into());
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("emits");
+        assert!(
+            out.contains("{Namespace: \"predicate\", Name: \"deny\"}"),
+            "unresolvable named policy must emit a deny atom (fail closed):\n{out}"
+        );
+        assert!(
+            !out.contains("lazuli.Policy{Name: \"@policy.nonexistent\"},"),
+            "regression: unresolvable named policy emitted Name-only (no Atoms) = bypass:\n{out}"
+        );
+    }
+
+    // No-regression — built-in `@policy.authenticated` / `@policy.public`
+    // resolve WITHOUT a declared category (the CRUD synth default + marketing
+    // reads). They must emit their `@scope.*` atoms, NOT a deny. Without this,
+    // the fail-closed change would 403 every CRUD-synth command.
+    #[test]
+    fn builtin_authenticated_and_public_policies_resolve_not_deny() {
+        use lazuli_ir::PolicyRef;
+
+        for (name, scope) in [("authenticated", "authenticated"), ("public", "public")] {
+            let mut feature = base_feature("catalog");
+            // No `policies` block declares the built-in.
+            let mut cmd = base_command("act");
+            cmd.input = CommandInput::Typed(vec![typed_slot("id", BuiltinType::Text, true)]);
+            cmd.effect = CommandEffect::Creates(CreateEffect {
+                resource: local_qname("Customer"),
+                from_input: true,
+                assignments: vec![],
+            });
+            cmd.policy = PolicyRef::Local(name.to_owned());
+            feature.commands.push(cmd);
+
+            let out = emit(&feature).expect("emits");
+            assert!(
+                out.contains(&format!("{{Namespace: \"scope\", Name: \"{scope}\"}}")),
+                "built-in @policy.{name} must resolve to @scope.{scope}:\n{out}"
+            );
+            assert!(
+                !out.contains("{Namespace: \"predicate\", Name: \"deny\"}"),
+                "built-in @policy.{name} must NOT be turned into a deny:\n{out}"
+            );
+        }
+    }
+
+    // No-regression — a RESOLVABLE same-feature named policy must still emit its
+    // real atoms and must NOT be turned into a deny.
+    #[test]
+    fn resolvable_same_feature_policy_does_not_emit_deny() {
+        use lazuli_ir::{Policies, PolicyCategory, PolicyRef};
+
+        let mut feature = base_feature("customer_management");
+        feature.policies = Policies {
+            categories: vec![PolicyCategory {
+                name: "manage".into(),
+                atoms: vec!["@role.ADMIN".into()],
+                conditional_atoms: vec![],
+                previous_names: vec![],
+                when_denied: None,
+                when_denied_route: None,
+            }],
+            fields: Vec::new(),
+            span_ref: None,
+        };
+
+        let mut cmd = base_command("archive");
+        cmd.input = CommandInput::Typed(vec![typed_slot("id", BuiltinType::Text, true)]);
+        cmd.effect = CommandEffect::Creates(CreateEffect {
+            resource: local_qname("Customer"),
+            from_input: true,
+            assignments: vec![],
+        });
+        cmd.policy = PolicyRef::Local("manage".into());
+        feature.commands.push(cmd);
+
+        let out = emit(&feature).expect("emits");
+        assert!(
+            out.contains("{Namespace: \"role\", Name: \"ADMIN\"}"),
+            "resolvable policy must emit its real atoms:\n{out}"
+        );
+        assert!(
+            !out.contains("{Namespace: \"predicate\", Name: \"deny\"}"),
+            "resolvable policy must NOT be turned into a deny:\n{out}"
+        );
+    }

@@ -53,6 +53,48 @@ pub(in crate::emitter) fn format_policy_with_expr_public(
 /// user model can never satisfy an AND of two role atoms. AND-composition
 /// is expressed structurally via `policy <expr>` / `PolicyExpr::And`, not
 /// via the comma-separated category atom list. Closes WAR-RUNTIME-POLICY-01.
+/// SECURITY (POLICY-REF-UNRESOLVED) — render a policy literal that always
+/// DENIES. Emitted whenever a non-public, author-declared policy reference
+/// cannot be resolved to its atom list at this codegen pass: a cross-feature
+/// `PolicyRef::External` (the per-feature emitter has no view of the referenced
+/// feature's `policies` block) or a `@policy.<name>` / `Local(<name>)` whose
+/// category is absent from the feature.
+///
+/// Fail CLOSED, never open. The pre-fix code degraded these to a Name-only
+/// `lazuli.Policy{Name: "..."}` with no `Atoms`; a command/query guarded by
+/// such a reference then shipped EFFECTIVELY UNGUARDED at any runtime call
+/// site that does not treat an empty atom list as deny (`Api.Invoke` runs no
+/// `EvalPolicy` at all). We emit a single `{Namespace: "predicate", Name:
+/// "deny"}` atom: the runtime's structured evaluator (`hasPredicateAtom` →
+/// `evalExpr`) walks it as a leaf that `atomMatches` rejects, so the call is
+/// denied (403). The doctor rule `POLICY-REF-UNRESOLVED-001` flags the same
+/// situation at build time so the author fixes the reference rather than
+/// shipping a permanently-denied command.
+fn format_deny_policy(name: &str) -> String {
+    format!(
+        "lazuli.Policy{{Name: {:?}, Atoms: []lazuli.PolicyAtom{{{{Namespace: \"predicate\", Name: \"deny\"}}}}}},",
+        name
+    )
+}
+
+/// Built-in policy names that resolve WITHOUT a declared `policies` category:
+/// `public` (anonymous access) and `authenticated` (any signed-in user). The
+/// CRUD/me-mode conventions synth default to `@policy.authenticated`, and pilots
+/// write `@policy.public` for marketing/catalog reads, both without declaring a
+/// category — they map directly to the closed `@scope.*` runtime atoms. Returns
+/// the resolved `lazuli.Policy{...}` literal, or `None` for a non-built-in name
+/// (which then routes through category resolution / the deny fallback).
+fn format_builtin_policy(name: &str) -> Option<String> {
+    let scope = match name {
+        "public" => "public",
+        "authenticated" => "authenticated",
+        _ => return None,
+    };
+    Some(format!(
+        "lazuli.Policy{{Name: \"@policy.{name}\", Atoms: []lazuli.PolicyAtom{{{{Namespace: \"scope\", Name: \"{scope}\"}}}}}},"
+    ))
+}
+
 pub(super) fn format_local_policy(name: &str, policies: &Policies) -> Option<String> {
     let category = policies.categories.iter().find(|c| c.name == name)?;
     let render_atom = |atom: &String| -> String {
@@ -211,10 +253,15 @@ pub(super) fn format_policy_with_expr(
             {
                 return rendered;
             }
-            format!(
-                "lazuli.Policy{{Name: \"@policy.{}\"}},",
-                escape_string(name)
-            )
+            // Built-in `public` / `authenticated` resolve without a declared
+            // category (closed `@scope.*` atoms).
+            if let Some(builtin) = format_builtin_policy(name) {
+                return builtin;
+            }
+            // SECURITY: an author-declared `@policy.<name>` that resolves to no
+            // category is unenforceable here — fail CLOSED (deny), never emit a
+            // Name-only empty-atoms policy that silently allows.
+            format_deny_policy(&format!("@policy.{}", escape_string(name)))
         }
         PolicyRef::Atom(atom) => {
             // Atom forms split on `.`: `@role.admin` → namespace=role,
@@ -235,10 +282,13 @@ pub(super) fn format_policy_with_expr(
                 {
                     return rendered;
                 }
-                return format!(
-                    "lazuli.Policy{{Name: \"@policy.{}\"}},",
-                    escape_string(local)
-                );
+                // Built-in `public` / `authenticated` resolve without a
+                // declared category.
+                if let Some(builtin) = format_builtin_policy(local) {
+                    return builtin;
+                }
+                // SECURITY: unresolvable `@policy.<name>` atom — fail CLOSED.
+                return format_deny_policy(&format!("@policy.{}", escape_string(local)));
             }
             let mut parts = stripped.splitn(2, '.');
             let ns = parts.next().unwrap_or("");
@@ -248,7 +298,11 @@ pub(super) fn format_policy_with_expr(
             )
         }
         PolicyRef::External { feature, name } => {
-            format!("lazuli.Policy{{Name: \"{feature}.policy.{name}\"}},")
+            // SECURITY (POLICY-REF-UNRESOLVED): a cross-feature policy reference
+            // cannot be resolved to its atom list in this per-feature pass.
+            // Fail CLOSED — emit a deny atom rather than a Name-only empty-atoms
+            // policy that would ship the command effectively unguarded.
+            format_deny_policy(&format!("{feature}.policy.{name}"))
         }
         PolicyRef::Unresolved(raw) => format!("lazuli.Policy{{Name: \"{}\"}},", escape_string(raw)),
         PolicyRef::None => "lazuli.Policy{},".to_owned(),

@@ -165,6 +165,7 @@ impl DoctorPackage {
         diagnostics.extend(import_deprecated_alias_diagnostics(&self.project_root));
         diagnostics.extend(duplicate_query_name_diagnostics(&self.tier3_facts));
         diagnostics.extend(missing_policy_on_query_diagnostics(&self.tier3_facts));
+        diagnostics.extend(policy_ref_unresolved_diagnostics(&self.tier3_facts));
         diagnostics.extend(mutation_without_readback_diagnostics(&self.tier3_facts));
         diagnostics.extend(updates_missing_updated_at_diagnostics(&self.tier3_facts));
         diagnostics.extend(route_id_effect_consistency_diagnostics(&self.tier3_facts));

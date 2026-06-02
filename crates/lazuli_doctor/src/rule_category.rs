@@ -129,7 +129,12 @@ impl RuleCategory {
             // while `POLICY-PREDICATE-*` is vocabulary (the policy-predicate
             // sublanguage). Discriminator mirrors the `INTERNAL-*` split below.
             Some("POLICY") => match code.split('-').nth(1) {
-                Some("CATEGORY") => Self::Correctness,
+                // `POLICY-CATEGORY-*` (CRUD/effect collision) and `POLICY-REF-*`
+                // (an unresolvable command/query/api policy reference — the
+                // undeclared-reference / fail-open security bug) are concrete
+                // correctness bugs. `POLICY-PREDICATE-*` is the policy-predicate
+                // sublanguage (vocabulary).
+                Some("CATEGORY") | Some("REF") => Self::Correctness,
                 _ => Self::Vocabulary,
             },
             // `LZX-*` — `.lzx` ViewModel-surface rules (route binding, view

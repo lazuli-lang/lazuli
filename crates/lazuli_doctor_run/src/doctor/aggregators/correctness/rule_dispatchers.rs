@@ -60,6 +60,134 @@ pub(crate) fn missing_policy_on_query_diagnostics(
     diagnostics
 }
 
+/// POLICY-REF-UNRESOLVED-001 — SECURITY. A command / query / api policy
+/// reference that resolves to no declared `policies` category in any feature
+/// (cross-feature `PolicyRef::External` to a missing category, or a
+/// feature-local `@policy.<name>` with no match). Pre-fix these lowered to a
+/// Name-only empty-atoms policy (fail-open / bypass); codegen now fails closed
+/// (deny atom) and this rule surfaces the broken reference at build time.
+///
+/// Resolution uses the GLOBAL category catalog (every feature's `policies`
+/// block) so legitimately cross-feature references do not false-positive —
+/// matching the route-guard analyzer's `category_atoms` cross-feature walk.
+pub(crate) fn policy_ref_unresolved_diagnostics(
+    facts: &[Tier3FeatureFacts],
+) -> Vec<DoctorDiagnostic> {
+    use correctness::policy_ref_unresolved_001::{Finding, PolicyCatalog, unresolved_reference};
+
+    // Build the catalog once from every feature's policy categories.
+    let catalog =
+        PolicyCatalog::from_feature_policies(facts.iter().map(|f| (f.feature.as_str(), &f.policies)));
+
+    let mut diagnostics = Vec::new();
+
+    for fact in facts {
+        // Commands.
+        for command in &fact.commands {
+            // A structured `policy <expr>` carries its own atoms — never a
+            // category reference, so skip category resolution for it.
+            if command.policy_expr.is_some() {
+                continue;
+            }
+            if let Some(reference) =
+                unresolved_reference(&command.policy, &fact.feature, &catalog)
+            {
+                let line = fact
+                    .command_lines
+                    .get(&command.name)
+                    .copied()
+                    .unwrap_or(fact.feature_line);
+                diagnostics.push(make_diag(
+                    Finding {
+                        feature: fact.feature.clone(),
+                        kind: "command",
+                        name: command.name.clone(),
+                        reference,
+                    },
+                    fact.path.clone(),
+                    line,
+                ));
+            }
+        }
+        // Queries.
+        for query in &fact.queries {
+            let (name, policy, has_expr) = query_policy_view(query);
+            if has_expr {
+                continue;
+            }
+            if let Some(reference) = unresolved_reference(policy, &fact.feature, &catalog) {
+                let line = fact
+                    .query_lines
+                    .get(name)
+                    .copied()
+                    .unwrap_or(fact.feature_line);
+                diagnostics.push(make_diag(
+                    Finding {
+                        feature: fact.feature.clone(),
+                        kind: "query",
+                        name: name.to_owned(),
+                        reference,
+                    },
+                    fact.path.clone(),
+                    line,
+                ));
+            }
+        }
+        // Api endpoints.
+        for api in &fact.apis {
+            if let Some(reference) = unresolved_reference(&api.policy, &fact.feature, &catalog) {
+                let line = fact
+                    .api_lines
+                    .get(&api.name)
+                    .copied()
+                    .unwrap_or(fact.feature_line);
+                diagnostics.push(make_diag(
+                    Finding {
+                        feature: fact.feature.clone(),
+                        kind: "api",
+                        name: api.name.clone(),
+                        reference,
+                    },
+                    fact.path.clone(),
+                    line,
+                ));
+            }
+        }
+    }
+
+    diagnostics
+}
+
+/// Project a `Query` into (name, &policy, has_structured_expr) for the
+/// POLICY-REF-UNRESOLVED scan.
+fn query_policy_view(query: &lazuli_ir::Query) -> (&str, &lazuli_ir::PolicyRef, bool) {
+    match query {
+        lazuli_ir::Query::List(q) => (q.name.as_str(), &q.policy, q.policy_expr.is_some()),
+        lazuli_ir::Query::Lookup(q) => (q.name.as_str(), &q.policy, q.policy_expr.is_some()),
+        lazuli_ir::Query::Sql(q) => (q.name.as_str(), &q.policy, q.policy_expr.is_some()),
+    }
+}
+
+fn make_diag(
+    finding: correctness::policy_ref_unresolved_001::Finding,
+    path: std::path::PathBuf,
+    line: usize,
+) -> DoctorDiagnostic {
+    DoctorDiagnostic {
+        message: finding.message(),
+        path,
+        line,
+        column: 1,
+        severity: DoctorSeverity::Error,
+        code: correctness::policy_ref_unresolved_001::Finding::CODE.to_owned(),
+        category: None,
+        feature_name: None,
+        construct: None,
+        fix: None,
+        group: None,
+    }
+}
+
 pub(crate) fn duplicate_query_name_diagnostics(
     facts: &[Tier3FeatureFacts],
 ) -> Vec<DoctorDiagnostic> {

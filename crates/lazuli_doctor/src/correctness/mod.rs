@@ -25,6 +25,7 @@ pub mod missing_policy_on_query_001;
 pub mod mutation_without_readback;
 pub mod plugin_contract_001;
 pub mod policy_category_shadows_effect_001;
+pub mod policy_ref_unresolved_001;
 pub mod predicate_eq_operator_001;
 pub mod record_column_storage;
 pub mod resource_lock_contract_001;

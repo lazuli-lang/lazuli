@@ -117,6 +117,18 @@ pub const GLOBAL_DIAGNOSTICS: &[DiagnosticFacet] = &[
         base_severity: "error",
         category: "correctness",
     },
+    // SECURITY — a command / query / api `policy <ref>` that resolves to no
+    // declared `policies` category in any feature (cross-feature
+    // `PolicyRef::External` to a missing category, or a feature-local
+    // `@policy.<name>` with no match). Owned by no single keyword: the
+    // reference sites (`command` / `query` / `api`) and the cross-feature
+    // `policies` block all carry it. Codegen fails closed (deny atom); this
+    // rule surfaces the broken reference at build time.
+    DiagnosticFacet {
+        code: "POLICY-REF-UNRESOLVED-001",
+        base_severity: "error",
+        category: "correctness",
+    },
     // ── migration codegen / runtime update-builder (over generated artifacts) ──
     DiagnosticFacet {
         code: "MIGRATION-ALTER-MISSING-001",

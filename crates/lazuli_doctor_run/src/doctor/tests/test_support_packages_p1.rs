@@ -116,6 +116,7 @@
                                 || !feature.enums.is_empty()
                                 || !feature.resources.is_empty()
                                 || feature.translation.is_some()
+                                || !feature.policies.categories.is_empty()
                                 || has_text_pattern_api
                             {
                                 let job_lines = collect_construct_lines(
