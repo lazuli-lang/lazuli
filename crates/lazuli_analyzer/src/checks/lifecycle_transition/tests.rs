@@ -96,6 +96,29 @@ fn lifecycle_transition_001_unknown_trigger_name() {
     assert_eq!(codes(&input), vec!["LIFECYCLE-TRANSITION-001"]);
 }
 
+/// The LIFECYCLE-TRANSITION-001 message must name the offending command, the
+/// bad trigger, the target resource, AND list the declared transition names so
+/// the author sees the valid options to pick from (the "many faces" fix —
+/// runtime `.Apply()` would 500 on the unknown name).
+#[test]
+fn lifecycle_transition_001_message_lists_declared_transitions() {
+    let input = feature(vec![update_command("settle", &["bogus"], &["note"])]);
+    let diags = check_input(&input);
+    assert_eq!(diags.len(), 1);
+    let message = &diags[0].message;
+    assert!(message.contains("command `settle`"), "{message}");
+    assert!(message.contains('`') && message.contains("bogus"), "{message}");
+    assert!(message.contains("resource `Payment`"), "{message}");
+    // declared transitions on Payment: authorize, capture, refund, cancel.
+    assert!(message.contains("Declared transitions:"), "{message}");
+    for declared in ["authorize", "capture", "refund", "cancel"] {
+        assert!(
+            message.contains(&format!("`{declared}`")),
+            "message should list declared transition `{declared}`: {message}"
+        );
+    }
+}
+
 #[test]
 fn lifecycle_transition_002_resource_has_no_lifecycle() {
     let mut input = feature(vec![update_command("settle", &["capture"], &["note"])]);
