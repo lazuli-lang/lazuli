@@ -40,6 +40,33 @@ func TestEvalPolicyEmptyAtomsIsInternalError(t *testing.T) {
 	}
 }
 
+// TestEvalPolicyDenyAtomAlwaysDenies asserts the fail-closed atom emitted by
+// codegen for an UNRESOLVABLE policy reference (cross-feature
+// PolicyRef::External, or an unknown @policy.<name>) can never be satisfied —
+// not even by a superuser-like ctx (admin role + system actor + tenant). This
+// is the runtime half of the POLICY-REF-UNRESOLVED fix: a command guarded by an
+// unresolvable policy is denied (403), never silently allowed.
+func TestEvalPolicyDenyAtomAlwaysDenies(t *testing.T) {
+	withRbacStub(t, map[string][]string{"admin": {"everything:*:*"}})
+	ctx := &Ctx{
+		Actor:  ActorSystem,
+		User:   &User{ID: 1, Roles: []string{"admin"}},
+		Tenant: &Tenant{},
+	}
+	p := Policy{
+		Name:  "accounts.policy.restricted",
+		Atoms: []PolicyAtom{{Namespace: "predicate", Name: "deny"}},
+	}
+	err := EvalPolicy(ctx, p)
+	var le *Error
+	if !errors.As(err, &le) {
+		t.Fatalf("expected *Error from deny atom, got %T: %v", err, err)
+	}
+	if le.Status != 403 {
+		t.Fatalf("deny atom must yield 403 (fail closed), got status %d", le.Status)
+	}
+}
+
 func TestEvalPolicyLegacyRoleAtomMatches(t *testing.T) {
 	ctx := &Ctx{Actor: ActorUser, User: &User{ID: 1, Roles: []string{"admin"}}}
 	p := Policy{Name: "@policy.legacy", Atoms: []PolicyAtom{

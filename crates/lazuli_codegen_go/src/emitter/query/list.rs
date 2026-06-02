@@ -199,7 +199,12 @@ mod tests {
         assert!(out.contains("LifecycleStage *string `json:\"lifecycle_stage,omitempty\"`"));
         assert!(out.contains("Search         *string `json:\"search,omitempty\"`"));
         assert!(out.contains("var listCustomers = lazuli.Query[ListCustomersArgs, Customer]{"));
-        assert!(out.contains("Policy:   lazuli.Policy{Name: \"@policy.read\"},"));
+        // SECURITY (POLICY-REF-UNRESOLVED): `@policy.read` is not declared in
+        // this feature's `policies` block, so it is unresolvable and the query
+        // fails CLOSED with a deny atom (not a Name-only empty-atoms bypass).
+        assert!(out.contains(
+            "Policy:   lazuli.Policy{Name: \"@policy.read\", Atoms: []lazuli.PolicyAtom{{Namespace: \"predicate\", Name: \"deny\"}}},"
+        ));
         assert!(out.contains(
             "{Column: \"lifecycle_stage\", When: lazuli.FromInput(\"LifecycleStage\")},"
         ));
@@ -371,9 +376,12 @@ mod tests {
         let out = emit(&feature).expect("must emit");
         // Feature-level default kept its precedence when the query
         // is silent.
+        // The feature-default policy still applies (precedence preserved); it
+        // resolves to no declared category here, so it fails CLOSED with a deny
+        // atom rather than the former empty-atoms bypass.
         assert!(
-            out.contains("Policy:   lazuli.Policy{Name: \"@policy.read\"},"),
-            "feature-default policy should still apply when query is silent; got:\n{out}"
+            out.contains("Policy:   lazuli.Policy{Name: \"@policy.read\", Atoms: []lazuli.PolicyAtom{{Namespace: \"predicate\", Name: \"deny\"}}},"),
+            "feature-default policy should still apply (fail-closed) when query is silent; got:\n{out}"
         );
     }
 

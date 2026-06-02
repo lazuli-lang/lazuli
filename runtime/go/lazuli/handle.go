@@ -699,8 +699,17 @@ func atomMatches(ctx *Ctx, atom PolicyAtom) bool {
 		}
 		return false
 	case "predicate":
-		if atom.Name == "authenticated" {
+		switch atom.Name {
+		case "authenticated":
 			return ctx.User != nil
+		case "deny":
+			// SECURITY (POLICY-REF-UNRESOLVED): codegen emits a lone
+			// `predicate.deny` atom when an author-declared policy reference
+			// could not be resolved to its atom list (cross-feature
+			// `PolicyRef::External`, or an unknown `@policy.<name>`). It must
+			// NEVER be satisfiable — the command/query is denied (403) until
+			// the reference is fixed. Fail closed, never open.
+			return false
 		}
 	}
 	return false

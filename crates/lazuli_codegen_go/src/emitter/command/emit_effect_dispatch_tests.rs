@@ -226,10 +226,17 @@ fn updates_emits_updates_effect_with_id_where_clause() {
         id_pos < tier_pos,
         "route slots must precede body slots in the Input struct:\n{out}"
     );
-    // Local policy renders as `@policy.<name>`. The exact padding
-    // depends on which other kv rows landed; assertion targets the
-    // payload so renaming the column doesn't break the test.
-    assert!(out.contains("lazuli.Policy{Name: \"@policy.update\"},"));
+    // SECURITY (POLICY-REF-UNRESOLVED): no `policies` block declares `update`
+    // in this test feature, so `@policy.update` is unresolvable. The emitter
+    // fails CLOSED with a deny atom rather than the former Name-only empty-atoms
+    // policy (a silent bypass).
+    assert!(out.contains(
+        "lazuli.Policy{Name: \"@policy.update\", Atoms: []lazuli.PolicyAtom{{Namespace: \"predicate\", Name: \"deny\"}}},"
+    ));
+    assert!(
+        !out.contains("lazuli.Policy{Name: \"@policy.update\"},"),
+        "regression: unresolvable command policy must not emit Name-only (no Atoms) = bypass:\n{out}"
+    );
 }
 
 #[test]

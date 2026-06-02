@@ -95,6 +95,12 @@ pub(super) fn harvest_tier3_facts(
         || !feature.reports.is_empty()
         || !feature.resources.is_empty()
         || feature.translation.is_some()
+        // A feature whose only body is a `policies` block is still a
+        // referenceable fact: cross-feature `@policy.<feature>.<name>` refs
+        // resolve against it (POLICY-REF-UNRESOLVED-001). Without this, a
+        // policies-only feature is absent from the catalog and a valid
+        // cross-feature reference would false-positive as unresolved.
+        || !feature.policies.categories.is_empty()
         || has_text_pattern_api
     {
         let job_lines = collect_construct_lines(

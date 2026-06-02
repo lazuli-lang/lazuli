@@ -52,7 +52,17 @@ fn canonical_file_api_emits_real_type_storage_and_register_placeholder() {
         "legacy TODO comment must be gone"
     );
     assert!(out.contains("Method:    lazuli.MethodGet,"));
-    assert!(out.contains("Policy:    lazuli.Policy{Name: \"@policy.global_read\"},"));
+    // SECURITY (POLICY-REF-UNRESOLVED): this feature declares no `policies`
+    // block, so `@policy.global_read` resolves to no category. The emitter
+    // fails CLOSED with an explicit deny atom rather than the former Name-only
+    // empty-atoms policy (which shipped the endpoint effectively unguarded).
+    assert!(out.contains(
+        "Policy:    lazuli.Policy{Name: \"@policy.global_read\", Atoms: []lazuli.PolicyAtom{{Namespace: \"predicate\", Name: \"deny\"}}},"
+    ));
+    assert!(
+        !out.contains("Policy:    lazuli.Policy{Name: \"@policy.global_read\"},"),
+        "regression: unresolvable api policy must not emit Name-only (no Atoms) = bypass"
+    );
     assert!(out.contains("RateLimit: lazuli.RateLimit{Default: \"10 per hour per user\"},"));
     // Generated Api value still leaves Handler unset — the user
     // wires it post-codegen. Validation happens at boot via
@@ -133,7 +143,7 @@ fn path_params_emit_inferred_args_and_method_constant() {
 	Feature:   "customer",
 	Method:    lazuli.MethodGet,
 	Path:      "/api/customer/{id}/summary",
-	Policy:    lazuli.Policy{Name: "@policy.read"},
+	Policy:    lazuli.Policy{Name: "@policy.read", Atoms: []lazuli.PolicyAtom{{Namespace: "predicate", Name: "deny"}}},
 	RateLimit: lazuli.RateLimit{Default: "60 per minute per user"},
 }
 

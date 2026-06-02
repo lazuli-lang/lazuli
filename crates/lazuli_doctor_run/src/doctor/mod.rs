@@ -89,8 +89,8 @@ pub(crate) use aggregators::command_routing::{
 // rule allows two findings to collide on the same anchor).
 pub(crate) use aggregators::correctness::{
     duplicate_query_name_diagnostics, missing_policy_on_query_diagnostics,
-    mutation_without_readback_diagnostics, route_id_effect_consistency_diagnostics,
-    updates_missing_updated_at_diagnostics,
+    mutation_without_readback_diagnostics, policy_ref_unresolved_diagnostics,
+    route_id_effect_consistency_diagnostics, updates_missing_updated_at_diagnostics,
 };
 // Re-export the `lazurite_manifest` aggregator's dispatcher so
 // `doctor/dispatch.rs` keeps its `super::lazurite_manifest_diagnostics`

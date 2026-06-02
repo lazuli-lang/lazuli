@@ -279,3 +279,107 @@ feature catalog
         );
     }
 
+    // POLICY-REF-UNRESOLVED-001 — SECURITY. A command referencing a
+    // cross-feature `@policy.<feature>.<name>` whose category exists in NO
+    // feature is unresolvable; pre-fix it shipped an empty-atoms policy (bypass)
+    // and the analyzer's route-guard resolution silently saw zero atoms. The
+    // rule fires at build time so the author fixes the reference.
+    #[test]
+    fn policy_ref_unresolved_cross_feature_missing_category_fires() {
+        let package = package_from_sources(vec![(
+            "billing.lzi",
+            r#"
+feature billing
+  resource Invoice
+    amount: Integer
+  command charge
+    input
+      amount: Integer required
+    creates Invoice from input
+    policy @policy.accounts.restricted
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert_eq!(
+            count_code(&diagnostics, "POLICY-REF-UNRESOLVED-001"),
+            1,
+            "expected one POLICY-REF-UNRESOLVED-001 for unresolvable cross-feature policy, got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+        let hit = diagnostics
+            .iter()
+            .find(|d| d.code == "POLICY-REF-UNRESOLVED-001")
+            .unwrap();
+        assert_eq!(hit.severity, DoctorSeverity::Error);
+        assert!(
+            hit.message.contains("accounts.restricted") && hit.message.contains("DENIED"),
+            "message should name the unresolved ref and the fail-closed behaviour; got {}",
+            hit.message
+        );
+    }
+
+    // No false positive — when the referenced cross-feature category actually
+    // exists (cross-feature policy refs ARE supported, resolved against the
+    // global category catalog), the rule stays silent.
+    #[test]
+    fn policy_ref_unresolved_cross_feature_existing_category_silent() {
+        let package = package_from_sources(vec![
+            (
+                "accounts.lzi",
+                r#"
+feature accounts
+  policies
+    restricted: @role.ADMIN
+"#,
+            ),
+            (
+                "billing.lzi",
+                r#"
+feature billing
+  resource Invoice
+    amount: Integer
+  command charge
+    input
+      amount: Integer required
+    creates Invoice from input
+    policy @policy.accounts.restricted
+"#,
+            ),
+        ]);
+        let diagnostics = package.diagnostics();
+        assert_eq!(
+            count_code(&diagnostics, "POLICY-REF-UNRESOLVED-001"),
+            0,
+            "resolvable cross-feature policy must not fire POLICY-REF-UNRESOLVED-001, got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    // No false positive — a resolvable same-feature `@policy.<name>` stays
+    // silent.
+    #[test]
+    fn policy_ref_unresolved_same_feature_resolvable_silent() {
+        let package = package_from_sources(vec![(
+            "catalog.lzi",
+            r#"
+feature catalog
+  policies
+    manage: @role.ADMIN
+  resource Item
+    name: Text
+  command archive
+    input
+      name: Text required
+    creates Item from input
+    policy @policy.manage
+"#,
+        )]);
+        let diagnostics = package.diagnostics();
+        assert_eq!(
+            count_code(&diagnostics, "POLICY-REF-UNRESOLVED-001"),
+            0,
+            "resolvable same-feature policy must not fire, got {:?}",
+            diagnostics.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
