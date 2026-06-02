@@ -113,6 +113,12 @@ impl RuleCategory {
             Some("SECURITY") | Some("FIELD") | Some("WEBHOOK") | Some("AUTH") | Some("SESSION") => {
                 Self::Security
             }
+            // `CODEGEN-*` — codegen pre-emit invariants. Today:
+            // `CODEGEN-UNRESOLVED-BINDING-SOURCE-001` (a command-effect
+            // binding RHS that would silently lower to a `FromConst`
+            // garbage string). A binding that resolves to no known source
+            // kind is a concrete wiring bug, not style — Correctness.
+            Some("CODEGEN") => Self::Correctness,
             Some("HOOK") | Some("DUPLICATE") | Some("ROUTE") | Some("UPDATES")
             | Some("MUTATION") | Some("MISSING") | Some("MANUAL") | Some("IMPORT")
             | Some("CAP") | Some("SCHEMA") | Some("PREDICATE") => Self::Correctness,

@@ -48,6 +48,11 @@ pub(crate) const P_COMMAND: &[DiagnosticFacet] = &[
     df("COMMAND-INPUT-SHADOWS-FIELD-001", "error", "vocabulary"),
     df("MUTATION-WITHOUT-READBACK-001", "warning", "correctness"),
     df("HOOK-TARGET-001", "error", "correctness"),
+    df(
+        "CODEGEN-UNRESOLVED-BINDING-SOURCE-001",
+        "error",
+        "correctness",
+    ),
 ];
 
 pub(crate) const P_COMPOSITE_KEY: &[DiagnosticFacet] =

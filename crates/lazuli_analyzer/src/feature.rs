@@ -294,7 +294,105 @@ pub fn lower_feature_skeleton(
     // `crud` block are absent from the map → today's synth, byte-identical.
     let crud_overlays = crate::collect_crud_overlays(&skeleton.resources);
     let _ = synthesize_conventions_with_overlays(&mut feature, &crud_overlays);
+    resolve_enum_literal_bindings(&mut feature);
     Ok(feature)
+}
+
+/// Lift hand-authored enum literals in command-effect bindings from
+/// `Expr::Path` to the typed `Expr::Enum`, in SET assignments and
+/// authored `where` clauses. Two forms:
+///
+/// 1. **Qualified** — `status = CustomerStatus.lead` →
+///    `Expr::Enum { type_name: Some(CustomerStatus), variant: "lead" }`.
+///    Lifted only when the head is a declared enum (and not a runtime
+///    source head).
+/// 2. **Bare variant** — `status = ready` →
+///    `Expr::Enum { type_name: None, variant: "ready" }`. Mirrors the
+///    query-filter `WAR-VOCAB-QUERY-ENUM-01` closure: a single-segment
+///    identifier that is not a runtime source head and not a `let`
+///    binding is a bare enum variant whose type is inferred from the
+///    target column (codegen emits the TEXT const `FromConst("ready")`).
+///
+/// ## Why this pass exists
+///
+/// `lower_raw_expr` is a context-free text→IR projection: it cannot tell
+/// `CustomerStatus.lead` / `ready` (enum literals) from `ctx.user` (a
+/// runtime source) or a `let` name, so it lowers them ALL to
+/// `Expr::Path`. Codegen's binding emitter only knows four source heads
+/// (`input`/`ctx`/`target`/`route`) plus `let` names, and previously
+/// fell through any other path to a silent `FromConst("<raw>")` string.
+/// For a bare variant that string was actually correct
+/// (`FromConst("ready")`), but for a qualified literal it was garbage
+/// (`FromConst("CustomerStatus.lead")`). This pass resolves BOTH
+/// legitimate enum forms to the typed `Expr::Enum` so codegen renders
+/// the proper const, and leaves genuinely-unknown multi-segment heads as
+/// `Expr::Path` for the `CODEGEN-UNRESOLVED-BINDING-SOURCE-001` doctor
+/// rule (and the emitter's hard fallback) to reject.
+fn resolve_enum_literal_bindings(feature: &mut ir::Feature) {
+    let enum_names: std::collections::BTreeSet<String> =
+        feature.enums.iter().map(|e| e.name.clone()).collect();
+    for command in feature.commands.iter_mut() {
+        let let_names: std::collections::BTreeSet<String> =
+            command.lets.iter().map(|l| l.name.clone()).collect();
+        match &mut command.effect {
+            ir::CommandEffect::Creates(create) => {
+                resolve_enum_assignments(&mut create.assignments, &enum_names, &let_names);
+            }
+            ir::CommandEffect::Updates(update) => {
+                resolve_enum_assignments(&mut update.assignments, &enum_names, &let_names);
+                resolve_enum_assignments(&mut update.where_clause, &enum_names, &let_names);
+            }
+            ir::CommandEffect::Deletes(delete) => {
+                resolve_enum_assignments(&mut delete.where_clause, &enum_names, &let_names);
+            }
+            ir::CommandEffect::Reorders(_)
+            | ir::CommandEffect::Returns(_)
+            | ir::CommandEffect::None => {}
+        }
+    }
+}
+
+fn resolve_enum_assignments(
+    assignments: &mut [ir::Assignment],
+    enum_names: &std::collections::BTreeSet<String>,
+    let_names: &std::collections::BTreeSet<String>,
+) {
+    const SOURCE_HEADS: [&str; 4] = ["input", "ctx", "target", "route"];
+    for assignment in assignments.iter_mut() {
+        let ir::Expr::Path(path) = &assignment.value else {
+            continue;
+        };
+        let lifted = match path.segments.as_slice() {
+            // Qualified `EnumType.variant` — lift only when the head is a
+            // declared enum (and not a runtime source head).
+            [head, variant]
+                if !SOURCE_HEADS.contains(&head.as_str()) && enum_names.contains(head) =>
+            {
+                Some(ir::Expr::Enum(ir::EnumLiteral {
+                    type_name: Some(ir::QualifiedName {
+                        feature: None,
+                        name: head.clone(),
+                    }),
+                    variant: variant.clone(),
+                }))
+            }
+            // Bare single-segment variant `ready` — lift unless it is a
+            // runtime source head or a `let`-bound name (both resolved by
+            // the emitter's own dispatch). Type inferred from the column.
+            [name]
+                if !SOURCE_HEADS.contains(&name.as_str()) && !let_names.contains(name) =>
+            {
+                Some(ir::Expr::Enum(ir::EnumLiteral {
+                    type_name: None,
+                    variant: name.clone(),
+                }))
+            }
+            _ => None,
+        };
+        if let Some(expr) = lifted {
+            assignment.value = expr;
+        }
+    }
 }
 
 /// 0004 — apply the feature-level `defaults rate_limit` / `defaults audit`
@@ -410,5 +508,80 @@ mod tests {
         };
         let feature = lower_feature_skeleton(&skeleton).expect("empty skeleton lowers");
         assert_eq!(feature.name, "Smoke");
+    }
+
+    fn lower_one(source: &str) -> ir::Feature {
+        let skeletons = lazuli_syntax::parse_feature_skeletons(source).expect("parses");
+        lower_feature_skeleton(&skeletons[0]).expect("lowers")
+    }
+
+    fn create_assignments(feature: &ir::Feature, command: &str) -> Vec<ir::Assignment> {
+        let cmd = feature
+            .commands
+            .iter()
+            .find(|c| c.name == command)
+            .unwrap_or_else(|| panic!("command {command} not found"));
+        match &cmd.effect {
+            ir::CommandEffect::Creates(create) => create.assignments.clone(),
+            other => panic!("expected creates effect, got {other:?}"),
+        }
+    }
+
+    fn assigned<'a>(assignments: &'a [ir::Assignment], field: &str) -> &'a ir::Expr {
+        &assignments
+            .iter()
+            .find(|a| a.field == field)
+            .unwrap_or_else(|| panic!("no assignment for {field}"))
+            .value
+    }
+
+    const ENUM_BINDING_SRC: &str = r#"
+feature billing
+  domain
+    enum CustomerStatus
+      lead
+      active
+  command capture_lead
+    input
+      name: Text required
+    creates Customer
+      name = input.name
+      status = CustomerStatus.lead
+      tier = mystery.value
+      owner = ctx.user
+"#;
+
+    #[test]
+    fn enum_literal_path_lifts_to_enum_expr() {
+        // `status = CustomerStatus.lead` lowers to Expr::Path; the pass
+        // must lift it to Expr::Enum so codegen emits the enum const
+        // (not the silent `FromConst("CustomerStatus.lead")` garbage).
+        let feature = lower_one(ENUM_BINDING_SRC);
+        let assignments = create_assignments(&feature, "capture_lead");
+        match assigned(&assignments, "status") {
+            ir::Expr::Enum(literal) => {
+                assert_eq!(literal.type_name.as_ref().unwrap().name, "CustomerStatus");
+                assert_eq!(literal.variant, "lead");
+            }
+            other => panic!("expected Expr::Enum for status, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unknown_head_stays_path_for_doctor_to_reject() {
+        // `mystery.value` is NOT a declared enum — must stay Expr::Path so
+        // CODEGEN-UNRESOLVED-BINDING-SOURCE-001 can reject it downstream.
+        let feature = lower_one(ENUM_BINDING_SRC);
+        let assignments = create_assignments(&feature, "capture_lead");
+        assert!(matches!(assigned(&assignments, "tier"), ir::Expr::Path(_)));
+    }
+
+    #[test]
+    fn source_head_path_is_not_lifted() {
+        // A recognized source head (`ctx.user`) must stay Path so the
+        // runtime source dispatch (FromCtx) still fires.
+        let feature = lower_one(ENUM_BINDING_SRC);
+        let assignments = create_assignments(&feature, "capture_lead");
+        assert!(matches!(assigned(&assignments, "owner"), ir::Expr::Path(_)));
     }
 }

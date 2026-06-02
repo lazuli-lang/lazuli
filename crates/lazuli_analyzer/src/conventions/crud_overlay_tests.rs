@@ -154,12 +154,23 @@ fn overlay_assign_merges_into_effect() {
     // legal_name is input-derived; category/situation/is_active are overlay
     // assigns appended after, in author order. category/situation/is_active
     // were `input excludes`d so they carry no auto input-binding.
+    // `situation = prospect` is a bare enum-variant literal — the
+    // `resolve_enum_literal_bindings` pass lifts it from `Expr::Path` to
+    // `Expr::Enum { type_name: None, variant: "prospect" }` so codegen
+    // emits the TEXT const `FromConst("prospect")` (the unqualified
+    // `Expr::Enum` render), not a runtime path lookup.
     assert_eq!(
         pairs,
         vec![
             ("legal_name", path(&["input", "legal_name"])),
             ("category", path(&["input", "category"])),
-            ("situation", path(&["prospect"])),
+            (
+                "situation",
+                ir::Expr::Enum(ir::EnumLiteral {
+                    type_name: None,
+                    variant: "prospect".to_owned(),
+                }),
+            ),
             ("is_active", ir::Expr::Boolean(true)),
         ]
     );

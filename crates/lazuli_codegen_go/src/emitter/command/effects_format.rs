@@ -141,10 +141,27 @@ pub(super) fn format_path_source(
         "target" => format!("lazuli.FromTarget(\"{tail}\")"),
         "route" => format!("lazuli.FromInput(\"{tail}\")"),
         _ => {
-            // Fallback: surface as a constant string so the output
-            // remains Go-valid. Cell I4 will upgrade this to a hard
-            // diagnostic for unresolved binding sources.
-            format!("lazuli.FromConst(\"{}\")", segments.join("."))
+            // UNRESOLVED binding source. Historically this arm silently
+            // lowered ANY unrecognized path to `lazuli.FromConst("<raw
+            // source text>")`, turning e.g. `@fn.foo` (no parens) or a
+            // typo'd head into a column literal named after its own source
+            // text — garbage SQL that compiled (bugs #2, #18).
+            //
+            // The hard pre-emit guard is the doctor rule
+            // `CODEGEN-UNRESOLVED-BINDING-SOURCE-001` (Cell I4), which
+            // ERRORS on this exact shape before codegen runs — so a clean
+            // pipeline never reaches here. As defense-in-depth (e.g. a
+            // direct codegen call that skipped doctor) we no longer emit a
+            // plausible-looking const string: we emit a reference to an
+            // undefined symbol so `go build` fails LOUDLY at the offending
+            // binding instead of shipping silent garbage. The symbol name
+            // and comment name the unresolved expression.
+            let rendered = escape_string(&segments.join("."));
+            format!(
+                "lazuli.UnresolvedBindingSource /* CODEGEN-UNRESOLVED-BINDING-SOURCE-001: \
+                 binding RHS \"{rendered}\" resolves to none of \
+                 {{input, ctx, target, route, @fn(), literal, let}} — run `lazuli doctor` */"
+            )
         }
     }
 }

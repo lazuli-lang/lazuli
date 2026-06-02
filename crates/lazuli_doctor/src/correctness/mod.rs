@@ -9,6 +9,7 @@
 //! each rule's `#[cfg(test)] mod tests` exercises the logic until then.
 
 pub mod channel_payload_unresolved_001;
+pub mod codegen_unresolved_binding_source_001;
 pub mod command_input_shadows_field_001;
 pub mod composite_key_contract_001;
 pub mod duplicate_query_name;

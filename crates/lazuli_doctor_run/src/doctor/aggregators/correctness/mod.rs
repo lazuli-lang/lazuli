@@ -95,6 +95,33 @@ pub(crate) fn diagnostics(
             });
         }
 
+        // CODEGEN-UNRESOLVED-BINDING-SOURCE-001 — error. A command-effect
+        // binding RHS that resolves to no known source kind would silently
+        // lower to a `FromConst("<raw>")` garbage string in the Go emitter;
+        // this is the hard pre-emit diagnostic ("Cell I4").
+        for finding in
+            correctness::codegen_unresolved_binding_source_001::check(&feature, &fact.path)
+        {
+            let line = fact
+                .command_lines
+                .get(&finding.command)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: correctness::codegen_unresolved_binding_source_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            });
+        }
+
         // COMMAND-INPUT-SHADOWS-FIELD-001 — error.
         for finding in correctness::command_input_shadows_field_001::check(&feature, &fact.path) {
             let line = fact
