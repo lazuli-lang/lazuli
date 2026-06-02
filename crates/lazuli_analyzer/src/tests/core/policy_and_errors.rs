@@ -19,6 +19,77 @@ use crate::{
 //   * `Feature.errors` ← `errors` block (default + 4xx/5xx + messages)
 // -------------------------------------------------------------------------
 
+// -------------------------------------------------------------------------
+// W4-3 (INLINE-POLICY-ATOM-LIST-MISPARSE) — an inline comma-separated atom
+// list on a command/query (`policy @role.ADMIN, @role.MANAGER`) must lower to
+// an OR of two role atoms, NOT one bogus atom. Before the parser fix the whole
+// comma string fell through to the raw single-atom path and the
+// command/query was PERMANENTLY denied for everyone.
+// -------------------------------------------------------------------------
+
+#[test]
+fn inline_command_policy_atom_list_lowers_to_or() {
+    let source = r#"
+feature account
+  command grant
+    policy @role.ADMIN, @role.MANAGER
+    input
+      target_id: ID required
+    returns User
+"#;
+    let features = parse_feature_skeletons(source).expect("parses");
+    let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+    let command = feature
+        .commands
+        .iter()
+        .find(|c| c.name == "grant")
+        .expect("grant command");
+    let expr = command
+        .policy_expr
+        .as_ref()
+        .expect("inline atom list must lower to a structured policy_expr (OR), not a raw single atom");
+    match expr {
+        ir::PolicyExpr::Or(terms) => {
+            assert_eq!(terms.len(), 2, "expected an OR of exactly two role atoms");
+            match (&terms[0], &terms[1]) {
+                (ir::PolicyExpr::Atom(a), ir::PolicyExpr::Atom(b)) => {
+                    assert_eq!((a.namespace.as_str(), a.name.as_str()), ("role", "ADMIN"));
+                    assert_eq!((b.namespace.as_str(), b.name.as_str()), ("role", "MANAGER"));
+                }
+                other => panic!("expected two Atom terms (ADMIN, MANAGER), got {other:?}"),
+            }
+        }
+        other => panic!("expected PolicyExpr::Or, got {other:?}"),
+    }
+}
+
+#[test]
+fn inline_query_list_policy_atom_list_lowers_to_or() {
+    let source = r#"
+feature account
+  query.list users_in_tenant
+    policy @role.ADMIN, @role.MANAGER
+"#;
+    let features = parse_feature_skeletons(source).expect("parses");
+    let feature = lower_feature_skeleton(&features[0]).expect("lowers");
+    let query = feature
+        .queries
+        .iter()
+        .find(|q| q.name() == "users_in_tenant")
+        .expect("users_in_tenant query");
+    let ir::Query::List(list) = query else {
+        panic!("expected query.list, got {query:?}");
+    };
+    let expr = list
+        .policy_expr
+        .as_ref()
+        .expect("inline atom list on query.list must lower to PolicyExpr::Or");
+    match expr {
+        ir::PolicyExpr::Or(terms) => assert_eq!(terms.len(), 2),
+        other => panic!("expected PolicyExpr::Or, got {other:?}"),
+    }
+}
+
 #[test]
 fn lower_command_policy_when_denied_populates_typed_ref() {
     let source = r#"
