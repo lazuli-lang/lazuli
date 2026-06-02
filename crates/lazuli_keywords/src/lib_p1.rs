@@ -215,6 +215,20 @@ pub const GLOBAL_DIAGNOSTICS: &[DiagnosticFacet] = &[
         base_severity: "info",
         category: "vocabulary",
     },
+    // W2-3 — the cross-feature face of `record_column_storage`: a
+    // resource field typed as a `record` OWNED BY another feature, which
+    // codegen lowers to an embedded JSONB copy instead of a FK relation.
+    // Emitted over the synthesized-feature view (no single `.lzi` keyword
+    // owns it — it spans the `record` declaration in feature B and the
+    // field reference in feature A), so it lands in GLOBAL alongside its
+    // `@info.record_column_jsonb` same-feature sibling. `@`-prefixed
+    // codes fall through `from_code_prefix` to the Vocabulary bucket
+    // (matching the sibling + `@correctness.migration_out_of_sync`).
+    DiagnosticFacet {
+        code: "@correctness.record_column_cross_feature",
+        base_severity: "error",
+        category: "vocabulary",
+    },
     // ── framework-internal hygiene (`--self`, audits framework Rust) ──
     DiagnosticFacet {
         code: "INTERNAL-FILE-SIZE-001",

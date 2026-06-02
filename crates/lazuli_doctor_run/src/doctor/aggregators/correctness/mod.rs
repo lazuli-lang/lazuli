@@ -22,10 +22,15 @@
 //! unit tests).
 //!
 //! Severity policy: every correctness rule is `Error`-by-default except
-//! `record_column_storage` (info, gated behind the Strict profile so
-//! production output stays signal-dense) and `schema_migration_present`
+//! the same-feature face of `record_column_storage`
+//! (`@info.record_column_jsonb` — info, gated behind the Strict profile
+//! so production output stays signal-dense) and `schema_migration_present`
 //! (warning, suppressed in single-file mode where there's no project
-//! migration tree to compare against).
+//! migration tree to compare against). The cross-feature face of
+//! `record_column_storage` (`@correctness.record_column_cross_feature`)
+//! is a hard `Error` across all profiles — a resource field typed as a
+//! record owned by another feature embeds a JSONB copy instead of a FK
+//! relation (W2-3 cross-feature drift).
 //!
 //! See `docs/proposals/correctness-tier3.md` and per-rule docstrings in
 //! `crates/lazuli_doctor/src/correctness/<rule>.rs` for the closed
@@ -82,6 +87,14 @@ pub(crate) fn diagnostics(
         .iter()
         .map(make_synthetic_feature_for_correctness)
         .collect();
+
+    // record_column_storage resolves a field's `record` type by bare
+    // name across the WHOLE feature set (mirroring the codegen emitter's
+    // `name_is_record`), so build the cross-feature record index once.
+    // This is what lets the rule see the cross-feature drift its old
+    // per-feature scope blind-spotted (the "bug #11" face disagreement).
+    let record_index =
+        correctness::record_column_storage::build_record_index(&synthetic_features);
 
     for fact in facts {
         let feature = make_synthetic_feature_for_correctness(fact);
@@ -396,25 +409,42 @@ pub(crate) fn diagnostics(
             });
         }
 
-        // @info.record_column_jsonb — informational; only surfaced
-        // under the strict profile so production profile output stays
-        // signal-dense.
-        if matches!(security_profile, SecurityProfile::Strict) {
-            for finding in correctness::record_column_storage::check(&feature, &fact.path) {
-                diagnostics.push(DoctorDiagnostic {
-                    message: finding.message(),
-                    path: finding.path,
-                    line: fact.feature_line,
-                    column: 1,
-                    severity: DoctorSeverity::Info,
-                    code: correctness::record_column_storage::Finding::CODE.to_owned(),
-                    category: None,
-                    feature_name: None,
-                    construct: None,
-                    fix: None,
-                    group: None,
-                });
-            }
+        // record_column_storage — two faces:
+        //   * @info.record_column_jsonb (same-feature record → JSONB) is
+        //     a benign value-object FYI; only surfaced under the Strict
+        //     profile so production output stays signal-dense.
+        //   * @correctness.record_column_cross_feature (a resource field
+        //     typed as a record OWNED BY another feature) is the W2-3
+        //     cross-feature drift: codegen embeds a JSONB copy instead of
+        //     a FK relation. That is a concrete data-shape bug, so it is
+        //     an ERROR unconditionally across profiles (the same-feature
+        //     gate must NOT suppress it).
+        let strict = matches!(security_profile, SecurityProfile::Strict);
+        for finding in
+            correctness::record_column_storage::check(&feature, &record_index, &fact.path)
+        {
+            let (severity, code) = if finding.is_cross_feature() {
+                (DoctorSeverity::Error, finding.code().to_owned())
+            } else {
+                // Same-feature info is gated on Strict (legacy behavior).
+                if !strict {
+                    continue;
+                }
+                (DoctorSeverity::Info, finding.code().to_owned())
+            };
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line: fact.feature_line,
+                column: 1,
+                severity,
+                code,
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            });
         }
 
         // @correctness.migration_out_of_sync — warning. Needs the
