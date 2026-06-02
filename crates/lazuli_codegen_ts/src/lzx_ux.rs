@@ -78,6 +78,33 @@ pub(crate) fn emit_ux_const(ux: &ViewUx) -> String {
     s
 }
 
+/// The `@lazuli/runtime/react` hook names a `ViewUx` invokes, in import
+/// order. Empty when the view declares no W6 primitive. Kept in lockstep
+/// with `emit_ux_const` so every emitted call site is imported and the
+/// generated file typechecks (W1-7 VIEW-HOOKS-UNDEFINED).
+pub(crate) fn ux_runtime_hook_imports(ux: &ViewUx) -> Vec<&'static str> {
+    let mut hooks = Vec::new();
+    if ux.wizard_steps.is_some() {
+        hooks.push("useWizardSteps");
+    }
+    if ux.tab_group.is_some() {
+        hooks.push("useTabGroup");
+    }
+    if !ux.view_modes.is_empty() {
+        hooks.push("useViewMode");
+    }
+    if ux.inline_table.is_some() {
+        hooks.push("useInlineTable");
+    }
+    if ux.board.is_some() {
+        hooks.push("useBoard");
+    }
+    if !ux.repeatable_groups.is_empty() {
+        hooks.push("useRepeatableGroup");
+    }
+    hooks
+}
+
 /// Emit the `return {{ ... }}` fields for the view-level W6 primitives.
 pub(crate) fn emit_ux_return_fields(s: &mut String, ux: &ViewUx) {
     if ux.wizard_steps.is_some() {
@@ -156,6 +183,56 @@ mod tests {
         let mut s = String::new();
         emit_ux_return_fields(&mut s, &ux);
         assert_eq!(s, "");
+        assert!(ux_runtime_hook_imports(&ux).is_empty());
+    }
+
+    #[test]
+    fn hook_imports_track_every_emitted_call_site() {
+        // W1-7 VIEW-HOOKS-UNDEFINED — the import set must name every hook
+        // emit_ux_const calls so the generated file typechecks.
+        let ux = ViewUx {
+            wizard_steps: Some(WizardSteps {
+                total: 2,
+                current_field: "step".to_owned(),
+                span_ref: None,
+            }),
+            tab_group: Some(TabGroup {
+                derived_from: "kind".to_owned(),
+                cases: vec![],
+                span_ref: None,
+            }),
+            view_modes: vec![RenderMode::Table, RenderMode::Kanban],
+            inline_table: Some(InlineTable {
+                on_change: CommandRef {
+                    feature: "jobs".to_owned(),
+                    name: "update_row".to_owned(),
+                },
+                span_ref: None,
+            }),
+            board: Some(Board {
+                name: "b".to_owned(),
+                lanes_source: "status".to_owned(),
+                span_ref: None,
+            }),
+            repeatable_groups: vec![RepeatableGroup {
+                name: "installments".to_owned(),
+                fields: vec![],
+                sum_field: "pct".to_owned(),
+                sum_target: "100".to_owned(),
+                span_ref: None,
+            }],
+        };
+        assert_eq!(
+            ux_runtime_hook_imports(&ux),
+            vec![
+                "useWizardSteps",
+                "useTabGroup",
+                "useViewMode",
+                "useInlineTable",
+                "useBoard",
+                "useRepeatableGroup",
+            ]
+        );
     }
 
     #[test]

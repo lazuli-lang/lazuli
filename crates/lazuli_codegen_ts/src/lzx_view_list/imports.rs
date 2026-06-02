@@ -23,6 +23,7 @@ use std::fmt::Write;
 use crate::lzx::lzx_aux;
 use crate::lzx::lzx_filters;
 use crate::lzx::lzx_search;
+use crate::lzx::lzx_ux;
 use crate::lzx::{Surface, ViewList, command_ident, pascal_case, query_ident};
 
 pub(super) fn write_imports(s: &mut String, surface: &Surface, view: &ViewList) {
@@ -60,6 +61,11 @@ pub(super) fn write_imports(s: &mut String, surface: &Surface, view: &ViewList) 
     if has_segmented_search {
         writeln!(s, "  parseSegments,").ok();
         writeln!(s, "  canonicalizeSearch,").ok();
+    }
+    // Wave-W6 view-level UX primitive hooks — each emitted call site in
+    // `lzx_ux::emit_ux_const` must be imported or the file won't typecheck.
+    for hook in lzx_ux::ux_runtime_hook_imports(&view.ux) {
+        writeln!(s, "  {},", hook).ok();
     }
     writeln!(s, "  type UseLazuliQueryOptions,").ok();
     writeln!(s, "}} from \"@lazuli/runtime/react\";").ok();
