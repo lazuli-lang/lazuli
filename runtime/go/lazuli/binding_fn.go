@@ -165,7 +165,10 @@ func adaptHandlerToBindingFn(h any) BindingFn {
 		}
 
 		// arg 1: the single input. Zero-arg binding → zero value of the
-		// declared input type; one-arg binding → the resolved arg.
+		// declared input type; one-arg binding → the resolved arg;
+		// N>1-arg binding → construct the handler's struct input by
+		// mapping each positional arg to the struct field at the same
+		// index (declaration order).
 		inType := fnType.In(1)
 		var inArg reflect.Value
 		switch len(args) {
@@ -174,9 +177,11 @@ func adaptHandlerToBindingFn(h any) BindingFn {
 		case 1:
 			inArg = boxInto(args[0], inType)
 		default:
-			return nil, &Error{Status: 500, Code: CodeInternal,
-				Message: fmt.Sprintf("binding fn bridge: handler takes one "+
-					"input but @fn was called with %d args", len(args))}
+			built, err := buildStructInput(inType, args)
+			if err != nil {
+				return nil, err
+			}
+			inArg = built
 		}
 
 		out := fnVal.Call([]reflect.Value{ctxArg, inArg})
@@ -220,4 +225,126 @@ func boxInto(arg any, inType reflect.Type) reflect.Value {
 		return box
 	}
 	return av
+}
+
+// buildStructInput constructs the handler's single struct input from N>1
+// positional binding args, mapping `args[i]` onto the i-th EXPORTED field
+// in declaration order. This is the multi-arg `@fn.foo(a, b, c)` case: the
+// handler declares `func(*Ctx, Input) (O, error)` where `Input` is a
+// struct whose fields correspond positionally to the binding args.
+//
+// Fails closed (a clear 500, never a panic) when:
+//   - the input is not a struct (so N>1 args have nowhere to land);
+//   - the arg count != the exported-field count (arity mismatch);
+//   - an arg can't be coerced into its field's type.
+//
+// Each arg is coerced via [coerceFieldValue], which handles pointer fields
+// (`*string` ← a `string`/`nil` from an optional input), value fields, and
+// numeric widening (the `UserID lazuli.ID`/int64 field ← an int64 actor id).
+func buildStructInput(inType reflect.Type, args []any) (reflect.Value, error) {
+	// Unwrap a single level of pointer so a handler declaring `*Input`
+	// still gets a populated struct (defensive — pilots declare a value).
+	targetType := inType
+	wantPtr := false
+	if targetType.Kind() == reflect.Pointer {
+		wantPtr = true
+		targetType = targetType.Elem()
+	}
+	if targetType.Kind() != reflect.Struct {
+		return reflect.Value{}, &Error{Status: 500, Code: CodeInternal,
+			Message: fmt.Sprintf("binding fn bridge: @fn was called with %d args "+
+				"but the handler input %s is not a struct (multi-arg @fn requires "+
+				"a struct input whose fields map to the args by position)",
+				len(args), inType)}
+	}
+
+	// Collect exported fields in declaration order. Unexported fields are
+	// not settable via reflection and have no DSL counterpart, so they are
+	// excluded from the positional mapping.
+	exported := make([]int, 0, targetType.NumField())
+	for i := 0; i < targetType.NumField(); i++ {
+		if targetType.Field(i).IsExported() {
+			exported = append(exported, i)
+		}
+	}
+	if len(exported) != len(args) {
+		return reflect.Value{}, &Error{Status: 500, Code: CodeInternal,
+			Message: fmt.Sprintf("binding fn bridge: @fn was called with %d args "+
+				"but the handler input %s has %d exported field(s) — arg count must "+
+				"match field count (mapped by position)",
+				len(args), targetType, len(exported))}
+	}
+
+	out := reflect.New(targetType).Elem()
+	for argIdx, fieldIdx := range exported {
+		field := out.Field(fieldIdx)
+		ft := targetType.Field(fieldIdx)
+		coerced, err := coerceFieldValue(args[argIdx], field.Type())
+		if err != nil {
+			return reflect.Value{}, &Error{Status: 500, Code: CodeInternal,
+				Message: fmt.Sprintf("binding fn bridge: @fn arg %d cannot bind to "+
+					"%s.%s (%s): %v", argIdx, targetType, ft.Name, field.Type(), err)}
+		}
+		field.Set(coerced)
+	}
+
+	if wantPtr {
+		ptr := reflect.New(targetType)
+		ptr.Elem().Set(out)
+		return ptr, nil
+	}
+	return out, nil
+}
+
+// coerceFieldValue converts a resolved binding arg (`any`: string, *string,
+// int64, etc.) into a reflect.Value assignable to a struct field of type
+// `ft`. Handles, in order:
+//   - nil arg → the field's zero value (a nil pointer for `*string`);
+//   - directly assignable (e.g. int64 → lazuli.ID alias, string → string);
+//   - pointer field ← a value of the pointee type (e.g. `*string` ← string,
+//     including the readPath case where an optional `*string` input was
+//     already deref'd to a bare string); also numeric/convertible pointee;
+//   - convertible value (numeric widening, named-type aliases).
+//
+// Returns an error (never panics) when no coercion applies.
+func coerceFieldValue(arg any, ft reflect.Type) (reflect.Value, error) {
+	if arg == nil {
+		return reflect.Zero(ft), nil
+	}
+	av := reflect.ValueOf(arg)
+
+	// Direct assignment (covers value→value and the int64→ID alias).
+	if av.Type().AssignableTo(ft) {
+		return av, nil
+	}
+	// Convertible value field (numeric widening, named scalar aliases).
+	if ft.Kind() != reflect.Pointer && av.Type().ConvertibleTo(ft) {
+		return av.Convert(ft), nil
+	}
+
+	// Pointer field: build a *T from a T-or-convertible arg.
+	if ft.Kind() == reflect.Pointer {
+		elem := ft.Elem()
+		var inner reflect.Value
+		switch {
+		case av.Type().AssignableTo(elem):
+			inner = av
+		case av.Type().ConvertibleTo(elem):
+			inner = av.Convert(elem)
+		case av.Kind() == reflect.Pointer && av.Type().AssignableTo(ft):
+			// arg is already the right pointer type (assignable handled
+			// above, but a nil-typed pointer slips through to here).
+			return av, nil
+		default:
+			return reflect.Value{}, fmt.Errorf(
+				"arg of type %s is not assignable/convertible to pointee %s",
+				av.Type(), elem)
+		}
+		p := reflect.New(elem)
+		p.Elem().Set(inner)
+		return p, nil
+	}
+
+	return reflect.Value{}, fmt.Errorf(
+		"arg of type %s is not assignable/convertible to %s", av.Type(), ft)
 }
