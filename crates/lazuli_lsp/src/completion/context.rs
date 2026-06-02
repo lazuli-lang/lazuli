@@ -288,6 +288,16 @@ pub(crate) fn context_aware_completions(
         return Some(merge_completion_items(lifecycle_items, route_guard_items));
     }
 
+    // Audit gap #1 — `triggers transition <name>` slot. Narrow context
+    // (cursor in the name list after `triggers transition `, inline or as a
+    // `triggers`-block child). Runs before the indent-aware kind-child
+    // fallback so the declared transition set wins over the generic
+    // `command`/`triggers` child keywords; before namespace completion it's
+    // harmless (different trigger).
+    if let Some(items) = crate::triggers_transition_completions(source, position) {
+        return Some(items);
+    }
+
     // 1. `@<ns>.` prefix completion.
     if let Some(items) = namespace_prefix_completions(source, before) {
         return Some(items);

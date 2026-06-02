@@ -27,10 +27,11 @@
 
 use lazuli_syntax::parse_feature_skeletons;
 use tower_lsp::lsp_types::{
-    CodeActionKind, CodeActionOrCommand, CodeActionResponse, DocumentSymbol, Position, SymbolKind,
-    Url,
+    CodeActionKind, CodeActionOrCommand, CodeActionResponse, Diagnostic, DocumentSymbol, Position,
+    SymbolKind, Url,
 };
 
+use crate::code_actions::doctor_fix::doctor_fix_code_actions_or_commands;
 use crate::{
     auth_refresh_code_actions, convention_bundle_hover, design_keyword_description,
     error_vocab_code_actions, error_vocab_code_resolved_hover, is_design_lzi_uri,
@@ -96,15 +97,24 @@ pub(crate) fn hover_markdown_for_position(
 /// `None` when no action fires. The default-kind step is required
 /// because some editor clients filter the lightbulb list by `kind` even
 /// though we advertised `CodeActionProviderCapability::Simple(true)`.
+///
+/// `context_diagnostics` are the diagnostics the client echoes back in
+/// `params.context.diagnostics` — the doctor-fix family reads those to
+/// offer a `lazuli.applyFix` command for any Layer-2 finding carrying a
+/// `lazuli_fix` envelope (audit gap #7).
 pub(crate) fn code_actions_for_position(
     source: &str,
     uri: &Url,
     position: Position,
+    context_diagnostics: &[Diagnostic],
 ) -> Option<CodeActionResponse> {
     let mut actions = error_vocab_code_actions(source, uri, position);
     actions.extend(auth_refresh_code_actions(source, uri, position));
     actions.extend(route_guard_code_actions(source, uri, position));
     actions.extend(lifecycle_gate_code_actions(source, uri, position));
+    // Doctor-fix family: driven by echoed-back Layer-2 diagnostics rather
+    // than a file-local text scan.
+    actions.extend(doctor_fix_code_actions_or_commands(context_diagnostics));
     if actions.is_empty() {
         return None;
     }

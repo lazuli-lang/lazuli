@@ -18,6 +18,12 @@
 //!   `docs/proposals/route-guards-and-redirects.md`).
 //! * `lifecycle_gate` — view-level `requires_lifecycle` scaffolds + resume
 //!   block fixes (proposal `docs/proposals/ir-lifecycle-route-gates.md`).
+//! * `doctor_fix` — bridges *any* doctor finding whose code has a
+//!   registered `lazuli_fix` action into a one-click `lazuli.applyFix`
+//!   command code-action. Unlike the four families above (which are
+//!   file-local and synchronous), this one is driven by the Layer-2 doctor
+//!   diagnostics echoed back in `params.context.diagnostics`. See
+//!   `docs/audits/overnight-2026-06-02/09-lsp.md` gap #7.
 //!
 //! ## See also
 //! * `lib.rs::Backend::code_action` — dispatch table; appends per-family
@@ -26,6 +32,7 @@
 //!   `route_guard` and `lifecycle_gate`.
 
 pub mod auth_refresh;
+pub mod doctor_fix;
 pub mod error_vocab;
 pub mod lifecycle_gate;
 pub mod route_guard;

@@ -133,6 +133,16 @@ impl LanguageServer for Backend {
                 // `command.policy` line. Auth-refresh rotation contributes
                 // text-edit scaffolds for `auth.sessions.rotation`.
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                // Doctor-fix bridge (audit gap #7) — the `lazuli.applyFix`
+                // command the doctor-fix code-actions dispatch to. Runs the
+                // shared `lazuli_fix` kernel (same one `lazuli fix --apply`
+                // uses) so CLI + LSP fixes stay byte-identical.
+                execute_command_provider: Some(ExecuteCommandOptions {
+                    commands: vec![
+                        crate::code_actions::doctor_fix::APPLY_FIX_COMMAND.to_owned(),
+                    ],
+                    work_done_progress_options: WorkDoneProgressOptions::default(),
+                }),
                 // H4 — parser-driven semantic-token highlighting. Legend
                 // is the `lazuli_keywords::SemanticToken` projection so it
                 // tracks the registry. `full` only for now; clients fall
@@ -333,11 +343,109 @@ impl LanguageServer for Backend {
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
         let uri = params.text_document.uri;
         let position = params.range.start;
+        // The client echoes the document's published diagnostics (filtered
+        // to the request range) in `context.diagnostics` — that's where the
+        // Layer-2 doctor findings carrying a `lazuli_fix` envelope come
+        // back, so the doctor-fix bridge can turn them into actions.
+        let context_diagnostics = params.context.diagnostics;
         let documents = self.documents.read().await;
         let Some(source) = documents.get(&uri) else {
             return Ok(None);
         };
-        Ok(handlers::code_actions_for_position(source, &uri, position))
+        Ok(handlers::code_actions_for_position(
+            source,
+            &uri,
+            position,
+            &context_diagnostics,
+        ))
+    }
+
+    async fn execute_command(
+        &self,
+        params: ExecuteCommandParams,
+    ) -> Result<Option<serde_json::Value>> {
+        if params.command != crate::code_actions::doctor_fix::APPLY_FIX_COMMAND {
+            return Ok(None);
+        }
+        let Some(argument) = params.arguments.into_iter().next() else {
+            return Ok(None);
+        };
+        let Ok(data) =
+            serde_json::from_value::<crate::code_actions::doctor_fix::DoctorFixData>(argument)
+        else {
+            self.client
+                .log_message(
+                    MessageType::ERROR,
+                    "lazuli.applyFix: malformed fix argument",
+                )
+                .await;
+            return Ok(None);
+        };
+
+        // Apply the fix through the SHARED kernel — byte-identical to
+        // `lazuli fix --apply`. The action reads + writes the file on disk.
+        let request = lazuli_fix::FixRequest {
+            rule: data.rule.clone(),
+            path: std::path::PathBuf::from(&data.path),
+            line: data.line,
+            column: data.column,
+            apply: true,
+        };
+        let result = match lazuli_fix::execute(&request) {
+            Ok(result) => result,
+            Err(err) => {
+                self.client
+                    .log_message(
+                        MessageType::ERROR,
+                        format!("lazuli.applyFix failed for {}: {err}", data.rule),
+                    )
+                    .await;
+                return Ok(None);
+            }
+        };
+
+        match result.outcome {
+            lazuli_fix::FixOutcome::Applied => {
+                self.client
+                    .log_message(
+                        MessageType::INFO,
+                        format!("lazuli.applyFix applied {} to {}", data.rule, data.path),
+                    )
+                    .await;
+                // The fix wrote to disk; refresh the in-memory buffer (if
+                // the file is open) and re-publish so squiggles reflect the
+                // applied change without waiting for the editor's own
+                // did-change round-trip.
+                if let Ok(uri) = Url::from_file_path(&data.path)
+                    && let Ok(updated) = std::fs::read_to_string(&data.path)
+                {
+                    self.documents
+                        .write()
+                        .await
+                        .insert(uri.clone(), updated.clone());
+                    self.publish_diagnostics(uri, updated).await;
+                }
+            }
+            lazuli_fix::FixOutcome::NoChange => {
+                self.client
+                    .log_message(
+                        MessageType::INFO,
+                        format!("lazuli.applyFix: no change needed for {}", data.rule),
+                    )
+                    .await;
+            }
+            lazuli_fix::FixOutcome::Skipped | lazuli_fix::FixOutcome::Preview => {
+                let note = result.note.unwrap_or_else(|| "fix not applied".to_owned());
+                self.client
+                    .log_message(
+                        MessageType::WARNING,
+                        format!("lazuli.applyFix: {} — {note}", data.rule),
+                    )
+                    .await;
+            }
+        }
+
+        Ok(None)
     }
 
     async fn semantic_tokens_full(

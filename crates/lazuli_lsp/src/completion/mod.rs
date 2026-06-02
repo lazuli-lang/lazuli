@@ -17,3 +17,4 @@ pub(crate) mod error_vocab;
 pub(crate) mod input_field;
 pub(crate) mod namespace;
 pub(crate) mod owner_axis;
+pub(crate) mod transition;

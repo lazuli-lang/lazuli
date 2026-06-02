@@ -70,6 +70,8 @@ pub(crate) use completion::input_field::{
 };
 pub(crate) use completion::namespace::{collect_namespace_names, namespace_prefix_completions};
 pub(crate) use completion::owner_axis::owner_axis_through_completions;
+pub use completion::transition::triggers_transition_completions;
+pub(crate) use completion::transition::collect_transition_names;
 pub(crate) use completion_items::{completion_items_for_uri, make_symbol, merge_completion_items};
 pub use conventions::conventions_list_completions;
 // Per-catalog diagnostic producers (Rails-style layout). Each
