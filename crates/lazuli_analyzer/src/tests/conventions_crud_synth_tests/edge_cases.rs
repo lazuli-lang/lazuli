@@ -299,6 +299,7 @@ fn diverging_author_signature_emits_mismatch_diagnostic() {
                 name: "Customer".to_owned(),
             },
             assignments: Vec::new(),
+            where_clause: Vec::new(),
         }),
         policy: ir::PolicyRef::Local("customer_admin".to_owned()),
         policy_expr: None,

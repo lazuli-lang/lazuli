@@ -388,6 +388,16 @@ pub struct CommandEffectDecl {
     pub resource: String,
     pub from_input: bool,
     pub assignments: Vec<AssignmentDecl>,
+    /// `where <col> = <expr>` child lines inside an `updates`/`deletes`
+    /// block. These scope the affected row(s) — they become the
+    /// `Updates`/`Deletes` WHERE bindings, NOT SET assignments. Each
+    /// entry's `field` is the WHERE column and `value` is the verbatim
+    /// RHS (`ctx.actor.id`, `route.id`, `input.x`, a literal …), lowered
+    /// downstream via the same source lowering as `assignments`. Empty
+    /// when the author wrote no explicit `where` (legacy `id`-key
+    /// fallback then applies in codegen).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub where_clause: Vec<AssignmentDecl>,
     pub span: Span,
 }
 

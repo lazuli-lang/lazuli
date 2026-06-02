@@ -370,6 +370,7 @@ mod tests {
         cmd.effect = CommandEffect::Updates(UpdateEffect {
             resource: local_qname("Customer"),
             assignments: Vec::new(),
+            where_clause: Vec::new(),
         });
         cmd.approval = Some(lazuli_ir::ApprovalSpec {
             required_when: Some("target.tier = enterprise".to_owned()),

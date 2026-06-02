@@ -330,6 +330,7 @@ fn cmd_drift_fires_for_leave_host_reply_pattern() {
         CommandEffect::Updates(UpdateEffect {
             resource: mk_qn("Review"),
             assignments: vec![],
+            where_clause: Vec::new(),
         }),
         Some(denies_when_target_eq("status", "removed")),
     );
@@ -361,6 +362,7 @@ fn cmd_drift_quiet_when_lifecycle_discriminator_matches() {
         CommandEffect::Updates(UpdateEffect {
             resource: mk_qn("Review"),
             assignments: vec![],
+            where_clause: Vec::new(),
         }),
         Some(denies_when_target_eq("status", "removed")),
     );
@@ -399,6 +401,7 @@ fn cmd_drift_quiet_when_invariant_mentions_field() {
         CommandEffect::Updates(UpdateEffect {
             resource: mk_qn("Review"),
             assignments: vec![],
+            where_clause: Vec::new(),
         }),
         Some(denies_when_target_eq("status", "removed")),
     );

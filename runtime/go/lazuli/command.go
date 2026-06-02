@@ -147,6 +147,13 @@ type Command[I, O any] struct {
 	// in the same tx as Effect.
 	Transitions []TransitionAdvance
 
+	// LifecycleColumn is the DB column holding the resource's lifecycle
+	// discriminator (e.g. `registration_step`) that the transition
+	// pre-guard SELECTs and the post-update writes. Empty defaults to
+	// `lifecycle_state` for back-compat with codegen that predates this
+	// field. Only meaningful when Transitions is non-empty.
+	LifecycleColumn string
+
 	// Emits lists the events published after the surrounding transaction
 	// commits.
 	Emits []EventEmit
@@ -196,47 +203,49 @@ type Command[I, O any] struct {
 // code does not call this directly.
 func (c *Command[I, O]) erased() *commandErased {
 	return &commandErased{
-		Name:          c.Name,
-		WithSource:    c.WithSource,
-		Resource:      c.Resource,
-		Policy:        c.Policy,
-		RateLimit:     c.RateLimit,
-		Audit:         c.Audit,
-		Approval:      c.Approval,
-		Validators:    c.Validators,
-		Effect:        c.Effect,
-		Transitions:   c.Transitions,
-		Emits:         c.Emits,
-		EmitsTrace:    c.EmitsTrace,
-		Invalidates:   c.Invalidates,
-		ExternalCalls: c.ExternalCalls,
-		Timeout:       c.Timeout,
-		Retry:         c.Retry,
-		Idempotency:   c.Idempotency,
-		Deprecation:   c.Deprecation,
-		ErrorKeys:     c.ErrorKeys,
+		Name:            c.Name,
+		WithSource:      c.WithSource,
+		Resource:        c.Resource,
+		Policy:          c.Policy,
+		RateLimit:       c.RateLimit,
+		Audit:           c.Audit,
+		Approval:        c.Approval,
+		Validators:      c.Validators,
+		Effect:          c.Effect,
+		Transitions:     c.Transitions,
+		LifecycleColumn: c.LifecycleColumn,
+		Emits:           c.Emits,
+		EmitsTrace:      c.EmitsTrace,
+		Invalidates:     c.Invalidates,
+		ExternalCalls:   c.ExternalCalls,
+		Timeout:         c.Timeout,
+		Retry:           c.Retry,
+		Idempotency:     c.Idempotency,
+		Deprecation:     c.Deprecation,
+		ErrorKeys:       c.ErrorKeys,
 	}
 }
 
 // commandErased is the runtime's view of any Command[I, O].
 type commandErased struct {
-	Name          string
-	WithSource    func(context.Context) context.Context
-	Resource      any
-	Policy        Policy
-	RateLimit     RateLimit
-	Audit         *AuditSpec
-	Approval      *ApprovalSpec
-	Validators    []ValidatorRef
-	Effect        Effect
-	Transitions   []TransitionAdvance
-	Emits         []EventEmit
-	EmitsTrace    []EventTraceEmit
-	Invalidates   []string
-	ExternalCalls []ExternalCallRef
-	Timeout       string
-	Retry         *RetryPolicy
-	Idempotency   *IdempotencyKey
-	Deprecation   *Deprecation
-	ErrorKeys     *ErrorKeys
+	Name            string
+	WithSource      func(context.Context) context.Context
+	Resource        any
+	Policy          Policy
+	RateLimit       RateLimit
+	Audit           *AuditSpec
+	Approval        *ApprovalSpec
+	Validators      []ValidatorRef
+	Effect          Effect
+	Transitions     []TransitionAdvance
+	LifecycleColumn string
+	Emits           []EventEmit
+	EmitsTrace      []EventTraceEmit
+	Invalidates     []string
+	ExternalCalls   []ExternalCallRef
+	Timeout         string
+	Retry           *RetryPolicy
+	Idempotency     *IdempotencyKey
+	Deprecation     *Deprecation
+	ErrorKeys       *ErrorKeys
 }

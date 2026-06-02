@@ -35,8 +35,8 @@ use super::super::types::{self, TypeCtx};
 use super::effects::emit_effect;
 use super::format::{escape_string, pascal_case, write_section_banner};
 use super::lifecycle::{
-    command_trigger_names, emit_transition_advances, lifecycle_transition_for,
-    transition_advances_for_triggers,
+    command_trigger_names, emit_transition_advances, lifecycle_column_for_triggers,
+    lifecycle_transition_for, transition_advances_for_triggers,
 };
 use super::naming::{
     command_handler_func_name, command_input_struct_name, command_output_type, command_var_name,

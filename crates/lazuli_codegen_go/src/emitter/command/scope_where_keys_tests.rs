@@ -26,8 +26,8 @@ use super::test_support::{
     simple_resource, typed_slot,
 };
 use lazuli_ir::{
-    BuiltinType, CommandEffect, CommandInput, DeleteEffect, Policies, PolicyRef, ReturnsEffect,
-    TypeRef, UpdateEffect,
+    Assignment, BuiltinType, CommandEffect, CommandInput, DeleteEffect, Expr, Path, Policies,
+    PolicyRef, ReturnsEffect, TypeRef, UpdateEffect,
 };
 
 // -------------------------------------------------------------------------
@@ -60,6 +60,7 @@ fn deletes_with_single_input_slot_uses_alt_key_when_not_id() {
     cmd.input = CommandInput::Typed(vec![typed_slot("endpoint", BuiltinType::Text, true)]);
     cmd.effect = CommandEffect::Deletes(DeleteEffect {
         resource: local_qname("WebPushSubscription"),
+        where_clause: Vec::new(),
     });
     cmd.policy = PolicyRef::Local("delete".to_owned());
     feature.commands.push(cmd);
@@ -96,6 +97,7 @@ fn updates_with_route_slot_uses_route_as_where_key() {
     cmd.effect = CommandEffect::Updates(UpdateEffect {
         resource: local_qname("Review"),
         assignments: Vec::new(),
+        where_clause: Vec::new(),
     });
     feature.commands.push(cmd);
 
@@ -151,6 +153,7 @@ fn updates_with_scope_self_uses_ctx_user_id_as_where_key() {
     cmd.effect = CommandEffect::Updates(UpdateEffect {
         resource: local_qname("User"),
         assignments: Vec::new(),
+        where_clause: Vec::new(),
     });
     cmd.policy = PolicyRef::Local("choose_role".to_owned());
     feature.commands.push(cmd);
@@ -200,6 +203,7 @@ fn deletes_in_bulk_mode_drops_legacy_id_binding() {
     // No route slots either.
     cmd.effect = CommandEffect::Deletes(DeleteEffect {
         resource: local_qname("UserSession"),
+        where_clause: Vec::new(),
     });
     cmd.policy = PolicyRef::Local("logout".to_owned());
     feature.commands.push(cmd);
@@ -242,6 +246,7 @@ fn deletes_with_multi_route_emits_composite_where() {
     cmd.input = CommandInput::Empty;
     cmd.effect = CommandEffect::Deletes(DeleteEffect {
         resource: local_qname("CustomerTagAssignment"),
+        where_clause: Vec::new(),
     });
     feature.commands.push(cmd);
 
@@ -314,5 +319,133 @@ fn returns_user_defined_resource_emits_full_struct_not_id() {
     assert!(
         out.contains("(Customer, error)"),
         "handler signature comment should return Customer, got:\n{out}"
+    );
+}
+
+// -------------------------------------------------------------------------
+// BUG #18 — an authored `where <col> = <expr>` clause drives the
+// `Updates`/`Deletes` WHERE map directly, OVERRIDING the legacy
+// route/input/`id` fallback. Each RHS lowers through the same source
+// path as SET assignments: `ctx.actor.id` → FromCtx("actor.id"),
+// `route.id` → FromInput("id"), `input.x` → FromInput("x").
+// -------------------------------------------------------------------------
+
+#[test]
+fn authored_where_ctx_actor_id_drives_update_where_not_phantom_id() {
+    let mut feature = base_feature("account");
+    let mut resource = simple_resource("User");
+    resource.fields.push(scope_field("full_name"));
+    feature.resources.push(resource);
+    let mut cmd = base_command("complete_profile");
+    cmd.input = CommandInput::Typed(vec![typed_slot("full_name", BuiltinType::Text, true)]);
+    cmd.effect = CommandEffect::Updates(UpdateEffect {
+        resource: local_qname("User"),
+        assignments: vec![Assignment {
+            field: "full_name".to_owned(),
+            value: Expr::Path(Path::from_segments(["input", "full_name"])),
+        }],
+        where_clause: vec![Assignment {
+            field: "id".to_owned(),
+            value: Expr::Path(Path::from_segments(["ctx", "actor", "id"])),
+        }],
+    });
+    feature.commands.push(cmd);
+
+    let out = emit(&feature).expect("emits");
+    // The WHERE map binds id ← ctx.actor.id (FromCtx), NOT a phantom
+    // FromInput("ID").
+    assert!(
+        out.contains("\"id\": lazuli.FromCtx(\"actor.id\"),"),
+        "where id = ctx.actor.id should emit FromCtx(\"actor.id\"):\n{out}"
+    );
+    assert!(
+        !out.contains("lazuli.FromInput(\"ID\")"),
+        "no phantom FromInput(\"ID\") where-key fallback:\n{out}"
+    );
+    // No SET column literally named `where id`.
+    assert!(
+        !out.contains("\"where id\""),
+        "no `where id` SET column should leak:\n{out}"
+    );
+    // The real SET column is still bound.
+    assert!(
+        out.contains("\"full_name\": lazuli.FromInput(\"full_name\"),"),
+        "real SET column full_name should still bind:\n{out}"
+    );
+}
+
+#[test]
+fn authored_where_route_id_drives_update_where() {
+    let mut feature = base_feature("agency");
+    let mut resource = simple_resource("Agency");
+    resource.fields.push(scope_field("name"));
+    feature.resources.push(resource);
+    let mut cmd = base_command("rename_agency");
+    cmd.route = vec![lazuli_ir::RouteSlot {
+        name: "id".to_owned(),
+        type_ref: TypeRef::Builtin(BuiltinType::Id),
+        from: None,
+        kind: lazuli_ir::RouteSlotKind::Plain,
+    }];
+    cmd.input = CommandInput::Typed(vec![typed_slot("name", BuiltinType::Text, true)]);
+    cmd.effect = CommandEffect::Updates(UpdateEffect {
+        resource: local_qname("Agency"),
+        assignments: vec![Assignment {
+            field: "name".to_owned(),
+            value: Expr::Path(Path::from_segments(["input", "name"])),
+        }],
+        where_clause: vec![Assignment {
+            field: "id".to_owned(),
+            value: Expr::Path(Path::from_segments(["route", "id"])),
+        }],
+    });
+    feature.commands.push(cmd);
+
+    let out = emit(&feature).expect("emits");
+    // route.id lowers to FromInput("id") (route slots are read from the
+    // input struct), and there's no phantom FromInput("ID").
+    assert!(
+        out.contains("\"id\": lazuli.FromInput(\"id\"),"),
+        "where id = route.id should emit FromInput(\"id\"):\n{out}"
+    );
+    assert!(
+        !out.contains("\"where id\""),
+        "no `where id` SET column:\n{out}"
+    );
+    assert!(
+        out.contains("\"name\": lazuli.FromInput(\"name\"),"),
+        "real SET column name should still bind:\n{out}"
+    );
+}
+
+#[test]
+fn authored_where_drives_delete_where() {
+    let mut feature = base_feature("agency");
+    let resource = simple_resource("Department");
+    feature.resources.push(resource);
+    let mut cmd = base_command("remove_dept");
+    cmd.route = vec![lazuli_ir::RouteSlot {
+        name: "id".to_owned(),
+        type_ref: TypeRef::Builtin(BuiltinType::Id),
+        from: None,
+        kind: lazuli_ir::RouteSlotKind::Plain,
+    }];
+    cmd.effect = CommandEffect::Deletes(DeleteEffect {
+        resource: local_qname("Department"),
+        where_clause: vec![Assignment {
+            field: "id".to_owned(),
+            value: Expr::Path(Path::from_segments(["route", "id"])),
+        }],
+    });
+    feature.commands.push(cmd);
+
+    let out = emit(&feature).expect("emits");
+    assert!(
+        out.contains("lazuli.Deletes(&departmentResource,"),
+        "delete targets the resource var:\n{out}"
+    );
+    assert!(
+        out.contains("\"id\": lazuli.FromInput(\"id\"),"),
+        "delete where id = route.id should emit FromInput(\"id\"):\n{out}"
     );
 }

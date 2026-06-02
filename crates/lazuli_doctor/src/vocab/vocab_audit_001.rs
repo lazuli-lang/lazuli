@@ -211,6 +211,7 @@ mod tests {
         CommandEffect::Updates(UpdateEffect {
             resource: qn("Publication"),
             assignments: vec![],
+            where_clause: Vec::new(),
         })
     }
 
@@ -225,6 +226,7 @@ mod tests {
     fn deletes_effect() -> CommandEffect {
         CommandEffect::Deletes(DeleteEffect {
             resource: qn("Publication"),
+            where_clause: Vec::new(),
         })
     }
 

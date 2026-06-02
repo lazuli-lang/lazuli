@@ -31,7 +31,7 @@ use lazuli_ir::{
 
 use super::super::printer::GoPrinter;
 use super::super::types::{self, TypeCtx};
-use super::effects_format::format_binding_row;
+use super::effects_format::{format_binding_row, format_binding_source};
 use super::lifecycle::{
     LifecycleCommand, enum_variant_name, initial_lifecycle_state, lifecycle_machine_var,
 };
@@ -311,6 +311,13 @@ fn emit_updates_effect(
     let resource_var = resource_var_for_qname(&update.resource);
     let optional_inputs = collect_optional_inputs(command);
     let scope_columns: BTreeSet<&str> = scope_bindings.iter().map(|b| b.column.as_str()).collect();
+    // BUG #18 fix — an authored `where <col> = <expr>` block scopes the
+    // row(s) directly; it OVERRIDES the legacy route/input/`id` fallback
+    // and is lowered through the same `Expr` → `lazuli.From*` source path
+    // as the SET assignments (so `where id = ctx.actor.id` →
+    // `FromCtx("actor.id")`, `where id = route.id` → `FromInput("id")`,
+    // `where id = input.x` → `FromInput("x")`, a literal → `FromConst`).
+    let authored_where = &update.where_clause;
     // Suppress route/input-derived where keys when scope_bindings
     // claim the same column (e.g. `@scope.self` claims `id` from
     // ctx; the route's `id` would conflict).
@@ -329,7 +336,14 @@ fn emit_updates_effect(
     }
     p.line(&format!("Effect: lazuli.Updates(&{resource_var},"));
     p.indent();
-    if scope_bindings.is_empty() && where_keys.len() == 1 {
+    if !authored_where.is_empty() {
+        // Authored `where` clause wins. Emit one WHERE row per authored
+        // binding; ignore route/input fallback keys entirely (the author
+        // said exactly which columns scope the row). `@scope.*` policy
+        // bindings still AND in — they're an orthogonal tenancy/ownership
+        // guard composed on top of the authored predicate.
+        emit_authored_where_map(p, authored_where, &optional_inputs, scope_bindings);
+    } else if scope_bindings.is_empty() && where_keys.len() == 1 {
         // Backward-compatible compact form for the single-key, no-scope
         // case (the common shape pre-Wave 8).
         let k = &where_keys[0];
@@ -372,6 +386,35 @@ fn emit_updates_effect(
     p.line("),");
 }
 
+/// BUG #18 — emit the `lazuli.Bindings{...}` WHERE map for an authored
+/// `where <col> = <expr>` clause on an `updates`/`deletes` effect. Each
+/// authored binding's RHS is lowered through the SAME `Expr` → source
+/// path as the SET assignments (`format_binding_source`), so every RHS
+/// form is handled uniformly: `ctx.actor.id` → `FromCtx("actor.id")`,
+/// `route.id` → `FromInput("id")`, `input.x` → `FromInput("x")`, a
+/// literal → `FromConst(...)`. Any `@scope.*` policy bindings are AND-ed
+/// in after the authored rows (orthogonal tenancy/ownership guard).
+fn emit_authored_where_map(
+    p: &mut GoPrinter,
+    authored_where: &[lazuli_ir::Assignment],
+    optional_inputs: &BTreeSet<&str>,
+    scope_bindings: &[ScopeBinding],
+) {
+    let empty_lets: BTreeMap<&str, &Expr> = BTreeMap::new();
+    p.line("lazuli.Bindings{");
+    p.indent();
+    for w in authored_where {
+        let column = w.field.to_ascii_lowercase();
+        let value_repr = format_binding_source(&w.value, &empty_lets, optional_inputs);
+        p.line(&format!("\"{}\": {},", escape_string(&column), value_repr));
+    }
+    for binding in scope_bindings {
+        emit_scope_binding_row(p, binding);
+    }
+    p.dedent();
+    p.line("},");
+}
+
 fn emit_deletes_effect(
     p: &mut GoPrinter,
     command: &Command,
@@ -379,6 +422,16 @@ fn emit_deletes_effect(
     scope_bindings: &[ScopeBinding],
 ) {
     let resource_var = resource_var_for_qname(&delete.resource);
+    // BUG #18 — authored `where` wins for deletes too.
+    if !delete.where_clause.is_empty() {
+        let optional_inputs = collect_optional_inputs(command);
+        p.line(&format!("Effect: lazuli.Deletes(&{resource_var}, "));
+        p.indent();
+        emit_authored_where_map(p, &delete.where_clause, &optional_inputs, scope_bindings);
+        p.dedent();
+        p.line("),");
+        return;
+    }
     let scope_columns: std::collections::BTreeSet<&str> =
         scope_bindings.iter().map(|b| b.column.as_str()).collect();
     // Suppress route/input-derived where keys when scope_bindings

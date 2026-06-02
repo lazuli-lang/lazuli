@@ -278,6 +278,7 @@ mod tests {
                     field: "status".into(),
                     value: Expr::Path(lazuli_ir::Path::from_segments(["input", "status"])),
                 }],
+                where_clause: Vec::new(),
             }),
         )
     }

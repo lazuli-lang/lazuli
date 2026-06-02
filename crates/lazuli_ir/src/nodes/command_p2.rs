@@ -110,6 +110,14 @@ pub struct CreateEffect {
 pub struct UpdateEffect {
     pub resource: QualifiedName,
     pub assignments: Vec<Assignment>,
+    /// Explicit `where <col> = <expr>` row-scoping bindings authored in
+    /// the `updates` block. Each entry's `field` is the WHERE column and
+    /// `value` the RHS source (`ctx.actor.id`, `route.id`, `input.x`, a
+    /// literal …). When non-empty, codegen builds the `Updates` WHERE
+    /// map from these instead of the legacy route/input/`id` fallback.
+    /// Empty when the author wrote no `where` (legacy fallback applies).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub where_clause: Vec<Assignment>,
 }
 
 /// `deletes <target>` effect — removes a single resolved row. No
@@ -117,6 +125,12 @@ pub struct UpdateEffect {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeleteEffect {
     pub resource: QualifiedName,
+    /// Explicit `where <col> = <expr>` row-scoping bindings authored in
+    /// the `deletes` block — same shape/semantics as
+    /// [`UpdateEffect::where_clause`]. When non-empty, codegen builds the
+    /// `Deletes` WHERE map from these instead of the legacy fallback.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub where_clause: Vec<Assignment>,
 }
 
 /// `returns <Type>` effect — pure command with no DB mutation. Carries

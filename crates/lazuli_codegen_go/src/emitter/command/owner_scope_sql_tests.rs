@@ -68,6 +68,7 @@ fn delete_with_owner_scope_sql_emits_owned_via_binding() {
     }];
     cmd.effect = CommandEffect::Deletes(DeleteEffect {
         resource: local_qname("Property"),
+        where_clause: Vec::new(),
     });
     cmd.owner_scope_sql = Some(owner_scope_sql_property());
     feature.commands.push(cmd);
@@ -105,6 +106,7 @@ fn delete_without_owner_scope_sql_emits_unchanged_tenant_only_shape() {
     }];
     cmd.effect = CommandEffect::Deletes(DeleteEffect {
         resource: local_qname("Charge"),
+        where_clause: Vec::new(),
     });
     cmd.owner_scope_sql = None;
     feature.commands.push(cmd);
@@ -150,6 +152,7 @@ fn update_with_owner_scope_sql_emits_owned_via_binding() {
             field: "name".to_owned(),
             value: Expr::Path(Path::from_segments(["input", "name"])),
         }],
+        where_clause: Vec::new(),
     });
     cmd.owner_scope_sql = Some(owner_scope_sql_property());
     feature.commands.push(cmd);
@@ -208,6 +211,7 @@ fn update_emits_from_input_optional_for_optional_input_slots() {
                 value: Expr::Path(Path::from_segments(["input", "color"])),
             },
         ],
+        where_clause: Vec::new(),
     });
     feature.commands.push(cmd);
 
@@ -399,6 +403,7 @@ fn owner_scope_sql_snake_cases_pascal_fk_target() {
     cmd.effect = CommandEffect::Updates(UpdateEffect {
         resource: local_qname("Transaction"),
         assignments: Vec::new(),
+        where_clause: Vec::new(),
     });
     cmd.owner_scope_sql = Some(lazuli_ir::OwnerScopeSql {
         field_name: "proposal".to_owned(),

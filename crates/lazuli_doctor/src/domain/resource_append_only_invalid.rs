@@ -274,6 +274,7 @@ mod tests {
             CommandEffect::Updates(UpdateEffect {
                 resource: local("Entry"),
                 assignments: vec![],
+                where_clause: Vec::new(),
             }),
         );
         let feature = mk_feature(vec![resource], vec![cmd]);
@@ -291,6 +292,7 @@ mod tests {
             "remove_entry",
             CommandEffect::Deletes(DeleteEffect {
                 resource: local("Entry"),
+                where_clause: Vec::new(),
             }),
         );
         let feature = mk_feature(vec![resource], vec![cmd]);
@@ -307,6 +309,7 @@ mod tests {
             CommandEffect::Updates(UpdateEffect {
                 resource: local("Entry"),
                 assignments: vec![],
+                where_clause: Vec::new(),
             }),
         );
         let feature = mk_feature(vec![resource], vec![cmd]);

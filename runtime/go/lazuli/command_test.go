@@ -52,7 +52,7 @@ func TestCommandTransitionMismatchReturnsTypedError(t *testing.T) {
 	if mismatch.Expected != "A" || mismatch.Actual != "X" {
 		t.Fatalf("mismatch = {Expected:%q Actual:%q}, want {A X}", mismatch.Expected, mismatch.Actual)
 	}
-	if tx.queryRowSQL != `SELECT lifecycle_state FROM "lifecycle_thing" WHERE "id" = $1 FOR UPDATE` {
+	if tx.queryRowSQL != `SELECT "lifecycle_state" FROM "lifecycle_thing" WHERE "id" = $1 FOR UPDATE` {
 		t.Fatalf("guard SQL = %q", tx.queryRowSQL)
 	}
 	if len(tx.queryRowArgs) != 1 || tx.queryRowArgs[0] != int64(123) {
@@ -123,6 +123,46 @@ func TestMultiSourceTransitionGuardMembership(t *testing.T) {
 	}
 	if states, ok := data["expected_states"].([]string); !ok || !equalStrings(states, []string{"A", "B"}) {
 		t.Fatalf("envelope expected_states = %#v, want [A B]", data["expected_states"])
+	}
+}
+
+// TestLifecycleGuardUsesCustomStateColumn proves the lifecycle
+// transition pre-guard SELECTs the resource's authored discriminator
+// column (e.g. `registration_step`) when target.StateColumn is set,
+// instead of the legacy hardcoded `lifecycle_state`. Before this fix the
+// guard 500'd with PG 42703 for every pilot whose discriminator isn't
+// literally named `lifecycle_state` (e.g. pauta's onboarding
+// `registration_step`).
+func TestLifecycleGuardUsesCustomStateColumn(t *testing.T) {
+	transitions := []TransitionAdvance{{From: "profile_setup", To: "agency_setup"}}
+	target := lifecycleTransitionTarget{
+		Resource:    &resourceErased{Name: "User"},
+		IDColumn:    "id",
+		IDValue:     int64(11),
+		StateColumn: "registration_step",
+	}
+	// Current state is a member of the from-set → guard passes, and we
+	// can inspect the SQL it issued.
+	tx := &commandTransitionTxStub{lifecycleState: "profile_setup"}
+	if err := lockLifecycleTransition(
+		&Ctx{Context: context.Background(), Actor: ActorAnonymous},
+		tx, target, transitions,
+	); err != nil {
+		t.Fatalf("guard = %v, want nil", err)
+	}
+	want := `SELECT "registration_step" FROM "user" WHERE "id" = $1 FOR UPDATE`
+	if tx.queryRowSQL != want {
+		t.Fatalf("guard SQL = %q, want %q", tx.queryRowSQL, want)
+	}
+	// Empty StateColumn still defaults to lifecycle_state (back-compat).
+	target.StateColumn = ""
+	tx2 := &commandTransitionTxStub{lifecycleState: "profile_setup"}
+	_ = lockLifecycleTransition(
+		&Ctx{Context: context.Background(), Actor: ActorAnonymous},
+		tx2, target, transitions,
+	)
+	if got, want := tx2.queryRowSQL, `SELECT "lifecycle_state" FROM "user" WHERE "id" = $1 FOR UPDATE`; got != want {
+		t.Fatalf("default guard SQL = %q, want %q", got, want)
 	}
 }
 

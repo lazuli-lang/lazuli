@@ -294,6 +294,7 @@ fn declarative_body_surfaces_runtime_gap_comments() {
                 field: "score".to_owned(),
                 value: Expr::Path(Path::from_segments(["new_score"])),
             }],
+            where_clause: Vec::new(),
         }),
     });
     feature.jobs.push(job);

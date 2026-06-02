@@ -45,6 +45,7 @@ pub(crate) const COMMAND_STATEMENT_KINDS: &[&str] = &[
     "triggers",
     "updates",
     "validate",
+    "where",
     "write_window",
 ];
 

@@ -221,6 +221,7 @@ fn override_with_handler_skips_synth_and_does_not_attach_scope() {
                 feature: None,
                 name: "Property".to_owned(),
             },
+            where_clause: Vec::new(),
         }),
         policy: ir::PolicyRef::Local("host_only".to_owned()),
         policy_expr: None,

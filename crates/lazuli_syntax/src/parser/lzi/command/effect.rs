@@ -82,6 +82,7 @@ pub(in crate::parser::lzi) fn parse_command_effect(
         ));
     }
     let mut assignments: Vec<AssignmentDecl> = Vec::new();
+    let mut where_clause: Vec<AssignmentDecl> = Vec::new();
     let mut i = start + 1;
     while i < lines.len() {
         let line = &lines[i];
@@ -99,6 +100,41 @@ pub(in crate::parser::lzi) fn parse_command_effect(
                 line,
                 "command effect children use six-space indentation",
             ));
+        }
+        // A `where <col> = <expr>` child scopes the affected row(s) on an
+        // `updates`/`deletes` block — it is NOT a SET assignment. Route it
+        // to `where_clause` so codegen builds the `Updates`/`Deletes` WHERE
+        // bindings from it (`ctx.actor.id`, `route.id`, `input.x`, …)
+        // instead of falling back to the legacy `{"id": FromInput("ID")}`.
+        // The `where ` prefix is matched with a trailing space so a column
+        // literally named e.g. `wherewithal` is not misread. Lazuli source
+        // is space-indented (tabs are rejected upstream), so a single
+        // space separator is sufficient. Only the keyword form
+        // `where <col> = <expr>` is recognised here; comparison operators
+        // other than `=` (e.g. `where deleted_at == nil`) are not lowered
+        // today and would be caught as a missing-`=` parse error below if
+        // written without a single `=`.
+        if let Some(where_body) = trimmed.strip_prefix("where ") {
+            let (col, value) = where_body.split_once('=').ok_or_else(|| {
+                line_error(
+                    line,
+                    "`where` clauses use `where <column> = <expr>` (e.g. `where id = ctx.actor.id`)",
+                )
+            })?;
+            let col = col.trim();
+            if col.is_empty() {
+                return Err(line_error(
+                    line,
+                    "`where` clause requires a column name before `=`",
+                ));
+            }
+            where_clause.push(AssignmentDecl {
+                field: col.to_owned(),
+                value: value.trim().to_owned(),
+                span: Span::new(line.start, line.end),
+            });
+            i += 1;
+            continue;
         }
         let (field, value) = trimmed
             .split_once('=')
@@ -123,6 +159,7 @@ pub(in crate::parser::lzi) fn parse_command_effect(
             resource,
             from_input,
             assignments,
+            where_clause,
             span: Span::new(header.start, header.end),
         },
         i,

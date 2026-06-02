@@ -278,6 +278,7 @@ mod tests {
         CommandEffect::Updates(UpdateEffect {
             resource: qn(resource),
             assignments: vec![],
+            where_clause: Vec::new(),
         })
     }
 

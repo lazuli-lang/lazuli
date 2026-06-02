@@ -58,6 +58,7 @@ fn deletes_with_scope_owner_injects_user_id_where_binding() {
     cmd.input = CommandInput::Typed(vec![typed_slot("id", BuiltinType::Id, true)]);
     cmd.effect = CommandEffect::Deletes(DeleteEffect {
         resource: local_qname("UserSession"),
+        where_clause: Vec::new(),
     });
     cmd.policy = PolicyRef::Local("delete".to_owned());
     feature.commands.push(cmd);
@@ -102,6 +103,7 @@ fn updates_with_scope_owner_injects_user_where_binding_when_user_id_absent() {
     cmd.effect = CommandEffect::Updates(UpdateEffect {
         resource: local_qname("NotificationDelivery"),
         assignments: Vec::new(),
+        where_clause: Vec::new(),
     });
     cmd.policy = PolicyRef::Local("update".to_owned());
     feature.commands.push(cmd);
@@ -136,6 +138,7 @@ fn updates_with_scope_same_org_injects_org_id_where_binding() {
     cmd.effect = CommandEffect::Updates(UpdateEffect {
         resource: local_qname("Charge"),
         assignments: Vec::new(),
+        where_clause: Vec::new(),
     });
     cmd.policy = PolicyRef::Local("update".to_owned());
     feature.commands.push(cmd);
@@ -170,6 +173,7 @@ fn no_scope_atom_emits_baseline_where_binding() {
     cmd.input = CommandInput::Typed(vec![typed_slot("id", BuiltinType::Id, true)]);
     cmd.effect = CommandEffect::Deletes(DeleteEffect {
         resource: local_qname("UserSession"),
+        where_clause: Vec::new(),
     });
     cmd.policy = PolicyRef::Local("admin".to_owned());
     feature.commands.push(cmd);
@@ -233,6 +237,7 @@ fn updates_with_scope_owner_traverses_relation_when_no_direct_column() {
     cmd.effect = CommandEffect::Updates(UpdateEffect {
         resource: local_qname("Property"),
         assignments: Vec::new(),
+        where_clause: Vec::new(),
     });
     cmd.policy = PolicyRef::Local("update".to_owned());
     feature.commands.push(cmd);
@@ -273,6 +278,7 @@ fn scope_owner_without_matching_column_skips_silently() {
     cmd.effect = CommandEffect::Updates(UpdateEffect {
         resource: local_qname("Review"),
         assignments: Vec::new(),
+        where_clause: Vec::new(),
     });
     cmd.policy = PolicyRef::Local("update".to_owned());
     feature.commands.push(cmd);

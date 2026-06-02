@@ -168,6 +168,7 @@
             CommandEffect::Updates(UpdateEffect {
                 resource: mk_qn("Review"),
                 assignments: vec![],
+                where_clause: Vec::new(),
             }),
             Some(denies_when_target_eq("status", "removed")),
         );
@@ -210,6 +211,7 @@
             CommandEffect::Updates(UpdateEffect {
                 resource: mk_qn("Review"),
                 assignments: vec![],
+                where_clause: Vec::new(),
             }),
             Some(denies_when_target_eq("status", "removed")),
         );
@@ -241,6 +243,7 @@
             CommandEffect::Updates(UpdateEffect {
                 resource: mk_qn("Review"),
                 assignments: vec![],
+                where_clause: Vec::new(),
             }),
             Some(denies_when_target_eq("status", "removed")),
         );
@@ -260,6 +263,7 @@
             CommandEffect::Updates(UpdateEffect {
                 resource: mk_qn("Review"),
                 assignments: vec![],
+                where_clause: Vec::new(),
             }),
             Some(denies_when_target_eq("status", "removed")),
         );
@@ -300,6 +304,7 @@
             "drop",
             CommandEffect::Deletes(DeleteEffect {
                 resource: mk_qn("Review"),
+                where_clause: Vec::new(),
             }),
             Some(denies_when_target_eq("status", "removed")),
         );
@@ -329,6 +334,7 @@
             CommandEffect::Updates(UpdateEffect {
                 resource: mk_qn("Review"),
                 assignments: vec![],
+                where_clause: Vec::new(),
             }),
             Some(tests),
         );

@@ -203,6 +203,9 @@ fn lower_transition_command(
                 name: resource_name.to_owned(),
             },
             assignments,
+            // Synth lifecycle-transition update scopes by route/id key,
+            // not an authored `where`.
+            where_clause: Vec::new(),
         }),
         policy: transition
             .policy

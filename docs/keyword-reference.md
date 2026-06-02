@@ -30,7 +30,7 @@ Columns:
 
 <!-- BEGIN GENERATED BODY -->
 
-_Generated from 689 capability rows across the `lazuli_keywords` registry._
+_Generated from 690 capability rows across the `lazuli_keywords` registry._
 
 ## `.lzi` — feature source
 
@@ -258,6 +258,7 @@ _Generated from 689 capability rows across the `lazuli_keywords` registry._
 | `triggers` | `keyword.control.statement.lazuli` | `keyword` | — | Triggers a lifecycle transition (`triggers transition <t>`). | — |
 | `updates` | `keyword.control.statement.lazuli` | `keyword` | — | Effect: updates a resource. | — |
 | `validate` | `keyword.control.statement.lazuli` | `keyword` | — | Inline validation. | — |
+| `where` | `keyword.control.statement.lazuli` | `keyword` | — | Row-scoping clause inside an `updates`/`deletes` effect (`where <col> = <expr>`). Becomes the WHERE binding, not a SET. | — |
 | `write_window` | `keyword.control.statement.lazuli` | `keyword` | — | Write-window constraint. | — |
 
 ### Query

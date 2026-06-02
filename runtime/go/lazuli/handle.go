@@ -141,6 +141,16 @@ func (c *Command[I, O]) Handle(ctx *Ctx, input I) (O, error) {
 				if err != nil {
 					return err
 				}
+				// The lifecycle discriminator column (e.g.
+				// `registration_step`) is authored on the resource; default
+				// to `lifecycle_state` only when codegen predates the
+				// LifecycleColumn field. Hardcoding `lifecycle_state` broke
+				// every pilot whose discriminator has a different name
+				// (PG 42703 undefined column at the transition pre-guard).
+				target.StateColumn = c.LifecycleColumn
+				if target.StateColumn == "" {
+					target.StateColumn = "lifecycle_state"
+				}
 				if err := lockLifecycleTransition(ctx, tx, target, c.Transitions); err != nil {
 					return err
 				}
@@ -202,6 +212,10 @@ type lifecycleTransitionTarget struct {
 	Resource *resourceErased
 	IDColumn string
 	IDValue  any
+	// StateColumn is the lifecycle discriminator column SELECTed by the
+	// pre-guard and written by the advance. Set by the caller from
+	// Command.LifecycleColumn (default `lifecycle_state`).
+	StateColumn string
 }
 
 func resolveLifecycleTransitionTarget[I any](ctx *Ctx, effect Effect, input I) (lifecycleTransitionTarget, error) {
@@ -249,8 +263,13 @@ func lockLifecycleTransition(
 	target lifecycleTransitionTarget,
 	transitions []TransitionAdvance,
 ) error {
+	stateCol := target.StateColumn
+	if stateCol == "" {
+		stateCol = "lifecycle_state"
+	}
 	sql := fmt.Sprintf(
-		`SELECT lifecycle_state FROM %s WHERE %s = $1 FOR UPDATE`,
+		`SELECT %s FROM %s WHERE %s = $1 FOR UPDATE`,
+		quoteIdent(stateCol),
 		quoteResourceTable(target.Resource.Name),
 		quoteIdent(target.IDColumn),
 	)
@@ -284,9 +303,14 @@ func advanceLifecycleTransition(
 	transitions []TransitionAdvance,
 ) error {
 	next := transitions[len(transitions)-1].To
+	stateCol := target.StateColumn
+	if stateCol == "" {
+		stateCol = "lifecycle_state"
+	}
 	sql := fmt.Sprintf(
-		`UPDATE %s SET "lifecycle_state" = $1 WHERE %s = $2`,
+		`UPDATE %s SET %s = $1 WHERE %s = $2`,
 		quoteResourceTable(target.Resource.Name),
+		quoteIdent(stateCol),
 		quoteIdent(target.IDColumn),
 	)
 	if _, err := tx.Exec(ctx, sql, next, target.IDValue); err != nil {
@@ -1040,11 +1064,16 @@ func applyUpdates[I, O any](ctx *Ctx, tx pgx.Tx, eff UpdatesEffect, input I) (O,
 		return zero, internalServerError(err, "update encrypt failed")
 	}
 	// Bump `updated_at = now()` only when the resource declares the
-	// column. Resources without `timestamps` (DSL `defaults.timestamps
-	// = false` or per-resource `timestamps off`) have no `updated_at`
-	// column; appending the SET clause unconditionally would raise
-	// PG 42703 (undefined_column) at execute time.
-	if eff.Resource.HasColumn("updated_at") {
+	// column AND the author did not already bind it in the SET map.
+	// Resources without `timestamps` (DSL `defaults.timestamps = false`
+	// or per-resource `timestamps off`) have no `updated_at` column;
+	// appending the SET clause unconditionally would raise PG 42703
+	// (undefined_column). And when the author wrote an explicit
+	// `updated_at = ctx.now` (already in `eff.Bind`, emitted above),
+	// appending a second `updated_at = now()` raises PG 42601
+	// ("multiple assignments to same column") — mirror the INSERT path's
+	// `if _, bound := eff.Bind["updated_at"]; !bound` guard.
+	if _, bound := eff.Bind["updated_at"]; !bound && eff.Resource.HasColumn("updated_at") {
 		sets = append(sets, `"updated_at" = now()`)
 	}
 	// Partial-update no-op: every Bind binding was `sourceInputOptional`
@@ -1323,7 +1352,11 @@ func readCtx(ctx *Ctx, path string) (any, error) {
 				Message: "no authenticated user in context"}
 		}
 		return ctx.User.OrgID, nil
-	case "actor.user_id":
+	case "actor.user_id", "actor.id":
+		// BUG #17 — `ctx.actor.id` lowers to FromCtx("actor.id"); it is an
+		// alias of `actor.user_id` (the acting user's row id). Without
+		// this arm, `where id = ctx.actor.id` 500'd with "unknown ctx
+		// path: actor.id".
 		if ctx.User == nil {
 			return nil, &Error{Status: 401, Code: CodePolicyDenied,
 				Message: "no authenticated user in context"}

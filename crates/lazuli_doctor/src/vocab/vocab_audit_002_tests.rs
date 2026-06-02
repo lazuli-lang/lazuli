@@ -205,6 +205,7 @@
         CommandEffect::Updates(UpdateEffect {
             resource: qn("Connection"),
             assignments: vec![],
+            where_clause: Vec::new(),
         })
     }
 

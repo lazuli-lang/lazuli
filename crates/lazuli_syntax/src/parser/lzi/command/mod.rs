@@ -58,6 +58,8 @@ mod gap_audit01_tests;
 mod rate_limit_none_tests;
 #[cfg(test)]
 mod w4_tests;
+#[cfg(test)]
+mod where_clause_tests;
 
 pub(in crate::parser::lzi) use audit::parse_command_audit;
 pub(in crate::parser::lzi) use effect::{

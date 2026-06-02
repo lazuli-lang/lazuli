@@ -104,6 +104,13 @@ pub(crate) const ROWS: &[CapabilitySpec] = &[
         "Effect: deletes a resource.",
     ),
     stmt(
+        "where",
+        Context::CommandBody,
+        STMT,
+        "Row-scoping clause inside an `updates`/`deletes` effect \
+         (`where <col> = <expr>`). Becomes the WHERE binding, not a SET.",
+    ),
+    stmt(
         "returns",
         Context::CommandBody,
         STMT,

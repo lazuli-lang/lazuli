@@ -217,9 +217,12 @@ pub(super) fn emit_command(
         &scope_bindings,
         &feature.resources,
     );
+    let triggers = command_trigger_names(command);
     let transition_advances =
-        transition_advances_for_triggers(feature, &command.effect, command_trigger_names(command));
-    emit_transition_advances(p, &transition_advances);
+        transition_advances_for_triggers(feature, &command.effect, triggers);
+    let lifecycle_column =
+        lifecycle_column_for_triggers(feature, &command.effect, triggers);
+    emit_transition_advances(p, &transition_advances, lifecycle_column);
 
     // Emits block.
     if !command.emits.is_empty() {
