@@ -37,10 +37,12 @@ pub fn run() -> Result<()> {
         Commands::Check {
             input,
             security_profile,
-        } => commands::check::check_command(
+            no_gate,
+        } => commands::check::check_command_with_gate(
             &input,
             security_profile.into(),
             cli.allow_version_mismatch,
+            no_gate,
         ),
         Commands::Doctor {
             input,
@@ -112,6 +114,7 @@ pub fn run() -> Result<()> {
             check,
             with_source,
             allow_drops,
+            no_gate,
             playwright_target,
         } => commands::generate::generate_command(
             kind,
@@ -124,6 +127,7 @@ pub fn run() -> Result<()> {
             with_source,
             allow_drops,
             cli.allow_version_mismatch,
+            no_gate,
             playwright_target,
         ),
         Commands::Dev {

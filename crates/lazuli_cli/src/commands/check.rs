@@ -54,6 +54,22 @@ pub fn check_command(
     security_profile: SecurityProfile,
     allow_version_mismatch: bool,
 ) -> Result<()> {
+    check_command_with_gate(input, security_profile, allow_version_mismatch, false)
+}
+
+/// `check` with the W0-4 escape hatch threaded in.
+///
+/// `no_gate` (or `LAZULI_NO_GATE=1`) downgrades the ERROR→non-zero gate
+/// to a loud bypass: every finding is still printed (error-first, with the
+/// `N errors, M warnings` banner), but the command exits 0. Per-finding
+/// `# doctor:allow <CODE>` waivers are honored upstream inside the rules
+/// exactly as before — `no_gate` is the coarse all-or-nothing override.
+pub fn check_command_with_gate(
+    input: &Path,
+    security_profile: SecurityProfile,
+    allow_version_mismatch: bool,
+    no_gate: bool,
+) -> Result<()> {
     if !allow_version_mismatch {
         let project_root = crate::project_root_for_input(input);
         let manifest = lazurite_manifest::load(&project_root).with_context(|| {
@@ -66,32 +82,77 @@ pub fn check_command(
     }
 
     let inputs = check_inputs(input)?;
-    let mut has_error = false;
 
+    // Collect every finding with its owning path so we can render
+    // ERROR-first with a count banner (W3-4 DX: errors before warnings).
+    let mut rows: Vec<(PathBuf, Diagnostic)> = Vec::new();
     for path in &inputs {
         let source = fs::read_to_string(path)
             .with_context(|| format!("failed to read {}", path.display()))?;
         let diagnostics =
             lazuli_lsp::diagnostics_for_source_with_profile_cli(&source, security_profile);
-        has_error |= diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.severity == Some(DiagnosticSeverity::ERROR));
-
-        for diagnostic in &diagnostics {
-            print_diagnostic(path, diagnostic);
+        for diagnostic in diagnostics {
+            rows.push((path.clone(), diagnostic));
         }
     }
 
-    if has_error {
-        bail!(
-            "{} failed Lazuli checks under {:?} security profile",
-            input.display(),
-            security_profile
-        );
+    let error_count = rows
+        .iter()
+        .filter(|(_, d)| d.severity == Some(DiagnosticSeverity::ERROR))
+        .count();
+    let warning_count = rows
+        .iter()
+        .filter(|(_, d)| d.severity == Some(DiagnosticSeverity::WARNING))
+        .count();
+
+    // Stable error-first ordering: severity rank, then path/line/col.
+    rows.sort_by(|(pa, da), (pb, db)| {
+        severity_rank(da)
+            .cmp(&severity_rank(db))
+            .then_with(|| pa.cmp(pb))
+            .then_with(|| da.range.start.line.cmp(&db.range.start.line))
+            .then_with(|| da.range.start.character.cmp(&db.range.start.character))
+    });
+
+    if !rows.is_empty() {
+        eprintln!("check: {error_count} error(s), {warning_count} warning(s)");
+    }
+    for (path, diagnostic) in &rows {
+        print_diagnostic(path, diagnostic);
     }
 
-    println!("{} passed Lazuli checks", input.display());
-    Ok(())
+    if error_count == 0 {
+        println!("{} passed Lazuli checks", input.display());
+        return Ok(());
+    }
+
+    let bypass = no_gate || matches!(std::env::var("LAZULI_NO_GATE").ok().as_deref(), Some("1"));
+    if bypass {
+        eprintln!(
+            "check: BYPASSED {error_count} error(s) via --no-gate / LAZULI_NO_GATE=1 — \
+             the findings above are real; fix them or add a per-finding \
+             `# doctor:allow <CODE>` waiver instead."
+        );
+        return Ok(());
+    }
+
+    bail!(
+        "{} failed Lazuli checks under {:?} security profile ({error_count} error(s))",
+        input.display(),
+        security_profile
+    );
+}
+
+/// Severity ordering rank — lower sorts first. ERROR before WARNING
+/// before INFO/HINT before the unset catch-all.
+fn severity_rank(d: &Diagnostic) -> u8 {
+    match d.severity {
+        Some(DiagnosticSeverity::ERROR) => 0,
+        Some(DiagnosticSeverity::WARNING) => 1,
+        Some(DiagnosticSeverity::INFORMATION) => 2,
+        Some(DiagnosticSeverity::HINT) => 3,
+        _ => 4,
+    }
 }
 
 /// Resolve `input` (a file or directory) to the concrete set of
