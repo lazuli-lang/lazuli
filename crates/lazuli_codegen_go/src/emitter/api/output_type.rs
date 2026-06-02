@@ -22,7 +22,17 @@ pub(super) fn go_type_for_api_output(
         }
         TypeRef::UserDefined(qname) if is_cap_file_literal(&qname.name) => storage_file_ref_type(),
         TypeRef::Unresolved(raw) if is_cap_file_literal(raw) => storage_file_ref_type(),
-        _ => types::go_type_for(type_ref, ctx),
+        // RETURN AXIS — an api `output User` returns the full row, exactly
+        // like a `command me returns User`. Use the return-type resolver,
+        // NOT `go_type_for`: the latter is the FIELD resolver and collapses
+        // a resource reference (`User`) to its FK alias `lazuli.ID` (right
+        // for a BIGINT column scan, wrong for the output the handler
+        // returns). The collapse silently typed `var meApi =
+        // lazuli.Api[MeApiArgs, lazuli.ID]` while the registered `@fn.me`
+        // handler returns `accountgen.User`, so the handler bridge's type
+        // assertion failed → 500. Mirrors `command/effects.rs`'s
+        // `go_return_type_for` on the `Returns` effect.
+        _ => types::go_return_type_for(type_ref, ctx),
     }
 }
 

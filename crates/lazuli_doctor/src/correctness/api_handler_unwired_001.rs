@@ -1,8 +1,7 @@
 //! API-HANDLER-UNWIRED-001 — an `api` contract whose runtime `Handler`
-//! is never wired, so the endpoint is silently never mounted (404 for
-//! the whole api surface as-shipped).
+//! cannot be wired, so the endpoint is silently never mounted (404).
 //!
-//! ## The bug
+//! ## History (the bug this rule was born for, now fixed)
 //!
 //! An `api <name>` block declares `method` / `path` / `output` / `policy`
 //! and (optionally) a `handler @fn.<name>` reference. The Go codegen
@@ -44,47 +43,38 @@
 //! the DSL declared it. The author only discovers the dead endpoint in
 //! production (or never, if they trust the green `go build`).
 //!
-//! ## The rule
+//! ## Fixed by the codegen bridge (wave 3)
 //!
-//! Fires when a feature declares an `api <name>` block (every such api,
-//! because the current codegen wires no api `Handler`). Fire one finding
-//! per declared `api` so the author/agent is told at
-//! `lazuli check` / `lazuli doctor` time that the endpoint will not be
-//! mounted unless they hand-wire `<var>.Handler = ...` in their
-//! application code before serving. This is a deterministic property of
-//! the current IR→codegen pipeline: codegen wires **no** api Handler, so
-//! every declared api is dead-on-arrival as shipped. The message names
-//! the wiring site and the `lazuli.ValidateApiHandlers()` fail-fast call
-//! so the fix is copy-pasteable.
+//! `crates/lazuli_codegen_go/src/emitter/api/mod.rs` now bridges the
+//! declared handler into the emitted `Handler` field via
+//! `lazuli.HandlerFromRegistry[Args, Out]("<feature>.<name>")` — the
+//! api-surface analogue of the command surface's `ReturnsFromRegistry`.
+//! The handler resolves at dispatch time from the global fn registry, so
+//! the `Handler` is a non-nil closure, `HandlerChecker()` is true, the
+//! route mounts, and the endpoint serves. Generated `<f>gen` code never
+//! imports the user handler package; the author only registers the fn
+//! (`lazuli.RegisterFn("<feature>.<name>", Fn)`), exactly as for commands.
 //!
-//! The message differentiates the two authoring shapes so the finding is
-//! self-explaining:
+//! ## The rule now
 //!
-//! - `handler @fn.<name>` declared (the **bridge gap**) — the DSL *did*
-//!   declare a handler; codegen silently drops it. This is the common
-//!   case (e.g. pauta's `api get_attachment_url` / `api me`).
-//! - no `handler` declared — codegen defaults the path to
-//!   `./api/<name>.go` but still emits a nil `Handler`.
+//! Because every well-formed api carries a registry key derived from its
+//! handler reference (`@fn.<name>` -> `<feature>.<name>`; convention /
+//! file -> `<feature>.<api name>`), the bridge can always wire it. So the
+//! rule is QUIET on well-formed apis. It fires when an `api` declares a
+//! genuinely un-bridgeable handler: one whose `handler` reference is
+//! empty/malformed (an example: `handler @fn.` with no name) so
+//! the emitter cannot derive a stable registry key (an `@fn.` with no
+//! name, or a blank path). The normally-lowered IR never trips this (a
+//! missing `handler` defaults to a convention `./api/<name>.go` path); the
+//! rule is the last-line guard for a structurally broken handler ref.
 //!
 //! ## Severity
 //!
 //! A declared endpoint that 404s is a concrete wiring bug, not style
-//! drift — so `error` at `production` / `iron-hand`. But because the
-//! auto-bridge that actually wires the handler is a pending wave-3 codegen
-//! item (and the default scaffold template + every pilot declares an api
-//! this way today), the dispatcher downgrades to `warning` at
-//! `prototype` / `strict` so iterating projects aren't red-gated on a
-//! framework gap. This module returns plain [`Finding`] values; the
-//! profile mapping lives in the doctor correctness aggregator (mirrors
-//! `HANDLER-SIGNATURE-MISMATCH-001`).
-//!
-//! ## Downstream (NOT fixed here)
-//!
-//! The proper fix is a codegen change that auto-bridges the declared
-//! `handler @fn.<name>` to the emitted `Handler` field (a separate
-//! wave-3 item). Once that lands, this rule's condition narrows to
-//! "an api whose `Handler` stays nil after codegen" rather than "every
-//! api"; until then the rule fires on every api because none are wired.
+//! drift — so `error` at `production` / `iron-hand`, downgraded to
+//! `warning` at `prototype` / `strict`. This module returns plain
+//! [`Finding`] values; the profile mapping lives in the doctor
+//! correctness aggregator (mirrors `HANDLER-SIGNATURE-MISMATCH-001`).
 
 use std::path::{Path, PathBuf};
 
@@ -172,6 +162,14 @@ pub fn check(feature: &Feature, lzi_path: &Path) -> Vec<Finding> {
     feature
         .apis
         .iter()
+        // Codegen now bridges every well-formed api's declared handler
+        // into the runtime `Handler` field via `HandlerFromRegistry`
+        // (wave-3 fix). The only api that stays unwireable is one whose
+        // `handler` reference is structurally broken so the emitter
+        // cannot derive a stable registry key — i.e. an empty handler
+        // path. Such apis 404 exactly as before; well-formed apis are
+        // now mounted, so the rule must stay quiet on them.
+        .filter(|api| !api_is_bridgeable(api))
         .map(|api| Finding {
             path: lzi_path.to_path_buf(),
             feature: feature.name.clone(),
@@ -182,6 +180,29 @@ pub fn check(feature: &Feature, lzi_path: &Path) -> Vec<Finding> {
             declared_handler: declared_handler(api),
         })
         .collect()
+}
+
+/// Whether codegen can bridge `api`'s declared handler into a non-nil
+/// runtime `Handler`. True for every normally-lowered api: the emitter
+/// derives a registry key `<feature>.<short>` where `<short>` is the
+/// `@fn.<name>` name (authored `@fn` form) or the api name (convention
+/// `./api/<name>.go` / file path). The bridge fails ONLY when the handler
+/// reference is empty — an `@fn.` with no name, or a blank path — leaving
+/// no stable key to register under. This mirrors
+/// `crates/lazuli_codegen_go/src/emitter/api/mod.rs::api_handler_short`.
+fn api_is_bridgeable(api: &Api) -> bool {
+    let path = api.handler.path.trim();
+    if path.is_empty() {
+        // No handler reference at all → no registry key.
+        return false;
+    }
+    if let Some(name) = path.strip_prefix("@fn.") {
+        // `@fn.` with an empty name → unbridgeable; otherwise fine.
+        return !name.trim().is_empty();
+    }
+    // A file / convention path (`./api/<name>.go`) bridges under the api
+    // name; any non-empty reference is bridgeable.
+    true
 }
 
 /// Uppercase HTTP method token for the message (`GET`, `POST`, ...).
@@ -313,34 +334,52 @@ mod tests {
     }
 
     #[test]
-    fn positive_declared_fn_handler_is_bridge_gap() {
-        // `handler @fn.generate_signed_url` declared → authored PathRef →
-        // codegen drops it → nil Handler → unmounted. The real pauta case.
+    fn negative_declared_fn_handler_is_bridged_now() {
+        // `handler @fn.generate_signed_url` declared → codegen now bridges
+        // it into `Handler` via HandlerFromRegistry → the route mounts →
+        // the rule is quiet. The real pauta case, now fixed.
         let api = mk_api("get_attachment_url", PathRef::authored("@fn.generate_signed_url"));
         let feature = mk_feature(vec![api]);
         let findings = check(&feature, Path::new("features/attachments/attachments.lzi"));
-        assert_eq!(findings.len(), 1);
-        let f = &findings[0];
-        assert_eq!(f.api_name, "get_attachment_url");
-        assert_eq!(f.declared_handler.as_deref(), Some("@fn.generate_signed_url"));
-        assert_eq!(f.var_name, "getAttachmentUrlApi");
-        let msg = f.message();
-        assert!(msg.contains("404"), "{msg}");
-        assert!(msg.contains("not bridged"), "{msg}");
-        assert!(msg.contains("@fn.generate_signed_url"), "{msg}");
-        assert!(msg.contains("ValidateApiHandlers"), "{msg}");
+        assert!(
+            findings.is_empty(),
+            "a declared @fn handler is bridged now and must not fire: {findings:#?}"
+        );
         assert_eq!(Finding::CODE, "API-HANDLER-UNWIRED-001");
     }
 
     #[test]
-    fn positive_no_handler_declared_still_fires() {
-        // Convention path (no `handler` line) → still nil Handler at runtime.
+    fn negative_convention_handler_is_bridged_now() {
+        // Convention path (no `handler` line → `./api/me.go`) bridges under
+        // the api name → the route mounts → quiet.
         let api = mk_api("me", PathRef::convention("./api/me.go"));
         let feature = mk_feature(vec![api]);
         let findings = check(&feature, Path::new("features/account/account.lzi"));
-        assert_eq!(findings.len(), 1);
-        assert!(findings[0].declared_handler.is_none());
-        assert!(findings[0].message().contains("no `handler` is declared"));
+        assert!(
+            findings.is_empty(),
+            "a convention handler is bridged now and must not fire: {findings:#?}"
+        );
+    }
+
+    #[test]
+    fn positive_empty_fn_handler_is_unbridgeable() {
+        // `@fn.` with no name → the emitter cannot derive a registry key →
+        // the handler stays effectively unwireable → the rule fires (the
+        // last-line guard for a structurally broken handler ref).
+        let api = mk_api("broken", PathRef::authored("@fn."));
+        let feature = mk_feature(vec![api]);
+        let findings = check(&feature, Path::new("features/x/x.lzi"));
+        assert_eq!(findings.len(), 1, "{findings:#?}");
+        let msg = findings[0].message();
+        assert!(msg.contains("404"), "{msg}");
+    }
+
+    #[test]
+    fn positive_blank_handler_path_is_unbridgeable() {
+        let api = mk_api("blank", PathRef::authored(""));
+        let feature = mk_feature(vec![api]);
+        let findings = check(&feature, Path::new("features/x/x.lzi"));
+        assert_eq!(findings.len(), 1, "{findings:#?}");
     }
 
     #[test]
@@ -351,12 +390,14 @@ mod tests {
     }
 
     #[test]
-    fn fires_once_per_api() {
+    fn well_formed_apis_stay_quiet() {
+        // Two normally-lowered apis (one @fn, one convention) → both
+        // bridged → no findings.
         let feature = mk_feature(vec![
             mk_api("a", PathRef::authored("@fn.a")),
             mk_api("b", PathRef::convention("./api/b.go")),
         ]);
         let findings = check(&feature, Path::new("features/x/x.lzi"));
-        assert_eq!(findings.len(), 2);
+        assert!(findings.is_empty(), "{findings:#?}");
     }
 }

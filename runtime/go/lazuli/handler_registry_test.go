@@ -128,3 +128,97 @@ func TestReturnsFromRegistry_PropagatesHandlerError(t *testing.T) {
 		t.Fatalf("expected sentinel error; got %v", err)
 	}
 }
+
+// --- HandlerFromRegistry (api-surface bridge, W3) -------------------------
+
+type meResult struct{ ID int }
+
+// meApiArgs is a DISTINCT named empty struct, mirroring the codegen's
+// generated `type MeApiArgs struct{}` for a no-path-param api. The
+// shared handler is registered with the command surface's anonymous
+// `struct{}` input — the exact case that broke the naive type assertion.
+type meApiArgs struct{}
+
+func TestHandlerFromRegistry_ExactSignature(t *testing.T) {
+	resetHandlerRegistry()
+	RegisterFn("account.me", func(ctx *Ctx, in meApiArgs) (meResult, error) {
+		return meResult{ID: 7}, nil
+	})
+	h := HandlerFromRegistry[meApiArgs, meResult]("account.me")
+	out, err := h(&Ctx{}, meApiArgs{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.ID != 7 {
+		t.Fatalf("unexpected output: %+v", out)
+	}
+}
+
+// The real pauta `api me` shape: the handler is registered ONCE under
+// `account.me` with the command surface's anonymous `struct{}` input,
+// but the api's generated Args type is the named `meApiArgs`. The exact
+// assertion fails; the reflection fallback must still invoke it so the
+// endpoint serves (200) instead of 500.
+func TestHandlerFromRegistry_NamedEmptyStructFallback(t *testing.T) {
+	resetHandlerRegistry()
+	called := false
+	RegisterFn("account.me", func(ctx *Ctx, in struct{}) (meResult, error) {
+		called = true
+		return meResult{ID: 42}, nil
+	})
+	h := HandlerFromRegistry[meApiArgs, meResult]("account.me")
+	out, err := h(&Ctx{}, meApiArgs{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Fatal("registered struct{} handler was not invoked via fallback")
+	}
+	if out.ID != 42 {
+		t.Fatalf("unexpected output: %+v", out)
+	}
+}
+
+func TestHandlerFromRegistry_MissingHandler(t *testing.T) {
+	resetHandlerRegistry()
+	h := HandlerFromRegistry[meApiArgs, meResult]("account.missing")
+	_, err := h(&Ctx{}, meApiArgs{})
+	var le *Error
+	if !errors.As(err, &le) || le.Status != 500 {
+		t.Fatalf("expected 500 lazuli.Error; got %v", err)
+	}
+	if !strings.Contains(le.Message, "no handler registered") {
+		t.Fatalf("error should name the missing handler; got %q", le.Message)
+	}
+}
+
+func TestHandlerFromRegistry_WrongOutputType(t *testing.T) {
+	resetHandlerRegistry()
+	// Registered output is `string`, api expects `meResult` — the
+	// fallback must reject it (O mismatch) with a wrong-signature 500.
+	RegisterFn("account.me", func(ctx *Ctx, in struct{}) (string, error) {
+		return "nope", nil
+	})
+	h := HandlerFromRegistry[meApiArgs, meResult]("account.me")
+	_, err := h(&Ctx{}, meApiArgs{})
+	var le *Error
+	if !errors.As(err, &le) || le.Status != 500 {
+		t.Fatalf("expected 500 lazuli.Error; got %v", err)
+	}
+	if !strings.Contains(le.Message, "wrong signature") {
+		t.Fatalf("error should mention signature mismatch; got %q", le.Message)
+	}
+}
+
+func TestHandlerFromRegistry_PropagatesError(t *testing.T) {
+	resetHandlerRegistry()
+	sentinel := errors.New("boom")
+	RegisterFn("account.me", func(ctx *Ctx, in struct{}) (meResult, error) {
+		return meResult{}, sentinel
+	})
+	h := HandlerFromRegistry[meApiArgs, meResult]("account.me")
+	_, err := h(&Ctx{}, meApiArgs{})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("expected sentinel error; got %v", err)
+	}
+}

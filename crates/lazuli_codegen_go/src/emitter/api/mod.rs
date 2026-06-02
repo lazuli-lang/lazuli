@@ -2,9 +2,14 @@
 //! feature and emits typed args plus an API contract value into
 //! `<feature>/api.gen.go`.
 //!
-//! API values use the real Lazuli Go `lazuli.Api[I, O]` contract. Handler
-//! population remains an extension-point concern; generated literals leave
-//! `Handler` unset and pin the intended registration site in a comment.
+//! API values use the real Lazuli Go `lazuli.Api[I, O]` contract. The
+//! declared `handler @fn.<name>` (or convention `./api/<name>.go`) is
+//! bridged into the `Handler` field via `lazuli.HandlerFromRegistry`, the
+//! api-surface analogue of the command surface's `ReturnsFromRegistry`:
+//! the handler resolves at dispatch time from the global fn registry, so
+//! generated code never imports the user handler package. The endpoint
+//! serves after `generate go` with no hand-wiring — the author only
+//! registers the fn (`lazuli.RegisterFn("<feature>.<name>", Fn)`).
 //!
 //! Determinism: APIs are sorted by name, route args preserve path
 //! order, and imports flow through `ImportSet`.
@@ -182,6 +187,26 @@ fn emit_api(
         ));
     }
 
+    // Bridge the declared `handler @fn.<name>` (or convention
+    // `./api/<name>.go`) into the runtime `Handler` field so the
+    // endpoint actually serves. Mirrors the COMMAND `@fn` bridge
+    // (`ReturnsFromRegistry[I, O]("<feature>.<name>")`): the handler is
+    // resolved at dispatch time from the global fn registry, so generated
+    // `<f>gen` code never imports the user handler package (no import
+    // cycle). The closure is non-nil → `HandlerChecker()` reports the api
+    // as wired → the HTTP mount loop mounts the route. Without this the
+    // `Handler` stayed nil and the whole api surface 404'd
+    // (API-HANDLER-UNWIRED-001 / the pauta `api me` + `api
+    // get_attachment_url` DOA case).
+    let handler_key = format!("{}.{}", feature.name, api_handler_short(api));
+    kv_rows.push((
+        "Handler:".to_owned(),
+        format!(
+            "lazuli.HandlerFromRegistry[{args_type}, {output_type}](\"{}\"),",
+            escape_string(&handler_key)
+        ),
+    ));
+
     let key_width = kv_rows.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
     for (key, value) in &kv_rows {
         let pad = key_width.saturating_sub(key.len());
@@ -191,26 +216,41 @@ fn emit_api(
     p.dedent();
     p.line("}");
     p.blank();
-    // Self-register the typed API value into the global registry so
-    // `lazuli.ValidateApiHandlers()` can see it. The user is
-    // responsible for assigning `<var>.Handler = ...` in their
-    // application code (typically `main.go`) BEFORE calling
-    // `ValidateApiHandlers` — otherwise validation fails fast with a
-    // listing of unwired endpoints instead of the server silently
-    // returning `500: api handler not set` on the first hit.
+    // Self-register the typed API value into the global registry so the
+    // HTTP mount loop (and `lazuli.ValidateApiHandlers()`) can see it.
+    // The `Handler` field above is wired via `HandlerFromRegistry`, which
+    // resolves the declared `handler @fn.<name>` (or convention
+    // `./api/<name>.go`) handler at dispatch time — the author only needs
+    // to `lazuli.RegisterFn("<feature>.<name>", <Fn>)` in their handler's
+    // `init()`, exactly as for commands. No hand-wiring of `<var>.Handler`
+    // is required for the route to mount.
     //
-    // See review bug #1 (2026-05-15): the previous emission left an
-    // inert `// TODO(extension-points): ...` comment with no
-    // registration; the endpoint vanished into the void unless the
-    // user happened to call `RegisterApi` themselves.
+    // See review bug #1 (2026-05-15): an earlier emission left an inert
+    // `// TODO(extension-points): ...` comment with no registration and a
+    // nil Handler; the endpoint vanished into the void (404). It now
+    // registers AND wires the handler bridge.
     p.line("//lazuli:pattern api_register v1");
     p.line(&format!(
         "func init() {{ lazuli.RegisterApi(&{var_name}) }}"
     ));
-    p.line(&format!(
-        "// Wire {var_name}.Handler in your application code, then call"
-    ));
-    p.line("// `lazuli.ValidateApiHandlers()` at startup to fail fast on omissions.");
+}
+
+/// Resolve the short handler name for an api's registry key. A declared
+/// `handler @fn.<name>` (an [`PathSource::Authored`] path of the form
+/// `@fn.<name>`) contributes `<name>`; any other handler shape
+/// (convention `./api/<name>.go`, an authored file path, or an absent
+/// handler) falls back to the api name. The api emitter composes the
+/// full registry key as `<feature>.<short>`, matching the command
+/// surface's `<feature>.<handler-or-command-name>` convention so
+/// cross-feature collisions are impossible and `RegisterFn` callsites
+/// are predictable.
+fn api_handler_short(api: &Api) -> String {
+    if let Some(name) = api.handler.path.strip_prefix("@fn.") {
+        if !name.is_empty() {
+            return name.to_owned();
+        }
+    }
+    api.name.clone()
 }
 
 /// PG.C.2 — emit the `Prelude: []billing.GateRef{...}` field on a
