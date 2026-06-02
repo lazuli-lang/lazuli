@@ -34,5 +34,6 @@ bullet exists — see [definition-of-done.md](lazuli_way/definition-of-done.md).
 | [soft-delete](lazuli_way/soft-delete.md) | `soft_delete` with a `deleted_by` actor column | stub (spec 0015) |
 | [money](lazuli_way/money.md) | first-class `Money` instead of amount-cents + currency-string pairs | stub (spec 0016) |
 | [state-machines](lazuli_way/state-machines.md) | a closed `state {}` bound to `transition` instead of free Text status fields | stub (spec 0017) |
+| [write-targeting](lazuli_way/write-targeting.md) | explicit `where <col> = <expr>` for non-`route.id` (ownership-scoped / composite-key) writes | filled |
 | [comment-hygiene](lazuli_way/comment-hygiene.md) | `doctor:allow … reason` for intentional waivers; no noise comments | stub (spec 0007/0008) |
 | [delegate-to-runtime](lazuli_way/delegate-to-runtime.md) | the runtime verb (`auth.HashPassword`, `lazuli.TransitionAdvance`, …) via the intent-keyed [runtime-surface index](lazuli_way/runtime-surface.md) instead of hand-rolling argon2 / a manual transition / a regex validator | filled |

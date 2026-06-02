@@ -85,6 +85,23 @@ Source: [`crates/lazuli_doctor/src/lifecycle/`](../../crates/lazuli_doctor/src/l
 | `LIFECYCLE-TRANSITION-TO-UNDECLARED` | error | `lifecycle/transition_to_undeclared.rs` | Transition `to` references a state not declared in the lifecycle. |
 | `LIFECYCLE-UNREACHABLE-STATE` | warning (strict) / error (production) | `lifecycle/unreachable_state.rs` | Non-initial state with no incoming transition. |
 
+### Command-triggered transitions
+
+These six codes validate a command's `triggers transition` binding. They live in
+the **analyzer** (not the doctor), at
+[`crates/lazuli_analyzer/src/checks/lifecycle_transition/mod.rs`](../../crates/lazuli_analyzer/src/checks/lifecycle_transition/mod.rs),
+so they fire during `lazuli check` rather than as `lazuli_doctor/src/lifecycle/`
+rules. See [lifecycle-transitions.md](../lifecycle-transitions.md).
+
+| Code | Summary |
+|---|---|
+| `LIFECYCLE-TRANSITION-001` | Command references a transition name that does not exist on the target resource lifecycle. The message lists the declared transitions to pick from. |
+| `LIFECYCLE-TRANSITION-002` | Command has no single lifecycle-bearing target resource for the transition binding. |
+| `LIFECYCLE-TRANSITION-003` | Command binds a transition from a lifecycle on a different resource than the command updates. |
+| `LIFECYCLE-TRANSITION-004` | Transition chain is not contiguous; one transition's `to` does not match the next transition's `from`. |
+| `LIFECYCLE-TRANSITION-005` | Command body writes the lifecycle discriminator column directly while also using `triggers transition`. |
+| `LIFECYCLE-TRANSITION-006` | Transition binding crosses an unsupported feature boundary. |
+
 ## Poller
 
 Source: [`crates/lazuli_doctor/src/poller/`](../../crates/lazuli_doctor/src/poller/). Per `docs/proposals/poller-vocab.md` §5.

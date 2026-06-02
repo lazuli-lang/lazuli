@@ -123,6 +123,44 @@ func BeforeCreate(ctx Context, input CustomerCreateInput) (CustomerCreateInput, 
 
 Lazuli should connect Go extensions by generated registration code, not runtime reflection.
 
+### Multi-argument `@fn` calls
+
+A `@fn.<name>` call may take several positional arguments inside a `let`,
+a `creates`/`updates` binding, or a query filter RHS:
+
+```lazuli
+let tenant_id = @fn.resolve_or_create_tenant(
+  input.agency_name,
+  input.invite_code,
+  ctx.actor.id
+)
+```
+
+The call lowers to `FromFn("resolve_or_create_tenant", [agency_name,
+invite_code, actor.id])`. Each argument is resolved by the runtime against its
+own source (`input` / `ctx` / `target` / a literal / a nested `@fn`) **in
+declaration order** before the handler runs. A multi-arg `@fn` handler declares
+a single struct-input whose fields map to the arguments **by position**:
+
+```go
+// One struct input; fields map to the call args by declaration order.
+type ResolveOrCreateTenantInput struct {
+	AgencyName *string // input.agency_name (optional -> *string)
+	InviteCode *string // input.invite_code
+	UserID     lazuli.ID // ctx.actor.id
+}
+
+func ResolveOrCreateTenant(ctx *lazuli.Ctx, in ResolveOrCreateTenantInput) (lazuli.ID, error) {
+	// ...
+}
+```
+
+A single-argument `@fn` keeps the plain two-parameter shape
+(`func(ctx Context, customer Customer) (int, error)`, as `RiskScoreFn` above);
+the struct-input form is only how the bridge packs **multiple** positional args.
+The handler is registered once at boot under its name; arity / shape mismatches
+fail closed (a 500), never a panic.
+
 ## Allowed Extension Points
 
 - Cell renderers
@@ -203,7 +241,7 @@ These conventions keep the explicit syntax predictable. See also [Canonical sema
 - Query params exposed to routes and APIs should prefer scalar IDs, e.g. `parent_id: ID`, over passing hydrated entities.
 - Many-to-many filters should name both sides and their guard, e.g. `labels has params.label when params.label`.
 - Events use serializable IDs by default, e.g. `customer_id: ID` and `by_id: ID`.
-- `workflow` may declare shared defaults such as `policy @policy.update` and `emits status_changed`; transitions inherit them, and a transition uses `requires @policy.<name>` only when it needs stronger authority.
+- A `lifecycle <field>` block's transitions each declare their own `policy` and `emits`; a transition uses `requires @policy.<name>` only when it needs stronger authority than its `policy`. (The retired `workflow ... on R.field` keyword, which carried block-level defaults, no longer parses — it hard-errors `E-WORKFLOW-RETIRED`. See [canonical-semantics.md](canonical-semantics.md) §"Lifecycle and transitions".)
 - Views inherit read safety from their `source query.*`; inherited tenancy/soft-delete scope plus local query `scope` remain the source of tenant and soft-delete boundaries.
 
 Query modifiers are explicit query attachments:
@@ -261,18 +299,4 @@ features/customer/
 
 Lazuli resolves `<feature>.ctx.md` by convention. It is source, versioned with the feature, and never generated into frontend/backend output.
 
-Use `context` only as an override when the convention is not enough:
-
-```lazuli
-feature customer
-  purpose "CRM customers within an org. Tracks lifecycle status, ownership, and tier."
-
-  non_goals
-    delegated_to
-      invoice: "invoicing"
-      scoring: "credit scoring engine"
-
-  # Complementary context prose lives in the co-located customer.ctx.md sidecar.
-```
-
-The context file is resolved by CONVENTION: a co-located `<feature>.ctx.md` markdown sidecar next to the feature's `.lzi` (here `customer.ctx.md`), probed at a single base — no keyword, no path argument, no override. (The former `attach_ctx "<path>"` directive is retired; the parser hard-errors `E-ATTACH-CTX-RETIRED`.) It is complementary prose only: history, AI guidance, performance notes, narrative examples, and decision logs. It should not duplicate schema, operations, policies, rules, events, or extension contracts from the `.lzi` file.
+The context file is resolved by CONVENTION only: a co-located `<feature>.ctx.md` markdown sidecar next to the feature's `.lzi` (e.g. `customer.ctx.md`), probed at a single base — no keyword, no path argument, no override. The feature-level `context "..."` override is retired and the parser hard-errors `E-CONTEXT-RETIRED`; the former `attach_ctx "<path>"` directive is likewise retired (`E-ATTACH-CTX-RETIRED`). The sidecar is complementary prose only: history, AI guidance, performance notes, narrative examples, and decision logs. It should not duplicate schema, operations, policies, rules, events, or extension contracts from the `.lzi` file. (The agent-body `context <expr>` statement inside an `agent` block is a different, live construct — not affected by this retirement.)

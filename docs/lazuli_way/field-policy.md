@@ -92,3 +92,23 @@ still fires.
 A dedicated "read == write, prefer `access:`" advisory hint is a tracked
 follow-up (the migrated Pauta features already demonstrate the idiom); see
 `.specs/changes/0005-access-field-shorthand/techspec.md` §ENFORCE.
+
+## Policy delimiters: OR everywhere except `policy <expr>`
+
+Multiple delimiters mean OR in different policy contexts. There is exactly one
+place to compose a true AND. Know which is which:
+
+| Form | Delimiter | Meaning |
+|---|---|---|
+| field allow-list (`read:` / `write:` / `access:`) | pipe `\|` | OR |
+| `policies` category atom list | comma `,` | OR |
+| audience `policy [...]` list | comma `,` | OR |
+| `policy <expr>` boolean algebra | `and` / `or` / `not` / `()` | as written |
+
+`read: @role.ADMIN | @role.MANAGER` admits a caller holding **either** role — a
+single-role user model can never satisfy an AND of two role atoms, so a comma or
+pipe list is never an AND. When a write must require that **multiple** conditions
+all hold, reach for an explicit `policy @role.host and @scope.profile_verified`
+(`policy <expr>` supports `and`/`or`/`not`/parentheses). See
+[audience-policy.md](../audience-policy.md) §"Why not AND?" and
+[canonical-semantics.md](../canonical-semantics.md) §Policies.
