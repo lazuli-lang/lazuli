@@ -168,6 +168,7 @@ impl DoctorPackage {
         diagnostics.extend(policy_ref_unresolved_diagnostics(&self.tier3_facts));
         diagnostics.extend(mutation_without_readback_diagnostics(&self.tier3_facts));
         diagnostics.extend(updates_missing_updated_at_diagnostics(&self.tier3_facts));
+        diagnostics.extend(creates_empty_bindings_diagnostics(&self.tier3_facts));
         diagnostics.extend(route_id_effect_consistency_diagnostics(&self.tier3_facts));
         // Cycle-2 cell DC1 — sweep the rest of `lazuli_doctor::correctness`
         // into the doctor dispatch so `lazuli doctor` reaches every

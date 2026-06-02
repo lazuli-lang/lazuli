@@ -335,6 +335,54 @@ pub(crate) fn mutation_without_readback_diagnostics(
     diagnostics
 }
 
+/// CREATES-EMPTY-BINDINGS-001 dispatch — a `creates` / `updates` effect
+/// that binds zero author columns lowers to a degenerate INSERT (all-default
+/// row) / no-op UPDATE. Anchored at the command header via `command_lines`;
+/// falls back to the feature header when the command line is unknown.
+/// Severity is `error` — a no-op write is a concrete bug, not style.
+pub(crate) fn creates_empty_bindings_diagnostics(
+    facts: &[Tier3FeatureFacts],
+) -> Vec<DoctorDiagnostic> {
+    use std::collections::BTreeSet;
+
+    let mut diagnostics = Vec::new();
+    let mut seen = BTreeSet::new();
+
+    for fact in facts {
+        let feature = make_synthetic_feature_for_correctness(fact);
+
+        for finding in correctness::creates_empty_bindings_001::check(&feature, &fact.path) {
+            let line = fact
+                .command_lines
+                .get(&finding.command)
+                .copied()
+                .unwrap_or(fact.feature_line);
+            if !seen.insert((
+                finding.path.clone(),
+                finding.feature.clone(),
+                finding.command.clone(),
+            )) {
+                continue;
+            }
+            diagnostics.push(DoctorDiagnostic {
+                message: finding.message(),
+                path: finding.path,
+                line,
+                column: 1,
+                severity: DoctorSeverity::Error,
+                code: correctness::creates_empty_bindings_001::Finding::CODE.to_owned(),
+                category: None,
+                feature_name: None,
+                construct: None,
+                fix: None,
+                group: None,
+            });
+        }
+    }
+
+    diagnostics
+}
+
 /// UPDATES-MISSING-UPDATED-AT-001 dispatch — any local resource touched
 /// by an `updates` effect must either declare `updated_at: DateTime` or
 /// have effective timestamps enabled. Anchored at the feature header

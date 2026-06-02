@@ -132,9 +132,16 @@ impl RuleCategory {
             // "unknown ctx path"). A binding reading an unrecognized ctx
             // path is a concrete wiring bug, not style — Correctness.
             Some("CTX") => Self::Correctness,
+            // `CREATES-*` — `creates`/`updates` effect-shape correctness.
+            // Today: `CREATES-EMPTY-BINDINGS-001` (a `creates`/`updates`
+            // effect that binds zero author columns → a no-op INSERT/UPDATE
+            // that writes an all-default / unchanged row). A degenerate write
+            // is a concrete bug, not style — Correctness.
             Some("HOOK") | Some("DUPLICATE") | Some("ROUTE") | Some("UPDATES")
-            | Some("MUTATION") | Some("MISSING") | Some("MANUAL") | Some("IMPORT")
-            | Some("CAP") | Some("SCHEMA") | Some("PREDICATE") => Self::Correctness,
+            | Some("CREATES") | Some("MUTATION") | Some("MISSING") | Some("MANUAL")
+            | Some("IMPORT") | Some("CAP") | Some("SCHEMA") | Some("PREDICATE") => {
+                Self::Correctness
+            }
             // `PLUGIN-CONTRACT-*` (spec 0022) — the adapter wiring-contract
             // family. A misdeclared adapter is a concrete wiring bug, not a
             // style nit, so it joins the Correctness dimension. NOTE: the

@@ -551,7 +551,8 @@ pub(crate) fn make_synthetic_feature_for_correctness(
 mod rule_dispatchers;
 
 pub(crate) use rule_dispatchers::{
-    duplicate_query_name_diagnostics, missing_policy_on_query_diagnostics,
-    mutation_without_readback_diagnostics, policy_ref_unresolved_diagnostics,
-    route_id_effect_consistency_diagnostics, updates_missing_updated_at_diagnostics,
+    creates_empty_bindings_diagnostics, duplicate_query_name_diagnostics,
+    missing_policy_on_query_diagnostics, mutation_without_readback_diagnostics,
+    policy_ref_unresolved_diagnostics, route_id_effect_consistency_diagnostics,
+    updates_missing_updated_at_diagnostics,
 };
