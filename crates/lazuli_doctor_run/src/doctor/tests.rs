@@ -175,4 +175,8 @@ mod tests {
     mod runtime_reachable_stub {
         include!("tests/runtime_reachable_stub.rs");
     }
+
+    mod api_handler_unwired {
+        include!("tests/api_handler_unwired.rs");
+    }
 }

@@ -14,7 +14,7 @@ This catalog mines each rule's module-header docstring (the canonical source of 
 
 | Category | Module | Rule count | Theme |
 |---|---|---|---|
-| [Correctness](#correctness) | `correctness/` | 16 | Dangling references, shape mismatches, codegen contract violations |
+| [Correctness](#correctness) | `correctness/` | 17 | Dangling references, shape mismatches, codegen contract violations |
 | [Cross-feature contracts](#cross-feature-contracts) | `cross_feature/` | 3 | Microservices-mode contract gating |
 | [Lifecycle](#lifecycle) | `lifecycle/` | 10 | State-machine well-formedness |
 | [Poller](#poller) | `poller/` | 12 | Background poller invariants |
@@ -35,6 +35,7 @@ Source: [`crates/lazuli_doctor/src/correctness/`](../../crates/lazuli_doctor/src
 
 | Code | Severity | Anchor | Summary |
 |---|---|---|---|
+| `API-HANDLER-UNWIRED-001` | error (prototype/strict: warning) | `correctness/api_handler_unwired_001.rs` | A declared `api` whose runtime `Handler` stays nil: codegen emits the `lazuli.Api[I,O]{...}` value + `RegisterApi(&var)` but never sets `Handler` and never bridges the declared `handler @fn.<name>` to it. The runtime mount loop skips registrations with a nil Handler (`HandlerChecker()` false), so the endpoint is never added to the mux → 404 for the whole api surface as-shipped. Fires once per declared `api`; the fix is to wire `<var>.Handler = ...` in app code (e.g. main.go) and call `lazuli.ValidateApiHandlers()` at startup. |
 | `CHANNEL-PAYLOAD-001` | error | `correctness/channel_payload_unresolved_001.rs` | Realtime channel `payload <Type>` doesn't resolve to a same-feature `record` or `resource`. |
 | `CODEGEN-UNRESOLVED-BINDING-SOURCE-001` | error | `correctness/codegen_unresolved_binding_source_001.rs` | A `creates`/`updates`/`deletes` binding RHS (SET or authored `where`) is a path resolving to none of `{input, ctx, target, route, @fn(), literal, let}`; codegen would silently lower it to a `FromConst("<raw>")` garbage string. |
 | `COMMAND-INPUT-SHADOWS-FIELD-001` | error | `correctness/command_input_shadows_field_001.rs` | Typed `command.input` slot shares a name with a `creates`/`updates` resource field but a different `TypeRef`. |
