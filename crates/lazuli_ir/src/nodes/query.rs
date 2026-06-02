@@ -292,6 +292,18 @@ pub struct SqlQuery {
     pub scope_override: bool,
     pub returns: TypeRef,
     pub sql_path: String,
+    /// Embedded SQL body, read from `sql_path` at module-load time by the
+    /// CLI (`build_module_from_path` / `build_module_with_source_from_path`)
+    /// which is the only stage that knows the on-disk feature directory the
+    /// `sql_path` is relative to. Codegen emits this as
+    /// `lazuli.Query.SQLText`; the runtime prefers it over reading the file
+    /// at the `sql_path`, so the generated app has no runtime dependency on
+    /// the `.sql` file shipping alongside the binary. `None` when the body
+    /// could not be read (e.g. single-file `check` mode, or a missing file —
+    /// doctor flags the latter); codegen then falls back to emitting only
+    /// the `SQL:` path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sql_text: Option<String>,
     /// Cache bucket cycle — typed `cache` block. Same shape as
     /// `ListQuery.cache`. `LookupQuery` deliberately does not gain a
     /// cache slot (lookup caching is runtime-implicit; the fixture

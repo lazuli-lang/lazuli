@@ -202,3 +202,26 @@ pub(super) fn escape_string(raw: &str) -> String {
     }
     out
 }
+
+/// Escape a raw string for embedding inside a Go interpreted (`"..."`)
+/// literal, including the control characters [`escape_string`] omits.
+/// Required for multi-line bodies such as an embedded `query.sql` /
+/// `query.view` SQL source (`SQLText`): a literal newline inside a Go
+/// `"..."` literal is a compile error, so `\n` / `\r` / `\t` must be
+/// escaped. (We keep [`escape_string`] single-line-only because its many
+/// callers — and their golden tests — assume identifiers/short labels and
+/// must not start escaping control chars.)
+pub(super) fn escape_go_string_multiline(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len() + raw.len() / 8);
+    for ch in raw.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}

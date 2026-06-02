@@ -341,6 +341,7 @@
             scope_override: false,
             returns: TypeRef::Many(Box::new(user_defined(Some("account"), "User"))),
             sql_path: "queries/recent_users.sql".to_owned(),
+            sql_text: None,
             cache: None,
             policy: PolicyRef::None,
             policy_expr: None,

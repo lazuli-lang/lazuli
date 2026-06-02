@@ -74,6 +74,7 @@
                     local_qn("HostHomeRow"),
                 ))),
                 sql_path: "app/features/host/queries/host_home_view.sql".to_owned(),
+                sql_text: None,
                 cache: None,
                 policy: lazuli_ir::PolicyRef::None,
                 policy_expr: None,

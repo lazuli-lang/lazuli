@@ -123,11 +123,13 @@ func (q *Query[A, R]) dispatch(ctx *Ctx, raw json.RawMessage) (any, error) {
 		return q.RunList(ctx, args)
 	case QueryLookup:
 		return q.RunLookup(ctx, args)
-	case QueryView:
+	case QueryView, QuerySQL:
+		// `query.sql` and `query.view` are both `.sql`-file/SQLText-backed
+		// and share the RunSQL execution path. RunSQL distinguishes the
+		// single-row vs many-row shape via SQLMany and binds positional
+		// params via the codegen-emitted SQLArgs closure. (RunSQL's guard
+		// already admits both kinds.)
 		return q.RunSQL(ctx, args)
-	case QuerySQL:
-		return nil, &Error{Status: 501, Code: CodeInternal,
-			Message: "query.sql execution not yet implemented in runtime spike"}
 	default:
 		return nil, &Error{Status: 500, Code: CodeInternal,
 			Message: fmt.Sprintf("unknown query kind: %d", q.Kind)}

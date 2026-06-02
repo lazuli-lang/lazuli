@@ -251,6 +251,7 @@ fn feature_with_all_error_vocab_fields_round_trips() {
         scope_override: false,
         returns: TypeRef::Builtin(BuiltinType::Boolean),
         sql_path: "./queries/monthly_audit.sql".to_owned(),
+        sql_text: None,
         cache: None,
         policy: PolicyRef::None,
         policy_expr: None,
